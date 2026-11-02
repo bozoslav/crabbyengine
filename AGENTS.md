@@ -14,7 +14,8 @@ Rules for any coding agent (Claude Code, Codex, Cursor, ...) working in this rep
 3. **Everything reaches `main` through a pull request.** Never push to `main` and never merge locally into `main`.
    - Open the PR with `gh pr create --base main`. The body says what changed and how it was verified (commands run, benchmark numbers).
    - Merge with `gh pr merge --squash --delete-branch`, then `git switch main && git pull`.
-   - Only merge when the build, tests and clippy pass.
+   - `main` is protected: merging needs the **CI passed** check (it requires every CI job) and keeps history linear. Wait for CI (`gh pr checks <n> --watch`), then merge. Never bypass protection, even as admin.
+   - If CI fails, fix it on the branch and push again; don't merge red.
 4. Don't rewrite published history (`push --force` on shared branches, rebasing `main`).
 
 ## Tests
