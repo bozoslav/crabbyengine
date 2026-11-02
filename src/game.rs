@@ -680,6 +680,7 @@ where
             self.config.vsync,
         ));
         self.ctx.set_window_size(Self::logical_window_size(&window));
+        self.ctx.set_scale_factor(window.scale_factor() as f32);
 
         if let Some(setup) = self.setup.take() {
             let frame_fn = setup(&mut self.ctx).into_frame_fn();
@@ -717,6 +718,7 @@ where
                     renderer.resize(size.width, size.height);
                 }
                 self.ctx.set_window_size(Self::logical_window_size(&window));
+                self.ctx.set_scale_factor(window.scale_factor() as f32);
                 window.request_redraw();
             }
 

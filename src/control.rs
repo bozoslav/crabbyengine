@@ -23,6 +23,7 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crabby_ecs::Entity;
+use glam::Vec2;
 use serde_json::{Value, json};
 
 use crate::ctx::Ctx;
@@ -276,6 +277,17 @@ fn answer(ctx: &mut Ctx, req: Request) {
     let _ = req.reply.send(result);
 }
 
+fn camera_json(ctx: &Ctx) -> Value {
+    let c = &ctx.camera;
+    let r = c.visible_rect();
+    json!({
+        "position": [c.position.x, c.position.y],
+        "zoom": c.zoom,
+        "center": [c.center().x, c.center().y],
+        "visible": { "min": [r.min.x, r.min.y], "max": [r.max.x, r.max.y] },
+    })
+}
+
 /// The `path` param, or a fresh file in the temp dir.
 fn screenshot_path(ctx: &Ctx, params: &Value) -> Result<PathBuf, String> {
     match params.get("path") {
@@ -326,6 +338,14 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
     ("sim.step", "run extra simulation ticks; params: ticks? (default 1)"),
     ("sim.speed", "set simulation speed; params: speed"),
     ("systems.timings", "each system's last and average time in ms"),
+    (
+        "camera.get",
+        "the camera: position (world point at the window's top-left), zoom, center, visible rect",
+    ),
+    (
+        "camera.set",
+        "move the camera; params: position? [x, y], zoom?, look_at? [x, y] (applied after zoom). Returns camera.get",
+    ),
     (
         "screenshot",
         "save the next frame as a PNG (windowed games only); params: path? (default: a temp file), max_size? (scale down to fit, 0 = full size). Returns path, width, height",
@@ -521,6 +541,37 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
         "game.quit" => {
             ctx.quit();
             json!(true)
+        }
+        "camera.get" => camera_json(ctx),
+        "camera.set" => {
+            let vec = |name: &str| -> Result<Option<Vec2>, String> {
+                match params.get(name) {
+                    None | Some(Value::Null) => Ok(None),
+                    Some(v) => serde_json::from_value::<[f32; 2]>(v.clone())
+                        .map(|[x, y]| Some(Vec2::new(x, y)))
+                        .map_err(|_| format!("`{name}` must be [x, y]")),
+                }
+            };
+            let (position, look_at) = (vec("position")?, vec("look_at")?);
+            let zoom = match params.get("zoom") {
+                None | Some(Value::Null) => None,
+                Some(v) => Some(
+                    v.as_f64()
+                        .filter(|z| *z > 0.0)
+                        .ok_or("`zoom` must be a positive number")? as f32,
+                ),
+            };
+            if let Some(p) = position {
+                ctx.camera.position = p;
+            }
+            if let Some(z) = zoom {
+                let (lo, hi) = crate::Camera2D::ZOOM_LIMITS;
+                ctx.camera.zoom = z.clamp(lo, hi);
+            }
+            if let Some(p) = look_at {
+                ctx.camera.look_at(p);
+            }
+            camera_json(ctx)
         }
         // Windowed games answer it after the next frame (see `answer`).
         "screenshot" => {

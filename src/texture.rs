@@ -93,6 +93,9 @@ pub struct DrawParams {
     /// Which point of the sprite sits at the draw position and is rotated
     /// around: `(0, 0)` top-left, `(0.5, 0.5)` center (default), `(1, 1)` bottom-right.
     pub pivot: Vec2,
+    /// Draw in window pixels, ignoring the camera, on top of the world:
+    /// for UI and HUDs. Default `false` (world units, through the camera).
+    pub screen: bool,
 }
 
 impl Default for DrawParams {
@@ -103,6 +106,7 @@ impl Default for DrawParams {
             color: Color::WHITE,
             z: 0.0,
             pivot: Vec2::splat(0.5),
+            screen: false,
         }
     }
 }

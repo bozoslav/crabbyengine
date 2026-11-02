@@ -129,6 +129,15 @@ fn agents_drive_several_games_through_mcp() {
     let err = agent.tool("world_summary", json!({})).unwrap_err();
     assert!(err.contains("2 games are running"), "{err}");
 
+    let cam = agent
+        .tool(
+            "set_camera",
+            json!({ "instance": "alpha", "zoom": 4.0, "position": [10.0, 20.0] }),
+        )
+        .unwrap();
+    assert_eq!(cam["position"], json!([10.0, 20.0]));
+    assert_eq!(cam["zoom"], 4.0);
+
     let err = agent.tool("screenshot", json!({ "instance": "alpha" })).unwrap_err();
     assert!(err.contains("no window"), "headless games say why: {err}");
 

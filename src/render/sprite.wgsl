@@ -15,6 +15,7 @@ struct Instance {
     @location(2) pivot: vec2<f32>,
     @location(3) rotation: f32,    // radians
     @location(4) color: vec4<f32>, // sRGB tint
+    @location(5) uv: vec4<f32>,    // u0, v0, width, height
 };
 
 struct VertexOut {
@@ -44,7 +45,7 @@ fn vs_main(@builtin(vertex_index) vi: u32, inst: Instance) -> VertexOut {
 
     var out: VertexOut;
     out.clip = camera.view_proj * vec4<f32>(inst.pos + rotated, 0.0, 1.0);
-    out.uv = corner;
+    out.uv = inst.uv.xy + corner * inst.uv.zw;
     out.color = vec4<f32>(srgb_to_linear(inst.color.rgb), inst.color.a);
     return out;
 }

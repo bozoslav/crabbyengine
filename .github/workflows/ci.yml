@@ -73,6 +73,7 @@ jobs:
           - ecs-without-parallel
           - engine
           - engine-headless
+          - engine-ui
           - engine-spatial
           - engine-reflect
           - engine-control
@@ -90,6 +91,7 @@ jobs:
           - { area: ecs-without-parallel, args: -p crabby_ecs --tests --no-default-features }
           - { area: engine, args: -p crabbyengine --lib }
           - { area: engine-headless, args: -p crabbyengine --test headless }
+          - { area: engine-ui, args: -p crabbyengine --test ui }
           - { area: engine-spatial, args: -p crabbyengine --test spatial }
           - { area: engine-reflect, args: -p crabbyengine --test reflect }
           - { area: engine-control, args: -p crabbyengine --test control }
