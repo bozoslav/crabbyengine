@@ -69,6 +69,7 @@ pub struct Game {
     width: u32,
     height: u32,
     fixed_hz: u32,
+    seed: u64,
     vsync: bool,
     sim_systems: Vec<System>,
     systems: Vec<System>,
@@ -111,6 +112,7 @@ fn run_one(s: &mut System, ctx: &mut Ctx, timing_index: usize) {
     #[cfg(feature = "profiling")]
     puffin::profile_scope!("system", s.name);
     let start = Instant::now();
+    ctx.system_index = timing_index;
     (s.run)(ctx);
     ctx.apply_commands();
     ctx.timings[timing_index].last_ms += start.elapsed().as_secs_f32() * 1000.0;
@@ -162,6 +164,7 @@ impl Game {
             width,
             height,
             fixed_hz: DEFAULT_FIXED_HZ,
+            seed: crate::random::DEFAULT_SEED,
             vsync: true,
             sim_systems: Vec::new(),
             systems: Vec::new(),
@@ -336,6 +339,20 @@ impl Game {
         }
     }
 
+    /// Sets the seed for [`Ctx::random`]. Same seed, same simulation: runs
+    /// are reproducible by default ([`DEFAULT_SEED`](crate::DEFAULT_SEED)).
+    /// For a different world each run, seed from the clock.
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    /// Game::new("Roguelike", 800, 600).seed(seed).run(|_| {});
+    /// ```
+    pub fn seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
+    }
+
     /// Sets how many fixed updates run per second (default 60).
     /// See [`Ctx::fixed_steps`].
     ///
@@ -456,6 +473,7 @@ impl Game {
     {
         let fixed_dt = Clock::new(self.fixed_hz).fixed_dt();
         let mut ctx = Ctx::new(fixed_dt, Vec2::new(self.width as f32, self.height as f32));
+        ctx.seed = self.seed;
         ctx.headless = true;
         if let Some(cell) = self.spatial_cell {
             ctx.spatial = crate::SpatialGrid::new(cell);
@@ -535,6 +553,7 @@ impl Game {
 
         let clock = Clock::new(self.fixed_hz);
         let mut ctx = Ctx::new(clock.fixed_dt(), Vec2::new(self.width as f32, self.height as f32));
+        ctx.seed = self.seed;
         if let Some(cell) = self.spatial_cell {
             ctx.spatial = crate::SpatialGrid::new(cell);
         }

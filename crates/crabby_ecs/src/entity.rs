@@ -33,6 +33,31 @@ impl Entity {
     }
 }
 
+/// Saved as its 64-bit id ([`Entity::to_bits`]), so components that refer
+/// to entities can be saved and loaded (with the `serde` feature).
+///
+/// ```
+/// use crabby_ecs::Entity;
+///
+/// let e = Entity::from_bits(5 | 2 << 32);
+/// let json = serde_json::to_string(&e).unwrap();
+/// assert_eq!(json, (5u64 | 2 << 32).to_string());
+/// assert_eq!(serde_json::from_str::<Entity>(&json).unwrap(), e);
+/// ```
+#[cfg(feature = "serde")]
+impl serde::Serialize for Entity {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_u64(self.to_bits())
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for Entity {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        u64::deserialize(d).map(Entity::from_bits)
+    }
+}
+
 impl fmt::Debug for Entity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Entity({}v{})", self.index, self.generation)
@@ -63,13 +88,19 @@ pub(crate) struct Entities {
 
 impl Entities {
     pub(crate) fn alloc(&mut self) -> Entity {
-        self.alive += 1;
-        if let Some(index) = self.free.pop() {
-            Entity {
-                index,
-                generation: self.slots[index as usize].generation,
+        // The free list can hold slots that `alloc_at` claimed since; skip those.
+        while let Some(index) = self.free.pop() {
+            let slot = &self.slots[index as usize];
+            if slot.loc.archetype == DEAD {
+                self.alive += 1;
+                return Entity {
+                    index,
+                    generation: slot.generation,
+                };
             }
-        } else {
+        }
+        self.alive += 1;
+        {
             let index = u32::try_from(self.slots.len())
                 .ok()
                 .filter(|&i| i != u32::MAX)
@@ -83,6 +114,39 @@ impl Entities {
             });
             Entity { index, generation: 0 }
         }
+    }
+
+    /// Claims exactly `e` (for restoring saved worlds). Fails if its slot is
+    /// in use, or if `e` is older than the slot's generation (a handle that
+    /// was despawned here must stay dead). The caller must then place the
+    /// entity with [`set`](Self::set) before anything reads it.
+    pub(crate) fn alloc_at(&mut self, e: Entity) -> bool {
+        let index = e.index as usize;
+        if e.index == u32::MAX {
+            return false;
+        }
+        while self.slots.len() <= index {
+            let i = self.slots.len() as u32;
+            self.slots.push(Slot {
+                generation: 0,
+                loc: Location {
+                    archetype: DEAD,
+                    row: 0,
+                },
+            });
+            if i != e.index {
+                self.free.push(i);
+            }
+        }
+        let slot = &mut self.slots[index];
+        if slot.loc.archetype != DEAD || e.generation < slot.generation {
+            return false;
+        }
+        // Mark it taken right away; `set` fills in the real location.
+        slot.generation = e.generation;
+        slot.loc = Location { archetype: 0, row: 0 };
+        self.alive += 1;
+        true
     }
 
     pub(crate) fn free(&mut self, e: Entity) {

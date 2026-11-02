@@ -93,6 +93,10 @@ pub struct Ctx {
     in_sim: bool,
     /// Fixed steps the running sim system covers (`sim_system_every`).
     sim_steps: u32,
+    /// Seed for `random()`.
+    pub(crate) seed: u64,
+    /// Index of the running system, so systems get different random streams.
+    pub(crate) system_index: usize,
     sim: SimClock,
     /// No window or GPU (`Game::run_headless`): textures are size-only handles.
     pub(crate) headless: bool,
@@ -126,6 +130,8 @@ impl Ctx {
             spatial: SpatialGrid::default(),
             in_sim: false,
             sim_steps: 1,
+            seed: crate::random::DEFAULT_SEED,
+            system_index: 0,
             sim: SimClock {
                 speed: 1.0,
                 paused: false,
@@ -344,6 +350,33 @@ impl Ctx {
 
     pub(crate) fn set_sim_steps(&mut self, steps: u32) {
         self.sim_steps = steps;
+    }
+
+    /// Random numbers for this system and tick: `ctx.random().of(entity)`
+    /// for an entity's own stream (safe in `par_for_each`), or
+    /// `.stream(n)` for anything else. A simulation run twice with the same
+    /// [seed](crate::Game::seed) gives the same results.
+    ///
+    /// ```
+    /// use crabbyengine::*;
+    ///
+    /// struct Pos(f32);
+    ///
+    /// fn jitter(ctx: &mut Ctx) {
+    ///     let random = ctx.random();
+    ///     ctx.world.query::<(Entity, &mut Pos)>().par_for_each(|(e, p)| p.0 += random.of(e).range(-1.0, 1.0));
+    /// }
+    ///
+    /// let run = || {
+    ///     let mut w = Game::new("t", 1, 1).sim_system(jitter).run_headless(100, |ctx| {
+    ///         ctx.world.spawn_batch((0..1000).map(|_| (Pos(0.0),)));
+    ///     });
+    ///     w.query::<&Pos>().iter().map(|p| p.0).sum::<f32>()
+    /// };
+    /// assert_eq!(run(), run()); // same seed, same result
+    /// ```
+    pub fn random(&self) -> crate::Random {
+        crate::Random::new(self.seed, self.sim_tick(), self.system_index)
     }
 
     /// Splits per-entity work over `every` ticks: entities take turns, so

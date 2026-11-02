@@ -286,6 +286,14 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
         "write a component (object fields merge); params: entity, component, value",
     ),
     ("component.remove", "params: entity, component"),
+    (
+        "world.save",
+        "save every entity with reflected components to a JSON file; params: path. Returns counts",
+    ),
+    (
+        "world.load",
+        "replace every entity with a save file's (same ids); params: path. Checked first: on error nothing changes",
+    ),
     ("sim.pause", "pause simulation systems"),
     ("sim.resume", "resume simulation systems"),
     ("sim.step", "run extra simulation ticks; params: ticks? (default 1)"),
@@ -421,6 +429,26 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
         "component.remove" => {
             let e = entity_param(params)?;
             json!(ctx.world.remove_json(e, str_param(params, "component")?).map_err(err)?)
+        }
+        "world.save" => {
+            let path = str_param(params, "path")?;
+            let save = ctx.world.save();
+            let text = serde_json::to_string(&save).map_err(|e| e.to_string())?;
+            std::fs::write(path, &text).map_err(|e| format!("could not write {path}: {e}"))?;
+            json!({
+                "path": path,
+                "entities": save["entities"].as_array().map_or(0, Vec::len),
+                "bytes": text.len(),
+                "not_saved": save["not_saved"],
+                "tick": ctx.sim_tick(),
+            })
+        }
+        "world.load" => {
+            let path = str_param(params, "path")?;
+            let text = std::fs::read_to_string(path).map_err(|e| format!("could not read {path}: {e}"))?;
+            let save: Value = serde_json::from_str(&text).map_err(|e| format!("{path} is not JSON: {e}"))?;
+            ctx.world.load(&save).map_err(err)?;
+            json!({ "path": path, "entities": ctx.world.len() })
         }
         "sim.pause" => {
             ctx.pause();

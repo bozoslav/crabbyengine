@@ -128,8 +128,18 @@ impl Instance {
     }
 }
 
+/// `Some((pid, port))` if `path` is named like a registry file: `<pid>-<port>.json`.
+fn registry_name(path: &Path) -> Option<(u64, u16)> {
+    let stem = path.file_name()?.to_str()?.strip_suffix(".json")?;
+    let (pid, port) = stem.split_once('-')?;
+    Some((pid.parse().ok()?, port.parse().ok()?))
+}
+
 /// Reads every registry file. Entries whose endpoint refuses connections
-/// belong to games that crashed; their files are removed.
+/// belong to games that crashed; their files are removed. Only files that
+/// are registry entries (named `<pid>-<port>.json`, with a matching pid,
+/// port and a token inside) are ever touched; anything else in the
+/// directory is left alone.
 fn discover(dir: &Path) -> Vec<Instance> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();
@@ -137,15 +147,21 @@ fn discover(dir: &Path) -> Vec<Instance> {
     let mut out = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().is_none_or(|e| e != "json") {
+        let Some((pid, port)) = registry_name(&path) else {
             continue;
-        }
+        };
         let Some(info) = std::fs::read_to_string(&path)
             .ok()
             .and_then(|s| serde_json::from_str::<Value>(&s).ok())
         else {
-            continue; // being written right now, or not ours
+            continue; // being written right now
         };
+        if info["pid"].as_u64() != Some(pid)
+            || info["port"].as_u64() != Some(u64::from(port))
+            || !info["token"].is_string()
+        {
+            continue; // not a registry entry after all
+        }
         let inst = Instance { info, file: path };
         if TcpStream::connect_timeout(&inst.addr(), Duration::from_millis(300)).is_err() {
             let _ = std::fs::remove_file(&inst.file);
@@ -331,6 +347,20 @@ fn tools() -> Vec<Tool> {
             writes: true,
             params: || json!({ "entity": { "type": "integer" }, "component": { "type": "string" } }),
             required: &["entity", "component"],
+        },
+        Tool {
+            name: "save_world",
+            description: "Save every entity that has reflected components (with its id) to a JSON file. Use it as a checkpoint before experiments; restore with load_world.",
+            writes: false,
+            params: || json!({ "path": { "type": "string", "description": "File to write, e.g. /tmp/before.json" } }),
+            required: &["path"],
+        },
+        Tool {
+            name: "load_world",
+            description: "Replace every entity with those in a save file from save_world, with the same ids. The file is checked first: on error nothing changes. Doesn't change the tick, seed or resources.",
+            writes: true,
+            params: || json!({ "path": { "type": "string", "description": "File from save_world" } }),
+            required: &["path"],
         },
         Tool {
             name: "quit_instance",
@@ -525,6 +555,8 @@ impl Server {
             "remove_component" => self
                 .instance(args)?
                 .call("component.remove", pass(&["entity", "component"])),
+            "save_world" => self.instance(args)?.call("world.save", pass(&["path"])),
+            "load_world" => self.instance(args)?.call("world.load", pass(&["path"])),
             "quit_instance" => self.instance(args)?.call("game.quit", json!({})),
             _ => Err(format!("unknown tool `{name}`")),
         }
@@ -685,4 +717,41 @@ pub fn serve_stdio(config: Config) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn discovery_removes_dead_entries_and_nothing_else() {
+        let dir = std::env::temp_dir().join(format!("crabby-mcp-discover-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // Port 1 is never listening: a crashed game's entry.
+        let dead = dir.join("4242-1.json");
+        std::fs::write(&dead, r#"{"pid": 4242, "port": 1, "token": "t", "name": "gone"}"#).unwrap();
+        let mismatch = dir.join("4242-2.json"); // name and content disagree: not ours
+        std::fs::write(&mismatch, r#"{"pid": 1, "port": 1, "token": "t"}"#).unwrap();
+        let save = dir.join("checkpoint.json");
+        std::fs::write(&save, r#"{"format": "crabby-world"}"#).unwrap();
+        let note = dir.join("notes.txt");
+        std::fs::write(&note, "hi").unwrap();
+
+        assert!(discover(&dir).is_empty());
+        assert!(!dead.exists(), "dead registry entries are cleaned up");
+        assert!(
+            mismatch.exists() && save.exists() && note.exists(),
+            "other files are left alone"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn registry_names_parse() {
+        assert_eq!(registry_name(Path::new("/x/123-4567.json")), Some((123, 4567)));
+        assert_eq!(registry_name(Path::new("/x/checkpoint.json")), None);
+        assert_eq!(registry_name(Path::new("/x/1-99999.json")), None); // not a port
+        assert_eq!(registry_name(Path::new("/x/1-2.txt")), None);
+    }
 }

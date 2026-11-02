@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-crabby_ecs = { path = "crates/crabby_ecs" }
+crabby_ecs = { path = "crates/crabby_ecs", features = ["serde"] }
 bytemuck = { version = "1.25.2", features = ["derive"] }
 glam = { version = "0.34.2", features = ["serde"] }
 image = { version = "0.25.10", default-features = false, features = ["png"] }
