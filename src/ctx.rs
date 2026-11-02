@@ -1,9 +1,11 @@
 //! [`Ctx`]: everything game code talks to each frame.
 
+use crabby_ecs::{Commands, World};
 use glam::{Mat4, Vec2};
 
 use crate::assets;
 use crate::color::Color;
+use crate::ecs::{Sprite, Transform2D};
 use crate::input::{Input, Key, MouseButton};
 use crate::render::batch::{DrawList, SpriteInstance};
 use crate::render::{FrameStatus, Renderer};
@@ -22,10 +24,44 @@ fn screen_projection(size: Vec2) -> Mat4 {
     )
 }
 
-/// The game's handle to the engine, passed to your update closure every frame.
+/// The game's handle to the engine, passed to your systems and update closure.
 ///
-/// Use it to draw, read input, and check timing and window info.
+/// Use it to draw, read input, check timing and window info, and reach the
+/// ECS [`World`] through `ctx.world`.
 pub struct Ctx {
+    /// All entities, components and resources.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// struct Vel(Vec2);
+    ///
+    /// fn movement(ctx: &mut Ctx) {
+    ///     let dt = ctx.dt();
+    ///     ctx.world.query::<(&mut Transform2D, &Vel)>().for_each(|(t, v)| {
+    ///         t.position += v.0 * dt;
+    ///     });
+    /// }
+    /// ```
+    pub world: World,
+    /// Changes to make once the current system finishes, for spawning or
+    /// despawning while a query is running. Applied automatically after
+    /// every system.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// struct Health(i32);
+    ///
+    /// fn deaths(ctx: &mut Ctx) {
+    ///     ctx.world.query::<(Entity, &Health)>().for_each(|(e, h)| {
+    ///         if h.0 <= 0 {
+    ///             ctx.commands.despawn(e);
+    ///         }
+    ///     });
+    /// }
+    /// ```
+    pub commands: Commands,
+    /// `true` while simulation systems run: `dt()` then returns the fixed step.
+    in_sim: bool,
     pub(crate) input: Input,
     timing: FrameTiming,
     fixed_dt: f32,
@@ -42,6 +78,9 @@ pub struct Ctx {
 impl Ctx {
     pub(crate) fn new(fixed_dt: f32, window_size: Vec2) -> Self {
         Self {
+            world: World::new(),
+            commands: Commands::new(),
+            in_sim: false,
             input: Input::new(),
             timing: FrameTiming {
                 dt: 0.0,
@@ -103,6 +142,34 @@ impl Ctx {
         self.quit_requested
     }
 
+    pub(crate) fn set_in_sim(&mut self, in_sim: bool) {
+        self.in_sim = in_sim;
+    }
+
+    /// Engine side: apply commands recorded by the system that just ran.
+    pub(crate) fn apply_commands(&mut self) {
+        if !self.commands.is_empty() {
+            self.world.apply(&mut self.commands);
+        }
+    }
+
+    /// Queues every `(Transform2D, Sprite)` entity for drawing.
+    pub(crate) fn draw_world_sprites(&mut self) {
+        let draw_list = &mut self.draw_list;
+        self.world.query::<(&Transform2D, &Sprite)>().for_each(|(t, s)| {
+            push_sprite(
+                draw_list,
+                &s.texture,
+                t.position,
+                s.texture.size() * t.scale,
+                t.rotation,
+                s.z,
+                s.pivot,
+                s.color.to_rgba8(),
+            );
+        });
+    }
+
     // ---------------------------------------------------------------- drawing
 
     /// Sets the background color. It stays until you change it.
@@ -130,7 +197,8 @@ impl Ctx {
     /// # }
     /// ```
     pub fn draw(&mut self, texture: &Texture, pos: Vec2) {
-        self.push_sprite(
+        push_sprite(
+            &mut self.draw_list,
             texture,
             pos,
             texture.size(),
@@ -155,7 +223,8 @@ impl Ctx {
     /// # }
     /// ```
     pub fn draw_ex(&mut self, texture: &Texture, pos: Vec2, params: DrawParams) {
-        self.push_sprite(
+        push_sprite(
+            &mut self.draw_list,
             texture,
             pos,
             texture.size() * params.scale,
@@ -163,37 +232,6 @@ impl Ctx {
             params.z,
             params.pivot,
             params.color.to_rgba8(),
-        );
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    #[inline]
-    fn push_sprite(
-        &mut self,
-        texture: &Texture,
-        pos: Vec2,
-        size: Vec2,
-        rotation: f32,
-        z: f32,
-        pivot: Vec2,
-        color: [u8; 4],
-    ) {
-        let (sin, cos) = if rotation == 0.0 {
-            (0.0, 1.0)
-        } else {
-            rotation.sin_cos()
-        };
-        self.draw_list.push(
-            texture.id,
-            z,
-            SpriteInstance {
-                pos: pos.into(),
-                size: size.into(),
-                pivot: pivot.into(),
-                rot: [cos, sin],
-                uv: [0.0, 0.0, 1.0, 1.0],
-                color,
-            },
         );
     }
 
@@ -274,6 +312,10 @@ impl Ctx {
     ///
     /// Clamped to at most 0.25 s so a hiccup never teleports objects.
     ///
+    /// Inside a simulation system (added with
+    /// [`Game::sim_system`](crate::Game::sim_system)) this is the fixed step
+    /// instead, so simulation code just uses `dt()` too.
+    ///
     /// ```
     /// # use crabbyengine::*;
     /// # fn update(ctx: &mut Ctx, pos: &mut Vec2) {
@@ -281,7 +323,7 @@ impl Ctx {
     /// # }
     /// ```
     pub fn dt(&self) -> f32 {
-        self.timing.dt
+        if self.in_sim { self.fixed_dt } else { self.timing.dt }
     }
 
     /// How many fixed-rate updates to run this frame (often 0, 1 or 2).
@@ -506,6 +548,37 @@ impl Ctx {
     pub fn quit(&mut self) {
         self.quit_requested = true;
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+#[inline]
+fn push_sprite(
+    draw_list: &mut DrawList,
+    texture: &Texture,
+    pos: Vec2,
+    size: Vec2,
+    rotation: f32,
+    z: f32,
+    pivot: Vec2,
+    color: [u8; 4],
+) {
+    let (sin, cos) = if rotation == 0.0 {
+        (0.0, 1.0)
+    } else {
+        rotation.sin_cos()
+    };
+    draw_list.push(
+        texture.id,
+        z,
+        SpriteInstance {
+            pos: pos.into(),
+            size: size.into(),
+            pivot: pivot.into(),
+            rot: [cos, sin],
+            uv: [0.0, 0.0, 1.0, 1.0],
+            color,
+        },
+    );
 }
 
 #[cfg(test)]

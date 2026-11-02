@@ -1,0 +1,123 @@
+//! ECS basics: components, simulation systems, a resource and commands.
+//!
+//!   `cargo run --example ecs`
+//!
+//! - Crabs wander around and fade out as they age; old crabs are despawned.
+//! - Click (or hold) the left mouse button to spawn more.
+//! - Space: pause / resume the simulation.  Escape: quit.
+
+use crabbyengine::*;
+
+/// Velocity in pixels per second.
+struct Vel(Vec2);
+/// Seconds left to live.
+struct Life(f32);
+
+/// Resource: shared settings and a tiny random generator.
+struct Settings {
+    paused: bool,
+    rng: u64,
+    crab: Texture,
+}
+
+impl Settings {
+    fn random(&mut self) -> f32 {
+        self.rng ^= self.rng << 13;
+        self.rng ^= self.rng >> 7;
+        self.rng ^= self.rng << 17;
+        (self.rng >> 40) as f32 / (1u64 << 24) as f32
+    }
+}
+
+const LIFETIME: f32 = 8.0;
+
+fn spawn_crab(ctx: &mut Ctx, at: Vec2) {
+    let s = ctx.world.resource_mut::<Settings>();
+    let angle = s.random() * std::f32::consts::TAU;
+    let speed = 40.0 + s.random() * 120.0;
+    let tint = Color::rgb(0.5 + s.random() * 0.5, 0.5 + s.random() * 0.5, 0.5 + s.random() * 0.5);
+    let crab = s.crab;
+    ctx.world.spawn((
+        Transform2D::at(at),
+        Sprite::new(crab).with_color(tint),
+        Vel(Vec2::from_angle(angle) * speed),
+        Life(LIFETIME),
+    ));
+}
+
+/// Simulation: move and bounce off the window edges.
+fn movement(ctx: &mut Ctx) {
+    if ctx.world.resource::<Settings>().paused {
+        return;
+    }
+    let dt = ctx.dt();
+    let bounds = ctx.window_size();
+    ctx.world.query::<(&mut Transform2D, &mut Vel)>().for_each(|(t, v)| {
+        t.position += v.0 * dt;
+        t.rotation = v.0.to_angle();
+        if t.position.x < 0.0 || t.position.x > bounds.x {
+            v.0.x = -v.0.x;
+        }
+        if t.position.y < 0.0 || t.position.y > bounds.y {
+            v.0.y = -v.0.y;
+        }
+        t.position = t.position.clamp(Vec2::ZERO, bounds);
+    });
+}
+
+/// Simulation: age, fade out, and despawn through commands.
+fn aging(ctx: &mut Ctx) {
+    if ctx.world.resource::<Settings>().paused {
+        return;
+    }
+    let dt = ctx.dt();
+    let commands = &mut ctx.commands;
+    ctx.world.query::<(Entity, &mut Life, &mut Sprite)>().for_each(|(e, life, sprite)| {
+        life.0 -= dt;
+        sprite.color = sprite.color.with_alpha((life.0 / LIFETIME).clamp(0.0, 1.0));
+        if life.0 <= 0.0 {
+            commands.despawn(e);
+        }
+    });
+}
+
+/// Frame system: input.
+fn controls(ctx: &mut Ctx) {
+    if ctx.key_pressed(Key::Space) {
+        let s = ctx.world.resource_mut::<Settings>();
+        s.paused = !s.paused;
+    }
+    if ctx.mouse_down(MouseButton::Left) {
+        let at = ctx.mouse_pos();
+        for _ in 0..5 {
+            spawn_crab(ctx, at);
+        }
+    }
+    if ctx.key_pressed(Key::Escape) {
+        ctx.quit();
+    }
+}
+
+fn main() {
+    Game::new("Crabby Engine: ECS", 1280, 720)
+        .sim_system(movement)
+        .sim_system(aging)
+        .system(controls)
+        .run(|ctx| {
+            let crab = ctx.load_texture("crab.png");
+            ctx.world.insert_resource(Settings { paused: false, rng: 0x9E37_79B9_7F4A_7C15, crab });
+            let center = ctx.window_size() / 2.0;
+            for _ in 0..500 {
+                spawn_crab(ctx, center);
+            }
+
+            // Optional per-frame closure: show stats in the title bar once a second.
+            let mut next_report = 1.0;
+            move |ctx: &mut Ctx| {
+                if ctx.time() >= next_report {
+                    next_report += 1.0;
+                    println!("crabs: {:>6}  fps: {:>5.1}", ctx.world.len(), ctx.fps());
+                }
+            }
+        });
+}

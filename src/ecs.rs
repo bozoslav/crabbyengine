@@ -1,0 +1,114 @@
+//! Built-in components and systems. They are ordinary ECS data and code: you
+//! can query them, remove the systems, or replace them with your own.
+
+use glam::Vec2;
+
+use crate::color::Color;
+use crate::ctx::Ctx;
+use crate::texture::Texture;
+
+/// Where an entity is: position, rotation and scale.
+///
+/// Positions are in window pixels, `(0, 0)` top-left, y down (same as
+/// [`Ctx::draw`]).
+///
+/// ```
+/// # use crabbyengine::*;
+/// let t = Transform2D::at(vec2(100.0, 50.0)).rotated(0.5);
+/// assert_eq!(t.position, vec2(100.0, 50.0));
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Transform2D {
+    pub position: Vec2,
+    /// Radians, clockwise on screen.
+    pub rotation: f32,
+    /// Size multiplier; negative flips. Default `(1, 1)`.
+    pub scale: Vec2,
+}
+
+impl Default for Transform2D {
+    fn default() -> Self {
+        Self { position: Vec2::ZERO, rotation: 0.0, scale: Vec2::ONE }
+    }
+}
+
+impl Transform2D {
+    /// A transform at `position` with no rotation and scale 1.
+    pub fn at(position: Vec2) -> Self {
+        Self { position, ..Default::default() }
+    }
+
+    /// Same transform, rotated to `rotation` radians.
+    pub fn rotated(self, rotation: f32) -> Self {
+        Self { rotation, ..self }
+    }
+
+    /// Same transform, scaled by `scale`.
+    pub fn scaled(self, scale: Vec2) -> Self {
+        Self { scale, ..self }
+    }
+}
+
+/// Makes an entity visible: drawn at its [`Transform2D`] by the built-in
+/// [`draw_sprites`] system.
+///
+/// ```
+/// # use crabbyengine::*;
+/// # fn setup(ctx: &mut Ctx) {
+/// let crab = ctx.load_texture("crab.png");
+/// ctx.world.spawn((
+///     Transform2D::at(vec2(400.0, 300.0)),
+///     Sprite::new(crab).with_color(Color::RED).with_z(1.0),
+/// ));
+/// # }
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Sprite {
+    pub texture: Texture,
+    /// Tint multiplied with the texture. Default white (no tint).
+    pub color: Color,
+    /// Draw order: higher is on top. Default `0`.
+    pub z: f32,
+    /// Point of the sprite placed at the position: `(0.5, 0.5)` = center (default).
+    pub pivot: Vec2,
+}
+
+impl Sprite {
+    /// A sprite showing `texture`, untinted, centered on the position.
+    pub fn new(texture: Texture) -> Self {
+        Self { texture, color: Color::WHITE, z: 0.0, pivot: Vec2::splat(0.5) }
+    }
+
+    /// Same sprite with tint `color`.
+    pub fn with_color(self, color: Color) -> Self {
+        Self { color, ..self }
+    }
+
+    /// Same sprite with draw order `z` (higher is on top).
+    pub fn with_z(self, z: f32) -> Self {
+        Self { z, ..self }
+    }
+
+    /// Same sprite with a different pivot (`(0, 0)` = top-left corner).
+    pub fn with_pivot(self, pivot: Vec2) -> Self {
+        Self { pivot, ..self }
+    }
+}
+
+/// Built-in system: draws every entity that has a [`Transform2D`] and a
+/// [`Sprite`]. [`Game`](crate::Game) runs it every frame by default.
+///
+/// Replace it with your own renderer like this:
+///
+/// ```no_run
+/// # use crabbyengine::*;
+/// fn my_draw(ctx: &mut Ctx) { /* ... */ }
+///
+/// Game::new("Custom", 800, 600)
+///     .remove_system(draw_sprites)
+///     .system(my_draw)
+///     .run(|_| {});
+/// ```
+pub fn draw_sprites(ctx: &mut Ctx) {
+    ctx.draw_world_sprites();
+}

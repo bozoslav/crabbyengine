@@ -12,6 +12,7 @@ use winit::keyboard::PhysicalKey;
 use winit::window::{Window, WindowId};
 
 use crate::ctx::Ctx;
+use crate::ecs::draw_sprites;
 use crate::input::{Key, MouseButton};
 use crate::render::{FrameStatus, Renderer};
 use crate::time::{Clock, DEFAULT_FIXED_HZ};
@@ -41,12 +42,66 @@ const OCCLUDED_POLL: Duration = Duration::from_millis(100);
 ///     }
 /// });
 /// ```
+///
+/// With the ECS, the game is entities plus systems:
+///
+/// ```no_run
+/// use crabbyengine::*;
+///
+/// struct Vel(Vec2);
+///
+/// fn movement(ctx: &mut Ctx) {
+///     let dt = ctx.dt();
+///     ctx.world.query::<(&mut Transform2D, &Vel)>().for_each(|(t, v)| t.position += v.0 * dt);
+/// }
+///
+/// Game::new("Crabs", 800, 600).sim_system(movement).run(|ctx| {
+///     let crab = ctx.load_texture("crab.png");
+///     ctx.world.spawn((Transform2D::at(vec2(100.0, 100.0)), Sprite::new(crab), Vel(vec2(50.0, 0.0))));
+/// });
+/// ```
 pub struct Game {
     title: String,
     width: u32,
     height: u32,
     fixed_hz: u32,
     vsync: bool,
+    sim_systems: Vec<System>,
+    systems: Vec<System>,
+}
+
+type SystemFn = Box<dyn FnMut(&mut Ctx)>;
+
+/// A system: a named function that runs over the world.
+struct System {
+    name: &'static str,
+    run: SystemFn,
+}
+
+impl System {
+    fn new<F: FnMut(&mut Ctx) + 'static>(f: F) -> Self {
+        System { name: std::any::type_name::<F>(), run: Box::new(f) }
+    }
+}
+
+/// What `setup` may return: nothing, or a closure to run every frame.
+///
+/// Implemented for `()` and for every `FnMut(&mut Ctx)`.
+pub trait SetupResult {
+    #[doc(hidden)]
+    fn into_frame_fn(self) -> Option<SystemFn>;
+}
+
+impl SetupResult for () {
+    fn into_frame_fn(self) -> Option<SystemFn> {
+        None
+    }
+}
+
+impl<F: FnMut(&mut Ctx) + 'static> SetupResult for F {
+    fn into_frame_fn(self) -> Option<SystemFn> {
+        Some(Box::new(self))
+    }
 }
 
 impl Game {
@@ -65,7 +120,70 @@ impl Game {
             height,
             fixed_hz: DEFAULT_FIXED_HZ,
             vsync: true,
+            sim_systems: Vec::new(),
+            systems: vec![System::new(draw_sprites)],
         }
+    }
+
+    /// Adds a simulation system: it runs at the fixed rate
+    /// ([`fixed_hz`](Self::fixed_hz), default 60 per second), zero or more
+    /// times per frame, and `ctx.dt()` inside it is the fixed step.
+    /// Put game logic here so it behaves the same at any frame rate.
+    ///
+    /// Systems run in the order they were added.
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// fn gravity(ctx: &mut Ctx) { /* ... */ }
+    /// fn movement(ctx: &mut Ctx) { /* ... */ }
+    ///
+    /// Game::new("Sim", 800, 600).sim_system(gravity).sim_system(movement).run(|_| {});
+    /// ```
+    pub fn sim_system<F: FnMut(&mut Ctx) + 'static>(mut self, system: F) -> Self {
+        self.sim_systems.push(System::new(system));
+        self
+    }
+
+    /// Adds a frame system: it runs once per rendered frame, after the
+    /// simulation systems. Use it for input, camera and drawing.
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// fn quit_on_escape(ctx: &mut Ctx) {
+    ///     if ctx.key_pressed(Key::Escape) { ctx.quit(); }
+    /// }
+    ///
+    /// Game::new("Sim", 800, 600).system(quit_on_escape).run(|_| {});
+    /// ```
+    pub fn system<F: FnMut(&mut Ctx) + 'static>(mut self, system: F) -> Self {
+        self.systems.push(System::new(system));
+        self
+    }
+
+    /// Removes a system that was added before, including the built-in
+    /// [`draw_sprites`]. Pass the same function you added.
+    ///
+    /// # Panics
+    /// If no such system was added.
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// // A headless-style simulation that draws nothing by itself.
+    /// Game::new("Sim", 800, 600).remove_system(draw_sprites).run(|_| {});
+    /// ```
+    #[track_caller]
+    pub fn remove_system<F: FnMut(&mut Ctx) + 'static>(mut self, system: F) -> Self {
+        drop(system);
+        let name = std::any::type_name::<F>();
+        let before = self.sim_systems.len() + self.systems.len();
+        self.sim_systems.retain(|s| s.name != name);
+        self.systems.retain(|s| s.name != name);
+        assert_ne!(
+            before,
+            self.sim_systems.len() + self.systems.len(),
+            "Game::remove_system: no system `{name}` was added"
+        );
+        self
     }
 
     /// Sets how many fixed updates run per second (default 60).
@@ -97,11 +215,32 @@ impl Game {
         self
     }
 
+    /// One frame of game logic: simulation systems `fixed_steps` times, then
+    /// frame systems. Commands are applied after every system.
+    fn run_systems(&mut self, ctx: &mut Ctx, fixed_steps: u32) {
+        ctx.set_in_sim(true);
+        for _ in 0..fixed_steps {
+            for s in &mut self.sim_systems {
+                (s.run)(ctx);
+                ctx.apply_commands();
+            }
+        }
+        ctx.set_in_sim(false);
+        for s in &mut self.systems {
+            (s.run)(ctx);
+            ctx.apply_commands();
+        }
+    }
+
     /// Opens the window and runs the game until it is closed.
     ///
-    /// `setup` runs once, after the window exists, and returns the closure
-    /// that runs every frame. Variables created in `setup` and moved into that
-    /// closure are your game state; no structs or traits required.
+    /// `setup` runs once, after the window exists. It can spawn entities into
+    /// `ctx.world`, and it can return a closure that runs every frame (after
+    /// the systems). Variables created in `setup` and moved into that closure
+    /// are your game state; no structs or traits required.
+    ///
+    /// Each frame runs: simulation systems (`ctx.fixed_steps()` times), then
+    /// frame systems, then the closure from `setup`, then rendering.
     ///
     /// ```no_run
     /// # use crabbyengine::*;
@@ -122,7 +261,7 @@ impl Game {
     pub fn run<S, U>(self, setup: S)
     where
         S: FnOnce(&mut Ctx) -> U,
-        U: FnMut(&mut Ctx) + 'static,
+        U: SetupResult,
     {
         let event_loop = EventLoop::new()
             .unwrap_or_else(|e| panic!("crabbyengine: could not start the event loop: {e}"));
@@ -135,7 +274,7 @@ impl Game {
         let mut app = App {
             config: self,
             setup: Some(setup),
-            update: None,
+            started: false,
             window: None,
             ctx,
             clock,
@@ -149,10 +288,11 @@ impl Game {
     }
 }
 
-struct App<S, U> {
+struct App<S> {
     config: Game,
     setup: Option<S>,
-    update: Option<U>,
+    /// Setup has run; frames may run.
+    started: bool,
     window: Option<Arc<Window>>,
     ctx: Ctx,
     clock: Clock,
@@ -161,10 +301,10 @@ struct App<S, U> {
     occluded: bool,
 }
 
-impl<S, U> App<S, U>
+impl<S, U> App<S>
 where
     S: FnOnce(&mut Ctx) -> U,
-    U: FnMut(&mut Ctx),
+    U: SetupResult,
 {
     fn logical_window_size(window: &Window) -> Vec2 {
         let size: LogicalSize<f32> = window.inner_size().to_logical(window.scale_factor());
@@ -172,16 +312,17 @@ where
     }
 
     fn run_frame(&mut self, event_loop: &ActiveEventLoop) {
-        let Some(update) = self.update.as_mut() else {
+        if !self.started {
             return;
-        };
+        }
 
         let now = Instant::now();
         let frame_dt = now.duration_since(self.last_frame).as_secs_f64();
         self.last_frame = now;
 
-        self.ctx.begin_frame(self.clock.advance(frame_dt));
-        update(&mut self.ctx);
+        let timing = self.clock.advance(frame_dt);
+        self.ctx.begin_frame(timing);
+        self.config.run_systems(&mut self.ctx, timing.fixed_steps);
         self.ctx.input.end_frame();
 
         if self.ctx.quit_requested() {
@@ -203,10 +344,10 @@ where
     }
 }
 
-impl<S, U> ApplicationHandler for App<S, U>
+impl<S, U> ApplicationHandler for App<S>
 where
     S: FnOnce(&mut Ctx) -> U,
-    U: FnMut(&mut Ctx),
+    U: SetupResult,
 {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
@@ -229,7 +370,12 @@ where
         self.ctx.set_window_size(Self::logical_window_size(&window));
 
         if let Some(setup) = self.setup.take() {
-            self.update = Some(setup(&mut self.ctx));
+            let frame_fn = setup(&mut self.ctx).into_frame_fn();
+            self.ctx.apply_commands();
+            if let Some(f) = frame_fn {
+                self.config.systems.push(System { name: "setup closure", run: f });
+            }
+            self.started = true;
         }
 
         // Don't count setup time (e.g. asset loading) as the first frame's dt.
@@ -319,5 +465,80 @@ where
         } else {
             event_loop.set_control_flow(ControlFlow::Wait);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Log(Vec<String>);
+    struct Marker;
+
+    fn ctx() -> Ctx {
+        let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(800.0, 600.0));
+        ctx.world.insert_resource(Log(Vec::new()));
+        ctx
+    }
+
+    fn log(ctx: &mut Ctx, s: &str) {
+        let line = format!("{s} dt={:.4}", ctx.dt());
+        ctx.world.resource_mut::<Log>().0.push(line);
+    }
+
+    fn sim_a(ctx: &mut Ctx) {
+        log(ctx, "sim_a");
+    }
+    fn frame_b(ctx: &mut Ctx) {
+        log(ctx, "frame_b");
+    }
+
+    #[test]
+    fn order_and_dt() {
+        let mut game = Game::new("t", 1, 1).sim_system(sim_a).system(frame_b).remove_system(draw_sprites);
+        let mut ctx = ctx();
+        game.run_systems(&mut ctx, 2);
+        assert_eq!(ctx.world.resource::<Log>().0, ["sim_a dt=0.0167", "sim_a dt=0.0167", "frame_b dt=0.0000"]);
+    }
+
+    #[test]
+    fn commands_apply_between_systems() {
+        fn spawner(ctx: &mut Ctx) {
+            ctx.commands.spawn((Marker,));
+        }
+        fn counter(ctx: &mut Ctx) {
+            let n = ctx.world.query::<&Marker>().count();
+            ctx.world.resource_mut::<Log>().0.push(n.to_string());
+        }
+        let mut game = Game::new("t", 1, 1).system(spawner).system(counter);
+        let mut ctx = ctx();
+        game.run_systems(&mut ctx, 0);
+        game.run_systems(&mut ctx, 0);
+        assert_eq!(ctx.world.resource::<Log>().0, ["1", "2"]);
+    }
+
+    #[test]
+    fn remove_system_removes_builtin_and_user_systems() {
+        let game = Game::new("t", 1, 1).sim_system(sim_a).remove_system(draw_sprites).remove_system(sim_a);
+        assert!(game.systems.is_empty() && game.sim_systems.is_empty());
+    }
+
+    #[test]
+    #[should_panic(expected = "no system")]
+    fn removing_unknown_system_panics() {
+        let _ = Game::new("t", 1, 1).remove_system(sim_a);
+    }
+
+    #[test]
+    fn draw_sprites_queues_world_sprites() {
+        let mut game = Game::new("t", 1, 1);
+        let mut ctx = ctx();
+        let tex = crate::texture::Texture::new(0, 16, 16);
+        for i in 0..10 {
+            ctx.world.spawn((crate::Transform2D::at(Vec2::splat(i as f32)), crate::Sprite::new(tex)));
+        }
+        ctx.world.spawn((crate::Transform2D::default(),)); // no sprite: not drawn
+        game.run_systems(&mut ctx, 0);
+        assert_eq!(ctx.sprite_count(), 10);
     }
 }
