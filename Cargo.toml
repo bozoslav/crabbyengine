@@ -10,3 +10,6 @@ image = { version = "0.25.10", default-features = false, features = ["png"] }
 pollster = "1.0.1"
 wgpu = "30.0.1"
 winit = "0.30.13"
+
+[workspace]
+members = [".", "spikes/ecs-bench"]
