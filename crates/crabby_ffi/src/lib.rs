@@ -180,11 +180,17 @@ unsafe fn access<R>(handle: *mut CrabbyWorld, f: impl FnOnce(&mut World) -> Resu
     f(unsafe { &mut *handle.world })
 }
 fn component(world: &World, id: u32) -> Result<ComponentId, Failure> {
-    let info = world
-        .components()
-        .get(id as usize)
+    let id = world
+        .component_at(id as usize)
         .ok_or_else(|| invalid("component id is not registered in this world"))?;
-    Ok(world.component_by_name(info.name()).expect("registered component name"))
+    // Raw byte copies into a value with a destructor (a Rust String, Vec, ...)
+    // would corrupt memory, so the ABI only touches plain-data components.
+    if world.component_info(id).needs_drop() {
+        return Err(invalid(
+            "component has a destructor and cannot be accessed through the C ABI",
+        ));
+    }
+    Ok(id)
 }
 fn value_layout(world: &World, id: u32, data: *const c_void, size: usize) -> Result<ComponentId, Failure> {
     let id = component(world, id)?;
@@ -638,5 +644,40 @@ mod tests {
             assert_eq!(crabby_spawn(handle, std::ptr::null(), 0, &mut 0), CRABBY_OK);
         });
         assert_eq!(world.len(), 1);
+    }
+
+    #[test]
+    fn components_with_destructors_are_rejected() {
+        let mut world = World::new();
+        let e = world.spawn((String::from("rust owned"),));
+        let id = world.component_id::<String>().unwrap().index() as u32;
+        let bytes = [0u8; std::mem::size_of::<String>()];
+        with_lent_world(&mut world, |handle| unsafe {
+            let mut out = [0u8; std::mem::size_of::<String>()];
+            let size = out.len();
+            assert_eq!(
+                crabby_get(handle, e.to_bits(), id, out.as_mut_ptr().cast(), size),
+                CRABBY_INVALID_ARGUMENT
+            );
+            assert_eq!(
+                crabby_set(handle, e.to_bits(), id, bytes.as_ptr().cast(), size),
+                CRABBY_INVALID_ARGUMENT
+            );
+            assert_eq!(crabby_remove(handle, e.to_bits(), id), CRABBY_INVALID_ARGUMENT);
+            let value = CrabbyValue {
+                component: id,
+                data: bytes.as_ptr().cast(),
+                size,
+            };
+            assert_eq!(crabby_spawn(handle, &value, 1, &mut 0), CRABBY_INVALID_ARGUMENT);
+            unsafe extern "C" fn never(_: *const CrabbyChunk, _: *mut c_void) {
+                panic!("query must be rejected before visiting");
+            }
+            assert_eq!(
+                crabby_query(handle, &id, 1, Some(never), std::ptr::null_mut()),
+                CRABBY_INVALID_ARGUMENT
+            );
+        });
+        assert_eq!(world.get::<String>(e).unwrap(), "rust owned");
     }
 }

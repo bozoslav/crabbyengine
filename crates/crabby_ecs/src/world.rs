@@ -477,6 +477,19 @@ impl World {
         self.by_name.get(name).copied()
     }
 
+    /// The component with number `index` ([`ComponentId::index`]), if registered.
+    ///
+    /// ```
+    /// let mut world = crabby_ecs::World::new();
+    /// world.spawn((1.5f32,));
+    /// let id = world.component_id::<f32>().unwrap();
+    /// assert_eq!(world.component_at(id.index()), Some(id));
+    /// assert_eq!(world.component_at(99), None);
+    /// ```
+    pub fn component_at(&self, index: usize) -> Option<ComponentId> {
+        (index < self.infos.len()).then_some(ComponentId(index as u32))
+    }
+
     /// What the world knows about component `id`.
     ///
     /// # Panics

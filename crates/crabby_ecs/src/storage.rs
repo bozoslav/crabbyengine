@@ -51,6 +51,11 @@ impl ComponentInfo {
     pub fn type_id(&self) -> Option<TypeId> {
         self.type_id
     }
+    /// Whether values have a destructor. Values without one are plain bytes
+    /// as far as the world is concerned (C/C++ may only touch those).
+    pub fn needs_drop(&self) -> bool {
+        self.drop.is_some()
+    }
 }
 
 /// One column of values of a single component type. Its capacity is owned by
