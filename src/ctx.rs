@@ -91,6 +91,12 @@ pub struct Ctx {
     pub spatial: SpatialGrid,
     /// `true` while simulation systems run: `dt()` then returns the fixed step.
     in_sim: bool,
+    /// Fixed steps the running sim system covers (`sim_system_every`).
+    sim_steps: u32,
+    /// Seed for `random()`.
+    pub(crate) seed: u64,
+    /// Index of the running system, so systems get different random streams.
+    pub(crate) system_index: usize,
     sim: SimClock,
     /// No window or GPU (`Game::run_headless`): textures are size-only handles.
     pub(crate) headless: bool,
@@ -123,6 +129,9 @@ impl Ctx {
             commands: Commands::new(),
             spatial: SpatialGrid::default(),
             in_sim: false,
+            sim_steps: 1,
+            seed: crate::random::DEFAULT_SEED,
+            system_index: 0,
             sim: SimClock {
                 speed: 1.0,
                 paused: false,
@@ -339,6 +348,74 @@ impl Ctx {
         self.draw_list.clear();
     }
 
+    pub(crate) fn set_sim_steps(&mut self, steps: u32) {
+        self.sim_steps = steps;
+    }
+
+    /// Random numbers for this system and tick: `ctx.random().of(entity)`
+    /// for an entity's own stream (safe in `par_for_each`), or
+    /// `.stream(n)` for anything else. A simulation run twice with the same
+    /// [seed](crate::Game::seed) gives the same results.
+    ///
+    /// ```
+    /// use crabbyengine::*;
+    ///
+    /// struct Pos(f32);
+    ///
+    /// fn jitter(ctx: &mut Ctx) {
+    ///     let random = ctx.random();
+    ///     ctx.world.query::<(Entity, &mut Pos)>().par_for_each(|(e, p)| p.0 += random.of(e).range(-1.0, 1.0));
+    /// }
+    ///
+    /// let run = || {
+    ///     let mut w = Game::new("t", 1, 1).sim_system(jitter).run_headless(100, |ctx| {
+    ///         ctx.world.spawn_batch((0..1000).map(|_| (Pos(0.0),)));
+    ///     });
+    ///     w.query::<&Pos>().iter().map(|p| p.0).sum::<f32>()
+    /// };
+    /// assert_eq!(run(), run()); // same seed, same result
+    /// ```
+    pub fn random(&self) -> crate::Random {
+        crate::Random::new(self.seed, self.sim_tick(), self.system_index)
+    }
+
+    /// Splits per-entity work over `every` ticks: entities take turns, so
+    /// each tick updates 1/`every` of them. For costly logic that's fine at
+    /// a lower rate per entity (path planning, AI decisions). Take it before
+    /// the query; it is `Copy`, so it works in `par_for_each` too.
+    ///
+    /// ```
+    /// use crabbyengine::*;
+    ///
+    /// struct Brain { plans: u32 }
+    ///
+    /// fn plan(ctx: &mut Ctx) {
+    ///     let turn = ctx.turns(4);
+    ///     ctx.world.query::<(Entity, &mut Brain)>().par_for_each(|(e, b)| {
+    ///         if turn.includes(e) {
+    ///             b.plans += 1; // each entity plans every 4th tick
+    ///         }
+    ///     });
+    /// }
+    ///
+    /// let mut world = Game::new("t", 1, 1).sim_system(plan).run_headless(40, |ctx| {
+    ///     for _ in 0..10 { ctx.world.spawn((Brain { plans: 0 },)); }
+    /// });
+    /// assert!(world.query::<&Brain>().iter().all(|b| b.plans == 10));
+    /// ```
+    ///
+    /// # Panics
+    /// If `every` is 0.
+    #[track_caller]
+    pub fn turns(&self, every: u32) -> Turns {
+        assert!(every > 0, "Ctx::turns: `every` must be at least 1");
+        Turns {
+            every,
+            now: (self.sim_tick() % u64::from(every)) as u32,
+            dt: self.dt() * every as f32,
+        }
+    }
+
     pub(crate) fn set_in_sim(&mut self, in_sim: bool) {
         self.in_sim = in_sim;
     }
@@ -495,6 +572,39 @@ impl Ctx {
         Texture::new(id, width, height)
     }
 
+    /// Replaces every pixel of `texture` with `rgba` (same size as it was
+    /// created with, 4 bytes per pixel). For images that change while the
+    /// game runs: a minimap, a heat map, a simulated field. Cheap enough to
+    /// do every frame for textures up to a few megapixels.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// let mut pixels = vec![0u8; 64 * 64 * 4];
+    /// let heat = ctx.create_texture(64, 64, &pixels);
+    /// pixels[0..4].copy_from_slice(&[255, 0, 0, 255]); // top-left pixel red
+    /// ctx.update_texture(&heat, &pixels);
+    /// # }
+    /// ```
+    ///
+    /// # Panics
+    /// If `rgba` isn't `width * height * 4` bytes.
+    #[track_caller]
+    pub fn update_texture(&mut self, texture: &Texture, rgba: &[u8]) {
+        let (w, h) = (texture.width(), texture.height());
+        let expected = w as usize * h as usize * 4;
+        assert_eq!(
+            rgba.len(),
+            expected,
+            "crabbyengine: a {w} x {h} texture needs {expected} bytes of RGBA, got {}",
+            rgba.len()
+        );
+        if self.headless {
+            return;
+        }
+        self.renderer().update_texture(texture.id, w, h, rgba);
+    }
+
     /// How many sprites have been drawn so far this frame.
     ///
     /// ```
@@ -516,7 +626,9 @@ impl Ctx {
     ///
     /// Inside a simulation system (added with
     /// [`Game::sim_system`](crate::Game::sim_system)) this is the fixed step
-    /// instead, so simulation code just uses `dt()` too.
+    /// instead, so simulation code just uses `dt()` too. In a system added
+    /// with [`Game::sim_system_every`](crate::Game::sim_system_every) it is
+    /// that many fixed steps.
     ///
     /// ```
     /// # use crabbyengine::*;
@@ -525,7 +637,11 @@ impl Ctx {
     /// # }
     /// ```
     pub fn dt(&self) -> f32 {
-        if self.in_sim { self.fixed_dt } else { self.timing.dt }
+        if self.in_sim {
+            self.fixed_dt * self.sim_steps as f32
+        } else {
+            self.timing.dt
+        }
     }
 
     /// How many fixed-rate updates to run this frame (often 0, 1 or 2).
@@ -781,6 +897,42 @@ fn push_sprite(
             color,
         },
     );
+}
+
+/// Which entities update this tick, from [`Ctx::turns`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Turns {
+    every: u32,
+    now: u32,
+    dt: f32,
+}
+
+impl Turns {
+    /// `true` if `entity`'s turn is this tick.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx, e: Entity) {
+    /// if ctx.turns(8).includes(e) { /* expensive update */ }
+    /// # }
+    /// ```
+    #[inline]
+    pub fn includes(self, entity: crabby_ecs::Entity) -> bool {
+        entity.index() % self.every == self.now
+    }
+
+    /// Time since an entity's previous turn: `every` times `ctx.dt()`.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// let turn = ctx.turns(4);
+    /// assert_eq!(turn.dt(), ctx.dt() * 4.0);
+    /// # }
+    /// ```
+    pub fn dt(self) -> f32 {
+        self.dt
+    }
 }
 
 #[cfg(test)]

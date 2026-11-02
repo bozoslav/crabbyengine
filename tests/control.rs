@@ -131,6 +131,11 @@ fn a_paused_headless_game_is_driven_over_tcp() {
             .unwrap()
             .contains(&json!("Counter"))
     );
+    assert!(summary["allocated_bytes"].as_u64().unwrap() > 0, "memory is reported");
+    assert!(
+        summary["archetypes"][0]["bytes_per_entity"].as_u64().unwrap() >= 8,
+        "at least the entity handle"
+    );
 
     let err = c.call("entity.get", json!({ "entity": 999_999 })).unwrap_err();
     assert!(err.contains("does not exist"), "{err}");

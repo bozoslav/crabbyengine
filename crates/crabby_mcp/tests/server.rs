@@ -222,6 +222,49 @@ fn agents_drive_several_games_through_mcp() {
             .contains("launch")
     );
 
+    // Checkpoint, experiment, roll back.
+    let checkpoint = dir.join("checkpoint.json");
+    let saved = agent
+        .tool("save_world", json!({ "instance": "alpha", "path": checkpoint }))
+        .unwrap();
+    assert_eq!(saved["entities"], 1);
+    agent
+        .tool("despawn_entity", json!({ "instance": "alpha", "entity": e }))
+        .unwrap();
+    assert_eq!(
+        agent.tool("world_summary", json!({ "instance": "alpha" })).unwrap()["entities"],
+        0
+    );
+    // The checkpoint sits in the registry directory on purpose: discovery
+    // must never delete files that aren't registry entries.
+    agent.tool("list_instances", json!({})).unwrap();
+    assert!(checkpoint.exists(), "discovery deleted a file it doesn't own");
+    agent
+        .tool("load_world", json!({ "instance": "alpha", "path": checkpoint }))
+        .unwrap();
+    assert_eq!(
+        agent
+            .tool("get_entity", json!({ "instance": "alpha", "entity": e }))
+            .unwrap()["Health"]["current"],
+        6.0,
+        "the same entity id is back with its saved values"
+    );
+    // The read-only agent may save (it changes nothing) but not load.
+    assert!(
+        viewer
+            .tool(
+                "save_world",
+                json!({ "instance": "alpha", "path": dir.join("viewer.json") })
+            )
+            .is_ok()
+    );
+    assert!(
+        viewer
+            .tool("load_world", json!({ "instance": "alpha", "path": checkpoint }))
+            .unwrap_err()
+            .contains("read-only")
+    );
+
     agent.tool("quit_instance", json!({ "instance": "alpha" })).unwrap();
     agent.tool("quit_instance", json!({ "instance": b })).unwrap();
     game_a.join().unwrap();

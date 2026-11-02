@@ -114,3 +114,106 @@ fn sim_speed_rejects_negative() {
     });
     assert!(result.is_err());
 }
+
+// ---------------------------------------------------------- reduced rates
+
+#[derive(Default)]
+struct Log(Vec<(&'static str, u64, f32)>);
+
+fn logger(name: &'static str) -> impl FnMut(&mut Ctx) {
+    move |ctx| {
+        let (tick, dt) = (ctx.sim_tick(), ctx.dt());
+        ctx.world.resource_mut::<Log>().0.push((name, tick, dt));
+    }
+}
+
+#[test]
+fn every_n_systems_run_every_nth_tick_with_n_steps_of_dt() {
+    let world = Game::new("t", 1, 1)
+        .fixed_hz(60)
+        .sim_system_every(4, logger("slow"))
+        .sim_system(logger("fast"))
+        .run_headless(12, |ctx| ctx.world.insert_resource(Log::default()));
+    let log = &world.resource::<Log>().0;
+    let slow: Vec<u64> = log.iter().filter(|l| l.0 == "slow").map(|l| l.1).collect();
+    assert_eq!(slow, [0, 4, 8]);
+    assert_eq!(log.iter().filter(|l| l.0 == "fast").count(), 12);
+    for &(name, _, dt) in log {
+        let want = if name == "slow" { 4.0 / 60.0 } else { 1.0 / 60.0 };
+        assert!((dt - want).abs() < 1e-6, "{name}: {dt}");
+    }
+}
+
+#[test]
+fn systems_with_the_same_interval_run_on_different_ticks() {
+    let world = Game::new("t", 1, 1)
+        .sim_system_every(3, logger("a"))
+        .sim_system_every(3, logger("b"))
+        .sim_system_every(3, logger("c"))
+        .run_headless(6, |ctx| ctx.world.insert_resource(Log::default()));
+    let ticks = |n| -> Vec<u64> {
+        world
+            .resource::<Log>()
+            .0
+            .iter()
+            .filter(|l| l.0 == n)
+            .map(|l| l.1)
+            .collect()
+    };
+    assert_eq!(
+        (ticks("a"), ticks("b"), ticks("c")),
+        (vec![0, 3], vec![1, 4], vec![2, 5])
+    );
+}
+
+#[test]
+#[should_panic(expected = "interval must be at least 1 tick")]
+fn every_zero_ticks_panics() {
+    let _ = Game::new("t", 1, 1).sim_system_every(0, |_: &mut Ctx| {});
+}
+
+struct Turned(u32);
+
+fn take_turns(ctx: &mut Ctx) {
+    let turn = ctx.turns(5);
+    ctx.world.query::<(Entity, &mut Turned)>().par_for_each(|(e, t)| {
+        if turn.includes(e) {
+            t.0 += 1;
+        }
+    });
+}
+
+#[test]
+fn each_entity_takes_one_turn_per_interval() {
+    let mut world = Game::new("t", 1, 1).sim_system(take_turns).run_headless(5, |ctx| {
+        ctx.world.spawn_batch((0..1003).map(|_| (Turned(0),)));
+    });
+    assert!(world.query::<&Turned>().iter().all(|t| t.0 == 1));
+}
+
+#[test]
+#[should_panic(expected = "`every` must be at least 1")]
+fn turns_of_zero_panics() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        ctx.turns(0);
+    });
+}
+
+// ---------------------------------------------------------------- textures
+
+#[test]
+fn update_texture_works_headless() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        let tex = ctx.create_texture(2, 2, &[0; 16]);
+        ctx.update_texture(&tex, &[255; 16]);
+    });
+}
+
+#[test]
+#[should_panic(expected = "a 2 x 2 texture needs 16 bytes of RGBA, got 4")]
+fn update_texture_checks_the_size() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        let tex = ctx.create_texture(2, 2, &[0; 16]);
+        ctx.update_texture(&tex, &[0; 4]);
+    });
+}

@@ -78,6 +78,8 @@ headless game waits for requests and runs only the ticks you step.
 | `entity.despawn` | `entity` | `true` if it existed |
 | `component.set` | `entity`, `component`, `value` | the new value (object fields merge) |
 | `component.remove` | `entity`, `component` | `true` if it had it |
+| `world.save` | `path` | writes a [save](determinism.md#saving-and-loading-the-world); entity count, bytes, tick |
+| `world.load` | `path` | replaces every entity from a save (same ids; checked first) |
 | `sim.pause` / `sim.resume` | | |
 | `sim.step` | `ticks?` (1) | ticks queued |
 | `sim.speed` | `speed` | |

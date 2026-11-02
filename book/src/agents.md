@@ -46,6 +46,8 @@ ctx.world.reflect::<Health>();
 | `pause` / `resume` / `set_speed` | ✓ | sim clock |
 | `spawn_entity` / `despawn_entity` | ✓ | |
 | `set_component` / `remove_component` | ✓ | change values; object fields merge |
+| `save_world` | | checkpoint the world to a file |
+| `load_world` | ✓ | roll back to a checkpoint (same entity ids) |
 | `quit_instance` | ✓ | |
 
 `--read-only` hides every tool marked ✓, for agents that should only watch.
@@ -75,6 +77,10 @@ An agent asked to "find out why boids clump at the edges" might do:
    to read positions and count how many are near the borders.
 4. Edit the steering code, `quit_instance`, `launch` again, and compare.
 5. `system_timings` to check the fix didn't make the tick slower.
+
+Or, without relaunching: `save_world` at tick 0, `set_component` to try a
+different value on some boids, `run_ticks 600`, look, then `load_world` to
+roll back and try the next value.
 
 Because the sim only advances on `run_ticks`, every run is repeatable and the
 agent can check results at exact ticks.

@@ -190,6 +190,39 @@ impl Archetype {
         self.entities.is_empty()
     }
 
+    /// Bytes per entity in this archetype: the size of every component plus
+    /// the entity handle. What one more entity costs, with no slack.
+    ///
+    /// ```
+    /// use crabby_ecs::World;
+    ///
+    /// struct Pos(f32, f32);
+    /// let mut world = World::new();
+    /// world.spawn((Pos(0.0, 0.0),));
+    /// let a = world.archetypes().iter().find(|a| a.len() == 1).unwrap();
+    /// assert_eq!(a.bytes_per_entity(), 8 + 8); // Pos + the entity handle
+    /// ```
+    pub fn bytes_per_entity(&self) -> usize {
+        self.columns.iter().map(Column::size).sum::<usize>() + std::mem::size_of::<Entity>()
+    }
+
+    /// Bytes this archetype has allocated for entity data (including spare
+    /// capacity, which is why it can exceed `len * bytes_per_entity`).
+    ///
+    /// ```
+    /// use crabby_ecs::World;
+    ///
+    /// struct Pos(f32, f32);
+    /// let mut world = World::new();
+    /// world.spawn_batch((0..100).map(|i| (Pos(i as f32, 0.0),)));
+    /// let a = world.archetypes().iter().find(|a| a.len() == 100).unwrap();
+    /// assert!(a.allocated_bytes() >= 100 * a.bytes_per_entity());
+    /// ```
+    pub fn allocated_bytes(&self) -> usize {
+        self.columns.iter().map(|c| c.size() * self.cap).sum::<usize>()
+            + self.entities.capacity() * std::mem::size_of::<Entity>()
+    }
+
     /// The components every entity here has, sorted by id.
     pub fn component_ids(&self) -> &[ComponentId] {
         &self.ids

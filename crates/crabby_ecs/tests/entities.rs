@@ -200,3 +200,95 @@ fn sort_by_without_the_component_is_a_no_op() {
     w.sort_by::<Pos>(|p| p.0 as u64);
     assert_eq!(w.get::<Vel>(e), Some(&Vel(1.0, 2.0)));
 }
+
+// ---------------------------------------------------------- restoring ids
+
+#[test]
+fn spawn_at_restores_exact_handles() {
+    let mut world = World::new();
+    let ids: Vec<Entity> = [(3, 0), (0, 5), (10, 2)]
+        .iter()
+        .map(|&(i, g)| Entity::from_bits(i | (g as u64) << 32))
+        .collect();
+    for (n, &e) in ids.iter().enumerate() {
+        assert!(world.spawn_at(e, (Pos(n as f32, 0.0),)));
+    }
+    assert_eq!(world.len(), 3);
+    for (n, &e) in ids.iter().enumerate() {
+        assert_eq!(world.get::<Pos>(e).unwrap().0, n as f32);
+    }
+}
+
+#[test]
+fn fresh_spawns_never_reuse_restored_slots() {
+    let mut world = World::new();
+    let restored: Vec<Entity> = (0..50).step_by(3).map(Entity::from_bits).collect();
+    for &e in &restored {
+        assert!(world.spawn_at(e, (Tag,)));
+    }
+    let fresh: Vec<Entity> = (0..100).map(|_| world.spawn((Tag,))).collect();
+    for e in &fresh {
+        assert!(!restored.contains(e));
+    }
+    assert_eq!(world.len(), restored.len() + fresh.len());
+    for &e in restored.iter().chain(&fresh) {
+        assert!(world.is_alive(e));
+    }
+}
+
+#[test]
+fn spawn_at_refuses_taken_and_dead_handles() {
+    let mut world = World::new();
+    let e = world.spawn((Tag,));
+    assert!(!world.spawn_at(e, (Tag,)), "taken");
+    world.despawn(e);
+    assert!(!world.spawn_at(e, (Tag,)), "despawned handles stay dead");
+    let newer = Entity::from_bits(e.to_bits() + (1 << 32));
+    assert!(
+        world.spawn_at(newer, (Tag,)),
+        "a newer generation of a free slot is fine"
+    );
+    assert!(!world.is_alive(e));
+    assert_eq!(world.len(), 1);
+}
+
+#[test]
+fn clear_despawns_everything_but_keeps_resources() {
+    let mut world = World::new();
+    world.insert_resource(5u32);
+    let es: Vec<Entity> = (0..10).map(|i| world.spawn((Pos(i as f32, 0.0),))).collect();
+    world.spawn((Tag, Vel(1.0, 1.0)));
+    world.clear();
+    assert!(world.is_empty());
+    assert!(es.iter().all(|&e| !world.is_alive(e)));
+    assert_eq!(*world.resource::<u32>(), 5);
+    let again = world.spawn((Tag,));
+    assert!(world.is_alive(again));
+}
+
+#[test]
+fn reset_frees_every_id_for_restoring() {
+    let mut world = World::new();
+    let old: Vec<Entity> = (0..5).map(|_| world.spawn((Tag,))).collect();
+    world.despawn(old[1]);
+    world.reset();
+    assert!(world.is_empty());
+    for &e in &old {
+        assert!(world.spawn_at(e, (Tag,)), "{e:?}");
+    }
+}
+
+#[test]
+fn memory_accounting_counts_component_bytes() {
+    let mut world = World::new();
+    assert_eq!(world.allocated_bytes(), 0);
+    world.spawn_batch((0..1000).map(|i| (Pos(i as f32, 0.0), Vel(0.0, 0.0))));
+    let a = world.archetypes().iter().find(|a| a.len() == 1000).unwrap();
+    // Pos and Vel are two f32 each; plus the 8-byte handle.
+    assert_eq!(a.bytes_per_entity(), 8 + 8 + 8);
+    assert!(world.allocated_bytes() >= 1000 * 24);
+    assert!(
+        world.allocated_bytes() < 1000 * 24 * 3,
+        "capacity stays near what's used"
+    );
+}

@@ -12,6 +12,7 @@ Rules for any coding agent (Claude Code, Codex, Cursor, ...) working in this rep
    - Commit messages: short imperative subject line, then a body listing what changed.
    - Never commit `docs/`, which holds local planning notes and is git-ignored. Never commit `.DS_Store`, build output or secrets.
 3. **Everything reaches `main` through a pull request.** Never push to `main` and never merge locally into `main`.
+   - **One PR per big chunk of work**, not per small feature or fix: keep committing and pushing on the branch, and open the PR when a whole part is done (for example a milestone's worth: reflection + control endpoint + MCP server). Don't stack many small PRs and wait on CI for each.
    - Open the PR with `gh pr create --base main`. The body says what changed and how it was verified (commands run, benchmark numbers).
    - Merge with `gh pr merge --squash --delete-branch`, then `git switch main && git pull`.
    - `main` is protected: merging needs the **CI passed** check (it requires every CI job) and keeps history linear. Wait for CI (`gh pr checks <n> --watch`), then merge. Never bypass protection, even as admin.

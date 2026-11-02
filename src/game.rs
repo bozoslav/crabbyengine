@@ -69,6 +69,7 @@ pub struct Game {
     width: u32,
     height: u32,
     fixed_hz: u32,
+    seed: u64,
     vsync: bool,
     sim_systems: Vec<System>,
     systems: Vec<System>,
@@ -86,6 +87,9 @@ type SystemFn = Box<dyn FnMut(&mut Ctx)>;
 struct System {
     name: &'static str,
     run: SystemFn,
+    /// Simulation systems only: run on ticks where `tick % every == phase`.
+    every: u32,
+    phase: u32,
 }
 
 /// This frame's timing: the clock at the current sim speed (0 while
@@ -108,6 +112,7 @@ fn run_one(s: &mut System, ctx: &mut Ctx, timing_index: usize) {
     #[cfg(feature = "profiling")]
     puffin::profile_scope!("system", s.name);
     let start = Instant::now();
+    ctx.system_index = timing_index;
     (s.run)(ctx);
     ctx.apply_commands();
     ctx.timings[timing_index].last_ms += start.elapsed().as_secs_f32() * 1000.0;
@@ -118,6 +123,8 @@ impl System {
         System {
             name: std::any::type_name::<F>(),
             run: Box::new(f),
+            every: 1,
+            phase: 0,
         }
     }
 }
@@ -157,6 +164,7 @@ impl Game {
             width,
             height,
             fixed_hz: DEFAULT_FIXED_HZ,
+            seed: crate::random::DEFAULT_SEED,
             vsync: true,
             sim_systems: Vec::new(),
             systems: Vec::new(),
@@ -182,6 +190,48 @@ impl Game {
     /// ```
     pub fn sim_system<F: FnMut(&mut Ctx) + 'static>(mut self, system: F) -> Self {
         self.sim_systems.push(System::new(system));
+        self
+    }
+
+    /// Adds a simulation system that runs only every `ticks`-th tick, for
+    /// work that doesn't need the full rate: AI that thinks a few times a
+    /// second, slow growth, pathfinding, statistics. Inside it, `ctx.dt()`
+    /// is `ticks` fixed steps, so rates stay right.
+    ///
+    /// Systems added with the same interval are spread over different ticks,
+    /// so their cost doesn't land on the same frame.
+    ///
+    /// ```
+    /// use crabbyengine::*;
+    ///
+    /// struct Hunger(f32);
+    ///
+    /// fn get_hungry(ctx: &mut Ctx) {
+    ///     let dt = ctx.dt(); // 10 ticks' worth of time
+    ///     ctx.world.query::<&mut Hunger>().for_each(|h| h.0 += 1.0 * dt);
+    /// }
+    ///
+    /// // 60 ticks at 60 Hz: runs 6 times, 1/6 s each.
+    /// let mut world = Game::new("t", 1, 1)
+    ///     .sim_system_every(10, get_hungry)
+    ///     .run_headless(60, |ctx| { ctx.world.spawn((Hunger(0.0),)); });
+    /// let h = world.query::<&Hunger>().iter().next().unwrap().0;
+    /// assert!((h - 1.0).abs() < 1e-4);
+    /// ```
+    ///
+    /// # Panics
+    /// If `ticks` is 0.
+    #[track_caller]
+    pub fn sim_system_every<F: FnMut(&mut Ctx) + 'static>(mut self, ticks: u32, system: F) -> Self {
+        assert!(
+            ticks > 0,
+            "Game::sim_system_every: the interval must be at least 1 tick"
+        );
+        let same = self.sim_systems.iter().filter(|s| s.every == ticks).count() as u32;
+        let mut s = System::new(system);
+        s.every = ticks;
+        s.phase = same % ticks;
+        self.sim_systems.push(s);
         self
     }
 
@@ -289,6 +339,20 @@ impl Game {
         }
     }
 
+    /// Sets the seed for [`Ctx::random`]. Same seed, same simulation: runs
+    /// are reproducible by default ([`DEFAULT_SEED`](crate::DEFAULT_SEED)).
+    /// For a different world each run, seed from the clock.
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    /// Game::new("Roguelike", 800, 600).seed(seed).run(|_| {});
+    /// ```
+    pub fn seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
+    }
+
     /// Sets how many fixed updates run per second (default 60).
     /// See [`Ctx::fixed_steps`].
     ///
@@ -340,9 +404,15 @@ impl Game {
 
     /// One simulation tick: every sim system once, then the tick counter.
     fn run_sim_tick(&mut self, ctx: &mut Ctx) {
+        let tick = ctx.sim_tick();
         for (i, s) in self.sim_systems.iter_mut().enumerate() {
+            if tick % u64::from(s.every) != u64::from(s.phase) {
+                continue;
+            }
+            ctx.set_sim_steps(s.every);
             run_one(s, ctx, i);
         }
+        ctx.set_sim_steps(1);
         ctx.advance_tick();
     }
 
@@ -403,6 +473,7 @@ impl Game {
     {
         let fixed_dt = Clock::new(self.fixed_hz).fixed_dt();
         let mut ctx = Ctx::new(fixed_dt, Vec2::new(self.width as f32, self.height as f32));
+        ctx.seed = self.seed;
         ctx.headless = true;
         if let Some(cell) = self.spatial_cell {
             ctx.spatial = crate::SpatialGrid::new(cell);
@@ -482,6 +553,7 @@ impl Game {
 
         let clock = Clock::new(self.fixed_hz);
         let mut ctx = Ctx::new(clock.fixed_dt(), Vec2::new(self.width as f32, self.height as f32));
+        ctx.seed = self.seed;
         if let Some(cell) = self.spatial_cell {
             ctx.spatial = crate::SpatialGrid::new(cell);
         }
@@ -616,6 +688,8 @@ where
                 self.config.systems.push(System {
                     name: "setup closure",
                     run: f,
+                    every: 1,
+                    phase: 0,
                 });
             }
             self.started = true;

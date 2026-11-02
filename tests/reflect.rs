@@ -163,3 +163,89 @@ fn games_reflect_transform_by_default() {
     });
     assert_eq!(world.reflected_components(), ["Transform2D"]);
 }
+
+// -------------------------------------------------------------- save/load
+
+/// A component that refers to another entity: the reason ids are kept.
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct Follows(Entity);
+
+fn save_world() -> (World, Entity, Entity) {
+    let mut w = world();
+    w.reflect::<Follows>();
+    // Churn the allocator so ids have gaps and generations.
+    for _ in 0..5 {
+        let tmp = w.spawn((Team(0),));
+        w.despawn(tmp);
+    }
+    let leader = w.spawn((Team(1), Transform2D::at(vec2(3.0, 4.0))));
+    let follower = w.spawn((Team(1), Follows(leader), Health { current: 2.0, max: 9.0 }));
+    w.spawn((Secret,)); // not reflected: not saved
+    (w, leader, follower)
+}
+
+#[test]
+fn save_then_load_restores_entities_with_their_ids() {
+    let (w, leader, follower) = save_world();
+    let save = w.save();
+    assert_eq!(save["entities"].as_array().unwrap().len(), 2);
+    assert_eq!(save["not_saved"], json!({ "Secret": 1 }));
+
+    let mut fresh = World::new();
+    fresh.reflect::<Transform2D>();
+    fresh.reflect::<Health>();
+    fresh.reflect::<Team>();
+    fresh.reflect::<Follows>();
+    fresh.load(&save).unwrap();
+    assert_eq!(fresh.len(), 2);
+    // The reference still points at the leader.
+    let target = fresh.get::<Follows>(follower).unwrap().0;
+    assert_eq!(target, leader);
+    assert_eq!(fresh.get::<Transform2D>(target).unwrap().position, vec2(3.0, 4.0));
+    assert_eq!(fresh.get::<Health>(follower), Some(&Health { current: 2.0, max: 9.0 }));
+    // Saving again gives the same entities (the unreflected one was never saved).
+    assert_eq!(fresh.save()["entities"], save["entities"]);
+    // New entities don't collide with loaded ids.
+    let new = fresh.spawn((Team(9),));
+    assert!(new != leader && new != follower);
+}
+
+#[test]
+fn loading_into_the_same_world_rolls_it_back() {
+    let (mut w, leader, follower) = save_world();
+    let save = w.save();
+    w.despawn(leader);
+    w.get_mut::<Health>(follower).unwrap().current = 0.0;
+    w.spawn((Team(5),));
+    w.load(&save).unwrap();
+    assert_eq!(w.save()["entities"], save["entities"]);
+    // Entities that weren't in the save (nothing reflected) are gone too.
+    assert_eq!(w.save()["not_saved"], json!({}));
+    assert!(w.is_alive(leader));
+    assert_eq!(w.get::<Health>(follower).unwrap().current, 2.0);
+}
+
+#[test]
+fn a_bad_save_leaves_the_world_untouched() {
+    let (mut w, _, _) = save_world();
+    let before = w.save();
+    let good = before.clone();
+    let mut cases = Vec::new();
+    let mut bad_value = good.clone();
+    bad_value["entities"][1]["components"]["Health"] = json!("lots");
+    cases.push(("bad value", bad_value));
+    let mut unknown = good.clone();
+    unknown["entities"][0]["components"]["Mystery"] = json!(1);
+    cases.push(("unknown component", unknown));
+    let mut dup = good.clone();
+    dup["entities"][1]["entity"] = dup["entities"][0]["entity"].clone();
+    cases.push(("duplicate id", dup));
+    let mut version = good.clone();
+    version["version"] = json!(99);
+    cases.push(("version", version));
+    cases.push(("not a save", json!({ "hello": 1 })));
+    for (what, save) in cases {
+        assert!(w.load(&save).is_err(), "{what} should fail");
+        assert_eq!(w.save(), before, "{what} changed the world");
+    }
+}

@@ -29,9 +29,32 @@ cores vs 57.6 ms on one.
 
 | Boids | ms per tick |
 |---|---|
-| 20k | 1.1 |
-| 100k | 3.8 |
-| 1M | ~41 |
+| 20k | 0.9 |
+| 100k | 3.7 |
+| 1M | ~33 |
+
+## Ant colonies (whole game loop)
+
+`HEADLESS=1 ANTS=<n> cargo run --release --example ants`: steering with
+pheromone sensing, trail laying, foraging, colony growth.
+
+| Ants | ms per tick |
+|---|---|
+| 5k | 0.22 |
+| 50k | 1.2 |
+| 1M | 15 |
+
+## Memory
+
+Speed is half of scale; the other half is what each entity costs. The
+headless example prints it: 1M agents with `Transform2D`, `Sprite` and a
+small `Agent` component take **76 bytes per entity** allocated, spare
+capacity included.
+
+From code, `world.allocated_bytes()` is the total for all component data,
+and `Archetype::bytes_per_entity()` is what one more entity of that exact
+component set costs. Agents get both from the control endpoint's
+`world.summary` (the MCP `world_summary` tool).
 
 ## Rules the engine follows
 
@@ -45,4 +68,6 @@ cores vs 57.6 ms on one.
 - Use `--release`. Always.
 - Prefer `for_each`/`par_for_each` over `iter()` for big queries.
 - Spawn with `spawn_batch`.
-- Run expensive logic every Nth tick with `ctx.sim_tick()`.
+- Run expensive logic at a reduced rate with `sim_system_every(n, system)`,
+  or spread per-entity work over ticks with `ctx.turns(n)` (see
+  [The simulation clock](sim-clock.md)).

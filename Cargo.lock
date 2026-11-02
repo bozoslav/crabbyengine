@@ -566,6 +566,8 @@ name = "crabby_ecs"
 version = "0.1.0"
 dependencies = [
  "rayon",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -588,6 +590,7 @@ dependencies = [
  "pollster",
  "puffin",
  "puffin_http",
+ "rayon",
  "serde",
  "serde_json",
  "wgpu",

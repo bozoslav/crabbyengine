@@ -102,7 +102,8 @@ impl World {
     /// `world.spawn((Health(10),))`.
     pub fn spawn<B: Bundle>(&mut self, bundle: B) -> Entity {
         let a = self.bundle_archetype::<B>();
-        self.spawn_in::<B>(a, bundle)
+        let e = self.entities.alloc();
+        self.spawn_in::<B>(a, bundle, e)
     }
 
     /// Spawns many entities of the same shape. Faster than calling `spawn` in a loop.
@@ -111,13 +112,96 @@ impl World {
         let a = self.bundle_archetype::<B>();
         self.archetypes[a].reserve(iter.size_hint().0);
         for b in iter {
-            self.spawn_in::<B>(a, b);
+            let e = self.entities.alloc();
+            self.spawn_in::<B>(a, b, e);
         }
     }
 
+    /// Spawns an entity with exactly the handle `e`, for restoring saved
+    /// worlds so that components referring to entities stay valid. Returns
+    /// `false` (dropping `bundle`) if `e` is taken, or was despawned in this
+    /// world already (old handles stay dead).
+    ///
+    /// ```
+    /// use crabby_ecs::{Entity, World};
+    ///
+    /// let mut world = World::new();
+    /// let saved = Entity::from_bits(7 | 3 << 32); // slot 7, generation 3
+    /// assert!(world.spawn_at(saved, ("hello",)));
+    /// assert_eq!(world.get::<&str>(saved), Some(&"hello"));
+    /// assert!(!world.spawn_at(saved, ("again",))); // taken
+    /// let fresh = world.spawn(("new",)); // fresh handles never collide
+    /// assert_ne!(fresh, saved);
+    /// ```
+    pub fn spawn_at<B: Bundle>(&mut self, e: Entity, bundle: B) -> bool {
+        if !self.entities.alloc_at(e) {
+            return false;
+        }
+        let a = self.bundle_archetype::<B>();
+        self.spawn_in::<B>(a, bundle, e);
+        true
+    }
+
+    /// Memory held for entity data: component columns and handles of every
+    /// archetype, including spare capacity. Doesn't count resources or the
+    /// world's bookkeeping (per-slot generation, archetype index).
+    ///
+    /// ```
+    /// use crabby_ecs::World;
+    ///
+    /// struct Pos(f32, f32);
+    /// let mut world = World::new();
+    /// world.spawn_batch((0..1000).map(|i| (Pos(i as f32, 0.0),)));
+    /// // 8 bytes of Pos + 8 bytes of entity handle each, at least.
+    /// assert!(world.allocated_bytes() >= 1000 * 16);
+    /// ```
+    pub fn allocated_bytes(&self) -> usize {
+        self.archetypes.iter().map(Archetype::allocated_bytes).sum()
+    }
+
+    /// Despawns every entity. Resources stay.
+    ///
+    /// ```
+    /// use crabby_ecs::World;
+    ///
+    /// let mut world = World::new();
+    /// let e = world.spawn((1u8,));
+    /// world.clear();
+    /// assert!(world.is_empty() && !world.is_alive(e));
+    /// ```
+    pub fn clear(&mut self) {
+        let all: Vec<Entity> = self
+            .archetypes
+            .iter()
+            .flat_map(|a| a.entities.iter().copied())
+            .collect();
+        for e in all {
+            self.despawn(e);
+        }
+    }
+
+    /// Despawns every entity **and forgets every entity id**, as if the world
+    /// were new; resources and registered components stay. Afterwards, old
+    /// handles may match new entities, so use this only when replacing the
+    /// whole world, such as when loading a save (whose ids then come back
+    /// with [`spawn_at`](Self::spawn_at)). For everything else use
+    /// [`clear`](Self::clear).
+    ///
+    /// ```
+    /// use crabby_ecs::World;
+    ///
+    /// let mut world = World::new();
+    /// let e = world.spawn((1u8,));
+    /// world.reset();
+    /// assert!(world.spawn_at(e, (2u8,))); // the id is free again
+    /// ```
+    pub fn reset(&mut self) {
+        self.clear();
+        self.entities = Default::default();
+    }
+
     #[inline]
-    fn spawn_in<B: Bundle>(&mut self, a: usize, bundle: B) -> Entity {
-        let e = self.entities.alloc();
+    fn spawn_in<B: Bundle>(&mut self, a: usize, bundle: B, e: Entity) -> Entity {
         let cols = &self.bundles[&TypeId::of::<B>()].columns;
         let arch = &mut self.archetypes[a];
         arch.reserve(1);

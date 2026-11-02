@@ -22,7 +22,7 @@ pub(crate) enum FrameStatus {
 
 struct GpuTexture {
     bind_group: wgpu::BindGroup,
-    _texture: wgpu::Texture,
+    texture: wgpu::Texture,
 }
 
 pub(crate) struct Renderer {
@@ -271,11 +271,32 @@ impl Renderer {
                 },
             ],
         });
-        self.textures.push(GpuTexture {
-            bind_group,
-            _texture: texture,
-        });
+        self.textures.push(GpuTexture { bind_group, texture });
         (self.textures.len() - 1) as u32
+    }
+
+    /// Replaces every pixel of texture `id` (same size as created).
+    pub fn update_texture(&mut self, id: u32, width: u32, height: u32, rgba: &[u8]) {
+        debug_assert_eq!(rgba.len(), (width * height * 4) as usize);
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.textures[id as usize].texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            rgba,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * width),
+                rows_per_image: Some(height),
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
     }
 
     /// Call when the window's physical size changes.

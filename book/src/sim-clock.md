@@ -35,16 +35,38 @@ paused.
 
 ## Doing work less often
 
-Not everything needs to run 60 times a second:
+Not everything needs to run 60 times a second. There are two tools, and they
+combine.
+
+**A whole system at a lower rate:**
 
 ```rust
-fn slow_ai(ctx: &mut Ctx) {
-    if ctx.sim_tick() % 10 != 0 {
-        return; // think 6 times per second
-    }
-    // ...
+Game::new("Colony", 1280, 720)
+    .sim_system(movement)               // every tick
+    .sim_system_every(10, plan_routes)  // 6 times a second
+    .sim_system_every(10, grow_food)    // also 6/s, but on other ticks
+```
+
+Inside `plan_routes`, `ctx.dt()` is 10 ticks' worth of time, so rates stay
+right. Systems with the same interval are spread over different ticks, so
+their cost doesn't pile up on one frame.
+
+**Entities taking turns:** each tick, only 1/n of the entities do the
+expensive part.
+
+```rust
+fn think(ctx: &mut Ctx) {
+    let turn = ctx.turns(8); // each ant thinks every 8th tick
+    ctx.world.query::<(Entity, &mut Brain)>().par_for_each(|(e, brain)| {
+        if turn.includes(e) {
+            brain.decide(turn.dt()); // time since this ant's last turn
+        }
+    });
 }
 ```
+
+This keeps the per-tick cost flat instead of spiking every 8th tick, and
+works in `par_for_each`.
 
 ## Smooth motion between ticks
 
