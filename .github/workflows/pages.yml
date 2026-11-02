@@ -1,0 +1,47 @@
+# Publishes the guide (book/) with the API reference under /api to GitHub Pages
+# on every push to main.
+
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: mdbook@0.5.4
+      - run: mdbook build book
+      - run: cargo doc --workspace --no-deps
+      - run: cp -r target/doc book/book/api
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: book/book
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
