@@ -259,8 +259,32 @@ fn handle_line(line: &str, token: &str, tx: &Sender<Request>) -> Value {
 }
 
 fn answer(ctx: &mut Ctx, req: Request) {
+    if req.method == "screenshot" && !ctx.headless {
+        // Answered after the next frame is drawn.
+        match screenshot_path(ctx, &req.params) {
+            Ok(path) => {
+                let max_size = req.params.get("max_size").and_then(Value::as_u64).unwrap_or(0) as u32;
+                ctx.queue_screenshot(path, max_size, Some(req.reply));
+            }
+            Err(e) => {
+                let _ = req.reply.send(Err(e));
+            }
+        }
+        return;
+    }
     let result = handle(ctx, &req.method, &req.params);
     let _ = req.reply.send(result);
+}
+
+/// The `path` param, or a fresh file in the temp dir.
+fn screenshot_path(ctx: &Ctx, params: &Value) -> Result<PathBuf, String> {
+    match params.get("path") {
+        None | Some(Value::Null) => {
+            Ok(std::env::temp_dir().join(format!("crabby-screenshot-{}-{}.png", std::process::id(), ctx.frame())))
+        }
+        Some(Value::String(p)) => Ok(PathBuf::from(p)),
+        Some(_) => Err("`path` must be a string".into()),
+    }
 }
 
 // ------------------------------------------------------------------ methods
@@ -269,7 +293,10 @@ fn answer(ctx: &mut Ctx, req: Request) {
 /// Returned by `methods`, so tools can discover them.
 pub(crate) const METHODS: &[(&str, &str)] = &[
     ("methods", "list the methods this endpoint understands"),
-    ("info", "name, pid, tick, sim time, paused, speed, fps, entity count"),
+    (
+        "info",
+        "name, pid, tick, sim time, paused, speed, fps, entity count, render stats (sprites, draw calls, CPU and GPU ms)",
+    ),
     (
         "world.summary",
         "entity count, allocated bytes, reflected components, archetypes with their sizes and bytes per entity",
@@ -299,6 +326,10 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
     ("sim.step", "run extra simulation ticks; params: ticks? (default 1)"),
     ("sim.speed", "set simulation speed; params: speed"),
     ("systems.timings", "each system's last and average time in ms"),
+    (
+        "screenshot",
+        "save the next frame as a PNG (windowed games only); params: path? (default: a temp file), max_size? (scale down to fit, 0 = full size). Returns path, width, height",
+    ),
     ("game.quit", "ask the game to exit"),
 ];
 
@@ -356,6 +387,10 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
             "fps": if ctx.headless { Value::Null } else { json!(ctx.fps()) },
             "frame": if ctx.headless { Value::Null } else { json!(ctx.frame()) },
             "entities": ctx.world.len(),
+            "render": if ctx.headless { Value::Null } else {
+                let r = ctx.render_stats();
+                json!({ "sprites": r.sprites, "draw_calls": r.draw_calls, "cpu_ms": r.cpu_ms, "gpu_ms": r.gpu_ms })
+            },
         }),
         "world.summary" => {
             let world = &ctx.world;
@@ -487,6 +522,10 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
             ctx.quit();
             json!(true)
         }
+        // Windowed games answer it after the next frame (see `answer`).
+        "screenshot" => {
+            return Err("headless games have no window to capture; launch the game with a window".into());
+        }
         other => return Err(format!("unknown method `{other}` (call `methods` for the list)")),
     })
 }
@@ -505,7 +544,7 @@ mod tests {
     fn every_listed_method_is_handled() {
         let mut ctx = ctx();
         for (name, _) in METHODS {
-            if *name == "game.quit" {
+            if *name == "game.quit" || *name == "screenshot" {
                 continue;
             }
             let r = handle(&mut ctx, name, &json!({}));

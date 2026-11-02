@@ -8,10 +8,13 @@ use crate::color::Color;
 use crate::ecs::{Sprite, Transform2D};
 use crate::input::{Input, Key, MouseButton};
 use crate::render::batch::{DrawList, SpriteInstance};
-use crate::render::{FrameStatus, Renderer};
+use crate::render::{FrameStatus, RenderStats, Renderer, Screenshot};
 use crate::spatial::SpatialGrid;
 use crate::texture::{DrawParams, Texture};
 use crate::time::FrameTiming;
+use serde_json::Value;
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::Sender;
 
 /// Simulation clock state: speed, pause, single steps, tick count.
 struct SimClock {
@@ -113,6 +116,8 @@ pub struct Ctx {
     window_size: Vec2,
     quit_requested: bool,
     pub(crate) renderer: Option<Renderer>,
+    /// Screenshots waiting for the next drawn frame.
+    screenshots: Vec<ScreenshotRequest>,
     draw_list: DrawList,
     clear_color: Color,
 }
@@ -156,6 +161,7 @@ impl Ctx {
             window_size,
             quit_requested: false,
             renderer: None,
+            screenshots: Vec::new(),
             draw_list: DrawList::default(),
             clear_color: Color::CRABBY_DARK,
         }
@@ -163,15 +169,40 @@ impl Ctx {
 
     /// Engine side: draw everything queued this frame, then reset the queue.
     pub(crate) fn render_frame(&mut self) -> FrameStatus {
+        let capture = !self.screenshots.is_empty();
         let status = match self.renderer.as_mut() {
             Some(renderer) => {
                 let view_proj = screen_projection(self.window_size);
-                renderer.render(&mut self.draw_list, self.clear_color, view_proj)
+                renderer.render(&mut self.draw_list, self.clear_color, view_proj, capture)
             }
             None => FrameStatus::Skipped,
         };
         self.draw_list.clear();
+        if let Some(shot) = self.renderer.as_mut().and_then(|r| r.screenshot.take()) {
+            for req in self.screenshots.drain(..) {
+                let result = save_png(&req.path, &shot, req.max_size);
+                match req.reply {
+                    Some(reply) => {
+                        let _ = reply.send(result);
+                    }
+                    None => {
+                        if let Err(e) = result {
+                            eprintln!("crabbyengine: {e}");
+                        }
+                    }
+                }
+            }
+        }
         status
+    }
+
+    pub(crate) fn queue_screenshot(
+        &mut self,
+        path: PathBuf,
+        max_size: u32,
+        reply: Option<Sender<Result<Value, String>>>,
+    ) {
+        self.screenshots.push(ScreenshotRequest { path, max_size, reply });
     }
 
     fn renderer(&mut self) -> &mut Renderer {
@@ -429,19 +460,31 @@ impl Ctx {
 
     /// Queues every `(Transform2D, Sprite)` entity for drawing.
     pub(crate) fn draw_world_sprites(&mut self) {
-        let draw_list = &mut self.draw_list;
-        self.world.query::<(&Transform2D, &Sprite)>().for_each(|(t, s)| {
-            push_sprite(
-                draw_list,
-                &s.texture,
-                t.position,
-                s.texture.size() * t.scale,
+        /// Below this many sprites, one thread is faster than many.
+        const PARALLEL_MIN: usize = 20_000;
+        fn instance(t: &Transform2D, s: &Sprite) -> SpriteInstance {
+            SpriteInstance::new(
+                t.position.into(),
+                (s.texture.size() * t.scale).into(),
+                s.pivot.into(),
                 t.rotation,
-                s.z,
-                s.pivot,
                 s.color.to_rgba8(),
-            );
-        });
+            )
+        }
+        let draw_list = &mut self.draw_list;
+        let mut query = self.world.query::<(&Transform2D, &Sprite)>();
+        let n = query.count();
+        if n < PARALLEL_MIN {
+            query.for_each(|(t, s)| draw_list.push(s.texture.id, s.z, instance(t, s)));
+            return;
+        }
+        // SAFETY: `par_for_each_indexed` visits each of the query's `n`
+        // entities exactly once, with indices `0..n`.
+        unsafe {
+            draw_list.extend(n, |slots| {
+                query.par_for_each_indexed(|i, (t, s)| slots.write(i, s.texture.id, s.z, instance(t, s)));
+            });
+        }
     }
 
     // ---------------------------------------------------------------- drawing
@@ -615,6 +658,41 @@ impl Ctx {
     /// ```
     pub fn sprite_count(&self) -> usize {
         self.draw_list.len()
+    }
+
+    /// What drawing the previous frame cost: sprites, draw calls, CPU time
+    /// and GPU time. All zero (and `gpu_ms` is `None`) in headless runs.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// fn overlay(ctx: &mut Ctx) {
+    ///     let stats = ctx.render_stats();
+    ///     if let Some(gpu) = stats.gpu_ms {
+    ///         println!("{} sprites: {:.2} ms CPU, {gpu:.2} ms GPU", stats.sprites, stats.cpu_ms);
+    ///     }
+    /// }
+    /// # Game::new("t", 1, 1).system(overlay).run_headless(1, |_| {});
+    /// ```
+    /// Saves the next frame as a PNG at `path`, once it has been drawn.
+    /// Does nothing in headless runs (there is no frame). Errors are printed.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// fn photo_mode(ctx: &mut Ctx) {
+    ///     if ctx.key_pressed(Key::F12) {
+    ///         ctx.save_screenshot("screenshot.png");
+    ///     }
+    /// }
+    /// # Game::new("t", 1, 1).system(photo_mode).run_headless(1, |_| {});
+    /// ```
+    pub fn save_screenshot(&mut self, path: impl Into<PathBuf>) {
+        if !self.headless {
+            self.queue_screenshot(path.into(), 0, None);
+        }
+    }
+
+    pub fn render_stats(&self) -> RenderStats {
+        self.renderer.as_ref().map(|r| r.stats).unwrap_or_default()
     }
 
     // ---------------------------------------------------------------- timing
@@ -868,6 +946,36 @@ impl Ctx {
     }
 }
 
+/// A screenshot someone asked for: where to save it, and who to tell.
+pub(crate) struct ScreenshotRequest {
+    path: PathBuf,
+    /// Scale down so neither side exceeds this (0: full size).
+    max_size: u32,
+    reply: Option<Sender<Result<Value, String>>>,
+}
+
+fn save_png(path: &Path, shot: &Screenshot, max_size: u32) -> Result<Value, String> {
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        std::fs::create_dir_all(dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
+    }
+    let image = image::RgbaImage::from_raw(shot.width, shot.height, shot.rgba.clone())
+        .ok_or("the captured frame has the wrong size")?;
+    let longest = shot.width.max(shot.height);
+    let image = if max_size > 0 && longest > max_size {
+        let (w, h) = (
+            (u64::from(shot.width) * u64::from(max_size) / u64::from(longest)).max(1) as u32,
+            (u64::from(shot.height) * u64::from(max_size) / u64::from(longest)).max(1) as u32,
+        );
+        image::imageops::resize(&image, w, h, image::imageops::FilterType::Triangle)
+    } else {
+        image
+    };
+    image
+        .save(path)
+        .map_err(|e| format!("could not save the screenshot to {}: {e}", path.display()))?;
+    Ok(serde_json::json!({ "path": path, "width": image.width(), "height": image.height() }))
+}
+
 #[allow(clippy::too_many_arguments)]
 #[inline]
 fn push_sprite(
@@ -880,22 +988,10 @@ fn push_sprite(
     pivot: Vec2,
     color: [u8; 4],
 ) {
-    let (sin, cos) = if rotation == 0.0 {
-        (0.0, 1.0)
-    } else {
-        rotation.sin_cos()
-    };
     draw_list.push(
         texture.id,
         z,
-        SpriteInstance {
-            pos: pos.into(),
-            size: size.into(),
-            pivot: pivot.into(),
-            rot: [cos, sin],
-            uv: [0.0, 0.0, 1.0, 1.0],
-            color,
-        },
+        SpriteInstance::new(pos.into(), size.into(), pivot.into(), rotation, color),
     );
 }
 

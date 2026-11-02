@@ -296,6 +296,31 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     /// ```
     #[cfg(feature = "parallel")]
     pub fn par_for_each(&mut self, f: impl Fn(Q::Item<'_>) + Send + Sync) {
+        self.par_for_each_indexed(|_, item| f(item));
+    }
+
+    /// Like [`par_for_each`](Self::par_for_each), but also passes each
+    /// entity's position in the query, `0..count()`, in the same order as
+    /// [`for_each`](Self::for_each) and [`iter`](Self::iter).
+    ///
+    /// Use it to fill a buffer from all cores: every entity writes its own
+    /// slot, so the result comes out in a stable order.
+    ///
+    /// ```
+    /// # use crabby_ecs::*;
+    /// use std::sync::atomic::{AtomicU32, Ordering};
+    ///
+    /// struct Pos(f32);
+    /// let mut world = World::new();
+    /// world.spawn_batch((0..10_000).map(|i| (Pos(i as f32),)));
+    ///
+    /// let mut query = world.query::<&Pos>();
+    /// let out: Vec<AtomicU32> = (0..query.count()).map(|_| AtomicU32::new(0)).collect();
+    /// query.par_for_each_indexed(|i, p| out[i].store(p.0 as u32 * 2, Ordering::Relaxed));
+    /// assert_eq!(out[1234].load(Ordering::Relaxed), 2468);
+    /// ```
+    #[cfg(feature = "parallel")]
+    pub fn par_for_each_indexed(&mut self, f: impl Fn(usize, Q::Item<'_>) + Send + Sync) {
         use rayon::prelude::*;
 
         /// Rows per parallel task, chosen per archetype: about 4 tasks per
@@ -315,6 +340,8 @@ impl<'w, Q: QueryData> Query<'w, Q> {
         unsafe impl<S> Send for Shared<S> {}
         unsafe impl<S> Sync for Shared<S> {}
 
+        // Position of the archetype's first row in the whole query.
+        let mut base = 0;
         for arch in self.world.archetypes.iter() {
             let len = arch.len();
             if len == 0 || !self.filters.matches(arch) {
@@ -326,18 +353,19 @@ impl<'w, Q: QueryData> Query<'w, Q> {
             let chunk = (len / (threads * 4)).clamp(MIN_CHUNK, MAX_CHUNK);
             if len <= chunk {
                 for row in 0..len {
-                    f(unsafe { Q::fetch(state, row) });
+                    f(base + row, unsafe { Q::fetch(state, row) });
                 }
-                continue;
+            } else {
+                let shared = Shared(state);
+                (0..len.div_ceil(chunk)).into_par_iter().for_each(|c| {
+                    let state = shared;
+                    let end = ((c + 1) * chunk).min(len);
+                    for row in c * chunk..end {
+                        f(base + row, unsafe { Q::fetch(state.0, row) });
+                    }
+                });
             }
-            let shared = Shared(state);
-            (0..len.div_ceil(chunk)).into_par_iter().for_each(|c| {
-                let state = shared;
-                let end = ((c + 1) * chunk).min(len);
-                for row in c * chunk..end {
-                    f(unsafe { Q::fetch(state.0, row) });
-                }
-            });
+            base += len;
         }
     }
 

@@ -282,6 +282,18 @@ fn tools() -> Vec<Tool> {
             required: &[],
         },
         Tool {
+            name: "screenshot",
+            description: "Capture the next frame of a windowed game and return it as an image, to check what the game looks like. Headless games have no frames; launch with headless: false.",
+            writes: false,
+            params: || {
+                json!({
+                    "max_size": { "type": "integer", "minimum": 16, "description": "Scale down so neither side is bigger than this many pixels (default 1024; 0 keeps full size)" },
+                    "path": { "type": "string", "description": "Also keep the PNG here (default: a temp file)" }
+                })
+            },
+            required: &[],
+        },
+        Tool {
             name: "run_ticks",
             description: "Run exactly N simulation ticks (the game should be paused) and wait for them to finish. Returns the new status. Use it to advance a simulation step by step and check results.",
             writes: true,
@@ -466,6 +478,12 @@ impl Server {
                 Err(format!("`{name}` changes the game and this server is read-only"))
             }
             None => Err(format!("unknown tool `{name}`")),
+            Some(_) if name == "screenshot" => {
+                return match self.screenshot(&args) {
+                    Ok(content) => json!({ "content": content, "isError": false }),
+                    Err(e) => json!({ "content": [{ "type": "text", "text": e }], "isError": true }),
+                };
+            }
             Some(_) => self.run_tool(name, &args),
         };
         match result {
@@ -560,6 +578,27 @@ impl Server {
             "quit_instance" => self.instance(args)?.call("game.quit", json!({})),
             _ => Err(format!("unknown tool `{name}`")),
         }
+    }
+
+    /// The `screenshot` tool: the image plus a line saying where it is.
+    fn screenshot(&self, args: &Value) -> Result<Value, String> {
+        let max_size = match args.get("max_size") {
+            None | Some(Value::Null) => 1024,
+            Some(v) => v.as_u64().ok_or("`max_size` must be a whole number")?,
+        };
+        let mut params = json!({ "max_size": max_size });
+        if let Some(path) = args.get("path").filter(|p| !p.is_null()) {
+            params["path"] = path.clone();
+        }
+        let shot = self.instance(args)?.call("screenshot", params)?;
+        let path = shot["path"]
+            .as_str()
+            .ok_or("the game didn't say where it saved the screenshot")?;
+        let png = std::fs::read(path).map_err(|e| format!("could not read {path}: {e}"))?;
+        Ok(json!([
+            { "type": "image", "data": base64(&png), "mimeType": "image/png" },
+            { "type": "text", "text": format!("{}x{} screenshot, saved at {path}", shot["width"], shot["height"]) },
+        ]))
     }
 
     fn run_ticks(&self, args: &Value) -> Result<Value, String> {
@@ -719,9 +758,43 @@ pub fn serve_stdio(config: Config) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Standard base64 with padding (what MCP image content uses).
+fn base64(bytes: &[u8]) -> String {
+    const ABC: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let n = u32::from(b[0]) << 16 | u32::from(b[1]) << 8 | u32::from(b[2]);
+        for k in 0..4 {
+            if k <= chunk.len() {
+                out.push(ABC[(n >> (18 - 6 * k) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn base64_matches_the_rfc_examples() {
+        for (input, want) in [
+            ("", ""),
+            ("f", "Zg=="),
+            ("fo", "Zm8="),
+            ("foo", "Zm9v"),
+            ("foob", "Zm9vYg=="),
+            ("fooba", "Zm9vYmE="),
+            ("foobar", "Zm9vYmFy"),
+        ] {
+            assert_eq!(base64(input.as_bytes()), want);
+        }
+        assert_eq!(base64(&[0xff, 0xfe, 0xfd]), "//79");
+    }
 
     #[test]
     fn discovery_removes_dead_entries_and_nothing_else() {

@@ -44,6 +44,51 @@ pheromone sensing, trail laying, foraging, colony growth.
 | 50k | 1.2 |
 | 1M | 15 |
 
+## Rendering a million sprites
+
+`CRABS=1000000 SCALE=<s> cargo run --release --example bunnymark_ecs`:
+1M bouncing crabs, drawn by the built-in `draw_sprites`. The example prints
+the render stats described below.
+
+| Crab size on screen | FPS | render CPU | GPU |
+|---|---|---|---|
+| 1.6 px (`SCALE=0.05`) | 120 (display cap) | 3.3 ms | 2.4 ms |
+| 8 px (`SCALE=0.25`) | 99 | 3.3 ms | 8.6 ms |
+| 32 px (`SCALE=1`) | 15 | 2.8 ms | 71 ms |
+
+The 32 px row is limited by the GPU filling pixels: on a Retina screen a
+million 32 px crabs are about 4 billion blended pixels per frame. Fewer or
+smaller sprites on screen is the only fix for that; the cost per sprite is
+small (about 1.6 ms of GPU time per million).
+
+What keeps the CPU side small:
+- `draw_sprites` builds the instance data on all cores (1M sprites: 1.1 ms,
+  was 3.4 ms on one core).
+- Each sprite is 28 bytes on the GPU (was 52): the per-frame upload for 1M
+  sprites is 28 MB.
+
+### Is it the CPU or the GPU?
+
+`ctx.render_stats()` tells you what drawing the last frame cost:
+
+```rust
+# use crabbyengine::*;
+fn report(ctx: &mut Ctx) {
+    let r = ctx.render_stats();
+    println!(
+        "{} sprites in {} draw calls: {:.2} ms CPU, GPU {:?} ms",
+        r.sprites, r.draw_calls, r.cpu_ms, r.gpu_ms
+    );
+}
+```
+
+`gpu_ms` is measured on the GPU with timestamp queries, so the frame rate
+the window shows (which the compositor can cap or smooth) can't fool it.
+If `gpu_ms` is close to the frame time, the GPU is the limit: draw fewer
+or smaller sprites. If `cpu_ms` plus your systems' time
+(`ctx.system_timings()`) is close to it, the CPU is. Agents
+get the same numbers from the control endpoint's `info` method.
+
 ## Memory
 
 Speed is half of scale; the other half is what each entity costs. The

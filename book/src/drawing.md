@@ -49,3 +49,9 @@ Coordinates are window pixels, `(0, 0)` at the top-left.
   every frame.
 
 `Texture` is a small `Copy` handle; store it in components freely.
+
+## Screenshots
+
+`ctx.save_screenshot("shot.png")` saves the next frame as a PNG once it
+has been drawn, even while the window is hidden. Headless runs have no
+frames, so it does nothing there.

@@ -129,6 +129,9 @@ fn agents_drive_several_games_through_mcp() {
     let err = agent.tool("world_summary", json!({})).unwrap_err();
     assert!(err.contains("2 games are running"), "{err}");
 
+    let err = agent.tool("screenshot", json!({ "instance": "alpha" })).unwrap_err();
+    assert!(err.contains("no window"), "headless games say why: {err}");
+
     // Drive alpha by name, beta by port.
     let e = agent
         .tool(

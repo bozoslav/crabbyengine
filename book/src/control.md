@@ -70,7 +70,7 @@ headless game waits for requests and runs only the ticks you step.
 | Method | Params | Returns |
 |---|---|---|
 | `methods` | | every method with a description |
-| `info` | | pid, headless, tick, sim time, paused, speed, fps, entity count |
+| `info` | | pid, headless, tick, sim time, paused, speed, fps, entity count, render stats (sprites, draw calls, CPU and GPU ms) |
 | `world.summary` | | entity count, reflected components, archetypes and sizes |
 | `entities.list` | `with?`, `limit?` (100), `offset?` | entities with reflected components as JSON, names of the others |
 | `entity.get` | `entity` | `{component: value}` |
@@ -84,6 +84,7 @@ headless game waits for requests and runs only the ticks you step.
 | `sim.step` | `ticks?` (1) | ticks queued |
 | `sim.speed` | `speed` | |
 | `systems.timings` | | each system's last and average ms |
+| `screenshot` | `path`?, `max_size`? | save the next frame as a PNG (windowed games only); returns `path`, `width`, `height` |
 | `game.quit` | | |
 
 Component values use [reflection](reflection.md): call

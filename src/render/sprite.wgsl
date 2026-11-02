@@ -13,9 +13,8 @@ struct Instance {
     @location(0) pos: vec2<f32>,
     @location(1) size: vec2<f32>,
     @location(2) pivot: vec2<f32>,
-    @location(3) rot: vec2<f32>,   // cos, sin
-    @location(4) uv: vec4<f32>,    // u0, v0, du, dv
-    @location(5) color: vec4<f32>, // sRGB tint
+    @location(3) rotation: f32,    // radians
+    @location(4) color: vec4<f32>, // sRGB tint
 };
 
 struct VertexOut {
@@ -39,14 +38,13 @@ fn vs_main(@builtin(vertex_index) vi: u32, inst: Instance) -> VertexOut {
     let corner = corners[vi];
 
     let local = (corner - inst.pivot) * inst.size;
-    let rotated = vec2<f32>(
-        local.x * inst.rot.x - local.y * inst.rot.y,
-        local.x * inst.rot.y + local.y * inst.rot.x,
-    );
+    let c = cos(inst.rotation);
+    let s = sin(inst.rotation);
+    let rotated = vec2<f32>(local.x * c - local.y * s, local.x * s + local.y * c);
 
     var out: VertexOut;
     out.clip = camera.view_proj * vec4<f32>(inst.pos + rotated, 0.0, 1.0);
-    out.uv = inst.uv.xy + corner * inst.uv.zw;
+    out.uv = corner;
     out.color = vec4<f32>(srgb_to_linear(inst.color.rgb), inst.color.a);
     return out;
 }

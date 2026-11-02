@@ -35,6 +35,9 @@ const SENSE_ANGLE: f32 = 0.6;
 /// Ants see food within this distance, their nest within three times it.
 const SIGHT: f32 = 24.0;
 const NEST_RADIUS: f32 = 16.0;
+/// Trail strength below which food carriers stop following the home trail
+/// and head straight for home instead.
+const FAINT: f32 = 0.05;
 /// Seconds an ant can go without delivering food.
 const LIFESPAN: f32 = 90.0;
 
@@ -147,7 +150,13 @@ fn steer(bounds: Vec2) -> impl FnMut(&mut Ctx) {
                         f.index(at).map_or(-1.0, |i| layer[i])
                     };
                     let (left, ahead, right) = (smell(-SENSE_ANGLE), smell(0.0), smell(SENSE_ANGLE));
-                    if left > ahead && left > right {
+                    if ant.carrying && left.max(ahead).max(right) < FAINT {
+                        // No trail to follow: real ants keep track of where
+                        // home is (path integration) and head that way.
+                        let off = (ant.home_at - p).to_angle() - ant.heading;
+                        let off = (off + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+                        ant.heading += off.clamp(-2.0 * dt, 2.0 * dt);
+                    } else if left > ahead && left > right {
                         ant.heading -= 4.0 * dt;
                     } else if right > ahead && right > left {
                         ant.heading += 4.0 * dt;
