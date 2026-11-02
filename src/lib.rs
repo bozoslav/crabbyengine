@@ -43,6 +43,7 @@ pub use game::{Game, SetupResult};
 pub use input::{Key, MouseButton};
 pub use random::{DEFAULT_SEED, Random, Rng};
 pub use reflect::{ReflectError, WorldReflect};
+pub use render::RenderStats;
 pub use spatial::{GridEntry, SPATIAL_SORT_EVERY, SpatialGrid, rebuild_spatial_grid, spatial_key};
 pub use texture::{DrawParams, Texture};
 

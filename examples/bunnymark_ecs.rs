@@ -4,6 +4,7 @@
 //!
 //!   `cargo run --release --example bunnymark_ecs`
 //!   `CRABS=100000 cargo run --release --example bunnymark_ecs`
+//!   `CRABS=1000000 SCALE=0.25 cargo run --release --example bunnymark_ecs` (smaller crabs: fewer pixels for the GPU to fill)
 //!
 //! - Hold left mouse: add 1,000 crabs per frame
 //! - Escape: quit
@@ -35,6 +36,7 @@ struct Bench {
     worst_ms: f32,
     frame_start: Instant,
     quit_after: f64,
+    scale: f32,
 }
 
 fn env_number(name: &str, default: f64) -> f64 {
@@ -53,7 +55,14 @@ fn spawn(ctx: &mut Ctx, n: usize, at: Vec2) {
             0.6 + r.next_f32() * 0.4,
             0.6 + r.next_f32() * 0.4,
         );
-        batch.push((Transform2D::at(at), Sprite::new(crab).with_color(color), Vel(vel)));
+        batch.push((
+            Transform2D {
+                scale: Vec2::splat(b.scale),
+                ..Transform2D::at(at)
+            },
+            Sprite::new(crab).with_color(color),
+            Vel(vel),
+        ));
     }
     ctx.world.spawn_batch(batch);
 }
@@ -98,7 +107,7 @@ fn report(ctx: &mut Ctx) {
         .filter(|t| !t.name.ends_with("report"))
         .map(|t| t.avg_ms)
         .sum();
-    let (time, count) = (ctx.time(), ctx.world.len());
+    let (time, count, render) = (ctx.time(), ctx.world.len(), ctx.render_stats());
     let b = ctx.world.resource_mut::<Bench>();
     let now = Instant::now();
     let frame_ms = now.duration_since(b.frame_start).as_secs_f32() * 1000.0;
@@ -107,12 +116,14 @@ fn report(ctx: &mut Ctx) {
     b.frames += 1;
     if time >= b.report_at {
         println!(
-            "crabs: {:>8}  fps: {:>6.1}  avg frame: {:>6.2} ms  worst: {:>6.2} ms  update+draw calls: {:>6.2} ms",
+            "crabs: {:>8}  fps: {:>6.1}  avg frame: {:>6.2} ms  worst: {:>6.2} ms  update+draw calls: {:>6.2} ms  render cpu: {:>5.2} ms  gpu: {}",
             count,
             b.frames,
             1000.0 / b.frames as f64,
             b.worst_ms,
             systems_ms,
+            render.cpu_ms,
+            render.gpu_ms.map_or("n/a".into(), |g| format!("{g:.2} ms")),
         );
         b.report_at += 1.0;
         b.frames = 0;
@@ -142,6 +153,7 @@ fn main() {
                 worst_ms: 0.0,
                 frame_start: Instant::now(),
                 quit_after,
+                scale: env_number("SCALE", 1.0) as f32,
             });
             spawn(ctx, start_count, vec2(20.0, 20.0));
         });

@@ -1,6 +1,7 @@
 //! GPU side of rendering: wgpu setup, textures, and the instanced sprite pass.
 
 pub(crate) mod batch;
+mod timer;
 
 use std::sync::Arc;
 
@@ -9,6 +10,26 @@ use winit::window::Window;
 
 use crate::color::Color;
 use batch::{DrawList, SpriteInstance};
+use timer::GpuTimer;
+
+/// What drawing the last frame cost, from [`Ctx::render_stats`](crate::Ctx::render_stats).
+///
+/// Compare `cpu_ms` and `gpu_ms` with the frame time to see what limits the
+/// frame rate: if `gpu_ms` is close to the frame time, the GPU is the
+/// bottleneck (too many pixels or sprites); if neither is, the time goes
+/// into your systems or into waiting for the display.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct RenderStats {
+    /// Sprites drawn.
+    pub sprites: usize,
+    /// GPU draw calls (one per run of sprites sharing a texture).
+    pub draw_calls: usize,
+    /// CPU time spent sorting, batching, uploading and submitting, in ms.
+    pub cpu_ms: f32,
+    /// GPU time of the sprite pass in ms (smoothed), measured with timestamp
+    /// queries. `None` when the GPU doesn't support them, and in headless runs.
+    pub gpu_ms: Option<f32>,
+}
 
 /// What happened when we tried to draw a frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,6 +64,9 @@ pub(crate) struct Renderer {
     instance_buffer: wgpu::Buffer,
     /// Capacity of `instance_buffer`, in sprites.
     instance_capacity: usize,
+
+    timer: Option<GpuTimer>,
+    pub stats: RenderStats,
 }
 
 const INITIAL_INSTANCE_CAPACITY: usize = 1024;
@@ -65,6 +89,7 @@ impl Renderer {
 
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("crabbyengine device"),
+            required_features: adapter.features() & wgpu::Features::TIMESTAMP_QUERY,
             ..Default::default()
         }))
         .unwrap_or_else(|e| panic!("crabbyengine: could not open the GPU device: {e}"));
@@ -133,10 +158,9 @@ impl Renderer {
         let instance_attributes = wgpu::vertex_attr_array![
             0 => Float32x2, // pos
             1 => Float32x2, // size
-            2 => Float32x2, // pivot
-            3 => Float32x2, // rot
-            4 => Float32x4, // uv
-            5 => Unorm8x4,  // color
+            2 => Float16x2, // pivot
+            3 => Float32,   // rotation
+            4 => Unorm8x4,  // color
         ];
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("sprite pipeline"),
@@ -191,6 +215,7 @@ impl Renderer {
         });
 
         let instance_buffer = Self::create_instance_buffer(&device, INITIAL_INSTANCE_CAPACITY);
+        let timer = GpuTimer::new(&device, &queue);
 
         Self {
             window,
@@ -207,6 +232,8 @@ impl Renderer {
             textures: Vec::new(),
             instance_buffer,
             instance_capacity: INITIAL_INSTANCE_CAPACITY,
+            timer,
+            stats: RenderStats::default(),
         }
     }
 
@@ -336,7 +363,13 @@ impl Renderer {
             }
         };
 
+        let cpu_start = std::time::Instant::now();
+        if let Some(timer) = &mut self.timer {
+            timer.collect(&self.device);
+        }
         let (instances, batches) = list.finish();
+        self.stats.sprites = instances.len();
+        self.stats.draw_calls = batches.len();
 
         if instances.len() > self.instance_capacity {
             self.instance_capacity = instances.len().next_power_of_two();
@@ -366,7 +399,7 @@ impl Renderer {
                     },
                 })],
                 depth_stencil_attachment: None,
-                timestamp_writes: None,
+                timestamp_writes: self.timer.as_mut().and_then(GpuTimer::begin),
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
@@ -380,7 +413,15 @@ impl Renderer {
                 }
             }
         }
+        if let Some(timer) = &self.timer {
+            timer.resolve(&mut encoder);
+        }
         self.queue.submit([encoder.finish()]);
+        if let Some(timer) = &mut self.timer {
+            timer.submitted();
+            self.stats.gpu_ms = timer.smoothed_ms;
+        }
+        self.stats.cpu_ms = cpu_start.elapsed().as_secs_f32() * 1000.0;
         self.window.pre_present_notify();
         self.queue.present(frame);
         FrameStatus::Presented

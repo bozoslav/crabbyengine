@@ -269,7 +269,10 @@ fn answer(ctx: &mut Ctx, req: Request) {
 /// Returned by `methods`, so tools can discover them.
 pub(crate) const METHODS: &[(&str, &str)] = &[
     ("methods", "list the methods this endpoint understands"),
-    ("info", "name, pid, tick, sim time, paused, speed, fps, entity count"),
+    (
+        "info",
+        "name, pid, tick, sim time, paused, speed, fps, entity count, render stats (sprites, draw calls, CPU and GPU ms)",
+    ),
     (
         "world.summary",
         "entity count, allocated bytes, reflected components, archetypes with their sizes and bytes per entity",
@@ -356,6 +359,10 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
             "fps": if ctx.headless { Value::Null } else { json!(ctx.fps()) },
             "frame": if ctx.headless { Value::Null } else { json!(ctx.frame()) },
             "entities": ctx.world.len(),
+            "render": if ctx.headless { Value::Null } else {
+                let r = ctx.render_stats();
+                json!({ "sprites": r.sprites, "draw_calls": r.draw_calls, "cpu_ms": r.cpu_ms, "gpu_ms": r.gpu_ms })
+            },
         }),
         "world.summary" => {
             let world = &ctx.world;

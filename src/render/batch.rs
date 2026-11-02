@@ -7,22 +7,77 @@
 
 use bytemuck::{Pod, Zeroable};
 
-/// One sprite as the GPU sees it (one instance of a 6-vertex quad).
+/// One sprite as the GPU sees it (one instance of a 6-vertex quad): 28
+/// bytes, so a million sprites upload 28 MB per frame.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub(crate) struct SpriteInstance {
-    /// Where the pivot lands, in world units.
+    /// Where the pivot lands, in world units. Full `f32`: positions need it.
     pub pos: [f32; 2],
     /// Final size in world units (texture size × scale; may be negative to flip).
     pub size: [f32; 2],
-    /// Pivot inside the sprite, 0..1 (0.5, 0.5 = center).
-    pub pivot: [f32; 2],
-    /// `cos(rotation)`, `sin(rotation)`, precomputed on the CPU.
-    pub rot: [f32; 2],
-    /// Texture region: `u0, v0, du, dv`.
-    pub uv: [f32; 4],
+    /// Pivot inside the sprite (0.5, 0.5 = center), as `f16` bits: plenty
+    /// of precision for a point inside a sprite.
+    pub pivot: [u16; 2],
+    /// Rotation in radians; the vertex shader takes sin and cos.
+    pub rotation: f32,
     /// sRGB tint, 8 bits per channel.
     pub color: [u8; 4],
+}
+
+impl SpriteInstance {
+    #[inline]
+    pub fn new(pos: [f32; 2], size: [f32; 2], pivot: [f32; 2], rotation: f32, color: [u8; 4]) -> Self {
+        // Converting to f16 costs about a nanosecond; skip it for the
+        // center pivot nearly every sprite uses.
+        const HALF: u16 = 0x3800;
+        let pivot = if pivot == [0.5, 0.5] {
+            [HALF; 2]
+        } else {
+            [f16_bits(pivot[0]), f16_bits(pivot[1])]
+        };
+        Self {
+            pos,
+            size,
+            pivot,
+            rotation,
+            color,
+        }
+    }
+}
+
+/// `x` as IEEE half-precision bits, rounded to nearest even. Too big for
+/// `f16` becomes infinity, too small becomes zero.
+#[inline]
+pub(crate) fn f16_bits(x: f32) -> u16 {
+    let b = x.to_bits();
+    let sign = ((b >> 16) & 0x8000) as u16;
+    let exp = ((b >> 23) & 0xff) as i32;
+    let man = b & 0x7f_ffff;
+    if exp == 0xff {
+        return sign | 0x7c00 | if man != 0 { 0x200 } else { 0 };
+    }
+    let e = exp - 127 + 15;
+    if e >= 0x1f {
+        return sign | 0x7c00;
+    }
+    if e <= 0 {
+        if e < -10 {
+            return sign;
+        }
+        let m = man | 0x80_0000;
+        let shift = (14 - e) as u32;
+        let half = m >> shift;
+        let rem = m & ((1 << shift) - 1);
+        let mid = 1 << (shift - 1);
+        let round = (rem > mid || (rem == mid && half & 1 == 1)) as u32;
+        return sign | (half + round) as u16;
+    }
+    let half = ((e as u32) << 10) | (man >> 13);
+    let rem = man & 0x1fff;
+    // A carry out of the mantissa bumps the exponent, which is still right.
+    let round = (rem > 0x1000 || (rem == 0x1000 && half & 1 == 1)) as u32;
+    sign | (half + round) as u16
 }
 
 /// A run of instances that share one texture.
@@ -49,6 +104,38 @@ pub(crate) struct DrawList {
     batches: Vec<Batch>,
 }
 
+/// Room for `n` sprites at the end of a [`DrawList`], to be filled from
+/// many threads at once by [`DrawList::extend`].
+pub(crate) struct Slots {
+    instances: *mut SpriteInstance,
+    textures: *mut u32,
+    zs: *mut f32,
+    n: usize,
+}
+
+// SAFETY: `Slots` only hands out writes to distinct indices (see `write`),
+// and the plain-data values it writes are `Send`.
+unsafe impl Send for Slots {}
+unsafe impl Sync for Slots {}
+
+impl Slots {
+    /// Writes sprite `i`.
+    ///
+    /// # Safety
+    /// `i < n`, and each index is written by exactly one call: no two
+    /// threads may write the same `i`.
+    #[inline]
+    pub unsafe fn write(&self, i: usize, texture: u32, z: f32, instance: SpriteInstance) {
+        debug_assert!(i < self.n);
+        // SAFETY: in bounds of the reserved capacity, and not shared (caller).
+        unsafe {
+            self.instances.add(i).write(instance);
+            self.textures.add(i).write(texture);
+            self.zs.add(i).write(z);
+        }
+    }
+}
+
 /// Maps an `f32` to a `u32` whose unsigned order matches the float order.
 fn z_key(z: f32) -> u32 {
     let bits = z.to_bits();
@@ -56,6 +143,7 @@ fn z_key(z: f32) -> u32 {
 }
 
 impl DrawList {
+    #[inline]
     pub fn push(&mut self, texture: u32, z: f32, instance: SpriteInstance) {
         if let Some(&first_z) = self.zs.first()
             && first_z != z
@@ -65,6 +153,38 @@ impl DrawList {
         self.instances.push(instance);
         self.textures.push(texture);
         self.zs.push(z);
+    }
+
+    /// Appends `n` sprites that `fill` writes through [`Slots::write`],
+    /// typically from `par_for_each_indexed`.
+    ///
+    /// # Safety
+    /// `fill` must write every index in `0..n` exactly once before it
+    /// returns (unwritten slots would be read as uninitialized memory).
+    pub unsafe fn extend(&mut self, n: usize, fill: impl FnOnce(&Slots)) {
+        let start = self.instances.len();
+        self.instances.reserve(n);
+        self.textures.reserve(n);
+        self.zs.reserve(n);
+        let slots = Slots {
+            // SAFETY: `reserve` made room for `n` more elements after `start`.
+            instances: unsafe { self.instances.as_mut_ptr().add(start) },
+            textures: unsafe { self.textures.as_mut_ptr().add(start) },
+            zs: unsafe { self.zs.as_mut_ptr().add(start) },
+            n,
+        };
+        fill(&slots);
+        // SAFETY: the caller wrote all `n` slots; the types are plain data.
+        unsafe {
+            self.instances.set_len(start + n);
+            self.textures.set_len(start + n);
+            self.zs.set_len(start + n);
+        }
+        if !self.needs_sort
+            && let Some(&first_z) = self.zs.first()
+        {
+            self.needs_sort = self.zs[start..].iter().any(|&z| z != first_z);
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -87,7 +207,7 @@ impl DrawList {
         if !self.needs_sort {
             // Fast path (the common case): everything shares one z, so
             // submission order is already the draw order.
-            Self::build_batches(&mut self.batches, self.textures.iter().copied());
+            Self::build_batches(&mut self.batches, &self.textures);
             return (&self.instances, &self.batches);
         }
 
@@ -101,22 +221,48 @@ impl DrawList {
         self.sorted.clear();
         self.sorted
             .extend(self.order.iter().map(|&(_, i)| self.instances[i as usize]));
-        let textures = &self.textures;
-        Self::build_batches(&mut self.batches, self.order.iter().map(|&(_, i)| textures[i as usize]));
+        self.build_sorted_batches();
         (&self.sorted, &self.batches)
     }
 
-    fn build_batches(batches: &mut Vec<Batch>, textures: impl Iterator<Item = u32>) {
-        for (i, texture) in textures.enumerate() {
+    /// Batches for the sorted order (reuses `order`'s texture lookups).
+    fn build_sorted_batches(&mut self) {
+        let textures = &self.textures;
+        let batches = &mut self.batches;
+        let mut run: Option<Batch> = None;
+        for (i, &(_, src)) in self.order.iter().enumerate() {
+            let texture = textures[src as usize];
             let i = i as u32;
-            match batches.last_mut() {
+            match &mut run {
                 Some(b) if b.texture == texture => b.end = i + 1,
-                _ => batches.push(Batch {
-                    texture,
-                    start: i,
-                    end: i + 1,
-                }),
+                _ => {
+                    batches.extend(run);
+                    run = Some(Batch {
+                        texture,
+                        start: i,
+                        end: i + 1,
+                    });
+                }
             }
+        }
+        batches.extend(run);
+    }
+
+    /// One batch per run of equal textures, in order.
+    fn build_batches(batches: &mut Vec<Batch>, textures: &[u32]) {
+        let mut start = 0;
+        while start < textures.len() {
+            let texture = textures[start];
+            let len = textures[start..]
+                .iter()
+                .position(|&t| t != texture)
+                .unwrap_or(textures.len() - start);
+            batches.push(Batch {
+                texture,
+                start: start as u32,
+                end: (start + len) as u32,
+            });
+            start += len;
         }
     }
 }
@@ -126,14 +272,121 @@ mod tests {
     use super::*;
 
     fn inst(tag: f32) -> SpriteInstance {
-        SpriteInstance {
-            pos: [tag, 0.0],
-            size: [1.0, 1.0],
-            pivot: [0.5, 0.5],
-            rot: [1.0, 0.0],
-            uv: [0.0, 0.0, 1.0, 1.0],
-            color: [255; 4],
+        SpriteInstance::new([tag, 0.0], [1.0, 1.0], [0.5, 0.5], 0.0, [255; 4])
+    }
+
+    #[test]
+    fn extend_fills_from_many_threads() {
+        use rayon::prelude::*;
+        let mut list = DrawList::default();
+        list.push(1, 0.0, inst(-1.0));
+        let n = 50_000;
+        // SAFETY: every index in 0..n is written once.
+        unsafe {
+            list.extend(n, |slots| {
+                (0..n).into_par_iter().for_each(|i| {
+                    let texture = if i < 100 { 1 } else { 2 };
+                    slots.write(i, texture, 0.0, inst(i as f32));
+                });
+            });
         }
+        let (instances, batches) = list.finish();
+        assert_eq!(instances.len(), n + 1);
+        assert_eq!(instances[0].pos[0], -1.0);
+        assert!(instances[1..].iter().enumerate().all(|(i, s)| s.pos[0] == i as f32));
+        assert_eq!(
+            batches,
+            &[
+                Batch {
+                    texture: 1,
+                    start: 0,
+                    end: 101
+                },
+                Batch {
+                    texture: 2,
+                    start: 101,
+                    end: n as u32 + 1
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn extend_notices_a_second_z() {
+        let mut list = DrawList::default();
+        list.push(1, 0.0, inst(0.0));
+        // SAFETY: both indices written once.
+        unsafe {
+            list.extend(2, |slots| {
+                slots.write(0, 1, 0.0, inst(1.0));
+                slots.write(1, 1, -1.0, inst(2.0));
+            });
+        }
+        let (instances, _) = list.finish();
+        assert_eq!(tags(instances), [2.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn instances_are_28_bytes() {
+        assert_eq!(size_of::<SpriteInstance>(), 28);
+    }
+
+    #[test]
+    fn the_center_pivot_shortcut_matches_the_conversion() {
+        let fast = SpriteInstance::new([0.0; 2], [1.0; 2], [0.5, 0.5], 0.0, [0; 4]);
+        assert_eq!(fast.pivot, [f16_bits(0.5); 2]);
+        let slow = SpriteInstance::new([0.0; 2], [1.0; 2], [0.0, 1.0], 0.0, [0; 4]);
+        assert_eq!(slow.pivot, [f16_bits(0.0), f16_bits(1.0)]);
+    }
+
+    #[test]
+    fn f16_conversion_matches_ieee() {
+        for (x, bits) in [
+            (0.0, 0x0000),
+            (-0.0, 0x8000),
+            (1.0, 0x3c00),
+            (0.5, 0x3800),
+            (-2.0, 0xc000),
+            (32.0, 0x5000),
+            (65504.0, 0x7bff),
+            (1e6, 0x7c00),
+            (f32::INFINITY, 0x7c00),
+            (2f32.powi(-24), 0x0001), // smallest subnormal
+            (2f32.powi(-14), 0x0400), // smallest normal
+            (1e-9, 0x0000),
+            (1.0 + 2f32.powi(-11), 0x3c00), // halfway: rounds to even
+            (1.0 + 3.0 * 2f32.powi(-11), 0x3c02),
+        ] {
+            assert_eq!(f16_bits(x), bits, "{x}");
+        }
+        assert_eq!(f16_bits(f32::NAN) & 0x7c00, 0x7c00);
+        assert_ne!(f16_bits(f32::NAN) & 0x3ff, 0);
+    }
+
+    #[test]
+    fn a_late_z_change_keeps_earlier_batches() {
+        let mut list = DrawList::default();
+        list.push(1, 0.0, inst(0.0));
+        list.push(2, 0.0, inst(1.0));
+        list.push(2, 0.0, inst(2.0));
+        list.push(1, -1.0, inst(3.0)); // sorts first
+        let (instances, batches) = list.finish();
+        assert_eq!(tags(instances), [3.0, 0.0, 1.0, 2.0]);
+        assert_eq!(
+            batches,
+            &[
+                Batch {
+                    texture: 1,
+                    start: 0,
+                    end: 2
+                },
+                Batch {
+                    texture: 2,
+                    start: 2,
+                    end: 4
+                },
+            ]
+        );
     }
 
     fn tags(instances: &[SpriteInstance]) -> Vec<f32> {

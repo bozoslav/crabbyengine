@@ -8,7 +8,7 @@ use crate::color::Color;
 use crate::ecs::{Sprite, Transform2D};
 use crate::input::{Input, Key, MouseButton};
 use crate::render::batch::{DrawList, SpriteInstance};
-use crate::render::{FrameStatus, Renderer};
+use crate::render::{FrameStatus, RenderStats, Renderer};
 use crate::spatial::SpatialGrid;
 use crate::texture::{DrawParams, Texture};
 use crate::time::FrameTiming;
@@ -429,19 +429,31 @@ impl Ctx {
 
     /// Queues every `(Transform2D, Sprite)` entity for drawing.
     pub(crate) fn draw_world_sprites(&mut self) {
-        let draw_list = &mut self.draw_list;
-        self.world.query::<(&Transform2D, &Sprite)>().for_each(|(t, s)| {
-            push_sprite(
-                draw_list,
-                &s.texture,
-                t.position,
-                s.texture.size() * t.scale,
+        /// Below this many sprites, one thread is faster than many.
+        const PARALLEL_MIN: usize = 20_000;
+        fn instance(t: &Transform2D, s: &Sprite) -> SpriteInstance {
+            SpriteInstance::new(
+                t.position.into(),
+                (s.texture.size() * t.scale).into(),
+                s.pivot.into(),
                 t.rotation,
-                s.z,
-                s.pivot,
                 s.color.to_rgba8(),
-            );
-        });
+            )
+        }
+        let draw_list = &mut self.draw_list;
+        let mut query = self.world.query::<(&Transform2D, &Sprite)>();
+        let n = query.count();
+        if n < PARALLEL_MIN {
+            query.for_each(|(t, s)| draw_list.push(s.texture.id, s.z, instance(t, s)));
+            return;
+        }
+        // SAFETY: `par_for_each_indexed` visits each of the query's `n`
+        // entities exactly once, with indices `0..n`.
+        unsafe {
+            draw_list.extend(n, |slots| {
+                query.par_for_each_indexed(|i, (t, s)| slots.write(i, s.texture.id, s.z, instance(t, s)));
+            });
+        }
     }
 
     // ---------------------------------------------------------------- drawing
@@ -615,6 +627,23 @@ impl Ctx {
     /// ```
     pub fn sprite_count(&self) -> usize {
         self.draw_list.len()
+    }
+
+    /// What drawing the previous frame cost: sprites, draw calls, CPU time
+    /// and GPU time. All zero (and `gpu_ms` is `None`) in headless runs.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// fn overlay(ctx: &mut Ctx) {
+    ///     let stats = ctx.render_stats();
+    ///     if let Some(gpu) = stats.gpu_ms {
+    ///         println!("{} sprites: {:.2} ms CPU, {gpu:.2} ms GPU", stats.sprites, stats.cpu_ms);
+    ///     }
+    /// }
+    /// # Game::new("t", 1, 1).system(overlay).run_headless(1, |_| {});
+    /// ```
+    pub fn render_stats(&self) -> RenderStats {
+        self.renderer.as_ref().map(|r| r.stats).unwrap_or_default()
     }
 
     // ---------------------------------------------------------------- timing
@@ -880,22 +909,10 @@ fn push_sprite(
     pivot: Vec2,
     color: [u8; 4],
 ) {
-    let (sin, cos) = if rotation == 0.0 {
-        (0.0, 1.0)
-    } else {
-        rotation.sin_cos()
-    };
     draw_list.push(
         texture.id,
         z,
-        SpriteInstance {
-            pos: pos.into(),
-            size: size.into(),
-            pivot: pivot.into(),
-            rot: [cos, sin],
-            uv: [0.0, 0.0, 1.0, 1.0],
-            color,
-        },
+        SpriteInstance::new(pos.into(), size.into(), pivot.into(), rotation, color),
     );
 }
 
