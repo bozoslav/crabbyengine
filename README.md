@@ -7,8 +7,7 @@ millions of entities on all CPU cores, a pausable fixed-rate simulation clock,
 spatial queries, and headless runs for tests and servers. A 2D camera, text
 and simple UI come built in, and AI agents can drive running games through
 an MCP server (inspect, step, screenshot). Games can be written in Rust or
-C++ (a header-only C++17 wrapper over a C API), with the same speed on the
-hot paths.
+C++ (a header-only C++17 wrapper over a C API) at close to the same speed.
 
 **Documentation:** [the guide](https://bozoslav.github.io/crabbyengine/)
 (searchable) and the [API reference](https://bozoslav.github.io/crabbyengine/api/crabbyengine/).

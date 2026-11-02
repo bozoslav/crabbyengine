@@ -64,4 +64,6 @@ MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-ignore-leaks" cargo +nightly miri test --t
 - No per-frame heap allocations in steady state on hot paths.
 - Every `unsafe` block needs a test that exercises it.
 - Public API: simple first. One obvious way to do each thing.
+- Guide examples come in Rust and C++, side by side: wrap the pair in `<div class="lang-pair">` (see `book/theme/lang-pair.css`), with the C++ snippet pulled from `examples/cpp/guide.cpp` (compiled and run by the native CI job). If C++ can't do it yet, the chapter says so.
+- New engine features get a C API (`crates/crabby_ffi`) and a C++ wrapper (`include/crabby.hpp`) in the same PR when they're part of writing games, unless that's much bigger than the feature; then say so in the PR.
 - Docs ship with the feature: a PR that adds or changes how games are written updates the guide in `book/src/` in the same PR (check with `mdbook build book`). Code that the guide shows from examples is pulled in with `{{#include}}` anchors, so it can't go stale.
