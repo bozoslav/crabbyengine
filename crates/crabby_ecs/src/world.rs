@@ -223,6 +223,52 @@ impl World {
         Query::new(self)
     }
 
+    /// Reorders entities in memory so that, within each archetype that has
+    /// component `T`, rows are sorted by `key(&T)` (ascending; ties keep no
+    /// particular order). Handles and component values don't change, only
+    /// the order queries visit them in.
+    ///
+    /// Use it to put entities that are processed together next to each
+    /// other: sorting by a spatial cell key every few dozen ticks makes
+    /// neighbor queries hit the CPU cache instead of main memory.
+    ///
+    /// ```
+    /// # use crabby_ecs::*;
+    /// struct Pos(f32);
+    /// let mut world = World::new();
+    /// for x in [3.0, 1.0, 2.0] {
+    ///     world.spawn((Pos(x),));
+    /// }
+    /// world.sort_by::<Pos>(|p| p.0 as u64);
+    /// let order: Vec<f32> = world.query::<&Pos>().iter().map(|p| p.0).collect();
+    /// assert_eq!(order, [1.0, 2.0, 3.0]);
+    /// ```
+    pub fn sort_by<T: Component>(&mut self, key: impl Fn(&T) -> u64 + Sync) {
+        let Some(id) = self.component_id::<T>() else { return };
+        let mut keyed: Vec<(u64, u32)> = Vec::new();
+        for a in 0..self.archetypes.len() {
+            let arch = &self.archetypes[a];
+            let Some(base) = arch.column_ptr(id) else { continue };
+            let len = arch.len();
+            if len < 2 {
+                continue;
+            }
+            let values = unsafe { std::slice::from_raw_parts(base as *const T, len) };
+            keyed.clear();
+            keyed.extend(values.iter().enumerate().map(|(row, v)| (key(v), row as u32)));
+            if keyed.windows(2).all(|w| w[0].0 <= w[1].0) {
+                continue; // already in order
+            }
+            sort_keys(&mut keyed);
+            let perm: Vec<u32> = keyed.iter().map(|&(_, row)| row).collect();
+            let arch = &mut self.archetypes[a];
+            arch.permute(&perm);
+            for (row, &e) in arch.entities.iter().enumerate() {
+                self.entities.set_row(e, row);
+            }
+        }
+    }
+
     // ---- resources -----------------------------------------------------------
 
     /// Stores a global value (game settings, a random generator, the score...),
@@ -579,6 +625,16 @@ impl World {
         );
         new_row
     }
+}
+
+fn sort_keys(keyed: &mut [(u64, u32)]) {
+    #[cfg(feature = "parallel")]
+    if keyed.len() > 50_000 {
+        use rayon::slice::ParallelSliceMut;
+        keyed.par_sort_unstable_by_key(|k| k.0);
+        return;
+    }
+    keyed.sort_unstable_by_key(|k| k.0);
 }
 
 #[cold]
