@@ -11,6 +11,8 @@ use std::time::Instant;
 
 use crabbyengine::*;
 
+/// Reflected, so tools and agents (crabby-mcp) can read and change velocities.
+#[derive(serde::Serialize, serde::Deserialize)]
 struct Vel(Vec2);
 
 const RADIUS: f32 = 24.0;
@@ -85,6 +87,7 @@ fn controls(ctx: &mut Ctx) {
 }
 
 fn spawn_boids(ctx: &mut Ctx, n: usize, bounds: Vec2) {
+    ctx.world.reflect::<Vel>();
     let tex = ctx.load_texture("crab.png");
     let mut s = 0x9E37_79B9_7F4A_7C15u64;
     let mut rand = move || {

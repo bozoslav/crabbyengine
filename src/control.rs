@@ -344,8 +344,9 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
             "paused": ctx.is_paused(),
             "speed": ctx.sim_speed(),
             "fixed_dt": ctx.fixed_dt(),
-            "fps": ctx.fps(),
-            "frame": ctx.frame(),
+            // Headless games have no frames, so no frame rate.
+            "fps": if ctx.headless { Value::Null } else { json!(ctx.fps()) },
+            "frame": if ctx.headless { Value::Null } else { json!(ctx.frame()) },
             "entities": ctx.world.len(),
         }),
         "world.summary" => {
@@ -448,6 +449,8 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
         "systems.timings" => Value::Array(
             ctx.system_timings()
                 .iter()
+                // Headless games run only simulation systems.
+                .filter(|t| t.sim || !ctx.headless)
                 .map(|t| json!({ "name": t.name, "sim": t.sim, "last_ms": t.last_ms, "avg_ms": t.avg_ms }))
                 .collect(),
         ),
@@ -546,6 +549,41 @@ mod tests {
         handle(&mut ctx, "sim.speed", &json!({ "speed": 4.0 })).unwrap();
         assert_eq!(ctx.sim_speed(), 4.0);
         assert!(handle(&mut ctx, "sim.speed", &json!({ "speed": -1.0 })).is_err());
+    }
+
+    #[test]
+    fn headless_games_report_no_frames_and_only_sim_timings() {
+        let mut ctx = ctx();
+        ctx.headless = true;
+        ctx.timings = vec![
+            crate::SystemTiming {
+                name: "sim",
+                sim: true,
+                last_ms: 1.0,
+                avg_ms: 1.0,
+            },
+            crate::SystemTiming {
+                name: "draw",
+                sim: false,
+                last_ms: 0.0,
+                avg_ms: 0.0,
+            },
+        ];
+        let info = handle(&mut ctx, "info", &json!({})).unwrap();
+        assert_eq!((info["fps"].clone(), info["frame"].clone()), (Value::Null, Value::Null));
+        let timings = handle(&mut ctx, "systems.timings", &json!({})).unwrap();
+        assert_eq!(timings.as_array().unwrap().len(), 1);
+        assert_eq!(timings[0]["name"], "sim");
+        ctx.headless = false;
+        assert!(handle(&mut ctx, "info", &json!({})).unwrap()["fps"].is_number());
+        assert_eq!(
+            handle(&mut ctx, "systems.timings", &json!({}))
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
     }
 
     #[test]
