@@ -62,10 +62,11 @@ fn main() {
         });
     let secs = setup_done.elapsed().as_secs_f64();
     println!(
-        "{ticks} ticks in {:.2} s: {:.0} ticks/s, {:.2} ms/tick ({} entities)",
+        "{ticks} ticks in {:.2} s: {:.0} ticks/s, {:.2} ms/tick ({} entities, {:.0} bytes/entity allocated)",
         secs,
         ticks as f64 / secs,
         secs * 1e3 / ticks as f64,
-        world.len()
+        world.len(),
+        world.allocated_bytes() as f64 / world.len().max(1) as f64
     );
 }

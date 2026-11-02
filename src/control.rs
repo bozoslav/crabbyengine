@@ -272,7 +272,7 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
     ("info", "name, pid, tick, sim time, paused, speed, fps, entity count"),
     (
         "world.summary",
-        "entity count, reflected components, archetypes with their sizes",
+        "entity count, allocated bytes, reflected components, archetypes with their sizes and bytes per entity",
     ),
     (
         "entities.list",
@@ -369,11 +369,12 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
                         .iter()
                         .map(|&id| short(world.component_info(id).name()))
                         .collect();
-                    json!({ "components": names, "entities": a.len() })
+                    json!({ "components": names, "entities": a.len(), "bytes_per_entity": a.bytes_per_entity() })
                 })
                 .collect();
             json!({
                 "entities": world.len(),
+                "allocated_bytes": world.allocated_bytes(),
                 "reflected_components": world.reflected_components(),
                 "archetypes": archetypes,
             })

@@ -44,6 +44,18 @@ pheromone sensing, trail laying, foraging, colony growth.
 | 50k | 1.2 |
 | 1M | 15 |
 
+## Memory
+
+Speed is half of scale; the other half is what each entity costs. The
+headless example prints it: 1M agents with `Transform2D`, `Sprite` and a
+small `Agent` component take **76 bytes per entity** allocated, spare
+capacity included.
+
+From code, `world.allocated_bytes()` is the total for all component data,
+and `Archetype::bytes_per_entity()` is what one more entity of that exact
+component set costs. Agents get both from the control endpoint's
+`world.summary` (the MCP `world_summary` tool).
+
 ## Rules the engine follows
 
 - No heap allocation per frame in steady state on hot paths.
@@ -56,4 +68,6 @@ pheromone sensing, trail laying, foraging, colony growth.
 - Use `--release`. Always.
 - Prefer `for_each`/`par_for_each` over `iter()` for big queries.
 - Spawn with `spawn_batch`.
-- Run expensive logic every Nth tick with `ctx.sim_tick()`.
+- Run expensive logic at a reduced rate with `sim_system_every(n, system)`,
+  or spread per-entity work over ticks with `ctx.turns(n)` (see
+  [The simulation clock](sim-clock.md)).

@@ -142,6 +142,23 @@ impl World {
         true
     }
 
+    /// Memory held for entity data: component columns and handles of every
+    /// archetype, including spare capacity. Doesn't count resources or the
+    /// world's bookkeeping (per-slot generation, archetype index).
+    ///
+    /// ```
+    /// use crabby_ecs::World;
+    ///
+    /// struct Pos(f32, f32);
+    /// let mut world = World::new();
+    /// world.spawn_batch((0..1000).map(|i| (Pos(i as f32, 0.0),)));
+    /// // 8 bytes of Pos + 8 bytes of entity handle each, at least.
+    /// assert!(world.allocated_bytes() >= 1000 * 16);
+    /// ```
+    pub fn allocated_bytes(&self) -> usize {
+        self.archetypes.iter().map(Archetype::allocated_bytes).sum()
+    }
+
     /// Despawns every entity. Resources stay.
     ///
     /// ```
