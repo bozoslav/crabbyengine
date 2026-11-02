@@ -89,6 +89,9 @@ jobs:
           - ffi-unit
           - ffi-abi
           - ffi-game
+          - ffi-media
+          - ffi-reflect
+          - ffi-tiles
           - doctests
           - bench
         include:
