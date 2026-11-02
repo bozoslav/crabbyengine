@@ -119,6 +119,9 @@ jobs:
   miri:
     name: Miri (${{ matrix.name }})
     runs-on: ubuntu-latest
+    # Miri interprets every instruction; tests shrink their sizes under
+    # cfg(miri). The timeout catches a regression instead of hanging CI.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
