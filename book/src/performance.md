@@ -29,9 +29,20 @@ cores vs 57.6 ms on one.
 
 | Boids | ms per tick |
 |---|---|
-| 20k | 1.1 |
-| 100k | 3.8 |
-| 1M | ~41 |
+| 20k | 0.9 |
+| 100k | 3.7 |
+| 1M | ~33 |
+
+## Ant colonies (whole game loop)
+
+`HEADLESS=1 ANTS=<n> cargo run --release --example ants`: steering with
+pheromone sensing, trail laying, foraging, colony growth.
+
+| Ants | ms per tick |
+|---|---|
+| 5k | 0.22 |
+| 50k | 1.2 |
+| 1M | 15 |
 
 ## Rules the engine follows
 

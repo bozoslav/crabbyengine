@@ -12,6 +12,7 @@ spatial queries, and headless runs for tests and servers.
 ```sh
 cargo run --release --example boids
 HEADLESS=1 BOIDS=1000000 cargo run --release --example boids
+cargo run --release --example ants
 ```
 
 Contributing (humans and agents): see [AGENTS.md](AGENTS.md).

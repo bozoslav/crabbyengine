@@ -19,6 +19,7 @@ cargo run --release --example boids
 | `ecs` | Entities, components and systems, with sim controls |
 | `bunnymark` / `bunnymark_ecs` | Sprite throughput, immediate mode vs ECS |
 | `boids` | Flocking with a spatial grid on all cores |
+| `ants` | Ant colonies: pheromone trails, foraging, growth; up to millions of ants |
 | `headless` | A million agents with no window or GPU |
 
 Always use `--release` for anything with many entities; debug builds are

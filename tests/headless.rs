@@ -198,3 +198,22 @@ fn turns_of_zero_panics() {
         ctx.turns(0);
     });
 }
+
+// ---------------------------------------------------------------- textures
+
+#[test]
+fn update_texture_works_headless() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        let tex = ctx.create_texture(2, 2, &[0; 16]);
+        ctx.update_texture(&tex, &[255; 16]);
+    });
+}
+
+#[test]
+#[should_panic(expected = "a 2 x 2 texture needs 16 bytes of RGBA, got 4")]
+fn update_texture_checks_the_size() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        let tex = ctx.create_texture(2, 2, &[0; 16]);
+        ctx.update_texture(&tex, &[0; 4]);
+    });
+}

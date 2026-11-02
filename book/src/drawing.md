@@ -43,4 +43,9 @@ Coordinates are window pixels, `(0, 0)` at the top-left.
 - `ctx.load_texture("path.png")` loads an image file.
 - `ctx.create_texture(w, h, &rgba)` makes one from pixels.
 
+- `ctx.update_texture(&tex, &rgba)` replaces a texture's pixels, for
+  images that change while the game runs (a minimap, a heat map, a
+  simulated field). The ants example draws its pheromone field this way
+  every frame.
+
 `Texture` is a small `Copy` handle; store it in components freely.

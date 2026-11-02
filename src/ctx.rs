@@ -572,6 +572,39 @@ impl Ctx {
         Texture::new(id, width, height)
     }
 
+    /// Replaces every pixel of `texture` with `rgba` (same size as it was
+    /// created with, 4 bytes per pixel). For images that change while the
+    /// game runs: a minimap, a heat map, a simulated field. Cheap enough to
+    /// do every frame for textures up to a few megapixels.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// let mut pixels = vec![0u8; 64 * 64 * 4];
+    /// let heat = ctx.create_texture(64, 64, &pixels);
+    /// pixels[0..4].copy_from_slice(&[255, 0, 0, 255]); // top-left pixel red
+    /// ctx.update_texture(&heat, &pixels);
+    /// # }
+    /// ```
+    ///
+    /// # Panics
+    /// If `rgba` isn't `width * height * 4` bytes.
+    #[track_caller]
+    pub fn update_texture(&mut self, texture: &Texture, rgba: &[u8]) {
+        let (w, h) = (texture.width(), texture.height());
+        let expected = w as usize * h as usize * 4;
+        assert_eq!(
+            rgba.len(),
+            expected,
+            "crabbyengine: a {w} x {h} texture needs {expected} bytes of RGBA, got {}",
+            rgba.len()
+        );
+        if self.headless {
+            return;
+        }
+        self.renderer().update_texture(texture.id, w, h, rgba);
+    }
+
     /// How many sprites have been drawn so far this frame.
     ///
     /// ```
