@@ -215,6 +215,23 @@ impl Game {
         self
     }
 
+    /// One frame of game logic: simulation systems `fixed_steps` times, then
+    /// frame systems. Commands are applied after every system.
+    fn run_systems(&mut self, ctx: &mut Ctx, fixed_steps: u32) {
+        ctx.set_in_sim(true);
+        for _ in 0..fixed_steps {
+            for s in &mut self.sim_systems {
+                (s.run)(ctx);
+                ctx.apply_commands();
+            }
+        }
+        ctx.set_in_sim(false);
+        for s in &mut self.systems {
+            (s.run)(ctx);
+            ctx.apply_commands();
+        }
+    }
+
     /// Opens the window and runs the game until it is closed.
     ///
     /// `setup` runs once, after the window exists. It can spawn entities into
@@ -305,19 +322,7 @@ where
 
         let timing = self.clock.advance(frame_dt);
         self.ctx.begin_frame(timing);
-        let ctx = &mut self.ctx;
-        ctx.set_in_sim(true);
-        for _ in 0..timing.fixed_steps {
-            for s in &mut self.config.sim_systems {
-                (s.run)(ctx);
-                ctx.apply_commands();
-            }
-        }
-        ctx.set_in_sim(false);
-        for s in &mut self.config.systems {
-            (s.run)(ctx);
-            ctx.apply_commands();
-        }
+        self.config.run_systems(&mut self.ctx, timing.fixed_steps);
         self.ctx.input.end_frame();
 
         if self.ctx.quit_requested() {
@@ -460,5 +465,80 @@ where
         } else {
             event_loop.set_control_flow(ControlFlow::Wait);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Log(Vec<String>);
+    struct Marker;
+
+    fn ctx() -> Ctx {
+        let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(800.0, 600.0));
+        ctx.world.insert_resource(Log(Vec::new()));
+        ctx
+    }
+
+    fn log(ctx: &mut Ctx, s: &str) {
+        let line = format!("{s} dt={:.4}", ctx.dt());
+        ctx.world.resource_mut::<Log>().0.push(line);
+    }
+
+    fn sim_a(ctx: &mut Ctx) {
+        log(ctx, "sim_a");
+    }
+    fn frame_b(ctx: &mut Ctx) {
+        log(ctx, "frame_b");
+    }
+
+    #[test]
+    fn order_and_dt() {
+        let mut game = Game::new("t", 1, 1).sim_system(sim_a).system(frame_b).remove_system(draw_sprites);
+        let mut ctx = ctx();
+        game.run_systems(&mut ctx, 2);
+        assert_eq!(ctx.world.resource::<Log>().0, ["sim_a dt=0.0167", "sim_a dt=0.0167", "frame_b dt=0.0000"]);
+    }
+
+    #[test]
+    fn commands_apply_between_systems() {
+        fn spawner(ctx: &mut Ctx) {
+            ctx.commands.spawn((Marker,));
+        }
+        fn counter(ctx: &mut Ctx) {
+            let n = ctx.world.query::<&Marker>().count();
+            ctx.world.resource_mut::<Log>().0.push(n.to_string());
+        }
+        let mut game = Game::new("t", 1, 1).system(spawner).system(counter);
+        let mut ctx = ctx();
+        game.run_systems(&mut ctx, 0);
+        game.run_systems(&mut ctx, 0);
+        assert_eq!(ctx.world.resource::<Log>().0, ["1", "2"]);
+    }
+
+    #[test]
+    fn remove_system_removes_builtin_and_user_systems() {
+        let game = Game::new("t", 1, 1).sim_system(sim_a).remove_system(draw_sprites).remove_system(sim_a);
+        assert!(game.systems.is_empty() && game.sim_systems.is_empty());
+    }
+
+    #[test]
+    #[should_panic(expected = "no system")]
+    fn removing_unknown_system_panics() {
+        let _ = Game::new("t", 1, 1).remove_system(sim_a);
+    }
+
+    #[test]
+    fn draw_sprites_queues_world_sprites() {
+        let mut game = Game::new("t", 1, 1);
+        let mut ctx = ctx();
+        let tex = crate::texture::Texture::new(0, 16, 16);
+        for i in 0..10 {
+            ctx.world.spawn((crate::Transform2D::at(Vec2::splat(i as f32)), crate::Sprite::new(tex)));
+        }
+        ctx.world.spawn((crate::Transform2D::default(),)); // no sprite: not drawn
+        game.run_systems(&mut ctx, 0);
+        assert_eq!(ctx.sprite_count(), 10);
     }
 }
