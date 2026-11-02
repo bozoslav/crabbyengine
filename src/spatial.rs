@@ -271,6 +271,21 @@ impl<T: Copy + Send + Sync> SpatialGrid<T> {
         cells > self.entries.len() as i64
     }
 
+    /// The grid's arrays, for language bindings that walk the grid inline
+    /// (the C++ header). Valid until the next rebuild.
+    #[doc(hidden)]
+    pub fn raw_view(&self) -> RawGridView<'_, T> {
+        RawGridView {
+            entries: &self.entries,
+            cells: &self.cells,
+            starts: &self.starts,
+            inv_cell: self.inv_cell,
+            bucket_mask: self.buckets_of.mask as u64,
+            x_bits: self.buckets_of.x_bits,
+            y_bits: self.buckets_of.y_bits,
+        }
+    }
+
     /// Calls `f` for every entity within `radius` of `center` (inclusive).
     pub fn for_each_in_radius(&self, center: Vec2, radius: f32, mut f: impl FnMut(&GridEntry<T>)) {
         if self.entries.is_empty() || radius.is_nan() || radius < 0.0 {
@@ -414,6 +429,21 @@ fn pack(cx: i32, cy: i32) -> u64 {
 /// tiles (a long line of entities, say) spread over all buckets instead of
 /// piling into a few. XOR with a constant keeps aligned blocks of buckets
 /// together, so locality survives it.
+/// See [`SpatialGrid::raw_view`]. Entry `i` lives in cell `cells[i]`
+/// (`(cx as u32) << 32 | cy as u32`); bucket `b` holds entries
+/// `starts[b]..starts[b + 1]`.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy)]
+pub struct RawGridView<'a, T> {
+    pub entries: &'a [GridEntry<T>],
+    pub cells: &'a [u64],
+    pub starts: &'a [u32],
+    pub inv_cell: f32,
+    pub bucket_mask: u64,
+    pub x_bits: u32,
+    pub y_bits: u32,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct Buckets {
     /// Bucket count minus one (bucket count is a power of two).

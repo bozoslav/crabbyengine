@@ -37,4 +37,4 @@ header = """
 parse_deps = false
 [export]
 exclude = ["Failure"]
-include = ["CrabbyKey", "CrabbyMouseButton"]
+include = ["CrabbyKey", "CrabbyMouseButton", "CrabbyTransform2D", "CrabbySprite"]

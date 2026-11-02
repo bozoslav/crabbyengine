@@ -87,57 +87,79 @@ fn reject(g: Game, message: &'static str) -> (Game, Result<(), Failure>) {
     (g, Err(invalid(message)))
 }
 
-macro_rules! setting {
-    ($(#[$doc:meta])* $name:ident($arg:ident: $ty:ty) |$g:ident| $body:expr) => {
-        $(#[$doc])*
-        /// # Safety
-        /// `game` must be null or a live game.
-        #[unsafe(no_mangle)]
-        pub unsafe extern "C" fn $name(game: *mut CrabbyGame, $arg: $ty) -> CrabbyStatus {
-            // SAFETY: forwarded caller contract.
-            unsafe { build(game, |$g| $body) }
-        }
-    };
-}
-setting!(
-    /// Simulation ticks per second (default 60). Must be at least 1.
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_game_fixed_hz(std::ptr::null_mut(), 30) } as u32, 1);
-    /// ```
-    crabby_game_fixed_hz(hz: u32) |g| if hz == 0 { reject(g, "hz must be at least 1") } else { ok(g.fixed_hz(hz)) }
-);
-setting!(
-    /// Seed of `crabby_ctx_random_bits` streams (runs with the same seed repeat exactly).
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_game_seed(std::ptr::null_mut(), 7) } as u32, 1);
-    /// ```
-    crabby_game_seed(seed: u64) |g| ok(g.seed(seed))
-);
-setting!(
-    /// Wait for the display between frames (default on).
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_game_vsync(std::ptr::null_mut(), false) } as u32, 1);
-    /// ```
-    crabby_game_vsync(on: bool) |g| ok(g.vsync(on))
-);
-setting!(
-    /// Turns on the built-in spatial grid with cells of `cell_size`, rebuilt
-    /// from every `Transform2D` at the start of each tick (`crabby_ctx_spatial_*`).
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_game_spatial_grid(std::ptr::null_mut(), 32.0) } as u32, 1);
-    /// ```
-    crabby_game_spatial_grid(cell_size: f32) |g| {
-        if cell_size > 0.0 && cell_size.is_finite() { ok(g.spatial_grid(cell_size)) } else { reject(g, "cell size must be positive") }
+/// Simulation ticks per second (default 60). Must be at least 1.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_game_fixed_hz(std::ptr::null_mut(), 30) } as u32, 1);
+/// ```
+/// # Safety
+/// `game` must be null or a live game.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_game_fixed_hz(game: *mut CrabbyGame, hz: u32) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe {
+        build(game, |g| {
+            if hz == 0 {
+                reject(g, "hz must be at least 1")
+            } else {
+                ok(g.fixed_hz(hz))
+            }
+        })
     }
-);
-setting!(
-    /// Opens the control endpoint for tools and agents (crabby-mcp); also on
-    /// with `CRABBY_CONTROL=1`.
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_game_control_endpoint(std::ptr::null_mut(), true) } as u32, 1);
-    /// ```
-    crabby_game_control_endpoint(on: bool) |g| ok(g.control_endpoint(on))
-);
+}
+/// Seed of `crabby_ctx_random_bits` streams (runs with the same seed repeat exactly).
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_game_seed(std::ptr::null_mut(), 7) } as u32, 1);
+/// ```
+/// # Safety
+/// `game` must be null or a live game.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_game_seed(game: *mut CrabbyGame, seed: u64) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe { build(game, |g| ok(g.seed(seed))) }
+}
+/// Wait for the display between frames (default on).
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_game_vsync(std::ptr::null_mut(), false) } as u32, 1);
+/// ```
+/// # Safety
+/// `game` must be null or a live game.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_game_vsync(game: *mut CrabbyGame, on: bool) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe { build(game, |g| ok(g.vsync(on))) }
+}
+/// Turns on the built-in spatial grid with cells of `cell_size`, rebuilt
+/// from every `Transform2D` at the start of each tick (`crabby_ctx_spatial_*`).
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_game_spatial_grid(std::ptr::null_mut(), 32.0) } as u32, 1);
+/// ```
+/// # Safety
+/// `game` must be null or a live game.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_game_spatial_grid(game: *mut CrabbyGame, cell_size: f32) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe {
+        build(game, |g| {
+            if cell_size > 0.0 && cell_size.is_finite() {
+                ok(g.spatial_grid(cell_size))
+            } else {
+                reject(g, "cell size must be positive")
+            }
+        })
+    }
+}
+/// Opens the control endpoint for tools and agents (crabby-mcp); also on
+/// with `CRABBY_CONTROL=1`.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_game_control_endpoint(std::ptr::null_mut(), true) } as u32, 1);
+/// ```
+/// # Safety
+/// `game` must be null or a live game.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_game_control_endpoint(game: *mut CrabbyGame, on: bool) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe { build(game, |g| ok(g.control_endpoint(on))) }
+}
 
 /// Systems are named by `&'static str`, so C names are interned: each
 /// distinct name is stored once for the life of the program.

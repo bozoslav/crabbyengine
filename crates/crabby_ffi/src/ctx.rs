@@ -143,79 +143,127 @@ unsafe fn text<'a>(ptr: *const c_char) -> Result<&'a str, Failure> {
         .map_err(|_| invalid("string is not UTF-8"))
 }
 
-macro_rules! snapshot {
-    ($(#[$doc:meta])* $name:ident -> $ty:ty = $field:ident) => {
-        $(#[$doc])*
-        /// Returns 0 for a null ctx. Safe to call from any thread during the callback.
-        /// # Safety
-        /// `ctx` must be null or live.
-        #[unsafe(no_mangle)]
-        pub unsafe extern "C" fn $name(ctx: *const CrabbyCtx) -> $ty {
-            if ctx.is_null() {
-                return Default::default();
-            }
-            // SAFETY: live ctx; snapshot fields are never written after creation.
-            unsafe { (*ctx).$field }
-        }
-    };
+/// Seconds this system covers: the fixed step in sim systems, the frame time otherwise.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_dt(std::ptr::null()) }, 0.0);
+/// ```
+/// Returns 0 for a null ctx. Safe to call from any thread during the callback.
+/// # Safety
+/// `ctx` must be null or live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_dt(ctx: *const CrabbyCtx) -> f32 {
+    if ctx.is_null() {
+        return Default::default();
+    }
+    // SAFETY: live ctx; snapshot fields are never written after creation.
+    unsafe { (*ctx).dt }
 }
-snapshot!(
-    /// Seconds this system covers: the fixed step in sim systems, the frame time otherwise.
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_dt(std::ptr::null()) }, 0.0);
-    /// ```
-    crabby_ctx_dt -> f32 = dt
-);
-snapshot!(
-    /// Simulation ticks completed so far.
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_sim_tick(std::ptr::null()) }, 0);
-    /// ```
-    crabby_ctx_sim_tick -> u64 = sim_tick
-);
-snapshot!(
-    /// Simulated seconds so far (exact: ticks × fixed step).
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_sim_time(std::ptr::null()) }, 0.0);
-    /// ```
-    crabby_ctx_sim_time -> f64 = sim_time
-);
-snapshot!(
-    /// Wall-clock seconds since the game started.
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_time(std::ptr::null()) }, 0.0);
-    /// ```
-    crabby_ctx_time -> f64 = time
-);
-snapshot!(
-    /// Frames drawn so far.
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_frame(std::ptr::null()) }, 0);
-    /// ```
-    crabby_ctx_frame -> u64 = frame
-);
-snapshot!(
-    /// Frames per second, averaged.
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_fps(std::ptr::null()) }, 0.0);
-    /// ```
-    crabby_ctx_fps -> f32 = fps
-);
-snapshot!(
-    /// Base of this tick and system's random streams (Rust `ctx.random().to_bits()`).
-    /// The C++ header's `crabby::rng` derives the same numbers as Rust from it.
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_random_bits(std::ptr::null()) }, 0);
-    /// ```
-    crabby_ctx_random_bits -> u64 = random_bits
-);
-snapshot!(
-    /// Window size in pixels.
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_window_size(std::ptr::null()) }.x, 0.0);
-    /// ```
-    crabby_ctx_window_size -> CrabbyVec2 = window
-);
+/// Simulation ticks completed so far.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_sim_tick(std::ptr::null()) }, 0);
+/// ```
+/// Returns 0 for a null ctx. Safe to call from any thread during the callback.
+/// # Safety
+/// `ctx` must be null or live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_sim_tick(ctx: *const CrabbyCtx) -> u64 {
+    if ctx.is_null() {
+        return Default::default();
+    }
+    // SAFETY: live ctx; snapshot fields are never written after creation.
+    unsafe { (*ctx).sim_tick }
+}
+/// Simulated seconds so far (exact: ticks × fixed step).
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_sim_time(std::ptr::null()) }, 0.0);
+/// ```
+/// Returns 0 for a null ctx. Safe to call from any thread during the callback.
+/// # Safety
+/// `ctx` must be null or live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_sim_time(ctx: *const CrabbyCtx) -> f64 {
+    if ctx.is_null() {
+        return Default::default();
+    }
+    // SAFETY: live ctx; snapshot fields are never written after creation.
+    unsafe { (*ctx).sim_time }
+}
+/// Wall-clock seconds since the game started.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_time(std::ptr::null()) }, 0.0);
+/// ```
+/// Returns 0 for a null ctx. Safe to call from any thread during the callback.
+/// # Safety
+/// `ctx` must be null or live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_time(ctx: *const CrabbyCtx) -> f64 {
+    if ctx.is_null() {
+        return Default::default();
+    }
+    // SAFETY: live ctx; snapshot fields are never written after creation.
+    unsafe { (*ctx).time }
+}
+/// Frames drawn so far.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_frame(std::ptr::null()) }, 0);
+/// ```
+/// Returns 0 for a null ctx. Safe to call from any thread during the callback.
+/// # Safety
+/// `ctx` must be null or live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_frame(ctx: *const CrabbyCtx) -> u64 {
+    if ctx.is_null() {
+        return Default::default();
+    }
+    // SAFETY: live ctx; snapshot fields are never written after creation.
+    unsafe { (*ctx).frame }
+}
+/// Frames per second, averaged.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_fps(std::ptr::null()) }, 0.0);
+/// ```
+/// Returns 0 for a null ctx. Safe to call from any thread during the callback.
+/// # Safety
+/// `ctx` must be null or live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_fps(ctx: *const CrabbyCtx) -> f32 {
+    if ctx.is_null() {
+        return Default::default();
+    }
+    // SAFETY: live ctx; snapshot fields are never written after creation.
+    unsafe { (*ctx).fps }
+}
+/// Base of this tick and system's random streams (Rust `ctx.random().to_bits()`).
+/// The C++ header's `crabby::rng` derives the same numbers as Rust from it.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_random_bits(std::ptr::null()) }, 0);
+/// ```
+/// Returns 0 for a null ctx. Safe to call from any thread during the callback.
+/// # Safety
+/// `ctx` must be null or live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_random_bits(ctx: *const CrabbyCtx) -> u64 {
+    if ctx.is_null() {
+        return Default::default();
+    }
+    // SAFETY: live ctx; snapshot fields are never written after creation.
+    unsafe { (*ctx).random_bits }
+}
+/// Window size in pixels.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_window_size(std::ptr::null()) }.x, 0.0);
+/// ```
+/// Returns 0 for a null ctx. Safe to call from any thread during the callback.
+/// # Safety
+/// `ctx` must be null or live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_window_size(ctx: *const CrabbyCtx) -> CrabbyVec2 {
+    if ctx.is_null() {
+        return Default::default();
+    }
+    // SAFETY: live ctx; snapshot fields are never written after creation.
+    unsafe { (*ctx).window }
+}
 
 /// The world of this context. Valid until the callback returns; never free it.
 /// # Safety
@@ -232,184 +280,329 @@ pub unsafe extern "C" fn crabby_ctx_world(ctx: *mut CrabbyCtx) -> *mut CrabbyWor
     unsafe { &raw mut (*ctx).world }
 }
 
-macro_rules! ctx_call {
-    ($(#[$doc:meta])* $name:ident($($arg:ident: $ty:ty),*) |$c:ident| $body:expr) => {
-        $(#[$doc])*
-        /// # Safety
-        /// `ctx` must be null or live; pointer arguments must be valid.
-        #[unsafe(no_mangle)]
-        pub unsafe extern "C" fn $name(ctx: *mut CrabbyCtx $(, $arg: $ty)*) -> CrabbyStatus {
-            // SAFETY: forwarded caller contract.
-            boundary(|| unsafe { ctx_access(ctx, |$c| $body) })
-        }
-    };
+/// Ends the game after this frame (or the headless run after this tick).
+/// ```
+/// use crabby_ffi::*;
+/// assert_eq!(unsafe { crabby_ctx_quit(std::ptr::null_mut()) }, CrabbyStatus::CRABBY_INVALID_ARGUMENT);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; pointer arguments must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_quit(ctx: *mut CrabbyCtx) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            c.quit();
+            Ok(())
+        })
+    })
 }
-
-ctx_call!(
-    /// Ends the game after this frame (or the headless run after this tick).
-    /// ```
-    /// use crabby_ffi::*;
-    /// assert_eq!(unsafe { crabby_ctx_quit(std::ptr::null_mut()) }, CrabbyStatus::CRABBY_INVALID_ARGUMENT);
-    /// ```
-    crabby_ctx_quit() |c| { c.quit(); Ok(()) }
-);
-ctx_call!(
-    /// Pauses the simulation (frame systems keep running).
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_pause(std::ptr::null_mut()) } as u32, 1);
-    /// ```
-    crabby_ctx_pause() |c| { c.pause(); Ok(()) }
-);
-ctx_call!(
-    /// Resumes a paused simulation.
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_resume(std::ptr::null_mut()) } as u32, 1);
-    /// ```
-    crabby_ctx_resume() |c| { c.resume(); Ok(()) }
-);
-ctx_call!(
-    /// Runs one simulation tick while paused.
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_step(std::ptr::null_mut()) } as u32, 1);
-    /// ```
-    crabby_ctx_step() |c| { c.step(); Ok(()) }
-);
-ctx_call!(
-    /// Simulation speed multiplier (1..64); results don't depend on it.
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_sim_speed(std::ptr::null_mut(), 2.0) } as u32, 1);
-    /// ```
-    crabby_ctx_set_sim_speed(speed: f32) |c| {
-        if !speed.is_finite() { return Err(invalid("speed must be finite")); }
-        c.set_sim_speed(speed); Ok(())
-    }
-);
-ctx_call!(
-    /// Current simulation speed.
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_sim_speed(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
-    /// ```
-    crabby_ctx_sim_speed(out_speed: *mut f32) |c| out(out_speed, c.sim_speed())
-);
-ctx_call!(
-    /// Whether the simulation is paused.
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_is_paused(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
-    /// ```
-    crabby_ctx_is_paused(out_paused: *mut bool) |c| out(out_paused, c.is_paused())
-);
-
-macro_rules! input {
-    ($(#[$doc:meta])* $name:ident, $conv:ident, $method:ident) => {
-        ctx_call!(
-            $(#[$doc])*
-            $name(input: u32, out_state: *mut bool) |c| {
-                let input = $conv(input).ok_or_else(|| invalid("unknown key or mouse button"))?;
-                out(out_state, c.$method(input))
+/// Pauses the simulation (frame systems keep running).
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_pause(std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; pointer arguments must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_pause(ctx: *mut CrabbyCtx) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            c.pause();
+            Ok(())
+        })
+    })
+}
+/// Resumes a paused simulation.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_resume(std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; pointer arguments must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_resume(ctx: *mut CrabbyCtx) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            c.resume();
+            Ok(())
+        })
+    })
+}
+/// Runs one simulation tick while paused.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_step(std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; pointer arguments must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_step(ctx: *mut CrabbyCtx) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            c.step();
+            Ok(())
+        })
+    })
+}
+/// Simulation speed multiplier (1..64); results don't depend on it.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_sim_speed(std::ptr::null_mut(), 2.0) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; pointer arguments must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_sim_speed(ctx: *mut CrabbyCtx, speed: f32) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            if !speed.is_finite() {
+                return Err(invalid("speed must be finite"));
             }
-        );
-    };
+            c.set_sim_speed(speed);
+            Ok(())
+        })
+    })
 }
-input!(
-    /// Whether a key (`CrabbyKey`) is held.
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_key_down(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
-    /// ```
-    crabby_ctx_key_down, key_from_c, key_down
-);
-input!(
-    /// Whether a key went down this frame.
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_key_pressed(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
-    /// ```
-    crabby_ctx_key_pressed, key_from_c, key_pressed
-);
-input!(
-    /// Whether a key went up this frame.
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_key_released(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
-    /// ```
-    crabby_ctx_key_released, key_from_c, key_released
-);
-input!(
-    /// Whether a mouse button (`CrabbyMouseButton`) is held.
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_mouse_down(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
-    /// ```
-    crabby_ctx_mouse_down, button_from_c, mouse_down
-);
-input!(
-    /// Whether a mouse button went down this frame.
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_mouse_pressed(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
-    /// ```
-    crabby_ctx_mouse_pressed, button_from_c, mouse_pressed
-);
-input!(
-    /// Whether a mouse button went up this frame.
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_mouse_released(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
-    /// ```
-    crabby_ctx_mouse_released, button_from_c, mouse_released
-);
-ctx_call!(
-    /// Mouse position in window pixels.
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_mouse_pos(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
-    /// ```
-    crabby_ctx_mouse_pos(out_pos: *mut CrabbyVec2) |c| out(out_pos, to_c(c.mouse_pos()))
-);
-ctx_call!(
-    /// Mouse position in world units (through the camera).
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_mouse_world(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
-    /// ```
-    crabby_ctx_mouse_world(out_pos: *mut CrabbyVec2) |c| out(out_pos, to_c(c.mouse_world()))
-);
-ctx_call!(
-    /// Scroll this frame (lines; positive y = away from the user).
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_mouse_wheel(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
-    /// ```
-    crabby_ctx_mouse_wheel(out_wheel: *mut CrabbyVec2) |c| out(out_wheel, to_c(c.mouse_wheel()))
-);
+/// Current simulation speed.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_sim_speed(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; pointer arguments must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_sim_speed(ctx: *mut CrabbyCtx, out_speed: *mut f32) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_speed, c.sim_speed())) })
+}
+/// Whether the simulation is paused.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_is_paused(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; pointer arguments must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_is_paused(ctx: *mut CrabbyCtx, out_paused: *mut bool) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_paused, c.is_paused())) })
+}
 
-ctx_call!(
-    /// Loads a PNG/JPEG texture (cached by path). Headless runs return a
-    /// size-only handle. Errors (missing file) come back as a failed status.
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_load_texture(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
-    /// ```
-    crabby_ctx_load_texture(path: *const c_char, out_texture: *mut CrabbyTexture) |c| {
-        let path = text(path)?;
-        if out_texture.is_null() { return Err(invalid("output is null")); }
-        out(out_texture, texture_to_c(c.load_texture(path)))
-    }
-);
-ctx_call!(
-    /// Makes a texture from `width * height * 4` RGBA bytes.
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_create_texture(std::ptr::null_mut(), 1, 1, std::ptr::null(), 4, std::ptr::null_mut()) } as u32, 1);
-    /// ```
-    crabby_ctx_create_texture(width: u32, height: u32, rgba: *const u8, len: usize, out_texture: *mut CrabbyTexture) |c| {
-        let pixels = pixels(width, height, rgba, len)?;
-        if out_texture.is_null() { return Err(invalid("output is null")); }
-        out(out_texture, texture_to_c(c.create_texture(width, height, pixels)))
-    }
-);
-ctx_call!(
-    /// Replaces a texture's pixels (same size, `width * height * 4` bytes).
-    /// ```
-    /// use crabby_ffi::*;
-    /// let t = CrabbyTexture { id: 0, width: 1, height: 1 };
-    /// assert_eq!(unsafe { crabby_ctx_update_texture(std::ptr::null_mut(), t, std::ptr::null(), 4) } as u32, 1);
-    /// ```
-    crabby_ctx_update_texture(texture: CrabbyTexture, rgba: *const u8, len: usize) |c| {
-        let pixels = pixels(texture.width, texture.height, rgba, len)?;
-        c.update_texture(&texture_from_c(texture), pixels);
-        Ok(())
-    }
-);
+/// Whether a key (`CrabbyKey`) is held.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_key_down(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; `out_state` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_key_down(ctx: *mut CrabbyCtx, input: u32, out_state: *mut bool) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let input = key_from_c(input).ok_or_else(|| invalid("unknown key or mouse button"))?;
+            out(out_state, c.key_down(input))
+        })
+    })
+}
+/// Whether a key went down this frame.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_key_pressed(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; `out_state` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_key_pressed(ctx: *mut CrabbyCtx, input: u32, out_state: *mut bool) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let input = key_from_c(input).ok_or_else(|| invalid("unknown key or mouse button"))?;
+            out(out_state, c.key_pressed(input))
+        })
+    })
+}
+/// Whether a key went up this frame.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_key_released(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; `out_state` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_key_released(
+    ctx: *mut CrabbyCtx,
+    input: u32,
+    out_state: *mut bool,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let input = key_from_c(input).ok_or_else(|| invalid("unknown key or mouse button"))?;
+            out(out_state, c.key_released(input))
+        })
+    })
+}
+/// Whether a mouse button (`CrabbyMouseButton`) is held.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_mouse_down(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; `out_state` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_mouse_down(ctx: *mut CrabbyCtx, input: u32, out_state: *mut bool) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let input = button_from_c(input).ok_or_else(|| invalid("unknown key or mouse button"))?;
+            out(out_state, c.mouse_down(input))
+        })
+    })
+}
+/// Whether a mouse button went down this frame.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_mouse_pressed(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; `out_state` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_mouse_pressed(
+    ctx: *mut CrabbyCtx,
+    input: u32,
+    out_state: *mut bool,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let input = button_from_c(input).ok_or_else(|| invalid("unknown key or mouse button"))?;
+            out(out_state, c.mouse_pressed(input))
+        })
+    })
+}
+/// Whether a mouse button went up this frame.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_mouse_released(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; `out_state` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_mouse_released(
+    ctx: *mut CrabbyCtx,
+    input: u32,
+    out_state: *mut bool,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let input = button_from_c(input).ok_or_else(|| invalid("unknown key or mouse button"))?;
+            out(out_state, c.mouse_released(input))
+        })
+    })
+}
+/// Mouse position in window pixels.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_mouse_pos(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; pointer arguments must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_mouse_pos(ctx: *mut CrabbyCtx, out_pos: *mut CrabbyVec2) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_pos, to_c(c.mouse_pos()))) })
+}
+/// Mouse position in world units (through the camera).
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_mouse_world(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; pointer arguments must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_mouse_world(ctx: *mut CrabbyCtx, out_pos: *mut CrabbyVec2) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_pos, to_c(c.mouse_world()))) })
+}
+/// Scroll this frame (lines; positive y = away from the user).
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_mouse_wheel(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; pointer arguments must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_mouse_wheel(ctx: *mut CrabbyCtx, out_wheel: *mut CrabbyVec2) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_wheel, to_c(c.mouse_wheel()))) })
+}
+
+/// Loads a PNG/JPEG texture (cached by path). Headless runs return a
+/// size-only handle. Errors (missing file) come back as a failed status.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_load_texture(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; pointer arguments must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_load_texture(
+    ctx: *mut CrabbyCtx,
+    path: *const c_char,
+    out_texture: *mut CrabbyTexture,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let path = text(path)?;
+            if out_texture.is_null() {
+                return Err(invalid("output is null"));
+            }
+            out(out_texture, texture_to_c(c.load_texture(path)))
+        })
+    })
+}
+/// Makes a texture from `width * height * 4` RGBA bytes.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_create_texture(std::ptr::null_mut(), 1, 1, std::ptr::null(), 4, std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; pointer arguments must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_create_texture(
+    ctx: *mut CrabbyCtx,
+    width: u32,
+    height: u32,
+    rgba: *const u8,
+    len: usize,
+    out_texture: *mut CrabbyTexture,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let pixels = pixels(width, height, rgba, len)?;
+            if out_texture.is_null() {
+                return Err(invalid("output is null"));
+            }
+            out(out_texture, texture_to_c(c.create_texture(width, height, pixels)))
+        })
+    })
+}
+/// Replaces a texture's pixels (same size, `width * height * 4` bytes).
+/// ```
+/// use crabby_ffi::*;
+/// let t = CrabbyTexture { id: 0, width: 1, height: 1 };
+/// assert_eq!(unsafe { crabby_ctx_update_texture(std::ptr::null_mut(), t, std::ptr::null(), 4) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; pointer arguments must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_update_texture(
+    ctx: *mut CrabbyCtx,
+    texture: CrabbyTexture,
+    rgba: *const u8,
+    len: usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let pixels = pixels(texture.width, texture.height, rgba, len)?;
+            c.update_texture(&texture_from_c(texture), pixels);
+            Ok(())
+        })
+    })
+}
 
 fn pixels<'a>(width: u32, height: u32, rgba: *const u8, len: usize) -> Result<&'a [u8], Failure> {
     let expected = (width as usize)
@@ -422,60 +615,116 @@ fn pixels<'a>(width: u32, height: u32, rgba: *const u8, len: usize) -> Result<&'
     Ok(unsafe { std::slice::from_raw_parts(rgba, len) })
 }
 
-ctx_call!(
-    /// Background color for this frame.
-    /// ```
-    /// use crabby_ffi::*;
-    /// let black = CrabbyColor { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
-    /// assert_eq!(unsafe { crabby_ctx_clear(std::ptr::null_mut(), black) } as u32, 1);
-    /// ```
-    crabby_ctx_clear(color: CrabbyColor) |c| { c.clear(to_c(color)); Ok(()) }
-);
-ctx_call!(
-    /// Draws a texture centered at `pos` (world units) this frame.
-    /// ```
-    /// use crabby_ffi::*;
-    /// let t = CrabbyTexture { id: 0, width: 1, height: 1 };
-    /// assert_eq!(unsafe { crabby_ctx_draw(std::ptr::null_mut(), t, CrabbyVec2::default()) } as u32, 1);
-    /// ```
-    crabby_ctx_draw(texture: CrabbyTexture, pos: CrabbyVec2) |c| {
-        c.draw(&texture_from_c(texture), to_c(pos)); Ok(())
-    }
-);
-ctx_call!(
-    /// Draws a texture with options (start from `crabby_draw_params_default()`).
-    /// ```
-    /// use crabby_ffi::*;
-    /// let t = CrabbyTexture { id: 0, width: 1, height: 1 };
-    /// assert_eq!(unsafe { crabby_ctx_draw_ex(std::ptr::null_mut(), t, CrabbyVec2::default(), std::ptr::null()) } as u32, 1);
-    /// ```
-    crabby_ctx_draw_ex(texture: CrabbyTexture, pos: CrabbyVec2, params: *const CrabbyDrawParams) |c| {
-        if params.is_null() { return Err(invalid("params is null")); }
-        c.draw_ex(&texture_from_c(texture), to_c(pos), draw_params_from_c(&*params)); Ok(())
-    }
-);
-ctx_call!(
-    /// Draws UTF-8 text with its top-left at `pos`, `size` pixels tall, in window pixels.
-    /// ```
-    /// use crabby_ffi::*;
-    /// let white = CrabbyColor { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
-    /// assert_eq!(unsafe { crabby_ctx_draw_text(std::ptr::null_mut(), c"hi".as_ptr(), CrabbyVec2::default(), 16.0, white) } as u32, 1);
-    /// ```
-    crabby_ctx_draw_text(string: *const c_char, pos: CrabbyVec2, size: f32, color: CrabbyColor) |c| {
-        c.draw_text(text(string)?, to_c(pos), size, to_c(color)); Ok(())
-    }
-);
-ctx_call!(
-    /// Size in pixels that `crabby_ctx_draw_text` would cover.
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_measure_text(std::ptr::null_mut(), c"hi".as_ptr(), 16.0, std::ptr::null_mut()) } as u32, 1);
-    /// ```
-    crabby_ctx_measure_text(string: *const c_char, size: f32, out_size: *mut CrabbyVec2) |c| {
-        let string = text(string)?;
-        if out_size.is_null() { return Err(invalid("output is null")); }
-        out(out_size, to_c(c.measure_text(string, size)))
-    }
-);
+/// Background color for this frame.
+/// ```
+/// use crabby_ffi::*;
+/// let black = CrabbyColor { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
+/// assert_eq!(unsafe { crabby_ctx_clear(std::ptr::null_mut(), black) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; pointer arguments must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_clear(ctx: *mut CrabbyCtx, color: CrabbyColor) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            c.clear(to_c(color));
+            Ok(())
+        })
+    })
+}
+/// Draws a texture centered at `pos` (world units) this frame.
+/// ```
+/// use crabby_ffi::*;
+/// let t = CrabbyTexture { id: 0, width: 1, height: 1 };
+/// assert_eq!(unsafe { crabby_ctx_draw(std::ptr::null_mut(), t, CrabbyVec2::default()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; pointer arguments must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_draw(ctx: *mut CrabbyCtx, texture: CrabbyTexture, pos: CrabbyVec2) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            c.draw(&texture_from_c(texture), to_c(pos));
+            Ok(())
+        })
+    })
+}
+/// Draws a texture with options (start from `crabby_draw_params_default()`).
+/// ```
+/// use crabby_ffi::*;
+/// let t = CrabbyTexture { id: 0, width: 1, height: 1 };
+/// assert_eq!(unsafe { crabby_ctx_draw_ex(std::ptr::null_mut(), t, CrabbyVec2::default(), std::ptr::null()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; pointer arguments must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_draw_ex(
+    ctx: *mut CrabbyCtx,
+    texture: CrabbyTexture,
+    pos: CrabbyVec2,
+    params: *const CrabbyDrawParams,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            if params.is_null() {
+                return Err(invalid("params is null"));
+            }
+            c.draw_ex(&texture_from_c(texture), to_c(pos), draw_params_from_c(&*params));
+            Ok(())
+        })
+    })
+}
+/// Draws UTF-8 text with its top-left at `pos`, `size` pixels tall, in window pixels.
+/// ```
+/// use crabby_ffi::*;
+/// let white = CrabbyColor { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
+/// assert_eq!(unsafe { crabby_ctx_draw_text(std::ptr::null_mut(), c"hi".as_ptr(), CrabbyVec2::default(), 16.0, white) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; pointer arguments must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_draw_text(
+    ctx: *mut CrabbyCtx,
+    string: *const c_char,
+    pos: CrabbyVec2,
+    size: f32,
+    color: CrabbyColor,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            c.draw_text(text(string)?, to_c(pos), size, to_c(color));
+            Ok(())
+        })
+    })
+}
+/// Size in pixels that `crabby_ctx_draw_text` would cover.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_measure_text(std::ptr::null_mut(), c"hi".as_ptr(), 16.0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; pointer arguments must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_measure_text(
+    ctx: *mut CrabbyCtx,
+    string: *const c_char,
+    size: f32,
+    out_size: *mut CrabbyVec2,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let string = text(string)?;
+            if out_size.is_null() {
+                return Err(invalid("output is null"));
+            }
+            out(out_size, to_c(c.measure_text(string, size)))
+        })
+    })
+}
 
 /// The camera: which world point is at the window's top-left, and the zoom
 /// (window pixels per world unit).
@@ -492,46 +741,53 @@ pub struct CrabbyCamera {
     pub zoom: f32,
 }
 
-ctx_call!(
-    /// Reads the camera.
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_camera(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
-    /// ```
-    crabby_ctx_camera(out_camera: *mut CrabbyCamera) |c| {
-        out(out_camera, CrabbyCamera { position: to_c(c.camera.position), zoom: c.camera.zoom })
-    }
-);
-ctx_call!(
-    /// Moves or zooms the camera. Zoom must be positive.
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_camera(std::ptr::null_mut(), std::ptr::null()) } as u32, 1);
-    /// ```
-    crabby_ctx_set_camera(camera: *const CrabbyCamera) |c| {
-        if camera.is_null() { return Err(invalid("camera is null")); }
-        let camera = *camera;
-        if !(camera.zoom > 0.0 && camera.zoom.is_finite()) { return Err(invalid("zoom must be positive")); }
-        c.camera.position = to_c(camera.position);
-        c.camera.zoom = camera.zoom;
-        Ok(())
-    }
-);
+/// Reads the camera.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_camera(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; pointer arguments must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_camera(ctx: *mut CrabbyCtx, out_camera: *mut CrabbyCamera) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            out(
+                out_camera,
+                CrabbyCamera {
+                    position: to_c(c.camera.position),
+                    zoom: c.camera.zoom,
+                },
+            )
+        })
+    })
+}
+/// Moves or zooms the camera. Zoom must be positive.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_camera(std::ptr::null_mut(), std::ptr::null()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; pointer arguments must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_camera(ctx: *mut CrabbyCtx, camera: *const CrabbyCamera) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            if camera.is_null() {
+                return Err(invalid("camera is null"));
+            }
+            let camera = *camera;
+            if !(camera.zoom > 0.0 && camera.zoom.is_finite()) {
+                return Err(invalid("zoom must be positive"));
+            }
+            c.camera.position = to_c(camera.position);
+            c.camera.zoom = camera.zoom;
+            Ok(())
+        })
+    })
+}
 
 // ---- commands -----------------------------------------------------------------
-
-macro_rules! command {
-    ($(#[$doc:meta])* $name:ident($($arg:ident: $ty:ty),*) |$c:ident| $body:expr) => {
-        $(#[$doc])*
-        /// Works inside `crabby_query` callbacks (not `crabby_query_par`).
-        /// Applied after the system returns.
-        /// # Safety
-        /// `ctx` must be null or live; pointer arguments must be valid.
-        #[unsafe(no_mangle)]
-        pub unsafe extern "C" fn $name(ctx: *mut CrabbyCtx $(, $arg: $ty)*) -> CrabbyStatus {
-            // SAFETY: forwarded caller contract.
-            boundary(|| unsafe { commands(ctx, |$c| $body) })
-        }
-    };
-}
 
 /// Values copied out of C memory for a later spawn or insert.
 struct Owned {
@@ -575,60 +831,117 @@ fn report(what: &str, failure: Failure) {
     eprintln!("crabby: {what} skipped: {}", failure.1);
 }
 
-command!(
-    /// Despawns `entity` after this system (stale entities are ignored).
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_despawn_later(std::ptr::null_mut(), 0) } as u32, 1);
-    /// ```
-    crabby_ctx_despawn_later(entity: u64) |c| { c.despawn(Entity::from_bits(entity)); Ok(()) }
-);
-command!(
-    /// Spawns an entity with copies of `values` after this system. Values
-    /// are checked when applied; bad ones skip the spawn with a message on stderr.
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_spawn_later(std::ptr::null_mut(), std::ptr::null(), 0) } as u32, 1);
-    /// ```
-    crabby_ctx_spawn_later(values: *const CrabbyValue, count: usize) |c| {
-        if values.is_null() && count != 0 { return Err(invalid("values is null")); }
-        let owned = if count == 0 { Owned::copy(&[])? } else { Owned::copy(std::slice::from_raw_parts(values, count))? };
-        c.add(move |w| {
-            // SAFETY: the values point into `owned`, which lives until this returns.
-            if let Err(f) = spawn_values(w, &owned.values()) { report("spawn_later", f) }
-        });
-        Ok(())
-    }
-);
-command!(
-    /// Adds or replaces a component of `entity` after this system.
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_later(std::ptr::null_mut(), 0, std::ptr::null()) } as u32, 1);
-    /// ```
-    crabby_ctx_set_later(entity: u64, value: *const CrabbyValue) |c| {
-        if value.is_null() { return Err(invalid("value is null")); }
-        let owned = Owned::copy(std::slice::from_raw_parts(value, 1))?;
-        c.add(move |w| {
-            let v = owned.values()[0];
-            let applied = crate::value_layout(w, v.component, v.data, v.size)
-                // SAFETY: layout validated against the world just now.
-                .map(|(id, kind): (_, Kind)| insert_value(w, Entity::from_bits(entity), id, kind, v.data));
-            if let Err(f) = applied { report("set_later", f) }
-        });
-        Ok(())
-    }
-);
-command!(
-    /// Removes a component of `entity` after this system.
-    /// ```
-    /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_remove_later(std::ptr::null_mut(), 0, 0) } as u32, 1);
-    /// ```
-    crabby_ctx_remove_later(entity: u64, component: u32) |c| {
-        c.add(move |w| match crate::component(w, component) {
-            Ok((id, _)) => { w.remove_dynamic(Entity::from_bits(entity), id); }
-            Err(f) => report("remove_later", f),
-        });
-        Ok(())
-    }
-);
+/// Despawns `entity` after this system (stale entities are ignored).
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_despawn_later(std::ptr::null_mut(), 0) } as u32, 1);
+/// ```
+/// Works inside `crabby_query` callbacks (not `crabby_query_par`).
+/// Applied after the system returns.
+/// # Safety
+/// `ctx` must be null or live; pointer arguments must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_despawn_later(ctx: *mut CrabbyCtx, entity: u64) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        commands(ctx, |c| {
+            c.despawn(Entity::from_bits(entity));
+            Ok(())
+        })
+    })
+}
+/// Spawns an entity with copies of `values` after this system. Values
+/// are checked when applied; bad ones skip the spawn with a message on stderr.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_spawn_later(std::ptr::null_mut(), std::ptr::null(), 0) } as u32, 1);
+/// ```
+/// Works inside `crabby_query` callbacks (not `crabby_query_par`).
+/// Applied after the system returns.
+/// # Safety
+/// `ctx` must be null or live; pointer arguments must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_spawn_later(
+    ctx: *mut CrabbyCtx,
+    values: *const CrabbyValue,
+    count: usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        commands(ctx, |c| {
+            if values.is_null() && count != 0 {
+                return Err(invalid("values is null"));
+            }
+            let owned = if count == 0 {
+                Owned::copy(&[])?
+            } else {
+                Owned::copy(std::slice::from_raw_parts(values, count))?
+            };
+            c.add(move |w| {
+                // SAFETY: the values point into `owned`, which lives until this returns.
+                if let Err(f) = spawn_values(w, &owned.values()) {
+                    report("spawn_later", f)
+                }
+            });
+            Ok(())
+        })
+    })
+}
+/// Adds or replaces a component of `entity` after this system.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_later(std::ptr::null_mut(), 0, std::ptr::null()) } as u32, 1);
+/// ```
+/// Works inside `crabby_query` callbacks (not `crabby_query_par`).
+/// Applied after the system returns.
+/// # Safety
+/// `ctx` must be null or live; pointer arguments must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_later(
+    ctx: *mut CrabbyCtx,
+    entity: u64,
+    value: *const CrabbyValue,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        commands(ctx, |c| {
+            if value.is_null() {
+                return Err(invalid("value is null"));
+            }
+            let owned = Owned::copy(std::slice::from_raw_parts(value, 1))?;
+            c.add(move |w| {
+                let v = owned.values()[0];
+                let applied = crate::value_layout(w, v.component, v.data, v.size)
+                    // SAFETY: layout validated against the world just now.
+                    .map(|(id, kind): (_, Kind)| insert_value(w, Entity::from_bits(entity), id, kind, v.data));
+                if let Err(f) = applied {
+                    report("set_later", f)
+                }
+            });
+            Ok(())
+        })
+    })
+}
+/// Removes a component of `entity` after this system.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_remove_later(std::ptr::null_mut(), 0, 0) } as u32, 1);
+/// ```
+/// Works inside `crabby_query` callbacks (not `crabby_query_par`).
+/// Applied after the system returns.
+/// # Safety
+/// `ctx` must be null or live; pointer arguments must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_remove_later(ctx: *mut CrabbyCtx, entity: u64, component: u32) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        commands(ctx, |c| {
+            c.add(move |w| match crate::component(w, component) {
+                Ok((id, _)) => {
+                    w.remove_dynamic(Entity::from_bits(entity), id);
+                }
+                Err(f) => report("remove_later", f),
+            });
+            Ok(())
+        })
+    })
+}
 
 // ---- spatial ------------------------------------------------------------------
 
@@ -657,7 +970,7 @@ pub unsafe extern "C" fn crabby_ctx_spatial_radius(
         // SAFETY: forwarded caller contract.
         unsafe {
             collect(out_hits, capacity, out_count, &mut n, |push| {
-                grid.for_each_in_radius(to_c(center), radius, |e| push(to_c(*e)))
+                grid.for_each_in_radius(to_c(center), radius, |e| push.push(to_c(*e)))
             })
         }
     })
@@ -685,7 +998,7 @@ pub unsafe extern "C" fn crabby_ctx_spatial_rect(
         // SAFETY: forwarded caller contract.
         unsafe {
             collect(out_hits, capacity, out_count, &mut n, |push| {
-                grid.for_each_in_rect(to_c(min), to_c(max), |e| push(to_c(*e)))
+                grid.for_each_in_rect(to_c(min), to_c(max), |e| push.push(to_c(*e)))
             })
         }
     })
@@ -721,25 +1034,63 @@ pub unsafe extern "C" fn crabby_ctx_spatial_nearest(
     })
 }
 
+/// A view of the built-in grid (entries are `CrabbyGridHit`), valid during
+/// this callback. Safe from `crabby_query_par` threads.
+/// # Safety
+/// Live ctx; writable output.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_spatial_view(std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_spatial_view(
+    ctx: *const CrabbyCtx,
+    out_view: *mut crate::CrabbyGridView,
+) -> CrabbyStatus {
+    boundary(|| {
+        // SAFETY: forwarded caller contract.
+        let grid = unsafe { spatial(ctx)? };
+        // SAFETY: forwarded caller contract.
+        unsafe { out(out_view, crate::grid::view_of(grid)) }
+    })
+}
+
 /// Shared buffer-filling logic of the spatial queries.
 pub(crate) unsafe fn collect<T>(
     out_items: *mut T,
     capacity: usize,
     out_count: *mut usize,
     n: &mut usize,
-    each: impl FnOnce(&mut dyn FnMut(T)),
+    each: impl FnOnce(&mut Sink<T>),
 ) -> Result<(), Failure> {
     if out_count.is_null() || (out_items.is_null() && capacity != 0) {
         return Err(invalid("output buffer or count is null"));
     }
-    each(&mut |item| {
-        if *n < capacity {
-            // SAFETY: caller supplies `capacity` writable items.
-            unsafe { out_items.add(*n).write(item) };
-        }
-        *n += 1;
-    });
+    let mut sink = Sink {
+        out: out_items,
+        capacity,
+        n: 0,
+    };
+    each(&mut sink);
+    *n = sink.n;
     // SAFETY: checked non-null.
-    unsafe { out_count.write(*n) };
+    unsafe { out_count.write(sink.n) };
     Ok(())
+}
+
+/// Writes results into a caller buffer and counts all of them. Generic (not
+/// `dyn`), so the grid's closure inlines: neighbor search is the hot path.
+pub(crate) struct Sink<T> {
+    out: *mut T,
+    capacity: usize,
+    n: usize,
+}
+impl<T> Sink<T> {
+    #[inline(always)]
+    pub(crate) fn push(&mut self, item: T) {
+        if self.n < self.capacity {
+            // SAFETY: the caller of `collect` supplies `capacity` writable items.
+            unsafe { self.out.add(self.n).write(item) };
+        }
+        self.n += 1;
+    }
 }

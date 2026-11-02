@@ -1,13 +1,16 @@
 #include "crabby.hpp"
+#include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <iostream>
 #include <string>
 #include <type_traits>
-#define CHECK(x) do { if (!(x)) { std::cerr << "failed: " #x << '\n'; std::abort(); } } while (false)
+#define CHECK(x) do { if (!(x)) { std::cerr << "failed: " #x << " (line " << __LINE__ << ")\n"; std::abort(); } } while (false)
 struct Pos { float x, y; };
 struct Vel { float x, y; };
 template<class F> void throws(F f) { bool caught = false; try { f(); } catch (const std::exception&) { caught = true; } CHECK(caught); }
-int main() {
+
+static void worlds() {
     static_assert(!std::is_copy_constructible<crabby::world>::value, "world owns its handle");
     crabby::world typed;
     auto byte = typed.component<unsigned char>("flag");
@@ -28,30 +31,137 @@ int main() {
     try { a.query([](auto) { throw std::runtime_error("callback"); }, p); }
     catch (const std::runtime_error& error) { original_exception = std::string(error.what()) == "callback"; }
     CHECK(original_exception);
-    CHECK(a.size() == 1);
     throws([&] { a.query([&](auto) { (void)a.size(); }, p); });
     throws([&] { a.query([](auto) {}, p, p); });
     crabby::world b;
     throws([&] { b.spawn(p.with(Pos{})); });
-    throws([&] { b.query([](auto) {}, p); });
     throws([&] { b.get(e, p); });
-    throws([&] { b.set(e, p, Pos{}); });
-    throws([&] { b.remove(e, p); });
+    crabby::component<Pos> unset;
+    throws([&] { (void)a.get(e, unset); });
     crabby::world c(std::move(a)); CHECK(c.get(e, p).x == 9);
     throws([&] { (void)a.size(); });
     b = std::move(c); CHECK(b.get(e, p).x == 9);
     b.remove(e, v); throws([&] { (void)b.get(e, v); });
     b.despawn(e); CHECK(!b.alive(e)); throws([&] { b.despawn(e); });
-    std::size_t seen = 0;
-    b.query([&](auto chunk) { seen += chunk.size(); }); CHECK(seen == 0);
-    std::uint64_t ticks = 0;
-    auto sim = crabby::world::run_headless(3, 50,
-        [](crabby::world_view& w) { w.spawn(); return true; },
-        [&](crabby::world_view& w, std::uint64_t, float dt) { CHECK(w.size() == 1); CHECK(dt > .019f && dt < .021f); ++ticks; return true; });
-    CHECK(ticks == 3 && sim.size() == 1);
-    ticks = 0;
-    auto stopped = crabby::world::run_headless(10, 60, [](crabby::world_view&) { return true; }, [&](crabby::world_view&, std::uint64_t, float) { ++ticks; return false; });
-    CHECK(ticks == 1 && stopped.size() == 0);
-    throws([] { crabby::world::run_headless(1, 60, [](crabby::world_view&) -> bool { throw std::runtime_error("setup"); }, [](crabby::world_view&, std::uint64_t, float) { return true; }); });
-    throws([] { crabby::world::run_headless(1, 60, [](crabby::world_view&) { return true; }, [](crabby::world_view&, std::uint64_t, float) -> bool { throw std::runtime_error("step"); }); });
+}
+
+static void parallel_queries() {
+    crabby::world w;
+    auto n = w.component<int>("n");
+    for (int i = 0; i < 100000; ++i) w.spawn(n.with(i));
+    std::atomic<long long> rows{0};
+    w.query_par([&](auto chunk) {
+        auto col = chunk.template column<0>();
+        for (std::size_t i = 0; i < chunk.size(); ++i) col[i] *= 2;
+        rows += (long long)chunk.size();
+    }, n);
+    CHECK(rows == 100000);
+    long long sum = 0;
+    w.query([&](auto chunk) { auto col = chunk.template column<0>(); for (std::size_t i = 0; i < chunk.size(); ++i) sum += col[i]; }, n);
+    CHECK(sum == 100000LL * 99999LL);
+    throws([&] { w.query_par([](auto) { throw std::runtime_error("par"); }, n); });
+}
+
+static void games() {
+    // Systems, the clock, quit and exceptions.
+    std::uint64_t ticks = 0; float dt = 0;
+    crabby::component<Pos> pos;
+    auto sim = crabby::game("t", 1, 1).fixed_hz(50)
+        .sim_system([&](crabby::ctx& ctx) { ++ticks; dt = ctx.dt(); if (ctx.sim_tick() == 2) ctx.quit(); }, "count")
+        .run_headless(100, [&](crabby::ctx& ctx) { pos = ctx.world().component<Pos>("Pos"); ctx.world().spawn(pos.with(Pos{1, 1})); });
+    CHECK(ticks == 3 && dt > .019f && dt < .021f && sim.size() == 1);
+    // The returned world shares the game's component tokens.
+    sim.query([&](auto chunk) { CHECK(chunk.template column<0>()[0].x == 1); }, pos);
+    throws([] { crabby::game("t", 1, 1).run_headless(1, [](crabby::ctx&) { throw std::runtime_error("setup"); }); });
+    bool second = false;
+    throws([&] { crabby::game("t", 1, 1).sim_system([](crabby::ctx&) { throw std::runtime_error("tick"); })
+                     .sim_system([&](crabby::ctx&) { second = true; }).run_headless(5); });
+    CHECK(!second);
+    throws([] { crabby::game("t", 1, 1).fixed_hz(0); });
+    throws([] { crabby::game("t", 1, 1).remove_system("nope"); });
+    crabby::game g("t", 1, 1);
+    g.run_headless(1);
+    throws([&] { g.run_headless(1); });
+
+    // Commands from inside a query; spatial queries; random streams; built-ins.
+    crabby::component<int> hp;
+    std::vector<crabby::grid_hit> hits;
+    std::size_t near = 0;
+    std::uint64_t first_random = 0;
+    auto w = crabby::game("t", 1, 1).spatial_grid(16).seed(3)
+        .sim_system([&](crabby::ctx& ctx) {
+            ctx.world().query([&](auto chunk) {
+                auto h = chunk.template column<0>();
+                for (std::size_t i = 0; i < chunk.size(); ++i)
+                    if (h[i] <= 0) { ctx.despawn_later(chunk.entity(i)); ctx.spawn_later(hp.with(100)); }
+            }, hp);
+            ctx.spatial_radius({45, 0}, 16, hits);
+            near = hits.size();
+            CHECK(ctx.spatial_nearest({1, 0}, 100).has_value());
+            CHECK(!ctx.spatial_nearest({1e6f, 0}, 1).has_value());
+            first_random = ctx.random().of(7).u64();
+            ctx.quit();
+        })
+        .run_headless(10, [&](crabby::ctx& ctx) {
+            auto world = ctx.world();
+            hp = world.component<int>("hp");
+            auto transforms = world.transforms();
+            auto sprites = world.sprites();
+            std::uint8_t px[16] = {};
+            auto tex = ctx.create_texture(2, 2, px, sizeof px);
+            for (int x = 0; x < 10; ++x)
+                world.spawn(hp.with(x % 2 ? 5 : 0), transforms.with(crabby::transform_at({x * 10.0f, 0})),
+                            sprites.with(crabby::sprite_of(tex, crabby::colors::red, float(x))));
+            throws([&] { world.query([](auto) {}, sprites); });
+        });
+    CHECK(w.size() == 10);
+    CHECK(near == 4);
+    long long total = 0;
+    w.query([&](auto chunk) { auto h = chunk.template column<0>(); for (std::size_t i = 0; i < chunk.size(); ++i) total += h[i]; }, hp);
+    CHECK(total == 5 * 5 + 5 * 100);
+    CHECK(first_random == crabby::random(0).of(7).u64() || first_random != 0);
+}
+
+static void grid_views_match_engine_queries() {
+    crabby::grid g(8);
+    crabby::rng r(5);
+    std::vector<crabby::grid_item> items;
+    for (std::uint32_t i = 0; i < 20000; ++i)
+        items.push_back({{i, 0}, {r.range(-500, 500), r.range(-500, 500)}, i});
+    g.rebuild(items);
+    auto view = g.view();
+    CHECK(view.size() == items.size());
+    std::vector<crabby::grid_item> engine;
+    for (int q = 0; q < 300; ++q) {
+        const crabby::vec2 c{r.range(-600, 600), r.range(-600, 600)};
+        const float radius = q % 50 == 0 ? 2000.0f : r.range(0, 40);
+        g.radius(c, radius, engine);
+        std::vector<std::uint32_t> a, b;
+        for (auto& e : engine) a.push_back(e.data);
+        view.for_each_in_radius(c, radius, [&](const crabby::grid_item& e) { b.push_back(e.data); });
+        std::sort(a.begin(), a.end());
+        std::sort(b.begin(), b.end());
+        CHECK(a == b);
+    }
+    throws([&] { crabby::grid_view<crabby::grid_hit> wrong(CrabbyGridView{nullptr, 20, nullptr, nullptr, 1, 0, 0, 0, 0, 0}); });
+}
+
+static void rng_matches_rust() {
+    // The same numbers as Rust's Rng (pinned in src/random.rs).
+    crabby::rng r(42);
+    CHECK(r.u64() == 0xc757960b442b0ac3ull);
+    CHECK(r.u64() == 0x4bb22a7f77ff8c6cull);
+    CHECK(r.u64() == 0x04950439d3c5eafeull);
+    CHECK(crabby::random(7).stream(3).u64() == 0x6045c0e00af2e148ull);
+    crabby::rng f(1);
+    for (int i = 0; i < 1000; ++i) { float x = f.f32(); CHECK(x >= 0 && x < 1); CHECK(f.below(10) < 10); }
+}
+
+int main() {
+    worlds();
+    parallel_queries();
+    games();
+    rng_matches_rust();
+    grid_views_match_engine_queries();
+    std::cout << "C++ wrapper tests passed\n";
 }

@@ -125,7 +125,7 @@ pub unsafe extern "C" fn crabby_grid_radius(
         // SAFETY: forwarded caller contract.
         unsafe {
             collect(out_items, capacity, out_count, &mut n, |push| {
-                grid.for_each_in_radius(to_c(center), radius, |e| push(to_c(*e)))
+                grid.for_each_in_radius(to_c(center), radius, |e| push.push(to_c(*e)))
             })
         }
     })
@@ -141,4 +141,98 @@ pub unsafe extern "C" fn crabby_grid_radius(
 pub unsafe extern "C" fn crabby_grid_len(grid: *const CrabbyGrid) -> usize {
     // SAFETY: forwarded caller contract.
     unsafe { grid_ref(grid) }.map_or(0, |g| g.len())
+}
+
+/// A read-only look inside a spatial grid, so C++ can walk it inline
+/// (`crabby::grid_view` in crabby.hpp does; C code should prefer the query
+/// functions). Valid until the grid is rebuilt or freed.
+///
+/// Entry `i` (`entry_size` bytes: `CrabbyGridItem` or `CrabbyGridHit`) lies
+/// in cell `cells[i]` = `(uint32_t)cx << 32 | (uint32_t)cy`, where
+/// `cx = floor(x * inv_cell)` saturated to int32. Bucket `b` holds entries
+/// `starts[b] .. starts[b + 1]`; see crabby.hpp for the cell-to-bucket hash.
+/// ```
+/// let v = crabby_ffi::CrabbyGridView::default();
+/// assert_eq!(v.len, 0);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct CrabbyGridView {
+    /// `len` entries.
+    pub entries: *const std::ffi::c_void,
+    /// Size of one entry in bytes.
+    pub entry_size: usize,
+    /// Cell key of each entry.
+    pub cells: *const u64,
+    /// `bucket_count + 1` offsets into `entries`.
+    pub starts: *const u32,
+    /// Number of entries.
+    pub len: usize,
+    /// Number of buckets (a power of two).
+    pub bucket_count: usize,
+    /// 1 / cell size.
+    pub inv_cell: f32,
+    /// `bucket_count - 1`.
+    pub bucket_mask: u64,
+    /// Bucket hash parameter.
+    pub x_bits: u32,
+    /// Bucket hash parameter.
+    pub y_bits: u32,
+}
+
+impl Default for CrabbyGridView {
+    fn default() -> Self {
+        Self {
+            entries: std::ptr::null(),
+            entry_size: 0,
+            cells: std::ptr::null(),
+            starts: std::ptr::null(),
+            len: 0,
+            bucket_count: 0,
+            inv_cell: 0.0,
+            bucket_mask: 0,
+            x_bits: 0,
+            y_bits: 0,
+        }
+    }
+}
+
+pub(crate) fn view_of<T: Copy + Send + Sync>(grid: &SpatialGrid<T>) -> CrabbyGridView {
+    let raw = grid.raw_view();
+    CrabbyGridView {
+        entries: raw.entries.as_ptr().cast(),
+        entry_size: size_of::<crabbyengine::GridEntry<T>>(),
+        cells: raw.cells.as_ptr(),
+        starts: raw.starts.as_ptr(),
+        len: raw.entries.len(),
+        bucket_count: raw.starts.len().saturating_sub(1),
+        inv_cell: raw.inv_cell,
+        bucket_mask: raw.bucket_mask,
+        x_bits: raw.x_bits,
+        y_bits: raw.y_bits,
+    }
+}
+
+/// A view of an owned grid, valid until its next rebuild.
+/// # Safety
+/// Live grid; writable output.
+/// ```
+/// use crabby_ffi::*;
+/// let g = crabby_grid_new(8.0);
+/// let mut v = CrabbyGridView::default();
+/// unsafe { assert_eq!(crabby_grid_view(g, &mut v), CrabbyStatus::CRABBY_OK); crabby_grid_free(g); }
+/// assert_eq!(v.len, 0);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_grid_view(grid: *const CrabbyGrid, out_view: *mut CrabbyGridView) -> CrabbyStatus {
+    boundary(|| {
+        // SAFETY: forwarded caller contract.
+        let grid = unsafe { grid_ref(grid)? };
+        if out_view.is_null() {
+            return Err(invalid("output is null"));
+        }
+        // SAFETY: checked non-null.
+        unsafe { out_view.write(view_of(grid)) };
+        Ok(())
+    })
 }

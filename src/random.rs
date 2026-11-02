@@ -223,6 +223,18 @@ impl Random {
 mod tests {
     use super::*;
 
+    /// Pins the generator: saved runs and the C++ header (`crabby::rng`,
+    /// checked against the same numbers in examples/cpp/tests.cpp) rely on it.
+    #[test]
+    fn the_generator_never_changes() {
+        let mut rng = Rng::new(42);
+        assert_eq!(
+            [rng.u64(), rng.u64(), rng.u64()],
+            [0xc757960b442b0ac3, 0x4bb22a7f77ff8c6c, 0x04950439d3c5eafe]
+        );
+        assert_eq!(Random { base: 7 }.stream(3).u64(), 0x6045c0e00af2e148);
+    }
+
     #[test]
     fn values_stay_in_range_and_look_uniform() {
         let mut rng = Rng::new(3);
