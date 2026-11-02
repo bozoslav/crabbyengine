@@ -588,6 +588,7 @@ dependencies = [
  "pollster",
  "puffin",
  "puffin_http",
+ "rayon",
  "serde",
  "serde_json",
  "wgpu",

@@ -92,8 +92,7 @@ pub struct GridEntry<T = ()> {
 pub struct SpatialGrid<T = ()> {
     cell_size: f32,
     inv_cell: f32,
-    /// Bucket count minus one (bucket count is a power of two).
-    mask: usize,
+    buckets_of: Buckets,
     /// `starts[b]..starts[b + 1]` is bucket `b`'s range in `entries`.
     starts: Vec<u32>,
     /// All entries, sorted by bucket.
@@ -108,7 +107,7 @@ pub struct SpatialGrid<T = ()> {
     order: Vec<u32>,
 }
 
-impl<T: Copy> Default for SpatialGrid<T> {
+impl<T: Copy + Send + Sync> Default for SpatialGrid<T> {
     fn default() -> Self {
         Self::with_data(64.0)
     }
@@ -146,7 +145,7 @@ impl SpatialGrid {
     }
 }
 
-impl<T: Copy> SpatialGrid<T> {
+impl<T: Copy + Send + Sync> SpatialGrid<T> {
     /// An empty grid that stores a `T` with every entry (see
     /// [`rebuild_with_data`](Self::rebuild_with_data)), with square cells of
     /// `cell_size` world units.
@@ -162,7 +161,7 @@ impl<T: Copy> SpatialGrid<T> {
         SpatialGrid {
             cell_size,
             inv_cell: 1.0 / cell_size,
-            mask: 0,
+            buckets_of: Buckets::new(1),
             starts: vec![0, 0],
             entries: Vec::new(),
             cells: Vec::new(),
@@ -205,18 +204,23 @@ impl<T: Copy> SpatialGrid<T> {
         self.sort_unsorted();
     }
 
-    /// Counting sort of `unsorted` into `entries` by bucket.
+    /// Counting sort of `unsorted` into `entries` by bucket. The per-entry
+    /// steps run on all cores for big grids; counting is one pass.
     fn sort_unsorted(&mut self) {
         let n = self.unsorted.len();
         assert!(n < u32::MAX as usize, "SpatialGrid: too many entities");
-        let bucket_count = n.max(16).next_power_of_two();
-        self.mask = bucket_count - 1;
-
-        self.buckets.clear();
-        self.buckets.extend(self.unsorted.iter().map(|e| {
-            let (cx, cy) = cell_of(e.position, self.inv_cell);
-            bucket(cx, cy, self.mask) as u32
-        }));
+        // About 4 entries per bucket: with locality-preserving buckets this
+        // is fastest (smaller arrays to clear and sum), and dense worlds
+        // still get a bucket per occupied cell.
+        let bucket_count = (n / 4).max(16).next_power_of_two();
+        self.buckets_of = Buckets::new(bucket_count);
+        let (buckets_of, inv_cell) = (self.buckets_of, self.inv_cell);
+        let bucket_of = |e: &GridEntry<T>| {
+            let (cx, cy) = cell_of(e.position, inv_cell);
+            buckets_of.of(cx, cy) as u32
+        };
+        let parallel = n >= PARALLEL_REBUILD_MIN;
+        map_into(&self.unsorted, &mut self.buckets, parallel, bucket_of);
 
         self.starts.clear();
         self.starts.resize(bucket_count + 1, 0);
@@ -236,21 +240,19 @@ impl<T: Copy> SpatialGrid<T> {
             self.order[*slot as usize] = i as u32;
             *slot += 1;
         }
-        self.entries.clear();
-        self.entries
-            .extend(self.order.iter().map(|&i| self.unsorted[i as usize]));
-        self.cells.clear();
-        self.cells.extend(self.entries.iter().map(|e| {
-            let (cx, cy) = cell_of(e.position, self.inv_cell);
+        let unsorted = &self.unsorted;
+        map_into(&self.order, &mut self.entries, parallel, |&i| unsorted[i as usize]);
+        map_into(&self.entries, &mut self.cells, parallel, |e| {
+            let (cx, cy) = cell_of(e.position, inv_cell);
             pack(cx, cy)
-        }));
+        });
     }
 
     /// Calls `f` for every entry in cell `(cx, cy)`. Buckets can hold several
     /// cells (hash collisions), so entries from other cells are skipped.
     #[inline]
     fn for_each_in_cell(&self, cx: i32, cy: i32, mut f: impl FnMut(&GridEntry<T>)) {
-        let b = bucket(cx, cy, self.mask);
+        let b = self.buckets_of.of(cx, cy);
         let range = self.starts[b] as usize..self.starts[b + 1] as usize;
         let key = pack(cx, cy);
         for (e, &c) in self.entries[range.clone()].iter().zip(&self.cells[range]) {
@@ -384,15 +386,63 @@ fn interleave(v: u32) -> u64 {
     x
 }
 
+/// Grids at least this big build their per-entry arrays on all cores;
+/// below it, waking the thread pool costs more than it saves.
+const PARALLEL_REBUILD_MIN: usize = 200_000;
+
+/// `out = input.map(f)`, reusing `out`'s allocation; on all cores if `parallel`.
+fn map_into<A: Sync, B: Send>(input: &[A], out: &mut Vec<B>, parallel: bool, f: impl Fn(&A) -> B + Sync + Send) {
+    out.clear();
+    if parallel {
+        use rayon::prelude::*;
+        input.par_iter().map(f).collect_into_vec(out);
+    } else {
+        out.extend(input.iter().map(f));
+    }
+}
+
 #[inline(always)]
 fn pack(cx: i32, cy: i32) -> u64 {
     (cx as u32 as u64) << 32 | cy as u32 as u64
 }
 
-#[inline(always)]
-fn bucket(cx: i32, cy: i32, mask: usize) -> usize {
-    let h = (cx as u32).wrapping_mul(0x9E37_79B1) ^ (cy as u32).wrapping_mul(0x85EB_CA77);
-    (h ^ (h >> 15)) as usize & mask
+/// How cells map to buckets. Neighboring cells get neighboring buckets, so
+/// building and querying the grid walks memory nearly in order: within a
+/// tile of `2^x_bits × 2^y_bits` cells (one cell per bucket), buckets are
+/// row-major. Each tile's position is hashed and XORed in, so far-apart
+/// tiles (a long line of entities, say) spread over all buckets instead of
+/// piling into a few. XOR with a constant keeps aligned blocks of buckets
+/// together, so locality survives it.
+#[derive(Debug, Clone, Copy)]
+struct Buckets {
+    /// Bucket count minus one (bucket count is a power of two).
+    mask: usize,
+    x_bits: u32,
+    y_bits: u32,
+}
+
+impl Buckets {
+    fn new(count: usize) -> Self {
+        debug_assert!(count.is_power_of_two());
+        let bits = count.trailing_zeros();
+        Self {
+            mask: count - 1,
+            x_bits: bits.div_ceil(2),
+            y_bits: bits / 2,
+        }
+    }
+
+    #[inline(always)]
+    fn of(self, cx: i32, cy: i32) -> usize {
+        let (ux, uy) = (cx as u32, cy as u32);
+        let local = ((uy as u64 & ((1 << self.y_bits) - 1)) << self.x_bits) | (ux as u64 & ((1 << self.x_bits) - 1));
+        // Hash the tile; the high half of each product depends on every
+        // bit of the coordinate, so rows, columns and diagonals of tiles
+        // all spread out.
+        let (tx, ty) = (u64::from(ux >> self.x_bits), u64::from(uy >> self.y_bits));
+        let h = tx.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ ty.wrapping_mul(0xC2B2_AE3D_27D4_EB4F);
+        (local ^ (h >> 32)) as usize & self.mask
+    }
 }
 
 /// How often (in ticks) the built-in grid also reorders entities in memory
@@ -411,4 +461,50 @@ pub fn rebuild_spatial_grid(ctx: &mut Ctx) {
         ctx.world.sort_by::<Transform2D>(|t| spatial_key(t.position, cell));
     }
     ctx.spatial.rebuild(&mut ctx.world);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Largest bucket when `cells` are mapped into `count` buckets.
+    fn worst_bucket(count: usize, cells: impl Iterator<Item = (i32, i32)>) -> usize {
+        let b = Buckets::new(count);
+        let mut hist = vec![0usize; count];
+        for (cx, cy) in cells {
+            hist[b.of(cx, cy)] += 1;
+        }
+        hist.into_iter().max().unwrap()
+    }
+
+    #[test]
+    fn a_block_of_cells_that_fits_a_tile_has_no_collisions() {
+        // 4096 buckets = a 64x64 tile; a 64x64 block anywhere, even across
+        // tile borders and negative coordinates, maps one cell per bucket.
+        for (x0, y0) in [(0, 0), (-32, -32), (1000, -7000)] {
+            let block = (0..64).flat_map(|y| (0..64).map(move |x| (x0 + x, y0 + y)));
+            assert!(worst_bucket(4096, block) <= 4, "block at ({x0}, {y0})");
+        }
+        let aligned = (0..64).flat_map(|y| (0..64).map(move |x| (x, y)));
+        assert_eq!(worst_bucket(4096, aligned), 1);
+    }
+
+    #[test]
+    fn long_lines_spread_over_all_buckets() {
+        // A row or column of cells much longer than a tile: without the
+        // tile hash, every tile would reuse the same few buckets.
+        let n = 1 << 16;
+        let count = 1 << 12;
+        let ideal = n / count;
+        assert!(worst_bucket(count, (0..n as i32).map(|x| (x, 0))) <= ideal * 4);
+        assert!(worst_bucket(count, (0..n as i32).map(|y| (5, y))) <= ideal * 4);
+        assert!(worst_bucket(count, (0..n as i32).map(|i| (i, i))) <= ideal * 4);
+    }
+
+    #[test]
+    fn neighboring_cells_get_nearby_buckets() {
+        let b = Buckets::new(1 << 16); // 256x256 tile
+        assert_eq!(b.of(11, 20).abs_diff(b.of(10, 20)), 1);
+        assert_eq!(b.of(10, 21).abs_diff(b.of(10, 20)), 256);
+    }
 }
