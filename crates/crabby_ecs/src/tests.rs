@@ -130,7 +130,9 @@ fn filters() {
     w.spawn((Pos(0.0, 0.0), Vel(1.0, 0.0)));
     w.spawn((Pos(0.0, 0.0), Vel(1.0, 0.0), Frozen));
     w.spawn((Pos(0.0, 0.0), Tag));
-    w.query::<(&mut Pos, &Vel)>().without::<Frozen>().for_each(|(p, v)| p.0 += v.0);
+    w.query::<(&mut Pos, &Vel)>()
+        .without::<Frozen>()
+        .for_each(|(p, v)| p.0 += v.0);
     assert_eq!(w.query::<&Pos>().iter().filter(|p| p.0 == 1.0).count(), 1);
     assert_eq!(w.query::<&Pos>().with::<Tag>().count(), 1);
     assert_eq!(w.query::<&Pos>().with::<Vel>().without::<Frozen>().count(), 1);
@@ -143,7 +145,8 @@ fn optional_components() {
     w.spawn((Pos(1.0, 0.0), Vel(5.0, 0.0)));
     w.spawn((Pos(2.0, 0.0),));
     let mut seen = Vec::new();
-    w.query::<(&Pos, Option<&Vel>)>().for_each(|(p, v)| seen.push((p.0, v.map(|v| v.0))));
+    w.query::<(&Pos, Option<&Vel>)>()
+        .for_each(|(p, v)| seen.push((p.0, v.map(|v| v.0))));
     seen.sort_by(|a, b| a.0.total_cmp(&b.0));
     assert_eq!(seen, vec![(1.0, Some(5.0)), (2.0, None)]);
     w.query::<Option<&mut Vel>>().for_each(|v| {
@@ -364,10 +367,12 @@ fn par_for_each_visits_every_entity_once() {
     w.spawn_batch((0..100).map(|i| (Pos(i as f32, 0.0), Vel(1.0, 0.0), Frozen)));
     w.spawn_batch((0..1000).map(|i| (Pos(i as f32, 0.0),)));
     let visits = AtomicUsize::new(0);
-    w.query::<(&mut Pos, &Vel)>().without::<Frozen>().par_for_each(|(p, v)| {
-        p.1 += v.0;
-        visits.fetch_add(1, Ordering::Relaxed);
-    });
+    w.query::<(&mut Pos, &Vel)>()
+        .without::<Frozen>()
+        .par_for_each(|(p, v)| {
+            p.1 += v.0;
+            visits.fetch_add(1, Ordering::Relaxed);
+        });
     assert_eq!(visits.into_inner(), 70_000);
     assert_eq!(w.query::<&Pos>().iter().filter(|p| p.1 == 1.0).count(), 70_000);
     assert_eq!(w.query::<&Pos>().iter().filter(|p| p.1 == 0.0).count(), 1100);

@@ -48,14 +48,10 @@ pub(crate) struct Renderer {
 const INITIAL_INSTANCE_CAPACITY: usize = 1024;
 
 impl Renderer {
-    pub fn new(
-        window: Arc<Window>,
-        display: winit::event_loop::OwnedDisplayHandle,
-        vsync: bool,
-    ) -> Self {
-        let instance = wgpu::Instance::new(
-            wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(display)),
-        );
+    pub fn new(window: Arc<Window>, display: winit::event_loop::OwnedDisplayHandle, vsync: bool) -> Self {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(
+            display,
+        )));
         let surface = instance
             .create_surface(window.clone())
             .unwrap_or_else(|e| panic!("crabbyengine: could not create a GPU surface: {e}"));
@@ -323,27 +319,19 @@ impl Renderer {
 
         if instances.len() > self.instance_capacity {
             self.instance_capacity = instances.len().next_power_of_two();
-            self.instance_buffer =
-                Self::create_instance_buffer(&self.device, self.instance_capacity);
+            self.instance_buffer = Self::create_instance_buffer(&self.device, self.instance_capacity);
         }
         if !instances.is_empty() {
             self.queue
                 .write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(instances));
         }
-        self.queue.write_buffer(
-            &self.camera_buffer,
-            0,
-            bytemuck::cast_slice(&view_proj.to_cols_array()),
-        );
+        self.queue
+            .write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&view_proj.to_cols_array()));
 
-        let view = frame
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = self
             .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("frame"),
-            });
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frame") });
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("sprites"),

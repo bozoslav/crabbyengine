@@ -72,13 +72,15 @@ fn aging(ctx: &mut Ctx) {
     }
     let dt = ctx.dt();
     let commands = &mut ctx.commands;
-    ctx.world.query::<(Entity, &mut Life, &mut Sprite)>().for_each(|(e, life, sprite)| {
-        life.0 -= dt;
-        sprite.color = sprite.color.with_alpha((life.0 / LIFETIME).clamp(0.0, 1.0));
-        if life.0 <= 0.0 {
-            commands.despawn(e);
-        }
-    });
+    ctx.world
+        .query::<(Entity, &mut Life, &mut Sprite)>()
+        .for_each(|(e, life, sprite)| {
+            life.0 -= dt;
+            sprite.color = sprite.color.with_alpha((life.0 / LIFETIME).clamp(0.0, 1.0));
+            if life.0 <= 0.0 {
+                commands.despawn(e);
+            }
+        });
 }
 
 /// Frame system: input.
@@ -105,7 +107,11 @@ fn main() {
         .system(controls)
         .run(|ctx| {
             let crab = ctx.load_texture("crab.png");
-            ctx.world.insert_resource(Settings { paused: false, rng: 0x9E37_79B9_7F4A_7C15, crab });
+            ctx.world.insert_resource(Settings {
+                paused: false,
+                rng: 0x9E37_79B9_7F4A_7C15,
+                crab,
+            });
             let center = ctx.window_size() / 2.0;
             for _ in 0..500 {
                 spawn_crab(ctx, center);

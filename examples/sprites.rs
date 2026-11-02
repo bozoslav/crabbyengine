@@ -18,8 +18,7 @@ fn main() {
         let mut pixels = Vec::with_capacity(size * size * 4);
         for y in 0..size {
             for x in 0..size {
-                let d =
-                    vec2(x as f32 + 0.5, y as f32 + 0.5).distance(Vec2::splat(size as f32 / 2.0));
+                let d = vec2(x as f32 + 0.5, y as f32 + 0.5).distance(Vec2::splat(size as f32 / 2.0));
                 let a = ((size as f32 / 2.0 - d).clamp(0.0, 1.0) * 255.0) as u8;
                 pixels.extend_from_slice(&[255, 255, 255, a]);
             }

@@ -66,9 +66,7 @@ mod tests {
     #[test]
     fn one_step_per_frame_when_rates_match() {
         let mut clock = Clock::new(60);
-        let total: u32 = (0..600)
-            .map(|_| clock.advance(1.0 / 60.0).fixed_steps)
-            .sum();
+        let total: u32 = (0..600).map(|_| clock.advance(1.0 / 60.0).fixed_steps).sum();
         // Float rounding may defer one step to the next frame, never more.
         assert!((599..=600).contains(&total), "got {total}");
     }
@@ -76,9 +74,7 @@ mod tests {
     #[test]
     fn fast_frames_accumulate_into_steps() {
         let mut clock = Clock::new(60);
-        let total: u32 = (0..240)
-            .map(|_| clock.advance(1.0 / 240.0).fixed_steps)
-            .sum();
+        let total: u32 = (0..240).map(|_| clock.advance(1.0 / 240.0).fixed_steps).sum();
         assert!((59..=60).contains(&total), "got {total}");
     }
 

@@ -1,0 +1,144 @@
+# Every check is its own job, so one failure never hides the others:
+# each job reports pass/fail separately on the PR, matrices don't fail fast,
+# and test jobs use --no-fail-fast so every test in a suite runs.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+  RUSTDOCFLAGS: -D warnings
+
+jobs:
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  clippy:
+    name: Clippy (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default features
+            args: ""
+          - name: profiling feature
+            args: --features profiling
+          - name: ECS without parallel
+            args: -p crabby_ecs --no-default-features
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: clippy-${{ matrix.name }}
+      - run: cargo clippy --workspace --all-targets ${{ matrix.args }}
+
+  test:
+    name: Test ${{ matrix.suite }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        suite: [engine, ecs, ecs-no-parallel, doctests, ecs-bench]
+        include:
+          - suite: engine
+            args: -p crabbyengine --lib
+          - suite: ecs
+            args: -p crabby_ecs --lib
+          - suite: ecs-no-parallel
+            args: -p crabby_ecs --lib --no-default-features
+          - suite: doctests
+            args: --workspace --doc
+          - suite: ecs-bench
+            args: -p ecs-bench
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: test-${{ matrix.suite }}
+      - run: cargo test --no-fail-fast ${{ matrix.args }}
+
+  examples:
+    name: Build examples (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --examples
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo doc --workspace --no-deps
+
+  miri:
+    name: Miri (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Our unsafe code under the strict model, without rayon.
+          - name: ECS, stacked borrows
+            args: --no-default-features
+            flags: ""
+          # The parallel path. rayon's dependency crossbeam-epoch trips Stacked
+          # Borrows (not our code), and its global pool outlives main.
+          - name: par_for_each, tree borrows
+            args: par_for_each
+            flags: -Zmiri-tree-borrows -Zmiri-ignore-leaks
+    env:
+      MIRIFLAGS: ${{ matrix.flags }}
+      RUSTFLAGS: ""
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+      - run: cargo miri test -p crabby_ecs --lib --no-fail-fast ${{ matrix.args }}
+
+  # Single check for branch protection: passes only if every job above passed.
+  # (Requiring one job keeps the rule valid when jobs are added or renamed.)
+  ci-passed:
+    name: CI passed
+    if: always()
+    needs: [fmt, clippy, test, examples, docs, miri]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check every job
+        run: |
+          echo '${{ toJSON(needs) }}'
+          if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}" = "true" ]; then
+            echo "Some jobs did not pass." && exit 1
+          fi

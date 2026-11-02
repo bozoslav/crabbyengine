@@ -174,7 +174,11 @@ pub(crate) fn check_aliasing<Q: QueryData>(world: &World, ids: &Q::Ids) {
                 );
             }
         }
-        assert!(n < MAX, "query `{}` touches more than {MAX} components", std::any::type_name::<Q>());
+        assert!(
+            n < MAX,
+            "query `{}` touches more than {MAX} components",
+            std::any::type_name::<Q>()
+        );
         seen[n] = (id, mutable);
         n += 1;
     });
@@ -225,7 +229,11 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     pub(crate) fn new(world: &'w mut World) -> Self {
         let ids = Q::ids(world);
         check_aliasing::<Q>(world, &ids);
-        Query { world, ids, filters: Filters::default() }
+        Query {
+            world,
+            ids,
+            filters: Filters::default(),
+        }
     }
 
     /// Only match entities that also have component `T` (without fetching it).
@@ -242,7 +250,10 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     pub fn without<T: Component>(mut self) -> Self {
         let id = self.world.register::<T>();
         let f = &mut self.filters;
-        assert!((f.n_without as usize) < f.without.len(), "at most 4 `without` filters per query");
+        assert!(
+            (f.n_without as usize) < f.without.len(),
+            "at most 4 `without` filters per query"
+        );
         f.without[f.n_without as usize] = id;
         f.n_without += 1;
         self
@@ -256,7 +267,9 @@ impl<'w, Q: QueryData> Query<'w, Q> {
             if len == 0 || !self.filters.matches(arch) {
                 continue;
             }
-            let Some(state) = Q::state(arch, &self.ids) else { continue };
+            let Some(state) = Q::state(arch, &self.ids) else {
+                continue;
+            };
             for row in 0..len {
                 f(unsafe { Q::fetch(state, row) });
             }
@@ -302,7 +315,9 @@ impl<'w, Q: QueryData> Query<'w, Q> {
             if len == 0 || !self.filters.matches(arch) {
                 continue;
             }
-            let Some(state) = Q::state(arch, &self.ids) else { continue };
+            let Some(state) = Q::state(arch, &self.ids) else {
+                continue;
+            };
             if len <= CHUNK {
                 for row in 0..len {
                     f(unsafe { Q::fetch(state, row) });
@@ -387,7 +402,11 @@ impl<'a, Q: QueryData> Iterator for QueryIter<'a, Q> {
             }
             let arch = self.archetypes.get(self.next_arch)?;
             self.next_arch += 1;
-            self.state = if arch.is_empty() || !self.filters.matches(arch) { None } else { Q::state(arch, &self.ids) };
+            self.state = if arch.is_empty() || !self.filters.matches(arch) {
+                None
+            } else {
+                Q::state(arch, &self.ids)
+            };
             self.row = 0;
             self.len = arch.len();
         }

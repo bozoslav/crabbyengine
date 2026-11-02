@@ -289,10 +289,17 @@ impl World {
 
     fn alloc_entity(&mut self) -> Entity {
         if let Some(index) = self.free.pop() {
-            Entity { index, generation: self.metas[index as usize].generation }
+            Entity {
+                index,
+                generation: self.metas[index as usize].generation,
+            }
         } else {
             let index = self.metas.len() as u32;
-            self.metas.push(Meta { generation: 0, archetype: DEAD, row: 0 });
+            self.metas.push(Meta {
+                generation: 0,
+                archetype: DEAD,
+                row: 0,
+            });
             Entity { index, generation: 0 }
         }
     }
@@ -323,7 +330,10 @@ impl World {
         sorted.dedup();
         assert_eq!(sorted.len(), ids.len(), "bundle has the same component twice");
         let a = self.archetype_for(sorted.into());
-        let cols: Box<[usize]> = ids.iter().map(|&id| self.archetypes[a].column_index(id).unwrap()).collect();
+        let cols: Box<[usize]> = ids
+            .iter()
+            .map(|&id| self.archetypes[a].column_index(id).unwrap())
+            .collect();
         self.bundles.insert(TypeId::of::<B>(), (a, cols));
         a
     }
@@ -342,7 +352,11 @@ impl World {
             });
         }
         arch.entities.push(e);
-        self.metas[e.index as usize] = Meta { generation: e.generation, archetype: a as u32, row: row as u32 };
+        self.metas[e.index as usize] = Meta {
+            generation: e.generation,
+            archetype: a as u32,
+            row: row as u32,
+        };
         e
     }
 
@@ -373,7 +387,11 @@ impl World {
             unsafe { std::ptr::copy_nonoverlapping(src, c.ptr(row), c.item.size()) };
         }
         arch.entities.push(e);
-        self.metas[e.index as usize] = Meta { generation: e.generation, archetype: a as u32, row: row as u32 };
+        self.metas[e.index as usize] = Meta {
+            generation: e.generation,
+            archetype: a as u32,
+            row: row as u32,
+        };
         e
     }
 
@@ -475,7 +493,11 @@ impl World {
             self.metas[moved.index as usize].row = row as u32;
         }
         d.entities.push(e);
-        self.metas[e.index as usize] = Meta { generation: e.generation, archetype: dst as u32, row: new_row as u32 };
+        self.metas[e.index as usize] = Meta {
+            generation: e.generation,
+            archetype: dst as u32,
+            row: new_row as u32,
+        };
         new_row
     }
 

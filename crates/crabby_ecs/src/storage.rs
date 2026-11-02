@@ -88,8 +88,11 @@ impl Column {
     }
 
     fn array(&self, cap: usize) -> Layout {
-        Layout::from_size_align(self.item.size().checked_mul(cap).expect("column too large"), self.item.align())
-            .expect("column too large")
+        Layout::from_size_align(
+            self.item.size().checked_mul(cap).expect("column too large"),
+            self.item.align(),
+        )
+        .expect("column too large")
     }
 
     unsafe fn grow(&mut self, old_cap: usize, new_cap: usize) {

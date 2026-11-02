@@ -28,14 +28,21 @@ pub struct Transform2D {
 
 impl Default for Transform2D {
     fn default() -> Self {
-        Self { position: Vec2::ZERO, rotation: 0.0, scale: Vec2::ONE }
+        Self {
+            position: Vec2::ZERO,
+            rotation: 0.0,
+            scale: Vec2::ONE,
+        }
     }
 }
 
 impl Transform2D {
     /// A transform at `position` with no rotation and scale 1.
     pub fn at(position: Vec2) -> Self {
-        Self { position, ..Default::default() }
+        Self {
+            position,
+            ..Default::default()
+        }
     }
 
     /// Same transform, rotated to `rotation` radians.
@@ -76,7 +83,12 @@ pub struct Sprite {
 impl Sprite {
     /// A sprite showing `texture`, untinted, centered on the position.
     pub fn new(texture: Texture) -> Self {
-        Self { texture, color: Color::WHITE, z: 0.0, pivot: Vec2::splat(0.5) }
+        Self {
+            texture,
+            color: Color::WHITE,
+            z: 0.0,
+            pivot: Vec2::splat(0.5),
+        }
     }
 
     /// Same sprite with tint `color`.
