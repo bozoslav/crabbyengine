@@ -28,7 +28,12 @@ cargo clippy --workspace --all-targets
 If you touched unsafe code in `crates/crabby_ecs`, also run the ECS tests under Miri:
 
 ```sh
-cd crates/crabby_ecs && cargo +nightly miri test
+cd crates/crabby_ecs
+# Our unsafe code, strict model, without rayon:
+cargo +nightly miri test --no-default-features
+# The parallel path. rayon's dependency crossbeam-epoch trips Stacked Borrows
+# (not our code), and its global thread pool outlives main:
+MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-ignore-leaks" cargo +nightly miri test par_for_each
 ```
 
 ## Project rules

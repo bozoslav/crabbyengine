@@ -161,6 +161,54 @@ fn main() {
         },
     );
 
+    // ---- simulation at scale: single core vs all cores (crabby_ecs) ----------
+    /// Agent with heading; "heavy" work = steering with trig, like a real sim tick.
+    #[derive(Clone, Copy)]
+    struct Agent {
+        heading: f32,
+        speed: f32,
+    }
+    fn heavy(p: &mut Pos, a: &mut Agent, dt: f32) {
+        let wander = (p.x * 0.013 + p.y * 0.007 + a.heading).sin() * 0.8;
+        a.heading += wander * dt;
+        let (s, c) = a.heading.sin_cos();
+        p.x = (p.x + c * a.speed * dt).rem_euclid(4096.0);
+        p.y = (p.y + s * a.speed * dt).rem_euclid(4096.0);
+    }
+    for &n in &[1_000_000usize, 10_000_000] {
+        let world = |n: usize| {
+            let mut w = crabby_ecs::World::new();
+            w.spawn_batch((0..n).map(|i| {
+                (Pos { x: (i % 4096) as f32, y: (i / 4096 % 4096) as f32 }, Vel { x: 1.0, y: 0.5 }, Agent { heading: i as f32, speed: 30.0 })
+            }));
+            w
+        };
+        let tag = if n >= 10_000_000 { "10M" } else { "1M" };
+        let runs = if n >= 10_000_000 { 30 } else { 100 };
+        b.steady(&format!("sim-light-{tag}/1-core"), runs, || world(n), |w| {
+            let dt = black_box(DT);
+            w.query::<(&mut Pos, &Vel)>().for_each(|(p, v)| {
+                p.x += v.x * dt;
+                p.y += v.y * dt;
+            });
+        });
+        b.steady(&format!("sim-light-{tag}/all-cores"), runs, || world(n), |w| {
+            let dt = black_box(DT);
+            w.query::<(&mut Pos, &Vel)>().par_for_each(|(p, v)| {
+                p.x += v.x * dt;
+                p.y += v.y * dt;
+            });
+        });
+        b.steady(&format!("sim-heavy-{tag}/1-core"), runs, || world(n), |w| {
+            let dt = black_box(DT);
+            w.query::<(&mut Pos, &mut Agent)>().for_each(|(p, a)| heavy(p, a, dt));
+        });
+        b.steady(&format!("sim-heavy-{tag}/all-cores"), runs, || world(n), |w| {
+            let dt = black_box(DT);
+            w.query::<(&mut Pos, &mut Agent)>().par_for_each(|(p, a)| heavy(p, a, dt));
+        });
+    }
+
     // ---- spawn ------------------------------------------------------------------
     b.run("spawn/own", 10, own::World::new, |w| {
         for i in 0..N {

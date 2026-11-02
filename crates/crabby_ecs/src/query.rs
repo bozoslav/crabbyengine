@@ -263,6 +263,63 @@ impl<'w, Q: QueryData> Query<'w, Q> {
         }
     }
 
+    /// Like [`for_each`](Self::for_each), but spread over all CPU cores.
+    ///
+    /// Each archetype is cut into chunks of rows, and the chunks run in
+    /// parallel. Use it for heavy per-entity work over many entities; for a
+    /// few thousand cheap updates, `for_each` is just as fast.
+    ///
+    /// `f` can't capture `&mut` state (it runs on many threads at once). To
+    /// spawn or despawn, collect what you need and use commands afterwards.
+    ///
+    /// ```
+    /// # use crabby_ecs::*;
+    /// struct Pos(f32);
+    /// struct Vel(f32);
+    /// let mut world = World::new();
+    /// world.spawn_batch((0..100_000).map(|i| (Pos(i as f32), Vel(1.0))));
+    ///
+    /// world.query::<(&mut Pos, &Vel)>().par_for_each(|(p, v)| p.0 += v.0);
+    /// ```
+    #[cfg(feature = "parallel")]
+    pub fn par_for_each(&mut self, f: impl Fn(Q::Item<'_>) + Send + Sync) {
+        use rayon::prelude::*;
+
+        /// Rows per parallel task: big enough to amortize scheduling and keep
+        /// the inner loop vectorized, small enough to balance across cores.
+        const CHUNK: usize = 8192;
+
+        /// Archetype column pointers, shared with worker threads.
+        #[derive(Clone, Copy)]
+        struct Shared<S>(S);
+        // SAFETY: the pointers refer to component columns (`Send + Sync`
+        // components); each task touches a disjoint row range.
+        unsafe impl<S> Send for Shared<S> {}
+        unsafe impl<S> Sync for Shared<S> {}
+
+        for arch in self.world.archetypes.iter() {
+            let len = arch.len();
+            if len == 0 || !self.filters.matches(arch) {
+                continue;
+            }
+            let Some(state) = Q::state(arch, &self.ids) else { continue };
+            if len <= CHUNK {
+                for row in 0..len {
+                    f(unsafe { Q::fetch(state, row) });
+                }
+                continue;
+            }
+            let shared = Shared(state);
+            (0..len.div_ceil(CHUNK)).into_par_iter().for_each(|c| {
+                let state = shared;
+                let end = ((c + 1) * CHUNK).min(len);
+                for row in c * CHUNK..end {
+                    f(unsafe { Q::fetch(state.0, row) });
+                }
+            });
+        }
+    }
+
     /// An iterator over matching entities, for `map`/`filter`/`sum` and friends.
     ///
     /// Convenient, but several times slower than [`for_each`](Self::for_each)
