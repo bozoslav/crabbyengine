@@ -62,6 +62,7 @@ pub(crate) struct Renderer {
     ui_camera_bind_group: wgpu::BindGroup,
     texture_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
+    nearest_sampler: wgpu::Sampler,
     textures: Vec<GpuTexture>,
 
     instance_buffer: wgpu::Buffer,
@@ -330,6 +331,10 @@ impl Renderer {
             ..Default::default()
         });
 
+        let nearest_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("pixel art sampler"),
+            ..Default::default() // nearest
+        });
         let instance_buffer = Self::create_instance_buffer(&device, INITIAL_INSTANCE_CAPACITY);
         let timer = GpuTimer::new(&device, &queue);
 
@@ -347,6 +352,7 @@ impl Renderer {
             ui_camera_bind_group,
             texture_layout,
             sampler,
+            nearest_sampler,
             textures: Vec::new(),
             instance_buffer,
             instance_capacity: INITIAL_INSTANCE_CAPACITY,
@@ -443,6 +449,30 @@ impl Renderer {
                 depth_or_array_layers: 1,
             },
         );
+    }
+
+    /// Switches texture `id` between smooth and hard-edged sampling.
+    pub fn set_filter(&mut self, id: u32, nearest: bool) {
+        let tex = &mut self.textures[id as usize];
+        let view = tex.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        tex.bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("sprite texture"),
+            layout: &self.texture_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(if nearest {
+                        &self.nearest_sampler
+                    } else {
+                        &self.sampler
+                    }),
+                },
+            ],
+        });
     }
 
     /// Replaces a `width` × `height` block of texture `id` at `(x, y)`.

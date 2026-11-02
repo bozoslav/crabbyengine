@@ -1,0 +1,242 @@
+//! Sprite sheets (many frames in one texture) and frame animation.
+
+use glam::Vec2;
+
+use crate::camera::Rect;
+use crate::ctx::Ctx;
+use crate::ecs::Sprite;
+use crate::texture::Texture;
+
+/// A texture cut into equal frames on a grid, numbered left to right, top
+/// to bottom: an animation strip, a tileset, a texture atlas of icons.
+///
+/// ```
+/// # use crabbyengine::*;
+/// # fn setup(ctx: &mut Ctx) {
+/// let tex = ctx.load_texture("crab.png"); // say it holds 16 × 16 frames
+/// let sheet = SpriteSheet::new(tex, 16, 16);
+/// ctx.world.spawn((Transform2D::at(vec2(100.0, 100.0)), sheet.sprite(3)));
+/// # }
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SpriteSheet {
+    pub texture: Texture,
+    /// Frame size in texture pixels.
+    pub frame_size: Vec2,
+    /// Frames per row.
+    pub columns: u32,
+    /// Number of frames.
+    pub len: u32,
+}
+
+impl SpriteSheet {
+    /// Cuts `texture` into `frame_width` × `frame_height` frames. Partial
+    /// frames at the right and bottom edges are left out.
+    ///
+    /// # Panics
+    /// If a frame is empty or bigger than the texture.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn f(tiles: Texture) {
+    /// let sheet = SpriteSheet::new(tiles, 32, 32);
+    /// println!("{} tiles", sheet.len);
+    /// # }
+    /// ```
+    pub fn new(texture: Texture, frame_width: u32, frame_height: u32) -> Self {
+        assert!(
+            frame_width > 0 && frame_height > 0 && frame_width <= texture.width() && frame_height <= texture.height(),
+            "crabbyengine: {frame_width} x {frame_height} frames don't fit a {} x {} texture",
+            texture.width(),
+            texture.height()
+        );
+        let columns = texture.width() / frame_width;
+        let rows = texture.height() / frame_height;
+        Self {
+            texture,
+            frame_size: Vec2::new(frame_width as f32, frame_height as f32),
+            columns,
+            len: columns * rows,
+        }
+    }
+
+    /// Where frame `index` is, in texture pixels. Wraps around past the end.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx, sheet: SpriteSheet) {
+    /// ctx.draw_ex(&sheet.texture, vec2(50.0, 50.0), DrawParams {
+    ///     region: Some(sheet.frame(2)),
+    ///     ..Default::default()
+    /// });
+    /// # }
+    /// ```
+    pub fn frame(&self, index: u32) -> Rect {
+        let i = index % self.len.max(1);
+        let at = Vec2::new((i % self.columns) as f32, (i / self.columns) as f32) * self.frame_size;
+        Rect {
+            min: at,
+            max: at + self.frame_size,
+        }
+    }
+
+    /// A [`Sprite`] showing frame `index`.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx, sheet: SpriteSheet) {
+    /// ctx.world.spawn((Transform2D::at(vec2(10.0, 10.0)), sheet.sprite(0)));
+    /// # }
+    /// ```
+    pub fn sprite(&self, index: u32) -> Sprite {
+        Sprite::new(self.texture).with_region(self.frame(index))
+    }
+}
+
+/// Plays frames of a [`SpriteSheet`] on an entity's [`Sprite`]. The built-in
+/// [`animate_sprites`] system advances it every frame.
+///
+/// ```
+/// # use crabbyengine::*;
+/// # fn setup(ctx: &mut Ctx, sheet: SpriteSheet) {
+/// ctx.world.spawn((
+///     Transform2D::at(vec2(200.0, 200.0)),
+///     sheet.sprite(0),
+///     Animation::new(sheet, 0..8, 12.0), // frames 0-7 at 12 frames per second, looping
+/// ));
+/// # }
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+pub struct Animation {
+    pub sheet: SpriteSheet,
+    /// First frame and how many frames to play.
+    pub first: u32,
+    pub frames: u32,
+    /// Frames per second.
+    pub fps: f32,
+    /// Start over at the end (default), or stop on the last frame.
+    pub looping: bool,
+    /// Seconds played so far.
+    pub time: f32,
+}
+
+impl Animation {
+    /// Plays `frames` of `sheet` at `fps`, looping.
+    pub fn new(sheet: SpriteSheet, frames: std::ops::Range<u32>, fps: f32) -> Self {
+        Self {
+            sheet,
+            first: frames.start,
+            frames: frames.end.saturating_sub(frames.start).max(1),
+            fps,
+            looping: true,
+            time: 0.0,
+        }
+    }
+
+    /// Same animation, played once and then held on its last frame.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn f(sheet: SpriteSheet) {
+    /// let explode = Animation::new(sheet, 8..16, 24.0).once();
+    /// # }
+    /// ```
+    pub fn once(self) -> Self {
+        Self { looping: false, ..self }
+    }
+
+    /// The frame showing now (an index into the sheet).
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn f(sheet: SpriteSheet) {
+    /// let walk = Animation::new(sheet, 4..8, 10.0);
+    /// assert_eq!(walk.current_frame(), 4);
+    /// # }
+    /// ```
+    pub fn current_frame(&self) -> u32 {
+        let n = (self.time * self.fps).max(0.0) as u32;
+        let step = if self.looping {
+            n % self.frames
+        } else {
+            n.min(self.frames - 1)
+        };
+        self.first + step
+    }
+
+    /// `true` once an animation made with [`once`](Self::once) reached its
+    /// last frame (never for looping ones).
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn cleanup(ctx: &mut Ctx) {
+    /// let done: Vec<Entity> = ctx.world.query::<(Entity, &Animation)>().iter()
+    ///     .filter(|(_, a)| a.finished())
+    ///     .map(|(e, _)| e)
+    ///     .collect();
+    /// for e in done { ctx.world.despawn(e); }
+    /// # }
+    /// ```
+    pub fn finished(&self) -> bool {
+        !self.looping && self.time * self.fps >= self.frames as f32
+    }
+}
+
+/// Built-in system: advances every [`Animation`] and shows its frame on the
+/// entity's [`Sprite`]. [`Game`](crate::Game) runs it every frame, before
+/// [`draw_sprites`](crate::draw_sprites).
+///
+/// ```no_run
+/// # use crabbyengine::*;
+/// // Animations driven by your own clock instead:
+/// Game::new("t", 800, 600).remove_system(animate_sprites).run(|_| {});
+/// ```
+pub fn animate_sprites(ctx: &mut Ctx) {
+    let dt = ctx.dt();
+    ctx.world
+        .query::<(&mut Animation, &mut Sprite)>()
+        .par_for_each(|(a, s)| {
+            a.time += dt;
+            s.texture = a.sheet.texture;
+            s.region = Some(a.sheet.frame(a.current_frame()));
+        });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sheet() -> SpriteSheet {
+        // 64 × 40 texture, 16 × 16 frames: 4 columns, 2 full rows.
+        SpriteSheet::new(Texture::new(0, 64, 40), 16, 16)
+    }
+
+    #[test]
+    fn frames_are_numbered_row_by_row() {
+        let s = sheet();
+        assert_eq!((s.columns, s.len), (4, 8));
+        assert_eq!(s.frame(0), Rect::new(0.0, 0.0, 16.0, 16.0));
+        assert_eq!(s.frame(5), Rect::new(16.0, 16.0, 16.0, 16.0));
+        assert_eq!(s.frame(8), s.frame(0), "wraps");
+    }
+
+    #[test]
+    fn animations_loop_or_hold() {
+        let mut a = Animation::new(sheet(), 2..5, 10.0);
+        a.time = 0.25; // 2.5 frames in
+        assert_eq!(a.current_frame(), 4);
+        a.time = 0.35;
+        assert_eq!(a.current_frame(), 2, "looped back");
+        assert!(!a.finished());
+        let mut once = Animation::new(sheet(), 2..5, 10.0).once();
+        once.time = 10.0;
+        assert_eq!(once.current_frame(), 4);
+        assert!(once.finished());
+    }
+
+    #[test]
+    #[should_panic(expected = "don't fit")]
+    fn frames_bigger_than_the_texture_panic() {
+        SpriteSheet::new(Texture::new(0, 8, 8), 16, 16);
+    }
+}

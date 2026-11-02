@@ -18,7 +18,9 @@ use crate::ctx::{Ctx, SystemTiming};
 use crate::ecs::draw_sprites;
 use crate::input::{Key, MouseButton};
 use crate::render::{FrameStatus, Renderer};
+use crate::sheet::animate_sprites;
 use crate::spatial::rebuild_spatial_grid;
+use crate::tilemap::draw_tilemaps;
 use crate::time::{Clock, DEFAULT_FIXED_HZ, FrameTiming};
 
 /// Trackpads report scrolling in pixels; this many logical pixels count as one
@@ -168,7 +170,11 @@ impl Game {
             vsync: true,
             sim_systems: Vec::new(),
             systems: Vec::new(),
-            draw_systems: vec![System::new(draw_sprites)],
+            draw_systems: vec![
+                System::new(animate_sprites),
+                System::new(draw_tilemaps),
+                System::new(draw_sprites),
+            ],
             spatial_cell: None,
             control: control::env_flag(control::ENV_CONTROL),
         }
@@ -804,6 +810,13 @@ mod tests {
     fn sim_a(ctx: &mut Ctx) {
         log(ctx, "sim_a");
     }
+
+    /// A game without the built-in drawing systems.
+    fn bare(game: Game) -> Game {
+        game.remove_system(animate_sprites)
+            .remove_system(draw_tilemaps)
+            .remove_system(draw_sprites)
+    }
     fn frame_b(ctx: &mut Ctx) {
         log(ctx, "frame_b");
     }
@@ -840,10 +853,7 @@ mod tests {
 
     #[test]
     fn remove_system_removes_builtin_and_user_systems() {
-        let game = Game::new("t", 1, 1)
-            .sim_system(sim_a)
-            .remove_system(draw_sprites)
-            .remove_system(sim_a);
+        let game = bare(Game::new("t", 1, 1).sim_system(sim_a)).remove_system(sim_a);
         assert!(game.systems.is_empty() && game.sim_systems.is_empty() && game.draw_systems.is_empty());
     }
 
@@ -885,10 +895,7 @@ mod tests {
         fn slow(_: &mut Ctx) {
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
-        let mut game = Game::new("t", 1, 1)
-            .sim_system(slow)
-            .remove_system(draw_sprites)
-            .system(frame_b);
+        let mut game = bare(Game::new("t", 1, 1).sim_system(slow)).system(frame_b);
         let mut ctx = ctx();
         game.run_systems(&mut ctx, 3);
         let t = ctx.system_timings();
@@ -911,7 +918,7 @@ mod tests {
         game.run_systems(&mut ctx, 0);
         let order: Vec<_> = ctx.system_timings().iter().map(|t| t.name).collect();
         assert!(
-            order[0].ends_with("move_right") && order[1].ends_with("draw_sprites"),
+            order[0].ends_with("move_right") && order.last().unwrap().ends_with("draw_sprites"),
             "{order:?}"
         );
     }

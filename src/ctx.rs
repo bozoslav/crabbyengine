@@ -5,15 +5,16 @@ use glam::{Mat4, Vec2};
 
 use crate::assets;
 use crate::camera::Camera2D;
+use crate::camera::Rect;
 use crate::color::Color;
 use crate::ecs::{Sprite, Transform2D};
 use crate::input::{Input, Key, MouseButton};
-use crate::render::batch::uv_region;
 use crate::render::batch::{DrawList, SpriteInstance};
+use crate::render::batch::{FULL_UV, uv_region};
 use crate::render::{FrameStatus, RenderStats, Renderer, Screenshot};
 use crate::spatial::SpatialGrid;
 use crate::text::{Font, Text, TextParams};
-use crate::texture::{DrawParams, Texture};
+use crate::texture::{DrawParams, Texture, TextureFilter};
 use crate::time::FrameTiming;
 use crate::ui::{UiState, UiStyle};
 use serde_json::Value;
@@ -519,13 +520,15 @@ impl Ctx {
         /// Below this many sprites, one thread is faster than many.
         const PARALLEL_MIN: usize = 20_000;
         fn instance(t: &Transform2D, s: &Sprite) -> SpriteInstance {
+            let (size, uv) = region(&s.texture, s.region);
             SpriteInstance::new(
                 t.position.into(),
-                (s.texture.size() * t.scale).into(),
+                (size * t.scale).into(),
                 s.pivot.into(),
                 t.rotation,
                 s.color.to_rgba8(),
             )
+            .with_uv(uv)
         }
         let draw_list = &mut self.draw_list;
         let mut query = self.world.query::<(&Transform2D, &Sprite)>();
@@ -575,11 +578,12 @@ impl Ctx {
             &mut self.draw_list,
             texture,
             pos,
-            texture.size(),
+            Vec2::ONE,
             0.0,
             0.0,
             Vec2::splat(0.5),
             [255; 4],
+            None,
         );
     }
 
@@ -605,11 +609,12 @@ impl Ctx {
             },
             texture,
             pos,
-            texture.size() * params.scale,
+            params.scale,
             params.rotation,
             params.z,
             params.pivot,
             params.color.to_rgba8(),
+            params.region,
         );
     }
 
@@ -719,6 +724,22 @@ impl Ctx {
     pub fn measure_text_ex(&mut self, text: &str, font: Font, size: f32) -> Vec2 {
         let scale = self.scale_factor;
         self.text.layout(text, font, size * scale, false) / scale
+    }
+
+    /// Sets how `texture` is sampled. Use [`TextureFilter::Nearest`] for pixel
+    /// art and tilesets; the default is smooth.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn setup(ctx: &mut Ctx) {
+    /// let tiles = ctx.load_texture("crab.png");
+    /// ctx.set_texture_filter(&tiles, TextureFilter::Nearest);
+    /// # }
+    /// ```
+    pub fn set_texture_filter(&mut self, texture: &Texture, filter: TextureFilter) {
+        if let Some(r) = self.renderer.as_mut() {
+            r.set_filter(texture.id, filter == TextureFilter::Nearest);
+        }
     }
 
     /// Loads a TrueType or OpenType font from the `assets/` folder.
@@ -1187,17 +1208,31 @@ fn push_sprite(
     draw_list: &mut DrawList,
     texture: &Texture,
     pos: Vec2,
-    size: Vec2,
+    scale: Vec2,
     rotation: f32,
     z: f32,
     pivot: Vec2,
     color: [u8; 4],
+    region_px: Option<Rect>,
 ) {
+    let (size, uv) = region(texture, region_px);
     draw_list.push(
         texture.id,
         z,
-        SpriteInstance::new(pos.into(), size.into(), pivot.into(), rotation, color),
+        SpriteInstance::new(pos.into(), (size * scale).into(), pivot.into(), rotation, color).with_uv(uv),
     );
+}
+
+/// The drawn size (texture pixels) and UV of `region` of `texture`.
+#[inline]
+pub(crate) fn region(texture: &Texture, region: Option<Rect>) -> (Vec2, [u16; 4]) {
+    match region {
+        None => (texture.size(), FULL_UV),
+        Some(r) => {
+            let t = texture.size().max(Vec2::ONE);
+            (r.size(), uv_region((r.min / t).into(), (r.size() / t).into()))
+        }
+    }
 }
 
 /// Which entities update this tick, from [`Ctx::turns`].

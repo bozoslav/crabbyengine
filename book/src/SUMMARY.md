@@ -11,6 +11,7 @@
 - [Spatial queries](spatial.md)
 - [Drawing](drawing.md)
 - [Camera, text and UI](camera-ui.md)
+- [Sprite sheets, animation, tilemaps](tiles.md)
 - [Headless runs and testing](headless.md)
 - [Reflection: components as JSON](reflection.md)
 - [Randomness, determinism and saving](determinism.md)

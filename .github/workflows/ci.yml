@@ -74,6 +74,7 @@ jobs:
           - engine
           - engine-headless
           - engine-ui
+          - engine-tiles
           - engine-spatial
           - engine-reflect
           - engine-control
@@ -92,6 +93,7 @@ jobs:
           - { area: engine, args: -p crabbyengine --lib }
           - { area: engine-headless, args: -p crabbyengine --test headless }
           - { area: engine-ui, args: -p crabbyengine --test ui }
+          - { area: engine-tiles, args: -p crabbyengine --test tiles }
           - { area: engine-spatial, args: -p crabbyengine --test spatial }
           - { area: engine-reflect, args: -p crabbyengine --test reflect }
           - { area: engine-control, args: -p crabbyengine --test control }
