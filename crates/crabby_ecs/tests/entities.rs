@@ -154,3 +154,49 @@ fn world_is_send_and_sync() {
     check::<World>();
     send::<Commands>();
 }
+
+#[test]
+fn sort_by_reorders_rows_and_keeps_handles_valid() {
+    let rc = Arc::new(());
+    let mut w = World::new();
+    let n: usize = if cfg!(miri) { 50 } else { 2000 };
+    let mut es = Vec::new();
+    for i in 0..n {
+        // Scrambled keys, two archetypes, a non-Copy component and a ZST.
+        let x = ((i * 7919) % n) as f32;
+        let e = if i % 3 == 0 {
+            w.spawn((Pos(x, i as f32), rc.clone(), Tag))
+        } else {
+            w.spawn((Pos(x, i as f32), Vel(x, 0.0)))
+        };
+        es.push(e);
+    }
+    w.sort_by::<Pos>(|p| p.0 as u64);
+    // Each archetype is now in key order.
+    let mut last = std::collections::HashMap::new();
+    w.query::<(&Pos, Option<&Tag>)>().for_each(|(p, tag)| {
+        let prev = last.insert(tag.is_some(), p.0).unwrap_or(f32::MIN);
+        assert!(p.0 >= prev);
+    });
+    // Handles still point at their own data.
+    for (i, &e) in es.iter().enumerate() {
+        assert_eq!(w.get::<Pos>(e).unwrap().1, i as f32);
+        if i % 3 != 0 {
+            assert_eq!(w.get::<Vel>(e).unwrap().0, w.get::<Pos>(e).unwrap().0);
+        }
+    }
+    // Despawn after sorting still swaps rows correctly.
+    w.despawn(es[1]);
+    assert_eq!(w.get::<Pos>(es[2]).unwrap().1, 2.0);
+    assert_eq!(Arc::strong_count(&rc), 1 + n.div_ceil(3));
+    drop(w);
+    assert_eq!(Arc::strong_count(&rc), 1, "no value dropped twice or leaked");
+}
+
+#[test]
+fn sort_by_without_the_component_is_a_no_op() {
+    let mut w = World::new();
+    let e = w.spawn((Vel(1.0, 2.0),));
+    w.sort_by::<Pos>(|p| p.0 as u64);
+    assert_eq!(w.get::<Vel>(e), Some(&Vel(1.0, 2.0)));
+}
