@@ -34,7 +34,6 @@ struct Bench {
     frames: u32,
     worst_ms: f32,
     frame_start: Instant,
-    update_ms: f64,
     quit_after: f64,
 }
 
@@ -56,7 +55,6 @@ fn spawn(ctx: &mut Ctx, n: usize, at: Vec2) {
 }
 
 fn bounce(ctx: &mut Ctx) {
-    let start = Instant::now();
     let dt = ctx.dt();
     let bounds = ctx.window_size();
     let gravity = 600.0;
@@ -69,15 +67,6 @@ fn bounce(ctx: &mut Ctx) {
         if p.y > bounds.y { p.y = bounds.y; v.y = -v.y.abs() * 0.85; }
         if p.y < 0.0 { p.y = 0.0; v.y = 0.0; }
     });
-    ctx.world.resource_mut::<Bench>().update_ms += start.elapsed().as_secs_f64() * 1000.0;
-}
-
-/// Times the built-in sprite drawing so the report matches `bunnymark`'s
-/// "update + draw calls" number.
-fn timed_draw(ctx: &mut Ctx) {
-    let start = Instant::now();
-    draw_sprites(ctx);
-    ctx.world.resource_mut::<Bench>().update_ms += start.elapsed().as_secs_f64() * 1000.0;
 }
 
 fn report(ctx: &mut Ctx) {
@@ -85,6 +74,9 @@ fn report(ctx: &mut Ctx) {
         let at = ctx.mouse_pos();
         spawn(ctx, 1000, at);
     }
+    // "update + draw calls" = every system except this one, as measured by the
+    // engine (smoothed averages; draw_sprites hasn't run yet this frame).
+    let systems_ms: f32 = ctx.system_timings().iter().filter(|t| !t.name.ends_with("report")).map(|t| t.avg_ms).sum();
     let (time, count) = (ctx.time(), ctx.world.len());
     let b = ctx.world.resource_mut::<Bench>();
     let now = Instant::now();
@@ -99,12 +91,11 @@ fn report(ctx: &mut Ctx) {
             b.frames,
             1000.0 / b.frames as f64,
             b.worst_ms,
-            b.update_ms / b.frames as f64,
+            systems_ms,
         );
         b.report_at += 1.0;
         b.frames = 0;
         b.worst_ms = 0.0;
-        b.update_ms = 0.0;
     }
     let quit_after = b.quit_after;
     if ctx.key_pressed(Key::Escape) || (quit_after > 0.0 && time >= quit_after) {
@@ -118,9 +109,7 @@ fn main() {
 
     Game::new("Crabby Engine: bunnymark (ECS)", 1280, 720)
         .vsync(false)
-        .remove_system(draw_sprites)
         .system(bounce)
-        .system(timed_draw)
         .system(report)
         .run(move |ctx| {
             let crab = ctx.load_texture("crab.png");
@@ -131,7 +120,6 @@ fn main() {
                 frames: 0,
                 worst_ms: 0.0,
                 frame_start: Instant::now(),
-                update_ms: 0.0,
                 quit_after,
             });
             spawn(ctx, start_count, vec2(20.0, 20.0));

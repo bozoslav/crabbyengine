@@ -11,6 +11,13 @@ image = { version = "0.25.10", default-features = false, features = ["png"] }
 pollster = "1.0.1"
 wgpu = "30.0.1"
 winit = "0.30.13"
+puffin = { version = "0.20.0", optional = true }
+puffin_http = { version = "0.17.0", optional = true }
+
+[features]
+# Frame profiler: per-system scopes, viewable live with `puffin_viewer`
+# (cargo install puffin_viewer; connects to 127.0.0.1:8585).
+profiling = ["dep:puffin", "dep:puffin_http"]
 
 [workspace]
 members = [".", "crates/crabby_ecs", "spikes/ecs-bench"]

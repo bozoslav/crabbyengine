@@ -33,7 +33,7 @@ mod texture;
 mod time;
 
 pub use color::Color;
-pub use ctx::Ctx;
+pub use ctx::{Ctx, SystemTiming};
 pub use ecs::{Sprite, Transform2D, draw_sprites};
 pub use game::{Game, SetupResult};
 pub use input::{Key, MouseButton};

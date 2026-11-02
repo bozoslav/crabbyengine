@@ -11,7 +11,7 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::PhysicalKey;
 use winit::window::{Window, WindowId};
 
-use crate::ctx::Ctx;
+use crate::ctx::{Ctx, SystemTiming};
 use crate::ecs::draw_sprites;
 use crate::input::{Key, MouseButton};
 use crate::render::{FrameStatus, Renderer};
@@ -68,6 +68,8 @@ pub struct Game {
     vsync: bool,
     sim_systems: Vec<System>,
     systems: Vec<System>,
+    /// Built-in drawing; runs after every other system so it sees final positions.
+    draw_systems: Vec<System>,
 }
 
 type SystemFn = Box<dyn FnMut(&mut Ctx)>;
@@ -76,6 +78,17 @@ type SystemFn = Box<dyn FnMut(&mut Ctx)>;
 struct System {
     name: &'static str,
     run: SystemFn,
+}
+
+/// Runs one system, applies its commands, and records how long both took.
+#[inline]
+fn run_one(s: &mut System, ctx: &mut Ctx, timing_index: usize) {
+    #[cfg(feature = "profiling")]
+    puffin::profile_scope!("system", s.name);
+    let start = Instant::now();
+    (s.run)(ctx);
+    ctx.apply_commands();
+    ctx.timings[timing_index].last_ms += start.elapsed().as_secs_f32() * 1000.0;
 }
 
 impl System {
@@ -121,7 +134,8 @@ impl Game {
             fixed_hz: DEFAULT_FIXED_HZ,
             vsync: true,
             sim_systems: Vec::new(),
-            systems: vec![System::new(draw_sprites)],
+            systems: Vec::new(),
+            draw_systems: vec![System::new(draw_sprites)],
         }
     }
 
@@ -175,12 +189,14 @@ impl Game {
     pub fn remove_system<F: FnMut(&mut Ctx) + 'static>(mut self, system: F) -> Self {
         drop(system);
         let name = std::any::type_name::<F>();
-        let before = self.sim_systems.len() + self.systems.len();
+        let count = |g: &Game| g.sim_systems.len() + g.systems.len() + g.draw_systems.len();
+        let before = count(&self);
         self.sim_systems.retain(|s| s.name != name);
         self.systems.retain(|s| s.name != name);
+        self.draw_systems.retain(|s| s.name != name);
         assert_ne!(
             before,
-            self.sim_systems.len() + self.systems.len(),
+            count(&self),
             "Game::remove_system: no system `{name}` was added"
         );
         self
@@ -216,19 +232,36 @@ impl Game {
     }
 
     /// One frame of game logic: simulation systems `fixed_steps` times, then
-    /// frame systems. Commands are applied after every system.
+    /// frame systems, then built-in drawing. Commands are applied after every system.
     fn run_systems(&mut self, ctx: &mut Ctx, fixed_steps: u32) {
+        let n_sim = self.sim_systems.len();
+        let n_frame = self.systems.len();
+        if ctx.timings.len() != n_sim + n_frame + self.draw_systems.len() {
+            ctx.timings = (self.sim_systems.iter().map(|s| (s, true)))
+                .chain(self.systems.iter().chain(&self.draw_systems).map(|s| (s, false)))
+                .map(|(s, sim)| SystemTiming { name: s.name, sim, last_ms: 0.0, avg_ms: 0.0 })
+                .collect();
+        }
+        for t in &mut ctx.timings {
+            t.last_ms = 0.0;
+        }
+
         ctx.set_in_sim(true);
         for _ in 0..fixed_steps {
-            for s in &mut self.sim_systems {
-                (s.run)(ctx);
-                ctx.apply_commands();
+            for (i, s) in self.sim_systems.iter_mut().enumerate() {
+                run_one(s, ctx, i);
             }
         }
         ctx.set_in_sim(false);
-        for s in &mut self.systems {
-            (s.run)(ctx);
-            ctx.apply_commands();
+        for (i, s) in self.systems.iter_mut().enumerate() {
+            run_one(s, ctx, n_sim + i);
+        }
+        for (i, s) in self.draw_systems.iter_mut().enumerate() {
+            run_one(s, ctx, n_sim + n_frame + i);
+        }
+
+        for t in &mut ctx.timings {
+            t.avg_ms += (t.last_ms - t.avg_ms) * 0.05;
         }
     }
 
@@ -240,7 +273,8 @@ impl Game {
     /// are your game state; no structs or traits required.
     ///
     /// Each frame runs: simulation systems (`ctx.fixed_steps()` times), then
-    /// frame systems, then the closure from `setup`, then rendering.
+    /// frame systems, then the closure from `setup`, then the built-in
+    /// [`draw_sprites`], then rendering.
     ///
     /// ```no_run
     /// # use crabbyengine::*;
@@ -263,6 +297,9 @@ impl Game {
         S: FnOnce(&mut Ctx) -> U,
         U: SetupResult,
     {
+        #[cfg(feature = "profiling")]
+        let _puffin_server = start_profiler();
+
         let event_loop = EventLoop::new()
             .unwrap_or_else(|e| panic!("crabbyengine: could not start the event loop: {e}"));
 
@@ -285,6 +322,23 @@ impl Game {
         event_loop
             .run_app(&mut app)
             .unwrap_or_else(|e| panic!("crabbyengine: the event loop stopped with an error: {e}"));
+    }
+}
+
+/// Starts the puffin server; the returned handle keeps it running.
+#[cfg(feature = "profiling")]
+fn start_profiler() -> Option<puffin_http::Server> {
+    const ADDR: &str = "127.0.0.1:8585";
+    puffin::set_scopes_on(true);
+    match puffin_http::Server::new(ADDR) {
+        Ok(server) => {
+            eprintln!("crabbyengine: profiler running; view it with `puffin_viewer --url {ADDR}`");
+            Some(server)
+        }
+        Err(e) => {
+            eprintln!("crabbyengine: could not start the profiler on {ADDR}: {e}");
+            None
+        }
     }
 }
 
@@ -320,6 +374,8 @@ where
         let frame_dt = now.duration_since(self.last_frame).as_secs_f64();
         self.last_frame = now;
 
+        #[cfg(feature = "profiling")]
+        puffin::GlobalProfiler::lock().new_frame();
         let timing = self.clock.advance(frame_dt);
         self.ctx.begin_frame(timing);
         self.config.run_systems(&mut self.ctx, timing.fixed_steps);
@@ -520,13 +576,41 @@ mod tests {
     #[test]
     fn remove_system_removes_builtin_and_user_systems() {
         let game = Game::new("t", 1, 1).sim_system(sim_a).remove_system(draw_sprites).remove_system(sim_a);
-        assert!(game.systems.is_empty() && game.sim_systems.is_empty());
+        assert!(game.systems.is_empty() && game.sim_systems.is_empty() && game.draw_systems.is_empty());
     }
 
     #[test]
     #[should_panic(expected = "no system")]
     fn removing_unknown_system_panics() {
         let _ = Game::new("t", 1, 1).remove_system(sim_a);
+    }
+
+    #[test]
+    fn records_system_timings() {
+        fn slow(_: &mut Ctx) {
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        let mut game = Game::new("t", 1, 1).sim_system(slow).remove_system(draw_sprites).system(frame_b);
+        let mut ctx = ctx();
+        game.run_systems(&mut ctx, 3);
+        let t = ctx.system_timings();
+        assert_eq!(t.len(), 2, "{t:?}");
+        assert!(t[0].sim && !t[1].sim);
+        assert!(t[0].name.ends_with("slow"), "{}", t[0].name);
+        assert!(t[0].last_ms >= 6.0, "3 steps of 2 ms, got {}", t[0].last_ms);
+        assert!(t[0].avg_ms > 0.0 && t[0].avg_ms < t[0].last_ms);
+    }
+
+    #[test]
+    fn drawing_sees_positions_from_frame_systems() {
+        fn move_right(ctx: &mut Ctx) {
+            ctx.world.query::<&mut crate::Transform2D>().for_each(|t| t.position.x += 1.0);
+        }
+        let mut game = Game::new("t", 1, 1).system(move_right);
+        let mut ctx = ctx();
+        game.run_systems(&mut ctx, 0);
+        let order: Vec<_> = ctx.system_timings().iter().map(|t| t.name).collect();
+        assert!(order[0].ends_with("move_right") && order[1].ends_with("draw_sprites"), "{order:?}");
     }
 
     #[test]
