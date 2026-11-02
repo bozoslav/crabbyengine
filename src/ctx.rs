@@ -1,13 +1,30 @@
 //! [`Ctx`]: everything game code talks to each frame.
 
-use glam::Vec2;
+use glam::{Mat4, Vec2};
 
+use crate::assets;
+use crate::color::Color;
 use crate::input::{Input, Key, MouseButton};
+use crate::render::batch::{DrawList, SpriteInstance};
+use crate::render::{FrameStatus, Renderer};
+use crate::texture::{DrawParams, Texture};
 use crate::time::FrameTiming;
+
+/// Maps window pixels ((0, 0) top-left, y down) to wgpu clip space
+/// (x right, y up, both -1..1).
+fn screen_projection(size: Vec2) -> Mat4 {
+    let size = size.max(Vec2::ONE);
+    Mat4::from_cols(
+        glam::vec4(2.0 / size.x, 0.0, 0.0, 0.0),
+        glam::vec4(0.0, -2.0 / size.y, 0.0, 0.0),
+        glam::vec4(0.0, 0.0, 1.0, 0.0),
+        glam::vec4(-1.0, 1.0, 0.0, 1.0),
+    )
+}
 
 /// The game's handle to the engine, passed to your update closure every frame.
 ///
-/// Use it to read input, timing and window info, and (from M2 on) to draw.
+/// Use it to draw, read input, and check timing and window info.
 pub struct Ctx {
     pub(crate) input: Input,
     timing: FrameTiming,
@@ -17,6 +34,9 @@ pub struct Ctx {
     fps: f32,
     window_size: Vec2,
     quit_requested: bool,
+    pub(crate) renderer: Option<Renderer>,
+    draw_list: DrawList,
+    clear_color: Color,
 }
 
 impl Ctx {
@@ -34,7 +54,29 @@ impl Ctx {
             fps: 0.0,
             window_size,
             quit_requested: false,
+            renderer: None,
+            draw_list: DrawList::default(),
+            clear_color: Color::CRABBY_DARK,
         }
+    }
+
+    /// Engine side: draw everything queued this frame, then reset the queue.
+    pub(crate) fn render_frame(&mut self) -> FrameStatus {
+        let status = match self.renderer.as_mut() {
+            Some(renderer) => {
+                let view_proj = screen_projection(self.window_size);
+                renderer.render(&mut self.draw_list, self.clear_color, view_proj)
+            }
+            None => FrameStatus::Skipped,
+        };
+        self.draw_list.clear();
+        status
+    }
+
+    fn renderer(&mut self) -> &mut Renderer {
+        self.renderer
+            .as_mut()
+            .expect("crabbyengine: textures can only be created once the game is running (in setup or update)")
     }
 
     /// Engine side: start a new frame with fresh timing.
@@ -59,6 +101,170 @@ impl Ctx {
 
     pub(crate) fn quit_requested(&self) -> bool {
         self.quit_requested
+    }
+
+    // ---------------------------------------------------------------- drawing
+
+    /// Sets the background color. It stays until you change it.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn setup(ctx: &mut Ctx) {
+    /// ctx.clear(Color::hex(0x203040));
+    /// # }
+    /// ```
+    pub fn clear(&mut self, color: Color) {
+        self.clear_color = color;
+    }
+
+    /// Draws `texture` centered at `pos` (window pixels, `(0, 0)` = top-left).
+    ///
+    /// Drawing is cheap: calls are collected and sent to the GPU in big
+    /// batches at the end of the frame. Call it every frame for everything
+    /// you want visible.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn update(ctx: &mut Ctx, crab: Texture) {
+    /// ctx.draw(&crab, vec2(400.0, 300.0));
+    /// # }
+    /// ```
+    pub fn draw(&mut self, texture: &Texture, pos: Vec2) {
+        self.push_sprite(
+            texture,
+            pos,
+            texture.size(),
+            0.0,
+            0.0,
+            Vec2::splat(0.5),
+            [255; 4],
+        );
+    }
+
+    /// Draws `texture` with rotation, scale, tint, draw order or pivot.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn update(ctx: &mut Ctx, crab: Texture) {
+    /// ctx.draw_ex(&crab, vec2(400.0, 300.0), DrawParams {
+    ///     rotation: ctx.time() as f32,
+    ///     color: Color::RED.with_alpha(0.5),
+    ///     z: 1.0, // on top of everything at z = 0
+    ///     ..Default::default()
+    /// });
+    /// # }
+    /// ```
+    pub fn draw_ex(&mut self, texture: &Texture, pos: Vec2, params: DrawParams) {
+        self.push_sprite(
+            texture,
+            pos,
+            texture.size() * params.scale,
+            params.rotation,
+            params.z,
+            params.pivot,
+            params.color.to_rgba8(),
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    #[inline]
+    fn push_sprite(
+        &mut self,
+        texture: &Texture,
+        pos: Vec2,
+        size: Vec2,
+        rotation: f32,
+        z: f32,
+        pivot: Vec2,
+        color: [u8; 4],
+    ) {
+        let (sin, cos) = if rotation == 0.0 {
+            (0.0, 1.0)
+        } else {
+            rotation.sin_cos()
+        };
+        self.draw_list.push(
+            texture.id,
+            z,
+            SpriteInstance {
+                pos: pos.into(),
+                size: size.into(),
+                pivot: pivot.into(),
+                rot: [cos, sin],
+                uv: [0.0, 0.0, 1.0, 1.0],
+                color,
+            },
+        );
+    }
+
+    /// Loads an image from the `assets/` folder (PNG for now).
+    ///
+    /// Do this once in setup and keep the [`Texture`]; it's a cheap handle.
+    ///
+    /// # Panics
+    /// With a clear message if the file is missing or isn't a valid image.
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// Game::new("Crabs", 800, 600).run(|ctx| {
+    ///     let crab = ctx.load_texture("crab.png");
+    ///     move |ctx: &mut Ctx| ctx.draw(&crab, vec2(400.0, 300.0))
+    /// });
+    /// ```
+    pub fn load_texture(&mut self, path: &str) -> Texture {
+        let image = assets::load_image(path).unwrap_or_else(|e| panic!("crabbyengine: {e}"));
+        self.create_texture(image.width, image.height, &image.rgba)
+    }
+
+    /// Creates a texture from raw RGBA pixels (4 bytes per pixel, row by row,
+    /// top row first). Handy for generated images.
+    ///
+    /// # Panics
+    /// If `rgba.len()` isn't `width * height * 4`, or the size is 0 or larger
+    /// than the GPU supports.
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// # fn setup(ctx: &mut Ctx) {
+    /// // A 2x2 checkerboard.
+    /// let w = [255, 255, 255, 255];
+    /// let b = [0, 0, 0, 255];
+    /// let pixels = [w, b, b, w].concat();
+    /// let checker = ctx.create_texture(2, 2, &pixels);
+    /// # }
+    /// ```
+    pub fn create_texture(&mut self, width: u32, height: u32, rgba: &[u8]) -> Texture {
+        assert!(
+            width > 0 && height > 0,
+            "crabbyengine: texture size must not be zero (got {width} x {height})"
+        );
+        let expected = width as usize * height as usize * 4;
+        assert_eq!(
+            rgba.len(),
+            expected,
+            "crabbyengine: a {width} x {height} texture needs {expected} bytes of RGBA, got {}",
+            rgba.len()
+        );
+        let renderer = self.renderer();
+        let max = renderer.max_texture_size();
+        assert!(
+            width <= max && height <= max,
+            "crabbyengine: {width} x {height} is larger than this GPU's maximum texture size ({max})"
+        );
+        let id = renderer.create_texture(width, height, rgba);
+        Texture::new(id, width, height)
+    }
+
+    /// How many sprites have been drawn so far this frame.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn update(ctx: &mut Ctx) {
+    /// println!("{} sprites", ctx.sprite_count());
+    /// # }
+    /// ```
+    pub fn sprite_count(&self) -> usize {
+        self.draw_list.len()
     }
 
     // ---------------------------------------------------------------- timing
@@ -333,6 +539,33 @@ mod tests {
         assert!((ctx.fps() - 60.0).abs() < 0.01);
         ctx.begin_frame(timing(1.0 / 30.0));
         assert!(ctx.fps() > 30.0 && ctx.fps() < 60.0);
+    }
+
+    #[test]
+    fn screen_projection_maps_corners() {
+        let p = screen_projection(Vec2::new(800.0, 600.0));
+        let clip = |x: f32, y: f32| p.project_point3(glam::vec3(x, y, 0.0)).truncate();
+        assert!(clip(0.0, 0.0).abs_diff_eq(Vec2::new(-1.0, 1.0), 1e-6));
+        assert!(clip(800.0, 600.0).abs_diff_eq(Vec2::new(1.0, -1.0), 1e-6));
+        assert!(clip(400.0, 300.0).abs_diff_eq(Vec2::ZERO, 1e-6));
+    }
+
+    #[test]
+    fn draw_without_gpu_queues_sprites() {
+        let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(800.0, 600.0));
+        let tex = Texture::new(0, 16, 8);
+        ctx.draw(&tex, Vec2::new(10.0, 20.0));
+        ctx.draw_ex(
+            &tex,
+            Vec2::ZERO,
+            DrawParams {
+                scale: Vec2::splat(2.0),
+                ..Default::default()
+            },
+        );
+        assert_eq!(ctx.sprite_count(), 2);
+        assert_eq!(ctx.render_frame(), FrameStatus::Skipped);
+        assert_eq!(ctx.sprite_count(), 0, "queue is cleared after each frame");
     }
 
     #[test]
