@@ -25,3 +25,6 @@ rustc-ice-*.txt
 
 # Planning docs (kept local, not committed)
 /docs/
+
+# macOS Finder metadata
+.DS_Store
