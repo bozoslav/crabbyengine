@@ -93,7 +93,10 @@ fn run_one(s: &mut System, ctx: &mut Ctx, timing_index: usize) {
 
 impl System {
     fn new<F: FnMut(&mut Ctx) + 'static>(f: F) -> Self {
-        System { name: std::any::type_name::<F>(), run: Box::new(f) }
+        System {
+            name: std::any::type_name::<F>(),
+            run: Box::new(f),
+        }
     }
 }
 
@@ -239,7 +242,12 @@ impl Game {
         if ctx.timings.len() != n_sim + n_frame + self.draw_systems.len() {
             ctx.timings = (self.sim_systems.iter().map(|s| (s, true)))
                 .chain(self.systems.iter().chain(&self.draw_systems).map(|s| (s, false)))
-                .map(|(s, sim)| SystemTiming { name: s.name, sim, last_ms: 0.0, avg_ms: 0.0 })
+                .map(|(s, sim)| SystemTiming {
+                    name: s.name,
+                    sim,
+                    last_ms: 0.0,
+                    avg_ms: 0.0,
+                })
                 .collect();
         }
         for t in &mut ctx.timings {
@@ -300,14 +308,11 @@ impl Game {
         #[cfg(feature = "profiling")]
         let _puffin_server = start_profiler();
 
-        let event_loop = EventLoop::new()
-            .unwrap_or_else(|e| panic!("crabbyengine: could not start the event loop: {e}"));
+        let event_loop =
+            EventLoop::new().unwrap_or_else(|e| panic!("crabbyengine: could not start the event loop: {e}"));
 
         let clock = Clock::new(self.fixed_hz);
-        let ctx = Ctx::new(
-            clock.fixed_dt(),
-            Vec2::new(self.width as f32, self.height as f32),
-        );
+        let ctx = Ctx::new(clock.fixed_dt(), Vec2::new(self.width as f32, self.height as f32));
         let mut app = App {
             config: self,
             setup: Some(setup),
@@ -429,7 +434,10 @@ where
             let frame_fn = setup(&mut self.ctx).into_frame_fn();
             self.ctx.apply_commands();
             if let Some(f) = frame_fn {
-                self.config.systems.push(System { name: "setup closure", run: f });
+                self.config.systems.push(System {
+                    name: "setup closure",
+                    run: f,
+                });
             }
             self.started = true;
         }
@@ -475,17 +483,13 @@ where
                 if let PhysicalKey::Code(code) = event.physical_key
                     && let Some(key) = Key::from_winit(code)
                 {
-                    self.ctx
-                        .input
-                        .set_key(key, event.state == ElementState::Pressed);
+                    self.ctx.input.set_key(key, event.state == ElementState::Pressed);
                 }
             }
 
             WindowEvent::MouseInput { state, button, .. } => {
                 if let Some(button) = MouseButton::from_winit(button) {
-                    self.ctx
-                        .input
-                        .set_mouse_button(button, state == ElementState::Pressed);
+                    self.ctx.input.set_mouse_button(button, state == ElementState::Pressed);
                 }
             }
 
@@ -551,10 +555,16 @@ mod tests {
 
     #[test]
     fn order_and_dt() {
-        let mut game = Game::new("t", 1, 1).sim_system(sim_a).system(frame_b).remove_system(draw_sprites);
+        let mut game = Game::new("t", 1, 1)
+            .sim_system(sim_a)
+            .system(frame_b)
+            .remove_system(draw_sprites);
         let mut ctx = ctx();
         game.run_systems(&mut ctx, 2);
-        assert_eq!(ctx.world.resource::<Log>().0, ["sim_a dt=0.0167", "sim_a dt=0.0167", "frame_b dt=0.0000"]);
+        assert_eq!(
+            ctx.world.resource::<Log>().0,
+            ["sim_a dt=0.0167", "sim_a dt=0.0167", "frame_b dt=0.0000"]
+        );
     }
 
     #[test]
@@ -575,7 +585,10 @@ mod tests {
 
     #[test]
     fn remove_system_removes_builtin_and_user_systems() {
-        let game = Game::new("t", 1, 1).sim_system(sim_a).remove_system(draw_sprites).remove_system(sim_a);
+        let game = Game::new("t", 1, 1)
+            .sim_system(sim_a)
+            .remove_system(draw_sprites)
+            .remove_system(sim_a);
         assert!(game.systems.is_empty() && game.sim_systems.is_empty() && game.draw_systems.is_empty());
     }
 
@@ -590,7 +603,10 @@ mod tests {
         fn slow(_: &mut Ctx) {
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
-        let mut game = Game::new("t", 1, 1).sim_system(slow).remove_system(draw_sprites).system(frame_b);
+        let mut game = Game::new("t", 1, 1)
+            .sim_system(slow)
+            .remove_system(draw_sprites)
+            .system(frame_b);
         let mut ctx = ctx();
         game.run_systems(&mut ctx, 3);
         let t = ctx.system_timings();
@@ -604,13 +620,18 @@ mod tests {
     #[test]
     fn drawing_sees_positions_from_frame_systems() {
         fn move_right(ctx: &mut Ctx) {
-            ctx.world.query::<&mut crate::Transform2D>().for_each(|t| t.position.x += 1.0);
+            ctx.world
+                .query::<&mut crate::Transform2D>()
+                .for_each(|t| t.position.x += 1.0);
         }
         let mut game = Game::new("t", 1, 1).system(move_right);
         let mut ctx = ctx();
         game.run_systems(&mut ctx, 0);
         let order: Vec<_> = ctx.system_timings().iter().map(|t| t.name).collect();
-        assert!(order[0].ends_with("move_right") && order[1].ends_with("draw_sprites"), "{order:?}");
+        assert!(
+            order[0].ends_with("move_right") && order[1].ends_with("draw_sprites"),
+            "{order:?}"
+        );
     }
 
     #[test]
@@ -619,7 +640,8 @@ mod tests {
         let mut ctx = ctx();
         let tex = crate::texture::Texture::new(0, 16, 16);
         for i in 0..10 {
-            ctx.world.spawn((crate::Transform2D::at(Vec2::splat(i as f32)), crate::Sprite::new(tex)));
+            ctx.world
+                .spawn((crate::Transform2D::at(Vec2::splat(i as f32)), crate::Sprite::new(tex)));
         }
         ctx.world.spawn((crate::Transform2D::default(),)); // no sprite: not drawn
         game.run_systems(&mut ctx, 0);

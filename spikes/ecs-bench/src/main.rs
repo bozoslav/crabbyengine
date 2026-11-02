@@ -61,7 +61,6 @@ fn shuffled(n: usize) -> Vec<usize> {
 
 struct Bench {
     filter: Option<String>,
-
 }
 
 impl Bench {
@@ -130,7 +129,12 @@ fn main() {
         "iter/raw-vec",
         200,
         // Non-zero data: zeroed vecs get lazily mapped pages that fault on first touch.
-        || ((0..N).map(|i| ent(i).0).collect::<Vec<_>>(), vec![Vel { x: 1.0, y: 0.5 }; N]),
+        || {
+            (
+                (0..N).map(|i| ent(i).0).collect::<Vec<_>>(),
+                vec![Vel { x: 1.0, y: 0.5 }; N],
+            )
+        },
         |(p, v)| {
             let dt = black_box(DT);
             for (p, v) in p.iter_mut().zip(v.iter()) {
@@ -179,34 +183,65 @@ fn main() {
         let world = |n: usize| {
             let mut w = crabby_ecs::World::new();
             w.spawn_batch((0..n).map(|i| {
-                (Pos { x: (i % 4096) as f32, y: (i / 4096 % 4096) as f32 }, Vel { x: 1.0, y: 0.5 }, Agent { heading: i as f32, speed: 30.0 })
+                (
+                    Pos {
+                        x: (i % 4096) as f32,
+                        y: (i / 4096 % 4096) as f32,
+                    },
+                    Vel { x: 1.0, y: 0.5 },
+                    Agent {
+                        heading: i as f32,
+                        speed: 30.0,
+                    },
+                )
             }));
             w
         };
         let tag = if n >= 10_000_000 { "10M" } else { "1M" };
         let runs = if n >= 10_000_000 { 30 } else { 100 };
-        b.steady(&format!("sim-light-{tag}/1-core"), runs, || world(n), |w| {
-            let dt = black_box(DT);
-            w.query::<(&mut Pos, &Vel)>().for_each(|(p, v)| {
-                p.x += v.x * dt;
-                p.y += v.y * dt;
-            });
-        });
-        b.steady(&format!("sim-light-{tag}/all-cores"), runs, || world(n), |w| {
-            let dt = black_box(DT);
-            w.query::<(&mut Pos, &Vel)>().par_for_each(|(p, v)| {
-                p.x += v.x * dt;
-                p.y += v.y * dt;
-            });
-        });
-        b.steady(&format!("sim-heavy-{tag}/1-core"), runs, || world(n), |w| {
-            let dt = black_box(DT);
-            w.query::<(&mut Pos, &mut Agent)>().for_each(|(p, a)| heavy(p, a, dt));
-        });
-        b.steady(&format!("sim-heavy-{tag}/all-cores"), runs, || world(n), |w| {
-            let dt = black_box(DT);
-            w.query::<(&mut Pos, &mut Agent)>().par_for_each(|(p, a)| heavy(p, a, dt));
-        });
+        b.steady(
+            &format!("sim-light-{tag}/1-core"),
+            runs,
+            || world(n),
+            |w| {
+                let dt = black_box(DT);
+                w.query::<(&mut Pos, &Vel)>().for_each(|(p, v)| {
+                    p.x += v.x * dt;
+                    p.y += v.y * dt;
+                });
+            },
+        );
+        b.steady(
+            &format!("sim-light-{tag}/all-cores"),
+            runs,
+            || world(n),
+            |w| {
+                let dt = black_box(DT);
+                w.query::<(&mut Pos, &Vel)>().par_for_each(|(p, v)| {
+                    p.x += v.x * dt;
+                    p.y += v.y * dt;
+                });
+            },
+        );
+        b.steady(
+            &format!("sim-heavy-{tag}/1-core"),
+            runs,
+            || world(n),
+            |w| {
+                let dt = black_box(DT);
+                w.query::<(&mut Pos, &mut Agent)>().for_each(|(p, a)| heavy(p, a, dt));
+            },
+        );
+        b.steady(
+            &format!("sim-heavy-{tag}/all-cores"),
+            runs,
+            || world(n),
+            |w| {
+                let dt = black_box(DT);
+                w.query::<(&mut Pos, &mut Agent)>()
+                    .par_for_each(|(p, a)| heavy(p, a, dt));
+            },
+        );
     }
 
     // ---- spawn ------------------------------------------------------------------
@@ -215,13 +250,17 @@ fn main() {
             w.spawn(ent(i));
         }
     });
-    b.run("spawn/own-batch", 10, own::World::new, |w| w.spawn_batch((0..N).map(ent)));
+    b.run("spawn/own-batch", 10, own::World::new, |w| {
+        w.spawn_batch((0..N).map(ent))
+    });
     b.run("spawn/crabby", 10, crabby_ecs::World::new, |w| {
         for i in 0..N {
             w.spawn(ent(i));
         }
     });
-    b.run("spawn/crabby-batch", 10, crabby_ecs::World::new, |w| w.spawn_batch((0..N).map(ent)));
+    b.run("spawn/crabby-batch", 10, crabby_ecs::World::new, |w| {
+        w.spawn_batch((0..N).map(ent))
+    });
     b.run("spawn/hecs", 10, hecs::World::new, |w| {
         for i in 0..N {
             w.spawn(ent(i));
@@ -368,10 +407,18 @@ fn main() {
             for i in 0..N {
                 let e = w.spawn(ent(i));
                 let m = markers(i);
-                if m[0] { w.insert(e, M0); }
-                if m[1] { w.insert(e, M1); }
-                if m[2] { w.insert(e, M2); }
-                if m[3] { w.insert(e, M3); }
+                if m[0] {
+                    w.insert(e, M0);
+                }
+                if m[1] {
+                    w.insert(e, M1);
+                }
+                if m[2] {
+                    w.insert(e, M2);
+                }
+                if m[3] {
+                    w.insert(e, M3);
+                }
             }
             w
         },
@@ -391,10 +438,18 @@ fn main() {
             for i in 0..N {
                 let e = w.spawn(ent(i));
                 let m = markers(i);
-                if m[0] { w.insert_one(e, M0).unwrap(); }
-                if m[1] { w.insert_one(e, M1).unwrap(); }
-                if m[2] { w.insert_one(e, M2).unwrap(); }
-                if m[3] { w.insert_one(e, M3).unwrap(); }
+                if m[0] {
+                    w.insert_one(e, M0).unwrap();
+                }
+                if m[1] {
+                    w.insert_one(e, M1).unwrap();
+                }
+                if m[2] {
+                    w.insert_one(e, M2).unwrap();
+                }
+                if m[3] {
+                    w.insert_one(e, M3).unwrap();
+                }
             }
             w
         },
@@ -414,10 +469,18 @@ fn main() {
             for i in 0..N {
                 let mut e = w.spawn(ent(i));
                 let m = markers(i);
-                if m[0] { e.insert(M0); }
-                if m[1] { e.insert(M1); }
-                if m[2] { e.insert(M2); }
-                if m[3] { e.insert(M3); }
+                if m[0] {
+                    e.insert(M0);
+                }
+                if m[1] {
+                    e.insert(M1);
+                }
+                if m[2] {
+                    e.insert(M2);
+                }
+                if m[3] {
+                    e.insert(M3);
+                }
             }
             let q = w.query::<(&mut Pos, &Vel)>();
             (w, q)

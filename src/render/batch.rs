@@ -52,11 +52,7 @@ pub(crate) struct DrawList {
 /// Maps an `f32` to a `u32` whose unsigned order matches the float order.
 fn z_key(z: f32) -> u32 {
     let bits = z.to_bits();
-    if bits >> 31 == 1 {
-        !bits
-    } else {
-        bits | 0x8000_0000
-    }
+    if bits >> 31 == 1 { !bits } else { bits | 0x8000_0000 }
 }
 
 impl DrawList {
@@ -98,22 +94,15 @@ impl DrawList {
         // (z, submission index) is unique, so an unstable sort is deterministic
         // and doesn't allocate.
         self.order.clear();
-        self.order.extend(
-            self.zs
-                .iter()
-                .enumerate()
-                .map(|(i, &z)| (z_key(z), i as u32)),
-        );
+        self.order
+            .extend(self.zs.iter().enumerate().map(|(i, &z)| (z_key(z), i as u32)));
         self.order.sort_unstable();
 
         self.sorted.clear();
         self.sorted
             .extend(self.order.iter().map(|&(_, i)| self.instances[i as usize]));
         let textures = &self.textures;
-        Self::build_batches(
-            &mut self.batches,
-            self.order.iter().map(|&(_, i)| textures[i as usize]),
-        );
+        Self::build_batches(&mut self.batches, self.order.iter().map(|&(_, i)| textures[i as usize]));
         (&self.sorted, &self.batches)
     }
 

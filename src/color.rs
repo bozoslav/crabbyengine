@@ -115,10 +115,7 @@ mod tests {
 
     #[test]
     fn rgba8_clamps() {
-        assert_eq!(
-            Color::rgba(2.0, -1.0, 0.5, 1.0).to_rgba8(),
-            [255, 0, 128, 255]
-        );
+        assert_eq!(Color::rgba(2.0, -1.0, 0.5, 1.0).to_rgba8(), [255, 0, 128, 255]);
     }
 
     #[test]

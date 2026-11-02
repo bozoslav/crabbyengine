@@ -21,7 +21,10 @@ impl Entity {
 
     /// Inverse of [`to_bits`](Self::to_bits).
     pub fn from_bits(bits: u64) -> Self {
-        Entity { index: bits as u32, generation: (bits >> 32) as u32 }
+        Entity {
+            index: bits as u32,
+            generation: (bits >> 32) as u32,
+        }
     }
 
     /// Slot number. Slots are reused after despawn; use the whole `Entity` as an id.
@@ -62,10 +65,22 @@ impl Entities {
     pub(crate) fn alloc(&mut self) -> Entity {
         self.alive += 1;
         if let Some(index) = self.free.pop() {
-            Entity { index, generation: self.slots[index as usize].generation }
+            Entity {
+                index,
+                generation: self.slots[index as usize].generation,
+            }
         } else {
-            let index = u32::try_from(self.slots.len()).ok().filter(|&i| i != u32::MAX).expect("too many entities");
-            self.slots.push(Slot { generation: 0, loc: Location { archetype: DEAD, row: 0 } });
+            let index = u32::try_from(self.slots.len())
+                .ok()
+                .filter(|&i| i != u32::MAX)
+                .expect("too many entities");
+            self.slots.push(Slot {
+                generation: 0,
+                loc: Location {
+                    archetype: DEAD,
+                    row: 0,
+                },
+            });
             Entity { index, generation: 0 }
         }
     }

@@ -48,7 +48,11 @@ fn spawn(ctx: &mut Ctx, n: usize, at: Vec2) {
     for _ in 0..n {
         let r = &mut b.rng;
         let vel = vec2(r.next_f32() * 400.0 - 200.0, r.next_f32() * 400.0 - 300.0);
-        let color = Color::rgb(0.6 + r.next_f32() * 0.4, 0.6 + r.next_f32() * 0.4, 0.6 + r.next_f32() * 0.4);
+        let color = Color::rgb(
+            0.6 + r.next_f32() * 0.4,
+            0.6 + r.next_f32() * 0.4,
+            0.6 + r.next_f32() * 0.4,
+        );
         batch.push((Transform2D::at(at), Sprite::new(crab).with_color(color), Vel(vel)));
     }
     ctx.world.spawn_batch(batch);
@@ -62,10 +66,22 @@ fn bounce(ctx: &mut Ctx) {
         let (p, v) = (&mut t.position, &mut v.0);
         v.y += gravity * dt;
         *p += *v * dt;
-        if p.x < 0.0 { p.x = 0.0; v.x = v.x.abs(); }
-        if p.x > bounds.x { p.x = bounds.x; v.x = -v.x.abs(); }
-        if p.y > bounds.y { p.y = bounds.y; v.y = -v.y.abs() * 0.85; }
-        if p.y < 0.0 { p.y = 0.0; v.y = 0.0; }
+        if p.x < 0.0 {
+            p.x = 0.0;
+            v.x = v.x.abs();
+        }
+        if p.x > bounds.x {
+            p.x = bounds.x;
+            v.x = -v.x.abs();
+        }
+        if p.y > bounds.y {
+            p.y = bounds.y;
+            v.y = -v.y.abs() * 0.85;
+        }
+        if p.y < 0.0 {
+            p.y = 0.0;
+            v.y = 0.0;
+        }
     });
 }
 
@@ -76,7 +92,12 @@ fn report(ctx: &mut Ctx) {
     }
     // "update + draw calls" = every system except this one, as measured by the
     // engine (smoothed averages; draw_sprites hasn't run yet this frame).
-    let systems_ms: f32 = ctx.system_timings().iter().filter(|t| !t.name.ends_with("report")).map(|t| t.avg_ms).sum();
+    let systems_ms: f32 = ctx
+        .system_timings()
+        .iter()
+        .filter(|t| !t.name.ends_with("report"))
+        .map(|t| t.avg_ms)
+        .sum();
     let (time, count) = (ctx.time(), ctx.world.len());
     let b = ctx.world.resource_mut::<Bench>();
     let now = Instant::now();

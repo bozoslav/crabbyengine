@@ -129,7 +129,13 @@ impl World {
             });
         }
         arch.entities.push(e);
-        self.entities.set(e, Location { archetype: a as u32, row: row as u32 });
+        self.entities.set(
+            e,
+            Location {
+                archetype: a as u32,
+                row: row as u32,
+            },
+        );
         e
     }
 
@@ -177,7 +183,8 @@ impl World {
 
     /// `true` if `e` is alive and has component `T`.
     pub fn has<T: Component>(&self, e: Entity) -> bool {
-        self.component_id::<T>().is_some_and(|id| self.get_dynamic(e, id).is_some())
+        self.component_id::<T>()
+            .is_some_and(|id| self.get_dynamic(e, id).is_some())
     }
 
     /// Adds component `value` to `e`, replacing any existing `T`.
@@ -241,17 +248,23 @@ impl World {
 
     /// The resource of type `R`, if there is one.
     pub fn get_resource<R: Send + Sync + 'static>(&self) -> Option<&R> {
-        self.resources.get(&TypeId::of::<R>()).map(|r| r.downcast_ref().unwrap())
+        self.resources
+            .get(&TypeId::of::<R>())
+            .map(|r| r.downcast_ref().unwrap())
     }
 
     /// Mutable version of [`get_resource`](Self::get_resource).
     pub fn get_resource_mut<R: Send + Sync + 'static>(&mut self) -> Option<&mut R> {
-        self.resources.get_mut(&TypeId::of::<R>()).map(|r| r.downcast_mut().unwrap())
+        self.resources
+            .get_mut(&TypeId::of::<R>())
+            .map(|r| r.downcast_mut().unwrap())
     }
 
     /// Removes and returns the resource of type `R`.
     pub fn remove_resource<R: Send + Sync + 'static>(&mut self) -> Option<R> {
-        self.resources.remove(&TypeId::of::<R>()).map(|r| *r.downcast().unwrap())
+        self.resources
+            .remove(&TypeId::of::<R>())
+            .map(|r| *r.downcast().unwrap())
     }
 
     // ---- commands --------------------------------------------------------------
@@ -292,7 +305,13 @@ impl World {
     ///
     /// # Panics
     /// If the name is taken with a different layout, or the layout is invalid.
-    pub unsafe fn register_component(&mut self, name: &str, size: usize, align: usize, drop: Option<DropFn>) -> ComponentId {
+    pub unsafe fn register_component(
+        &mut self,
+        name: &str,
+        size: usize,
+        align: usize,
+        drop: Option<DropFn>,
+    ) -> ComponentId {
         let layout = Layout::from_size_align(size, align).expect("invalid component size/alignment");
         if let Some(&id) = self.by_name.get(name) {
             let info = &self.infos[id.index()];
@@ -302,7 +321,12 @@ impl World {
             );
             return id;
         }
-        self.push_info(ComponentInfo { name: name.into(), layout, drop, type_id: None })
+        self.push_info(ComponentInfo {
+            name: name.into(),
+            layout,
+            drop,
+            type_id: None,
+        })
     }
 
     fn push_info(&mut self, info: ComponentInfo) -> ComponentId {
@@ -376,7 +400,13 @@ impl World {
             unsafe { std::ptr::copy_nonoverlapping(src, c.ptr(row), c.size()) };
         }
         arch.entities.push(e);
-        self.entities.set(e, Location { archetype: a as u32, row: row as u32 });
+        self.entities.set(
+            e,
+            Location {
+                archetype: a as u32,
+                row: row as u32,
+            },
+        );
         e
     }
 
@@ -456,7 +486,10 @@ impl World {
                     None => continue 'arch,
                 }
             }
-            f(Chunk { entities: &arch.entities, columns: &ptrs[..ids.len()] });
+            f(Chunk {
+                entities: &arch.entities,
+                columns: &ptrs[..ids.len()],
+            });
         }
     }
 
@@ -482,10 +515,19 @@ impl World {
         let mut sorted = ids.clone();
         sorted.sort_unstable();
         sorted.dedup();
-        assert_eq!(sorted.len(), ids.len(), "bundle `{}` has the same component twice", std::any::type_name::<B>());
+        assert_eq!(
+            sorted.len(),
+            ids.len(),
+            "bundle `{}` has the same component twice",
+            std::any::type_name::<B>()
+        );
         let a = self.archetype_for(&sorted);
-        let columns = ids.iter().map(|&id| self.archetypes[a].column_index(id).unwrap()).collect();
-        self.bundles.insert(TypeId::of::<B>(), BundleInfo { archetype: a, columns });
+        let columns = ids
+            .iter()
+            .map(|&id| self.archetypes[a].column_index(id).unwrap())
+            .collect();
+        self.bundles
+            .insert(TypeId::of::<B>(), BundleInfo { archetype: a, columns });
         a
     }
 
@@ -528,7 +570,13 @@ impl World {
             self.entities.set_row(moved, row);
         }
         d.entities.push(e);
-        self.entities.set(e, Location { archetype: dst as u32, row: new_row as u32 });
+        self.entities.set(
+            e,
+            Location {
+                archetype: dst as u32,
+                row: new_row as u32,
+            },
+        );
         new_row
     }
 }

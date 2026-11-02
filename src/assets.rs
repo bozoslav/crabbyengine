@@ -49,8 +49,7 @@ pub(crate) struct Image {
 
 pub(crate) fn load_image(name: &str) -> Result<Image, String> {
     let path = resolve(name)?;
-    let bytes =
-        std::fs::read(&path).map_err(|e| format!("could not read {}: {e}", path.display()))?;
+    let bytes = std::fs::read(&path).map_err(|e| format!("could not read {}: {e}", path.display()))?;
     decode_image(&bytes).map_err(|e| format!("\"{name}\" is not a valid image: {e}"))
 }
 

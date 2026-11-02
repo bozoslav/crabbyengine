@@ -13,11 +13,7 @@ use crabbyengine::*;
 
 fn main() {
     Game::new("Crabby Engine: window", 800, 600).run(|ctx| {
-        println!(
-            "window is {} x {}",
-            ctx.window_size().x,
-            ctx.window_size().y
-        );
+        println!("window is {} x {}", ctx.window_size().x, ctx.window_size().y);
 
         let mut pos = ctx.window_size() / 2.0;
         let mut zoom = 1.0_f32;
