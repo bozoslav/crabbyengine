@@ -1,14 +1,21 @@
 # C and C++
 
-Crabby's C ABI and C++17 wrapper use the same archetype ECS as Rust. Systems
-receive whole component columns, so a million entities do not require a million
-calls across the language boundary. This API currently covers entities, plain-data
-components, queries, and headless fixed-step simulations. Rendering, audio,
-reflection, resources, and the control protocol are not exposed through this ABI.
+Games can be written in C++ (or plain C) as well as Rust. They use the same
+engine: the same ECS, game loop, renderer, spatial grid and control endpoint
+for agents. Every chapter of this guide shows the C++ version of its examples
+next to the Rust one.
 
-The C interface is generated from `crabby_ffi` with cbindgen and ships as
-`include/crabby.h`. C++ games include `include/crabby.hpp`, a header-only wrapper
-with scoped world ownership and typed components. Both link the same Rust library.
+- `include/crabby.hpp`: the C++17 wrapper, header-only. `crabby::game`,
+  `crabby::ctx` and `crabby::world_view` mirror Rust's `Game`, `Ctx` and
+  `World`.
+- `include/crabby.h`: the C API underneath, generated from the `crabby_ffi`
+  crate with cbindgen.
+- One shared library, `crabby_ffi` (`libcrabby_ffi.dylib`/`.so`,
+  `crabby_ffi.dll`).
+
+Systems get **whole component columns**, so a million entities never mean a
+million calls across the language boundary, and `query_par` runs C++ code on
+all cores.
 
 ## Build and run the examples
 
@@ -19,131 +26,126 @@ cargo build -p crabby_ffi --release
 cmake -S examples/cpp -B target/native -DCMAKE_BUILD_TYPE=Release -DCRABBY_LIBRARY_DIR="$PWD/target/release"
 cmake --build target/native --config Release
 ctest --test-dir target/native -C Release --output-on-failure
+./target/native/crabby_cpp_boids                                  # window
+HEADLESS=1 BOIDS=1000000 TICKS=300 ./target/native/crabby_cpp_boids
 ```
 
-In PowerShell, replace `$PWD` in the configure command with the repository's
-absolute path, using forward slashes. CMake selects the compiler for the host;
-Visual Studio builds use `--config Release`. The example project handles the
-platform's shared-library name and runtime lookup.
+In PowerShell, replace `$PWD` with the repository's absolute path, using
+forward slashes; Visual Studio builds use `--config Release` and put programs
+in `target/native/Release/`.
 
-For your own game, use the CMake example as the linking recipe: include the two
-headers, link `crabby_ffi`, and ship its shared library beside your executable
-(or configure your platform's library search path). The crate also emits a static
-library; static linking requires the Rust target's native system libraries and is
-not the CMake example's default. `crabby_abi_version()` returns `1` for this API;
-rebuild the game against the matching header when changing engine versions.
+For your own game, copy the recipe in `examples/cpp/CMakeLists.txt`: include
+the two headers, link `crabby_ffi`, ship its shared library next to your
+executable, and put your textures in an `assets/` folder next to it (the
+example copies the repository's `assets/`). `crabby_abi_version()` returns `2`;
+rebuild against the matching header when you update the engine.
 
-## C: register data and iterate columns
+## A C++ game
 
-Component names and IDs belong to one world. Register the size and alignment of
-each component before spawning values. Values are copied into the ECS: the
-caller's local variables remain theirs.
-
-```c
-{{#include ../../examples/cpp/main.c:c_world}}
+```cpp
+{{#include ../../examples/cpp/guide.cpp:first_game_full}}
 ```
 
-A query calls your function once for each matching archetype. Columns are in the
-same order as the component IDs you requested, even when registration order
-was different. Each column has `chunk->count` contiguous values.
+- Systems are anything callable as `void(crabby::ctx&)`. Lambdas can capture
+  your game state by reference: the game runs inside `run()`, so it outlives
+  nothing it captures.
+- `run(setup)` opens the window; `run_headless(ticks, setup)` runs the
+  simulation alone and returns the world (see [Headless runs](headless.md)).
+- Errors become exceptions. An exception thrown by your system stops the game
+  and comes out of `run()`; it never crosses into the engine.
 
-```c
-{{#include ../../examples/cpp/main.c:c_columns}}
-```
+## Components
 
-Use `crabby_chunk_entity` if a callback needs an entity handle; the chunk's
-`entities` field is opaque. Entity handles include a generation, so despawned
-handles stay dead when a slot is reused. `crabby_get` copies a component into a
-caller-provided buffer; it does not expose a long-lived storage pointer.
-
-C functions return `CrabbyStatus`. On failure, read `crabby_last_error()` before
-another failed API call on that thread replaces the message. Copy the message if you
-need to keep it. Null arguments, inconsistent layouts, incorrect copy sizes,
-unknown component IDs and duplicate query components are rejected. Raw pointers
-must still refer to valid memory: the library cannot recognize a dangling handle
-or a buffer smaller than the size its caller claims.
-
-## C++: scoped ownership and typed components
-
-Components must be standard-layout, trivially copyable and trivially destructible.
-Do not put `std::string`, `std::vector`, owning pointers or references into ECS
-components. Store plain numeric IDs and manage other objects outside the ECS.
+C++ components are plain structs: standard-layout, trivially copyable and
+trivially destructible. No `std::string`, `std::vector` or owning pointers in
+components; store ids or indices and keep other objects outside the ECS.
 
 ```cpp
 {{#include ../../examples/cpp/main.cpp:cpp_components}}
 ```
 
-A `crabby::world` owns the native world and frees it on destruction. It can be
-moved but cannot be copied. Component tokens carry their world identity; using a
-token with a different world is an error. Reusing a component name for a
-different C++ type is also rejected, even when both types have the same layout.
+Register each type by name once; the token you get is how calls name it.
+Tokens belong to one game or world, and reusing a name for a different C++
+type is an error, even with the same layout.
+
+The built-ins: `world.transforms()` is `Transform2D` (`crabby::transform2d`,
+the same bytes as Rust, usable as a query column), and `world.sprites()` is
+`Sprite` (`crabby::sprite`: spawn, get and set, but not a query column, since
+the engine stores sprites in a Rust layout). Rust components without a C
+layout are refused by every call.
 
 ```cpp
 {{#include ../../examples/cpp/main.cpp:cpp_world}}
 ```
 
-The wrapper turns C errors into exceptions. If a query callback throws, its
-trampoline catches the exception before returning through Rust, then rethrows it
-on the C++ side. No C++ exception may cross a C callback boundary directly.
+## Queries and threads
 
-## Fixed-step headless games
+A query calls your function once per archetype (*chunk*) with columns in the
+order you listed the tokens. While it runs, the world and context are busy:
+other world or context calls throw (C: return `CRABBY_BUSY`), except
 
-The headless runner calls the existing engine loop. Setup runs once, including
-when the requested tick count is zero. The step callback receives a zero-based
-tick and `dt = 1 / hz` seconds. Returning `false` stops the run; the resulting
-world is returned to the caller. The control endpoint is disabled for these runs,
-so environment variables cannot leave a foreign caller waiting for an agent.
+- commands: `despawn_later`, `spawn_later`, `set_later`, `remove_later`,
+  applied when the system returns (in `query`, not in `query_par`);
+- spatial queries, and the clock values `dt()`, `sim_tick()`, `random()`.
 
-```cpp
-{{#include ../../examples/cpp/main.cpp:cpp_headless}}
+`query_par` splits archetypes into slices and runs your function on all
+cores at once. It must only touch its own chunk and read shared data; that
+is the same rule as Rust's `par_for_each`.
+
+Everything else stays on the thread that runs the game.
+
+## Speed
+
+`HEADLESS=1 BOIDS=… ./crabby_cpp_boids` and `HEADLESS=1 BOIDS=… cargo run
+--release --example boids` run the same flocking, release builds, on the
+development Mac (arm64, 2026-11-03):
+
+| Boids | Rust | C++ |
+|---:|---:|---:|
+| 100k | 3.5 ms/tick | 3.9 ms/tick |
+| 1M | 31.3 ms/tick | 34.5 ms/tick |
+
+The remaining gap is mostly the C++ version copying velocities into its own
+array each tick before rebuilding its grid. Plain column updates (one million
+`p += v`, `cargo run --release --example ffi_bench` vs `crabby_cpp_bench`) run
+at the same speed in both: about 0.15 ms.
+
+Grid queries in hot loops should use views (`ctx.spatial_view()`,
+`grid.view()`): the header walks the grid inline, as Rust does. Through the
+query functions, C++ boids took 41.5 ms/tick at 1M.
+
+## Plain C
+
+C uses the same functions without the wrapper: status codes instead of
+exceptions, a `user` pointer instead of captures.
+
+```c
+{{#include ../../examples/cpp/main.c:c_world}}
 ```
 
-The callback receives a borrowed `world_view`, valid only for that callback.
-Use it to spawn entities or query components, but do not retain the view or free
-its native handle. The owning world returned by the runner lives until its C++
-owner is destroyed. C programs can use the corresponding `crabby_run_headless`
-function and free its output with `crabby_world_free`.
-
-## Borrowing and threads
-
-A chunk and its column pointers are valid only until the query callback returns.
-While that callback is running, access to the same world through other API calls
-returns `CRABBY_BUSY`. Read and write the supplied columns directly; collect
-structural changes outside the query and apply them afterward. Query component
-IDs must be distinct, and a query accepts at most 32 components. A query with no
-components visits every nonempty archetype.
-
-A world and its callbacks stay on the thread that created it. Do not share a world or borrowed columns
-across concurrent calls, retain chunk pointers, or use a world after freeing it.
-Rust panics are contained at the ABI boundary where unwinding is enabled;
-allocation failures or builds configured to abort cannot be recovered this way.
-
-## Release comparison
-
-The matching benchmarks create one million `Pos`/`Vel` entities, warm up ten
-iterations, then measure 200 updates of `p.x += v.x; p.y += v.y`. Both check a
-final checksum of `630000000`; allocation and spawning are outside the timed
-region. No test asserts a timing threshold.
-
-```sh
-cargo run --release --example ffi_bench
-cmake --build target/native --config Release --target crabby_cpp_bench
-# Run target/native/crabby_cpp_bench (Release/crabby_cpp_bench.exe on Visual Studio).
+```c
+{{#include ../../examples/cpp/main.c:c_columns}}
 ```
 
-The Rust benchmark uses typed ECS queries; the C++ benchmark uses the C ABI's
-whole-column query callback. Use release builds for both and repeat locally:
-compiler, hardware, thermal state and background load affect the comparison.
+A headless game in C:
 
-On the development Mac (arm64, macOS 27.0.1, Rust 1.99.1 and Apple Clang 21),
-three alternating runs on 2026-11-02 produced these medians:
+```c
+{{#include ../../examples/cpp/main.c:c_game}}
+```
 
-| Run | Rust typed query | C++ through C ABI |
-|---|---:|---:|
-| 1 | 0.151 ms | 0.151 ms |
-| 2 | 0.157 ms | 0.156 ms |
-| 3 | 0.159 ms | 0.155 ms |
+```c
+{{#include ../../examples/cpp/main.c:c_run}}
+```
 
-Both paths produced the expected checksum in every run. They perform similarly
-on this column-update workload; this does not measure spawning, complex game
-logic, rendering, or other platforms.
+Every call returns `CrabbyStatus`; on failure `crabby_last_error()` has the
+message (per thread, until the next failed call). Null arguments, wrong
+sizes, unknown ids, duplicate query columns and busy worlds are rejected.
+Pointers you pass must still be valid: the library can't recognize a
+dangling pointer or a buffer smaller than you say. Callbacks must return
+normally; never let a C++ exception or `longjmp` cross them.
+
+## Still Rust-only
+
+Sound, shapes, UI widgets, sprite sheets and tilemaps, custom fonts,
+resources, reflection (so tools see C++ components as JSON) and save/load.
+Each chapter says so where it applies.

@@ -53,6 +53,8 @@ pub use random::{DEFAULT_SEED, Random, Rng};
 pub use reflect::{ReflectError, WorldReflect};
 pub use render::RenderStats;
 pub use sheet::{Animation, SpriteSheet, animate_sprites};
+#[doc(hidden)]
+pub use spatial::RawGridView;
 pub use spatial::{GridEntry, SPATIAL_SORT_EVERY, SpatialGrid, rebuild_spatial_grid, spatial_key};
 pub use text::{Font, TextParams};
 pub use texture::{DrawParams, Texture, TextureFilter};

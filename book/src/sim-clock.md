@@ -4,6 +4,9 @@ Simulation systems run on their own clock, separate from the frame rate. The
 game can pause, step and fast-forward the sim while rendering and input keep
 running normally.
 
+<div class="lang-pair">
+<div>
+
 ```rust
 fn controls(ctx: &mut Ctx) {
     if ctx.key_pressed(Key::Space) {
@@ -19,6 +22,16 @@ fn controls(ctx: &mut Ctx) {
 
 Game::new("Colony", 1280, 720).sim_system(ants).system(controls);
 ```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:controls}}
+```
+
+</div>
+</div>
 
 Put controls in a frame `system`: frame systems keep running while the sim is
 paused.
@@ -40,12 +53,25 @@ combine.
 
 **A whole system at a lower rate:**
 
+<div class="lang-pair">
+<div>
+
 ```rust
 Game::new("Colony", 1280, 720)
     .sim_system(movement)               // every tick
     .sim_system_every(10, plan_routes)  // 6 times a second
     .sim_system_every(10, grow_food)    // also 6/s, but on other ticks
 ```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:every}}
+```
+
+</div>
+</div>
 
 Inside `plan_routes`, `ctx.dt()` is 10 ticks' worth of time, so rates stay
 right. Systems with the same interval are spread over different ticks, so
@@ -66,7 +92,8 @@ fn think(ctx: &mut Ctx) {
 ```
 
 This keeps the per-tick cost flat instead of spiking every 8th tick, and
-works in `par_for_each`.
+works in `par_for_each`. (`ctx.turns` is Rust-only for now; in C++, check
+`chunk.entities()[i].index % 8 == ctx.sim_tick() % 8`.)
 
 ## Smooth motion between ticks
 

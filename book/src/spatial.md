@@ -16,6 +16,9 @@ Game::new("Boids", 1280, 720)
 At the start of every tick, every entity with a `Transform2D` is indexed into
 `ctx.spatial`. Query it from any sim system:
 
+<div class="lang-pair">
+<div>
+
 ```rust
 struct Neighbors(usize);
 
@@ -32,7 +35,20 @@ fn count_neighbors(ctx: &mut Ctx) {
 }
 ```
 
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:spatial}}
+```
+
+</div>
+</div>
+
 The grid is read-only while you query the world, so this runs on all cores.
+In C++, `ctx.spatial_view()` gives a view that walks the grid inline (no
+call into the engine per query); `ctx.spatial_radius(center, r, hits)`
+fills a vector instead, which is simpler but slower in hot loops.
 
 | Method | Visits |
 |---|---|
@@ -54,9 +70,25 @@ The built-in grid stores only entity and position. When neighbors need more
 data, for example a boid's velocity, keep your own `SpatialGrid<T>` inside
 the system and fill it with `rebuild_with_data`:
 
+<div class="lang-pair">
+<div>
+
 ```rust
 {{#include ../../examples/boids.rs:flocking}}
 ```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/boids.cpp:cpp_flocking}}
+```
+
+</div>
+</div>
+
+C++ uses a `crabby::grid`, whose items carry a `uint32_t` of your own (here
+an index into a velocity array), and walks it with `grid->view()`.
 
 ## Choosing a cell size
 

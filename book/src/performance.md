@@ -118,9 +118,8 @@ component set costs. Agents get both from the control endpoint's
   or spread per-entity work over ticks with `ctx.turns(n)` (see
   [The simulation clock](sim-clock.md)).
 
-## C++ column iteration
+## C++
 
-The [C/C++ comparison](c-cpp.md#release-comparison) measures matching Rust typed
-queries and C++ whole-column callbacks over one million entities. Three local
-release runs measured 0.151–0.159 ms per update in Rust and 0.151–0.156 ms in C++,
-with identical checksums. The guide includes the workload and build commands.
+[C++ boids](c-cpp.md#speed) run 1M boids at 34.5 ms/tick headless, against
+31.3 ms/tick for the Rust version; plain column updates are the same speed in
+both (about 0.15 ms per million).

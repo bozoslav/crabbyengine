@@ -1,11 +1,14 @@
-//! C-compatible, thread-confined access to dynamic POD components.
+//! The C ABI of Crabby Engine; `include/crabby.h` is generated from it and
+//! `include/crabby.hpp` wraps it for C++.
 //!
-//! All handles and callbacks must stay on the creating thread. Callers supply
+//! Handles are confined to the thread that made them, except inside
+//! `crabby_query_par` callbacks, which run on many threads and may only touch
+//! their chunk, read-only context values and spatial queries. Callers supply
 //! valid, suitably aligned memory; null pointers are diagnosed, but dangling,
-//! forged, overlapping, or undersized memory is a caller error. Components must
-//! be memcpy-safe, contain no Rust-owned values, and require no destruction.
-//! Callbacks must return normally: neither C++ exceptions nor Rust panics may
-//! cross the C ABI. Chunk memory is borrowed only until its callback returns.
+//! forged, overlapping, or undersized memory is a caller error. Components
+//! made from C must be memcpy-safe. Callbacks must return normally: neither
+//! C++ exceptions nor Rust panics may cross the C ABI. Chunk memory is
+//! borrowed only until its callback returns.
 //!
 //! ```
 //! use crabby_ffi::{crabby_world_new, crabby_world_free, CrabbyStatus};
@@ -14,16 +17,26 @@
 //! unsafe { assert_eq!(crabby_world_free(world), CrabbyStatus::CRABBY_OK); }
 //! ```
 
-mod headless;
-pub use headless::*;
+mod ctx;
+mod game;
+mod grid;
+mod keys;
+mod types;
+pub use ctx::*;
+pub use game::*;
+pub use grid::*;
+pub use keys::*;
+pub use types::*;
 
 use crabby_ecs::{ComponentId, Entity, World};
+use crabbyengine::{Sprite, Transform2D, spatial_key};
 use std::alloc::Layout;
-use std::cell::{Cell, RefCell};
+use std::any::TypeId;
+use std::cell::RefCell;
 use std::ffi::{CStr, c_char, c_void};
-use std::marker::PhantomData;
+use std::mem::ManuallyDrop;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Result of an ABI operation. Inspect `crabby_last_error` on failure.
 /// ```
@@ -46,16 +59,18 @@ pub enum CrabbyStatus {
 }
 use CrabbyStatus::*;
 
-/// Opaque, thread-confined world. Never copy, dereference, or free it yourself.
+/// Opaque world handle. Never copy, dereference, or free it yourself.
 /// ```
 /// let handle = crabby_ffi::crabby_world_new();
 /// unsafe { crabby_ffi::crabby_world_free(handle); }
 /// ```
 pub struct CrabbyWorld {
     world: *mut World,
-    busy: Cell<bool>,
+    /// Set while an operation (or a query callback) uses the world.
+    busy: AtomicBool,
+    /// Set while a parallel query runs: commands are off then (one queue, many threads).
+    parallel: AtomicBool,
     owned: bool,
-    _thread_confined: PhantomData<Rc<()>>,
 }
 
 /// A component value copied into the world; `size` must match registration.
@@ -72,12 +87,11 @@ pub struct CrabbyValue {
     pub component: u32,
     /// Readable component bytes, not overlapping world storage.
     pub data: *const c_void,
-    /// Exact registered component size.
+    /// Exact registered component size (`sizeof(CrabbySprite)` for sprites).
     pub size: usize,
 }
 
 /// Borrowed archetype columns in query order. Valid only during the callback.
-/// `entities` is opaque: use `crabby_chunk_entity` instead of dereferencing it.
 /// Column elements are tightly packed with the registered size as their stride.
 /// ```
 /// assert!(std::mem::size_of::<crabby_ffi::CrabbyChunk>() >= 4 * std::mem::size_of::<usize>());
@@ -90,11 +104,12 @@ pub struct CrabbyChunk {
     pub column_count: usize,
     /// Array of mutable column pointers; never retain it after the callback.
     pub columns: *const *mut c_void,
-    /// Opaque entity storage; never dereference it in foreign code.
-    pub entities: *const c_void,
+    /// The entity of each row.
+    pub entities: *const CrabbyEntity,
 }
 
-/// Callback invoked once per nonempty matching archetype. Must return normally.
+/// Callback invoked for each nonempty matching archetype (or slice of one,
+/// for `crabby_query_par`). Must return normally.
 /// ```
 /// let callback: crabby_ffi::CrabbyQueryFn = None;
 /// assert!(callback.is_none());
@@ -109,13 +124,16 @@ pub(crate) struct Failure(CrabbyStatus, &'static str);
 pub(crate) fn error(status: CrabbyStatus, message: &'static str) -> Failure {
     Failure(status, message)
 }
-fn invalid(message: &'static str) -> Failure {
+pub(crate) fn invalid(message: &'static str) -> Failure {
     error(CRABBY_INVALID_ARGUMENT, message)
 }
-fn save_error(message: &str) {
+pub(crate) fn save_error(message: &str) {
     LAST_ERROR.with(|cell| {
         let mut buffer = cell.borrow_mut();
-        let n = message.len().min(buffer.len() - 1);
+        let mut n = message.len().min(buffer.len() - 1);
+        while !message.is_char_boundary(n) {
+            n -= 1;
+        }
         buffer[..n].copy_from_slice(&message.as_bytes()[..n]);
         buffer[n] = 0;
     });
@@ -128,79 +146,113 @@ pub(crate) fn boundary(f: impl FnOnce() -> Result<(), Failure>) -> CrabbyStatus 
             status
         }
         Err(payload) => {
+            let text = payload
+                .downcast_ref::<&str>()
+                .copied()
+                .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+                .unwrap_or("unknown panic payload");
+            save_error(&format!("Rust panic caught at C ABI boundary: {text}"));
             // Drop ordinary payloads, but contain a payload destructor that panics.
             // A second payload is intentionally retained: its destructor could
             // panic recursively, and no unwind may escape this ABI boundary.
             if let Err(secondary) = catch_unwind(AssertUnwindSafe(|| drop(payload))) {
                 std::mem::forget(secondary);
             }
-            save_error("Rust panic caught at C ABI boundary");
             CRABBY_PANIC
         }
     }
 }
 
 pub(crate) fn owned_world(world: World) -> *mut CrabbyWorld {
-    Box::into_raw(Box::new(CrabbyWorld {
-        world: Box::into_raw(Box::new(world)),
-        busy: Cell::new(false),
-        owned: true,
-        _thread_confined: PhantomData,
-    }))
+    Box::into_raw(Box::new(CrabbyWorld::new(Box::into_raw(Box::new(world)), true)))
 }
 
-pub(crate) fn with_lent_world<R>(world: &mut World, f: impl FnOnce(*mut CrabbyWorld) -> R) -> R {
-    let mut handle = CrabbyWorld {
-        world,
-        busy: Cell::new(false),
-        owned: false,
-        _thread_confined: PhantomData,
-    };
-    f(&mut handle)
-}
-
-struct BusyGuard<'a>(&'a Cell<bool>);
-impl Drop for BusyGuard<'_> {
-    fn drop(&mut self) {
-        self.0.set(false);
+impl CrabbyWorld {
+    pub(crate) fn new(world: *mut World, owned: bool) -> Self {
+        Self {
+            world,
+            busy: AtomicBool::new(false),
+            parallel: AtomicBool::new(false),
+            owned,
+        }
+    }
+    /// Takes the busy flag; `None` if something else holds it.
+    pub(crate) fn lock(&self) -> Option<BusyGuard<'_>> {
+        (!self.busy.swap(true, Ordering::Acquire)).then(|| BusyGuard(&self.busy))
     }
 }
-unsafe fn access<R>(handle: *mut CrabbyWorld, f: impl FnOnce(&mut World) -> Result<R, Failure>) -> Result<R, Failure> {
+
+pub(crate) struct BusyGuard<'a>(&'a AtomicBool);
+impl Drop for BusyGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+pub(crate) unsafe fn access<R>(
+    handle: *mut CrabbyWorld,
+    f: impl FnOnce(&mut World, &CrabbyWorld) -> Result<R, Failure>,
+) -> Result<R, Failure> {
     if handle.is_null() {
         return Err(invalid("world is null"));
     }
-    // SAFETY: caller supplies a live thread-confined handle. Shared access only
-    // touches the guard before creating any unique world reference.
+    // SAFETY: caller supplies a live handle. Shared access only touches the
+    // atomic guard before creating any unique world reference.
     let handle = unsafe { &*handle };
-    if handle.busy.replace(true) {
+    let Some(_guard) = handle.lock() else {
         return Err(error(CRABBY_BUSY, "world is borrowed by another operation"));
-    }
-    let _guard = BusyGuard(&handle.busy);
-    // SAFETY: this guard exclusively owns world access until it drops.
-    f(unsafe { &mut *handle.world })
+    };
+    // SAFETY: the guard grants exclusive world access until it drops.
+    f(unsafe { &mut *handle.world }, handle)
 }
-fn component(world: &World, id: u32) -> Result<ComponentId, Failure> {
+
+/// How the C side sees a component's bytes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Kind {
+    /// Same bytes in C and in the world: C-registered components, Transform2D.
+    Plain,
+    /// Stored as Rust `Sprite`, seen in C as `CrabbySprite`.
+    Sprite,
+}
+const _: () = assert!(!std::mem::needs_drop::<Sprite>());
+
+pub(crate) fn component(world: &World, id: u32) -> Result<(ComponentId, Kind), Failure> {
     let id = world
         .component_at(id as usize)
         .ok_or_else(|| invalid("component id is not registered in this world"))?;
-    // Raw byte copies into a value with a destructor (a Rust String, Vec, ...)
-    // would corrupt memory, so the ABI only touches plain-data components.
-    if world.component_info(id).needs_drop() {
-        return Err(invalid(
-            "component has a destructor and cannot be accessed through the C ABI",
-        ));
-    }
-    Ok(id)
+    let info = world.component_info(id);
+    let kind = match info.type_id() {
+        // Raw byte copies into a value with a destructor would corrupt memory.
+        None if !info.needs_drop() => Kind::Plain,
+        Some(t) if t == TypeId::of::<Transform2D>() => Kind::Plain,
+        Some(t) if t == TypeId::of::<Sprite>() => Kind::Sprite,
+        _ => {
+            return Err(invalid(
+                "component has no C layout (a Rust type or one with a destructor)",
+            ));
+        }
+    };
+    Ok((id, kind))
 }
-fn value_layout(world: &World, id: u32, data: *const c_void, size: usize) -> Result<ComponentId, Failure> {
-    let id = component(world, id)?;
+pub(crate) fn c_size(world: &World, id: ComponentId, kind: Kind) -> usize {
+    match kind {
+        Kind::Plain => world.component_info(id).layout().size(),
+        Kind::Sprite => size_of::<CrabbySprite>(),
+    }
+}
+pub(crate) fn value_layout(
+    world: &World,
+    id: u32,
+    data: *const c_void,
+    size: usize,
+) -> Result<(ComponentId, Kind), Failure> {
+    let (id, kind) = component(world, id)?;
     if data.is_null() {
         return Err(invalid("component data is null"));
     }
-    if size != world.component_info(id).layout().size() {
+    if size != c_size(world, id, kind) {
         return Err(invalid("component copy size does not match registration"));
     }
-    Ok(id)
+    Ok((id, kind))
 }
 fn present(found: bool) -> Result<(), Failure> {
     if found {
@@ -227,7 +279,7 @@ pub extern "C" fn crabby_world_new() -> *mut CrabbyWorld {
 
 /// Frees an owned handle. A busy or borrowed handle returns `CRABBY_BUSY`.
 /// # Safety
-/// `world` must be null or a live handle on its creating thread, used at most once after success.
+/// `world` must be null or a live handle, used at most once after success.
 /// ```
 /// let w = crabby_ffi::crabby_world_new();
 /// unsafe { assert_eq!(crabby_ffi::crabby_world_free(w), crabby_ffi::CrabbyStatus::CRABBY_OK); }
@@ -240,10 +292,14 @@ pub unsafe extern "C" fn crabby_world_free(world: *mut CrabbyWorld) -> CrabbySta
         }
         // SAFETY: live handle guaranteed by caller; inspect before taking ownership.
         let h = unsafe { &*world };
-        if h.busy.get() || !h.owned {
+        if !h.owned {
             return Err(error(CRABBY_BUSY, "world is borrowed"));
         }
-        // SAFETY: owned, non-busy handle and its World each came from Box::into_raw.
+        let Some(guard) = h.lock() else {
+            return Err(error(CRABBY_BUSY, "world is borrowed"));
+        };
+        std::mem::forget(guard);
+        // SAFETY: owned, locked handle and its World each came from Box::into_raw.
         unsafe {
             drop(Box::from_raw(h.world));
             drop(Box::from_raw(world));
@@ -262,20 +318,20 @@ pub extern "C" fn crabby_last_error() -> *const c_char {
     LAST_ERROR.with(|cell| cell.as_ptr().cast())
 }
 
-/// ABI version, currently 1.
+/// ABI version, currently 2.
 /// ```
-/// assert_eq!(crabby_ffi::crabby_abi_version(), 1);
+/// assert_eq!(crabby_ffi::crabby_abi_version(), 2);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_abi_version() -> u32 {
-    1
+    2
 }
 
 /// Registers a POD component. Repeating a name and layout returns the same id.
 /// Size must be a multiple of nonzero power-of-two alignment, including size zero.
 /// Names are nonempty UTF-8, NUL-terminated strings, copied by this call.
 /// # Safety
-/// Live thread-confined handle; valid readable name and writable output pointer.
+/// Live handle; valid readable name and writable output pointer.
 /// Component values must be memcpy-safe, thread-safe bytes without destructors.
 /// ```
 /// use crabby_ffi::*;
@@ -311,16 +367,61 @@ pub unsafe extern "C" fn crabby_component_register(
         }
         // SAFETY: access validates null and guards the live caller-provided handle.
         unsafe {
-            access(world, |w| {
+            access(world, |w, _| {
                 if let Some(id) = w.component_by_name(name) {
                     let info = w.component_info(id);
-                    if info.layout() != layout || info.type_id().is_some() {
+                    if info.layout() != layout || info.type_id().is_some() || info.needs_drop() {
                         return Err(invalid("name is already registered with another layout or type"));
                     }
                 }
                 // Caller promises POD values. Layout and collision are checked above.
                 let id = w.register_component(name, size, alignment, None);
                 *out_id = id.index() as u32;
+                Ok(())
+            })
+        }
+    })
+}
+
+/// The id of the built-in `Transform2D` component (`CrabbyTransform2D` in C),
+/// registering it if needed. It can be a query column.
+/// # Safety
+/// Live handle and writable output.
+/// ```
+/// use crabby_ffi::*;
+/// let w = crabby_world_new();
+/// unsafe { let mut id = 99; assert_eq!(crabby_transform_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_transform_component(world: *mut CrabbyWorld, out_id: *mut u32) -> CrabbyStatus {
+    // SAFETY: caller supplies a live handle and writable output (checked non-null).
+    unsafe { builtin::<Transform2D>(world, out_id) }
+}
+
+/// The id of the built-in `Sprite` component, registering it if needed. Values
+/// are `CrabbySprite` in spawn/get/set; sprites can't be query columns.
+/// # Safety
+/// Live handle and writable output.
+/// ```
+/// use crabby_ffi::*;
+/// let w = crabby_world_new();
+/// unsafe { let mut id = 99; assert_eq!(crabby_sprite_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_sprite_component(world: *mut CrabbyWorld, out_id: *mut u32) -> CrabbyStatus {
+    // SAFETY: as above.
+    unsafe { builtin::<Sprite>(world, out_id) }
+}
+
+unsafe fn builtin<T: crabby_ecs::Component>(world: *mut CrabbyWorld, out_id: *mut u32) -> CrabbyStatus {
+    boundary(|| {
+        if out_id.is_null() {
+            return Err(invalid("output is null"));
+        }
+        // SAFETY: caller supplies a live handle and writable output.
+        unsafe {
+            access(world, |w, _| {
+                *out_id = w.register::<T>().index() as u32;
                 Ok(())
             })
         }
@@ -353,33 +454,49 @@ pub unsafe extern "C" fn crabby_spawn(
         }
         // SAFETY: caller promises valid input memory. Empty null arrays are not dereferenced.
         unsafe {
-            access(world, |w| {
-                if count > w.components().len() {
-                    return Err(invalid("more values than registered components"));
-                }
+            access(world, |w, _| {
                 let values = if count == 0 {
                     &[]
                 } else {
                     std::slice::from_raw_parts(values, count)
                 };
-                let mut components = Vec::with_capacity(count);
-                for v in values {
-                    let id = value_layout(w, v.component, v.data, v.size)?;
-                    if components.iter().any(|(previous, _)| *previous == id) {
-                        return Err(invalid("duplicate component id"));
-                    }
-                    components.push((id, v.data.cast()));
-                }
-                *out_entity = w.spawn_dynamic(&components).to_bits();
+                *out_entity = spawn_values(w, values)?.to_bits();
                 Ok(())
             })
         }
     })
 }
 
+/// Validates and spawns; shared by `crabby_spawn` and `crabby_ctx_spawn_later`.
+pub(crate) unsafe fn spawn_values(w: &mut World, values: &[CrabbyValue]) -> Result<Entity, Failure> {
+    if values.len() > w.components().len() {
+        return Err(invalid("more values than registered components"));
+    }
+    // At most one sprite (duplicates are rejected), converted to its Rust form here.
+    let mut sprite = ManuallyDrop::new(None::<Sprite>);
+    let mut components = Vec::with_capacity(values.len());
+    for v in values {
+        let (id, kind) = value_layout(w, v.component, v.data, v.size)?;
+        if components.iter().any(|(previous, _)| *previous == id) {
+            return Err(invalid("duplicate component id"));
+        }
+        let ptr: *const u8 = match kind {
+            Kind::Plain => v.data.cast(),
+            // SAFETY: size checked; caller promises a readable CrabbySprite (maybe unaligned).
+            Kind::Sprite => {
+                let c = unsafe { v.data.cast::<CrabbySprite>().read_unaligned() };
+                (sprite.insert(sprite_from_c(&c)) as *const Sprite).cast()
+            }
+        };
+        components.push((id, ptr));
+    }
+    // SAFETY: every pointer refers to a value of the registered layout.
+    Ok(unsafe { w.spawn_dynamic(&components) })
+}
+
 /// Despawns an entity; stale or missing entities return `CRABBY_NOT_FOUND`.
 /// # Safety
-/// `world` must be null or a live handle on its creating thread.
+/// `world` must be null or a live handle.
 /// ```
 /// use crabby_ffi::*;
 /// let w = crabby_world_new();
@@ -388,12 +505,12 @@ pub unsafe extern "C" fn crabby_spawn(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_despawn(world: *mut CrabbyWorld, entity: u64) -> CrabbyStatus {
     // SAFETY: caller guarantees live handle, access enforces exclusive use.
-    boundary(|| unsafe { access(world, |w| present(w.despawn(Entity::from_bits(entity)))) })
+    boundary(|| unsafe { access(world, |w, _| present(w.despawn(Entity::from_bits(entity)))) })
 }
 
 /// Tests whether a generational entity handle is alive.
 /// # Safety
-/// Live thread-confined world and valid writable output, or null pointers.
+/// Live world and valid writable output, or null pointers.
 /// ```
 /// use crabby_ffi::*;
 /// let w = crabby_world_new();
@@ -407,7 +524,7 @@ pub unsafe extern "C" fn crabby_is_alive(world: *mut CrabbyWorld, entity: u64, o
         }
         // SAFETY: caller provides writable output and a live handle.
         unsafe {
-            access(world, |w| {
+            access(world, |w, _| {
                 *out_alive = w.is_alive(Entity::from_bits(entity));
                 Ok(())
             })
@@ -417,7 +534,7 @@ pub unsafe extern "C" fn crabby_is_alive(world: *mut CrabbyWorld, entity: u64, o
 
 /// Returns the number of live entities.
 /// # Safety
-/// Live thread-confined world and valid writable output, or null pointers.
+/// Live world and valid writable output, or null pointers.
 /// ```
 /// use crabby_ffi::*;
 /// let w = crabby_world_new();
@@ -431,7 +548,7 @@ pub unsafe extern "C" fn crabby_world_len(world: *mut CrabbyWorld, out_len: *mut
         }
         // SAFETY: caller provides writable output and a live handle.
         unsafe {
-            access(world, |w| {
+            access(world, |w, _| {
                 *out_len = w.len();
                 Ok(())
             })
@@ -441,7 +558,7 @@ pub unsafe extern "C" fn crabby_world_len(world: *mut CrabbyWorld, out_len: *mut
 
 /// Copies one component into caller storage of the exact registered size.
 /// # Safety
-/// Live thread-confined handle and valid writable, non-overlapping output bytes.
+/// Live handle and valid writable, non-overlapping output bytes.
 /// ```
 /// use crabby_ffi::*;
 /// unsafe { assert_eq!(crabby_get(std::ptr::null_mut(), 0, 0, std::ptr::null_mut(), 0), CrabbyStatus::CRABBY_INVALID_ARGUMENT); }
@@ -456,12 +573,17 @@ pub unsafe extern "C" fn crabby_get(
 ) -> CrabbyStatus {
     // SAFETY: caller provides live handle and writable output; size/id checked before copy.
     boundary(|| unsafe {
-        access(world, |w| {
-            let id = value_layout(w, id, out_data, size)?;
+        access(world, |w, _| {
+            let (id, kind) = value_layout(w, id, out_data, size)?;
             let src = w
                 .get_dynamic(Entity::from_bits(entity), id)
                 .ok_or_else(|| error(CRABBY_NOT_FOUND, "entity or component not found"))?;
-            std::ptr::copy_nonoverlapping(src, out_data.cast(), size);
+            match kind {
+                Kind::Plain => std::ptr::copy_nonoverlapping(src, out_data.cast(), size),
+                Kind::Sprite => out_data
+                    .cast::<CrabbySprite>()
+                    .write(sprite_to_c(&*src.cast::<Sprite>())),
+            }
             Ok(())
         })
     })
@@ -469,7 +591,7 @@ pub unsafe extern "C" fn crabby_get(
 
 /// Adds or replaces a component by copying its exact registered size.
 /// # Safety
-/// Live thread-confined handle and readable POD bytes, not overlapping world storage.
+/// Live handle and readable POD bytes, not overlapping world storage.
 /// ```
 /// use crabby_ffi::*;
 /// unsafe { assert_eq!(crabby_set(std::ptr::null_mut(), 0, 0, std::ptr::null(), 0), CrabbyStatus::CRABBY_INVALID_ARGUMENT); }
@@ -484,16 +606,30 @@ pub unsafe extern "C" fn crabby_set(
 ) -> CrabbyStatus {
     // SAFETY: caller provides POD memory and live handle; validate layout before copying.
     boundary(|| unsafe {
-        access(world, |w| {
-            let id = value_layout(w, id, data, size)?;
-            present(w.insert_dynamic(Entity::from_bits(entity), id, data.cast()))
+        access(world, |w, _| {
+            let (id, kind) = value_layout(w, id, data, size)?;
+            present(insert_value(w, Entity::from_bits(entity), id, kind, data))
         })
     })
 }
 
+/// Inserts a validated value; shared by `crabby_set` and `crabby_ctx_set_later`.
+pub(crate) unsafe fn insert_value(w: &mut World, e: Entity, id: ComponentId, kind: Kind, data: *const c_void) -> bool {
+    // SAFETY: the caller validated the layout of `data`.
+    unsafe {
+        match kind {
+            Kind::Plain => w.insert_dynamic(e, id, data.cast()),
+            Kind::Sprite => {
+                let sprite = ManuallyDrop::new(sprite_from_c(&data.cast::<CrabbySprite>().read_unaligned()));
+                w.insert_dynamic(e, id, (&*sprite as *const Sprite).cast())
+            }
+        }
+    }
+}
+
 /// Removes a component, returning `CRABBY_NOT_FOUND` if entity/component is absent.
 /// # Safety
-/// `world` must be null or a live handle on its creating thread.
+/// `world` must be null or a live handle.
 /// ```
 /// use crabby_ffi::*;
 /// unsafe { assert_eq!(crabby_remove(std::ptr::null_mut(), 0, 0), CrabbyStatus::CRABBY_INVALID_ARGUMENT); }
@@ -502,19 +638,77 @@ pub unsafe extern "C" fn crabby_set(
 pub unsafe extern "C" fn crabby_remove(world: *mut CrabbyWorld, entity: u64, id: u32) -> CrabbyStatus {
     // SAFETY: caller supplies a live handle; component id is checked before ECS access.
     boundary(|| unsafe {
-        access(world, |w| {
-            let id = component(w, id)?;
+        access(world, |w, _| {
+            let (id, _) = component(w, id)?;
             present(w.remove_dynamic(Entity::from_bits(entity), id))
         })
+    })
+}
+
+/// Reorders entities that have a `Transform2D` so that entities close in
+/// space are close in memory (Morton order of `cell_size` cells). Entity ids
+/// stay valid. Neighbor queries get much faster on big worlds; doing it
+/// every 32 ticks or so is plenty.
+/// # Safety
+/// `world` must be null or a live handle.
+/// ```
+/// use crabby_ffi::*;
+/// let w = crabby_world_new();
+/// unsafe { assert_eq!(crabby_world_sort_spatial(w, 32.0), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_world_sort_spatial(world: *mut CrabbyWorld, cell_size: f32) -> CrabbyStatus {
+    boundary(|| {
+        if !(cell_size > 0.0 && cell_size.is_finite()) {
+            return Err(invalid("cell size must be positive"));
+        }
+        // SAFETY: caller supplies a live handle.
+        unsafe {
+            access(world, |w, _| {
+                w.sort_by::<Transform2D>(|t| spatial_key(t.position, cell_size));
+                Ok(())
+            })
+        }
+    })
+}
+
+/// Checks query ids and resolves them; also returns each column's stride.
+fn resolve(w: &World, input: &[u32]) -> Result<([ComponentId; 32], [usize; 32]), Failure> {
+    let mut resolved = [ComponentId::default(); 32];
+    let mut sizes = [0; 32];
+    for (i, &raw) in input.iter().enumerate() {
+        if input[..i].contains(&raw) {
+            return Err(invalid("duplicate query component id"));
+        }
+        let (id, kind) = component(w, raw)?;
+        if kind != Kind::Plain {
+            return Err(invalid("sprites can't be query columns: use crabby_get/crabby_set"));
+        }
+        resolved[i] = id;
+        sizes[i] = w.component_info(id).layout().size();
+    }
+    Ok((resolved, sizes))
+}
+
+fn query_input<'a>(components: *const u32, count: usize) -> Result<&'a [u32], Failure> {
+    if count > 32 || (components.is_null() && count != 0) {
+        return Err(invalid("query requires at most 32 component ids and a valid array"));
+    }
+    // SAFETY: caller supplies `count` readable ids (checked non-null when count > 0).
+    Ok(if count == 0 {
+        &[]
+    } else {
+        unsafe { std::slice::from_raw_parts(components, count) }
     })
 }
 
 /// Visits each nonempty matching archetype, with columns in requested order.
 /// At most 32 distinct ids; zero ids visit all entities. Successful traversal
 /// allocates no memory. World operations (including reads/free) during a callback
-/// return `CRABBY_BUSY`; edit only the provided columns in that callback.
+/// return `CRABBY_BUSY`; edit only the provided columns, and use the context's
+/// `*_later` commands to spawn or despawn.
 /// # Safety
-/// Live thread-confined handle; readable ids; callback and user pointer remain valid.
+/// Live handle; readable ids; callback and user pointer remain valid.
 /// Callbacks must return normally and preserve valid POD values in all columns.
 /// ```
 /// use crabby_ffi::*;
@@ -531,81 +725,116 @@ pub unsafe extern "C" fn crabby_query(
     user: *mut c_void,
 ) -> CrabbyStatus {
     boundary(|| {
-        if count > 32 || (components.is_null() && count != 0) {
-            return Err(invalid("query requires at most 32 component ids and a valid array"));
-        }
+        let input = query_input(components, count)?;
         let callback = callback.ok_or_else(|| invalid("query callback is null"))?;
         // SAFETY: caller supplies live handle, input ids and a callable callback.
         unsafe {
-            access(world, |w| {
-                let input = if count == 0 {
-                    &[]
-                } else {
-                    std::slice::from_raw_parts(components, count)
-                };
-                if count != 0 {
-                    let seed = component(w, input[0])?;
-                    let mut resolved = [seed; 32];
-                    for (i, &raw) in input.iter().enumerate() {
-                        if input[..i].contains(&raw) {
-                            return Err(invalid("duplicate query component id"));
-                        }
-                        resolved[i] = component(w, raw)?;
-                    }
-                    w.for_each_chunk(&resolved[..count], |chunk| {
-                        let view = CrabbyChunk {
-                            count: chunk.entities.len(),
-                            column_count: chunk.columns.len(),
-                            columns: chunk.columns.as_ptr().cast(),
-                            entities: chunk.entities.as_ptr().cast(),
-                        };
-                        callback(&view, user);
-                    });
-                } else {
-                    w.for_each_chunk(&[], |chunk| {
-                        let view = CrabbyChunk {
-                            count: chunk.entities.len(),
-                            column_count: 0,
-                            columns: chunk.columns.as_ptr().cast(),
-                            entities: chunk.entities.as_ptr().cast(),
-                        };
-                        callback(&view, user);
-                    });
-                }
+            access(world, |w, _| {
+                let (resolved, _) = resolve(w, input)?;
+                w.for_each_chunk(&resolved[..count], |chunk| {
+                    let view = CrabbyChunk {
+                        count: chunk.entities.len(),
+                        column_count: count,
+                        columns: chunk.columns.as_ptr().cast(),
+                        entities: chunk.entities.as_ptr().cast(),
+                    };
+                    callback(&view, user);
+                });
                 Ok(())
             })
         }
     })
 }
 
-/// Reads a packed entity id from a currently borrowed query chunk.
+/// Like `crabby_query`, but splits archetypes into slices and calls
+/// `callback` for them **on all CPU cores at once**. The callback must be
+/// thread-safe: touch only its own chunk's rows, read-only data, the context's
+/// read-only values (dt, tick, random bits) and spatial queries. World calls
+/// return `CRABBY_BUSY` and commands are off until it returns.
 /// # Safety
-/// `chunk` must be an unmodified chunk from the active callback; output must be writable.
-/// A fabricated chunk, a retained chunk, or dangling pointers are caller errors.
+/// As `crabby_query`, plus: `callback` and `user` must be safe to use from
+/// several threads at the same time.
 /// ```
 /// use crabby_ffi::*;
-/// unsafe { assert_eq!(crabby_chunk_entity(std::ptr::null(), 0, &mut 0), CrabbyStatus::CRABBY_INVALID_ARGUMENT); }
+/// unsafe extern "C" fn visit(_: *const CrabbyChunk, _: *mut std::ffi::c_void) {}
+/// let w = crabby_world_new();
+/// unsafe { assert_eq!(crabby_query_par(w, std::ptr::null(), 0, Some(visit), std::ptr::null_mut()), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_chunk_entity(
-    chunk: *const CrabbyChunk,
-    index: usize,
-    out_entity: *mut u64,
+pub unsafe extern "C" fn crabby_query_par(
+    world: *mut CrabbyWorld,
+    components: *const u32,
+    count: usize,
+    callback: CrabbyQueryFn,
+    user: *mut c_void,
 ) -> CrabbyStatus {
+    use rayon::prelude::*;
+    /// Raw pointers handed to worker threads. Each task gets a disjoint row range.
+    #[derive(Clone, Copy)]
+    struct Shared {
+        columns: [*mut u8; 32],
+        entities: *const Entity,
+        user: *mut c_void,
+    }
+    // SAFETY: the caller promises the callback and `user` are thread-safe;
+    // columns are only touched in disjoint row ranges.
+    unsafe impl Send for Shared {}
+    unsafe impl Sync for Shared {}
+    const MIN_ROWS: usize = if cfg!(miri) { 16 } else { 512 };
+    const MAX_ROWS: usize = if cfg!(miri) { 16 } else { 8192 };
+
+    struct Reset<'a>(&'a AtomicBool);
+    impl Drop for Reset<'_> {
+        fn drop(&mut self) {
+            self.0.store(false, Ordering::Release);
+        }
+    }
+
     boundary(|| {
-        if chunk.is_null() || out_entity.is_null() {
-            return Err(invalid("chunk or output is null"));
-        }
-        // SAFETY: caller supplies a live unmodified callback chunk.
-        let chunk = unsafe { &*chunk };
-        if index >= chunk.count || chunk.entities.is_null() {
-            return Err(invalid("chunk entity index is out of bounds"));
-        }
-        // SAFETY: bounds checked; original chunk contains count initialized Entity entries.
+        let input = query_input(components, count)?;
+        let callback = callback.ok_or_else(|| invalid("query callback is null"))?;
+        // SAFETY: caller supplies live handle, input ids and a thread-safe callback.
         unsafe {
-            *out_entity = (*chunk.entities.cast::<Entity>().add(index)).to_bits();
+            access(world, |w, handle| {
+                let (resolved, sizes) = resolve(w, input)?;
+                handle.parallel.store(true, Ordering::Release);
+                let _reset = Reset(&handle.parallel);
+                let threads = rayon::current_num_threads().max(1);
+                w.for_each_chunk(&resolved[..count], |chunk| {
+                    let len = chunk.entities.len();
+                    let mut columns = [std::ptr::null_mut(); 32];
+                    columns[..count].copy_from_slice(chunk.columns);
+                    let shared = Shared {
+                        columns,
+                        entities: chunk.entities.as_ptr(),
+                        user,
+                    };
+                    let rows = (len / (threads * 4)).clamp(MIN_ROWS, MAX_ROWS);
+                    let task = move |t: usize| {
+                        let s = shared;
+                        let start = t * rows;
+                        let mut ptrs = [std::ptr::null_mut::<c_void>(); 32];
+                        for i in 0..count {
+                            // SAFETY: start < len, so the offset stays inside the column.
+                            ptrs[i] = s.columns[i].add(start * sizes[i]).cast();
+                        }
+                        let view = CrabbyChunk {
+                            count: rows.min(len - start),
+                            column_count: count,
+                            columns: ptrs.as_ptr(),
+                            entities: s.entities.add(start).cast(),
+                        };
+                        callback(&view, s.user);
+                    };
+                    if len <= rows {
+                        task(0);
+                    } else {
+                        (0..len.div_ceil(rows)).into_par_iter().for_each(task);
+                    }
+                });
+                Ok(())
+            })
         }
-        Ok(())
     })
 }
 
@@ -615,8 +844,11 @@ mod tests {
     #[test]
     fn panics_are_contained_and_release_the_borrow_guard() {
         let world = crabby_world_new();
-        let result = boundary(|| unsafe { access(world, |_| -> Result<(), Failure> { panic!("injected ABI panic") }) });
+        let result =
+            boundary(|| unsafe { access(world, |_, _| -> Result<(), Failure> { panic!("injected ABI panic") }) });
         assert_eq!(result, CRABBY_PANIC);
+        let message = unsafe { CStr::from_ptr(crabby_last_error()) }.to_str().unwrap();
+        assert!(message.ends_with("injected ABI panic"), "{message}");
         unsafe {
             assert_eq!(crabby_world_len(world, &mut 0), CRABBY_OK);
             assert_eq!(crabby_world_free(world), CRABBY_OK);
@@ -636,10 +868,15 @@ mod tests {
         assert!(dropped.load(std::sync::atomic::Ordering::SeqCst));
     }
 
+    fn lend<R>(world: &mut World, f: impl FnOnce(*mut CrabbyWorld) -> R) -> R {
+        let mut handle = CrabbyWorld::new(world, false);
+        f(&mut handle)
+    }
+
     #[test]
     fn lent_handles_access_the_original_world_and_cannot_be_freed() {
         let mut world = World::new();
-        with_lent_world(&mut world, |handle| unsafe {
+        lend(&mut world, |handle| unsafe {
             assert_eq!(crabby_world_free(handle), CRABBY_BUSY);
             assert_eq!(crabby_spawn(handle, std::ptr::null(), 0, &mut 0), CRABBY_OK);
         });
@@ -647,37 +884,36 @@ mod tests {
     }
 
     #[test]
-    fn components_with_destructors_are_rejected() {
+    fn rust_components_without_a_c_layout_are_rejected() {
         let mut world = World::new();
-        let e = world.spawn((String::from("rust owned"),));
-        let id = world.component_id::<String>().unwrap().index() as u32;
-        let bytes = [0u8; std::mem::size_of::<String>()];
-        with_lent_world(&mut world, |handle| unsafe {
-            let mut out = [0u8; std::mem::size_of::<String>()];
-            let size = out.len();
-            assert_eq!(
-                crabby_get(handle, e.to_bits(), id, out.as_mut_ptr().cast(), size),
-                CRABBY_INVALID_ARGUMENT
-            );
-            assert_eq!(
-                crabby_set(handle, e.to_bits(), id, bytes.as_ptr().cast(), size),
-                CRABBY_INVALID_ARGUMENT
-            );
-            assert_eq!(crabby_remove(handle, e.to_bits(), id), CRABBY_INVALID_ARGUMENT);
-            let value = CrabbyValue {
-                component: id,
-                data: bytes.as_ptr().cast(),
-                size,
-            };
-            assert_eq!(crabby_spawn(handle, &value, 1, &mut 0), CRABBY_INVALID_ARGUMENT);
-            unsafe extern "C" fn never(_: *const CrabbyChunk, _: *mut c_void) {
-                panic!("query must be rejected before visiting");
-            }
-            assert_eq!(
-                crabby_query(handle, &id, 1, Some(never), std::ptr::null_mut()),
-                CRABBY_INVALID_ARGUMENT
-            );
-        });
+        let e = world.spawn((String::from("rust owned"), 5u64));
+        for id in [
+            world.component_id::<String>().unwrap(),
+            world.component_id::<u64>().unwrap(),
+        ] {
+            let size = world.component_info(id).layout().size();
+            let id = id.index() as u32;
+            let bytes = [0u8; std::mem::size_of::<String>()];
+            lend(&mut world, |handle| unsafe {
+                let mut out = [0u8; std::mem::size_of::<String>()];
+                let get = crabby_get(handle, e.to_bits(), id, out.as_mut_ptr().cast(), size);
+                assert_eq!(get, CRABBY_INVALID_ARGUMENT);
+                let set = crabby_set(handle, e.to_bits(), id, bytes.as_ptr().cast(), size);
+                assert_eq!(set, CRABBY_INVALID_ARGUMENT);
+                assert_eq!(crabby_remove(handle, e.to_bits(), id), CRABBY_INVALID_ARGUMENT);
+                let value = CrabbyValue {
+                    component: id,
+                    data: bytes.as_ptr().cast(),
+                    size,
+                };
+                assert_eq!(crabby_spawn(handle, &value, 1, &mut 0), CRABBY_INVALID_ARGUMENT);
+                unsafe extern "C" fn never(_: *const CrabbyChunk, _: *mut c_void) {
+                    panic!("query must be rejected before visiting");
+                }
+                let query = crabby_query(handle, &id, 1, Some(never), std::ptr::null_mut());
+                assert_eq!(query, CRABBY_INVALID_ARGUMENT);
+            });
+        }
         assert_eq!(world.get::<String>(e).unwrap(), "rust owned");
     }
 }

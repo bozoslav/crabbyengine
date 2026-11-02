@@ -680,6 +680,7 @@ dependencies = [
  "cbindgen",
  "crabby_ecs",
  "crabbyengine",
+ "rayon",
 ]
 
 [[package]]

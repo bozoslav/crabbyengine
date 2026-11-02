@@ -18,7 +18,8 @@ until you move it, world units are window pixels.
 
 ## The camera
 
-`ctx.camera` is a [`Camera2D`](api/crabbyengine/struct.Camera2D.html):
+`ctx.camera` is a [`Camera2D`](api/crabbyengine/struct.Camera2D.html) (C++:
+`ctx.camera()` / `ctx.set_camera(c)` with the same two fields):
 `position` (the world point at the window's top-left) and `zoom` (window
 pixels per world unit). Its methods do the usual jobs:
 
@@ -39,13 +40,28 @@ Game::new("Colony", 1280, 720)
 
 The ants example starts zoomed out to fit every colony:
 
+<div class="lang-pair">
+<div>
+
 ```rust
 let fit = ctx.window_size() / bounds;
 ctx.camera.zoom = fit.x.min(fit.y);
 ctx.camera.look_at(bounds / 2.0);
 ```
 
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:camera_fit}}
+```
+
+</div>
+</div>
+
 ## Shapes
+
+(Rust-only for now.)
 
 In world units, like sprites:
 
@@ -57,12 +73,27 @@ ctx.draw_circle(tower, 120.0, Color::BLUE.with_alpha(0.2));
 
 ## Text
 
+<div class="lang-pair">
+<div>
+
 ```rust
 ctx.draw_text("Hello", vec2(20.0, 20.0), 24.0, Color::WHITE);
 let size = ctx.measure_text("Paused", 32.0); // for centering
 let title = ctx.load_font("fonts/Title.ttf"); // TrueType or OpenType
 ctx.draw_text_ex("Colony", vec2(20.0, 60.0), TextParams { font: title, size: 40.0, ..Default::default() });
 ```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:text}}
+```
+
+</div>
+</div>
+
+Fonts other than the built-in one (`load_font`, `draw_text_ex`) are Rust-only for now.
 
 - `size` is the line height in window pixels; `\n` starts a new line.
 - The built-in font is Ubuntu Light (Ubuntu Font Licence).
@@ -72,6 +103,8 @@ ctx.draw_text_ex("Colony", vec2(20.0, 60.0), TextParams { font: title, size: 40.
 - `measure_text` works headless too, so layout code can be tested.
 
 ## UI
+
+(Rust-only for now.)
 
 A few immediate-mode widgets, drawn in window pixels. Call them every frame:
 

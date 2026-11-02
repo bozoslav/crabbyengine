@@ -1,7 +1,11 @@
 # Systems and the frame
 
-A **system** is a function `fn(&mut Ctx)` (or a closure). You add systems to
+A **system** is a function `fn(&mut Ctx)` (or a closure); in C++, anything
+callable as `void(crabby::ctx&)`, with an optional name for timings and tools. You add systems to
 the `Game` and they run in the order you added them.
+
+<div class="lang-pair">
+<div>
 
 ```rust
 Game::new("Sim", 1280, 720)
@@ -10,6 +14,16 @@ Game::new("Sim", 1280, 720)
     .system(camera)         // once per frame: input, camera, UI
     .run(|ctx| { /* spawn things */ });
 ```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:systems}}
+```
+
+</div>
+</div>
 
 ## Two kinds of systems
 
@@ -20,7 +34,8 @@ Game::new("Sim", 1280, 720)
 | Use for | gameplay, physics, AI: anything that must behave the same at any FPS | input, camera, debug UI |
 | In headless runs | runs | doesn't run |
 
-Change the rate with `.fixed_hz(120)`.
+Change the rate with `.fixed_hz(120)`. In C++, `sim_system(f, name, every)`
+also takes the interval of `sim_system_every`.
 
 ## One frame, in order
 
@@ -37,6 +52,9 @@ Commands are applied after each system.
 A system can be a closure that owns data. Build it with a function that
 returns the closure:
 
+<div class="lang-pair">
+<div>
+
 ```rust
 fn spawner(every: u64) -> impl FnMut(&mut Ctx) {
     let mut spawned = 0;
@@ -51,16 +69,39 @@ fn spawner(every: u64) -> impl FnMut(&mut Ctx) {
 Game::new("t", 800, 600).sim_system(spawner(30));
 ```
 
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:stateful}}
+```
+
+</div>
+</div>
+
 ## Replacing built-ins
 
 Everything the engine does by itself is an ordinary system, and
-`remove_system` takes it out:
+`remove_system` takes it out (in C++, by name):
+
+<div class="lang-pair">
+<div>
 
 ```rust
 Game::new("t", 800, 600)
     .remove_system(draw_sprites)   // draw your own way
     .system(my_draw);
 ```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:remove_system}}
+```
+
+</div>
+</div>
 
 ## Timings
 

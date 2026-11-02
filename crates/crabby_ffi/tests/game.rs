@@ -1,0 +1,557 @@
+//! The C game API: systems, the context, commands, parallel queries, spatial queries.
+use crabby_ffi::*;
+use std::ffi::{CStr, c_void};
+use std::ptr::{null, null_mut};
+
+use CrabbyStatus::*;
+
+/// Runs `game` headless for `ticks` and returns the world.
+unsafe fn run(game: *mut CrabbyGame, ticks: u64, setup: CrabbySystemFn, user: *mut c_void) -> *mut CrabbyWorld {
+    let mut world = null_mut();
+    assert_eq!(
+        unsafe { crabby_game_run_headless(game, ticks, setup, user, &mut world) },
+        CRABBY_OK
+    );
+    world
+}
+fn game() -> *mut CrabbyGame {
+    unsafe { crabby_game_new(c"test".as_ptr(), 1, 1) }
+}
+fn len(world: *mut CrabbyWorld) -> usize {
+    let mut n = 0;
+    assert_eq!(unsafe { crabby_world_len(world, &mut n) }, CRABBY_OK);
+    n
+}
+fn user<T>(t: &mut T) -> *mut c_void {
+    (t as *mut T).cast()
+}
+
+#[derive(Default)]
+struct Log {
+    setup: u32,
+    ticks: Vec<(u64, f32)>,
+    every_3: Vec<u64>,
+    stop_at: Option<u64>,
+}
+
+unsafe extern "C" fn log_setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
+    unsafe {
+        (*user.cast::<Log>()).setup += 1;
+        assert_eq!(crabby_world_free(crabby_ctx_world(ctx)), CRABBY_BUSY);
+    }
+}
+unsafe extern "C" fn log_tick(ctx: *mut CrabbyCtx, user: *mut c_void) {
+    unsafe {
+        let log = &mut *user.cast::<Log>();
+        let tick = crabby_ctx_sim_tick(ctx);
+        log.ticks.push((tick, crabby_ctx_dt(ctx)));
+        if log.stop_at == Some(tick) {
+            assert_eq!(crabby_ctx_quit(ctx), CRABBY_OK);
+        }
+    }
+}
+unsafe extern "C" fn log_every_3(ctx: *mut CrabbyCtx, user: *mut c_void) {
+    unsafe { (*user.cast::<Log>()).every_3.push(crabby_ctx_sim_tick(ctx)) }
+}
+
+#[test]
+fn sim_systems_run_on_the_fixed_tick_and_quit_stops_early() {
+    let mut log = Log {
+        stop_at: Some(4),
+        ..Default::default()
+    };
+    let log_ptr = user(&mut log);
+    unsafe {
+        let g = game();
+        assert_eq!(crabby_game_fixed_hz(g, 120), CRABBY_OK);
+        assert_eq!(
+            crabby_game_sim_system(g, c"log".as_ptr(), 1, Some(log_tick), log_ptr),
+            CRABBY_OK
+        );
+        assert_eq!(
+            crabby_game_sim_system(g, null(), 3, Some(log_every_3), log_ptr),
+            CRABBY_OK
+        );
+        let world = run(g, 100, Some(log_setup), log_ptr);
+        crabby_world_free(world);
+    }
+    assert_eq!(log.setup, 1);
+    assert_eq!(log.ticks.iter().map(|t| t.0).collect::<Vec<_>>(), [0, 1, 2, 3, 4]);
+    assert!(log.ticks.iter().all(|t| (t.1 - 1.0 / 120.0).abs() < 1e-7));
+    assert_eq!(log.every_3.len(), 2, "{:?}", log.every_3);
+}
+
+#[test]
+fn bad_settings_are_errors_and_keep_the_game_usable() {
+    unsafe {
+        let g = game();
+        assert_eq!(crabby_game_fixed_hz(g, 0), CRABBY_INVALID_ARGUMENT);
+        assert_eq!(crabby_game_spatial_grid(g, -1.0), CRABBY_INVALID_ARGUMENT);
+        assert_eq!(
+            crabby_game_sim_system(g, null(), 0, Some(log_tick), null_mut()),
+            CRABBY_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            crabby_game_sim_system(g, null(), 1, None, null_mut()),
+            CRABBY_INVALID_ARGUMENT
+        );
+        assert_eq!(crabby_game_remove_system(g, c"nope".as_ptr()), CRABBY_NOT_FOUND);
+        assert_eq!(
+            crabby_game_remove_system(g, c"crabbyengine::ecs::draw_sprites".as_ptr()),
+            CRABBY_OK
+        );
+        assert_eq!(crabby_game_fixed_hz(g, 30), CRABBY_OK);
+        let mut world = null_mut();
+        assert_eq!(
+            crabby_game_run_headless(g, 1, None, null_mut(), null_mut()),
+            CRABBY_INVALID_ARGUMENT
+        );
+        // The game was consumed by the failed run, so only a fresh one runs.
+        let g = game();
+        assert_eq!(crabby_game_run_headless(g, 1, None, null_mut(), &mut world), CRABBY_OK);
+        crabby_world_free(world);
+    }
+}
+
+// ---- commands and busy rules ---------------------------------------------------
+
+struct Ids {
+    health: u32,
+    seen: Vec<CrabbyStatus>,
+}
+
+unsafe extern "C" fn spawn_hurt(ctx: *mut CrabbyCtx, user: *mut c_void) {
+    unsafe {
+        let ids = &mut *user.cast::<Ids>();
+        let w = crabby_ctx_world(ctx);
+        assert_eq!(
+            crabby_component_register(w, c"Health".as_ptr(), 4, 4, &mut ids.health),
+            CRABBY_OK
+        );
+        for hp in [0i32, 5, 0, 7] {
+            let v = CrabbyValue {
+                component: ids.health,
+                data: (&hp as *const i32).cast(),
+                size: 4,
+            };
+            assert_eq!(crabby_spawn(w, &v, 1, &mut 0), CRABBY_OK);
+        }
+    }
+}
+struct Reaper {
+    ctx: *mut CrabbyCtx,
+    ids: *mut Ids,
+}
+unsafe extern "C" fn reap_chunk(chunk: *const CrabbyChunk, user: *mut c_void) {
+    unsafe {
+        let r = &*user.cast::<Reaper>();
+        let ids = &mut *r.ids;
+        let c = &*chunk;
+        let hp = (*c.columns).cast::<i32>();
+        for i in 0..c.count {
+            if *hp.add(i) <= 0 {
+                ids.seen
+                    .push(crabby_ctx_despawn_later(r.ctx, crabby_entity_bits(*c.entities.add(i))));
+                let one = 1i32;
+                let v = CrabbyValue {
+                    component: ids.health,
+                    data: (&one as *const i32).cast(),
+                    size: 4,
+                };
+                ids.seen.push(crabby_ctx_spawn_later(r.ctx, &v, 1));
+            }
+        }
+        // The ctx (not just the world) is busy while its world is borrowed.
+        ids.seen.push(crabby_ctx_quit(r.ctx));
+        ids.seen.push(crabby_ctx_pause(r.ctx));
+        let mut down = false;
+        ids.seen.push(crabby_ctx_key_down(r.ctx, 0, &mut down));
+    }
+}
+unsafe extern "C" fn reap(ctx: *mut CrabbyCtx, user: *mut c_void) {
+    unsafe {
+        let ids = user.cast::<Ids>();
+        let health = (*ids).health;
+        let mut r = Reaper { ctx, ids };
+        let w = crabby_ctx_world(ctx);
+        assert_eq!(
+            crabby_query(w, &health, 1, Some(reap_chunk), (&mut r as *mut Reaper).cast()),
+            CRABBY_OK
+        );
+        // Commands apply after the system, not now.
+        let mut n = 0;
+        crabby_world_len(w, &mut n);
+        assert_eq!(n, 4);
+    }
+}
+
+#[test]
+fn commands_work_inside_queries_and_apply_after_the_system() {
+    let mut ids = Ids {
+        health: 0,
+        seen: vec![],
+    };
+    let ids_ptr = user(&mut ids);
+    unsafe {
+        let g = game();
+        crabby_game_sim_system(g, c"reap".as_ptr(), 1, Some(reap), ids_ptr);
+        let world = run(g, 1, Some(spawn_hurt), ids_ptr);
+        assert_eq!(len(world), 4);
+        // Two zero-health entities were replaced by two with 1 hp.
+        let mut total = 0;
+        unsafe extern "C" fn sum(chunk: *const CrabbyChunk, user: *mut c_void) {
+            unsafe {
+                let c = &*chunk;
+                for i in 0..c.count {
+                    *user.cast::<i32>() += *(*c.columns).cast::<i32>().add(i);
+                }
+            }
+        }
+        crabby_query(world, &ids.health, 1, Some(sum), user(&mut total));
+        assert_eq!(total, 5 + 7 + 1 + 1);
+        crabby_world_free(world);
+    }
+    let ok = ids.seen.iter().filter(|s| **s == CRABBY_OK).count();
+    let busy = ids.seen.iter().filter(|s| **s == CRABBY_BUSY).count();
+    assert_eq!((ok, busy), (4, 3), "{:?}", ids.seen);
+}
+
+#[test]
+fn bad_spawn_later_values_are_skipped_when_applied() {
+    unsafe extern "C" fn bad(ctx: *mut CrabbyCtx, _: *mut c_void) {
+        unsafe {
+            let x = 1u8;
+            let v = CrabbyValue {
+                component: 999,
+                data: (&x as *const u8).cast(),
+                size: 1,
+            };
+            assert_eq!(crabby_ctx_spawn_later(ctx, &v, 1), CRABBY_OK);
+            assert_eq!(crabby_ctx_spawn_later(ctx, null(), 1), CRABBY_INVALID_ARGUMENT);
+            assert_eq!(crabby_ctx_spawn_later(ctx, null(), 0), CRABBY_OK);
+        }
+    }
+    unsafe {
+        let g = game();
+        crabby_game_sim_system(g, null(), 1, Some(bad), null_mut());
+        let world = run(g, 1, None, null_mut());
+        assert_eq!(len(world), 1, "only the empty spawn applies");
+        crabby_world_free(world);
+    }
+}
+
+// ---- parallel queries -------------------------------------------------------
+
+struct Par {
+    ctx: *mut CrabbyCtx,
+    rejected: std::sync::atomic::AtomicUsize,
+    threads: std::sync::Mutex<std::collections::HashSet<std::thread::ThreadId>>,
+}
+unsafe extern "C" fn double(chunk: *const CrabbyChunk, user: *mut c_void) {
+    unsafe {
+        let p = &*user.cast::<Par>();
+        let c = &*chunk;
+        let v = (*c.columns).cast::<u32>();
+        for i in 0..c.count {
+            *v.add(i) *= 2;
+        }
+        if crabby_ctx_despawn_later(p.ctx, 0) == CRABBY_BUSY {
+            p.rejected.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        p.threads.lock().unwrap().insert(std::thread::current().id());
+    }
+}
+unsafe extern "C" fn par_system(ctx: *mut CrabbyCtx, _: *mut c_void) {
+    unsafe {
+        let w = crabby_ctx_world(ctx);
+        let mut id = 0;
+        crabby_component_register(w, c"N".as_ptr(), 4, 4, &mut id);
+        let p = Par {
+            ctx,
+            rejected: 0.into(),
+            threads: Default::default(),
+        };
+        assert_eq!(
+            crabby_query_par(w, &id, 1, Some(double), (&p as *const Par).cast_mut().cast()),
+            CRABBY_OK
+        );
+        assert!(p.rejected.load(std::sync::atomic::Ordering::Relaxed) > 0);
+        // Commands are back once the parallel query is done.
+        assert_eq!(crabby_ctx_spawn_later(ctx, null(), 0), CRABBY_OK);
+    }
+}
+unsafe extern "C" fn spawn_numbers(ctx: *mut CrabbyCtx, _: *mut c_void) {
+    unsafe {
+        let w = crabby_ctx_world(ctx);
+        let mut id = 0;
+        crabby_component_register(w, c"N".as_ptr(), 4, 4, &mut id);
+        let n = if cfg!(miri) { 100u32 } else { 100_000 };
+        for i in 0..n {
+            let v = CrabbyValue {
+                component: id,
+                data: (&i as *const u32).cast(),
+                size: 4,
+            };
+            crabby_spawn(w, &v, 1, &mut 0);
+        }
+    }
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "rayon needs tree borrows: see AGENTS.md (run with MIRIFLAGS)")]
+fn parallel_queries_visit_every_row_once_and_turn_commands_off() {
+    unsafe {
+        let g = game();
+        crabby_game_sim_system(g, null(), 1, Some(par_system), null_mut());
+        let world = run(g, 1, Some(spawn_numbers), null_mut());
+        let mut id = 0;
+        crabby_component_register(world, c"N".as_ptr(), 4, 4, &mut id);
+        let mut sum = 0u64;
+        unsafe extern "C" fn add(chunk: *const CrabbyChunk, user: *mut c_void) {
+            unsafe {
+                let c = &*chunk;
+                for i in 0..c.count {
+                    *user.cast::<u64>() += *(*c.columns).cast::<u32>().add(i) as u64;
+                }
+            }
+        }
+        crabby_query(world, &id, 1, Some(add), user(&mut sum));
+        let n = if cfg!(miri) { 100u64 } else { 100_000 };
+        assert_eq!(sum, n * (n - 1)); // 2 * (0 + 1 + ... + n-1)
+        crabby_world_free(world);
+    }
+}
+
+// ---- built-in components, spatial queries, random ---------------------------
+
+unsafe extern "C" fn spawn_grid(ctx: *mut CrabbyCtx, _: *mut c_void) {
+    unsafe {
+        let w = crabby_ctx_world(ctx);
+        let (mut t, mut s) = (0, 0);
+        assert_eq!(crabby_transform_component(w, &mut t), CRABBY_OK);
+        assert_eq!(crabby_sprite_component(w, &mut s), CRABBY_OK);
+        let mut tex = CrabbyTexture {
+            id: 0,
+            width: 0,
+            height: 0,
+        };
+        let px = [255u8; 16];
+        assert_eq!(
+            crabby_ctx_create_texture(ctx, 2, 2, px.as_ptr(), 16, &mut tex),
+            CRABBY_OK
+        );
+        assert_eq!(
+            crabby_ctx_create_texture(ctx, 2, 2, px.as_ptr(), 15, &mut tex),
+            CRABBY_INVALID_ARGUMENT
+        );
+        for x in 0..10 {
+            let transform = CrabbyTransform2D {
+                position: CrabbyVec2 {
+                    x: x as f32 * 10.0,
+                    y: 0.0,
+                },
+                ..Default::default()
+            };
+            let sprite = CrabbySprite {
+                texture: tex,
+                z: x as f32,
+                ..Default::default()
+            };
+            let values = [
+                CrabbyValue {
+                    component: t,
+                    data: (&transform as *const CrabbyTransform2D).cast(),
+                    size: size_of::<CrabbyTransform2D>(),
+                },
+                CrabbyValue {
+                    component: s,
+                    data: (&sprite as *const CrabbySprite).cast(),
+                    size: size_of::<CrabbySprite>(),
+                },
+            ];
+            assert_eq!(crabby_spawn(w, values.as_ptr(), 2, &mut 0), CRABBY_OK);
+        }
+    }
+}
+unsafe extern "C" fn neighbors(ctx: *mut CrabbyCtx, user: *mut c_void) {
+    unsafe {
+        let mut hits = [CrabbyGridHit {
+            entity: CrabbyEntity {
+                index: 0,
+                generation: 0,
+            },
+            position: Default::default(),
+        }; 2];
+        let mut n = 0;
+        let center = CrabbyVec2 { x: 45.0, y: 0.0 };
+        assert_eq!(
+            crabby_ctx_spatial_radius(ctx, center, 16.0, hits.as_mut_ptr(), 2, &mut n),
+            CRABBY_OK
+        );
+        // 30, 40, 50, 60 are within 16 of 45: four hits, two written.
+        *user.cast::<(usize, f32, f32)>() = (n, hits[0].position.x.min(hits[1].position.x), 0.0);
+        let mut near = hits[0];
+        assert_eq!(
+            crabby_ctx_spatial_nearest(ctx, CrabbyVec2 { x: 1.0, y: 0.0 }, 100.0, u64::MAX, &mut near),
+            CRABBY_OK
+        );
+        (*user.cast::<(usize, f32, f32)>()).2 = near.position.x;
+        assert_eq!(
+            crabby_ctx_spatial_radius(ctx, center, 16.0, null_mut(), 0, &mut n),
+            CRABBY_OK
+        );
+        assert_eq!(n, 4);
+    }
+}
+
+#[test]
+fn builtin_components_round_trip_and_feed_the_spatial_grid() {
+    let mut found = (0usize, 0.0f32, -1.0f32);
+    unsafe {
+        let g = game();
+        crabby_game_spatial_grid(g, 16.0);
+        crabby_game_sim_system(g, null(), 1, Some(neighbors), user(&mut found));
+        let world = run(g, 1, Some(spawn_grid), null_mut());
+        let (mut t, mut s) = (0, 0);
+        crabby_transform_component(world, &mut t);
+        crabby_sprite_component(world, &mut s);
+        // Sprites can be read and written, but not used as query columns.
+        let e = 9u64; // tenth entity, generation 0
+        let mut sprite = CrabbySprite::default();
+        assert_eq!(
+            crabby_get(
+                world,
+                e,
+                s,
+                (&mut sprite as *mut CrabbySprite).cast(),
+                size_of::<CrabbySprite>()
+            ),
+            CRABBY_OK
+        );
+        assert_eq!((sprite.z, sprite.texture.width), (9.0, 2));
+        sprite.has_region = true;
+        sprite.region.max = CrabbyVec2 { x: 1.0, y: 1.0 };
+        assert_eq!(
+            crabby_set(
+                world,
+                e,
+                s,
+                (&sprite as *const CrabbySprite).cast(),
+                size_of::<CrabbySprite>()
+            ),
+            CRABBY_OK
+        );
+        let mut back = CrabbySprite::default();
+        crabby_get(
+            world,
+            e,
+            s,
+            (&mut back as *mut CrabbySprite).cast(),
+            size_of::<CrabbySprite>(),
+        );
+        assert_eq!(back, sprite);
+        unsafe extern "C" fn never(_: *const CrabbyChunk, _: *mut c_void) {}
+        assert_eq!(
+            crabby_query(world, &s, 1, Some(never), null_mut()),
+            CRABBY_INVALID_ARGUMENT
+        );
+        let mut transform = CrabbyTransform2D::default();
+        assert_eq!(
+            crabby_get(
+                world,
+                e,
+                t,
+                (&mut transform as *mut CrabbyTransform2D).cast(),
+                size_of::<CrabbyTransform2D>()
+            ),
+            CRABBY_OK
+        );
+        assert_eq!(transform.position.x, 90.0);
+        assert_eq!(crabby_world_sort_spatial(world, 16.0), CRABBY_OK);
+        crabby_world_free(world);
+    }
+    assert_eq!(found.0, 4);
+    assert!(found.1 >= 30.0);
+    assert_eq!(found.2, 0.0);
+}
+
+unsafe extern "C" fn record_bits(ctx: *mut CrabbyCtx, user: *mut c_void) {
+    unsafe { (*user.cast::<Vec<u64>>()).push(crabby_ctx_random_bits(ctx)) }
+}
+
+#[test]
+fn random_bits_repeat_with_the_seed_and_change_every_tick() {
+    let mut runs = vec![];
+    for seed in [1, 1, 2] {
+        let mut bits: Vec<u64> = vec![];
+        unsafe {
+            let g = game();
+            crabby_game_seed(g, seed);
+            crabby_game_sim_system(g, null(), 1, Some(record_bits), user(&mut bits));
+            crabby_world_free(run(g, 3, None, null_mut()));
+        }
+        runs.push(bits);
+    }
+    assert_eq!(runs[0], runs[1]);
+    assert_ne!(runs[0], runs[2]);
+    assert_ne!(runs[0][0], runs[0][1]);
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "asset loading needs the real file system")]
+fn missing_textures_fail_with_the_engine_message() {
+    unsafe extern "C" fn load(ctx: *mut CrabbyCtx, user: *mut c_void) {
+        unsafe {
+            let mut t = CrabbyTexture {
+                id: 0,
+                width: 0,
+                height: 0,
+            };
+            *user.cast::<CrabbyStatus>() = crabby_ctx_load_texture(ctx, c"no/such/file.png".as_ptr(), &mut t);
+        }
+    }
+    let mut status = CRABBY_OK;
+    unsafe {
+        crabby_world_free(run(game(), 0, Some(load), user(&mut status)));
+    }
+    assert_eq!(status, CRABBY_PANIC);
+    let message = unsafe { CStr::from_ptr(crabby_last_error()) }.to_str().unwrap();
+    assert!(message.contains("no/such/file.png"), "{message}");
+}
+
+#[test]
+fn owned_grids_answer_radius_queries_with_user_data() {
+    unsafe {
+        let g = crabby_grid_new(10.0);
+        assert!(crabby_grid_new(0.0).is_null());
+        let items: Vec<_> = (0..50)
+            .map(|i| CrabbyGridItem {
+                entity: CrabbyEntity {
+                    index: i,
+                    generation: 0,
+                },
+                position: CrabbyVec2 { x: i as f32, y: 0.0 },
+                data: i * 2,
+            })
+            .collect();
+        assert_eq!(crabby_grid_rebuild(g, items.as_ptr(), items.len()), CRABBY_OK);
+        assert_eq!(crabby_grid_len(g), 50);
+        let mut out = vec![items[0]; 64];
+        let mut n = 0;
+        assert_eq!(
+            crabby_grid_radius(
+                g,
+                CrabbyVec2 { x: 25.0, y: 0.0 },
+                2.5,
+                out.as_mut_ptr(),
+                out.len(),
+                &mut n
+            ),
+            CRABBY_OK
+        );
+        let mut data: Vec<_> = out[..n].iter().map(|i| i.data).collect();
+        data.sort();
+        assert_eq!(data, [46, 48, 50, 52, 54]);
+        crabby_grid_free(g);
+    }
+}

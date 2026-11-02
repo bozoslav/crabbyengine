@@ -17,6 +17,39 @@ static void update(const CrabbyChunk* chunk, void* user) {
     }
 }
 // ANCHOR_END: c_columns
+
+// ANCHOR: c_game
+typedef struct { uint32_t position, velocity; uint64_t agent; } Game;
+
+static void setup(CrabbyCtx* ctx, void* user) {
+    Game* g = user;
+    CrabbyWorld* world = crabby_ctx_world(ctx);
+    check(crabby_component_register(world, "Position", sizeof(Position), _Alignof(Position), &g->position));
+    check(crabby_component_register(world, "Velocity", sizeof(Velocity), _Alignof(Velocity), &g->velocity));
+    Position p = {0, 0};
+    Velocity v = {1, 2};
+    CrabbyValue values[] = {{g->position, &p, sizeof(p)}, {g->velocity, &v, sizeof(v)}};
+    check(crabby_spawn(world, values, 2, &g->agent));
+}
+
+static void movement_chunk(const CrabbyChunk* chunk, void* user) {
+    float dt = *(const float*)user;
+    Position* positions = chunk->columns[0];
+    const Velocity* velocities = chunk->columns[1];
+    for (size_t i = 0; i < chunk->count; ++i) {
+        positions[i].x += velocities[i].x * dt;
+        positions[i].y += velocities[i].y * dt;
+    }
+}
+
+static void movement(CrabbyCtx* ctx, void* user) {
+    Game* g = user;
+    float dt = crabby_ctx_dt(ctx);
+    uint32_t columns[] = {g->position, g->velocity};
+    check(crabby_query(crabby_ctx_world(ctx), columns, 2, movement_chunk, &dt));
+}
+// ANCHOR_END: c_game
+
 int main(void) {
     // ANCHOR: c_world
     CrabbyWorld* world = crabby_world_new();
@@ -35,5 +68,18 @@ int main(void) {
     check(crabby_world_free(world));
     // ANCHOR_END: c_world
     printf("Position: %g, %g\n", (double)p.x, (double)p.y);
-    return p.x == 1 && p.y == 2 ? 0 : 1;
+
+    // ANCHOR: c_run
+    Game g = {0};
+    CrabbyGame* game = crabby_game_new("C headless", 1, 1);
+    check(crabby_game_sim_system(game, "movement", 1, movement, &g));
+    CrabbyWorld* sim = NULL;
+    check(crabby_game_run_headless(game, 60, setup, &g, &sim)); // frees `game`
+    Position final;
+    check(crabby_get(sim, g.agent, g.position, &final, sizeof(final)));
+    check(crabby_world_free(sim));
+    // ANCHOR_END: c_run
+    printf("After 60 ticks: %g, %g\n", (double)final.x, (double)final.y);
+    int ok = p.x == 1 && p.y == 2 && final.x > 0.999f && final.x < 1.001f && final.y > 1.999f && final.y < 2.001f;
+    return ok ? 0 : 1;
 }

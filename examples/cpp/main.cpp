@@ -1,7 +1,6 @@
 #include "crabby.hpp"
-#include <iostream>
-#include <optional>
 #include <cmath>
+#include <iostream>
 // ANCHOR: cpp_components
 struct Position { float x, y; };
 struct Velocity { float x, y; };
@@ -24,29 +23,28 @@ int main() {
     // ANCHOR_END: cpp_world
     std::cout << "Position: " << result.x << ", " << result.y << '\n';
     // ANCHOR: cpp_headless
-    std::optional<crabby::component<Position>> sim_position;
-    std::optional<crabby::component<Velocity>> sim_velocity;
+    crabby::component<Position> pos;
+    crabby::component<Velocity> vel;
     crabby::entity agent = 0;
-    auto simulation = crabby::world::run_headless(60, 60,
-        [&](crabby::world_view& w) {
-            sim_position = w.component<Position>("Position");
-            sim_velocity = w.component<Velocity>("Velocity");
-            agent = w.spawn(sim_position->with(Position{0, 0}),
-                            sim_velocity->with(Velocity{1, 2}));
-            return true;
-        },
-        [&](crabby::world_view& w, std::uint64_t, float dt) {
-            w.query([dt](auto chunk) {
+    auto simulation = crabby::game("headless", 1, 1)
+        .sim_system([&](crabby::ctx& ctx) {
+            const float dt = ctx.dt();
+            ctx.world().query([dt](auto chunk) {
                 auto positions = chunk.template column<0>();
                 auto velocities = chunk.template column<1>();
                 for (std::size_t i = 0; i < chunk.size(); ++i) {
                     positions[i].x += velocities[i].x * dt;
                     positions[i].y += velocities[i].y * dt;
                 }
-            }, *sim_position, *sim_velocity);
-            return true;
+            }, pos, vel);
+        }, "movement")
+        .run_headless(60, [&](crabby::ctx& ctx) {
+            auto w = ctx.world();
+            pos = w.component<Position>("Position");
+            vel = w.component<Velocity>("Velocity");
+            agent = w.spawn(pos.with(Position{0, 0}), vel.with(Velocity{1, 2}));
         });
-    auto final_position = simulation.get(agent, *sim_position);
+    auto final_position = simulation.get(agent, pos);
     // ANCHOR_END: cpp_headless
     std::cout << "After 60 ticks: " << final_position.x << ", " << final_position.y << '\n';
     return simulation.size() == 1 && result.x == 1 && result.y == 2 &&

@@ -1,5 +1,7 @@
 # Sound
 
+> **C++:** Sound is Rust-only for now; the C API grows chapter by chapter.
+
 ```rust
 let hit = ctx.load_sound("hit.ogg");   // OGG Vorbis, WAV, MP3 or FLAC from assets/
 ctx.play_sound(&hit);

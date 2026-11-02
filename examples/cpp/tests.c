@@ -8,9 +8,7 @@ static void visit(const CrabbyChunk* chunk, void* user) {
     Context* c = user;
     CHECK(chunk->column_count == 1);
     for (size_t i = 0; i < chunk->count; ++i) {
-        uint64_t e;
-        CHECK(crabby_chunk_entity(chunk, i, &e) == CRABBY_OK);
-        CHECK(e == c->entity);
+        CHECK(crabby_entity_bits(chunk->entities[i]) == c->entity);
         ((Position*)chunk->columns[0])[i].x += 2;
         ++c->seen;
     }
@@ -18,13 +16,22 @@ static void visit(const CrabbyChunk* chunk, void* user) {
     CHECK(crabby_world_len(c->world, &len) == CRABBY_BUSY);
     CHECK(crabby_world_free(c->world) == CRABBY_BUSY);
 }
-static bool setup(CrabbyWorld* world, void* user) { (void)user; uint64_t e; CHECK(crabby_spawn(world, NULL, 0, &e) == CRABBY_OK); return true; }
-static bool step(CrabbyWorld* world, uint64_t tick, float dt, void* user) {
-    (void)tick; size_t len; CHECK(crabby_world_len(world, &len) == CRABBY_OK && len == 1);
-    CHECK(dt > .019f && dt < .021f); ++*(size_t*)user; return true;
+typedef struct { size_t ticks; float dt; CrabbyStatus busy_quit; } Run;
+static void setup(CrabbyCtx* ctx, void* user) {
+    (void)user;
+    uint64_t e;
+    CHECK(crabby_spawn(crabby_ctx_world(ctx), NULL, 0, &e) == CRABBY_OK);
+    CHECK(crabby_world_free(crabby_ctx_world(ctx)) == CRABBY_BUSY);
+}
+static void tick(CrabbyCtx* ctx, void* user) {
+    Run* r = user;
+    size_t len;
+    CHECK(crabby_world_len(crabby_ctx_world(ctx), &len) == CRABBY_OK && len == 1);
+    r->dt = crabby_ctx_dt(ctx);
+    if (++r->ticks == 3) CHECK(crabby_ctx_quit(ctx) == CRABBY_OK);
 }
 int main(void) {
-    CHECK(crabby_abi_version() == 1);
+    CHECK(crabby_abi_version() == 2);
     CrabbyWorld* w = crabby_world_new(); CHECK(w);
     uint32_t p; CHECK(crabby_component_register(w, "Pos", sizeof(Position), _Alignof(Position), &p) == CRABBY_OK);
     Position initial = {7}; CrabbyValue value = {p, &initial, sizeof(initial)};
@@ -37,7 +44,17 @@ int main(void) {
     CHECK(crabby_is_alive(w, e, &alive) == CRABBY_OK && !alive);
     CHECK(crabby_despawn(w, e) == CRABBY_NOT_FOUND);
     CHECK(crabby_world_free(w) == CRABBY_OK);
-    size_t ticks = 0; CrabbyWorld* sim = NULL;
-    CHECK(crabby_run_headless(3, 50, setup, step, &ticks, &sim) == CRABBY_OK);
-    CHECK(ticks == 3 && sim); CHECK(crabby_world_free(sim) == CRABBY_OK);
+
+    Run r = {0, 0, CRABBY_OK};
+    CrabbyGame* game = crabby_game_new("c tests", 1, 1); CHECK(game);
+    CHECK(crabby_game_fixed_hz(game, 50) == CRABBY_OK);
+    CHECK(crabby_game_fixed_hz(game, 0) == CRABBY_INVALID_ARGUMENT);
+    CHECK(crabby_game_sim_system(game, "tick", 1, tick, &r) == CRABBY_OK);
+    CrabbyWorld* sim = NULL;
+    CHECK(crabby_game_run_headless(game, 100, setup, NULL, &sim) == CRABBY_OK);
+    CHECK(r.ticks == 3 && r.dt > .019f && r.dt < .021f && sim);
+    CHECK(crabby_world_free(sim) == CRABBY_OK);
+    CrabbyDrawParams params = crabby_draw_params_default();
+    CHECK(params.scale.x == 1 && params.pivot.x == .5f && !params.screen);
+    return 0;
 }

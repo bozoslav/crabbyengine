@@ -8,6 +8,7 @@ use std::fmt;
 /// dead even if the slot is reused, so `world.get(old)` returns `None` instead
 /// of someone else's data.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C)] // C/C++ read entity arrays directly: `{ uint32_t index, generation; }`
 pub struct Entity {
     pub(crate) index: u32,
     pub(crate) generation: u32,
