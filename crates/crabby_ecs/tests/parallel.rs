@@ -12,7 +12,7 @@ struct Vel2;
 #[test]
 fn par_for_each_visits_every_entity_once() {
     use std::sync::atomic::{AtomicUsize, Ordering};
-    // Sizes relative to the parallel chunk size (8192 rows, 64 under Miri):
+    // Sizes relative to the largest parallel chunk (8192 rows, 64 under Miri):
     // several archetypes bigger than one chunk (with a partial last chunk),
     // one smaller than a chunk, a filtered-out one, and a non-matching one.
     let chunk = if cfg!(miri) { 64 } else { 8192 };

@@ -98,6 +98,9 @@ pub struct SpatialGrid<T = ()> {
     starts: Vec<u32>,
     /// All entries, sorted by bucket.
     entries: Vec<GridEntry<T>>,
+    /// Packed cell of each entry (same order), so skipping hash-colliding
+    /// cells is one integer compare instead of recomputing the cell.
+    cells: Vec<u64>,
     // Reused between rebuilds so steady-state rebuilds don't allocate.
     unsorted: Vec<GridEntry<T>>,
     buckets: Vec<u32>,
@@ -162,6 +165,7 @@ impl<T: Copy> SpatialGrid<T> {
             mask: 0,
             starts: vec![0, 0],
             entries: Vec::new(),
+            cells: Vec::new(),
             unsorted: Vec::new(),
             buckets: Vec::new(),
             cursor: Vec::new(),
@@ -235,6 +239,11 @@ impl<T: Copy> SpatialGrid<T> {
         self.entries.clear();
         self.entries
             .extend(self.order.iter().map(|&i| self.unsorted[i as usize]));
+        self.cells.clear();
+        self.cells.extend(self.entries.iter().map(|e| {
+            let (cx, cy) = cell_of(e.position, self.inv_cell);
+            pack(cx, cy)
+        }));
     }
 
     /// Calls `f` for every entry in cell `(cx, cy)`. Buckets can hold several
@@ -243,8 +252,9 @@ impl<T: Copy> SpatialGrid<T> {
     fn for_each_in_cell(&self, cx: i32, cy: i32, mut f: impl FnMut(&GridEntry<T>)) {
         let b = bucket(cx, cy, self.mask);
         let range = self.starts[b] as usize..self.starts[b + 1] as usize;
-        for e in &self.entries[range] {
-            if cell_of(e.position, self.inv_cell) == (cx, cy) {
+        let key = pack(cx, cy);
+        for (e, &c) in self.entries[range.clone()].iter().zip(&self.cells[range]) {
+            if c == key {
                 f(e);
             }
         }
@@ -344,6 +354,11 @@ impl<T: Copy> SpatialGrid<T> {
 fn cell_of(p: Vec2, inv_cell: f32) -> (i32, i32) {
     // Saturating float→int casts keep far-away or non-finite points in edge cells.
     ((p.x * inv_cell).floor() as i32, (p.y * inv_cell).floor() as i32)
+}
+
+#[inline(always)]
+fn pack(cx: i32, cy: i32) -> u64 {
+    (cx as u32 as u64) << 32 | cy as u32 as u64
 }
 
 #[inline(always)]

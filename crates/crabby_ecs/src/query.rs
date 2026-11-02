@@ -298,10 +298,14 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     pub fn par_for_each(&mut self, f: impl Fn(Q::Item<'_>) + Send + Sync) {
         use rayon::prelude::*;
 
-        /// Rows per parallel task: big enough to amortize scheduling and keep
-        /// the inner loop vectorized, small enough to balance across cores.
+        /// Rows per parallel task, chosen per archetype: about 4 tasks per
+        /// thread so heavy per-entity work (neighbor search) uses every core
+        /// even for a few thousand entities, but at least `MIN_CHUNK` rows so
+        /// cheap loops stay vectorized and scheduling stays negligible.
         /// Tiny under Miri, so tests reach the multi-chunk path with few rows.
-        const CHUNK: usize = if cfg!(miri) { 64 } else { 8192 };
+        const MIN_CHUNK: usize = if cfg!(miri) { 64 } else { 512 };
+        const MAX_CHUNK: usize = if cfg!(miri) { 64 } else { 8192 };
+        let threads = rayon::current_num_threads().max(1);
 
         /// Archetype column pointers, shared with worker threads.
         #[derive(Clone, Copy)]
@@ -319,17 +323,18 @@ impl<'w, Q: QueryData> Query<'w, Q> {
             let Some(state) = Q::state(arch, &self.ids) else {
                 continue;
             };
-            if len <= CHUNK {
+            let chunk = (len / (threads * 4)).clamp(MIN_CHUNK, MAX_CHUNK);
+            if len <= chunk {
                 for row in 0..len {
                     f(unsafe { Q::fetch(state, row) });
                 }
                 continue;
             }
             let shared = Shared(state);
-            (0..len.div_ceil(CHUNK)).into_par_iter().for_each(|c| {
+            (0..len.div_ceil(chunk)).into_par_iter().for_each(|c| {
                 let state = shared;
-                let end = ((c + 1) * CHUNK).min(len);
-                for row in c * CHUNK..end {
+                let end = ((c + 1) * chunk).min(len);
+                for row in c * chunk..end {
                     f(unsafe { Q::fetch(state.0, row) });
                 }
             });
