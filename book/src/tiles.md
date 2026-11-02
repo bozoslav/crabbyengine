@@ -1,5 +1,7 @@
 # Sprite sheets, animation and tilemaps
 
+> **C++:** Sprite sheets, animation and tilemaps are Rust-only for now; the C API grows chapter by chapter.
+
 ## Sprite sheets
 
 A sprite sheet is one texture holding many frames of the same size: an

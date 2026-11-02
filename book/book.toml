@@ -6,6 +6,7 @@ language = "en"
 src = "src"
 
 [output.html]
+additional-css = ["theme/lang-pair.css"]
 git-repository-url = "https://github.com/bozoslav/crabbyengine"
 edit-url-template = "https://github.com/bozoslav/crabbyengine/edit/main/book/{path}"
 site-url = "/crabbyengine/"

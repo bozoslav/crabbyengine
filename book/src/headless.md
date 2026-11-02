@@ -1,6 +1,6 @@
 # Headless runs and testing
 
-`Game::run_headless(ticks, setup)` runs the simulation with no window and no
+`Game::run_headless(ticks, setup)` (C++: `crabby::game::run_headless`) runs the simulation with no window and no
 GPU, as fast as the CPU allows, then hands you the `World`.
 
 Use it for:
@@ -9,6 +9,9 @@ Use it for:
   without a GPU;
 - **dedicated servers** and batch runs;
 - **benchmarks** of the simulation alone.
+
+<div class="lang-pair">
+<div>
 
 ```rust
 use crabbyengine::*;
@@ -31,6 +34,16 @@ fn things_fall_ten_units_per_second() {
     assert!((y - 90.0).abs() < 1e-3);
 }
 ```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:headless}}
+```
+
+</div>
+</div>
 
 ## What runs
 

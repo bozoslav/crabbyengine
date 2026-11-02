@@ -21,6 +21,7 @@ cargo run --release --example boids
 | `boids` | Flocking with a spatial grid on all cores |
 | `ants` | Ant colonies: pheromone trails, foraging, growth; up to millions of ants |
 | `headless` | A million agents with no window or GPU |
+| `examples/cpp/boids.cpp` | The boids example in C++ (build with CMake, see [C and C++](c-cpp.md)) |
 
 Always use `--release` for anything with many entities; debug builds are
 10–50× slower.
@@ -34,7 +35,11 @@ cargo new my_game && cd my_game
 cargo add crabbyengine --git https://github.com/bozoslav/crabbyengine
 ```
 
-Then in `src/main.rs`:
+Then in `src/main.rs` (Rust) or `main.cpp` (C++, see [C and C++](c-cpp.md)
+for building):
+
+<div class="lang-pair">
+<div>
 
 ```rust
 use crabbyengine::*;
@@ -54,7 +59,19 @@ fn main() {
 }
 ```
 
-`setup` runs once and returns a closure that runs every frame. Variables you
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:first_game_full}}
+```
+
+</div>
+</div>
+
+`setup` runs once and returns a closure that runs every frame. In C++, the
+per-frame code is a frame `system` and the state lives in variables it
+captures. Variables you
 create in `setup` and move into the closure are your game state. For small
 games that's all you need; when things grow, move to
 [entities and systems](ecs.md).

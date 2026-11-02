@@ -1,5 +1,7 @@
 # Reflection: components as JSON
 
+> **C++:** Reflection (and so JSON access from tools) of components is Rust-only for now; the C API grows chapter by chapter.
+
 Reflection lets code that doesn't know your types read and change them by
 name: the agent bridge (MCP), the inspector, and save/load all use it. It's
 opt-in per type and built on [serde](https://serde.rs).

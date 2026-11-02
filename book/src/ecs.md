@@ -4,9 +4,14 @@ The game world lives in `ctx.world`, an entity-component system (ECS).
 
 - An **entity** is an id (`Entity`). It has no data of its own.
 - A **component** is any `Send + Sync + 'static` Rust type. No derive needed.
+  In C++ it is a plain struct (trivially copyable), registered by name once
+  with `world.component<T>("Name")`, which gives a token you use in calls.
 - A **query** visits every entity that has a given set of components.
 
 ## Spawning
+
+<div class="lang-pair">
+<div>
 
 ```rust
 struct Health(f32);
@@ -18,9 +23,27 @@ let e: Entity = ctx.world.spawn((Transform2D::at(vec2(10.0, 20.0)), Health(100.0
 ctx.world.spawn_batch((0..100_000).map(|i| (Transform2D::at(vec2(i as f32, 0.0)), Health(10.0))));
 ```
 
-A tuple of components is a *bundle*; bundles go up to 12 components.
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:ecs_spawn}}
+```
+
+</div>
+</div>
+
+A tuple of components is a *bundle*; bundles go up to 12 components. C++
+passes values as `token.with(value)`.
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:ecs_components}}
+```
 
 ## Reading and changing one entity
+
+<div class="lang-pair">
+<div>
 
 ```rust
 if let Some(h) = ctx.world.get_mut::<Health>(e) {
@@ -32,7 +55,20 @@ ctx.world.despawn(e);
 assert!(!ctx.world.is_alive(e));   // old handles stay dead, even if the slot is reused
 ```
 
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:ecs_one}}
+```
+
+</div>
+</div>
+
 ## Queries
+
+<div class="lang-pair">
+<div>
 
 ```rust
 ctx.world
@@ -41,7 +77,22 @@ ctx.world
     .for_each(|(t, h)| t.position.y += h.0);
 ```
 
-What you can ask for:
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:ecs_query}}
+```
+
+</div>
+</div>
+
+In C++ a query hands you whole columns, one *chunk* (archetype) at a time,
+in the order you listed the tokens; `chunk.entity(i)` is row `i`'s entity.
+`world.query_par` is the C++ `par_for_each`: your function runs on all
+cores at once, so it must only touch its own chunk.
+
+What you can ask for (Rust):
 
 | In the query | You get |
 |---|---|
@@ -68,6 +119,9 @@ Ways to run a query:
 You can't spawn or despawn inside a query loop, because the query is borrowing
 the world. Record the change in `ctx.commands` instead:
 
+<div class="lang-pair">
+<div>
+
 ```rust
 fn die(ctx: &mut Ctx) {
     let cmds = &mut ctx.commands;
@@ -77,9 +131,22 @@ fn die(ctx: &mut Ctx) {
 }
 ```
 
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:ecs_commands}}
+```
+
+</div>
+</div>
+
 The engine applies commands after every system, so the next system sees them.
 
 ## Resources
+
+Resources are Rust-only for now; in C++ keep global data in your own
+variables and capture them in systems.
 
 A resource is one global value of a type, stored in the world:
 

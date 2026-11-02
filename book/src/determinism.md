@@ -9,6 +9,9 @@ simulations are reproducible by default.
 
 Get random numbers in systems from `ctx.random()`:
 
+<div class="lang-pair">
+<div>
+
 ```rust
 fn wander(ctx: &mut Ctx) {
     let random = ctx.random();
@@ -17,6 +20,16 @@ fn wander(ctx: &mut Ctx) {
     });
 }
 ```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:random}}
+```
+
+</div>
+</div>
 
 - `random.of(entity)` is that entity's own stream for this tick and
   system. It doesn't depend on which thread runs the entity or in what
@@ -27,6 +40,10 @@ fn wander(ctx: &mut Ctx) {
   `chance(p)`, `angle()`, `unit_vec2()` and `u64()`.
 
 For setup code and tests, `Rng::new(seed)` makes a generator directly.
+
+C++ has the same generator in the header (`crabby::rng`, `crabby::random`),
+bit for bit: a C++ system gets exactly the numbers its Rust twin would.
+Saving and loading worlds is Rust-only for now.
 
 ## Seeds
 

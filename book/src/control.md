@@ -8,7 +8,8 @@ at once; each gets its own endpoint.
 ## Turning it on
 
 It's off by default, so shipped games never open a port. Any of these turns it
-on:
+on (C and C++ games too: `game.control_endpoint(true)` or the same
+environment variables):
 
 ```rust
 Game::new("Colony", 1280, 720).control_endpoint(true)
