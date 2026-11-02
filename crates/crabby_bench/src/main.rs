@@ -1,6 +1,7 @@
-//! M3 ECS spike: own archetype ECS vs bevy_ecs vs hecs.
+//! Benchmarks: crabby_ecs and the M3 spike ECS vs bevy_ecs vs hecs, plus
+//! simulation at scale.
 //!
-//! Run with: cargo run --release -p ecs-bench [-- filter]
+//! Run with: cargo run --release -p crabby_bench [-- filter]
 //! Each benchmark builds its state untimed, then times one operation; we report
 //! the median and minimum over several runs.
 

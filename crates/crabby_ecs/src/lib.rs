@@ -43,9 +43,6 @@ mod query;
 mod storage;
 mod world;
 
-#[cfg(test)]
-mod tests;
-
 pub use bundle::{Bundle, Component};
 pub use commands::Commands;
 pub use entity::Entity;

@@ -1,14 +1,13 @@
-# ECS spike (M3)
+# Benchmarks
 
-Compares a minimal archetype ECS of our own (`src/own.rs`) with `bevy_ecs` 0.20 and `hecs` 0.11. It answers two questions:
+Started as the M3 ECS spike: it compares a minimal archetype ECS of our own (`src/own.rs`, the spike that became `crabby_ecs`) with `bevy_ecs` 0.20 and `hecs` 0.11. It answers two questions:
 
 1. Which ECS do we build the engine on?
 2. **D12 condition:** does routing every component through runtime registration (needed for the C/C++ API) cost the Rust path anything?
 
 ```sh
-cargo run --release -p ecs-bench            # everything
-cargo run --release -p ecs-bench -- iter    # filter by name
-cargo +nightly miri test -p ecs-bench       # check the unsafe code
+cargo run --release -p crabby_bench            # everything
+cargo run --release -p crabby_bench -- iter    # filter by name
 ```
 
 ## Results (2026-11-02, Apple M4 Max, release, single thread)
