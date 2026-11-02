@@ -682,6 +682,7 @@ name = "ecs-bench"
 version = "0.0.0"
 dependencies = [
  "bevy_ecs",
+ "crabby_ecs",
  "hecs",
 ]
 

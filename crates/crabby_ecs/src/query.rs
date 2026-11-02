@@ -264,6 +264,10 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     }
 
     /// An iterator over matching entities, for `map`/`filter`/`sum` and friends.
+    ///
+    /// Convenient, but several times slower than [`for_each`](Self::for_each)
+    /// on tight math loops (the compiler can't vectorize across archetypes).
+    /// Use `for_each` for per-tick simulation work.
     pub fn iter(&mut self) -> QueryIter<'_, Q> {
         QueryIter {
             archetypes: &self.world.archetypes,

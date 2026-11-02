@@ -168,6 +168,12 @@ fn main() {
         }
     });
     b.run("spawn/own-batch", 10, own::World::new, |w| w.spawn_batch((0..N).map(ent)));
+    b.run("spawn/crabby", 10, crabby_ecs::World::new, |w| {
+        for i in 0..N {
+            w.spawn(ent(i));
+        }
+    });
+    b.run("spawn/crabby-batch", 10, crabby_ecs::World::new, |w| w.spawn_batch((0..N).map(ent)));
     b.run("spawn/hecs", 10, hecs::World::new, |w| {
         for i in 0..N {
             w.spawn(ent(i));
@@ -200,6 +206,38 @@ fn main() {
                 p.x += v.x * dt;
                 p.y += v.y * dt;
             });
+        },
+    );
+    b.steady(
+        "iter/crabby",
+        200,
+        || {
+            let mut w = crabby_ecs::World::new();
+            w.spawn_batch((0..N).map(ent));
+            w
+        },
+        |w| {
+            let dt = black_box(DT);
+            w.query::<(&mut Pos, &Vel)>().for_each(|(p, v)| {
+                p.x += v.x * dt;
+                p.y += v.y * dt;
+            });
+        },
+    );
+    b.steady(
+        "iter/crabby-iter",
+        200,
+        || {
+            let mut w = crabby_ecs::World::new();
+            w.spawn_batch((0..N).map(ent));
+            w
+        },
+        |w| {
+            let dt = black_box(DT);
+            for (p, v) in w.query::<(&mut Pos, &Vel)>().iter() {
+                p.x += v.x * dt;
+                p.y += v.y * dt;
+            }
         },
     );
     b.steady(
@@ -365,6 +403,23 @@ fn main() {
         },
     );
     b.run(
+        "get-random/crabby",
+        10,
+        || {
+            let mut w = crabby_ecs::World::new();
+            let es: Vec<_> = (0..N).map(|i| w.spawn(ent(i))).collect();
+            let es: Vec<_> = order.iter().map(|&i| es[i]).collect();
+            (w, es)
+        },
+        |(w, es)| {
+            let mut s = 0.0;
+            for &e in es.iter() {
+                s += w.get::<Pos>(e).unwrap().x;
+            }
+            black_box(s);
+        },
+    );
+    b.run(
         "get-random/hecs",
         10,
         || {
@@ -418,6 +473,23 @@ fn main() {
         },
     );
     b.run(
+        "add-remove/crabby",
+        10,
+        || {
+            let mut w = crabby_ecs::World::new();
+            let es: Vec<_> = (0..ADD_REMOVE_N).map(|i| w.spawn(ent(i))).collect();
+            (w, es)
+        },
+        |(w, es)| {
+            for &e in es.iter() {
+                w.insert(e, Tag);
+            }
+            for &e in es.iter() {
+                w.remove::<Tag>(e);
+            }
+        },
+    );
+    b.run(
         "add-remove/hecs",
         10,
         || {
@@ -458,6 +530,20 @@ fn main() {
         10,
         || {
             let mut w = own::World::new();
+            let es: Vec<_> = (0..N).map(|i| w.spawn(ent(i))).collect();
+            (w, es)
+        },
+        |(w, es)| {
+            for &e in es.iter() {
+                w.despawn(e);
+            }
+        },
+    );
+    b.run(
+        "despawn/crabby",
+        10,
+        || {
+            let mut w = crabby_ecs::World::new();
             let es: Vec<_> = (0..N).map(|i| w.spawn(ent(i))).collect();
             (w, es)
         },
