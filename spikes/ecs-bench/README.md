@@ -36,6 +36,19 @@ Baselines for the iteration loop:
 
 **D12:** typed queries and the C-style column path both run as fast as a hand-written loop, so runtime registration costs the Rust path nothing. C++ support stays.
 
+## Simulation at scale: `par_for_each` (M4, 2026-11-02)
+
+`crabby_ecs` only, M4 Max (14 cores), release. *Light* = `pos += vel*dt`; *heavy* = wander steering with `sin`/`sin_cos`/`rem_euclid` per agent (closer to a real sim tick).
+
+| | 1 core (`for_each`) | all cores (`par_for_each`) | speedup |
+|---|---:|---:|---:|
+| light, 1M | 0.23 ms | 0.09 ms | 2.5× |
+| heavy, 1M | 6.0 ms | 0.93 ms | 6.5× |
+| light, 10M | 1.6 ms | 0.72 ms | 2.3× |
+| heavy, 10M | 57.6 ms | **8.1 ms** | 7.1× |
+
+Light updates are memory-bandwidth-bound, so extra cores help less. Heavy updates scale with cores: **10M agents fit a 60 Hz tick** (16.7 ms budget).
+
 ## Caveats
 
 - The spike has no change detection, query filters, parallel iteration or scheduler. `bevy_ecs` pays for change ticks on every `&mut` access, which accounts for part of its 2.4× gap on iteration. When we add change detection, it must be opt-in or column-level so the plain loop stays this fast.
