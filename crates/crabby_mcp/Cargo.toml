@@ -1,0 +1,16 @@
+[package]
+name = "crabby_mcp"
+version = "0.1.0"
+edition = "2024"
+description = "MCP server that lets AI agents inspect and drive running Crabby Engine games"
+
+[[bin]]
+name = "crabby-mcp"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = "1.0.154"
+
+[dev-dependencies]
+crabbyengine = { path = "../.." }
+serde = { version = "1.0.229", features = ["derive"] }
