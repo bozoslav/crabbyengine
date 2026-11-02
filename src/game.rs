@@ -17,6 +17,7 @@ use crate::ctx::{Ctx, SystemTiming};
 use crate::ecs::draw_sprites;
 use crate::input::{Key, MouseButton};
 use crate::render::{FrameStatus, Renderer};
+use crate::spatial::rebuild_spatial_grid;
 use crate::time::{Clock, DEFAULT_FIXED_HZ, FrameTiming};
 
 /// Trackpads report scrolling in pixels; this many logical pixels count as one
@@ -72,6 +73,8 @@ pub struct Game {
     systems: Vec<System>,
     /// Built-in drawing; runs after every other system so it sees final positions.
     draw_systems: Vec<System>,
+    /// Cell size from `spatial_grid`, applied to `ctx.spatial` when the game starts.
+    spatial_cell: Option<f32>,
 }
 
 type SystemFn = Box<dyn FnMut(&mut Ctx)>;
@@ -155,6 +158,7 @@ impl Game {
             sim_systems: Vec::new(),
             systems: Vec::new(),
             draw_systems: vec![System::new(draw_sprites)],
+            spatial_cell: None,
         }
     }
 
@@ -174,6 +178,26 @@ impl Game {
     /// ```
     pub fn sim_system<F: FnMut(&mut Ctx) + 'static>(mut self, system: F) -> Self {
         self.sim_systems.push(System::new(system));
+        self
+    }
+
+    /// Turns on the built-in [`SpatialGrid`](crate::SpatialGrid) with square
+    /// cells of `cell_size` world units: at the start of every simulation
+    /// tick, all entities with a [`Transform2D`](crate::Transform2D) are
+    /// indexed into `ctx.spatial` for radius, rectangle and nearest queries.
+    ///
+    /// Choose a cell size near your usual query radius. The rebuild is the
+    /// built-in [`rebuild_spatial_grid`] system, removable like any other.
+    ///
+    /// # Panics
+    /// If `cell_size` isn't a positive, finite number.
+    #[track_caller]
+    pub fn spatial_grid(mut self, cell_size: f32) -> Self {
+        self.spatial_cell = Some(crate::SpatialGrid::new(cell_size).cell_size());
+        let name = std::any::type_name_of_val(&rebuild_spatial_grid);
+        if !self.sim_systems.iter().any(|s| s.name == name) {
+            self.sim_systems.insert(0, System::new(rebuild_spatial_grid));
+        }
         self
     }
 
@@ -334,6 +358,9 @@ impl Game {
         let fixed_dt = Clock::new(self.fixed_hz).fixed_dt();
         let mut ctx = Ctx::new(fixed_dt, Vec2::new(self.width as f32, self.height as f32));
         ctx.headless = true;
+        if let Some(cell) = self.spatial_cell {
+            ctx.spatial = crate::SpatialGrid::new(cell);
+        }
         drop(setup(&mut ctx).into_frame_fn()); // no frames, so no frame closure
         ctx.apply_commands();
         ctx.discard_draws();
@@ -397,7 +424,10 @@ impl Game {
             EventLoop::new().unwrap_or_else(|e| panic!("crabbyengine: could not start the event loop: {e}"));
 
         let clock = Clock::new(self.fixed_hz);
-        let ctx = Ctx::new(clock.fixed_dt(), Vec2::new(self.width as f32, self.height as f32));
+        let mut ctx = Ctx::new(clock.fixed_dt(), Vec2::new(self.width as f32, self.height as f32));
+        if let Some(cell) = self.spatial_cell {
+            ctx.spatial = crate::SpatialGrid::new(cell);
+        }
         let mut app = App {
             config: self,
             setup: Some(setup),

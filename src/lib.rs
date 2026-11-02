@@ -29,6 +29,7 @@ mod ecs;
 mod game;
 mod input;
 mod render;
+mod spatial;
 mod texture;
 mod time;
 
@@ -37,6 +38,7 @@ pub use ctx::{Ctx, SystemTiming};
 pub use ecs::{Sprite, Transform2D, draw_sprites};
 pub use game::{Game, SetupResult};
 pub use input::{Key, MouseButton};
+pub use spatial::{GridEntry, SpatialGrid, rebuild_spatial_grid};
 pub use texture::{DrawParams, Texture};
 
 /// The ECS: entities, components, queries, resources, commands.
