@@ -287,5 +287,8 @@ fn memory_accounting_counts_component_bytes() {
     // Pos and Vel are two f32 each; plus the 8-byte handle.
     assert_eq!(a.bytes_per_entity(), 8 + 8 + 8);
     assert!(world.allocated_bytes() >= 1000 * 24);
-    assert!(world.allocated_bytes() < 1000 * 24 * 3, "capacity stays near what's used");
+    assert!(
+        world.allocated_bytes() < 1000 * 24 * 3,
+        "capacity stays near what's used"
+    );
 }
