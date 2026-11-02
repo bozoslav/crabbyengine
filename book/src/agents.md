@@ -89,7 +89,9 @@ agent can check results at exact ticks.
 To check how things look, `launch` with `headless: false` and call
 `screenshot`. It works while the window is hidden behind others, and is
 scaled down to 1024 pixels by default (`max_size`) to keep it cheap to look
-at.
+at. A screenshot of the ants example after 40 seconds showed food carriers
+looping instead of going home; giving them a sense of where home is raised
+deliveries in that time from 328 to 1,747.
 
 ## Making your game agent-friendly
 
