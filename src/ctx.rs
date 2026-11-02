@@ -12,6 +12,20 @@ use crate::render::{FrameStatus, Renderer};
 use crate::texture::{DrawParams, Texture};
 use crate::time::FrameTiming;
 
+/// How long one system took. See [`Ctx::system_timings`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct SystemTiming {
+    /// The system's function name, e.g. `my_game::movement`.
+    pub name: &'static str,
+    /// `true` for simulation systems (they may run several times per frame).
+    pub sim: bool,
+    /// Time spent in the system during the last frame (all fixed steps
+    /// together), in milliseconds.
+    pub last_ms: f32,
+    /// Smoothed average of `last_ms`.
+    pub avg_ms: f32,
+}
+
 /// Maps window pixels ((0, 0) top-left, y down) to wgpu clip space
 /// (x right, y up, both -1..1).
 fn screen_projection(size: Vec2) -> Mat4 {
@@ -62,6 +76,7 @@ pub struct Ctx {
     pub commands: Commands,
     /// `true` while simulation systems run: `dt()` then returns the fixed step.
     in_sim: bool,
+    pub(crate) timings: Vec<SystemTiming>,
     pub(crate) input: Input,
     timing: FrameTiming,
     fixed_dt: f32,
@@ -81,6 +96,7 @@ impl Ctx {
             world: World::new(),
             commands: Commands::new(),
             in_sim: false,
+            timings: Vec::new(),
             input: Input::new(),
             timing: FrameTiming {
                 dt: 0.0,
@@ -140,6 +156,23 @@ impl Ctx {
 
     pub(crate) fn quit_requested(&self) -> bool {
         self.quit_requested
+    }
+
+    /// How long each system took, in the order they run (simulation systems
+    /// first). For finding what's slow; the inspector will graph these.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// fn print_slow_systems(ctx: &mut Ctx) {
+    ///     for t in ctx.system_timings() {
+    ///         if t.avg_ms > 1.0 {
+    ///             println!("{}: {:.2} ms", t.name, t.avg_ms);
+    ///         }
+    ///     }
+    /// }
+    /// ```
+    pub fn system_timings(&self) -> &[SystemTiming] {
+        &self.timings
     }
 
     pub(crate) fn set_in_sim(&mut self, in_sim: bool) {
