@@ -146,6 +146,6 @@ normally; never let a C++ exception or `longjmp` cross them.
 
 ## Still Rust-only
 
-Sound, shapes, UI widgets, sprite sheets and tilemaps, custom fonts,
-resources, reflection (so tools see C++ components as JSON) and save/load.
-Each chapter says so where it applies.
+Sprite sheets and tilemaps, resources (keep game-wide data in your own
+objects, captured by your systems), reflection (so tools see C++ components
+as JSON) and save/load. Each chapter says so where it applies.

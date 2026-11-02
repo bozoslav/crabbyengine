@@ -87,8 +87,25 @@ the engine stores sprites in a Rust layout. `Transform2D` can.
 
 ## Screenshots
 
-(Rust-only for now.)
+<div class="lang-pair">
+<div>
 
-`ctx.save_screenshot("shot.png")` saves the next frame as a PNG once it
+```rust
+if ctx.key_pressed(Key::F12) {
+    ctx.save_screenshot("shot.png");
+}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:screenshot}}
+```
+
+</div>
+</div>
+
+`save_screenshot` saves the next frame as a PNG once it
 has been drawn, even while the window is hidden. Headless runs have no
 frames, so it does nothing there.

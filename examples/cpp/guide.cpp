@@ -196,11 +196,95 @@ static void count_neighbors(crabby::ctx& ctx, const crabby::component<crabby::tr
     ctx.set_camera(cam);
     // ANCHOR_END: camera_fit
     // ANCHOR: text
-    ctx.draw_text("Hello, crabs", {20, 20}, 24, crabby::colors::white);
-    const crabby::vec2 size = ctx.measure_text("Hello, crabs", 24);
+    ctx.draw_text("Hello", {20, 20}, 24, crabby::colors::white);
+    const crabby::vec2 size = ctx.measure_text("Paused", 32);   // for centering
+    const crabby::font title = ctx.load_font("fonts/Title.ttf");  // TrueType or OpenType
+    auto params = crabby::text_defaults();
+    params.font = title;
+    params.size = 40;
+    ctx.draw_text("Colony", {20, 60}, params);
     // ANCHOR_END: text
     (void)size;
 }
+
+[[maybe_unused]] static void shapes(crabby::ctx& ctx, crabby::vec2 from, crabby::vec2 to, crabby::vec2 tower) {
+    // ANCHOR: shapes
+    ctx.draw_rect(crabby::rect_at({0, 0}, {200, 20}), crabby::rgb(0.23f, 0.35f, 0.25f));
+    ctx.draw_line(from, to, 2, crabby::colors::red);
+    ctx.draw_circle(tower, 120, crabby::rgba(0, 0, 1, 0.2f));
+    // ANCHOR_END: shapes
+}
+
+// ANCHOR: hud
+struct Hud {
+    int dropped = 0;
+    bool follow = false;
+    void operator()(crabby::ctx& ctx) {
+        const crabby::rect panel = crabby::rect_at({12, 12}, {230, 172});
+        ctx.ui_panel(panel);
+        const float pad = ctx.ui_style().padding;
+        crabby::vec2 at = panel.min + crabby::vec2{pad, pad};
+        char lines[128];
+        std::snprintf(lines, sizeof lines, "zoom %.2fx\ncrabs dropped: %d\n%.0f FPS",
+                      double(ctx.camera().zoom), dropped, double(ctx.fps()));
+        at.y += ctx.ui_label(at, lines).y + 8;
+
+        if (ctx.ui_button(crabby::rect_at(at, {210, 30}), follow ? "Stop following" : "Follow orbiter"))
+            follow = !follow;
+        at.y += 38;
+        if (ctx.ui_button(crabby::rect_at(at, {210, 30}), "Reset camera")) {
+            ctx.set_camera({{0, 0}, 1});
+            follow = false;
+        }
+    }
+};
+// crabby::game("UI", 1280, 720).camera_controls().system(Hud{}, "hud");
+// ANCHOR_END: hud
+
+[[maybe_unused]] static void screenshot(crabby::ctx& ctx) {
+    // ANCHOR: screenshot
+    if (ctx.key_pressed(CRABBY_KEY_F12)) ctx.save_screenshot("shot.png");
+    // ANCHOR_END: screenshot
+}
+
+// ---- Sound -------------------------------------------------------------------------
+[[maybe_unused]] static void sound(crabby::ctx& ctx) {
+    // ANCHOR: sound
+    const crabby::sound hit = ctx.load_sound("hit.ogg");   // OGG Vorbis, WAV, MP3 or FLAC from assets/
+    ctx.play_sound(hit);
+
+    const crabby::sound music = ctx.load_sound("theme.ogg");
+    auto params = crabby::sound_defaults();
+    params.volume = 0.5f;
+    params.looping = true;
+    const crabby::playing song = ctx.play_sound(music, params);
+    ctx.stop_sound(song);
+    // ANCHOR_END: sound
+}
+
+static crabby::sound beep(crabby::ctx& ctx) {
+    // ANCHOR: sound_samples
+    std::vector<float> samples(4410);   // 0.1 s at 44.1 kHz
+    for (std::size_t i = 0; i < samples.size(); ++i)
+        samples[i] = 0.3f * std::sin(float(i) * 880.0f * 6.2831853f / 44100.0f);
+    const crabby::sound click = ctx.create_sound(44100, samples.data(), samples.size());
+    // ANCHOR_END: sound_samples
+    return click;
+}
+
+// ANCHOR: turns
+struct Brain { std::uint32_t plans; };
+
+static void think(crabby::ctx& ctx, const crabby::component<Brain>& brain) {
+    const crabby::turns turn = ctx.turns(8);   // each ant thinks every 8th tick
+    ctx.world().query_par([&](auto chunk) {
+        auto b = chunk.template column<0>();
+        for (std::size_t i = 0; i < chunk.size(); ++i)
+            if (turn.includes(chunk.entities()[i]))
+                b[i].plans += 1;   // turn.dt(): time since this ant's last turn
+    }, brain);
+}
+// ANCHOR_END: turns
 
 // ---- Headless runs and testing ---------------------------------------------------
 // ANCHOR: headless
@@ -248,6 +332,8 @@ int main() {
     crabby::component<crabby::transform2d> transforms;
     crabby::component<Neighbors> neighbors;
     crabby::component<Heading> heading;
+    crabby::component<Brain> brain;
+    crabby::sound click{};
     std::uint32_t most = 0;
     auto world = crabby::game("guide", 1, 1)
         .spatial_grid(10)
@@ -255,25 +341,41 @@ int main() {
         .sim_system([&](crabby::ctx& ctx) { count_neighbors(ctx, transforms, neighbors); }, "neighbors")
         .sim_system([&](crabby::ctx& ctx) { wander(ctx, heading); }, "wander")
         .sim_system(Spawner{2}, "spawner")
+        .sim_system([&](crabby::ctx& ctx) { think(ctx, brain); }, "think")
+        .system(Hud{}, "hud")
+        .camera_controls()
         .sim_system([&](crabby::ctx& ctx) {
             ctx.world().query([&](auto chunk) {
                 auto n = chunk.template column<0>();
                 for (std::size_t i = 0; i < chunk.size(); ++i) most = std::max(most, n[i].count);
             }, neighbors);
         }, "check")
-        .run_headless(4, [&](crabby::ctx& ctx) {
+        .run_headless(8, [&](crabby::ctx& ctx) {
             ecs(ctx);
             auto w = ctx.world();
             health = w.component<Health>("Health");
             transforms = w.transforms();
             neighbors = w.component<Neighbors>("Neighbors");
             heading = w.component<Heading>("Heading");
+            brain = w.component<Brain>("Brain");
+            for (int i = 0; i < 16; ++i) w.spawn(brain.with(Brain{0}));
+            click = beep(ctx);
+            ctx.play_sound(click);   // silent: headless
             for (int i = 0; i < 100; ++i)
                 w.spawn(transforms.with(crabby::transform_at({float(i), 0})), neighbors.with(Neighbors{0}),
                         heading.with(Heading{0}), health.with(Health{float(i % 2)}));
         });
-    // 100k from ecs() + 50 survivors + 2 spawned by Spawner{2} in 4 ticks.
-    if (world.size() != 100000 + 50 + 2 || most < 10) {
+    // Over 8 ticks every brain gets exactly one turn.
+    std::uint32_t plans = 0;
+    world.query([&](auto chunk) {
+        for (std::size_t i = 0; i < chunk.size(); ++i) plans += chunk.template column<0>()[i].plans;
+    }, brain);
+    if (plans != 16 || std::fabs(click.seconds - 0.1f) > 1e-3f) {
+        std::fprintf(stderr, "unexpected: %u plans, %f s click\n", plans, double(click.seconds));
+        return 1;
+    }
+    // 100k from ecs() + 16 brains + 50 survivors + 4 spawned by Spawner{2} in 8 ticks.
+    if (world.size() != 100000 + 16 + 50 + 4 || most < 10) {
         std::fprintf(stderr, "unexpected: %zu entities, %u neighbors\n", world.size(), most);
         return 1;
     }

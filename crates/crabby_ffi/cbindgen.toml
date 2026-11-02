@@ -9,8 +9,9 @@ header = """
  *
  * Games: crabby_game_new -> settings and systems -> crabby_game_run (window)
  * or crabby_game_run_headless. Systems get a CrabbyCtx*, valid until they
- * return: the world (crabby_ctx_world), clock, input, drawing, textures,
- * camera, commands (*_later) and the built-in spatial grid.
+ * return: the world (crabby_ctx_world), clock, input, drawing, shapes, text
+ * and fonts, UI widgets, sound, textures, camera, commands (*_later) and the
+ * built-in spatial grid.
  *
  * Handles are confined to the thread that runs the game, except inside
  * crabby_query_par callbacks, which run on many threads at once and may only

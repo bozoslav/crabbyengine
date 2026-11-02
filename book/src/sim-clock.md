@@ -80,6 +80,9 @@ their cost doesn't pile up on one frame.
 **Entities taking turns:** each tick, only 1/n of the entities do the
 expensive part.
 
+<div class="lang-pair">
+<div>
+
 ```rust
 fn think(ctx: &mut Ctx) {
     let turn = ctx.turns(8); // each ant thinks every 8th tick
@@ -91,9 +94,18 @@ fn think(ctx: &mut Ctx) {
 }
 ```
 
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:turns}}
+```
+
+</div>
+</div>
+
 This keeps the per-tick cost flat instead of spiking every 8th tick, and
-works in `par_for_each`. (`ctx.turns` is Rust-only for now; in C++, check
-`chunk.entities()[i].index % 8 == ctx.sim_tick() % 8`.)
+works in `par_for_each` (C++: `query_par`).
 
 ## Smooth motion between ticks
 

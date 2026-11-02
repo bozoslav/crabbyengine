@@ -65,7 +65,7 @@ pub(crate) fn with_ctx<R>(ctx: &mut Ctx, f: impl FnOnce(*mut CrabbyCtx) -> R) ->
     f(&mut handle)
 }
 
-unsafe fn ctx_access<R>(
+pub(crate) unsafe fn ctx_access<R>(
     handle: *const CrabbyCtx,
     f: impl FnOnce(&mut Ctx) -> Result<R, Failure>,
 ) -> Result<R, Failure> {
@@ -124,7 +124,7 @@ unsafe fn spatial<'a>(handle: *const CrabbyCtx) -> Result<&'a SpatialGrid, Failu
     Ok(unsafe { &(*(*handle).ctx).spatial })
 }
 
-unsafe fn out<T>(ptr: *mut T, value: T) -> Result<(), Failure> {
+pub(crate) unsafe fn out<T>(ptr: *mut T, value: T) -> Result<(), Failure> {
     if ptr.is_null() {
         return Err(invalid("output is null"));
     }
@@ -133,7 +133,7 @@ unsafe fn out<T>(ptr: *mut T, value: T) -> Result<(), Failure> {
     Ok(())
 }
 
-unsafe fn text<'a>(ptr: *const c_char) -> Result<&'a str, Failure> {
+pub(crate) unsafe fn text<'a>(ptr: *const c_char) -> Result<&'a str, Failure> {
     if ptr.is_null() {
         return Err(invalid("string is null"));
     }

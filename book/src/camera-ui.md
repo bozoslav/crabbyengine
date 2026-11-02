@@ -33,10 +33,24 @@ pixels per world unit). Its methods do the usual jobs:
 
 For looking around a big world, add the ready-made system:
 
+<div class="lang-pair">
+<div>
+
 ```rust
 Game::new("Colony", 1280, 720)
     .system(camera_controls) // right/middle drag pans, wheel zooms
 ```
+
+</div>
+<div>
+
+```cpp
+crabby::game("Colony", 1280, 720)
+    .camera_controls()       // right/middle drag pans, wheel zooms
+```
+
+</div>
+</div>
 
 The ants example starts zoomed out to fit every colony:
 
@@ -61,15 +75,29 @@ ctx.camera.look_at(bounds / 2.0);
 
 ## Shapes
 
-(Rust-only for now.)
-
 In world units, like sprites:
+
+<div class="lang-pair">
+<div>
 
 ```rust
 ctx.draw_rect(Rect::new(0.0, 0.0, 200.0, 20.0), Color::hex(0x3a5a40));
 ctx.draw_line(from, to, 2.0, Color::RED);
 ctx.draw_circle(tower, 120.0, Color::BLUE.with_alpha(0.2));
 ```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:shapes}}
+```
+
+</div>
+</div>
+
+C++ rectangles are `{min, max}`; `crabby::rect_at(min, size)` makes one
+from a corner and a size, like Rust's `Rect::new`.
 
 ## Text
 
@@ -93,7 +121,8 @@ ctx.draw_text_ex("Colony", vec2(20.0, 60.0), TextParams { font: title, size: 40.
 </div>
 </div>
 
-Fonts other than the built-in one (`load_font`, `draw_text_ex`) are Rust-only for now.
+In C++, `draw_text(text, pos, params)` is `draw_text_ex`, with
+`crabby::text_defaults()` to start from.
 
 - `size` is the line height in window pixels; `\n` starts a new line.
 - The built-in font is Ubuntu Light (Ubuntu Font Licence).
@@ -104,19 +133,31 @@ Fonts other than the built-in one (`load_font`, `draw_text_ex`) are Rust-only fo
 
 ## UI
 
-(Rust-only for now.)
-
 A few immediate-mode widgets, drawn in window pixels. Call them every frame:
+
+<div class="lang-pair">
+<div>
 
 ```rust
 {{#include ../../examples/ui.rs:hud}}
 ```
 
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:hud}}
+```
+
+</div>
+</div>
+
 - `ui_panel(rect)`: a background.
 - `ui_label(pos, text)`: text in the style's size and color; returns the
   space it took, so you can stack lines.
 - `ui_button(rect, label)`: `true` on the frame it's clicked.
-- `ctx.ui_style` sets colors, text size and padding.
+- `ctx.ui_style` sets colors, text size and padding (C++: `ui_style()`,
+  `set_ui_style(s)`).
 - `ctx.mouse_over_ui()` says whether the mouse is over UI, so a click on a
   button doesn't also act on the world behind it. `camera_controls` checks
   it before zooming.

@@ -21,11 +21,13 @@ mod ctx;
 mod game;
 mod grid;
 mod keys;
+mod media;
 mod types;
 pub use ctx::*;
 pub use game::*;
 pub use grid::*;
 pub use keys::*;
+pub use media::*;
 pub use types::*;
 
 use crabby_ecs::{ComponentId, Entity, World};

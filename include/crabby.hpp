@@ -51,6 +51,13 @@ using grid_hit = CrabbyGridHit;
 using grid_item = CrabbyGridItem;
 using key = CrabbyKey;
 using mouse = CrabbyMouseButton;
+using rect = CrabbyRect;
+using font = CrabbyFont;
+using text_params = CrabbyTextParams;
+using ui_style = CrabbyUiStyle;
+using sound = CrabbySound;
+using playing = CrabbyPlaying;
+using sound_params = CrabbySoundParams;
 
 inline float length(vec2 v) { return std::sqrt(v.x * v.x + v.y * v.y); }
 inline float length_squared(vec2 v) { return v.x * v.x + v.y * v.y; }
@@ -78,6 +85,21 @@ inline sprite sprite_of(texture t, color tint = colors::white, float z = 0) {
     sprite s{}; s.texture = t; s.color = tint; s.z = z; s.pivot = {.5f, .5f}; return s;
 }
 inline draw_params draw_defaults() { return crabby_draw_params_default(); }
+/// Built-in font, 16 px, white.
+inline text_params text_defaults() { return crabby_text_params_default(); }
+/// Full volume, normal speed, once.
+inline sound_params sound_defaults() { return crabby_sound_params_default(); }
+inline ui_style ui_style_defaults() { return crabby_ui_style_default(); }
+/// A rectangle from its top-left corner and size.
+inline rect rect_at(vec2 min, vec2 size) { return {min, min + size}; }
+/// Which entities take their turn this tick (ctx::turns).
+struct turns {
+    CrabbyTurns raw{1, 0, 0};
+    bool includes(CrabbyEntity e) const noexcept { return e.index % raw.every == raw.now; }
+    bool includes(entity e) const noexcept { return std::uint32_t(e) % raw.every == raw.now; }
+    /// Seconds a whole round covers (`every` ticks).
+    float dt() const noexcept { return raw.dt; }
+};
 
 /// The engine's random number generator (xoshiro256++), bit-identical to Rust's `Rng`,
 /// so a game gives the same numbers in both languages.
@@ -414,6 +436,37 @@ public:
     vec2 measure_text(const char* text, float size) { vec2 v{}; detail::check(crabby_ctx_measure_text(raw_, text, size, &v)); return v; }
     crabby::camera camera() const { crabby::camera c{}; detail::check(crabby_ctx_camera(raw_, &c)); return c; }
     void set_camera(const crabby::camera& c) { detail::check(crabby_ctx_set_camera(raw_, &c)); }
+    void save_screenshot(const char* path) { detail::check(crabby_ctx_save_screenshot(raw_, path)); }
+
+    // Shapes (world space).
+    void draw_rect(rect r, color c) { detail::check(crabby_ctx_draw_rect(raw_, r, c)); }
+    void draw_line(vec2 a, vec2 b, float width, color c) { detail::check(crabby_ctx_draw_line(raw_, a, b, width, c)); }
+    void draw_circle(vec2 center, float radius, color c) { detail::check(crabby_ctx_draw_circle(raw_, center, radius, c)); }
+
+    // Fonts and text (screen space).
+    font load_font(const char* path) { font f{}; detail::check(crabby_ctx_load_font(raw_, path, &f)); return f; }
+    void draw_text(const char* text, vec2 pos, const text_params& params) { detail::check(crabby_ctx_draw_text_ex(raw_, text, pos, &params)); }
+    vec2 measure_text(const char* text, font f, float size) { vec2 v{}; detail::check(crabby_ctx_measure_text_ex(raw_, text, f, size, &v)); return v; }
+
+    // UI widgets (screen space), styled by ui_style().
+    crabby::ui_style ui_style() const { crabby::ui_style s{}; detail::check(crabby_ctx_ui_style(raw_, &s)); return s; }
+    void set_ui_style(const crabby::ui_style& s) { detail::check(crabby_ctx_set_ui_style(raw_, &s)); }
+    bool mouse_over_ui() const { bool b = false; detail::check(crabby_ctx_mouse_over_ui(raw_, &b)); return b; }
+    void ui_panel(rect r) { detail::check(crabby_ctx_ui_panel(raw_, r)); }
+    vec2 ui_label(vec2 pos, const char* text) { vec2 v{}; detail::check(crabby_ctx_ui_label(raw_, pos, text, &v)); return v; }
+    bool ui_button(rect r, const char* label) { bool b = false; detail::check(crabby_ctx_ui_button(raw_, r, label, &b)); return b; }
+
+    // Sound (silent in headless runs).
+    sound load_sound(const char* path) { sound s{}; detail::check(crabby_ctx_load_sound(raw_, path, &s)); return s; }
+    sound create_sound(std::uint32_t sample_rate, const float* samples, std::size_t len) {
+        sound s{}; detail::check(crabby_ctx_create_sound(raw_, sample_rate, samples, len, &s)); return s;
+    }
+    playing play_sound(sound s) { playing p{}; detail::check(crabby_ctx_play_sound(raw_, s, nullptr, &p)); return p; }
+    playing play_sound(sound s, const sound_params& params) { playing p{}; detail::check(crabby_ctx_play_sound(raw_, s, &params, &p)); return p; }
+    void stop_sound(playing p) { detail::check(crabby_ctx_stop_sound(raw_, p)); }
+
+    /// Spreads work over `every` ticks (safe from query_par callbacks).
+    crabby::turns turns(std::uint32_t every) const { crabby::turns t; detail::check(crabby_ctx_turns(raw_, every, &t.raw)); return t; }
 
     // Commands: applied after the system; usable inside world().query (not query_par).
     void despawn_later(entity e) { detail::check(crabby_ctx_despawn_later(raw_, e)); }
@@ -497,6 +550,8 @@ public:
     game& vsync(bool on) { return check(crabby_game_vsync(raw_, on)); }
     game& spatial_grid(float cell_size) { return check(crabby_game_spatial_grid(raw_, cell_size)); }
     game& control_endpoint(bool on) { return check(crabby_game_control_endpoint(raw_, on)); }
+    /// The built-in camera controls: right/middle drag pans, the wheel zooms.
+    game& camera_controls() { return check(crabby_game_camera_controls(raw_)); }
     /// A system on the fixed simulation tick; `every` > 1 runs it every n ticks.
     template<class F> game& sim_system(F fn, const char* name = nullptr, std::uint32_t every = 1) {
         return check(crabby_game_sim_system(raw_, name, every, trampoline, keep(std::move(fn))));

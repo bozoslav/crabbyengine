@@ -6,6 +6,11 @@ edition = "2024"
 [lib]
 crate-type = ["rlib", "staticlib", "cdylib"]
 
+[features]
+default = ["audio"]
+# Sound through the engine's audio feature. Off: sound calls succeed silently.
+audio = ["crabbyengine/audio"]
+
 [dependencies]
 crabbyengine = { path = "../..", default-features = false }
 crabby_ecs = { path = "../crabby_ecs" }
