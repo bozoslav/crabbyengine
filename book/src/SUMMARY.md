@@ -14,6 +14,7 @@
 - [Sprite sheets, animation, tilemaps](tiles.md)
 - [Sound](audio.md)
 - [Headless runs and testing](headless.md)
+- [C and C++](c-cpp.md)
 - [Reflection: components as JSON](reflection.md)
 - [Randomness, determinism and saving](determinism.md)
 - [Tools and agents: the control endpoint](control.md)

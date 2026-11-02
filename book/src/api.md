@@ -13,3 +13,6 @@ The crates:
 - [`crabby_ecs`](api/crabby_ecs/index.html): the ECS on its own, including
   the C-compatible path (`register_component`, `for_each_chunk`) for other
   languages.
+
+- [`crabby_ffi`](api/crabby_ffi/index.html): the C ABI and safety contracts.
+  The [C and C++ guide](c-cpp.md) covers building, examples and the C++ wrapper.
