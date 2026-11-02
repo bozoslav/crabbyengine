@@ -86,6 +86,9 @@ type SystemFn = Box<dyn FnMut(&mut Ctx)>;
 struct System {
     name: &'static str,
     run: SystemFn,
+    /// Simulation systems only: run on ticks where `tick % every == phase`.
+    every: u32,
+    phase: u32,
 }
 
 /// This frame's timing: the clock at the current sim speed (0 while
@@ -118,6 +121,8 @@ impl System {
         System {
             name: std::any::type_name::<F>(),
             run: Box::new(f),
+            every: 1,
+            phase: 0,
         }
     }
 }
@@ -182,6 +187,48 @@ impl Game {
     /// ```
     pub fn sim_system<F: FnMut(&mut Ctx) + 'static>(mut self, system: F) -> Self {
         self.sim_systems.push(System::new(system));
+        self
+    }
+
+    /// Adds a simulation system that runs only every `ticks`-th tick, for
+    /// work that doesn't need the full rate: AI that thinks a few times a
+    /// second, slow growth, pathfinding, statistics. Inside it, `ctx.dt()`
+    /// is `ticks` fixed steps, so rates stay right.
+    ///
+    /// Systems added with the same interval are spread over different ticks,
+    /// so their cost doesn't land on the same frame.
+    ///
+    /// ```
+    /// use crabbyengine::*;
+    ///
+    /// struct Hunger(f32);
+    ///
+    /// fn get_hungry(ctx: &mut Ctx) {
+    ///     let dt = ctx.dt(); // 10 ticks' worth of time
+    ///     ctx.world.query::<&mut Hunger>().for_each(|h| h.0 += 1.0 * dt);
+    /// }
+    ///
+    /// // 60 ticks at 60 Hz: runs 6 times, 1/6 s each.
+    /// let mut world = Game::new("t", 1, 1)
+    ///     .sim_system_every(10, get_hungry)
+    ///     .run_headless(60, |ctx| { ctx.world.spawn((Hunger(0.0),)); });
+    /// let h = world.query::<&Hunger>().iter().next().unwrap().0;
+    /// assert!((h - 1.0).abs() < 1e-4);
+    /// ```
+    ///
+    /// # Panics
+    /// If `ticks` is 0.
+    #[track_caller]
+    pub fn sim_system_every<F: FnMut(&mut Ctx) + 'static>(mut self, ticks: u32, system: F) -> Self {
+        assert!(
+            ticks > 0,
+            "Game::sim_system_every: the interval must be at least 1 tick"
+        );
+        let same = self.sim_systems.iter().filter(|s| s.every == ticks).count() as u32;
+        let mut s = System::new(system);
+        s.every = ticks;
+        s.phase = same % ticks;
+        self.sim_systems.push(s);
         self
     }
 
@@ -340,9 +387,15 @@ impl Game {
 
     /// One simulation tick: every sim system once, then the tick counter.
     fn run_sim_tick(&mut self, ctx: &mut Ctx) {
+        let tick = ctx.sim_tick();
         for (i, s) in self.sim_systems.iter_mut().enumerate() {
+            if tick % u64::from(s.every) != u64::from(s.phase) {
+                continue;
+            }
+            ctx.set_sim_steps(s.every);
             run_one(s, ctx, i);
         }
+        ctx.set_sim_steps(1);
         ctx.advance_tick();
     }
 
@@ -616,6 +669,8 @@ where
                 self.config.systems.push(System {
                     name: "setup closure",
                     run: f,
+                    every: 1,
+                    phase: 0,
                 });
             }
             self.started = true;
