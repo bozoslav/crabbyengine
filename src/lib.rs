@@ -1,14 +1,33 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+//! # Crabby Engine
+//!
+//! A fast, beginner-friendly 2D game engine. Fast inside, simple outside.
+//!
+//! ```no_run
+//! use crabbyengine::*;
+//!
+//! fn main() {
+//!     Game::new("My Game", 800, 600).run(|_ctx| {
+//!         let mut pos = vec2(400.0, 300.0);
+//!
+//!         move |ctx: &mut Ctx| {
+//!             if ctx.key_down(Key::Right) { pos.x += 200.0 * ctx.dt(); }
+//!             if ctx.key_down(Key::Left)  { pos.x -= 200.0 * ctx.dt(); }
+//!             if ctx.key_pressed(Key::Escape) { ctx.quit(); }
+//!         }
+//!     });
+//! }
+//! ```
+//!
+//! Everything you need comes in with `use crabbyengine::*;`.
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+mod ctx;
+mod game;
+mod input;
+mod time;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use ctx::Ctx;
+pub use game::Game;
+pub use input::{Key, MouseButton};
+
+/// 2D vector used for positions, sizes and velocities (re-exported from `glam`).
+pub use glam::{Vec2, vec2};
