@@ -29,4 +29,4 @@ audio = ["dep:kira"]
 profiling = ["dep:puffin", "dep:puffin_http"]
 
 [workspace]
-members = [".", "crates/crabby_ecs", "crates/crabby_bench", "crates/crabby_mcp"]
+members = [".", "crates/crabby_ecs", "crates/crabby_bench", "crates/crabby_mcp", "crates/crabby_ffi"]

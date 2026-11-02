@@ -86,6 +86,9 @@ jobs:
           - engine-control
           - engine-determinism
           - mcp
+          - ffi-unit
+          - ffi-abi
+          - ffi-headless
           - doctests
           - bench
         include:
@@ -106,6 +109,9 @@ jobs:
           - { area: engine-control, args: -p crabbyengine --test control }
           - { area: engine-determinism, args: -p crabbyengine --test determinism }
           - { area: mcp, args: -p crabby_mcp }
+          - { area: ffi-unit, args: -p crabby_ffi --lib }
+          - { area: ffi-abi, args: -p crabby_ffi --test abi }
+          - { area: ffi-headless, args: -p crabby_ffi --test headless }
           - { area: doctests, args: --workspace --doc }
           - { area: bench, args: -p crabby_bench }
     steps:
@@ -187,12 +193,36 @@ jobs:
           components: miri
       - run: cargo miri test -p crabby_ecs --no-fail-fast ${{ matrix.args }}
 
+  native:
+    name: C and C++ (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: native
+      - name: Verify generated C header
+        shell: bash
+        run: |
+          mkdir -p target
+          cargo run -p crabby_ffi --example generate_header > target/crabby.generated.h
+          diff -u include/crabby.h target/crabby.generated.h
+      - run: cargo build -p crabby_ffi --release
+      - run: cmake -S examples/cpp -B target/native -DCMAKE_BUILD_TYPE=Release -DCRABBY_LIBRARY_DIR=${{ github.workspace }}/target/release
+      - run: cmake --build target/native --config Release
+      - run: ctest --test-dir target/native -C Release --output-on-failure
+
   # Single check for branch protection: passes only if every job above passed.
   # (Requiring one job keeps the rule valid when jobs are added or renamed.)
   ci-passed:
     name: CI passed
     if: always()
-    needs: [fmt, clippy, test, examples, docs, book, miri]
+    needs: [fmt, clippy, test, examples, docs, book, miri, native]
     runs-on: ubuntu-latest
     steps:
       - name: Check every job
