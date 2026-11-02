@@ -21,6 +21,7 @@ fn env_number(name: &str, default: f64) -> f64 {
     std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
 }
 
+// ANCHOR: flocking
 /// The flocking system. It owns a grid that stores each boid's velocity, so
 /// neighbors' velocities can be read while the world is busy with the query.
 fn flocking(bounds: Vec2) -> impl FnMut(&mut Ctx) {
@@ -64,6 +65,7 @@ fn flocking(bounds: Vec2) -> impl FnMut(&mut Ctx) {
             });
     }
 }
+// ANCHOR_END: flocking
 
 fn controls(ctx: &mut Ctx) {
     if ctx.key_pressed(Key::Space) {

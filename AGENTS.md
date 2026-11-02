@@ -63,3 +63,4 @@ MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-ignore-leaks" cargo +nightly miri test --t
 - No per-frame heap allocations in steady state on hot paths.
 - Every `unsafe` block needs a test that exercises it.
 - Public API: simple first. One obvious way to do each thing.
+- Docs ship with the feature: a PR that adds or changes how games are written updates the guide in `book/src/` in the same PR (check with `mdbook build book`). Code that the guide shows from examples is pulled in with `{{#include}}` anchors, so it can't go stale.
