@@ -13,6 +13,7 @@
 - [Headless runs and testing](headless.md)
 - [Reflection: components as JSON](reflection.md)
 - [Tools and agents: the control endpoint](control.md)
+- [Working with AI agents (MCP)](agents.md)
 
 # Reference
 

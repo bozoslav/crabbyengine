@@ -1,8 +1,8 @@
 # Tools and agents: the control endpoint
 
 A running game, windowed or headless, can open a **control endpoint** that
-tools use to look inside it and drive it: AI agents (through the upcoming
-`crabby-mcp` server), the inspector, test scripts. Several instances can run
+tools use to look inside it and drive it: AI agents (through
+[`crabby-mcp`](agents.md)), the inspector, test scripts. Several instances can run
 at once; each gets its own endpoint.
 
 ## Turning it on

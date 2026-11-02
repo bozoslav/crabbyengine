@@ -34,6 +34,8 @@ pub(crate) const ENV_CONTROL: &str = "CRABBY_CONTROL";
 pub(crate) const ENV_START_PAUSED: &str = "CRABBY_START_PAUSED";
 /// Environment variable overriding where instances register themselves.
 pub(crate) const ENV_INSTANCES_DIR: &str = "CRABBY_INSTANCES_DIR";
+/// Environment variable a launching tool sets; copied into the registry file.
+pub(crate) const ENV_LAUNCH_ID: &str = "CRABBY_LAUNCH_ID";
 
 /// How long a connection waits for the game to answer before giving up
 /// (a game stuck in a long frame, or paused in a debugger).
@@ -116,6 +118,8 @@ impl Control {
                 "exe": std::env::current_exe().ok(),
                 "started": SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs()),
                 "engine_version": env!("CARGO_PKG_VERSION"),
+                // Set by tools that launch games, to find the instance they started.
+                "launch_id": std::env::var(ENV_LAUNCH_ID).ok(),
             });
             match write_registry(&dir, addr.port(), &info) {
                 Ok(path) => Some(path),

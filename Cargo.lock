@@ -569,6 +569,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "crabby_mcp"
+version = "0.1.0"
+dependencies = [
+ "crabbyengine",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "crabbyengine"
 version = "0.1.0"
 dependencies = [
