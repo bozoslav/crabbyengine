@@ -12,6 +12,16 @@ use crate::render::{FrameStatus, Renderer};
 use crate::texture::{DrawParams, Texture};
 use crate::time::FrameTiming;
 
+/// Simulation clock state: speed, pause, single steps, tick count.
+struct SimClock {
+    speed: f32,
+    paused: bool,
+    pending_steps: u32,
+    tick: u64,
+    /// Fixed step in seconds, full precision.
+    step: f64,
+}
+
 /// How long one system took. See [`Ctx::system_timings`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct SystemTiming {
@@ -76,6 +86,10 @@ pub struct Ctx {
     pub commands: Commands,
     /// `true` while simulation systems run: `dt()` then returns the fixed step.
     in_sim: bool,
+    sim: SimClock,
+    /// No window or GPU (`Game::run_headless`): textures are size-only handles.
+    pub(crate) headless: bool,
+    headless_textures: u32,
     pub(crate) timings: Vec<SystemTiming>,
     pub(crate) input: Input,
     timing: FrameTiming,
@@ -91,11 +105,21 @@ pub struct Ctx {
 }
 
 impl Ctx {
-    pub(crate) fn new(fixed_dt: f32, window_size: Vec2) -> Self {
+    /// `fixed_dt` in seconds, as f64 so `sim_time()` stays exact over long runs.
+    pub(crate) fn new(fixed_dt: f64, window_size: Vec2) -> Self {
         Self {
             world: World::new(),
             commands: Commands::new(),
             in_sim: false,
+            sim: SimClock {
+                speed: 1.0,
+                paused: false,
+                pending_steps: 0,
+                tick: 0,
+                step: fixed_dt,
+            },
+            headless: false,
+            headless_textures: 0,
             timings: Vec::new(),
             input: Input::new(),
             timing: FrameTiming {
@@ -103,7 +127,7 @@ impl Ctx {
                 fixed_steps: 0,
                 alpha: 0.0,
             },
-            fixed_dt,
+            fixed_dt: fixed_dt as f32,
             time: 0.0,
             frame: 0,
             fps: 0.0,
@@ -173,6 +197,113 @@ impl Ctx {
     /// ```
     pub fn system_timings(&self) -> &[SystemTiming] {
         &self.timings
+    }
+
+    // ------------------------------------------------------- simulation clock
+
+    /// Stops simulation systems from running (frame systems and drawing go on).
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// fn controls(ctx: &mut Ctx) {
+    ///     if ctx.key_pressed(Key::Space) {
+    ///         if ctx.is_paused() { ctx.resume() } else { ctx.pause() }
+    ///     }
+    ///     if ctx.key_pressed(Key::Period) {
+    ///         ctx.step(); // advance one tick while paused
+    ///     }
+    /// }
+    /// ```
+    pub fn pause(&mut self) {
+        self.sim.paused = true;
+    }
+
+    /// Lets simulation systems run again after [`pause`](Self::pause).
+    pub fn resume(&mut self) {
+        self.sim.paused = false;
+    }
+
+    /// `true` while the simulation is paused.
+    pub fn is_paused(&self) -> bool {
+        self.sim.paused
+    }
+
+    /// Runs exactly one extra simulation tick next frame. Meant for stepping
+    /// through a paused simulation; each call adds one tick.
+    pub fn step(&mut self) {
+        self.sim.pending_steps = self.sim.pending_steps.saturating_add(1);
+    }
+
+    /// Sets how fast simulated time runs: `1.0` real time, `4.0` four times
+    /// as fast, `0.5` half speed. Ticks stay the same length (the fixed step),
+    /// so results don't depend on speed; only how many ticks run per frame
+    /// changes. If the simulation can't keep up, it runs as fast as it can.
+    ///
+    /// # Panics
+    /// If `speed` is negative, NaN or infinite.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// ctx.set_sim_speed(16.0); // fast-forward
+    /// # }
+    /// ```
+    #[track_caller]
+    pub fn set_sim_speed(&mut self, speed: f32) {
+        assert!(
+            speed.is_finite() && speed >= 0.0,
+            "Ctx::set_sim_speed: speed must be a finite number >= 0 (got {speed})"
+        );
+        self.sim.speed = speed;
+    }
+
+    /// Current simulation speed (see [`set_sim_speed`](Self::set_sim_speed)).
+    pub fn sim_speed(&self) -> f32 {
+        self.sim.speed
+    }
+
+    /// Number of simulation ticks run so far. Use it to do work every Nth
+    /// tick, or to timestamp events deterministically.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// fn slow_ai(ctx: &mut Ctx) {
+    ///     if ctx.sim_tick() % 10 != 0 {
+    ///         return; // think 6 times per second instead of 60
+    ///     }
+    ///     // ...
+    /// }
+    /// ```
+    pub fn sim_tick(&self) -> u64 {
+        self.sim.tick
+    }
+
+    /// Simulated seconds so far: `sim_tick() * fixed_dt()`.
+    pub fn sim_time(&self) -> f64 {
+        self.sim.tick as f64 * self.sim.step
+    }
+
+    /// Engine side: speed to feed the clock this frame (0 while paused).
+    pub(crate) fn effective_sim_speed(&self) -> f64 {
+        if self.sim.paused {
+            0.0
+        } else {
+            f64::from(self.sim.speed)
+        }
+    }
+
+    /// Engine side: single steps requested since the last frame.
+    pub(crate) fn take_pending_steps(&mut self) -> u32 {
+        std::mem::take(&mut self.sim.pending_steps)
+    }
+
+    pub(crate) fn advance_tick(&mut self) {
+        self.sim.tick += 1;
+    }
+
+    /// Engine side: forget queued draws (headless runs never render).
+    pub(crate) fn discard_draws(&mut self) {
+        self.draw_list.clear();
     }
 
     pub(crate) fn set_in_sim(&mut self, in_sim: bool) {
@@ -316,6 +447,11 @@ impl Ctx {
             "crabbyengine: a {width} x {height} texture needs {expected} bytes of RGBA, got {}",
             rgba.len()
         );
+        if self.headless {
+            // No GPU: a handle that remembers its size, so game logic still works.
+            self.headless_textures += 1;
+            return Texture::new(self.headless_textures, width, height);
+        }
         let renderer = self.renderer();
         let max = renderer.max_texture_size();
         assert!(

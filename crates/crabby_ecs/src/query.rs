@@ -300,7 +300,8 @@ impl<'w, Q: QueryData> Query<'w, Q> {
 
         /// Rows per parallel task: big enough to amortize scheduling and keep
         /// the inner loop vectorized, small enough to balance across cores.
-        const CHUNK: usize = 8192;
+        /// Tiny under Miri, so tests reach the multi-chunk path with few rows.
+        const CHUNK: usize = if cfg!(miri) { 64 } else { 8192 };
 
         /// Archetype column pointers, shared with worker threads.
         #[derive(Clone, Copy)]
