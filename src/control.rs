@@ -1,0 +1,552 @@
+//! The control endpoint: lets tools (agents through `crabby-mcp`, the
+//! inspector, scripts) look inside a running game and drive it.
+//!
+//! Off by default. Turned on with [`Game::control_endpoint`](crate::Game::control_endpoint)
+//! or the `CRABBY_CONTROL=1` environment variable, so tools can enable it
+//! for any game without code changes.
+//!
+//! Protocol: TCP on `127.0.0.1`, one JSON object per line each way.
+//! Request: `{"id": 1, "token": "...", "method": "entity.get", "params": {...}}`.
+//! Reply: `{"id": 1, "result": ...}` or `{"id": 1, "error": "..."}`.
+//! The token is in the instance's registry file, readable only by its user.
+//!
+//! Requests are applied by the game loop between frames (or between ticks
+//! when headless), so they never race the simulation or each other.
+
+use std::io::{BufRead, BufReader, Write};
+use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use crabby_ecs::Entity;
+use serde_json::{Value, json};
+
+use crate::ctx::Ctx;
+use crate::reflect::WorldReflect;
+
+/// Environment variable that turns the endpoint on (`1`).
+pub(crate) const ENV_CONTROL: &str = "CRABBY_CONTROL";
+/// Environment variable that starts the simulation paused (`1`).
+pub(crate) const ENV_START_PAUSED: &str = "CRABBY_START_PAUSED";
+/// Environment variable overriding where instances register themselves.
+pub(crate) const ENV_INSTANCES_DIR: &str = "CRABBY_INSTANCES_DIR";
+
+/// How long a connection waits for the game to answer before giving up
+/// (a game stuck in a long frame, or paused in a debugger).
+const REPLY_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How often the accept loop checks whether the game has shut down.
+const ACCEPT_POLL: Duration = Duration::from_millis(20);
+
+/// Upper bound for `entities.list`, so one request can't produce gigabytes.
+const MAX_LIST: usize = 10_000;
+
+pub(crate) fn env_flag(name: &str) -> bool {
+    std::env::var(name).is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+}
+
+/// The directory where running instances register: `$CRABBY_INSTANCES_DIR`,
+/// else `~/.crabby/instances` (`%LOCALAPPDATA%\crabby\instances` on Windows).
+pub(crate) fn instances_dir() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os(ENV_INSTANCES_DIR) {
+        return Some(PathBuf::from(dir));
+    }
+    if cfg!(windows) {
+        std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("crabby").join("instances"))
+    } else {
+        std::env::var_os("HOME").map(|d| PathBuf::from(d).join(".crabby").join("instances"))
+    }
+}
+
+/// A random token. The keys of `RandomState` come from the OS's random
+/// source, which is plenty for telling local tools apart from strangers.
+fn random_token() -> String {
+    use std::hash::{BuildHasher, Hasher};
+    let mut out = String::new();
+    for _ in 0..2 {
+        let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+        h.write_u128(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos(),
+        );
+        out.push_str(&format!("{:016x}", h.finish()));
+    }
+    out
+}
+
+struct Request {
+    method: String,
+    params: Value,
+    reply: Sender<Result<Value, String>>,
+}
+
+/// A running endpoint. Dropping it stops accepting connections and removes
+/// the registry file.
+pub(crate) struct Control {
+    requests: Receiver<Request>,
+    addr: SocketAddr,
+    registry_file: Option<PathBuf>,
+    shutdown: Arc<AtomicBool>,
+}
+
+impl Control {
+    /// Opens the endpoint on a free localhost port and registers the instance.
+    pub(crate) fn start(name: &str, headless: bool) -> std::io::Result<Self> {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
+        listener.set_nonblocking(true)?;
+        let addr = listener.local_addr()?;
+        let token: Arc<str> = random_token().into();
+        let (tx, requests) = mpsc::channel();
+        let shutdown = Arc::new(AtomicBool::new(false));
+
+        let registry_file = instances_dir().and_then(|dir| {
+            let info = json!({
+                "name": name,
+                "pid": std::process::id(),
+                "port": addr.port(),
+                "token": &*token,
+                "headless": headless,
+                "cwd": std::env::current_dir().ok(),
+                "exe": std::env::current_exe().ok(),
+                "started": SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs()),
+                "engine_version": env!("CARGO_PKG_VERSION"),
+            });
+            match write_registry(&dir, addr.port(), &info) {
+                Ok(path) => Some(path),
+                Err(e) => {
+                    eprintln!(
+                        "crabbyengine: control endpoint could not register in {}: {e}",
+                        dir.display()
+                    );
+                    None
+                }
+            }
+        });
+
+        let stop = shutdown.clone();
+        thread::Builder::new()
+            .name("crabby-control".into())
+            .spawn(move || accept_loop(listener, token, tx, stop))?;
+        eprintln!("crabbyengine: control endpoint on {addr}");
+        Ok(Self {
+            requests,
+            addr,
+            registry_file,
+            shutdown,
+        })
+    }
+
+    pub(crate) fn addr(&self) -> SocketAddr {
+        self.addr
+    }
+
+    /// Handles every request that has arrived. Called between frames/ticks.
+    pub(crate) fn poll(&self, ctx: &mut Ctx) {
+        while let Ok(req) = self.requests.try_recv() {
+            answer(ctx, req);
+        }
+    }
+
+    /// Waits up to `timeout` for a request, then handles everything queued.
+    /// Used by a paused headless game, which has nothing else to do.
+    pub(crate) fn wait(&self, ctx: &mut Ctx, timeout: Duration) {
+        match self.requests.recv_timeout(timeout) {
+            Ok(req) => answer(ctx, req),
+            Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => return,
+        }
+        self.poll(ctx);
+    }
+}
+
+impl Drop for Control {
+    fn drop(&mut self) {
+        self.shutdown.store(true, Ordering::Relaxed);
+        if let Some(path) = &self.registry_file {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
+fn write_registry(dir: &Path, port: u16, info: &Value) -> std::io::Result<PathBuf> {
+    std::fs::create_dir_all(dir)?;
+    let path = dir.join(format!("{}-{port}.json", std::process::id()));
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        options.mode(0o600);
+        let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+    }
+    let mut file = options.open(&path)?;
+    file.write_all(serde_json::to_string_pretty(info)?.as_bytes())?;
+    Ok(path)
+}
+
+fn accept_loop(listener: TcpListener, token: Arc<str>, tx: Sender<Request>, shutdown: Arc<AtomicBool>) {
+    while !shutdown.load(Ordering::Relaxed) {
+        match listener.accept() {
+            Ok((stream, _)) => {
+                let (token, tx) = (token.clone(), tx.clone());
+                let _ = thread::Builder::new()
+                    .name("crabby-control-conn".into())
+                    .spawn(move || serve_connection(stream, &token, &tx));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => thread::sleep(ACCEPT_POLL),
+            Err(_) => thread::sleep(ACCEPT_POLL),
+        }
+    }
+}
+
+fn serve_connection(stream: TcpStream, token: &str, tx: &Sender<Request>) {
+    let _ = stream.set_nonblocking(false);
+    let Ok(mut writer) = stream.try_clone() else {
+        return;
+    };
+    for line in BufReader::new(stream).lines() {
+        let Ok(line) = line else {
+            return;
+        };
+        if line.trim().is_empty() {
+            continue;
+        }
+        let reply = handle_line(&line, token, tx);
+        if writeln!(writer, "{reply}").and_then(|()| writer.flush()).is_err() {
+            return;
+        }
+    }
+}
+
+fn handle_line(line: &str, token: &str, tx: &Sender<Request>) -> Value {
+    let msg: Value = match serde_json::from_str(line) {
+        Ok(v) => v,
+        Err(e) => return json!({ "id": null, "error": format!("invalid JSON: {e}") }),
+    };
+    let id = msg.get("id").cloned().unwrap_or(Value::Null);
+    let reply = |r: Result<Value, String>| match r {
+        Ok(result) => json!({ "id": id, "result": result }),
+        Err(error) => json!({ "id": id, "error": error }),
+    };
+    if msg.get("token").and_then(Value::as_str) != Some(token) {
+        return reply(Err("missing or wrong token (see the instance's registry file)".into()));
+    }
+    let Some(method) = msg.get("method").and_then(Value::as_str) else {
+        return reply(Err("missing `method`".into()));
+    };
+    let (reply_tx, reply_rx) = mpsc::channel();
+    let req = Request {
+        method: method.to_string(),
+        params: msg.get("params").cloned().unwrap_or(Value::Null),
+        reply: reply_tx,
+    };
+    if tx.send(req).is_err() {
+        return reply(Err("the game is shutting down".into()));
+    }
+    reply(match reply_rx.recv_timeout(REPLY_TIMEOUT) {
+        Ok(r) => r,
+        Err(_) => Err("the game did not answer in time".into()),
+    })
+}
+
+fn answer(ctx: &mut Ctx, req: Request) {
+    let result = handle(ctx, &req.method, &req.params);
+    let _ = req.reply.send(result);
+}
+
+// ------------------------------------------------------------------ methods
+
+/// Every method the endpoint understands, with a one-line description.
+/// Returned by `methods`, so tools can discover them.
+pub(crate) const METHODS: &[(&str, &str)] = &[
+    ("methods", "list the methods this endpoint understands"),
+    ("info", "name, pid, tick, sim time, paused, speed, fps, entity count"),
+    (
+        "world.summary",
+        "entity count, reflected components, archetypes with their sizes",
+    ),
+    (
+        "entities.list",
+        "entities with their reflected components as JSON and the names of the others; params: with? (component names), limit? (100), offset?",
+    ),
+    ("entity.get", "one entity's reflected components; params: entity"),
+    ("entity.spawn", "spawn from {component: value}; params: components"),
+    ("entity.despawn", "params: entity"),
+    (
+        "component.set",
+        "write a component (object fields merge); params: entity, component, value",
+    ),
+    ("component.remove", "params: entity, component"),
+    ("sim.pause", "pause simulation systems"),
+    ("sim.resume", "resume simulation systems"),
+    ("sim.step", "run extra simulation ticks; params: ticks? (default 1)"),
+    ("sim.speed", "set simulation speed; params: speed"),
+    ("systems.timings", "each system's last and average time in ms"),
+    ("game.quit", "ask the game to exit"),
+];
+
+fn param<'a>(params: &'a Value, name: &str) -> Result<&'a Value, String> {
+    params.get(name).ok_or_else(|| format!("missing param `{name}`"))
+}
+
+fn entity_param(params: &Value) -> Result<Entity, String> {
+    param(params, "entity")?
+        .as_u64()
+        .map(Entity::from_bits)
+        .ok_or_else(|| "`entity` must be an entity id (a non-negative integer)".into())
+}
+
+fn str_param<'a>(params: &'a Value, name: &str) -> Result<&'a str, String> {
+    param(params, name)?
+        .as_str()
+        .ok_or_else(|| format!("`{name}` must be a string"))
+}
+
+fn usize_param(params: &Value, name: &str, default: usize) -> Result<usize, String> {
+    match params.get(name) {
+        None | Some(Value::Null) => Ok(default),
+        Some(v) => v
+            .as_u64()
+            .map(|n| n as usize)
+            .ok_or_else(|| format!("`{name}` must be a non-negative integer")),
+    }
+}
+
+/// `crate::units::Health` → `Health`, for archetype listings.
+fn short(type_name: &str) -> &str {
+    let end = type_name.find('<').unwrap_or(type_name.len());
+    type_name[..end].rfind("::").map_or(type_name, |i| &type_name[i + 2..])
+}
+
+pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Value, String> {
+    let err = |e: crate::ReflectError| e.to_string();
+    Ok(match method {
+        "methods" => Value::Array(
+            METHODS
+                .iter()
+                .map(|(name, about)| json!({ "name": name, "about": about }))
+                .collect(),
+        ),
+        "info" => json!({
+            "pid": std::process::id(),
+            "headless": ctx.headless,
+            "tick": ctx.sim_tick(),
+            "sim_time": ctx.sim_time(),
+            "paused": ctx.is_paused(),
+            "speed": ctx.sim_speed(),
+            "fixed_dt": ctx.fixed_dt(),
+            "fps": ctx.fps(),
+            "frame": ctx.frame(),
+            "entities": ctx.world.len(),
+        }),
+        "world.summary" => {
+            let world = &ctx.world;
+            let archetypes: Vec<Value> = world
+                .archetypes()
+                .iter()
+                .filter(|a| !a.is_empty())
+                .map(|a| {
+                    let names: Vec<&str> = a
+                        .component_ids()
+                        .iter()
+                        .map(|&id| short(world.component_info(id).name()))
+                        .collect();
+                    json!({ "components": names, "entities": a.len() })
+                })
+                .collect();
+            json!({
+                "entities": world.len(),
+                "reflected_components": world.reflected_components(),
+                "archetypes": archetypes,
+            })
+        }
+        "entities.list" => {
+            let with: Vec<String> = match params.get("with") {
+                None | Some(Value::Null) => Vec::new(),
+                Some(v) => serde_json::from_value(v.clone()).map_err(|_| "`with` must be a list of component names")?,
+            };
+            let limit = usize_param(params, "limit", 100)?.min(MAX_LIST);
+            let offset = usize_param(params, "offset", 0)?;
+            let world = &ctx.world;
+            let reflected = world.reflected_components();
+            let mut total = 0;
+            let mut out = Vec::new();
+            for a in world.archetypes().iter().filter(|a| !a.is_empty()) {
+                let names: Vec<&str> = a
+                    .component_ids()
+                    .iter()
+                    .map(|&id| short(world.component_info(id).name()))
+                    .collect();
+                if !with.iter().all(|w| names.contains(&w.as_str())) {
+                    continue;
+                }
+                let skip = offset.saturating_sub(total).min(a.len());
+                let take = (limit - out.len()).min(a.len() - skip);
+                let other: Vec<&str> = names.iter().copied().filter(|n| !reflected.contains(n)).collect();
+                for &e in &a.entities()[skip..skip + take] {
+                    let components = world.entity_json(e).map_err(err)?;
+                    out.push(json!({ "entity": e.to_bits(), "components": components, "other_components": other }));
+                }
+                total += a.len();
+            }
+            json!({ "total": total, "offset": offset, "entities": out })
+        }
+        "entity.get" => ctx.world.entity_json(entity_param(params)?).map_err(err)?,
+        "entity.spawn" => {
+            let e = ctx
+                .world
+                .spawn_json(param(params, "components")?.clone())
+                .map_err(err)?;
+            json!({ "entity": e.to_bits() })
+        }
+        "entity.despawn" => json!(ctx.world.despawn(entity_param(params)?)),
+        "component.set" => {
+            let e = entity_param(params)?;
+            let name = str_param(params, "component")?;
+            ctx.world
+                .set_json(e, name, param(params, "value")?.clone())
+                .map_err(err)?;
+            ctx.world.get_json(e, name).map_err(err)?
+        }
+        "component.remove" => {
+            let e = entity_param(params)?;
+            json!(ctx.world.remove_json(e, str_param(params, "component")?).map_err(err)?)
+        }
+        "sim.pause" => {
+            ctx.pause();
+            json!({ "paused": true, "tick": ctx.sim_tick() })
+        }
+        "sim.resume" => {
+            ctx.resume();
+            json!({ "paused": false, "tick": ctx.sim_tick() })
+        }
+        "sim.step" => {
+            let ticks = usize_param(params, "ticks", 1)?;
+            let ticks = u32::try_from(ticks).map_err(|_| "`ticks` is too large")?;
+            for _ in 0..ticks {
+                ctx.step();
+            }
+            json!({ "queued_ticks": ticks, "tick": ctx.sim_tick() })
+        }
+        "sim.speed" => {
+            let speed = param(params, "speed")?
+                .as_f64()
+                .filter(|s| s.is_finite() && *s >= 0.0)
+                .ok_or("`speed` must be a finite number >= 0")?;
+            ctx.set_sim_speed(speed as f32);
+            json!({ "speed": ctx.sim_speed() })
+        }
+        "systems.timings" => Value::Array(
+            ctx.system_timings()
+                .iter()
+                .map(|t| json!({ "name": t.name, "sim": t.sim, "last_ms": t.last_ms, "avg_ms": t.avg_ms }))
+                .collect(),
+        ),
+        "game.quit" => {
+            ctx.quit();
+            json!(true)
+        }
+        other => return Err(format!("unknown method `{other}` (call `methods` for the list)")),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Transform2D;
+    use glam::vec2;
+
+    fn ctx() -> Ctx {
+        Ctx::new(1.0 / 60.0, glam::Vec2::ZERO)
+    }
+
+    #[test]
+    fn every_listed_method_is_handled() {
+        let mut ctx = ctx();
+        for (name, _) in METHODS {
+            if *name == "game.quit" {
+                continue;
+            }
+            let r = handle(&mut ctx, name, &json!({}));
+            if let Err(e) = r {
+                assert!(e.starts_with("missing param"), "{name}: {e}");
+            }
+        }
+        assert!(
+            handle(&mut ctx, "nope", &json!({}))
+                .unwrap_err()
+                .contains("unknown method")
+        );
+    }
+
+    #[test]
+    fn entity_methods_round_trip() {
+        let mut ctx = ctx();
+        let id = handle(
+            &mut ctx,
+            "entity.spawn",
+            &json!({ "components": { "Transform2D": { "position": [1.0, 2.0] } } }),
+        )
+        .unwrap()["entity"]
+            .as_u64()
+            .unwrap();
+        let set = handle(
+            &mut ctx,
+            "component.set",
+            &json!({ "entity": id, "component": "Transform2D", "value": { "rotation": 2.0 } }),
+        )
+        .unwrap();
+        assert_eq!(set["position"], json!([1.0, 2.0]));
+        assert_eq!(set["rotation"], json!(2.0));
+        let list = handle(&mut ctx, "entities.list", &json!({ "with": ["Transform2D"] })).unwrap();
+        assert_eq!(list["total"], 1);
+        assert_eq!(
+            handle(&mut ctx, "entity.despawn", &json!({ "entity": id })).unwrap(),
+            json!(true)
+        );
+        assert!(handle(&mut ctx, "entity.get", &json!({ "entity": id })).is_err());
+    }
+
+    #[test]
+    fn list_pages_and_filters() {
+        let mut ctx = ctx();
+        struct Hidden;
+        for i in 0..10 {
+            ctx.world.spawn((Transform2D::at(vec2(i as f32, 0.0)),));
+        }
+        ctx.world.spawn((Hidden, Transform2D::default()));
+        let page = handle(&mut ctx, "entities.list", &json!({ "limit": 3, "offset": 9 })).unwrap();
+        assert_eq!(page["total"], 11);
+        let got = page["entities"].as_array().unwrap();
+        assert_eq!(got.len(), 2, "pages cross archetypes");
+        assert_eq!(got[1]["other_components"], json!(["Hidden"]));
+        assert!(got[1]["components"].get("Transform2D").is_some());
+        let hidden = handle(&mut ctx, "entities.list", &json!({ "with": ["Hidden"] })).unwrap();
+        assert_eq!(hidden["total"], 1, "filters accept unreflected names too");
+        let none = handle(&mut ctx, "entities.list", &json!({ "with": ["Nope"] })).unwrap();
+        assert_eq!(none["total"], 0);
+    }
+
+    #[test]
+    fn sim_methods_drive_the_clock() {
+        let mut ctx = ctx();
+        handle(&mut ctx, "sim.pause", &json!({})).unwrap();
+        assert!(ctx.is_paused());
+        handle(&mut ctx, "sim.step", &json!({ "ticks": 3 })).unwrap();
+        assert_eq!(ctx.take_pending_steps(), 3);
+        handle(&mut ctx, "sim.speed", &json!({ "speed": 4.0 })).unwrap();
+        assert_eq!(ctx.sim_speed(), 4.0);
+        assert!(handle(&mut ctx, "sim.speed", &json!({ "speed": -1.0 })).is_err());
+    }
+
+    #[test]
+    fn short_names() {
+        assert_eq!(short("a::b::Health"), "Health");
+        assert_eq!(short("Health"), "Health");
+    }
+}

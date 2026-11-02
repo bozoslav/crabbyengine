@@ -94,6 +94,8 @@ pub struct Ctx {
     sim: SimClock,
     /// No window or GPU (`Game::run_headless`): textures are size-only handles.
     pub(crate) headless: bool,
+    /// Where the control endpoint listens, if it's on.
+    pub(crate) control_addr: Option<std::net::SocketAddr>,
     headless_textures: u32,
     pub(crate) timings: Vec<SystemTiming>,
     pub(crate) input: Input,
@@ -129,6 +131,7 @@ impl Ctx {
                 step: fixed_dt,
             },
             headless: false,
+            control_addr: None,
             headless_textures: 0,
             timings: Vec::new(),
             input: Input::new(),
@@ -303,6 +306,26 @@ impl Ctx {
     }
 
     /// Engine side: single steps requested since the last frame.
+    /// Uses up one requested single step; `false` if none was pending.
+    pub(crate) fn take_one_step(&mut self) -> bool {
+        let had = self.sim.pending_steps > 0;
+        self.sim.pending_steps = self.sim.pending_steps.saturating_sub(1);
+        had
+    }
+
+    /// The address of this game's control endpoint, or `None` if it's off.
+    /// Tools find it in the instance registry; this is for tests and logs.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// let mut addr = None;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| addr = ctx.control_addr());
+    /// assert_eq!(addr, None); // off unless enabled
+    /// ```
+    pub fn control_addr(&self) -> Option<std::net::SocketAddr> {
+        self.control_addr
+    }
+
     pub(crate) fn take_pending_steps(&mut self) -> u32 {
         std::mem::take(&mut self.sim.pending_steps)
     }
