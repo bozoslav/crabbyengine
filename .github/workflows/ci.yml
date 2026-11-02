@@ -73,6 +73,7 @@ jobs:
           - ecs-without-parallel
           - engine
           - engine-headless
+          - engine-spatial
           - doctests
           - bench
         include:
@@ -85,6 +86,7 @@ jobs:
           - { area: ecs-without-parallel, args: -p crabby_ecs --tests --no-default-features }
           - { area: engine, args: -p crabbyengine --lib }
           - { area: engine-headless, args: -p crabbyengine --test headless }
+          - { area: engine-spatial, args: -p crabbyengine --test spatial }
           - { area: doctests, args: --workspace --doc }
           - { area: bench, args: -p crabby_bench }
     steps:

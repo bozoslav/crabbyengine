@@ -9,6 +9,7 @@ use crate::ecs::{Sprite, Transform2D};
 use crate::input::{Input, Key, MouseButton};
 use crate::render::batch::{DrawList, SpriteInstance};
 use crate::render::{FrameStatus, Renderer};
+use crate::spatial::SpatialGrid;
 use crate::texture::{DrawParams, Texture};
 use crate::time::FrameTiming;
 
@@ -84,6 +85,10 @@ pub struct Ctx {
     /// }
     /// ```
     pub commands: Commands,
+    /// Neighbor queries over every entity's [`Transform2D`] position; filled
+    /// at the start of each simulation tick once enabled with
+    /// [`Game::spatial_grid`](crate::Game::spatial_grid) (empty otherwise).
+    pub spatial: SpatialGrid,
     /// `true` while simulation systems run: `dt()` then returns the fixed step.
     in_sim: bool,
     sim: SimClock,
@@ -110,6 +115,7 @@ impl Ctx {
         Self {
             world: World::new(),
             commands: Commands::new(),
+            spatial: SpatialGrid::default(),
             in_sim: false,
             sim: SimClock {
                 speed: 1.0,
