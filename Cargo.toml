@@ -6,13 +6,15 @@ edition = "2024"
 [dependencies]
 crabby_ecs = { path = "crates/crabby_ecs" }
 bytemuck = { version = "1.25.2", features = ["derive"] }
-glam = "0.34.2"
+glam = { version = "0.34.2", features = ["serde"] }
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 pollster = "1.0.1"
 wgpu = "30.0.1"
 winit = "0.30.13"
 puffin = { version = "0.20.0", optional = true }
 puffin_http = { version = "0.17.0", optional = true }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 
 [features]
 # Frame profiler: per-system scopes, viewable live with `puffin_viewer`

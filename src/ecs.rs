@@ -17,7 +17,8 @@ use crate::texture::Texture;
 /// let t = Transform2D::at(vec2(100.0, 50.0)).rotated(0.5);
 /// assert_eq!(t.position, vec2(100.0, 50.0));
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct Transform2D {
     pub position: Vec2,
     /// Radians, clockwise on screen.

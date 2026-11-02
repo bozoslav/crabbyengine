@@ -11,6 +11,7 @@
 - [Spatial queries](spatial.md)
 - [Drawing](drawing.md)
 - [Headless runs and testing](headless.md)
+- [Reflection: components as JSON](reflection.md)
 
 # Reference
 

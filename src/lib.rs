@@ -28,6 +28,7 @@ mod ctx;
 mod ecs;
 mod game;
 mod input;
+mod reflect;
 mod render;
 mod spatial;
 mod texture;
@@ -38,6 +39,7 @@ pub use ctx::{Ctx, SystemTiming};
 pub use ecs::{Sprite, Transform2D, draw_sprites};
 pub use game::{Game, SetupResult};
 pub use input::{Key, MouseButton};
+pub use reflect::{ReflectError, WorldReflect};
 pub use spatial::{GridEntry, SPATIAL_SORT_EVERY, SpatialGrid, rebuild_spatial_grid, spatial_key};
 pub use texture::{DrawParams, Texture};
 
@@ -49,3 +51,6 @@ pub use crabby_ecs as ecs_core;
 
 /// 2D vector used for positions, sizes and velocities (re-exported from `glam`).
 pub use glam::{Vec2, vec2};
+
+/// JSON values used by reflection (re-exported from `serde_json`).
+pub use serde_json::{self, Value, json};

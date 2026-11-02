@@ -113,7 +113,11 @@ impl Ctx {
     /// `fixed_dt` in seconds, as f64 so `sim_time()` stays exact over long runs.
     pub(crate) fn new(fixed_dt: f64, window_size: Vec2) -> Self {
         Self {
-            world: World::new(),
+            world: {
+                let mut world = World::new();
+                crate::reflect::WorldReflect::reflect::<crate::Transform2D>(&mut world);
+                world
+            },
             commands: Commands::new(),
             spatial: SpatialGrid::default(),
             in_sim: false,
