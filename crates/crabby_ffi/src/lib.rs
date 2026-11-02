@@ -22,12 +22,14 @@ mod game;
 mod grid;
 mod keys;
 mod media;
+mod reflect;
 mod types;
 pub use ctx::*;
 pub use game::*;
 pub use grid::*;
 pub use keys::*;
 pub use media::*;
+pub use reflect::*;
 pub use types::*;
 
 use crabby_ecs::{ComponentId, Entity, World};
@@ -122,12 +124,15 @@ thread_local! {
     static LAST_ERROR: RefCell<[u8; 512]> = const { RefCell::new([0; 512]) };
 }
 
-pub(crate) struct Failure(CrabbyStatus, &'static str);
+pub(crate) struct Failure(CrabbyStatus, std::borrow::Cow<'static, str>);
 pub(crate) fn error(status: CrabbyStatus, message: &'static str) -> Failure {
-    Failure(status, message)
+    Failure(status, message.into())
 }
 pub(crate) fn invalid(message: &'static str) -> Failure {
     error(CRABBY_INVALID_ARGUMENT, message)
+}
+pub(crate) fn invalid_owned(message: String) -> Failure {
+    Failure(CRABBY_INVALID_ARGUMENT, message.into())
 }
 pub(crate) fn save_error(message: &str) {
     LAST_ERROR.with(|cell| {
@@ -144,7 +149,7 @@ pub(crate) fn boundary(f: impl FnOnce() -> Result<(), Failure>) -> CrabbyStatus 
     match catch_unwind(AssertUnwindSafe(f)) {
         Ok(Ok(())) => CRABBY_OK,
         Ok(Err(Failure(status, message))) => {
-            save_error(message);
+            save_error(&message);
             status
         }
         Err(payload) => {

@@ -65,3 +65,39 @@ fn rust_and_dynamic_views_share_storage() {
     });
     assert_eq!(n, 1);
 }
+
+#[test]
+fn spawn_at_dynamic_restores_ids_and_refuses_taken_slots() {
+    let mut w = World::new();
+    let pos = unsafe { w.register_component("Pos", 8, 4, None) };
+    let name = unsafe { w.register_component("Name", 16, 8, None) };
+    let saved = Entity::from_bits(9 | 4 << 32);
+    let p = [3.0f32, 4.0];
+    let n = [7u64, 8];
+    assert!(unsafe { w.spawn_at_dynamic(saved, &[(pos, p.as_ptr().cast()), (name, n.as_ptr().cast())]) });
+    assert!(w.is_alive(saved));
+    assert_eq!(unsafe { *w.get_dynamic(saved, pos).unwrap().cast::<[f32; 2]>() }, p);
+    assert_eq!(unsafe { *w.get_dynamic(saved, name).unwrap().cast::<[u64; 2]>() }, n);
+
+    // Taken: nothing changes.
+    assert!(!unsafe { w.spawn_at_dynamic(saved, &[(pos, [0.0f32, 0.0].as_ptr().cast())]) });
+    assert_eq!(w.len(), 1);
+    assert_eq!(unsafe { *w.get_dynamic(saved, pos).unwrap().cast::<[f32; 2]>() }, p);
+
+    // Fresh spawns never collide with the restored id, and queries see both.
+    let fresh = unsafe { w.spawn_dynamic(&[(pos, [1.0f32, 1.0].as_ptr().cast())]) };
+    assert_ne!(fresh, saved);
+    let mut rows = 0;
+    w.for_each_chunk(&[pos], |c| rows += c.len());
+    assert_eq!(rows, 2);
+}
+
+#[test]
+#[should_panic(expected = "spawn_at_dynamic: the same component was given twice")]
+fn spawn_at_dynamic_rejects_duplicate_components() {
+    let mut w = World::new();
+    let hp = unsafe { w.register_component("Hp", 4, 4, None) };
+    let v = 1i32;
+    let v = (&v as *const i32).cast();
+    unsafe { w.spawn_at_dynamic(Entity::from_bits(3), &[(hp, v), (hp, v)]) };
+}

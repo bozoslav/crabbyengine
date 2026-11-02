@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstdio>
+#include <string>
 #include <vector>
 
 using namespace crabby;
@@ -286,6 +287,36 @@ static void think(crabby::ctx& ctx, const crabby::component<Brain>& brain) {
 }
 // ANCHOR_END: turns
 
+// ---- Reflection and saving ---------------------------------------------------------
+// ANCHOR: reflect
+struct Unit {
+    float current;
+    float max;
+    crabby::vec2 home;
+    crabby::entity target;   // entity ids are uint64_t
+    bool angry;
+};
+
+static crabby::component<Unit> reflect_units(crabby::world_view world) {
+    // Tools and agents (crabby-mcp) now see {"current", "max", "home", "target", "angry"}.
+    return world.component<Unit>("Unit", {
+        crabby::field("current", &Unit::current),
+        crabby::field("max", &Unit::max),
+        crabby::field("home", &Unit::home),
+        crabby::field("target", &Unit::target),
+        crabby::field("angry", &Unit::angry),
+    });
+}
+// ANCHOR_END: reflect
+
+static void save_and_load(crabby::world_view world) {
+    // ANCHOR: save
+    const std::string save = world.save();   // JSON text; write it to a file
+    // ...
+    world.load(save);                        // every entity back, with its id
+    // ANCHOR_END: save
+}
+
 // ---- Headless runs and testing ---------------------------------------------------
 // ANCHOR: headless
 struct Pos { float y; };
@@ -378,6 +409,22 @@ int main() {
     if (world.size() != 100000 + 16 + 50 + 4 || most < 10) {
         std::fprintf(stderr, "unexpected: %zu entities, %u neighbors\n", world.size(), most);
         return 1;
+    }
+    // Reflected components survive a save and load with their ids.
+    {
+        auto w = crabby::game("save", 1, 1).run_headless(0, [](crabby::ctx&) {});
+        auto unit = reflect_units(w);
+        const crabby::entity a = w.spawn(unit.with(Unit{3, 10, {1, 2}, 0, false}));
+        const crabby::entity b = w.spawn(unit.with(Unit{5, 10, {0, 0}, a, true}));
+        const std::string before = w.save();
+        w.set(b, unit, Unit{0, 0, {0, 0}, 0, false});
+        save_and_load(w);   // saves the changed world and loads it straight back
+        w.load(before);
+        const Unit u = w.get(b, unit);
+        if (u.current != 5 || u.target != a || !u.angry || before.find("\"angry\":true") == std::string::npos) {
+            std::fprintf(stderr, "save/load lost data: %s\n", before.c_str());
+            return 1;
+        }
     }
     (void)&my_game;
     (void)&controls;

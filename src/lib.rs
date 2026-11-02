@@ -50,7 +50,7 @@ pub use ecs::{Sprite, Transform2D, draw_sprites};
 pub use game::{Game, SetupResult};
 pub use input::{Key, MouseButton};
 pub use random::{DEFAULT_SEED, Random, Rng};
-pub use reflect::{ReflectError, WorldReflect};
+pub use reflect::{Field, FieldType, ReflectError, WorldReflect};
 pub use render::RenderStats;
 pub use sheet::{Animation, SpriteSheet, animate_sprites};
 #[doc(hidden)]
@@ -62,7 +62,7 @@ pub use tilemap::{TileMap, draw_tilemaps};
 pub use ui::UiStyle;
 
 /// The ECS: entities, components, queries, resources, commands.
-pub use crabby_ecs::{Commands, Component, Entity, Query, World};
+pub use crabby_ecs::{Commands, Component, ComponentId, Entity, Query, World};
 
 /// The full ECS crate, for advanced use (C path, chunks, archetypes).
 pub use crabby_ecs as ecs_core;

@@ -113,6 +113,7 @@ jobs:
           - { area: ffi-abi, args: -p crabby_ffi --test abi }
           - { area: ffi-game, args: -p crabby_ffi --test game }
           - { area: ffi-media, args: -p crabby_ffi --test media }
+          - { area: ffi-reflect, args: -p crabby_ffi --test reflect }
           - { area: doctests, args: --workspace --doc }
           - { area: bench, args: -p crabby_bench }
     steps:

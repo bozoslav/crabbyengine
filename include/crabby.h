@@ -157,6 +157,30 @@ typedef enum CrabbyMouseButton {
   CRABBY_MOUSE_FORWARD,
 } CrabbyMouseButton;
 
+enum CrabbyFieldType
+#ifdef __cplusplus
+  : uint32_t
+#endif // __cplusplus
+ {
+  CRABBY_FIELD_F32 = 0,
+  CRABBY_FIELD_F64 = 1,
+  CRABBY_FIELD_I8 = 2,
+  CRABBY_FIELD_I16 = 3,
+  CRABBY_FIELD_I32 = 4,
+  CRABBY_FIELD_I64 = 5,
+  CRABBY_FIELD_U8 = 6,
+  CRABBY_FIELD_U16 = 7,
+  CRABBY_FIELD_U32 = 8,
+  CRABBY_FIELD_U64 = 9,
+  CRABBY_FIELD_BOOL = 10,
+  CRABBY_FIELD_VEC2 = 11,
+  CRABBY_FIELD_COLOR = 12,
+  CRABBY_FIELD_ENTITY = 13,
+};
+#ifndef __cplusplus
+typedef uint32_t CrabbyFieldType;
+#endif // __cplusplus
+
 typedef struct CrabbyCtx CrabbyCtx;
 
 typedef struct CrabbyGame CrabbyGame;
@@ -292,6 +316,12 @@ typedef struct CrabbyTurns {
   uint32_t now;
   float dt;
 } CrabbyTurns;
+
+typedef struct CrabbyField {
+  const char *name;
+  uint32_t kind;
+  size_t offset;
+} CrabbyField;
 
 typedef struct CrabbyTransform2D {
   struct CrabbyVec2 position;
@@ -630,6 +660,18 @@ enum CrabbyStatus crabby_ctx_save_screenshot(struct CrabbyCtx *ctx, const char *
 enum CrabbyStatus crabby_ctx_turns(const struct CrabbyCtx *ctx,
                                    uint32_t every,
                                    struct CrabbyTurns *out_turns);
+
+enum CrabbyStatus crabby_component_reflect(struct CrabbyWorld *world,
+                                           uint32_t component_id,
+                                           const struct CrabbyField *fields,
+                                           size_t len);
+
+enum CrabbyStatus crabby_world_save(struct CrabbyWorld *world,
+                                    char *buffer,
+                                    size_t capacity,
+                                    size_t *out_len);
+
+enum CrabbyStatus crabby_world_load(struct CrabbyWorld *world, const char *json);
 
 uint64_t crabby_entity_bits(struct CrabbyEntity entity);
 

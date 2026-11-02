@@ -146,6 +146,5 @@ normally; never let a C++ exception or `longjmp` cross them.
 
 ## Still Rust-only
 
-Sprite sheets and tilemaps, resources (keep game-wide data in your own
-objects, captured by your systems), reflection (so tools see C++ components
-as JSON) and save/load. Each chapter says so where it applies.
+Sprite sheets and tilemaps, and resources (keep game-wide data in your own
+objects, captured by your systems). Each chapter says so where it applies.

@@ -18,6 +18,8 @@
 #include <mutex>
 #include <optional>
 #include <stdexcept>
+#include <string>
+#include <initializer_list>
 #include <tuple>
 #include <type_traits>
 #include <typeindex>
@@ -160,6 +162,31 @@ struct first_error {
     }
     void rethrow() { if (error) std::rethrow_exception(error); }
 };
+template<class M> struct field_type;
+template<> struct field_type<float> { static constexpr CrabbyFieldType value = CRABBY_FIELD_F32; };
+template<> struct field_type<double> { static constexpr CrabbyFieldType value = CRABBY_FIELD_F64; };
+template<> struct field_type<std::int8_t> { static constexpr CrabbyFieldType value = CRABBY_FIELD_I8; };
+template<> struct field_type<std::int16_t> { static constexpr CrabbyFieldType value = CRABBY_FIELD_I16; };
+template<> struct field_type<std::int32_t> { static constexpr CrabbyFieldType value = CRABBY_FIELD_I32; };
+template<> struct field_type<std::int64_t> { static constexpr CrabbyFieldType value = CRABBY_FIELD_I64; };
+template<> struct field_type<std::uint8_t> { static constexpr CrabbyFieldType value = CRABBY_FIELD_U8; };
+template<> struct field_type<std::uint16_t> { static constexpr CrabbyFieldType value = CRABBY_FIELD_U16; };
+template<> struct field_type<std::uint32_t> { static constexpr CrabbyFieldType value = CRABBY_FIELD_U32; };
+template<> struct field_type<std::uint64_t> { static constexpr CrabbyFieldType value = CRABBY_FIELD_U64; };
+template<> struct field_type<bool> { static constexpr CrabbyFieldType value = CRABBY_FIELD_BOOL; };
+template<> struct field_type<CrabbyVec2> { static constexpr CrabbyFieldType value = CRABBY_FIELD_VEC2; };
+template<> struct field_type<CrabbyColor> { static constexpr CrabbyFieldType value = CRABBY_FIELD_COLOR; };
+}
+/// One described field of a component, from crabby::field.
+template<class T> struct field_info { CrabbyField raw; };
+/// Describes member `m` of component `T` for reflection: tools and agents
+/// see it as JSON under `name`, and world saves include it. Fields of type
+/// float, double, (u)int8..64_t, bool, vec2 and color; entities are uint64_t.
+template<class T, class M> field_info<T> field(const char* name, M T::*m) {
+    static_assert(std::is_default_constructible<T>::value, "reflected components must be default-constructible");
+    const T sample{};
+    const auto offset = std::size_t(reinterpret_cast<const char*>(&(sample.*m)) - reinterpret_cast<const char*>(&sample));
+    return {{name, std::uint32_t(detail::field_type<typename std::remove_cv<M>::type>::value), offset}};
 }
 class world_view;
 class ctx;
@@ -242,6 +269,28 @@ public:
         detail::check(crabby_component_register(raw_, name, sizeof(T), alignof(T), &result));
         return token<T>(result);
     }
+    /// Registers `T` and describes its fields, so tools and agents can read
+    /// and write it as JSON (`crabby-mcp`) and `save()` includes it.
+    template<class T> crabby::component<T> component(const char* name, std::initializer_list<field_info<T>> fields) {
+        auto token = component<T>(name);
+        std::vector<CrabbyField> raw;
+        raw.reserve(fields.size());
+        for (const auto& f : fields) raw.push_back(f.raw);
+        detail::check(crabby_component_reflect(raw_, token.id_, raw.data(), raw.size()));
+        return token;
+    }
+    /// Every entity with reflected components as JSON, with its id.
+    std::string save() const {
+        valid(); std::size_t len = 0;
+        detail::check(crabby_world_save(raw_, nullptr, 0, &len));
+        std::string out(len + 1, '\0');
+        detail::check(crabby_world_save(raw_, &out[0], out.size(), &len));
+        out.resize(len);
+        return out;
+    }
+    /// Replaces every entity with those in `json` (from save()), with the
+    /// same ids. On error (an exception) the world is unchanged.
+    void load(const std::string& json) { valid(); detail::check(crabby_world_load(raw_, json.c_str())); }
     /// The built-in Transform2D component.
     crabby::component<transform2d> transforms() {
         valid(); std::uint32_t result = 0;

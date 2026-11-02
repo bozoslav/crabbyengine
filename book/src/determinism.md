@@ -43,7 +43,6 @@ For setup code and tests, `Rng::new(seed)` makes a generator directly.
 
 C++ has the same generator in the header (`crabby::rng`, `crabby::random`),
 bit for bit: a C++ system gets exactly the numbers its Rust twin would.
-Saving and loading worlds is Rust-only for now.
 
 ## Seeds
 
@@ -88,6 +87,9 @@ last bit.
 
 With [reflection](reflection.md), the whole world saves to JSON:
 
+<div class="lang-pair">
+<div>
+
 ```rust
 let save = ctx.world.save();            // serde_json::Value
 std::fs::write("save.json", save.to_string())?;
@@ -95,6 +97,16 @@ std::fs::write("save.json", save.to_string())?;
 let save: Value = serde_json::from_str(&std::fs::read_to_string("save.json")?)?;
 ctx.world.load(&save)?;
 ```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:save}}
+```
+
+</div>
+</div>
 
 - **Ids are kept.** Loading restores every entity with the id it had, so
   components that refer to other entities (`struct Target(Entity)`) still
@@ -104,7 +116,8 @@ ctx.world.load(&save)?;
   saying what.
 - **Only reflected components are saved.** The save's `"not_saved"` lists
   the other components by name and count, so nothing goes missing silently.
-  Resources and the sim clock aren't saved.
+  Resources and the sim clock aren't saved. C++ components are saved once
+  their fields are described (see [Reflection](reflection.md#c-and-c-components)).
 
 Agents can do the same through `crabby-mcp` (`save_world`, `load_world`):
 checkpoint, try something, roll back.

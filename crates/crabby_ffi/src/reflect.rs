@@ -1,0 +1,242 @@
+//! Reflection of C components (their fields as JSON, for tools and agents)
+//! and world save/load.
+use std::ffi::{CStr, c_char};
+
+use crabbyengine::{Field, FieldType, WorldReflect};
+
+use crate::{CrabbyStatus, CrabbyWorld, Kind, access, boundary, component, invalid};
+
+/// Field types for `CrabbyField::kind`, and how they look in JSON.
+/// ```
+/// assert_eq!(crabby_ffi::CrabbyFieldType::CRABBY_FIELD_COLOR as u32, 12);
+/// ```
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(non_camel_case_types)]
+pub enum CrabbyFieldType {
+    /// `float`, a JSON number.
+    CRABBY_FIELD_F32 = 0,
+    /// `double`.
+    CRABBY_FIELD_F64 = 1,
+    /// `int8_t`.
+    CRABBY_FIELD_I8 = 2,
+    /// `int16_t`.
+    CRABBY_FIELD_I16 = 3,
+    /// `int32_t`.
+    CRABBY_FIELD_I32 = 4,
+    /// `int64_t`.
+    CRABBY_FIELD_I64 = 5,
+    /// `uint8_t`.
+    CRABBY_FIELD_U8 = 6,
+    /// `uint16_t`.
+    CRABBY_FIELD_U16 = 7,
+    /// `uint32_t`.
+    CRABBY_FIELD_U32 = 8,
+    /// `uint64_t`.
+    CRABBY_FIELD_U64 = 9,
+    /// `bool`, `true`/`false`.
+    CRABBY_FIELD_BOOL = 10,
+    /// `CrabbyVec2`, `[x, y]`.
+    CRABBY_FIELD_VEC2 = 11,
+    /// `CrabbyColor`, `{"r", "g", "b", "a"}`.
+    CRABBY_FIELD_COLOR = 12,
+    /// An entity id (`uint64_t`), a JSON number.
+    CRABBY_FIELD_ENTITY = 13,
+}
+
+const TYPES: [FieldType; 14] = [
+    FieldType::F32,
+    FieldType::F64,
+    FieldType::I8,
+    FieldType::I16,
+    FieldType::I32,
+    FieldType::I64,
+    FieldType::U8,
+    FieldType::U16,
+    FieldType::U32,
+    FieldType::U64,
+    FieldType::Bool,
+    FieldType::Vec2,
+    FieldType::Color,
+    FieldType::Entity,
+];
+
+/// One field of a C component: its JSON name, a `CrabbyFieldType`, and its
+/// byte offset (`offsetof`).
+/// ```
+/// let f = crabby_ffi::CrabbyField { name: c"hp".as_ptr(), kind: 0, offset: 0 };
+/// assert_eq!(f.offset, 0);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct CrabbyField {
+    /// NUL-terminated UTF-8; copied.
+    pub name: *const c_char,
+    /// A `CrabbyFieldType`.
+    pub kind: u32,
+    /// Byte offset in the component.
+    pub offset: usize,
+}
+
+/// Makes a C component readable and writable as JSON by tools and agents
+/// (the control endpoint and `crabby-mcp`) and saved by `crabby_world_save`,
+/// by describing its fields. Bytes no field covers are zero in values made
+/// from JSON. Describing it again replaces the fields.
+/// ```
+/// use crabby_ffi::*;
+/// let w = crabby_world_new();
+/// unsafe {
+///     let mut id = 0;
+///     crabby_component_register(w, c"Health".as_ptr(), 4, 4, &mut id);
+///     let field = CrabbyField { name: c"current".as_ptr(), kind: CrabbyFieldType::CRABBY_FIELD_F32 as u32, offset: 0 };
+///     assert_eq!(crabby_component_reflect(w, id, &field, 1), CrabbyStatus::CRABBY_OK);
+///     crabby_world_free(w);
+/// }
+/// ```
+/// # Safety
+/// `world` must be null or live; `fields` must hold `len` fields with valid
+/// names. Any field values must make a valid value of the component (true
+/// for plain C structs of these types).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_component_reflect(
+    world: *mut CrabbyWorld,
+    component_id: u32,
+    fields: *const CrabbyField,
+    len: usize,
+) -> CrabbyStatus {
+    boundary(|| {
+        if fields.is_null() && len > 0 {
+            return Err(invalid("fields is null"));
+        }
+        let raw = if len == 0 {
+            &[][..]
+        } else {
+            // SAFETY: caller supplies `len` readable fields.
+            unsafe { std::slice::from_raw_parts(fields, len) }
+        };
+        let mut list = Vec::with_capacity(raw.len());
+        for f in raw {
+            if f.name.is_null() {
+                return Err(invalid("a field name is null"));
+            }
+            // SAFETY: caller supplies NUL-terminated names.
+            let name = unsafe { CStr::from_ptr(f.name) }
+                .to_str()
+                .map_err(|_| invalid("a field name is not UTF-8"))?;
+            let ty = *TYPES
+                .get(f.kind as usize)
+                .ok_or_else(|| invalid("unknown CrabbyFieldType"))?;
+            let size = ty.size();
+            if f.offset.checked_add(size).is_none() {
+                return Err(invalid("field offset overflows"));
+            }
+            list.push(Field::new(name, ty, f.offset));
+        }
+        // SAFETY: access validates null and guards the live handle.
+        unsafe {
+            access(world, |w, _| {
+                let (id, kind) = component(w, component_id)?;
+                if kind != Kind::Plain || w.component_info(id).type_id().is_some() {
+                    return Err(invalid("only components registered from C can be described"));
+                }
+                let size = w.component_info(id).layout().size();
+                let mut names = std::collections::HashSet::new();
+                for f in &list {
+                    if f.offset + f.ty.size() > size {
+                        return Err(invalid("a field doesn't fit in the component"));
+                    }
+                    if !names.insert(f.name.as_str()) {
+                        return Err(invalid("two fields have the same name"));
+                    }
+                }
+                // SAFETY: checked above; the caller promised field values make valid values.
+                w.reflect_fields(id, &list);
+                Ok(())
+            })
+        }
+    })
+}
+
+/// Writes the world as JSON (the format of Rust's `World::save`: every entity
+/// with reflected components, with its id) into `buffer`, NUL-terminated.
+/// `*out_len` is set to the JSON's length without the NUL. If `capacity` is
+/// not more than that, only an empty string is written: grow the buffer to
+/// `*out_len + 1` and call again.
+/// ```
+/// use crabby_ffi::*;
+/// let w = crabby_world_new();
+/// let mut len = 0;
+/// unsafe {
+///     assert_eq!(crabby_world_save(w, std::ptr::null_mut(), 0, &mut len), CrabbyStatus::CRABBY_OK);
+///     let mut buf = vec![1u8; len + 1];
+///     assert_eq!(crabby_world_save(w, buf.as_mut_ptr().cast(), buf.len(), &mut len), CrabbyStatus::CRABBY_OK);
+///     assert_eq!(buf[len], 0);
+///     crabby_world_free(w);
+/// }
+/// ```
+/// # Safety
+/// `world` must be null or live; `buffer` must hold `capacity` bytes (or be
+/// null with capacity 0); `out_len` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_world_save(
+    world: *mut CrabbyWorld,
+    buffer: *mut c_char,
+    capacity: usize,
+    out_len: *mut usize,
+) -> CrabbyStatus {
+    boundary(|| {
+        if out_len.is_null() {
+            return Err(invalid("output is null"));
+        }
+        if buffer.is_null() && capacity > 0 {
+            return Err(invalid("buffer is null"));
+        }
+        // SAFETY: access validates null and guards the live handle.
+        let json = unsafe { access(world, |w, _| Ok(w.save().to_string()))? };
+        // SAFETY: checked non-null; `buffer` holds `capacity` bytes.
+        unsafe {
+            out_len.write(json.len());
+            if json.len() < capacity {
+                std::ptr::copy_nonoverlapping(json.as_ptr(), buffer.cast::<u8>(), json.len());
+                buffer.add(json.len()).write(0);
+            } else if capacity > 0 {
+                buffer.write(0);
+            }
+        }
+        Ok(())
+    })
+}
+
+/// Replaces every entity with those in a save from `crabby_world_save`,
+/// with the same ids. Everything is checked first: on error the world is
+/// unchanged and `crabby_last_error()` says what was wrong.
+/// ```
+/// use crabby_ffi::*;
+/// let w = crabby_world_new();
+/// unsafe {
+///     assert_eq!(crabby_world_load(w, c"{}".as_ptr()), CrabbyStatus::CRABBY_INVALID_ARGUMENT);
+///     crabby_world_free(w);
+/// }
+/// ```
+/// # Safety
+/// `world` must be null or live; `json` NUL-terminated.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_world_load(world: *mut CrabbyWorld, json: *const c_char) -> CrabbyStatus {
+    boundary(|| {
+        if json.is_null() {
+            return Err(invalid("json is null"));
+        }
+        // SAFETY: caller supplies a NUL-terminated string.
+        let text = unsafe { CStr::from_ptr(json) }
+            .to_str()
+            .map_err(|_| invalid("json is not UTF-8"))?;
+        let save: serde_json::Value =
+            serde_json::from_str(text).map_err(|e| crate::invalid_owned(format!("not JSON: {e}")))?;
+        // SAFETY: access validates null and guards the live handle.
+        unsafe {
+            access(world, |w, _| {
+                w.load(&save).map_err(|e| crate::invalid_owned(e.to_string()))
+            })
+        }
+    })
+}
