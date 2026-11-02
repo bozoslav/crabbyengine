@@ -13,14 +13,15 @@ use winit::window::{Window, WindowId};
 
 use crate::ctx::Ctx;
 use crate::input::{Key, MouseButton};
+use crate::render::{FrameStatus, Renderer};
 use crate::time::{Clock, DEFAULT_FIXED_HZ};
 
 /// Trackpads report scrolling in pixels; this many logical pixels count as one
 /// wheel "notch" so `mouse_wheel()` means roughly the same on every device.
 const PIXELS_PER_SCROLL_LINE: f32 = 20.0;
 
-/// Used when the monitor's refresh rate can't be queried.
-const FALLBACK_REFRESH_HZ: f64 = 60.0;
+/// How often to check whether a hidden/minimized window is visible again.
+const OCCLUDED_POLL: Duration = Duration::from_millis(100);
 
 /// A game: a window plus the loop that drives your code.
 ///
@@ -29,12 +30,14 @@ const FALLBACK_REFRESH_HZ: f64 = 60.0;
 ///
 /// Game::new("My Game", 800, 600).run(|ctx| {
 ///     // Setup: runs once, after the window exists.
+///     let crab = ctx.load_texture("crab.png");
 ///     let mut pos = vec2(400.0, 300.0);
 ///
 ///     // Returned closure: runs every frame.
 ///     move |ctx: &mut Ctx| {
 ///         if ctx.key_down(Key::Right) { pos.x += 200.0 * ctx.dt(); }
 ///         if ctx.key_pressed(Key::Escape) { ctx.quit(); }
+///         ctx.draw(&crab, pos);
 ///     }
 /// });
 /// ```
@@ -43,6 +46,7 @@ pub struct Game {
     width: u32,
     height: u32,
     fixed_hz: u32,
+    vsync: bool,
 }
 
 impl Game {
@@ -60,6 +64,7 @@ impl Game {
             width,
             height,
             fixed_hz: DEFAULT_FIXED_HZ,
+            vsync: true,
         }
     }
 
@@ -76,6 +81,19 @@ impl Game {
     pub fn fixed_hz(mut self, hz: u32) -> Self {
         assert!(hz > 0, "Game::fixed_hz: the rate must be at least 1 Hz");
         self.fixed_hz = hz;
+        self
+    }
+
+    /// Turns vsync on (default) or off. With vsync the game runs at the
+    /// display's refresh rate with no tearing; turn it off to measure how fast
+    /// the game *could* run.
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// Game::new("Benchmark", 800, 600).vsync(false).run(|_| |_: &mut Ctx| {});
+    /// ```
+    pub fn vsync(mut self, on: bool) -> Self {
+        self.vsync = on;
         self
     }
 
@@ -99,7 +117,8 @@ impl Game {
     /// ```
     ///
     /// # Panics
-    /// If the operating system refuses to create the event loop or window.
+    /// If the operating system refuses to create the event loop or window,
+    /// or no usable GPU is found.
     pub fn run<S, U>(self, setup: S)
     where
         S: FnOnce(&mut Ctx) -> U,
@@ -121,8 +140,7 @@ impl Game {
             ctx,
             clock,
             last_frame: Instant::now(),
-            next_frame: Instant::now(),
-            frame_interval: Duration::from_secs_f64(1.0 / FALLBACK_REFRESH_HZ),
+            occluded: false,
         };
 
         event_loop
@@ -139,8 +157,8 @@ struct App<S, U> {
     ctx: Ctx,
     clock: Clock,
     last_frame: Instant,
-    next_frame: Instant,
-    frame_interval: Duration,
+    /// Window hidden/minimized: stop drawing, poll slowly instead of spinning.
+    occluded: bool,
 }
 
 impl<S, U> App<S, U>
@@ -168,6 +186,19 @@ where
 
         if self.ctx.quit_requested() {
             event_loop.exit();
+            return;
+        }
+
+        // With vsync, presenting blocks until the display is ready, which
+        // paces the loop. So we can ask for the next frame right away.
+        match self.ctx.render_frame() {
+            FrameStatus::Presented | FrameStatus::Skipped => self.occluded = false,
+            FrameStatus::Occluded => self.occluded = true,
+        }
+        if !self.occluded
+            && let Some(window) = &self.window
+        {
+            window.request_redraw();
         }
     }
 }
@@ -190,16 +221,12 @@ where
             .unwrap_or_else(|e| panic!("crabbyengine: could not create the window: {e}"));
         let window = Arc::new(window);
 
-        let refresh_hz = window
-            .current_monitor()
-            .and_then(|m| m.refresh_rate_millihertz())
-            .map(|mhz| f64::from(mhz) / 1000.0)
-            .filter(|hz| *hz > 0.0)
-            .unwrap_or(FALLBACK_REFRESH_HZ);
-        self.frame_interval = Duration::from_secs_f64(1.0 / refresh_hz);
-
+        self.ctx.renderer = Some(Renderer::new(
+            window.clone(),
+            event_loop.owned_display_handle(),
+            self.config.vsync,
+        ));
         self.ctx.set_window_size(Self::logical_window_size(&window));
-        self.window = Some(window);
 
         if let Some(setup) = self.setup.take() {
             self.update = Some(setup(&mut self.ctx));
@@ -207,11 +234,12 @@ where
 
         // Don't count setup time (e.g. asset loading) as the first frame's dt.
         self.last_frame = Instant::now();
-        self.next_frame = self.last_frame;
+        window.request_redraw();
+        self.window = Some(window);
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
-        let Some(window) = self.window.as_ref() else {
+        let Some(window) = self.window.clone() else {
             return;
         };
 
@@ -221,7 +249,19 @@ where
             WindowEvent::RedrawRequested => self.run_frame(event_loop),
 
             WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
-                self.ctx.set_window_size(Self::logical_window_size(window));
+                let size = window.inner_size();
+                if let Some(renderer) = self.ctx.renderer.as_mut() {
+                    renderer.resize(size.width, size.height);
+                }
+                self.ctx.set_window_size(Self::logical_window_size(&window));
+                window.request_redraw();
+            }
+
+            WindowEvent::Occluded(occluded) => {
+                self.occluded = occluded;
+                if !occluded {
+                    window.request_redraw();
+                }
             }
 
             WindowEvent::Focused(false) => self.ctx.input.release_all(),
@@ -269,21 +309,15 @@ where
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        let Some(window) = self.window.as_ref() else {
-            return;
-        };
-
-        // Frame pacing: until the renderer presents with vsync (M2), we sleep
-        // until the next display refresh instead of spinning a CPU core.
-        let now = Instant::now();
-        if now >= self.next_frame {
-            window.request_redraw();
-            self.next_frame += self.frame_interval;
-            if self.next_frame <= now {
-                // Fell behind (slow frame or the app was paused): don't try to catch up.
-                self.next_frame = now + self.frame_interval;
+        if self.occluded {
+            // Hidden: check back now and then instead of spinning a core.
+            // The simulation pauses while hidden (dt is clamped on return).
+            if let Some(window) = &self.window {
+                window.request_redraw();
             }
+            event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + OCCLUDED_POLL));
+        } else {
+            event_loop.set_control_flow(ControlFlow::Wait);
         }
-        event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame));
     }
 }
