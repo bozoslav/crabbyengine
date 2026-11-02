@@ -211,7 +211,16 @@ jobs:
         run: |
           mkdir -p target
           cargo run -p crabby_ffi --example generate_header > target/crabby.generated.h
-          diff -u include/crabby.h target/crabby.generated.h
+          python - <<'PYTHON'
+          from pathlib import Path
+          import difflib
+          import sys
+          # Git and cbindgen can produce different line endings on Windows.
+          expected = Path("include/crabby.h").read_text().splitlines(keepends=True)
+          actual = Path("target/crabby.generated.h").read_text().splitlines(keepends=True)
+          sys.stdout.writelines(difflib.unified_diff(expected, actual, fromfile="checked in", tofile="generated"))
+          sys.exit(expected != actual)
+          PYTHON
       - run: cargo build -p crabby_ffi --release
       - run: cmake -S examples/cpp -B target/native -DCMAKE_BUILD_TYPE=Release -DCRABBY_LIBRARY_DIR=${{ github.workspace }}/target/release
       - run: cmake --build target/native --config Release

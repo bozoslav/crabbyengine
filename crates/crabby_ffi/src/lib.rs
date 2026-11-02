@@ -128,8 +128,12 @@ pub(crate) fn boundary(f: impl FnOnce() -> Result<(), Failure>) -> CrabbyStatus 
             status
         }
         Err(payload) => {
-            // Arbitrary panic payload destructors can panic too; keep those out of the ABI.
-            std::mem::forget(payload);
+            // Drop ordinary payloads, but contain a payload destructor that panics.
+            // A second payload is intentionally retained: its destructor could
+            // panic recursively, and no unwind may escape this ABI boundary.
+            if let Err(secondary) = catch_unwind(AssertUnwindSafe(|| drop(payload))) {
+                std::mem::forget(secondary);
+            }
             save_error("Rust panic caught at C ABI boundary");
             CRABBY_PANIC
         }
@@ -612,6 +616,20 @@ mod tests {
             assert_eq!(crabby_world_free(world), CRABBY_OK);
         }
     }
+    #[test]
+    fn caught_panic_payloads_are_dropped() {
+        struct Payload(std::sync::Arc<std::sync::atomic::AtomicBool>);
+        impl Drop for Payload {
+            fn drop(&mut self) {
+                self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+        let dropped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let payload = Payload(dropped.clone());
+        assert_eq!(boundary(|| std::panic::panic_any(payload)), CRABBY_PANIC);
+        assert!(dropped.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
     #[test]
     fn lent_handles_access_the_original_world_and_cannot_be_freed() {
         let mut world = World::new();
