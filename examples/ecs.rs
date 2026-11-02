@@ -4,7 +4,8 @@
 //!
 //! - Crabs wander around and fade out as they age; old crabs are despawned.
 //! - Click (or hold) the left mouse button to spawn more.
-//! - Space: pause / resume the simulation.  Escape: quit.
+//! - Space: pause / resume.  Period: one tick while paused.
+//! - 1 / 2 / 3 / 4: simulation speed 1x / 4x / 16x / 64x.  Escape: quit.
 
 use crabbyengine::*;
 
@@ -15,7 +16,6 @@ struct Life(f32);
 
 /// Resource: shared settings and a tiny random generator.
 struct Settings {
-    paused: bool,
     rng: u64,
     crab: Texture,
 }
@@ -47,9 +47,6 @@ fn spawn_crab(ctx: &mut Ctx, at: Vec2) {
 
 /// Simulation: move and bounce off the window edges.
 fn movement(ctx: &mut Ctx) {
-    if ctx.world.resource::<Settings>().paused {
-        return;
-    }
     let dt = ctx.dt();
     let bounds = ctx.window_size();
     ctx.world.query::<(&mut Transform2D, &mut Vel)>().for_each(|(t, v)| {
@@ -67,9 +64,6 @@ fn movement(ctx: &mut Ctx) {
 
 /// Simulation: age, fade out, and despawn through commands.
 fn aging(ctx: &mut Ctx) {
-    if ctx.world.resource::<Settings>().paused {
-        return;
-    }
     let dt = ctx.dt();
     let commands = &mut ctx.commands;
     ctx.world
@@ -86,8 +80,15 @@ fn aging(ctx: &mut Ctx) {
 /// Frame system: input.
 fn controls(ctx: &mut Ctx) {
     if ctx.key_pressed(Key::Space) {
-        let s = ctx.world.resource_mut::<Settings>();
-        s.paused = !s.paused;
+        if ctx.is_paused() { ctx.resume() } else { ctx.pause() }
+    }
+    if ctx.key_pressed(Key::Period) {
+        ctx.step();
+    }
+    for (key, speed) in [(Key::Num1, 1.0), (Key::Num2, 4.0), (Key::Num3, 16.0), (Key::Num4, 64.0)] {
+        if ctx.key_pressed(key) {
+            ctx.set_sim_speed(speed);
+        }
     }
     if ctx.mouse_down(MouseButton::Left) {
         let at = ctx.mouse_pos();
@@ -108,7 +109,6 @@ fn main() {
         .run(|ctx| {
             let crab = ctx.load_texture("crab.png");
             ctx.world.insert_resource(Settings {
-                paused: false,
                 rng: 0x9E37_79B9_7F4A_7C15,
                 crab,
             });
@@ -122,7 +122,17 @@ fn main() {
             move |ctx: &mut Ctx| {
                 if ctx.time() >= next_report {
                     next_report += 1.0;
-                    println!("crabs: {:>6}  fps: {:>5.1}", ctx.world.len(), ctx.fps());
+                    let sim = if ctx.is_paused() {
+                        "paused".to_string()
+                    } else {
+                        format!("{}x", ctx.sim_speed())
+                    };
+                    println!(
+                        "crabs: {:>6}  fps: {:>5.1}  sim: {sim:>6}  tick: {}",
+                        ctx.world.len(),
+                        ctx.fps(),
+                        ctx.sim_tick()
+                    );
                 }
             }
         });

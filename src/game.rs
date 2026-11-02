@@ -11,11 +11,13 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::PhysicalKey;
 use winit::window::{Window, WindowId};
 
+use crabby_ecs::World;
+
 use crate::ctx::{Ctx, SystemTiming};
 use crate::ecs::draw_sprites;
 use crate::input::{Key, MouseButton};
 use crate::render::{FrameStatus, Renderer};
-use crate::time::{Clock, DEFAULT_FIXED_HZ};
+use crate::time::{Clock, DEFAULT_FIXED_HZ, FrameTiming};
 
 /// Trackpads report scrolling in pixels; this many logical pixels count as one
 /// wheel "notch" so `mouse_wheel()` means roughly the same on every device.
@@ -78,6 +80,20 @@ type SystemFn = Box<dyn FnMut(&mut Ctx)>;
 struct System {
     name: &'static str,
     run: SystemFn,
+}
+
+/// This frame's timing: the clock at the current sim speed (0 while
+/// paused), plus any single steps requested with `ctx.step()`.
+fn frame_timing(clock: &mut Clock, ctx: &mut Ctx, frame_dt: f64) -> FrameTiming {
+    let mut timing = clock.advance(frame_dt, ctx.effective_sim_speed());
+    timing.fixed_steps += ctx.take_pending_steps();
+    timing
+}
+
+fn end_timings(ctx: &mut Ctx) {
+    for t in &mut ctx.timings {
+        t.avg_ms += (t.last_ms - t.avg_ms) * 0.05;
+    }
 }
 
 /// Runs one system, applies its commands, and records how long both took.
@@ -237,9 +253,34 @@ impl Game {
     /// One frame of game logic: simulation systems `fixed_steps` times, then
     /// frame systems, then built-in drawing. Commands are applied after every system.
     fn run_systems(&mut self, ctx: &mut Ctx, fixed_steps: u32) {
+        self.begin_timings(ctx);
+        ctx.set_in_sim(true);
+        for _ in 0..fixed_steps {
+            self.run_sim_tick(ctx);
+        }
+        ctx.set_in_sim(false);
         let n_sim = self.sim_systems.len();
         let n_frame = self.systems.len();
-        if ctx.timings.len() != n_sim + n_frame + self.draw_systems.len() {
+        for (i, s) in self.systems.iter_mut().enumerate() {
+            run_one(s, ctx, n_sim + i);
+        }
+        for (i, s) in self.draw_systems.iter_mut().enumerate() {
+            run_one(s, ctx, n_sim + n_frame + i);
+        }
+        end_timings(ctx);
+    }
+
+    /// One simulation tick: every sim system once, then the tick counter.
+    fn run_sim_tick(&mut self, ctx: &mut Ctx) {
+        for (i, s) in self.sim_systems.iter_mut().enumerate() {
+            run_one(s, ctx, i);
+        }
+        ctx.advance_tick();
+    }
+
+    /// Makes sure there's one timing slot per system, and zeroes this frame's times.
+    fn begin_timings(&self, ctx: &mut Ctx) {
+        if ctx.timings.len() != self.sim_systems.len() + self.systems.len() + self.draw_systems.len() {
             ctx.timings = (self.sim_systems.iter().map(|s| (s, true)))
                 .chain(self.systems.iter().chain(&self.draw_systems).map(|s| (s, false)))
                 .map(|(s, sim)| SystemTiming {
@@ -253,24 +294,68 @@ impl Game {
         for t in &mut ctx.timings {
             t.last_ms = 0.0;
         }
+    }
 
-        ctx.set_in_sim(true);
-        for _ in 0..fixed_steps {
-            for (i, s) in self.sim_systems.iter_mut().enumerate() {
-                run_one(s, ctx, i);
+    /// Runs the simulation without a window or GPU, as fast as possible, and
+    /// returns the world when done. For dedicated servers, batch runs,
+    /// benchmarks, and testing game logic in plain `cargo test`.
+    ///
+    /// `setup` runs once, then `ticks` simulation ticks run (fewer if a
+    /// system calls `ctx.quit()`). Only **simulation systems** run: frame
+    /// systems, the closure returned by `setup`, and drawing need frames, and
+    /// there are none. Pause and sim speed are ignored. Textures still load
+    /// (for their sizes), but nothing is uploaded to a GPU.
+    ///
+    /// ```
+    /// use crabbyengine::*;
+    ///
+    /// struct Pos(f32);
+    ///
+    /// fn fall(ctx: &mut Ctx) {
+    ///     let dt = ctx.dt();
+    ///     ctx.world.query::<&mut Pos>().for_each(|p| p.0 -= 10.0 * dt);
+    /// }
+    ///
+    /// let mut world = Game::new("test", 800, 600)
+    ///     .sim_system(fall)
+    ///     .run_headless(60, |ctx| {
+    ///         ctx.world.spawn((Pos(100.0),));
+    ///     });
+    ///
+    /// // One simulated second at 10 units/s.
+    /// let y = world.query::<&Pos>().iter().next().unwrap().0;
+    /// assert!((y - 90.0).abs() < 1e-3);
+    /// ```
+    pub fn run_headless<S, U>(mut self, ticks: u64, setup: S) -> World
+    where
+        S: FnOnce(&mut Ctx) -> U,
+        U: SetupResult,
+    {
+        let fixed_dt = Clock::new(self.fixed_hz).fixed_dt();
+        let mut ctx = Ctx::new(fixed_dt, Vec2::new(self.width as f32, self.height as f32));
+        ctx.headless = true;
+        drop(setup(&mut ctx).into_frame_fn()); // no frames, so no frame closure
+        ctx.apply_commands();
+        ctx.discard_draws();
+
+        let timing = FrameTiming {
+            dt: fixed_dt as f32,
+            fixed_steps: 1,
+            alpha: 0.0,
+        };
+        for _ in 0..ticks {
+            if ctx.quit_requested() {
+                break;
             }
+            ctx.begin_frame(timing);
+            self.begin_timings(&mut ctx);
+            ctx.set_in_sim(true);
+            self.run_sim_tick(&mut ctx);
+            ctx.set_in_sim(false);
+            end_timings(&mut ctx);
+            ctx.discard_draws();
         }
-        ctx.set_in_sim(false);
-        for (i, s) in self.systems.iter_mut().enumerate() {
-            run_one(s, ctx, n_sim + i);
-        }
-        for (i, s) in self.draw_systems.iter_mut().enumerate() {
-            run_one(s, ctx, n_sim + n_frame + i);
-        }
-
-        for t in &mut ctx.timings {
-            t.avg_ms += (t.last_ms - t.avg_ms) * 0.05;
-        }
+        std::mem::take(&mut ctx.world)
     }
 
     /// Opens the window and runs the game until it is closed.
@@ -381,7 +466,7 @@ where
 
         #[cfg(feature = "profiling")]
         puffin::GlobalProfiler::lock().new_frame();
-        let timing = self.clock.advance(frame_dt);
+        let timing = frame_timing(&mut self.clock, &mut self.ctx, frame_dt);
         self.ctx.begin_frame(timing);
         self.config.run_systems(&mut self.ctx, timing.fixed_steps);
         self.ctx.input.end_frame();
@@ -596,6 +681,33 @@ mod tests {
     #[should_panic(expected = "no system")]
     fn removing_unknown_system_panics() {
         let _ = Game::new("t", 1, 1).remove_system(sim_a);
+    }
+
+    #[test]
+    fn pause_step_and_speed_shape_frame_timing() {
+        let mut clock = Clock::new(60);
+        let mut ctx = ctx();
+        let frame = 1.0 / 60.0;
+        ctx.pause();
+        assert_eq!(frame_timing(&mut clock, &mut ctx, frame).fixed_steps, 0);
+        ctx.step();
+        ctx.step();
+        assert_eq!(
+            frame_timing(&mut clock, &mut ctx, frame).fixed_steps,
+            2,
+            "two single steps while paused"
+        );
+        assert_eq!(
+            frame_timing(&mut clock, &mut ctx, frame).fixed_steps,
+            0,
+            "steps are used up"
+        );
+        ctx.resume();
+        ctx.set_sim_speed(4.0);
+        let steps: u32 = (0..60)
+            .map(|_| frame_timing(&mut clock, &mut ctx, frame).fixed_steps)
+            .sum();
+        assert!((239..=240).contains(&steps), "4x speed for one second, got {steps}");
     }
 
     #[test]

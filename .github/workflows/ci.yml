@@ -72,6 +72,7 @@ jobs:
           - ecs-parallel
           - ecs-without-parallel
           - engine
+          - engine-headless
           - doctests
           - bench
         include:
@@ -82,7 +83,8 @@ jobs:
           - { area: ecs-dynamic, args: -p crabby_ecs --test dynamic }
           - { area: ecs-parallel, args: -p crabby_ecs --test parallel }
           - { area: ecs-without-parallel, args: -p crabby_ecs --tests --no-default-features }
-          - { area: engine, args: -p crabbyengine --lib --tests }
+          - { area: engine, args: -p crabbyengine --lib }
+          - { area: engine-headless, args: -p crabbyengine --test headless }
           - { area: doctests, args: --workspace --doc }
           - { area: bench, args: -p crabby_bench }
     steps:
