@@ -23,6 +23,7 @@
 //! Everything you need comes in with `use crabbyengine::*;`.
 
 mod assets;
+mod audio;
 mod camera;
 mod color;
 mod control;
@@ -41,6 +42,7 @@ mod tilemap;
 mod time;
 mod ui;
 
+pub use audio::{Playing, Sound, SoundParams};
 pub use camera::{Camera2D, Rect, camera_controls};
 pub use color::Color;
 pub use ctx::{Ctx, SystemTiming, Turns};

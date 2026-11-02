@@ -43,8 +43,13 @@ jobs:
             args: --features profiling
           - name: ECS without parallel
             args: -p crabby_ecs --no-default-features
+          - name: engine without audio
+            args: -p crabbyengine --no-default-features
     steps:
       - uses: actions/checkout@v5
+      - name: Install ALSA headers (audio)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -75,6 +80,7 @@ jobs:
           - engine-headless
           - engine-ui
           - engine-tiles
+          - engine-audio
           - engine-spatial
           - engine-reflect
           - engine-control
@@ -94,6 +100,7 @@ jobs:
           - { area: engine-headless, args: -p crabbyengine --test headless }
           - { area: engine-ui, args: -p crabbyengine --test ui }
           - { area: engine-tiles, args: -p crabbyengine --test tiles }
+          - { area: engine-audio, args: -p crabbyengine --test audio }
           - { area: engine-spatial, args: -p crabbyengine --test spatial }
           - { area: engine-reflect, args: -p crabbyengine --test reflect }
           - { area: engine-control, args: -p crabbyengine --test control }
@@ -103,6 +110,9 @@ jobs:
           - { area: bench, args: -p crabby_bench }
     steps:
       - uses: actions/checkout@v5
+      - name: Install ALSA headers (audio)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -119,6 +129,9 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v5
+      - name: Install ALSA headers (audio)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --examples
@@ -128,6 +141,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - name: Install ALSA headers (audio)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo doc --workspace --no-deps

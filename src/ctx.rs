@@ -4,6 +4,7 @@ use crabby_ecs::{Commands, World};
 use glam::{Mat4, Vec2};
 
 use crate::assets;
+use crate::audio::Audio;
 use crate::camera::Camera2D;
 use crate::camera::Rect;
 use crate::color::Color;
@@ -156,6 +157,7 @@ pub struct Ctx {
     /// # }
     /// ```
     pub ui_style: UiStyle,
+    pub(crate) audio: Audio,
 }
 
 impl Ctx {
@@ -207,6 +209,7 @@ impl Ctx {
             ui: UiState::default(),
             ui_press_at: Vec2::splat(f32::NAN),
             ui_style: UiStyle::default(),
+            audio: Audio::default(),
             clear_color: Color::CRABBY_DARK,
         }
     }

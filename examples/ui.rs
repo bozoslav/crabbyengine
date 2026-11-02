@@ -3,13 +3,15 @@
 //!   `cargo run --release --example ui`
 //!
 //! - Right or middle mouse drag: pan. Scroll: zoom toward the mouse.
-//! - Left click in the world: drop a crab there (not when clicking the UI).
+//! - Left click in the world: drop a crab there, with a sound (not when
+//!   clicking the UI).
 //! - Buttons: follow the orbiting crab, reset the camera.
 
 use crabbyengine::*;
 
 struct Scene {
     crab: Texture,
+    plop: Sound,
     follow: bool,
     dropped: usize,
 }
@@ -50,6 +52,15 @@ fn scene(ctx: &mut Ctx) {
     if ctx.mouse_pressed(MouseButton::Left) && !ctx.mouse_over_ui() {
         let at = ctx.mouse_world();
         ctx.world.spawn((Transform2D::at(at), Sprite::new(crab)));
+        let plop = ctx.world.resource::<Scene>().plop;
+        let speed = 0.8 + ctx.random().stream(0).f32() * 0.4;
+        ctx.play_sound_ex(
+            &plop,
+            SoundParams {
+                speed,
+                ..Default::default()
+            },
+        );
         ctx.world.resource_mut::<Scene>().dropped += 1;
     }
 }
@@ -78,6 +89,19 @@ fn hud(ctx: &mut Ctx) {
 }
 // ANCHOR_END: hud
 
+/// A short falling tone, made in code so the example needs no sound file.
+fn plop(ctx: &mut Ctx) -> Sound {
+    let rate = 44_100;
+    let samples: Vec<f32> = (0..rate / 8)
+        .map(|i| {
+            let t = i as f32 / rate as f32;
+            let freq = 900.0 - t * 4000.0;
+            (t * freq * std::f32::consts::TAU).sin() * (1.0 - t * 8.0).max(0.0) * 0.25
+        })
+        .collect();
+    ctx.create_sound(rate, &samples)
+}
+
 fn main() {
     Game::new("Crabby Engine: camera, shapes, text, UI", 1280, 720)
         .system(camera_controls)
@@ -85,8 +109,10 @@ fn main() {
         .system(hud)
         .run(|ctx| {
             let crab = ctx.load_texture("crab.png");
+            let plop = plop(ctx);
             ctx.world.insert_resource(Scene {
                 crab,
+                plop,
                 follow: false,
                 dropped: 0,
             });
