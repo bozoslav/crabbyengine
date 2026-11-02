@@ -57,8 +57,12 @@ pub(crate) struct Renderer {
     pipeline: wgpu::RenderPipeline,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
+    /// Window-pixel projection for screen-space drawing (UI, text).
+    ui_camera_buffer: wgpu::Buffer,
+    ui_camera_bind_group: wgpu::BindGroup,
     texture_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
+    nearest_sampler: wgpu::Sampler,
     textures: Vec<GpuTexture>,
 
     instance_buffer: wgpu::Buffer,
@@ -74,10 +78,10 @@ pub(crate) struct Renderer {
 /// What one sprite pass draws with.
 struct SpritePass<'a> {
     pipeline: &'a wgpu::RenderPipeline,
-    camera: &'a wgpu::BindGroup,
     instances: &'a wgpu::Buffer,
     textures: &'a [GpuTexture],
-    batches: &'a [batch::Batch],
+    /// Camera, batches, and where the layer's instances start in `instances`.
+    layers: [(&'a wgpu::BindGroup, &'a [batch::Batch], u32); 2],
 }
 
 /// A captured frame: RGBA8 sRGB pixels, row by row from the top.
@@ -268,6 +272,7 @@ impl Renderer {
             2 => Float16x2, // pivot
             3 => Float32,   // rotation
             4 => Unorm8x4,  // color
+            5 => Unorm16x4, // uv: u0, v0, width, height
         ];
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("sprite pipeline"),
@@ -299,20 +304,25 @@ impl Renderer {
             cache: None,
         });
 
-        let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("camera"),
-            size: size_of::<Mat4>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("camera"),
-            layout: &camera_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: camera_buffer.as_entire_binding(),
-            }],
-        });
+        let camera = |label| {
+            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size: size_of::<Mat4>() as u64,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some(label),
+                layout: &camera_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: buffer.as_entire_binding(),
+                }],
+            });
+            (buffer, bind_group)
+        };
+        let (camera_buffer, camera_bind_group) = camera("camera");
+        let (ui_camera_buffer, ui_camera_bind_group) = camera("ui camera");
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("sprite sampler"),
@@ -321,6 +331,10 @@ impl Renderer {
             ..Default::default()
         });
 
+        let nearest_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("pixel art sampler"),
+            ..Default::default() // nearest
+        });
         let instance_buffer = Self::create_instance_buffer(&device, INITIAL_INSTANCE_CAPACITY);
         let timer = GpuTimer::new(&device, &queue);
 
@@ -334,8 +348,11 @@ impl Renderer {
             pipeline,
             camera_buffer,
             camera_bind_group,
+            ui_camera_buffer,
+            ui_camera_bind_group,
             texture_layout,
             sampler,
+            nearest_sampler,
             textures: Vec::new(),
             instance_buffer,
             instance_capacity: INITIAL_INSTANCE_CAPACITY,
@@ -434,6 +451,58 @@ impl Renderer {
         );
     }
 
+    /// Switches texture `id` between smooth and hard-edged sampling.
+    pub fn set_filter(&mut self, id: u32, nearest: bool) {
+        let tex = &mut self.textures[id as usize];
+        let view = tex.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        tex.bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("sprite texture"),
+            layout: &self.texture_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(if nearest {
+                        &self.nearest_sampler
+                    } else {
+                        &self.sampler
+                    }),
+                },
+            ],
+        });
+    }
+
+    /// Replaces a `width` × `height` block of texture `id` at `(x, y)`.
+    pub fn update_texture_region(&mut self, id: u32, at: [u32; 2], size: [u32; 2], rgba: &[u8]) {
+        debug_assert_eq!(rgba.len(), (size[0] * size[1] * 4) as usize);
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.textures[id as usize].texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: at[0],
+                    y: at[1],
+                    z: 0,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            rgba,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * size[0]),
+                rows_per_image: Some(size[1]),
+            },
+            wgpu::Extent3d {
+                width: size[0],
+                height: size[1],
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+
     /// Call when the window's physical size changes.
     pub fn resize(&mut self, width: u32, height: u32) {
         if width == 0 || height == 0 {
@@ -448,7 +517,15 @@ impl Renderer {
     ///
     /// With `capture`, the frame is also read back into `self.screenshot`
     /// (this waits for the GPU, so only do it when asked).
-    pub fn render(&mut self, list: &mut DrawList, clear: Color, view_proj: Mat4, capture: bool) -> FrameStatus {
+    pub fn render(
+        &mut self,
+        world: &mut DrawList,
+        ui: &mut DrawList,
+        clear: Color,
+        world_view: Mat4,
+        ui_view: Mat4,
+        capture: bool,
+    ) -> FrameStatus {
         // `None` when the window can't be drawn to right now; a requested
         // screenshot is still drawn (offscreen), so it never waits on the
         // window being visible.
@@ -484,20 +561,45 @@ impl Renderer {
         if let Some(timer) = &mut self.timer {
             timer.collect(&self.device);
         }
-        let (instances, batches) = list.finish();
-        self.stats.sprites = instances.len();
-        self.stats.draw_calls = batches.len();
+        let (world, world_batches) = world.finish();
+        let (ui, ui_batches) = ui.finish();
+        let total = world.len() + ui.len();
+        self.stats.sprites = total;
+        self.stats.draw_calls = world_batches.len() + ui_batches.len();
 
-        if instances.len() > self.instance_capacity {
-            self.instance_capacity = instances.len().next_power_of_two();
+        if total > self.instance_capacity {
+            self.instance_capacity = total.next_power_of_two();
             self.instance_buffer = Self::create_instance_buffer(&self.device, self.instance_capacity);
         }
-        if !instances.is_empty() {
+        if !world.is_empty() {
             self.queue
-                .write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(instances));
+                .write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(world));
         }
-        self.queue
-            .write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&view_proj.to_cols_array()));
+        if !ui.is_empty() {
+            let offset = std::mem::size_of_val(world) as u64;
+            self.queue
+                .write_buffer(&self.instance_buffer, offset, bytemuck::cast_slice(ui));
+        }
+        self.queue.write_buffer(
+            &self.camera_buffer,
+            0,
+            bytemuck::cast_slice(&world_view.to_cols_array()),
+        );
+        self.queue.write_buffer(
+            &self.ui_camera_buffer,
+            0,
+            bytemuck::cast_slice(&ui_view.to_cols_array()),
+        );
+        // World sprites first, then the UI on top.
+        let pass = SpritePass {
+            pipeline: &self.pipeline,
+            instances: &self.instance_buffer,
+            textures: &self.textures,
+            layers: [
+                (&self.camera_bind_group, world_batches, 0),
+                (&self.ui_camera_bind_group, ui_batches, world.len() as u32),
+            ],
+        };
 
         let mut encoder = self
             .device
@@ -505,38 +607,14 @@ impl Renderer {
         if let Some(frame) = &frame {
             let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
             let timestamps = self.timer.as_mut().and_then(GpuTimer::begin);
-            Self::sprite_pass(
-                &mut encoder,
-                &view,
-                clear,
-                timestamps,
-                &SpritePass {
-                    pipeline: &self.pipeline,
-                    camera: &self.camera_bind_group,
-                    instances: &self.instance_buffer,
-                    textures: &self.textures,
-                    batches: if instances.is_empty() { &[] } else { batches },
-                },
-            );
+            Self::sprite_pass(&mut encoder, &view, clear, timestamps, &pass);
         }
         // A screenshot draws the same sprites a second time, into a texture
         // that can be copied (the window's surface can't, on some GPUs).
         let capture = capture.then(|| {
             let target = Capture::new(&self.device, self.config.width, self.config.height, self.config.format);
             let target_view = target.texture.create_view(&wgpu::TextureViewDescriptor::default());
-            Self::sprite_pass(
-                &mut encoder,
-                &target_view,
-                clear,
-                None,
-                &SpritePass {
-                    pipeline: &self.pipeline,
-                    camera: &self.camera_bind_group,
-                    instances: &self.instance_buffer,
-                    textures: &self.textures,
-                    batches: if instances.is_empty() { &[] } else { batches },
-                },
-            );
+            Self::sprite_pass(&mut encoder, &target_view, clear, None, &pass);
             target.copy(&mut encoder);
             target
         });
@@ -582,15 +660,17 @@ impl Renderer {
             occlusion_query_set: None,
             multiview_mask: None,
         });
-        if p.batches.is_empty() {
+        if p.layers.iter().all(|(_, batches, _)| batches.is_empty()) {
             return;
         }
         pass.set_pipeline(p.pipeline);
-        pass.set_bind_group(0, p.camera, &[]);
         pass.set_vertex_buffer(0, p.instances.slice(..));
-        for batch in p.batches {
-            pass.set_bind_group(1, &p.textures[batch.texture as usize].bind_group, &[]);
-            pass.draw(0..6, batch.start..batch.end);
+        for (camera, batches, base) in &p.layers {
+            pass.set_bind_group(0, *camera, &[]);
+            for batch in *batches {
+                pass.set_bind_group(1, &p.textures[batch.texture as usize].bind_group, &[]);
+                pass.draw(0..6, base + batch.start..base + batch.end);
+            }
         }
     }
 }

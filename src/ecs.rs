@@ -3,6 +3,7 @@
 
 use glam::Vec2;
 
+use crate::camera::Rect;
 use crate::color::Color;
 use crate::ctx::Ctx;
 use crate::texture::Texture;
@@ -79,6 +80,9 @@ pub struct Sprite {
     pub z: f32,
     /// Point of the sprite placed at the position: `(0.5, 0.5)` = center (default).
     pub pivot: Vec2,
+    /// The part of the texture to show, in texture pixels (a frame of a
+    /// [`SpriteSheet`](crate::SpriteSheet)). `None` (default) shows all of it.
+    pub region: Option<Rect>,
 }
 
 impl Sprite {
@@ -89,6 +93,22 @@ impl Sprite {
             color: Color::WHITE,
             z: 0.0,
             pivot: Vec2::splat(0.5),
+            region: None,
+        }
+    }
+
+    /// Same sprite showing only `region` of its texture (texture pixels).
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn f(tiles: Texture) {
+    /// let grass = Sprite::new(tiles).with_region(Rect::new(16.0, 0.0, 16.0, 16.0));
+    /// # }
+    /// ```
+    pub fn with_region(self, region: Rect) -> Self {
+        Self {
+            region: Some(region),
+            ..self
         }
     }
 

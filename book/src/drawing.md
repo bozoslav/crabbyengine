@@ -36,7 +36,8 @@ ctx.draw_ex(&crab, vec2(200.0, 100.0), DrawParams {
 });
 ```
 
-Coordinates are window pixels, `(0, 0)` at the top-left.
+Coordinates are world units, which are window pixels (`(0, 0)` at the
+top-left) until you move the camera; see [Camera, text and UI](camera-ui.md).
 
 ## Textures
 

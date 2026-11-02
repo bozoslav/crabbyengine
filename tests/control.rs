@@ -139,6 +139,18 @@ fn a_paused_headless_game_is_driven_over_tcp() {
 
     let info = c.call("info", json!({})).unwrap();
     assert!(info["render"].is_null(), "headless games draw nothing");
+    let cam = c
+        .call("camera.set", json!({ "zoom": 2.0, "look_at": [100.0, 50.0] }))
+        .unwrap();
+    assert_eq!(cam["zoom"], 2.0);
+    assert_eq!(cam["center"], json!([100.0, 50.0]));
+    assert_eq!(c.call("camera.get", json!({})).unwrap(), cam);
+    assert!(
+        c.call("camera.set", json!({ "zoom": -1 }))
+            .unwrap_err()
+            .contains("positive")
+    );
+
     let err = c.call("screenshot", json!({})).unwrap_err();
     assert!(err.contains("no window"), "{err}");
 

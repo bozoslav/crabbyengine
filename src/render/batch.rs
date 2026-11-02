@@ -7,8 +7,8 @@
 
 use bytemuck::{Pod, Zeroable};
 
-/// One sprite as the GPU sees it (one instance of a 6-vertex quad): 28
-/// bytes, so a million sprites upload 28 MB per frame.
+/// One sprite as the GPU sees it (one instance of a 6-vertex quad): 36
+/// bytes, so a million sprites upload 36 MB per frame.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub(crate) struct SpriteInstance {
@@ -23,6 +23,18 @@ pub(crate) struct SpriteInstance {
     pub rotation: f32,
     /// sRGB tint, 8 bits per channel.
     pub color: [u8; 4],
+    /// The part of the texture to show, `u0, v0, width, height`, in
+    /// 1/65535ths of the texture (unorm16). Full texture by default.
+    pub uv: [u16; 4],
+}
+
+/// The whole texture, as `SpriteInstance::uv`.
+pub(crate) const FULL_UV: [u16; 4] = [0, 0, u16::MAX, u16::MAX];
+
+/// A texture region in 0..1 coordinates as `SpriteInstance::uv`.
+pub(crate) fn uv_region(min: [f32; 2], size: [f32; 2]) -> [u16; 4] {
+    let q = |x: f32| (x.clamp(0.0, 1.0) * 65535.0).round() as u16;
+    [q(min[0]), q(min[1]), q(size[0]), q(size[1])]
 }
 
 impl SpriteInstance {
@@ -42,7 +54,15 @@ impl SpriteInstance {
             pivot,
             rotation,
             color,
+            uv: FULL_UV,
         }
+    }
+
+    /// The same sprite showing only part of its texture.
+    #[inline]
+    pub fn with_uv(mut self, uv: [u16; 4]) -> Self {
+        self.uv = uv;
+        self
     }
 }
 
@@ -327,8 +347,14 @@ mod tests {
     }
 
     #[test]
-    fn instances_are_28_bytes() {
-        assert_eq!(size_of::<SpriteInstance>(), 28);
+    fn instances_are_36_bytes() {
+        assert_eq!(size_of::<SpriteInstance>(), 36);
+    }
+
+    #[test]
+    fn uv_regions_quantize_to_unorm16() {
+        assert_eq!(uv_region([0.0, 0.0], [1.0, 1.0]), FULL_UV);
+        assert_eq!(uv_region([0.5, 0.25], [0.25, 2.0]), [32768, 16384, 16384, 65535]);
     }
 
     #[test]

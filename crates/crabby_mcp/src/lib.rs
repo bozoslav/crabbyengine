@@ -294,6 +294,19 @@ fn tools() -> Vec<Tool> {
             required: &[],
         },
         Tool {
+            name: "set_camera",
+            description: "Move a game's camera, e.g. before a screenshot: look_at centers a world point, zoom scales (2 = twice as big), position sets the world point at the window's top-left. With no arguments, just returns the camera.",
+            writes: false,
+            params: || {
+                json!({
+                    "look_at": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2, "description": "World point to center, [x, y]" },
+                    "zoom": { "type": "number", "exclusiveMinimum": 0, "description": "Window pixels per world unit" },
+                    "position": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2, "description": "World point at the top-left, [x, y]" }
+                })
+            },
+            required: &[],
+        },
+        Tool {
             name: "run_ticks",
             description: "Run exactly N simulation ticks (the game should be paused) and wait for them to finish. Returns the new status. Use it to advance a simulation step by step and check results.",
             writes: true,
@@ -560,6 +573,9 @@ impl Server {
             "get_entity" => self.instance(args)?.call("entity.get", pass(&["entity"])),
             "system_timings" => self.instance(args)?.call("systems.timings", json!({})),
             "read_logs" => self.read_logs(args),
+            "set_camera" => self
+                .instance(args)?
+                .call("camera.set", pass(&["position", "zoom", "look_at"])),
             "launch" => self.launch(args),
             "run_ticks" => self.run_ticks(args),
             "pause" => self.instance(args)?.call("sim.pause", json!({})),

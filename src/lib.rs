@@ -23,6 +23,8 @@
 //! Everything you need comes in with `use crabbyengine::*;`.
 
 mod assets;
+mod audio;
+mod camera;
 mod color;
 mod control;
 mod ctx;
@@ -32,10 +34,16 @@ mod input;
 mod random;
 mod reflect;
 mod render;
+mod sheet;
 mod spatial;
+mod text;
 mod texture;
+mod tilemap;
 mod time;
+mod ui;
 
+pub use audio::{Playing, Sound, SoundParams};
+pub use camera::{Camera2D, Rect, camera_controls};
 pub use color::Color;
 pub use ctx::{Ctx, SystemTiming, Turns};
 pub use ecs::{Sprite, Transform2D, draw_sprites};
@@ -44,8 +52,12 @@ pub use input::{Key, MouseButton};
 pub use random::{DEFAULT_SEED, Random, Rng};
 pub use reflect::{ReflectError, WorldReflect};
 pub use render::RenderStats;
+pub use sheet::{Animation, SpriteSheet, animate_sprites};
 pub use spatial::{GridEntry, SPATIAL_SORT_EVERY, SpatialGrid, rebuild_spatial_grid, spatial_key};
-pub use texture::{DrawParams, Texture};
+pub use text::{Font, TextParams};
+pub use texture::{DrawParams, Texture, TextureFilter};
+pub use tilemap::{TileMap, draw_tilemaps};
+pub use ui::UiStyle;
 
 /// The ECS: entities, components, queries, resources, commands.
 pub use crabby_ecs::{Commands, Component, Entity, Query, World};
@@ -53,6 +65,8 @@ pub use crabby_ecs::{Commands, Component, Entity, Query, World};
 /// The full ECS crate, for advanced use (C path, chunks, archetypes).
 pub use crabby_ecs as ecs_core;
 
+/// Whole-number 2D vector, for tile coordinates (re-exported from `glam`).
+pub use glam::{UVec2, uvec2};
 /// 2D vector used for positions, sizes and velocities (re-exported from `glam`).
 pub use glam::{Vec2, vec2};
 

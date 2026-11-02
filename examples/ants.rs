@@ -8,6 +8,8 @@
 //!   `HEADLESS=1 ANTS=1000000 TICKS=600 cargo run --release --example ants`
 //!   `SEED=7 ...` picks a different (but reproducible) world.
 //!
+//! Mouse: drag with the right button to pan, scroll to zoom. The panel has
+//! pause and speed buttons.
 //! Keys: Space pause, Period single step, 1-4 speed (1x/4x/16x/64x), Escape quit.
 //!
 //! Shows: the built-in spatial grid (finding food and nests), a field shared
@@ -409,22 +411,50 @@ fn controls(ctx: &mut Ctx) {
     }
 }
 
+/// Colony stats and sim controls, in a panel on top of the world.
+fn hud(ctx: &mut Ctx) {
+    let ants = ctx.world.query::<&Ant>().count();
+    let nests = ctx.world.query::<&Nest>().count();
+    let food = delivered(&mut ctx.world);
+    let panel = Rect::new(12.0, 12.0, 260.0, 156.0);
+    ctx.ui_panel(panel);
+    let mut at = panel.min + ctx.ui_style.padding;
+    let speed = if ctx.is_paused() {
+        "paused".to_string()
+    } else {
+        format!("{}x", ctx.sim_speed())
+    };
+    let stats = format!(
+        "{ants} ants in {nests} colonies\n{food} food delivered\nspeed {speed}, {:.0} FPS",
+        ctx.fps()
+    );
+    at.y += ctx.ui_label(at, &stats).y + 8.0;
+    let pause = if ctx.is_paused() { "Run" } else { "Pause" };
+    if ctx.ui_button(Rect::new(at.x, at.y, 72.0, 30.0), pause) {
+        if ctx.is_paused() { ctx.resume() } else { ctx.pause() }
+    }
+    for (i, speed) in [1.0f32, 4.0, 16.0].into_iter().enumerate() {
+        let r = Rect::new(at.x + 80.0 + i as f32 * 54.0, at.y, 48.0, 30.0);
+        if ctx.ui_button(r, &format!("{speed}x")) {
+            ctx.set_sim_speed(speed);
+            ctx.resume();
+        }
+    }
+}
+
 /// Draws the pheromone field (one texture, updated every frame), the food
 /// piles and the nests. Ants are sprites, drawn by the engine.
 fn draw_world(bounds: Vec2) -> impl FnMut(&mut Ctx) {
     let mut pixels = Vec::new();
-    let mut textures = None;
+    let mut dots: Vec<(Vec2, f32, Color)> = Vec::new();
+    let mut field_texture = None;
     move |ctx: &mut Ctx| {
         let (w, h) = {
             let f = ctx.world.resource::<Field>();
             (f.w, f.h)
         };
-        let (field_tex, dot) = *textures.get_or_insert_with(|| {
-            (
-                ctx.create_texture(w as u32, h as u32, &vec![0; w * h * 4]),
-                ctx.create_texture(1, 1, &[255; 4]),
-            )
-        });
+        let field_tex =
+            *field_texture.get_or_insert_with(|| ctx.create_texture(w as u32, h as u32, &vec![0; w * h * 4]));
         let field = ctx.world.resource::<Field>();
         pixels.clear();
         pixels.extend(field.to_food.iter().zip(&field.to_home).flat_map(|(&food, &home)| {
@@ -445,24 +475,15 @@ fn draw_world(bounds: Vec2) -> impl FnMut(&mut Ctx) {
             },
         );
 
-        let mut dots: Vec<(Vec2, f32, Color, f32)> = Vec::new();
+        dots.clear();
         ctx.world.query::<(&Transform2D, &Food)>().for_each(|(t, f)| {
-            dots.push((t.position, 4.0 + (f.amount as f32).sqrt(), Color::hex(0x7BD389), 1.0));
+            dots.push((t.position, 2.0 + (f.amount as f32).sqrt() / 2.0, Color::hex(0x7BD389)));
         });
         ctx.world.query::<(&Transform2D, &Nest)>().for_each(|(t, _)| {
-            dots.push((t.position, NEST_RADIUS * 2.0, Color::hex(0x8E5A3C), 2.0));
+            dots.push((t.position, NEST_RADIUS, Color::hex(0x8E5A3C)));
         });
-        for (p, size, color, z) in dots {
-            ctx.draw_ex(
-                &dot,
-                p,
-                DrawParams {
-                    scale: Vec2::splat(size),
-                    color,
-                    z,
-                    ..Default::default()
-                },
-            );
+        for &(p, radius, color) in &dots {
+            ctx.draw_circle(p, radius, color);
         }
     }
 }
@@ -495,10 +516,16 @@ fn main() {
 
     colonies(Game::new("Crabby Engine: ants", 1280, 720).seed(seed), bounds)
         .system(controls)
+        .system(camera_controls)
         .system(draw_world(bounds))
+        .system(hud)
         .run(move |ctx| {
             let sprite = ctx.create_texture(3, 2, &[255; 3 * 2 * 4]);
             setup(ctx, bounds, ants, Some(sprite));
+            // Start with the whole world in view.
+            let fit = ctx.window_size() / bounds;
+            ctx.camera.zoom = fit.x.min(fit.y);
+            ctx.camera.look_at(bounds / 2.0);
             let mut next = 1.0;
             move |ctx: &mut Ctx| {
                 if ctx.time() >= next {

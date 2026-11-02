@@ -65,6 +65,17 @@ impl Texture {
     }
 }
 
+/// How a texture looks when drawn bigger or smaller than its pixels:
+/// [`Ctx::set_texture_filter`](crate::Ctx::set_texture_filter).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TextureFilter {
+    /// Smooth blending between pixels (default): photos, painted art.
+    #[default]
+    Linear,
+    /// Hard pixel edges: pixel art and tiles (no seams between tiles).
+    Nearest,
+}
+
 /// Optional settings for [`Ctx::draw_ex`](crate::Ctx::draw_ex).
 /// Start from `DrawParams::default()` and change what you need.
 ///
@@ -93,6 +104,12 @@ pub struct DrawParams {
     /// Which point of the sprite sits at the draw position and is rotated
     /// around: `(0, 0)` top-left, `(0.5, 0.5)` center (default), `(1, 1)` bottom-right.
     pub pivot: Vec2,
+    /// Draw in window pixels, ignoring the camera, on top of the world:
+    /// for UI and HUDs. Default `false` (world units, through the camera).
+    pub screen: bool,
+    /// The part of the texture to draw, in texture pixels (a frame of a
+    /// [`SpriteSheet`](crate::SpriteSheet)). Default `None`: all of it.
+    pub region: Option<crate::Rect>,
 }
 
 impl Default for DrawParams {
@@ -103,6 +120,8 @@ impl Default for DrawParams {
             color: Color::WHITE,
             z: 0.0,
             pivot: Vec2::splat(0.5),
+            screen: false,
+            region: None,
         }
     }
 }

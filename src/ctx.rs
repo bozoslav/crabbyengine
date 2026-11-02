@@ -4,14 +4,20 @@ use crabby_ecs::{Commands, World};
 use glam::{Mat4, Vec2};
 
 use crate::assets;
+use crate::audio::Audio;
+use crate::camera::Camera2D;
+use crate::camera::Rect;
 use crate::color::Color;
 use crate::ecs::{Sprite, Transform2D};
 use crate::input::{Input, Key, MouseButton};
 use crate::render::batch::{DrawList, SpriteInstance};
+use crate::render::batch::{FULL_UV, uv_region};
 use crate::render::{FrameStatus, RenderStats, Renderer, Screenshot};
 use crate::spatial::SpatialGrid;
-use crate::texture::{DrawParams, Texture};
+use crate::text::{Font, Text, TextParams};
+use crate::texture::{DrawParams, Texture, TextureFilter};
 use crate::time::FrameTiming;
+use crate::ui::{UiState, UiStyle};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
@@ -118,8 +124,40 @@ pub struct Ctx {
     pub(crate) renderer: Option<Renderer>,
     /// Screenshots waiting for the next drawn frame.
     screenshots: Vec<ScreenshotRequest>,
-    draw_list: DrawList,
+    /// World-space sprites (through the camera).
+    pub(crate) draw_list: DrawList,
+    /// Screen-space sprites and text, drawn on top.
+    pub(crate) ui_list: DrawList,
     clear_color: Color,
+    /// Which part of the world the window shows. Move it, zoom it, or make
+    /// it follow something; see [`Camera2D`].
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// ctx.camera.zoom = 2.0;
+    /// ctx.camera.look_at(vec2(1000.0, 1000.0));
+    /// # }
+    /// ```
+    pub camera: Camera2D,
+    text: Text,
+    /// The glyph atlas, created on the first `draw_text`.
+    font_atlas: Option<Texture>,
+    /// Physical pixels per window pixel (2 on most Retina screens).
+    scale_factor: f32,
+    pub(crate) ui: UiState,
+    /// Where the left mouse button last went down, for button clicks.
+    pub(crate) ui_press_at: Vec2,
+    /// Colors and sizes of [`ui_button`](Self::ui_button) and friends.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn setup(ctx: &mut Ctx) {
+    /// ctx.ui_style.text_size = 20.0;
+    /// # }
+    /// ```
+    pub ui_style: UiStyle,
+    pub(crate) audio: Audio,
 }
 
 impl Ctx {
@@ -163,6 +201,15 @@ impl Ctx {
             renderer: None,
             screenshots: Vec::new(),
             draw_list: DrawList::default(),
+            ui_list: DrawList::default(),
+            camera: Camera2D::new(window_size),
+            text: Text::new(),
+            font_atlas: None,
+            scale_factor: 1.0,
+            ui: UiState::default(),
+            ui_press_at: Vec2::splat(f32::NAN),
+            ui_style: UiStyle::default(),
+            audio: Audio::default(),
             clear_color: Color::CRABBY_DARK,
         }
     }
@@ -171,13 +218,18 @@ impl Ctx {
     pub(crate) fn render_frame(&mut self) -> FrameStatus {
         let capture = !self.screenshots.is_empty();
         let status = match self.renderer.as_mut() {
-            Some(renderer) => {
-                let view_proj = screen_projection(self.window_size);
-                renderer.render(&mut self.draw_list, self.clear_color, view_proj, capture)
-            }
+            Some(renderer) => renderer.render(
+                &mut self.draw_list,
+                &mut self.ui_list,
+                self.clear_color,
+                self.camera.view_proj(),
+                screen_projection(self.window_size),
+                capture,
+            ),
             None => FrameStatus::Skipped,
         };
         self.draw_list.clear();
+        self.ui_list.clear();
         if let Some(shot) = self.renderer.as_mut().and_then(|r| r.screenshot.take()) {
             for req in self.screenshots.drain(..) {
                 let result = save_png(&req.path, &shot, req.max_size);
@@ -216,6 +268,8 @@ impl Ctx {
         self.timing = timing;
         self.time += f64::from(timing.dt);
         self.frame += 1;
+        self.text.begin_frame();
+        self.ui.begin_frame();
         if timing.dt > 0.0 {
             let instant = 1.0 / timing.dt;
             // Exponential smoothing so the number is readable, seeded by the first sample.
@@ -227,8 +281,13 @@ impl Ctx {
         }
     }
 
+    pub(crate) fn set_scale_factor(&mut self, scale: f32) {
+        self.scale_factor = scale.max(0.25);
+    }
+
     pub(crate) fn set_window_size(&mut self, size: Vec2) {
         self.window_size = size;
+        self.camera.set_viewport(size);
     }
 
     pub(crate) fn quit_requested(&self) -> bool {
@@ -377,6 +436,7 @@ impl Ctx {
     /// Engine side: forget queued draws (headless runs never render).
     pub(crate) fn discard_draws(&mut self) {
         self.draw_list.clear();
+        self.ui_list.clear();
     }
 
     pub(crate) fn set_sim_steps(&mut self, steps: u32) {
@@ -463,13 +523,15 @@ impl Ctx {
         /// Below this many sprites, one thread is faster than many.
         const PARALLEL_MIN: usize = 20_000;
         fn instance(t: &Transform2D, s: &Sprite) -> SpriteInstance {
+            let (size, uv) = region(&s.texture, s.region);
             SpriteInstance::new(
                 t.position.into(),
-                (s.texture.size() * t.scale).into(),
+                (size * t.scale).into(),
                 s.pivot.into(),
                 t.rotation,
                 s.color.to_rgba8(),
             )
+            .with_uv(uv)
         }
         let draw_list = &mut self.draw_list;
         let mut query = self.world.query::<(&Transform2D, &Sprite)>();
@@ -501,7 +563,8 @@ impl Ctx {
         self.clear_color = color;
     }
 
-    /// Draws `texture` centered at `pos` (window pixels, `(0, 0)` = top-left).
+    /// Draws `texture` centered at `pos`, in world units (window pixels until
+    /// you move or zoom [`camera`](Self::camera)).
     ///
     /// Drawing is cheap: calls are collected and sent to the GPU in big
     /// batches at the end of the frame. Call it every frame for everything
@@ -518,11 +581,12 @@ impl Ctx {
             &mut self.draw_list,
             texture,
             pos,
-            texture.size(),
+            Vec2::ONE,
             0.0,
             0.0,
             Vec2::splat(0.5),
             [255; 4],
+            None,
         );
     }
 
@@ -541,15 +605,165 @@ impl Ctx {
     /// ```
     pub fn draw_ex(&mut self, texture: &Texture, pos: Vec2, params: DrawParams) {
         push_sprite(
-            &mut self.draw_list,
+            if params.screen {
+                &mut self.ui_list
+            } else {
+                &mut self.draw_list
+            },
             texture,
             pos,
-            texture.size() * params.scale,
+            params.scale,
             params.rotation,
             params.z,
             params.pivot,
             params.color.to_rgba8(),
+            params.region,
         );
+    }
+
+    /// Draws `text` with its top-left corner at `pos`, in window pixels (on
+    /// top of the world, ignoring the camera). `size` is the line height in
+    /// pixels. `\n` starts a new line.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn hud(ctx: &mut Ctx) {
+    /// let fps = ctx.fps();
+    /// ctx.draw_text(&format!("{fps:.0} FPS"), vec2(10.0, 10.0), 18.0, Color::WHITE);
+    /// # }
+    /// ```
+    pub fn draw_text(&mut self, text: &str, pos: Vec2, size: f32, color: Color) {
+        self.draw_text_ex(
+            text,
+            pos,
+            TextParams {
+                size,
+                color,
+                ..Default::default()
+            },
+        );
+    }
+
+    /// [`draw_text`](Self::draw_text) with a font and draw order.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn hud(ctx: &mut Ctx, title: Font) {
+    /// ctx.draw_text_ex("Colony", vec2(20.0, 20.0), TextParams {
+    ///     font: title,
+    ///     size: 40.0,
+    ///     z: 1.0,
+    ///     ..Default::default()
+    /// });
+    /// # }
+    /// ```
+    pub fn draw_text_ex(&mut self, text: &str, pos: Vec2, params: TextParams) {
+        if self.headless || text.is_empty() {
+            return;
+        }
+        let atlas = match self.font_atlas {
+            Some(t) => t,
+            None => {
+                let side = Text::ATLAS_SIZE;
+                let t = self.create_texture(side, side, &vec![0; (side * side * 4) as usize]);
+                self.font_atlas = Some(t);
+                t
+            }
+        };
+        let scale = self.scale_factor;
+        self.text.layout(text, params.font, params.size * scale, true);
+        if !self.text.uploads.is_empty()
+            && let Some(renderer) = self.renderer.as_mut()
+        {
+            for (at, size, rgba) in self.text.uploads.drain(..) {
+                renderer.update_texture_region(atlas.id, at, size, &rgba);
+            }
+        }
+        let side = Text::ATLAS_SIZE as f32;
+        let color = params.color.to_rgba8();
+        for p in self.text.placed() {
+            let Some(at) = p.glyph.at else { continue };
+            let size = Vec2::new(p.glyph.size[0] as f32, p.glyph.size[1] as f32);
+            let uv = uv_region([at[0] as f32 / side, at[1] as f32 / side], (size / side).into());
+            self.ui_list.push(
+                atlas.id,
+                params.z,
+                SpriteInstance::new(
+                    (pos + p.pos / scale).into(),
+                    (size / scale).into(),
+                    [0.0, 0.0],
+                    0.0,
+                    color,
+                )
+                .with_uv(uv),
+            );
+        }
+    }
+
+    /// The size `text` would take with [`draw_text`](Self::draw_text) at
+    /// `size`, in window pixels. Works headless too.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn centered(ctx: &mut Ctx) {
+    /// let label = "Paused";
+    /// let size = ctx.measure_text(label, 32.0);
+    /// let at = (ctx.window_size() - size) / 2.0;
+    /// ctx.draw_text(label, at, 32.0, Color::WHITE);
+    /// # }
+    /// ```
+    pub fn measure_text(&mut self, text: &str, size: f32) -> Vec2 {
+        self.measure_text_ex(text, Font::DEFAULT, size)
+    }
+
+    /// [`measure_text`](Self::measure_text) for another font.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx, title: Font) {
+    /// let width = ctx.measure_text_ex("Colony", title, 40.0).x;
+    /// # }
+    /// ```
+    pub fn measure_text_ex(&mut self, text: &str, font: Font, size: f32) -> Vec2 {
+        let scale = self.scale_factor;
+        self.text.layout(text, font, size * scale, false) / scale
+    }
+
+    /// Sets how `texture` is sampled. Use [`TextureFilter::Nearest`] for pixel
+    /// art and tilesets; the default is smooth.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn setup(ctx: &mut Ctx) {
+    /// let tiles = ctx.load_texture("crab.png");
+    /// ctx.set_texture_filter(&tiles, TextureFilter::Nearest);
+    /// # }
+    /// ```
+    pub fn set_texture_filter(&mut self, texture: &Texture, filter: TextureFilter) {
+        if let Some(r) = self.renderer.as_mut() {
+            r.set_filter(texture.id, filter == TextureFilter::Nearest);
+        }
+    }
+
+    /// Loads a TrueType or OpenType font from the `assets/` folder.
+    ///
+    /// # Panics
+    /// With a clear message if the file is missing or isn't a font.
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// # fn setup(ctx: &mut Ctx) {
+    /// let title = ctx.load_font("fonts/Title.ttf");
+    /// # let _ = title;
+    /// # }
+    /// ```
+    pub fn load_font(&mut self, path: &str) -> Font {
+        let file = assets::resolve(path).unwrap_or_else(|e| panic!("crabbyengine: {e}"));
+        let bytes =
+            std::fs::read(&file).unwrap_or_else(|e| panic!("crabbyengine: could not read {}: {e}", file.display()));
+        self.text
+            .add_font(&bytes)
+            .unwrap_or_else(|e| panic!("crabbyengine: {}: {e}", file.display()))
     }
 
     /// Loads an image from the `assets/` folder (PNG for now).
@@ -657,7 +871,7 @@ impl Ctx {
     /// # }
     /// ```
     pub fn sprite_count(&self) -> usize {
-        self.draw_list.len()
+        self.draw_list.len() + self.ui_list.len()
     }
 
     /// What drawing the previous frame cost: sprites, draw calls, CPU time
@@ -893,6 +1107,21 @@ impl Ctx {
         self.input.mouse_pos()
     }
 
+    /// The world point under the mouse: [`mouse_pos`](Self::mouse_pos)
+    /// through the [`camera`](Self::camera).
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// if ctx.mouse_pressed(MouseButton::Left) {
+    ///     println!("clicked the world at {}", ctx.mouse_world());
+    /// }
+    /// # }
+    /// ```
+    pub fn mouse_world(&self) -> Vec2 {
+        self.camera.screen_to_world(self.mouse_pos())
+    }
+
     /// How far the mouse moved since the previous frame, in window pixels.
     ///
     /// ```
@@ -982,17 +1211,31 @@ fn push_sprite(
     draw_list: &mut DrawList,
     texture: &Texture,
     pos: Vec2,
-    size: Vec2,
+    scale: Vec2,
     rotation: f32,
     z: f32,
     pivot: Vec2,
     color: [u8; 4],
+    region_px: Option<Rect>,
 ) {
+    let (size, uv) = region(texture, region_px);
     draw_list.push(
         texture.id,
         z,
-        SpriteInstance::new(pos.into(), size.into(), pivot.into(), rotation, color),
+        SpriteInstance::new(pos.into(), (size * scale).into(), pivot.into(), rotation, color).with_uv(uv),
     );
+}
+
+/// The drawn size (texture pixels) and UV of `region` of `texture`.
+#[inline]
+pub(crate) fn region(texture: &Texture, region: Option<Rect>) -> (Vec2, [u16; 4]) {
+    match region {
+        None => (texture.size(), FULL_UV),
+        Some(r) => {
+            let t = texture.size().max(Vec2::ONE);
+            (r.size(), uv_region((r.min / t).into(), (r.size() / t).into()))
+        }
+    }
 }
 
 /// Which entities update this tick, from [`Ctx::turns`].
