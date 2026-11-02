@@ -24,6 +24,7 @@
 
 mod assets;
 mod color;
+mod control;
 mod ctx;
 mod ecs;
 mod game;

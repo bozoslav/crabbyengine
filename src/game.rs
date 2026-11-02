@@ -13,6 +13,7 @@ use winit::window::{Window, WindowId};
 
 use crabby_ecs::World;
 
+use crate::control::{self, Control};
 use crate::ctx::{Ctx, SystemTiming};
 use crate::ecs::draw_sprites;
 use crate::input::{Key, MouseButton};
@@ -75,6 +76,8 @@ pub struct Game {
     draw_systems: Vec<System>,
     /// Cell size from `spatial_grid`, applied to `ctx.spatial` when the game starts.
     spatial_cell: Option<f32>,
+    /// Open the control endpoint (also on with `CRABBY_CONTROL=1`).
+    control: bool,
 }
 
 type SystemFn = Box<dyn FnMut(&mut Ctx)>;
@@ -159,6 +162,7 @@ impl Game {
             systems: Vec::new(),
             draw_systems: vec![System::new(draw_sprites)],
             spatial_cell: None,
+            control: control::env_flag(control::ENV_CONTROL),
         }
     }
 
@@ -245,6 +249,46 @@ impl Game {
         self
     }
 
+    /// Opens the control endpoint, so tools such as the `crabby-mcp` agent
+    /// bridge can inspect and drive this game while it runs: list and edit
+    /// entities (through [reflection](crate::WorldReflect)), pause, step,
+    /// change speed, read system timings.
+    ///
+    /// It listens on `127.0.0.1` only, and every request must carry a random
+    /// token written to the instance registry (`~/.crabby/instances`),
+    /// which only your user can read. Off by default; setting the
+    /// environment variable `CRABBY_CONTROL=1` turns it on without code
+    /// changes, and `CRABBY_START_PAUSED=1` starts the simulation paused.
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// Game::new("Colony", 1280, 720).control_endpoint(true).run(|_| {});
+    /// ```
+    pub fn control_endpoint(mut self, on: bool) -> Self {
+        self.control = on;
+        self
+    }
+
+    /// Starts the control endpoint if it's enabled, and applies `CRABBY_START_PAUSED`.
+    fn start_control(&self, ctx: &mut Ctx, headless: bool) -> Option<Control> {
+        if control::env_flag(control::ENV_START_PAUSED) {
+            ctx.pause();
+        }
+        if !self.control {
+            return None;
+        }
+        match Control::start(&self.title, headless) {
+            Ok(c) => {
+                ctx.control_addr = Some(c.addr());
+                Some(c)
+            }
+            Err(e) => {
+                eprintln!("crabbyengine: could not open the control endpoint: {e}");
+                None
+            }
+        }
+    }
+
     /// Sets how many fixed updates run per second (default 60).
     /// See [`Ctx::fixed_steps`].
     ///
@@ -327,8 +371,10 @@ impl Game {
     /// `setup` runs once, then `ticks` simulation ticks run (fewer if a
     /// system calls `ctx.quit()`). Only **simulation systems** run: frame
     /// systems, the closure returned by `setup`, and drawing need frames, and
-    /// there are none. Pause and sim speed are ignored. Textures still load
-    /// (for their sizes), but nothing is uploaded to a GPU.
+    /// there are none. Sim speed is ignored, and so is pause unless the
+    /// [control endpoint](Self::control_endpoint) is on: then a paused game
+    /// waits for tools to step or resume it. Textures still load (for their
+    /// sizes), but nothing is uploaded to a GPU.
     ///
     /// ```
     /// use crabbyengine::*;
@@ -361,6 +407,7 @@ impl Game {
         if let Some(cell) = self.spatial_cell {
             ctx.spatial = crate::SpatialGrid::new(cell);
         }
+        let control = self.start_control(&mut ctx, true);
         drop(setup(&mut ctx).into_frame_fn()); // no frames, so no frame closure
         ctx.apply_commands();
         ctx.discard_draws();
@@ -370,10 +417,20 @@ impl Game {
             fixed_steps: 1,
             alpha: 0.0,
         };
-        for _ in 0..ticks {
-            if ctx.quit_requested() {
-                break;
+        let mut ran = 0;
+        while ran < ticks && !ctx.quit_requested() {
+            if let Some(control) = &control {
+                control.poll(&mut ctx);
+                if ctx.quit_requested() {
+                    break;
+                }
+                // A paused game runs only the ticks tools ask for.
+                if ctx.is_paused() && !ctx.take_one_step() {
+                    control.wait(&mut ctx, Duration::from_millis(50));
+                    continue;
+                }
             }
+            ran += 1;
             ctx.begin_frame(timing);
             self.begin_timings(&mut ctx);
             ctx.set_in_sim(true);
@@ -428,7 +485,9 @@ impl Game {
         if let Some(cell) = self.spatial_cell {
             ctx.spatial = crate::SpatialGrid::new(cell);
         }
+        let control = self.start_control(&mut ctx, false);
         let mut app = App {
+            control,
             config: self,
             setup: Some(setup),
             started: false,
@@ -463,6 +522,8 @@ fn start_profiler() -> Option<puffin_http::Server> {
 }
 
 struct App<S> {
+    /// Kept for the whole run: dropping it closes the endpoint.
+    control: Option<Control>,
     config: Game,
     setup: Option<S>,
     /// Setup has run; frames may run.
@@ -490,6 +551,9 @@ where
             return;
         }
 
+        if let Some(control) = &self.control {
+            control.poll(&mut self.ctx);
+        }
         let now = Instant::now();
         let frame_dt = now.duration_since(self.last_frame).as_secs_f64();
         self.last_frame = now;
