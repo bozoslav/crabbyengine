@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+crabby_ecs = { path = "crates/crabby_ecs" }
 bytemuck = { version = "1.25.2", features = ["derive"] }
 glam = "0.34.2"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
@@ -12,4 +13,4 @@ wgpu = "30.0.1"
 winit = "0.30.13"
 
 [workspace]
-members = [".", "spikes/ecs-bench"]
+members = [".", "crates/crabby_ecs", "spikes/ecs-bench"]
