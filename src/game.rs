@@ -228,17 +228,55 @@ impl Game {
     /// # Panics
     /// If `ticks` is 0.
     #[track_caller]
-    pub fn sim_system_every<F: FnMut(&mut Ctx) + 'static>(mut self, ticks: u32, system: F) -> Self {
+    pub fn sim_system_every<F: FnMut(&mut Ctx) + 'static>(self, ticks: u32, system: F) -> Self {
         assert!(
             ticks > 0,
             "Game::sim_system_every: the interval must be at least 1 tick"
         );
+        self.push_sim_system(System::new(system), ticks)
+    }
+
+    fn push_sim_system(mut self, mut s: System, ticks: u32) -> Self {
         let same = self.sim_systems.iter().filter(|s| s.every == ticks).count() as u32;
-        let mut s = System::new(system);
         s.every = ticks;
         s.phase = same % ticks;
         self.sim_systems.push(s);
         self
+    }
+
+    /// For language bindings (the C API): `sim_system_every` with a name for
+    /// timings and tools, since all foreign systems share one Rust type.
+    #[doc(hidden)]
+    #[track_caller]
+    pub fn named_sim_system(self, name: &'static str, ticks: u32, system: impl FnMut(&mut Ctx) + 'static) -> Self {
+        assert!(
+            ticks > 0,
+            "Game::named_sim_system: the interval must be at least 1 tick"
+        );
+        let mut s = System::new(system);
+        s.name = name;
+        self.push_sim_system(s, ticks)
+    }
+
+    /// For language bindings (the C API): `system` with a name.
+    #[doc(hidden)]
+    pub fn named_system(mut self, name: &'static str, system: impl FnMut(&mut Ctx) + 'static) -> Self {
+        let mut s = System::new(system);
+        s.name = name;
+        self.systems.push(s);
+        self
+    }
+
+    /// For language bindings (the C API): removes every system named `name`
+    /// (Rust systems are named by their path, e.g. `crabbyengine::ecs::draw_sprites`).
+    /// Returns how many were removed.
+    #[doc(hidden)]
+    pub fn remove_named_system(&mut self, name: &str) -> usize {
+        let before = self.sim_systems.len() + self.systems.len() + self.draw_systems.len();
+        self.sim_systems.retain(|s| s.name != name);
+        self.systems.retain(|s| s.name != name);
+        self.draw_systems.retain(|s| s.name != name);
+        before - (self.sim_systems.len() + self.systems.len() + self.draw_systems.len())
     }
 
     /// Turns on the built-in [`SpatialGrid`](crate::SpatialGrid) with square

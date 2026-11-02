@@ -10,6 +10,7 @@
 /// let orange = Color::hex(0xFF8800);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)] // shared with C/C++ (`CrabbyColor`)
 pub struct Color {
     pub r: f32,
     pub g: f32,

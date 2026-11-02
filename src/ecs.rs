@@ -20,6 +20,7 @@ use crate::texture::Texture;
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
+#[repr(C)] // shared with C/C++ (`CrabbyTransform2D`)
 pub struct Transform2D {
     pub position: Vec2,
     /// Radians, clockwise on screen.

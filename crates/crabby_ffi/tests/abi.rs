@@ -140,7 +140,6 @@ struct Visit {
     rows: usize,
     entities: Vec<u64>,
     reentry: Vec<CrabbyStatus>,
-    bounds: Vec<CrabbyStatus>,
 }
 unsafe extern "C" fn update(chunk: *const CrabbyChunk, user: *mut std::ffi::c_void) {
     unsafe {
@@ -148,15 +147,12 @@ unsafe extern "C" fn update(chunk: *const CrabbyChunk, user: *mut std::ffi::c_vo
         let visit = &mut *user.cast::<Visit>();
         visit.rows += c.count;
         for i in 0..c.count {
-            let mut entity = 0;
-            visit.bounds.push(crabby_chunk_entity(chunk, i, &mut entity));
-            visit.entities.push(entity);
+            visit.entities.push(crabby_entity_bits(*c.entities.add(i)));
             if c.column_count == 2 {
                 let velocity = *(*c.columns).cast::<u32>().add(i);
                 *(*c.columns.add(1)).cast::<u32>().add(i) += velocity;
             }
         }
-        visit.bounds.push(crabby_chunk_entity(chunk, c.count, &mut 0));
         visit.reentry.push(crabby_world_len(visit.world, &mut 0));
         visit.reentry.push(crabby_world_free(visit.world));
         visit.reentry.push(crabby_despawn(visit.world, visit.entities[0]));
@@ -193,7 +189,6 @@ fn query_preserves_column_order_mutates_values_and_rejects_reentry() {
             rows: 0,
             entities: vec![],
             reentry: vec![],
-            bounds: vec![],
         };
         assert_eq!(
             crabby_query(w, [v, p].as_ptr(), 2, Some(update), (&mut visit as *mut Visit).cast()),
@@ -202,10 +197,6 @@ fn query_preserves_column_order_mutates_values_and_rejects_reentry() {
         assert_eq!(visit.rows, 1);
         assert_eq!(visit.entities, [entity]);
         assert!(visit.reentry.iter().all(|s| *s == CrabbyStatus::CRABBY_BUSY));
-        assert_eq!(
-            visit.bounds,
-            [CrabbyStatus::CRABBY_OK, CrabbyStatus::CRABBY_INVALID_ARGUMENT]
-        );
         let mut out = 0u32;
         assert_eq!(
             crabby_get(w, entity, p, (&mut out as *mut u32).cast(), 4),
@@ -289,14 +280,6 @@ fn null_outputs_overflow_counts_and_zero_sized_values_are_handled() {
             crabby_spawn(w, null(), 0, null_mut()),
             CrabbyStatus::CRABBY_INVALID_ARGUMENT
         );
-        assert_eq!(
-            crabby_chunk_entity(null(), 0, &mut 0),
-            CrabbyStatus::CRABBY_INVALID_ARGUMENT
-        );
-        assert_eq!(
-            crabby_chunk_entity(null(), 0, null_mut()),
-            CrabbyStatus::CRABBY_INVALID_ARGUMENT
-        );
         let mut id = 0;
         assert_eq!(
             crabby_component_register(w, c"tag".as_ptr(), 0, 8, &mut id),
@@ -327,7 +310,7 @@ fn last_error_is_thread_local_and_success_preserves_it() {
         .to_bytes()
         .to_vec();
     assert!(!text.is_empty());
-    assert_eq!(crabby_abi_version(), 1);
+    assert_eq!(crabby_abi_version(), 2);
     let child = std::thread::spawn(|| {
         unsafe { std::ffi::CStr::from_ptr(crabby_last_error()) }
             .to_bytes()

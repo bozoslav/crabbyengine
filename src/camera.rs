@@ -12,6 +12,7 @@ use glam::{Mat4, Vec2, vec4};
 /// assert!(r.contains(vec2(50.0, 40.0)));
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[repr(C)] // shared with C/C++ (`CrabbyRect`)
 pub struct Rect {
     pub min: Vec2,
     pub max: Vec2,

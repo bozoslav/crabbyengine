@@ -9,6 +9,7 @@ use crate::ecs::Transform2D;
 /// One entity in the grid: its handle, where it was at the last rebuild,
 /// and optional data stored with it (see [`SpatialGrid::rebuild_with_data`]).
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)] // C/C++ read query results directly
 pub struct GridEntry<T = ()> {
     pub entity: Entity,
     pub position: Vec2,

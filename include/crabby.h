@@ -1,30 +1,29 @@
-/* Crabby engine C ABI, version 1.
+/* Crabby Engine C ABI, version 2. C++: include crabby.hpp instead.
  *
- * Handles and callbacks are confined to the creating thread. No concurrent calls.
+ * Games: crabby_game_new -> settings and systems -> crabby_game_run (window)
+ * or crabby_game_run_headless. Systems get a CrabbyCtx*, valid until they
+ * return: the world (crabby_ctx_world), clock, input, drawing, textures,
+ * camera, commands (*_later) and the built-in spatial grid.
+ *
+ * Handles are confined to the thread that runs the game, except inside
+ * crabby_query_par callbacks, which run on many threads at once and may only
+ * touch their chunk, crabby_ctx_dt/sim_tick/random_bits and spatial queries.
  * Non-null pointers must refer to live, correctly aligned memory of the stated
- * size; dangling/forged pointers cannot be detected. Output memory must not
- * overlap inputs or world storage. Only free owned handles, exactly once.
- * Components are memcpy-safe POD values, thread-safe and without destructors.
- * Registration names are nonempty NUL-terminated UTF-8 and are copied. Size must
- * be a multiple of power-of-two alignment (zero-sized values are allowed).
- * Data pointers must be non-null even for zero-sized components. Component and
- * entity ids belong to their world. Re-registering a name/layout returns its id.
- * set adds or replaces a component; get/set require its exact registered size.
- * Missing/stale entities or absent components return CRABBY_NOT_FOUND.
+ * size; dangling/forged pointers cannot be detected. Only free owned handles,
+ * exactly once. Components made from C are memcpy-safe values without
+ * destructors. Built-ins: Transform2D (CrabbyTransform2D, a plain value) and
+ * Sprite (CrabbySprite in spawn/get/set, never a query column).
  *
- * Query accepts up to 32 distinct component ids. A zero count matches all rows;
- * null arrays are accepted only for zero count. Columns follow query order and
- * have registered-size stride. Chunks, columns, and entity storage expire when
- * the callback returns. All world calls during query callbacks return BUSY.
- * Use crabby_chunk_entity for opaque entity storage. Never fabricate a chunk.
- * Successful query traversal allocates no memory. Callbacks must return normally:
- * C++ exceptions and Rust panics must never cross a C callback boundary.
+ * Queries take up to 32 distinct component ids; zero ids match every entity.
+ * Columns follow query order with registered-size stride; chunk memory expires
+ * when the callback returns. While a query runs, every world and ctx call
+ * returns CRABBY_BUSY, except commands (crabby_query only) and spatial queries.
+ * Callbacks must return normally: C++ exceptions and Rust panics must never
+ * cross the C boundary (crabby.hpp catches them for you).
  *
- * Headless callbacks may use world APIs except free. Their world handles expire
- * on return. false stops cleanly. hz must be positive; out_world receives an
- * owned handle on success. The engine controls fixed-step timing.
- * Last-error text is thread-local, borrowed until the next failed call; successful
- * calls leave it unchanged. Null arguments are rejected, not dangling pointers.
+ * Enums (CrabbyKey, CrabbyMouseButton) are passed as uint32_t.
+ * Last-error text is thread-local, borrowed until the next failed call;
+ * successful calls leave it unchanged.
  */
 
 
@@ -47,6 +46,122 @@ typedef enum CrabbyStatus {
   CRABBY_PANIC = 4,
 } CrabbyStatus;
 
+typedef enum CrabbyKey {
+  CRABBY_KEY_A,
+  CRABBY_KEY_B,
+  CRABBY_KEY_C,
+  CRABBY_KEY_D,
+  CRABBY_KEY_E,
+  CRABBY_KEY_F,
+  CRABBY_KEY_G,
+  CRABBY_KEY_H,
+  CRABBY_KEY_I,
+  CRABBY_KEY_J,
+  CRABBY_KEY_K,
+  CRABBY_KEY_L,
+  CRABBY_KEY_M,
+  CRABBY_KEY_N,
+  CRABBY_KEY_O,
+  CRABBY_KEY_P,
+  CRABBY_KEY_Q,
+  CRABBY_KEY_R,
+  CRABBY_KEY_S,
+  CRABBY_KEY_T,
+  CRABBY_KEY_U,
+  CRABBY_KEY_V,
+  CRABBY_KEY_W,
+  CRABBY_KEY_X,
+  CRABBY_KEY_Y,
+  CRABBY_KEY_Z,
+  CRABBY_KEY_NUM_0,
+  CRABBY_KEY_NUM_1,
+  CRABBY_KEY_NUM_2,
+  CRABBY_KEY_NUM_3,
+  CRABBY_KEY_NUM_4,
+  CRABBY_KEY_NUM_5,
+  CRABBY_KEY_NUM_6,
+  CRABBY_KEY_NUM_7,
+  CRABBY_KEY_NUM_8,
+  CRABBY_KEY_NUM_9,
+  CRABBY_KEY_F1,
+  CRABBY_KEY_F2,
+  CRABBY_KEY_F3,
+  CRABBY_KEY_F4,
+  CRABBY_KEY_F5,
+  CRABBY_KEY_F6,
+  CRABBY_KEY_F7,
+  CRABBY_KEY_F8,
+  CRABBY_KEY_F9,
+  CRABBY_KEY_F10,
+  CRABBY_KEY_F11,
+  CRABBY_KEY_F12,
+  CRABBY_KEY_UP,
+  CRABBY_KEY_DOWN,
+  CRABBY_KEY_LEFT,
+  CRABBY_KEY_RIGHT,
+  CRABBY_KEY_SPACE,
+  CRABBY_KEY_ENTER,
+  CRABBY_KEY_ESCAPE,
+  CRABBY_KEY_TAB,
+  CRABBY_KEY_BACKSPACE,
+  CRABBY_KEY_CAPS_LOCK,
+  CRABBY_KEY_INSERT,
+  CRABBY_KEY_DELETE,
+  CRABBY_KEY_HOME,
+  CRABBY_KEY_END,
+  CRABBY_KEY_PAGE_UP,
+  CRABBY_KEY_PAGE_DOWN,
+  CRABBY_KEY_LEFT_SHIFT,
+  CRABBY_KEY_RIGHT_SHIFT,
+  CRABBY_KEY_LEFT_CTRL,
+  CRABBY_KEY_RIGHT_CTRL,
+  CRABBY_KEY_LEFT_ALT,
+  CRABBY_KEY_RIGHT_ALT,
+  CRABBY_KEY_LEFT_SUPER,
+  CRABBY_KEY_RIGHT_SUPER,
+  CRABBY_KEY_MINUS,
+  CRABBY_KEY_EQUAL,
+  CRABBY_KEY_LEFT_BRACKET,
+  CRABBY_KEY_RIGHT_BRACKET,
+  CRABBY_KEY_BACKSLASH,
+  CRABBY_KEY_SEMICOLON,
+  CRABBY_KEY_APOSTROPHE,
+  CRABBY_KEY_BACKQUOTE,
+  CRABBY_KEY_COMMA,
+  CRABBY_KEY_PERIOD,
+  CRABBY_KEY_SLASH,
+  CRABBY_KEY_NUMPAD_0,
+  CRABBY_KEY_NUMPAD_1,
+  CRABBY_KEY_NUMPAD_2,
+  CRABBY_KEY_NUMPAD_3,
+  CRABBY_KEY_NUMPAD_4,
+  CRABBY_KEY_NUMPAD_5,
+  CRABBY_KEY_NUMPAD_6,
+  CRABBY_KEY_NUMPAD_7,
+  CRABBY_KEY_NUMPAD_8,
+  CRABBY_KEY_NUMPAD_9,
+  CRABBY_KEY_NUMPAD_ADD,
+  CRABBY_KEY_NUMPAD_SUBTRACT,
+  CRABBY_KEY_NUMPAD_MULTIPLY,
+  CRABBY_KEY_NUMPAD_DIVIDE,
+  CRABBY_KEY_NUMPAD_DECIMAL,
+  CRABBY_KEY_NUMPAD_ENTER,
+} CrabbyKey;
+
+typedef enum CrabbyMouseButton {
+  CRABBY_MOUSE_LEFT,
+  CRABBY_MOUSE_RIGHT,
+  CRABBY_MOUSE_MIDDLE,
+  CRABBY_MOUSE_BACK,
+  CRABBY_MOUSE_FORWARD,
+} CrabbyMouseButton;
+
+typedef struct CrabbyCtx CrabbyCtx;
+
+typedef struct CrabbyGame CrabbyGame;
+
+typedef struct CrabbyGrid CrabbyGrid;
+
 typedef struct CrabbyWorld CrabbyWorld;
 
 typedef struct CrabbyValue {
@@ -55,18 +170,60 @@ typedef struct CrabbyValue {
   size_t size;
 } CrabbyValue;
 
+typedef struct CrabbyEntity {
+  uint32_t index;
+  uint32_t generation;
+} CrabbyEntity;
+
 typedef struct CrabbyChunk {
   size_t count;
   size_t column_count;
   void *const *columns;
-  const void *entities;
+  const struct CrabbyEntity *entities;
 } CrabbyChunk;
 
 typedef void (*CrabbyQueryFn)(const struct CrabbyChunk*, void*);
 
-typedef bool (*CrabbySetupFn)(struct CrabbyWorld*, void*);
+typedef struct CrabbyVec2 {
+  float x;
+  float y;
+} CrabbyVec2;
 
-typedef bool (*CrabbyStepFn)(struct CrabbyWorld*, uint64_t, float, void*);
+typedef struct CrabbyGridHit {
+  struct CrabbyEntity entity;
+  struct CrabbyVec2 position;
+} CrabbyGridHit;
+
+typedef void (*CrabbySystemFn)(struct CrabbyCtx *ctx, void *user);
+
+typedef struct CrabbyGridItem {
+  struct CrabbyEntity entity;
+  struct CrabbyVec2 position;
+  uint32_t data;
+} CrabbyGridItem;
+
+typedef struct CrabbyColor {
+  float r;
+  float g;
+  float b;
+  float a;
+} CrabbyColor;
+
+typedef struct CrabbyRect {
+  struct CrabbyVec2 min;
+  struct CrabbyVec2 max;
+} CrabbyRect;
+
+typedef struct CrabbyDrawParams {
+  struct CrabbyVec2 scale;
+  float rotation;
+  struct CrabbyColor color;
+  float z;
+  struct CrabbyVec2 pivot;
+  bool screen;
+  bool has_region;
+  struct CrabbyRect region;
+} CrabbyDrawParams;
 
 #ifdef __cplusplus
 extern "C" {
@@ -85,6 +242,10 @@ enum CrabbyStatus crabby_component_register(struct CrabbyWorld *world,
                                             size_t size,
                                             size_t alignment,
                                             uint32_t *out_id);
+
+enum CrabbyStatus crabby_transform_component(struct CrabbyWorld *world, uint32_t *out_id);
+
+enum CrabbyStatus crabby_sprite_component(struct CrabbyWorld *world, uint32_t *out_id);
 
 enum CrabbyStatus crabby_spawn(struct CrabbyWorld *world,
                                const struct CrabbyValue *values,
@@ -111,22 +272,87 @@ enum CrabbyStatus crabby_set(struct CrabbyWorld *world,
 
 enum CrabbyStatus crabby_remove(struct CrabbyWorld *world, uint64_t entity, uint32_t id);
 
+enum CrabbyStatus crabby_world_sort_spatial(struct CrabbyWorld *world, float cell_size);
+
 enum CrabbyStatus crabby_query(struct CrabbyWorld *world,
                                const uint32_t *components,
                                size_t count,
                                CrabbyQueryFn callback,
                                void *user);
 
-enum CrabbyStatus crabby_chunk_entity(const struct CrabbyChunk *chunk,
-                                      size_t index,
-                                      uint64_t *out_entity);
+enum CrabbyStatus crabby_query_par(struct CrabbyWorld *world,
+                                   const uint32_t *components,
+                                   size_t count,
+                                   CrabbyQueryFn callback,
+                                   void *user);
 
-enum CrabbyStatus crabby_run_headless(uint64_t ticks,
-                                      uint32_t hz,
-                                      CrabbySetupFn setup,
-                                      CrabbyStepFn step,
-                                      void *user,
-                                      struct CrabbyWorld **out_world);
+struct CrabbyWorld *crabby_ctx_world(struct CrabbyCtx *ctx);
+
+enum CrabbyStatus crabby_ctx_spatial_radius(const struct CrabbyCtx *ctx,
+                                            struct CrabbyVec2 center,
+                                            float radius,
+                                            struct CrabbyGridHit *out_hits,
+                                            size_t capacity,
+                                            size_t *out_count);
+
+enum CrabbyStatus crabby_ctx_spatial_rect(const struct CrabbyCtx *ctx,
+                                          struct CrabbyVec2 min,
+                                          struct CrabbyVec2 max,
+                                          struct CrabbyGridHit *out_hits,
+                                          size_t capacity,
+                                          size_t *out_count);
+
+enum CrabbyStatus crabby_ctx_spatial_nearest(const struct CrabbyCtx *ctx,
+                                             struct CrabbyVec2 center,
+                                             float max_radius,
+                                             uint64_t exclude,
+                                             struct CrabbyGridHit *out_hit);
+
+struct CrabbyGame *crabby_game_new(const char *title, uint32_t width, uint32_t height);
+
+void crabby_game_free(struct CrabbyGame *game);
+
+enum CrabbyStatus crabby_game_sim_system(struct CrabbyGame *game,
+                                         const char *name,
+                                         uint32_t every,
+                                         CrabbySystemFn system_fn,
+                                         void *user);
+
+enum CrabbyStatus crabby_game_system(struct CrabbyGame *game,
+                                     const char *name,
+                                     CrabbySystemFn system_fn,
+                                     void *user);
+
+enum CrabbyStatus crabby_game_remove_system(struct CrabbyGame *game, const char *name_ptr);
+
+enum CrabbyStatus crabby_game_run(struct CrabbyGame *game, CrabbySystemFn setup, void *user);
+
+enum CrabbyStatus crabby_game_run_headless(struct CrabbyGame *game,
+                                           uint64_t ticks,
+                                           CrabbySystemFn setup,
+                                           void *user,
+                                           struct CrabbyWorld **out_world);
+
+struct CrabbyGrid *crabby_grid_new(float cell_size);
+
+void crabby_grid_free(struct CrabbyGrid *grid);
+
+enum CrabbyStatus crabby_grid_rebuild(struct CrabbyGrid *grid,
+                                      const struct CrabbyGridItem *items,
+                                      size_t count);
+
+enum CrabbyStatus crabby_grid_radius(const struct CrabbyGrid *grid,
+                                     struct CrabbyVec2 center,
+                                     float radius,
+                                     struct CrabbyGridItem *out_items,
+                                     size_t capacity,
+                                     size_t *out_count);
+
+size_t crabby_grid_len(const struct CrabbyGrid *grid);
+
+uint64_t crabby_entity_bits(struct CrabbyEntity entity);
+
+struct CrabbyDrawParams crabby_draw_params_default(void);
 
 #ifdef __cplusplus
 }  // extern "C"

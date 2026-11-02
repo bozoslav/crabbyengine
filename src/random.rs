@@ -188,6 +188,20 @@ impl Random {
         self.stream(entity.to_bits())
     }
 
+    /// The raw stream base, so other languages (the C++ header) can derive
+    /// the same streams as [`of`](Self::of) and [`stream`](Self::stream).
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// let bits: u64 = ctx.random().to_bits();
+    /// # let _ = bits;
+    /// # }
+    /// ```
+    pub fn to_bits(self) -> u64 {
+        self.base
+    }
+
     /// Stream number `n` for this tick and system, for random numbers that
     /// don't belong to one entity (where to spawn, which event fires).
     ///
