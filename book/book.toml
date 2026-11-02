@@ -1,0 +1,17 @@
+[book]
+title = "Crabby Engine"
+description = "A fast 2D engine in Rust for games with huge numbers of simulated things."
+authors = ["Crabby Engine contributors"]
+language = "en"
+src = "src"
+
+[output.html]
+git-repository-url = "https://github.com/bozoslav/crabbyengine"
+edit-url-template = "https://github.com/bozoslav/crabbyengine/edit/main/book/{path}"
+site-url = "/crabbyengine/"
+
+[output.html.search]
+enable = true
+limit-results = 30
+boost-title = 2
+boost-hierarchy = 2

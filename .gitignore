@@ -28,3 +28,6 @@ rustc-ice-*.txt
 
 # macOS Finder metadata
 .DS_Store
+
+# mdBook output
+/book/book/
