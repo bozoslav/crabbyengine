@@ -217,3 +217,20 @@ fn update_texture_checks_the_size() {
         ctx.update_texture(&tex, &[0; 4]);
     });
 }
+
+#[test]
+fn headless_runs_have_no_render_stats_or_screenshots() {
+    let path = std::env::temp_dir().join(format!("crabby-headless-shot-{}.png", std::process::id()));
+    let p = path.clone();
+    let ran = std::rc::Rc::new(std::cell::Cell::new(0));
+    let r = ran.clone();
+    Game::new("t", 1, 1)
+        .sim_system(move |ctx: &mut Ctx| {
+            ctx.save_screenshot(&p);
+            assert_eq!(ctx.render_stats(), RenderStats::default());
+            r.set(r.get() + 1);
+        })
+        .run_headless(3, |_| {});
+    assert_eq!(ran.get(), 3);
+    assert!(!path.exists(), "nothing to capture without a window");
+}

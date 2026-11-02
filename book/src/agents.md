@@ -36,12 +36,13 @@ ctx.world.reflect::<Health>();
 |---|---|---|
 | `list_instances` | | find running games |
 | `launch` | ✓ | build and start a game or example; headless and paused by default |
-| `instance_info` | | tick, sim time, paused, speed, fps, entity count |
+| `instance_info` | | tick, sim time, paused, speed, fps, entity count, render CPU/GPU ms |
 | `world_summary` | | archetypes, entity counts, reflected components |
 | `list_entities` | | entities with component values; filter by component names, paged |
 | `get_entity` | | one entity's components |
 | `system_timings` | | which systems are slow |
 | `read_logs` | | stdout/stderr of launched games |
+| `screenshot` | | the next frame of a windowed game, as an image the agent can look at |
 | `run_ticks` | ✓ | run exactly N ticks of a paused sim and wait |
 | `pause` / `resume` / `set_speed` | ✓ | sim clock |
 | `spawn_entity` / `despawn_entity` | ✓ | |
@@ -84,6 +85,11 @@ roll back and try the next value.
 
 Because the sim only advances on `run_ticks`, every run is repeatable and the
 agent can check results at exact ticks.
+
+To check how things look, `launch` with `headless: false` and call
+`screenshot`. It works while the window is hidden behind others, and is
+scaled down to 1024 pixels by default (`max_size`) to keep it cheap to look
+at.
 
 ## Making your game agent-friendly
 

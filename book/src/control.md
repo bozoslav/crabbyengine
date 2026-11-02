@@ -84,6 +84,7 @@ headless game waits for requests and runs only the ticks you step.
 | `sim.step` | `ticks?` (1) | ticks queued |
 | `sim.speed` | `speed` | |
 | `systems.timings` | | each system's last and average ms |
+| `screenshot` | `path`?, `max_size`? | save the next frame as a PNG (windowed games only); returns `path`, `width`, `height` |
 | `game.quit` | | |
 
 Component values use [reflection](reflection.md): call

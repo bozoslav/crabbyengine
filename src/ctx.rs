@@ -8,10 +8,13 @@ use crate::color::Color;
 use crate::ecs::{Sprite, Transform2D};
 use crate::input::{Input, Key, MouseButton};
 use crate::render::batch::{DrawList, SpriteInstance};
-use crate::render::{FrameStatus, RenderStats, Renderer};
+use crate::render::{FrameStatus, RenderStats, Renderer, Screenshot};
 use crate::spatial::SpatialGrid;
 use crate::texture::{DrawParams, Texture};
 use crate::time::FrameTiming;
+use serde_json::Value;
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::Sender;
 
 /// Simulation clock state: speed, pause, single steps, tick count.
 struct SimClock {
@@ -113,6 +116,8 @@ pub struct Ctx {
     window_size: Vec2,
     quit_requested: bool,
     pub(crate) renderer: Option<Renderer>,
+    /// Screenshots waiting for the next drawn frame.
+    screenshots: Vec<ScreenshotRequest>,
     draw_list: DrawList,
     clear_color: Color,
 }
@@ -156,6 +161,7 @@ impl Ctx {
             window_size,
             quit_requested: false,
             renderer: None,
+            screenshots: Vec::new(),
             draw_list: DrawList::default(),
             clear_color: Color::CRABBY_DARK,
         }
@@ -163,15 +169,40 @@ impl Ctx {
 
     /// Engine side: draw everything queued this frame, then reset the queue.
     pub(crate) fn render_frame(&mut self) -> FrameStatus {
+        let capture = !self.screenshots.is_empty();
         let status = match self.renderer.as_mut() {
             Some(renderer) => {
                 let view_proj = screen_projection(self.window_size);
-                renderer.render(&mut self.draw_list, self.clear_color, view_proj)
+                renderer.render(&mut self.draw_list, self.clear_color, view_proj, capture)
             }
             None => FrameStatus::Skipped,
         };
         self.draw_list.clear();
+        if let Some(shot) = self.renderer.as_mut().and_then(|r| r.screenshot.take()) {
+            for req in self.screenshots.drain(..) {
+                let result = save_png(&req.path, &shot, req.max_size);
+                match req.reply {
+                    Some(reply) => {
+                        let _ = reply.send(result);
+                    }
+                    None => {
+                        if let Err(e) = result {
+                            eprintln!("crabbyengine: {e}");
+                        }
+                    }
+                }
+            }
+        }
         status
+    }
+
+    pub(crate) fn queue_screenshot(
+        &mut self,
+        path: PathBuf,
+        max_size: u32,
+        reply: Option<Sender<Result<Value, String>>>,
+    ) {
+        self.screenshots.push(ScreenshotRequest { path, max_size, reply });
     }
 
     fn renderer(&mut self) -> &mut Renderer {
@@ -642,6 +673,24 @@ impl Ctx {
     /// }
     /// # Game::new("t", 1, 1).system(overlay).run_headless(1, |_| {});
     /// ```
+    /// Saves the next frame as a PNG at `path`, once it has been drawn.
+    /// Does nothing in headless runs (there is no frame). Errors are printed.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// fn photo_mode(ctx: &mut Ctx) {
+    ///     if ctx.key_pressed(Key::F12) {
+    ///         ctx.save_screenshot("screenshot.png");
+    ///     }
+    /// }
+    /// # Game::new("t", 1, 1).system(photo_mode).run_headless(1, |_| {});
+    /// ```
+    pub fn save_screenshot(&mut self, path: impl Into<PathBuf>) {
+        if !self.headless {
+            self.queue_screenshot(path.into(), 0, None);
+        }
+    }
+
     pub fn render_stats(&self) -> RenderStats {
         self.renderer.as_ref().map(|r| r.stats).unwrap_or_default()
     }
@@ -895,6 +944,36 @@ impl Ctx {
     pub fn quit(&mut self) {
         self.quit_requested = true;
     }
+}
+
+/// A screenshot someone asked for: where to save it, and who to tell.
+pub(crate) struct ScreenshotRequest {
+    path: PathBuf,
+    /// Scale down so neither side exceeds this (0: full size).
+    max_size: u32,
+    reply: Option<Sender<Result<Value, String>>>,
+}
+
+fn save_png(path: &Path, shot: &Screenshot, max_size: u32) -> Result<Value, String> {
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        std::fs::create_dir_all(dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
+    }
+    let image = image::RgbaImage::from_raw(shot.width, shot.height, shot.rgba.clone())
+        .ok_or("the captured frame has the wrong size")?;
+    let longest = shot.width.max(shot.height);
+    let image = if max_size > 0 && longest > max_size {
+        let (w, h) = (
+            (u64::from(shot.width) * u64::from(max_size) / u64::from(longest)).max(1) as u32,
+            (u64::from(shot.height) * u64::from(max_size) / u64::from(longest)).max(1) as u32,
+        );
+        image::imageops::resize(&image, w, h, image::imageops::FilterType::Triangle)
+    } else {
+        image
+    };
+    image
+        .save(path)
+        .map_err(|e| format!("could not save the screenshot to {}: {e}", path.display()))?;
+    Ok(serde_json::json!({ "path": path, "width": image.width(), "height": image.height() }))
 }
 
 #[allow(clippy::too_many_arguments)]

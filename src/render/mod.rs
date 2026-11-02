@@ -67,6 +67,113 @@ pub(crate) struct Renderer {
 
     timer: Option<GpuTimer>,
     pub stats: RenderStats,
+    /// The last captured frame, waiting to be picked up.
+    pub screenshot: Option<Screenshot>,
+}
+
+/// What one sprite pass draws with.
+struct SpritePass<'a> {
+    pipeline: &'a wgpu::RenderPipeline,
+    camera: &'a wgpu::BindGroup,
+    instances: &'a wgpu::Buffer,
+    textures: &'a [GpuTexture],
+    batches: &'a [batch::Batch],
+}
+
+/// A captured frame: RGBA8 sRGB pixels, row by row from the top.
+pub(crate) struct Screenshot {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+}
+
+/// An offscreen copy of one frame on its way back to the CPU.
+struct Capture {
+    texture: wgpu::Texture,
+    buffer: wgpu::Buffer,
+    width: u32,
+    height: u32,
+    padded_row: u32,
+    bgra: bool,
+}
+
+impl Capture {
+    fn new(device: &wgpu::Device, width: u32, height: u32, format: wgpu::TextureFormat) -> Self {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("screenshot"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let padded_row = (width * 4).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("screenshot readback"),
+            size: u64::from(padded_row) * u64::from(height),
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let bgra = matches!(
+            format,
+            wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb
+        );
+        Self {
+            texture,
+            buffer,
+            width,
+            height,
+            padded_row,
+            bgra,
+        }
+    }
+
+    fn copy(&self, encoder: &mut wgpu::CommandEncoder) {
+        encoder.copy_texture_to_buffer(
+            self.texture.as_image_copy(),
+            wgpu::TexelCopyBufferInfo {
+                buffer: &self.buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(self.padded_row),
+                    rows_per_image: Some(self.height),
+                },
+            },
+            wgpu::Extent3d {
+                width: self.width,
+                height: self.height,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+
+    /// Waits for the GPU and returns the pixels.
+    fn read(self, device: &wgpu::Device) -> Screenshot {
+        self.buffer.map_async(wgpu::MapMode::Read, .., |_| {});
+        let _ = device.poll(wgpu::PollType::wait_indefinitely());
+        let mut rgba = Vec::with_capacity((self.width * self.height * 4) as usize);
+        if let Ok(view) = self.buffer.get_mapped_range(..) {
+            for row in view.chunks_exact(self.padded_row as usize) {
+                rgba.extend_from_slice(&row[..(self.width * 4) as usize]);
+            }
+        }
+        if self.bgra {
+            for px in rgba.chunks_exact_mut(4) {
+                px.swap(0, 2);
+            }
+        }
+        Screenshot {
+            width: self.width,
+            height: self.height,
+            rgba,
+        }
+    }
 }
 
 const INITIAL_INSTANCE_CAPACITY: usize = 1024;
@@ -234,6 +341,7 @@ impl Renderer {
             instance_capacity: INITIAL_INSTANCE_CAPACITY,
             timer,
             stats: RenderStats::default(),
+            screenshot: None,
         }
     }
 
@@ -337,21 +445,27 @@ impl Renderer {
     }
 
     /// Draws everything in `list` and presents. `list` is left as-is; the caller clears it.
-    pub fn render(&mut self, list: &mut DrawList, clear: Color, view_proj: Mat4) -> FrameStatus {
-        let frame = match self.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(t) => t,
+    ///
+    /// With `capture`, the frame is also read back into `self.screenshot`
+    /// (this waits for the GPU, so only do it when asked).
+    pub fn render(&mut self, list: &mut DrawList, clear: Color, view_proj: Mat4, capture: bool) -> FrameStatus {
+        // `None` when the window can't be drawn to right now; a requested
+        // screenshot is still drawn (offscreen), so it never waits on the
+        // window being visible.
+        let (frame, status) = match self.surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(t) => (Some(t), FrameStatus::Presented),
             wgpu::CurrentSurfaceTexture::Suboptimal(t) => {
                 // Draw this one, reconfigure for the next.
                 self.surface.configure(&self.device, &self.config);
-                t
+                (Some(t), FrameStatus::Presented)
             }
-            wgpu::CurrentSurfaceTexture::Occluded => return FrameStatus::Occluded,
+            wgpu::CurrentSurfaceTexture::Occluded => (None, FrameStatus::Occluded),
             wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Validation => {
-                return FrameStatus::Skipped;
+                (None, FrameStatus::Skipped)
             }
             wgpu::CurrentSurfaceTexture::Outdated => {
                 self.surface.configure(&self.device, &self.config);
-                return FrameStatus::Skipped;
+                (None, FrameStatus::Skipped)
             }
             wgpu::CurrentSurfaceTexture::Lost => {
                 self.surface = self
@@ -359,9 +473,12 @@ impl Renderer {
                     .create_surface(self.window.clone())
                     .unwrap_or_else(|e| panic!("crabbyengine: lost the GPU surface: {e}"));
                 self.surface.configure(&self.device, &self.config);
-                return FrameStatus::Skipped;
+                (None, FrameStatus::Skipped)
             }
         };
+        if frame.is_none() && !capture {
+            return status;
+        }
 
         let cpu_start = std::time::Instant::now();
         if let Some(timer) = &mut self.timer {
@@ -382,37 +499,47 @@ impl Renderer {
         self.queue
             .write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&view_proj.to_cols_array()));
 
-        let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frame") });
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("sprites"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(clear.to_linear_wgpu()),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: self.timer.as_mut().and_then(GpuTimer::begin),
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            if !instances.is_empty() {
-                pass.set_pipeline(&self.pipeline);
-                pass.set_bind_group(0, &self.camera_bind_group, &[]);
-                pass.set_vertex_buffer(0, self.instance_buffer.slice(..));
-                for batch in batches {
-                    pass.set_bind_group(1, &self.textures[batch.texture as usize].bind_group, &[]);
-                    pass.draw(0..6, batch.start..batch.end);
-                }
-            }
+        if let Some(frame) = &frame {
+            let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let timestamps = self.timer.as_mut().and_then(GpuTimer::begin);
+            Self::sprite_pass(
+                &mut encoder,
+                &view,
+                clear,
+                timestamps,
+                &SpritePass {
+                    pipeline: &self.pipeline,
+                    camera: &self.camera_bind_group,
+                    instances: &self.instance_buffer,
+                    textures: &self.textures,
+                    batches: if instances.is_empty() { &[] } else { batches },
+                },
+            );
         }
+        // A screenshot draws the same sprites a second time, into a texture
+        // that can be copied (the window's surface can't, on some GPUs).
+        let capture = capture.then(|| {
+            let target = Capture::new(&self.device, self.config.width, self.config.height, self.config.format);
+            let target_view = target.texture.create_view(&wgpu::TextureViewDescriptor::default());
+            Self::sprite_pass(
+                &mut encoder,
+                &target_view,
+                clear,
+                None,
+                &SpritePass {
+                    pipeline: &self.pipeline,
+                    camera: &self.camera_bind_group,
+                    instances: &self.instance_buffer,
+                    textures: &self.textures,
+                    batches: if instances.is_empty() { &[] } else { batches },
+                },
+            );
+            target.copy(&mut encoder);
+            target
+        });
         if let Some(timer) = &self.timer {
             timer.resolve(&mut encoder);
         }
@@ -422,8 +549,48 @@ impl Renderer {
             self.stats.gpu_ms = timer.smoothed_ms;
         }
         self.stats.cpu_ms = cpu_start.elapsed().as_secs_f32() * 1000.0;
-        self.window.pre_present_notify();
-        self.queue.present(frame);
-        FrameStatus::Presented
+        if let Some(frame) = frame {
+            self.window.pre_present_notify();
+            self.queue.present(frame);
+        }
+        if let Some(capture) = capture {
+            self.screenshot = Some(capture.read(&self.device));
+        }
+        status
+    }
+
+    fn sprite_pass(
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+        clear: Color,
+        timestamp_writes: Option<wgpu::RenderPassTimestampWrites<'_>>,
+        p: &SpritePass<'_>,
+    ) {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("sprites"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(clear.to_linear_wgpu()),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        if p.batches.is_empty() {
+            return;
+        }
+        pass.set_pipeline(p.pipeline);
+        pass.set_bind_group(0, p.camera, &[]);
+        pass.set_vertex_buffer(0, p.instances.slice(..));
+        for batch in p.batches {
+            pass.set_bind_group(1, &p.textures[batch.texture as usize].bind_group, &[]);
+            pass.draw(0..6, batch.start..batch.end);
+        }
     }
 }

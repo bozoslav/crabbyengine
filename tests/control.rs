@@ -137,6 +137,11 @@ fn a_paused_headless_game_is_driven_over_tcp() {
         "at least the entity handle"
     );
 
+    let info = c.call("info", json!({})).unwrap();
+    assert!(info["render"].is_null(), "headless games draw nothing");
+    let err = c.call("screenshot", json!({})).unwrap_err();
+    assert!(err.contains("no window"), "{err}");
+
     let err = c.call("entity.get", json!({ "entity": 999_999 })).unwrap_err();
     assert!(err.contains("does not exist"), "{err}");
     assert!(
