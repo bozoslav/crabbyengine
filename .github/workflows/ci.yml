@@ -53,22 +53,16 @@ jobs:
           key: clippy-${{ matrix.name }}
       - run: cargo clippy --workspace --all-targets ${{ matrix.args }}
 
-<<<<<<< HEAD
   # One job per test area and OS, so a failure points straight at what broke.
   # Areas map to files: crates/crabby_ecs/tests/<area>.rs, the engine's unit
   # tests, doctests and the benchmark crate's tests.
   test:
     name: Test ${{ matrix.area }} (${{ matrix.os }})
-=======
-  test:
-    name: Test ${{ matrix.suite }} (${{ matrix.os }})
->>>>>>> origin/main
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-<<<<<<< HEAD
         area:
           - ecs-entities
           - ecs-queries
@@ -91,31 +85,13 @@ jobs:
           - { area: engine, args: -p crabbyengine --lib --tests }
           - { area: doctests, args: --workspace --doc }
           - { area: bench, args: -p crabby_bench }
-=======
-        suite: [engine, ecs, ecs-no-parallel, doctests, ecs-bench]
-        include:
-          - suite: engine
-            args: -p crabbyengine --lib
-          - suite: ecs
-            args: -p crabby_ecs --lib
-          - suite: ecs-no-parallel
-            args: -p crabby_ecs --lib --no-default-features
-          - suite: doctests
-            args: --workspace --doc
-          - suite: ecs-bench
-            args: -p ecs-bench
->>>>>>> origin/main
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-<<<<<<< HEAD
           # ECS areas share one cache; engine-level areas share another.
           key: test-${{ startsWith(matrix.area, 'ecs') && 'ecs' || matrix.area }}
-=======
-          key: test-${{ matrix.suite }}
->>>>>>> origin/main
       - run: cargo test --no-fail-fast ${{ matrix.args }}
 
   examples:
@@ -149,20 +125,12 @@ jobs:
         include:
           # Our unsafe code under the strict model, without rayon.
           - name: ECS, stacked borrows
-<<<<<<< HEAD
             args: --tests --no-default-features
-=======
-            args: --no-default-features
->>>>>>> origin/main
             flags: ""
           # The parallel path. rayon's dependency crossbeam-epoch trips Stacked
           # Borrows (not our code), and its global pool outlives main.
           - name: par_for_each, tree borrows
-<<<<<<< HEAD
             args: --test parallel
-=======
-            args: par_for_each
->>>>>>> origin/main
             flags: -Zmiri-tree-borrows -Zmiri-ignore-leaks
     env:
       MIRIFLAGS: ${{ matrix.flags }}
@@ -172,11 +140,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: miri
-<<<<<<< HEAD
       - run: cargo miri test -p crabby_ecs --no-fail-fast ${{ matrix.args }}
-=======
-      - run: cargo miri test -p crabby_ecs --lib --no-fail-fast ${{ matrix.args }}
->>>>>>> origin/main
 
   # Single check for branch protection: passes only if every job above passed.
   # (Requiring one job keeps the rule valid when jobs are added or renamed.)
