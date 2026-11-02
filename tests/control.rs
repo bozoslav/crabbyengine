@@ -94,7 +94,10 @@ fn a_paused_headless_game_is_driven_over_tcp() {
     assert!(reply["error"].as_str().unwrap().contains("token"), "{reply}");
 
     let status = c.call("info", json!({})).unwrap();
-    assert_eq!((status["paused"].clone(), status["tick"].clone()), (json!(true), json!(0)));
+    assert_eq!(
+        (status["paused"].clone(), status["tick"].clone()),
+        (json!(true), json!(0))
+    );
 
     let e = c
         .call("entity.spawn", json!({ "components": { "Counter": 0 } }))
@@ -109,17 +112,33 @@ fn a_paused_headless_game_is_driven_over_tcp() {
         assert!(Instant::now() < deadline, "ticks never ran");
         thread::sleep(Duration::from_millis(5));
     }
-    assert_eq!(c.call("entity.get", json!({ "entity": e })).unwrap(), json!({ "Counter": 5 }));
+    assert_eq!(
+        c.call("entity.get", json!({ "entity": e })).unwrap(),
+        json!({ "Counter": 5 })
+    );
     thread::sleep(Duration::from_millis(100));
-    assert_eq!(c.call("info", json!({})).unwrap()["tick"], 5, "no ticks beyond the steps");
+    assert_eq!(
+        c.call("info", json!({})).unwrap()["tick"],
+        5,
+        "no ticks beyond the steps"
+    );
 
     let summary = c.call("world.summary", json!({})).unwrap();
     assert_eq!(summary["entities"], 1);
-    assert!(summary["reflected_components"].as_array().unwrap().contains(&json!("Counter")));
+    assert!(
+        summary["reflected_components"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("Counter"))
+    );
 
     let err = c.call("entity.get", json!({ "entity": 999_999 })).unwrap_err();
     assert!(err.contains("does not exist"), "{err}");
-    assert!(c.call("no.such.method", json!({})).unwrap_err().contains("unknown method"));
+    assert!(
+        c.call("no.such.method", json!({}))
+            .unwrap_err()
+            .contains("unknown method")
+    );
 
     c.call("game.quit", json!(null)).unwrap();
     let mut world = game.join().unwrap();
@@ -132,10 +151,12 @@ fn two_instances_get_their_own_endpoints() {
     let start = || {
         let (tx, rx) = mpsc::channel();
         let h = thread::spawn(move || {
-            Game::new("twin", 1, 1).control_endpoint(true).run_headless(u64::MAX, move |ctx| {
-                ctx.pause();
-                tx.send(ctx.control_addr().unwrap()).unwrap();
-            })
+            Game::new("twin", 1, 1)
+                .control_endpoint(true)
+                .run_headless(u64::MAX, move |ctx| {
+                    ctx.pause();
+                    tx.send(ctx.control_addr().unwrap()).unwrap();
+                })
         });
         (rx.recv_timeout(Duration::from_secs(10)).unwrap(), h)
     };

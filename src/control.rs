@@ -69,7 +69,12 @@ fn random_token() -> String {
     let mut out = String::new();
     for _ in 0..2 {
         let mut h = std::collections::hash_map::RandomState::new().build_hasher();
-        h.write_u128(SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos());
+        h.write_u128(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos(),
+        );
         out.push_str(&format!("{:016x}", h.finish()));
     }
     out
@@ -115,7 +120,10 @@ impl Control {
             match write_registry(&dir, addr.port(), &info) {
                 Ok(path) => Some(path),
                 Err(e) => {
-                    eprintln!("crabbyengine: control endpoint could not register in {}: {e}", dir.display());
+                    eprintln!(
+                        "crabbyengine: control endpoint could not register in {}: {e}",
+                        dir.display()
+                    );
                     None
                 }
             }
@@ -258,7 +266,10 @@ fn answer(ctx: &mut Ctx, req: Request) {
 pub(crate) const METHODS: &[(&str, &str)] = &[
     ("methods", "list the methods this endpoint understands"),
     ("info", "name, pid, tick, sim time, paused, speed, fps, entity count"),
-    ("world.summary", "entity count, reflected components, archetypes with their sizes"),
+    (
+        "world.summary",
+        "entity count, reflected components, archetypes with their sizes",
+    ),
     (
         "entities.list",
         "entities with their reflected components as JSON and the names of the others; params: with? (component names), limit? (100), offset?",
@@ -387,7 +398,10 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
         }
         "entity.get" => ctx.world.entity_json(entity_param(params)?).map_err(err)?,
         "entity.spawn" => {
-            let e = ctx.world.spawn_json(param(params, "components")?.clone()).map_err(err)?;
+            let e = ctx
+                .world
+                .spawn_json(param(params, "components")?.clone())
+                .map_err(err)?;
             json!({ "entity": e.to_bits() })
         }
         "entity.despawn" => json!(ctx.world.despawn(entity_param(params)?)),
@@ -463,7 +477,11 @@ mod tests {
                 assert!(e.starts_with("missing param"), "{name}: {e}");
             }
         }
-        assert!(handle(&mut ctx, "nope", &json!({})).unwrap_err().contains("unknown method"));
+        assert!(
+            handle(&mut ctx, "nope", &json!({}))
+                .unwrap_err()
+                .contains("unknown method")
+        );
     }
 
     #[test]
@@ -487,7 +505,10 @@ mod tests {
         assert_eq!(set["rotation"], json!(2.0));
         let list = handle(&mut ctx, "entities.list", &json!({ "with": ["Transform2D"] })).unwrap();
         assert_eq!(list["total"], 1);
-        assert_eq!(handle(&mut ctx, "entity.despawn", &json!({ "entity": id })).unwrap(), json!(true));
+        assert_eq!(
+            handle(&mut ctx, "entity.despawn", &json!({ "entity": id })).unwrap(),
+            json!(true)
+        );
         assert!(handle(&mut ctx, "entity.get", &json!({ "entity": id })).is_err());
     }
 

@@ -12,6 +12,7 @@
 - [Drawing](drawing.md)
 - [Headless runs and testing](headless.md)
 - [Reflection: components as JSON](reflection.md)
+- [Tools and agents: the control endpoint](control.md)
 
 # Reference
 

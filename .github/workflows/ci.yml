@@ -75,6 +75,7 @@ jobs:
           - engine-headless
           - engine-spatial
           - engine-reflect
+          - engine-control
           - doctests
           - bench
         include:
@@ -89,6 +90,7 @@ jobs:
           - { area: engine-headless, args: -p crabbyengine --test headless }
           - { area: engine-spatial, args: -p crabbyengine --test spatial }
           - { area: engine-reflect, args: -p crabbyengine --test reflect }
+          - { area: engine-control, args: -p crabbyengine --test control }
           - { area: doctests, args: --workspace --doc }
           - { area: bench, args: -p crabby_bench }
     steps:
