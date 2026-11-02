@@ -23,6 +23,7 @@ mod grid;
 mod keys;
 mod media;
 mod reflect;
+mod tiles;
 mod types;
 pub use ctx::*;
 pub use game::*;
@@ -30,6 +31,7 @@ pub use grid::*;
 pub use keys::*;
 pub use media::*;
 pub use reflect::*;
+pub use tiles::*;
 pub use types::*;
 
 use crabby_ecs::{ComponentId, Entity, World};
@@ -221,6 +223,7 @@ pub(crate) enum Kind {
     Sprite,
 }
 const _: () = assert!(!std::mem::needs_drop::<Sprite>());
+const _: () = assert!(!std::mem::needs_drop::<crabbyengine::Animation>());
 
 pub(crate) fn component(world: &World, id: u32) -> Result<(ComponentId, Kind), Failure> {
     let id = world
@@ -231,6 +234,8 @@ pub(crate) fn component(world: &World, id: u32) -> Result<(ComponentId, Kind), F
         // Raw byte copies into a value with a destructor would corrupt memory.
         None if !info.needs_drop() => Kind::Plain,
         Some(t) if t == TypeId::of::<Transform2D>() => Kind::Plain,
+        // repr(C), layout checked against CrabbyAnimation; `looping` must be 0 or 1.
+        Some(t) if t == TypeId::of::<crabbyengine::Animation>() => Kind::Plain,
         Some(t) if t == TypeId::of::<Sprite>() => Kind::Sprite,
         _ => {
             return Err(invalid(
@@ -420,7 +425,7 @@ pub unsafe extern "C" fn crabby_sprite_component(world: *mut CrabbyWorld, out_id
     unsafe { builtin::<Sprite>(world, out_id) }
 }
 
-unsafe fn builtin<T: crabby_ecs::Component>(world: *mut CrabbyWorld, out_id: *mut u32) -> CrabbyStatus {
+pub(crate) unsafe fn builtin<T: crabby_ecs::Component>(world: *mut CrabbyWorld, out_id: *mut u32) -> CrabbyStatus {
     boundary(|| {
         if out_id.is_null() {
             return Err(invalid("output is null"));

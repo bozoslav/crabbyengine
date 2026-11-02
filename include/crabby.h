@@ -39,6 +39,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#define CRABBY_TILE_EMPTY 65535
+
 typedef enum CrabbyStatus {
   CRABBY_OK = 0,
   CRABBY_INVALID_ARGUMENT = 1,
@@ -323,6 +325,23 @@ typedef struct CrabbyField {
   size_t offset;
 } CrabbyField;
 
+typedef struct CrabbySpriteSheet {
+  struct CrabbyTexture texture;
+  struct CrabbyVec2 frame_size;
+  uint32_t columns;
+  uint32_t len;
+} CrabbySpriteSheet;
+
+typedef struct CrabbyTileMap {
+  struct CrabbySpriteSheet sheet;
+  uint32_t width;
+  uint32_t height;
+  struct CrabbyVec2 tile_size;
+  float z;
+  struct CrabbyColor color;
+  uint16_t *tiles;
+} CrabbyTileMap;
+
 typedef struct CrabbyTransform2D {
   struct CrabbyVec2 position;
   float rotation;
@@ -337,6 +356,15 @@ typedef struct CrabbySprite {
   bool has_region;
   struct CrabbyRect region;
 } CrabbySprite;
+
+typedef struct CrabbyAnimation {
+  struct CrabbySpriteSheet sheet;
+  uint32_t first;
+  uint32_t frames;
+  float fps;
+  bool looping;
+  float time;
+} CrabbyAnimation;
 
 #ifdef __cplusplus
 extern "C" {
@@ -672,6 +700,33 @@ enum CrabbyStatus crabby_world_save(struct CrabbyWorld *world,
                                     size_t *out_len);
 
 enum CrabbyStatus crabby_world_load(struct CrabbyWorld *world, const char *json);
+
+enum CrabbyStatus crabby_sprite_sheet(struct CrabbyTexture texture,
+                                      uint32_t frame_width,
+                                      uint32_t frame_height,
+                                      struct CrabbySpriteSheet *out_sheet);
+
+struct CrabbyRect crabby_sprite_sheet_frame(struct CrabbySpriteSheet sheet, uint32_t index);
+
+enum CrabbyStatus crabby_animation_component(struct CrabbyWorld *world, uint32_t *out_id);
+
+enum CrabbyStatus crabby_ctx_set_texture_filter(struct CrabbyCtx *ctx,
+                                                struct CrabbyTexture texture,
+                                                bool nearest);
+
+enum CrabbyStatus crabby_tilemap_add(struct CrabbyWorld *world,
+                                     uint64_t entity,
+                                     struct CrabbySpriteSheet sheet,
+                                     uint32_t width,
+                                     uint32_t height);
+
+enum CrabbyStatus crabby_tilemap_get(struct CrabbyWorld *world,
+                                     uint64_t entity,
+                                     struct CrabbyTileMap *out_map);
+
+enum CrabbyStatus crabby_tilemap_update(struct CrabbyWorld *world,
+                                        uint64_t entity,
+                                        const struct CrabbyTileMap *map);
 
 uint64_t crabby_entity_bits(struct CrabbyEntity entity);
 

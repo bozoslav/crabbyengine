@@ -187,6 +187,54 @@ static void count_neighbors(crabby::ctx& ctx, const crabby::component<crabby::tr
     // ANCHOR_END: pixels
 }
 
+// ---- Sprite sheets, animation and tilemaps ------------------------------------------
+[[maybe_unused]] static void sheets(crabby::ctx& ctx, crabby::vec2 pos) {
+    auto world = ctx.world();
+    // ANCHOR: sheet
+    auto tex = ctx.load_texture("units.png");
+    auto sheet = crabby::sheet_of(tex, 32, 32);   // 32 x 32 frames
+    world.spawn(world.transforms().with(crabby::transform_at(pos)),
+                world.sprites().with(crabby::sprite_of(sheet, 5)));   // frame 5
+    // ANCHOR_END: sheet
+    // ANCHOR: nearest
+    ctx.set_texture_filter(tex, crabby::texture_filter::nearest);
+    // ANCHOR_END: nearest
+}
+
+static void animate(crabby::world_view world, crabby::sprite_sheet sheet, crabby::vec2 pos) {
+    // ANCHOR: animation
+    world.spawn(world.transforms().with(crabby::transform_at(pos)),
+                world.sprites().with(crabby::sprite_of(sheet, 0)),
+                world.animations().with(crabby::animation_of(sheet, 0, 8, 12)));   // frames 0-7 at 12 fps
+    auto boom = crabby::animation_of(sheet, 8, 8, 24);
+    boom.looping = false;   // stops on the last frame; crabby::finished(boom) says when
+    // ANCHOR_END: animation
+    (void)boom;
+}
+
+constexpr std::uint16_t GRASS = 0, STONE = 3;
+
+// ANCHOR: tilemap
+static crabby::entity make_map(crabby::world_view world, crabby::sprite_sheet tiles, std::uint32_t side) {
+    const crabby::entity map = world.spawn(world.transforms().with(crabby::transform_at({0, 0})));
+    auto t = world.add_tilemap(map, tiles, side, side);   // the transform is its top-left corner
+    for (std::uint32_t y = 0; y < side; ++y)
+        for (std::uint32_t x = 0; x < side; ++x)
+            t.set(x, y, (x * 7 + y * 3) % 5 == 0 ? STONE : GRASS);
+    return map;
+}
+// ANCHOR_END: tilemap
+
+// ANCHOR: paint
+static void paint(crabby::ctx& ctx, crabby::entity map) {
+    if (!ctx.mouse_down(CRABBY_MOUSE_LEFT) || ctx.mouse_over_ui()) return;
+    auto world = ctx.world();
+    const crabby::vec2 origin = world.get(map, world.transforms()).position;
+    auto tiles = world.tilemap(map);
+    if (auto tile = tiles.tile_at(origin, ctx.mouse_world())) tiles.set((*tile)[0], (*tile)[1], STONE);
+}
+// ANCHOR_END: paint
+
 // ---- Camera, text and UI ---------------------------------------------------------
 [[maybe_unused]] static void camera(crabby::ctx& ctx, crabby::vec2 bounds) {
     // ANCHOR: camera_fit
@@ -365,6 +413,7 @@ int main() {
     crabby::component<Heading> heading;
     crabby::component<Brain> brain;
     crabby::sound click{};
+    crabby::entity map = 0;
     std::uint32_t most = 0;
     auto world = crabby::game("guide", 1, 1)
         .spatial_grid(10)
@@ -391,11 +440,25 @@ int main() {
             brain = w.component<Brain>("Brain");
             for (int i = 0; i < 16; ++i) w.spawn(brain.with(Brain{0}));
             click = beep(ctx);
+            std::vector<std::uint8_t> pixels(64 * 40 * 4, 255);
+            const auto sheet = crabby::sheet_of(ctx.create_texture(64, 40, pixels.data(), pixels.size()), 16, 16);
+            animate(w, sheet, {0, 0});
+            map = make_map(w, sheet, 50);
+            paint(ctx, map);   // nobody holds the mouse headless: nothing changes
             ctx.play_sound(click);   // silent: headless
             for (int i = 0; i < 100; ++i)
                 w.spawn(transforms.with(crabby::transform_at({float(i), 0})), neighbors.with(Neighbors{0}),
                         heading.with(Heading{0}), health.with(Health{float(i % 2)}));
         });
+    {
+        auto tiles = world.tilemap(map);
+        std::size_t stone = 0;
+        for (std::size_t i = 0; i < std::size_t(tiles.width()) * tiles.height(); ++i) stone += tiles.tiles()[i] == STONE;
+        if (tiles.width() != 50 || stone != 500 || tiles.get(0, 0) != STONE || tiles.tile_at({0, 0}, {-1, 5})) {
+            std::fprintf(stderr, "tilemap: %u wide, %zu stone\n", tiles.width(), stone);
+            return 1;
+        }
+    }
     // Over 8 ticks every brain gets exactly one turn.
     std::uint32_t plans = 0;
     world.query([&](auto chunk) {
@@ -405,8 +468,8 @@ int main() {
         std::fprintf(stderr, "unexpected: %u plans, %f s click\n", plans, double(click.seconds));
         return 1;
     }
-    // 100k from ecs() + 16 brains + 50 survivors + 4 spawned by Spawner{2} in 8 ticks.
-    if (world.size() != 100000 + 16 + 50 + 4 || most < 10) {
+    // 100k from ecs() + 16 brains + 50 survivors + 4 spawned by Spawner{2} in 8 ticks + 1 animated + 1 map.
+    if (world.size() != 100000 + 16 + 50 + 4 + 2 || most < 10) {
         std::fprintf(stderr, "unexpected: %zu entities, %u neighbors\n", world.size(), most);
         return 1;
     }
