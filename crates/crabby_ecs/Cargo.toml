@@ -1,0 +1,7 @@
+[package]
+name = "crabby_ecs"
+version = "0.1.0"
+edition = "2024"
+description = "The entity-component-system behind Crabby Engine: archetype storage, runtime-registered components."
+
+[dependencies]

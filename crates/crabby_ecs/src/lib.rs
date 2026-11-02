@@ -1,0 +1,54 @@
+//! # crabby_ecs
+//!
+//! The entity-component-system behind Crabby Engine, built for simulations
+//! with millions of entities.
+//!
+//! - **Entities** are cheap handles ([`Entity`]).
+//! - **Components** are plain Rust types, with no derive needed. Anything
+//!   `Send + Sync + 'static` works.
+//! - **Queries** loop over every entity that has a set of components, as fast
+//!   as a hand-written loop over arrays.
+//! - **Resources** are global values stored in the world.
+//! - **Commands** record changes to apply after a query finishes.
+//!
+//! ```
+//! use crabby_ecs::*;
+//!
+//! struct Pos(f32, f32);
+//! struct Vel(f32, f32);
+//! struct Gravity(f32);
+//!
+//! let mut world = World::new();
+//! world.insert_resource(Gravity(-9.8));
+//! for i in 0..1000 {
+//!     world.spawn((Pos(i as f32, 0.0), Vel(0.0, 0.0)));
+//! }
+//!
+//! let g = world.resource::<Gravity>().0;
+//! world.query::<&mut Vel>().for_each(|v| v.1 += g);
+//! world.query::<(&mut Pos, &Vel)>().for_each(|(p, v)| {
+//!     p.0 += v.0;
+//!     p.1 += v.1;
+//! });
+//! ```
+//!
+//! Under the hood every component, Rust or not, is a runtime-registered column
+//! (name, size, alignment, drop). Rust types are registered on first use;
+//! C/C++ code uses [`World::register_component`] and [`World::for_each_chunk`].
+
+mod bundle;
+mod commands;
+mod entity;
+mod query;
+mod storage;
+mod world;
+
+#[cfg(test)]
+mod tests;
+
+pub use bundle::{Bundle, Component};
+pub use commands::Commands;
+pub use entity::Entity;
+pub use query::{Query, QueryData, QueryIter};
+pub use storage::{Archetype, ComponentId, ComponentInfo, DropFn};
+pub use world::{Chunk, World};
