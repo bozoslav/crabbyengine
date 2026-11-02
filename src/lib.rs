@@ -25,6 +25,7 @@
 mod assets;
 mod color;
 mod ctx;
+mod ecs;
 mod game;
 mod input;
 mod render;
@@ -33,9 +34,16 @@ mod time;
 
 pub use color::Color;
 pub use ctx::Ctx;
-pub use game::Game;
+pub use ecs::{Sprite, Transform2D, draw_sprites};
+pub use game::{Game, SetupResult};
 pub use input::{Key, MouseButton};
 pub use texture::{DrawParams, Texture};
+
+/// The ECS: entities, components, queries, resources, commands.
+pub use crabby_ecs::{Commands, Component, Entity, Query, World};
+
+/// The full ECS crate, for advanced use (C path, chunks, archetypes).
+pub use crabby_ecs as ecs_core;
 
 /// 2D vector used for positions, sizes and velocities (re-exported from `glam`).
 pub use glam::{Vec2, vec2};
