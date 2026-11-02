@@ -4,7 +4,9 @@
 
 A fast 2D engine in Rust for games with huge numbers of simulated things:
 millions of entities on all CPU cores, a pausable fixed-rate simulation clock,
-spatial queries, and headless runs for tests and servers.
+spatial queries, and headless runs for tests and servers. A 2D camera, text
+and simple UI come built in, and AI agents can drive running games through
+an MCP server (inspect, step, screenshot).
 
 **Documentation:** [the guide](https://bozoslav.github.io/crabbyengine/)
 (searchable) and the [API reference](https://bozoslav.github.io/crabbyengine/api/crabbyengine/).
@@ -13,6 +15,7 @@ spatial queries, and headless runs for tests and servers.
 cargo run --release --example boids
 HEADLESS=1 BOIDS=1000000 cargo run --release --example boids
 cargo run --release --example ants
+cargo run --release --example ui
 ```
 
 Contributing (humans and agents): see [AGENTS.md](AGENTS.md).

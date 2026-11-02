@@ -84,6 +84,8 @@ headless game waits for requests and runs only the ticks you step.
 | `sim.step` | `ticks?` (1) | ticks queued |
 | `sim.speed` | `speed` | |
 | `systems.timings` | | each system's last and average ms |
+| `camera.get` | | position, zoom, center, visible rect |
+| `camera.set` | `position`?, `zoom`?, `look_at`? | move the camera; returns `camera.get` |
 | `screenshot` | `path`?, `max_size`? | save the next frame as a PNG (windowed games only); returns `path`, `width`, `height` |
 | `game.quit` | | |
 

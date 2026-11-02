@@ -64,8 +64,9 @@ small (about 1.6 ms of GPU time per million).
 What keeps the CPU side small:
 - `draw_sprites` builds the instance data on all cores (1M sprites: 1.1 ms,
   was 3.4 ms on one core).
-- Each sprite is 28 bytes on the GPU (was 52): the per-frame upload for 1M
-  sprites is 28 MB.
+- Each sprite is 36 bytes on the GPU (was 52): the per-frame upload for 1M
+  sprites is 36 MB. (A 28-byte version without a texture region measured
+  the same render CPU time; the region is needed for text and atlases.)
 
 ### Is it the CPU or the GPU?
 

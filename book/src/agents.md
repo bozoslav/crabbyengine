@@ -43,6 +43,7 @@ ctx.world.reflect::<Health>();
 | `system_timings` | | which systems are slow |
 | `read_logs` | | stdout/stderr of launched games |
 | `screenshot` | | the next frame of a windowed game, as an image the agent can look at |
+| `set_camera` | | move or zoom the camera (`look_at`, `zoom`, `position`), e.g. before a screenshot |
 | `run_ticks` | ✓ | run exactly N ticks of a paused sim and wait |
 | `pause` / `resume` / `set_speed` | ✓ | sim clock |
 | `spawn_entity` / `despawn_entity` | ✓ | |

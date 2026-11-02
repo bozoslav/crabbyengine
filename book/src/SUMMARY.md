@@ -10,6 +10,7 @@
 - [The simulation clock](sim-clock.md)
 - [Spatial queries](spatial.md)
 - [Drawing](drawing.md)
+- [Camera, text and UI](camera-ui.md)
 - [Headless runs and testing](headless.md)
 - [Reflection: components as JSON](reflection.md)
 - [Randomness, determinism and saving](determinism.md)
