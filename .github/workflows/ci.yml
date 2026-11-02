@@ -127,3 +127,18 @@ jobs:
         with:
           components: miri
       - run: cargo miri test -p crabby_ecs --lib --no-fail-fast ${{ matrix.args }}
+
+  # Single check for branch protection: passes only if every job above passed.
+  # (Requiring one job keeps the rule valid when jobs are added or renamed.)
+  ci-passed:
+    name: CI passed
+    if: always()
+    needs: [fmt, clippy, test, examples, docs, miri]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check every job
+        run: |
+          echo '${{ toJSON(needs) }}'
+          if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}" = "true" ]; then
+            echo "Some jobs did not pass." && exit 1
+          fi
