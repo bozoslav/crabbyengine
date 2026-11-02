@@ -27,6 +27,11 @@ fn flocking(bounds: Vec2) -> impl FnMut(&mut Ctx) {
     let mut grid = SpatialGrid::with_data(RADIUS);
     move |ctx: &mut Ctx| {
         let dt = ctx.dt();
+        // Keep boids that are close in space close in memory, so neighbor
+        // lookups hit the cache (1M boids: 62 -> 40 ms/tick).
+        if ctx.sim_tick().is_multiple_of(SPATIAL_SORT_EVERY) {
+            ctx.world.sort_by::<Transform2D>(|t| spatial_key(t.position, RADIUS));
+        }
         grid.rebuild_with_data(
             ctx.world
                 .query::<(Entity, &Transform2D, &Vel)>()

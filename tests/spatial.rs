@@ -203,3 +203,32 @@ fn entries_carry_their_data() {
     g.for_each_in_radius(Vec2::ZERO, 1e6, |e| assert_eq!(pts[e.data as usize].0, e.entity));
     assert_eq!(g.len(), 500);
 }
+
+#[test]
+fn spatial_key_orders_nearby_cells_together() {
+    // Same cell → same key; negative cells sort below positive ones.
+    assert_eq!(spatial_key(vec2(1.0, 1.0), 10.0), spatial_key(vec2(9.0, 9.0), 10.0));
+    assert!(spatial_key(vec2(-5.0, -5.0), 10.0) < spatial_key(vec2(5.0, 5.0), 10.0));
+    // Within a 2x2 block of cells, keys are consecutive (Z-order).
+    let mut block: Vec<u64> = [(0.0, 0.0), (10.0, 0.0), (0.0, 10.0), (10.0, 10.0)]
+        .iter()
+        .map(|&(x, y)| spatial_key(vec2(x, y), 10.0))
+        .collect();
+    block.sort();
+    assert!(block.windows(2).all(|w| w[1] == w[0] + 1), "{block:?}");
+}
+
+#[test]
+fn built_in_grid_sorts_entities_by_cell() {
+    let mut world = Game::new("t", 1, 1).spatial_grid(10.0).run_headless(1, |ctx| {
+        for x in [900.0, -50.0, 300.0, 5.0, 610.0] {
+            ctx.world.spawn((Transform2D::at(vec2(x, 0.0)),));
+        }
+    });
+    let keys: Vec<u64> = world
+        .query::<&Transform2D>()
+        .iter()
+        .map(|t| spatial_key(t.position, 10.0))
+        .collect();
+    assert!(keys.windows(2).all(|w| w[0] <= w[1]), "{keys:?}");
+}

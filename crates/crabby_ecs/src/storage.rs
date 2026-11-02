@@ -118,6 +118,24 @@ impl Column {
         }
     }
 
+    /// Reorders the first `perm.len()` values: new row `i` gets old row
+    /// `perm[i]`. `perm` must be a permutation of `0..perm.len()`, and
+    /// `cap` the column's capacity.
+    unsafe fn permute(&mut self, perm: &[u32], cap: usize) {
+        let size = self.item.size();
+        if size == 0 || perm.is_empty() {
+            return;
+        }
+        let layout = self.array(cap);
+        let new = unsafe { alloc::alloc(layout) };
+        let new = NonNull::new(new).unwrap_or_else(|| alloc::handle_alloc_error(layout));
+        for (i, &old) in perm.iter().enumerate() {
+            unsafe { std::ptr::copy_nonoverlapping(self.ptr(old as usize), new.as_ptr().add(i * size), size) };
+        }
+        unsafe { alloc::dealloc(self.data.as_ptr(), layout) };
+        self.data = new;
+    }
+
     unsafe fn dealloc(&mut self, cap: usize) {
         if self.item.size() != 0 && cap != 0 {
             unsafe { alloc::dealloc(self.data.as_ptr(), self.array(cap)) }
@@ -199,6 +217,21 @@ impl Archetype {
     #[inline]
     pub fn column_ptr(&self, id: ComponentId) -> Option<*mut u8> {
         self.column_index(id).map(|i| self.columns[i].base())
+    }
+
+    /// Reorders all rows: new row `i` gets old row `perm[i]`. `perm` must be
+    /// a permutation of `0..len()`. The caller updates entity locations.
+    pub(crate) fn permute(&mut self, perm: &[u32]) {
+        assert_eq!(perm.len(), self.len());
+        debug_assert!({
+            let mut seen = vec![false; perm.len()];
+            perm.iter().all(|&p| !std::mem::replace(&mut seen[p as usize], true))
+        });
+        for c in self.columns.iter_mut() {
+            unsafe { c.permute(perm, self.cap) };
+        }
+        let old = std::mem::take(&mut self.entities);
+        self.entities = perm.iter().map(|&p| old[p as usize]).collect();
     }
 
     pub(crate) fn reserve(&mut self, additional: usize) {
