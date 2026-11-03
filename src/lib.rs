@@ -53,6 +53,8 @@ mod color;
 mod control;
 mod ctx;
 mod ecs;
+#[cfg(feature = "inspector")]
+mod editor;
 mod events;
 mod flow;
 mod game;

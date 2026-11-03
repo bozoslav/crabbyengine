@@ -18,6 +18,10 @@ says what that covers.
 - `Sprite` is reflected in every game, its texture written as the image's
   name in `assets/` (`"texture": "crab.png"`); setting or loading one loads
   the image. `Color` and `Rect` implement serde's traits.
+- The inspector is an editor while the game is paused: click to select,
+  drag to move, pan and zoom, Delete, Ctrl+D duplicate, Ctrl+Z undo, add
+  components, place prefabs from `assets/prefabs/`, save and load scenes,
+  and Play / Stop (Stop puts the world back as it was at Play).
 
 ## [1.0.0] - 2026-11-03
 

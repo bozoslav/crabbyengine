@@ -72,6 +72,36 @@ pub(crate) fn write(name: &str, bytes: &[u8]) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+/// Files in folder `dir` of `assets/` ending in `.{extension}`, as asset
+/// names (`"prefabs/palm.json"`), sorted, from every assets folder found.
+#[cfg(all(not(target_arch = "wasm32"), feature = "inspector"))]
+pub(crate) fn list(dir: &str, extension: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    for root in asset_roots() {
+        let Ok(entries) = std::fs::read_dir(root.join(dir)) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file()
+                && path.extension().is_some_and(|e| e == extension)
+                && let Some(file) = path.file_name().and_then(|f| f.to_str())
+            {
+                names.push(format!("{dir}/{file}"));
+            }
+        }
+    }
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// Web builds have no folders to list.
+#[cfg(all(target_arch = "wasm32", feature = "inspector"))]
+pub(crate) fn list(_dir: &str, _extension: &str) -> Vec<String> {
+    Vec::new()
+}
+
 /// Web builds can't write files.
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn write(name: &str, _: &[u8]) -> Result<PathBuf, String> {

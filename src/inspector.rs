@@ -4,6 +4,10 @@
 //! every entity with its components, live editing of reflected components
 //! and resources, and picking units in the world.
 //!
+//! Paused, it's an editor ([`crate::editor`]): select, drag, duplicate and
+//! delete entities in the world, add and remove components, undo, place
+//! prefabs, save and load scenes, and Play / Stop.
+//!
 //! Built with the `inspector` feature; turned on per game with
 //! [`Game::inspector`](crate::Game::inspector) (on in debug builds). While
 //! closed, it costs nothing: egui doesn't run and no events are kept.
@@ -11,12 +15,15 @@
 use std::collections::HashSet;
 
 use crabby_ecs::{ComponentId, Entity, World};
-use egui::{CollapsingHeader, Color32, DragValue, RichText, ScrollArea, Sense, Stroke, Ui, vec2};
+use egui::{
+    Button, CollapsingHeader, Color32, DragValue, Key, RichText, ScrollArea, Sense, Stroke, TextEdit, Ui, vec2,
+};
 use glam::Vec2;
 use serde_json::Value;
 
+use crate::editor::Editor;
 use crate::reflect::short_name;
-use crate::{Ctx, Transform2D, WorldReflect};
+use crate::{Ctx, Rect, Sprite, Transform2D, WorldReflect};
 
 /// Environment variable that turns the inspector on (`1`) or off (`0`),
 /// overriding [`Game::inspector`](crate::Game::inspector).
@@ -48,6 +55,12 @@ const HISTORY: usize = 240;
 const PICK_RADIUS: f32 = 24.0;
 /// Height of one row in the entity list.
 const ROW_HEIGHT: f32 = 18.0;
+/// Where Ctrl+D puts the copy, from the original (world units).
+const DUPLICATE_OFFSET: Vec2 = Vec2::new(16.0, 16.0);
+/// Folder of `assets/` the prefab palette lists.
+const PREFAB_FOLDER: &str = "prefabs";
+/// Scene file used when none is typed.
+const DEFAULT_SCENE: &str = "levels/level.json";
 
 /// What the overlay draws this frame: egui's triangles and texture changes.
 pub(crate) struct Overlay {
@@ -91,11 +104,37 @@ pub(crate) struct Panels {
     /// Non-empty archetypes that pass the filter, and the first row of each.
     rows: Vec<(usize, usize)>,
     reflected: HashSet<String>,
+    /// Edits with undo, and Play / Stop.
+    pub editor: Editor,
+    /// Paused with the panels open: clicks and shortcut keys in the world
+    /// go to the editor, not the game.
+    pub editing: bool,
+    /// The entity being dragged in the world.
+    drag: Option<Drag>,
+    /// A prefab the next click in the world places.
+    placing: Option<String>,
+    /// Prefab files in `assets/prefabs/`; `None` until listed.
+    prefabs: Option<Vec<String>>,
+    scene_path: String,
+    prefab_path: String,
+    /// What the last scene or prefab action did.
+    status: Option<String>,
+}
+
+/// An entity being moved with the mouse.
+struct Drag {
+    e: Entity,
+    /// Its transform before, for undo.
+    before: Value,
+    /// From the mouse to its position, so it doesn't jump to the cursor.
+    grab: Vec2,
+    moved: bool,
 }
 
 impl Panels {
     /// Draws the inspector into `ui` and applies what was changed in it to `ctx`.
     pub fn show(&mut self, ui: &mut Ui, ctx: &mut Ctx) {
+        self.editing = ctx.is_paused();
         self.record_frame(ctx.dt() * 1000.0);
         self.reflected.clear();
         self.reflected
@@ -120,6 +159,9 @@ impl Panels {
                     if let Some(error) = &self.error {
                         ui.colored_label(Color32::LIGHT_RED, error);
                     }
+                    CollapsingHeader::new("Edit")
+                        .default_open(true)
+                        .show(ui, |ui| self.edit_tools(ui, ctx));
                     if let Some(e) = self.selected {
                         ui.separator();
                         self.entity(ui, ctx, e);
@@ -138,7 +180,247 @@ impl Panels {
                         .show(ui, |ui| systems(ui, ctx));
                 });
             });
+        if self.editing {
+            self.world_input(ui, ctx);
+            self.shortcuts(ui, ctx);
+        } else if let Some(drag) = self.drag.take() {
+            self.end_drag(drag);
+        }
         self.highlight(ui, ctx);
+    }
+
+    /// Shows an edit's error, or forgets the last one.
+    fn report<T>(&mut self, result: Result<T, String>) -> Option<T> {
+        match result {
+            Ok(v) => {
+                self.error = None;
+                Some(v)
+            }
+            Err(e) => {
+                self.error = Some(e);
+                None
+            }
+        }
+    }
+
+    /// Mouse in the world while paused: click selects (or places the armed
+    /// prefab), drag moves, right or middle drag pans, the wheel zooms.
+    fn world_input(&mut self, ui: &Ui, ctx: &mut Ctx) {
+        let (pos, pressed, down, pan, scroll, shift) = ui.input(|i| {
+            let p = &i.pointer;
+            let pan = if p.secondary_down() || p.middle_down() {
+                p.delta()
+            } else {
+                egui::Vec2::ZERO
+            };
+            let pos = p.latest_pos().map(|p| Vec2::new(p.x, p.y));
+            (
+                pos,
+                p.primary_pressed(),
+                p.primary_down(),
+                pan,
+                i.smooth_scroll_delta.y,
+                i.modifiers.shift,
+            )
+        });
+        let Some(pos) = pos else { return };
+        if !ui.ctx().is_pointer_over_egui() {
+            if pan != egui::Vec2::ZERO {
+                ctx.camera.position -= Vec2::new(pan.x, pan.y) / ctx.camera.zoom;
+            }
+            if scroll != 0.0 {
+                ctx.camera.zoom_at(pos, 1.1f32.powf(scroll / 50.0));
+            }
+            if pressed {
+                self.click(ctx, pos, shift);
+            }
+        }
+        if let Some(drag) = &mut self.drag {
+            if down && ctx.world.is_alive(drag.e) {
+                let to = ctx.camera.screen_to_world(pos) + drag.grab;
+                if let Some(t) = ctx.world.get_mut::<Transform2D>(drag.e)
+                    && t.position != to
+                {
+                    t.position = to;
+                    drag.moved = true;
+                }
+            } else if let Some(drag) = self.drag.take() {
+                self.end_drag(drag);
+            }
+        }
+    }
+
+    /// A click in the world at window point `at`.
+    fn click(&mut self, ctx: &mut Ctx, at: Vec2, keep_placing: bool) {
+        let world_at = ctx.camera.screen_to_world(at);
+        if let Some(path) = self.placing.clone() {
+            let placed = self.editor.spawn_prefab(ctx, &path, world_at);
+            if let Some(e) = self.report(placed) {
+                self.selected = Some(e);
+            }
+            if !keep_placing {
+                self.placing = None;
+            }
+            return;
+        }
+        self.selected = pick(ctx, at);
+        if let Some(e) = self.selected
+            && let Some(t) = ctx.world.get::<Transform2D>(e)
+        {
+            let grab = t.position - world_at;
+            if let Ok(before) = ctx.world.get_json(e, "Transform2D") {
+                self.drag = Some(Drag {
+                    e,
+                    before,
+                    grab,
+                    moved: false,
+                });
+            }
+        }
+    }
+
+    fn end_drag(&mut self, drag: Drag) {
+        if drag.moved {
+            self.editor.moved(drag.e, drag.before);
+        }
+    }
+
+    /// Keys while paused: Delete, Ctrl+D (duplicate), Ctrl+Z (undo), Esc.
+    fn shortcuts(&mut self, ui: &Ui, ctx: &mut Ctx) {
+        if ui.ctx().egui_wants_keyboard_input() {
+            return;
+        }
+        let (delete, duplicate, undo, escape) = ui.input(|i| {
+            (
+                i.key_pressed(Key::Delete) || i.key_pressed(Key::Backspace),
+                i.modifiers.command && i.key_pressed(Key::D),
+                i.modifiers.command && i.key_pressed(Key::Z),
+                i.key_pressed(Key::Escape),
+            )
+        });
+        if escape {
+            self.placing = None;
+        }
+        if undo {
+            self.undo(ctx);
+        }
+        let Some(e) = self.selected else { return };
+        if delete {
+            let deleted = self.editor.delete(ctx, e);
+            self.report(deleted);
+            self.selected = None;
+        } else if duplicate {
+            let copy = self.editor.duplicate(ctx, e, DUPLICATE_OFFSET);
+            if let Some(copy) = self.report(copy) {
+                self.selected = Some(copy);
+            }
+        }
+    }
+
+    fn undo(&mut self, ctx: &mut Ctx) {
+        let undone = self.editor.undo(ctx);
+        self.report(undone);
+    }
+
+    /// Undo, new entity, scenes, and the prefab palette.
+    fn edit_tools(&mut self, ui: &mut Ui, ctx: &mut Ctx) {
+        ui.horizontal(|ui| {
+            if ui.add_enabled(self.editor.can_undo(), Button::new("Undo")).clicked() {
+                self.undo(ctx);
+            }
+            if ui
+                .button("New entity")
+                .on_hover_text("An entity with only a transform, mid-screen")
+                .clicked()
+            {
+                let at = ctx.camera.center();
+                self.selected = Some(self.editor.spawn_empty(ctx, at));
+            }
+        });
+        if !self.editing {
+            ui.label(RichText::new("Pause to edit in the world").weak());
+        } else {
+            ui.label(
+                RichText::new("Click selects, drag moves, right-drag pans, wheel zooms. Del, Ctrl+D, Ctrl+Z.").weak(),
+            );
+        }
+
+        ui.horizontal(|ui| {
+            ui.label("Scene");
+            ui.add(
+                TextEdit::singleline(&mut self.scene_path)
+                    .hint_text(DEFAULT_SCENE)
+                    .desired_width(150.0),
+            );
+            let path = if self.scene_path.is_empty() {
+                DEFAULT_SCENE
+            } else {
+                &self.scene_path
+            }
+            .to_owned();
+            if ui.button("Save").clicked() {
+                let saved = ctx.save_scene(&path).map(|()| format!("saved {path}"));
+                self.status = self.report(saved);
+            }
+            if ui
+                .button("Load")
+                .on_hover_text("Replaces the world; clears undo")
+                .clicked()
+            {
+                let loaded = ctx.load_scene(&path).map(|()| format!("loaded {path}"));
+                if let Some(done) = self.report(loaded) {
+                    self.status = Some(done);
+                    self.editor = Editor::default();
+                    self.selected = None;
+                }
+            }
+        });
+
+        ui.horizontal(|ui| {
+            ui.label("Prefab");
+            let hint = format!("{PREFAB_FOLDER}/thing.json");
+            ui.add(
+                TextEdit::singleline(&mut self.prefab_path)
+                    .hint_text(hint)
+                    .desired_width(150.0),
+            );
+            let save = ui.add_enabled(
+                self.selected.is_some() && !self.prefab_path.is_empty(),
+                Button::new("Save"),
+            );
+            if let Some(e) = self.selected
+                && save.on_hover_text("Saves the selected entity as this prefab").clicked()
+            {
+                let path = self.prefab_path.clone();
+                let saved = ctx.save_prefab(e, &path).map(|()| format!("saved {path}"));
+                self.status = self.report(saved);
+                self.prefabs = None;
+            }
+        });
+        let prefabs = self
+            .prefabs
+            .get_or_insert_with(|| crate::assets::list(PREFAB_FOLDER, "json"))
+            .clone();
+        ui.horizontal_wrapped(|ui| {
+            for path in &prefabs {
+                let name = path.rsplit('/').next().unwrap_or(path).trim_end_matches(".json");
+                let armed = self.placing.as_deref() == Some(path.as_str());
+                let tip = "Click, then click in the world to place it (hold Shift to place more)";
+                if ui.selectable_label(armed, name).on_hover_text(tip).clicked() {
+                    self.placing = if armed { None } else { Some(path.clone()) };
+                }
+            }
+            if ui
+                .small_button("⟳")
+                .on_hover_text(format!("List assets/{PREFAB_FOLDER}/ again"))
+                .clicked()
+            {
+                self.prefabs = None;
+            }
+        });
+        if let Some(status) = &self.status {
+            ui.label(RichText::new(status).weak());
+        }
     }
 
     fn record_frame(&mut self, ms: f32) {
@@ -153,11 +435,33 @@ impl Panels {
     fn sim_controls(&mut self, ui: &mut Ui, ctx: &mut Ctx) {
         ui.horizontal(|ui| {
             if ctx.is_paused() {
-                if ui.button("Resume").clicked() {
-                    ctx.resume();
+                let tip = if self.editor.playing() {
+                    "Resume"
+                } else {
+                    "Run the game; Stop puts the world back as it is now"
+                };
+                if ui.button("Play").on_hover_text(tip).clicked() {
+                    self.editor.play(ctx);
                 }
             } else if ui.button("Pause").clicked() {
                 ctx.pause();
+            }
+            if self.editor.playing() {
+                let stop = ui
+                    .button("Stop")
+                    .on_hover_text("Pause and put the world back as it was at Play");
+                if stop.clicked() {
+                    let stopped = self.editor.stop(ctx);
+                    self.report(stopped);
+                    self.drag = None;
+                }
+                if ui
+                    .button("Keep")
+                    .on_hover_text("Keep the world as it is: Stop won't go back")
+                    .clicked()
+                {
+                    self.editor.keep();
+                }
             }
             if ui.button("Step").on_hover_text("Run one tick (pauses)").clicked() {
                 ctx.pause();
@@ -295,8 +599,15 @@ impl Panels {
             {
                 ctx.camera.look_at(at);
             }
-            if ui.button("Despawn").clicked() {
-                ctx.world.despawn(e);
+            if ui.button("Duplicate").on_hover_text("Ctrl+D").clicked() {
+                let copy = self.editor.duplicate(ctx, e, DUPLICATE_OFFSET);
+                if let Some(copy) = self.report(copy) {
+                    self.selected = Some(copy);
+                }
+            }
+            if ui.button("Despawn").on_hover_text("Del").clicked() {
+                let deleted = self.editor.delete(ctx, e);
+                self.report(deleted);
                 self.selected = None;
             }
         });
@@ -304,6 +615,7 @@ impl Panels {
             return;
         }
         let ids: Vec<ComponentId> = ctx.world.components_of(e).map(<[_]>::to_vec).unwrap_or_default();
+        let has: HashSet<String> = ids.iter().map(|&id| component_name(&ctx.world, id)).collect();
         for id in ids {
             let name = component_name(&ctx.world, id);
             if !self.reflected.contains(&name) {
@@ -320,16 +632,31 @@ impl Panels {
                 .default_open(true)
                 .show(ui, |ui| {
                     if edit_value(ui, &mut value) {
-                        let textures = ctx.load_sprite_textures(&serde_json::json!({ &name: &value }));
-                        self.error = textures
-                            .and_then(|()| ctx.world.set_json(e, &name, value).map_err(|e| e.to_string()))
-                            .err();
+                        let set = self.editor.set(ctx, e, &name, value);
+                        self.report(set);
                     }
                     remove = ui.small_button("Remove").clicked();
                 });
             if remove {
-                self.error = ctx.world.remove_json(e, &name).err().map(|e| e.to_string());
+                let removed = self.editor.remove(ctx, e, &name);
+                self.report(removed);
             }
+        }
+        let mut addable: Vec<&String> = self.reflected.iter().filter(|n| !has.contains(*n)).collect();
+        addable.sort();
+        let mut add = None;
+        egui::ComboBox::from_id_salt("inspector-add")
+            .selected_text("Add component")
+            .show_ui(ui, |ui| {
+                for name in addable {
+                    if ui.selectable_label(false, name).clicked() {
+                        add = Some(name.clone());
+                    }
+                }
+            });
+        if let Some(name) = add {
+            let added = self.editor.add(ctx, e, &name);
+            self.report(added);
         }
     }
 
@@ -392,10 +719,24 @@ fn entity_at(world: &World, rows: &[(usize, usize)], row: usize) -> Option<Entit
     world.archetypes()[arch].entities().get(row - start).copied()
 }
 
-/// The entity with a `Transform2D` closest to window point `at`, within
-/// [`PICK_RADIUS`] pixels.
+/// The entity under window point `at`: the top sprite there (by `z`), else
+/// the entity with a `Transform2D` closest to it, within [`PICK_RADIUS`]
+/// pixels. Sprites are hit by their unrotated rectangle.
 fn pick(ctx: &mut Ctx, at: Vec2) -> Option<Entity> {
     let camera = ctx.camera;
+    let world_at = camera.screen_to_world(at);
+    let mut top: Option<(f32, Entity)> = None;
+    for (e, t, s) in ctx.world.query::<(Entity, &Transform2D, &Sprite)>().iter() {
+        let size = s.region.map_or(s.texture.size(), |r| r.size()) * t.scale.abs();
+        let min = t.position - size * s.pivot;
+        let rect = Rect { min, max: min + size };
+        if rect.contains(world_at) && top.is_none_or(|(z, _)| s.z >= z) {
+            top = Some((s.z, e));
+        }
+    }
+    if let Some((_, e)) = top {
+        return Some(e);
+    }
     let mut best: Option<(f32, Entity)> = None;
     for (e, t) in ctx.world.query::<(Entity, &Transform2D)>().iter() {
         let d = camera.world_to_screen(t.position).distance_squared(at);
@@ -578,7 +919,29 @@ impl Inspector {
             event,
             WindowEvent::KeyboardInput { .. } | WindowEvent::MouseInput { .. } | WindowEvent::MouseWheel { .. }
         );
+        if self.panels.editing && input {
+            // Paused: the editor has the mouse in the world, and its keys.
+            let mouse = !matches!(event, WindowEvent::KeyboardInput { .. });
+            return consumed || mouse || self.is_editor_key(event);
+        }
         consumed && input
+    }
+
+    /// Whether `event` is one of the editor's keys (see `Panels::shortcuts`).
+    fn is_editor_key(&self, event: &winit::event::WindowEvent) -> bool {
+        use winit::keyboard::{KeyCode, PhysicalKey};
+        let winit::event::WindowEvent::KeyboardInput { event: key, .. } = event else {
+            return false;
+        };
+        let PhysicalKey::Code(code) = key.physical_key else {
+            return false;
+        };
+        let command = self.egui.input(|i| i.modifiers.command);
+        match code {
+            KeyCode::Delete | KeyCode::Backspace | KeyCode::Escape => true,
+            KeyCode::KeyD | KeyCode::KeyZ => command,
+            _ => false,
+        }
     }
 
     /// Runs the panels for this frame and hands their drawing to the renderer.
@@ -640,6 +1003,140 @@ mod tests {
             ctx.world.spawn((Transform2D::at(Vec2::new(i as f32 * 100.0, 500.0)),));
         }
         (ctx, e)
+    }
+
+    /// Runs one frame of `panels` on a lasting egui context (pointer state
+    /// carries over between frames) with these input events.
+    fn frame(egui: &egui::Context, panels: &mut Panels, ctx: &mut Ctx, mut events: Vec<egui::Event>) {
+        // egui keeps held modifiers from ModifiersChanged, not from key events.
+        let command = events
+            .iter()
+            .any(|e| matches!(e, egui::Event::Key { modifiers, .. } if modifiers.command));
+        let held = if command {
+            egui::Modifiers::COMMAND
+        } else {
+            Default::default()
+        };
+        events.insert(0, egui::Event::ModifiersChanged(held));
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1280.0, 720.0))),
+            events,
+            ..Default::default()
+        };
+        let mut out = egui.run_ui(input, |ui| panels.show(ui, ctx));
+        out.textures_delta.clear();
+    }
+    fn button(x: f32, y: f32, pressed: bool) -> egui::Event {
+        egui::Event::PointerButton {
+            pos: egui::pos2(x, y),
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        }
+    }
+    fn key(key: Key, command: bool) -> egui::Event {
+        egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: if command {
+                egui::Modifiers::COMMAND
+            } else {
+                Default::default()
+            },
+        }
+    }
+    fn edit_scene() -> (egui::Context, Panels, Ctx, Entity) {
+        let (mut ctx, _) = game();
+        ctx.pause();
+        let e = ctx.world.spawn((
+            Transform2D::at(Vec2::new(300.0, 300.0)),
+            Health { current: 1.0, max: 1 },
+        ));
+        let egui = egui::Context::default();
+        let mut panels = Panels::default();
+        frame(&egui, &mut panels, &mut ctx, vec![]); // lay the panels out once
+        (egui, panels, ctx, e)
+    }
+
+    #[test]
+    fn paused_a_click_selects_a_drag_moves_and_undo_puts_it_back() {
+        let (egui, mut panels, mut ctx, e) = edit_scene();
+        let at = |ctx: &Ctx| ctx.world.get::<Transform2D>(e).unwrap().position;
+        frame(
+            &egui,
+            &mut panels,
+            &mut ctx,
+            vec![
+                egui::Event::PointerMoved(egui::pos2(305.0, 302.0)),
+                button(305.0, 302.0, true),
+            ],
+        );
+        assert_eq!(panels.selected, Some(e));
+        frame(
+            &egui,
+            &mut panels,
+            &mut ctx,
+            vec![egui::Event::PointerMoved(egui::pos2(355.0, 322.0))],
+        );
+        assert_eq!(
+            at(&ctx),
+            Vec2::new(350.0, 320.0),
+            "moved by the drag, not snapped to the cursor"
+        );
+        frame(&egui, &mut panels, &mut ctx, vec![button(355.0, 322.0, false)]);
+        assert!(panels.editor.can_undo());
+        frame(&egui, &mut panels, &mut ctx, vec![key(Key::Z, true)]);
+        assert_eq!(at(&ctx), Vec2::new(300.0, 300.0));
+    }
+
+    #[test]
+    fn paused_keys_duplicate_and_delete_the_selection() {
+        let (egui, mut panels, mut ctx, e) = edit_scene();
+        panels.selected = Some(e);
+        let before = ctx.world.len();
+        frame(&egui, &mut panels, &mut ctx, vec![key(Key::D, true)]);
+        let copy = panels.selected.unwrap();
+        assert_ne!(copy, e);
+        assert_eq!(
+            ctx.world.get::<Transform2D>(copy).unwrap().position,
+            Vec2::new(316.0, 316.0)
+        );
+        frame(&egui, &mut panels, &mut ctx, vec![key(Key::Delete, false)]);
+        assert!(!ctx.world.is_alive(copy) && panels.selected.is_none());
+        assert_eq!(ctx.world.len(), before);
+    }
+
+    #[test]
+    fn running_the_world_clicks_go_to_the_game() {
+        let (egui, mut panels, mut ctx, e) = edit_scene();
+        ctx.resume();
+        frame(
+            &egui,
+            &mut panels,
+            &mut ctx,
+            vec![
+                egui::Event::PointerMoved(egui::pos2(300.0, 300.0)),
+                button(300.0, 300.0, true),
+            ],
+        );
+        assert_eq!(panels.selected, None);
+        assert!(!panels.editing);
+        let _ = e;
+    }
+
+    #[test]
+    fn play_then_stop_from_the_panels_restores_the_world() {
+        let (egui, mut panels, mut ctx, e) = edit_scene();
+        panels.editor.play(&mut ctx);
+        ctx.world.despawn(e);
+        frame(&egui, &mut panels, &mut ctx, vec![]);
+        panels.editor.stop(&mut ctx).unwrap();
+        assert!(
+            ctx.world.get::<Health>(e).is_some(),
+            "back, with the same id (the world was reloaded)"
+        );
     }
 
     #[test]

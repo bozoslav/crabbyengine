@@ -39,6 +39,9 @@ agents and your own code write them like any other file.
 
 ## Saving
 
+The [inspector's editor](inspector.md#editing-build-levels-in-the-game)
+saves and loads scenes and places prefabs with the mouse. From code:
+
 `save_scene(path)` writes the world (its reflected components and
 resources) and `save_prefab(entity, path)` writes one entity, without its
 position. Both write over the file in `assets/` if it's there, else create
