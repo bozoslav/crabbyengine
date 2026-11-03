@@ -5,7 +5,7 @@ notice who walked in: 2D rigid-body physics, built on
 [rapier](https://rapier.rs). It's behind the `physics` feature:
 
 ```toml
-crabbyengine = { version = "...", features = ["physics"] }
+crabbyengine = { version = "1", features = ["physics"] }
 ```
 
 (The C library, `crabby_ffi`, has it on by default.)

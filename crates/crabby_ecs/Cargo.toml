@@ -1,6 +1,6 @@
 [package]
 name = "crabby_ecs"
-version = "0.1.0"
+version = "1.0.0"
 keywords = ["ecs", "gamedev", "archetype", "simulation"]
 categories = ["game-development", "data-structures"]
 documentation = "https://bozoslav.github.io/crabbyengine/api/crabby_ecs/"

@@ -55,7 +55,7 @@ machines without audio, are silent but run the same code. For servers you
 can drop the audio library entirely:
 
 ```toml
-crabbyengine = { version = "...", default-features = false }
+crabbyengine = { version = "1", default-features = false }
 ```
 
 The sound API stays; it just makes no noise. The C library has the same

@@ -42,6 +42,8 @@ const START: u8 = 3;
 const INPUTS: u8 = 4;
 const CHECK: u8 = 5;
 const REJECT: u8 = 6;
+/// "I stopped and need nothing more": peers stop resending to us.
+const BYE: u8 = 7;
 
 /// Ticks of input kept per player; peers are never more than
 /// `input_delay + 1` ticks apart, far less than this.
@@ -51,6 +53,11 @@ const PACKET: usize = 1400;
 /// Resend unacknowledged inputs (and keep the link alive) this often.
 const RESEND: Duration = Duration::from_millis(20);
 const HELLO_EVERY: Duration = Duration::from_millis(100);
+/// How long a finished session keeps resending for peers that still miss
+/// inputs, at most.
+const LINGER: Duration = Duration::from_secs(1);
+/// A peer silent this long while we linger has left too.
+const GONE: Duration = Duration::from_millis(250);
 
 /// Where a session is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -280,16 +287,15 @@ impl Net {
     }
 
     fn with(session: Session, player: usize, players: usize) -> Net {
-        Net {
-            session: Some(Box::new(session)),
-            player,
-            players,
-            current: vec![Vec::new(); players.max(1)],
-            delay: 3,
-            checksum_every: 60,
-            state: NetState::Connecting,
-            ..Net::default()
-        }
+        let mut net = Net::default();
+        net.session = Some(Box::new(session));
+        net.player = player;
+        net.players = players;
+        net.current = vec![Vec::new(); players.max(1)];
+        net.delay = 3;
+        net.checksum_every = 60;
+        net.state = NetState::Connecting;
+        net
     }
 
     /// Schedules each input this many ticks ahead (default 3, at most 64):
@@ -540,6 +546,42 @@ impl Net {
     }
 }
 
+impl Drop for Net {
+    /// A peer that stops (its last tick ran, or it quit) may hold inputs
+    /// the others still miss, because a packet got lost: it keeps resending
+    /// until every peer has them, has left too, or a second passed.
+    fn drop(&mut self) {
+        let Some(s) = self.session.as_deref_mut() else { return };
+        if !s.started || self.state == NetState::Lost {
+            return;
+        }
+        let end = Instant::now() + LINGER.min(self.timeout);
+        loop {
+            let now = Instant::now();
+            s.poll(
+                now,
+                &mut Settings {
+                    player: &mut self.player,
+                    players: &mut self.players,
+                    delay: &mut self.delay,
+                    checksum_every: &mut self.checksum_every,
+                    desync: &mut self.desync,
+                },
+            );
+            if now >= end || s.settled(now, self.player) {
+                // Lost BYEs only cost the others GONE of waiting.
+                for i in 0..s.peers.len() {
+                    let addr = s.peers[i].addr;
+                    s.send_simple(addr, BYE);
+                }
+                return;
+            }
+            s.flush(now, self.player, self.players);
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+}
+
 /// What the host tells joining players.
 struct Settings<'a> {
     player: &'a mut usize,
@@ -598,6 +640,8 @@ struct Peer {
     last_sent: Option<Instant>,
     /// Sent us inputs, so it knows the game started.
     running: bool,
+    /// Said BYE: it stopped and needs nothing more.
+    left: bool,
 }
 
 struct Session {
@@ -758,6 +802,11 @@ impl Session {
                 });
             }
             (INPUTS, _) => self.receive_inputs(from, r, now, settings),
+            (BYE, _) => {
+                if let Some(peer) = self.peers.iter_mut().find(|p| p.addr == from) {
+                    peer.left = true;
+                }
+            }
             (CHECK, _) => {
                 let Some(i) = self.peers.iter().position(|p| p.addr == from) else {
                     return;
@@ -896,6 +945,17 @@ impl Session {
         }
     }
 
+    /// Every peer has all the inputs we send it, or has left.
+    fn settled(&self, now: Instant, me: usize) -> bool {
+        self.peers.iter().all(|p| {
+            let has_all = match self.role {
+                Role::Host => (0..self.streams.len()).all(|s| s == p.player || p.acked[s] >= self.streams[s].have),
+                Role::Client(_) => p.acked[me] >= self.streams[me].have,
+            };
+            has_all || p.left || now - p.last_heard > GONE
+        })
+    }
+
     fn silent_peer(&self, now: Instant, timeout: Duration) -> Option<usize> {
         self.peers
             .iter()
@@ -938,6 +998,7 @@ impl Peer {
             last_heard: now,
             last_sent: None,
             running: false,
+            left: false,
         }
     }
 }
@@ -1111,7 +1172,11 @@ impl Local {
 impl Transport for Local {
     fn send(&mut self, to: SocketAddr, data: &[u8]) {
         self.sent = self.sent.wrapping_add(1);
-        if self.drop_one_in > 0 && self.sent.is_multiple_of(self.drop_one_in) {
+        // Drop about one in `drop_one_in`, scattered: dropping exactly every
+        // nth packet can lock onto one peer when a sender sends n packets
+        // per poll, so that peer would never hear from it.
+        let mix = (u64::from(self.sent) | u64::from(self.me.port()) << 32).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        if self.drop_one_in > 0 && (mix >> 40).is_multiple_of(u64::from(self.drop_one_in)) {
             return;
         }
         if let Some(tx) = self.peers.get(to.port() as usize - 1) {

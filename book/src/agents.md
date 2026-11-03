@@ -16,7 +16,7 @@ approve it).
 For your own game, install the binary and add it to your agent:
 
 ```sh
-cargo install --git https://github.com/bozoslav/crabbyengine crabby_mcp
+cargo install crabby_mcp
 claude mcp add crabby -- crabby-mcp            # Claude Code
 claude mcp add crabby-view -- crabby-mcp --read-only
 ```

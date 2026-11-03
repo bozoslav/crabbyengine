@@ -128,7 +128,7 @@ new project:
 
 ```sh
 cargo new my_game && cd my_game
-cargo add crabbyengine --git https://github.com/bozoslav/crabbyengine
+cargo add crabbyengine
 ```
 
 Then follow [Getting started](https://bozoslav.github.io/crabbyengine/getting-started.html)
@@ -219,7 +219,7 @@ Codex, ...) can run the game and look inside it instead of guessing from
 source code:
 
 ```sh
-cargo install --git https://github.com/bozoslav/crabbyengine crabby_mcp
+cargo install crabby_mcp
 claude mcp add crabby -- crabby-mcp
 ```
 
