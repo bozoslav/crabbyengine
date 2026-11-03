@@ -607,6 +607,20 @@ public:
 };
 
 /// What a system gets (Rust `Ctx`). Valid only during the call.
+/// Events read by ctx::read: a borrowed array, valid until the next send of
+/// the type or the end of the system.
+template<class T> class events_view {
+    const T* data_;
+    std::size_t size_;
+public:
+    events_view(const T* data, std::size_t size) noexcept : data_(data), size_(size) {}
+    const T* begin() const noexcept { return data_; }
+    const T* end() const noexcept { return data_ + size_; }
+    std::size_t size() const noexcept { return size_; }
+    bool empty() const noexcept { return size_ == 0; }
+    const T& operator[](std::size_t i) const noexcept { return data_[i]; }
+};
+
 class ctx {
     CrabbyCtx* raw_;
     std::shared_ptr<detail::identity> owner_;
@@ -707,6 +721,22 @@ public:
     }
     template<class T> void remove_later(entity e, const component<T>& token) {
         detail::check(crabby_ctx_remove_later(raw_, e, world().id(token)));
+    }
+
+    // Events: messages between systems, typed by a component token (register
+    // the event struct like a component). Usable inside world().query (not query_par).
+    template<class T> void send(const component<T>& type, const T& event) {
+        static_assert(alignof(T) <= 16, "events can be at most 16-byte aligned");
+        detail::check(crabby_ctx_send_event(raw_, world().id(type), &event, sizeof(T)));
+    }
+    /// The events of this type this system hasn't read yet, oldest first;
+    /// valid until the next send of this type or the end of the system.
+    template<class T> events_view<T> read(const component<T>& type) {
+        static_assert(alignof(T) <= 16, "events can be at most 16-byte aligned");
+        const void* data = nullptr;
+        std::size_t count = 0;
+        detail::check(crabby_ctx_read_events(raw_, world().id(type), sizeof(T), &data, &count));
+        return events_view<T>(static_cast<const T*>(data), count);
     }
 
     // The built-in spatial grid (game::spatial_grid); safe from query_par callbacks.

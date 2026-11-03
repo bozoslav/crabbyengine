@@ -3,8 +3,9 @@
 //! One busy flag (the lent world's) guards the world and every context call,
 //! so nothing can reach the `Ctx` while a query borrows its world. Commands
 //! and the spatial grid are separate fields of `Ctx`, reached through raw
-//! field pointers, so they stay usable inside query callbacks.
-use std::ffi::{CStr, c_char};
+//! field pointers, so they stay usable inside query callbacks. Events too,
+//! behind their own flag.
+use std::ffi::{CStr, c_char, c_void};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crabby_ecs::{Commands, Entity};
@@ -23,6 +24,7 @@ pub struct CrabbyCtx {
     pub(crate) world: CrabbyWorld,
     ctx: *mut Ctx,
     commands_busy: AtomicBool,
+    events_busy: AtomicBool,
     dt: f32,
     sim_tick: u64,
     sim_time: f64,
@@ -53,6 +55,7 @@ pub(crate) fn with_ctx<R>(ctx: &mut Ctx, f: impl FnOnce(*mut CrabbyCtx) -> R) ->
         world: CrabbyWorld::new(world, false),
         ctx: raw,
         commands_busy: AtomicBool::new(false),
+        events_busy: AtomicBool::new(false),
         dt: snapshot.0,
         sim_tick: snapshot.1,
         sim_time: snapshot.2,
@@ -113,6 +116,37 @@ unsafe fn commands<R>(
     // is set; ctx-wide calls never run while a C callback (our caller) runs
     // inside them, because they don't call back into C.
     f(unsafe { &mut (*handle.ctx).commands })
+}
+
+/// Events, usable inside `crabby_query` callbacks like commands.
+unsafe fn events<R>(
+    handle: *const CrabbyCtx,
+    f: impl FnOnce(&mut crabbyengine::Events) -> Result<R, Failure>,
+) -> Result<R, Failure> {
+    if handle.is_null() {
+        return Err(invalid("ctx is null"));
+    }
+    // SAFETY: caller supplies a live ctx from a running callback.
+    let handle = unsafe { &*handle };
+    if handle.world.parallel.load(Ordering::Acquire) {
+        return Err(error(
+            CrabbyStatus::CRABBY_BUSY,
+            "events are off during crabby_query_par",
+        ));
+    }
+    if handle.events_busy.swap(true, Ordering::Acquire) {
+        return Err(error(CrabbyStatus::CRABBY_BUSY, "events are in use"));
+    }
+    struct Reset<'a>(&'a AtomicBool);
+    impl Drop for Reset<'_> {
+        fn drop(&mut self) {
+            self.0.store(false, Ordering::Release);
+        }
+    }
+    let _reset = Reset(&handle.events_busy);
+    // SAFETY: `events` is a field only these calls touch, one at a time
+    // (the flag), and ctx-wide calls never run while a C callback runs.
+    f(unsafe { &mut (*handle.ctx).events })
 }
 
 /// The built-in grid, read-only. Usable from any thread during a callback.
@@ -940,6 +974,70 @@ pub unsafe extern "C" fn crabby_ctx_remove_later(ctx: *mut CrabbyCtx, entity: u6
             });
             Ok(())
         })
+    })
+}
+
+// ---- events -------------------------------------------------------------------
+
+/// Sends one event of type `type_id` (use the event struct's component id,
+/// so every system agrees on the type): `size` bytes copied from `data`, at
+/// most 16-byte aligned. The first send of a type fixes its size. Systems
+/// read it with `crabby_ctx_read_events`. Works inside `crabby_query`
+/// callbacks (not `crabby_query_par`).
+/// # Safety
+/// Live ctx; `data` readable for `size` bytes.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_send_event(std::ptr::null_mut(), 0, std::ptr::null(), 0) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_send_event(
+    ctx: *mut CrabbyCtx,
+    type_id: u32,
+    data: *const c_void,
+    size: usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        events(ctx, |ev| {
+            if data.is_null() && size > 0 {
+                return Err(invalid("event data is null"));
+            }
+            let bytes = if size == 0 {
+                &[][..]
+            } else {
+                std::slice::from_raw_parts(data.cast::<u8>(), size)
+            };
+            ev.send_raw(type_id, bytes).map_err(invalid)
+        })
+    })
+}
+
+/// Events of type `type_id` this system hasn't read yet, oldest first:
+/// `*out_count` values of `size` bytes each at `*out_data` (16-byte aligned).
+/// The next call from the same system returns only newer ones. Each system
+/// that runs every tick sees each event once. The memory stays valid until
+/// the next send of this type or the end of the system.
+/// # Safety
+/// Live ctx; writable outputs.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_read_events(std::ptr::null_mut(), 0, 0, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_read_events(
+    ctx: *mut CrabbyCtx,
+    type_id: u32,
+    size: usize,
+    out_data: *mut *const c_void,
+    out_count: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        if out_data.is_null() || out_count.is_null() {
+            return Err(invalid("output is null"));
+        }
+        let (ptr, count) = events(ctx, |ev| ev.read_raw(type_id, size).map_err(invalid))?;
+        out(out_data, ptr.cast::<c_void>())?;
+        out(out_count, count)
     })
 }
 

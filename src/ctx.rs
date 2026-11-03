@@ -9,6 +9,7 @@ use crate::camera::Camera2D;
 use crate::camera::Rect;
 use crate::color::Color;
 use crate::ecs::{Sprite, Transform2D};
+use crate::events::Events;
 use crate::input::{Input, Key, MouseButton};
 use crate::render::batch::{DrawList, SpriteInstance};
 use crate::render::batch::{FULL_UV, uv_region};
@@ -98,6 +99,21 @@ pub struct Ctx {
     /// at the start of each simulation tick once enabled with
     /// [`Game::spatial_grid`](crate::Game::spatial_grid) (empty otherwise).
     pub spatial: SpatialGrid,
+    /// Messages between systems: [`Events::send`] and [`Events::read`].
+    /// A separate field, so you can read events while changing the world.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// struct Scored(u32);
+    /// struct Score(u32);
+    ///
+    /// fn count_score(ctx: &mut Ctx) {
+    ///     for s in ctx.events.read::<Scored>() {
+    ///         ctx.world.resource_mut::<Score>().0 += s.0;
+    ///     }
+    /// }
+    /// ```
+    pub events: Events,
     /// `true` while simulation systems run: `dt()` then returns the fixed step.
     in_sim: bool,
     /// Fixed steps the running sim system covers (`sim_system_every`).
@@ -171,6 +187,7 @@ impl Ctx {
             },
             commands: Commands::new(),
             spatial: SpatialGrid::default(),
+            events: Events::default(),
             in_sim: false,
             sim_steps: 1,
             seed: crate::random::DEFAULT_SEED,
@@ -268,6 +285,7 @@ impl Ctx {
         self.timing = timing;
         self.time += f64::from(timing.dt);
         self.frame += 1;
+        self.events.begin_frame(self.frame, self.sim.tick);
         self.text.begin_frame();
         self.ui.begin_frame();
         if timing.dt > 0.0 {
@@ -431,6 +449,7 @@ impl Ctx {
 
     pub(crate) fn advance_tick(&mut self) {
         self.sim.tick += 1;
+        self.events.set_tick(self.sim.tick);
     }
 
     /// Engine side: forget queued draws (headless runs never render).

@@ -7,6 +7,7 @@
 - [Getting started](getting-started.md)
 - [Entities, components, queries](ecs.md)
 - [Systems and the frame](systems.md)
+- [Events: messages between systems](events.md)
 - [The simulation clock](sim-clock.md)
 - [Spatial queries](spatial.md)
 - [Pathfinding with flow fields](pathfinding.md)

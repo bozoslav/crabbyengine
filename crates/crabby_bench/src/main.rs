@@ -758,4 +758,28 @@ fn flow_benches(b: &mut Bench) {
             agents.par_iter_mut().for_each(|p| *p += flow.direction_at(*p) * 0.1);
         },
     );
+
+    // ---- events: 100k sent and read per tick, 10 ticks ------------------------
+    #[derive(Clone, Copy)]
+    struct Hit(#[allow(dead_code)] crabbyengine::Entity, f32);
+    b.steady(
+        "events/100k-per-tick-x10",
+        20,
+        || (),
+        |_| {
+            let world = crabbyengine::Game::new("bench", 1, 1)
+                .sim_system(|ctx| {
+                    for i in 0..100_000u32 {
+                        ctx.events
+                            .send(Hit(crabbyengine::Entity::from_bits(u64::from(i)), i as f32));
+                    }
+                })
+                .sim_system(|ctx| {
+                    let total: f32 = ctx.events.read::<Hit>().iter().map(|h| h.1).sum();
+                    black_box(total);
+                })
+                .run_headless(10, |_| {});
+            black_box(world);
+        },
+    );
 }

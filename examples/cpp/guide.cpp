@@ -426,6 +426,44 @@ static void steer(crabby::ctx& ctx, const crabby::flow_field& flow,
 }
 // ANCHOR_END: flow_steer
 
+// ---- Events --------------------------------------------------------------------------
+// ANCHOR: events
+struct Hp { int value; };
+struct Died { crabby::entity who; };
+
+// Sends one Died per entity out of health, from inside a query.
+static void deaths(crabby::ctx& ctx, const crabby::component<Hp>& health,
+                   const crabby::component<Died>& died) {
+    ctx.world().query([&](auto chunk) {
+        auto h = chunk.template column<0>();
+        for (std::size_t i = 0; i < chunk.size(); ++i)
+            if (h[i].value <= 0) ctx.send(died, Died{chunk.entity(i)});
+    }, health);
+}
+
+// Any later system (or this one next tick) reads them, once each.
+static void funerals(crabby::ctx& ctx, const crabby::component<Died>& died) {
+    for (const Died& d : ctx.read(died)) ctx.despawn_later(d.who);
+}
+// ANCHOR_END: events
+
+static void the_dead_are_buried() {
+    crabby::component<Hp> health;
+    crabby::component<Died> died;
+    auto world = crabby::game("events", 1, 1)
+        .sim_system([&](crabby::ctx& ctx) { deaths(ctx, health, died); }, "deaths")
+        .sim_system([&](crabby::ctx& ctx) { funerals(ctx, died); }, "funerals")
+        .run_headless(1, [&](crabby::ctx& ctx) {
+            health = ctx.world().component<Hp>("Hp");
+            died = ctx.world().component<Died>("Died");
+            for (int hp : {0, 3, -1, 5}) ctx.world().spawn(health.with(Hp{hp}));
+        });
+    if (world.size() != 2) {
+        std::fprintf(stderr, "events: %zu alive, expected 2\n", world.size());
+        std::abort();
+    }
+}
+
 static void crowds_reach_the_goal() {
     // ANCHOR: flow_compute
     crabby::nav_grid nav(100, 80, 4.0f);   // 100 x 80 cells, 4 world units each
@@ -457,6 +495,7 @@ static void crowds_reach_the_goal() {
 int main() {
     things_fall_ten_units_per_second();
     crowds_reach_the_goal();
+    the_dead_are_buried();
 
     // Run the other snippets headless once, so they're exercised, not only compiled.
     crabby::component<Health> health;
