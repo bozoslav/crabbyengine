@@ -28,6 +28,8 @@ cmake --build target/native --config Release
 ctest --test-dir target/native -C Release --output-on-failure
 ./target/native/crabby_cpp_boids                                  # window
 HEADLESS=1 BOIDS=1000000 TICKS=300 ./target/native/crabby_cpp_boids
+./target/native/crabby_cpp_battle                                 # the battle demo
+HEADLESS=1 UNITS=1000000 TICKS=600 ./target/native/crabby_cpp_battle
 ```
 
 In PowerShell, replace `$PWD` with the repository's absolute path, using
@@ -96,6 +98,21 @@ Everything else stays on the thread that runs the game.
 
 ## Speed
 
+The battle demo is a whole game, written twice: `examples/battle.rs` and
+`examples/cpp/battle.cpp`. Both have flow fields, per-team grids, combat on
+all cores, reinforcements and rounds. Same seed, same map, same armies
+(the C++ `rng` gives the same numbers as Rust's), release builds,
+`HEADLESS=1 UNITS=… TICKS=1200`:
+
+| Units | Rust | C++ |
+|---:|---:|---:|
+| 20k | 0.57 ms/tick | 0.57 ms/tick |
+| 200k | 4.40 ms/tick | 4.41 ms/tick |
+| 1M | 20.99 ms/tick | 21.04 ms/tick |
+
+The hot loops use views (`grid.view()`, `flow.view()`) that the header reads
+inline, so nothing crosses into the engine per unit.
+
 `HEADLESS=1 BOIDS=… ./crabby_cpp_boids` and `HEADLESS=1 BOIDS=… cargo run
 --release --example boids` run the same flocking, release builds, on the
 development Mac (arm64, 2026-11-03):
@@ -147,5 +164,6 @@ normally; never let a C++ exception or `longjmp` cross them.
 ## Still Rust-only
 
 Resources: keep game-wide data in your own objects, captured by your
-systems (`[&]`), as the examples do. Everything else in this guide works
+systems (`[&]`), as the examples do. To let tools and agents see that
+state, keep it in a reflected component on one entity. Everything else in this guide works
 from C++, and each chapter shows both.

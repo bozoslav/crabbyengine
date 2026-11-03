@@ -16,10 +16,18 @@ struct Health {
     max: f32,
 }
 
+/// Game-wide state, reflected so agents can read and change it.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Rules {
+    regen: f32,
+    round: u32,
+}
+
 fn regen(ctx: &mut Ctx) {
     ctx.world
         .query::<&mut Health>()
         .for_each(|h| h.current = (h.current + 1.0).min(h.max));
+    ctx.world.resource_mut::<Rules>().round += 1;
 }
 
 /// Starts a paused headless game; returns its port and the thread.
@@ -31,6 +39,8 @@ fn start_game(name: &'static str) -> (u16, thread::JoinHandle<World>) {
             .sim_system(regen)
             .run_headless(u64::MAX, move |ctx| {
                 ctx.world.reflect::<Health>();
+                ctx.world.reflect_resource::<Rules>();
+                ctx.world.insert_resource(Rules { regen: 1.0, round: 0 });
                 ctx.pause();
                 tx.send(ctx.control_addr().unwrap().port()).unwrap();
             })
@@ -177,6 +187,47 @@ fn agents_drive_several_games_through_mcp() {
         6.0
     );
 
+    // Resources: listed with their values, changed field by field.
+    assert_eq!(
+        agent.tool("list_resources", json!({ "instance": "alpha" })).unwrap(),
+        json!({ "Rules": { "regen": 1.0, "round": 7 } })
+    );
+    let rules = agent
+        .tool(
+            "set_resource",
+            json!({ "instance": "alpha", "resource": "Rules", "value": { "regen": 2.5 } }),
+        )
+        .unwrap();
+    assert_eq!(rules, json!({ "regen": 2.5, "round": 7 }));
+    assert_eq!(
+        agent
+            .tool("get_resource", json!({ "instance": "alpha", "resource": "Rules" }))
+            .unwrap()["regen"],
+        2.5
+    );
+    let err = agent
+        .tool("get_resource", json!({ "instance": "alpha", "resource": "Gold" }))
+        .unwrap_err();
+    assert!(err.contains("no reflected resource"), "{err}");
+
+    // Watch: run 10 ticks, sampled every 5, in one call.
+    let watched = agent
+        .tool(
+            "watch",
+            json!({ "instance": "alpha", "ticks": 10, "every": 5, "resources": ["Rules"], "count": ["Health", "Nothing"] }),
+        )
+        .unwrap();
+    let samples = watched["samples"].as_array().unwrap();
+    let ticks: Vec<u64> = samples.iter().map(|s| s["tick"].as_u64().unwrap()).collect();
+    assert_eq!(ticks, [7, 12, 17], "a sample before, then one every 5 ticks");
+    assert_eq!(samples[2]["resources"]["Rules"]["round"], 17);
+    assert_eq!(samples[2]["counts"], json!({ "Health": 1, "Nothing": 0 }));
+    assert!(samples[0]["wall_ms_per_tick"].is_null() && samples[1]["wall_ms_per_tick"].is_number());
+    let err = agent
+        .tool("watch", json!({ "instance": "alpha", "ticks": 1_000_000, "every": 1 }))
+        .unwrap_err();
+    assert!(err.contains("too many"), "{err}");
+
     // Beta is untouched.
     let b = json!(port_b.to_string());
     assert_eq!(
@@ -205,7 +256,7 @@ fn agents_drive_several_games_through_mcp() {
     assert!(
         !names
             .iter()
-            .any(|n| n == "spawn_entity" || n == "launch" || n == "run_ticks")
+            .any(|n| n == "spawn_entity" || n == "launch" || n == "run_ticks" || n == "watch")
     );
     let listed = viewer
         .tool("list_entities", json!({ "instance": port_a, "with": ["Health"] }))
@@ -213,6 +264,14 @@ fn agents_drive_several_games_through_mcp() {
     assert_eq!(listed["total"], 1);
     let err = viewer
         .tool("despawn_entity", json!({ "instance": port_a, "entity": e }))
+        .unwrap_err();
+    assert!(err.contains("read-only"), "{err}");
+    assert!(viewer.tool("list_resources", json!({ "instance": port_a })).is_ok());
+    let err = viewer
+        .tool(
+            "set_resource",
+            json!({ "instance": port_a, "resource": "Rules", "value": { "round": 0 } }),
+        )
         .unwrap_err();
     assert!(err.contains("read-only"), "{err}");
 
@@ -240,6 +299,7 @@ fn agents_drive_several_games_through_mcp() {
         .tool("save_world", json!({ "instance": "alpha", "path": checkpoint }))
         .unwrap();
     assert_eq!(saved["entities"], 1);
+    assert_eq!(saved["resources"], 1);
     agent
         .tool("despawn_entity", json!({ "instance": "alpha", "entity": e }))
         .unwrap();
