@@ -23,7 +23,7 @@ egui = { version = "0.37", default-features = false, features = ["default_fonts"
 egui-wgpu = { version = "0.37", default-features = false, optional = true }
 egui-winit = { version = "0.37", default-features = false, optional = true }
 
-[target.'cfg(unix)'.dependencies]
+[target.'cfg(any(unix, windows))'.dependencies]
 libc = "0.2"
 
 [features]

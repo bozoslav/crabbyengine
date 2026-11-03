@@ -138,8 +138,9 @@ so it works while a frame is stuck too.
 
 Without `since` you get the newest `lines`. Pass the `next` of one answer as
 `since` in the next request to get only what's new; `missed` counts lines
-that were dropped before you read them. Unix (macOS, Linux) only for now; on
-Windows `logs.get` says the output isn't captured.
+that were dropped before you read them. This works on macOS, Linux and
+Windows. A Windows game built as a GUI program (no console) has no output to
+keep; `logs.get` then says it isn't captured.
 
 ## Trying it by hand
 

@@ -335,7 +335,7 @@ fn agents_drive_several_games_through_mcp() {
     );
     // Not started with `launch`, and its output is still there.
     let logs = agent.tool("read_logs", json!({ "instance": "alpha", "lines": 5000 }));
-    if !cfg!(unix) {
+    if !cfg!(any(unix, windows)) {
         assert!(logs.unwrap_err().contains("captured"), "says why there are no logs");
     } else {
         let logs = logs.unwrap();
