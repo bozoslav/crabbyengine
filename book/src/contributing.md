@@ -1,6 +1,7 @@
 # Contributing
 
-The rules for humans and coding agents are the same and live in
+Start with [`CONTRIBUTING.md`](https://github.com/bozoslav/crabbyengine/blob/main/CONTRIBUTING.md).
+The full rules, the same for humans and coding agents, are in
 [`AGENTS.md`](https://github.com/bozoslav/crabbyengine/blob/main/AGENTS.md).
 In short:
 
@@ -21,3 +22,10 @@ mdbook serve book --open
 ```
 
 Every page has an edit button (top right) that opens the file on GitHub.
+
+## License
+
+Crabby Engine is dual licensed under
+[MIT](https://github.com/bozoslav/crabbyengine/blob/main/LICENSE-MIT) or
+[Apache-2.0](https://github.com/bozoslav/crabbyengine/blob/main/LICENSE-APACHE),
+at your option. Contributions are accepted under the same terms.

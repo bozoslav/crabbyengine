@@ -1,0 +1,21 @@
+name: Feature request
+description: Suggest something the engine should do.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to make?
+      description: The game or tool, and what's hard or impossible to do with the engine today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would help
+      description: The API or behavior you have in mind, as code if you can.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried instead
+      description: Workarounds, or how other engines do it.

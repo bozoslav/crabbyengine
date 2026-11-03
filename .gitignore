@@ -31,3 +31,6 @@ rustc-ice-*.txt
 
 # mdBook output
 /book/book/
+
+# Editor settings (local)
+.vscode/

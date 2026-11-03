@@ -9,6 +9,11 @@ keeps two goals in view:
 - **Stay easy to change.** Everything the engine does by itself is a plain
   system you can remove or replace. One obvious way to do each thing.
 
+![The battle demo: two armies of 10,000 units each march around rocks and mud and meet in two fronts](images/battle.jpg)
+
+*The battle demo (`cargo run --release --example battle`): 20,000 units
+on flow fields, under a millisecond of simulation per frame.*
+
 ```rust
 use crabbyengine::*;
 
