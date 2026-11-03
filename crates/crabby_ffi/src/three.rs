@@ -215,6 +215,9 @@ pub struct CrabbyLighting {
     pub shadows: bool,
     /// How far from the camera shadows reach.
     pub shadow_distance: f32,
+    /// How many shadow maps share that distance, 1 to 4: more keep near
+    /// shadows sharp, fewer are cheaper.
+    pub shadow_cascades: u32,
 }
 
 /// What happens to the lit 3D frame on its way to the screen (Rust
@@ -1015,6 +1018,7 @@ pub unsafe extern "C" fn crabby_ctx_lighting(ctx: *mut CrabbyCtx, out_lighting: 
                     ambient_intensity: l.ambient_intensity,
                     shadows: l.shadows,
                     shadow_distance: l.shadow_distance,
+                    shadow_cascades: l.shadow_cascades,
                 },
             )
         })
@@ -1022,7 +1026,7 @@ pub unsafe extern "C" fn crabby_ctx_lighting(ctx: *mut CrabbyCtx, out_lighting: 
 }
 
 /// Changes the sun and sky light. Intensities and the shadow distance
-/// can't be negative.
+/// can't be negative; `shadow_cascades` is 1 to 4.
 /// # Safety
 /// `ctx` null or live; `lighting` valid.
 /// ```
@@ -1039,6 +1043,9 @@ pub unsafe extern "C" fn crabby_ctx_set_lighting(ctx: *mut CrabbyCtx, lighting: 
             if !(l.sun_intensity >= 0.0 && l.ambient_intensity >= 0.0 && l.shadow_distance >= 0.0) {
                 return Err(invalid("intensities and shadow distance can't be negative"));
             }
+            if !(1..=4).contains(&l.shadow_cascades) {
+                return Err(invalid("shadow_cascades must be 1 to 4"));
+            }
             let color = |c: CrabbyColor| -> Color { to_c(c) };
             c.lighting = Lighting {
                 sun_direction: to_c(l.sun_direction),
@@ -1049,6 +1056,7 @@ pub unsafe extern "C" fn crabby_ctx_set_lighting(ctx: *mut CrabbyCtx, lighting: 
                 ambient_intensity: l.ambient_intensity,
                 shadows: l.shadows,
                 shadow_distance: l.shadow_distance,
+                shadow_cascades: l.shadow_cascades,
             };
             Ok(())
         })

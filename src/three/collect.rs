@@ -6,8 +6,12 @@ use glam::{Mat4, Vec3, Vec4};
 use super::{Assets3D, Camera3D, Lighting, Model, Transform3D, linear};
 use crate::World;
 
-/// Width and height of the sun's shadow map, in texels.
+/// Width and height of each of the sun's shadow maps, in texels.
 pub(crate) const SHADOW_MAP_SIZE: u32 = 2048;
+
+/// The most shadow cascades: shadow maps, each covering a stretch of the
+/// view further out than the one before.
+pub(crate) const MAX_CASCADES: usize = 4;
 
 /// One drawn model, as the GPU reads it: the model matrix's columns, and the
 /// tint in linear color.
@@ -19,8 +23,8 @@ pub(crate) struct Instance3D {
 }
 
 /// An instance before sorting: its mesh, whether the camera sees it, and
-/// whether it casts into the shadow map.
-type Entry = (u32, Instance3D, bool, bool);
+/// which cascades' shadow maps it casts into (one bit each).
+type Entry = (u32, Instance3D, bool, u8);
 
 /// This frame's 3D drawing. `instances` holds the camera's models sorted by
 /// mesh, then the shadow casters sorted by mesh; `runs` and `shadow_runs`
@@ -31,11 +35,15 @@ pub(crate) struct Frame3D {
     pub instances: Vec<Instance3D>,
     /// (mesh id, first instance, count) for the camera, in mesh order.
     pub runs: Vec<(u32, u32, u32)>,
-    /// The same for the shadow map; empty without shadows.
-    pub shadow_runs: Vec<(u32, u32, u32)>,
+    /// The same for each cascade's shadow map; empty without shadows.
+    pub shadow_runs: [Vec<(u32, u32, u32)>; MAX_CASCADES],
     pub view_proj: Mat4,
-    /// The sun's view-projection, when shadows are on.
-    pub sun_view_proj: Option<Mat4>,
+    /// How many cascades are drawn: 0 without shadows.
+    pub cascades: usize,
+    /// Each cascade's view-projection, from the sun.
+    pub sun_view_proj: [Mat4; MAX_CASCADES],
+    /// Each cascade's size, in world units per shadow-map texel.
+    pub cascade_texel: [f32; MAX_CASCADES],
     /// How many of `instances` the camera sees (the rest cast shadows).
     pub visible: usize,
     scratch: Vec<Entry>,
@@ -47,20 +55,31 @@ impl Frame3D {
     /// what's inside the sun's shadow box.
     pub fn collect(&mut self, world: &mut World, assets: &Assets3D, camera: &Camera3D, lighting: &Lighting) {
         self.view_proj = camera.view_proj();
-        self.sun_view_proj = lighting
-            .shadows
-            .then(|| sun_view_proj(camera, lighting.sun_direction, lighting.shadow_distance));
+        self.cascades = if lighting.shadows && lighting.shadow_distance > 0.0 {
+            (lighting.shadow_cascades as usize).clamp(1, MAX_CASCADES)
+        } else {
+            0
+        };
+        let splits = cascade_splits(camera.near, lighting.shadow_distance, self.cascades);
+        // Each cascade's box is open towards the sun: casters above it
+        // still shade what's inside, so its near plane isn't tested.
+        let mut sun_planes = [[Vec4::ZERO; 5]; MAX_CASCADES];
+        for i in 0..self.cascades {
+            let near = if i == 0 { camera.near } else { splits[i - 1] };
+            let (m, texel) = sun_view_proj(camera, lighting.sun_direction, near, splits[i]);
+            self.sun_view_proj[i] = m;
+            self.cascade_texel[i] = texel;
+            let [l, r, b, t, _, f] = frustum_planes(m);
+            sun_planes[i] = [l, r, b, t, f];
+        }
+        let sun_planes = &sun_planes[..self.cascades];
         self.instances.clear();
         self.runs.clear();
-        self.shadow_runs.clear();
+        for runs in &mut self.shadow_runs {
+            runs.clear();
+        }
         self.scratch.clear();
         let planes = frustum_planes(self.view_proj);
-        // The sun's box is open towards the sun: casters above it still
-        // shade what's inside, so its near plane isn't tested.
-        let sun_planes = self.sun_view_proj.map(|m| {
-            let [l, r, b, t, _, f] = frustum_planes(m);
-            [l, r, b, t, f]
-        });
         let scratch = &mut self.scratch;
         world.query::<(&Transform3D, &Model)>().for_each(|(t, m)| {
             let Some(&(center, radius)) = assets.bounds.get(m.mesh.id as usize) else {
@@ -70,8 +89,13 @@ impl Frame3D {
             let world_center = matrix.transform_point3(center);
             let world_radius = radius * t.scale.abs().max_element();
             let seen = sphere_visible(&planes, world_center, world_radius);
-            let casts = sun_planes.is_some_and(|p| sphere_visible(&p, world_center, world_radius));
-            if seen || casts {
+            let mut casts = 0;
+            for (i, p) in sun_planes.iter().enumerate() {
+                if sphere_visible(p, world_center, world_radius) {
+                    casts |= 1 << i;
+                }
+            }
+            if seen || casts != 0 {
                 let instance = Instance3D {
                     model: matrix.to_cols_array_2d(),
                     color: linear(m.color),
@@ -82,7 +106,9 @@ impl Frame3D {
         let meshes = assets.bounds.len();
         let (counts, instances) = (&mut self.counts, &mut self.instances);
         self.visible = sort_runs(&self.scratch, |e| e.2, meshes, counts, instances, &mut self.runs);
-        sort_runs(&self.scratch, |e| e.3, meshes, counts, instances, &mut self.shadow_runs);
+        for (i, runs) in self.shadow_runs[..self.cascades].iter_mut().enumerate() {
+            sort_runs(&self.scratch, |e| e.3 & (1 << i) != 0, meshes, counts, instances, runs);
+        }
     }
 }
 
@@ -121,17 +147,36 @@ fn sort_runs(
     added
 }
 
+/// Where each of `count` cascades ends, as distances from the camera, up to
+/// `distance`: a blend of even steps and steps growing by the same factor
+/// (the "practical" split), so the near cascades are small and sharp.
+pub(crate) fn cascade_splits(near: f32, distance: f32, count: usize) -> [f32; MAX_CASCADES] {
+    const LOG_SHARE: f32 = 0.75;
+    let near = near.max(1e-3);
+    let distance = distance.max(near * 2.0);
+    let mut splits = [distance; MAX_CASCADES];
+    for (i, split) in splits.iter_mut().enumerate().take(count.saturating_sub(1)) {
+        let k = (i + 1) as f32 / count as f32;
+        let even = near + (distance - near) * k;
+        let log = near * (distance / near).powf(k);
+        *split = even + (log - even) * LOG_SHARE;
+    }
+    splits
+}
+
 /// The sun's view-projection for a shadow map covering what the camera sees
-/// up to `distance` away: an orthographic box around that part of the view,
-/// facing along the sunlight, moved in whole shadow-map texels so shadow
-/// edges don't shimmer as the camera moves.
-pub(crate) fn sun_view_proj(camera: &Camera3D, sun_direction: Vec3, distance: f32) -> Mat4 {
+/// from `near` to `far` away, and its size in world units per texel: an
+/// orthographic box around that part of the view, facing along the
+/// sunlight, moved in whole shadow-map texels so shadow edges don't shimmer
+/// as the camera moves.
+pub(crate) fn sun_view_proj(camera: &Camera3D, sun_direction: Vec3, near: f32, far: f32) -> (Mat4, f32) {
     let light = sun_direction.try_normalize().unwrap_or(Vec3::NEG_Y);
-    let distance = distance.max(camera.near * 2.0);
-    // The bounding sphere of the view up to `distance`: it doesn't change
-    // size as the camera turns, so neither do texels.
+    let far = far.max(camera.near * 2.0);
+    // The bounding sphere of the view's slice: it doesn't change size as
+    // the camera turns, so neither do texels.
     let slice = Camera3D {
-        far: distance,
+        near: near.clamp(camera.near, far * 0.5),
+        far,
         ..*camera
     }
     .view_proj()
@@ -164,7 +209,7 @@ pub(crate) fn sun_view_proj(camera: &Camera3D, sun_direction: Vec3, distance: f3
     let view = glam::camera::rh::view::look_to_mat4(center - light * back, light, up);
     let projection =
         glam::camera::rh::proj::directx::orthographic(-radius, radius, -radius, radius, 0.0, back + radius);
-    projection * view
+    (projection * view, texel)
 }
 
 /// The six planes of a view volume (`xyz` normal pointing in, `w`
@@ -225,7 +270,8 @@ mod tests {
         };
         frame.collect(&mut world, &assets, &camera(), &lighting);
         assert_eq!(frame.runs, vec![(0, 0, 2), (2, 2, 3)]);
-        assert!(frame.shadow_runs.is_empty());
+        assert_eq!(frame.cascades, 0);
+        assert!(frame.shadow_runs.iter().all(Vec::is_empty));
         let xs: Vec<f32> = frame.instances.iter().map(|i| i.model[3][0]).collect();
         assert_eq!(xs, vec![1.0, 4.0, 0.0, 2.0, 3.0]);
     }
@@ -243,6 +289,7 @@ mod tests {
         let lighting = Lighting {
             sun_direction: Vec3::new(0.0, -1.0, -0.2),
             shadow_distance: 30.0,
+            shadow_cascades: 1,
             ..Default::default()
         };
         let model = Model::new(Mesh { id: 0 });
@@ -253,14 +300,14 @@ mod tests {
         frame.collect(&mut world, &assets, &camera, &lighting);
         assert_eq!(frame.visible, 1);
         assert_eq!(frame.runs, vec![(0, 0, 1)]);
-        assert_eq!(frame.shadow_runs, vec![(0, 1, 2)]);
+        assert_eq!(frame.shadow_runs[0], vec![(0, 1, 2)]);
     }
 
     #[test]
     fn the_shadow_box_holds_the_near_view_and_snaps_to_texels() {
         let camera = camera();
         let sun_dir = Vec3::new(-0.3, -1.0, -0.2);
-        let sun = sun_view_proj(&camera, sun_dir, 20.0);
+        let (sun, _) = sun_view_proj(&camera, sun_dir, camera.near, 20.0);
         let in_box = |p: Vec3| {
             let c = sun * p.extend(1.0);
             let n = c.truncate() / c.w;
@@ -273,8 +320,55 @@ mod tests {
         let mut moved = camera;
         moved.position.x += 0.013;
         let a = sun * Vec4::new(0.0, 0.0, 0.0, 1.0);
-        let b = sun_view_proj(&moved, sun_dir, 20.0) * Vec4::new(0.0, 0.0, 0.0, 1.0);
+        let b = sun_view_proj(&moved, sun_dir, moved.near, 20.0).0 * Vec4::new(0.0, 0.0, 0.0, 1.0);
         let texels = (a - b).truncate().truncate() * SHADOW_MAP_SIZE as f32 / 2.0;
         assert!((texels - texels.round()).length() < 2e-2, "{texels}");
+    }
+
+    #[test]
+    fn cascades_grow_outwards_and_end_at_the_shadow_distance() {
+        let s = cascade_splits(0.1, 900.0, 4);
+        assert!(s[0] > 0.1 && s[0] < s[1] && s[1] < s[2] && s[2] < s[3], "{s:?}");
+        assert_eq!(s[3], 900.0);
+        assert!(
+            s[0] < 900.0 / 8.0,
+            "the first cascade is much smaller than even steps: {s:?}"
+        );
+        assert_eq!(cascade_splits(0.1, 60.0, 1)[0], 60.0);
+    }
+
+    #[test]
+    fn near_models_cast_into_near_cascades_only() {
+        let mut world = World::new();
+        let assets = Assets3D {
+            bounds: vec![(Vec3::ZERO, 0.5)],
+            ..Default::default()
+        };
+        let mut camera = camera();
+        camera.position = Vec3::new(0.0, 2.0, 0.0);
+        camera.look_at(Vec3::new(0.0, 2.0, -1.0));
+        camera.near = 0.1;
+        camera.far = 1000.0;
+        let lighting = Lighting {
+            sun_direction: Vec3::new(0.0, -1.0, 0.0),
+            shadow_distance: 400.0,
+            ..Default::default()
+        };
+        let model = Model::new(Mesh { id: 0 });
+        world.spawn((Transform3D::at(Vec3::new(0.0, 0.0, -3.0)), model)); // near
+        world.spawn((Transform3D::at(Vec3::new(0.0, 0.0, -350.0)), model)); // far
+        let mut frame = Frame3D::default();
+        frame.collect(&mut world, &assets, &camera, &lighting);
+        assert_eq!(frame.cascades, 4);
+        let counts = frame.shadow_runs.map(|r| r.iter().map(|r| r.2).sum::<u32>());
+        assert_eq!(counts[0], 1, "only the near model is in the first cascade");
+        assert_eq!(
+            counts[3], 2,
+            "the last cascade's box reaches the far model, and back to the camera"
+        );
+        assert!(
+            frame.cascade_texel[0] < frame.cascade_texel[3] / 10.0,
+            "near texels are much finer"
+        );
     }
 }

@@ -177,9 +177,13 @@ static void three_d() {
         cam.near = 0;
         throws([&] { ctx.set_camera3d(cam); });
         auto light = ctx.lighting();
-        CHECK(light.shadows);
+        CHECK(light.shadows && light.shadow_cascades == 4);
         light.sun_direction = {-1, -1, 0};
+        light.shadow_cascades = 2;
         ctx.set_lighting(light);
+        CHECK(ctx.lighting().shadow_cascades == 2);
+        light.shadow_cascades = 0;
+        throws([&] { ctx.set_lighting(light); });
         auto post = ctx.post();
         CHECK(post.tonemap == uint32_t(crabby::tonemap::aces) && post.contrast == 1 && !post.has_lut);
         post.tonemap = uint32_t(crabby::tonemap::neutral);

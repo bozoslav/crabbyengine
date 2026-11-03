@@ -51,7 +51,7 @@ fn vs_main(in: VertexIn) -> VertexOut {
 fn vs_shadow(in: VertexIn) -> VertexOut {
     let v = world_vertex(in);
     var out: VertexOut;
-    out.clip = frame.sun_view_proj * vec4<f32>(v.position, 1.0);
+    out.clip = frame.caster_view_proj * vec4<f32>(v.position, 1.0);
     out.world = v.position;
     out.normal = v.normal;
     out.uv = v.uv;
@@ -119,28 +119,53 @@ fn fs_depth(in: VertexOut, @builtin(front_facing) front: bool) {
     }
 }
 
-// How much sun reaches `world` (0 in shadow, 1 lit), softened over 3x3 texels.
-fn sunlight(world: vec3<f32>, n: vec3<f32>) -> f32 {
-    if frame.shadow.x == 0.0 {
-        return 1.0;
-    }
+// How much light one shadow cascade lets through at `world`, softened over
+// 3x3 texels; `edge` is how near the edge of the cascade's box it is
+// (0 at the center, 1 at the edge, more outside).
+fn cascade_light(i: i32, world: vec3<f32>, n: vec3<f32>, edge: ptr<function, f32>) -> f32 {
     // Looking up a little off the surface keeps it from shadowing itself.
-    let clip = frame.sun_view_proj * vec4<f32>(world + n * frame.shadow.z, 1.0);
+    let offset = n * frame.shadow.z * frame.cascade_texel[i];
+    let clip = frame.sun_view_proj[i] * vec4<f32>(world + offset, 1.0);
     let ndc = clip.xyz / clip.w;
+    *edge = max(max(abs(ndc.x), abs(ndc.y)), select(0.0, 2.0, ndc.z > 1.0));
     let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
     var lit = 0.0;
     for (var y = -1; y <= 1; y++) {
         for (var x = -1; x <= 1; x++) {
             let at = uv + vec2<f32>(f32(x), f32(y)) * frame.shadow.y;
-            lit += textureSampleCompareLevel(shadow_map, shadow_sampler, at, ndc.z);
+            lit += textureSampleCompareLevel(shadow_map, shadow_sampler, at, i, ndc.z);
         }
     }
-    lit /= 9.0;
-    // Outside the map, and towards its far edge, shadows fade out.
-    let inside = all(uv > vec2<f32>(0.0)) && all(uv < vec2<f32>(1.0)) && ndc.z < 1.0;
+    return lit / 9.0;
+}
+
+// How much sun reaches `world` (0 in shadow, 1 lit). The first cascade
+// whose box holds the point gives the sharpest shadow; near that box's edge
+// it fades into the next cascade, so the step between them doesn't show.
+fn sunlight(world: vec3<f32>, n: vec3<f32>) -> f32 {
+    let count = i32(frame.shadow.x);
+    if count == 0 {
+        return 1.0;
+    }
+    // The 3x3 filter reaches one texel further out than the point.
+    let inside = 1.0 - 2.0 * frame.shadow.y;
+    var lit = 1.0;
+    for (var i = 0; i < count; i++) {
+        var edge = 0.0;
+        let here = cascade_light(i, world, n, &edge);
+        if edge < inside {
+            lit = here;
+            let blend = smoothstep(0.85, 1.0, edge / inside);
+            if blend > 0.0 && i + 1 < count {
+                var next_edge = 0.0;
+                lit = mix(here, cascade_light(i + 1, world, n, &next_edge), blend);
+            }
+            break;
+        }
+    }
+    // Towards the shadow distance, shadows fade out.
     let far = distance(world, frame.camera.xyz) / frame.shadow.w;
-    let fade = select(1.0, smoothstep(0.8, 1.0, far), inside);
-    return mix(lit, 1.0, fade);
+    return mix(lit, 1.0, smoothstep(0.85, 1.0, far));
 }
 
 fn shade(s: Surface) -> vec3<f32> {

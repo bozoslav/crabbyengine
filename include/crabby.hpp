@@ -1169,7 +1169,7 @@ public:
         vec3 origin{}, direction{}; detail::check(crabby_ctx_screen_ray(raw_, screen, &origin, &direction)); return {origin, direction};
     }
     crabby::lighting lighting() const { crabby::lighting l{}; detail::check(crabby_ctx_lighting(raw_, &l)); return l; }
-    /// Intensities and the shadow distance can't be negative.
+    /// Intensities and the shadow distance can't be negative; shadow_cascades is 1 to 4.
     void set_lighting(const crabby::lighting& l) { detail::check(crabby_ctx_set_lighting(raw_, &l)); }
     /// Exposure, bloom, color grading and tone mapping of the 3D frame.
     crabby::post post() const { crabby::post p{}; detail::check(crabby_ctx_post(raw_, &p)); return p; }

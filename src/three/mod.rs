@@ -20,7 +20,7 @@ pub(crate) use api::GpuMaterialDesc;
 pub(crate) use api::MaterialTextures;
 pub(crate) use collect::Frame3D;
 #[cfg(feature = "window")]
-pub(crate) use collect::{Instance3D, SHADOW_MAP_SIZE};
+pub(crate) use collect::{Instance3D, MAX_CASCADES, SHADOW_MAP_SIZE};
 pub use mesh::MeshData;
 #[cfg(feature = "window")]
 pub(crate) use post::PostUniform;
@@ -497,9 +497,13 @@ pub struct Lighting {
     pub ambient_intensity: f32,
     /// Whether the sun casts shadows. Default on.
     pub shadows: bool,
-    /// How far from the camera shadows reach, in world units: shorter is
-    /// sharper. Default 60.
+    /// How far from the camera shadows reach, in world units. Default 60.
     pub shadow_distance: f32,
+    /// How many shadow maps (cascades) share that distance, 1 to 4: each
+    /// covers a stretch further out than the one before, so shadows stay
+    /// sharp near the camera however far they reach. Fewer are cheaper.
+    /// Default 4.
+    pub shadow_cascades: u32,
 }
 
 impl Default for Lighting {
@@ -513,6 +517,7 @@ impl Default for Lighting {
             ambient_intensity: 0.5,
             shadows: true,
             shadow_distance: 60.0,
+            shadow_cascades: 4,
         }
     }
 }

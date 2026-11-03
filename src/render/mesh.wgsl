@@ -9,13 +9,17 @@ const PI: f32 = 3.14159265;
 
 struct Frame {
     view_proj: mat4x4<f32>,
-    sun_view_proj: mat4x4<f32>, // world to the shadow map's clip space
+    // World to each shadow cascade's clip space (see `sunlight`).
+    sun_view_proj: array<mat4x4<f32>, 4>,
+    // In the shadow pass: the cascade being drawn.
+    caster_view_proj: mat4x4<f32>,
     camera: vec4<f32>,     // xyz: camera position
     sun_dir: vec4<f32>,    // xyz: unit vector towards the sun
     sun_color: vec4<f32>,  // rgb: linear color times intensity
     sky: vec4<f32>,        // rgb: linear, times ambient intensity
     ground: vec4<f32>,
-    shadow: vec4<f32>,     // on, texel size in uv, normal offset, fade distance
+    shadow: vec4<f32>,     // cascades (0: no shadows), texel size in uv, normal offset in texels, fade distance
+    cascade_texel: vec4<f32>, // each cascade's texel size, in world units
     time: vec4<f32>,       // x: seconds since the game started, y: seconds since the last frame
     inv_view_proj: mat4x4<f32>, // clip space back to the world
     screen: vec4<f32>,     // width and height in pixels, then their inverses
@@ -30,7 +34,7 @@ struct MaterialData {
 };
 
 @group(0) @binding(0) var<uniform> frame: Frame;
-@group(0) @binding(1) var shadow_map: texture_depth_2d;
+@group(0) @binding(1) var shadow_map: texture_depth_2d_array;
 @group(0) @binding(2) var shadow_sampler: sampler_comparison;
 @group(1) @binding(0) var<uniform> material: MaterialData;
 @group(1) @binding(1) var material_sampler: sampler;

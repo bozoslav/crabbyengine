@@ -520,6 +520,7 @@ typedef struct CrabbyLighting {
   float ambient_intensity;
   bool shadows;
   float shadow_distance;
+  uint32_t shadow_cascades;
 } CrabbyLighting;
 
 typedef struct CrabbyPost {

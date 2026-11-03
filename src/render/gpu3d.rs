@@ -3,7 +3,7 @@
 //! material.
 //!
 //! The frame, in order:
-//! 1. **shadows**: the sun's shadow map;
+//! 1. **shadows**: one pass per cascade of the sun's shadow map;
 //! 2. **depth prepass**: the nearest depth of every pixel, so the next pass
 //!    lights each pixel once, and later passes can read the depth;
 //! 3. **opaque**: lit models into an HDR (16-bit float) target, keeping only
@@ -23,7 +23,8 @@ use wgpu::util::DeviceExt;
 use super::gpu::GpuTexture;
 use super::timer::GpuTimer;
 use crate::three::{
-    Frame3D, GpuMaterialDesc, Instance3D, MaterialTextures, MeshData, PostUniform, SHADOW_MAP_SIZE, linear,
+    Frame3D, GpuMaterialDesc, Instance3D, MAX_CASCADES, MaterialTextures, MeshData, PostUniform, SHADOW_MAP_SIZE,
+    linear,
 };
 use crate::{Lighting, Material};
 
@@ -38,16 +39,21 @@ const MSAA: u32 = 4;
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct FrameUniform {
     view_proj: [[f32; 4]; 4],
-    sun_view_proj: [[f32; 4]; 4],
+    /// World to each shadow cascade's clip space.
+    sun_view_proj: [[[f32; 4]; 4]; MAX_CASCADES],
+    /// In the shadow pass: the cascade being drawn.
+    caster_view_proj: [[f32; 4]; 4],
     camera: [f32; 4],
     sun_dir: [f32; 4],
     sun_color: [f32; 4],
     sky: [f32; 4],
     ground: [f32; 4],
-    /// x: shadows on (1) or off (0), y: one shadow-map texel in uv,
-    /// z: how far the shadow lookup moves along the normal (world units),
-    /// w: where shadows fade out (distance from the camera).
+    /// x: how many cascades (0: no shadows), y: one shadow-map texel in
+    /// uv, z: how far the shadow lookup moves along the normal (in
+    /// texels), w: where shadows fade out (distance from the camera).
     shadow: [f32; 4],
+    /// Each cascade's texel size, in world units.
+    cascade_texel: [f32; 4],
     /// x: seconds since the game started, y: seconds since the last frame.
     time: [f32; 4],
     inv_view_proj: [[f32; 4]; 4],
@@ -227,9 +233,14 @@ pub(crate) struct Renderer3D {
     frame_buffer: wgpu::Buffer,
     frame_bind_group: wgpu::BindGroup,
     /// The frame uniform alone, for the shadow pass (which can't also read
-    /// the shadow map it draws into).
+    /// the shadow map it draws into): one copy per cascade, each with its
+    /// `caster_view_proj`, `shadow_stride` bytes apart.
+    shadow_frames: wgpu::Buffer,
+    shadow_stride: u64,
     shadow_bind_group: wgpu::BindGroup,
-    shadow_view: wgpu::TextureView,
+    /// Each cascade's layer of the shadow map, drawn into.
+    shadow_layers: Vec<wgpu::TextureView>,
+    cascades: usize,
     material_layout: wgpu::BindGroupLayout,
     meshes: Vec<GpuMesh>,
     materials: Vec<GpuMaterial>,
@@ -241,7 +252,7 @@ pub(crate) struct Renderer3D {
     white: u32,
     /// This frame's runs: (mesh, first instance, count).
     runs: Vec<(u32, u32, u32)>,
-    shadow_runs: Vec<(u32, u32, u32)>,
+    shadow_runs: [Vec<(u32, u32, u32)>; MAX_CASCADES],
 }
 
 impl Renderer3D {
@@ -270,7 +281,7 @@ impl Renderer3D {
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Depth,
-                        view_dimension: wgpu::TextureViewDimension::D2,
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
                         multisampled: false,
                     },
                     count: None,
@@ -285,7 +296,16 @@ impl Renderer3D {
         });
         let shadow_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("3d shadow layout"),
-            entries: &[uniform_entry(wgpu::ShaderStages::VERTEX_FRAGMENT)],
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: true,
+                    min_binding_size: wgpu::BufferSize::new(size_of::<FrameUniform>() as u64),
+                },
+                count: None,
+            }],
         });
         let material_texture = |binding| wgpu::BindGroupLayoutEntry {
             binding,
@@ -532,7 +552,7 @@ impl Renderer3D {
             size: wgpu::Extent3d {
                 width: SHADOW_MAP_SIZE,
                 height: SHADOW_MAP_SIZE,
-                depth_or_array_layers: 1,
+                depth_or_array_layers: MAX_CASCADES as u32,
             },
             mip_level_count: 1,
             sample_count: 1,
@@ -541,7 +561,29 @@ impl Renderer3D {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
-        let shadow_view = shadow_map.create_view(&Default::default());
+        let shadow_view = shadow_map.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
+        let shadow_layers = (0..MAX_CASCADES as u32)
+            .map(|layer| {
+                shadow_map.create_view(&wgpu::TextureViewDescriptor {
+                    label: Some("3d shadow cascade"),
+                    dimension: Some(wgpu::TextureViewDimension::D2),
+                    base_array_layer: layer,
+                    array_layer_count: Some(1),
+                    ..Default::default()
+                })
+            })
+            .collect();
+        let align = device.limits().min_uniform_buffer_offset_alignment as u64;
+        let shadow_stride = (size_of::<FrameUniform>() as u64).div_ceil(align) * align;
+        let shadow_frames = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("3d shadow frames"),
+            size: shadow_stride * MAX_CASCADES as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         let shadow_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("3d shadow sampler"),
             mag_filter: wgpu::FilterMode::Linear,
@@ -572,7 +614,11 @@ impl Renderer3D {
             layout: &shadow_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: frame_buffer.as_entire_binding(),
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &shadow_frames,
+                    offset: 0,
+                    size: wgpu::BufferSize::new(size_of::<FrameUniform>() as u64),
+                }),
             }],
         });
         let capacity = 1024;
@@ -595,8 +641,11 @@ impl Renderer3D {
             bloom: false,
             frame_buffer,
             frame_bind_group,
+            shadow_frames,
+            shadow_stride,
             shadow_bind_group,
-            shadow_view,
+            shadow_layers,
+            cascades: 0,
             material_layout,
             meshes: Vec::new(),
             materials: Vec::new(),
@@ -605,7 +654,7 @@ impl Renderer3D {
             targets: None,
             white,
             runs: Vec::new(),
-            shadow_runs: Vec::new(),
+            shadow_runs: Default::default(),
         }
     }
 
@@ -771,8 +820,11 @@ impl Renderer3D {
         self.bloom = post.bloom > 0.0;
         self.runs.clear();
         self.runs.extend_from_slice(&frame.runs);
-        self.shadow_runs.clear();
-        self.shadow_runs.extend_from_slice(&frame.shadow_runs);
+        self.cascades = frame.cascades;
+        for (mine, theirs) in self.shadow_runs.iter_mut().zip(&frame.shadow_runs) {
+            mine.clear();
+            mine.extend_from_slice(theirs);
+        }
         if frame.instances.is_empty() {
             return;
         }
@@ -786,23 +838,24 @@ impl Renderer3D {
             [r * k, g * k, b * k, 0.0]
         };
         let sun = (-lighting.sun_direction).try_normalize().unwrap_or(Vec3::Y);
-        // The shadow lookup moves out along the normal by about one texel,
-        // against acne on surfaces facing away from the sun.
-        let texel_world = lighting.shadow_distance * 2.0 / SHADOW_MAP_SIZE as f32;
-        let uniform = FrameUniform {
+        let mut uniform = FrameUniform {
             view_proj: frame.view_proj.to_cols_array_2d(),
-            sun_view_proj: frame.sun_view_proj.unwrap_or(Mat4::IDENTITY).to_cols_array_2d(),
+            sun_view_proj: frame.sun_view_proj.map(|m| m.to_cols_array_2d()),
+            caster_view_proj: Mat4::IDENTITY.to_cols_array_2d(),
             camera: camera.extend(1.0).to_array(),
             sun_dir: sun.extend(0.0).to_array(),
             sun_color: scaled(lighting.sun_color, lighting.sun_intensity),
             sky: scaled(lighting.sky_color, lighting.ambient_intensity),
             ground: scaled(lighting.ground_color, lighting.ambient_intensity),
+            // The shadow lookup moves out along the normal by 1.5 texels,
+            // against acne on surfaces facing away from the sun.
             shadow: [
-                if frame.sun_view_proj.is_some() { 1.0 } else { 0.0 },
+                frame.cascades as f32,
                 1.0 / SHADOW_MAP_SIZE as f32,
-                texel_world * 1.5,
+                1.5,
                 lighting.shadow_distance,
             ],
+            cascade_texel: frame.cascade_texel,
             time: [time.0, time.1, 0.0, 0.0],
             inv_view_proj: frame.view_proj.inverse().to_cols_array_2d(),
             screen: [
@@ -813,6 +866,14 @@ impl Renderer3D {
             ],
         };
         queue.write_buffer(&self.frame_buffer, 0, bytemuck::bytes_of(&uniform));
+        for i in 0..frame.cascades {
+            uniform.caster_view_proj = uniform.sun_view_proj[i];
+            queue.write_buffer(
+                &self.shadow_frames,
+                self.shadow_stride * i as u64,
+                bytemuck::bytes_of(&uniform),
+            );
+        }
         if self.targets.as_ref().is_none_or(|t| t.size != size) {
             let texture = |label, format, samples, usage| {
                 device.create_texture(&wgpu::TextureDescriptor {
@@ -928,7 +989,7 @@ impl Renderer3D {
     }
 
     /// Draw calls the frame's models take: two per mesh part (depth
-    /// prepass and lit), one per mesh part in the shadow map, the bloom steps and
+    /// prepass and lit), one per mesh part in each shadow cascade, the bloom steps and
     /// the post pass.
     pub fn draw_calls(&self) -> usize {
         let parts: usize = self
@@ -937,7 +998,7 @@ impl Renderer3D {
             .map(|&(mesh, _, _)| self.meshes[mesh as usize].parts.len())
             .sum();
         parts * 2
-            + self.shadow_runs.len()
+            + self.shadow_runs[..self.cascades].iter().map(Vec::len).sum::<usize>()
             + 1
             + if self.bloom {
                 self.targets.as_ref().map_or(0, |t| t.bloom_mips.len() * 2 - 1)
@@ -963,12 +1024,12 @@ impl Renderer3D {
     ) {
         let Some(targets) = &self.targets else { return };
         let time = || timer.and_then(GpuTimer::pass);
-        {
+        for cascade in 0..self.cascades {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("3d shadows"),
                 color_attachments: &[],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.shadow_view,
+                    view: &self.shadow_layers[cascade],
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,
@@ -979,9 +1040,10 @@ impl Renderer3D {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            pass.set_bind_group(0, &self.shadow_bind_group, &[]);
+            let offset = (self.shadow_stride * cascade as u64) as u32;
+            pass.set_bind_group(0, &self.shadow_bind_group, &[offset]);
             pass.set_bind_group(2, &self.no_scene, &[]);
-            self.draw_models(&mut pass, &self.shadow_runs, Kind::Shadow);
+            self.draw_models(&mut pass, &self.shadow_runs[cascade], Kind::Shadow);
         }
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
