@@ -17,6 +17,7 @@
 - [Sprite sheets, animation, tilemaps](tiles.md)
 - [Sound](audio.md)
 - [Data files: tune without restarting](data-files.md)
+- [Changing code while the game runs](hot-patching.md)
 - [Headless runs and testing](headless.md)
 - [C and C++](c-cpp.md)
 - [Reflection: components as JSON](reflection.md)

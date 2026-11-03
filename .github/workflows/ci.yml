@@ -92,6 +92,7 @@ jobs:
           - engine-events
           - engine-without-window
           - engine-hot-reload
+          - engine-hotpatch
           - mcp
           - ffi-unit
           - ffi-abi
@@ -126,6 +127,8 @@ jobs:
           - { area: engine-events, args: -p crabbyengine --test events }
           - { area: engine-without-window, args: -p crabbyengine --tests --no-default-features --features audio }
           - { area: engine-hot-reload, args: -p crabbyengine --test hot_reload }
+          # Systems called through subsecond's jump table (no dx attached) behave the same.
+          - { area: engine-hotpatch, args: -p crabbyengine --features hotpatch --test headless --test determinism --test events }
           - { area: mcp, args: -p crabby_mcp }
           - { area: ffi-unit, args: -p crabby_ffi --lib }
           - { area: ffi-abi, args: -p crabby_ffi --test abi }
