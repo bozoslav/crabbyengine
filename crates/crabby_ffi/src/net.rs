@@ -152,6 +152,7 @@ pub unsafe extern "C" fn crabby_ctx_net_state(ctx: *mut CrabbyCtx, out_state: *m
                     NetState::Connecting => CrabbyNetState::CRABBY_NET_CONNECTING,
                     NetState::Running => CrabbyNetState::CRABBY_NET_RUNNING,
                     NetState::Lost => CrabbyNetState::CRABBY_NET_LOST,
+                    _ => unreachable!("a new NetState needs a CrabbyNetState"),
                 })
             })?;
             out(out_state, state as u32)

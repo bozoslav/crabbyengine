@@ -45,6 +45,7 @@ impl Rng {
     /// let mut b = Rng::new(2);
     /// assert_ne!(a.u64(), b.u64());
     /// ```
+    #[must_use]
     pub fn new(seed: u64) -> Self {
         let a = mix(seed);
         let b = mix(a);
@@ -184,6 +185,7 @@ impl Random {
     /// # Game::new("t", 1, 1).sim_system(wander).run_headless(1, |_| {});
     /// ```
     #[inline]
+    #[must_use]
     pub fn of(self, entity: Entity) -> Rng {
         self.stream(entity.to_bits())
     }
@@ -198,6 +200,7 @@ impl Random {
     /// # let _ = bits;
     /// # }
     /// ```
+    #[must_use]
     pub fn to_bits(self) -> u64 {
         self.base
     }
@@ -214,6 +217,7 @@ impl Random {
     /// # }
     /// ```
     #[inline]
+    #[must_use]
     pub fn stream(self, n: u64) -> Rng {
         Rng::new(self.base ^ mix(n))
     }

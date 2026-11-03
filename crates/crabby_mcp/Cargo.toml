@@ -4,6 +4,7 @@ version = "0.1.0"
 keywords = ["mcp", "gamedev", "agents", "ai"]
 categories = ["game-development", "development-tools"]
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true

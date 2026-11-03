@@ -16,11 +16,13 @@ pub struct Entity {
 
 impl Entity {
     /// Packs the handle into 64 bits (for saving, or passing to C/C++).
+    #[must_use]
     pub fn to_bits(self) -> u64 {
         (self.generation as u64) << 32 | self.index as u64
     }
 
     /// Inverse of [`to_bits`](Self::to_bits).
+    #[must_use]
     pub fn from_bits(bits: u64) -> Self {
         Entity {
             index: bits as u32,
@@ -29,6 +31,7 @@ impl Entity {
     }
 
     /// Slot number. Slots are reused after despawn; use the whole `Entity` as an id.
+    #[must_use]
     pub fn index(self) -> u32 {
         self.index
     }

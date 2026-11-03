@@ -15,6 +15,7 @@ use crate::{Ctx, Entity, Transform2D, Vec2, World};
 
 /// How a body moves.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum BodyKind {
     /// Moved by gravity, forces and collisions.
     #[default]
@@ -39,6 +40,7 @@ pub enum BodyKind {
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RigidBody {
+    /// Dynamic, fixed or kinematic.
     pub kind: BodyKind,
     /// 1 normal, 0 floats, negative falls up.
     pub gravity_scale: f32,
@@ -61,6 +63,7 @@ impl Default for RigidBody {
 
 impl RigidBody {
     /// A body moved by gravity and collisions.
+    #[must_use]
     pub const fn dynamic() -> Self {
         Self {
             kind: BodyKind::Dynamic,
@@ -72,6 +75,7 @@ impl RigidBody {
         }
     }
     /// A body that never moves.
+    #[must_use]
     pub const fn fixed() -> Self {
         Self {
             kind: BodyKind::Fixed,
@@ -79,6 +83,7 @@ impl RigidBody {
         }
     }
     /// A body only you move.
+    #[must_use]
     pub const fn kinematic() -> Self {
         Self {
             kind: BodyKind::Kinematic,
@@ -90,17 +95,23 @@ impl RigidBody {
 /// A collider's shape, in pixels, centered on the entity (plus
 /// [`Collider::offset`]) and turned with it.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum Shape {
+    /// A circle.
     Circle {
+        /// In pixels.
         radius: f32,
     },
     /// A rectangle `size` wide and high.
     Rect {
+        /// Width and height in pixels.
         size: Vec2,
     },
     /// A vertical capsule: `height` between the centers of its round ends.
     Capsule {
+        /// Distance between the centers of the round ends, in pixels.
         height: f32,
+        /// Radius of the round ends, in pixels.
         radius: f32,
     },
 }
@@ -116,6 +127,7 @@ pub enum Shape {
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Collider {
+    /// Circle, rectangle or capsule.
     pub shape: Shape,
     /// Mass per square pixel (mass = density × area).
     pub density: f32,
@@ -141,14 +153,17 @@ impl Collider {
         }
     }
     /// A circle.
+    #[must_use]
     pub fn circle(radius: f32) -> Self {
         Self::of(Shape::Circle { radius })
     }
     /// A rectangle `size` wide and high.
+    #[must_use]
     pub fn rect(size: Vec2) -> Self {
         Self::of(Shape::Rect { size })
     }
     /// A vertical capsule (good for characters).
+    #[must_use]
     pub fn capsule(height: f32, radius: f32) -> Self {
         Self::of(Shape::Capsule { height, radius })
     }
@@ -191,12 +206,15 @@ impl Collider {
 #[serde(default)]
 #[repr(C)] // C sees it as CrabbyVelocity.
 pub struct Velocity {
+    /// Pixels per second.
     pub linear: Vec2,
+    /// Radians per second, clockwise on screen.
     pub angular: f32,
 }
 
 impl Velocity {
     /// Moving at `linear`, not spinning.
+    #[must_use]
     pub const fn linear(linear: Vec2) -> Self {
         Self { linear, angular: 0.0 }
     }
@@ -207,7 +225,9 @@ impl Velocity {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(C)] // C reads these in place as CrabbyCollision.
 pub struct CollisionStarted {
+    /// One of the two entities.
     pub a: Entity,
+    /// The other one.
     pub b: Entity,
     /// One of them is a sensor.
     pub sensor: bool,
@@ -217,15 +237,20 @@ pub struct CollisionStarted {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(C)]
 pub struct CollisionStopped {
+    /// One of the two entities.
     pub a: Entity,
+    /// The other one.
     pub b: Entity,
+    /// One of them is a sensor.
     pub sensor: bool,
 }
 
 /// What a ray hit.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RayHit {
+    /// The entity whose collider was hit.
     pub entity: Entity,
+    /// Where the ray hit, in world pixels.
     pub point: Vec2,
     /// The surface's outward direction at `point`.
     pub normal: Vec2,
@@ -276,6 +301,7 @@ fn from_rp(v: rp::Vector) -> Vec2 {
 impl Physics {
     /// Physics pulling everything by `gravity` (pixels/s²; y is down, so
     /// `vec2(0.0, 980.0)` falls).
+    #[must_use]
     pub fn new(gravity: Vec2) -> Self {
         let (collision_tx, collisions) = mpsc::channel();
         let (force_tx, forces) = mpsc::channel();

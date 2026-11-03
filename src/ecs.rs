@@ -22,6 +22,7 @@ use crate::texture::Texture;
 #[serde(default)]
 #[repr(C)] // shared with C/C++ (`CrabbyTransform2D`)
 pub struct Transform2D {
+    /// Where the entity is, in world pixels.
     pub position: Vec2,
     /// Radians, clockwise on screen.
     pub rotation: f32,
@@ -41,6 +42,7 @@ impl Default for Transform2D {
 
 impl Transform2D {
     /// A transform at `position` with no rotation and scale 1.
+    #[must_use]
     pub fn at(position: Vec2) -> Self {
         Self {
             position,
@@ -49,11 +51,13 @@ impl Transform2D {
     }
 
     /// Same transform, rotated to `rotation` radians.
+    #[must_use]
     pub fn rotated(self, rotation: f32) -> Self {
         Self { rotation, ..self }
     }
 
     /// Same transform, scaled by `scale`.
+    #[must_use]
     pub fn scaled(self, scale: Vec2) -> Self {
         Self { scale, ..self }
     }
@@ -74,6 +78,7 @@ impl Transform2D {
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Sprite {
+    /// The image to draw.
     pub texture: Texture,
     /// Tint multiplied with the texture. Default white (no tint).
     pub color: Color,
@@ -88,6 +93,7 @@ pub struct Sprite {
 
 impl Sprite {
     /// A sprite showing `texture`, untinted, centered on the position.
+    #[must_use]
     pub fn new(texture: Texture) -> Self {
         Self {
             texture,
@@ -106,6 +112,7 @@ impl Sprite {
     /// let grass = Sprite::new(tiles).with_region(Rect::new(16.0, 0.0, 16.0, 16.0));
     /// # }
     /// ```
+    #[must_use]
     pub fn with_region(self, region: Rect) -> Self {
         Self {
             region: Some(region),
@@ -114,16 +121,19 @@ impl Sprite {
     }
 
     /// Same sprite with tint `color`.
+    #[must_use]
     pub fn with_color(self, color: Color) -> Self {
         Self { color, ..self }
     }
 
     /// Same sprite with draw order `z` (higher is on top).
+    #[must_use]
     pub fn with_z(self, z: f32) -> Self {
         Self { z, ..self }
     }
 
     /// Same sprite with a different pivot (`(0, 0)` = top-left corner).
+    #[must_use]
     pub fn with_pivot(self, pivot: Vec2) -> Self {
         Self { pivot, ..self }
     }

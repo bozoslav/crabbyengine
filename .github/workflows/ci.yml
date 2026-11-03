@@ -63,6 +63,22 @@ jobs:
           key: clippy-${{ matrix.name }}
       - run: cargo clippy --workspace --all-targets ${{ matrix.args }}
 
+  # The oldest supported Rust (rust-version in Cargo.toml) still builds everything.
+  msrv:
+    name: MSRV (Rust 1.95)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install ALSA and udev headers (audio, gamepads)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev libudev-dev
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.95"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: msrv
+      - run: cargo check --workspace --all-targets --features crabbyengine/physics,crabbyengine/steam
+
   # One job per OS: compiling is ~90% of the time, so build once and run
   # every test there. Each feature combination is its own step, and every
   # step runs even if an earlier one failed, so one failure never hides
@@ -222,7 +238,7 @@ jobs:
   ci-passed:
     name: CI passed
     if: always()
-    needs: [fmt, clippy, test, docs, book, miri, native, web]
+    needs: [fmt, clippy, msrv, test, docs, book, miri, native, web]
     runs-on: ubuntu-latest
     steps:
       - name: Check every job

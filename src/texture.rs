@@ -37,6 +37,7 @@ impl Texture {
     /// let w = tex.width();
     /// # }
     /// ```
+    #[must_use]
     pub fn width(&self) -> u32 {
         self.width
     }
@@ -49,6 +50,7 @@ impl Texture {
     /// let h = tex.height();
     /// # }
     /// ```
+    #[must_use]
     pub fn height(&self) -> u32 {
         self.height
     }
@@ -61,6 +63,7 @@ impl Texture {
     /// let half = tex.size() / 2.0;
     /// # }
     /// ```
+    #[must_use]
     pub fn size(&self) -> Vec2 {
         Vec2::new(self.width as f32, self.height as f32)
     }

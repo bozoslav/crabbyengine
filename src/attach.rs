@@ -44,6 +44,7 @@ pub struct Attached {
 
 impl Attached {
     /// Attached to `to`, right on top of it.
+    #[must_use]
     pub fn to(to: Entity) -> Self {
         Self {
             to,
@@ -53,11 +54,13 @@ impl Attached {
     }
 
     /// Same attachment, `offset` away.
+    #[must_use]
     pub fn offset(self, offset: Vec2) -> Self {
         Self { offset, ..self }
     }
 
     /// Same attachment, turned by `rotation` radians more.
+    #[must_use]
     pub fn rotated(self, rotation: f32) -> Self {
         Self { rotation, ..self }
     }

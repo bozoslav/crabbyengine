@@ -39,6 +39,7 @@ pub struct Commands {
 
 impl Commands {
     /// An empty command list.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -75,11 +76,13 @@ impl Commands {
     }
 
     /// Number of recorded commands.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.ops.len()
     }
 
     /// `true` if nothing is recorded.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.ops.is_empty()
     }

@@ -12,20 +12,32 @@
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)] // shared with C/C++ (`CrabbyColor`)
 pub struct Color {
+    /// Red, 0 to 1.
     pub r: f32,
+    /// Green, 0 to 1.
     pub g: f32,
+    /// Blue, 0 to 1.
     pub b: f32,
+    /// Opacity: 0 transparent, 1 opaque.
     pub a: f32,
 }
 
 impl Color {
+    /// White.
     pub const WHITE: Color = Color::rgb(1.0, 1.0, 1.0);
+    /// Black.
     pub const BLACK: Color = Color::rgb(0.0, 0.0, 0.0);
+    /// Middle gray.
     pub const GRAY: Color = Color::rgb(0.5, 0.5, 0.5);
+    /// Red.
     pub const RED: Color = Color::rgb(1.0, 0.0, 0.0);
+    /// Green.
     pub const GREEN: Color = Color::rgb(0.0, 1.0, 0.0);
+    /// Blue.
     pub const BLUE: Color = Color::rgb(0.0, 0.0, 1.0);
+    /// Yellow.
     pub const YELLOW: Color = Color::rgb(1.0, 1.0, 0.0);
+    /// Fully transparent (draws nothing).
     pub const TRANSPARENT: Color = Color::rgba(0.0, 0.0, 0.0, 0.0);
     /// A soft dark blue-gray, the default clear color.
     pub const CRABBY_DARK: Color = Color::rgb(0.11, 0.12, 0.15);
@@ -36,6 +48,7 @@ impl Color {
     /// # use crabbyengine::*;
     /// let teal = Color::rgb(0.0, 0.5, 0.5);
     /// ```
+    #[must_use]
     pub const fn rgb(r: f32, g: f32, b: f32) -> Color {
         Color { r, g, b, a: 1.0 }
     }
@@ -46,6 +59,7 @@ impl Color {
     /// # use crabbyengine::*;
     /// let shadow = Color::rgba(0.0, 0.0, 0.0, 0.3);
     /// ```
+    #[must_use]
     pub const fn rgba(r: f32, g: f32, b: f32, a: f32) -> Color {
         Color { r, g, b, a }
     }
@@ -56,6 +70,7 @@ impl Color {
     /// # use crabbyengine::*;
     /// let crab_orange = Color::hex(0xE8743B);
     /// ```
+    #[must_use]
     pub const fn hex(rgb: u32) -> Color {
         Color::rgb(
             ((rgb >> 16) & 0xFF) as f32 / 255.0,
@@ -70,6 +85,7 @@ impl Color {
     /// # use crabbyengine::*;
     /// let faded = Color::RED.with_alpha(0.25);
     /// ```
+    #[must_use]
     pub const fn with_alpha(self, a: f32) -> Color {
         Color { a, ..self }
     }

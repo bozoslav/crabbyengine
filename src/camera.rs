@@ -14,7 +14,9 @@ use glam::{Mat4, Vec2, vec4};
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 #[repr(C)] // shared with C/C++ (`CrabbyRect`)
 pub struct Rect {
+    /// Top-left corner (smallest x and y).
     pub min: Vec2,
+    /// Bottom-right corner (largest x and y).
     pub max: Vec2,
 }
 
@@ -26,6 +28,7 @@ impl Rect {
     /// let button = Rect::new(20.0, 20.0, 120.0, 32.0);
     /// # let _ = button;
     /// ```
+    #[must_use]
     pub fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
         Self {
             min: Vec2::new(x, y),
@@ -39,6 +42,7 @@ impl Rect {
     /// # use crabbyengine::*;
     /// assert_eq!(Rect::new(0.0, 0.0, 4.0, 3.0).size(), vec2(4.0, 3.0));
     /// ```
+    #[must_use]
     pub fn size(&self) -> Vec2 {
         self.max - self.min
     }
@@ -49,6 +53,7 @@ impl Rect {
     /// # use crabbyengine::*;
     /// assert_eq!(Rect::new(0.0, 0.0, 4.0, 2.0).center(), vec2(2.0, 1.0));
     /// ```
+    #[must_use]
     pub fn center(&self) -> Vec2 {
         (self.min + self.max) * 0.5
     }
@@ -61,6 +66,7 @@ impl Rect {
     /// let hovered = button.contains(ctx.mouse_pos());
     /// # }
     /// ```
+    #[must_use]
     pub fn contains(&self, point: Vec2) -> bool {
         point.cmpge(self.min).all() && point.cmple(self.max).all()
     }
@@ -72,6 +78,7 @@ impl Rect {
     /// let inner = Rect::new(0.0, 0.0, 100.0, 100.0).expand(-8.0);
     /// assert_eq!(inner.min, vec2(8.0, 8.0));
     /// ```
+    #[must_use]
     pub fn expand(&self, by: f32) -> Self {
         Self {
             min: self.min - by,
@@ -131,6 +138,7 @@ impl Camera2D {
     /// # let _ = size;
     /// # }
     /// ```
+    #[must_use]
     pub fn viewport(&self) -> Vec2 {
         self.viewport
     }
@@ -146,6 +154,7 @@ impl Camera2D {
     /// }
     /// # }
     /// ```
+    #[must_use]
     pub fn screen_to_world(&self, screen: Vec2) -> Vec2 {
         self.position + screen / self.zoom
     }
@@ -159,6 +168,7 @@ impl Camera2D {
     /// ctx.draw_text("Worker", above, 14.0, Color::WHITE);
     /// # }
     /// ```
+    #[must_use]
     pub fn world_to_screen(&self, world: Vec2) -> Vec2 {
         (world - self.position) * self.zoom
     }
@@ -172,6 +182,7 @@ impl Camera2D {
     /// # let _ = middle;
     /// # }
     /// ```
+    #[must_use]
     pub fn center(&self) -> Vec2 {
         self.position + self.viewport / (2.0 * self.zoom)
     }
@@ -218,6 +229,7 @@ impl Camera2D {
     /// let on_screen = ctx.camera.visible_rect().contains(p);
     /// # }
     /// ```
+    #[must_use]
     pub fn visible_rect(&self) -> Rect {
         Rect {
             min: self.position,

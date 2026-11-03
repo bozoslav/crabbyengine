@@ -142,7 +142,7 @@ fn dummy_texture() -> Texture {
 #[test]
 #[should_panic(expected = "cell size must be a positive number")]
 fn zero_cell_size_panics() {
-    SpatialGrid::new(0.0);
+    let _ = SpatialGrid::new(0.0);
 }
 
 struct Neighbors(usize);

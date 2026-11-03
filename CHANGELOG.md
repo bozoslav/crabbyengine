@@ -66,6 +66,17 @@ Everything so far, ahead of the first release.
 - `crabbyengine::Instant`: an `Instant` that also works in browsers.
 - The docs site publishes playable builds of the battle, flow and ants demos.
 
+### API and stability
+- [STABILITY.md](STABILITY.md): semver from 1.0, deprecation policy, MSRV
+  (Rust 1.95, checked in CI), C ABI versioning, save compatibility and what
+  is deterministic where.
+- Every public item is documented (`missing_docs` is enforced), with
+  `# Panics` / `# Errors` sections where they apply.
+- `#[must_use]` on getters, constructors and builders; `Game` and `Query`
+  warn when built and never run.
+- `#[non_exhaustive]` on `NetState`, `BodyKind`, `Shape`, `FieldType` and
+  `ReflectError`, so new variants aren't breaking changes.
+
 ### C and C++
 - C++: components are found by their type, with nothing to register:
   `world.spawn(transform_at(p), Health{100})`, `world.get<Health>(e)`,

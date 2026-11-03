@@ -6,6 +6,7 @@ keywords = ["gamedev", "engine", "2d", "ecs", "simulation"]
 categories = ["game-engines", "game-development", "simulation"]
 readme = "README.md"
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -94,6 +95,8 @@ members = [".", "crates/crabby_ecs", "crates/crabby_bench", "crates/crabby_mcp",
 
 [workspace.package]
 edition = "2024"
+# The oldest Rust that builds Crabby (see STABILITY.md); CI checks it.
+rust-version = "1.95"
 license = "MIT OR Apache-2.0"
 authors = ["Leon Mamić and Crabby Engine contributors"]
 repository = "https://github.com/bozoslav/crabbyengine"

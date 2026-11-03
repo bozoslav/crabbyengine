@@ -77,6 +77,20 @@ pub(crate) enum AssetKind {
 /// Applies a data file's text to the world.
 type DataLoader = Box<dyn Fn(&mut World, &str) -> Result<(), String>>;
 
+/// What every system gets: the world, commands, events, input, drawing,
+/// the clock, sound, the camera, physics and the network session. Systems are
+/// `fn(&mut Ctx)`.
+///
+/// ```
+/// use crabbyengine::*;
+/// fn spin(ctx: &mut Ctx) {
+///     let dt = ctx.dt();
+///     for t in ctx.world.query::<&mut Transform2D>().iter() {
+///         t.rotation += dt;
+///     }
+/// }
+/// Game::new("Spin", 800, 600).sim_system(spin).run_headless(10, |_| {});
+/// ```
 pub struct Ctx {
     /// All entities, components and resources.
     ///
@@ -1157,6 +1171,7 @@ impl Ctx {
         }
     }
 
+    /// Draw calls, sprites and vertices of the last rendered frame (all zero headless).
     pub fn render_stats(&self) -> RenderStats {
         self.renderer.as_ref().map(Renderer::stats).unwrap_or_default()
     }
@@ -1594,6 +1609,7 @@ impl Turns {
     /// # }
     /// ```
     #[inline]
+    #[must_use]
     pub fn includes(self, entity: crabby_ecs::Entity) -> bool {
         entity.index() % self.every == self.now
     }
@@ -1607,6 +1623,7 @@ impl Turns {
     /// assert_eq!(turn.dt(), ctx.dt() * 4.0);
     /// # }
     /// ```
+    #[must_use]
     pub fn dt(self) -> f32 {
         self.dt
     }

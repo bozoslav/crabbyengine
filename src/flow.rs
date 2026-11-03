@@ -42,6 +42,7 @@ impl NavGrid {
     /// If a side is 0, the grid has more than 2^28 cells, or `cell_size`
     /// isn't positive.
     #[track_caller]
+    #[must_use]
     pub fn new(width: u32, height: u32, cell_size: f32) -> Self {
         assert!(
             width > 0 && height > 0 && (width as u64) * (height as u64) <= 1 << 28,
@@ -60,11 +61,13 @@ impl NavGrid {
     }
 
     /// Width and height in cells.
+    #[must_use]
     pub fn size(&self) -> UVec2 {
         self.size
     }
 
     /// Side of one cell in world units.
+    #[must_use]
     pub fn cell_size(&self) -> f32 {
         self.cell_size
     }
@@ -77,6 +80,7 @@ impl NavGrid {
     }
 
     /// The cost of cell (x, y), or `None` outside the grid.
+    #[must_use]
     pub fn cost(&self, x: u32, y: u32) -> Option<u8> {
         (x < self.size.x && y < self.size.y).then(|| self.costs[(y * self.size.x + x) as usize])
     }
@@ -94,12 +98,14 @@ impl NavGrid {
     }
 
     /// Whether a world point is inside the grid on a cell that isn't a wall.
+    #[must_use]
     pub fn walkable(&self, world: Vec2) -> bool {
         self.cell_at(world)
             .is_some_and(|c| self.costs[self.index(c)] != Self::WALL)
     }
 
     /// The cell under a world point, or `None` outside the grid.
+    #[must_use]
     pub fn cell_at(&self, world: Vec2) -> Option<UVec2> {
         let c = ((world - self.origin) / self.cell_size).floor();
         (c.x >= 0.0 && c.y >= 0.0 && c.x < self.size.x as f32 && c.y < self.size.y as f32)
@@ -107,6 +113,7 @@ impl NavGrid {
     }
 
     /// The world position of a cell's center.
+    #[must_use]
     pub fn center_of(&self, cell: UVec2) -> Vec2 {
         self.origin + (cell.as_vec2() + 0.5) * self.cell_size
     }
@@ -175,6 +182,7 @@ pub struct FlowField {
 
 impl FlowField {
     /// An empty field: every direction is zero until [`compute`](Self::compute).
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -302,6 +310,7 @@ impl FlowField {
 
     /// The field's raw arrays, for the C API's inline lookups.
     #[doc(hidden)]
+    #[must_use]
     pub fn raw_view(&self) -> RawFlowView<'_> {
         RawFlowView {
             dir: &self.dir,
@@ -326,6 +335,7 @@ impl FlowField {
     /// zero at a goal, on a wall, outside the grid, or where no goal can be
     /// reached.
     #[inline]
+    #[must_use]
     pub fn direction_at(&self, world: Vec2) -> Vec2 {
         self.cell(world).map_or(Vec2::ZERO, |i| DIRS[self.dir[i] as usize])
     }
@@ -334,6 +344,7 @@ impl FlowField {
     /// `None` if no goal can be reached (or `world` is outside the grid).
     /// Slow ground counts as longer: a cell of cost 4 counts 4 times.
     #[inline]
+    #[must_use]
     pub fn distance_at(&self, world: Vec2) -> Option<f32> {
         let d = self.dist[self.cell(world)?];
         (d != UNREACHED).then(|| d as f32 / STRAIGHT as f32 * self.cell_size)

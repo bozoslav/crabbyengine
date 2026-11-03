@@ -54,6 +54,7 @@ const HELLO_EVERY: Duration = Duration::from_millis(100);
 
 /// Where a session is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum NetState {
     /// No session: one local player, inputs apply at once.
     Offline,
@@ -198,6 +199,11 @@ impl Net {
     /// let net = Net::host("127.0.0.1:0", 2).unwrap();
     /// assert!(net.local_addr().unwrap().port() != 0);
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// `InvalidInput` unless `players` is 2 to 8; the socket's error if `addr`
+    /// can't be bound (in use, not this machine's).
     pub fn host(addr: impl ToSocketAddrs, players: usize) -> io::Result<Net> {
         if !(2..=MAX_PLAYERS).contains(&players) {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "2 to 8 players"));
@@ -215,6 +221,10 @@ impl Net {
     /// let net = Net::join("127.0.0.1:7777").unwrap();
     /// assert_eq!(net.state(), NetState::Connecting);
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// If `host` doesn't resolve to an address, or no local socket can be bound.
     pub fn join(host: impl ToSocketAddrs) -> io::Result<Net> {
         let host = host
             .to_socket_addrs()?
@@ -237,6 +247,7 @@ impl Net {
     /// let nets = Net::loopback(2);
     /// assert_eq!(nets.len(), 2);
     /// ```
+    #[must_use]
     pub fn loopback(players: usize) -> Vec<Net> {
         Self::loopback_lossy(players, 0)
     }
@@ -244,6 +255,7 @@ impl Net {
     /// Like [`loopback`](Self::loopback), dropping one packet in `drop_one_in`
     /// (0: none), to test that games survive loss.
     #[doc(hidden)]
+    #[must_use]
     pub fn loopback_lossy(players: usize, drop_one_in: u32) -> Vec<Net> {
         assert!((2..=MAX_PLAYERS).contains(&players), "2 to 8 players");
         let (txs, rxs): (Vec<_>, Vec<_>) = (0..players).map(|_| mpsc::channel()).unzip();
@@ -290,6 +302,10 @@ impl Net {
     /// let net = Net::host("127.0.0.1:0", 2).unwrap().input_delay(5);
     /// # let _ = net;
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// If `ticks` is over 64.
     #[must_use]
     pub fn input_delay(mut self, ticks: u32) -> Self {
         assert!(ticks <= MAX_DELAY, "input delay is at most {MAX_DELAY} ticks");
@@ -327,23 +343,28 @@ impl Net {
     }
 
     /// The address this side listens on (`None` offline).
+    #[must_use]
     pub fn local_addr(&self) -> Option<SocketAddr> {
         self.session.as_ref().map(|s| s.transport.local_addr())
     }
 
     /// Which player this is: 0 is the host (and the offline player).
+    #[must_use]
     pub fn player(&self) -> usize {
         self.player
     }
     /// How many players there are (0 while joining).
+    #[must_use]
     pub fn players(&self) -> usize {
         self.players
     }
     /// Where the session is.
+    #[must_use]
     pub fn state(&self) -> NetState {
         self.state
     }
     /// Why the session was lost, if it was.
+    #[must_use]
     pub fn error(&self) -> Option<&str> {
         self.error.as_deref()
     }
@@ -352,6 +373,7 @@ impl Net {
         self.session.as_ref().map_or_else(NetStats::default, |s| s.stats)
     }
     /// The first desync found, if any.
+    #[must_use]
     pub fn desync(&self) -> Option<&Desync> {
         self.desync.as_ref()
     }
@@ -378,6 +400,10 @@ impl Net {
     /// let mut net = Net::default();
     /// net.set_input_bytes(&[1, 2, 3]);
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// If `input` is over [`MAX_INPUT_BYTES`].
     pub fn set_input_bytes(&mut self, input: &[u8]) {
         assert!(input.len() <= MAX_INPUT_BYTES, "input is over {MAX_INPUT_BYTES} bytes");
         self.pending.clear();
@@ -386,6 +412,7 @@ impl Net {
 
     /// `player`'s input for the current tick, or `None` if they sent none
     /// (or it isn't a `T`). Read it in simulation systems.
+    #[must_use]
     pub fn input<T: DeserializeOwned>(&self, player: usize) -> Option<T> {
         let bytes = self.input_bytes(player);
         if bytes.is_empty() {

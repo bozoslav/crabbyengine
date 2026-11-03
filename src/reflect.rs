@@ -24,15 +24,26 @@ use serde_json::Value;
 /// assert_eq!(err, ReflectError::UnknownComponent("Health".into()));
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ReflectError {
     /// No reflected component has this name.
     UnknownComponent(String),
     /// The entity was despawned (or never existed).
     NoSuchEntity(Entity),
     /// The entity is alive but doesn't have this component.
-    MissingComponent { entity: Entity, component: String },
+    MissingComponent {
+        /// The entity.
+        entity: Entity,
+        /// The component's reflected name.
+        component: String,
+    },
     /// The JSON doesn't fit the component type, or the value can't be written as JSON.
-    BadValue { component: String, message: String },
+    BadValue {
+        /// The component's reflected name.
+        component: String,
+        /// What didn't fit.
+        message: String,
+    },
     /// No reflected resource has this name.
     UnknownResource(String),
     /// The resource is reflected but not in the world right now.
@@ -205,17 +216,27 @@ fn merge(base: &mut Value, patch: Value) {
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u32)]
+#[non_exhaustive]
 pub enum FieldType {
     /// A JSON number.
     F32,
+    /// A JSON number.
     F64,
+    /// A JSON integer.
     I8,
+    /// A JSON integer.
     I16,
+    /// A JSON integer.
     I32,
+    /// A JSON integer.
     I64,
+    /// A JSON integer, 0 to 255.
     U8,
+    /// A JSON integer, 0 to 65535.
     U16,
+    /// A JSON integer, 0 or more.
     U32,
+    /// A JSON integer, 0 or more.
     U64,
     /// One byte, 0 or 1; `true`/`false` in JSON (other bytes read as `true`).
     Bool,
@@ -229,6 +250,7 @@ pub enum FieldType {
 
 impl FieldType {
     /// Bytes the field takes.
+    #[must_use]
     pub fn size(self) -> usize {
         match self {
             Self::I8 | Self::U8 | Self::Bool => 1,
@@ -251,12 +273,14 @@ impl FieldType {
 pub struct Field {
     /// The JSON key.
     pub name: String,
+    /// How the bytes are read and written.
     pub ty: FieldType,
     /// Byte offset in the component.
     pub offset: usize,
 }
 
 impl Field {
+    /// A field named `name` (the JSON key) of type `ty` at byte `offset`.
     pub fn new(name: impl Into<String>, ty: FieldType, offset: usize) -> Self {
         Self {
             name: name.into(),
@@ -501,6 +525,11 @@ pub trait WorldReflect {
     /// let t = world.get_json(e, "Transform2D").unwrap();
     /// assert_eq!(t["position"], serde_json::json!([1.0, 2.0]));
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// If `name` isn't reflected, `e` is dead or lacks it, or the value can't be
+    /// written as JSON.
     fn get_json(&self, e: Entity, name: &str) -> Result<Value, ReflectError>;
 
     /// Writes component `name` of entity `e` from JSON, adding the component
@@ -520,6 +549,10 @@ pub trait WorldReflect {
     /// let t = world.get::<Transform2D>(e).unwrap();
     /// assert_eq!((t.position, t.rotation), (vec2(5.0, 5.0), 0.5));
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// If `name` isn't reflected, `e` is dead, or `value` doesn't fit the type.
     fn set_json(&mut self, e: Entity, name: &str, value: Value) -> Result<(), ReflectError>;
 
     /// Removes component `name` from entity `e`. Returns whether it had it.
@@ -532,6 +565,10 @@ pub trait WorldReflect {
     /// assert_eq!(world.remove_json(e, "Transform2D"), Ok(true));
     /// assert_eq!(world.remove_json(e, "Transform2D"), Ok(false));
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// If `name` isn't reflected or `e` is dead.
     fn remove_json(&mut self, e: Entity, name: &str) -> Result<bool, ReflectError>;
 
     /// Every reflected component of entity `e`, as one JSON object keyed by
@@ -544,6 +581,10 @@ pub trait WorldReflect {
     /// let e = world.spawn((Transform2D::default(),));
     /// assert!(world.entity_json(e).unwrap().get("Transform2D").is_some());
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// If `e` is dead or a component can't be written as JSON.
     fn entity_json(&self, e: Entity) -> Result<Value, ReflectError>;
 
     /// Spawns an entity from a JSON object keyed by component name, the
@@ -560,6 +601,11 @@ pub trait WorldReflect {
     ///     .unwrap();
     /// assert_eq!(world.get::<Transform2D>(e).unwrap().position, vec2(3.0, 4.0));
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// If a name isn't reflected or a value doesn't fit its type; nothing is
+    /// spawned then.
     fn spawn_json(&mut self, components: Value) -> Result<Entity, ReflectError>;
 
     /// The whole world as JSON: every entity that has reflected components,
@@ -598,6 +644,12 @@ pub trait WorldReflect {
     /// world.load(&save).unwrap();
     /// assert_eq!(world.get::<Transform2D>(e).unwrap().position, vec2(1.0, 2.0));
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// If `save` isn't a world save this version reads, names a component or
+    /// resource that isn't reflected, or has a value that doesn't fit its
+    /// type. Everything is checked first: on an error the world is unchanged.
     fn load(&mut self, save: &Value) -> Result<(), ReflectError>;
 
     /// Makes resource `R` visible to reflection under its type name without
@@ -646,6 +698,10 @@ pub trait WorldReflect {
     /// world.insert_resource(Score(7));
     /// assert_eq!(world.resource_json("Score").unwrap(), 7);
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// If `name` isn't a reflected resource or isn't in the world.
     fn resource_json(&self, name: &str) -> Result<Value, ReflectError>;
 
     /// Writes a reflected resource from JSON, inserting it if it's missing.
@@ -663,6 +719,10 @@ pub trait WorldReflect {
     /// assert_eq!(world.resource::<Score>().blue, 9);
     /// assert_eq!(world.resource::<Score>().red, 3);
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// If `name` isn't a reflected resource, or `value` doesn't fit its type.
     fn set_resource_json(&mut self, name: &str, value: Value) -> Result<(), ReflectError>;
 
     /// Makes resource `name`, one with no Rust type (stored with

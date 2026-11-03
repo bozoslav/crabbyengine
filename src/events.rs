@@ -110,6 +110,7 @@ impl Events {
 
     /// Every `T` event still kept, read or not, oldest first. Doesn't move
     /// this system's read position.
+    #[must_use]
     pub fn peek<T: 'static>(&self) -> &[T] {
         match self.by_key.get(&Key::Type(TypeId::of::<T>())) {
             Some(&i) => {
@@ -212,6 +213,10 @@ impl Events {
     ///     ctx.events.reflect::<Died>();
     /// });
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// If another reflected event type has the same short name.
     #[track_caller]
     pub fn reflect<T: Serialize + 'static>(&mut self) {
         let type_name = std::any::type_name::<T>();

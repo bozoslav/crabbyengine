@@ -42,6 +42,7 @@ impl Font {
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TextParams {
+    /// The font to draw with.
     pub font: Font,
     /// Height of a line in window pixels. Default 16.
     pub size: f32,

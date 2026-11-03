@@ -229,12 +229,11 @@ screenshot. See [Working with AI agents](https://bozoslav.github.io/crabbyengine
 
 ## Status
 
-Crabby Engine is young. It's tested on Windows, macOS and Linux on every
-change, and the guide is kept in sync with `main`, but the API still
-changes between versions and there's no crates.io release yet. See the
-[changelog](CHANGELOG.md).
-
-Not built in (yet): physics, networking.
+Crabby Engine is tested on Windows, macOS and Linux on every change, and
+the guide is kept in sync with `main`. From 1.0 the API follows semver:
+[STABILITY.md](STABILITY.md) says what is promised (the API, the minimum
+Rust version, the C ABI, saved worlds, determinism) and what isn't. See
+the [changelog](CHANGELOG.md) for what changed.
 
 ## Contributing
 

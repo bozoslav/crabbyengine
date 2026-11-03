@@ -177,11 +177,11 @@ fn fields_are_queried_from_parallel_queries() {
 #[test]
 #[should_panic(expected = "NavGrid::new: 0 x 4 cells")]
 fn empty_grids_panic() {
-    NavGrid::new(0, 4, 1.0);
+    let _ = NavGrid::new(0, 4, 1.0);
 }
 
 #[test]
 #[should_panic(expected = "NavGrid::new: cell_size must be positive")]
 fn cell_size_must_be_positive() {
-    NavGrid::new(4, 4, 0.0);
+    let _ = NavGrid::new(4, 4, 0.0);
 }

@@ -155,6 +155,7 @@ fn draw(ctx: &mut Ctx) {
                 let up = Vec2::from_angle(t.rotation + std::f32::consts::FRAC_PI_2) * height / 2.0;
                 ctx.draw_line(t.position - up, t.position + up, radius * 2.0, color);
             }
+            _ => {} // shapes added in later versions
         }
     }
     if let Some(hit) = laser(ctx) {

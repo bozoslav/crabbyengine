@@ -41,6 +41,7 @@
 //! - `steam`: lockstep multiplayer over Steam's relays and lobbies
 //!   (`Net::steam_host`), with the `steamworks` crate re-exported.
 
+#![warn(missing_docs)]
 // Without a window, the code that only the window loop calls is unused.
 #![cfg_attr(not(feature = "window"), allow(dead_code))]
 

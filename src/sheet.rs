@@ -21,6 +21,7 @@ use crate::texture::Texture;
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct SpriteSheet {
+    /// The image holding every frame.
     pub texture: Texture,
     /// Frame size in texture pixels.
     pub frame_size: Vec2,
@@ -44,6 +45,7 @@ impl SpriteSheet {
     /// println!("{} tiles", sheet.len);
     /// # }
     /// ```
+    #[must_use]
     pub fn new(texture: Texture, frame_width: u32, frame_height: u32) -> Self {
         assert!(
             frame_width > 0 && frame_height > 0 && frame_width <= texture.width() && frame_height <= texture.height(),
@@ -72,6 +74,7 @@ impl SpriteSheet {
     /// });
     /// # }
     /// ```
+    #[must_use]
     pub fn frame(&self, index: u32) -> Rect {
         let i = index % self.len.max(1);
         let at = Vec2::new((i % self.columns) as f32, (i / self.columns) as f32) * self.frame_size;
@@ -89,6 +92,7 @@ impl SpriteSheet {
     /// ctx.world.spawn((Transform2D::at(vec2(10.0, 10.0)), sheet.sprite(0)));
     /// # }
     /// ```
+    #[must_use]
     pub fn sprite(&self, index: u32) -> Sprite {
         Sprite::new(self.texture).with_region(self.frame(index))
     }
@@ -110,9 +114,11 @@ impl SpriteSheet {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct Animation {
+    /// The frames come from this sheet.
     pub sheet: SpriteSheet,
     /// First frame and how many frames to play.
     pub first: u32,
+    /// How many frames to play, from `first`.
     pub frames: u32,
     /// Frames per second.
     pub fps: f32,
@@ -124,6 +130,7 @@ pub struct Animation {
 
 impl Animation {
     /// Plays `frames` of `sheet` at `fps`, looping.
+    #[must_use]
     pub fn new(sheet: SpriteSheet, frames: std::ops::Range<u32>, fps: f32) -> Self {
         Self {
             sheet,
@@ -143,6 +150,7 @@ impl Animation {
     /// let explode = Animation::new(sheet, 8..16, 24.0).once();
     /// # }
     /// ```
+    #[must_use]
     pub fn once(self) -> Self {
         Self { looping: false, ..self }
     }
@@ -156,6 +164,7 @@ impl Animation {
     /// assert_eq!(walk.current_frame(), 4);
     /// # }
     /// ```
+    #[must_use]
     pub fn current_frame(&self) -> u32 {
         let n = (self.time * self.fps).max(0.0) as u32;
         let step = if self.looping {
@@ -179,6 +188,7 @@ impl Animation {
     /// for e in done { ctx.world.despawn(e); }
     /// # }
     /// ```
+    #[must_use]
     pub fn finished(&self) -> bool {
         !self.looping && self.time * self.fps >= self.frames as f32
     }
@@ -239,6 +249,6 @@ mod tests {
     #[test]
     #[should_panic(expected = "don't fit")]
     fn frames_bigger_than_the_texture_panic() {
-        SpriteSheet::new(Texture::new(0, 8, 8), 16, 16);
+        let _ = SpriteSheet::new(Texture::new(0, 8, 8), 16, 16);
     }
 }

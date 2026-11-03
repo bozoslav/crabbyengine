@@ -17,6 +17,7 @@ pub struct ComponentId(pub(crate) u32);
 
 impl ComponentId {
     /// The id as a plain number (stable for the lifetime of the world).
+    #[must_use]
     pub fn index(self) -> usize {
         self.0 as usize
     }
@@ -40,19 +41,23 @@ pub struct ComponentInfo {
 
 impl ComponentInfo {
     /// Type name for Rust components, the registered name otherwise.
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
     /// Size and alignment of one value.
+    #[must_use]
     pub fn layout(&self) -> Layout {
         self.layout
     }
     /// The Rust type, if this component was registered from Rust.
+    #[must_use]
     pub fn type_id(&self) -> Option<TypeId> {
         self.type_id
     }
     /// Whether values have a destructor. Values without one are plain bytes
     /// as far as the world is concerned (C/C++ may only touch those).
+    #[must_use]
     pub fn needs_drop(&self) -> bool {
         self.drop.is_some()
     }
@@ -185,12 +190,14 @@ impl Archetype {
 
     /// Number of entities in this archetype.
     #[inline]
+    #[must_use]
     pub fn len(&self) -> usize {
         self.entities.len()
     }
 
     /// `true` if no entity has this exact component set right now.
     #[inline]
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.entities.is_empty()
     }
@@ -223,23 +230,27 @@ impl Archetype {
     /// let a = world.archetypes().iter().find(|a| a.len() == 100).unwrap();
     /// assert!(a.allocated_bytes() >= 100 * a.bytes_per_entity());
     /// ```
+    #[must_use]
     pub fn allocated_bytes(&self) -> usize {
         self.columns.iter().map(|c| c.size() * self.cap).sum::<usize>()
             + self.entities.capacity() * std::mem::size_of::<Entity>()
     }
 
     /// The components every entity here has, sorted by id.
+    #[must_use]
     pub fn component_ids(&self) -> &[ComponentId] {
         &self.ids
     }
 
     /// The entities stored here; row `i` of every column belongs to `entities()[i]`.
+    #[must_use]
     pub fn entities(&self) -> &[Entity] {
         &self.entities
     }
 
     /// `true` if entities here have component `id`.
     #[inline]
+    #[must_use]
     pub fn has(&self, id: ComponentId) -> bool {
         self.ids.contains(&id)
     }
@@ -253,6 +264,7 @@ impl Archetype {
     /// Start of the column for component `id` (`len()` values, tightly packed),
     /// or `None` if entities here don't have it. This is what C/C++ systems use.
     #[inline]
+    #[must_use]
     pub fn column_ptr(&self, id: ComponentId) -> Option<*mut u8> {
         self.column_index(id).map(|i| self.columns[i].base())
     }
