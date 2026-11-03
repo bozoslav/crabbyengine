@@ -157,10 +157,40 @@ static void rng_matches_rust() {
     for (int i = 0; i < 1000; ++i) { float x = f.f32(); CHECK(x >= 0 && x < 1); CHECK(f.below(10) < 10); }
 }
 
+static void attachments() {
+    // Chains follow their root; orphans are despawned with it.
+    crabby::entity root = 0, arm = 0, hand = 0;
+    crabby::transform2d seen{};
+    auto w = crabby::game("t", 1, 1)
+        .sim_system([&](crabby::ctx& ctx) {
+            auto world = ctx.world();
+            auto t = world.get(root, world.transforms());
+            t.position.x += 1;
+            world.set(root, world.transforms(), t);
+            if (ctx.sim_tick() == 2) ctx.despawn_later(root);
+        })
+        .follow_attachments()
+        .sim_system([&](crabby::ctx& ctx) {
+            if (ctx.sim_tick() == 1) seen = ctx.world().get(hand, ctx.world().transforms());
+        })
+        .run_headless(3, [&](crabby::ctx& ctx) {
+            auto world = ctx.world();
+            auto at = world.transforms();
+            auto att = world.attachments();
+            root = world.spawn(at.with(crabby::transform_at({5, 5})));
+            arm = world.spawn(at.with(crabby::transform_at({0, 0})), att.with(crabby::attach_to(root, {1, 0})));
+            hand = world.spawn(at.with(crabby::transform_at({0, 0})), att.with(crabby::attach_to(arm, {0, 1}, 0.5f)));
+        });
+    CHECK(seen.position == (crabby::vec2{8, 6}) && seen.rotation == 0.5f);
+    CHECK(crabby::bits(crabby::entity_of(arm)) == arm);
+    CHECK(!w.alive(root) && !w.alive(arm) && !w.alive(hand));
+}
+
 int main() {
     worlds();
     parallel_queries();
     games();
+    attachments();
     rng_matches_rust();
     grid_views_match_engine_queries();
     std::cout << "C++ wrapper tests passed\n";

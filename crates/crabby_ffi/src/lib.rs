@@ -17,6 +17,7 @@
 //! unsafe { assert_eq!(crabby_world_free(world), CrabbyStatus::CRABBY_OK); }
 //! ```
 
+mod attach;
 mod ctx;
 mod flow;
 mod game;
@@ -26,6 +27,7 @@ mod media;
 mod reflect;
 mod tiles;
 mod types;
+pub use attach::*;
 pub use ctx::*;
 pub use flow::*;
 pub use game::*;
@@ -236,6 +238,8 @@ pub(crate) fn component(world: &World, id: u32) -> Result<(ComponentId, Kind), F
         // Raw byte copies into a value with a destructor would corrupt memory.
         None if !info.needs_drop() => Kind::Plain,
         Some(t) if t == TypeId::of::<Transform2D>() => Kind::Plain,
+        // repr(C), layout checked against CrabbyAttached; any bits are a valid value.
+        Some(t) if t == TypeId::of::<crabbyengine::Attached>() => Kind::Plain,
         // repr(C), layout checked against CrabbyAnimation; `looping` must be 0 or 1.
         Some(t) if t == TypeId::of::<crabbyengine::Animation>() => Kind::Plain,
         Some(t) if t == TypeId::of::<Sprite>() => Kind::Sprite,

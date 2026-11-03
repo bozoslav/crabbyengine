@@ -35,6 +35,7 @@
 #![cfg_attr(not(feature = "window"), allow(dead_code))]
 
 mod assets;
+mod attach;
 mod audio;
 mod camera;
 mod color;
@@ -56,6 +57,7 @@ mod tilemap;
 mod time;
 mod ui;
 
+pub use attach::{Attached, follow_attachments};
 pub use audio::{Playing, Sound, SoundParams};
 pub use camera::{Camera2D, Rect, camera_controls};
 pub use color::Color;

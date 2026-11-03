@@ -157,11 +157,13 @@ fn two_types_with_one_short_name_panic() {
 }
 
 #[test]
-fn games_reflect_transform_by_default() {
+fn games_reflect_the_builtin_components_by_default() {
     let world = Game::new("t", 1, 1).run_headless(0, |ctx| {
         ctx.world.spawn((Transform2D::default(),));
     });
-    assert_eq!(world.reflected_components(), ["Transform2D"]);
+    let mut names = world.reflected_components();
+    names.sort();
+    assert_eq!(names, ["Attached", "Transform2D"]);
 }
 
 // -------------------------------------------------------------- save/load

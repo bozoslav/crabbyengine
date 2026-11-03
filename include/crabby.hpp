@@ -47,6 +47,7 @@ using vec2 = CrabbyVec2;
 using color = CrabbyColor;
 using texture = CrabbyTexture;
 using transform2d = CrabbyTransform2D;
+using attached = CrabbyAttached;
 using sprite = CrabbySprite;
 using camera = CrabbyCamera;
 using draw_params = CrabbyDrawParams;
@@ -77,6 +78,8 @@ inline vec2 rem_euclid(vec2 v, vec2 m) {
 }
 /// The id other calls take, from an entity in a query chunk.
 inline entity bits(CrabbyEntity e) { return crabby_entity_bits(e); }
+/// The entity struct (as in query chunks and crabby::attached) for an id.
+inline CrabbyEntity entity_of(entity e) { return {static_cast<std::uint32_t>(e), static_cast<std::uint32_t>(e >> 32)}; }
 
 inline color rgb(float r, float g, float b) { return {r, g, b, 1}; }
 inline color rgba(float r, float g, float b, float a) { return {r, g, b, a}; }
@@ -84,6 +87,9 @@ namespace colors {
 constexpr color white{1, 1, 1, 1}, black{0, 0, 0, 1}, gray{.5f, .5f, .5f, 1}, red{1, 0, 0, 1},
     green{0, 1, 0, 1}, blue{0, 0, 1, 1}, yellow{1, 1, 0, 1}, transparent{0, 0, 0, 0}, crabby_dark{.11f, .12f, .15f, 1};
 }
+/// Follows `to` at `offset` (in its space: turned by its rotation, stretched
+/// by its scale), turned `rotation` more. Needs game::follow_attachments().
+inline attached attach_to(entity to, vec2 offset = {0, 0}, float rotation = 0) { return {entity_of(to), offset, rotation}; }
 /// A transform at `position`, no rotation, scale 1.
 inline transform2d transform_at(vec2 position, float rotation = 0, vec2 scale = {1, 1}) { return {position, rotation, scale}; }
 /// A sprite showing all of `t`, centered, white, z 0.
@@ -360,6 +366,12 @@ public:
         valid(); std::uint32_t result = 0;
         detail::check(crabby_transform_component(raw_, &result));
         return token<transform2d>(result);
+    }
+    /// The built-in Attached component (crabby::attached, see attach_to).
+    crabby::component<attached> attachments() {
+        valid(); std::uint32_t result = 0;
+        detail::check(crabby_attached_component(raw_, &result));
+        return token<attached>(result);
     }
     /// The built-in Sprite component (get/set/spawn only, not a query column).
     crabby::component<sprite> sprites() {
@@ -789,6 +801,10 @@ public:
     game& hot_reload(bool on) { return check(crabby_game_hot_reload(raw_, on)); }
     /// The built-in camera controls: right/middle drag pans, the wheel zooms.
     game& camera_controls() { return check(crabby_game_camera_controls(raw_)); }
+    /// Adds the built-in system that moves attached entities next to the
+    /// entity they follow (and despawns them when it's gone). Add it after
+    /// the sim systems that move things.
+    game& follow_attachments() { return check(crabby_game_follow_attachments(raw_)); }
     /// A system on the fixed simulation tick; `every` > 1 runs it every n ticks.
     template<class F> game& sim_system(F fn, const char* name = nullptr, std::uint32_t every = 1) {
         return check(crabby_game_sim_system(raw_, name, every, trampoline, keep(std::move(fn))));

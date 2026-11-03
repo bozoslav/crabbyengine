@@ -382,6 +382,12 @@ typedef struct CrabbyAnimation {
   float time;
 } CrabbyAnimation;
 
+typedef struct CrabbyAttached {
+  struct CrabbyEntity to;
+  struct CrabbyVec2 offset;
+  float rotation;
+} CrabbyAttached;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -442,6 +448,10 @@ enum CrabbyStatus crabby_query_par(struct CrabbyWorld *world,
                                    size_t count,
                                    CrabbyQueryFn callback,
                                    void *user);
+
+enum CrabbyStatus crabby_attached_component(struct CrabbyWorld *world, uint32_t *out_id);
+
+enum CrabbyStatus crabby_game_follow_attachments(struct CrabbyGame *game);
 
 float crabby_ctx_dt(const struct CrabbyCtx *ctx);
 

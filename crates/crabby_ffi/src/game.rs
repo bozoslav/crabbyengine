@@ -70,7 +70,7 @@ unsafe fn name<'a>(ptr: *const c_char) -> Result<&'a str, Failure> {
 
 /// Applies a builder step. `f` hands the game back with the result, so a
 /// rejected argument leaves the game as it was (only a panic loses it).
-unsafe fn build(game: *mut CrabbyGame, f: impl FnOnce(Game) -> (Game, Result<(), Failure>)) -> CrabbyStatus {
+pub(crate) unsafe fn build(game: *mut CrabbyGame, f: impl FnOnce(Game) -> (Game, Result<(), Failure>)) -> CrabbyStatus {
     boundary(|| {
         // SAFETY: caller supplies a live game.
         let game = unsafe { game.as_mut() }.ok_or_else(|| invalid("game is null"))?;
@@ -80,7 +80,7 @@ unsafe fn build(game: *mut CrabbyGame, f: impl FnOnce(Game) -> (Game, Result<(),
         result
     })
 }
-fn ok(g: Game) -> (Game, Result<(), Failure>) {
+pub(crate) fn ok(g: Game) -> (Game, Result<(), Failure>) {
     (g, Ok(()))
 }
 fn reject(g: Game, message: &'static str) -> (Game, Result<(), Failure>) {

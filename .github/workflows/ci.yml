@@ -89,12 +89,14 @@ jobs:
           - engine-determinism
           - engine-flow
           - engine-hot-reload
+          - engine-attach
           - engine-without-window
           - mcp
           - ffi-unit
           - ffi-abi
           - ffi-game
           - ffi-media
+          - ffi-attach
           - ffi-reflect
           - ffi-tiles
           - ffi-flow
@@ -119,12 +121,14 @@ jobs:
           - { area: engine-determinism, args: -p crabbyengine --test determinism }
           - { area: engine-flow, args: -p crabbyengine --test flow }
           - { area: engine-hot-reload, args: -p crabbyengine --test hot_reload }
+          - { area: engine-attach, args: -p crabbyengine --test attach }
           - { area: engine-without-window, args: -p crabbyengine --tests --no-default-features --features audio }
           - { area: mcp, args: -p crabby_mcp }
           - { area: ffi-unit, args: -p crabby_ffi --lib }
           - { area: ffi-abi, args: -p crabby_ffi --test abi }
           - { area: ffi-game, args: -p crabby_ffi --test game }
           - { area: ffi-media, args: -p crabby_ffi --test media }
+          - { area: ffi-attach, args: -p crabby_ffi --test attach }
           - { area: ffi-reflect, args: -p crabby_ffi --test reflect }
           - { area: ffi-tiles, args: -p crabby_ffi --test tiles }
           - { area: ffi-flow, args: -p crabby_ffi --test flow }

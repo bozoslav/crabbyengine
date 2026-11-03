@@ -10,6 +10,7 @@
 - [The simulation clock](sim-clock.md)
 - [Spatial queries](spatial.md)
 - [Pathfinding with flow fields](pathfinding.md)
+- [Attachments: things that follow things](attachments.md)
 - [Drawing](drawing.md)
 - [Camera, text and UI](camera-ui.md)
 - [Sprite sheets, animation, tilemaps](tiles.md)
