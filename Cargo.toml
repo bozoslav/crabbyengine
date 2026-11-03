@@ -1,6 +1,6 @@
 [package]
 name = "crabbyengine"
-version = "0.1.0"
+version = "1.0.0"
 description = "A fast 2D game engine for simulating millions of things: ECS on all cores, hot reload, an in-game inspector, AI-agent control, and a C++ API."
 keywords = ["gamedev", "engine", "2d", "ecs", "simulation"]
 categories = ["game-engines", "game-development", "simulation"]
@@ -12,9 +12,14 @@ authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
 documentation = "https://bozoslav.github.io/crabbyengine/api/crabbyengine/"
+# The guide, CI, the web shell and the C/C++ side aren't part of the crate.
+exclude = ["/book", "/.github", "/web", "/include", "/examples/cpp", "/docs", "/rustfmt.toml", "/CLAUDE.md", "/AGENTS.md", "/.mcp.json"]
+
+[package.metadata.docs.rs]
+features = ["physics", "steam"]
 
 [dependencies]
-crabby_ecs = { path = "crates/crabby_ecs", features = ["serde"] }
+crabby_ecs = { path = "crates/crabby_ecs", version = "1.0.0", features = ["serde"] }
 bytemuck = { version = "1.25.2", features = ["derive"] }
 glam = { version = "0.34.2", features = ["serde"] }
 image = { version = "0.25.10", default-features = false, features = ["png"] }

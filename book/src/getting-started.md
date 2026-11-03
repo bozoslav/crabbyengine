@@ -34,7 +34,7 @@ Add the engine to a new project:
 
 ```sh
 cargo new my_game && cd my_game
-cargo add crabbyengine --git https://github.com/bozoslav/crabbyengine
+cargo add crabbyengine
 ```
 
 Then in `src/main.rs` (Rust) or `main.cpp` (C++, see [C and C++](c-cpp.md)

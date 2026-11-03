@@ -1,12 +1,18 @@
 # Changelog
 
 All notable changes to Crabby Engine are listed here. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions will
-follow [Semantic Versioning](https://semver.org/) from the first release on.
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
+[Semantic Versioning](https://semver.org/); [STABILITY.md](STABILITY.md)
+says what that covers.
 
 ## [Unreleased]
 
-Everything so far, ahead of the first release.
+## [1.0.0] - 2026-11-03
+
+The first release: a 2D engine for simulations with up to millions of
+entities, in Rust, C and C++. Install with `cargo add crabbyengine`; the C
+library and headers for Linux, macOS and Windows are attached to the
+GitHub release. Everything below is new.
 
 ### Simulation
 - Own archetype ECS (`crabby_ecs`): entities with generational ids, queries,
@@ -25,8 +31,9 @@ Everything so far, ahead of the first release.
   platforms. In C (`crabby_game_physics`, `crabby_ctx_cast_ray`, ...) and C++.
 - Deterministic lockstep multiplayer for 2–8 players (`Game::lockstep`,
   `Net::host` / `Net::join`, `ctx.net`): plain UDP, input delay, lost
-  packets recovered, and desync checks that name the components that
-  differ. `Net::loopback` for tests. In C and C++ too.
+  packets recovered (a peer that stops keeps resending for up to a second
+  until the others have its last inputs), and desync checks that name the
+  components that differ. `Net::loopback` for tests. In C and C++ too.
 - Lockstep over Steam (feature `steam`): `Net::steam_host` / `steam_join`,
   friends-only lobbies, overlay invites, Steam's relays (no port
   forwarding). The Steam library is copied next to examples and tests. In C
@@ -94,4 +101,5 @@ Everything so far, ahead of the first release.
 - C API (`crabby_ffi`) with a generated header, and a header-only C++17
   wrapper (`include/crabby.hpp`) covering nearly the whole engine.
 
-[Unreleased]: https://github.com/bozoslav/crabbyengine/commits/main
+[Unreleased]: https://github.com/bozoslav/crabbyengine/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/bozoslav/crabbyengine/releases/tag/v1.0.0
