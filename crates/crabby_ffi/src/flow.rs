@@ -64,7 +64,11 @@ pub extern "C" fn crabby_nav_new(width: u32, height: u32, cell_size: f32) -> *mu
         nav = Box::into_raw(Box::new(CrabbyNavGrid(NavGrid::new(width, height, cell_size))));
         Ok(())
     });
-    if status == CrabbyStatus::CRABBY_OK { nav } else { std::ptr::null_mut() }
+    if status == CrabbyStatus::CRABBY_OK {
+        nav
+    } else {
+        std::ptr::null_mut()
+    }
 }
 
 /// Frees a nav grid. Null is ignored.
@@ -83,7 +87,9 @@ pub unsafe extern "C" fn crabby_nav_free(nav: *mut CrabbyNavGrid) {
 
 unsafe fn nav_mut<'a>(nav: *mut CrabbyNavGrid) -> Result<&'a mut NavGrid, Failure> {
     // SAFETY: caller supplies a live grid with no concurrent use.
-    unsafe { nav.as_mut() }.map(|n| &mut n.0).ok_or_else(|| invalid("nav grid is null"))
+    unsafe { nav.as_mut() }
+        .map(|n| &mut n.0)
+        .ok_or_else(|| invalid("nav grid is null"))
 }
 
 /// Moves the grid: `origin` is where cell (0, 0)'s top-left corner is in the world.
@@ -239,7 +245,10 @@ pub unsafe extern "C" fn crabby_flow_distance(
         match f.0.distance_at(to_c(pos)) {
             // SAFETY: forwarded caller contract.
             Some(d) => unsafe { out(out_distance, d) },
-            None => Err(error(CrabbyStatus::CRABBY_NOT_FOUND, "no goal can be reached from here")),
+            None => Err(error(
+                CrabbyStatus::CRABBY_NOT_FOUND,
+                "no goal can be reached from here",
+            )),
         }
     })
 }
@@ -264,7 +273,11 @@ pub unsafe extern "C" fn crabby_flow_view(flow: *const CrabbyFlowField, out_view
         let f = unsafe { flow.as_ref() }.ok_or_else(|| invalid("flow field is null"))?;
         let v = f.0.raw_view();
         let view = CrabbyFlowView {
-            cells: if v.dir.is_empty() { std::ptr::null() } else { v.dir.as_ptr() },
+            cells: if v.dir.is_empty() {
+                std::ptr::null()
+            } else {
+                v.dir.as_ptr()
+            },
             // Vec2 and CrabbyVec2 have the same layout.
             directions: v.directions.as_ptr().cast(),
             width: v.size.x,

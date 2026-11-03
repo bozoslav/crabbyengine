@@ -11,7 +11,10 @@ fn walk(nav: &NavGrid, flow: &FlowField, start: Vec2, max_steps: usize) -> Vec<U
             break;
         }
         // Step to the center of the neighbor cell the direction points at.
-        let step = vec2(d.x.signum() * (d.x.abs() > 0.1) as i32 as f32, d.y.signum() * (d.y.abs() > 0.1) as i32 as f32);
+        let step = vec2(
+            d.x.signum() * (d.x.abs() > 0.1) as i32 as f32,
+            d.y.signum() * (d.y.abs() > 0.1) as i32 as f32,
+        );
         at = nav.center_of(nav.cell_at(at).unwrap()) + step * nav.cell_size();
         path.push(nav.cell_at(at).unwrap());
     }
@@ -31,7 +34,10 @@ fn agents_follow_the_field_around_walls_to_the_goal() {
 
     let path = walk(&nav, &flow, vec2(2.5, 2.5), 100);
     assert_eq!(*path.last().unwrap(), uvec2(2, 17), "reached the goal");
-    assert!(path.iter().all(|c| nav.cost(c.x, c.y) != Some(NavGrid::WALL)), "never stood on a wall");
+    assert!(
+        path.iter().all(|c| nav.cost(c.x, c.y) != Some(NavGrid::WALL)),
+        "never stood on a wall"
+    );
     assert!(path.contains(&uvec2(19, 10)), "went through the gap");
     assert_eq!(flow.direction_at(goal), Vec2::ZERO);
     assert_eq!(flow.distance_at(goal), Some(0.0));
@@ -87,7 +93,10 @@ fn slow_ground_is_avoided_when_going_around_is_shorter() {
     let mut flow = FlowField::new();
     flow.compute(&nav, &[vec2(1.5, 7.5)]);
     let path = walk(&nav, &flow, vec2(1.5, 1.5), 100);
-    assert!(path.iter().all(|c| nav.cost(c.x, c.y) != Some(50)), "never stepped in the mud: {path:?}");
+    assert!(
+        path.iter().all(|c| nav.cost(c.x, c.y) != Some(50)),
+        "never stepped in the mud: {path:?}"
+    );
     // Crossing the mud straight would cost 5 + 50 + ... ; the detour is cheaper.
     assert!(flow.distance_at(vec2(1.5, 1.5)).unwrap() < 50.0);
 
@@ -109,7 +118,11 @@ fn origin_and_cell_size_map_world_points_to_cells() {
     let mut flow = FlowField::new();
     flow.compute(&nav, &[nav.center_of(uvec2(9, 0))]);
     assert_eq!(flow.direction_at(nav.center_of(uvec2(0, 0))), vec2(1.0, 0.0));
-    assert_eq!(flow.distance_at(nav.center_of(uvec2(0, 0))), Some(72.0), "9 cells of 8 units");
+    assert_eq!(
+        flow.distance_at(nav.center_of(uvec2(0, 0))),
+        Some(72.0),
+        "9 cells of 8 units"
+    );
     assert_eq!(flow.direction_at(vec2(1000.0, 1000.0)), Vec2::ZERO, "outside");
     assert_eq!(flow.distance_at(vec2(1000.0, 1000.0)), None);
 }
@@ -120,7 +133,11 @@ fn goals_on_walls_or_outside_are_skipped() {
     nav.set_cost(2, 2, NavGrid::WALL);
     let mut flow = FlowField::new();
     flow.compute(&nav, &[vec2(2.5, 2.5), vec2(-3.0, 0.0)]);
-    assert_eq!(flow.distance_at(vec2(0.5, 0.5)), None, "no usable goal: nothing is reachable");
+    assert_eq!(
+        flow.distance_at(vec2(0.5, 0.5)),
+        None,
+        "no usable goal: nothing is reachable"
+    );
     assert_eq!(flow.direction_at(vec2(0.5, 0.5)), Vec2::ZERO);
 }
 
@@ -141,7 +158,11 @@ fn fields_are_queried_from_parallel_queries() {
         world.spawn((Transform2D::at(vec2((i % 100) as f32 + 0.5, (i / 100) as f32 + 0.5)),));
     }
     let total = |world: &mut World| -> f32 {
-        world.query::<&Transform2D>().iter().map(|t| flow.distance_at(t.position).unwrap()).sum()
+        world
+            .query::<&Transform2D>()
+            .iter()
+            .map(|t| flow.distance_at(t.position).unwrap())
+            .sum()
     };
     let before = total(&mut world);
     let flow_ref = &flow;

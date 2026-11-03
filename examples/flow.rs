@@ -145,9 +145,11 @@ fn setup(ctx: &mut Ctx, agents: usize, texture: Option<Texture>) {
                 Agent { vel: Vec2::ZERO },
             )
         })),
-        None => ctx
-            .world
-            .spawn_batch(starts.into_iter().map(|p| (Transform2D::at(p), Agent { vel: Vec2::ZERO }))),
+        None => ctx.world.spawn_batch(
+            starts
+                .into_iter()
+                .map(|p| (Transform2D::at(p), Agent { vel: Vec2::ZERO })),
+        ),
     };
 }
 
@@ -177,7 +179,12 @@ fn draw_map(ctx: &mut Ctx) -> impl FnMut(&mut Ctx) + use<> {
                     let px = match paths.flow.distance_at(center) {
                         Some(d) if heat && px[0] != 40 => {
                             let t = (d / 1500.0).min(1.0);
-                            [(255.0 * (1.0 - t)) as u8 / 2 + px[0] / 2, px[1], (255.0 * t) as u8 / 2 + px[2] / 2, 255]
+                            [
+                                (255.0 * (1.0 - t)) as u8 / 2 + px[0] / 2,
+                                px[1],
+                                (255.0 * t) as u8 / 2 + px[2] / 2,
+                                255,
+                            ]
                         }
                         _ => px,
                     };
@@ -250,7 +257,10 @@ fn main() {
                     paths.set_goal(goal);
                     field_ms.push(paths.compute_ms);
                     let avg = field_ms.iter().sum::<f32>() / field_ms.len() as f32;
-                    println!("new goal at tick {tick}: field {:.2} ms (avg {avg:.2})", paths.compute_ms);
+                    println!(
+                        "new goal at tick {tick}: field {:.2} ms (avg {avg:.2})",
+                        paths.compute_ms
+                    );
                 }
             })
             .run_headless(ticks, |ctx| {

@@ -58,6 +58,32 @@ following it around walls and mud, with a new goal every 2 seconds.
 | 20k units, per tick | 0.14 ms |
 | 1M units, per tick | 3.2 ms |
 
+## Battle (the flagship demo)
+
+`HEADLESS=1 UNITS=<n> TICKS=1200 cargo run --release --example battle`:
+two armies march along flow fields, keep their spacing, find enemies with
+per-team spatial grids, fight, and rebuild from their bases. The map grows
+with the army, so the crowd density stays the same.
+
+| Units | Map (cells) | ms per tick |
+|---|---|---|
+| 20k | 400 × 225 | 0.57 |
+| 200k | 1264 × 711 | 4.4 |
+| 1M | 2828 × 1590 | 20.8 |
+
+With a window, 20k units run at the display's 120 FPS with 1.2 ms of
+simulation per frame.
+
+How it stays fast, in case your game needs the same tricks:
+- Marching units look for enemies only on their turn (`ctx.turns(4)`),
+  units in a fight every tick.
+- Separation uses a fine grid of friends, every other tick; enemy search
+  a coarse grid of enemies, at melee reach first and full sight only if
+  nothing is in reach.
+- The four grids are rebuilt at the same time (`rayon::scope`).
+- Once a second, units are sorted by `spatial_key`, so neighbors on the
+  map are neighbors in memory.
+
 ## Rendering a million sprites
 
 `CRABS=1000000 SCALE=<s> cargo run --release --example bunnymark_ecs`:

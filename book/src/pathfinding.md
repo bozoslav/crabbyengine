@@ -109,3 +109,7 @@ finding their way around walls and through mud to wherever you click; `H`
 shows the distance field. Headless with a million units
 (`HEADLESS=1 AGENTS=1000000 cargo run --release --example flow`) a tick
 takes 3.2 ms, steering and all.
+
+For a whole game built on flow fields, see the `battle` example: two
+armies, one field each, rerouted when you click a new rally point
+(`cargo run --release --example battle`).

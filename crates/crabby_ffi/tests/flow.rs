@@ -41,7 +41,11 @@ fn fields_lead_around_walls_written_through_the_cost_pointer() {
         assert_eq!(crabby_flow_compute(flow, nav, &goal, 1), CRABBY_OK);
         // Above the wall, everyone heads for the gap on the right.
         assert!(crabby_flow_direction(flow, v(15.0, 7.0)).x > 0.0, "toward the gap");
-        assert_eq!(crabby_flow_direction(flow, v(1.0, 11.0)), CrabbyVec2::default(), "on the wall");
+        assert_eq!(
+            crabby_flow_direction(flow, v(1.0, 11.0)),
+            CrabbyVec2::default(),
+            "on the wall"
+        );
         let mut d = 0.0;
         assert_eq!(crabby_flow_distance(flow, goal, &mut d), CRABBY_OK);
         assert_eq!(d, 0.0);
@@ -121,7 +125,10 @@ fn bad_arguments_are_rejected() {
         assert_eq!(crabby_flow_compute(flow, null(), null(), 0), CRABBY_INVALID_ARGUMENT);
         assert_eq!(crabby_nav_costs(nav, null_mut(), null_mut()), CRABBY_INVALID_ARGUMENT);
         assert_eq!(crabby_flow_view(null(), null_mut()), CRABBY_INVALID_ARGUMENT);
-        assert_eq!(crabby_flow_distance(null(), v(0.0, 0.0), &mut d), CRABBY_INVALID_ARGUMENT);
+        assert_eq!(
+            crabby_flow_distance(null(), v(0.0, 0.0), &mut d),
+            CRABBY_INVALID_ARGUMENT
+        );
         crabby_flow_free(flow);
         crabby_nav_free(nav);
     }

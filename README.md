@@ -17,6 +17,8 @@ cargo run --release --example boids
 HEADLESS=1 BOIDS=1000000 cargo run --release --example boids
 cargo run --release --example ants
 cargo run --release --example flow
+cargo run --release --example battle     # the flagship demo: two armies, 20k units
+HEADLESS=1 UNITS=1000000 cargo run --release --example battle
 cargo run --release --example ui
 
 # C++ (needs CMake): see the guide's "C and C++" chapter

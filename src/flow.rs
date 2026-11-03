@@ -95,7 +95,8 @@ impl NavGrid {
 
     /// Whether a world point is inside the grid on a cell that isn't a wall.
     pub fn walkable(&self, world: Vec2) -> bool {
-        self.cell_at(world).is_some_and(|c| self.costs[self.index(c)] != Self::WALL)
+        self.cell_at(world)
+            .is_some_and(|c| self.costs[self.index(c)] != Self::WALL)
     }
 
     /// The cell under a world point, or `None` outside the grid.
