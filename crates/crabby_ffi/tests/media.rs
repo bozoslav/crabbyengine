@@ -256,3 +256,71 @@ fn turns_cycle_through_the_round_with_its_whole_dt() {
     );
     assert_eq!(log.zero, Some(CRABBY_INVALID_ARGUMENT));
 }
+
+#[derive(Default)]
+struct HotReload {
+    path: std::ffi::CString,
+    file: std::path::PathBuf,
+    texture: Option<CrabbyTexture>,
+    /// (tick, reloaded texture ids)
+    seen: Vec<(u64, Vec<u32>)>,
+}
+
+unsafe extern "C" fn edit_and_watch(ctx: *mut CrabbyCtx, user: *mut c_void) {
+    let h = unsafe { &mut *user.cast::<HotReload>() };
+    unsafe {
+        let tick = crabby_ctx_sim_tick(ctx);
+        if h.texture.is_none() {
+            let mut t = std::mem::zeroed();
+            assert_eq!(crabby_ctx_load_texture(ctx, h.path.as_ptr(), &mut t), CRABBY_OK);
+            h.texture = Some(t);
+        }
+        let (mut list, mut n) = (null(), 0);
+        assert_eq!(crabby_ctx_reloaded_textures(ctx, &mut list, &mut n), CRABBY_OK);
+        if n > 0 {
+            let ids = std::slice::from_raw_parts(list, n).iter().map(|t| t.id).collect();
+            h.seen.push((tick, ids));
+        }
+        if tick == 2 {
+            // Save the same image again: a new modification time is a change.
+            let bytes = std::fs::read(&h.file).unwrap();
+            std::fs::write(&h.file, bytes).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(400));
+        }
+    }
+}
+
+#[test]
+fn edited_textures_are_reported_after_reloading() {
+    let dir = std::env::temp_dir().join(format!("crabby-ffi-hot-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("crab.png");
+    std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/crab.png"), &file).unwrap();
+    let mut h = HotReload {
+        path: std::ffi::CString::new(file.to_str().unwrap()).unwrap(),
+        file,
+        ..Default::default()
+    };
+    unsafe {
+        let game = crabby_game_new(c"hot".as_ptr(), 1, 1);
+        assert_eq!(crabby_game_hot_reload(game, true), CRABBY_OK);
+        let user = (&mut h as *mut HotReload).cast();
+        assert_eq!(
+            crabby_game_sim_system(game, c"s".as_ptr(), 1, Some(edit_and_watch), user),
+            CRABBY_OK
+        );
+        let mut world = null_mut();
+        assert_eq!(
+            crabby_game_run_headless(game, 5, None, null_mut(), &mut world),
+            CRABBY_OK
+        );
+        crabby_world_free(world);
+    }
+    let id = h.texture.unwrap().id;
+    assert_eq!(h.seen, vec![(3, vec![id])]);
+    let (mut list, mut n) = (null(), 0);
+    assert_eq!(
+        unsafe { crabby_ctx_reloaded_textures(null(), &mut list, &mut n) },
+        CRABBY_INVALID_ARGUMENT
+    );
+}

@@ -112,6 +112,8 @@ pub struct Ctx {
     /// Where the control endpoint listens, if it's on.
     pub(crate) control_addr: Option<std::net::SocketAddr>,
     headless_textures: u32,
+    /// Asset hot reload: which files textures came from.
+    pub(crate) watcher: crate::hot_reload::Watcher,
     pub(crate) timings: Vec<SystemTiming>,
     pub(crate) input: Input,
     timing: FrameTiming,
@@ -185,6 +187,7 @@ impl Ctx {
             headless: false,
             control_addr: None,
             headless_textures: 0,
+            watcher: Default::default(),
             timings: Vec::new(),
             input: Input::new(),
             timing: FrameTiming {
@@ -781,8 +784,57 @@ impl Ctx {
     /// });
     /// ```
     pub fn load_texture(&mut self, path: &str) -> Texture {
-        let image = assets::load_image(path).unwrap_or_else(|e| panic!("crabbyengine: {e}"));
-        self.create_texture(image.width, image.height, &image.rgba)
+        let file = assets::resolve(path).unwrap_or_else(|e| panic!("crabbyengine: {e}"));
+        let image = assets::load_image_at(&file, path).unwrap_or_else(|e| panic!("crabbyengine: {e}"));
+        let texture = self.create_texture(image.width, image.height, &image.rgba);
+        self.watcher.watch(path, file, texture);
+        texture
+    }
+
+    /// Textures whose files changed and were reloaded at the start of this
+    /// frame (with [hot reload](crate::Game::hot_reload) on). They keep their
+    /// handles, so sprites show the new image by themselves; use this to redo
+    /// anything you computed from an image, such as a level read from its pixels.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx, level: Texture) {
+    /// if ctx.reloaded_textures().contains(&level) {
+    ///     println!("level image changed: rebuilding the map");
+    /// }
+    /// # }
+    /// ```
+    pub fn reloaded_textures(&self) -> &[Texture] {
+        &self.watcher.reloaded
+    }
+
+    /// Reloads textures whose files changed (checked a few times a second).
+    pub(crate) fn reload_changed_assets(&mut self) {
+        self.watcher.reloaded.clear();
+        if !self.watcher.on {
+            return;
+        }
+        let mut changed = std::mem::take(&mut self.watcher.pending);
+        self.watcher.changed(std::time::Instant::now(), &mut changed);
+        for (texture, file, name) in changed.drain(..) {
+            match assets::load_image_at(&file, &name) {
+                Ok(image) if (image.width, image.height) == (texture.width(), texture.height()) => {
+                    self.update_texture(&texture, &image.rgba);
+                    self.watcher.reloaded.push(texture);
+                    eprintln!("crabbyengine: reloaded {name}");
+                }
+                Ok(image) => eprintln!(
+                    "crabbyengine: {name} is now {} x {} (was {} x {}); restart the game to use the new size",
+                    image.width,
+                    image.height,
+                    texture.width(),
+                    texture.height()
+                ),
+                // Often a file caught halfway through saving; the next save reloads it.
+                Err(e) => eprintln!("crabbyengine: could not reload {name}: {e}"),
+            }
+        }
+        self.watcher.pending = changed;
     }
 
     /// Creates a texture from raw RGBA pixels (4 bytes per pixel, row by row,

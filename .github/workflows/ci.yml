@@ -86,6 +86,7 @@ jobs:
           - engine-control
           - engine-determinism
           - engine-flow
+          - engine-hot-reload
           - mcp
           - ffi-unit
           - ffi-abi
@@ -114,6 +115,7 @@ jobs:
           - { area: engine-control, args: -p crabbyengine --test control }
           - { area: engine-determinism, args: -p crabbyengine --test determinism }
           - { area: engine-flow, args: -p crabbyengine --test flow }
+          - { area: engine-hot-reload, args: -p crabbyengine --test hot_reload }
           - { area: mcp, args: -p crabby_mcp }
           - { area: ffi-unit, args: -p crabby_ffi --lib }
           - { area: ffi-abi, args: -p crabby_ffi --test abi }
