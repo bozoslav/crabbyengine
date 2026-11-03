@@ -34,6 +34,10 @@ fn run(path: &Path, hot_reload: bool, edit: impl Fn() + 'static) -> (Texture, Ve
                 log.lock().unwrap().push((ctx.sim_tick(), reloaded));
             }
             if ctx.sim_tick() == 2 {
+                // Windows file times move in ~16 ms steps, and headless ticks
+                // are much faster: without this, an edit of the same length can
+                // land on the same time as the first write and look unchanged.
+                std::thread::sleep(Duration::from_millis(50));
                 edit();
                 std::thread::sleep(Duration::from_millis(400));
             }
@@ -69,4 +73,174 @@ fn nothing_reloads_with_hot_reload_off() {
     let p = path.clone();
     let (_, seen) = run(&path, false, move || write_png(&p, 4, 4, [0, 0, 255, 255]));
     assert!(seen.is_empty());
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq)]
+struct Rules {
+    speed: f32,
+    damage: f32,
+}
+
+fn temp_json(name: &str, text: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("crabby-data-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(name);
+    std::fs::write(&path, text).unwrap();
+    path
+}
+
+/// Loads `path` as `Rules`, rewrites it to `edit` on tick 2, and returns
+/// the speed and reloaded file names seen on each tick.
+fn run_rules(path: &Path, edit: &'static str) -> Vec<(f32, Vec<String>)> {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let log = seen.clone();
+    let name = path.to_str().unwrap().to_string();
+    let file = path.to_path_buf();
+    Game::new("data", 1, 1)
+        .hot_reload(true)
+        .sim_system(move |ctx: &mut Ctx| {
+            let speed = ctx.world.resource::<Rules>().speed;
+            log.lock().unwrap().push((speed, ctx.reloaded_files().to_vec()));
+            if ctx.sim_tick() == 2 {
+                std::thread::sleep(Duration::from_millis(50)); // see `run`
+                std::fs::write(&file, edit).unwrap();
+                std::thread::sleep(Duration::from_millis(400));
+            }
+        })
+        .run_headless(5, |ctx| ctx.load_resource::<Rules>(&name));
+    seen.lock().unwrap().clone()
+}
+
+#[test]
+fn edited_data_files_replace_their_resource() {
+    let path = temp_json("rules.json", r#"{"speed": 30, "damage": 2}"#);
+    let seen = run_rules(&path, r#"{"speed": 45, "damage": 2}"#);
+    let speeds: Vec<f32> = seen.iter().map(|s| s.0).collect();
+    assert_eq!(speeds, [30.0, 30.0, 30.0, 45.0, 45.0]);
+    let name = path.to_str().unwrap().to_string();
+    assert_eq!(seen[3].1, [name], "listed as reloaded on that tick only");
+    assert!(seen[4].1.is_empty());
+}
+
+#[test]
+fn data_files_that_dont_parse_keep_the_old_values() {
+    let path = temp_json("broken.json", r#"{"speed": 30, "damage": 2}"#);
+    let seen = run_rules(&path, r#"{"speed": 45, "dama"#);
+    assert!(seen.iter().all(|s| s.0 == 30.0 && s.1.is_empty()));
+}
+
+#[test]
+#[should_panic(expected = "line 1 column")]
+fn bad_data_files_say_where_at_load() {
+    let path = temp_json("bad.json", r#"{"speed": "fast", "damage": 2}"#);
+    let name = path.to_str().unwrap().to_string();
+    Game::new("data", 1, 1).run_headless(0, |ctx| ctx.load_resource::<Rules>(&name));
+}
+
+#[test]
+#[should_panic(expected = "not found in assets/")]
+fn missing_data_files_say_where_they_were_looked_for() {
+    Game::new("data", 1, 1).run_headless(0, |ctx| ctx.load_resource::<Rules>("no-such-rules.json"));
+}
+
+// ANCHOR: data_files
+#[derive(serde::Deserialize)]
+struct Tuning {
+    speed: f32,
+    damage: f32,
+}
+
+fn load_tuning(ctx: &mut Ctx, path: &str) {
+    ctx.load_resource::<Tuning>(path); // e.g. "tuning.json": {"speed": 30, "damage": 2}
+}
+
+fn step_size(ctx: &Ctx) -> f32 {
+    // The file's current values, every tick.
+    ctx.world.resource::<Tuning>().speed * ctx.dt()
+}
+// ANCHOR_END: data_files
+
+#[test]
+fn the_guide_data_file_example_runs() {
+    let path = temp_json("tuning.json", r#"{"speed": 30, "damage": 2}"#);
+    let name = path.to_str().unwrap().to_string();
+    let world = Game::new("data", 1, 1)
+        .fixed_hz(10)
+        .sim_system(|ctx| {
+            let s = step_size(ctx);
+            assert!((s - 3.0).abs() < 1e-5 && ctx.world.resource::<Tuning>().damage == 2.0);
+        })
+        .run_headless(1, |ctx| load_tuning(ctx, &name));
+    assert_eq!(world.resource::<Tuning>().speed, 30.0);
+}
+
+/// Loads `name` (written as `before`) with `load`, rewrites it as `after`
+/// on tick 1, and returns the ticks on which it was listed as reloaded.
+fn reload_ticks(name: &str, before: &[u8], after: Vec<u8>, load: fn(&mut Ctx, &str)) -> Vec<u64> {
+    let dir = std::env::temp_dir().join(format!("crabby-media-reload-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(name);
+    std::fs::write(&path, before).unwrap();
+    let file = path.to_str().unwrap().to_string();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let log = seen.clone();
+    let watched = file.clone();
+    Game::new("media", 1, 1)
+        .hot_reload(true)
+        .sim_system(move |ctx: &mut Ctx| {
+            if ctx.reloaded_files().contains(&watched) {
+                log.lock().unwrap().push(ctx.sim_tick());
+            }
+            if ctx.sim_tick() == 1 {
+                std::thread::sleep(Duration::from_millis(50)); // see `run`
+                std::fs::write(&path, &after).unwrap();
+                std::thread::sleep(Duration::from_millis(400));
+            }
+        })
+        .run_headless(4, move |ctx| load(ctx, &file));
+    seen.lock().unwrap().clone()
+}
+
+fn wav(samples: usize, level: i16) -> Vec<u8> {
+    let data_len = (samples * 2) as u32;
+    let mut out = Vec::new();
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&(36 + data_len).to_le_bytes());
+    out.extend_from_slice(b"WAVEfmt ");
+    for v in [
+        16u32.to_le_bytes(),
+        [1, 0, 1, 0],
+        8000u32.to_le_bytes(),
+        16000u32.to_le_bytes(),
+        [2, 0, 16, 0],
+    ] {
+        out.extend_from_slice(&v);
+    }
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&data_len.to_le_bytes());
+    for _ in 0..samples {
+        out.extend_from_slice(&level.to_le_bytes());
+    }
+    out
+}
+
+#[test]
+fn edited_fonts_reload_and_broken_ones_are_kept() {
+    let font = epaint_default_fonts::UBUNTU_LIGHT;
+    let load = |ctx: &mut Ctx, f: &str| {
+        ctx.load_font(f);
+    };
+    assert_eq!(reload_ticks("good.ttf", font, font[..].to_vec(), load), [2]);
+    assert_eq!(
+        reload_ticks("broken.ttf", font, b"not a font".to_vec(), load),
+        Vec::<u64>::new()
+    );
+}
+
+#[test]
+fn edited_sounds_reload() {
+    let load = |ctx: &mut Ctx, f: &str| {
+        ctx.load_sound(f);
+    };
+    assert_eq!(reload_ticks("beep.wav", &wav(800, 1000), wav(1600, 2000), load), [2]);
 }

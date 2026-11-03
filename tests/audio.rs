@@ -77,3 +77,15 @@ fn missing_sounds_say_where_they_looked() {
         ctx.load_sound("no-such-sound.ogg");
     });
 }
+
+#[cfg(feature = "audio")]
+#[test]
+fn loading_a_sound_file_twice_gives_the_same_sound() {
+    let path = temp_file("twice.wav", &wav(22_050, &vec![1000; 2205]));
+    in_tick(move |ctx| {
+        let a = ctx.load_sound(&path);
+        let b = ctx.load_sound(&path);
+        assert_eq!(a, b);
+        assert_ne!(a, ctx.create_sound(8000, &[0.0; 80]));
+    });
+}

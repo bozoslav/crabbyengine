@@ -146,6 +146,35 @@ static void grid_views_match_engine_queries() {
     throws([&] { crabby::grid_view<crabby::grid_hit> wrong(CrabbyGridView{nullptr, 20, nullptr, nullptr, 1, 0, 0, 0, 0, 0}); });
 }
 
+struct Died { crabby::entity who; std::uint64_t tick; };
+
+static void events() {
+    // Sent from inside a query, read by a later system in the same tick, once each.
+    crabby::component<int> hp;
+    crabby::component<Died> died;
+    std::vector<std::uint64_t> seen;
+    auto w = crabby::game("t", 1, 1)
+        .sim_system([&](crabby::ctx& ctx) {
+            ctx.world().query([&](auto chunk) {
+                auto h = chunk.template column<0>();
+                for (std::size_t i = 0; i < chunk.size(); ++i)
+                    if (h[i] <= 0) ctx.send(died, Died{chunk.entity(i), ctx.sim_tick()});
+            }, hp);
+        }, "deaths")
+        .sim_system([&](crabby::ctx& ctx) {
+            for (const Died& d : ctx.read(died)) { seen.push_back(d.tick); ctx.despawn_later(d.who); }
+            CHECK(ctx.read(died).empty());
+        }, "funerals")
+        .run_headless(3, [&](crabby::ctx& ctx) {
+            hp = ctx.world().component<int>("hp");
+            died = ctx.world().component<Died>("Died");
+            for (int h : {0, 5, -1}) ctx.world().spawn(hp.with(h));
+        });
+    CHECK(w.size() == 1);
+    CHECK((seen == std::vector<std::uint64_t>{0, 0}));
+    throws([&] { crabby::game("t", 1, 1).run_headless(0, [&](crabby::ctx& ctx) { ctx.send(died, Died{}); }); });
+}
+
 static void rng_matches_rust() {
     // The same numbers as Rust's Rng (pinned in src/random.rs).
     crabby::rng r(42);
@@ -191,6 +220,7 @@ int main() {
     parallel_queries();
     games();
     attachments();
+    events();
     rng_matches_rust();
     grid_views_match_engine_queries();
     std::cout << "C++ wrapper tests passed\n";

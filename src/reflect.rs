@@ -108,6 +108,25 @@ struct Registry {
     by_name: HashMap<String, usize>,
     resources: Vec<ReflectedResource>,
     resource_by_name: HashMap<String, usize>,
+    /// Field layouts of components described with `reflect_fields`, by id:
+    /// how tools read C events of those types.
+    layouts: HashMap<ComponentId, Arc<FieldLayout>>,
+}
+
+/// The name of foreign component `id`, if it's described with `reflect_fields`.
+pub(crate) fn raw_name(world: &World, id: ComponentId) -> Option<&str> {
+    Some(registry(world)?.layouts.get(&id)?.component.as_str())
+}
+
+/// The name and JSON of a value of foreign component `id` (one described
+/// with `reflect_fields`), or `None` if it isn't described.
+///
+/// # Safety
+/// `p` points to a value of that component (its registered size, readable).
+pub(crate) unsafe fn raw_json(world: &World, id: ComponentId, p: *const u8) -> Option<(&str, Value)> {
+    let layout = registry(world)?.layouts.get(&id)?;
+    // SAFETY: forwarded.
+    Some((layout.component.as_str(), unsafe { layout.read(p) }))
 }
 
 fn get_resource<R: Send + Sync + 'static + Serialize>(world: &World) -> Option<Result<Value, String>> {
@@ -153,7 +172,7 @@ fn remove<T: Component>(world: &mut World, e: Entity) -> bool {
 }
 
 /// `crate::game::Score<u32>` → `Score<u32>`: the last path segment, keeping generics.
-fn short_name(type_name: &str) -> String {
+pub(crate) fn short_name(type_name: &str) -> String {
     let end = type_name.find('<').unwrap_or(type_name.len());
     let start = type_name[..end].rfind("::").map_or(0, |i| i + 2);
     type_name[start..].to_string()
@@ -714,6 +733,7 @@ impl WorldReflect for World {
             self.insert_resource(Registry::default());
         }
         let reg = self.resource_mut::<Registry>();
+        reg.layouts.insert(id, layout.clone());
         let entry = |name: &str| {
             let (l, g, k, st) = (layout.clone(), layout.clone(), layout.clone(), layout.clone());
             let sa = layout.clone();

@@ -3,8 +3,9 @@
  * Games: crabby_game_new -> settings and systems -> crabby_game_run (window)
  * or crabby_game_run_headless. Systems get a CrabbyCtx*, valid until they
  * return: the world (crabby_ctx_world), clock, input, drawing, shapes, text
- * and fonts, UI widgets, sound, textures, camera, commands (*_later) and the
- * built-in spatial grid.
+ * and fonts, UI widgets, sound, textures, camera, commands (*_later), events
+ * (crabby_ctx_send_event / crabby_ctx_read_events) and the built-in spatial
+ * grid.
  *
  * Handles are confined to the thread that runs the game, except inside
  * crabby_query_par callbacks, which run on many threads at once and may only
@@ -507,6 +508,15 @@ enum CrabbyStatus crabby_ctx_load_texture(struct CrabbyCtx *ctx,
                                           const char *path,
                                           struct CrabbyTexture *out_texture);
 
+enum CrabbyStatus crabby_ctx_load_json(struct CrabbyCtx *ctx,
+                                       const char *path,
+                                       uint64_t entity,
+                                       uint32_t component);
+
+enum CrabbyStatus crabby_ctx_was_reloaded(struct CrabbyCtx *ctx,
+                                          const char *path,
+                                          bool *out_reloaded);
+
 enum CrabbyStatus crabby_ctx_create_texture(struct CrabbyCtx *ctx,
                                             uint32_t width,
                                             uint32_t height,
@@ -558,6 +568,17 @@ enum CrabbyStatus crabby_ctx_set_later(struct CrabbyCtx *ctx,
 enum CrabbyStatus crabby_ctx_remove_later(struct CrabbyCtx *ctx,
                                           uint64_t entity,
                                           uint32_t component);
+
+enum CrabbyStatus crabby_ctx_send_event(struct CrabbyCtx *ctx,
+                                        uint32_t type_id,
+                                        const void *data,
+                                        size_t size);
+
+enum CrabbyStatus crabby_ctx_read_events(struct CrabbyCtx *ctx,
+                                         uint32_t type_id,
+                                         size_t size,
+                                         const void **out_data,
+                                         size_t *out_count);
 
 enum CrabbyStatus crabby_ctx_spatial_radius(const struct CrabbyCtx *ctx,
                                             struct CrabbyVec2 center,

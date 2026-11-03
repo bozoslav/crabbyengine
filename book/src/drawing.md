@@ -90,9 +90,11 @@ the engine stores sprites in a Rust layout. `Transform2D` can.
 Save an image in your editor and the running game shows the new version
 within a quarter of a second: textures loaded with `load_texture` are
 reloaded when their file changes, under the same handle, so every sprite
-using them updates by itself. It's on by default in debug builds and off in
-release builds; `Game::hot_reload(bool)` or `CRABBY_HOT_RELOAD=1`/`0`
-changes that.
+using them updates by itself. Fonts (`load_font`) and sounds (`load_sound`)
+reload the same way, and so do [data files](data-files.md). A file that
+can't be read or decoded mid-save keeps the old version. It's on by default
+in debug builds and off in release builds; `Game::hot_reload(bool)` or
+`CRABBY_HOT_RELOAD=1`/`0` changes that.
 
 If you computed something from an image (a level read from its pixels, a
 collision mask), redo it when the texture shows up in `reloaded_textures`:

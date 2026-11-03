@@ -88,6 +88,10 @@ headless game waits for requests and runs only the ticks you step.
 | `sim.step` | `ticks?` (1) | ticks queued |
 | `sim.speed` | `speed` | |
 | `systems.timings` | | each system's last and average ms |
+| `events.list` | | reflected [event](events.md) types and how many are kept now |
+| `events.subscribe` | `types?` (all), `capacity?` (1000) | starts collecting new events between frames; the newest `capacity` are kept |
+| `events.take` | | `{events: [{tick, type, data}], dropped}` since the last take |
+| `events.unsubscribe` | | `true` if there was a subscription |
 | `camera.get` | | position, zoom, center, visible rect |
 | `camera.set` | `position`?, `zoom`?, `look_at`? | move the camera; returns `camera.get` |
 | `screenshot` | `path`?, `max_size`? | save the next frame as a PNG (windowed games only); returns `path`, `width`, `height` |

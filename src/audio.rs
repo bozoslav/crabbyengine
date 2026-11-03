@@ -101,11 +101,13 @@ mod backend {
         }
 
         pub fn load(&mut self, bytes: Vec<u8>) -> Result<(u32, f32), String> {
-            let data = StaticSoundData::from_cursor(std::io::Cursor::new(bytes)).map_err(|e| match e {
-                FromFileError::UnsupportedChannelConfiguration => "only mono and stereo sounds are supported".into(),
-                other => format!("could not decode the sound: {other}"),
-            })?;
-            Ok(self.add(data))
+            Ok(self.add(decode(bytes)?))
+        }
+
+        /// Replaces sound `id`'s data (hot reload); playing copies go on.
+        pub fn replace(&mut self, id: u32, bytes: Vec<u8>) -> Result<(), String> {
+            self.sounds[id as usize] = decode(bytes)?;
+            Ok(())
         }
 
         pub fn create(&mut self, sample_rate: u32, samples: &[f32]) -> (u32, f32) {
@@ -150,6 +152,13 @@ mod backend {
         }
     }
 
+    fn decode(bytes: Vec<u8>) -> Result<StaticSoundData, String> {
+        StaticSoundData::from_cursor(std::io::Cursor::new(bytes)).map_err(|e| match e {
+            FromFileError::UnsupportedChannelConfiguration => "only mono and stereo sounds are supported".into(),
+            other => format!("could not decode the sound: {other}"),
+        })
+    }
+
     /// Linear volume (0..1) to decibels.
     fn volume_db(v: f32) -> Decibels {
         if v <= 0.001 {
@@ -177,6 +186,10 @@ mod backend {
             Ok((self.count - 1, 0.0))
         }
 
+        pub fn replace(&mut self, _id: u32, _bytes: Vec<u8>) -> Result<(), String> {
+            Ok(())
+        }
+
         pub fn create(&mut self, sample_rate: u32, samples: &[f32]) -> (u32, f32) {
             self.count += 1;
             (self.count - 1, samples.len() as f32 / sample_rate.max(1) as f32)
@@ -195,6 +208,7 @@ pub(crate) use backend::Audio;
 
 impl Ctx {
     /// Loads a sound from the `assets/` folder: OGG Vorbis, WAV, MP3 or FLAC.
+    /// Loading the same file again returns the same handle.
     ///
     /// # Panics
     /// With a clear message if the file is missing or can't be decoded.
@@ -208,13 +222,21 @@ impl Ctx {
     /// ```
     pub fn load_sound(&mut self, path: &str) -> Sound {
         let file = crate::assets::resolve(path).unwrap_or_else(|e| panic!("crabbyengine: {e}"));
+        let key = (file, crate::ctx::AssetKind::Sound);
+        if let Some(&i) = self.loaded.get(&key) {
+            return self.cached_sounds[i as usize];
+        }
         let bytes =
-            std::fs::read(&file).unwrap_or_else(|e| panic!("crabbyengine: could not read {}: {e}", file.display()));
+            std::fs::read(&key.0).unwrap_or_else(|e| panic!("crabbyengine: could not read {}: {e}", key.0.display()));
         let (id, seconds) = self
             .audio
             .load(bytes)
-            .unwrap_or_else(|e| panic!("crabbyengine: {}: {e}", file.display()));
-        Sound { id, seconds }
+            .unwrap_or_else(|e| panic!("crabbyengine: {}: {e}", key.0.display()));
+        let sound = Sound { id, seconds };
+        self.loaded.insert(key.clone(), self.cached_sounds.len() as u64);
+        self.cached_sounds.push(sound);
+        self.watcher.watch(path, key.0, crate::hot_reload::Asset::Sound(id));
+        sound
     }
 
     /// Makes a sound from mono samples in -1..1 at `sample_rate` Hz, for

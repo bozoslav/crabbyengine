@@ -153,6 +153,7 @@ impl Control {
 
     /// Handles every request that has arrived. Called between frames/ticks.
     pub(crate) fn poll(&self, ctx: &mut Ctx) {
+        ctx.events.collect_feed(&ctx.world);
         while let Ok(req) = self.requests.try_recv() {
             answer(ctx, req);
         }
@@ -161,6 +162,7 @@ impl Control {
     /// Waits up to `timeout` for a request, then handles everything queued.
     /// Used by a paused headless game, which has nothing else to do.
     pub(crate) fn wait(&self, ctx: &mut Ctx, timeout: Duration) {
+        ctx.events.collect_feed(&ctx.world);
         match self.requests.recv_timeout(timeout) {
             Ok(req) => answer(ctx, req),
             Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => return,
@@ -348,6 +350,19 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
     ("sim.speed", "set simulation speed; params: speed"),
     ("systems.timings", "each system's last and average time in ms"),
     (
+        "events.list",
+        "reflected event types (ctx.events.reflect, or C events whose type is a reflected component) and how many are kept now",
+    ),
+    (
+        "events.subscribe",
+        "start collecting new events, between frames, newest kept; params: types? (names, default all), capacity? (1000)",
+    ),
+    (
+        "events.take",
+        "events collected since the last take, oldest first: [{tick, type, data}], plus how many were dropped for space",
+    ),
+    ("events.unsubscribe", "stop collecting events"),
+    (
         "camera.get",
         "the camera: position (world point at the window's top-left), zoom, center, visible rect",
     ),
@@ -441,6 +456,7 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
                 "allocated_bytes": world.allocated_bytes(),
                 "reflected_components": world.reflected_components(),
                 "reflected_resources": world.reflected_resources(),
+                "reflected_events": ctx.events.reflected_json(world),
                 "archetypes": archetypes,
             })
         }
@@ -574,6 +590,31 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
             ctx.quit();
             json!(true)
         }
+        "events.list" => Value::Array(ctx.events.reflected_json(&ctx.world)),
+        "events.subscribe" => {
+            let types: Vec<String> = match params.get("types") {
+                None | Some(Value::Null) => Vec::new(),
+                Some(v) => {
+                    serde_json::from_value(v.clone()).map_err(|_| "`types` must be a list of event type names")?
+                }
+            };
+            let capacity = match params.get("capacity") {
+                None | Some(Value::Null) => 1000,
+                Some(v) => v.as_u64().ok_or("`capacity` must be a whole number")?.min(100_000) as usize,
+            };
+            ctx.events.subscribe(&ctx.world, types.clone(), capacity);
+            json!({ "types": types, "capacity": capacity })
+        }
+        "events.take" => {
+            let feed = ctx
+                .events
+                .feed
+                .as_mut()
+                .ok_or("not subscribed: call events.subscribe first")?;
+            let events: Vec<Value> = feed.items.drain(..).collect();
+            json!({ "events": events, "dropped": std::mem::take(&mut feed.dropped) })
+        }
+        "events.unsubscribe" => json!(ctx.events.feed.take().is_some()),
         "camera.get" => camera_json(ctx),
         "camera.set" => {
             let vec = |name: &str| -> Result<Option<Vec2>, String> {

@@ -167,6 +167,7 @@ where
                     run: f,
                     every: 1,
                     phase: 0,
+                    id: next_system_id(),
                 });
             }
             self.started = true;

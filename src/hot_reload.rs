@@ -1,6 +1,6 @@
-//! Asset hot reload: textures loaded from files are reloaded when the file
-//! changes, under the same handle, so edits in an image editor show up in
-//! the running game.
+//! Asset hot reload: textures and data files loaded from files are reloaded
+//! when the file changes (textures under the same handle), so edits in an
+//! image or text editor show up in the running game.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
@@ -31,12 +31,24 @@ impl Stamp {
     }
 }
 
+/// What a watched file was loaded into.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Asset {
+    Texture(Texture),
+    /// A font id.
+    Font(u32),
+    /// A sound id.
+    Sound(u32),
+    /// Index into `Ctx`'s data loaders.
+    Data(usize),
+}
+
 struct Watched {
     /// The name the game loaded it by, for messages.
     name: String,
     path: PathBuf,
     stamp: Option<Stamp>,
-    texture: Texture,
+    asset: Asset,
 }
 
 /// Files the game loaded, and which of them changed.
@@ -46,8 +58,10 @@ pub(crate) struct Watcher {
     next_check: Instant,
     /// Textures reloaded at the start of this frame.
     pub(crate) reloaded: Vec<Texture>,
+    /// Names of every file reloaded at the start of this frame.
+    pub(crate) reloaded_files: Vec<String>,
     /// Scratch for `changed`, kept so checks don't allocate.
-    pub(crate) pending: Vec<(Texture, PathBuf, String)>,
+    pub(crate) pending: Vec<(Asset, PathBuf, String)>,
 }
 
 impl Default for Watcher {
@@ -57,6 +71,7 @@ impl Default for Watcher {
             files: Vec::new(),
             next_check: Instant::now(),
             reloaded: Vec::new(),
+            reloaded_files: Vec::new(),
             pending: Vec::new(),
         }
     }
@@ -72,8 +87,8 @@ pub(crate) fn enabled(on: bool) -> bool {
 }
 
 impl Watcher {
-    /// Remembers that `texture` came from `path`.
-    pub(crate) fn watch(&mut self, name: &str, path: PathBuf, texture: Texture) {
+    /// Remembers that `asset` came from `path`.
+    pub(crate) fn watch(&mut self, name: &str, path: PathBuf, asset: Asset) {
         if !self.on {
             return;
         }
@@ -82,13 +97,13 @@ impl Watcher {
             name: name.to_string(),
             path,
             stamp,
-            texture,
+            asset,
         });
     }
 
     /// Files that changed since they were loaded (or last checked), at most
     /// every [`CHECK_EVERY`]. Each comes back once per change.
-    pub(crate) fn changed(&mut self, now: Instant, out: &mut Vec<(Texture, PathBuf, String)>) {
+    pub(crate) fn changed(&mut self, now: Instant, out: &mut Vec<(Asset, PathBuf, String)>) {
         out.clear();
         if !self.on || self.files.is_empty() || now < self.next_check {
             return;
@@ -99,7 +114,7 @@ impl Watcher {
             // A file that's gone (mid-save, or deleted) keeps its old texture.
             if stamp.is_some() && stamp != f.stamp {
                 f.stamp = stamp;
-                out.push((f.texture, f.path.clone(), f.name.clone()));
+                out.push((f.asset, f.path.clone(), f.name.clone()));
             }
         }
     }
@@ -125,7 +140,7 @@ mod tests {
             ..Default::default()
         };
         let tex = Texture::new(7, 2, 2);
-        w.watch("a.png", path.clone(), tex);
+        w.watch("a.png", path.clone(), Asset::Texture(tex));
         let mut out = Vec::new();
         let t0 = Instant::now();
         w.changed(t0, &mut out);
@@ -136,7 +151,7 @@ mod tests {
         assert!(out.is_empty(), "too soon after the last check");
         w.changed(t0 + CHECK_EVERY * 2, &mut out);
         assert_eq!(out.len(), 1);
-        assert_eq!(out[0].0, tex);
+        assert_eq!(out[0].0, Asset::Texture(tex));
         assert_eq!(out[0].2, "a.png");
         w.changed(t0 + CHECK_EVERY * 4, &mut out);
         assert!(out.is_empty(), "reported once");
@@ -149,7 +164,7 @@ mod tests {
             on: true,
             ..Default::default()
         };
-        w.watch("b.png", path.clone(), Texture::new(1, 1, 1));
+        w.watch("b.png", path.clone(), Asset::Texture(Texture::new(1, 1, 1)));
         std::fs::remove_file(&path).unwrap();
         let mut out = Vec::new();
         w.changed(Instant::now() + CHECK_EVERY, &mut out);
@@ -160,7 +175,7 @@ mod tests {
     fn nothing_is_watched_while_off() {
         let path = temp_file("c.png", b"one");
         let mut w = Watcher::default();
-        w.watch("c.png", path, Texture::new(1, 1, 1));
+        w.watch("c.png", path, Asset::Data(0));
         assert!(w.files.is_empty());
     }
 }

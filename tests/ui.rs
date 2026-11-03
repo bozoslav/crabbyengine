@@ -83,3 +83,15 @@ fn rect_helpers() {
     assert!(!r.contains(vec2(9.9, 15.0)));
     assert_eq!(r.expand(2.0).size(), vec2(24.0, 14.0));
 }
+
+#[test]
+fn loading_a_font_file_twice_gives_the_same_font() {
+    let path = std::env::temp_dir().join(format!("crabby-font-{}.ttf", std::process::id()));
+    std::fs::write(&path, epaint_default_fonts::UBUNTU_LIGHT).unwrap();
+    let name = path.to_str().unwrap().to_string();
+    Game::new("fonts", 1, 1).run_headless(0, |ctx| {
+        let a = ctx.load_font(&name);
+        assert_eq!(a, ctx.load_font(&name));
+        assert_ne!(a, Font::DEFAULT);
+    });
+}
