@@ -33,3 +33,9 @@ profiling = ["dep:puffin", "dep:puffin_http"]
 
 [workspace]
 members = [".", "crates/crabby_ecs", "crates/crabby_bench", "crates/crabby_mcp", "crates/crabby_ffi"]
+
+# Debug builds with light optimization: games and tests run 5-6x faster
+# (boids 6.5 -> 1.1 ms/tick at 20k), edit -> build stays ~0.6 s, debug info
+# stays. Clean builds take longer (16 -> 25 s for the test suite).
+[profile.dev]
+opt-level = 1

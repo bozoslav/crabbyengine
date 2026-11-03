@@ -614,6 +614,8 @@ enum CrabbyStatus crabby_game_camera_controls(struct CrabbyGame *game);
 
 enum CrabbyStatus crabby_game_control_endpoint(struct CrabbyGame *game, bool on);
 
+enum CrabbyStatus crabby_game_hot_reload(struct CrabbyGame *game, bool on);
+
 enum CrabbyStatus crabby_game_sim_system(struct CrabbyGame *game,
                                          const char *name,
                                          uint32_t every,
@@ -726,6 +728,10 @@ enum CrabbyStatus crabby_ctx_play_sound(struct CrabbyCtx *ctx,
 enum CrabbyStatus crabby_ctx_stop_sound(struct CrabbyCtx *ctx, struct CrabbyPlaying playing);
 
 enum CrabbyStatus crabby_ctx_save_screenshot(struct CrabbyCtx *ctx, const char *path);
+
+enum CrabbyStatus crabby_ctx_reloaded_textures(const struct CrabbyCtx *ctx,
+                                               const struct CrabbyTexture **out_textures,
+                                               size_t *out_count);
 
 enum CrabbyStatus crabby_ctx_turns(const struct CrabbyCtx *ctx,
                                    uint32_t every,

@@ -75,6 +75,8 @@ pub struct Game {
     spatial_cell: Option<f32>,
     /// Open the control endpoint (also on with `CRABBY_CONTROL=1`).
     control: bool,
+    /// Reload textures when their files change (`CRABBY_HOT_RELOAD` overrides).
+    hot_reload: bool,
 }
 
 type SystemFn = Box<dyn FnMut(&mut Ctx)>;
@@ -171,6 +173,7 @@ impl Game {
             ],
             spatial_cell: None,
             control: control::env_flag(control::ENV_CONTROL),
+            hot_reload: cfg!(debug_assertions),
         }
     }
 
@@ -357,6 +360,28 @@ impl Game {
         self
     }
 
+    /// Reload textures from `assets/` when their files change, under the same
+    /// handles: save an image in your editor and the running game shows it
+    /// within a quarter of a second. On by default in debug builds, off in
+    /// release builds; `CRABBY_HOT_RELOAD=1` or `0` overrides both.
+    ///
+    /// A file is checked a few times a second (one `stat` per loaded
+    /// texture). An image that changed size isn't reloaded (sprites store
+    /// their texture's size): restart the game for that.
+    /// [`Ctx::reloaded_textures`] lists what was reloaded this frame.
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// Game::new("Art test", 1280, 720).hot_reload(true).run(|ctx| {
+    ///     let crab = ctx.load_texture("crab.png"); // edit crab.png while it runs
+    ///     ctx.world.spawn((Transform2D::at(vec2(640.0, 360.0)), Sprite::new(crab)));
+    /// });
+    /// ```
+    pub fn hot_reload(mut self, on: bool) -> Self {
+        self.hot_reload = on;
+        self
+    }
+
     /// Starts the control endpoint if it's enabled, and applies `CRABBY_START_PAUSED`.
     fn start_control(&self, ctx: &mut Ctx, headless: bool) -> Option<Control> {
         if control::env_flag(control::ENV_START_PAUSED) {
@@ -513,6 +538,7 @@ impl Game {
         let mut ctx = Ctx::new(fixed_dt, Vec2::new(self.width as f32, self.height as f32));
         ctx.seed = self.seed;
         ctx.headless = true;
+        ctx.watcher.on = crate::hot_reload::enabled(self.hot_reload);
         if let Some(cell) = self.spatial_cell {
             ctx.spatial = crate::SpatialGrid::new(cell);
         }
@@ -541,6 +567,7 @@ impl Game {
             }
             ran += 1;
             ctx.begin_frame(timing);
+            ctx.reload_changed_assets();
             self.begin_timings(&mut ctx);
             ctx.set_in_sim(true);
             self.run_sim_tick(&mut ctx);

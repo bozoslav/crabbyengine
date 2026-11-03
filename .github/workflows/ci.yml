@@ -88,6 +88,7 @@ jobs:
           - engine-control
           - engine-determinism
           - engine-flow
+          - engine-hot-reload
           - engine-without-window
           - mcp
           - ffi-unit
@@ -117,6 +118,7 @@ jobs:
           - { area: engine-control, args: -p crabbyengine --test control }
           - { area: engine-determinism, args: -p crabbyengine --test determinism }
           - { area: engine-flow, args: -p crabbyengine --test flow }
+          - { area: engine-hot-reload, args: -p crabbyengine --test hot_reload }
           - { area: engine-without-window, args: -p crabbyengine --tests --no-default-features --features audio }
           - { area: mcp, args: -p crabby_mcp }
           - { area: ffi-unit, args: -p crabby_ffi --lib }

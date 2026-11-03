@@ -85,6 +85,50 @@ In C++, `Sprite` values are `crabby::sprite` (`sprite_of(texture, tint, z)`).
 They can be spawned, read and set, but not used as query columns, because
 the engine stores sprites in a Rust layout. `Transform2D` can.
 
+## Hot reload
+
+Save an image in your editor and the running game shows the new version
+within a quarter of a second: textures loaded with `load_texture` are
+reloaded when their file changes, under the same handle, so every sprite
+using them updates by itself. It's on by default in debug builds and off in
+release builds; `Game::hot_reload(bool)` or `CRABBY_HOT_RELOAD=1`/`0`
+changes that.
+
+If you computed something from an image (a level read from its pixels, a
+collision mask), redo it when the texture shows up in `reloaded_textures`:
+
+<div class="lang-pair">
+<div>
+
+```rust
+Game::new("Art test", 1280, 720)
+    .hot_reload(true) // the default in debug builds
+    .run(|ctx| {
+        let level = ctx.load_texture("level.png");
+        move |ctx: &mut Ctx| {
+            if ctx.reloaded_textures().contains(&level) {
+                println!("level.png changed: rebuilding the map");
+            }
+        }
+    });
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:hot_reload}}
+```
+
+</div>
+</div>
+
+An image that changed size isn't reloaded, because sprites keep the size
+their texture had; the console says so, and a restart picks it up. A file
+caught halfway through saving fails to decode and is tried again on the
+next save. Checking costs one file `stat` per loaded texture, four times a
+second.
+
 ## Screenshots
 
 <div class="lang-pair">

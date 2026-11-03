@@ -29,6 +29,7 @@ where
     let clock = Clock::new(game.fixed_hz);
     let mut ctx = Ctx::new(clock.fixed_dt(), Vec2::new(game.width as f32, game.height as f32));
     ctx.seed = game.seed;
+    ctx.watcher.on = crate::hot_reload::enabled(game.hot_reload);
     if let Some(cell) = game.spatial_cell {
         ctx.spatial = crate::SpatialGrid::new(cell);
     }
@@ -108,6 +109,7 @@ where
         puffin::GlobalProfiler::lock().new_frame();
         let timing = frame_timing(&mut self.clock, &mut self.ctx, frame_dt);
         self.ctx.begin_frame(timing);
+        self.ctx.reload_changed_assets();
         self.config.run_systems(&mut self.ctx, timing.fixed_steps);
         self.ctx.input.end_frame();
 
