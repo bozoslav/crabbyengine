@@ -267,7 +267,7 @@ pub(crate) struct Mirror {
 
 /// Room for one converted Rust value, without a heap allocation per value.
 #[repr(C, align(16))]
-pub(crate) struct Slot(std::mem::MaybeUninit<[u8; 64]>);
+pub(crate) struct Slot(std::mem::MaybeUninit<[u8; 128]>);
 impl Slot {
     pub(crate) const fn new() -> Self {
         Self(std::mem::MaybeUninit::uninit())

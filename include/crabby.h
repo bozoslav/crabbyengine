@@ -230,6 +230,7 @@ typedef enum CrabbyShapeKind {
   CRABBY_SHAPE_CIRCLE,
   CRABBY_SHAPE_RECT,
   CRABBY_SHAPE_CAPSULE,
+  CRABBY_SHAPE_POLYGON,
 } CrabbyShapeKind;
 
 typedef enum CrabbyNetState {
@@ -925,6 +926,17 @@ struct CrabbyCollider crabby_collider_circle(float radius);
 struct CrabbyCollider crabby_collider_rect(struct CrabbyVec2 size);
 
 struct CrabbyCollider crabby_collider_capsule(float height, float radius);
+
+enum CrabbyStatus crabby_set_polygon_collider(struct CrabbyWorld *world,
+                                              uint64_t entity,
+                                              const struct CrabbyVec2 *points,
+                                              uint32_t count,
+                                              struct CrabbyCollider settings);
+
+enum CrabbyStatus crabby_collider_points(struct CrabbyWorld *world,
+                                         uint64_t entity,
+                                         struct CrabbyVec2 *out_points,
+                                         uint32_t *out_count);
 
 enum CrabbyStatus crabby_rigid_body_component(struct CrabbyWorld *world, uint32_t *out_id);
 

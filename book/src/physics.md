@@ -63,9 +63,15 @@ An entity becomes a physics body with three components: a `Transform2D`, a
 | `Collider::circle(r)` | `crabby::circle_collider(r)` | |
 | `Collider::rect(size)` | `crabby::rect_collider(size)` | |
 | `Collider::capsule(h, r)` | `crabby::capsule_collider(h, r)` | vertical, good for characters |
+| `Collider::polygon(&points)` | `world.set_polygon_collider(e, {points...})` | convex, 3 to 8 corners: ramps, rocks, ships |
 | `.density(d)`, `.friction(f)`, `.restitution(r)` | fields of the same name | mass per pixel², 0 ice..1 rubber, bounciness |
 | `.sensor()` | `.sensor = true` | reports overlaps, doesn't push |
 | `.offset(v)` | `.offset = v` | shape moved from the entity's position |
+
+A polygon is the convex hull of its corners, given around the entity's
+position in any order; `collider.shape.points()` reads them back (C++:
+`world.collider_points(e)`). For a concave shape, such as an L, split it
+into convex pieces on separate bodies.
 
 A rigid body also has `gravity_scale`, `linear_damping`, `angular_damping`,
 `lock_rotation` (characters that shouldn't tip over) and `ccd` (continuous

@@ -1,5 +1,6 @@
-//! Physics: crates and balls fall, stack and bounce. Left click drops a
-//! crate, right click a ball, Space blasts everything near the mouse away,
+//! Physics: crates, balls and rocks fall, stack, bounce and slide down a
+//! ramp. Left click drops a crate, right click a ball, middle click a rock
+//! (a polygon), Space blasts everything near the mouse away,
 //! and the bell rings (turns red) when something lands in the bucket.
 //!
 //!   `cargo run --release --example physics --features physics`
@@ -37,6 +38,12 @@ fn build_level(ctx: &mut Ctx) {
         Transform2D::at(vec2(320.0, 0.0)),
         RigidBody::dynamic(),
         Collider::rect(vec2(40.0, 40.0)).friction(0.9),
+    ));
+    // A ramp: any convex shape of up to 8 corners, around its position.
+    ctx.world.spawn((
+        Transform2D::at(vec2(150.0, H - 80.0)),
+        RigidBody::fixed(),
+        Collider::polygon(&[vec2(-140.0, 60.0), vec2(140.0, 60.0), vec2(-140.0, -60.0)]),
     ));
     // A sensor reports overlaps but doesn't push.
     ctx.world.spawn((
@@ -102,6 +109,16 @@ fn drop_things(ctx: &mut Ctx) {
             Collider::circle(12.0).restitution(0.6),
         ));
     }
+    if ctx.mouse_pressed(MouseButton::Middle) {
+        let rock: Vec<Vec2> = (0..5)
+            .map(|i| Vec2::from_angle(i as f32 * std::f32::consts::TAU / 5.0) * 18.0)
+            .collect();
+        ctx.world.spawn((
+            Transform2D::at(at),
+            RigidBody::dynamic(),
+            Collider::polygon(&rock).friction(0.7),
+        ));
+    }
     if ctx.key_pressed(Key::R) {
         let all: Vec<Entity> = ctx.world.query::<Entity>().with::<RigidBody>().iter().collect();
         for e in all {
@@ -155,6 +172,14 @@ fn draw(ctx: &mut Ctx) {
                 let up = Vec2::from_angle(t.rotation + std::f32::consts::FRAC_PI_2) * height / 2.0;
                 ctx.draw_line(t.position - up, t.position + up, radius * 2.0, color);
             }
+            Shape::Polygon { .. } => {
+                let (sin, cos) = t.rotation.sin_cos();
+                let turn = |v: Vec2| t.position + vec2(v.x * cos - v.y * sin, v.x * sin + v.y * cos);
+                let corners: Vec<Vec2> = c.shape.points().iter().map(|&p| turn(p + c.offset)).collect();
+                for i in 0..corners.len() {
+                    ctx.draw_line(corners[i], corners[(i + 1) % corners.len()], 3.0, color);
+                }
+            }
             _ => {} // shapes added in later versions
         }
     }
@@ -164,7 +189,9 @@ fn draw(ctx: &mut Ctx) {
     }
     let bodies = ctx.physics.body_count();
     ctx.draw_text(
-        &format!("{bodies} bodies  |  left click: crate  right click: ball  space: blast  R: reset"),
+        &format!(
+            "{bodies} bodies  |  left click: crate  right click: ball  middle click: rock  space: blast  R: reset"
+        ),
         vec2(30.0, 30.0),
         18.0,
         Color::WHITE,

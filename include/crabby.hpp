@@ -520,6 +520,19 @@ public:
         detail::check(crabby_set(raw_, e, id<T>(), &component, sizeof(T)));
     }
     template<class T> void remove(entity e) { detail::check(crabby_remove(raw_, e, id<T>())); }
+    /// Gives `e` a convex polygon collider: the convex hull of 3 to 8 corners
+    /// around its position. `settings` gives density, friction, restitution,
+    /// sensor and offset (its shape is ignored).
+    void set_polygon_collider(entity e, std::initializer_list<vec2> points, collider settings = circle_collider(1.0f)) {
+        detail::check(crabby_set_polygon_collider(raw_, e, points.begin(), static_cast<std::uint32_t>(points.size()), settings));
+    }
+    /// `e`'s polygon corners (empty if its collider isn't a polygon).
+    std::vector<vec2> collider_points(entity e) const {
+        vec2 points[8];
+        std::uint32_t n = 0;
+        detail::check(crabby_collider_points(raw_, e, points, &n));
+        return std::vector<vec2>(points, points + n);
+    }
 
     // ---- resources: one value of a type per world, not on any entity ----
     /// Adds or replaces the world's `T`: `world.set_resource(Score{0, 0})`.
