@@ -287,7 +287,8 @@ impl Ctx {
 
     /// Loads a glTF model (`.glb`, or `.gltf` with its files next to it)
     /// from `assets/` as one [`Mesh`]: every mesh in the file's scene, where
-    /// the file puts it, with its materials and base color textures.
+    /// the file puts it, with its materials and their base color, normal,
+    /// occlusion-roughness-metalness and emissive maps.
     /// Loading the same file again returns the same mesh.
     ///
     /// ```no_run
@@ -318,17 +319,32 @@ impl Ctx {
             let file = assets::resolve(name)?;
             assets::read(&file).map_err(|e| format!("could not read {}: {e}", file.display()))
         })?;
+        let textures: Vec<crate::Texture> = loaded
+            .images
+            .iter()
+            .map(|(w, h, rgba)| self.create_texture(*w, *h, rgba))
+            .collect();
         let materials: Vec<Material> = loaded
             .materials
             .iter()
             .map(|m| {
-                let texture = m.image.as_ref().map(|(w, h, rgba)| self.create_texture(*w, *h, rgba));
+                let texture = |i: Option<usize>| i.map(|i| textures[i]);
                 self.create_material(MaterialDesc {
                     color: m.color,
-                    texture,
+                    texture: texture(m.image),
                     roughness: m.roughness.clamp(0.0, 1.0),
                     metallic: m.metallic.clamp(0.0, 1.0),
                     emissive: m.emissive,
+                    normal_map: texture(m.normal_map),
+                    normal_strength: m.normal_strength,
+                    orm_map: texture(m.orm_map),
+                    emissive_map: texture(m.emissive_map),
+                    blend: if m.transparent {
+                        Blend::Transparent
+                    } else {
+                        Blend::Opaque
+                    },
+                    double_sided: m.double_sided,
                     ..Default::default()
                 })
             })

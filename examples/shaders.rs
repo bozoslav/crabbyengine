@@ -20,6 +20,7 @@ fn blade() -> MeshData {
         normals: vec![Vec3::Z; 4],
         uvs: vec![vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(1.0, 1.0), vec2(0.0, 1.0)],
         indices: vec![0, 1, 2, 0, 2, 3],
+        ..Default::default()
     }
 }
 

@@ -1186,6 +1186,10 @@ struct CrabbyMeshData *crabby_mesh_data_plane(float size);
 
 struct CrabbyMeshData *crabby_mesh_data_sphere(float radius, uint32_t segments);
 
+enum CrabbyStatus crabby_mesh_data_set_colors(struct CrabbyMeshData *data,
+                                              const struct CrabbyColor *colors,
+                                              size_t count);
+
 void crabby_mesh_data_free(struct CrabbyMeshData *data);
 
 enum CrabbyStatus crabby_mesh_data_view(const struct CrabbyMeshData *data,

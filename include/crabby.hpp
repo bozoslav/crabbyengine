@@ -931,6 +931,11 @@ public:
     mesh_data& operator=(mesh_data&& o) noexcept { std::swap(raw_, o.raw_); return *this; }
     mesh_data(const mesh_data&) = delete;
     mesh_data& operator=(const mesh_data&) = delete;
+    /// One color per corner, multiplying the material's color; empty
+    /// removes them. Throws unless there's one per corner.
+    void set_colors(const std::vector<color>& colors) {
+        detail::check(crabby_mesh_data_set_colors(raw_, colors.empty() ? nullptr : colors.data(), colors.size()));
+    }
     /// Its arrays, valid while it lives.
     CrabbyMeshView view() const { CrabbyMeshView v{}; detail::check(crabby_mesh_data_view(raw_, &v)); return v; }
     const CrabbyMeshData* raw() const noexcept { return raw_; }

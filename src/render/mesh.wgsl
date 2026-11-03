@@ -53,7 +53,7 @@ struct Vertex {
     position: vec3<f32>,
     normal: vec3<f32>,
     uv: vec2<f32>,
-    color: vec4<f32>, // the model's tint
+    color: vec4<f32>, // the model's tint times the vertex color
 };
 
 // A pixel's surface, as a shader's `surface` function gets and returns it:

@@ -68,10 +68,12 @@ struct Vertex {
     position: [f32; 3],
     normal: [f32; 3],
     uv: [f32; 2],
+    /// Linear RGBA, 0..255.
+    color: [u8; 4],
 }
 
-const VERTEX_ATTRIBUTES: [wgpu::VertexAttribute; 3] =
-    wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2];
+const VERTEX_ATTRIBUTES: [wgpu::VertexAttribute; 4] =
+    wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 8 => Unorm8x4];
 const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
     3 => Float32x4, 4 => Float32x4, 5 => Float32x4, 6 => Float32x4, // model matrix
     7 => Float32x4, // tint
@@ -780,6 +782,9 @@ impl Renderer3D {
                 position: data.positions[i].to_array(),
                 normal: normals[i].to_array(),
                 uv: data.uvs.get(i).map_or([0.0; 2], |uv| uv.to_array()),
+                color: data.colors.get(i).map_or([255; 4], |&c| {
+                    linear(c).map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8)
+                }),
             })
             .collect();
         let vertices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

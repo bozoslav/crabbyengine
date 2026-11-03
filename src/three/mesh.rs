@@ -1,5 +1,6 @@
 //! [`MeshData`]: triangles on the CPU, before they go to the GPU.
 
+use crate::Color;
 use glam::{Vec2, Vec3};
 
 /// Triangles to make a [`Mesh`](crate::Mesh) from: corners with their
@@ -14,6 +15,7 @@ use glam::{Vec2, Vec3};
 ///     normals: vec![Vec3::Z; 3],
 ///     uvs: vec![vec2(0.0, 1.0), vec2(1.0, 1.0), vec2(0.0, 0.0)],
 ///     indices: vec![0, 1, 2],
+///     ..Default::default()
 /// };
 /// assert!(tri.check().is_ok());
 /// ```
@@ -28,6 +30,10 @@ pub struct MeshData {
     pub uvs: Vec<Vec2>,
     /// Three corner indices per triangle.
     pub indices: Vec<u32>,
+    /// One color per corner, multiplying the material's color (and
+    /// readable in shaders, for wind weights and other masks: `v.color`
+    /// and `s.color`). Empty: all white. Kept to 8 bits per channel.
+    pub colors: Vec<Color>,
 }
 
 impl MeshData {
@@ -91,6 +97,7 @@ impl MeshData {
                 Vec2::new(0.0, 0.0),
             ],
             indices: vec![0, 1, 2, 0, 2, 3],
+            colors: Vec::new(),
         }
     }
 
@@ -161,6 +168,9 @@ impl MeshData {
         }
         if !self.uvs.is_empty() && self.uvs.len() != corners {
             return Err(format!("{} texture coordinates for {corners} corners", self.uvs.len()));
+        }
+        if !self.colors.is_empty() && self.colors.len() != corners {
+            return Err(format!("{} colors for {corners} corners", self.colors.len()));
         }
         if !self.positions.iter().all(|p| p.is_finite()) || !self.normals.iter().all(|n| n.is_finite()) {
             return Err("a position or normal isn't a finite number".into());

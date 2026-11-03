@@ -25,6 +25,14 @@ says what that covers.
   shadow maps share `shadow_distance`, sharp near the camera and reaching
   far, blended where they meet. In C and C++ (`shadow_cascades` in the
   lighting struct).
+- 3D textures get mipmaps when a material first uses them (made on the
+  GPU; sprites still draw the full-size image).
+- glTF models load their normal, occlusion, metallic-roughness and
+  emissive maps (occlusion packed into the ORM map), vertex colors, alpha
+  blending and double-sidedness.
+- Vertex colors: `MeshData::colors`, multiplying the material's color and
+  readable in shaders. In C (`crabby_mesh_data_set_colors`) and C++
+  (`mesh_data::set_colors`).
 - Transparent shaders can read the scene behind them: `scene_color`,
   `scene_position` and `scene_distance`, for refraction and water depth.
 - `Vec4` and `vec4` are re-exported (feature `3d`).

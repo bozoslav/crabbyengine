@@ -6,6 +6,8 @@ pub(crate) mod batch;
 mod gpu;
 #[cfg(all(feature = "window", feature = "3d"))]
 mod gpu3d;
+#[cfg(all(feature = "window", feature = "3d"))]
+mod mips;
 #[cfg(not(feature = "window"))]
 mod none;
 #[cfg(feature = "window")]

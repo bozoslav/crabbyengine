@@ -592,6 +592,7 @@ pub unsafe extern "C" fn crabby_mesh_data_new(
                     std::slice::from_raw_parts(indices, index_count).to_vec()
                 }
             },
+            colors: Vec::new(),
         };
         data.check().map_err(invalid_owned)?;
         result = boxed(data);
@@ -629,6 +630,52 @@ pub extern "C" fn crabby_mesh_data_plane(size: f32) -> *mut CrabbyMeshData {
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_mesh_data_sphere(radius: f32, segments: u32) -> *mut CrabbyMeshData {
     boxed(MeshData::sphere(radius, segments))
+}
+
+/// Gives mesh data one color per corner (Rust `MeshData::colors`),
+/// multiplying its material's color; `count` must be its number of corners,
+/// or 0 to remove them.
+/// # Safety
+/// `data` null or live; `colors` holds `count` colors (may be null when 0).
+/// ```
+/// use crabby_ffi::*;
+/// let d = crabby_mesh_data_plane(1.0);
+/// let red = [CrabbyColor { r: 1.0, g: 0.0, b: 0.0, a: 1.0 }; 4];
+/// assert_eq!(unsafe { crabby_mesh_data_set_colors(d, red.as_ptr(), 4) }, CRABBY_OK);
+/// assert_eq!(unsafe { crabby_mesh_data_set_colors(d, red.as_ptr(), 3) }, CRABBY_INVALID_ARGUMENT);
+/// unsafe { crabby_mesh_data_free(d) };
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_mesh_data_set_colors(
+    data: *mut CrabbyMeshData,
+    colors: *const CrabbyColor,
+    count: usize,
+) -> CrabbyStatus {
+    boundary(|| {
+        // SAFETY: caller contract: null or live.
+        let Some(data) = (unsafe { data.as_mut() }) else {
+            return Err(invalid("mesh data is null"));
+        };
+        if colors.is_null() && count > 0 {
+            return Err(invalid("colors is null"));
+        }
+        if count != 0 && count != data.0.positions.len() {
+            return Err(invalid_owned(format!(
+                "{count} colors for {} corners",
+                data.0.positions.len()
+            )));
+        }
+        data.0.colors = if count == 0 {
+            Vec::new()
+        } else {
+            // SAFETY: caller passes `count` colors.
+            unsafe { std::slice::from_raw_parts(colors, count) }
+                .iter()
+                .map(|&c| to_c(c))
+                .collect()
+        };
+        Ok(())
+    })
 }
 
 /// Frees mesh data. Null is ignored.

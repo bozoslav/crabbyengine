@@ -199,6 +199,21 @@ fn materials_check_their_numbers() {
 }
 
 #[test]
+#[should_panic(expected = "2 colors for 3 corners")]
+fn vertex_colors_come_one_per_corner() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        let tri = MeshData {
+            positions: vec![Vec3::ZERO, Vec3::X, Vec3::Y],
+            indices: vec![0, 1, 2],
+            colors: vec![Color::RED, Color::WHITE],
+            ..Default::default()
+        };
+        let white = ctx.default_material();
+        let _ = ctx.create_mesh(&tri, white);
+    });
+}
+
+#[test]
 #[should_panic(expected = "3 per triangle")]
 fn meshes_check_their_triangles() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {

@@ -8,7 +8,8 @@ struct VertexIn {
     @location(4) m1: vec4<f32>,
     @location(5) m2: vec4<f32>,
     @location(6) m3: vec4<f32>,
-    @location(7) color: vec4<f32>,
+    @location(7) color: vec4<f32>,  // the model's tint
+    @location(8) vertex_color: vec4<f32>,
 };
 
 struct VertexOut {
@@ -30,7 +31,7 @@ fn world_vertex(in: VertexIn) -> Vertex {
     v.position = (model * vec4<f32>(in.position, 1.0)).xyz;
     v.normal = normal;
     v.uv = in.uv;
-    v.color = in.color;
+    v.color = in.color * in.vertex_color;
     return vertex(v);
 }
 

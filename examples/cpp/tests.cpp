@@ -217,6 +217,8 @@ static void three_d() {
     CHECK(std::abs(v.z + 1) < 1e-5f);
     auto tri = crabby::mesh_data({{0, 0, 0}, {1, 0, 0}, {0, 1, 0}}, {0, 1, 2});
     CHECK(tri.view().vertex_count == 3 && tri.view().normals == nullptr);
+    tri.set_colors({{1, 0, 0, 1}, {0, 1, 0, 1}, {0, 0, 1, 1}});
+    throws([&] { tri.set_colors({{1, 1, 1, 1}}); });
 }
 
 static void parallel_queries() {
