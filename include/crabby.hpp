@@ -1015,6 +1015,15 @@ public:
     template<class T> void load_json(const char* path, entity e) {
         detail::check(crabby_ctx_load_json(raw_, path, e, id<T>()));
     }
+    // Scenes and prefabs: worlds and entities kept as JSON under assets/.
+    /// Replaces the world with the scene in assets/`path`; ids are kept.
+    void load_scene(const char* path) { detail::check(crabby_ctx_load_scene(raw_, path)); }
+    /// Saves the world as a scene in assets/`path`.
+    void save_scene(const char* path) { detail::check(crabby_ctx_save_scene(raw_, path)); }
+    /// Spawns the prefab in assets/`path` with its position at `at`.
+    entity spawn_prefab(const char* path, vec2 at) { entity e = 0; detail::check(crabby_ctx_spawn_prefab(raw_, path, at, &e)); return e; }
+    /// Saves `e` as a prefab in assets/`path` (without its position).
+    void save_prefab(entity e, const char* path) { detail::check(crabby_ctx_save_prefab(raw_, e, path)); }
     texture load_texture(const char* path) { texture t{}; detail::check(crabby_ctx_load_texture(raw_, path, &t)); return t; }
     texture create_texture(std::uint32_t w, std::uint32_t h, const std::uint8_t* rgba, std::size_t len) {
         texture t{}; detail::check(crabby_ctx_create_texture(raw_, w, h, rgba, len, &t)); return t;

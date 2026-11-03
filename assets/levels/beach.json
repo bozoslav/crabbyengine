@@ -1,0 +1,8 @@
+{
+  "format": "crabby-world",
+  "version": 1,
+  "entities": [
+    { "entity": 0, "components": { "Transform2D": { "position": [0.0, 400.0] }, "Palm": { "height": 3.0 } } },
+    { "entity": 1, "components": { "Transform2D": { "position": [200.0, 380.0] }, "Palm": { "height": 5.0 } } }
+  ]
+}

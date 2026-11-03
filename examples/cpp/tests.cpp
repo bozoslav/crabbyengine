@@ -10,6 +10,7 @@
 #include <string>
 #include <thread>
 #include <type_traits>
+#include <vector>
 #define CHECK(...) do { if (!(__VA_ARGS__)) { std::cerr << "failed: " #__VA_ARGS__ << " (line " << __LINE__ << ")\n"; std::abort(); } } while (false)
 struct Pos { float x, y; };
 struct Vel { float x, y; };
@@ -120,6 +121,33 @@ static void data_files() {
     });
     CHECK(w.resource<game::Tuning>().speed == 2.5f && w.resource<game::Tuning>().waves == 3);
     std::filesystem::remove(file);
+}
+
+// Saved under the executable's assets/ copy (build output), so nothing to clean.
+static void scenes_and_prefabs() {
+    crabby::entity first = 0;
+    std::vector<crabby::entity> palms;
+    auto w = crabby::game("scenes", 1, 1).run_headless(0, [&](crabby::ctx& ctx) {
+        auto world = ctx.world();
+        world.reflect<game::Health>({crabby::field("value", &game::Health::value)});
+        auto model = world.spawn(crabby::transform_at({70, 80}), game::Health{9});
+        ctx.save_prefab(model, "test-cpp-prefab.json");
+        world.despawn(model);
+        for (float x : {0.0f, 10.0f}) palms.push_back(ctx.spawn_prefab("test-cpp-prefab.json", {x, 100}));
+        throws([&] { ctx.spawn_prefab("test-cpp-missing.json", {0, 0}); });
+        throws([&] { ctx.load_scene("test-cpp-missing.json"); });
+        throws([&] { ctx.save_prefab(model, "test-cpp-dead.json"); });
+        first = palms[0];
+        ctx.save_scene("test-cpp-scene.json");
+    });
+    CHECK(w.size() == 2);
+    CHECK(w.get<crabby::transform2d>(palms[1]).position.x == 10 && w.get<game::Health>(palms[1]).value == 9);
+    auto loaded = crabby::game("scenes", 1, 1).run_headless(0, [&](crabby::ctx& ctx) {
+        ctx.world().reflect<game::Health>({crabby::field("value", &game::Health::value)});
+        ctx.world().spawn(Tag{});   // replaced by the scene
+        ctx.load_scene("test-cpp-scene.json");
+    });
+    CHECK(loaded.size() == 2 && loaded.get<game::Health>(first).value == 9);
 }
 
 static void parallel_queries() {
@@ -411,6 +439,7 @@ int main() {
     names_and_reflection();
     resources();
     data_files();
+    scenes_and_prefabs();
     parallel_queries();
     games();
     attachments();

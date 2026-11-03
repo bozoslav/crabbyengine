@@ -673,7 +673,27 @@ static void turrets_ride_on_tanks() {
 }
 // ANCHOR_END: attach
 
+// ---- Scenes and prefabs -------------------------------------------------------------
+// ANCHOR: scenes
+struct Palm { float height; };
+
+static void beach(crabby::ctx& ctx) {
+    ctx.world().reflect<Palm>({crabby::field("height", &Palm::height)});   // components in files must be reflected
+    ctx.load_scene("levels/beach.json");   // the level: its entities, ids kept
+    for (int i = 0; i < 3; ++i)            // three more palms, all alike, in a row
+        ctx.spawn_prefab("prefabs/palm.json", {400.0f + float(i) * 64, 400});
+}
+// ANCHOR_END: scenes
+
+static void the_beach_has_five_palms() {
+    auto world = crabby::game("guide", 1, 1).run_headless(0, beach);
+    std::size_t palms = 0;
+    world.each([&](const Palm&) { ++palms; });
+    if (palms != 5) { std::fprintf(stderr, "%zu palms\n", palms); std::abort(); }
+}
+
 int main() {
+    the_beach_has_five_palms();
     things_fall_ten_units_per_second();
     turrets_ride_on_tanks();
     crowds_reach_the_goal();

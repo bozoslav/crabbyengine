@@ -169,6 +169,8 @@ pub struct Ctx {
     pub(crate) watcher: crate::hot_reload::Watcher,
     /// How to apply each loaded data file's text (`load_resource`).
     data_loaders: Vec<DataLoader>,
+    /// Parsed prefab files, by name (`spawn_prefab`).
+    pub(crate) prefabs: HashMap<String, serde_json::Value>,
     /// Files already loaded, by resolved path: loading one again returns the same handle.
     pub(crate) loaded: HashMap<(std::path::PathBuf, AssetKind), u64>,
     /// Textures and sounds loaded from files, indexed by `loaded` values.
@@ -254,6 +256,7 @@ impl Ctx {
             headless_textures: 0,
             watcher: Default::default(),
             data_loaders: Vec::new(),
+            prefabs: HashMap::new(),
             loaded: HashMap::new(),
             cached_textures: Vec::new(),
             cached_sounds: Vec::new(),

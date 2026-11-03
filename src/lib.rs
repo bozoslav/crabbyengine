@@ -71,6 +71,7 @@ mod query;
 mod random;
 mod reflect;
 mod render;
+mod scene;
 mod sheet;
 mod spatial;
 mod text;

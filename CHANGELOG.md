@@ -7,6 +7,15 @@ says what that covers.
 
 ## [Unreleased]
 
+### Added
+- Polygon colliders: `Collider::polygon` (3 to 8 corners, convex), in C
+  (`crabby_set_polygon_collider`, `crabby_collider_points`) and C++
+  (`crabby::polygon_collider`).
+- Scenes and prefabs: `ctx.load_scene`/`save_scene` keep a whole world in a
+  file under `assets/`; `ctx.spawn_prefab`/`save_prefab` keep one entity's
+  components and spawn copies where you say. In C (`crabby_ctx_load_scene`
+  and friends) and C++ (`ctx.load_scene` and friends).
+
 ## [1.0.0] - 2026-11-03
 
 The first release: a 2D engine for simulations with up to millions of

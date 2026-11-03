@@ -1,0 +1,8 @@
+{
+  "format": "crabby-prefab",
+  "version": 1,
+  "components": {
+    "Transform2D": { "rotation": 0.1 },
+    "Palm": { "height": 4.0 }
+  }
+}

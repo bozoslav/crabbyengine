@@ -48,6 +48,36 @@ pub(crate) fn read(path: &Path) -> std::io::Result<Vec<u8>> {
     std::fs::read(path)
 }
 
+/// Writes `name` (relative to `assets/`): over the file where [`resolve`]
+/// finds it, else into the first `assets/` folder that exists (or the first
+/// one, created). Returns where it went.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn write(name: &str, bytes: &[u8]) -> Result<PathBuf, String> {
+    let path = match resolve(name) {
+        Ok(existing) => existing,
+        Err(_) => {
+            let roots = asset_roots();
+            let root = roots
+                .iter()
+                .find(|r| r.is_dir())
+                .or(roots.first())
+                .ok_or("no assets/ folder")?;
+            root.join(name)
+        }
+    };
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
+    }
+    std::fs::write(&path, bytes).map_err(|e| format!("could not write {}: {e}", path.display()))?;
+    Ok(path)
+}
+
+/// Web builds can't write files.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn write(name: &str, _: &[u8]) -> Result<PathBuf, String> {
+    Err(format!("can't save \"{name}\": web builds have no files"))
+}
+
 /// Reads an asset file found by [`resolve`] as UTF-8 text.
 pub(crate) fn read_to_string(path: &Path) -> Result<String, String> {
     let bytes = read(path).map_err(|e| format!("could not read {}: {e}", path.display()))?;

@@ -1011,6 +1011,17 @@ enum CrabbyStatus crabby_resource_reflect(struct CrabbyWorld *world,
                                           const struct CrabbyField *fields,
                                           size_t len);
 
+enum CrabbyStatus crabby_ctx_load_scene(struct CrabbyCtx *ctx, const char *path);
+
+enum CrabbyStatus crabby_ctx_save_scene(struct CrabbyCtx *ctx, const char *path);
+
+enum CrabbyStatus crabby_ctx_spawn_prefab(struct CrabbyCtx *ctx,
+                                          const char *path,
+                                          struct CrabbyVec2 at,
+                                          uint64_t *out_entity);
+
+enum CrabbyStatus crabby_ctx_save_prefab(struct CrabbyCtx *ctx, uint64_t entity, const char *path);
+
 enum CrabbyStatus crabby_game_lockstep_steam_host(struct CrabbyGame *game,
                                                   uint32_t app_id,
                                                   uint32_t players,
