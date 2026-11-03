@@ -2,7 +2,11 @@
 name = "crabby_bench"
 version = "0.0.0"
 description = "Benchmarks: crabby_ecs vs bevy_ecs vs hecs, and simulation at scale."
-edition = "2024"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
 publish = false
 
 [dependencies]

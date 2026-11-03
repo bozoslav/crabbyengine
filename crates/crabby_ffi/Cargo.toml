@@ -1,7 +1,14 @@
 [package]
 name = "crabby_ffi"
 version = "0.1.0"
-edition = "2024"
+description = "C API for Crabby Engine; include/crabby.hpp wraps it for C++17."
+keywords = ["gamedev", "ffi", "c", "cpp"]
+categories = ["game-engines", "api-bindings"]
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
 
 [lib]
 crate-type = ["rlib", "staticlib", "cdylib"]

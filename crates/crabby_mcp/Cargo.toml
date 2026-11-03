@@ -1,7 +1,13 @@
 [package]
 name = "crabby_mcp"
 version = "0.1.0"
-edition = "2024"
+keywords = ["mcp", "gamedev", "agents", "ai"]
+categories = ["game-development", "development-tools"]
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
 description = "MCP server that lets AI agents inspect and drive running Crabby Engine games"
 
 [[bin]]

@@ -29,7 +29,11 @@
 //!   calls do nothing, `Game::run` panics. For simulation servers and CI,
 //!   with a much smaller build.
 //! - `audio` (default): sound through kira; without it sounds are silent.
+//! - `inspector` (default): the in-game inspector overlay (egui), opened
+//!   with the backquote key. On in debug builds; see `Game::inspector`.
 //! - `profiling`: per-system scopes for `puffin_viewer`.
+//! - `hotpatch`: change system code while the game runs, with
+//!   `dx serve --hot-patch --features hotpatch`.
 
 // Without a window, the code that only the window loop calls is unused.
 #![cfg_attr(not(feature = "window"), allow(dead_code))]

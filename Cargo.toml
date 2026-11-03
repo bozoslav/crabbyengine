@@ -1,7 +1,16 @@
 [package]
 name = "crabbyengine"
 version = "0.1.0"
-edition = "2024"
+description = "A fast 2D game engine for simulating millions of things: ECS on all cores, hot reload, an in-game inspector, AI-agent control, and a C++ API."
+keywords = ["gamedev", "engine", "2d", "ecs", "simulation"]
+categories = ["game-engines", "game-development", "simulation"]
+readme = "README.md"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://bozoslav.github.io/crabbyengine/api/crabbyengine/"
 
 [dependencies]
 crabby_ecs = { path = "crates/crabby_ecs", features = ["serde"] }
@@ -44,11 +53,18 @@ inspector = ["window", "dep:egui", "dep:egui-wgpu", "dep:egui-winit"]
 profiling = ["dep:puffin", "dep:puffin_http"]
 # Hot-patch system code while the game runs, keeping all its state: run
 # with Dioxus's CLI, `dx serve --hot-patch --features hotpatch` (see the
-# guide's "Hot reload of code" chapter). Off: systems are called directly.
+# guide's "Changing code while the game runs" chapter). Off: systems are called directly.
 hotpatch = ["dep:subsecond", "dep:dioxus-devtools"]
 
 [workspace]
 members = [".", "crates/crabby_ecs", "crates/crabby_bench", "crates/crabby_mcp", "crates/crabby_ffi"]
+
+[workspace.package]
+edition = "2024"
+license = "MIT OR Apache-2.0"
+authors = ["Leon Mamić and Crabby Engine contributors"]
+repository = "https://github.com/bozoslav/crabbyengine"
+homepage = "https://bozoslav.github.io/crabbyengine/"
 
 # Debug builds with light optimization: games and tests run 5-6x faster
 # (boids 6.5 -> 1.1 ms/tick at 20k), edit -> build stays ~0.6 s, debug info
