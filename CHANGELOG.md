@@ -29,6 +29,9 @@ Everything so far, ahead of the first release.
 - `Camera2D` (pan, zoom, follow), text, shapes, simple UI.
 - Sprite sheets, animation and tilemaps.
 - Sound through kira (`audio` feature).
+- Gamepads through gilrs (`gamepad` feature, on by default): buttons named
+  by position, sticks and triggers, up to 8 pads in fixed slots, plugged in
+  and out while the game runs; in C and C++ too.
 
 ### Fast iteration
 - Hot reload of images, sounds, fonts and JSON data files.
@@ -51,6 +54,19 @@ Everything so far, ahead of the first release.
 - The docs site publishes playable builds of the battle, flow and ants demos.
 
 ### C and C++
+- C++: components are found by their type, with nothing to register:
+  `world.spawn(transform_at(p), Health{100})`, `world.get<Health>(e)`,
+  `world.each([](transform2d& t, const Vel& v) { ... })` (as fast as a
+  hand-written loop), `each_par` on all cores, `ctx.send(Died{e})` and
+  `ctx.read<Died>()`. `world.reflect<T>(fields)` describes a type for tools
+  and saves. Replaces component tokens (`world.component<T>("Name")`,
+  `token.with(value)`).
+- Resources from C and C++: `world.set_resource(Score{...})`,
+  `world.resource<Score>()`, `try_resource`, `remove_resource`, and
+  `reflect_resource<T>(fields)` so agents and saves see them (C:
+  `crabby_resource_*`, by name). The C++ battle keeps its score in one.
+  `ctx.load_json<T>(path)` loads a data file into a resource, live.
+- Fixed: `ctx.load_json<T>(path, e)` failed for C++ types in a namespace.
 - C API (`crabby_ffi`) with a generated header, and a header-only C++17
   wrapper (`include/crabby.hpp`) covering nearly the whole engine.
 

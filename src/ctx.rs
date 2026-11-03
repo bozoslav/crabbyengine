@@ -12,7 +12,7 @@ use crate::color::Color;
 use crate::ecs::{Sprite, Transform2D};
 use crate::events::Events;
 use crate::hot_reload::Asset;
-use crate::input::{Input, Key, MouseButton};
+use crate::input::{Gamepad, GamepadAxis, GamepadButton, GamepadStick, Input, Key, MouseButton};
 use crate::reflect::WorldReflect;
 use crate::render::batch::{DrawList, SpriteInstance};
 use crate::render::batch::{FULL_UV, uv_region};
@@ -904,6 +904,21 @@ impl Ctx {
         )
     }
 
+    /// Loads a JSON file into the reflected resource `name` (object fields
+    /// merge; it's added if missing), reloading it when the file changes:
+    /// the C and C++ way to [`load_resource`](Self::load_resource).
+    #[doc(hidden)]
+    pub fn load_resource_json(&mut self, path: &str, name: &str) -> Result<(), String> {
+        let name = name.to_string();
+        self.load_data(
+            path,
+            Box::new(move |world: &mut World, text: &str| {
+                let value: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+                world.set_resource_json(&name, value).map_err(|e| e.to_string())
+            }),
+        )
+    }
+
     fn load_data(&mut self, path: &str, apply: DataLoader) -> Result<(), String> {
         let file = assets::resolve(path)?;
         let text = assets::read_to_string(&file)?;
@@ -1370,6 +1385,92 @@ impl Ctx {
     /// ```
     pub fn mouse_wheel(&self) -> Vec2 {
         self.input.mouse_wheel()
+    }
+
+    // ---------------------------------------------------------------- gamepads
+
+    /// The connected gamepads, by slot (player one first). Empty when none
+    /// are plugged in, in headless runs, and without the `gamepad` feature.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn update(ctx: &mut Ctx, pos: &mut Vec2) {
+    /// if let Some(&pad) = ctx.gamepads().first() {
+    ///     *pos += ctx.gamepad_stick(pad, GamepadStick::Left) * 300.0 * ctx.dt();
+    /// }
+    /// # }
+    /// ```
+    pub fn gamepads(&self) -> &[Gamepad] {
+        self.input.gamepads()
+    }
+
+    /// `true` while `button` is held on `pad`.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn update(ctx: &mut Ctx, pad: Gamepad) {
+    /// let running = ctx.gamepad_down(pad, GamepadButton::West);
+    /// # }
+    /// ```
+    pub fn gamepad_down(&self, pad: Gamepad, button: GamepadButton) -> bool {
+        self.input.gamepad_down(pad, button)
+    }
+
+    /// `true` only on the frame `button` went down on `pad`.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn update(ctx: &mut Ctx, pad: Gamepad) {
+    /// if ctx.gamepad_pressed(pad, GamepadButton::South) { println!("jump"); }
+    /// # }
+    /// ```
+    pub fn gamepad_pressed(&self, pad: Gamepad, button: GamepadButton) -> bool {
+        self.input.gamepad_pressed(pad, button)
+    }
+
+    /// `true` only on the frame `button` was let go on `pad` (or `pad` was
+    /// unplugged while it was held).
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn update(ctx: &mut Ctx, pad: Gamepad) {
+    /// if ctx.gamepad_released(pad, GamepadButton::RightTrigger) { println!("fire!"); }
+    /// # }
+    /// ```
+    pub fn gamepad_released(&self, pad: Gamepad, button: GamepadButton) -> bool {
+        self.input.gamepad_released(pad, button)
+    }
+
+    /// One axis of `pad`: sticks from `-1.0` to `1.0` (y down is positive,
+    /// like screen coordinates), triggers from `0.0` to `1.0`. Small
+    /// movements around the center read as `0.0`.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn update(ctx: &mut Ctx, pad: Gamepad) {
+    /// let throttle = ctx.gamepad_axis(pad, GamepadAxis::RightTrigger);
+    /// # }
+    /// ```
+    pub fn gamepad_axis(&self, pad: Gamepad, axis: GamepadAxis) -> f32 {
+        self.input.gamepad_axis(pad, axis)
+    }
+
+    /// A stick of `pad` as a vector, each part from `-1.0` to `1.0`, y down:
+    /// add it to a position to move that way.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn update(ctx: &mut Ctx, pad: Gamepad, aim: &mut Vec2) {
+    /// let stick = ctx.gamepad_stick(pad, GamepadStick::Right);
+    /// if stick.length() > 0.5 { *aim = stick.normalize(); }
+    /// # }
+    /// ```
+    pub fn gamepad_stick(&self, pad: Gamepad, stick: GamepadStick) -> Vec2 {
+        let (x, y) = match stick {
+            GamepadStick::Left => (GamepadAxis::LeftStickX, GamepadAxis::LeftStickY),
+            GamepadStick::Right => (GamepadAxis::RightStickX, GamepadAxis::RightStickY),
+        };
+        Vec2::new(self.gamepad_axis(pad, x), self.gamepad_axis(pad, y))
     }
 
     // ---------------------------------------------------------------- window

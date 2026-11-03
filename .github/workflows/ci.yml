@@ -1,6 +1,5 @@
-# Every check is its own job, so one failure never hides the others:
-# each job reports pass/fail separately on the PR, matrices don't fail fast,
-# and test jobs use --no-fail-fast so every test in a suite runs.
+# One failure never hides another: matrices don't fail fast, test steps run
+# even after an earlier step failed, and --no-fail-fast runs every suite.
 
 name: CI
 
@@ -49,9 +48,9 @@ jobs:
             args: -p crabbyengine --no-default-features --features audio
     steps:
       - uses: actions/checkout@v5
-      - name: Install ALSA headers (audio)
+      - name: Install ALSA and udev headers (audio, gamepads)
         if: runner.os == 'Linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev libudev-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -60,101 +59,13 @@ jobs:
           key: clippy-${{ matrix.name }}
       - run: cargo clippy --workspace --all-targets ${{ matrix.args }}
 
-  # One job per test area and OS, so a failure points straight at what broke.
-  # Areas map to files: crates/crabby_ecs/tests/<area>.rs, the engine's unit
-  # tests, doctests and the benchmark crate's tests.
+  # One job per OS: compiling is ~90% of the time, so build once and run
+  # every test there. Each feature combination is its own step, and every
+  # step runs even if an earlier one failed, so one failure never hides
+  # another. (One job per test file meant ~110 jobs that each compiled the
+  # workspace, queued behind GitHub's limit of 5 macOS jobs at a time.)
   test:
-    name: Test ${{ matrix.area }} (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        area:
-          - ecs-entities
-          - ecs-queries
-          - ecs-resources
-          - ecs-commands
-          - ecs-dynamic
-          - ecs-parallel
-          - ecs-without-parallel
-          - engine
-          - engine-headless
-          - engine-ui
-          - engine-tiles
-          - engine-audio
-          - engine-spatial
-          - engine-reflect
-          - engine-control
-          - engine-determinism
-          - engine-flow
-          - engine-attach
-          - engine-events
-          - engine-without-window
-          - engine-hot-reload
-          - engine-hotpatch
-          - mcp
-          - ffi-unit
-          - ffi-abi
-          - ffi-game
-          - ffi-media
-          - ffi-attach
-          - ffi-reflect
-          - ffi-tiles
-          - ffi-flow
-          - ffi-events
-          - doctests
-          - bench
-        include:
-          - { area: ecs-entities, args: -p crabby_ecs --test entities }
-          - { area: ecs-queries, args: -p crabby_ecs --test queries }
-          - { area: ecs-resources, args: -p crabby_ecs --test resources }
-          - { area: ecs-commands, args: -p crabby_ecs --test commands }
-          - { area: ecs-dynamic, args: -p crabby_ecs --test dynamic }
-          - { area: ecs-parallel, args: -p crabby_ecs --test parallel }
-          - { area: ecs-without-parallel, args: -p crabby_ecs --tests --no-default-features }
-          - { area: engine, args: -p crabbyengine --lib }
-          - { area: engine-headless, args: -p crabbyengine --test headless }
-          - { area: engine-ui, args: -p crabbyengine --test ui }
-          - { area: engine-tiles, args: -p crabbyengine --test tiles }
-          - { area: engine-audio, args: -p crabbyengine --test audio }
-          - { area: engine-spatial, args: -p crabbyengine --test spatial }
-          - { area: engine-reflect, args: -p crabbyengine --test reflect }
-          - { area: engine-control, args: -p crabbyengine --test control }
-          - { area: engine-determinism, args: -p crabbyengine --test determinism }
-          - { area: engine-flow, args: -p crabbyengine --test flow }
-          - { area: engine-attach, args: -p crabbyengine --test attach }
-          - { area: engine-events, args: -p crabbyengine --test events }
-          - { area: engine-without-window, args: -p crabbyengine --tests --no-default-features --features audio }
-          - { area: engine-hot-reload, args: -p crabbyengine --test hot_reload }
-          # Systems called through subsecond's jump table (no dx attached) behave the same.
-          - { area: engine-hotpatch, args: -p crabbyengine --features hotpatch --test headless --test determinism --test events }
-          - { area: mcp, args: -p crabby_mcp }
-          - { area: ffi-unit, args: -p crabby_ffi --lib }
-          - { area: ffi-abi, args: -p crabby_ffi --test abi }
-          - { area: ffi-game, args: -p crabby_ffi --test game }
-          - { area: ffi-media, args: -p crabby_ffi --test media }
-          - { area: ffi-attach, args: -p crabby_ffi --test attach }
-          - { area: ffi-reflect, args: -p crabby_ffi --test reflect }
-          - { area: ffi-tiles, args: -p crabby_ffi --test tiles }
-          - { area: ffi-flow, args: -p crabby_ffi --test flow }
-          - { area: ffi-events, args: -p crabby_ffi --test events }
-          - { area: doctests, args: --workspace --doc }
-          - { area: bench, args: -p crabby_bench }
-    steps:
-      - uses: actions/checkout@v5
-      - name: Install ALSA headers (audio)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          # ECS areas share one cache; engine-level areas share another.
-          key: test-${{ startsWith(matrix.area, 'ecs') && 'ecs' || matrix.area }}
-      - run: cargo test --no-fail-fast ${{ matrix.args }}
-
-  examples:
-    name: Build examples (${{ matrix.os }})
+    name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -162,21 +73,36 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v5
-      - name: Install ALSA headers (audio)
+      - name: Install ALSA and udev headers (audio, gamepads)
         if: runner.os == 'Linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev libudev-dev
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --examples
+      # Every crate's unit, integration and doc tests; also builds the examples.
+      - name: Tests (default features)
+        run: cargo test --workspace --no-fail-fast
+      - name: Tests, ECS without rayon
+        if: ${{ !cancelled() }}
+        run: cargo test -p crabby_ecs --tests --no-fail-fast --no-default-features
+      - name: Tests, engine without a window
+        if: ${{ !cancelled() }}
+        run: cargo test -p crabbyengine --tests --no-fail-fast --no-default-features --features audio
+      # Systems called through subsecond's jump table (no dx attached) behave the same.
+      - name: Tests, engine with hotpatch
+        if: ${{ !cancelled() }}
+        run: cargo test -p crabbyengine --no-fail-fast --features hotpatch --test headless --test determinism --test events
+      - name: Build examples
+        if: ${{ !cancelled() }}
+        run: cargo build --workspace --examples
 
   docs:
     name: Docs
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Install ALSA headers (audio)
+      - name: Install ALSA and udev headers (audio, gamepads)
         if: runner.os == 'Linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev libudev-dev
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo doc --workspace --no-deps
@@ -229,9 +155,9 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v5
-      - name: Install ALSA headers (audio)
+      - name: Install ALSA and udev headers (audio, gamepads)
         if: runner.os == 'Linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev libudev-dev
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -256,8 +182,6 @@ jobs:
       - run: cmake --build target/native --config Release
       - run: ctest --test-dir target/native -C Release --output-on-failure
 
-  # Single check for branch protection: passes only if every job above passed.
-  # (Requiring one job keeps the rule valid when jobs are added or renamed.)
   # The web build (wasm32): lint the browser-only code, and build the battle
   # demo the way the docs site does.
   web:
@@ -280,10 +204,12 @@ jobs:
           tool: wasm-bindgen@${{ env.WASM_BINDGEN }}
       - run: web/build.sh battle
 
+  # Single check for branch protection: passes only if every job above passed.
+  # (Requiring one job keeps the rule valid when jobs are added or renamed.)
   ci-passed:
     name: CI passed
     if: always()
-    needs: [fmt, clippy, test, examples, docs, book, miri, native, web]
+    needs: [fmt, clippy, test, docs, book, miri, native, web]
     runs-on: ubuntu-latest
     steps:
       - name: Check every job

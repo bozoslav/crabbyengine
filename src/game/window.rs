@@ -53,6 +53,8 @@ where
         occluded: false,
         #[cfg(feature = "inspector")]
         inspector: None,
+        #[cfg(feature = "gamepad")]
+        gamepads: None,
     };
 
     event_loop
@@ -99,6 +101,9 @@ struct App<S> {
     /// inspector overlay, when the game has it on.
     #[cfg(feature = "inspector")]
     inspector: Option<crate::inspector::Inspector>,
+    /// Connected controllers, read at the start of every frame.
+    #[cfg(feature = "gamepad")]
+    gamepads: Option<crate::gamepad::Gamepads>,
 }
 
 impl<S, U> App<S>
@@ -127,6 +132,10 @@ where
         puffin::GlobalProfiler::lock().new_frame();
         let timing = frame_timing(&mut self.clock, &mut self.ctx, frame_dt);
         self.ctx.begin_frame(timing);
+        #[cfg(feature = "gamepad")]
+        if let Some(pads) = &mut self.gamepads {
+            pads.poll(&mut self.ctx.input);
+        }
         self.ctx.reload_changed_assets();
         self.config.run_systems(&mut self.ctx, timing.fixed_steps);
         self.ctx.input.end_frame();
@@ -173,6 +182,11 @@ where
             let mut inspector = crate::inspector::Inspector::new(&window, max_side as usize);
             inspector.open = open;
             self.inspector = Some(inspector);
+        }
+
+        #[cfg(feature = "gamepad")]
+        {
+            self.gamepads = Some(crate::gamepad::Gamepads::new(&mut self.ctx.input));
         }
 
         if let Some(setup) = self.setup.take() {

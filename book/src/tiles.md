@@ -77,7 +77,7 @@ let boom = Animation::new(sheet, 8..16, 24.0).once(); // stops on the last frame
 
 `animation.finished()` tells you when a `once()` animation is done, so you
 can despawn the explosion. In C++, `crabby::animation` is a plain struct, so
-animations are query columns (`world.animations()`) like `Transform2D`.
+an `each` can take `crabby::animation&` like `crabby::transform2d&`.
 
 ## Tilemaps
 

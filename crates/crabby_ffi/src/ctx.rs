@@ -9,9 +9,9 @@ use std::ffi::{CStr, c_char, c_void};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crabby_ecs::{Commands, Entity};
-use crabbyengine::{Ctx, SpatialGrid};
+use crabbyengine::{Ctx, Gamepad, GamepadButton, SpatialGrid};
 
-use crate::keys::{button_from_c, key_from_c};
+use crate::keys::{button_from_c, gamepad_axis_from_c, gamepad_button_from_c, key_from_c};
 use crate::types::*;
 use crate::{
     CrabbyStatus, CrabbyValue, CrabbyWorld, Failure, Kind, boundary, error, insert_value, invalid, spawn_values,
@@ -529,6 +529,130 @@ pub unsafe extern "C" fn crabby_ctx_mouse_released(
         })
     })
 }
+/// How many gamepads are connected; read each with `crabby_ctx_gamepad_at`.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_gamepad_count(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; `out_count` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_gamepad_count(ctx: *mut CrabbyCtx, out_count: *mut u32) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_count, c.gamepads().len() as u32)) })
+}
+/// The slot of the `index`th connected gamepad (`0..count`), by slot order:
+/// the number every other gamepad call takes as `pad`.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_gamepad_at(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; `out_pad` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_gamepad_at(ctx: *mut CrabbyCtx, index: u32, out_pad: *mut u32) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let pad = c
+                .gamepads()
+                .get(index as usize)
+                .ok_or_else(|| invalid("no gamepad at that index"))?;
+            out(out_pad, pad.slot() as u32)
+        })
+    })
+}
+
+fn gamepad_args(pad: u32, button: u32) -> Result<(Gamepad, GamepadButton), Failure> {
+    let pad = Gamepad::from_slot(pad as usize).ok_or_else(|| invalid("gamepad slot out of range"))?;
+    let button = gamepad_button_from_c(button).ok_or_else(|| invalid("unknown gamepad button"))?;
+    Ok((pad, button))
+}
+
+/// Whether `button` (`CrabbyGamepadButton`) is held on gamepad `pad` (a slot).
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_gamepad_down(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; `out_state` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_gamepad_down(
+    ctx: *mut CrabbyCtx,
+    pad: u32,
+    button: u32,
+    out_state: *mut bool,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let (pad, button) = gamepad_args(pad, button)?;
+            out(out_state, c.gamepad_down(pad, button))
+        })
+    })
+}
+/// Whether `button` went down on `pad` this frame.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_gamepad_pressed(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; `out_state` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_gamepad_pressed(
+    ctx: *mut CrabbyCtx,
+    pad: u32,
+    button: u32,
+    out_state: *mut bool,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let (pad, button) = gamepad_args(pad, button)?;
+            out(out_state, c.gamepad_pressed(pad, button))
+        })
+    })
+}
+/// Whether `button` went up on `pad` this frame.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_gamepad_released(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; `out_state` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_gamepad_released(
+    ctx: *mut CrabbyCtx,
+    pad: u32,
+    button: u32,
+    out_state: *mut bool,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let (pad, button) = gamepad_args(pad, button)?;
+            out(out_state, c.gamepad_released(pad, button))
+        })
+    })
+}
+/// One axis (`CrabbyGamepadAxis`) of gamepad `pad`: sticks `-1..1` (y down),
+/// triggers `0..1`.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_gamepad_axis(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; `out_value` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_gamepad_axis(
+    ctx: *mut CrabbyCtx,
+    pad: u32,
+    axis: u32,
+    out_value: *mut f32,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let pad = Gamepad::from_slot(pad as usize).ok_or_else(|| invalid("gamepad slot out of range"))?;
+            let axis = gamepad_axis_from_c(axis).ok_or_else(|| invalid("unknown gamepad axis"))?;
+            out(out_value, c.gamepad_axis(pad, axis))
+        })
+    })
+}
 /// Mouse position in window pixels.
 /// ```
 /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_mouse_pos(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
@@ -612,10 +736,41 @@ pub unsafe extern "C" fn crabby_ctx_load_json(
                 .world
                 .component_at(component as usize)
                 .ok_or_else(|| invalid("component id is not registered in this world"))?;
+            // C components are reflected under their full name ("game::Rules"),
+            // Rust ones under their short name.
             let full = c.world.component_info(id).name();
-            let name = full.rsplit("::").next().unwrap_or(full).to_string();
+            let name = if crabbyengine::WorldReflect::reflected_components(&c.world).contains(&full) {
+                full.to_string()
+            } else {
+                full.rsplit("::").next().unwrap_or(full).to_string()
+            };
             c.load_component_json(path, Entity::from_bits(entity), &name)
                 .map_err(crate::invalid_owned)
+        })
+    })
+}
+/// Loads a JSON file from `assets/` into the resource called `name`, which
+/// `crabby_resource_reflect` described (object fields merge; it's added if
+/// missing). With hot reload on, editing the file updates the resource while
+/// the game runs; a file that doesn't parse keeps the old values.
+/// # Safety
+/// `ctx` must be null or live; `path` and `name` NUL-terminated strings.
+/// ```
+/// let status = unsafe { crabby_ffi::crabby_ctx_load_resource_json(std::ptr::null_mut(), std::ptr::null(), std::ptr::null()) };
+/// assert_eq!(status, crabby_ffi::CrabbyStatus::CRABBY_INVALID_ARGUMENT);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_load_resource_json(
+    ctx: *mut CrabbyCtx,
+    path: *const c_char,
+    name: *const c_char,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let path = text(path)?;
+            let name = text(name)?;
+            c.load_resource_json(path, name).map_err(crate::invalid_owned)
         })
     })
 }
