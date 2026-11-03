@@ -1,4 +1,4 @@
-//! Component reflection: read and write components by name, as JSON.
+//! Reflection: read and write components and resources by name, as JSON.
 //!
 //! Reflection is opt-in per component type and uses serde, so any type with
 //! `#[derive(Serialize, Deserialize)]` can be reflected. It is what tools use
@@ -33,6 +33,10 @@ pub enum ReflectError {
     MissingComponent { entity: Entity, component: String },
     /// The JSON doesn't fit the component type, or the value can't be written as JSON.
     BadValue { component: String, message: String },
+    /// No reflected resource has this name.
+    UnknownResource(String),
+    /// The resource is reflected but not in the world right now.
+    MissingResource(String),
 }
 
 impl fmt::Display for ReflectError {
@@ -47,6 +51,11 @@ impl fmt::Display for ReflectError {
                 write!(f, "entity {} has no `{component}`", entity.to_bits())
             }
             Self::BadValue { component, message } => write!(f, "bad value for `{component}`: {message}"),
+            Self::UnknownResource(name) => write!(
+                f,
+                "no reflected resource named `{name}` (register it with `world.reflect_resource::<T>()`)"
+            ),
+            Self::MissingResource(name) => write!(f, "resource `{name}` is not in the world"),
         }
     }
 }
@@ -79,11 +88,26 @@ struct Reflected {
     remove: RemoveFn,
 }
 
-/// The reflected components of a world, stored in it as a resource.
+type ResGetFn = Arc<dyn Fn(&World) -> Option<Result<Value, String>> + Send + Sync>;
+type ResSetFn = Arc<dyn Fn(&mut World, Value) -> Result<(), String> + Send + Sync>;
+
+/// What reflection knows about one resource type.
+#[derive(Clone)]
+struct ReflectedResource {
+    name: String,
+    type_name: String,
+    get: ResGetFn,
+    set: ResSetFn,
+    check: CheckFn,
+}
+
+/// The reflected components and resources of a world, stored in it as a resource.
 #[derive(Default)]
 struct Registry {
     list: Vec<Reflected>,
     by_name: HashMap<String, usize>,
+    resources: Vec<ReflectedResource>,
+    resource_by_name: HashMap<String, usize>,
     /// Field layouts of components described with `reflect_fields`, by id:
     /// how tools read C events of those types.
     layouts: HashMap<ComponentId, Arc<FieldLayout>>,
@@ -103,6 +127,18 @@ pub(crate) unsafe fn raw_json(world: &World, id: ComponentId, p: *const u8) -> O
     let layout = registry(world)?.layouts.get(&id)?;
     // SAFETY: forwarded.
     Some((layout.component.as_str(), unsafe { layout.read(p) }))
+}
+
+fn get_resource<R: Send + Sync + 'static + Serialize>(world: &World) -> Option<Result<Value, String>> {
+    world
+        .get_resource::<R>()
+        .map(|v| serde_json::to_value(v).map_err(|err| err.to_string()))
+}
+
+fn set_resource<R: Send + Sync + 'static + DeserializeOwned>(world: &mut World, value: Value) -> Result<(), String> {
+    let value: R = serde_json::from_value(value).map_err(|err| err.to_string())?;
+    world.insert_resource(value);
+    Ok(())
 }
 
 fn get<T: Component + Serialize>(world: &World, e: Entity) -> Option<Result<Value, String>> {
@@ -529,7 +565,8 @@ pub trait WorldReflect {
     /// The whole world as JSON: every entity that has reflected components,
     /// with its id, sorted by id. Components that aren't reflected are not
     /// saved; `"not_saved"` counts them by name, so nothing goes missing
-    /// silently. Resources are not saved.
+    /// silently. Reflected resources ([`reflect_resource`](Self::reflect_resource))
+    /// are saved under `"resources"`; others are not.
     ///
     /// ```
     /// # use crabbyengine::*;
@@ -543,8 +580,9 @@ pub trait WorldReflect {
 
     /// Replaces every entity with those in `save` (from [`save`](Self::save)),
     /// **with the same ids**, so components that refer to entities stay
-    /// valid. Resources stay. Everything is checked before anything
-    /// changes: on error the world is untouched.
+    /// valid. Reflected resources in the save are written; all other
+    /// resources stay. Everything is checked before anything changes: on
+    /// error the world is untouched.
     ///
     /// Old handles may match loaded entities afterwards (the save's ids
     /// take over), which is the point.
@@ -561,6 +599,77 @@ pub trait WorldReflect {
     /// assert_eq!(world.get::<Transform2D>(e).unwrap().position, vec2(1.0, 2.0));
     /// ```
     fn load(&mut self, save: &Value) -> Result<(), ReflectError>;
+
+    /// Makes resource `R` visible to reflection under its type name without
+    /// the module path, like [`reflect`](Self::reflect) does for components.
+    /// Tools (agents through `crabby-mcp`, the control endpoint) can then
+    /// read and change it, and world saves include it.
+    /// Registering the same type again does nothing.
+    ///
+    /// ```
+    /// use crabbyengine::*;
+    /// use serde::{Deserialize, Serialize};
+    ///
+    /// #[derive(Serialize, Deserialize)]
+    /// struct Score { red: u32, blue: u32 }
+    ///
+    /// let mut world = World::new();
+    /// world.reflect_resource::<Score>();
+    /// world.insert_resource(Score { red: 3, blue: 1 });
+    /// assert_eq!(world.resource_json("Score").unwrap()["red"], 3);
+    /// ```
+    ///
+    /// # Panics
+    /// If a different type with the same short name is already reflected as a resource.
+    fn reflect_resource<R: Send + Sync + 'static + Serialize + DeserializeOwned>(&mut self);
+
+    /// Names of the reflected resources, in registration order (whether or
+    /// not they're in the world right now).
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # #[derive(serde::Serialize, serde::Deserialize)] struct Score(u32);
+    /// let mut world = World::new();
+    /// world.reflect_resource::<Score>();
+    /// assert_eq!(world.reflected_resources(), ["Score"]);
+    /// ```
+    fn reflected_resources(&self) -> Vec<&str>;
+
+    /// A reflected resource as JSON.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # #[derive(serde::Serialize, serde::Deserialize)] struct Score(u32);
+    /// let mut world = World::new();
+    /// world.reflect_resource::<Score>();
+    /// assert_eq!(world.resource_json("Score"), Err(ReflectError::MissingResource("Score".into())));
+    /// world.insert_resource(Score(7));
+    /// assert_eq!(world.resource_json("Score").unwrap(), 7);
+    /// ```
+    fn resource_json(&self, name: &str) -> Result<Value, ReflectError>;
+
+    /// Writes a reflected resource from JSON, inserting it if it's missing.
+    /// For a resource that exists, an object changes only the fields it
+    /// has, like [`set_json`](Self::set_json).
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # use serde_json::json;
+    /// # #[derive(serde::Serialize, serde::Deserialize)] struct Score { red: u32, blue: u32 }
+    /// let mut world = World::new();
+    /// world.reflect_resource::<Score>();
+    /// world.insert_resource(Score { red: 3, blue: 1 });
+    /// world.set_resource_json("Score", json!({"blue": 9})).unwrap();
+    /// assert_eq!(world.resource::<Score>().blue, 9);
+    /// assert_eq!(world.resource::<Score>().red, 3);
+    /// ```
+    fn set_resource_json(&mut self, name: &str, value: Value) -> Result<(), ReflectError>;
+}
+
+fn find_resource(world: &World, name: &str) -> Result<ReflectedResource, ReflectError> {
+    registry(world)
+        .and_then(|r| r.resource_by_name.get(name).map(|&i| r.resources[i].clone()))
+        .ok_or_else(|| ReflectError::UnknownResource(name.to_string()))
 }
 
 fn registry(world: &World) -> Option<&Registry> {
@@ -756,6 +865,57 @@ impl WorldReflect for World {
         Ok(e)
     }
 
+    #[track_caller]
+    fn reflect_resource<R: Send + Sync + 'static + Serialize + DeserializeOwned>(&mut self) {
+        let type_name = std::any::type_name::<R>();
+        let name = short_name(type_name);
+        if self.get_resource::<Registry>().is_none() {
+            self.insert_resource(Registry::default());
+        }
+        let reg = self.resource_mut::<Registry>();
+        if let Some(&i) = reg.resource_by_name.get(&name) {
+            let existing = &reg.resources[i].type_name;
+            assert_eq!(
+                existing, type_name,
+                "World::reflect_resource: `{type_name}` and `{existing}` would both be named `{name}`"
+            );
+            return;
+        }
+        reg.resource_by_name.insert(name.clone(), reg.resources.len());
+        reg.resources.push(ReflectedResource {
+            name,
+            type_name: type_name.to_string(),
+            get: Arc::new(get_resource::<R>),
+            set: Arc::new(set_resource::<R>),
+            check: Arc::new(check::<R>),
+        });
+    }
+
+    fn reflected_resources(&self) -> Vec<&str> {
+        registry(self).map_or_else(Vec::new, |r| r.resources.iter().map(|c| c.name.as_str()).collect())
+    }
+
+    fn resource_json(&self, name: &str) -> Result<Value, ReflectError> {
+        let r = find_resource(self, name)?;
+        match (r.get)(self) {
+            Some(v) => v.map_err(bad_value(name)),
+            None => Err(ReflectError::MissingResource(name.to_string())),
+        }
+    }
+
+    fn set_resource_json(&mut self, name: &str, value: Value) -> Result<(), ReflectError> {
+        let r = find_resource(self, name)?;
+        let value = match (r.get)(self) {
+            Some(current) if value.is_object() => {
+                let mut current = current.map_err(bad_value(name))?;
+                merge(&mut current, value);
+                current
+            }
+            _ => value,
+        };
+        (r.set)(self, value).map_err(bad_value(name))
+    }
+
     fn save(&self) -> Value {
         let reflected = self.reflected_components();
         let mut entities = Vec::new();
@@ -780,10 +940,17 @@ impl WorldReflect for World {
             .into_iter()
             .map(|(id, components)| serde_json::json!({ "entity": id, "components": components }))
             .collect();
+        let mut resources = serde_json::Map::new();
+        for r in registry(self).map_or(&[][..], |r| &r.resources) {
+            if let Some(Ok(v)) = (r.get)(self) {
+                resources.insert(r.name.clone(), v);
+            }
+        }
         serde_json::json!({
             "format": SAVE_FORMAT,
             "version": SAVE_VERSION,
             "entities": entities,
+            "resources": resources,
             "not_saved": not_saved,
         })
     }
@@ -832,6 +999,18 @@ impl WorldReflect for World {
             }
             plan.push((Entity::from_bits(id), parts));
         }
+        // Saves from before resources were saved have none.
+        let mut resource_plan = Vec::new();
+        if let Some(saved) = save.get("resources") {
+            let saved = saved
+                .as_object()
+                .ok_or_else(|| bad("\"resources\" is not an object".into()))?;
+            for (name, value) in saved {
+                let r = find_resource(self, name)?;
+                (r.check)(value).map_err(bad_value(name))?;
+                resource_plan.push((r, value.clone()));
+            }
+        }
 
         self.reset();
         for (e, parts) in plan {
@@ -842,6 +1021,9 @@ impl WorldReflect for World {
             for (c, value) in parts {
                 (c.set)(self, e, value).map_err(bad_value(&c.name))?;
             }
+        }
+        for (r, value) in resource_plan {
+            (r.set)(self, value).map_err(bad_value(&r.name))?;
         }
         Ok(())
     }

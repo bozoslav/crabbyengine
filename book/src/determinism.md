@@ -116,7 +116,8 @@ ctx.world.load(&save)?;
   saying what.
 - **Only reflected components are saved.** The save's `"not_saved"` lists
   the other components by name and count, so nothing goes missing silently.
-  Resources and the sim clock aren't saved. C++ components are saved once
+  Reflected resources are saved too (under `"resources"`); other resources
+  and the sim clock aren't. C++ components are saved once
   their fields are described (see [Reflection](reflection.md#c-and-c-components)).
 
 Agents can do the same through `crabby-mcp` (`save_world`, `load_world`):

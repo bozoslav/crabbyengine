@@ -40,6 +40,7 @@ ctx.world.reflect::<Health>();
 | `world_summary` | | archetypes, entity counts, reflected components |
 | `list_entities` | | entities with component values; filter by component names, paged |
 | `get_entity` | | one entity's components |
+| `list_resources` / `get_resource` | | game-wide state: scores, rules, the current round |
 | `system_timings` | | which systems are slow |
 | `list_events` | | event types the game shows tools, and how many are in flight |
 | `subscribe_events` / `take_events` | | collect [events](events.md) while ticks run, then see what happened (each with its tick) |
@@ -47,9 +48,11 @@ ctx.world.reflect::<Health>();
 | `screenshot` | | the next frame of a windowed game, as an image the agent can look at |
 | `set_camera` | | move or zoom the camera (`look_at`, `zoom`, `position`), e.g. before a screenshot |
 | `run_ticks` | ✓ | run exactly N ticks of a paused sim and wait |
+| `watch` | ✓ | run N ticks and sample every K: tick, resources, entity counts, time per tick |
 | `pause` / `resume` / `set_speed` | ✓ | sim clock |
 | `spawn_entity` / `despawn_entity` | ✓ | |
 | `set_component` / `remove_component` | ✓ | change values; object fields merge |
+| `set_resource` | ✓ | change game-wide state; object fields merge |
 | `save_world` | | checkpoint the world to a file |
 | `load_world` | ✓ | roll back to a checkpoint (same entity ids) |
 | `quit_instance` | ✓ | |
@@ -89,6 +92,18 @@ roll back and try the next value.
 Because the sim only advances on `run_ticks`, every run is repeatable and the
 agent can check results at exact ticks.
 
+To see how a run develops, `watch` does it in one call. In the battle
+example, with its `Battle` stats reflected:
+
+```json
+{"ticks": 3600, "every": 600, "resources": ["Score"], "count": ["Unit"]}
+```
+
+returns seven samples (before, then every 10 simulated seconds), each with
+the tick, the `Score` resource, how many entities have a `Unit`, and the
+wall-clock time per tick, so "who's winning, and does it get slower as
+the armies meet?" is one answer.
+
 To check how things look, `launch` with `headless: false` and call
 `screenshot`. It works while the window is hidden behind others, and is
 scaled down to 1024 pixels by default (`max_size`) to keep it cheap to look
@@ -98,9 +113,11 @@ deliveries in that time from 328 to 1,747.
 
 ## Making your game agent-friendly
 
-- Reflect the components that matter for gameplay, and the events
-  (`ctx.events.reflect::<Died>()`), so an agent can see what happened, not
-  only the state afterwards.
+- Reflect the components that matter for gameplay, the resources that
+  hold game-wide state (`world.reflect_resource::<Score>()`), so an agent
+  can ask "who's winning?" without counting entities, and the events
+  (`ctx.events.reflect::<Died>()`), so it can see what happened, not only
+  the state afterwards.
 - Read sizes and seeds from environment variables (like the examples'
   `BOIDS` and `HEADLESS`), so `launch` can set them through `env`.
 - Support headless: put game logic in sim systems; it then runs without a

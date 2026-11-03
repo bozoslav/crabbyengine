@@ -1,4 +1,4 @@
-# Reflection: components as JSON
+# Reflection: components and resources as JSON
 
 Reflection lets code that doesn't know your types read and change them by
 name: the agent bridge (MCP), the inspector, and save/load all use it. It's
@@ -46,6 +46,28 @@ list as `CrabbyField { name, kind, offset }`, with `offsetof` for the
 offset. The Rust side of this is `World::reflect_fields`, for components
 that are registered at runtime and have no Rust type.
 
+## Resources
+
+Game-wide state (a score, the current round, rules an agent might want to
+tweak) lives in resources. Reflect them the same way:
+
+```rust
+#[derive(Serialize, Deserialize)]
+struct Score { red: u32, blue: u32 }
+
+world.reflect_resource::<Score>();
+world.insert_resource(Score { red: 0, blue: 0 });
+
+world.resource_json("Score")?;                          // {"red": 0, "blue": 0}
+world.set_resource_json("Score", json!({ "blue": 3 }))?; // only blue changes
+```
+
+Reflected resources show up in `crabby-mcp` (`list_resources`,
+`get_resource`, `set_resource`) and are part of [world saves](determinism.md#saving-and-loading-the-world).
+Resources hold whatever Rust type you like, so the ones that can't be JSON
+(a nav grid, a GPU handle) just stay unreflected. C and C++ games have no
+resources yet: keep game-wide state in a component on one entity there.
+
 ## Names
 
 A component's name is its type name without the module path:
@@ -67,6 +89,10 @@ All of them come from `WorldReflect`, which `use crabbyengine::*;` brings in.
 | `remove_json(e, name)` | removes it; `Ok(true)` if it was there |
 | `entity_json(e)` | all reflected components of `e`, keyed by name |
 | `spawn_json(value)` | spawns from the `entity_json` format; on error spawns nothing |
+| `reflect_resource::<R>()` | makes resource `R` visible to reflection |
+| `reflected_resources()` | names of all reflected resources |
+| `resource_json(name)` | one resource as JSON |
+| `set_resource_json(name, value)` | writes it; inserts it if missing; objects merge field by field |
 
 `entity_json` and `spawn_json` round-trip, so a snapshot of an entity can be
 copied, saved, or sent over the wire:
@@ -81,8 +107,9 @@ Components that aren't reflected are left out of `entity_json`.
 ## Errors
 
 Every call returns a `ReflectError` that says what went wrong:
-`UnknownComponent`, `NoSuchEntity`, `MissingComponent`, or `BadValue` (with
-serde's message, such as `invalid type: string "seven", expected struct Health`).
+`UnknownComponent`, `NoSuchEntity`, `MissingComponent`, `UnknownResource`,
+`MissingResource`, or `BadValue` (with serde's message, such as
+`invalid type: string "seven", expected struct Health`).
 
 ## Tips
 

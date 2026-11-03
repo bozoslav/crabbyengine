@@ -200,6 +200,82 @@ fn the_endpoint_is_off_by_default() {
     assert_eq!(addr, None);
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Score {
+    red: u32,
+    blue: u32,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Weather(String);
+
+#[test]
+fn reflected_resources_are_read_and_written_over_tcp() {
+    let (addr_tx, addr_rx) = mpsc::channel();
+    let game = thread::spawn(move || {
+        Game::new("resources-test", 1, 1)
+            .control_endpoint(true)
+            .sim_system(|ctx: &mut Ctx| ctx.world.resource_mut::<Score>().red += 1)
+            .run_headless(u64::MAX, move |ctx| {
+                ctx.world.reflect_resource::<Score>();
+                ctx.world.reflect_resource::<Weather>();
+                ctx.world.insert_resource(Score { red: 0, blue: 0 });
+                ctx.pause();
+                addr_tx.send(ctx.control_addr().unwrap()).unwrap();
+            })
+    });
+    let addr = addr_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    let info: Value = serde_json::from_str(&std::fs::read_to_string(registry_file(addr)).unwrap()).unwrap();
+    let mut c = Client::connect(addr, info["token"].as_str().unwrap().to_string());
+
+    assert_eq!(
+        c.call("resources.list", json!({})).unwrap(),
+        json!({ "Score": { "red": 0, "blue": 0 }, "Weather": null }),
+        "missing resources are listed as null"
+    );
+    let summary = c.call("world.summary", json!({})).unwrap();
+    assert_eq!(summary["reflected_resources"], json!(["Score", "Weather"]));
+
+    // Partial objects merge; the game sees the change on its next tick.
+    let score = c
+        .call("resource.set", json!({ "resource": "Score", "value": { "blue": 7 } }))
+        .unwrap();
+    assert_eq!(score, json!({ "red": 0, "blue": 7 }));
+    c.call("sim.step", json!({ "ticks": 3 })).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while c.call("info", json!({})).unwrap()["tick"] != 3 {
+        assert!(Instant::now() < deadline, "ticks never ran");
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(
+        c.call("resource.get", json!({ "resource": "Score" })).unwrap(),
+        json!({ "red": 3, "blue": 7 })
+    );
+
+    // A missing resource is inserted.
+    c.call("resource.set", json!({ "resource": "Weather", "value": "rain" }))
+        .unwrap();
+    assert_eq!(
+        c.call("resource.get", json!({ "resource": "Weather" })).unwrap(),
+        "rain"
+    );
+
+    let err = c.call("resource.get", json!({ "resource": "Gold" })).unwrap_err();
+    assert!(err.contains("no reflected resource named `Gold`"), "{err}");
+    let err = c
+        .call(
+            "resource.set",
+            json!({ "resource": "Score", "value": { "red": "lots" } }),
+        )
+        .unwrap_err();
+    assert!(err.contains("bad value for `Score`"), "{err}");
+
+    c.call("game.quit", json!(null)).unwrap();
+    let world = game.join().unwrap();
+    assert_eq!(world.resource::<Score>().blue, 7);
+    assert_eq!(world.resource::<Weather>().0, "rain");
+}
+
 #[derive(serde::Serialize)]
 struct Ping {
     tick: u64,

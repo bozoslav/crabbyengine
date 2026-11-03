@@ -222,7 +222,7 @@ fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "world_summary",
-            description: "Overview of a game's world: entity count, archetypes (which component sets exist and how many entities each has), and which components are reflected (readable/writable as JSON).",
+            description: "Overview of a game's world: entity count, archetypes (which component sets exist and how many entities each has), and which components and resources are reflected (readable/writable as JSON).",
             writes: false,
             params: no_params,
             required: &[],
@@ -246,6 +246,20 @@ fn tools() -> Vec<Tool> {
             writes: false,
             params: || json!({ "entity": { "type": "integer", "description": "Entity id from list_entities" } }),
             required: &["entity"],
+        },
+        Tool {
+            name: "list_resources",
+            description: "Every reflected resource (game-wide state such as scores, settings, the current round) with its value as JSON; null when it's not in the world right now. Resources must be reflected in the game (world.reflect_resource::<T>()).",
+            writes: false,
+            params: no_params,
+            required: &[],
+        },
+        Tool {
+            name: "get_resource",
+            description: "One reflected resource as JSON.",
+            writes: false,
+            params: || json!({ "resource": { "type": "string", "description": "Resource name from list_resources, e.g. \"Score\"" } }),
+            required: &["resource"],
         },
         Tool {
             name: "system_timings",
@@ -345,6 +359,21 @@ fn tools() -> Vec<Tool> {
             required: &["ticks"],
         },
         Tool {
+            name: "watch",
+            description: "Run N simulation ticks (the game should be paused) and sample it every K ticks: the tick, wall-clock ms per tick (including polling), the given reflected resources, and entity counts for the given components. Use it to see how a simulation develops (who's winning, does the population grow, does it get slower) in one call.",
+            writes: true,
+            params: || {
+                json!({
+                    "ticks": { "type": "integer", "minimum": 1, "description": "How many ticks in total" },
+                    "every": { "type": "integer", "minimum": 1, "description": "Ticks between samples (default: ticks / 10)" },
+                    "resources": { "type": "array", "items": { "type": "string" }, "description": "Reflected resources to read at each sample, e.g. [\"Score\"]" },
+                    "count": { "type": "array", "items": { "type": "string" }, "description": "Components to count entities of at each sample, e.g. [\"Unit\"]" },
+                    "timeout_secs": { "type": "integer", "minimum": 1, "description": "How long to wait in total (default 300)" }
+                })
+            },
+            required: &["ticks"],
+        },
+        Tool {
             name: "pause",
             description: "Pause the simulation (rendering and input keep running in windowed games).",
             writes: true,
@@ -393,6 +422,18 @@ fn tools() -> Vec<Tool> {
             required: &["entity", "component", "value"],
         },
         Tool {
+            name: "set_resource",
+            description: "Write a reflected resource (inserts it if missing). For an existing resource, object fields you give are changed and the rest keep their values, e.g. {\"blue\": 0}. Returns the new value.",
+            writes: true,
+            params: || {
+                json!({
+                    "resource": { "type": "string", "description": "Resource name from list_resources" },
+                    "value": { "description": "JSON value (or partial object)" }
+                })
+            },
+            required: &["resource", "value"],
+        },
+        Tool {
             name: "remove_component",
             description: "Remove a reflected component from an entity.",
             writes: true,
@@ -401,14 +442,14 @@ fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "save_world",
-            description: "Save every entity that has reflected components (with its id) to a JSON file. Use it as a checkpoint before experiments; restore with load_world.",
+            description: "Save every entity that has reflected components (with its id), and every reflected resource, to a JSON file. Use it as a checkpoint before experiments; restore with load_world.",
             writes: false,
             params: || json!({ "path": { "type": "string", "description": "File to write, e.g. /tmp/before.json" } }),
             required: &["path"],
         },
         Tool {
             name: "load_world",
-            description: "Replace every entity with those in a save file from save_world, with the same ids. The file is checked first: on error nothing changes. Doesn't change the tick, seed or resources.",
+            description: "Replace every entity with those in a save file from save_world, with the same ids. The file is checked first: on error nothing changes. Reflected resources in the file are restored too; the tick, seed and other resources don't change.",
             writes: true,
             params: || json!({ "path": { "type": "string", "description": "File from save_world" } }),
             required: &["path"],
@@ -598,6 +639,9 @@ impl Server {
                 .call("entities.list", pass(&["with", "limit", "offset"])),
             "get_entity" => self.instance(args)?.call("entity.get", pass(&["entity"])),
             "system_timings" => self.instance(args)?.call("systems.timings", json!({})),
+            "list_resources" => self.instance(args)?.call("resources.list", json!({})),
+            "get_resource" => self.instance(args)?.call("resource.get", pass(&["resource"])),
+            "set_resource" => self.instance(args)?.call("resource.set", pass(&["resource", "value"])),
             "read_logs" => self.read_logs(args),
             "list_events" => self.instance(args)?.call("events.list", json!({})),
             "subscribe_events" => self
@@ -609,6 +653,7 @@ impl Server {
                 .call("camera.set", pass(&["position", "zoom", "look_at"])),
             "launch" => self.launch(args),
             "run_ticks" => self.run_ticks(args),
+            "watch" => self.watch(args),
             "pause" => self.instance(args)?.call("sim.pause", json!({})),
             "resume" => self.instance(args)?.call("sim.resume", json!({})),
             "set_speed" => self.instance(args)?.call("sim.speed", pass(&["speed"])),
@@ -653,31 +698,85 @@ impl Server {
             .as_u64()
             .filter(|t| *t > 0)
             .ok_or("`ticks` must be a positive integer")?;
-        let timeout = Duration::from_secs(args["timeout_secs"].as_u64().unwrap_or(120));
+        let deadline = Instant::now() + Duration::from_secs(args["timeout_secs"].as_u64().unwrap_or(120));
         let i = self.instance(args)?;
-        let before = i.call("info", json!({}))?;
-        if before["paused"] != json!(true) {
-            return Err("the simulation is running; call `pause` first so exactly N ticks run".into());
-        }
-        let start = before["tick"].as_u64().unwrap_or(0);
-        i.call("sim.step", json!({ "ticks": ticks }))?;
-        let deadline = Instant::now() + timeout;
+        let start = paused_tick(&i)?;
         let begun = Instant::now();
-        loop {
-            let info = i.call("info", json!({}))?;
-            let now = info["tick"].as_u64().unwrap_or(0);
-            if now >= start + ticks {
-                return Ok(json!({
-                    "ticks_run": now - start,
-                    "seconds": begun.elapsed().as_secs_f64(),
-                    "status": info,
-                }));
-            }
-            if Instant::now() > deadline {
-                return Err(format!("only {} of {ticks} ticks ran within the timeout", now - start));
-            }
-            std::thread::sleep(Duration::from_millis(5));
+        let info = step_and_wait(&i, start, ticks, deadline)?;
+        Ok(json!({
+            "ticks_run": info["tick"].as_u64().unwrap_or(0) - start,
+            "seconds": begun.elapsed().as_secs_f64(),
+            "status": info,
+        }))
+    }
+
+    fn watch(&self, args: &Value) -> Result<Value, String> {
+        let ticks = args["ticks"]
+            .as_u64()
+            .filter(|t| *t > 0)
+            .ok_or("`ticks` must be a positive integer")?;
+        let every = match args.get("every") {
+            None | Some(Value::Null) => (ticks / 10).max(1),
+            Some(v) => v
+                .as_u64()
+                .filter(|t| *t > 0)
+                .ok_or("`every` must be a positive integer")?,
+        };
+        if ticks / every > MAX_SAMPLES {
+            return Err(format!(
+                "{} samples is too many (at most {MAX_SAMPLES}); raise `every`",
+                ticks / every
+            ));
         }
+        let names = |key: &str| -> Result<Vec<String>, String> {
+            match args.get(key) {
+                None | Some(Value::Null) => Ok(Vec::new()),
+                Some(v) => serde_json::from_value(v.clone()).map_err(|_| format!("`{key}` must be a list of names")),
+            }
+        };
+        let (resources, count) = (names("resources")?, names("count")?);
+        let deadline = Instant::now() + Duration::from_secs(args["timeout_secs"].as_u64().unwrap_or(300));
+        let i = self.instance(args)?;
+        let mut tick = paused_tick(&i)?;
+        let end = tick + ticks;
+        let sample = |i: &Instance, info: &Value, ms_per_tick: Value| -> Result<Value, String> {
+            let mut out =
+                json!({ "tick": info["tick"], "entities": info["entities"], "wall_ms_per_tick": ms_per_tick });
+            if !resources.is_empty() {
+                let mut values = serde_json::Map::new();
+                for r in &resources {
+                    values.insert(r.clone(), i.call("resource.get", json!({ "resource": r }))?);
+                }
+                out["resources"] = Value::Object(values);
+            }
+            if !count.is_empty() {
+                let summary = i.call("world.summary", json!({}))?;
+                let mut counts = serde_json::Map::new();
+                for c in &count {
+                    let n: u64 = summary["archetypes"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter(|a| a["components"].as_array().is_some_and(|cs| cs.iter().any(|n| n == c)))
+                        .filter_map(|a| a["entities"].as_u64())
+                        .sum();
+                    counts.insert(c.clone(), json!(n));
+                }
+                out["counts"] = Value::Object(counts);
+            }
+            Ok(out)
+        };
+        let mut samples = vec![sample(&i, &i.call("info", json!({}))?, Value::Null)?];
+        while tick < end {
+            let step = every.min(end - tick);
+            let begun = Instant::now();
+            let info = step_and_wait(&i, tick, step, deadline)?;
+            // Wall time includes the polling round trips: an upper bound.
+            let ms = begun.elapsed().as_secs_f64() * 1000.0 / step as f64;
+            tick = info["tick"].as_u64().unwrap_or(end);
+            samples.push(sample(&i, &info, json!((ms * 1000.0).round() / 1000.0))?);
+        }
+        Ok(json!({ "ticks_run": ticks, "every": every, "samples": samples }))
     }
 
     fn launch(&mut self, args: &Value) -> Result<Value, String> {
@@ -821,6 +920,35 @@ fn base64(bytes: &[u8]) -> String {
         }
     }
     out
+}
+
+/// Most samples one `watch` call returns.
+const MAX_SAMPLES: u64 = 1000;
+
+/// The current tick of a paused game; an error if it's running, since
+/// "exactly N ticks" can't hold then.
+fn paused_tick(i: &Instance) -> Result<u64, String> {
+    let info = i.call("info", json!({}))?;
+    if info["paused"] != json!(true) {
+        return Err("the simulation is running; call `pause` first so exactly N ticks run".into());
+    }
+    Ok(info["tick"].as_u64().unwrap_or(0))
+}
+
+/// Steps a paused game `ticks` ticks from `start` and waits for them; returns its `info`.
+fn step_and_wait(i: &Instance, start: u64, ticks: u64, deadline: Instant) -> Result<Value, String> {
+    i.call("sim.step", json!({ "ticks": ticks }))?;
+    loop {
+        let info = i.call("info", json!({}))?;
+        let now = info["tick"].as_u64().unwrap_or(0);
+        if now >= start + ticks {
+            return Ok(info);
+        }
+        if Instant::now() > deadline {
+            return Err(format!("only {} of {ticks} ticks ran within the timeout", now - start));
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
 }
 
 #[cfg(test)]

@@ -250,6 +250,130 @@ fn a_bad_save_leaves_the_world_untouched() {
     }
 }
 
+// ---- resources --------------------------------------------------------------------
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct Score {
+    red: u32,
+    blue: u32,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct Round(u32);
+
+/// Not reflected: saves and loads leave it alone.
+struct Cache(Vec<u8>);
+
+fn resource_world() -> World {
+    let mut w = world();
+    w.reflect_resource::<Score>();
+    w.reflect_resource::<Round>();
+    w.insert_resource(Score { red: 2, blue: 5 });
+    w.insert_resource(Round(3));
+    w.insert_resource(Cache(vec![1, 2, 3]));
+    w
+}
+
+#[test]
+fn resources_round_trip_through_json() {
+    let mut w = resource_world();
+    assert_eq!(w.reflected_resources(), ["Score", "Round"]);
+    assert_eq!(w.resource_json("Score").unwrap(), json!({ "red": 2, "blue": 5 }));
+    w.set_resource_json("Score", json!({ "red": 9 })).unwrap();
+    assert_eq!(*w.resource::<Score>(), Score { red: 9, blue: 5 }, "only red changed");
+    w.set_resource_json("Round", json!(4)).unwrap();
+    assert_eq!(w.resource::<Round>().0, 4);
+}
+
+#[test]
+fn setting_a_missing_resource_inserts_it() {
+    let mut w = World::new();
+    w.reflect_resource::<Score>();
+    assert_eq!(
+        w.resource_json("Score"),
+        Err(ReflectError::MissingResource("Score".into()))
+    );
+    assert!(
+        w.set_resource_json("Score", json!({ "red": 1 })).is_err(),
+        "half a Score isn't one"
+    );
+    w.set_resource_json("Score", json!({ "red": 1, "blue": 0 })).unwrap();
+    assert_eq!(*w.resource::<Score>(), Score { red: 1, blue: 0 });
+}
+
+#[test]
+fn resource_errors_say_what_went_wrong() {
+    let mut w = resource_world();
+    let err = w.resource_json("Gold").unwrap_err();
+    assert_eq!(err, ReflectError::UnknownResource("Gold".into()));
+    assert!(err.to_string().contains("reflect_resource"), "{err}");
+    let err = w.set_resource_json("Score", json!({ "red": "lots" })).unwrap_err();
+    assert!(
+        matches!(err, ReflectError::BadValue { ref component, .. } if component == "Score"),
+        "{err}"
+    );
+    assert_eq!(*w.resource::<Score>(), Score { red: 2, blue: 5 }, "unchanged");
+}
+
+#[test]
+fn saves_carry_reflected_resources() {
+    let mut w = resource_world();
+    let e = w.spawn((Health { current: 1.0, max: 2.0 },));
+    let save = w.save();
+    assert_eq!(
+        save["resources"],
+        json!({ "Score": { "red": 2, "blue": 5 }, "Round": 3 })
+    );
+
+    w.insert_resource(Score { red: 0, blue: 0 });
+    w.insert_resource(Round(99));
+    w.resource_mut::<Cache>().0.clear();
+    w.load(&save).unwrap();
+    assert_eq!(*w.resource::<Score>(), Score { red: 2, blue: 5 });
+    assert_eq!(w.resource::<Round>().0, 3);
+    assert!(
+        w.resource::<Cache>().0.is_empty(),
+        "resources that aren't reflected stay as they are"
+    );
+    assert_eq!(w.get::<Health>(e).unwrap().current, 1.0);
+}
+
+#[test]
+fn saves_without_resources_still_load() {
+    let mut w = resource_world();
+    let mut save = w.save();
+    save.as_object_mut().unwrap().remove("resources");
+    w.insert_resource(Round(8));
+    w.load(&save).unwrap();
+    assert_eq!(w.resource::<Round>().0, 8, "nothing to restore");
+}
+
+#[test]
+fn a_bad_resource_in_a_save_leaves_the_world_untouched() {
+    let mut w = resource_world();
+    w.spawn((Health { current: 1.0, max: 2.0 },));
+    let before = w.save();
+    for (what, resources) in [
+        ("bad value", json!({ "Score": "lots" })),
+        ("unknown resource", json!({ "Gold": 1 })),
+        ("not an object", json!([1, 2])),
+    ] {
+        let mut save = before.clone();
+        save["resources"] = resources;
+        assert!(w.load(&save).is_err(), "{what} should fail");
+        assert_eq!(w.save(), before, "{what} changed the world");
+    }
+}
+
+#[test]
+#[should_panic(expected = "would both be named `Score`")]
+fn two_resource_types_with_one_short_name_panic() {
+    #[derive(Serialize, Deserialize)]
+    struct Score;
+    let mut w = resource_world();
+    w.reflect_resource::<Score>();
+}
+
 // ---- components described by fields (C and C++ components) -----------------------
 
 /// A C-style struct: `{ float hp; uint8_t level; bool alive; Vec2 at; Color tint; uint64_t target; int16_t mood; }`.

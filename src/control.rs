@@ -328,8 +328,17 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
     ),
     ("component.remove", "params: entity, component"),
     (
+        "resources.list",
+        "every reflected resource with its value as JSON (null when it's not in the world)",
+    ),
+    ("resource.get", "one reflected resource as JSON; params: resource"),
+    (
+        "resource.set",
+        "write a reflected resource (object fields merge; inserted if missing); params: resource, value",
+    ),
+    (
         "world.save",
-        "save every entity with reflected components to a JSON file; params: path. Returns counts",
+        "save every entity with reflected components, and reflected resources, to a JSON file; params: path. Returns counts",
     ),
     (
         "world.load",
@@ -446,6 +455,7 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
                 "entities": world.len(),
                 "allocated_bytes": world.allocated_bytes(),
                 "reflected_components": world.reflected_components(),
+                "reflected_resources": world.reflected_resources(),
                 "reflected_events": ctx.events.reflected_json(world),
                 "archetypes": archetypes,
             })
@@ -502,6 +512,27 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
             let e = entity_param(params)?;
             json!(ctx.world.remove_json(e, str_param(params, "component")?).map_err(err)?)
         }
+        "resources.list" => {
+            let world = &ctx.world;
+            let mut out = serde_json::Map::new();
+            for name in world.reflected_resources() {
+                let value = match world.resource_json(name) {
+                    Ok(v) => v,
+                    Err(crate::ReflectError::MissingResource(_)) => Value::Null,
+                    Err(e) => return Err(err(e)),
+                };
+                out.insert(name.to_string(), value);
+            }
+            Value::Object(out)
+        }
+        "resource.get" => ctx.world.resource_json(str_param(params, "resource")?).map_err(err)?,
+        "resource.set" => {
+            let name = str_param(params, "resource")?;
+            ctx.world
+                .set_resource_json(name, param(params, "value")?.clone())
+                .map_err(err)?;
+            ctx.world.resource_json(name).map_err(err)?
+        }
         "world.save" => {
             let path = str_param(params, "path")?;
             let save = ctx.world.save();
@@ -510,6 +541,7 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
             json!({
                 "path": path,
                 "entities": save["entities"].as_array().map_or(0, Vec::len),
+                "resources": save["resources"].as_object().map_or(0, |r| r.len()),
                 "bytes": text.len(),
                 "not_saved": save["not_saved"],
                 "tick": ctx.sim_tick(),
