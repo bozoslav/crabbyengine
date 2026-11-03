@@ -234,3 +234,10 @@ fn headless_runs_have_no_render_stats_or_screenshots() {
     assert_eq!(ran.get(), 3);
     assert!(!path.exists(), "nothing to capture without a window");
 }
+
+#[cfg(not(feature = "window"))]
+#[test]
+#[should_panic(expected = "Game::run needs a window")]
+fn run_without_the_window_feature_says_to_use_run_headless() {
+    Game::new("no window", 320, 240).run(|_| {});
+}

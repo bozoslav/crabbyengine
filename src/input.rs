@@ -5,6 +5,7 @@
 //! discriminant, so lookups are O(1) and nothing allocates per frame.
 
 use glam::Vec2;
+#[cfg(feature = "window")]
 use winit::keyboard::KeyCode;
 
 macro_rules! define_keys {
@@ -22,6 +23,7 @@ macro_rules! define_keys {
         impl Key {
             pub(crate) const COUNT: usize = [$(Key::$name),*].len();
 
+            #[cfg(feature = "window")]
             pub(crate) fn from_winit(code: KeyCode) -> Option<Key> {
                 match code {
                     $(KeyCode::$code => Some(Key::$name),)*
@@ -89,6 +91,7 @@ pub enum MouseButton {
 impl MouseButton {
     pub(crate) const COUNT: usize = 5;
 
+    #[cfg(feature = "window")]
     pub(crate) fn from_winit(button: winit::event::MouseButton) -> Option<MouseButton> {
         use winit::event::MouseButton as W;
         match button {
@@ -313,6 +316,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "window")]
     fn winit_mapping() {
         assert_eq!(Key::from_winit(KeyCode::KeyW), Some(Key::W));
         assert_eq!(Key::from_winit(KeyCode::ArrowLeft), Some(Key::Left));

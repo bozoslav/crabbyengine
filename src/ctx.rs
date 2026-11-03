@@ -230,7 +230,7 @@ impl Ctx {
         };
         self.draw_list.clear();
         self.ui_list.clear();
-        if let Some(shot) = self.renderer.as_mut().and_then(|r| r.screenshot.take()) {
+        if let Some(shot) = self.renderer.as_mut().and_then(Renderer::take_screenshot) {
             for req in self.screenshots.drain(..) {
                 let result = save_png(&req.path, &shot, req.max_size);
                 match req.reply {
@@ -906,7 +906,7 @@ impl Ctx {
     }
 
     pub fn render_stats(&self) -> RenderStats {
-        self.renderer.as_ref().map(|r| r.stats).unwrap_or_default()
+        self.renderer.as_ref().map(Renderer::stats).unwrap_or_default()
     }
 
     // ---------------------------------------------------------------- timing

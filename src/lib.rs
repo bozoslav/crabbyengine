@@ -21,6 +21,18 @@
 //! ```
 //!
 //! Everything you need comes in with `use crabbyengine::*;`.
+//!
+//! ## Features
+//!
+//! - `window` (default): a window and GPU rendering (winit + wgpu). Without
+//!   it the engine is simulation only: `Game::run_headless` works, drawing
+//!   calls do nothing, `Game::run` panics. For simulation servers and CI,
+//!   with a much smaller build.
+//! - `audio` (default): sound through kira; without it sounds are silent.
+//! - `profiling`: per-system scopes for `puffin_viewer`.
+
+// Without a window, the code that only the window loop calls is unused.
+#![cfg_attr(not(feature = "window"), allow(dead_code))]
 
 mod assets;
 mod audio;
