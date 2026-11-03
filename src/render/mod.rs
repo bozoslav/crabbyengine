@@ -4,6 +4,8 @@
 pub(crate) mod batch;
 #[cfg(feature = "window")]
 mod gpu;
+#[cfg(all(feature = "window", feature = "3d"))]
+mod gpu3d;
 #[cfg(not(feature = "window"))]
 mod none;
 #[cfg(feature = "window")]
@@ -24,7 +26,8 @@ pub(crate) use none::Renderer;
 pub struct RenderStats {
     /// Sprites drawn.
     pub sprites: usize,
-    /// GPU draw calls (one per run of sprites sharing a texture).
+    /// GPU draw calls: one per run of sprites sharing a texture, and with
+    /// the `3d` feature, one per mesh part drawn (all its models at once).
     pub draw_calls: usize,
     /// CPU time spent sorting, batching, uploading and submitting, in ms.
     pub cpu_ms: f32,

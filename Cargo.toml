@@ -16,7 +16,7 @@ documentation = "https://bozoslav.github.io/crabbyengine/api/crabbyengine/"
 exclude = ["/book", "/.github", "/web", "/include", "/examples/cpp", "/docs", "/rustfmt.toml", "/CLAUDE.md", "/AGENTS.md", "/.mcp.json"]
 
 [package.metadata.docs.rs]
-features = ["physics", "steam"]
+features = ["physics", "steam", "3d"]
 
 [dependencies]
 crabby_ecs = { path = "crates/crabby_ecs", version = "1.0.0", features = ["serde"] }
@@ -44,6 +44,7 @@ dioxus-devtools = { version = "0.7.10", default-features = false, optional = tru
 web-time = "1.1.0"
 gilrs = { version = "0.11.2", optional = true }
 steamworks = { version = "0.13.1", optional = true }
+gltf = { version = "1.4.1", default-features = false, features = ["utils"], optional = true }
 
 [target.'cfg(any(unix, windows))'.dependencies]
 libc = "0.2"
@@ -91,9 +92,18 @@ steam = ["dep:steamworks"]
 # networking and replays), a little slower: rapier's enhanced-determinism.
 physics-determinism = ["physics", "rapier2d/enhanced-determinism"]
 
+# 3D: meshes, materials, glTF models, a perspective camera and sun light,
+# drawn under the 2D layer (`Transform3D`, `Model`, `ctx.camera3d`).
+# Off: no 3D pass, no glTF loader in the build.
+3d = ["dep:gltf", "image/jpeg"]
+
 [[example]]
 name = "physics"
 required-features = ["physics"]
+
+[[example]]
+name = "3d"
+required-features = ["3d"]
 
 [workspace]
 members = [".", "crates/crabby_ecs", "crates/crabby_bench", "crates/crabby_mcp", "crates/crabby_ffi"]

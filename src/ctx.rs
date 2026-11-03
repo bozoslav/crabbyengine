@@ -204,6 +204,31 @@ pub struct Ctx {
     /// # }
     /// ```
     pub camera: Camera2D,
+    /// The 3D camera (feature `3d`): position, rotation, field of view.
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// ctx.camera3d.position = vec3(0.0, 5.0, 10.0);
+    /// ctx.camera3d.look_at(Vec3::ZERO);
+    /// # }
+    /// ```
+    #[cfg(feature = "3d")]
+    pub camera3d: crate::Camera3D,
+    /// The 3D world's sun and ambient light (feature `3d`).
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// ctx.lighting.sun_intensity = 1.0; // overcast
+    /// # }
+    /// ```
+    #[cfg(feature = "3d")]
+    pub lighting: crate::Lighting,
+    #[cfg(feature = "3d")]
+    pub(crate) assets3d: crate::three::Assets3D,
+    #[cfg(feature = "3d")]
+    pub(crate) frame3d: crate::three::Frame3D,
     text: Text,
     /// The glyph atlas, created on the first `draw_text`.
     font_atlas: Option<Texture>,
@@ -232,6 +257,8 @@ impl Ctx {
                 let mut world = World::new();
                 crate::reflect::WorldReflect::reflect::<crate::Transform2D>(&mut world);
                 crate::reflect::WorldReflect::reflect::<crate::Attached>(&mut world);
+                #[cfg(feature = "3d")]
+                crate::reflect::WorldReflect::reflect::<crate::Transform3D>(&mut world);
                 crate::reflect::reflect_sprite(&mut world);
                 world
             },
@@ -279,6 +306,14 @@ impl Ctx {
             draw_list: DrawList::default(),
             ui_list: DrawList::default(),
             camera: Camera2D::new(window_size),
+            #[cfg(feature = "3d")]
+            camera3d: crate::Camera3D::new(window_size),
+            #[cfg(feature = "3d")]
+            lighting: crate::Lighting::default(),
+            #[cfg(feature = "3d")]
+            assets3d: Default::default(),
+            #[cfg(feature = "3d")]
+            frame3d: Default::default(),
             text: Text::new(),
             font_atlas: None,
             scale_factor: 1.0,
@@ -293,6 +328,8 @@ impl Ctx {
     /// Engine side: draw everything queued this frame, then reset the queue.
     pub(crate) fn render_frame(&mut self) -> FrameStatus {
         let capture = !self.screenshots.is_empty();
+        #[cfg(feature = "3d")]
+        self.prepare_3d();
         let status = match self.renderer.as_mut() {
             Some(renderer) => renderer.render(
                 &mut self.draw_list,
@@ -365,6 +402,8 @@ impl Ctx {
     pub(crate) fn set_window_size(&mut self, size: Vec2) {
         self.window_size = size;
         self.camera.set_viewport(size);
+        #[cfg(feature = "3d")]
+        self.camera3d.set_viewport(size);
     }
 
     pub(crate) fn quit_requested(&self) -> bool {

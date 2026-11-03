@@ -331,6 +331,7 @@ fn tools() -> Vec<Tool> {
                     "cwd": { "type": "string", "description": "Cargo project directory (default: this server's working directory)" },
                     "example": { "type": "string", "description": "Run `--example <name>`" },
                     "bin": { "type": "string", "description": "Run `--bin <name>`" },
+                    "features": { "type": "array", "items": { "type": "string" }, "description": "Cargo features to turn on, e.g. [\"physics\"] or [\"3d\"]" },
                     "package": { "type": "string", "description": "Run `-p <package>`" },
                     "release": { "type": "boolean", "description": "Release build (default true; debug is 10-50x slower)" },
                     "headless": { "type": "boolean", "description": "Set HEADLESS=1, which the engine's examples read (default true)" },
@@ -861,6 +862,12 @@ impl Server {
         for (key, opt) in [("package", "-p"), ("example", "--example"), ("bin", "--bin")] {
             if let Some(v) = args[key].as_str() {
                 cmd.args([opt, v]);
+            }
+        }
+        if let Some(features) = args["features"].as_array() {
+            let list: Vec<&str> = features.iter().filter_map(Value::as_str).collect();
+            if !list.is_empty() {
+                cmd.args(["--features", &list.join(",")]);
             }
         }
         if let Some(extra) = args["args"].as_array() {
