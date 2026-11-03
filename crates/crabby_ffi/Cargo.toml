@@ -7,12 +7,14 @@ edition = "2024"
 crate-type = ["rlib", "staticlib", "cdylib"]
 
 [features]
-default = ["audio", "window"]
+default = ["audio", "window", "inspector"]
 # A window and GPU rendering. Off: crabby_game_run fails with an error and
 # only headless runs work, from a build half the size.
 window = ["crabbyengine/window"]
 # Sound through the engine's audio feature. Off: sound calls succeed silently.
 audio = ["crabbyengine/audio"]
+# The runtime inspector overlay (backquote key); see crabby_game_inspector.
+inspector = ["crabbyengine/inspector"]
 
 [dependencies]
 crabbyengine = { path = "../..", default-features = false }

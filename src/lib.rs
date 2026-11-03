@@ -47,6 +47,8 @@ mod flow;
 mod game;
 mod hot_reload;
 mod input;
+#[cfg(feature = "inspector")]
+mod inspector;
 mod logs;
 mod random;
 mod reflect;

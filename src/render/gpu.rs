@@ -42,6 +42,16 @@ pub(crate) struct Renderer {
     stats: RenderStats,
     /// The last captured frame, waiting to be picked up.
     screenshot: Option<Screenshot>,
+
+    /// The inspector's drawing for the next frame, and egui's renderer
+    /// (made the first time the inspector opens).
+    #[cfg(feature = "inspector")]
+    overlay: Option<crate::inspector::Overlay>,
+    #[cfg(feature = "inspector")]
+    egui: Option<egui_wgpu::Renderer>,
+    /// egui textures to free once the frame that last used them is submitted.
+    #[cfg(feature = "inspector")]
+    egui_free: Vec<egui::TextureId>,
 }
 
 /// What one sprite pass draws with.
@@ -331,6 +341,12 @@ impl Renderer {
             timer,
             stats: RenderStats::default(),
             screenshot: None,
+            #[cfg(feature = "inspector")]
+            overlay: None,
+            #[cfg(feature = "inspector")]
+            egui: None,
+            #[cfg(feature = "inspector")]
+            egui_free: Vec::new(),
         }
     }
 
@@ -576,10 +592,12 @@ impl Renderer {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frame") });
-        if let Some(frame) = &frame {
-            let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let view = frame
+            .as_ref()
+            .map(|frame| frame.texture.create_view(&wgpu::TextureViewDescriptor::default()));
+        if let Some(view) = &view {
             let timestamps = self.timer.as_mut().and_then(GpuTimer::begin);
-            Self::sprite_pass(&mut encoder, &view, clear, timestamps, &pass);
+            Self::sprite_pass(&mut encoder, view, clear, timestamps, &pass);
         }
         // A screenshot draws the same sprites a second time, into a texture
         // that can be copied (the window's surface can't, on some GPUs).
@@ -590,10 +608,19 @@ impl Renderer {
             target.copy(&mut encoder);
             target
         });
+        // The inspector goes on the window only, not into screenshots.
+        #[cfg(feature = "inspector")]
+        let overlay_commands = match &view {
+            Some(view) => self.draw_overlay(&mut encoder, view),
+            None => Vec::new(),
+        };
+        #[cfg(not(feature = "inspector"))]
+        let overlay_commands: [wgpu::CommandBuffer; 0] = [];
         if let Some(timer) = &self.timer {
             timer.resolve(&mut encoder);
         }
-        self.queue.submit([encoder.finish()]);
+        self.queue
+            .submit(overlay_commands.into_iter().chain([encoder.finish()]));
         if let Some(timer) = &mut self.timer {
             timer.submitted();
             self.stats.gpu_ms = timer.smoothed_ms;
@@ -607,6 +634,73 @@ impl Renderer {
             self.screenshot = Some(capture.read(&self.device));
         }
         status
+    }
+
+    /// Hands the renderer the inspector's drawing for the next frame. A
+    /// drawing that wasn't shown yet (the window was hidden) is replaced,
+    /// but its texture changes are kept.
+    #[cfg(feature = "inspector")]
+    pub fn set_overlay(&mut self, mut overlay: crate::inspector::Overlay) {
+        if let Some(older) = self.overlay.take() {
+            overlay.merge_older(older);
+        }
+        self.overlay = Some(overlay);
+    }
+
+    /// Records the inspector's pass on top of the frame. Returns egui's
+    /// extra command buffers, to submit before the frame's.
+    #[cfg(feature = "inspector")]
+    fn draw_overlay(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+    ) -> Vec<wgpu::CommandBuffer> {
+        let Some(overlay) = self.overlay.take() else {
+            return Vec::new();
+        };
+        let renderer = self.egui.get_or_insert_with(|| {
+            let options = egui_wgpu::RendererOptions {
+                msaa_samples: 1,
+                depth_stencil_format: None,
+                dithering: true,
+                predictable_texture_filtering: false,
+            };
+            egui_wgpu::Renderer::new(&self.device, self.config.format, options)
+        });
+        for id in self.egui_free.drain(..) {
+            renderer.free_texture(&id);
+        }
+        for (id, deltas) in &overlay.textures.set {
+            for delta in deltas {
+                renderer.update_texture(&self.device, &self.queue, *id, delta);
+            }
+        }
+        self.egui_free.extend(overlay.textures.free.iter().copied());
+        let screen = egui_wgpu::ScreenDescriptor {
+            size_in_pixels: [self.config.width, self.config.height],
+            pixels_per_point: overlay.pixels_per_point,
+        };
+        let commands = renderer.update_buffers(&self.device, &self.queue, encoder, &overlay.primitives, &screen);
+        let mut pass = encoder
+            .begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("inspector"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            })
+            .forget_lifetime();
+        renderer.render(&mut pass, &overlay.primitives, &screen);
+        commands
     }
 
     fn sprite_pass(

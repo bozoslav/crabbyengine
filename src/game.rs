@@ -77,6 +77,7 @@ pub struct Game {
     control: bool,
     /// Reload asset and data files when they change (`CRABBY_HOT_RELOAD` overrides).
     hot_reload: bool,
+    inspector: bool,
 }
 
 type SystemFn = Box<dyn FnMut(&mut Ctx)>;
@@ -186,6 +187,7 @@ impl Game {
             spatial_cell: None,
             control: control::env_flag(control::ENV_CONTROL),
             hot_reload: cfg!(debug_assertions),
+            inspector: cfg!(debug_assertions),
         }
     }
 
@@ -392,6 +394,30 @@ impl Game {
     /// ```
     pub fn hot_reload(mut self, on: bool) -> Self {
         self.hot_reload = on;
+        self
+    }
+
+    /// Turns the runtime inspector on or off: an overlay that the backquote
+    /// key (`` ` ``, left of 1) opens and closes,
+    /// showing every entity and its components (reflected ones editable),
+    /// reflected resources, system times, and pause / step / speed controls.
+    /// Its "Pick" button selects the unit you click next.
+    ///
+    /// On by default in debug builds, off in release builds. The
+    /// environment variable `CRABBY_INSPECTOR=1` (or `0`) overrides this, and
+    /// `CRABBY_INSPECTOR=open` also starts the game with it open.
+    /// Needs the `inspector` cargo feature (on by default); without it, this
+    /// does nothing. While closed it costs nothing.
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// // Ship a release build with the inspector, for playtesters.
+    /// Game::new("Playtest", 1280, 720).inspector(true).run(|ctx| {
+    ///     let _ = ctx;
+    /// });
+    /// ```
+    pub fn inspector(mut self, on: bool) -> Self {
+        self.inspector = on;
         self
     }
 

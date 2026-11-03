@@ -384,6 +384,15 @@ static crabby::component<Unit> reflect_units(crabby::world_view world) {
 }
 // ANCHOR_END: reflect
 
+// ---- Inspector ----------------------------------------------------------------------
+[[maybe_unused]] static void playtest_build() {
+    // ANCHOR: inspector
+    crabby::game("Playtest", 1280, 720)
+        .inspector(true)   // also in release builds: the ` key opens it
+        .run([](crabby::ctx& ctx) { reflect_units(ctx.world()); });
+    // ANCHOR_END: inspector
+}
+
 static void save_and_load(crabby::world_view world) {
     // ANCHOR: save
     const std::string save = world.save();   // JSON text; write it to a file

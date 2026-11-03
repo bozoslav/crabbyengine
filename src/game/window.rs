@@ -44,6 +44,8 @@ where
         clock,
         last_frame: Instant::now(),
         occluded: false,
+        #[cfg(feature = "inspector")]
+        inspector: None,
     };
 
     event_loop
@@ -81,6 +83,9 @@ struct App<S> {
     last_frame: Instant,
     /// Window hidden/minimized: stop drawing, poll slowly instead of spinning.
     occluded: bool,
+    /// inspector overlay, when the game has it on.
+    #[cfg(feature = "inspector")]
+    inspector: Option<crate::inspector::Inspector>,
 }
 
 impl<S, U> App<S>
@@ -112,6 +117,10 @@ where
         self.ctx.reload_changed_assets();
         self.config.run_systems(&mut self.ctx, timing.fixed_steps);
         self.ctx.input.end_frame();
+        #[cfg(feature = "inspector")]
+        if let (Some(inspector), Some(window)) = (&mut self.inspector, &self.window) {
+            inspector.frame(window, &mut self.ctx);
+        }
 
         if self.ctx.quit_requested() {
             event_loop.exit();
@@ -157,6 +166,13 @@ where
         ));
         self.ctx.set_window_size(Self::logical_window_size(&window));
         self.ctx.set_scale_factor(window.scale_factor() as f32);
+        #[cfg(feature = "inspector")]
+        if let (true, open) = crate::inspector::enabled(self.config.inspector) {
+            let max_side = self.ctx.renderer.as_ref().map_or(2048, Renderer::max_texture_size);
+            let mut inspector = crate::inspector::Inspector::new(&window, max_side as usize);
+            inspector.open = open;
+            self.inspector = Some(inspector);
+        }
 
         if let Some(setup) = self.setup.take() {
             let frame_fn = setup(&mut self.ctx).into_frame_fn();
@@ -183,6 +199,22 @@ where
         let Some(window) = self.window.clone() else {
             return;
         };
+
+        #[cfg(feature = "inspector")]
+        if let Some(inspector) = &mut self.inspector {
+            if let WindowEvent::KeyboardInput { event: key, .. } = &event
+                && key.state == ElementState::Pressed
+                && !key.repeat
+                && key.physical_key == PhysicalKey::Code(crate::inspector::TOGGLE_CODE)
+            {
+                inspector.open = !inspector.open;
+                window.request_redraw();
+                return;
+            }
+            if inspector.on_event(&window, &event) {
+                return;
+            }
+        }
 
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),

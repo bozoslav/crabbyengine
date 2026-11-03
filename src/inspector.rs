@@ -1,0 +1,719 @@
+//! The runtime inspector: an egui overlay, toggled with the
+//! backquote key (`` ` ``, left of 1), that shows the
+//! running game. Sim controls (pause, step, speed), frame and system times,
+//! every entity with its components, live editing of reflected components
+//! and resources, and picking units in the world.
+//!
+//! Built with the `inspector` feature; turned on per game with
+//! [`Game::inspector`](crate::Game::inspector) (on in debug builds). While
+//! closed, it costs nothing: egui doesn't run and no events are kept.
+
+use std::collections::HashSet;
+
+use crabby_ecs::{ComponentId, Entity, World};
+use egui::{CollapsingHeader, Color32, DragValue, RichText, ScrollArea, Sense, Stroke, Ui, vec2};
+use glam::Vec2;
+use serde_json::Value;
+
+use crate::reflect::short_name;
+use crate::{Ctx, Transform2D, WorldReflect};
+
+/// Environment variable that turns the inspector on (`1`) or off (`0`),
+/// overriding [`Game::inspector`](crate::Game::inspector).
+pub(crate) const ENV_INSPECTOR: &str = "CRABBY_INSPECTOR";
+
+/// The key that opens and closes the inspector.
+pub(crate) const TOGGLE_CODE: winit::keyboard::KeyCode = winit::keyboard::KeyCode::Backquote;
+
+/// Whether the inspector is on, and whether it starts open:
+/// `CRABBY_INSPECTOR` (`1`, `0` or `open`) if set, else the game's choice.
+pub(crate) fn enabled(game_default: bool) -> (bool, bool) {
+    match std::env::var(ENV_INSPECTOR).as_deref() {
+        Ok("1") => (true, false),
+        Ok("open") => (true, true),
+        Ok("0") => (false, false),
+        _ => (game_default, false),
+    }
+}
+
+/// Frames kept for the frame-time graph.
+const HISTORY: usize = 240;
+/// How close (window pixels) a click must be to an entity to pick it.
+const PICK_RADIUS: f32 = 24.0;
+/// Height of one row in the entity list.
+const ROW_HEIGHT: f32 = 18.0;
+
+/// What the overlay draws this frame: egui's triangles and texture changes.
+pub(crate) struct Overlay {
+    pub primitives: Vec<egui::ClippedPrimitive>,
+    pub textures: egui::TexturesDelta,
+    pub pixels_per_point: f32,
+}
+
+impl Overlay {
+    /// Adds a frame that wasn't drawn yet: its texture changes still apply.
+    pub fn merge_older(&mut self, mut older: Overlay) {
+        let mut textures = std::mem::take(&mut older.textures);
+        textures.append(std::mem::take(&mut self.textures));
+        self.textures = textures;
+    }
+}
+
+impl Drop for Overlay {
+    /// A frame that's never drawn (the game quits first) is fine to drop:
+    /// its textures die with the renderer.
+    fn drop(&mut self) {
+        self.textures.clear();
+    }
+}
+
+/// The inspector's panels and what's selected in them. Independent of the
+/// window, so it can be run (and tested) on any egui context.
+#[derive(Default)]
+pub(crate) struct Panels {
+    pub selected: Option<Entity>,
+    /// Only list entities with this component.
+    filter: Option<ComponentId>,
+    /// The next click in the world selects the entity under it.
+    pub picking: bool,
+    /// A click to pick at (window pixels), from the window events.
+    pub pick_at: Option<Vec2>,
+    /// The last edit that failed, shown until the next one.
+    error: Option<String>,
+    frame_ms: Vec<f32>,
+    frame_at: usize,
+    /// Non-empty archetypes that pass the filter, and the first row of each.
+    rows: Vec<(usize, usize)>,
+    reflected: HashSet<String>,
+}
+
+impl Panels {
+    /// Draws the inspector into `ui` and applies what was changed in it to `ctx`.
+    pub fn show(&mut self, ui: &mut Ui, ctx: &mut Ctx) {
+        self.record_frame(ctx.dt() * 1000.0);
+        self.reflected.clear();
+        self.reflected
+            .extend(ctx.world.reflected_components().into_iter().map(str::to_owned));
+        if let Some(at) = self.pick_at.take() {
+            self.picking = false;
+            if let Some(e) = pick(ctx, at) {
+                self.selected = Some(e);
+            }
+        }
+        if self.selected.is_some_and(|e| !ctx.world.is_alive(e)) {
+            self.selected = None;
+        }
+
+        egui::Panel::right("crabby-inspector")
+            .default_size(360.0)
+            .resizable(true)
+            .show(ui, |ui| {
+                ScrollArea::vertical().id_salt("inspector-scroll").show(ui, |ui| {
+                    self.sim_controls(ui, ctx);
+                    self.frame_graph(ui);
+                    if let Some(error) = &self.error {
+                        ui.colored_label(Color32::LIGHT_RED, error);
+                    }
+                    if let Some(e) = self.selected {
+                        ui.separator();
+                        self.entity(ui, ctx, e);
+                        ui.separator();
+                    }
+                    CollapsingHeader::new("Entities")
+                        .default_open(true)
+                        .show(ui, |ui| self.entity_list(ui, ctx));
+                    if !ctx.world.reflected_resources().is_empty() {
+                        CollapsingHeader::new("Resources")
+                            .default_open(true)
+                            .show(ui, |ui| self.resources(ui, ctx));
+                    }
+                    CollapsingHeader::new("Systems")
+                        .default_open(true)
+                        .show(ui, |ui| systems(ui, ctx));
+                });
+            });
+        self.highlight(ui, ctx);
+    }
+
+    fn record_frame(&mut self, ms: f32) {
+        if self.frame_ms.len() < HISTORY {
+            self.frame_ms.push(ms);
+        } else {
+            self.frame_ms[self.frame_at] = ms;
+        }
+        self.frame_at = (self.frame_at + 1) % HISTORY;
+    }
+
+    fn sim_controls(&mut self, ui: &mut Ui, ctx: &mut Ctx) {
+        ui.horizontal(|ui| {
+            if ctx.is_paused() {
+                if ui.button("Resume").clicked() {
+                    ctx.resume();
+                }
+            } else if ui.button("Pause").clicked() {
+                ctx.pause();
+            }
+            if ui.button("Step").on_hover_text("Run one tick (pauses)").clicked() {
+                ctx.pause();
+                ctx.step();
+            }
+            let mut speed = ctx.sim_speed();
+            let drag = DragValue::new(&mut speed).range(0.0..=16.0).speed(0.02).suffix("×");
+            if ui.add(drag).on_hover_text("Simulation speed").changed() {
+                ctx.set_sim_speed(speed);
+            }
+        });
+        ui.label(format!(
+            "tick {}   {:.0} fps   {} entities",
+            ctx.sim_tick(),
+            ctx.fps(),
+            ctx.world.len()
+        ));
+    }
+
+    /// The last frames' times as bars; the line marks 60 fps.
+    fn frame_graph(&self, ui: &mut Ui) {
+        let width = ui.available_width();
+        let (rect, response) = ui.allocate_exact_size(vec2(width, 40.0), Sense::hover());
+        let painter = ui.painter();
+        painter.rect_filled(rect, 2.0, Color32::from_black_alpha(80));
+        let target = 1000.0 / 60.0;
+        // Scaled to the slowest frame, but at most 4× the target, so one
+        // long frame (loading) doesn't flatten the rest.
+        let top = self
+            .frame_ms
+            .iter()
+            .copied()
+            .fold(target * 2.0, f32::max)
+            .min(target * 4.0);
+        let bar = rect.width() / HISTORY as f32;
+        let n = self.frame_ms.len();
+        for i in 0..n {
+            // Oldest on the left.
+            let ms = if n < HISTORY {
+                self.frame_ms[i]
+            } else {
+                self.frame_ms[(self.frame_at + i) % HISTORY]
+            };
+            let h = rect.height() * (ms / top).min(1.0);
+            let x = rect.left() + i as f32 * bar;
+            let color = if ms > target * 1.5 {
+                Color32::from_rgb(230, 90, 70)
+            } else {
+                Color32::from_rgb(90, 180, 120)
+            };
+            painter.rect_filled(
+                egui::Rect::from_min_max(egui::pos2(x, rect.bottom() - h), egui::pos2(x + bar, rect.bottom())),
+                0.0,
+                color,
+            );
+        }
+        let y = rect.bottom() - rect.height() * target / top;
+        painter.hline(rect.x_range(), y, Stroke::new(1.0, Color32::from_white_alpha(60)));
+        if n > 0 {
+            let last = self.frame_ms[(self.frame_at + HISTORY - 1) % HISTORY];
+            response.on_hover_text(format!("frame time; last {last:.2} ms, line at 60 fps"));
+        }
+    }
+
+    fn resources(&mut self, ui: &mut Ui, ctx: &mut Ctx) {
+        let names: Vec<String> = ctx.world.reflected_resources().into_iter().map(str::to_owned).collect();
+        for name in names {
+            let Ok(mut value) = ctx.world.resource_json(&name) else {
+                ui.label(RichText::new(format!("{name} (not inserted)")).weak());
+                continue;
+            };
+            CollapsingHeader::new(&name)
+                .id_salt(("resource", &name))
+                .show(ui, |ui| {
+                    if edit_value(ui, &mut value) {
+                        self.error = ctx.world.set_resource_json(&name, value).err().map(|e| e.to_string());
+                    }
+                });
+        }
+    }
+
+    fn entity_list(&mut self, ui: &mut Ui, ctx: &mut Ctx) {
+        let world = &ctx.world;
+        ui.horizontal(|ui| {
+            ui.label("With");
+            let label = self
+                .filter
+                .map_or("anything".to_owned(), |id| component_name(world, id));
+            egui::ComboBox::from_id_salt("inspector-filter")
+                .selected_text(label)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut self.filter, None, "anything");
+                    for (i, info) in world.components().iter().enumerate() {
+                        let Some(id) = world.component_at(i) else { continue };
+                        ui.selectable_value(&mut self.filter, Some(id), short_name(info.name()));
+                    }
+                });
+            let pick = ui
+                .selectable_label(self.picking, "Pick")
+                .on_hover_text("Click a unit in the world to select it");
+            if pick.clicked() {
+                self.picking = !self.picking;
+            }
+        });
+        let total = list_rows(world, self.filter, &mut self.rows);
+        ui.label(RichText::new(format!("{total} matching")).weak());
+        let mut clicked = None;
+        ScrollArea::vertical()
+            .id_salt("inspector-entities")
+            .max_height(220.0)
+            .auto_shrink([false, true])
+            .show_rows(ui, ROW_HEIGHT, total, |ui, range| {
+                for row in range {
+                    let Some(e) = entity_at(world, &self.rows, row) else {
+                        continue;
+                    };
+                    let text = format!("{e:?}  {}", components_label(world, e));
+                    let selected = self.selected == Some(e);
+                    if ui.selectable_label(selected, text).clicked() {
+                        clicked = Some(e);
+                    }
+                }
+            });
+        if clicked.is_some() {
+            self.selected = clicked;
+        }
+    }
+
+    fn entity(&mut self, ui: &mut Ui, ctx: &mut Ctx, e: Entity) {
+        let position = ctx.world.get::<Transform2D>(e).map(|t| t.position);
+        ui.horizontal(|ui| {
+            ui.heading(format!("{e:?}"));
+            if let Some(at) = position
+                && ui.button("Look at").clicked()
+            {
+                ctx.camera.look_at(at);
+            }
+            if ui.button("Despawn").clicked() {
+                ctx.world.despawn(e);
+                self.selected = None;
+            }
+        });
+        if self.selected.is_none() {
+            return;
+        }
+        let ids: Vec<ComponentId> = ctx.world.components_of(e).map(<[_]>::to_vec).unwrap_or_default();
+        for id in ids {
+            let name = component_name(&ctx.world, id);
+            if !self.reflected.contains(&name) {
+                ui.label(RichText::new(format!("{name} (not reflected)")).weak())
+                    .on_hover_text("world.reflect::<T>() makes it readable and editable here");
+                continue;
+            }
+            let Ok(mut value) = ctx.world.get_json(e, &name) else {
+                continue;
+            };
+            let mut remove = false;
+            CollapsingHeader::new(&name)
+                .id_salt(("component", &name))
+                .default_open(true)
+                .show(ui, |ui| {
+                    if edit_value(ui, &mut value) {
+                        self.error = ctx.world.set_json(e, &name, value).err().map(|e| e.to_string());
+                    }
+                    remove = ui.small_button("Remove").clicked();
+                });
+            if remove {
+                self.error = ctx.world.remove_json(e, &name).err().map(|e| e.to_string());
+            }
+        }
+    }
+
+    /// A ring around the selected entity, in the world.
+    fn highlight(&self, ui: &Ui, ctx: &Ctx) {
+        let Some(e) = self.selected else { return };
+        let Some(t) = ctx.world.get::<Transform2D>(e) else {
+            return;
+        };
+        let at = ctx.camera.world_to_screen(t.position);
+        let painter = ui.ctx().layer_painter(egui::LayerId::new(
+            egui::Order::Background,
+            egui::Id::unique("inspector-highlight"),
+        ));
+        let center = egui::pos2(at.x, at.y);
+        painter.circle_stroke(center, 14.0, Stroke::new(2.0, Color32::from_rgb(255, 200, 40)));
+        painter.circle_stroke(center, 16.0, Stroke::new(1.0, Color32::from_black_alpha(160)));
+    }
+}
+
+/// Short name of component `id`, as reflection and the control endpoint name it.
+fn component_name(world: &World, id: ComponentId) -> String {
+    short_name(world.component_info(id).name())
+}
+
+/// The components of `e`, comma separated.
+fn components_label(world: &World, e: Entity) -> String {
+    let Some(ids) = world.components_of(e) else {
+        return String::new();
+    };
+    let mut out = String::new();
+    for (i, &id) in ids.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        out.push_str(&component_name(world, id));
+    }
+    out
+}
+
+/// Fills `rows` with each non-empty archetype that has `filter` and the row
+/// its entities start at. Returns the number of rows.
+fn list_rows(world: &World, filter: Option<ComponentId>, rows: &mut Vec<(usize, usize)>) -> usize {
+    rows.clear();
+    let mut total = 0;
+    for (i, arch) in world.archetypes().iter().enumerate() {
+        if arch.is_empty() || filter.is_some_and(|id| !arch.has(id)) {
+            continue;
+        }
+        rows.push((i, total));
+        total += arch.len();
+    }
+    total
+}
+
+/// The entity on `row` of a list made by [`list_rows`].
+fn entity_at(world: &World, rows: &[(usize, usize)], row: usize) -> Option<Entity> {
+    let k = rows.partition_point(|&(_, start)| start <= row).checked_sub(1)?;
+    let (arch, start) = rows[k];
+    world.archetypes()[arch].entities().get(row - start).copied()
+}
+
+/// The entity with a `Transform2D` closest to window point `at`, within
+/// [`PICK_RADIUS`] pixels.
+fn pick(ctx: &mut Ctx, at: Vec2) -> Option<Entity> {
+    let camera = ctx.camera;
+    let mut best: Option<(f32, Entity)> = None;
+    for (e, t) in ctx.world.query::<(Entity, &Transform2D)>().iter() {
+        let d = camera.world_to_screen(t.position).distance_squared(at);
+        if d <= PICK_RADIUS * PICK_RADIUS && best.is_none_or(|(b, _)| d < b) {
+            best = Some((d, e));
+        }
+    }
+    best.map(|(_, e)| e)
+}
+
+/// Edits a JSON value in place with the widget that fits it. Returns whether it changed.
+fn edit_value(ui: &mut Ui, value: &mut Value) -> bool {
+    match value {
+        Value::Null => {
+            ui.label(RichText::new("none").weak());
+            false
+        }
+        Value::Bool(b) => ui.checkbox(b, "").changed(),
+        Value::Number(n) => edit_number(ui, n),
+        Value::String(s) => {
+            // Applied when editing ends, not per key: a half-typed enum
+            // variant ("Blu") would be refused and overwritten.
+            let id = ui.next_auto_id();
+            let mut draft = ui.data_mut(|d| d.get_temp::<String>(id)).unwrap_or_else(|| s.clone());
+            let response = ui.text_edit_singleline(&mut draft);
+            if response.has_focus() {
+                ui.data_mut(|d| d.insert_temp(id, draft));
+                false
+            } else {
+                ui.data_mut(|d| d.remove::<String>(id));
+                let changed = response.lost_focus() && draft != *s;
+                if changed {
+                    *s = draft;
+                }
+                changed
+            }
+        }
+        Value::Array(items) if items.len() <= 4 && items.iter().all(Value::is_number) => {
+            // Vectors and colors: one row.
+            let mut changed = false;
+            ui.horizontal(|ui| {
+                for item in items.iter_mut() {
+                    if let Value::Number(n) = item {
+                        changed |= edit_number(ui, n);
+                    }
+                }
+            });
+            changed
+        }
+        Value::Array(items) => {
+            let mut changed = false;
+            CollapsingHeader::new(format!("[{}]", items.len()))
+                .id_salt(ui.next_auto_id())
+                .show(ui, |ui| {
+                    for (i, item) in items.iter_mut().enumerate() {
+                        ui.push_id(i, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(i.to_string());
+                                changed |= edit_value(ui, item);
+                            });
+                        });
+                    }
+                });
+            changed
+        }
+        Value::Object(fields) => {
+            let mut changed = false;
+            egui::Grid::new(ui.next_auto_id())
+                .num_columns(2)
+                .striped(true)
+                .show(ui, |ui| {
+                    for (key, field) in fields.iter_mut() {
+                        ui.label(key);
+                        ui.push_id(key, |ui| changed |= edit_value(ui, field));
+                        ui.end_row();
+                    }
+                });
+            changed
+        }
+    }
+}
+
+/// Keeps the number's kind: unsigned stays unsigned, integers stay integers.
+fn edit_number(ui: &mut Ui, n: &mut serde_json::Number) -> bool {
+    if let Some(mut v) = n.as_u64() {
+        let changed = ui.add(DragValue::new(&mut v)).changed();
+        *n = v.into();
+        changed
+    } else if let Some(mut v) = n.as_i64() {
+        let changed = ui.add(DragValue::new(&mut v)).changed();
+        *n = v.into();
+        changed
+    } else {
+        let mut v = n.as_f64().unwrap_or(0.0);
+        let speed = (v.abs() * 0.01).clamp(0.001, 10.0);
+        let changed = ui.add(DragValue::new(&mut v).speed(speed)).changed();
+        if let Some(f) = serde_json::Number::from_f64(v) {
+            *n = f;
+        }
+        changed
+    }
+}
+
+/// Each system's time this frame, slowest first.
+fn systems(ui: &mut Ui, ctx: &Ctx) {
+    let timings = ctx.system_timings();
+    if timings.is_empty() {
+        ui.label(RichText::new("no systems").weak());
+        return;
+    }
+    let top = timings.iter().map(|t| t.avg_ms).fold(0.001, f32::max);
+    egui::Grid::new("inspector-systems").num_columns(3).show(ui, |ui| {
+        for t in timings {
+            let name = t.name.rsplit("::").next().unwrap_or(t.name);
+            ui.label(if t.sim {
+                format!("{name} (sim)")
+            } else {
+                name.to_owned()
+            })
+            .on_hover_text(t.name);
+            ui.label(format!("{:.3} ms", t.avg_ms));
+            let (rect, _) = ui.allocate_exact_size(vec2(60.0, 8.0), Sense::hover());
+            let mut bar = rect;
+            bar.set_width(rect.width() * t.avg_ms / top);
+            ui.painter().rect_filled(bar, 1.0, Color32::from_rgb(242, 140, 40));
+            ui.end_row();
+        }
+    });
+}
+
+/// The overlay as part of the windowed loop: egui's context and window
+/// input, around [`Panels`].
+pub(crate) struct Inspector {
+    pub open: bool,
+    egui: egui::Context,
+    input: egui_winit::State,
+    pub panels: Panels,
+}
+
+impl Inspector {
+    pub fn new(window: &winit::window::Window, max_texture_side: usize) -> Self {
+        let egui = egui::Context::default();
+        let input = egui_winit::State::new(
+            egui.clone(),
+            egui::ViewportId::ROOT,
+            window,
+            Some(window.scale_factor() as f32),
+            None,
+            Some(max_texture_side),
+        );
+        Self {
+            open: false,
+            egui,
+            input,
+            panels: Panels::default(),
+        }
+    }
+
+    /// Feeds a window event to egui. Returns `true` if the game shouldn't
+    /// see it: egui uses it, or it's the click that picks an entity.
+    pub fn on_event(&mut self, window: &winit::window::Window, event: &winit::event::WindowEvent) -> bool {
+        use winit::event::{ElementState, MouseButton, WindowEvent};
+        if !self.open {
+            return false;
+        }
+        let consumed = self.input.on_window_event(window, event).consumed;
+        if self.panels.picking
+            && !self.egui.is_pointer_over_egui()
+            && let WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Left,
+                ..
+            } = event
+        {
+            let at = self.egui.input(|i| i.pointer.latest_pos());
+            self.panels.pick_at = at.map(|p| Vec2::new(p.x, p.y));
+            return true;
+        }
+        let input = matches!(
+            event,
+            WindowEvent::KeyboardInput { .. } | WindowEvent::MouseInput { .. } | WindowEvent::MouseWheel { .. }
+        );
+        consumed && input
+    }
+
+    /// Runs the panels for this frame and hands their drawing to the renderer.
+    pub fn frame(&mut self, window: &winit::window::Window, ctx: &mut Ctx) {
+        ctx.ui.overlay_has_pointer = false;
+        if !self.open {
+            return;
+        }
+        let raw = self.input.take_egui_input(window);
+        let panels = &mut self.panels;
+        let output = self.egui.run_ui(raw, |ui| panels.show(ui, ctx));
+        ctx.ui.overlay_has_pointer = self.egui.is_pointer_over_egui();
+        self.input.handle_platform_output(window, output.platform_output);
+        let primitives = self.egui.tessellate(output.shapes, output.pixels_per_point);
+        if let Some(renderer) = ctx.renderer.as_mut() {
+            renderer.set_overlay(Overlay {
+                primitives,
+                textures: output.textures_delta,
+                pixels_per_point: output.pixels_per_point,
+            });
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::{Deserialize, Serialize};
+    use serde_json::json;
+
+    #[derive(Serialize, Deserialize)]
+    struct Health {
+        current: f32,
+        max: u32,
+    }
+    struct Secret;
+
+    fn run(panels: &mut Panels, ctx: &mut Ctx) -> egui::FullOutput {
+        let egui = egui::Context::default();
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1280.0, 720.0))),
+            ..Default::default()
+        };
+        let mut out = egui.run_ui(input, |ui| panels.show(ui, ctx));
+        out.textures_delta.clear();
+        out
+    }
+
+    fn game() -> (Ctx, Entity) {
+        let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(1280.0, 720.0));
+        ctx.world.reflect::<Health>();
+        ctx.world.reflect::<Transform2D>();
+        let e = ctx.world.spawn((
+            Transform2D::at(Vec2::new(10.0, 0.0)),
+            Health { current: 3.0, max: 10 },
+            Secret,
+        ));
+        for i in 0..100 {
+            ctx.world.spawn((Transform2D::at(Vec2::new(i as f32 * 100.0, 500.0)),));
+        }
+        (ctx, e)
+    }
+
+    #[test]
+    fn panels_draw_a_selected_entity_with_reflected_and_hidden_components() {
+        let (mut ctx, e) = game();
+        let mut panels = Panels {
+            selected: Some(e),
+            ..Default::default()
+        };
+        let out = run(&mut panels, &mut ctx);
+        assert!(!out.shapes.is_empty());
+        assert_eq!(panels.selected, Some(e));
+        assert!(panels.error.is_none());
+    }
+
+    #[test]
+    fn a_despawned_selection_is_dropped() {
+        let (mut ctx, e) = game();
+        let mut panels = Panels {
+            selected: Some(e),
+            ..Default::default()
+        };
+        ctx.world.despawn(e);
+        let _ = run(&mut panels, &mut ctx);
+        assert_eq!(panels.selected, None);
+    }
+
+    #[test]
+    fn rows_cover_every_matching_entity_once() {
+        let (ctx, e) = game();
+        let mut rows = Vec::new();
+        let total = list_rows(&ctx.world, None, &mut rows);
+        assert_eq!(total, 101);
+        let listed: HashSet<Entity> = (0..total).filter_map(|r| entity_at(&ctx.world, &rows, r)).collect();
+        assert_eq!(listed.len(), 101);
+        assert!(listed.contains(&e));
+        assert_eq!(entity_at(&ctx.world, &rows, total), None);
+
+        let health = ctx.world.component_by_name(std::any::type_name::<Health>()).unwrap();
+        assert_eq!(list_rows(&ctx.world, Some(health), &mut rows), 1);
+        assert_eq!(entity_at(&ctx.world, &rows, 0), Some(e));
+    }
+
+    #[test]
+    fn a_pick_selects_the_nearest_entity_under_the_click() {
+        let (mut ctx, e) = game();
+        let at = ctx.camera.world_to_screen(Vec2::new(12.0, 3.0));
+        let mut panels = Panels {
+            picking: true,
+            pick_at: Some(at),
+            ..Default::default()
+        };
+        let _ = run(&mut panels, &mut ctx);
+        assert_eq!(panels.selected, Some(e));
+        assert!(!panels.picking, "picking ends after one click");
+
+        let far = ctx.camera.world_to_screen(Vec2::new(55.0, -300.0));
+        assert_eq!(pick(&mut ctx, far), None, "nothing within reach");
+    }
+
+    #[test]
+    fn number_edits_keep_their_kind() {
+        let egui = egui::Context::default();
+        let mut value = json!({ "current": 2.5, "max": 7, "offset": -3, "name": "crab", "on": true });
+        egui.run_ui(egui::RawInput::default(), |ui| {
+            assert!(!edit_value(ui, &mut value), "nothing changes without input");
+        })
+        .drop_without_applying_deltas();
+        assert_eq!(
+            value,
+            json!({ "current": 2.5, "max": 7, "offset": -3, "name": "crab", "on": true })
+        );
+        assert!(value["max"].is_u64() && value["offset"].is_i64() && value["current"].is_f64());
+    }
+
+    #[test]
+    fn frame_history_wraps_around() {
+        let mut panels = Panels::default();
+        for i in 0..HISTORY + 10 {
+            panels.record_frame(i as f32);
+        }
+        assert_eq!(panels.frame_ms.len(), HISTORY);
+        assert_eq!(panels.frame_at, 10);
+        assert_eq!(panels.frame_ms[9], (HISTORY + 9) as f32);
+    }
+}

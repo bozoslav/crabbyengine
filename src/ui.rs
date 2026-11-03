@@ -61,6 +61,8 @@ pub(crate) struct UiState {
     /// 1×1 white and a soft-edged circle, made on first use.
     white: Option<crate::Texture>,
     circle: Option<crate::Texture>,
+    /// The mouse is over the inspector overlay.
+    pub overlay_has_pointer: bool,
 }
 
 impl UiState {
@@ -205,11 +207,13 @@ impl Ctx {
     /// ```
     pub fn mouse_over_ui(&self) -> bool {
         let m = self.mouse_pos();
-        self.ui
-            .this_frame
-            .iter()
-            .chain(&self.ui.last_frame)
-            .any(|r| r.contains(m))
+        self.ui.overlay_has_pointer
+            || self
+                .ui
+                .this_frame
+                .iter()
+                .chain(&self.ui.last_frame)
+                .any(|r| r.contains(m))
     }
 
     /// A background panel at `rect` (window pixels), in the style's panel color.

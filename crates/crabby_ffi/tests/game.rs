@@ -101,6 +101,8 @@ fn bad_settings_are_errors_and_keep_the_game_usable() {
             CRABBY_OK
         );
         assert_eq!(crabby_game_fixed_hz(g, 30), CRABBY_OK);
+        assert_eq!(crabby_game_inspector(g, true), CRABBY_OK);
+        assert_eq!(crabby_game_inspector(g, false), CRABBY_OK);
         let mut world = null_mut();
         assert_eq!(
             crabby_game_run_headless(g, 1, None, null_mut(), null_mut()),
