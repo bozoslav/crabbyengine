@@ -1,12 +1,18 @@
 # Changelog
 
 All notable changes to Crabby Engine are listed here. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions will
-follow [Semantic Versioning](https://semver.org/) from the first release on.
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
+[Semantic Versioning](https://semver.org/); [STABILITY.md](STABILITY.md)
+says what that covers.
 
 ## [Unreleased]
 
-Everything so far, ahead of the first release.
+## [1.0.0] - 2026-11-03
+
+The first release: a 2D engine for simulations with up to millions of
+entities, in Rust, C and C++. Install with `cargo add crabbyengine`; the C
+library and headers for Linux, macOS and Windows are attached to the
+GitHub release. Everything below is new.
 
 ### Simulation
 - Own archetype ECS (`crabby_ecs`): entities with generational ids, queries,
@@ -94,4 +100,5 @@ Everything so far, ahead of the first release.
 - C API (`crabby_ffi`) with a generated header, and a header-only C++17
   wrapper (`include/crabby.hpp`) covering nearly the whole engine.
 
-[Unreleased]: https://github.com/bozoslav/crabbyengine/commits/main
+[Unreleased]: https://github.com/bozoslav/crabbyengine/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/bozoslav/crabbyengine/releases/tag/v1.0.0

@@ -1,6 +1,6 @@
 [package]
 name = "crabby_mcp"
-version = "0.1.0"
+version = "1.0.0"
 keywords = ["mcp", "gamedev", "agents", "ai"]
 categories = ["game-development", "development-tools"]
 edition.workspace = true
@@ -19,5 +19,5 @@ path = "src/main.rs"
 serde_json = "1.0.154"
 
 [dev-dependencies]
-crabbyengine = { path = "../.." }
+crabbyengine = { path = "../..", version = "1.0.0" }
 serde = { version = "1.0.229", features = ["derive"] }

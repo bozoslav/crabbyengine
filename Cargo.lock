@@ -735,7 +735,7 @@ dependencies = [
 
 [[package]]
 name = "crabby_ecs"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "rayon",
  "serde",
@@ -744,7 +744,7 @@ dependencies = [
 
 [[package]]
 name = "crabby_ffi"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "cbindgen",
  "crabby_ecs",
@@ -755,7 +755,7 @@ dependencies = [
 
 [[package]]
 name = "crabby_mcp"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "crabbyengine",
  "serde",
@@ -764,7 +764,7 @@ dependencies = [
 
 [[package]]
 name = "crabbyengine"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "bytemuck",
  "cpal",

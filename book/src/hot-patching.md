@@ -23,7 +23,7 @@ Give your game a `hotpatch` feature that turns on the engine's:
 
 ```toml
 [dependencies]
-crabbyengine = "0.1"
+crabbyengine = "1"
 
 [features]
 hotpatch = ["crabbyengine/hotpatch"]

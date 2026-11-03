@@ -69,7 +69,7 @@ and wgpu. Turn the `window` feature off and keep the rest:
 ```toml
 # Cargo.toml
 [dependencies]
-crabbyengine = { version = "*", default-features = false, features = ["audio"] }
+crabbyengine = { version = "1", default-features = false, features = ["audio"] }
 ```
 
 </div>
