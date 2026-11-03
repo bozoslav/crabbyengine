@@ -43,7 +43,7 @@ jobs:
           for example in battle flow ants; do
             web/build.sh "$example" "book/book/play/$example"
           done
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: book/book
 
