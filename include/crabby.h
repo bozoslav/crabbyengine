@@ -497,6 +497,11 @@ enum CrabbyStatus crabby_ctx_load_texture(struct CrabbyCtx *ctx,
                                           const char *path,
                                           struct CrabbyTexture *out_texture);
 
+enum CrabbyStatus crabby_ctx_load_json(struct CrabbyCtx *ctx,
+                                       const char *path,
+                                       uint64_t entity,
+                                       uint32_t component);
+
 enum CrabbyStatus crabby_ctx_create_texture(struct CrabbyCtx *ctx,
                                             uint32_t width,
                                             uint32_t height,

@@ -1,6 +1,6 @@
 //! [`Ctx`]: everything game code talks to each frame.
 
-use crabby_ecs::{Commands, World};
+use crabby_ecs::{Commands, Entity, World};
 use glam::{Mat4, Vec2};
 
 use crate::assets;
@@ -9,7 +9,9 @@ use crate::camera::Camera2D;
 use crate::camera::Rect;
 use crate::color::Color;
 use crate::ecs::{Sprite, Transform2D};
+use crate::hot_reload::Asset;
 use crate::input::{Input, Key, MouseButton};
+use crate::reflect::WorldReflect;
 use crate::render::batch::{DrawList, SpriteInstance};
 use crate::render::batch::{FULL_UV, uv_region};
 use crate::render::{FrameStatus, RenderStats, Renderer, Screenshot};
@@ -62,6 +64,9 @@ fn screen_projection(size: Vec2) -> Mat4 {
 ///
 /// Use it to draw, read input, check timing and window info, and reach the
 /// ECS [`World`] through `ctx.world`.
+/// Applies a data file's text to the world.
+type DataLoader = Box<dyn Fn(&mut World, &str) -> Result<(), String>>;
+
 pub struct Ctx {
     /// All entities, components and resources.
     ///
@@ -114,6 +119,8 @@ pub struct Ctx {
     headless_textures: u32,
     /// Asset hot reload: which files textures came from.
     pub(crate) watcher: crate::hot_reload::Watcher,
+    /// How to apply each loaded data file's text (`load_resource`).
+    data_loaders: Vec<DataLoader>,
     pub(crate) timings: Vec<SystemTiming>,
     pub(crate) input: Input,
     timing: FrameTiming,
@@ -188,6 +195,7 @@ impl Ctx {
             control_addr: None,
             headless_textures: 0,
             watcher: Default::default(),
+            data_loaders: Vec::new(),
             timings: Vec::new(),
             input: Input::new(),
             timing: FrameTiming {
@@ -787,8 +795,85 @@ impl Ctx {
         let file = assets::resolve(path).unwrap_or_else(|e| panic!("crabbyengine: {e}"));
         let image = assets::load_image_at(&file, path).unwrap_or_else(|e| panic!("crabbyengine: {e}"));
         let texture = self.create_texture(image.width, image.height, &image.rgba);
-        self.watcher.watch(path, file, texture);
+        self.watcher.watch(path, file, Asset::Texture(texture));
         texture
+    }
+
+    /// Loads resource `R` from a JSON file in `assets/`. With [hot
+    /// reload](crate::Game::hot_reload) on, editing the file replaces the
+    /// resource while the game runs: tune numbers without restarting. A file
+    /// that doesn't parse keeps the old values and prints why.
+    ///
+    /// # Panics
+    /// If the file is missing or isn't valid JSON for `R` (with the line and
+    /// column).
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// #[derive(serde::Deserialize)]
+    /// struct Rules {
+    ///     speed: f32,
+    ///     damage: f32,
+    /// }
+    ///
+    /// Game::new("Tuning", 800, 600).run(|ctx| {
+    ///     ctx.load_resource::<Rules>("rules.json"); // {"speed": 30, "damage": 2}
+    ///     |ctx: &mut Ctx| {
+    ///         let speed = ctx.world.resource::<Rules>().speed;
+    ///         // ...
+    ///     }
+    /// });
+    /// ```
+    pub fn load_resource<R: Send + Sync + 'static + serde::de::DeserializeOwned>(&mut self, path: &str) {
+        let loaded = self.load_data(
+            path,
+            Box::new(|world: &mut World, text: &str| {
+                let value: R = serde_json::from_str(text).map_err(|e| e.to_string())?;
+                world.insert_resource(value);
+                Ok(())
+            }),
+        );
+        loaded.unwrap_or_else(|e| panic!("crabbyengine: {e}"));
+    }
+
+    /// Loads a JSON file into reflected component `component` of `entity`
+    /// (object fields merge), reloading it when the file changes: the C and
+    /// C++ way to [`load_resource`](Self::load_resource).
+    #[doc(hidden)]
+    pub fn load_component_json(&mut self, path: &str, entity: Entity, component: &str) -> Result<(), String> {
+        let component = component.to_string();
+        self.load_data(
+            path,
+            Box::new(move |world: &mut World, text: &str| {
+                let value: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+                world.set_json(entity, &component, value).map_err(|e| e.to_string())
+            }),
+        )
+    }
+
+    fn load_data(&mut self, path: &str, apply: DataLoader) -> Result<(), String> {
+        let file = assets::resolve(path)?;
+        let text = std::fs::read_to_string(&file).map_err(|e| format!("could not read {}: {e}", file.display()))?;
+        apply(&mut self.world, &text).map_err(|e| format!("{path}: {e}"))?;
+        self.data_loaders.push(apply);
+        self.watcher.watch(path, file, Asset::Data(self.data_loaders.len() - 1));
+        Ok(())
+    }
+
+    /// Names of the files (as you loaded them) that changed and were
+    /// reloaded at the start of this frame, textures and data alike. Use it
+    /// to redo work that depends on them.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// if ctx.reloaded_files().iter().any(|f| f == "map.json") {
+    ///     println!("map changed: rebuilding the flow fields");
+    /// }
+    /// # }
+    /// ```
+    pub fn reloaded_files(&self) -> &[String] {
+        &self.watcher.reloaded_files
     }
 
     /// Textures whose files changed and were reloaded at the start of this
@@ -808,19 +893,37 @@ impl Ctx {
         &self.watcher.reloaded
     }
 
-    /// Reloads textures whose files changed (checked a few times a second).
+    /// Reloads textures and data files that changed (checked a few times a second).
     pub(crate) fn reload_changed_assets(&mut self) {
         self.watcher.reloaded.clear();
+        self.watcher.reloaded_files.clear();
         if !self.watcher.on {
             return;
         }
         let mut changed = std::mem::take(&mut self.watcher.pending);
         self.watcher.changed(std::time::Instant::now(), &mut changed);
-        for (texture, file, name) in changed.drain(..) {
+        for (asset, file, name) in changed.drain(..) {
+            let texture = match asset {
+                Asset::Texture(t) => t,
+                Asset::Data(i) => {
+                    let applied = std::fs::read_to_string(&file)
+                        .map_err(|e| e.to_string())
+                        .and_then(|text| (self.data_loaders[i])(&mut self.world, &text));
+                    match applied {
+                        Ok(()) => {
+                            eprintln!("crabbyengine: reloaded {name}");
+                            self.watcher.reloaded_files.push(name);
+                        }
+                        Err(e) => eprintln!("crabbyengine: could not reload {name} (keeping the old values): {e}"),
+                    }
+                    continue;
+                }
+            };
             match assets::load_image_at(&file, &name) {
                 Ok(image) if (image.width, image.height) == (texture.width(), texture.height()) => {
                     self.update_texture(&texture, &image.rgba);
                     self.watcher.reloaded.push(texture);
+                    self.watcher.reloaded_files.push(name.clone());
                     eprintln!("crabbyengine: reloaded {name}");
                 }
                 Ok(image) => eprintln!(

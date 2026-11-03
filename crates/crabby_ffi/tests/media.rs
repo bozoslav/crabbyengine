@@ -324,3 +324,83 @@ fn edited_textures_are_reported_after_reloading() {
         CRABBY_INVALID_ARGUMENT
     );
 }
+
+#[repr(C)]
+#[derive(Default, Clone, Copy)]
+struct Rules {
+    speed: f32,
+    waves: u32,
+}
+
+#[derive(Default)]
+struct DataTest {
+    path: std::ffi::CString,
+    rules: Rules,
+    statuses: Vec<CrabbyStatus>,
+    errors: Vec<String>,
+}
+
+unsafe extern "C" fn load_rules(ctx: *mut CrabbyCtx, user: *mut c_void) {
+    unsafe {
+        let t = &mut *user.cast::<DataTest>();
+        if crabby_ctx_sim_tick(ctx) > 0 {
+            return;
+        }
+        let w = crabby_ctx_world(ctx);
+        let mut id = 0;
+        assert_eq!(
+            crabby_component_register(w, c"Rules".as_ptr(), 8, 4, &mut id),
+            CRABBY_OK
+        );
+        let mut e = 0;
+        let v = CrabbyValue {
+            component: id,
+            data: (&raw const t.rules).cast(),
+            size: 8,
+        };
+        assert_eq!(crabby_spawn(w, &v, 1, &mut e), CRABBY_OK);
+        // Not reflected yet: refused with a reason.
+        t.statuses.push(crabby_ctx_load_json(ctx, t.path.as_ptr(), e, id));
+        t.errors.push(last_error());
+        let fields = [
+            CrabbyField {
+                name: c"speed".as_ptr(),
+                kind: CrabbyFieldType::CRABBY_FIELD_F32 as u32,
+                offset: 0,
+            },
+            CrabbyField {
+                name: c"waves".as_ptr(),
+                kind: CrabbyFieldType::CRABBY_FIELD_U32 as u32,
+                offset: 4,
+            },
+        ];
+        assert_eq!(crabby_component_reflect(w, id, fields.as_ptr(), 2), CRABBY_OK);
+        t.statuses.push(crabby_ctx_load_json(ctx, t.path.as_ptr(), e, id));
+        t.statuses
+            .push(crabby_ctx_load_json(ctx, c"no-such-rules.json".as_ptr(), e, id));
+        t.errors.push(last_error());
+        let mut out = Rules::default();
+        assert_eq!(crabby_get(w, e, id, (&raw mut out).cast(), 8), CRABBY_OK);
+        t.rules = out;
+    }
+}
+
+#[test]
+fn json_files_load_into_reflected_c_components() {
+    let dir = std::env::temp_dir().join(format!("crabby-ffi-data-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("rules.json");
+    std::fs::write(&file, r#"{"speed": 2.5, "waves": 7}"#).unwrap();
+    let mut t = DataTest {
+        path: std::ffi::CString::new(file.to_str().unwrap()).unwrap(),
+        ..Default::default()
+    };
+    run(1, Some(load_rules), (&raw mut t).cast());
+    assert_eq!(
+        t.statuses,
+        [CRABBY_INVALID_ARGUMENT, CRABBY_OK, CRABBY_INVALID_ARGUMENT]
+    );
+    assert!(t.errors[0].contains("Rules"), "{}", t.errors[0]);
+    assert!(t.errors[1].contains("not found in assets/"), "{}", t.errors[1]);
+    assert_eq!((t.rules.speed, t.rules.waves), (2.5, 7));
+}

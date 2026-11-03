@@ -647,6 +647,11 @@ public:
     vec2 mouse_wheel() const { vec2 v{}; detail::check(crabby_ctx_mouse_wheel(raw_, &v)); return v; }
 
     // Textures and drawing.
+    /// Loads a JSON file from assets/ into a reflected component of `e`
+    /// (fields merge); with hot reload on, edits to the file show up live.
+    template<class T> void load_json(const char* path, entity e, const component<T>& token) {
+        detail::check(crabby_ctx_load_json(raw_, path, e, world().id(token)));
+    }
     texture load_texture(const char* path) { texture t{}; detail::check(crabby_ctx_load_texture(raw_, path, &t)); return t; }
     texture create_texture(std::uint32_t w, std::uint32_t h, const std::uint8_t* rgba, std::size_t len) {
         texture t{}; detail::check(crabby_ctx_create_texture(raw_, w, h, rgba, len, &t)); return t;

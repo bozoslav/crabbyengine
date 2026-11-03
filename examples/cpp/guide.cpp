@@ -310,6 +310,19 @@ struct Hud {
     // ANCHOR_END: hot_reload
 }
 
+// ---- Data files ----------------------------------------------------------------------
+// ANCHOR: data_files
+struct Tuning { float speed; float damage; };
+
+[[maybe_unused]] static void load_tuning(crabby::ctx& ctx) {
+    auto tuning = ctx.world().component<Tuning>("Tuning",
+        {crabby::field("speed", &Tuning::speed), crabby::field("damage", &Tuning::damage)});
+    const crabby::entity settings = ctx.world().spawn(tuning.with(Tuning{}));
+    ctx.load_json("tuning.json", settings, tuning);   // {"speed": 30, "damage": 2}
+    // Systems read ctx.world().get(settings, tuning): the file's current values.
+}
+// ANCHOR_END: data_files
+
 // ---- Sound -------------------------------------------------------------------------
 [[maybe_unused]] static void sound(crabby::ctx& ctx) {
     // ANCHOR: sound
