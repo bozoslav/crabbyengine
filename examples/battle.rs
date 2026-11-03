@@ -344,17 +344,19 @@ fn resolve() -> impl FnMut(&mut Ctx) {
         }
         let mut alive = [0; 2];
         let (cmds, events) = (&mut ctx.commands, &mut ctx.events);
-        ctx.world.query::<(Entity, &Transform2D, &Unit)>().for_each(|(e, t, u)| {
-            if u.hp <= 0.0 {
-                cmds.despawn(e);
-                events.send(Fallen {
-                    team: u.team,
-                    at: t.position,
-                });
-            } else {
-                alive[u.team.index()] += 1;
-            }
-        });
+        ctx.world
+            .query::<(Entity, &Transform2D, &Unit)>()
+            .for_each(|(e, t, u)| {
+                if u.hp <= 0.0 {
+                    cmds.despawn(e);
+                    events.send(Fallen {
+                        team: u.team,
+                        at: t.position,
+                    });
+                } else {
+                    alive[u.team.index()] += 1;
+                }
+            });
         let mut fallen = None;
         ctx.world.query::<&Base>().for_each(|b| {
             if b.hp <= 0.0 {
