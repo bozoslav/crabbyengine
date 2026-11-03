@@ -403,8 +403,60 @@ static void wander(crabby::ctx& ctx, const crabby::component<Heading>& heading) 
 }
 // ANCHOR_END: random
 
+// ---- Pathfinding with flow fields --------------------------------------------------
+// ANCHOR: flow_map
+static void make_walls(crabby::nav_grid& nav) {
+    // 1 is normal ground, higher is slower (mud), nav_grid::wall blocks.
+    for (std::uint32_t y = 0; y < 60; ++y) nav.set_cost(40, y, crabby::nav_grid::wall);
+    for (std::uint32_t x = 50; x < 70; ++x)
+        for (std::uint32_t y = 20; y < 40; ++y) nav.set_cost(x, y, 6);
+}
+// ANCHOR_END: flow_map
+
+// ANCHOR: flow_steer
+static void steer(crabby::ctx& ctx, const crabby::flow_field& flow,
+                  const crabby::component<crabby::transform2d>& transforms) {
+    const float step = 40 * ctx.dt();
+    const crabby::flow_view view = flow.view();   // inline lookups, safe from every thread
+    ctx.world().query_par([&](auto chunk) {
+        auto t = chunk.template column<0>();
+        for (std::size_t i = 0; i < chunk.size(); ++i)
+            t[i].position += view.direction_at(t[i].position) * step;
+    }, transforms);
+}
+// ANCHOR_END: flow_steer
+
+static void crowds_reach_the_goal() {
+    // ANCHOR: flow_compute
+    crabby::nav_grid nav(100, 80, 4.0f);   // 100 x 80 cells, 4 world units each
+    make_walls(nav);
+    crabby::flow_field flow;
+    flow.compute(nav, crabby::vec2{390, 10});   // or several goals: the nearest wins
+    // ANCHOR_END: flow_compute
+    crabby::component<crabby::transform2d> transforms;
+    auto world = crabby::game("flow", 1, 1)
+        .sim_system([&](crabby::ctx& ctx) { steer(ctx, flow, transforms); }, "steer")
+        .run_headless(1200, [&](crabby::ctx& ctx) {
+            transforms = ctx.world().transforms();
+            for (int i = 0; i < 1000; ++i)
+                ctx.world().spawn(transforms.with(crabby::transform_at({2.0f + float(i % 30) * 5, 2.0f + float(i / 30) * 9})));
+        });
+    std::size_t arrived = 0;
+    world.query([&](auto chunk) {
+        auto t = chunk.template column<0>();
+        for (std::size_t i = 0; i < chunk.size(); ++i)
+            arrived += flow.distance_at(t[i].position).value_or(1e9f) < 12;
+    }, transforms);
+    const auto start = flow.distance_at({2, 2});
+    if (arrived < 990 || !start || *start < 390 || nav.walkable({162, 10}) || !nav.walkable({2, 2})) {
+        std::fprintf(stderr, "flow: %zu of 1000 arrived\n", arrived);
+        std::abort();
+    }
+}
+
 int main() {
     things_fall_ten_units_per_second();
+    crowds_reach_the_goal();
 
     // Run the other snippets headless once, so they're exercised, not only compiled.
     crabby::component<Health> health;

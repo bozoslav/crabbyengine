@@ -510,6 +510,102 @@ public:
     }
 };
 
+/// Walking costs for flow fields: 1 is normal ground, up to 255 slower,
+/// nav_grid::wall can't be entered.
+class nav_grid {
+    CrabbyNavGrid* raw_;
+    std::uint8_t* costs_ = nullptr;
+    std::uint32_t width_, height_;
+    float cell_size_;
+    vec2 origin_{0, 0};
+public:
+    static constexpr std::uint8_t wall = CRABBY_NAV_WALL;
+    nav_grid(std::uint32_t width, std::uint32_t height, float cell_size)
+        : raw_(crabby_nav_new(width, height, cell_size)), width_(width), height_(height), cell_size_(cell_size) {
+        if (!raw_) throw std::invalid_argument(crabby_last_error());
+        std::size_t len = 0;
+        detail::check(crabby_nav_costs(raw_, &costs_, &len));
+    }
+    ~nav_grid() { crabby_nav_free(raw_); }
+    nav_grid(const nav_grid&) = delete;
+    nav_grid& operator=(const nav_grid&) = delete;
+    const CrabbyNavGrid* raw() const noexcept { return raw_; }
+    std::uint32_t width() const noexcept { return width_; }
+    std::uint32_t height() const noexcept { return height_; }
+    float cell_size() const noexcept { return cell_size_; }
+    /// Where cell (0, 0)'s top-left corner is. Default (0, 0).
+    void set_origin(vec2 o) { detail::check(crabby_nav_set_origin(raw_, o)); origin_ = o; }
+    vec2 origin() const noexcept { return origin_; }
+    /// Sets the cost of a cell; cells outside the grid are ignored.
+    void set_cost(std::uint32_t x, std::uint32_t y, std::uint8_t cost) noexcept {
+        if (x < width_ && y < height_) costs_[std::size_t(y) * width_ + x] = cost;
+    }
+    /// The cost of a cell, or nothing outside the grid.
+    std::optional<std::uint8_t> cost(std::uint32_t x, std::uint32_t y) const noexcept {
+        if (x >= width_ || y >= height_) return std::nullopt;
+        return costs_[std::size_t(y) * width_ + x];
+    }
+    /// All costs row by row, for filling a map at once.
+    std::uint8_t* costs() noexcept { return costs_; }
+    /// The cell under a world point, or nothing outside the grid.
+    std::optional<std::array<std::uint32_t, 2>> cell_at(vec2 p) const noexcept {
+        const float cx = std::floor((p.x - origin_.x) / cell_size_), cy = std::floor((p.y - origin_.y) / cell_size_);
+        if (!(cx >= 0 && cy >= 0 && cx < float(width_) && cy < float(height_))) return std::nullopt;
+        return std::array<std::uint32_t, 2>{{std::uint32_t(cx), std::uint32_t(cy)}};
+    }
+    /// Inside the grid and not a wall.
+    bool walkable(vec2 p) const noexcept {
+        const auto c = cell_at(p);
+        return c && costs_[std::size_t((*c)[1]) * width_ + (*c)[0]] != wall;
+    }
+    /// The world position of a cell's center.
+    vec2 center_of(std::uint32_t x, std::uint32_t y) const noexcept {
+        return origin_ + vec2{(float(x) + 0.5f) * cell_size_, (float(y) + 0.5f) * cell_size_};
+    }
+};
+
+/// Inline lookups into a flow field, from any thread (flow_field::view()).
+/// Expires when the field is computed again.
+class flow_view {
+    CrabbyFlowView v_{};
+public:
+    flow_view() = default;
+    explicit flow_view(const CrabbyFlowView& v) : v_(v) {}
+    /// Unit direction toward the nearest goal, or zero (goal, wall, outside, unreachable).
+    vec2 direction_at(vec2 p) const noexcept {
+        if (!v_.cells) return {0, 0};
+        const float cx = std::floor((p.x - v_.origin.x) / v_.cell_size), cy = std::floor((p.y - v_.origin.y) / v_.cell_size);
+        if (!(cx >= 0 && cy >= 0 && cx < float(v_.width) && cy < float(v_.height))) return {0, 0};
+        return v_.directions[v_.cells[(std::size_t(cy) + 1) * v_.stride + std::size_t(cx) + 1]];
+    }
+};
+
+/// The way to the nearest goal from every cell of a nav_grid (Rust `FlowField`).
+class flow_field {
+    CrabbyFlowField* raw_ = crabby_flow_new();
+public:
+    flow_field() = default;
+    ~flow_field() { crabby_flow_free(raw_); }
+    flow_field(const flow_field&) = delete;
+    flow_field& operator=(const flow_field&) = delete;
+    /// Recomputes for these goals (world points); reuses its memory.
+    void compute(const nav_grid& nav, const std::vector<vec2>& goals) {
+        detail::check(crabby_flow_compute(raw_, nav.raw(), goals.data(), goals.size()));
+    }
+    void compute(const nav_grid& nav, vec2 goal) { detail::check(crabby_flow_compute(raw_, nav.raw(), &goal, 1)); }
+    vec2 direction_at(vec2 p) const noexcept { return crabby_flow_direction(raw_, p); }
+    /// Length of the shortest way to a goal in world units, or nothing if none can be reached.
+    std::optional<float> distance_at(vec2 p) const {
+        float d = 0;
+        const auto status = crabby_flow_distance(raw_, p, &d);
+        if (status == CRABBY_NOT_FOUND) return std::nullopt;
+        detail::check(status);
+        return d;
+    }
+    /// Inline lookups for hot loops (query_par), valid until the next compute.
+    flow_view view() const { CrabbyFlowView v{}; detail::check(crabby_flow_view(raw_, &v)); return flow_view(v); }
+};
+
 /// What a system gets (Rust `Ctx`). Valid only during the call.
 class ctx {
     CrabbyCtx* raw_;

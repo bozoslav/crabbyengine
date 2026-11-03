@@ -33,7 +33,7 @@ Where tests live:
 | Performance | `crates/crabby_bench` (`cargo run --release -p crabby_bench [-- filter]`) | `iter/crabby` |
 
 Rules:
-- New public behavior gets a test in the matching area file. A new area gets a new file **and** a line in the CI `test` matrix (`.github/workflows/ci.yml`), so it shows up as its own check.
+- New public behavior gets a test in the matching area file. A new area gets a new file **and** two lines in the CI `test` matrix (`.github/workflows/ci.yml`): its name in `area:` and its command in `include:`. An `include` entry without the `area` line makes a job with no OS and fails the whole matrix.
 - Test names say what must hold: `stale_handles_stay_dead`, not `test_entity_2`.
 - Panics that are part of the API get `#[should_panic(expected = "...")]` tests, so the message stays helpful.
 - Benchmarks are not tests: never assert on timings in tests, except for coarse bounds such as "≥ 6 ms for three 2 ms steps".
