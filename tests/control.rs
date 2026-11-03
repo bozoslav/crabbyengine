@@ -352,7 +352,6 @@ fn subscribers_get_reflected_events_with_their_ticks() {
     game.join().unwrap();
 }
 
-#[cfg(unix)]
 /// Lines this test printed. Other tests share the process, and the test
 /// harness's progress dots (no newline) can end up in front of ours.
 fn ours(logs: &Value) -> Vec<String> {
@@ -362,7 +361,6 @@ fn ours(logs: &Value) -> Vec<String> {
         .collect()
 }
 
-#[cfg(unix)]
 #[test]
 fn the_game_output_is_kept_for_tools() {
     let (addr_tx, addr_rx) = mpsc::channel();
@@ -407,7 +405,6 @@ fn the_game_output_is_kept_for_tools() {
 /// With `CHILD_EXITS=1` this test is the child: a game with the endpoint on
 /// prints more than a pipe holds and calls `std::process::exit` mid-tick,
 /// skipping every destructor; the engine's exit hook passes the rest on.
-#[cfg(unix)]
 #[test]
 fn output_printed_right_before_exit_still_reaches_the_terminal() {
     if std::env::var_os("CHILD_EXITS").is_some() {
