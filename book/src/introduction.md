@@ -15,6 +15,11 @@ keeps two goals in view:
 on flow fields, under a millisecond of simulation per frame.
 [Play it in your browser](play/battle/).*
 
+It draws 3D too, on the same ECS, with the `3d` feature. 100,000 spinning
+cubes with sun shadows run at 402 FPS, 7.5 times as fast as the same scene
+in Unity 6 ([the benchmark](performance.md#3d-crabby-vs-unity),
+[the 3D chapter](3d.md)).
+
 ```rust
 use crabbyengine::*;
 

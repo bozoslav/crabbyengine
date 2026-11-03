@@ -5,7 +5,7 @@
 //! - Drag with the left mouse button to orbit, wheel to zoom.
 //! - Space: pause the spinning.  Escape: quit.
 //! - `CUBES=100000` (environment) spins that many cubes in a field.
-//! - `BENCH_SECONDS=10` turns vsync off, measures that many seconds after a
+//! - `BENCH_SECONDS=10` goes fullscreen (`BENCH_WINDOWED=1`: not) with vsync off, measures that many seconds after a
 //!   3 second warmup, prints the averages as JSON and quits (the same
 //!   measurement as the Unity version of this scene).
 
@@ -103,7 +103,8 @@ fn main() {
     let mut game = Game::new("Crabby Engine: 3D", 1280, 720).system(orbit);
     game = if bench_seconds.is_some() {
         // Spin every frame, as Unity's Update does, so both do the same work.
-        game.vsync(false).system(spin).system(bench)
+        let fullscreen = std::env::var_os("BENCH_WINDOWED").is_none();
+        game.vsync(false).fullscreen(fullscreen).system(spin).system(bench)
     } else {
         game.sim_system(spin)
     };

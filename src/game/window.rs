@@ -241,6 +241,12 @@ where
             .with_inner_size(LogicalSize::new(self.config.width, self.config.height));
         #[cfg(target_arch = "wasm32")]
         let attributes = crate::web::canvas_attributes(attributes);
+        #[cfg(not(target_arch = "wasm32"))]
+        let attributes = if self.config.fullscreen {
+            attributes.with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
+        } else {
+            attributes
+        };
         let window = event_loop
             .create_window(attributes)
             .unwrap_or_else(|e| panic!("crabbyengine: could not create the window: {e}"));

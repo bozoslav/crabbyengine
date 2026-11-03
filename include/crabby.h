@@ -834,6 +834,8 @@ enum CrabbyStatus crabby_game_seed(struct CrabbyGame *game, uint64_t seed);
 
 enum CrabbyStatus crabby_game_vsync(struct CrabbyGame *game, bool on);
 
+enum CrabbyStatus crabby_game_fullscreen(struct CrabbyGame *game, bool on);
+
 enum CrabbyStatus crabby_game_spatial_grid(struct CrabbyGame *game, float cell_size);
 
 enum CrabbyStatus crabby_game_camera_controls(struct CrabbyGame *game);

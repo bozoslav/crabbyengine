@@ -33,6 +33,15 @@ says what that covers.
   columns) and C++ (`crabby::transform3d_at`, `crabby::mesh_data`,
   `ctx.create_material`, ...). The `3d` example and the "3D" book chapter.
 - The MCP `launch` tool takes `features`, for games behind Cargo features.
+- `Game::fullscreen(true)` fills the screen (C: `crabby_game_fullscreen`,
+  C++: `game.fullscreen()`).
+- The `3d` example's benchmark mode (`BENCH_SECONDS`), and the same scene
+  in Unity 6 under `bench/unity`: 100k spinning cubes run at 402 FPS in
+  Crabby and 54 in Unity.
+
+### Fixed
+- `vsync(false)` no longer waits for the window's redraw events, which
+  macOS sends only once per display refresh.
 - Control endpoint `scene.save`, `scene.load`, `prefab.spawn`,
   `prefab.save`, and the MCP tools `save_scene`, `load_scene`,
   `spawn_prefab`, `save_prefab`, so agents can build levels.

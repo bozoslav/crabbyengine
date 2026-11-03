@@ -142,6 +142,71 @@ or smaller sprites. If `cpu_ms` plus your systems' time
 (`ctx.system_timings()`) is close to it, the CPU is. Agents
 get the same numbers from the control endpoint's `info` method.
 
+## 3D: Crabby vs Unity
+
+The same 3D scene in Crabby and in Unity 6, built the way a normal Unity
+game is: one GameObject per cube with a `MeshRenderer` and a script whose
+`Update()` turns it. Both scenes have:
+
+- N spinning, tinted cubes;
+- 12 physically based spheres and a ground;
+- a sun with soft shadows (one 2048² shadow map, 60 units);
+- sky and ground light and 4x MSAA.
+
+Both run fullscreen at the display's native resolution with vsync off, on
+the M4 Max. Each number is the median of three 10-second runs, after a
+3-second warmup.
+
+![The 100,000-cube scene: Crabby on the left, Unity 6 (URP) on the right](images/3d-vs-unity.jpg)
+
+*Crabby (left) and Unity 6 (right), 100,000 cubes. Unity's axes are
+left-handed, so it sees the field mirrored.*
+
+| Spinning cubes | Unity 6 (URP) | Crabby | Crabby's lead |
+|---|---|---|---|
+| 1,000 | 728 FPS | **750 FPS** | about even |
+| 10,000 | 398 FPS | **724 FPS** | 1.8x |
+| 100,000 | 54 FPS | **402 FPS** | **7.5x** |
+
+CPU time per frame:
+
+| Spinning cubes | Unity main thread | Crabby (everything but waiting for the display) |
+|---|---|---|
+| 1,000 | 0.65 ms | **0.17 ms** |
+| 10,000 | 2.51 ms | **0.43 ms** |
+| 100,000 | 18.7 ms | **2.48 ms** |
+
+Unity's time goes to the per-object work every GameObject brings: 100k
+`Update()` calls, transform syncing, and culling and batching 100k
+renderers. Crabby's goes to one query that turns every cube and one pass
+that culls them, groups them by mesh and uploads them (28 draw calls).
+
+To be fair to Unity:
+
+- URP's extras that Crabby doesn't have are off: SSAO, post-processing
+  and HDR.
+- The cubes share 64 tinted materials. Giving each its own color, as
+  Crabby does for free, would break Unity's batching.
+- Crabby's fullscreen frame is 3% smaller: macOS keeps the strip by the
+  camera notch, so it's 3456 x 2168 against Unity's 3456 x 2234.
+- The Unity player uses Mono, Unity's default script backend. IL2CPP
+  would make the `Update()` calls somewhat faster.
+- Each run started 10 seconds after the last one ended, so neither engine
+  inherited the other's fullscreen exit.
+- Unity's DOTS (its separate ECS) is built for this case and would close
+  much of the gap. This compares the way most Unity games are written.
+
+Run it yourself:
+
+- Crabby: `CUBES=100000 BENCH_SECONDS=10 cargo run --release --features 3d --example 3d`
+  (fullscreen; `BENCH_WINDOWED=1` keeps the window).
+- Unity: the project and the steps are in
+  [`bench/unity`](https://github.com/bozoslav/crabbyengine/tree/main/bench/unity).
+
+On macOS, a game in a window is shown at most once per display refresh
+even with vsync off. To measure past 120 FPS, run fullscreen
+(`Game::fullscreen(true)`).
+
 ## Memory
 
 Speed is half of scale; the other half is what each entity costs. The

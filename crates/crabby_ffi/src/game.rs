@@ -128,6 +128,19 @@ pub unsafe extern "C" fn crabby_game_vsync(game: *mut CrabbyGame, on: bool) -> C
     // SAFETY: forwarded caller contract.
     unsafe { build(game, |g| ok(g.vsync(on))) }
 }
+/// Fill the screen instead of opening a window (default off). On macOS,
+/// windowed games are shown at most once per display refresh even with vsync
+/// off; fullscreen ones aren't.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_game_fullscreen(std::ptr::null_mut(), true) } as u32, 1);
+/// ```
+/// # Safety
+/// `game` must be null or a live game.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_game_fullscreen(game: *mut CrabbyGame, on: bool) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe { build(game, |g| ok(g.fullscreen(on))) }
+}
 /// Turns on the built-in spatial grid with cells of `cell_size`, rebuilt
 /// from every `Transform2D` at the start of each tick (`crabby_ctx_spatial_*`).
 /// ```

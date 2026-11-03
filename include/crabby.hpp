@@ -1364,6 +1364,8 @@ public:
     game& fixed_hz(std::uint32_t hz) { return check(crabby_game_fixed_hz(raw_, hz)); }
     game& seed(std::uint64_t seed) { return check(crabby_game_seed(raw_, seed)); }
     game& vsync(bool on) { return check(crabby_game_vsync(raw_, on)); }
+    /// Fill the screen instead of opening a window.
+    game& fullscreen(bool on) { return check(crabby_game_fullscreen(raw_, on)); }
     game& spatial_grid(float cell_size) { return check(crabby_game_spatial_grid(raw_, cell_size)); }
     game& control_endpoint(bool on) { return check(crabby_game_control_endpoint(raw_, on)); }
     /// Reload textures when their files change, under the same handles (on by
