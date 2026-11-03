@@ -846,6 +846,9 @@ public:
     /// Reload textures when their files change, under the same handles (on by
     /// default in debug builds of the engine; CRABBY_HOT_RELOAD=1/0 overrides).
     game& hot_reload(bool on) { return check(crabby_game_hot_reload(raw_, on)); }
+    /// The runtime inspector, opened with the backquote key (on by default in
+    /// debug builds of the engine; CRABBY_INSPECTOR=1/0/open overrides).
+    game& inspector(bool on) { return check(crabby_game_inspector(raw_, on)); }
     /// The built-in camera controls: right/middle drag pans, the wheel zooms.
     game& camera_controls() { return check(crabby_game_camera_controls(raw_)); }
     /// Adds the built-in system that moves attached entities next to the

@@ -648,6 +648,8 @@ enum CrabbyStatus crabby_game_control_endpoint(struct CrabbyGame *game, bool on)
 
 enum CrabbyStatus crabby_game_hot_reload(struct CrabbyGame *game, bool on);
 
+enum CrabbyStatus crabby_game_inspector(struct CrabbyGame *game, bool on);
+
 enum CrabbyStatus crabby_game_sim_system(struct CrabbyGame *game,
                                          const char *name,
                                          uint32_t every,

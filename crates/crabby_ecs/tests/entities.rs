@@ -292,3 +292,22 @@ fn memory_accounting_counts_component_bytes() {
         "capacity stays near what's used"
     );
 }
+
+#[test]
+fn components_follow_archetype_moves_and_reject_stale_handles() {
+    let mut w = World::new();
+    let e = w.spawn((Pos(1.0, 2.0),));
+    assert_eq!(w.components_of(e).unwrap().len(), 1);
+    w.insert(e, Vel(0.0, 0.0));
+    let ids = w.components_of(e).unwrap();
+    assert_eq!(ids.len(), 2);
+    assert!(ids.windows(2).all(|p| p[0] < p[1]));
+    assert!(ids.iter().any(|&id| w.component_info(id).name().ends_with("Vel")));
+    w.remove::<Pos>(e);
+    assert_eq!(w.components_of(e).unwrap().len(), 1);
+    w.despawn(e);
+    let replacement = w.spawn((Tag,));
+    assert_eq!(replacement.index(), e.index());
+    assert!(w.components_of(e).is_none());
+    assert_eq!(w.components_of(replacement).unwrap().len(), 1);
+}

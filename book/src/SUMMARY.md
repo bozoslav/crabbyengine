@@ -20,6 +20,7 @@
 - [Headless runs and testing](headless.md)
 - [C and C++](c-cpp.md)
 - [Reflection: components as JSON](reflection.md)
+- [The inspector: look inside a running game](inspector.md)
 - [Randomness, determinism and saving](determinism.md)
 - [Tools and agents: the control endpoint](control.md)
 - [Working with AI agents (MCP)](agents.md)

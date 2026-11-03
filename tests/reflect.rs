@@ -15,6 +15,18 @@ struct Team(u8);
 /// Not reflected: must never show up in JSON.
 struct Secret;
 
+/// Shown in the inspector chapter; compiled, not run (it opens a window).
+#[allow(dead_code)]
+fn playtest_build() {
+    // ANCHOR: inspector
+    Game::new("Playtest", 1280, 720)
+        .inspector(true) // also in release builds: the ` key opens it
+        .run(|ctx| {
+            ctx.world.reflect::<Health>(); // editable in the inspector
+        });
+    // ANCHOR_END: inspector
+}
+
 fn world() -> World {
     let mut w = World::new();
     w.reflect::<Transform2D>();

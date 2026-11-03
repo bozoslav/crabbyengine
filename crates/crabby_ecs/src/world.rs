@@ -508,6 +508,27 @@ impl World {
         &self.archetypes
     }
 
+    /// The components entity `e` has (sorted by id), or `None` if it is dead.
+    ///
+    /// ```
+    /// # use crabby_ecs::*;
+    /// struct Pos(f32);
+    /// struct Vel(f32);
+    /// let mut world = World::new();
+    /// let e = world.spawn((Pos(0.0), Vel(1.0)));
+    /// let names: Vec<&str> = world.components_of(e).unwrap()
+    ///     .iter()
+    ///     .map(|&id| world.component_info(id).name())
+    ///     .collect();
+    /// assert_eq!(names.len(), 2);
+    /// world.despawn(e);
+    /// assert!(world.components_of(e).is_none());
+    /// ```
+    pub fn components_of(&self, e: Entity) -> Option<&[ComponentId]> {
+        let loc = self.entities.get(e)?;
+        Some(self.archetypes[loc.archetype as usize].component_ids())
+    }
+
     /// Pointer to component `id` of entity `e`, or `None`.
     pub fn get_dynamic(&self, e: Entity, id: ComponentId) -> Option<*mut u8> {
         let loc = self.entities.get(e)?;
