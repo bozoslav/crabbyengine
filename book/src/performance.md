@@ -84,6 +84,18 @@ How it stays fast, in case your game needs the same tricks:
 - Once a second, units are sorted by `spatial_key`, so neighbors on the
   map are neighbors in memory.
 
+## Events and attachments
+
+`cargo run --release -p crabby_bench -- events` and `-- attach`:
+
+| What | Per tick |
+|---|---|
+| 100k [events](events.md) sent, read by another system and dropped | 0.42 ms (4.2 ns per event) |
+| 100k [attachments](attachments.md) following 100k moving entities | 0.81 ms |
+
+Both allocate nothing once running: events reuse their buffers, and
+attachments are placed in parallel into scratch kept between ticks.
+
 ## Rendering a million sprites
 
 `CRABS=1000000 SCALE=<s> cargo run --release --example bunnymark_ecs`:
