@@ -1,9 +1,13 @@
-//! Each frame: the visible [`Model`]s, as GPU instances grouped by mesh.
+//! Each frame: the visible [`Model`]s, as GPU instances grouped by mesh, and
+//! the models that cast shadows into the sun's shadow map.
 
 use glam::{Mat4, Vec3, Vec4};
 
-use super::{Assets3D, Model, Transform3D, linear};
+use super::{Assets3D, Camera3D, Lighting, Model, Transform3D, linear};
 use crate::World;
+
+/// Width and height of the sun's shadow map, in texels.
+pub(crate) const SHADOW_MAP_SIZE: u32 = 2048;
 
 /// One drawn model, as the GPU reads it: the model matrix's columns, and the
 /// tint in linear color.
@@ -14,27 +18,49 @@ pub(crate) struct Instance3D {
     pub color: [f32; 4],
 }
 
-/// This frame's 3D drawing: instances sorted by mesh, and where each mesh's
-/// run starts. Kept between frames so it doesn't allocate once warm.
+/// An instance before sorting: its mesh, whether the camera sees it, and
+/// whether it casts into the shadow map.
+type Entry = (u32, Instance3D, bool, bool);
+
+/// This frame's 3D drawing. `instances` holds the camera's models sorted by
+/// mesh, then the shadow casters sorted by mesh; `runs` and `shadow_runs`
+/// say where each mesh's instances are. Kept between frames so it doesn't
+/// allocate once warm.
 #[derive(Default)]
 pub(crate) struct Frame3D {
     pub instances: Vec<Instance3D>,
-    /// (mesh id, first instance, count), in mesh order.
+    /// (mesh id, first instance, count) for the camera, in mesh order.
     pub runs: Vec<(u32, u32, u32)>,
+    /// The same for the shadow map; empty without shadows.
+    pub shadow_runs: Vec<(u32, u32, u32)>,
     pub view_proj: Mat4,
-    /// Unsorted visible instances with their mesh, before grouping.
-    scratch: Vec<(u32, Instance3D)>,
+    /// The sun's view-projection, when shadows are on.
+    pub sun_view_proj: Option<Mat4>,
+    /// How many of `instances` the camera sees (the rest cast shadows).
+    pub visible: usize,
+    scratch: Vec<Entry>,
     counts: Vec<u32>,
 }
 
 impl Frame3D {
-    /// Fills the frame with the models `view_proj` can see.
-    pub fn collect(&mut self, world: &mut World, assets: &Assets3D, view_proj: Mat4) {
-        self.view_proj = view_proj;
+    /// Fills the frame with what the camera sees and, with shadows on,
+    /// what's inside the sun's shadow box.
+    pub fn collect(&mut self, world: &mut World, assets: &Assets3D, camera: &Camera3D, lighting: &Lighting) {
+        self.view_proj = camera.view_proj();
+        self.sun_view_proj = lighting
+            .shadows
+            .then(|| sun_view_proj(camera, lighting.sun_direction, lighting.shadow_distance));
         self.instances.clear();
         self.runs.clear();
+        self.shadow_runs.clear();
         self.scratch.clear();
-        let planes = frustum_planes(view_proj);
+        let planes = frustum_planes(self.view_proj);
+        // The sun's box is open towards the sun: casters above it still
+        // shade what's inside, so its near plane isn't tested.
+        let sun_planes = self.sun_view_proj.map(|m| {
+            let [l, r, b, t, _, f] = frustum_planes(m);
+            [l, r, b, t, f]
+        });
         let scratch = &mut self.scratch;
         world.query::<(&Transform3D, &Model)>().for_each(|(t, m)| {
             let Some(&(center, radius)) = assets.bounds.get(m.mesh.id as usize) else {
@@ -43,53 +69,114 @@ impl Frame3D {
             let matrix = t.matrix();
             let world_center = matrix.transform_point3(center);
             let world_radius = radius * t.scale.abs().max_element();
-            if !sphere_visible(&planes, world_center, world_radius) {
-                return;
-            }
-            scratch.push((
-                m.mesh.id,
-                Instance3D {
+            let seen = sphere_visible(&planes, world_center, world_radius);
+            let casts = sun_planes.is_some_and(|p| sphere_visible(&p, world_center, world_radius));
+            if seen || casts {
+                let instance = Instance3D {
                     model: matrix.to_cols_array_2d(),
                     color: linear(m.color),
-                },
-            ));
-        });
-        if self.scratch.is_empty() {
-            return;
-        }
-        // Counting sort by mesh: one pass to count, one to place.
-        self.counts.clear();
-        self.counts.resize(assets.bounds.len(), 0);
-        for (mesh, _) in &self.scratch {
-            self.counts[*mesh as usize] += 1;
-        }
-        let mut start = 0;
-        for (mesh, count) in self.counts.iter_mut().enumerate() {
-            if *count > 0 {
-                self.runs.push((mesh as u32, start, *count));
+                };
+                scratch.push((m.mesh.id, instance, seen, casts));
             }
-            let n = *count;
-            *count = start; // now: where this mesh's next instance goes
-            start += n;
-        }
-        self.instances.resize(self.scratch.len(), Instance3D::default());
-        for (mesh, instance) in &self.scratch {
-            let at = &mut self.counts[*mesh as usize];
-            self.instances[*at as usize] = *instance;
-            *at += 1;
-        }
+        });
+        let meshes = assets.bounds.len();
+        let (counts, instances) = (&mut self.counts, &mut self.instances);
+        self.visible = sort_runs(&self.scratch, |e| e.2, meshes, counts, instances, &mut self.runs);
+        sort_runs(&self.scratch, |e| e.3, meshes, counts, instances, &mut self.shadow_runs);
     }
 }
 
-/// The six planes of the view frustum (`xyz` normal pointing in, `w`
-/// distance), from a projection-times-view matrix with 0..1 depth.
+/// Appends the entries of `scratch` that `keep` picks to `instances`, sorted
+/// by mesh (a counting sort), and their runs to `runs`. Returns how many.
+fn sort_runs(
+    scratch: &[Entry],
+    keep: impl Fn(&Entry) -> bool,
+    meshes: usize,
+    counts: &mut Vec<u32>,
+    instances: &mut Vec<Instance3D>,
+    runs: &mut Vec<(u32, u32, u32)>,
+) -> usize {
+    counts.clear();
+    counts.resize(meshes, 0);
+    for e in scratch.iter().filter(|e| keep(e)) {
+        counts[e.0 as usize] += 1;
+    }
+    let base = instances.len() as u32;
+    let mut start = base;
+    for (mesh, count) in counts.iter_mut().enumerate() {
+        if *count > 0 {
+            runs.push((mesh as u32, start, *count));
+        }
+        let n = *count;
+        *count = start; // now: where this mesh's next instance goes
+        start += n;
+    }
+    let added = (start - base) as usize;
+    instances.resize(instances.len() + added, Instance3D::default());
+    for e in scratch.iter().filter(|e| keep(e)) {
+        let at = &mut counts[e.0 as usize];
+        instances[*at as usize] = e.1;
+        *at += 1;
+    }
+    added
+}
+
+/// The sun's view-projection for a shadow map covering what the camera sees
+/// up to `distance` away: an orthographic box around that part of the view,
+/// facing along the sunlight, moved in whole shadow-map texels so shadow
+/// edges don't shimmer as the camera moves.
+pub(crate) fn sun_view_proj(camera: &Camera3D, sun_direction: Vec3, distance: f32) -> Mat4 {
+    let light = sun_direction.try_normalize().unwrap_or(Vec3::NEG_Y);
+    let distance = distance.max(camera.near * 2.0);
+    // The bounding sphere of the view up to `distance`: it doesn't change
+    // size as the camera turns, so neither do texels.
+    let slice = Camera3D {
+        far: distance,
+        ..*camera
+    }
+    .view_proj()
+    .inverse();
+    let mut corners = [Vec3::ZERO; 8];
+    for (i, corner) in corners.iter_mut().enumerate() {
+        let ndc = Vec4::new(
+            if i & 1 == 0 { -1.0 } else { 1.0 },
+            if i & 2 == 0 { -1.0 } else { 1.0 },
+            if i & 4 == 0 { 0.0 } else { 1.0 },
+            1.0,
+        );
+        let p = slice * ndc;
+        *corner = p.truncate() / p.w;
+    }
+    let center = corners.iter().copied().sum::<Vec3>() / 8.0;
+    let radius = corners.iter().map(|c| c.distance(center)).fold(0.0, f32::max);
+    let radius = (radius * 16.0).ceil() / 16.0;
+
+    let up = if light.y.abs() > 0.99 { Vec3::Z } else { Vec3::Y };
+    let rotation = glam::camera::rh::view::look_to_mat4(Vec3::ZERO, light, up);
+    // Snap the center to whole texels in the light's view.
+    let texel = 2.0 * radius / SHADOW_MAP_SIZE as f32;
+    let snapped = (rotation.transform_point3(center) / texel).round() * texel;
+    let center = rotation.inverse().transform_point3(snapped);
+
+    // Reach far back towards the sun, so tall things outside the view still
+    // cast into it.
+    let back = radius * 4.0;
+    let view = glam::camera::rh::view::look_to_mat4(center - light * back, light, up);
+    let projection =
+        glam::camera::rh::proj::directx::orthographic(-radius, radius, -radius, radius, 0.0, back + radius);
+    projection * view
+}
+
+/// The six planes of a view volume (`xyz` normal pointing in, `w`
+/// distance), from a projection-times-view matrix with 0..1 depth: left,
+/// right, bottom, top, near, far.
 fn frustum_planes(m: Mat4) -> [Vec4; 6] {
     let r = [m.row(0), m.row(1), m.row(2), m.row(3)];
     let planes = [r[3] + r[0], r[3] - r[0], r[3] + r[1], r[3] - r[1], r[2], r[3] - r[2]];
     planes.map(|p| p / p.truncate().length().max(f32::MIN_POSITIVE))
 }
 
-fn sphere_visible(planes: &[Vec4; 6], center: Vec3, radius: f32) -> bool {
+fn sphere_visible(planes: &[Vec4], center: Vec3, radius: f32) -> bool {
     planes.iter().all(|p| p.truncate().dot(center) + p.w >= -radius)
 }
 
@@ -97,24 +184,26 @@ fn sphere_visible(planes: &[Vec4; 6], center: Vec3, radius: f32) -> bool {
 mod tests {
     use super::*;
     use crate::{Color, Mesh};
+    use glam::Vec2;
 
-    fn camera() -> Mat4 {
-        let projection = glam::camera::rh::proj::directx::perspective(1.0, 1.0, 0.1, 100.0);
-        projection * glam::camera::rh::view::look_at_mat4(Vec3::new(0.0, 0.0, 10.0), Vec3::ZERO, Vec3::Y)
+    fn camera() -> Camera3D {
+        let mut camera = Camera3D::new(Vec2::new(800.0, 800.0));
+        camera.position = Vec3::new(0.0, 0.0, 10.0);
+        camera.look_at(Vec3::ZERO);
+        camera.far = 100.0;
+        camera
     }
 
     #[test]
     fn spheres_outside_the_view_are_culled() {
-        let planes = frustum_planes(camera());
-        assert!(sphere_visible(&planes, Vec3::ZERO, 1.0));
-        assert!(!sphere_visible(&planes, Vec3::new(0.0, 0.0, 20.0), 1.0), "behind");
-        assert!(!sphere_visible(&planes, Vec3::new(0.0, 0.0, -200.0), 1.0), "past far");
-        assert!(!sphere_visible(&planes, Vec3::new(50.0, 0.0, 0.0), 1.0), "far right");
-        assert!(sphere_visible(&planes, Vec3::new(5.0, 0.0, 0.0), 1.0), "just in");
-        assert!(
-            sphere_visible(&planes, Vec3::new(0.0, 0.0, 10.5), 1.0),
-            "big enough to reach in"
-        );
+        let planes = frustum_planes(camera().view_proj());
+        let seen = |at: Vec3| sphere_visible(&planes, at, 1.0);
+        assert!(seen(Vec3::ZERO));
+        assert!(!seen(Vec3::new(0.0, 0.0, 20.0)), "behind");
+        assert!(!seen(Vec3::new(0.0, 0.0, -200.0)), "past far");
+        assert!(!seen(Vec3::new(50.0, 0.0, 0.0)), "far right");
+        assert!(seen(Vec3::new(5.0, 0.0, 0.0)), "just in");
+        assert!(seen(Vec3::new(0.0, 0.0, 10.5)), "big enough to reach in");
     }
 
     #[test]
@@ -130,9 +219,62 @@ mod tests {
         }
         world.spawn((Transform3D::at(Vec3::new(0.0, 0.0, 50.0)), model(1))); // behind the camera
         let mut frame = Frame3D::default();
-        frame.collect(&mut world, &assets, camera());
+        let lighting = Lighting {
+            shadows: false,
+            ..Default::default()
+        };
+        frame.collect(&mut world, &assets, &camera(), &lighting);
         assert_eq!(frame.runs, vec![(0, 0, 2), (2, 2, 3)]);
+        assert!(frame.shadow_runs.is_empty());
         let xs: Vec<f32> = frame.instances.iter().map(|i| i.model[3][0]).collect();
         assert_eq!(xs, vec![1.0, 4.0, 0.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn shadow_casters_include_models_outside_the_view() {
+        let mut world = World::new();
+        let assets = Assets3D {
+            bounds: vec![(Vec3::ZERO, 1.0)],
+            ..Default::default()
+        };
+        let mut camera = camera();
+        camera.position = Vec3::new(0.0, 5.0, 10.0);
+        camera.look_at(Vec3::ZERO);
+        let lighting = Lighting {
+            sun_direction: Vec3::new(0.0, -1.0, -0.2),
+            shadow_distance: 30.0,
+            ..Default::default()
+        };
+        let model = Model::new(Mesh { id: 0 });
+        world.spawn((Transform3D::at(Vec3::ZERO), model)); // seen
+        world.spawn((Transform3D::at(Vec3::new(0.0, 40.0, 2.0)), model)); // high above: casts, unseen
+        world.spawn((Transform3D::at(Vec3::new(500.0, 0.0, 0.0)), model)); // far away: neither
+        let mut frame = Frame3D::default();
+        frame.collect(&mut world, &assets, &camera, &lighting);
+        assert_eq!(frame.visible, 1);
+        assert_eq!(frame.runs, vec![(0, 0, 1)]);
+        assert_eq!(frame.shadow_runs, vec![(0, 1, 2)]);
+    }
+
+    #[test]
+    fn the_shadow_box_holds_the_near_view_and_snaps_to_texels() {
+        let camera = camera();
+        let sun_dir = Vec3::new(-0.3, -1.0, -0.2);
+        let sun = sun_view_proj(&camera, sun_dir, 20.0);
+        let in_box = |p: Vec3| {
+            let c = sun * p.extend(1.0);
+            let n = c.truncate() / c.w;
+            n.x.abs() <= 1.0 && n.y.abs() <= 1.0 && (0.0..=1.0).contains(&n.z)
+        };
+        assert!(in_box(Vec3::ZERO), "what the camera looks at");
+        assert!(in_box(camera.position + camera.forward() * 15.0));
+        assert!(!in_box(Vec3::new(0.0, 0.0, -200.0)), "past the shadow distance");
+        // A small camera move gives the same box, or one moved by whole texels.
+        let mut moved = camera;
+        moved.position.x += 0.013;
+        let a = sun * Vec4::new(0.0, 0.0, 0.0, 1.0);
+        let b = sun_view_proj(&moved, sun_dir, 20.0) * Vec4::new(0.0, 0.0, 0.0, 1.0);
+        let texels = (a - b).truncate().truncate() * SHADOW_MAP_SIZE as f32 / 2.0;
+        assert!((texels - texels.round()).length() < 2e-2, "{texels}");
     }
 }

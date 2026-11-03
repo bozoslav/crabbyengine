@@ -5,11 +5,13 @@ const PI: f32 = 3.14159265;
 
 struct Frame {
     view_proj: mat4x4<f32>,
+    sun_view_proj: mat4x4<f32>, // world to the shadow map's clip space
     camera: vec4<f32>,     // xyz: camera position
     sun_dir: vec4<f32>,    // xyz: unit vector towards the sun
     sun_color: vec4<f32>,  // rgb: linear color times intensity
     sky: vec4<f32>,        // rgb: linear, times ambient intensity
     ground: vec4<f32>,
+    shadow: vec4<f32>,     // on, texel size in uv, normal offset, fade distance
 };
 
 struct Material {
@@ -19,6 +21,8 @@ struct Material {
 };
 
 @group(0) @binding(0) var<uniform> frame: Frame;
+@group(0) @binding(1) var shadow_map: texture_depth_2d;
+@group(0) @binding(2) var shadow_sampler: sampler_comparison;
 @group(1) @binding(0) var base_texture: texture_2d<f32>;
 @group(1) @binding(1) var base_sampler: sampler;
 @group(2) @binding(0) var<uniform> material: Material;
@@ -58,6 +62,37 @@ fn vs_main(in: VertexIn) -> VertexOut {
     return out;
 }
 
+// The shadow map: only depth, seen from the sun.
+@vertex
+fn vs_shadow(in: VertexIn) -> @builtin(position) vec4<f32> {
+    let model = mat4x4<f32>(in.m0, in.m1, in.m2, in.m3);
+    return frame.sun_view_proj * model * vec4<f32>(in.position, 1.0);
+}
+
+// How much sun reaches `world` (0 in shadow, 1 lit), softened over 3x3 texels.
+fn sunlight(world: vec3<f32>, n: vec3<f32>) -> f32 {
+    if frame.shadow.x == 0.0 {
+        return 1.0;
+    }
+    // Looking up a little off the surface keeps it from shadowing itself.
+    let clip = frame.sun_view_proj * vec4<f32>(world + n * frame.shadow.z, 1.0);
+    let ndc = clip.xyz / clip.w;
+    let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+    var lit = 0.0;
+    for (var y = -1; y <= 1; y++) {
+        for (var x = -1; x <= 1; x++) {
+            let at = uv + vec2<f32>(f32(x), f32(y)) * frame.shadow.y;
+            lit += textureSampleCompareLevel(shadow_map, shadow_sampler, at, ndc.z);
+        }
+    }
+    lit /= 9.0;
+    // Outside the map, and towards its far edge, shadows fade out.
+    let inside = all(uv > vec2<f32>(0.0)) && all(uv < vec2<f32>(1.0)) && ndc.z < 1.0;
+    let far = distance(world, frame.camera.xyz) / frame.shadow.w;
+    let fade = select(1.0, smoothstep(0.8, 1.0, far), inside);
+    return mix(lit, 1.0, fade);
+}
+
 // Narkowicz's fit of the ACES filmic curve: highlights roll off instead of clipping.
 fn aces(x: vec3<f32>) -> vec3<f32> {
     return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), vec3<f32>(0.0), vec3<f32>(1.0));
@@ -92,7 +127,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let f = f0 + (vec3<f32>(1.0) - f0) * pow(1.0 - v_h, 5.0);
     let specular = d * g * f / max(4.0 * n_v * n_l, 1e-4);
     let diffuse = (vec3<f32>(1.0) - f) * (1.0 - metallic) * albedo / PI;
-    let direct = (diffuse + specular) * frame.sun_color.rgb * n_l;
+    let direct = (diffuse + specular) * frame.sun_color.rgb * n_l * sunlight(in.world, n);
 
     // Sky from above, ground from below; metals reflect it in their color.
     let ambient_light = mix(frame.ground.rgb, frame.sky.rgb, n.y * 0.5 + 0.5);

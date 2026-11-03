@@ -56,6 +56,7 @@ fn main() {
         .run(move |ctx| {
             ctx.clear(Color::hex(0x9CC4E4)); // sky
             ctx.camera3d.far = 2000.0;
+            ctx.lighting.sun_direction = vec3(-0.8, -0.6, -0.4); // late afternoon: long shadows
             ctx.world.insert_resource(Orbit {
                 yaw: 0.6,
                 pitch: 0.45,

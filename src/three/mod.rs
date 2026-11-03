@@ -15,7 +15,7 @@ mod gltf;
 mod mesh;
 
 pub(crate) use api::MaterialUniform;
-pub(crate) use collect::{Frame3D, Instance3D};
+pub(crate) use collect::{Frame3D, Instance3D, SHADOW_MAP_SIZE};
 pub use mesh::MeshData;
 
 use glam::{Mat3, Mat4, Quat, Vec2, Vec3, Vec4};
@@ -404,6 +404,11 @@ pub struct Lighting {
     pub ground_color: Color,
     /// How bright the sky and ground light is. Default 0.5.
     pub ambient_intensity: f32,
+    /// Whether the sun casts shadows. Default on.
+    pub shadows: bool,
+    /// How far from the camera shadows reach, in world units: shorter is
+    /// sharper. Default 60.
+    pub shadow_distance: f32,
 }
 
 impl Default for Lighting {
@@ -415,6 +420,8 @@ impl Default for Lighting {
             sky_color: Color::hex(0xB8D4F0),
             ground_color: Color::hex(0x6B5B4B),
             ambient_intensity: 0.5,
+            shadows: true,
+            shadow_distance: 60.0,
         }
     }
 }

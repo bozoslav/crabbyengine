@@ -187,8 +187,8 @@ impl Ctx {
         if self.assets3d.bounds.is_empty() {
             return; // no meshes, no 3D pass
         }
-        let view_proj = self.camera3d.view_proj();
-        self.frame3d.collect(&mut self.world, &self.assets3d, view_proj);
+        self.frame3d
+            .collect(&mut self.world, &self.assets3d, &self.camera3d, &self.lighting);
         renderer.prepare_3d(&self.frame3d, &self.lighting, self.camera3d.position);
     }
 }
