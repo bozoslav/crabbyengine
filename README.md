@@ -181,8 +181,24 @@ reproduce it on the [benchmarks page](https://bozoslav.github.io/crabbyengine/pe
 | Boids, 1M, with neighbor search | ~33 ms per tick |
 | 100k events sent and read | 0.42 ms per tick |
 | 1M moving sprites (1.6 px), rendered | 120 FPS (display cap) |
-| 3D, 100k spinning cubes with shadows: Crabby / Unity 6 | **402** / 54 FPS (7.5x) |
+| 3D, 100k spinning cubes with shadows: Crabby / Unity 6 ([details](https://bozoslav.github.io/crabbyengine/performance.html#3d-crabby-vs-unity)) | **402** / 54 FPS (7.5x) |
 | Memory per entity, 1M agents | 76 bytes |
+
+### 3D: Crabby vs Unity 6
+
+The same scene in both: N spinning, tinted cubes, 12 PBR spheres, a sun
+with soft shadows and 4x MSAA. Unity is built the normal way (one
+GameObject with an `Update()` script per cube, URP). Fullscreen, native
+resolution, vsync off, M4 Max, median of three 10-second runs.
+
+| Spinning cubes | Unity 6 | Crabby | CPU per frame: Unity / Crabby |
+|---|---|---|---|
+| 1,000 | 728 FPS | **750 FPS** | 0.65 / **0.17** ms |
+| 10,000 | 398 FPS | **724 FPS** (1.8x) | 2.51 / **0.43** ms |
+| 100,000 | 54 FPS | **402 FPS (7.5x)** | 18.7 / **2.48** ms |
+
+What's not equal, and how to rerun both sides, is on the
+[benchmarks page](https://bozoslav.github.io/crabbyengine/performance.html#3d-crabby-vs-unity).
 
 ## Features
 
