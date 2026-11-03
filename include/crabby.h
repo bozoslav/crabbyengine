@@ -4,8 +4,9 @@
  * or crabby_game_run_headless. Systems get a CrabbyCtx*, valid until they
  * return: the world (crabby_ctx_world), clock, input, drawing, shapes, text
  * and fonts, UI widgets, sound, textures, camera, commands (*_later), events
- * (crabby_ctx_send_event / crabby_ctx_read_events) and the built-in spatial
- * grid.
+ * (crabby_ctx_send_event / crabby_ctx_read_events), the built-in spatial
+ * grid, physics and lockstep multiplayer (crabby_game_lockstep_host/join,
+ * crabby_ctx_set_input / crabby_ctx_input).
  *
  * Handles are confined to the thread that runs the game, except inside
  * crabby_query_par callbacks, which run on many threads at once and may only
@@ -26,7 +27,7 @@
  * cross the C boundary (crabby.hpp catches them for you).
  *
  * Enums (CrabbyKey, CrabbyMouseButton, CrabbyGamepadButton, CrabbyGamepadAxis,
- * CrabbyBodyKind, CrabbyShapeKind) are passed as uint32_t.
+ * CrabbyBodyKind, CrabbyShapeKind, CrabbyNetState) are passed as uint32_t.
  * Last-error text is thread-local, borrowed until the next failed call;
  * successful calls leave it unchanged.
  */
@@ -230,6 +231,13 @@ typedef enum CrabbyShapeKind {
   CRABBY_SHAPE_RECT,
   CRABBY_SHAPE_CAPSULE,
 } CrabbyShapeKind;
+
+typedef enum CrabbyNetState {
+  CRABBY_NET_OFFLINE,
+  CRABBY_NET_CONNECTING,
+  CRABBY_NET_RUNNING,
+  CRABBY_NET_LOST,
+} CrabbyNetState;
 
 typedef struct CrabbyCtx CrabbyCtx;
 
@@ -882,6 +890,33 @@ enum CrabbyStatus crabby_ctx_reloaded_textures(const struct CrabbyCtx *ctx,
 enum CrabbyStatus crabby_ctx_turns(const struct CrabbyCtx *ctx,
                                    uint32_t every,
                                    struct CrabbyTurns *out_turns);
+
+enum CrabbyStatus crabby_game_lockstep_host(struct CrabbyGame *game,
+                                            const char *addr,
+                                            uint32_t players,
+                                            uint32_t input_delay,
+                                            uint32_t checksum_every,
+                                            uint16_t *out_port);
+
+enum CrabbyStatus crabby_game_lockstep_join(struct CrabbyGame *game, const char *addr);
+
+enum CrabbyStatus crabby_ctx_net_player(struct CrabbyCtx *ctx,
+                                        uint32_t *out_player,
+                                        uint32_t *out_players);
+
+enum CrabbyStatus crabby_ctx_net_state(struct CrabbyCtx *ctx, uint32_t *out_state);
+
+enum CrabbyStatus crabby_ctx_set_input(struct CrabbyCtx *ctx, const void *data, size_t size);
+
+enum CrabbyStatus crabby_ctx_input(struct CrabbyCtx *ctx,
+                                   uint32_t player,
+                                   const void **out_data,
+                                   size_t *out_size);
+
+enum CrabbyStatus crabby_ctx_net_desync(struct CrabbyCtx *ctx,
+                                        bool *out_found,
+                                        uint64_t *out_tick,
+                                        uint32_t *out_player);
 
 struct CrabbyRigidBody crabby_rigid_body(uint32_t kind);
 

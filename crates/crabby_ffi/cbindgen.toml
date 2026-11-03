@@ -11,8 +11,9 @@ header = """
  * or crabby_game_run_headless. Systems get a CrabbyCtx*, valid until they
  * return: the world (crabby_ctx_world), clock, input, drawing, shapes, text
  * and fonts, UI widgets, sound, textures, camera, commands (*_later), events
- * (crabby_ctx_send_event / crabby_ctx_read_events) and the built-in spatial
- * grid.
+ * (crabby_ctx_send_event / crabby_ctx_read_events), the built-in spatial
+ * grid, physics and lockstep multiplayer (crabby_game_lockstep_host/join,
+ * crabby_ctx_set_input / crabby_ctx_input).
  *
  * Handles are confined to the thread that runs the game, except inside
  * crabby_query_par callbacks, which run on many threads at once and may only
@@ -33,7 +34,7 @@ header = """
  * cross the C boundary (crabby.hpp catches them for you).
  *
  * Enums (CrabbyKey, CrabbyMouseButton, CrabbyGamepadButton, CrabbyGamepadAxis,
- * CrabbyBodyKind, CrabbyShapeKind) are passed as uint32_t.
+ * CrabbyBodyKind, CrabbyShapeKind, CrabbyNetState) are passed as uint32_t.
  * Last-error text is thread-local, borrowed until the next failed call;
  * successful calls leave it unchanged.
  */
@@ -42,4 +43,4 @@ header = """
 parse_deps = false
 [export]
 exclude = ["Failure"]
-include = ["CrabbyKey", "CrabbyMouseButton", "CrabbyGamepadButton", "CrabbyGamepadAxis", "CrabbyTransform2D", "CrabbySprite", "CrabbyFieldType", "CrabbyAnimation", "CrabbyAttached", "CrabbyBodyKind", "CrabbyShapeKind", "CrabbyVelocity"]
+include = ["CrabbyKey", "CrabbyMouseButton", "CrabbyGamepadButton", "CrabbyGamepadAxis", "CrabbyTransform2D", "CrabbySprite", "CrabbyFieldType", "CrabbyAnimation", "CrabbyAttached", "CrabbyBodyKind", "CrabbyShapeKind", "CrabbyVelocity", "CrabbyNetState"]

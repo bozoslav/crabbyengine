@@ -58,6 +58,7 @@ mod input;
 #[cfg(feature = "inspector")]
 mod inspector;
 mod logs;
+mod net;
 #[cfg(feature = "physics")]
 mod physics;
 #[cfg(any(all(target_arch = "wasm32", feature = "window"), test))]
@@ -87,6 +88,7 @@ pub use flow::RawFlowView;
 pub use flow::{FlowField, NavGrid};
 pub use game::{Game, SetupResult};
 pub use input::{Gamepad, GamepadAxis, GamepadButton, GamepadStick, Key, MAX_GAMEPADS, MouseButton};
+pub use net::{Desync, MAX_INPUT_BYTES, MAX_PLAYERS, Net, NetState, NetStats};
 #[cfg(feature = "physics")]
 pub use physics::{
     BodyKind, Collider, CollisionStarted, CollisionStopped, Physics, RayHit, RigidBody, Shape, Velocity, step_physics,

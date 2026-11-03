@@ -399,6 +399,38 @@ static bool physics_snippets() {
     return landed && world.size() == 4;
 }
 
+// ---- Lockstep networking ----------------------------------------------------------
+// ANCHOR: lockstep_input
+struct Order { float x, y; bool go; };   // what one player did this tick
+struct Owner { std::uint32_t player; };
+
+static void send_orders(crabby::ctx& ctx) {
+    // Usually from the mouse, in a frame system; offline it just works too.
+    ctx.set_input(Order{100, 50, ctx.sim_tick() % 30 == 0});
+}
+
+static void obey_orders(crabby::ctx& ctx) {
+    // Every peer applies every player's input, in the same order.
+    std::vector<std::optional<Order>> orders;
+    for (std::uint32_t p = 0; p < ctx.players(); ++p) orders.push_back(ctx.input<Order>(p));
+    ctx.world().each([&](crabby::transform2d& t, const Owner& owner) {
+        if (owner.player < orders.size() && orders[owner.player] && orders[owner.player]->go)
+            t.position = {orders[owner.player]->x, orders[owner.player]->y};
+    });
+}
+// ANCHOR_END: lockstep_input
+
+[[maybe_unused]] static void multiplayer(bool hosting) {
+    // ANCHOR: lockstep_setup
+    crabby::game game("RTS", 1280, 720);
+    if (hosting)
+        game.lockstep_host("0.0.0.0:7777", 2);        // 2 players, 3 ticks input delay
+    else
+        game.lockstep_join("192.168.1.20:7777");
+    game.sim_system(send_orders).sim_system(obey_orders).run([](crabby::ctx&) {});
+    // ANCHOR_END: lockstep_setup
+}
+
 // ---- Data files ----------------------------------------------------------------------
 // ANCHOR: data_files
 struct Tuning { float speed; float damage; };
@@ -633,6 +665,7 @@ int main() {
     // Run the other snippets headless once, so they're exercised, not only compiled.
     crabby::sound click{};
     crabby::entity map = 0;
+    crabby::entity ordered = 0;
     std::uint32_t most = 0;
     auto world = crabby::game("guide", 1, 1)
         .spatial_grid(10)
@@ -641,6 +674,8 @@ int main() {
         .sim_system(wander, "wander")
         .sim_system(Spawner{2}, "spawner")
         .sim_system(think, "think")
+        .sim_system(send_orders, "orders")
+        .sim_system(obey_orders, "obey")
         .system(Hud{}, "hud")
         .sim_system(move_players, "players")   // no pads headless: nothing moves
         .camera_controls()
@@ -651,6 +686,7 @@ int main() {
             ecs(ctx);
             auto w = ctx.world();
             for (int i = 0; i < 16; ++i) w.spawn(Brain{0});
+            ordered = w.spawn(crabby::transform_at({0, 0}), Owner{0});
             click = beep(ctx);
             std::vector<std::uint8_t> pixels(64 * 40 * 4, 255);
             const auto sheet = crabby::sheet_of(ctx.create_texture(64, 40, pixels.data(), pixels.size()), 16, 16);
@@ -677,8 +713,8 @@ int main() {
         std::fprintf(stderr, "unexpected: %u plans, %f s click\n", plans, double(click.seconds));
         return 1;
     }
-    // 100k from ecs() + 16 brains + 50 survivors + 4 spawned by Spawner{2} in 8 ticks + 1 animated + 1 map.
-    if (world.size() != 100000 + 16 + 50 + 4 + 2 || most < 10) {
+    // 100k from ecs() + 16 brains + 50 survivors + 4 spawned by Spawner{2} in 8 ticks + 1 animated + 1 map + 1 ordered.
+    if (world.size() != 100000 + 16 + 50 + 4 + 3 || most < 10) {
         std::fprintf(stderr, "unexpected: %zu entities, %u neighbors\n", world.size(), most);
         return 1;
     }
@@ -708,10 +744,15 @@ int main() {
             return 1;
         }
     }
+    if (!(world.get<crabby::transform2d>(ordered).position == crabby::vec2{100, 50})) {
+        std::fprintf(stderr, "offline orders were not applied\n");
+        return 1;
+    }
     if (!physics_snippets()) {
         std::fprintf(stderr, "physics snippets failed\n");
         return 1;
     }
+    (void)&multiplayer;
     (void)&score_point;
     (void)&my_game;
     (void)&controls;

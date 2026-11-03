@@ -16,7 +16,7 @@ use crate::input::{Key, MouseButton};
 use crate::render::{FrameStatus, Renderer};
 
 /// `Game::run`: opens the window and runs until it closes.
-pub(super) fn run<S, U>(game: Game, setup: S)
+pub(super) fn run<S, U>(mut game: Game, setup: S)
 where
     S: FnOnce(&mut Ctx) -> U,
     U: SetupResult,
@@ -42,6 +42,10 @@ where
     if let Some(gravity) = game.gravity {
         crate::physics::start(&mut ctx, gravity);
     }
+    if let Some(net) = game.net.take() {
+        ctx.net = net;
+    }
+    ctx.net.begin(ctx.seed);
     let control = game.start_control(&mut ctx, false);
     let mut app = App {
         #[cfg(target_arch = "wasm32")]
