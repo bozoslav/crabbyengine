@@ -7,8 +7,9 @@
 
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::Arc;
 
-use crabby_ecs::{Component, Entity, World};
+use crabby_ecs::{Component, ComponentId, Entity, World};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -52,12 +53,12 @@ impl fmt::Display for ReflectError {
 
 impl std::error::Error for ReflectError {}
 
-type GetFn = fn(&World, Entity) -> Option<Result<Value, String>>;
-type SetFn = fn(&mut World, Entity, Value) -> Result<(), String>;
-type SpawnFn = fn(&mut World, Value) -> Result<Entity, String>;
-type RemoveFn = fn(&mut World, Entity) -> bool;
-type CheckFn = fn(&Value) -> Result<(), String>;
-type SpawnAtFn = fn(&mut World, Entity, Value) -> Result<bool, String>;
+type GetFn = Arc<dyn Fn(&World, Entity) -> Option<Result<Value, String>> + Send + Sync>;
+type SetFn = Arc<dyn Fn(&mut World, Entity, Value) -> Result<(), String> + Send + Sync>;
+type SpawnFn = Arc<dyn Fn(&mut World, Value) -> Result<Entity, String> + Send + Sync>;
+type RemoveFn = Arc<dyn Fn(&mut World, Entity) -> bool + Send + Sync>;
+type CheckFn = Arc<dyn Fn(&Value) -> Result<(), String> + Send + Sync>;
+type SpawnAtFn = Arc<dyn Fn(&mut World, Entity, Value) -> Result<bool, String> + Send + Sync>;
 
 /// `format` field of world saves.
 const SAVE_FORMAT: &str = "crabby-world";
@@ -68,7 +69,8 @@ const SAVE_VERSION: u64 = 1;
 #[derive(Clone)]
 struct Reflected {
     name: String,
-    type_name: &'static str,
+    /// The Rust type name, or the component name for field-described components.
+    type_name: String,
     get: GetFn,
     set: SetFn,
     spawn: SpawnFn,
@@ -139,6 +141,230 @@ fn merge(base: &mut Value, patch: Value) {
     }
 }
 
+/// The type of a field in [`WorldReflect::reflect_fields`], and how it looks
+/// in JSON.
+///
+/// ```
+/// # use crabbyengine::*;
+/// assert_eq!(FieldType::Vec2.size(), 8);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u32)]
+pub enum FieldType {
+    /// A JSON number.
+    F32,
+    F64,
+    I8,
+    I16,
+    I32,
+    I64,
+    U8,
+    U16,
+    U32,
+    U64,
+    /// One byte, 0 or 1; `true`/`false` in JSON (other bytes read as `true`).
+    Bool,
+    /// Two `f32`, `[x, y]` in JSON like [`Vec2`](crate::Vec2).
+    Vec2,
+    /// Four `f32`, `{ "r", "g", "b", "a" }` in JSON.
+    Color,
+    /// An entity id as 64 bits, a JSON number like a reflected [`Entity`].
+    Entity,
+}
+
+impl FieldType {
+    /// Bytes the field takes.
+    pub fn size(self) -> usize {
+        match self {
+            Self::I8 | Self::U8 | Self::Bool => 1,
+            Self::I16 | Self::U16 => 2,
+            Self::F32 | Self::I32 | Self::U32 => 4,
+            Self::F64 | Self::I64 | Self::U64 | Self::Entity | Self::Vec2 => 8,
+            Self::Color => 16,
+        }
+    }
+}
+
+/// One field of a component described with [`WorldReflect::reflect_fields`].
+///
+/// ```
+/// # use crabbyengine::*;
+/// let f = Field::new("speed", FieldType::F32, 8);
+/// assert_eq!((f.name.as_str(), f.offset), ("speed", 8));
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Field {
+    /// The JSON key.
+    pub name: String,
+    pub ty: FieldType,
+    /// Byte offset in the component.
+    pub offset: usize,
+}
+
+impl Field {
+    pub fn new(name: impl Into<String>, ty: FieldType, offset: usize) -> Self {
+        Self {
+            name: name.into(),
+            ty,
+            offset,
+        }
+    }
+}
+
+/// Checked fields of one component, and its size.
+struct FieldLayout {
+    component: String,
+    size: usize,
+    fields: Vec<Field>,
+}
+
+macro_rules! num {
+    ($p:expr, $t:ty) => {
+        // SAFETY: the caller's pointer covers the field (checked in `new`); any bits are a valid $t.
+        Value::from(unsafe { $p.cast::<$t>().read_unaligned() })
+    };
+}
+
+impl FieldLayout {
+    #[track_caller]
+    fn new(component: &str, size: usize, fields: &[Field]) -> Self {
+        let mut names = std::collections::HashSet::new();
+        for f in fields {
+            assert!(
+                f.offset.checked_add(f.ty.size()).is_some_and(|end| end <= size),
+                "World::reflect_fields: field `{}` of `{component}` (offset {}, {} bytes) doesn't fit in {size} bytes",
+                f.name,
+                f.offset,
+                f.ty.size()
+            );
+            assert!(
+                names.insert(f.name.as_str()),
+                "World::reflect_fields: `{component}` has two fields named `{}`",
+                f.name
+            );
+        }
+        Self {
+            component: component.to_string(),
+            size,
+            fields: fields.to_vec(),
+        }
+    }
+
+    /// The value at `p` as JSON.
+    ///
+    /// # Safety
+    /// `p` points to `size` readable bytes.
+    unsafe fn read(&self, p: *const u8) -> Value {
+        let mut out = serde_json::Map::with_capacity(self.fields.len());
+        for f in &self.fields {
+            // SAFETY: inside the value (checked in `new`).
+            let p = unsafe { p.add(f.offset) };
+            let v = match f.ty {
+                FieldType::F32 => num!(p, f32),
+                FieldType::F64 => num!(p, f64),
+                FieldType::I8 => num!(p, i8),
+                FieldType::I16 => num!(p, i16),
+                FieldType::I32 => num!(p, i32),
+                FieldType::I64 => num!(p, i64),
+                FieldType::U8 => num!(p, u8),
+                FieldType::U16 => num!(p, u16),
+                FieldType::U32 => num!(p, u32),
+                FieldType::U64 | FieldType::Entity => num!(p, u64),
+                // SAFETY: as in `num!`; read as a byte, so any value is fine.
+                FieldType::Bool => Value::from(unsafe { p.read() } != 0),
+                FieldType::Vec2 => {
+                    // SAFETY: as in `num!`.
+                    let [x, y] = [0, 4].map(|o| unsafe { p.add(o).cast::<f32>().read_unaligned() });
+                    serde_json::json!([x, y])
+                }
+                FieldType::Color => {
+                    // SAFETY: as in `num!`.
+                    let [r, g, b, a] = [0, 4, 8, 12].map(|o| unsafe { p.add(o).cast::<f32>().read_unaligned() });
+                    serde_json::json!({ "r": r, "g": g, "b": b, "a": a })
+                }
+            };
+            out.insert(f.name.clone(), v);
+        }
+        Value::Object(out)
+    }
+
+    /// The bytes for `value`: from `current` (or zero) with the given fields written.
+    fn bytes(&self, current: Option<*mut u8>, value: &Value) -> Result<Vec<u8>, String> {
+        let Value::Object(map) = value else {
+            return Err(format!("expected an object with the fields of `{}`", self.component));
+        };
+        let mut bytes = vec![0u8; self.size];
+        if let Some(p) = current {
+            // SAFETY: `p` is a live value of this component, `size` bytes.
+            unsafe { std::ptr::copy_nonoverlapping(p, bytes.as_mut_ptr(), self.size) };
+        }
+        for (key, v) in map {
+            let Some(f) = self.fields.iter().find(|f| f.name == *key) else {
+                let known: Vec<&str> = self.fields.iter().map(|f| f.name.as_str()).collect();
+                return Err(format!(
+                    "`{}` has no field `{key}` (fields: {})",
+                    self.component,
+                    known.join(", ")
+                ));
+            };
+            let at = &mut bytes[f.offset..f.offset + f.ty.size()];
+            write_field(f, v, at).map_err(|e| format!("field `{key}`: {e}"))?;
+        }
+        Ok(bytes)
+    }
+}
+
+fn write_field(f: &Field, v: &Value, at: &mut [u8]) -> Result<(), String> {
+    fn int<T: TryFrom<i64> + TryFrom<u64>>(v: &Value) -> Result<T, String> {
+        let bad = || format!("expected an integer that fits, got {v}");
+        match (v.as_i64(), v.as_u64()) {
+            (_, Some(u)) => T::try_from(u).map_err(|_| bad()),
+            (Some(i), _) => T::try_from(i).map_err(|_| bad()),
+            _ => Err(bad()),
+        }
+    }
+    fn float(v: &Value) -> Result<f64, String> {
+        v.as_f64().ok_or_else(|| format!("expected a number, got {v}"))
+    }
+    match f.ty {
+        FieldType::F32 => at.copy_from_slice(&(float(v)? as f32).to_ne_bytes()),
+        FieldType::F64 => at.copy_from_slice(&float(v)?.to_ne_bytes()),
+        FieldType::I8 => at.copy_from_slice(&int::<i8>(v)?.to_ne_bytes()),
+        FieldType::I16 => at.copy_from_slice(&int::<i16>(v)?.to_ne_bytes()),
+        FieldType::I32 => at.copy_from_slice(&int::<i32>(v)?.to_ne_bytes()),
+        FieldType::I64 => at.copy_from_slice(&int::<i64>(v)?.to_ne_bytes()),
+        FieldType::U8 => at.copy_from_slice(&int::<u8>(v)?.to_ne_bytes()),
+        FieldType::U16 => at.copy_from_slice(&int::<u16>(v)?.to_ne_bytes()),
+        FieldType::U32 => at.copy_from_slice(&int::<u32>(v)?.to_ne_bytes()),
+        FieldType::U64 | FieldType::Entity => at.copy_from_slice(&int::<u64>(v)?.to_ne_bytes()),
+        FieldType::Bool => at[0] = v.as_bool().ok_or_else(|| format!("expected true or false, got {v}"))? as u8,
+        FieldType::Vec2 => {
+            let xy = v
+                .as_array()
+                .filter(|a| a.len() == 2)
+                .ok_or_else(|| format!("expected [x, y], got {v}"))?;
+            for (i, c) in xy.iter().enumerate() {
+                at[i * 4..i * 4 + 4].copy_from_slice(&(float(c)? as f32).to_ne_bytes());
+            }
+        }
+        FieldType::Color => {
+            let Value::Object(rgba) = v else {
+                return Err(format!("expected {{\"r\", \"g\", \"b\", \"a\"}}, got {v}"));
+            };
+            for (i, k) in ["r", "g", "b", "a"].iter().enumerate() {
+                // Missing channels keep their current value (zero in new values).
+                if let Some(c) = rgba.get(*k) {
+                    at[i * 4..i * 4 + 4].copy_from_slice(&(float(c)? as f32).to_ne_bytes());
+                }
+            }
+            if let Some(k) = rgba.keys().find(|k| !["r", "g", "b", "a"].contains(&k.as_str())) {
+                return Err(format!("colors have r, g, b and a, not `{k}`"));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Reflection methods on [`World`]: read and write components by name as JSON.
 ///
 /// Comes in with `use crabbyengine::*;`.
@@ -165,6 +391,40 @@ pub trait WorldReflect {
     /// # Panics
     /// If a different type with the same short name is already reflected.
     fn reflect<T: Component + Serialize + DeserializeOwned>(&mut self);
+
+    /// Makes a component that has no Rust type (one registered with
+    /// [`World::register_component`], such as a C or C++ component) visible
+    /// to reflection, by describing its fields. Its JSON is an object with
+    /// one entry per field; bytes no field covers are zero in new values.
+    /// Describing the same component again replaces its fields.
+    ///
+    /// ```
+    /// use crabbyengine::*;
+    ///
+    /// let mut world = World::new();
+    /// // A C struct { float current; uint32_t max; }.
+    /// // SAFETY: plain bytes, no destructor.
+    /// let id = unsafe { world.register_component("Health", 8, 4, None) };
+    /// // SAFETY: any values of these fields make a valid Health.
+    /// unsafe {
+    ///     world.reflect_fields(id, &[
+    ///         Field::new("current", FieldType::F32, 0),
+    ///         Field::new("max", FieldType::U32, 4),
+    ///     ]);
+    /// }
+    /// let e = world.spawn_json(serde_json::json!({ "Health": { "current": 3.5, "max": 10 } })).unwrap();
+    /// assert_eq!(world.get_json(e, "Health").unwrap()["max"], 10);
+    /// ```
+    ///
+    /// # Safety
+    /// Any bytes where each field holds a value of its type and every other
+    /// byte is zero or unchanged must be a valid value of the component.
+    ///
+    /// # Panics
+    /// If the component has a Rust type or a destructor, a field doesn't fit
+    /// in it or two fields share a name, or another type is reflected under
+    /// the same name.
+    unsafe fn reflect_fields(&mut self, id: ComponentId, fields: &[Field]);
 
     /// Names of all reflected components, in registration order.
     ///
@@ -311,7 +571,7 @@ impl WorldReflect for World {
         }
         let reg = self.resource_mut::<Registry>();
         if let Some(&i) = reg.by_name.get(&name) {
-            let existing = reg.list[i].type_name;
+            let existing = &reg.list[i].type_name;
             assert_eq!(
                 existing, type_name,
                 "World::reflect: `{type_name}` and `{existing}` would both be named `{name}`"
@@ -321,14 +581,72 @@ impl WorldReflect for World {
         reg.by_name.insert(name.clone(), reg.list.len());
         reg.list.push(Reflected {
             name,
-            type_name,
-            get: get::<T>,
-            set: set::<T>,
-            spawn: spawn::<T>,
-            spawn_at: spawn_at::<T>,
-            check: check::<T>,
-            remove: remove::<T>,
+            type_name: type_name.to_string(),
+            get: Arc::new(get::<T>),
+            set: Arc::new(set::<T>),
+            spawn: Arc::new(spawn::<T>),
+            spawn_at: Arc::new(spawn_at::<T>),
+            check: Arc::new(check::<T>),
+            remove: Arc::new(remove::<T>),
         });
+    }
+
+    #[track_caller]
+    unsafe fn reflect_fields(&mut self, id: ComponentId, fields: &[Field]) {
+        let info = self.component_info(id);
+        let name = info.name().to_string();
+        let size = info.layout().size();
+        assert!(
+            info.type_id().is_none() && !info.needs_drop(),
+            "World::reflect_fields: `{name}` is a Rust type or has a destructor; use `reflect::<T>()`"
+        );
+        let layout = Arc::new(FieldLayout::new(&name, size, fields));
+        if self.get_resource::<Registry>().is_none() {
+            self.insert_resource(Registry::default());
+        }
+        let reg = self.resource_mut::<Registry>();
+        let entry = |name: &str| {
+            let (l, g, k, st) = (layout.clone(), layout.clone(), layout.clone(), layout.clone());
+            let sa = layout.clone();
+            Reflected {
+                name: name.to_string(),
+                type_name: name.to_string(),
+                get: Arc::new(move |w: &World, e| {
+                    // SAFETY: the pointer is to a live value of `id`, `size` bytes.
+                    w.get_dynamic(e, id).map(|p| Ok(unsafe { g.read(p) }))
+                }),
+                set: Arc::new(move |w: &mut World, e, v| {
+                    let bytes = l.bytes(w.get_dynamic(e, id), &v)?;
+                    // SAFETY: `reflect_fields`' caller promised these bytes are a valid value.
+                    unsafe { w.insert_dynamic(e, id, bytes.as_ptr()) };
+                    Ok(())
+                }),
+                spawn: Arc::new(move |w: &mut World, v| {
+                    let bytes = st.bytes(None, &v)?;
+                    // SAFETY: as above.
+                    Ok(unsafe { w.spawn_dynamic(&[(id, bytes.as_ptr())]) })
+                }),
+                spawn_at: Arc::new(move |w: &mut World, e, v| {
+                    let bytes = sa.bytes(None, &v)?;
+                    // SAFETY: as above.
+                    Ok(unsafe { w.spawn_at_dynamic(e, &[(id, bytes.as_ptr())]) })
+                }),
+                check: Arc::new(move |v: &Value| k.bytes(None, v).map(drop)),
+                remove: Arc::new(move |w: &mut World, e| w.remove_dynamic(e, id)),
+            }
+        };
+        match reg.by_name.get(&name) {
+            // Describing the same component again replaces its fields.
+            Some(&i) if reg.list[i].type_name == name => reg.list[i] = entry(&name),
+            Some(&i) => panic!(
+                "World::reflect_fields: `{name}` is already reflected as `{}`",
+                reg.list[i].type_name
+            ),
+            None => {
+                reg.by_name.insert(name.clone(), reg.list.len());
+                reg.list.push(entry(&name));
+            }
+        }
     }
 
     fn reflected_components(&self) -> Vec<&str> {

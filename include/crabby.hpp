@@ -7,6 +7,7 @@
 #ifndef CRABBY_HPP
 #define CRABBY_HPP
 #include "crabby.h"
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <climits>
@@ -18,6 +19,8 @@
 #include <mutex>
 #include <optional>
 #include <stdexcept>
+#include <string>
+#include <initializer_list>
 #include <tuple>
 #include <type_traits>
 #include <typeindex>
@@ -51,6 +54,16 @@ using grid_hit = CrabbyGridHit;
 using grid_item = CrabbyGridItem;
 using key = CrabbyKey;
 using mouse = CrabbyMouseButton;
+using rect = CrabbyRect;
+using font = CrabbyFont;
+using text_params = CrabbyTextParams;
+using ui_style = CrabbyUiStyle;
+using sound = CrabbySound;
+using playing = CrabbyPlaying;
+using sound_params = CrabbySoundParams;
+using sprite_sheet = CrabbySpriteSheet;
+using animation = CrabbyAnimation;
+enum class texture_filter { linear, nearest };
 
 inline float length(vec2 v) { return std::sqrt(v.x * v.x + v.y * v.y); }
 inline float length_squared(vec2 v) { return v.x * v.x + v.y * v.y; }
@@ -78,6 +91,46 @@ inline sprite sprite_of(texture t, color tint = colors::white, float z = 0) {
     sprite s{}; s.texture = t; s.color = tint; s.z = z; s.pivot = {.5f, .5f}; return s;
 }
 inline draw_params draw_defaults() { return crabby_draw_params_default(); }
+/// Built-in font, 16 px, white.
+inline text_params text_defaults() { return crabby_text_params_default(); }
+/// Full volume, normal speed, once.
+inline sound_params sound_defaults() { return crabby_sound_params_default(); }
+inline ui_style ui_style_defaults() { return crabby_ui_style_default(); }
+/// A rectangle from its top-left corner and size.
+inline rect rect_at(vec2 min, vec2 size) { return {min, min + size}; }
+/// Splits `t` into `w` x `h` frames, numbered left to right, top to bottom.
+inline sprite_sheet sheet_of(texture t, std::uint32_t w, std::uint32_t h) {
+    sprite_sheet s{};
+    if (crabby_sprite_sheet(t, w, h, &s) != CRABBY_OK) throw std::invalid_argument(crabby_last_error());
+    return s;
+}
+/// Frame `i` of a sheet in texture pixels (wraps past the end).
+inline rect frame_of(const sprite_sheet& s, std::uint32_t i) { return crabby_sprite_sheet_frame(s, i); }
+/// A sprite showing frame `i` of a sheet.
+inline sprite sprite_of(const sprite_sheet& s, std::uint32_t i, color tint = colors::white, float z = 0) {
+    sprite out = sprite_of(s.texture, tint, z); out.has_region = true; out.region = frame_of(s, i); return out;
+}
+/// Frames `first` .. `first + count - 1` at `fps`, looping (`.looping = false` holds the last one).
+inline animation animation_of(const sprite_sheet& s, std::uint32_t first, std::uint32_t count, float fps) {
+    return animation{s, first, count > 0 ? count : 1, fps, true, 0};
+}
+/// The frame an animation shows now.
+inline std::uint32_t current_frame(const animation& a) {
+    const float t = a.time * a.fps;
+    const std::uint32_t n = t > 0 ? std::uint32_t(t) : 0;
+    return a.first + (a.looping ? n % a.frames : std::min(n, a.frames - 1));
+}
+/// Whether a non-looping animation has played to its end.
+inline bool finished(const animation& a) { return !a.looping && a.time * a.fps >= float(a.frames); }
+constexpr std::uint16_t tile_empty = CRABBY_TILE_EMPTY;
+/// Which entities take their turn this tick (ctx::turns).
+struct turns {
+    CrabbyTurns raw{1, 0, 0};
+    bool includes(CrabbyEntity e) const noexcept { return e.index % raw.every == raw.now; }
+    bool includes(entity e) const noexcept { return std::uint32_t(e) % raw.every == raw.now; }
+    /// Seconds a whole round covers (`every` ticks).
+    float dt() const noexcept { return raw.dt; }
+};
 
 /// The engine's random number generator (xoshiro256++), bit-identical to Rust's `Rng`,
 /// so a game gives the same numbers in both languages.
@@ -138,6 +191,31 @@ struct first_error {
     }
     void rethrow() { if (error) std::rethrow_exception(error); }
 };
+template<class M> struct field_type;
+template<> struct field_type<float> { static constexpr CrabbyFieldType value = CRABBY_FIELD_F32; };
+template<> struct field_type<double> { static constexpr CrabbyFieldType value = CRABBY_FIELD_F64; };
+template<> struct field_type<std::int8_t> { static constexpr CrabbyFieldType value = CRABBY_FIELD_I8; };
+template<> struct field_type<std::int16_t> { static constexpr CrabbyFieldType value = CRABBY_FIELD_I16; };
+template<> struct field_type<std::int32_t> { static constexpr CrabbyFieldType value = CRABBY_FIELD_I32; };
+template<> struct field_type<std::int64_t> { static constexpr CrabbyFieldType value = CRABBY_FIELD_I64; };
+template<> struct field_type<std::uint8_t> { static constexpr CrabbyFieldType value = CRABBY_FIELD_U8; };
+template<> struct field_type<std::uint16_t> { static constexpr CrabbyFieldType value = CRABBY_FIELD_U16; };
+template<> struct field_type<std::uint32_t> { static constexpr CrabbyFieldType value = CRABBY_FIELD_U32; };
+template<> struct field_type<std::uint64_t> { static constexpr CrabbyFieldType value = CRABBY_FIELD_U64; };
+template<> struct field_type<bool> { static constexpr CrabbyFieldType value = CRABBY_FIELD_BOOL; };
+template<> struct field_type<CrabbyVec2> { static constexpr CrabbyFieldType value = CRABBY_FIELD_VEC2; };
+template<> struct field_type<CrabbyColor> { static constexpr CrabbyFieldType value = CRABBY_FIELD_COLOR; };
+}
+/// One described field of a component, from crabby::field.
+template<class T> struct field_info { CrabbyField raw; };
+/// Describes member `m` of component `T` for reflection: tools and agents
+/// see it as JSON under `name`, and world saves include it. Fields of type
+/// float, double, (u)int8..64_t, bool, vec2 and color; entities are uint64_t.
+template<class T, class M> field_info<T> field(const char* name, M T::*m) {
+    static_assert(std::is_default_constructible<T>::value, "reflected components must be default-constructible");
+    const T sample{};
+    const auto offset = std::size_t(reinterpret_cast<const char*>(&(sample.*m)) - reinterpret_cast<const char*>(&sample));
+    return {{name, std::uint32_t(detail::field_type<typename std::remove_cv<M>::type>::value), offset}};
 }
 class world_view;
 class ctx;
@@ -176,6 +254,41 @@ public:
     }
     /// The entity array (`index`, `generation`); `bits()` turns one into an id.
     const CrabbyEntity* entities() const noexcept { return raw_->entities; }
+};
+/// A tilemap on an entity (world_view::tilemap). Tile writes go straight
+/// into the engine's map; change how it's drawn with `style()` + `apply()`.
+class tilemap_ref {
+    CrabbyWorld* world_;
+    entity e_;
+    CrabbyTileMap map_;
+public:
+    tilemap_ref(CrabbyWorld* world, entity e) : world_(world), e_(e), map_{} {
+        detail::check(crabby_tilemap_get(world, e, &map_));
+    }
+    std::uint32_t width() const noexcept { return map_.width; }
+    std::uint32_t height() const noexcept { return map_.height; }
+    /// All tiles, row by row (`width() * height()`); tile_empty is a hole.
+    std::uint16_t* tiles() const noexcept { return map_.tiles; }
+    /// Sets one tile (ignored outside the map); tile_empty clears it.
+    void set(std::uint32_t x, std::uint32_t y, std::uint16_t frame) noexcept {
+        if (x < map_.width && y < map_.height) map_.tiles[std::size_t(y) * map_.width + x] = frame;
+    }
+    /// The frame at (x, y), or nothing for holes and outside the map.
+    std::optional<std::uint16_t> get(std::uint32_t x, std::uint32_t y) const noexcept {
+        if (x >= map_.width || y >= map_.height) return std::nullopt;
+        const std::uint16_t t = map_.tiles[std::size_t(y) * map_.width + x];
+        if (t == tile_empty) return std::nullopt;
+        return t;
+    }
+    /// The tile under world point `p` for a map whose top-left is `origin`.
+    std::optional<std::array<std::uint32_t, 2>> tile_at(vec2 origin, vec2 p) const noexcept {
+        const float tx = std::floor((p.x - origin.x) / map_.tile_size.x), ty = std::floor((p.y - origin.y) / map_.tile_size.y);
+        if (!(tx >= 0 && ty >= 0 && tx < float(map_.width) && ty < float(map_.height))) return std::nullopt;
+        return std::array<std::uint32_t, 2>{{std::uint32_t(tx), std::uint32_t(ty)}};
+    }
+    /// Sheet, tile size, z and tint; change them, then call apply().
+    CrabbyTileMap& style() noexcept { return map_; }
+    void apply() { detail::check(crabby_tilemap_update(world_, e_, &map_)); }
 };
 // A non-owning view. Views given to systems must not escape their call.
 class world_view {
@@ -220,6 +333,28 @@ public:
         detail::check(crabby_component_register(raw_, name, sizeof(T), alignof(T), &result));
         return token<T>(result);
     }
+    /// Registers `T` and describes its fields, so tools and agents can read
+    /// and write it as JSON (`crabby-mcp`) and `save()` includes it.
+    template<class T> crabby::component<T> component(const char* name, std::initializer_list<field_info<T>> fields) {
+        auto token = component<T>(name);
+        std::vector<CrabbyField> raw;
+        raw.reserve(fields.size());
+        for (const auto& f : fields) raw.push_back(f.raw);
+        detail::check(crabby_component_reflect(raw_, token.id_, raw.data(), raw.size()));
+        return token;
+    }
+    /// Every entity with reflected components as JSON, with its id.
+    std::string save() const {
+        valid(); std::size_t len = 0;
+        detail::check(crabby_world_save(raw_, nullptr, 0, &len));
+        std::string out(len + 1, '\0');
+        detail::check(crabby_world_save(raw_, &out[0], out.size(), &len));
+        out.resize(len);
+        return out;
+    }
+    /// Replaces every entity with those in `json` (from save()), with the
+    /// same ids. On error (an exception) the world is unchanged.
+    void load(const std::string& json) { valid(); detail::check(crabby_world_load(raw_, json.c_str())); }
     /// The built-in Transform2D component.
     crabby::component<transform2d> transforms() {
         valid(); std::uint32_t result = 0;
@@ -232,6 +367,16 @@ public:
         detail::check(crabby_sprite_component(raw_, &result));
         return token<sprite>(result);
     }
+    /// The built-in Animation component (crabby::animation), a query column too.
+    crabby::component<animation> animations() {
+        valid(); std::uint32_t result = 0;
+        detail::check(crabby_animation_component(raw_, &result));
+        return token<animation>(result);
+    }
+    /// Gives `e` an empty `width` x `height` tilemap (its Transform2D is the top-left).
+    tilemap_ref add_tilemap(entity e, const sprite_sheet& sheet, std::uint32_t width, std::uint32_t height);
+    /// `e`'s tilemap; throws if it has none. Valid until `e` loses its map.
+    tilemap_ref tilemap(entity e);
     template<class... Ts> entity spawn(const value<Ts>&... values) {
         valid(); std::array<CrabbyValue, sizeof...(Ts)> args{{c_value(values)...}};
         entity result = 0;
@@ -262,6 +407,10 @@ public:
     /// Reorders Transform2D entities so that neighbors are close in memory.
     void sort_spatial(float cell_size) { valid(); detail::check(crabby_world_sort_spatial(raw_, cell_size)); }
 };
+inline tilemap_ref world_view::add_tilemap(entity e, const sprite_sheet& sheet, std::uint32_t width, std::uint32_t height) {
+    valid(); detail::check(crabby_tilemap_add(raw_, e, sheet, width, height)); return tilemap_ref(raw_, e);
+}
+inline tilemap_ref world_view::tilemap(entity e) { valid(); return tilemap_ref(raw_, e); }
 /// An owned world (from crabby::game::run_headless, or empty).
 class world final : public world_view {
     friend class game;
@@ -414,6 +563,41 @@ public:
     vec2 measure_text(const char* text, float size) { vec2 v{}; detail::check(crabby_ctx_measure_text(raw_, text, size, &v)); return v; }
     crabby::camera camera() const { crabby::camera c{}; detail::check(crabby_ctx_camera(raw_, &c)); return c; }
     void set_camera(const crabby::camera& c) { detail::check(crabby_ctx_set_camera(raw_, &c)); }
+    void save_screenshot(const char* path) { detail::check(crabby_ctx_save_screenshot(raw_, path)); }
+    /// texture_filter::nearest keeps pixel art square.
+    void set_texture_filter(texture t, texture_filter f) {
+        detail::check(crabby_ctx_set_texture_filter(raw_, t, f == texture_filter::nearest));
+    }
+
+    // Shapes (world space).
+    void draw_rect(rect r, color c) { detail::check(crabby_ctx_draw_rect(raw_, r, c)); }
+    void draw_line(vec2 a, vec2 b, float width, color c) { detail::check(crabby_ctx_draw_line(raw_, a, b, width, c)); }
+    void draw_circle(vec2 center, float radius, color c) { detail::check(crabby_ctx_draw_circle(raw_, center, radius, c)); }
+
+    // Fonts and text (screen space).
+    font load_font(const char* path) { font f{}; detail::check(crabby_ctx_load_font(raw_, path, &f)); return f; }
+    void draw_text(const char* text, vec2 pos, const text_params& params) { detail::check(crabby_ctx_draw_text_ex(raw_, text, pos, &params)); }
+    vec2 measure_text(const char* text, font f, float size) { vec2 v{}; detail::check(crabby_ctx_measure_text_ex(raw_, text, f, size, &v)); return v; }
+
+    // UI widgets (screen space), styled by ui_style().
+    crabby::ui_style ui_style() const { crabby::ui_style s{}; detail::check(crabby_ctx_ui_style(raw_, &s)); return s; }
+    void set_ui_style(const crabby::ui_style& s) { detail::check(crabby_ctx_set_ui_style(raw_, &s)); }
+    bool mouse_over_ui() const { bool b = false; detail::check(crabby_ctx_mouse_over_ui(raw_, &b)); return b; }
+    void ui_panel(rect r) { detail::check(crabby_ctx_ui_panel(raw_, r)); }
+    vec2 ui_label(vec2 pos, const char* text) { vec2 v{}; detail::check(crabby_ctx_ui_label(raw_, pos, text, &v)); return v; }
+    bool ui_button(rect r, const char* label) { bool b = false; detail::check(crabby_ctx_ui_button(raw_, r, label, &b)); return b; }
+
+    // Sound (silent in headless runs).
+    sound load_sound(const char* path) { sound s{}; detail::check(crabby_ctx_load_sound(raw_, path, &s)); return s; }
+    sound create_sound(std::uint32_t sample_rate, const float* samples, std::size_t len) {
+        sound s{}; detail::check(crabby_ctx_create_sound(raw_, sample_rate, samples, len, &s)); return s;
+    }
+    playing play_sound(sound s) { playing p{}; detail::check(crabby_ctx_play_sound(raw_, s, nullptr, &p)); return p; }
+    playing play_sound(sound s, const sound_params& params) { playing p{}; detail::check(crabby_ctx_play_sound(raw_, s, &params, &p)); return p; }
+    void stop_sound(playing p) { detail::check(crabby_ctx_stop_sound(raw_, p)); }
+
+    /// Spreads work over `every` ticks (safe from query_par callbacks).
+    crabby::turns turns(std::uint32_t every) const { crabby::turns t; detail::check(crabby_ctx_turns(raw_, every, &t.raw)); return t; }
 
     // Commands: applied after the system; usable inside world().query (not query_par).
     void despawn_later(entity e) { detail::check(crabby_ctx_despawn_later(raw_, e)); }
@@ -497,6 +681,8 @@ public:
     game& vsync(bool on) { return check(crabby_game_vsync(raw_, on)); }
     game& spatial_grid(float cell_size) { return check(crabby_game_spatial_grid(raw_, cell_size)); }
     game& control_endpoint(bool on) { return check(crabby_game_control_endpoint(raw_, on)); }
+    /// The built-in camera controls: right/middle drag pans, the wheel zooms.
+    game& camera_controls() { return check(crabby_game_camera_controls(raw_)); }
     /// A system on the fixed simulation tick; `every` > 1 runs it every n ticks.
     template<class F> game& sim_system(F fn, const char* name = nullptr, std::uint32_t every = 1) {
         return check(crabby_game_sim_system(raw_, name, every, trampoline, keep(std::move(fn))));

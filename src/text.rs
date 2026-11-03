@@ -24,6 +24,7 @@ use crate::color::Color;
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[repr(transparent)]
 pub struct Font(pub(crate) u32);
 
 impl Font {

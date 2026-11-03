@@ -19,6 +19,7 @@ use crate::texture::Texture;
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
 pub struct SpriteSheet {
     pub texture: Texture,
     /// Frame size in texture pixels.
@@ -107,6 +108,7 @@ impl SpriteSheet {
 /// # }
 /// ```
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
 pub struct Animation {
     pub sheet: SpriteSheet,
     /// First frame and how many frames to play.

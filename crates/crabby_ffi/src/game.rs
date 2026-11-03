@@ -148,6 +148,18 @@ pub unsafe extern "C" fn crabby_game_spatial_grid(game: *mut CrabbyGame, cell_si
         })
     }
 }
+/// Adds the built-in camera controls as a frame system: right or middle drag
+/// pans, the wheel zooms toward the mouse (not while it is over UI).
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_game_camera_controls(std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `game` must be null or a live game.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_game_camera_controls(game: *mut CrabbyGame) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe { build(game, |g| ok(g.system(crabbyengine::camera_controls))) }
+}
 /// Opens the control endpoint for tools and agents (crabby-mcp); also on
 /// with `CRABBY_CONTROL=1`.
 /// ```

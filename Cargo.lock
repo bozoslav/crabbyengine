@@ -681,6 +681,7 @@ dependencies = [
  "crabby_ecs",
  "crabbyengine",
  "rayon",
+ "serde_json",
 ]
 
 [[package]]

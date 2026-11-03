@@ -100,7 +100,7 @@ static void controls(crabby::ctx& ctx) {
 static void spawn_boids(crabby::ctx& ctx, Flocking& f, std::size_t n) {
     auto world = ctx.world();
     f.transforms = world.transforms();
-    f.vel = world.component<Vel>("Vel");
+    f.vel = world.component<Vel>("Vel", {crabby::field("v", &Vel::v)});   // agents can read and set it
     auto sprites = world.sprites();
     const crabby::texture tex = ctx.load_texture("crab.png");
     std::uint64_t s = 0x9E3779B97F4A7C15ull;

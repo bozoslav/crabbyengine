@@ -2,8 +2,9 @@
  *
  * Games: crabby_game_new -> settings and systems -> crabby_game_run (window)
  * or crabby_game_run_headless. Systems get a CrabbyCtx*, valid until they
- * return: the world (crabby_ctx_world), clock, input, drawing, textures,
- * camera, commands (*_later) and the built-in spatial grid.
+ * return: the world (crabby_ctx_world), clock, input, drawing, shapes, text
+ * and fonts, UI widgets, sound, textures, camera, commands (*_later) and the
+ * built-in spatial grid.
  *
  * Handles are confined to the thread that runs the game, except inside
  * crabby_query_par callbacks, which run on many threads at once and may only
@@ -37,6 +38,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+
+#define CRABBY_TILE_EMPTY 65535
 
 typedef enum CrabbyStatus {
   CRABBY_OK = 0,
@@ -156,6 +159,30 @@ typedef enum CrabbyMouseButton {
   CRABBY_MOUSE_FORWARD,
 } CrabbyMouseButton;
 
+enum CrabbyFieldType
+#ifdef __cplusplus
+  : uint32_t
+#endif // __cplusplus
+ {
+  CRABBY_FIELD_F32 = 0,
+  CRABBY_FIELD_F64 = 1,
+  CRABBY_FIELD_I8 = 2,
+  CRABBY_FIELD_I16 = 3,
+  CRABBY_FIELD_I32 = 4,
+  CRABBY_FIELD_I64 = 5,
+  CRABBY_FIELD_U8 = 6,
+  CRABBY_FIELD_U16 = 7,
+  CRABBY_FIELD_U32 = 8,
+  CRABBY_FIELD_U64 = 9,
+  CRABBY_FIELD_BOOL = 10,
+  CRABBY_FIELD_VEC2 = 11,
+  CRABBY_FIELD_COLOR = 12,
+  CRABBY_FIELD_ENTITY = 13,
+};
+#ifndef __cplusplus
+typedef uint32_t CrabbyFieldType;
+#endif // __cplusplus
+
 typedef struct CrabbyCtx CrabbyCtx;
 
 typedef struct CrabbyGame CrabbyGame;
@@ -249,6 +276,72 @@ typedef struct CrabbyGridItem {
   uint32_t data;
 } CrabbyGridItem;
 
+typedef struct CrabbyFont {
+  uint32_t id;
+} CrabbyFont;
+
+typedef struct CrabbyTextParams {
+  struct CrabbyFont font;
+  float size;
+  struct CrabbyColor color;
+  float z;
+} CrabbyTextParams;
+
+typedef struct CrabbyUiStyle {
+  struct CrabbyColor panel;
+  struct CrabbyColor button;
+  struct CrabbyColor button_hovered;
+  struct CrabbyColor button_pressed;
+  struct CrabbyColor accent;
+  struct CrabbyColor text;
+  float text_size;
+  float padding;
+} CrabbyUiStyle;
+
+typedef struct CrabbySoundParams {
+  float volume;
+  float speed;
+  bool looping;
+} CrabbySoundParams;
+
+typedef struct CrabbySound {
+  uint32_t id;
+  float seconds;
+} CrabbySound;
+
+typedef struct CrabbyPlaying {
+  uint64_t id;
+} CrabbyPlaying;
+
+typedef struct CrabbyTurns {
+  uint32_t every;
+  uint32_t now;
+  float dt;
+} CrabbyTurns;
+
+typedef struct CrabbyField {
+  const char *name;
+  uint32_t kind;
+  size_t offset;
+} CrabbyField;
+
+typedef struct CrabbySpriteSheet {
+  struct CrabbyTexture texture;
+  struct CrabbyVec2 frame_size;
+  uint32_t columns;
+  uint32_t len;
+} CrabbySpriteSheet;
+
+typedef struct CrabbyTileMap {
+  struct CrabbySpriteSheet sheet;
+  uint32_t width;
+  uint32_t height;
+  struct CrabbyVec2 tile_size;
+  float z;
+  struct CrabbyColor color;
+  uint16_t *tiles;
+} CrabbyTileMap;
+
 typedef struct CrabbyTransform2D {
   struct CrabbyVec2 position;
   float rotation;
@@ -263,6 +356,15 @@ typedef struct CrabbySprite {
   bool has_region;
   struct CrabbyRect region;
 } CrabbySprite;
+
+typedef struct CrabbyAnimation {
+  struct CrabbySpriteSheet sheet;
+  uint32_t first;
+  uint32_t frames;
+  float fps;
+  bool looping;
+  float time;
+} CrabbyAnimation;
 
 #ifdef __cplusplus
 extern "C" {
@@ -466,6 +568,8 @@ enum CrabbyStatus crabby_game_vsync(struct CrabbyGame *game, bool on);
 
 enum CrabbyStatus crabby_game_spatial_grid(struct CrabbyGame *game, float cell_size);
 
+enum CrabbyStatus crabby_game_camera_controls(struct CrabbyGame *game);
+
 enum CrabbyStatus crabby_game_control_endpoint(struct CrabbyGame *game, bool on);
 
 enum CrabbyStatus crabby_game_sim_system(struct CrabbyGame *game,
@@ -507,6 +611,122 @@ enum CrabbyStatus crabby_grid_radius(const struct CrabbyGrid *grid,
 size_t crabby_grid_len(const struct CrabbyGrid *grid);
 
 enum CrabbyStatus crabby_grid_view(const struct CrabbyGrid *grid, struct CrabbyGridView *out_view);
+
+struct CrabbyTextParams crabby_text_params_default(void);
+
+struct CrabbyUiStyle crabby_ui_style_default(void);
+
+struct CrabbySoundParams crabby_sound_params_default(void);
+
+enum CrabbyStatus crabby_ctx_draw_rect(struct CrabbyCtx *ctx,
+                                       struct CrabbyRect rect,
+                                       struct CrabbyColor color);
+
+enum CrabbyStatus crabby_ctx_draw_line(struct CrabbyCtx *ctx,
+                                       struct CrabbyVec2 a,
+                                       struct CrabbyVec2 b,
+                                       float width,
+                                       struct CrabbyColor color);
+
+enum CrabbyStatus crabby_ctx_draw_circle(struct CrabbyCtx *ctx,
+                                         struct CrabbyVec2 center,
+                                         float radius,
+                                         struct CrabbyColor color);
+
+enum CrabbyStatus crabby_ctx_ui_style(struct CrabbyCtx *ctx, struct CrabbyUiStyle *out_style);
+
+enum CrabbyStatus crabby_ctx_set_ui_style(struct CrabbyCtx *ctx, const struct CrabbyUiStyle *style);
+
+enum CrabbyStatus crabby_ctx_mouse_over_ui(struct CrabbyCtx *ctx, bool *out_over);
+
+enum CrabbyStatus crabby_ctx_ui_panel(struct CrabbyCtx *ctx, struct CrabbyRect rect);
+
+enum CrabbyStatus crabby_ctx_ui_label(struct CrabbyCtx *ctx,
+                                      struct CrabbyVec2 pos,
+                                      const char *string,
+                                      struct CrabbyVec2 *out_size);
+
+enum CrabbyStatus crabby_ctx_ui_button(struct CrabbyCtx *ctx,
+                                       struct CrabbyRect rect,
+                                       const char *label,
+                                       bool *out_clicked);
+
+enum CrabbyStatus crabby_ctx_load_font(struct CrabbyCtx *ctx,
+                                       const char *path,
+                                       struct CrabbyFont *out_font);
+
+enum CrabbyStatus crabby_ctx_draw_text_ex(struct CrabbyCtx *ctx,
+                                          const char *string,
+                                          struct CrabbyVec2 pos,
+                                          const struct CrabbyTextParams *params);
+
+enum CrabbyStatus crabby_ctx_measure_text_ex(struct CrabbyCtx *ctx,
+                                             const char *string,
+                                             struct CrabbyFont font,
+                                             float size,
+                                             struct CrabbyVec2 *out_size);
+
+enum CrabbyStatus crabby_ctx_load_sound(struct CrabbyCtx *ctx,
+                                        const char *path,
+                                        struct CrabbySound *out_sound);
+
+enum CrabbyStatus crabby_ctx_create_sound(struct CrabbyCtx *ctx,
+                                          uint32_t sample_rate,
+                                          const float *samples,
+                                          size_t len,
+                                          struct CrabbySound *out_sound);
+
+enum CrabbyStatus crabby_ctx_play_sound(struct CrabbyCtx *ctx,
+                                        struct CrabbySound sound,
+                                        const struct CrabbySoundParams *params,
+                                        struct CrabbyPlaying *out_playing);
+
+enum CrabbyStatus crabby_ctx_stop_sound(struct CrabbyCtx *ctx, struct CrabbyPlaying playing);
+
+enum CrabbyStatus crabby_ctx_save_screenshot(struct CrabbyCtx *ctx, const char *path);
+
+enum CrabbyStatus crabby_ctx_turns(const struct CrabbyCtx *ctx,
+                                   uint32_t every,
+                                   struct CrabbyTurns *out_turns);
+
+enum CrabbyStatus crabby_component_reflect(struct CrabbyWorld *world,
+                                           uint32_t component_id,
+                                           const struct CrabbyField *fields,
+                                           size_t len);
+
+enum CrabbyStatus crabby_world_save(struct CrabbyWorld *world,
+                                    char *buffer,
+                                    size_t capacity,
+                                    size_t *out_len);
+
+enum CrabbyStatus crabby_world_load(struct CrabbyWorld *world, const char *json);
+
+enum CrabbyStatus crabby_sprite_sheet(struct CrabbyTexture texture,
+                                      uint32_t frame_width,
+                                      uint32_t frame_height,
+                                      struct CrabbySpriteSheet *out_sheet);
+
+struct CrabbyRect crabby_sprite_sheet_frame(struct CrabbySpriteSheet sheet, uint32_t index);
+
+enum CrabbyStatus crabby_animation_component(struct CrabbyWorld *world, uint32_t *out_id);
+
+enum CrabbyStatus crabby_ctx_set_texture_filter(struct CrabbyCtx *ctx,
+                                                struct CrabbyTexture texture,
+                                                bool nearest);
+
+enum CrabbyStatus crabby_tilemap_add(struct CrabbyWorld *world,
+                                     uint64_t entity,
+                                     struct CrabbySpriteSheet sheet,
+                                     uint32_t width,
+                                     uint32_t height);
+
+enum CrabbyStatus crabby_tilemap_get(struct CrabbyWorld *world,
+                                     uint64_t entity,
+                                     struct CrabbyTileMap *out_map);
+
+enum CrabbyStatus crabby_tilemap_update(struct CrabbyWorld *world,
+                                        uint64_t entity,
+                                        const struct CrabbyTileMap *map);
 
 uint64_t crabby_entity_bits(struct CrabbyEntity entity);
 

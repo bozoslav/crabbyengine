@@ -21,11 +21,17 @@ mod ctx;
 mod game;
 mod grid;
 mod keys;
+mod media;
+mod reflect;
+mod tiles;
 mod types;
 pub use ctx::*;
 pub use game::*;
 pub use grid::*;
 pub use keys::*;
+pub use media::*;
+pub use reflect::*;
+pub use tiles::*;
 pub use types::*;
 
 use crabby_ecs::{ComponentId, Entity, World};
@@ -120,12 +126,15 @@ thread_local! {
     static LAST_ERROR: RefCell<[u8; 512]> = const { RefCell::new([0; 512]) };
 }
 
-pub(crate) struct Failure(CrabbyStatus, &'static str);
+pub(crate) struct Failure(CrabbyStatus, std::borrow::Cow<'static, str>);
 pub(crate) fn error(status: CrabbyStatus, message: &'static str) -> Failure {
-    Failure(status, message)
+    Failure(status, message.into())
 }
 pub(crate) fn invalid(message: &'static str) -> Failure {
     error(CRABBY_INVALID_ARGUMENT, message)
+}
+pub(crate) fn invalid_owned(message: String) -> Failure {
+    Failure(CRABBY_INVALID_ARGUMENT, message.into())
 }
 pub(crate) fn save_error(message: &str) {
     LAST_ERROR.with(|cell| {
@@ -142,7 +151,7 @@ pub(crate) fn boundary(f: impl FnOnce() -> Result<(), Failure>) -> CrabbyStatus 
     match catch_unwind(AssertUnwindSafe(f)) {
         Ok(Ok(())) => CRABBY_OK,
         Ok(Err(Failure(status, message))) => {
-            save_error(message);
+            save_error(&message);
             status
         }
         Err(payload) => {
@@ -214,6 +223,7 @@ pub(crate) enum Kind {
     Sprite,
 }
 const _: () = assert!(!std::mem::needs_drop::<Sprite>());
+const _: () = assert!(!std::mem::needs_drop::<crabbyengine::Animation>());
 
 pub(crate) fn component(world: &World, id: u32) -> Result<(ComponentId, Kind), Failure> {
     let id = world
@@ -224,6 +234,8 @@ pub(crate) fn component(world: &World, id: u32) -> Result<(ComponentId, Kind), F
         // Raw byte copies into a value with a destructor would corrupt memory.
         None if !info.needs_drop() => Kind::Plain,
         Some(t) if t == TypeId::of::<Transform2D>() => Kind::Plain,
+        // repr(C), layout checked against CrabbyAnimation; `looping` must be 0 or 1.
+        Some(t) if t == TypeId::of::<crabbyengine::Animation>() => Kind::Plain,
         Some(t) if t == TypeId::of::<Sprite>() => Kind::Sprite,
         _ => {
             return Err(invalid(
@@ -413,7 +425,7 @@ pub unsafe extern "C" fn crabby_sprite_component(world: *mut CrabbyWorld, out_id
     unsafe { builtin::<Sprite>(world, out_id) }
 }
 
-unsafe fn builtin<T: crabby_ecs::Component>(world: *mut CrabbyWorld, out_id: *mut u32) -> CrabbyStatus {
+pub(crate) unsafe fn builtin<T: crabby_ecs::Component>(world: *mut CrabbyWorld, out_id: *mut u32) -> CrabbyStatus {
     boundary(|| {
         if out_id.is_null() {
             return Err(invalid("output is null"));

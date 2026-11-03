@@ -249,3 +249,269 @@ fn a_bad_save_leaves_the_world_untouched() {
         assert_eq!(w.save(), before, "{what} changed the world");
     }
 }
+
+// ---- components described by fields (C and C++ components) -----------------------
+
+/// A C-style struct: `{ float hp; uint8_t level; bool alive; Vec2 at; Color tint; uint64_t target; int16_t mood; }`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct CUnit {
+    hp: f32,
+    level: u8,
+    alive: bool,
+    spare: u16, // not described: must survive edits, and be zero in new values
+    at: [f32; 2],
+    tint: [f32; 4],
+    target: u64,
+    mood: i16,
+}
+
+fn c_world() -> (World, ComponentId) {
+    let mut world = World::new();
+    // SAFETY: CUnit is plain bytes; bool is only written as 0/1 by reflection.
+    let id = unsafe {
+        world.register_component(
+            "CUnit",
+            std::mem::size_of::<CUnit>(),
+            std::mem::align_of::<CUnit>(),
+            None,
+        )
+    };
+    let fields = [
+        Field::new("hp", FieldType::F32, std::mem::offset_of!(CUnit, hp)),
+        Field::new("level", FieldType::U8, std::mem::offset_of!(CUnit, level)),
+        Field::new("alive", FieldType::Bool, std::mem::offset_of!(CUnit, alive)),
+        Field::new("at", FieldType::Vec2, std::mem::offset_of!(CUnit, at)),
+        Field::new("tint", FieldType::Color, std::mem::offset_of!(CUnit, tint)),
+        Field::new("target", FieldType::Entity, std::mem::offset_of!(CUnit, target)),
+        Field::new("mood", FieldType::I16, std::mem::offset_of!(CUnit, mood)),
+    ];
+    // SAFETY: every field value makes a valid CUnit.
+    unsafe { world.reflect_fields(id, &fields) };
+    world.reflect::<Transform2D>();
+    (world, id)
+}
+
+fn c_unit(world: &World, e: Entity, id: ComponentId) -> CUnit {
+    // SAFETY: `id` is CUnit's id.
+    unsafe { *world.get_dynamic(e, id).unwrap().cast::<CUnit>() }
+}
+
+fn spawn_c_unit(world: &mut World, id: ComponentId, unit: CUnit) -> Entity {
+    // SAFETY: a valid CUnit.
+    unsafe { world.spawn_dynamic(&[(id, (&unit as *const CUnit).cast())]) }
+}
+
+#[test]
+fn described_components_read_as_json_objects() {
+    let (mut world, id) = c_world();
+    let unit = CUnit {
+        hp: 2.5,
+        level: 3,
+        alive: true,
+        spare: 0xBEEF,
+        at: [1.0, -2.0],
+        tint: [1.0, 0.5, 0.25, 1.0],
+        target: 7 | 1 << 32,
+        mood: -4,
+    };
+    let e = spawn_c_unit(&mut world, id, unit);
+    assert_eq!(
+        world.get_json(e, "CUnit").unwrap(),
+        serde_json::json!({
+            "hp": 2.5, "level": 3, "alive": true, "at": [1.0, -2.0],
+            "tint": { "r": 1.0, "g": 0.5, "b": 0.25, "a": 1.0 },
+            "target": 7u64 | 1 << 32, "mood": -4
+        })
+    );
+    assert!(world.reflected_components().contains(&"CUnit"));
+}
+
+#[test]
+fn described_components_change_only_given_fields() {
+    let (mut world, id) = c_world();
+    let e = spawn_c_unit(
+        &mut world,
+        id,
+        CUnit {
+            hp: 1.0,
+            spare: 0xBEEF,
+            tint: [1.0, 1.0, 1.0, 1.0],
+            ..Default::default()
+        },
+    );
+    world
+        .set_json(
+            e,
+            "CUnit",
+            serde_json::json!({ "hp": 9.0, "alive": true, "tint": { "g": 0.0 } }),
+        )
+        .unwrap();
+    let u = c_unit(&world, e, id);
+    assert_eq!((u.hp, u.alive, u.tint), (9.0, true, [1.0, 0.0, 1.0, 1.0]));
+    assert_eq!(u.spare, 0xBEEF, "bytes no field describes are left alone");
+}
+
+#[test]
+fn described_components_spawn_and_add_with_missing_fields_zeroed() {
+    let (mut world, id) = c_world();
+    let e = world
+        .spawn_json(
+            serde_json::json!({ "CUnit": { "hp": 4.0, "at": [3.0, 4.0] }, "Transform2D": Transform2D::default() }),
+        )
+        .unwrap();
+    assert_eq!(
+        c_unit(&world, e, id),
+        CUnit {
+            hp: 4.0,
+            at: [3.0, 4.0],
+            ..Default::default()
+        }
+    );
+    assert!(world.get::<Transform2D>(e).is_some());
+
+    let bare = world.spawn((Transform2D::default(),));
+    world
+        .set_json(bare, "CUnit", serde_json::json!({ "level": 2 }))
+        .unwrap();
+    assert_eq!(c_unit(&world, bare, id).level, 2);
+    assert_eq!(world.remove_json(bare, "CUnit"), Ok(true));
+    assert!(world.get_dynamic(bare, id).is_none());
+}
+
+#[test]
+fn described_components_reject_bad_json_and_keep_their_value() {
+    let (mut world, id) = c_world();
+    let e = spawn_c_unit(
+        &mut world,
+        id,
+        CUnit {
+            level: 5,
+            ..Default::default()
+        },
+    );
+    let cases = [
+        (
+            serde_json::json!({ "speed": 1.0 }),
+            "has no field `speed` (fields: hp, level",
+        ),
+        (
+            serde_json::json!({ "level": 300 }),
+            "field `level`: expected an integer that fits",
+        ),
+        (
+            serde_json::json!({ "level": 1.5 }),
+            "field `level`: expected an integer",
+        ),
+        (serde_json::json!({ "mood": -40000 }), "field `mood`"),
+        (serde_json::json!({ "alive": 1 }), "expected true or false"),
+        (serde_json::json!({ "at": [1.0] }), "expected [x, y]"),
+        (serde_json::json!({ "tint": { "q": 1.0 } }), "not `q`"),
+        (serde_json::json!({ "hp": "lots" }), "expected a number"),
+    ];
+    for (value, message) in cases {
+        let err = world.set_json(e, "CUnit", value.clone()).unwrap_err().to_string();
+        assert!(err.contains(message), "{value}: {err}");
+    }
+    let err = world
+        .spawn_json(serde_json::json!({ "CUnit": 5 }))
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("expected an object with the fields of `CUnit`"), "{err}");
+    assert_eq!(c_unit(&world, e, id).level, 5);
+    assert_eq!(world.len(), 1);
+}
+
+#[test]
+fn described_components_save_and_load_with_their_ids() {
+    let (mut world, id) = c_world();
+    let a = spawn_c_unit(
+        &mut world,
+        id,
+        CUnit {
+            hp: 1.0,
+            ..Default::default()
+        },
+    );
+    let b = spawn_c_unit(
+        &mut world,
+        id,
+        CUnit {
+            hp: 2.0,
+            target: a.to_bits(),
+            ..Default::default()
+        },
+    );
+    world.despawn(a);
+    let a2 = spawn_c_unit(
+        &mut world,
+        id,
+        CUnit {
+            hp: 3.0,
+            ..Default::default()
+        },
+    );
+    let save = world.save();
+    assert_eq!(save["not_saved"], serde_json::json!({}));
+
+    let (mut loaded, id2) = c_world();
+    loaded.load(&save).unwrap();
+    assert_eq!(loaded.len(), 2);
+    assert_eq!(c_unit(&loaded, b, id2).hp, 2.0);
+    assert_eq!(c_unit(&loaded, b, id2).target, a.to_bits());
+    assert_eq!(c_unit(&loaded, a2, id2).hp, 3.0);
+    assert!(!loaded.is_alive(a), "the reused slot has the new generation");
+}
+
+#[test]
+fn describing_again_replaces_the_fields() {
+    let (mut world, id) = c_world();
+    // SAFETY: as in c_world.
+    unsafe { world.reflect_fields(id, &[Field::new("health", FieldType::F32, 0)]) };
+    let e = spawn_c_unit(
+        &mut world,
+        id,
+        CUnit {
+            hp: 6.0,
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        world.get_json(e, "CUnit").unwrap(),
+        serde_json::json!({ "health": 6.0 })
+    );
+}
+
+#[test]
+#[should_panic(expected = "field `wide` of `Small` (offset 2, 4 bytes) doesn't fit in 4 bytes")]
+fn fields_must_fit_in_the_component() {
+    let mut world = World::new();
+    // SAFETY: plain bytes.
+    let id = unsafe { world.register_component("Small", 4, 4, None) };
+    // SAFETY: never reached: the call panics.
+    unsafe { world.reflect_fields(id, &[Field::new("wide", FieldType::F32, 2)]) };
+}
+
+#[test]
+#[should_panic(expected = "`Twice` has two fields named `x`")]
+fn field_names_must_be_unique() {
+    let mut world = World::new();
+    // SAFETY: plain bytes.
+    let id = unsafe { world.register_component("Twice", 8, 4, None) };
+    // SAFETY: never reached: the call panics.
+    unsafe {
+        world.reflect_fields(
+            id,
+            &[Field::new("x", FieldType::F32, 0), Field::new("x", FieldType::F32, 4)],
+        )
+    };
+}
+
+#[test]
+#[should_panic(expected = "is a Rust type or has a destructor; use `reflect::<T>()`")]
+fn rust_types_use_reflect_instead() {
+    let mut world = World::new();
+    let id = world.register::<Transform2D>();
+    // SAFETY: never reached: the call panics.
+    unsafe { world.reflect_fields(id, &[Field::new("rotation", FieldType::F32, 8)]) };
+}

@@ -1,7 +1,5 @@
 # Reflection: components as JSON
 
-> **C++:** Reflection (and so JSON access from tools) of components is Rust-only for now; the C API grows chapter by chapter.
-
 Reflection lets code that doesn't know your types read and change them by
 name: the agent bridge (MCP), the inspector, and save/load all use it. It's
 opt-in per type and built on [serde](https://serde.rs).
@@ -26,6 +24,27 @@ Game::new("Arena", 1280, 720).run(|ctx| {
 ```
 
 Add `serde = { version = "1", features = ["derive"] }` to your `Cargo.toml`.
+
+## C and C++ components
+
+C++ has no serde, so a C++ component lists its fields when it is
+registered. From then on it is a reflected component like any other:
+agents read and write it through `crabby-mcp`, and saves include it.
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:reflect}}
+```
+
+Fields can be `float`, `double`, the fixed-width integers, `bool`,
+`crabby::vec2` (`[x, y]` in JSON) and `crabby::color` (`{"r", "g", "b", "a"}`).
+Entities are `uint64_t`, which is how Rust saves an `Entity` too. Bytes
+no field covers (padding, fields you leave out) are zero in values made
+from JSON, and editing a field leaves them alone.
+
+In C, `crabby_component_reflect(world, id, fields, count)` takes the same
+list as `CrabbyField { name, kind, offset }`, with `offsetof` for the
+offset. The Rust side of this is `World::reflect_fields`, for components
+that are registered at runtime and have no Rust type.
 
 ## Names
 

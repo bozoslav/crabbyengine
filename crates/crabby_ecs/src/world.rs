@@ -525,6 +525,49 @@ impl World {
     /// # Panics
     /// If a component id appears twice.
     pub unsafe fn spawn_dynamic(&mut self, components: &[(ComponentId, *const u8)]) -> Entity {
+        let a = self.dynamic_archetype(components, "spawn_dynamic");
+        let e = self.entities.alloc();
+        // SAFETY: forwarded caller contract; `e` was just allocated.
+        unsafe { self.write_dynamic(a, e, components) };
+        e
+    }
+
+    /// [`spawn_dynamic`](Self::spawn_dynamic) with a given id, like
+    /// [`spawn_at`](Self::spawn_at): returns `false` (and takes nothing) if
+    /// that slot is taken.
+    ///
+    /// ```
+    /// use crabby_ecs::{Entity, World};
+    ///
+    /// let mut world = World::new();
+    /// // SAFETY: f32 is plain bytes.
+    /// let id = unsafe { world.register_component("Speed", 4, 4, None) };
+    /// let saved = Entity::from_bits(5 | 2 << 32);
+    /// let speed = 1.5f32;
+    /// // SAFETY: points to a valid f32, which needs no drop.
+    /// assert!(unsafe { world.spawn_at_dynamic(saved, &[(id, (&speed as *const f32).cast())]) });
+    /// assert!(!unsafe { world.spawn_at_dynamic(saved, &[(id, (&speed as *const f32).cast())]) });
+    /// assert_eq!(world.len(), 1);
+    /// ```
+    ///
+    /// # Safety
+    /// As for [`spawn_dynamic`](Self::spawn_dynamic). When this returns
+    /// `false`, the values stay the caller's.
+    ///
+    /// # Panics
+    /// If a component id appears twice.
+    pub unsafe fn spawn_at_dynamic(&mut self, e: Entity, components: &[(ComponentId, *const u8)]) -> bool {
+        let a = self.dynamic_archetype(components, "spawn_at_dynamic");
+        if !self.entities.alloc_at(e) {
+            return false;
+        }
+        // SAFETY: forwarded caller contract; `e` was just allocated.
+        unsafe { self.write_dynamic(a, e, components) };
+        true
+    }
+
+    /// The archetype holding exactly these components (panics on duplicates).
+    fn dynamic_archetype(&mut self, components: &[(ComponentId, *const u8)], caller: &str) -> usize {
         let mut ids = std::mem::take(&mut self.scratch_ids);
         ids.clear();
         ids.extend(components.iter().map(|c| c.0));
@@ -532,14 +575,22 @@ impl World {
         let unique = ids.windows(2).all(|w| w[0] != w[1]);
         let a = if unique { Some(self.archetype_for(&ids)) } else { None };
         self.scratch_ids = ids;
-        let a = a.expect("spawn_dynamic: the same component was given twice");
+        a.unwrap_or_else(|| panic!("{caller}: the same component was given twice"))
+    }
 
-        let e = self.entities.alloc();
+    /// Appends freshly allocated `e` to archetype `a` with these values.
+    ///
+    /// # Safety
+    /// `a` is the archetype of exactly these ids, `e` is allocated and has no
+    /// location yet, and each pointer points to a valid value of its component.
+    unsafe fn write_dynamic(&mut self, a: usize, e: Entity, components: &[(ComponentId, *const u8)]) {
         let arch = &mut self.archetypes[a];
         arch.reserve(1);
         let row = arch.len();
         for &(id, src) in components {
             let c = &arch.columns[arch.column_index(id).unwrap()];
+            // SAFETY: the caller's value fits the column (same component), and
+            // `row` is reserved spare capacity.
             unsafe { std::ptr::copy_nonoverlapping(src, c.ptr(row), c.size()) };
         }
         arch.entities.push(e);
@@ -550,7 +601,6 @@ impl World {
                 row: row as u32,
             },
         );
-        e
     }
 
     /// Adds (or replaces) component `id` on `e` from a raw value.

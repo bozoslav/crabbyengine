@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstdio>
+#include <string>
 #include <vector>
 
 using namespace crabby;
@@ -186,6 +187,54 @@ static void count_neighbors(crabby::ctx& ctx, const crabby::component<crabby::tr
     // ANCHOR_END: pixels
 }
 
+// ---- Sprite sheets, animation and tilemaps ------------------------------------------
+[[maybe_unused]] static void sheets(crabby::ctx& ctx, crabby::vec2 pos) {
+    auto world = ctx.world();
+    // ANCHOR: sheet
+    auto tex = ctx.load_texture("units.png");
+    auto sheet = crabby::sheet_of(tex, 32, 32);   // 32 x 32 frames
+    world.spawn(world.transforms().with(crabby::transform_at(pos)),
+                world.sprites().with(crabby::sprite_of(sheet, 5)));   // frame 5
+    // ANCHOR_END: sheet
+    // ANCHOR: nearest
+    ctx.set_texture_filter(tex, crabby::texture_filter::nearest);
+    // ANCHOR_END: nearest
+}
+
+static void animate(crabby::world_view world, crabby::sprite_sheet sheet, crabby::vec2 pos) {
+    // ANCHOR: animation
+    world.spawn(world.transforms().with(crabby::transform_at(pos)),
+                world.sprites().with(crabby::sprite_of(sheet, 0)),
+                world.animations().with(crabby::animation_of(sheet, 0, 8, 12)));   // frames 0-7 at 12 fps
+    auto boom = crabby::animation_of(sheet, 8, 8, 24);
+    boom.looping = false;   // stops on the last frame; crabby::finished(boom) says when
+    // ANCHOR_END: animation
+    (void)boom;
+}
+
+constexpr std::uint16_t GRASS = 0, STONE = 3;
+
+// ANCHOR: tilemap
+static crabby::entity make_map(crabby::world_view world, crabby::sprite_sheet tiles, std::uint32_t side) {
+    const crabby::entity map = world.spawn(world.transforms().with(crabby::transform_at({0, 0})));
+    auto t = world.add_tilemap(map, tiles, side, side);   // the transform is its top-left corner
+    for (std::uint32_t y = 0; y < side; ++y)
+        for (std::uint32_t x = 0; x < side; ++x)
+            t.set(x, y, (x * 7 + y * 3) % 5 == 0 ? STONE : GRASS);
+    return map;
+}
+// ANCHOR_END: tilemap
+
+// ANCHOR: paint
+static void paint(crabby::ctx& ctx, crabby::entity map) {
+    if (!ctx.mouse_down(CRABBY_MOUSE_LEFT) || ctx.mouse_over_ui()) return;
+    auto world = ctx.world();
+    const crabby::vec2 origin = world.get(map, world.transforms()).position;
+    auto tiles = world.tilemap(map);
+    if (auto tile = tiles.tile_at(origin, ctx.mouse_world())) tiles.set((*tile)[0], (*tile)[1], STONE);
+}
+// ANCHOR_END: paint
+
 // ---- Camera, text and UI ---------------------------------------------------------
 [[maybe_unused]] static void camera(crabby::ctx& ctx, crabby::vec2 bounds) {
     // ANCHOR: camera_fit
@@ -196,10 +245,124 @@ static void count_neighbors(crabby::ctx& ctx, const crabby::component<crabby::tr
     ctx.set_camera(cam);
     // ANCHOR_END: camera_fit
     // ANCHOR: text
-    ctx.draw_text("Hello, crabs", {20, 20}, 24, crabby::colors::white);
-    const crabby::vec2 size = ctx.measure_text("Hello, crabs", 24);
+    ctx.draw_text("Hello", {20, 20}, 24, crabby::colors::white);
+    const crabby::vec2 size = ctx.measure_text("Paused", 32);   // for centering
+    const crabby::font title = ctx.load_font("fonts/Title.ttf");  // TrueType or OpenType
+    auto params = crabby::text_defaults();
+    params.font = title;
+    params.size = 40;
+    ctx.draw_text("Colony", {20, 60}, params);
     // ANCHOR_END: text
     (void)size;
+}
+
+[[maybe_unused]] static void shapes(crabby::ctx& ctx, crabby::vec2 from, crabby::vec2 to, crabby::vec2 tower) {
+    // ANCHOR: shapes
+    ctx.draw_rect(crabby::rect_at({0, 0}, {200, 20}), crabby::rgb(0.23f, 0.35f, 0.25f));
+    ctx.draw_line(from, to, 2, crabby::colors::red);
+    ctx.draw_circle(tower, 120, crabby::rgba(0, 0, 1, 0.2f));
+    // ANCHOR_END: shapes
+}
+
+// ANCHOR: hud
+struct Hud {
+    int dropped = 0;
+    bool follow = false;
+    void operator()(crabby::ctx& ctx) {
+        const crabby::rect panel = crabby::rect_at({12, 12}, {230, 172});
+        ctx.ui_panel(panel);
+        const float pad = ctx.ui_style().padding;
+        crabby::vec2 at = panel.min + crabby::vec2{pad, pad};
+        char lines[128];
+        std::snprintf(lines, sizeof lines, "zoom %.2fx\ncrabs dropped: %d\n%.0f FPS",
+                      double(ctx.camera().zoom), dropped, double(ctx.fps()));
+        at.y += ctx.ui_label(at, lines).y + 8;
+
+        if (ctx.ui_button(crabby::rect_at(at, {210, 30}), follow ? "Stop following" : "Follow orbiter"))
+            follow = !follow;
+        at.y += 38;
+        if (ctx.ui_button(crabby::rect_at(at, {210, 30}), "Reset camera")) {
+            ctx.set_camera({{0, 0}, 1});
+            follow = false;
+        }
+    }
+};
+// crabby::game("UI", 1280, 720).camera_controls().system(Hud{}, "hud");
+// ANCHOR_END: hud
+
+[[maybe_unused]] static void screenshot(crabby::ctx& ctx) {
+    // ANCHOR: screenshot
+    if (ctx.key_pressed(CRABBY_KEY_F12)) ctx.save_screenshot("shot.png");
+    // ANCHOR_END: screenshot
+}
+
+// ---- Sound -------------------------------------------------------------------------
+[[maybe_unused]] static void sound(crabby::ctx& ctx) {
+    // ANCHOR: sound
+    const crabby::sound hit = ctx.load_sound("hit.ogg");   // OGG Vorbis, WAV, MP3 or FLAC from assets/
+    ctx.play_sound(hit);
+
+    const crabby::sound music = ctx.load_sound("theme.ogg");
+    auto params = crabby::sound_defaults();
+    params.volume = 0.5f;
+    params.looping = true;
+    const crabby::playing song = ctx.play_sound(music, params);
+    ctx.stop_sound(song);
+    // ANCHOR_END: sound
+}
+
+static crabby::sound beep(crabby::ctx& ctx) {
+    // ANCHOR: sound_samples
+    std::vector<float> samples(4410);   // 0.1 s at 44.1 kHz
+    for (std::size_t i = 0; i < samples.size(); ++i)
+        samples[i] = 0.3f * std::sin(float(i) * 880.0f * 6.2831853f / 44100.0f);
+    const crabby::sound click = ctx.create_sound(44100, samples.data(), samples.size());
+    // ANCHOR_END: sound_samples
+    return click;
+}
+
+// ANCHOR: turns
+struct Brain { std::uint32_t plans; };
+
+static void think(crabby::ctx& ctx, const crabby::component<Brain>& brain) {
+    const crabby::turns turn = ctx.turns(8);   // each ant thinks every 8th tick
+    ctx.world().query_par([&](auto chunk) {
+        auto b = chunk.template column<0>();
+        for (std::size_t i = 0; i < chunk.size(); ++i)
+            if (turn.includes(chunk.entities()[i]))
+                b[i].plans += 1;   // turn.dt(): time since this ant's last turn
+    }, brain);
+}
+// ANCHOR_END: turns
+
+// ---- Reflection and saving ---------------------------------------------------------
+// ANCHOR: reflect
+struct Unit {
+    float current;
+    float max;
+    crabby::vec2 home;
+    crabby::entity target;   // entity ids are uint64_t
+    bool angry;
+};
+
+static crabby::component<Unit> reflect_units(crabby::world_view world) {
+    // Tools and agents (crabby-mcp) now see {"current", "max", "home", "target", "angry"}.
+    return world.component<Unit>("Unit", {
+        crabby::field("current", &Unit::current),
+        crabby::field("max", &Unit::max),
+        crabby::field("home", &Unit::home),
+        crabby::field("target", &Unit::target),
+        crabby::field("angry", &Unit::angry),
+    });
+}
+// ANCHOR_END: reflect
+
+static void save_and_load(crabby::world_view world) {
+    // ANCHOR: save
+    const std::string save = world.save();   // JSON text; write it to a file
+    // ...
+    world.load(save);                        // every entity back, with its id
+    // ANCHOR_END: save
 }
 
 // ---- Headless runs and testing ---------------------------------------------------
@@ -248,6 +411,9 @@ int main() {
     crabby::component<crabby::transform2d> transforms;
     crabby::component<Neighbors> neighbors;
     crabby::component<Heading> heading;
+    crabby::component<Brain> brain;
+    crabby::sound click{};
+    crabby::entity map = 0;
     std::uint32_t most = 0;
     auto world = crabby::game("guide", 1, 1)
         .spatial_grid(10)
@@ -255,27 +421,73 @@ int main() {
         .sim_system([&](crabby::ctx& ctx) { count_neighbors(ctx, transforms, neighbors); }, "neighbors")
         .sim_system([&](crabby::ctx& ctx) { wander(ctx, heading); }, "wander")
         .sim_system(Spawner{2}, "spawner")
+        .sim_system([&](crabby::ctx& ctx) { think(ctx, brain); }, "think")
+        .system(Hud{}, "hud")
+        .camera_controls()
         .sim_system([&](crabby::ctx& ctx) {
             ctx.world().query([&](auto chunk) {
                 auto n = chunk.template column<0>();
                 for (std::size_t i = 0; i < chunk.size(); ++i) most = std::max(most, n[i].count);
             }, neighbors);
         }, "check")
-        .run_headless(4, [&](crabby::ctx& ctx) {
+        .run_headless(8, [&](crabby::ctx& ctx) {
             ecs(ctx);
             auto w = ctx.world();
             health = w.component<Health>("Health");
             transforms = w.transforms();
             neighbors = w.component<Neighbors>("Neighbors");
             heading = w.component<Heading>("Heading");
+            brain = w.component<Brain>("Brain");
+            for (int i = 0; i < 16; ++i) w.spawn(brain.with(Brain{0}));
+            click = beep(ctx);
+            std::vector<std::uint8_t> pixels(64 * 40 * 4, 255);
+            const auto sheet = crabby::sheet_of(ctx.create_texture(64, 40, pixels.data(), pixels.size()), 16, 16);
+            animate(w, sheet, {0, 0});
+            map = make_map(w, sheet, 50);
+            paint(ctx, map);   // nobody holds the mouse headless: nothing changes
+            ctx.play_sound(click);   // silent: headless
             for (int i = 0; i < 100; ++i)
                 w.spawn(transforms.with(crabby::transform_at({float(i), 0})), neighbors.with(Neighbors{0}),
                         heading.with(Heading{0}), health.with(Health{float(i % 2)}));
         });
-    // 100k from ecs() + 50 survivors + 2 spawned by Spawner{2} in 4 ticks.
-    if (world.size() != 100000 + 50 + 2 || most < 10) {
+    {
+        auto tiles = world.tilemap(map);
+        std::size_t stone = 0;
+        for (std::size_t i = 0; i < std::size_t(tiles.width()) * tiles.height(); ++i) stone += tiles.tiles()[i] == STONE;
+        if (tiles.width() != 50 || stone != 500 || tiles.get(0, 0) != STONE || tiles.tile_at({0, 0}, {-1, 5})) {
+            std::fprintf(stderr, "tilemap: %u wide, %zu stone\n", tiles.width(), stone);
+            return 1;
+        }
+    }
+    // Over 8 ticks every brain gets exactly one turn.
+    std::uint32_t plans = 0;
+    world.query([&](auto chunk) {
+        for (std::size_t i = 0; i < chunk.size(); ++i) plans += chunk.template column<0>()[i].plans;
+    }, brain);
+    if (plans != 16 || std::fabs(click.seconds - 0.1f) > 1e-3f) {
+        std::fprintf(stderr, "unexpected: %u plans, %f s click\n", plans, double(click.seconds));
+        return 1;
+    }
+    // 100k from ecs() + 16 brains + 50 survivors + 4 spawned by Spawner{2} in 8 ticks + 1 animated + 1 map.
+    if (world.size() != 100000 + 16 + 50 + 4 + 2 || most < 10) {
         std::fprintf(stderr, "unexpected: %zu entities, %u neighbors\n", world.size(), most);
         return 1;
+    }
+    // Reflected components survive a save and load with their ids.
+    {
+        auto w = crabby::game("save", 1, 1).run_headless(0, [](crabby::ctx&) {});
+        auto unit = reflect_units(w);
+        const crabby::entity a = w.spawn(unit.with(Unit{3, 10, {1, 2}, 0, false}));
+        const crabby::entity b = w.spawn(unit.with(Unit{5, 10, {0, 0}, a, true}));
+        const std::string before = w.save();
+        w.set(b, unit, Unit{0, 0, {0, 0}, 0, false});
+        save_and_load(w);   // saves the changed world and loads it straight back
+        w.load(before);
+        const Unit u = w.get(b, unit);
+        if (u.current != 5 || u.target != a || !u.angry || before.find("\"angry\":true") == std::string::npos) {
+            std::fprintf(stderr, "save/load lost data: %s\n", before.c_str());
+            return 1;
+        }
     }
     (void)&my_game;
     (void)&controls;

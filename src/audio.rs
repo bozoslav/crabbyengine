@@ -11,6 +11,7 @@ use crate::ctx::Ctx;
 /// [`Ctx::load_sound`](crate::Ctx::load_sound) or
 /// [`Ctx::create_sound`](crate::Ctx::create_sound).
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
 pub struct Sound {
     id: u32,
     /// Length in seconds.
@@ -34,6 +35,7 @@ impl Sound {
 /// A sound that was started, to stop it later with
 /// [`Ctx::stop_sound`](crate::Ctx::stop_sound).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(transparent)]
 pub struct Playing(u64);
 
 /// Optional settings for [`Ctx::play_sound_ex`](crate::Ctx::play_sound_ex).
