@@ -65,6 +65,8 @@ Everything so far, ahead of the first release.
   `world.resource<Score>()`, `try_resource`, `remove_resource`, and
   `reflect_resource<T>(fields)` so agents and saves see them (C:
   `crabby_resource_*`, by name). The C++ battle keeps its score in one.
+  `ctx.load_json<T>(path)` loads a data file into a resource, live.
+- Fixed: `ctx.load_json<T>(path, e)` failed for C++ types in a namespace.
 - C API (`crabby_ffi`) with a generated header, and a header-only C++17
   wrapper (`include/crabby.hpp`) covering nearly the whole engine.
 

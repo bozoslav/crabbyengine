@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <type_traits>
@@ -97,6 +99,24 @@ static void resources() {
     CHECK(w.remove_resource<game::Score>());
     CHECK(!w.remove_resource<game::Score>());
     CHECK(!w.try_resource<game::Score>());
+}
+
+namespace game { struct Tuning { float speed; std::uint32_t waves; }; }
+static void data_files() {
+    const auto file = std::filesystem::temp_directory_path() / "crabby-cpp-tuning.json";
+    std::ofstream(file) << R"({"speed": 2.5, "waves": 3})";
+    const std::string path = file.string();
+    auto w = crabby::game("data", 1, 1).run_headless(0, [&](crabby::ctx& ctx) {
+        auto world = ctx.world();
+        world.reflect_resource<game::Tuning>({crabby::field("speed", &game::Tuning::speed), crabby::field("waves", &game::Tuning::waves)});
+        ctx.load_json<game::Tuning>(path.c_str());
+        world.reflect<game::Tuning>({crabby::field("speed", &game::Tuning::speed), crabby::field("waves", &game::Tuning::waves)});
+        const crabby::entity e = world.spawn(game::Tuning{0, 9});
+        ctx.load_json<game::Tuning>(path.c_str(), e);
+        CHECK(world.get<game::Tuning>(e).speed == 2.5f);
+    });
+    CHECK(w.resource<game::Tuning>().speed == 2.5f && w.resource<game::Tuning>().waves == 3);
+    std::filesystem::remove(file);
 }
 
 static void parallel_queries() {
@@ -288,6 +308,7 @@ int main() {
     worlds();
     names_and_reflection();
     resources();
+    data_files();
     parallel_queries();
     games();
     attachments();

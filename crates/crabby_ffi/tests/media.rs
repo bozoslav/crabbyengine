@@ -352,7 +352,8 @@ unsafe extern "C" fn load_rules(ctx: *mut CrabbyCtx, user: *mut c_void) {
         let w = crabby_ctx_world(ctx);
         let mut id = 0;
         assert_eq!(
-            crabby_component_register(w, c"Rules".as_ptr(), 8, 4, &mut id),
+            // Namespaced, as C++ names its types.
+            crabby_component_register(w, c"game::Rules".as_ptr(), 8, 4, &mut id),
             CRABBY_OK
         );
         let mut e = 0;
@@ -406,6 +407,66 @@ fn json_files_load_into_reflected_c_components() {
     assert!(t.errors[0].contains("Rules"), "{}", t.errors[0]);
     assert!(t.errors[1].contains("not found in assets/"), "{}", t.errors[1]);
     assert_eq!((t.rules.speed, t.rules.waves), (2.5, 7));
+}
+
+unsafe extern "C" fn load_rules_resource(ctx: *mut CrabbyCtx, user: *mut c_void) {
+    unsafe {
+        let t = &mut *user.cast::<DataTest>();
+        if crabby_ctx_sim_tick(ctx) > 0 {
+            return;
+        }
+        let w = crabby_ctx_world(ctx);
+        // Not described yet: refused with a reason.
+        t.statuses.push(crabby_ctx_load_resource_json(
+            ctx,
+            t.path.as_ptr(),
+            c"game::Rules".as_ptr(),
+        ));
+        t.errors.push(last_error());
+        let fields = [
+            CrabbyField {
+                name: c"speed".as_ptr(),
+                kind: CrabbyFieldType::CRABBY_FIELD_F32 as u32,
+                offset: 0,
+            },
+            CrabbyField {
+                name: c"waves".as_ptr(),
+                kind: CrabbyFieldType::CRABBY_FIELD_U32 as u32,
+                offset: 4,
+            },
+        ];
+        let status = crabby_resource_reflect(w, c"game::Rules".as_ptr(), 8, 4, fields.as_ptr(), 2);
+        assert_eq!(status, CRABBY_OK);
+        // Added by the load, since the world has no Rules yet.
+        t.statuses.push(crabby_ctx_load_resource_json(
+            ctx,
+            t.path.as_ptr(),
+            c"game::Rules".as_ptr(),
+        ));
+        let mut out = Rules::default();
+        assert_eq!(
+            crabby_resource_get(w, c"game::Rules".as_ptr(), (&raw mut out).cast(), 8),
+            CRABBY_OK
+        );
+        t.rules = out;
+    }
+}
+
+#[test]
+fn json_files_load_into_described_c_resources() {
+    let dir = std::env::temp_dir().join(format!("crabby-ffi-resource-data-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("rules.json");
+    std::fs::write(&file, r#"{"speed": 1.5, "waves": 4}"#).unwrap();
+    let mut t = DataTest {
+        path: std::ffi::CString::new(file.to_str().unwrap()).unwrap(),
+        ..Default::default()
+    };
+    run(1, Some(load_rules_resource), (&raw mut t).cast());
+    assert_eq!(t.statuses, [CRABBY_INVALID_ARGUMENT, CRABBY_OK]);
+    assert!(t.errors[0].contains("game::Rules"), "{}", t.errors[0]);
+    assert_eq!((t.rules.speed, t.rules.waves), (1.5, 4));
+    std::fs::remove_dir_all(dir).ok();
 }
 
 #[derive(Default)]

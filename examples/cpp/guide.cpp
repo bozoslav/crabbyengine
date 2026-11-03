@@ -340,10 +340,9 @@ struct Hud {
 struct Tuning { float speed; float damage; };
 
 [[maybe_unused]] static void load_tuning(crabby::ctx& ctx) {
-    ctx.world().reflect<Tuning>({crabby::field("speed", &Tuning::speed), crabby::field("damage", &Tuning::damage)});
-    const crabby::entity settings = ctx.world().spawn(Tuning{});
-    ctx.load_json<Tuning>("tuning.json", settings);   // {"speed": 30, "damage": 2}
-    // Systems read ctx.world().get<Tuning>(settings): the file's current values.
+    ctx.world().reflect_resource<Tuning>({crabby::field("speed", &Tuning::speed), crabby::field("damage", &Tuning::damage)});
+    ctx.load_json<Tuning>("tuning.json");   // {"speed": 30, "damage": 2}
+    // Systems read ctx.world().resource<Tuning>(): the file's current values.
 }
 // ANCHOR_END: data_files
 

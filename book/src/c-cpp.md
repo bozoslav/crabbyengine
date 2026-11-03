@@ -174,7 +174,6 @@ normally; never let a C++ exception or `longjmp` cross them.
 
 ## Still Rust-only
 
-Resources hold only plain structs, and loading a data file straight into
-one (`ctx.load_json`) isn't there yet: load it into a component on an
-entity. Everything else in this guide works from C++, and each chapter
-shows both.
+C and C++ resources and components are plain structs (no `std::string`
+or `std::vector` inside), copied in and out. Everything else in this guide
+works from C++, and each chapter shows both.

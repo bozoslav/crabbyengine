@@ -903,10 +903,16 @@ public:
     }
 
     // Textures and drawing.
-    /// Loads a JSON file from assets/ into a reflected component of `e`
-    /// (fields merge); with hot reload on, edits to the file show up live.
     /// Whether `path` (as loaded) was reloaded at the start of this frame.
     bool was_reloaded(const char* path) const { bool b = false; detail::check(crabby_ctx_was_reloaded(raw_, path, &b)); return b; }
+    /// Loads a JSON file from assets/ into resource `T` (described with
+    /// world().reflect_resource; fields merge, and it's added if missing).
+    /// With hot reload on, edits to the file show up live.
+    template<class T> void load_json(const char* path) {
+        detail::check(crabby_ctx_load_resource_json(raw_, path, detail::type_name<T>().c_str()));
+    }
+    /// Loads a JSON file from assets/ into reflected component `T` of `e`
+    /// (fields merge); with hot reload on, edits to the file show up live.
     template<class T> void load_json(const char* path, entity e) {
         detail::check(crabby_ctx_load_json(raw_, path, e, id<T>()));
     }

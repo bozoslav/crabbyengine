@@ -904,6 +904,21 @@ impl Ctx {
         )
     }
 
+    /// Loads a JSON file into the reflected resource `name` (object fields
+    /// merge; it's added if missing), reloading it when the file changes:
+    /// the C and C++ way to [`load_resource`](Self::load_resource).
+    #[doc(hidden)]
+    pub fn load_resource_json(&mut self, path: &str, name: &str) -> Result<(), String> {
+        let name = name.to_string();
+        self.load_data(
+            path,
+            Box::new(move |world: &mut World, text: &str| {
+                let value: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+                world.set_resource_json(&name, value).map_err(|e| e.to_string())
+            }),
+        )
+    }
+
     fn load_data(&mut self, path: &str, apply: DataLoader) -> Result<(), String> {
         let file = assets::resolve(path)?;
         let text = assets::read_to_string(&file)?;

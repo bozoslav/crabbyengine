@@ -736,10 +736,41 @@ pub unsafe extern "C" fn crabby_ctx_load_json(
                 .world
                 .component_at(component as usize)
                 .ok_or_else(|| invalid("component id is not registered in this world"))?;
+            // C components are reflected under their full name ("game::Rules"),
+            // Rust ones under their short name.
             let full = c.world.component_info(id).name();
-            let name = full.rsplit("::").next().unwrap_or(full).to_string();
+            let name = if crabbyengine::WorldReflect::reflected_components(&c.world).contains(&full) {
+                full.to_string()
+            } else {
+                full.rsplit("::").next().unwrap_or(full).to_string()
+            };
             c.load_component_json(path, Entity::from_bits(entity), &name)
                 .map_err(crate::invalid_owned)
+        })
+    })
+}
+/// Loads a JSON file from `assets/` into the resource called `name`, which
+/// `crabby_resource_reflect` described (object fields merge; it's added if
+/// missing). With hot reload on, editing the file updates the resource while
+/// the game runs; a file that doesn't parse keeps the old values.
+/// # Safety
+/// `ctx` must be null or live; `path` and `name` NUL-terminated strings.
+/// ```
+/// let status = unsafe { crabby_ffi::crabby_ctx_load_resource_json(std::ptr::null_mut(), std::ptr::null(), std::ptr::null()) };
+/// assert_eq!(status, crabby_ffi::CrabbyStatus::CRABBY_INVALID_ARGUMENT);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_load_resource_json(
+    ctx: *mut CrabbyCtx,
+    path: *const c_char,
+    name: *const c_char,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let path = text(path)?;
+            let name = text(name)?;
+            c.load_resource_json(path, name).map_err(crate::invalid_owned)
         })
     })
 }

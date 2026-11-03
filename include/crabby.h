@@ -568,6 +568,10 @@ enum CrabbyStatus crabby_ctx_load_json(struct CrabbyCtx *ctx,
                                        uint64_t entity,
                                        uint32_t component);
 
+enum CrabbyStatus crabby_ctx_load_resource_json(struct CrabbyCtx *ctx,
+                                                const char *path,
+                                                const char *name);
+
 enum CrabbyStatus crabby_ctx_was_reloaded(struct CrabbyCtx *ctx,
                                           const char *path,
                                           bool *out_reloaded);
