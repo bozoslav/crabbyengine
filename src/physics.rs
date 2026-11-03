@@ -1,0 +1,581 @@
+//! 2D physics with rapier (feature `physics`): rigid bodies and colliders as
+//! components, stepped inside the simulation clock.
+//!
+//! [`Transform2D`] stays the source of truth: set it and the body teleports;
+//! dynamic bodies write their new position back after every step.
+//! Physics is opt-in per entity, so the million-entity paths (spatial grid,
+//! flow fields) stay as fast as before.
+
+use std::sync::mpsc;
+
+use rapier2d::prelude as rp;
+use serde::{Deserialize, Serialize};
+
+use crate::{Ctx, Entity, Transform2D, Vec2, World};
+
+/// How a body moves.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BodyKind {
+    /// Moved by gravity, forces and collisions.
+    #[default]
+    Dynamic,
+    /// Never moves (walls, ground).
+    Fixed,
+    /// Moved only by you (through its Transform2D or Velocity); pushes
+    /// dynamic bodies but isn't pushed back (platforms, doors).
+    Kinematic,
+}
+
+/// Makes an entity a physics body. It also needs a [`Collider`] and a
+/// [`Transform2D`].
+///
+/// ```
+/// use crabbyengine::*;
+/// let crate_body = RigidBody::dynamic();
+/// let wall = RigidBody::fixed();
+/// assert_eq!(crate_body.gravity_scale, 1.0);
+/// assert_eq!(wall.kind, BodyKind::Fixed);
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RigidBody {
+    pub kind: BodyKind,
+    /// 1 normal, 0 floats, negative falls up.
+    pub gravity_scale: f32,
+    /// Slows movement down over time (air drag); 0 none.
+    pub linear_damping: f32,
+    /// Slows spinning down over time; 0 none.
+    pub angular_damping: f32,
+    /// Never rotates (characters).
+    pub lock_rotation: bool,
+    /// Continuous collision detection: fast bodies (bullets) don't pass
+    /// through thin walls. Costs a little more.
+    pub ccd: bool,
+}
+
+impl Default for RigidBody {
+    fn default() -> Self {
+        Self::dynamic()
+    }
+}
+
+impl RigidBody {
+    /// A body moved by gravity and collisions.
+    pub const fn dynamic() -> Self {
+        Self {
+            kind: BodyKind::Dynamic,
+            gravity_scale: 1.0,
+            linear_damping: 0.0,
+            angular_damping: 0.0,
+            lock_rotation: false,
+            ccd: false,
+        }
+    }
+    /// A body that never moves.
+    pub const fn fixed() -> Self {
+        Self {
+            kind: BodyKind::Fixed,
+            ..Self::dynamic()
+        }
+    }
+    /// A body only you move.
+    pub const fn kinematic() -> Self {
+        Self {
+            kind: BodyKind::Kinematic,
+            ..Self::dynamic()
+        }
+    }
+}
+
+/// A collider's shape, in pixels, centered on the entity (plus
+/// [`Collider::offset`]) and turned with it.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub enum Shape {
+    Circle {
+        radius: f32,
+    },
+    /// A rectangle `size` wide and high.
+    Rect {
+        size: Vec2,
+    },
+    /// A vertical capsule: `height` between the centers of its round ends.
+    Capsule {
+        height: f32,
+        radius: f32,
+    },
+}
+
+/// The solid shape of a body, and how it touches others.
+///
+/// ```
+/// use crabbyengine::*;
+/// let ball = Collider::circle(8.0).restitution(0.9);
+/// let trigger = Collider::rect(vec2(64.0, 64.0)).sensor();
+/// assert!(trigger.sensor);
+/// assert_eq!(ball.restitution, 0.9);
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Collider {
+    pub shape: Shape,
+    /// Mass per square pixel (mass = density × area).
+    pub density: f32,
+    /// 0 ice, 1 rubber.
+    pub friction: f32,
+    /// Bounciness: 0 none, 1 keeps all its speed.
+    pub restitution: f32,
+    /// Detects overlaps (sends [`CollisionStarted`]) but doesn't push.
+    pub sensor: bool,
+    /// Where the shape sits relative to the entity's position.
+    pub offset: Vec2,
+}
+
+impl Collider {
+    fn of(shape: Shape) -> Self {
+        Self {
+            shape,
+            density: 1.0,
+            friction: 0.5,
+            restitution: 0.0,
+            sensor: false,
+            offset: Vec2::ZERO,
+        }
+    }
+    /// A circle.
+    pub fn circle(radius: f32) -> Self {
+        Self::of(Shape::Circle { radius })
+    }
+    /// A rectangle `size` wide and high.
+    pub fn rect(size: Vec2) -> Self {
+        Self::of(Shape::Rect { size })
+    }
+    /// A vertical capsule (good for characters).
+    pub fn capsule(height: f32, radius: f32) -> Self {
+        Self::of(Shape::Capsule { height, radius })
+    }
+    /// With this density.
+    #[must_use]
+    pub fn density(self, density: f32) -> Self {
+        Self { density, ..self }
+    }
+    /// With this friction.
+    #[must_use]
+    pub fn friction(self, friction: f32) -> Self {
+        Self { friction, ..self }
+    }
+    /// With this bounciness.
+    #[must_use]
+    pub fn restitution(self, restitution: f32) -> Self {
+        Self { restitution, ..self }
+    }
+    /// As a sensor: reports overlaps, doesn't collide.
+    #[must_use]
+    pub fn sensor(self) -> Self {
+        Self { sensor: true, ..self }
+    }
+    /// Shifted from the entity's position.
+    #[must_use]
+    pub fn offset(self, offset: Vec2) -> Self {
+        Self { offset, ..self }
+    }
+}
+
+/// A body's speed, in pixels and radians per second. Read it after a step;
+/// write it to set the speed (a jump, a thrown crate, a moving platform).
+///
+/// ```
+/// use crabbyengine::*;
+/// let v = Velocity::linear(vec2(0.0, -300.0)); // a jump, y is down
+/// assert_eq!(v.angular, 0.0);
+/// ```
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Velocity {
+    pub linear: Vec2,
+    pub angular: f32,
+}
+
+impl Velocity {
+    /// Moving at `linear`, not spinning.
+    pub const fn linear(linear: Vec2) -> Self {
+        Self { linear, angular: 0.0 }
+    }
+}
+
+/// Event: two colliders started touching (or overlapping, for sensors).
+/// Read with `ctx.events.read::<CollisionStarted>()`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CollisionStarted {
+    pub a: Entity,
+    pub b: Entity,
+    /// One of them is a sensor.
+    pub sensor: bool,
+}
+
+/// Event: two colliders stopped touching.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CollisionStopped {
+    pub a: Entity,
+    pub b: Entity,
+    pub sensor: bool,
+}
+
+/// What a ray hit.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RayHit {
+    pub entity: Entity,
+    pub point: Vec2,
+    /// The surface's outward direction at `point`.
+    pub normal: Vec2,
+    /// From the ray's start to `point`.
+    pub distance: f32,
+}
+
+/// What the world last knew of one body, to notice your changes.
+#[derive(Clone, Copy)]
+struct Link {
+    entity: Entity,
+    body: rp::RigidBodyHandle,
+    rigid: RigidBody,
+    shape: Collider,
+    transform: Transform2D,
+    velocity: Velocity,
+    seen: u64,
+}
+
+/// The physics world: `ctx.physics`. Add it to a game with
+/// [`Game::physics`](crate::Game::physics); then entities with
+/// [`RigidBody`], [`Collider`] and [`Transform2D`] are simulated.
+pub struct Physics {
+    world: rp::PhysicsWorld,
+    /// By entity index.
+    links: Vec<Option<Link>>,
+    gravity: Vec2,
+    step: u64,
+    collisions: mpsc::Receiver<rp::CollisionEvent>,
+    collector: rp::ChannelEventCollector,
+    _forces: mpsc::Receiver<rp::ContactForceEvent>,
+    _tears: mpsc::Receiver<rp::SoftBodyTearEvent>,
+}
+
+impl Default for Physics {
+    fn default() -> Self {
+        Self::new(Vec2::ZERO)
+    }
+}
+
+fn to_rp(v: Vec2) -> rp::Vector {
+    rp::Vector::new(v.x, v.y)
+}
+fn from_rp(v: rp::Vector) -> Vec2 {
+    Vec2::new(v.x, v.y)
+}
+
+impl Physics {
+    /// Physics pulling everything by `gravity` (pixels/s²; y is down, so
+    /// `vec2(0.0, 980.0)` falls).
+    pub fn new(gravity: Vec2) -> Self {
+        let (collision_tx, collisions) = mpsc::channel();
+        let (force_tx, forces) = mpsc::channel();
+        let (tear_tx, tears) = mpsc::channel();
+        let mut world = rp::PhysicsWorld::new();
+        // Objects are tens of pixels, not about a meter: tells rapier's
+        // tolerances what "small" means.
+        world.integration_parameters.length_unit = 50.0;
+        Self {
+            world,
+            links: Vec::new(),
+            gravity,
+            step: 0,
+            collisions,
+            collector: rp::ChannelEventCollector::new(collision_tx, force_tx, tear_tx),
+            _forces: forces,
+            _tears: tears,
+        }
+    }
+
+    /// The pull on every dynamic body.
+    pub fn gravity(&self) -> Vec2 {
+        self.gravity
+    }
+    /// Changes the pull on every dynamic body.
+    pub fn set_gravity(&mut self, gravity: Vec2) {
+        self.gravity = gravity;
+    }
+
+    /// How many bodies are simulated.
+    pub fn body_count(&self) -> usize {
+        self.world.bodies.len()
+    }
+
+    fn entity_of(&self, collider: rp::ColliderHandle) -> Option<Entity> {
+        self.world
+            .colliders
+            .get(collider)
+            .map(|c| Entity::from_bits(c.user_data as u64))
+    }
+
+    /// The first collider a ray from `origin` towards `direction` hits
+    /// within `max_distance`. Up to date as of the last physics step.
+    ///
+    /// ```
+    /// use crabbyengine::*;
+    /// let world = Game::new("t", 1, 1).physics(Vec2::ZERO).run_headless(1, |ctx| {
+    ///     ctx.world.spawn((Transform2D::at(vec2(100.0, 0.0)), RigidBody::fixed(), Collider::circle(10.0)));
+    /// });
+    /// # let _ = world;
+    /// ```
+    pub fn cast_ray(&self, origin: Vec2, direction: Vec2, max_distance: f32) -> Option<RayHit> {
+        let dir = direction.normalize_or_zero();
+        if dir == Vec2::ZERO {
+            return None;
+        }
+        let ray = rp::Ray::new(to_rp(origin), to_rp(dir));
+        let (handle, hit) = self
+            .world
+            .cast_ray_and_get_normal(&ray, max_distance, true, rp::QueryFilter::default())?;
+        Some(RayHit {
+            entity: self.entity_of(handle)?,
+            point: origin + dir * hit.time_of_impact,
+            normal: from_rp(hit.normal),
+            distance: hit.time_of_impact,
+        })
+    }
+
+    /// Every entity whose collider contains `point`, into `out` (cleared first).
+    pub fn entities_at(&self, point: Vec2, out: &mut Vec<Entity>) {
+        out.clear();
+        for (handle, _) in self.world.intersect_point(to_rp(point), rp::QueryFilter::default()) {
+            out.extend(self.entity_of(handle));
+        }
+    }
+
+    /// Every entity whose collider overlaps the circle, into `out` (cleared first).
+    pub fn entities_in_circle(&self, center: Vec2, radius: f32, out: &mut Vec<Entity>) {
+        out.clear();
+        let ball = rp::Ball::new(radius);
+        let pose = rp::Pose::from_translation(to_rp(center));
+        for (handle, _) in self.world.intersect_shape(pose, &ball, rp::QueryFilter::default()) {
+            out.extend(self.entity_of(handle));
+        }
+    }
+
+    /// Pushes a dynamic body once (an explosion, a kick), in mass ×
+    /// pixels/s. Returns false if `e` isn't a physics body.
+    pub fn apply_impulse(&mut self, e: Entity, impulse: Vec2) -> bool {
+        let Some(link) = self.link(e) else { return false };
+        let handle = link.body;
+        match self.world.bodies.get_mut(handle) {
+            Some(body) => {
+                body.apply_impulse(to_rp(impulse), true);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The mass of a body (from its collider's density and area).
+    pub fn mass(&self, e: Entity) -> Option<f32> {
+        let link = self.link(e)?;
+        self.world.bodies.get(link.body).map(|b| b.mass())
+    }
+
+    fn link(&self, e: Entity) -> Option<&Link> {
+        self.links.get(e.index() as usize)?.as_ref().filter(|l| l.entity == e)
+    }
+
+    fn insert(&mut self, e: Entity, t: &Transform2D, rigid: RigidBody, shape: Collider, velocity: Velocity) {
+        let body = self.world.insert_body(body_of(t, rigid, velocity));
+        self.world.insert_collider(collider_of(shape, e), Some(body));
+        let i = e.index() as usize;
+        if self.links.len() <= i {
+            self.links.resize(i + 1, None);
+        }
+        self.links[i] = Some(Link {
+            entity: e,
+            body,
+            rigid,
+            shape,
+            transform: *t,
+            velocity,
+            seen: self.step,
+        });
+    }
+
+    fn remove(&mut self, i: usize) {
+        if let Some(link) = self.links[i].take() {
+            self.world.remove_body(link.body);
+        }
+    }
+}
+
+fn body_of(t: &Transform2D, rigid: RigidBody, velocity: Velocity) -> rp::RigidBody {
+    let builder = match rigid.kind {
+        BodyKind::Dynamic => rp::RigidBodyBuilder::dynamic(),
+        BodyKind::Fixed => rp::RigidBodyBuilder::fixed(),
+        BodyKind::Kinematic => rp::RigidBodyBuilder::kinematic_velocity_based(),
+    };
+    let mut builder = builder
+        .pose(rp::Pose::new(to_rp(t.position), t.rotation))
+        .linvel(to_rp(velocity.linear))
+        .angvel(velocity.angular)
+        .gravity_scale(rigid.gravity_scale)
+        .linear_damping(rigid.linear_damping)
+        .angular_damping(rigid.angular_damping)
+        .ccd_enabled(rigid.ccd);
+    if rigid.lock_rotation {
+        builder = builder.lock_rotations();
+    }
+    builder.build()
+}
+
+fn collider_of(c: Collider, e: Entity) -> rp::Collider {
+    let builder = match c.shape {
+        Shape::Circle { radius } => rp::ColliderBuilder::ball(radius.max(f32::EPSILON)),
+        Shape::Rect { size } => {
+            rp::ColliderBuilder::cuboid((size.x * 0.5).max(f32::EPSILON), (size.y * 0.5).max(f32::EPSILON))
+        }
+        Shape::Capsule { height, radius } => {
+            rp::ColliderBuilder::capsule_y((height * 0.5).max(0.0), radius.max(f32::EPSILON))
+        }
+    };
+    builder
+        .density(c.density)
+        .friction(c.friction)
+        .restitution(c.restitution)
+        .sensor(c.sensor)
+        .translation(to_rp(c.offset))
+        .active_events(rp::ActiveEvents::COLLISION_EVENTS)
+        .user_data(u128::from(e.to_bits()))
+        .build()
+}
+
+/// Sets up `ctx.physics` for a game that uses physics, and makes its
+/// components visible to the inspector, saves and agents.
+pub(crate) fn start(ctx: &mut Ctx, gravity: Vec2) {
+    use crate::WorldReflect;
+    ctx.physics = Physics::new(gravity);
+    ctx.world.reflect::<RigidBody>();
+    ctx.world.reflect::<Collider>();
+    ctx.world.reflect::<Velocity>();
+}
+
+/// Steps the physics world one simulation tick: picks up new, changed and
+/// removed bodies, simulates, writes positions and velocities back, and
+/// sends [`CollisionStarted`] / [`CollisionStopped`] events. Added by
+/// [`Game::physics`](crate::Game::physics); remove or reorder it like any
+/// other system.
+pub fn step_physics(ctx: &mut Ctx) {
+    let dt = ctx.dt();
+    let physics = &mut ctx.physics;
+    physics.step += 1;
+    sync_into(physics, &mut ctx.world);
+    physics.world.gravity = to_rp(physics.gravity);
+    physics.world.integration_parameters.dt = dt;
+    physics.world.step_with_events(&(), &physics.collector);
+    write_back(physics, &mut ctx.world);
+    while let Ok(event) = physics.collisions.try_recv() {
+        let (a, b, flags, started) = match event {
+            rp::CollisionEvent::Started(a, b, f) => (a, b, f, true),
+            rp::CollisionEvent::Stopped(a, b, f) => (a, b, f, false),
+        };
+        let (Some(a), Some(b)) = (physics.entity_of(a), physics.entity_of(b)) else {
+            continue;
+        };
+        let sensor = flags.contains(rp::CollisionEventFlags::SENSOR);
+        if started {
+            ctx.events.send(CollisionStarted { a, b, sensor });
+        } else {
+            ctx.events.send(CollisionStopped { a, b, sensor });
+        }
+    }
+}
+
+/// New bodies in, your changes applied, gone ones out.
+fn sync_into(physics: &mut Physics, world: &mut World) {
+    let step = physics.step;
+    world
+        .query::<(Entity, &Transform2D, &RigidBody, &Collider, Option<&Velocity>)>()
+        .for_each(|(e, t, rigid, shape, velocity)| {
+            let i = e.index() as usize;
+            let Some(link) = physics
+                .links
+                .get_mut(i)
+                .and_then(Option::as_mut)
+                .filter(|l| l.entity == e)
+            else {
+                if let Some(Some(old)) = physics.links.get(i).copied() {
+                    // A recycled index: the old entity's body goes first.
+                    physics.world.remove_body(old.body);
+                    physics.links[i] = None;
+                }
+                physics.insert(e, t, *rigid, *shape, velocity.copied().unwrap_or_default());
+                return;
+            };
+            link.seen = step;
+            if link.rigid != *rigid || link.shape != *shape {
+                // Rare (a door that becomes dynamic, a resized collider): rebuild.
+                let current = link.velocity;
+                physics.world.remove_body(link.body);
+                physics.insert(e, t, *rigid, *shape, velocity.copied().unwrap_or(current));
+                return;
+            }
+            // `bodies.get_mut` marks a body as changed (rapier then redoes its
+            // broad phase and wakes it), so only touch bodies you changed.
+            if link.transform != *t
+                && let Some(body) = physics.world.bodies.get_mut(link.body)
+            {
+                body.set_position(rp::Pose::new(to_rp(t.position), t.rotation), true);
+                link.transform = *t;
+            }
+            if let Some(&v) = velocity
+                && link.velocity != v
+                && let Some(body) = physics.world.bodies.get_mut(link.body)
+            {
+                body.set_linvel(to_rp(v.linear), true);
+                body.set_angvel(v.angular, true);
+                link.velocity = v;
+            }
+        });
+    // Despawned entities and ones that lost a physics component, in index
+    // order so runs stay deterministic.
+    for i in 0..physics.links.len() {
+        if physics.links[i].is_some_and(|l| l.seen != step) {
+            physics.remove(i);
+        }
+    }
+}
+
+fn write_back(physics: &mut Physics, world: &mut World) {
+    world
+        .query::<(Entity, &mut Transform2D, Option<&mut Velocity>)>()
+        .with::<RigidBody>()
+        .with::<Collider>()
+        .for_each(|(e, t, velocity)| {
+            let Some(link) = physics
+                .links
+                .get_mut(e.index() as usize)
+                .and_then(Option::as_mut)
+                .filter(|l| l.entity == e)
+            else {
+                return;
+            };
+            if link.rigid.kind == BodyKind::Fixed {
+                return;
+            }
+            // A sleeping body hasn't moved since it fell asleep.
+            let Some(body) = physics.world.bodies.get(link.body).filter(|b| !b.is_sleeping()) else {
+                return;
+            };
+            t.position = from_rp(body.translation());
+            t.rotation = body.rotation().angle();
+            link.transform = *t;
+            let v = Velocity {
+                linear: from_rp(body.linvel()),
+                angular: body.angvel(),
+            };
+            link.velocity = v;
+            if let Some(velocity) = velocity {
+                *velocity = v;
+            }
+        });
+}

@@ -58,6 +58,8 @@ mod input;
 #[cfg(feature = "inspector")]
 mod inspector;
 mod logs;
+#[cfg(feature = "physics")]
+mod physics;
 #[cfg(any(all(target_arch = "wasm32", feature = "window"), test))]
 mod query;
 mod random;
@@ -85,6 +87,10 @@ pub use flow::RawFlowView;
 pub use flow::{FlowField, NavGrid};
 pub use game::{Game, SetupResult};
 pub use input::{Gamepad, GamepadAxis, GamepadButton, GamepadStick, Key, MAX_GAMEPADS, MouseButton};
+#[cfg(feature = "physics")]
+pub use physics::{
+    BodyKind, Collider, CollisionStarted, CollisionStopped, Physics, RayHit, RigidBody, Shape, Velocity, step_physics,
+};
 pub use random::{DEFAULT_SEED, Random, Rng};
 pub use reflect::{Field, FieldType, ReflectError, WorldReflect};
 pub use render::RenderStats;

@@ -113,6 +113,11 @@ pub struct Ctx {
     /// at the start of each simulation tick once enabled with
     /// [`Game::spatial_grid`](crate::Game::spatial_grid) (empty otherwise).
     pub spatial: SpatialGrid,
+    /// The physics world: ray casts, overlap queries, impulses, gravity.
+    /// Simulated once enabled with [`Game::physics`](crate::Game::physics)
+    /// (feature `physics`).
+    #[cfg(feature = "physics")]
+    pub physics: crate::Physics,
     /// Messages between systems: [`Events::send`] and [`Events::read`].
     /// A separate field, so you can read events while changing the world.
     ///
@@ -211,6 +216,8 @@ impl Ctx {
             },
             commands: Commands::new(),
             spatial: SpatialGrid::default(),
+            #[cfg(feature = "physics")]
+            physics: crate::Physics::default(),
             events: Events::default(),
             in_sim: false,
             sim_steps: 1,
