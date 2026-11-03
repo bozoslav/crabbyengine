@@ -644,6 +644,7 @@ impl Renderer {
         let cpu_start = web_time::Instant::now();
         if let Some(timer) = &mut self.timer {
             timer.collect(&self.device);
+            timer.begin_frame();
         }
         let (world, world_batches) = world.finish();
         let (ui, ui_batches) = ui.finish();
@@ -699,16 +700,16 @@ impl Renderer {
             })
         });
         if let Some(view) = &view {
-            let sprite_clear = self.draw_3d(&mut encoder, view, clear);
-            let timestamps = self.timer.as_mut().and_then(GpuTimer::begin);
-            Self::sprite_pass(&mut encoder, view, sprite_clear, timestamps, &pass);
+            let timer = self.timer.as_ref();
+            let sprite_clear = self.draw_3d(&mut encoder, view, clear, timer);
+            Self::sprite_pass(&mut encoder, view, sprite_clear, timer.and_then(GpuTimer::pass), &pass);
         }
         // A screenshot draws the same sprites a second time, into a texture
         // that can be copied (the window's surface can't, on some GPUs).
         let capture = capture.then(|| {
             let target = Capture::new(&self.device, self.config.width, self.config.height, self.view_format);
             let target_view = target.texture.create_view(&wgpu::TextureViewDescriptor::default());
-            let sprite_clear = self.draw_3d(&mut encoder, &target_view, clear);
+            let sprite_clear = self.draw_3d(&mut encoder, &target_view, clear, None);
             Self::sprite_pass(&mut encoder, &target_view, sprite_clear, None, &pass);
             target.copy(&mut encoder);
             target
@@ -721,7 +722,7 @@ impl Renderer {
         };
         #[cfg(not(feature = "inspector"))]
         let overlay_commands: [wgpu::CommandBuffer; 0] = [];
-        if let Some(timer) = &self.timer {
+        if let Some(timer) = &mut self.timer {
             timer.resolve(&mut encoder);
         }
         self.queue
@@ -816,13 +817,19 @@ impl Renderer {
     /// any. Returns the color the sprite pass should clear to: `None` when
     /// it draws over the 3D models.
     #[cfg_attr(not(feature = "3d"), allow(clippy::unused_self))]
-    fn draw_3d(&self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView, clear: Color) -> Option<Color> {
+    fn draw_3d(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+        clear: Color,
+        timer: Option<&GpuTimer>,
+    ) -> Option<Color> {
         #[cfg(feature = "3d")]
         if let Some(three) = self.three.as_ref().filter(|t| t.has_draws()) {
-            three.draw(encoder, view, clear.to_linear_wgpu(), &self.textures);
+            three.draw(encoder, view, clear.to_linear_wgpu(), &self.textures, timer);
             return None;
         }
-        let _ = (encoder, view);
+        let _ = (encoder, view, timer);
         Some(clear)
     }
 

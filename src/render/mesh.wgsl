@@ -39,7 +39,8 @@ struct VertexIn {
 };
 
 struct VertexOut {
-    @builtin(position) clip: vec4<f32>,
+    // Invariant: the depth prepass and the main pass must land on exactly the same depth.
+    @builtin(position) @invariant clip: vec4<f32>,
     @location(0) world: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
@@ -93,17 +94,19 @@ fn sunlight(world: vec3<f32>, n: vec3<f32>) -> f32 {
     return mix(lit, 1.0, fade);
 }
 
-// Narkowicz's fit of the ACES filmic curve: highlights roll off instead of clipping.
-fn aces(x: vec3<f32>) -> vec3<f32> {
-    return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), vec3<f32>(0.0), vec3<f32>(1.0));
+// The depth prepass: depth only, but cut-outs still cut.
+@fragment
+fn fs_prepass(in: VertexOut) {
+    let alpha = textureSample(base_texture, base_sampler, in.uv).a * material.color.a * in.color.a;
+    if alpha < 0.5 {
+        discard;
+    }
 }
 
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+    // Cut-outs (leaves, fences) were already cut by the depth prepass.
     let base = textureSample(base_texture, base_sampler, in.uv) * material.color * in.color;
-    if base.a < 0.5 {
-        discard; // cut-out (leaves, fences)
-    }
     let albedo = base.rgb;
     let roughness = material.params.x;
     let metallic = material.params.y;
@@ -133,6 +136,6 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let ambient_light = mix(frame.ground.rgb, frame.sky.rgb, n.y * 0.5 + 0.5);
     let ambient = ambient_light * (albedo * (1.0 - metallic) + f0 * mix(0.3, 1.0, metallic) * (1.0 - roughness * 0.7));
 
-    let color = direct + ambient + material.emissive.rgb;
-    return vec4<f32>(aces(color), 1.0);
+    // Linear HDR light; the post pass maps it to the screen.
+    return vec4<f32>(direct + ambient + material.emissive.rgb, 1.0);
 }

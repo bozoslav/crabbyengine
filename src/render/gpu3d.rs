@@ -1,6 +1,16 @@
-//! The 3D pass: instanced meshes with a depth buffer and 4x multisampling,
-//! drawn before sprites, with the sun's shadow map drawn first. Made the
-//! first time a game creates a mesh or material.
+//! The 3D passes: instanced meshes with a depth buffer and 4x multisampling,
+//! drawn before sprites. Made the first time a game creates a mesh or
+//! material.
+//!
+//! The frame, in order:
+//! 1. **shadows**: the sun's shadow map;
+//! 2. **depth prepass**: the nearest depth of every pixel, so the next pass
+//!    lights each pixel once, and later passes can read the depth;
+//! 3. **opaque**: lit models into an HDR (16-bit float) target, keeping only
+//!    the fragments the prepass found nearest;
+//! 4. **post**: maps the HDR light to the screen (tone mapping).
+//!
+//! Sprites and UI are drawn on top afterwards, without tone mapping.
 
 use std::ops::Range;
 
@@ -8,10 +18,13 @@ use glam::{Mat4, Vec3};
 use wgpu::util::DeviceExt;
 
 use super::gpu::GpuTexture;
+use super::timer::GpuTimer;
 use crate::three::{Frame3D, Instance3D, MaterialUniform, MeshData, SHADOW_MAP_SIZE, linear};
 use crate::{Lighting, Material};
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+/// The lit frame before tone mapping: light brighter than white survives.
+const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 /// Samples per pixel: smooth edges.
 const MSAA: u32 = 4;
 
@@ -56,16 +69,24 @@ struct GpuMaterial {
     texture: u32,
 }
 
-/// Window-sized targets: multisampled color and depth.
+/// Window-sized targets.
 struct Targets {
+    /// Multisampled HDR color, resolved into `hdr`.
     color: wgpu::TextureView,
+    hdr: wgpu::TextureView,
+    /// Multisampled depth, written by the prepass.
     depth: wgpu::TextureView,
+    /// The post pass's input: `hdr`.
+    post: wgpu::BindGroup,
     size: (u32, u32),
 }
 
 pub(crate) struct Renderer3D {
     pipeline: wgpu::RenderPipeline,
+    prepass_pipeline: wgpu::RenderPipeline,
     shadow_pipeline: wgpu::RenderPipeline,
+    post_pipeline: wgpu::RenderPipeline,
+    post_layout: wgpu::BindGroupLayout,
     frame_buffer: wgpu::Buffer,
     frame_bind_group: wgpu::BindGroup,
     /// The frame uniform alone, for the shadow pass (which can't also read
@@ -79,7 +100,6 @@ pub(crate) struct Renderer3D {
     /// Capacity of `instances`, in instances.
     capacity: usize,
     targets: Option<Targets>,
-    format: wgpu::TextureFormat,
     /// A 1x1 white texture, for materials without one.
     white: u32,
     /// This frame's runs: (mesh, first instance, count).
@@ -157,15 +177,44 @@ impl Renderer3D {
                 attributes: &instance_attributes,
             }),
         ];
-        let depth = |bias| {
+        let depth = |write, compare, bias| {
             Some(wgpu::DepthStencilState {
                 format: DEPTH_FORMAT,
-                depth_write_enabled: Some(true),
-                depth_compare: Some(wgpu::CompareFunction::Less),
+                depth_write_enabled: Some(write),
+                depth_compare: Some(compare),
                 stencil: Default::default(),
                 bias,
             })
         };
+        let msaa = wgpu::MultisampleState {
+            count: MSAA,
+            ..Default::default()
+        };
+        let culled = wgpu::PrimitiveState {
+            cull_mode: Some(wgpu::Face::Back),
+            ..Default::default()
+        };
+        let prepass_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("3d depth prepass pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &buffers,
+            },
+            primitive: culled,
+            depth_stencil: depth(true, wgpu::CompareFunction::Less, Default::default()),
+            multisample: msaa,
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_prepass"),
+                compilation_options: Default::default(),
+                targets: &[],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("3d pipeline"),
             layout: Some(&layout),
@@ -175,21 +224,16 @@ impl Renderer3D {
                 compilation_options: Default::default(),
                 buffers: &buffers,
             },
-            primitive: wgpu::PrimitiveState {
-                cull_mode: Some(wgpu::Face::Back),
-                ..Default::default()
-            },
-            depth_stencil: depth(Default::default()),
-            multisample: wgpu::MultisampleState {
-                count: MSAA,
-                ..Default::default()
-            },
+            primitive: culled,
+            // Only the fragments the prepass found nearest: each pixel is lit once.
+            depth_stencil: depth(false, wgpu::CompareFunction::Equal, Default::default()),
+            multisample: msaa,
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: Some("fs_main"),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format,
+                    format: HDR_FORMAT,
                     blend: None,
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -214,13 +258,61 @@ impl Renderer3D {
             // Both faces: thin things (leaves, planes) cast too.
             primitive: wgpu::PrimitiveState::default(),
             // Pushes the stored depth back a little, against shadow acne.
-            depth_stencil: depth(wgpu::DepthBiasState {
-                constant: 2,
-                slope_scale: 2.0,
-                clamp: 0.0,
-            }),
+            depth_stencil: depth(
+                true,
+                wgpu::CompareFunction::Less,
+                wgpu::DepthBiasState {
+                    constant: 2,
+                    slope_scale: 2.0,
+                    clamp: 0.0,
+                },
+            ),
             multisample: wgpu::MultisampleState::default(),
             fragment: None,
+            multiview_mask: None,
+            cache: None,
+        });
+        let post_shader = device.create_shader_module(wgpu::include_wgsl!("post.wgsl"));
+        let post_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("3d post layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            }],
+        });
+        let post_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("3d post pipeline layout"),
+            bind_group_layouts: &[Some(&post_layout)],
+            immediate_size: 0,
+        });
+        let post_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("3d post pipeline"),
+            layout: Some(&post_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &post_shader,
+                entry_point: Some("vs_full"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &post_shader,
+                entry_point: Some("fs_tonemap"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
             multiview_mask: None,
             cache: None,
         });
@@ -281,7 +373,10 @@ impl Renderer3D {
         let capacity = 1024;
         Self {
             pipeline,
+            prepass_pipeline,
             shadow_pipeline,
+            post_pipeline,
+            post_layout,
             frame_buffer,
             frame_bind_group,
             shadow_bind_group,
@@ -292,7 +387,6 @@ impl Renderer3D {
             instances: Self::instance_buffer(device, capacity),
             capacity,
             targets: None,
-            format,
             white,
             runs: Vec::new(),
             shadow_runs: Vec::new(),
@@ -404,7 +498,7 @@ impl Renderer3D {
         };
         queue.write_buffer(&self.frame_buffer, 0, bytemuck::bytes_of(&uniform));
         if self.targets.as_ref().is_none_or(|t| t.size != size) {
-            let target = |label, format| {
+            let target = |label, format, samples, usage| {
                 device
                     .create_texture(&wgpu::TextureDescriptor {
                         label: Some(label),
@@ -414,31 +508,43 @@ impl Renderer3D {
                             depth_or_array_layers: 1,
                         },
                         mip_level_count: 1,
-                        sample_count: MSAA,
+                        sample_count: samples,
                         dimension: wgpu::TextureDimension::D2,
                         format,
-                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | usage,
                         view_formats: &[],
                     })
                     .create_view(&Default::default())
             };
+            let none = wgpu::TextureUsages::empty();
+            let hdr = target("3d hdr", HDR_FORMAT, 1, wgpu::TextureUsages::TEXTURE_BINDING);
+            let post = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("3d post"),
+                layout: &self.post_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&hdr),
+                }],
+            });
             self.targets = Some(Targets {
-                color: target("3d color", self.format),
-                depth: target("3d depth", DEPTH_FORMAT),
+                color: target("3d color", HDR_FORMAT, MSAA, none),
+                hdr,
+                depth: target("3d depth", DEPTH_FORMAT, MSAA, none),
+                post,
                 size,
             });
         }
     }
 
-    /// Draw calls the frame's models take: one per mesh part, and one per
-    /// mesh in the shadow map.
+    /// Draw calls the frame's models take: two per mesh part (depth
+    /// prepass and lit), one per mesh in the shadow map, and the post pass.
     pub fn draw_calls(&self) -> usize {
         let parts: usize = self
             .runs
             .iter()
             .map(|&(mesh, _, _)| self.meshes[mesh as usize].parts.len())
             .sum();
-        parts + self.shadow_runs.len()
+        parts * 2 + self.shadow_runs.len() + 1
     }
 
     /// Whether this frame has anything to draw.
@@ -446,16 +552,18 @@ impl Renderer3D {
         !self.runs.is_empty()
     }
 
-    /// Draws the shadow map, then the frame's models into `view` (cleared
-    /// to `clear` first).
+    /// Draws the frame's passes (see the module docs) and leaves the tone
+    /// mapped result in `view`. `clear` is the background, in linear color.
     pub fn draw(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         view: &wgpu::TextureView,
         clear: wgpu::Color,
         textures: &[GpuTexture],
+        timer: Option<&GpuTimer>,
     ) {
         let Some(targets) = &self.targets else { return };
+        let time = || timer.and_then(GpuTimer::pass);
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("3d shadows"),
@@ -468,7 +576,7 @@ impl Renderer3D {
                     }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: None,
+                timestamp_writes: time(),
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
@@ -484,30 +592,76 @@ impl Renderer3D {
                 }
             }
         }
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("3d depth prepass"),
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &targets.depth,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: time(),
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.prepass_pipeline);
+            self.draw_models(&mut pass, textures);
+        }
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("3d opaque"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &targets.color,
+                    depth_slice: None,
+                    resolve_target: Some(&targets.hdr),
+                    ops: wgpu::Operations {
+                        // Alpha 0 marks the background for the post pass.
+                        load: wgpu::LoadOp::Clear(wgpu::Color { a: 0.0, ..clear }),
+                        store: wgpu::StoreOp::Discard,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &targets.depth,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Discard,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: time(),
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.pipeline);
+            self.draw_models(&mut pass, textures);
+        }
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("3d"),
+            label: Some("3d post"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &targets.color,
+                view,
                 depth_slice: None,
-                resolve_target: Some(view),
+                resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(clear),
-                    store: wgpu::StoreOp::Discard,
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
                 },
             })],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &targets.depth,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(1.0),
-                    store: wgpu::StoreOp::Discard,
-                }),
-                stencil_ops: None,
-            }),
-            timestamp_writes: None,
+            depth_stencil_attachment: None,
+            timestamp_writes: time(),
             occlusion_query_set: None,
             multiview_mask: None,
         });
-        pass.set_pipeline(&self.pipeline);
+        pass.set_pipeline(&self.post_pipeline);
+        pass.set_bind_group(0, &targets.post, &[]);
+        pass.draw(0..3, 0..1);
+    }
+
+    /// Every mesh part of the frame, with its material, all its models at once.
+    fn draw_models(&self, pass: &mut wgpu::RenderPass<'_>, textures: &[GpuTexture]) {
         pass.set_bind_group(0, &self.frame_bind_group, &[]);
         pass.set_vertex_buffer(1, self.instances.slice(..));
         for &(mesh, start, count) in &self.runs {
