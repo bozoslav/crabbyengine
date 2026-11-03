@@ -124,6 +124,13 @@ where
         Vec2::new(size.width, size.height)
     }
 
+    /// Vsync off on a desktop: frames run back to back from `about_to_wait`,
+    /// because some systems (macOS) deliver redraw requests only at the
+    /// display's refresh rate, which would cap the game there anyway.
+    fn unpaced(&self) -> bool {
+        !self.config.vsync && cfg!(not(target_arch = "wasm32"))
+    }
+
     fn run_frame(&mut self, event_loop: &ActiveEventLoop) {
         if !self.started {
             return;
@@ -164,6 +171,7 @@ where
             FrameStatus::Occluded => self.occluded = true,
         }
         if !self.occluded
+            && !self.unpaced()
             && let Some(window) = &self.window
         {
             window.request_redraw();
@@ -352,6 +360,9 @@ where
                 window.request_redraw();
             }
             event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + OCCLUDED_POLL));
+        } else if self.unpaced() && self.started {
+            event_loop.set_control_flow(ControlFlow::Poll);
+            self.run_frame(event_loop);
         } else {
             event_loop.set_control_flow(ControlFlow::Wait);
         }
