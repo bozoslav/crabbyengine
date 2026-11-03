@@ -4,9 +4,12 @@
 
 A fast 2D engine in Rust for games with huge numbers of simulated things:
 millions of entities on all CPU cores, a pausable fixed-rate simulation clock,
-events between systems, spatial queries, flow-field pathfinding for crowds, and headless runs for tests and servers. A 2D camera, text
-and simple UI come built in, and AI agents can drive running games through
-an MCP server (inspect, step, screenshot). Games can be written in Rust or
+events between systems, spatial queries, flow-field pathfinding for crowds,
+and headless runs for tests and servers (a build without the window is half
+the size). Images, sounds, fonts and JSON data files hot reload while the
+game runs. A 2D camera, text and simple UI come built in, and AI agents can
+drive running games through an MCP server (inspect, step, watch events,
+screenshot). Games can be written in Rust or
 C++ (a header-only C++17 wrapper over a C API) at close to the same speed.
 
 **Documentation:** [the guide](https://bozoslav.github.io/crabbyengine/)
