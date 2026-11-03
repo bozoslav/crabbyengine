@@ -18,6 +18,7 @@
 //! ```
 
 mod ctx;
+mod flow;
 mod game;
 mod grid;
 mod keys;
@@ -26,6 +27,7 @@ mod reflect;
 mod tiles;
 mod types;
 pub use ctx::*;
+pub use flow::*;
 pub use game::*;
 pub use grid::*;
 pub use keys::*;

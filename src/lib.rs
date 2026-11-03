@@ -32,6 +32,7 @@ mod ecs;
 mod game;
 mod input;
 mod random;
+mod flow;
 mod reflect;
 mod render;
 mod sheet;
@@ -50,6 +51,9 @@ pub use ecs::{Sprite, Transform2D, draw_sprites};
 pub use game::{Game, SetupResult};
 pub use input::{Key, MouseButton};
 pub use random::{DEFAULT_SEED, Random, Rng};
+pub use flow::{FlowField, NavGrid};
+#[doc(hidden)]
+pub use flow::RawFlowView;
 pub use reflect::{Field, FieldType, ReflectError, WorldReflect};
 pub use render::RenderStats;
 pub use sheet::{Animation, SpriteSheet, animate_sprites};

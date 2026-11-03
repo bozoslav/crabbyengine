@@ -44,6 +44,20 @@ pheromone sensing, trail laying, foraging, colony growth.
 | 50k | 1.2 |
 | 1M | 15 |
 
+## Flow fields (pathfinding)
+
+`cargo run --release -p crabby_bench -- flow` for the field itself;
+`HEADLESS=1 AGENTS=<n> cargo run --release --example flow` for units
+following it around walls and mud, with a new goal every 2 seconds.
+
+| What | Time |
+|---|---|
+| `compute`, 256 × 256 cells | 1.25 ms |
+| `compute`, 1024 × 1024 cells | 13.0 ms |
+| 1M `direction_at` lookups, parallel | 0.29 ms |
+| 20k units, per tick | 0.14 ms |
+| 1M units, per tick | 3.2 ms |
+
 ## Rendering a million sprites
 
 `CRABS=1000000 SCALE=<s> cargo run --release --example bunnymark_ecs`:

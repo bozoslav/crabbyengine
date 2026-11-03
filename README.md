@@ -4,7 +4,7 @@
 
 A fast 2D engine in Rust for games with huge numbers of simulated things:
 millions of entities on all CPU cores, a pausable fixed-rate simulation clock,
-spatial queries, and headless runs for tests and servers. A 2D camera, text
+spatial queries, flow-field pathfinding for crowds, and headless runs for tests and servers. A 2D camera, text
 and simple UI come built in, and AI agents can drive running games through
 an MCP server (inspect, step, screenshot). Games can be written in Rust or
 C++ (a header-only C++17 wrapper over a C API) at close to the same speed.
@@ -16,6 +16,7 @@ C++ (a header-only C++17 wrapper over a C API) at close to the same speed.
 cargo run --release --example boids
 HEADLESS=1 BOIDS=1000000 cargo run --release --example boids
 cargo run --release --example ants
+cargo run --release --example flow
 cargo run --release --example ui
 
 # C++ (needs CMake): see the guide's "C and C++" chapter

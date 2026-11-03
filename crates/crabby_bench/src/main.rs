@@ -693,4 +693,69 @@ fn main() {
             }
         },
     );
+
+    flow_benches(&mut b);
+}
+
+/// A `side` × `side` map with about 20% of cells walls (blobs, like terrain).
+fn flow_map(side: u32) -> crabbyengine::NavGrid {
+    let mut nav = crabbyengine::NavGrid::new(side, side, 1.0);
+    let mut s = 0x2545F4914F6CDD1Du64;
+    for _ in 0..(side * side / 60) {
+        s ^= s << 13;
+        s ^= s >> 7;
+        s ^= s << 17;
+        let (cx, cy) = ((s % side as u64) as i64, ((s >> 32) % side as u64) as i64);
+        for dy in -3..=3i64 {
+            for dx in -3..=3i64 {
+                if dx * dx + dy * dy <= 9 && cx + dx >= 0 && cy + dy >= 0 {
+                    nav.set_cost((cx + dx) as u32, (cy + dy) as u32, crabbyengine::NavGrid::WALL);
+                }
+            }
+        }
+    }
+    nav
+}
+
+fn flow_benches(b: &mut Bench) {
+    use crabbyengine::{FlowField, Vec2};
+    use rayon::prelude::*;
+    for side in [256u32, 1024] {
+        b.steady(
+            &format!("flow/compute-{side}"),
+            20,
+            || (flow_map(side), FlowField::new()),
+            |(nav, flow)| {
+                let mut goal = Vec2::splat(side as f32 / 2.0);
+                while !nav.walkable(goal) {
+                    goal.x += 1.0;
+                }
+                flow.compute(nav, &[goal]);
+            },
+        );
+    }
+    b.steady(
+        "flow/lookup-1M-par",
+        20,
+        || {
+            let nav = flow_map(1024);
+            let mut flow = FlowField::new();
+            let mut goal = Vec2::splat(512.0);
+            while !nav.walkable(goal) {
+                goal.x += 1.0;
+            }
+            flow.compute(&nav, &[goal]);
+            let mut s = 1u64;
+            let agents: Vec<Vec2> = (0..1_000_000)
+                .map(|_| {
+                    s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                    Vec2::new((s >> 40) as f32 / 16384.0, ((s >> 16) & 0xffffff) as f32 / 16384.0)
+                })
+                .collect();
+            (flow, agents)
+        },
+        |(flow, agents)| {
+            agents.par_iter_mut().for_each(|p| *p += flow.direction_at(*p) * 0.1);
+        },
+    );
 }

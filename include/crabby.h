@@ -39,6 +39,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#define CRABBY_NAV_WALL 0
+
 #define CRABBY_TILE_EMPTY 65535
 
 typedef enum CrabbyStatus {
@@ -185,9 +187,13 @@ typedef uint32_t CrabbyFieldType;
 
 typedef struct CrabbyCtx CrabbyCtx;
 
+typedef struct CrabbyFlowField CrabbyFlowField;
+
 typedef struct CrabbyGame CrabbyGame;
 
 typedef struct CrabbyGrid CrabbyGrid;
+
+typedef struct CrabbyNavGrid CrabbyNavGrid;
 
 typedef struct CrabbyWorld CrabbyWorld;
 
@@ -267,6 +273,16 @@ typedef struct CrabbyGridView {
   uint32_t x_bits;
   uint32_t y_bits;
 } CrabbyGridView;
+
+typedef struct CrabbyFlowView {
+  const uint8_t *cells;
+  const struct CrabbyVec2 *directions;
+  uint32_t width;
+  uint32_t height;
+  size_t stride;
+  struct CrabbyVec2 origin;
+  float cell_size;
+} CrabbyFlowView;
 
 typedef void (*CrabbySystemFn)(struct CrabbyCtx *ctx, void *user);
 
@@ -555,6 +571,32 @@ enum CrabbyStatus crabby_ctx_spatial_nearest(const struct CrabbyCtx *ctx,
 
 enum CrabbyStatus crabby_ctx_spatial_view(const struct CrabbyCtx *ctx,
                                           struct CrabbyGridView *out_view);
+
+struct CrabbyNavGrid *crabby_nav_new(uint32_t width, uint32_t height, float cell_size);
+
+void crabby_nav_free(struct CrabbyNavGrid *nav);
+
+enum CrabbyStatus crabby_nav_set_origin(struct CrabbyNavGrid *nav, struct CrabbyVec2 origin);
+
+enum CrabbyStatus crabby_nav_costs(struct CrabbyNavGrid *nav, uint8_t **out_costs, size_t *out_len);
+
+struct CrabbyFlowField *crabby_flow_new(void);
+
+void crabby_flow_free(struct CrabbyFlowField *flow);
+
+enum CrabbyStatus crabby_flow_compute(struct CrabbyFlowField *flow,
+                                      const struct CrabbyNavGrid *nav,
+                                      const struct CrabbyVec2 *goals,
+                                      size_t count);
+
+struct CrabbyVec2 crabby_flow_direction(const struct CrabbyFlowField *flow, struct CrabbyVec2 pos);
+
+enum CrabbyStatus crabby_flow_distance(const struct CrabbyFlowField *flow,
+                                       struct CrabbyVec2 pos,
+                                       float *out_distance);
+
+enum CrabbyStatus crabby_flow_view(const struct CrabbyFlowField *flow,
+                                   struct CrabbyFlowView *out_view);
 
 struct CrabbyGame *crabby_game_new(const char *title, uint32_t width, uint32_t height);
 
