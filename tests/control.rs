@@ -351,3 +351,87 @@ fn subscribers_get_reflected_events_with_their_ticks() {
     c.call("game.quit", json!({})).unwrap();
     game.join().unwrap();
 }
+
+/// Lines this test printed. Other tests share the process, and the test
+/// harness's progress dots (no newline) can end up in front of ours.
+fn ours(logs: &Value) -> Vec<String> {
+    let lines = logs["lines"].as_array().unwrap().iter().filter_map(|l| l.as_str());
+    lines
+        .filter_map(|l| l.find("logs-test").map(|i| l[i..].to_string()))
+        .collect()
+}
+
+#[cfg(unix)]
+#[test]
+fn the_game_output_is_kept_for_tools() {
+    let (addr_tx, addr_rx) = mpsc::channel();
+    let game = thread::spawn(move || {
+        Game::new("logs-test", 1, 1)
+            .control_endpoint(true)
+            .sim_system(|ctx: &mut Ctx| {
+                // Straight to the file descriptors, past the test harness's capture.
+                writeln!(std::io::stdout(), "logs-test tick {}", ctx.sim_tick()).unwrap();
+            })
+            .run_headless(u64::MAX, move |ctx| {
+                ctx.pause();
+                writeln!(std::io::stderr(), "logs-test setup on stderr").unwrap();
+                addr_tx.send(ctx.control_addr().unwrap()).unwrap();
+            })
+    });
+    let addr = addr_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    let info: Value = serde_json::from_str(&std::fs::read_to_string(registry_file(addr)).unwrap()).unwrap();
+    let mut c = Client::connect(addr, info["token"].as_str().unwrap().to_string());
+
+    let first = c.call("logs.get", json!({ "lines": 5000 })).unwrap();
+    assert_eq!(ours(&first), ["logs-test setup on stderr"], "{first}");
+
+    // Only what's new since the last read.
+    c.call("sim.step", json!({ "ticks": 3 })).unwrap();
+    let mut since = first["next"].as_u64().unwrap();
+    let mut seen = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while seen.len() < 3 {
+        assert!(Instant::now() < deadline, "saw only {seen:?}");
+        let new = c.call("logs.get", json!({ "since": since })).unwrap();
+        since = new["next"].as_u64().unwrap();
+        seen.extend(ours(&new));
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(seen, ["logs-test tick 0", "logs-test tick 1", "logs-test tick 2"]);
+    assert!(c.call("methods", json!({})).unwrap().to_string().contains("logs.get"));
+    c.call("game.quit", json!({})).unwrap();
+    game.join().unwrap();
+}
+
+/// With `CHILD_EXITS=1` this test is the child: a game with the endpoint on
+/// prints more than a pipe holds and calls `std::process::exit` mid-tick,
+/// skipping every destructor; the engine's exit hook passes the rest on.
+#[cfg(unix)]
+#[test]
+fn output_printed_right_before_exit_still_reaches_the_terminal() {
+    if std::env::var_os("CHILD_EXITS").is_some() {
+        Game::new("exit-test", 1, 1)
+            .control_endpoint(true)
+            .sim_system(|_: &mut Ctx| {
+                for i in 0..20_000 {
+                    writeln!(std::io::stdout(), "exit-test line {i}").unwrap();
+                }
+                std::process::exit(0);
+            })
+            .run_headless(1, |_| {});
+        return;
+    }
+    let me = std::env::current_exe().unwrap();
+    let out = std::process::Command::new(me)
+        .args([
+            "--exact",
+            "output_printed_right_before_exit_still_reaches_the_terminal",
+            "--nocapture",
+        ])
+        .env("CHILD_EXITS", "1")
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{text}");
+    assert!(text.contains("exit-test line 19999"), "lost the last lines: {text}");
+}

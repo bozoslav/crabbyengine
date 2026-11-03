@@ -92,6 +92,7 @@ headless game waits for requests and runs only the ticks you step.
 | `events.subscribe` | `types?` (all), `capacity?` (1000) | starts collecting new events between frames; the newest `capacity` are kept |
 | `events.take` | | `{events: [{tick, type, data}], dropped}` since the last take |
 | `events.unsubscribe` | | `true` if there was a subscription |
+| `logs.get` | `lines?` (100), `since?` | `{lines, next, missed}`: the game's recent stdout and stderr (see below) |
 | `camera.get` | | position, zoom, center, visible rect |
 | `camera.set` | `position`?, `zoom`?, `look_at`? | move the camera; returns `camera.get` |
 | `screenshot` | `path`?, `max_size`? | save the next frame as a PNG (windowed games only); returns `path`, `width`, `height` |
@@ -101,6 +102,20 @@ Component values use [reflection](reflection.md): call
 `world.reflect::<T>()` for a component, `world.reflect_resource::<R>()` for
 a resource, to make it readable and writable.
 Entity ids are the numbers from `Entity::to_bits`.
+
+## Logs
+
+While the endpoint is open, the engine keeps the game's last 5,000 lines of
+stdout and stderr: `println!`, C and C++ `printf` and `std::cout`, panic
+messages and the engine's own notes. The terminal still shows everything.
+So a tool can read the output of a game you started yourself, from a
+terminal or an IDE. `logs.get` is answered right away, not between frames,
+so it works while a frame is stuck too.
+
+Without `since` you get the newest `lines`. Pass the `next` of one answer as
+`since` in the next request to get only what's new; `missed` counts lines
+that were dropped before you read them. Unix (macOS, Linux) only for now; on
+Windows `logs.get` says the output isn't captured.
 
 ## Trying it by hand
 

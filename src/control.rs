@@ -96,6 +96,8 @@ pub(crate) struct Control {
     addr: SocketAddr,
     registry_file: Option<PathBuf>,
     shutdown: Arc<AtomicBool>,
+    /// Keeps stdout and stderr for `logs.get` while the endpoint is open.
+    _logs: Option<crate::logs::Capture>,
 }
 
 impl Control {
@@ -138,12 +140,14 @@ impl Control {
         thread::Builder::new()
             .name("crabby-control".into())
             .spawn(move || accept_loop(listener, token, tx, stop))?;
+        let logs = crate::logs::Capture::start();
         eprintln!("crabbyengine: control endpoint on {addr}");
         Ok(Self {
             requests,
             addr,
             registry_file,
             shutdown,
+            _logs: logs,
         })
     }
 
@@ -246,6 +250,11 @@ fn handle_line(line: &str, token: &str, tx: &Sender<Request>) -> Value {
     let Some(method) = msg.get("method").and_then(Value::as_str) else {
         return reply(Err("missing `method`".into()));
     };
+    if method == "logs.get" {
+        // Answered right here, not by the game loop: logs matter most when
+        // the game is stuck in a long frame.
+        return reply(logs_get(msg.get("params").unwrap_or(&Value::Null)));
+    }
     let (reply_tx, reply_rx) = mpsc::channel();
     let req = Request {
         method: method.to_string(),
@@ -259,6 +268,12 @@ fn handle_line(line: &str, token: &str, tx: &Sender<Request>) -> Value {
         Ok(r) => r,
         Err(_) => Err("the game did not answer in time".into()),
     })
+}
+
+fn logs_get(params: &Value) -> Result<Value, String> {
+    let since = params.get("since").and_then(Value::as_u64);
+    let max = params.get("lines").and_then(Value::as_u64).unwrap_or(100) as usize;
+    crate::logs::get(since, max)
 }
 
 fn answer(ctx: &mut Ctx, req: Request) {
@@ -307,6 +322,10 @@ fn screenshot_path(ctx: &Ctx, params: &Value) -> Result<PathBuf, String> {
 /// Returned by `methods`, so tools can discover them.
 pub(crate) const METHODS: &[(&str, &str)] = &[
     ("methods", "list the methods this endpoint understands"),
+    (
+        "logs.get",
+        "the game's recent stdout and stderr lines (answered even mid-frame); params: lines? (100), since? (the `next` of a previous read: only newer lines)",
+    ),
     (
         "info",
         "name, pid, tick, sim time, paused, speed, fps, entity count, render stats (sprites, draw calls, CPU and GPU ms)",
@@ -436,6 +455,7 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
                 json!({ "sprites": r.sprites, "draw_calls": r.draw_calls, "cpu_ms": r.cpu_ms, "gpu_ms": r.gpu_ms })
             },
         }),
+        "logs.get" => logs_get(params)?,
         "world.summary" => {
             let world = &ctx.world;
             let archetypes: Vec<Value> = world
@@ -673,7 +693,8 @@ mod tests {
             }
             let r = handle(&mut ctx, name, &json!({}));
             if let Err(e) = r {
-                assert!(e.starts_with("missing param"), "{name}: {e}");
+                let uncaptured = *name == "logs.get" && e.contains("captured");
+                assert!(e.starts_with("missing param") || uncaptured, "{name}: {e}");
             }
         }
         assert!(

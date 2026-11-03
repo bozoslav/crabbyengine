@@ -294,12 +294,19 @@ fn agents_drive_several_games_through_mcp() {
             .unwrap_err()
             .contains("no running instance")
     );
-    assert!(
-        agent
-            .tool("read_logs", json!({ "instance": "alpha" }))
-            .unwrap_err()
-            .contains("launch")
-    );
+    // Not started with `launch`, and its output is still there.
+    let logs = agent
+        .tool("read_logs", json!({ "instance": "alpha", "lines": 5000 }))
+        .unwrap();
+    if cfg!(unix) {
+        // (The test harness keeps `eprintln!` itself, so the text may be empty.)
+        assert!(logs["text"].is_string(), "{logs}");
+        let next = logs["next"].as_u64().unwrap();
+        let none = agent
+            .tool("read_logs", json!({ "instance": "alpha", "since": next }))
+            .unwrap();
+        assert!(none["next"].as_u64().unwrap() >= next);
+    }
 
     // Checkpoint, experiment, roll back.
     let checkpoint = dir.join("checkpoint.json");

@@ -296,9 +296,14 @@ fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "read_logs",
-            description: "The last lines of a game's stdout/stderr. Works for games started with `launch`.",
+            description: "The game's recent stdout/stderr (println, printf, panics, engine messages), for any running game, also while a frame is stuck. Pass the returned `next` as `since` to get only newer lines.",
             writes: false,
-            params: || json!({ "lines": { "type": "integer", "minimum": 1, "description": "How many lines from the end (default 100)" } }),
+            params: || {
+                json!({
+                    "lines": { "type": "integer", "minimum": 1, "description": "How many lines at most (default 100): the newest, or the first ones after `since`" },
+                    "since": { "type": "integer", "minimum": 0, "description": "`next` from a previous read_logs: only lines printed after it" },
+                })
+            },
             required: &[],
         },
         Tool {
@@ -858,9 +863,26 @@ impl Server {
     fn read_logs(&self, args: &Value) -> Result<Value, String> {
         let lines = args["lines"].as_u64().unwrap_or(100) as usize;
         let i = self.instance(args)?;
-        let id = i.info["launch_id"].as_str().ok_or(
-            "this game wasn't started with `launch`, so its output isn't captured; check the terminal it runs in",
-        )?;
+        // The game keeps its own recent output: works for any game, also
+        // mid-frame. Older engines don't have `logs.get`; then the log file
+        // of a game started with `launch`.
+        let mut params = json!({ "lines": lines });
+        if let Some(since) = args.get("since").and_then(Value::as_u64) {
+            params["since"] = json!(since);
+        }
+        let kept = i.call("logs.get", params);
+        if let Ok(logs) = &kept {
+            let text: Vec<&str> = logs["lines"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .collect();
+            return Ok(json!({ "text": text.join("\n"), "next": logs["next"], "missed": logs["missed"] }));
+        }
+        let Some(id) = i.info["launch_id"].as_str() else {
+            return Err(kept.unwrap_err());
+        };
         let path = self
             .launched
             .get(id)

@@ -46,6 +46,7 @@ mod flow;
 mod game;
 mod hot_reload;
 mod input;
+mod logs;
 mod random;
 mod reflect;
 mod render;

@@ -44,7 +44,7 @@ ctx.world.reflect::<Health>();
 | `system_timings` | | which systems are slow |
 | `list_events` | | event types the game shows tools, and how many are in flight |
 | `subscribe_events` / `take_events` | | collect [events](events.md) while ticks run, then see what happened (each with its tick) |
-| `read_logs` | | stdout/stderr of launched games |
+| `read_logs` | | recent stdout/stderr of any running game, also one you started yourself ([logs](control.md#logs)); pass `next` back as `since` for only new lines |
 | `screenshot` | | the next frame of a windowed game, as an image the agent can look at |
 | `set_camera` | | move or zoom the camera (`look_at`, `zoom`, `position`), e.g. before a screenshot |
 | `run_ticks` | ✓ | run exactly N ticks of a paused sim and wait |
