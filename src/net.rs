@@ -549,7 +549,7 @@ impl Net {
 impl Drop for Net {
     /// A peer that stops (its last tick ran, or it quit) may hold inputs
     /// the others still miss, because a packet got lost: it keeps resending
-    /// until every peer has them, has left too, or [`LINGER`] passed.
+    /// until every peer has them, has left too, or a second passed.
     fn drop(&mut self) {
         let Some(s) = self.session.as_deref_mut() else { return };
         if !s.started || self.state == NetState::Lost {
