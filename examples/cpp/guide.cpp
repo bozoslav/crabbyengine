@@ -74,6 +74,17 @@ static void die(crabby::ctx& ctx) {
 }
 // ANCHOR_END: ecs_commands
 
+// ANCHOR: resources
+struct Score { std::uint32_t points; };
+
+[[maybe_unused]] static void score_point(crabby::ctx& ctx) {
+    auto world = ctx.world();
+    Score score = world.try_resource<Score>().value_or(Score{0});
+    score.points += 1;
+    world.set_resource(score);
+}
+// ANCHOR_END: resources
+
 // ---- Systems -----------------------------------------------------------------
 [[maybe_unused]] static void steer(crabby::ctx&) {}
 [[maybe_unused]] static void movement(crabby::ctx&) {}
@@ -395,6 +406,15 @@ static void reflect_units(crabby::world_view world) {
 }
 // ANCHOR_END: reflect
 
+// ANCHOR: reflect_resource
+struct Teams { std::uint32_t red, blue; };
+
+static void reflect_teams(crabby::world_view world) {
+    world.reflect_resource<Teams>({crabby::field("red", &Teams::red), crabby::field("blue", &Teams::blue)});
+    world.set_resource(Teams{0, 0});   // agents: get_resource "Teams" -> {"blue": 0, "red": 0}
+}
+// ANCHOR_END: reflect_resource
+
 // ---- Inspector ----------------------------------------------------------------------
 [[maybe_unused]] static void playtest_build() {
     // ANCHOR: inspector
@@ -615,6 +635,17 @@ int main() {
             return 1;
         }
     }
+    // Resources: plain structs by type, saved when reflected.
+    {
+        auto w = crabby::game("resources", 1, 1).run_headless(0, [](crabby::ctx&) {});
+        reflect_teams(w);
+        w.set_resource(Teams{2, 3});
+        if (w.save().find("\"Teams\":{\"blue\":3,\"red\":2}") == std::string::npos) {
+            std::fprintf(stderr, "resource not saved: %s\n", w.save().c_str());
+            return 1;
+        }
+    }
+    (void)&score_point;
     (void)&my_game;
     (void)&controls;
     std::puts("guide snippets ok");

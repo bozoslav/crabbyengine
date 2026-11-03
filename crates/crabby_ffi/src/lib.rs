@@ -25,6 +25,7 @@ mod grid;
 mod keys;
 mod media;
 mod reflect;
+mod resources;
 mod tiles;
 mod types;
 pub use attach::*;
@@ -35,6 +36,7 @@ pub use grid::*;
 pub use keys::*;
 pub use media::*;
 pub use reflect::*;
+pub use resources::*;
 pub use tiles::*;
 pub use types::*;
 

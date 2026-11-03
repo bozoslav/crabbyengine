@@ -664,6 +664,39 @@ pub trait WorldReflect {
     /// assert_eq!(world.resource::<Score>().red, 3);
     /// ```
     fn set_resource_json(&mut self, name: &str, value: Value) -> Result<(), ReflectError>;
+
+    /// Makes resource `name`, one with no Rust type (stored with
+    /// [`World::insert_resource_dynamic`], the C and C++ path), visible to
+    /// reflection by listing its fields, like
+    /// [`reflect_fields`](Self::reflect_fields) does for components.
+    /// Describing it again replaces the fields.
+    ///
+    /// ```
+    /// use crabbyengine::*;
+    /// use std::alloc::Layout;
+    ///
+    /// let mut world = World::new();
+    /// // A C struct { uint32_t red, blue; }.
+    /// let layout = Layout::from_size_align(8, 4).unwrap();
+    /// // SAFETY: any values of these fields make a valid Score.
+    /// unsafe {
+    ///     world.reflect_resource_fields("Score", layout, &[
+    ///         Field::new("red", FieldType::U32, 0),
+    ///         Field::new("blue", FieldType::U32, 4),
+    ///     ]);
+    /// }
+    /// world.set_resource_json("Score", serde_json::json!({ "red": 3, "blue": 1 })).unwrap();
+    /// assert_eq!(world.resource_json("Score").unwrap()["red"], 3);
+    /// ```
+    ///
+    /// # Safety
+    /// Any bytes where each field holds a value of its type and every other
+    /// byte is zero or unchanged must be a valid value of the resource.
+    ///
+    /// # Panics
+    /// If a field doesn't fit, two fields share a name, or a Rust resource
+    /// is reflected under the same name.
+    unsafe fn reflect_resource_fields(&mut self, name: &str, layout: std::alloc::Layout, fields: &[Field]);
 }
 
 fn find_resource(world: &World, name: &str) -> Result<ReflectedResource, ReflectError> {
@@ -914,6 +947,44 @@ impl WorldReflect for World {
             _ => value,
         };
         (r.set)(self, value).map_err(bad_value(name))
+    }
+
+    #[track_caller]
+    unsafe fn reflect_resource_fields(&mut self, name: &str, layout: std::alloc::Layout, fields: &[Field]) {
+        let fields = Arc::new(FieldLayout::new(name, layout.size(), fields));
+        if self.get_resource::<Registry>().is_none() {
+            self.insert_resource(Registry::default());
+        }
+        let (read, write, check) = (fields.clone(), fields.clone(), fields);
+        let (get_name, set_name) = (name.to_string(), name.to_string());
+        let entry = ReflectedResource {
+            name: name.to_string(),
+            type_name: name.to_string(),
+            get: Arc::new(move |w: &World| {
+                // SAFETY: the pointer is to the live resource, `layout.size()` bytes.
+                w.get_resource_dynamic(&get_name).map(|p| Ok(unsafe { read.read(p) }))
+            }),
+            set: Arc::new(move |w: &mut World, v| {
+                let bytes = write.bytes(w.get_resource_dynamic(&set_name), &v)?;
+                // SAFETY: `bytes` holds `layout.size()` bytes, a valid value as
+                // `reflect_resource_fields`' caller promised.
+                unsafe { w.insert_resource_dynamic(&set_name, layout, bytes.as_ptr()) };
+                Ok(())
+            }),
+            check: Arc::new(move |v: &Value| check.bytes(None, v).map(drop)),
+        };
+        let reg = self.resource_mut::<Registry>();
+        match reg.resource_by_name.get(name) {
+            Some(&i) if reg.resources[i].type_name == name => reg.resources[i] = entry,
+            Some(&i) => panic!(
+                "World::reflect_resource_fields: `{name}` is already reflected as `{}`",
+                reg.resources[i].type_name
+            ),
+            None => {
+                reg.resource_by_name.insert(name.to_string(), reg.resources.len());
+                reg.resources.push(entry);
+            }
+        }
     }
 
     fn save(&self) -> Value {

@@ -500,6 +500,38 @@ public:
     }
     template<class T> void remove(entity e) { detail::check(crabby_remove(raw_, e, id<T>())); }
 
+    // ---- resources: one value of a type per world, not on any entity ----
+    /// Adds or replaces the world's `T`: `world.set_resource(Score{0, 0})`.
+    template<class T> void set_resource(const T& value) {
+        static_assert(detail::pod<T>, "resources are plain structs (trivially copyable, no destructor)");
+        valid();
+        detail::check(crabby_resource_set(raw_, detail::type_name<T>().c_str(), &value, sizeof(T), alignof(T)));
+    }
+    /// A copy of the world's `T`; throws if it has none (see try_resource).
+    template<class T> T resource() const {
+        auto value = try_resource<T>();
+        if (!value) throw std::runtime_error("the world has no " + detail::type_name<T>() + " resource");
+        return *value;
+    }
+    /// A copy of the world's `T`, or nothing.
+    template<class T> std::optional<T> try_resource() const {
+        static_assert(detail::pod<T>, "resources are plain structs (trivially copyable, no destructor)");
+        valid();
+        T result{};
+        const auto status = crabby_resource_get(raw_, detail::type_name<T>().c_str(), &result, sizeof(T));
+        if (status == CRABBY_NOT_FOUND) return std::nullopt;
+        detail::check(status);
+        return result;
+    }
+    /// Removes the world's `T`; returns whether it had one.
+    template<class T> bool remove_resource() {
+        valid();
+        const auto status = crabby_resource_remove(raw_, detail::type_name<T>().c_str());
+        if (status == CRABBY_NOT_FOUND) return false;
+        detail::check(status);
+        return true;
+    }
+
     // ---- queries ----
     /// Calls `fn` for every entity that has all the components `fn` takes:
     ///
@@ -550,6 +582,16 @@ public:
         raw.reserve(fields.size());
         for (const auto& f : fields) raw.push_back(f.raw);
         detail::check(crabby_component_reflect(raw_, id, raw.data(), raw.size()));
+    }
+    /// Describes resource `T`'s fields, so tools and agents can read and
+    /// set it and `save()` includes it (under its C++ type name).
+    template<class T> void reflect_resource(std::initializer_list<field_info<T>> fields) {
+        static_assert(detail::pod<T>, "resources are plain structs (trivially copyable, no destructor)");
+        valid();
+        std::vector<CrabbyField> raw;
+        raw.reserve(fields.size());
+        for (const auto& f : fields) raw.push_back(f.raw);
+        detail::check(crabby_resource_reflect(raw_, detail::type_name<T>().c_str(), sizeof(T), alignof(T), raw.data(), raw.size()));
     }
     /// Every entity with reflected components as JSON, with its id.
     std::string save() const {

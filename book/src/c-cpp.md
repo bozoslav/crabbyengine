@@ -174,7 +174,7 @@ normally; never let a C++ exception or `longjmp` cross them.
 
 ## Still Rust-only
 
-Resources: keep game-wide data in your own objects, captured by your
-systems (`[&]`), as the examples do. To let tools and agents see that
-state, keep it in a reflected component on one entity. Everything else in this guide works
-from C++, and each chapter shows both.
+Resources hold only plain structs, and loading a data file straight into
+one (`ctx.load_json`) isn't there yet: load it into a component on an
+entity. Everything else in this guide works from C++, and each chapter
+shows both.

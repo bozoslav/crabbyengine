@@ -837,6 +837,26 @@ enum CrabbyStatus crabby_world_save(struct CrabbyWorld *world,
 
 enum CrabbyStatus crabby_world_load(struct CrabbyWorld *world, const char *json);
 
+enum CrabbyStatus crabby_resource_set(struct CrabbyWorld *world,
+                                      const char *name,
+                                      const void *data,
+                                      size_t size,
+                                      size_t alignment);
+
+enum CrabbyStatus crabby_resource_get(struct CrabbyWorld *world,
+                                      const char *name,
+                                      void *out,
+                                      size_t size);
+
+enum CrabbyStatus crabby_resource_remove(struct CrabbyWorld *world, const char *name);
+
+enum CrabbyStatus crabby_resource_reflect(struct CrabbyWorld *world,
+                                          const char *name,
+                                          size_t size,
+                                          size_t alignment,
+                                          const struct CrabbyField *fields,
+                                          size_t len);
+
 enum CrabbyStatus crabby_sprite_sheet(struct CrabbyTexture texture,
                                       uint32_t frame_width,
                                       uint32_t frame_height,

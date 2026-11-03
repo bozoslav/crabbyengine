@@ -78,6 +78,27 @@ static void names_and_reflection() {
     throws([&] { n.reflect<Pos>("Position", {crabby::field("x", &Pos::x)}); });
 }
 
+namespace game { struct Score { std::uint32_t red, blue; }; }
+static void resources() {
+    crabby::world w;
+    CHECK(!w.try_resource<game::Score>());
+    throws([&] { w.resource<game::Score>(); });
+    w.set_resource(game::Score{1, 2});
+    CHECK(w.resource<game::Score>().red == 1 && w.resource<game::Score>().blue == 2);
+    w.set_resource(game::Score{3, 2});
+    CHECK(w.resource<game::Score>().red == 3);
+    // Described, it's saved with the entities and loaded back.
+    w.reflect_resource<game::Score>({crabby::field("red", &game::Score::red), crabby::field("blue", &game::Score::blue)});
+    const std::string saved = w.save();
+    CHECK(saved.find("\"game::Score\":{\"blue\":2,\"red\":3}") != std::string::npos);
+    w.set_resource(game::Score{0, 0});
+    w.load(saved);
+    CHECK(w.resource<game::Score>().red == 3);
+    CHECK(w.remove_resource<game::Score>());
+    CHECK(!w.remove_resource<game::Score>());
+    CHECK(!w.try_resource<game::Score>());
+}
+
 static void parallel_queries() {
     crabby::world w;
     for (int i = 0; i < 100000; ++i) w.spawn(i);
@@ -266,6 +287,7 @@ static void attachments() {
 int main() {
     worlds();
     names_and_reflection();
+    resources();
     parallel_queries();
     games();
     attachments();

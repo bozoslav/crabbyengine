@@ -61,6 +61,10 @@ Everything so far, ahead of the first release.
   `ctx.read<Died>()`. `world.reflect<T>(fields)` describes a type for tools
   and saves. Replaces component tokens (`world.component<T>("Name")`,
   `token.with(value)`).
+- Resources from C and C++: `world.set_resource(Score{...})`,
+  `world.resource<Score>()`, `try_resource`, `remove_resource`, and
+  `reflect_resource<T>(fields)` so agents and saves see them (C:
+  `crabby_resource_*`, by name). The C++ battle keeps its score in one.
 - C API (`crabby_ffi`) with a generated header, and a header-only C++17
   wrapper (`include/crabby.hpp`) covering nearly the whole engine.
 

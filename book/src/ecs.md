@@ -161,16 +161,33 @@ The engine applies commands after every system, so the next system sees them.
 
 ## Resources
 
-Resources are Rust-only for now; in C++ keep global data in your own
-variables and capture them in systems.
+A resource is one global value of a type, stored in the world and found
+by its type:
 
-A resource is one global value of a type, stored in the world:
+<div class="lang-pair">
+<div>
 
 ```rust
 struct Score(u32);
 ctx.world.insert_resource(Score(0));
 ctx.world.resource_mut::<Score>().0 += 1;
 ```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:resources}}
+```
+
+</div>
+</div>
+
+C++ resources are plain structs, copied in and out: `resource<T>()` (throws
+if the world has none), `try_resource<T>()`, `set_resource(value)` and
+`remove_resource<T>()`. Read them before an `each` loop, not inside it (the
+world is borrowed while the loop runs). In C: `crabby_resource_set`,
+`crabby_resource_get` and `crabby_resource_remove`, by name.
 
 ## Sorting for cache locality
 

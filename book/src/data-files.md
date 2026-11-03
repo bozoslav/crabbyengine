@@ -25,9 +25,9 @@ fight while watching it.
 
 In Rust the file becomes a resource: any type that implements
 `serde::Deserialize`, replaced whole on each reload (use `#[serde(default)]`
-for optional fields). C and C++ have no resources, so the file is loaded
-into a reflected component on an entity you choose; its fields merge, so
-the file may list only some of them.
+for optional fields). C and C++ load the file into a reflected component
+on an entity you choose; its fields merge, so the file may list only some
+of them.
 
 - Loading fails with a clear message: a missing file lists the folders
   searched, and bad JSON says the line and column.

@@ -10,9 +10,8 @@
 // pan, scroll to zoom. Keys: A attack, D defend, Space pause, 1-3 speed,
 // R restart, Escape quit.
 //
-// C++ games have no resources, so who's winning lives in a reflected
-// `Score` component on one entity: agents read it through crabby-mcp
-// (list_entities with ["Score"]).
+// Who's winning is a reflected `Score` resource: agents read it through
+// crabby-mcp (get_resource with "Score").
 #include "crabby.hpp"
 #include <algorithm>
 #include <array>
@@ -82,7 +81,6 @@ struct Battle {
     crabby::flow_field fields[2];
     vec2 rally[2], bases[2];
     crabby::entity base_entities[2] = {0, 0};
-    crabby::entity score = 0;
     std::size_t cap = 0;
     float field_ms = 0;
     std::optional<crabby::texture> look;
@@ -162,7 +160,7 @@ static void fight(crabby::ctx& ctx, Battle& b) {
     const crabby::random random = ctx.random();
     const crabby::turns look = ctx.turns(4);
     const bool crowding = ctx.sim_tick() % 2 == 0;
-    const bool over = world.get<Score>(b.score).winner != 0;
+    const bool over = world.resource<Score>().winner != 0;
     // Every unit's place; each chunk fills its own rows. On all cores when
     // there are enough units to pay for it.
     b.all.resize(world.count<crabby::transform2d, Unit>());
@@ -286,7 +284,7 @@ static void resolve(crabby::ctx& ctx, Battle& b) {
         if (u.hp <= 0) ctx.despawn_later(e);
         else alive[u.team] += 1;
     });
-    Score s = world.get<Score>(b.score);
+    Score s = world.resource<Score>();
     s.red_alive = alive[RED];
     s.blue_alive = alive[BLUE];
     for (std::uint32_t team : {RED, BLUE}) {
@@ -295,13 +293,13 @@ static void resolve(crabby::ctx& ctx, Battle& b) {
             (team == RED ? s.blue_rounds : s.red_rounds) += 1;
         }
     }
-    world.set(b.score, s);
+    world.set_resource(s);
 }
 
 /// Bases send new units, up to the cap, while the round lasts.
 static void reinforce(crabby::ctx& ctx, Battle& b) {
     auto world = ctx.world();
-    const Score s = world.get<Score>(b.score);
+    const Score s = world.resource<Score>();
     if (s.winner != 0) return;
     crabby::rng rng = ctx.random().stream(1);
     const float per_tick = float(b.cap) / (40.0f * 60.0f);
@@ -320,7 +318,7 @@ static void reinforce(crabby::ctx& ctx, Battle& b) {
 
 /// Blue's general: attack red's base, or defend when outnumbered 2 to 1.
 static void blue_ai(crabby::ctx& ctx, Battle& b) {
-    const Score s = ctx.world().get<Score>(b.score);
+    const Score s = ctx.world().resource<Score>();
     const vec2 goal = s.blue_alive * 2 < s.red_alive ? b.bases[BLUE] : b.bases[RED];
     if (b.rally[BLUE].x != goal.x || b.rally[BLUE].y != goal.y) b.set_rally(BLUE, goal);
 }
@@ -335,9 +333,9 @@ static void start_round(crabby::ctx& ctx, Battle& b) {
         base.hp = base.max_hp;
         world.set(b.base_entities[team], base);
     }
-    Score s = world.get<Score>(b.score);
+    Score s = world.resource<Score>();
     s.winner = 0;
-    world.set(b.score, s);
+    world.set_resource(s);
     const float spread = std::sqrt(float(b.cap)) * 2.2f;
     for (std::uint32_t team : {RED, BLUE}) {
         for (std::size_t placed = 0; placed < b.cap;) {
@@ -361,7 +359,7 @@ static void setup(crabby::ctx& ctx, Battle& b, std::size_t units, std::uint64_t 
         crabby::field("team", &Base::team), crabby::field("hp", &Base::hp),
         crabby::field("max_hp", &Base::max_hp), crabby::field("budget", &Base::budget),
     });
-    world.reflect<Score>({
+    world.reflect_resource<Score>({
         crabby::field("red_alive", &Score::red_alive), crabby::field("blue_alive", &Score::blue_alive),
         crabby::field("red_rounds", &Score::red_rounds), crabby::field("blue_rounds", &Score::blue_rounds),
         crabby::field("winner", &Score::winner),
@@ -369,7 +367,7 @@ static void setup(crabby::ctx& ctx, Battle& b, std::size_t units, std::uint64_t 
     const float max_hp = 400.0f * std::sqrt(float(units) / 1000.0f);
     for (std::uint32_t team : {RED, BLUE})
         b.base_entities[team] = world.spawn(crabby::transform_at(b.bases[team]), Base{team, max_hp, max_hp, 0});
-    b.score = world.spawn(Score{0, 0, 0, 0, 0});
+    world.set_resource(Score{0, 0, 0, 0, 0});
     b.cap = units / 2;
     b.set_rally(RED, b.bases[BLUE]);
     b.set_rally(BLUE, b.bases[RED]);
@@ -438,7 +436,7 @@ struct Draw {
         }
         ctx.draw_circle(b->rally[RED], 5, crabby::rgba(1, 0.9f, 0.3f, 0.9f));
 
-        const Score s = w.get<Score>(b->score);
+        const Score s = w.resource<Score>();
         const crabby::rect panel = crabby::rect_at({12, 12}, {300, 130});
         ctx.ui_panel(panel);
         char text[256];
@@ -465,7 +463,7 @@ int main() {
         crabby::game game("battle", 1, 1);
         game.seed(seed);
         battle_systems(game, battle).sim_system([&](crabby::ctx& ctx) {
-            const Score s = ctx.world().get<Score>(battle.score);
+            const Score s = ctx.world().resource<Score>();
             if (s.winner != 0) start_round(ctx, battle);   // headless rounds restart on their own
             if (ctx.sim_tick() % 120 == 0)
                 std::printf("tick %llu: red %u blue %u, rounds %u-%u\n", (unsigned long long)ctx.sim_tick(),
