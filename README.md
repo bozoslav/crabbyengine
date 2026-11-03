@@ -11,7 +11,7 @@ the same speed.
 [![CI](https://github.com/bozoslav/crabbyengine/actions/workflows/ci.yml/badge.svg)](https://github.com/bozoslav/crabbyengine/actions/workflows/ci.yml)
 [![Guide](https://img.shields.io/badge/guide-read-orange)](https://bozoslav.github.io/crabbyengine/)
 [![API docs](https://img.shields.io/badge/api-docs-blue)](https://bozoslav.github.io/crabbyengine/api/crabbyengine/)
-[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-green)](#license)
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 
 [**Guide**](https://bozoslav.github.io/crabbyengine/) ·
@@ -235,13 +235,14 @@ Report security issues privately, as described in [SECURITY.md](SECURITY.md).
 
 ## License
 
-Crabby Engine is created by Leon Mamić and licensed under the
-[Apache License, Version 2.0](LICENSE). You can use it in free and
-commercial games. If you redistribute the engine, in source or compiled
-into a game, include the license and the [NOTICE](NOTICE) file (for
-example in your game's credits or documentation), and mark the files you
-changed.
+Crabby Engine is created by Leon Mamić (see [NOTICE](NOTICE)). It's licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
+
+at your option.
 
 Unless you explicitly state otherwise, any contribution intentionally
-submitted for inclusion in the work by you shall be licensed under the
-Apache License, Version 2.0, without any additional terms or conditions.
+submitted for inclusion in the work by you, as defined in the Apache-2.0
+license, shall be dual licensed as above, without any additional terms or
+conditions.

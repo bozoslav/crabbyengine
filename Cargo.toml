@@ -61,7 +61,7 @@ members = [".", "crates/crabby_ecs", "crates/crabby_bench", "crates/crabby_mcp",
 
 [workspace.package]
 edition = "2024"
-license = "Apache-2.0"
+license = "MIT OR Apache-2.0"
 authors = ["Leon Mamić and Crabby Engine contributors"]
 repository = "https://github.com/bozoslav/crabbyengine"
 homepage = "https://bozoslav.github.io/crabbyengine/"
