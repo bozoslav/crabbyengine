@@ -21,6 +21,8 @@ says what that covers.
   `blend` (`Blend::Transparent`) and `double_sided`;
   `ctx.update_material` changes a material. In C and C++ too. The
   `shaders` example shows water, wind and a procedural pattern.
+- Transparent shaders can read the scene behind them: `scene_color`,
+  `scene_position` and `scene_distance`, for refraction and water depth.
 - `Vec4` and `vec4` are re-exported (feature `3d`).
 - The 3D frame is lit in HDR, with a depth prepass (each pixel is lit
   once). `render_stats().gpu_ms` now times the whole frame, 3D and shadow

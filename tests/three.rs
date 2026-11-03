@@ -126,6 +126,27 @@ fn shaders_and_their_materials_are_made() {
 }
 
 #[test]
+fn transparent_shaders_can_read_the_scene_behind_them() {
+    Game::new("t", 1, 1).run_headless(1, |ctx| {
+        let glass = ctx.create_shader(
+            "glass",
+            "fn surface(s: Surface) -> Surface {
+                var out = s;
+                let deep = scene_distance(s.screen) - distance(s.world, frame.camera.xyz);
+                out.emissive = scene_color(s.screen + vec2<f32>(4.0, 0.0)) * exp(-deep);
+                out.albedo = scene_position(s.screen) * 0.0 + s.albedo;
+                return out;
+            }",
+        );
+        ctx.create_material(MaterialDesc {
+            shader: Some(glass),
+            blend: Blend::Transparent,
+            ..Default::default()
+        });
+    });
+}
+
+#[test]
 #[should_panic(expected = "fix.wgsl")]
 fn shader_errors_say_which_shader() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {

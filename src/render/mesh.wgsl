@@ -17,6 +17,8 @@ struct Frame {
     ground: vec4<f32>,
     shadow: vec4<f32>,     // on, texel size in uv, normal offset, fade distance
     time: vec4<f32>,       // x: seconds since the game started, y: seconds since the last frame
+    inv_view_proj: mat4x4<f32>, // clip space back to the world
+    screen: vec4<f32>,     // width and height in pixels, then their inverses
 };
 
 struct MaterialData {
@@ -38,6 +40,9 @@ struct MaterialData {
 @group(1) @binding(5) var emissive_texture: texture_2d<f32>;
 @group(1) @binding(6) var custom_texture0: texture_2d<f32>;
 @group(1) @binding(7) var custom_texture1: texture_2d<f32>;
+// The opaque scene behind a transparent surface (see scene_color).
+@group(2) @binding(0) var scene_color_texture: texture_2d<f32>;
+@group(2) @binding(1) var scene_depth_texture: texture_depth_multisampled_2d;
 
 // A vertex in world space, as a shader's `vertex` function gets and returns it.
 struct Vertex {
@@ -62,7 +67,32 @@ struct Surface {
     uv: vec2<f32>,
     color: vec4<f32>,    // the model's tint
     view: vec3<f32>,     // unit vector from the surface to the camera
+    screen: vec2<f32>,   // the pixel, in pixels from the top left
 };
+
+// The opaque scene's light at a pixel, before tone mapping. Only
+// transparent materials see the scene; elsewhere this is black.
+fn scene_color(screen: vec2<f32>) -> vec3<f32> {
+    let size = vec2<i32>(textureDimensions(scene_color_texture));
+    let at = clamp(vec2<i32>(screen), vec2<i32>(0), size - 1);
+    return textureLoad(scene_color_texture, at, 0).rgb;
+}
+
+// Where the opaque scene is at a pixel, in the world. Only transparent
+// materials see the scene; elsewhere this is as far as the camera sees.
+fn scene_position(screen: vec2<f32>) -> vec3<f32> {
+    let size = vec2<i32>(textureDimensions(scene_depth_texture));
+    let at = clamp(vec2<i32>(screen), vec2<i32>(0), size - 1);
+    let depth = textureLoad(scene_depth_texture, at, 0);
+    let ndc = vec2<f32>(screen.x * frame.screen.z * 2.0 - 1.0, 1.0 - screen.y * frame.screen.w * 2.0);
+    let world = frame.inv_view_proj * vec4<f32>(ndc, depth, 1.0);
+    return world.xyz / world.w;
+}
+
+// How far the opaque scene is from the camera at a pixel.
+fn scene_distance(screen: vec2<f32>) -> f32 {
+    return distance(scene_position(screen), frame.camera.xyz);
+}
 
 // A pseudo-random number in 0..1 for a 2D point.
 fn hash2(p: vec2<f32>) -> f32 {

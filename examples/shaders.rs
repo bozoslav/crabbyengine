@@ -68,7 +68,7 @@ fn main() {
             let lake = ctx.create_material(MaterialDesc {
                 shader: Some(water),
                 blend: Blend::Transparent,
-                custom: [vec4(0.06, 1.5, 1.2, 0.0), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO],
+                custom: [vec4(0.06, 1.5, 1.2, 1.2), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO],
                 ..MaterialDesc::color(Color::hex(0x1E4D6B))
             });
             let mut surface = MeshData::plane(12.0);
@@ -77,6 +77,34 @@ fn main() {
             let lake = ctx.create_mesh(&surface, lake);
             ctx.world
                 .spawn((Transform3D::at(vec3(-3.0, 0.15, -4.0)), Model::new(lake)));
+
+            // The lake bed, under the water: sand sloping down, and stones.
+            let sand = ctx.create_material(MaterialDesc {
+                roughness: 0.9,
+                ..MaterialDesc::color(Color::hex(0xC2A878))
+            });
+            let bed = ctx.create_mesh(&MeshData::plane(12.0), sand);
+            let tilt = Quat::from_rotation_x(0.12);
+            ctx.world.spawn((
+                Transform3D {
+                    rotation: tilt,
+                    ..Transform3D::at(vec3(-3.0, -0.6, -4.0))
+                },
+                Model::new(bed),
+            ));
+            let stone = ctx.create_material(MaterialDesc {
+                roughness: 0.7,
+                ..MaterialDesc::color(Color::hex(0x8A8A80))
+            });
+            let pebble = ctx.create_mesh(&MeshData::sphere(0.35, 16), stone);
+            for i in 0..12 {
+                let at = vec3(
+                    -7.0 + i as f32 * 0.8,
+                    -0.3 - (i % 3) as f32 * 0.2,
+                    -3.0 + (i % 4) as f32 * -1.5,
+                );
+                ctx.world.spawn((Transform3D::at(at), Model::new(pebble)));
+            }
 
             let wind = ctx.load_shader("shaders/wind.wgsl");
             let grass = ctx.create_material(MaterialDesc {

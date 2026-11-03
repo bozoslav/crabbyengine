@@ -69,6 +69,7 @@ fn surface_at(in: VertexOut, front: bool) -> Surface {
     s.uv = in.uv;
     s.color = in.color;
     s.view = normalize(frame.camera.xyz - in.world);
+    s.screen = in.clip.xy;
     var n = normalize(in.normal);
     if !front {
         n = -n; // the back of a double-sided surface

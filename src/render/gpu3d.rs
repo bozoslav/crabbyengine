@@ -50,6 +50,9 @@ struct FrameUniform {
     shadow: [f32; 4],
     /// x: seconds since the game started, y: seconds since the last frame.
     time: [f32; 4],
+    inv_view_proj: [[f32; 4]; 4],
+    /// Width and height in pixels, then their inverses.
+    screen: [f32; 4],
 }
 
 /// One corner of a mesh on the GPU.
@@ -86,6 +89,9 @@ struct GpuMaterial {
 /// One material shader's pipelines, for one-sided and double-sided surfaces.
 struct ShaderPipelines {
     sides: [Pipelines; 2],
+    /// Whether it reads the scene behind it (`scene_color`, `scene_position`,
+    /// `scene_distance`): its transparent surfaces then need a copy of it.
+    reads_scene: bool,
 }
 
 struct Pipelines {
@@ -114,6 +120,13 @@ fn defines(source: &str, name: &str) -> bool {
         rest = &rest[at + 2..];
     }
     false
+}
+
+/// Whether a shader reads the scene behind it.
+fn reads_scene(user: &str) -> bool {
+    ["scene_color", "scene_position", "scene_distance"]
+        .iter()
+        .any(|f| user.contains(f))
 }
 
 /// A whole material shader: the engine's prelude, the game's code (with
@@ -156,6 +169,11 @@ struct Targets {
     /// Multisampled HDR color, resolved into `hdr`.
     color: wgpu::TextureView,
     hdr: wgpu::TextureView,
+    hdr_texture: wgpu::Texture,
+    /// A copy of the opaque scene, for transparent shaders that read it.
+    scene_texture: wgpu::Texture,
+    /// The scene bind group of the transparent pass: `scene_texture` and `depth`.
+    scene: wgpu::BindGroup,
     /// Multisampled depth, written by the prepass.
     depth: wgpu::TextureView,
     /// The post pass's input: `hdr` and the bloom.
@@ -191,6 +209,9 @@ pub(crate) struct Renderer3D {
     /// Each shader's pipelines; 0 is the built-in shader.
     shaders: Vec<ShaderPipelines>,
     material_sampler: wgpu::Sampler,
+    scene_layout: wgpu::BindGroupLayout,
+    /// The scene bind group of passes that can't see the scene.
+    no_scene: wgpu::BindGroup,
     post_pipeline: wgpu::RenderPipeline,
     post_layout: wgpu::BindGroupLayout,
     bloom_prefilter: wgpu::RenderPipeline,
@@ -294,16 +315,70 @@ impl Renderer3D {
                 material_texture(7),
             ],
         });
+        let scene_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("3d scene layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: true,
+                    },
+                    count: None,
+                },
+            ],
+        });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("3d pipeline layout"),
-            bind_group_layouts: &[Some(&frame_layout), Some(&material_layout)],
+            bind_group_layouts: &[Some(&frame_layout), Some(&material_layout), Some(&scene_layout)],
             immediate_size: 0,
         });
         let shadow_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("3d shadow pipeline layout"),
-            bind_group_layouts: &[Some(&shadow_layout), Some(&material_layout)],
+            bind_group_layouts: &[Some(&shadow_layout), Some(&material_layout), Some(&scene_layout)],
             immediate_size: 0,
         });
+        // Passes that can't see the scene bind a 1x1 stand-in (black, far).
+        let no_scene = {
+            let tiny = |label, format, samples, usage| {
+                device
+                    .create_texture(&wgpu::TextureDescriptor {
+                        label: Some(label),
+                        size: wgpu::Extent3d {
+                            width: 1,
+                            height: 1,
+                            depth_or_array_layers: 1,
+                        },
+                        mip_level_count: 1,
+                        sample_count: samples,
+                        dimension: wgpu::TextureDimension::D2,
+                        format,
+                        usage,
+                        view_formats: &[],
+                    })
+                    .create_view(&Default::default())
+            };
+            let color = tiny("3d no scene color", HDR_FORMAT, 1, wgpu::TextureUsages::TEXTURE_BINDING);
+            let depth = tiny(
+                "3d no scene depth",
+                DEPTH_FORMAT,
+                MSAA,
+                wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            );
+            scene_bind_group(device, &scene_layout, &color, &depth)
+        };
         let material_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("3d material sampler"),
             address_mode_u: wgpu::AddressMode::Repeat,
@@ -506,6 +581,8 @@ impl Renderer3D {
             shadow_pipeline_layout,
             shaders: vec![builtin],
             material_sampler,
+            scene_layout,
+            no_scene,
             post_pipeline,
             post_layout,
             bloom_prefilter,
@@ -545,7 +622,8 @@ impl Renderer3D {
     pub fn create_shader(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, String> {
         let source = compose_shader(user);
         check_shader(name, &source)?;
-        let pipelines = build_pipelines(device, &self.layout, &self.shadow_pipeline_layout, name, &source);
+        let mut pipelines = build_pipelines(device, &self.layout, &self.shadow_pipeline_layout, name, &source);
+        pipelines.reads_scene = reads_scene(user);
         self.shaders.push(pipelines);
         Ok(self.shaders.len() as u32 - 1)
     }
@@ -554,7 +632,9 @@ impl Renderer3D {
     pub fn replace_shader(&mut self, device: &wgpu::Device, id: u32, name: &str, user: &str) -> Result<(), String> {
         let source = compose_shader(user);
         check_shader(name, &source)?;
-        self.shaders[id as usize] = build_pipelines(device, &self.layout, &self.shadow_pipeline_layout, name, &source);
+        let mut pipelines = build_pipelines(device, &self.layout, &self.shadow_pipeline_layout, name, &source);
+        pipelines.reads_scene = reads_scene(user);
+        self.shaders[id as usize] = pipelines;
         Ok(())
     }
 
@@ -724,29 +804,59 @@ impl Renderer3D {
                 lighting.shadow_distance,
             ],
             time: [time.0, time.1, 0.0, 0.0],
+            inv_view_proj: frame.view_proj.inverse().to_cols_array_2d(),
+            screen: [
+                size.0 as f32,
+                size.1 as f32,
+                1.0 / size.0.max(1) as f32,
+                1.0 / size.1.max(1) as f32,
+            ],
         };
         queue.write_buffer(&self.frame_buffer, 0, bytemuck::bytes_of(&uniform));
         if self.targets.as_ref().is_none_or(|t| t.size != size) {
+            let texture = |label, format, samples, usage| {
+                device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some(label),
+                    size: wgpu::Extent3d {
+                        width: size.0,
+                        height: size.1,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: samples,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage,
+                    view_formats: &[],
+                })
+            };
             let target = |label, format, samples, usage| {
-                device
-                    .create_texture(&wgpu::TextureDescriptor {
-                        label: Some(label),
-                        size: wgpu::Extent3d {
-                            width: size.0,
-                            height: size.1,
-                            depth_or_array_layers: 1,
-                        },
-                        mip_level_count: 1,
-                        sample_count: samples,
-                        dimension: wgpu::TextureDimension::D2,
-                        format,
-                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | usage,
-                        view_formats: &[],
-                    })
+                texture(label, format, samples, wgpu::TextureUsages::RENDER_ATTACHMENT | usage)
                     .create_view(&Default::default())
             };
             let none = wgpu::TextureUsages::empty();
-            let hdr = target("3d hdr", HDR_FORMAT, 1, wgpu::TextureUsages::TEXTURE_BINDING);
+            let hdr_texture = texture(
+                "3d hdr",
+                HDR_FORMAT,
+                1,
+                wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC,
+            );
+            let hdr = hdr_texture.create_view(&Default::default());
+            let scene_texture = texture(
+                "3d scene copy",
+                HDR_FORMAT,
+                1,
+                wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            );
+            let depth = target("3d depth", DEPTH_FORMAT, MSAA, wgpu::TextureUsages::TEXTURE_BINDING);
+            let scene = scene_bind_group(
+                device,
+                &self.scene_layout,
+                &scene_texture.create_view(&Default::default()),
+                &depth,
+            );
             // Bloom starts at half size and halves until about 8 pixels.
             let half = (size.0.div_ceil(2).max(1), size.1.div_ceil(2).max(1));
             let mips = (32 - half.0.min(half.1).max(1).leading_zeros())
@@ -802,7 +912,10 @@ impl Renderer3D {
             let n = bloom_mips.len();
             self.targets = Some(Targets {
                 color: target("3d color", HDR_FORMAT, MSAA, none),
-                depth: target("3d depth", DEPTH_FORMAT, MSAA, none),
+                depth,
+                hdr_texture,
+                scene_texture,
+                scene,
                 post: group(&hdr, &bloom_mips[0]),
                 bloom_prefilter: group(&hdr, &self.black),
                 bloom_down: (1..n).map(|i| group(&bloom_mips[i - 1], &self.black)).collect(),
@@ -867,6 +980,7 @@ impl Renderer3D {
                 multiview_mask: None,
             });
             pass.set_bind_group(0, &self.shadow_bind_group, &[]);
+            pass.set_bind_group(2, &self.no_scene, &[]);
             self.draw_models(&mut pass, &self.shadow_runs, Kind::Shadow);
         }
         {
@@ -886,8 +1000,12 @@ impl Renderer3D {
                 multiview_mask: None,
             });
             pass.set_bind_group(0, &self.frame_bind_group, &[]);
+            pass.set_bind_group(2, &self.no_scene, &[]);
             self.draw_models(&mut pass, &self.runs, Kind::Prepass);
         }
+        // Transparent shaders that read the scene behind them get a copy of
+        // the opaque scene: the frame is then drawn in two passes.
+        let split = self.needs_scene();
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("3d opaque"),
@@ -898,14 +1016,22 @@ impl Renderer3D {
                     ops: wgpu::Operations {
                         // Alpha 0 marks the background for the post pass.
                         load: wgpu::LoadOp::Clear(wgpu::Color { a: 0.0, ..clear }),
-                        store: wgpu::StoreOp::Discard,
+                        store: if split {
+                            wgpu::StoreOp::Store
+                        } else {
+                            wgpu::StoreOp::Discard
+                        },
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &targets.depth,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Discard,
+                        store: if split {
+                            wgpu::StoreOp::Store
+                        } else {
+                            wgpu::StoreOp::Discard
+                        },
                     }),
                     stencil_ops: None,
                 }),
@@ -914,7 +1040,41 @@ impl Renderer3D {
                 multiview_mask: None,
             });
             pass.set_bind_group(0, &self.frame_bind_group, &[]);
+            pass.set_bind_group(2, &self.no_scene, &[]);
             self.draw_models(&mut pass, &self.runs, Kind::Opaque);
+            if !split {
+                self.draw_models(&mut pass, &self.runs, Kind::Transparent);
+            }
+        }
+        if split {
+            encoder.copy_texture_to_texture(
+                targets.hdr_texture.as_image_copy(),
+                targets.scene_texture.as_image_copy(),
+                targets.hdr_texture.size(),
+            );
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("3d transparent"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &targets.color,
+                    depth_slice: None,
+                    resolve_target: Some(&targets.hdr),
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Discard,
+                    },
+                })],
+                // Read-only depth: the shaders sample it at the same time.
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &targets.depth,
+                    depth_ops: None,
+                    stencil_ops: None,
+                }),
+                timestamp_writes: time(),
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_bind_group(0, &self.frame_bind_group, &[]);
+            pass.set_bind_group(2, &targets.scene, &[]);
             self.draw_models(&mut pass, &self.runs, Kind::Transparent);
         }
         if self.bloom {
@@ -994,6 +1154,16 @@ impl Renderer3D {
         pass.set_bind_group(0, &targets.post, &[]);
         pass.set_bind_group(1, &textures[self.lut as usize].bind_group, &[]);
         pass.draw(0..3, 0..1);
+    }
+
+    /// Whether a transparent surface this frame reads the scene behind it.
+    fn needs_scene(&self) -> bool {
+        self.runs.iter().any(|&(mesh, _, _)| {
+            self.meshes[mesh as usize].parts.iter().any(|&(_, m)| {
+                let m = &self.materials[m as usize];
+                m.transparent && self.shaders[m.shader as usize].reads_scene
+            })
+        })
     }
 
     /// The mesh parts of `runs` that `kind` draws, each with its material
@@ -1177,7 +1347,31 @@ fn build_pipelines(
     };
     ShaderPipelines {
         sides: [side(Some(wgpu::Face::Back)), side(None)],
+        reads_scene: false,
     }
+}
+
+/// What transparent shaders read of the scene behind them.
+fn scene_bind_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    color: &wgpu::TextureView,
+    depth: &wgpu::TextureView,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("3d scene"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(color),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(depth),
+            },
+        ],
+    })
 }
 
 #[cfg(test)]
