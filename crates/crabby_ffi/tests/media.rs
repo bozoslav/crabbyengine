@@ -404,3 +404,77 @@ fn json_files_load_into_reflected_c_components() {
     assert!(t.errors[1].contains("not found in assets/"), "{}", t.errors[1]);
     assert_eq!((t.rules.speed, t.rules.waves), (2.5, 7));
 }
+
+#[derive(Default)]
+struct Reload {
+    path: std::ffi::CString,
+    file: std::path::PathBuf,
+    id: u32,
+    entity: u64,
+    seen: Vec<(u64, bool, u32)>,
+}
+
+unsafe extern "C" fn reload_rules(ctx: *mut CrabbyCtx, user: *mut c_void) {
+    unsafe {
+        let t = &mut *user.cast::<Reload>();
+        let w = crabby_ctx_world(ctx);
+        let tick = crabby_ctx_sim_tick(ctx);
+        if tick == 0 {
+            assert_eq!(
+                crabby_component_register(w, c"Waves".as_ptr(), 4, 4, &mut t.id),
+                CRABBY_OK
+            );
+            let f = [CrabbyField {
+                name: c"waves".as_ptr(),
+                kind: CrabbyFieldType::CRABBY_FIELD_U32 as u32,
+                offset: 0,
+            }];
+            assert_eq!(crabby_component_reflect(w, t.id, f.as_ptr(), 1), CRABBY_OK);
+            let zero = 0u32;
+            let v = CrabbyValue {
+                component: t.id,
+                data: (&raw const zero).cast(),
+                size: 4,
+            };
+            assert_eq!(crabby_spawn(w, &v, 1, &mut t.entity), CRABBY_OK);
+            assert_eq!(crabby_ctx_load_json(ctx, t.path.as_ptr(), t.entity, t.id), CRABBY_OK);
+        }
+        let mut reloaded = true;
+        assert_eq!(crabby_ctx_was_reloaded(ctx, t.path.as_ptr(), &mut reloaded), CRABBY_OK);
+        let mut waves = 0u32;
+        assert_eq!(crabby_get(w, t.entity, t.id, (&raw mut waves).cast(), 4), CRABBY_OK);
+        t.seen.push((tick, reloaded, waves));
+        if tick == 1 {
+            std::fs::write(&t.file, r#"{"waves": 9}"#).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(400));
+        }
+    }
+}
+
+#[test]
+fn edited_json_files_update_c_components_while_running() {
+    let dir = std::env::temp_dir().join(format!("crabby-ffi-reload-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("waves.json");
+    std::fs::write(&file, r#"{"waves": 3}"#).unwrap();
+    let mut t = Reload {
+        path: std::ffi::CString::new(file.to_str().unwrap()).unwrap(),
+        file,
+        ..Default::default()
+    };
+    unsafe {
+        let game = crabby_game_new(c"reload".as_ptr(), 1, 1);
+        assert_eq!(crabby_game_hot_reload(game, true), CRABBY_OK);
+        assert_eq!(
+            crabby_game_sim_system(game, c"s".as_ptr(), 1, Some(reload_rules), (&raw mut t).cast()),
+            CRABBY_OK
+        );
+        let mut world = null_mut();
+        assert_eq!(
+            crabby_game_run_headless(game, 4, None, null_mut(), &mut world),
+            CRABBY_OK
+        );
+        crabby_world_free(world);
+    }
+    assert_eq!(t.seen, [(0, false, 3), (1, false, 3), (2, true, 9), (3, false, 9)]);
+}

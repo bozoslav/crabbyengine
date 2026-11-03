@@ -619,6 +619,28 @@ pub unsafe extern "C" fn crabby_ctx_load_json(
         })
     })
 }
+/// Whether the file `path` (as it was loaded) changed and was reloaded at the
+/// start of this frame: a texture or a `crabby_ctx_load_json` file. Use it
+/// to redo work that depends on the file.
+/// # Safety
+/// `ctx` must be null or live; `path` a NUL-terminated string; `out` writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_was_reloaded(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_was_reloaded(
+    ctx: *mut CrabbyCtx,
+    path: *const c_char,
+    out_reloaded: *mut bool,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let path = text(path)?;
+            out(out_reloaded, c.reloaded_files().iter().any(|f| f == path))
+        })
+    })
+}
 /// Makes a texture from `width * height * 4` RGBA bytes.
 /// ```
 /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_create_texture(std::ptr::null_mut(), 1, 1, std::ptr::null(), 4, std::ptr::null_mut()) } as u32, 1);

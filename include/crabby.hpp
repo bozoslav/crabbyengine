@@ -663,6 +663,8 @@ public:
     // Textures and drawing.
     /// Loads a JSON file from assets/ into a reflected component of `e`
     /// (fields merge); with hot reload on, edits to the file show up live.
+    /// Whether `path` (as loaded) was reloaded at the start of this frame.
+    bool was_reloaded(const char* path) const { bool b = false; detail::check(crabby_ctx_was_reloaded(raw_, path, &b)); return b; }
     template<class T> void load_json(const char* path, entity e, const component<T>& token) {
         detail::check(crabby_ctx_load_json(raw_, path, e, world().id(token)));
     }

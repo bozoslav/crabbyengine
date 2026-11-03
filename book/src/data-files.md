@@ -35,6 +35,7 @@ the file may list only some of them.
   through saving) keeps the old values and prints why; the next good save
   applies.
 - `ctx.reloaded_files()` names the files reloaded this frame, textures
-  included, for work that depends on them (rebuilding a map, say).
+  included, for work that depends on them (rebuilding a map, say). In C++,
+  `ctx.was_reloaded("map.json")` (C: `crabby_ctx_was_reloaded`).
 - Headless runs reload too, so an agent or a test can change a file
   between ticks.
