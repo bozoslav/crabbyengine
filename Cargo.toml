@@ -37,6 +37,7 @@ dioxus-devtools = { version = "0.7.10", default-features = false, optional = tru
 # `Instant` that also works in browsers; on desktop it is std's own type.
 web-time = "1.1.0"
 gilrs = { version = "0.11.2", optional = true }
+steamworks = { version = "0.13.1", optional = true }
 
 [target.'cfg(any(unix, windows))'.dependencies]
 libc = "0.2"
@@ -76,6 +77,10 @@ hotpatch = ["dep:subsecond", "dep:dioxus-devtools"]
 # 2D physics with rapier: `Game::physics`, the RigidBody / Collider /
 # Velocity components, collision events and ray casts. Off: no rapier in the build.
 physics = ["dep:rapier2d"]
+# Lockstep over Steam (`Net::steam_host` / `Net::steam_join`): Steam's relays
+# and lobbies, so friends join from the overlay. Re-exports `steamworks`.
+# Ship the Steamworks redistributable (libsteam_api) next to the game.
+steam = ["dep:steamworks"]
 # Physics that gives bit-identical results on every platform (for lockstep
 # networking and replays), a little slower: rapier's enhanced-determinism.
 physics-determinism = ["physics", "rapier2d/enhanced-determinism"]

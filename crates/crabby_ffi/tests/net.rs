@@ -106,3 +106,22 @@ fn bad_sessions_are_errors() {
         crabby_game_free(g);
     }
 }
+
+#[cfg(not(feature = "steam"))]
+#[test]
+fn steam_calls_say_the_feature_is_off() {
+    unsafe {
+        let g = crabby_game_new(c"t".as_ptr(), 1, 1);
+        assert_eq!(
+            crabby_game_lockstep_steam_host(g, 480, 2, 3, 60),
+            CRABBY_INVALID_ARGUMENT
+        );
+        let message = std::ffi::CStr::from_ptr(crabby_last_error())
+            .to_string_lossy()
+            .into_owned();
+        assert!(message.contains("`steam` feature"), "{message}");
+        let mut lobby = 1;
+        assert_eq!(crabby_steam_lobby_from_args(&mut lobby), CRABBY_INVALID_ARGUMENT);
+        crabby_game_free(g);
+    }
+}

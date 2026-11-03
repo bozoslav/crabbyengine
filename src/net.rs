@@ -24,6 +24,11 @@ use serde::de::DeserializeOwned;
 
 use crate::{Instant, World, WorldReflect};
 
+#[cfg(feature = "steam")]
+mod steam;
+#[cfg(feature = "steam")]
+pub use steam::{steam_lobby_from_args, steam_wait_for_invite};
+
 /// The most players in one session.
 pub const MAX_PLAYERS: usize = 8;
 /// The most bytes one player's input for one tick can have.
@@ -612,6 +617,9 @@ impl Session {
         if self.streams.is_empty() && matches!(self.role, Role::Host) {
             self.streams = (0..*settings.players).map(|_| Stream::new(*settings.delay)).collect();
         }
+        if let Some(e) = self.transport.error() {
+            self.error = Some(e);
+        }
         while let Some((from, n)) = self.transport.recv(&mut self.buf) {
             let packet = std::mem::take(&mut self.buf);
             self.receive(from, &packet[..n], now, settings);
@@ -1019,6 +1027,15 @@ trait Transport: Send {
     fn send(&mut self, to: SocketAddr, data: &[u8]);
     fn recv(&mut self, buf: &mut [u8]) -> Option<(SocketAddr, usize)>;
     fn local_addr(&self) -> SocketAddr;
+    /// A failure the transport found on its own (a lobby that couldn't be joined).
+    fn error(&mut self) -> Option<String> {
+        None
+    }
+    /// The Steam client and lobby, for Steam sessions.
+    #[cfg(feature = "steam")]
+    fn steam(&self) -> Option<(&steamworks::Client, Option<steamworks::LobbyId>)> {
+        None
+    }
 }
 
 struct Udp(UdpSocket);

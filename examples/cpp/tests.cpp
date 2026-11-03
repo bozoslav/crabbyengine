@@ -387,6 +387,7 @@ static void lockstep() {
     CHECK(host_seen.sum == guest_seen.sum && host_seen.others > 150 && guest_seen.others > 150);
     CHECK(!host_seen.desync && !guest_seen.desync);
     throws([] { crabby::game("t", 1, 1).lockstep_host("127.0.0.1:0", 1); });
+    throws([] { crabby::game("t", 1, 1).lockstep_steam_host(480, 2); });   // built without `steam`
 }
 
 int main() {

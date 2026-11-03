@@ -27,6 +27,10 @@ Everything so far, ahead of the first release.
   `Net::host` / `Net::join`, `ctx.net`): plain UDP, input delay, lost
   packets recovered, and desync checks that name the components that
   differ. `Net::loopback` for tests. In C and C++ too.
+- Lockstep over Steam (feature `steam`): `Net::steam_host` / `steam_join`,
+  friends-only lobbies, overlay invites, Steam's relays (no port
+  forwarding). The Steam library is copied next to examples and tests. In C
+  and C++ with crabby_ffi's `steam` feature.
 - Determinism: seeded randomness per (seed, tick, system, entity), the same
   with parallel queries. Save and load the whole world, keeping entity ids.
 - Headless runs (`Game::run_headless`) and an optional `window` feature for

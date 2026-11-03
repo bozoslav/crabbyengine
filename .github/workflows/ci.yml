@@ -42,6 +42,8 @@ jobs:
             args: --features profiling
           - name: cross-platform deterministic physics
             args: --features crabbyengine/physics-determinism
+          - name: steam
+            args: --features crabbyengine/steam,crabby_ffi/steam
           - name: ECS without parallel
             args: -p crabby_ecs --no-default-features
           - name: engine without window or audio
@@ -97,6 +99,11 @@ jobs:
       - name: Tests, physics with cross-platform determinism
         if: ${{ !cancelled() }}
         run: cargo test -p crabbyengine --no-fail-fast --features physics-determinism --test physics
+      # Steam itself isn't on the runners: this checks that the Steam library
+      # links and loads on each OS, and the address mapping.
+      - name: Tests, Steam transport
+        if: ${{ !cancelled() }}
+        run: cargo test -p crabbyengine --no-fail-fast --features steam --lib net::steam
       - name: Build examples
         if: ${{ !cancelled() }}
         run: cargo build --workspace --examples
