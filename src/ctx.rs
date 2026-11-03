@@ -206,6 +206,7 @@ impl Ctx {
             world: {
                 let mut world = World::new();
                 crate::reflect::WorldReflect::reflect::<crate::Transform2D>(&mut world);
+                crate::reflect::WorldReflect::reflect::<crate::Attached>(&mut world);
                 world
             },
             commands: Commands::new(),

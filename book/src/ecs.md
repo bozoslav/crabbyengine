@@ -90,7 +90,10 @@ ctx.world
 In C++ a query hands you whole columns, one *chunk* (archetype) at a time,
 in the order you listed the tokens; `chunk.entity(i)` is row `i`'s entity.
 `world.query_par` is the C++ `par_for_each`: your function runs on all
-cores at once, so it must only touch its own chunk.
+cores at once, so it must only touch its own chunk. To fill a buffer from
+it, size the buffer with `world.count(tokens...)` and write row `i` of a
+chunk to slot `chunk.first() + i`: rows are numbered the same way in every
+query.
 
 What you can ask for (Rust):
 
@@ -110,6 +113,9 @@ Ways to run a query:
 - `for_each(f)`: the fastest loop; use this by default.
 - `par_for_each(f)`: same, split over all CPU cores. Use it for per-entity
   work on many entities.
+- `par_collect_into(&mut vec, f)`: fills `vec` with `f` of every match, on
+  all cores, in `for_each` order. The vector keeps its memory, so doing it
+  every tick allocates nothing.
 - `iter()`: a normal iterator, for when you need `map`/`filter`/`collect`. It
   is several times slower than `for_each` on big worlds.
 - `count()`, `get(entity)`.

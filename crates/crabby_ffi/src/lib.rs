@@ -17,6 +17,7 @@
 //! unsafe { assert_eq!(crabby_world_free(world), CrabbyStatus::CRABBY_OK); }
 //! ```
 
+mod attach;
 mod ctx;
 mod flow;
 mod game;
@@ -26,6 +27,7 @@ mod media;
 mod reflect;
 mod tiles;
 mod types;
+pub use attach::*;
 pub use ctx::*;
 pub use flow::*;
 pub use game::*;
@@ -114,6 +116,10 @@ pub struct CrabbyChunk {
     pub columns: *const *mut c_void,
     /// The entity of each row.
     pub entities: *const CrabbyEntity,
+    /// Where row 0 is in the whole query: rows are numbered `0..total` in
+    /// the same order every time, so a parallel query can fill row
+    /// `first + i` of a buffer sized to the query's count.
+    pub first: usize,
 }
 
 /// Callback invoked for each nonempty matching archetype (or slice of one,
@@ -236,6 +242,8 @@ pub(crate) fn component(world: &World, id: u32) -> Result<(ComponentId, Kind), F
         // Raw byte copies into a value with a destructor would corrupt memory.
         None if !info.needs_drop() => Kind::Plain,
         Some(t) if t == TypeId::of::<Transform2D>() => Kind::Plain,
+        // repr(C), layout checked against CrabbyAttached; any bits are a valid value.
+        Some(t) if t == TypeId::of::<crabbyengine::Attached>() => Kind::Plain,
         // repr(C), layout checked against CrabbyAnimation; `looping` must be 0 or 1.
         Some(t) if t == TypeId::of::<crabbyengine::Animation>() => Kind::Plain,
         Some(t) if t == TypeId::of::<Sprite>() => Kind::Sprite,
@@ -745,13 +753,16 @@ pub unsafe extern "C" fn crabby_query(
         unsafe {
             access(world, |w, _| {
                 let (resolved, _) = resolve(w, input)?;
+                let mut first = 0;
                 w.for_each_chunk(&resolved[..count], |chunk| {
                     let view = CrabbyChunk {
                         count: chunk.entities.len(),
                         column_count: count,
                         columns: chunk.columns.as_ptr().cast(),
                         entities: chunk.entities.as_ptr().cast(),
+                        first,
                     };
+                    first += view.count;
                     callback(&view, user);
                 });
                 Ok(())
@@ -814,8 +825,11 @@ pub unsafe extern "C" fn crabby_query_par(
                 handle.parallel.store(true, Ordering::Release);
                 let _reset = Reset(&handle.parallel);
                 let threads = rayon::current_num_threads().max(1);
+                let mut first = 0;
                 w.for_each_chunk(&resolved[..count], |chunk| {
                     let len = chunk.entities.len();
+                    let base = first;
+                    first += len;
                     let mut columns = [std::ptr::null_mut(); 32];
                     columns[..count].copy_from_slice(chunk.columns);
                     let shared = Shared {
@@ -837,6 +851,7 @@ pub unsafe extern "C" fn crabby_query_par(
                             column_count: count,
                             columns: ptrs.as_ptr(),
                             entities: s.entities.add(start).cast(),
+                            first: base + start,
                         };
                         callback(&view, s.user);
                     };

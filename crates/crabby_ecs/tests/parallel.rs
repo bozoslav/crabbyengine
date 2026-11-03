@@ -63,3 +63,32 @@ fn par_for_each_indexed_matches_the_sequential_order() {
     let got: Vec<u32> = out.into_iter().map(AtomicU32::into_inner).collect();
     assert_eq!(got, expected);
 }
+
+#[test]
+fn par_collect_into_matches_the_sequential_order_across_archetypes() {
+    let mut world = World::new();
+    world.spawn_batch((0..3000).map(|i| (Pos(i as f32, 0.0),)));
+    world.spawn_batch((3000..5000).map(|i| (Pos(i as f32, 0.0), Tag)));
+    let mut expected = Vec::new();
+    world.query::<&Pos>().for_each(|p| expected.push(p.0));
+    // Strings own memory: written once each, dropped once each.
+    let mut out = vec!["stale".to_string(); 10];
+    world.query::<&Pos>().par_collect_into(&mut out, |p| p.0.to_string());
+    let want: Vec<String> = expected.iter().map(f32::to_string).collect();
+    assert_eq!(out, want);
+    // Reused: replaced, not appended to; filters apply.
+    world
+        .query::<&Pos>()
+        .with::<Tag>()
+        .par_collect_into(&mut out, |p| p.0.to_string());
+    assert_eq!(out.len(), 2000);
+    assert_eq!(out[0], "3000");
+}
+
+#[test]
+fn par_collect_into_an_empty_query_empties_the_vec() {
+    let mut world = World::new();
+    let mut out = vec![1, 2, 3];
+    world.query::<&Pos>().par_collect_into(&mut out, |p| p.0 as i32);
+    assert!(out.is_empty());
+}

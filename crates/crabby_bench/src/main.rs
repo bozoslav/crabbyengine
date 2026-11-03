@@ -759,6 +759,33 @@ fn flow_benches(b: &mut Bench) {
         },
     );
 
+    // ---- attachments: 100k entities following 100k others ----------------------
+    // Spawning is the same in both; the difference is 10 ticks of following.
+    for ticks in [0u64, 10] {
+        b.steady(
+            &format!("attach/100k-spawn+{ticks}-ticks"),
+            20,
+            || (),
+            |_| {
+                use crabbyengine::{Attached, Game, Transform2D, follow_attachments, vec2};
+                let world = Game::new("bench", 1, 1)
+                    .sim_system(|ctx| {
+                        ctx.world
+                            .query::<&mut Transform2D>()
+                            .par_for_each(|t| t.position.x += 1.0);
+                    })
+                    .sim_system(follow_attachments)
+                    .run_headless(ticks, |ctx| {
+                        for i in 0..100_000 {
+                            let base = ctx.world.spawn((Transform2D::at(vec2(i as f32, 0.0)),));
+                            ctx.world
+                                .spawn((Transform2D::default(), Attached::to(base).offset(vec2(0.0, 1.0))));
+                        }
+                    });
+                black_box(world);
+            },
+        );
+    }
     // ---- events: 100k sent and read per tick, 10 ticks ------------------------
     #[derive(Clone, Copy)]
     struct Hit(#[allow(dead_code)] crabbyengine::Entity, f32);

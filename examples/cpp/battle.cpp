@@ -94,6 +94,8 @@ struct Battle {
     // Per team: a fine grid for friends, a coarse one for enemies.
     crabby::grid near[2] = {crabby::grid(PERSONAL_SPACE * 2), crabby::grid(PERSONAL_SPACE * 2)};
     crabby::grid far[2] = {crabby::grid(SIGHT), crabby::grid(SIGHT)};
+    struct Placed { CrabbyEntity entity; vec2 at; std::uint32_t team; };
+    std::vector<Placed> all;
     std::vector<crabby::grid_item> positions[2];
     std::vector<std::pair<std::uint32_t, crabby::entity>> hits;
 
@@ -166,15 +168,38 @@ static void fight(crabby::ctx& ctx, Battle& b) {
     const crabby::turns look = ctx.turns(4);
     const bool crowding = ctx.sim_tick() % 2 == 0;
     const bool over = world.get(b.score, b.scores).winner != 0;
-    for (auto& p : b.positions) p.clear();
-    world.query([&](auto chunk) {
+    // Every unit's place; each chunk fills its own rows. On all cores when
+    // there are enough units to pay for it.
+    b.all.resize(world.count(b.transforms, b.units));
+    auto fill = [&](auto chunk) {
         auto t = chunk.template column<0>();
         auto u = chunk.template column<1>();
         for (std::size_t i = 0; i < chunk.size(); ++i)
-            b.positions[u[i].team].push_back({chunk.entities()[i], t[i].position, 0});
-    }, b.transforms, b.units);
+            b.all[chunk.first() + i] = {chunk.entities()[i], t[i].position, u[i].team};
+    };
+    if (b.all.size() > 100000) world.query_par(fill, b.transforms, b.units);
+    else world.query(fill, b.transforms, b.units);
     {
-        // The grids are independent: build them at the same time.
+        // Split by team, branch-free: teams are mixed in memory, so an `if`
+        // would mispredict half the time. Big armies split both at once.
+        auto split = [&b](std::uint32_t team) {
+            auto& out = b.positions[team];
+            out.resize(b.all.size());
+            std::size_t n = 0;
+            for (const auto& p : b.all) {
+                out[n] = {p.entity, p.at, 0};
+                n += p.team == team;
+            }
+            out.resize(n);
+        };
+        if (b.all.size() > 100000) {
+            std::thread red(split, 0);
+            split(1);
+            red.join();
+        } else {
+            split(0);
+            split(1);
+        }
         std::vector<std::thread> builders;
         for (int team = 0; team < 2; ++team) {
             if (crowding) builders.emplace_back([&, team] { b.near[team].rebuild(b.positions[team]); });

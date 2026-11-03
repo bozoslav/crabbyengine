@@ -369,6 +369,58 @@ impl<'w, Q: QueryData> Query<'w, Q> {
         }
     }
 
+    /// Replaces the contents of `out` with `f` of every matching entity,
+    /// computed on all cores, in the same order as [`for_each`](Self::for_each).
+    /// `out` keeps its memory between calls, so collecting every tick
+    /// allocates nothing once it's big enough.
+    ///
+    /// ```
+    /// # use crabby_ecs::*;
+    /// struct Pos(f32);
+    /// let mut world = World::new();
+    /// world.spawn_batch((0..10_000).map(|i| (Pos(i as f32),)));
+    ///
+    /// let mut doubled = Vec::new();
+    /// world.query::<&Pos>().par_collect_into(&mut doubled, |p| p.0 * 2.0);
+    /// assert_eq!(doubled[1234], 2468.0);
+    /// ```
+    #[cfg(feature = "parallel")]
+    pub fn par_collect_into<R: Send>(&mut self, out: &mut Vec<R>, f: impl Fn(Q::Item<'_>) -> R + Send + Sync) {
+        /// `out`'s buffer, shared with worker threads.
+        struct Slots<R>(*mut R);
+        impl<R> Clone for Slots<R> {
+            fn clone(&self) -> Self {
+                *self
+            }
+        }
+        impl<R> Copy for Slots<R> {}
+        impl<R> Slots<R> {
+            /// A method, so closures capture the whole `Slots` (which is
+            /// `Sync`), not its raw pointer field.
+            fn at(self, i: usize) -> *mut R {
+                // SAFETY (of callers): `i` is within the reserved capacity.
+                self.0.wrapping_add(i)
+            }
+        }
+        // SAFETY: each query index is written by exactly one task.
+        unsafe impl<R: Send> Send for Slots<R> {}
+        unsafe impl<R: Send> Sync for Slots<R> {}
+
+        out.clear();
+        let n = self.count();
+        out.reserve(n);
+        let slots = Slots(out.as_mut_ptr());
+        self.par_for_each_indexed(|i, item| {
+            debug_assert!(i < n);
+            // SAFETY: `i < n <= capacity`, and every index in `0..n` is
+            // visited exactly once, so no slot is written twice.
+            unsafe { slots.at(i).write(f(item)) };
+        });
+        // SAFETY: all `n` slots were written above. (If `f` panicked we
+        // never get here: the written values leak, nothing is read.)
+        unsafe { out.set_len(n) };
+    }
+
     /// An iterator over matching entities, for `map`/`filter`/`sum` and friends.
     ///
     /// Convenient, but several times slower than [`for_each`](Self::for_each)

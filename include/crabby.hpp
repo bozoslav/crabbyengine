@@ -47,6 +47,7 @@ using vec2 = CrabbyVec2;
 using color = CrabbyColor;
 using texture = CrabbyTexture;
 using transform2d = CrabbyTransform2D;
+using attached = CrabbyAttached;
 using sprite = CrabbySprite;
 using camera = CrabbyCamera;
 using draw_params = CrabbyDrawParams;
@@ -77,6 +78,8 @@ inline vec2 rem_euclid(vec2 v, vec2 m) {
 }
 /// The id other calls take, from an entity in a query chunk.
 inline entity bits(CrabbyEntity e) { return crabby_entity_bits(e); }
+/// The entity struct (as in query chunks and crabby::attached) for an id.
+inline CrabbyEntity entity_of(entity e) { return {static_cast<std::uint32_t>(e), static_cast<std::uint32_t>(e >> 32)}; }
 
 inline color rgb(float r, float g, float b) { return {r, g, b, 1}; }
 inline color rgba(float r, float g, float b, float a) { return {r, g, b, a}; }
@@ -84,6 +87,9 @@ namespace colors {
 constexpr color white{1, 1, 1, 1}, black{0, 0, 0, 1}, gray{.5f, .5f, .5f, 1}, red{1, 0, 0, 1},
     green{0, 1, 0, 1}, blue{0, 0, 1, 1}, yellow{1, 1, 0, 1}, transparent{0, 0, 0, 0}, crabby_dark{.11f, .12f, .15f, 1};
 }
+/// Follows `to` at `offset` (in its space: turned by its rotation, stretched
+/// by its scale), turned `rotation` more. Needs game::follow_attachments().
+inline attached attach_to(entity to, vec2 offset = {0, 0}, float rotation = 0) { return {entity_of(to), offset, rotation}; }
 /// A transform at `position`, no rotation, scale 1.
 inline transform2d transform_at(vec2 position, float rotation = 0, vec2 scale = {1, 1}) { return {position, rotation, scale}; }
 /// A sprite showing all of `t`, centered, white, z 0.
@@ -244,6 +250,10 @@ template<class... Ts> class chunk {
 public:
     explicit chunk(const CrabbyChunk* raw) : raw_(raw) {}
     std::size_t size() const noexcept { return raw_->count; }
+    /// Where row 0 is in the whole query (rows are numbered 0..count() in the
+    /// same order every time): row `i` of a query_par chunk can fill slot
+    /// `first() + i` of a buffer sized with world::count().
+    std::size_t first() const noexcept { return raw_->first; }
     template<std::size_t I> auto column() const noexcept {
         using T = typename std::tuple_element<I, std::tuple<Ts...>>::type;
         return static_cast<T*>(raw_->columns[I]);
@@ -361,6 +371,12 @@ public:
         detail::check(crabby_transform_component(raw_, &result));
         return token<transform2d>(result);
     }
+    /// The built-in Attached component (crabby::attached, see attach_to).
+    crabby::component<attached> attachments() {
+        valid(); std::uint32_t result = 0;
+        detail::check(crabby_attached_component(raw_, &result));
+        return token<attached>(result);
+    }
     /// The built-in Sprite component (get/set/spawn only, not a query column).
     crabby::component<sprite> sprites() {
         valid(); std::uint32_t result = 0;
@@ -403,6 +419,12 @@ public:
     /// only touch its own chunk (plus ctx::dt/random and spatial queries).
     template<class F, class... Ts> void query_par(F&& fn, const crabby::component<Ts>&... tokens) {
         run_query(crabby_query_par, std::forward<F>(fn), tokens...);
+    }
+    /// How many entities have all of these components.
+    template<class... Ts> std::size_t count(const crabby::component<Ts>&... tokens) {
+        std::size_t n = 0;
+        query([&](auto chunk) { n += chunk.size(); }, tokens...);
+        return n;
     }
     /// Reorders Transform2D entities so that neighbors are close in memory.
     void sort_spatial(float cell_size) { valid(); detail::check(crabby_world_sort_spatial(raw_, cell_size)); }
@@ -826,6 +848,10 @@ public:
     game& hot_reload(bool on) { return check(crabby_game_hot_reload(raw_, on)); }
     /// The built-in camera controls: right/middle drag pans, the wheel zooms.
     game& camera_controls() { return check(crabby_game_camera_controls(raw_)); }
+    /// Adds the built-in system that moves attached entities next to the
+    /// entity they follow (and despawns them when it's gone). Add it after
+    /// the sim systems that move things.
+    game& follow_attachments() { return check(crabby_game_follow_attachments(raw_)); }
     /// A system on the fixed simulation tick; `every` > 1 runs it every n ticks.
     template<class F> game& sim_system(F fn, const char* name = nullptr, std::uint32_t every = 1) {
         return check(crabby_game_sim_system(raw_, name, every, trampoline, keep(std::move(fn))));

@@ -68,8 +68,8 @@ with the army, so the crowd density stays the same.
 | Units | Map (cells) | ms per tick |
 |---|---|---|
 | 20k | 400 × 225 | 0.57 |
-| 200k | 1264 × 711 | 4.4 |
-| 1M | 2828 × 1590 | 20.8 |
+| 200k | 1264 × 711 | 4.0 |
+| 1M | 2828 × 1590 | 18.9 |
 
 With a window, 20k units run at the display's 120 FPS with 1.2 ms of
 simulation per frame.
@@ -83,6 +83,18 @@ How it stays fast, in case your game needs the same tricks:
 - The four grids are rebuilt at the same time (`rayon::scope`).
 - Once a second, units are sorted by `spatial_key`, so neighbors on the
   map are neighbors in memory.
+
+## Events and attachments
+
+`cargo run --release -p crabby_bench -- events` and `-- attach`:
+
+| What | Per tick |
+|---|---|
+| 100k [events](events.md) sent, read by another system and dropped | 0.42 ms (4.2 ns per event) |
+| 100k [attachments](attachments.md) following 100k moving entities | 0.66 ms |
+
+Both allocate nothing once running: events reuse their buffers, and
+attachments are placed in parallel into scratch kept between ticks.
 
 ## Rendering a million sprites
 
@@ -161,7 +173,8 @@ component set costs. Agents get both from the control endpoint's
 ## C++
 
 The [battle demo in C++](c-cpp.md#speed) runs at the same speed as the Rust
-one: 21.04 against 20.99 ms/tick for a million units.
+one for 20k units (0.57 ms/tick) and 6% slower for a million (19.97 against
+18.85 ms/tick).
 [C++ boids](c-cpp.md#speed) run 1M boids at 34.5 ms/tick headless, against
 31.3 ms/tick for the Rust version; plain column updates are the same speed in
 both (about 0.15 ms per million).

@@ -522,8 +522,38 @@ static void crowds_reach_the_goal() {
     }
 }
 
+// ---- Attachments -----------------------------------------------------------------
+// ANCHOR: attach
+struct Tank { float speed; };
+
+static void turrets_ride_on_tanks() {
+    crabby::component<Tank> tanks;
+    crabby::entity turret = 0;
+    auto world = crabby::game("tanks", 800, 600)
+        .sim_system([&](crabby::ctx& ctx) {
+            auto transforms = ctx.world().transforms();
+            ctx.world().query([](auto chunk) {
+                auto t = chunk.template column<0>();
+                auto tank = chunk.template column<1>();
+                for (std::size_t i = 0; i < chunk.size(); ++i) t[i].position.x += tank[i].speed;
+            }, transforms, tanks);
+        }, "drive")
+        .follow_attachments() // after the systems that move things
+        .run_headless(10, [&](crabby::ctx& ctx) {
+            auto w = ctx.world();
+            tanks = w.component<Tank>("Tank");
+            const auto tank = w.spawn(w.transforms().with(crabby::transform_at({0, 0})), tanks.with(Tank{1}));
+            turret = w.spawn(w.transforms().with(crabby::transform_at({0, 0})),
+                             w.attachments().with(crabby::attach_to(tank, {0, -4})));
+        });
+    const auto at = world.get(turret, world.transforms()).position;
+    if (at != crabby::vec2{10, -4}) { std::fprintf(stderr, "turret at %f,%f\n", double(at.x), double(at.y)); std::abort(); }
+}
+// ANCHOR_END: attach
+
 int main() {
     things_fall_ten_units_per_second();
+    turrets_ride_on_tanks();
     crowds_reach_the_goal();
     the_dead_are_buried();
 

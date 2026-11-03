@@ -226,29 +226,25 @@ fn fight() -> impl FnMut(&mut Ctx) {
         SpatialGrid::new(PERSONAL_SPACE * 2.0),
     ];
     let mut far = [SpatialGrid::new(SIGHT), SpatialGrid::new(SIGHT)];
-    let mut positions: [Vec<(Entity, Vec2)>; 2] = Default::default();
+    let mut positions: Vec<(Entity, Vec2, Team)> = Vec::new();
     move |ctx: &mut Ctx| {
         let (dt, random, look) = (ctx.dt(), ctx.random(), ctx.turns(4));
         let crowding = ctx.sim_tick().is_multiple_of(2);
-        for p in &mut positions {
-            p.clear();
-        }
         ctx.world
             .query::<(Entity, &Transform2D, &Unit)>()
-            .for_each(|(e, t, u)| {
-                positions[u.team.index()].push((e, t.position));
-            });
+            .par_collect_into(&mut positions, |(e, t, u)| (e, t.position, u.team));
         // The four grids are independent: build them at the same time.
         let [near_red, near_blue] = &mut near;
         let [far_red, far_blue] = &mut far;
-        let [red, blue] = &positions;
+        let all = &positions;
+        let of = |team: Team| all.iter().filter(move |p| p.2 == team).map(|&(e, at, _)| (e, at));
         rayon::scope(|s| {
             if crowding {
-                s.spawn(|_| near_red.rebuild_from(red.iter().copied()));
-                s.spawn(|_| near_blue.rebuild_from(blue.iter().copied()));
+                s.spawn(|_| near_red.rebuild_from(of(Team::Red)));
+                s.spawn(|_| near_blue.rebuild_from(of(Team::Blue)));
             }
-            s.spawn(|_| far_red.rebuild_from(red.iter().copied()));
-            s.spawn(|_| far_blue.rebuild_from(blue.iter().copied()));
+            s.spawn(|_| far_red.rebuild_from(of(Team::Red)));
+            s.spawn(|_| far_blue.rebuild_from(of(Team::Blue)));
         });
         let over = ctx.world.resource::<Score>().winner.is_some();
         let battle = ctx.world.remove_resource::<Battle>().expect("battle");

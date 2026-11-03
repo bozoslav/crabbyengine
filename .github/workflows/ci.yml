@@ -88,6 +88,7 @@ jobs:
           - engine-control
           - engine-determinism
           - engine-flow
+          - engine-attach
           - engine-events
           - engine-without-window
           - engine-hot-reload
@@ -96,6 +97,7 @@ jobs:
           - ffi-abi
           - ffi-game
           - ffi-media
+          - ffi-attach
           - ffi-reflect
           - ffi-tiles
           - ffi-flow
@@ -120,6 +122,7 @@ jobs:
           - { area: engine-control, args: -p crabbyengine --test control }
           - { area: engine-determinism, args: -p crabbyengine --test determinism }
           - { area: engine-flow, args: -p crabbyengine --test flow }
+          - { area: engine-attach, args: -p crabbyengine --test attach }
           - { area: engine-events, args: -p crabbyengine --test events }
           - { area: engine-without-window, args: -p crabbyengine --tests --no-default-features --features audio }
           - { area: engine-hot-reload, args: -p crabbyengine --test hot_reload }
@@ -128,6 +131,7 @@ jobs:
           - { area: ffi-abi, args: -p crabby_ffi --test abi }
           - { area: ffi-game, args: -p crabby_ffi --test game }
           - { area: ffi-media, args: -p crabby_ffi --test media }
+          - { area: ffi-attach, args: -p crabby_ffi --test attach }
           - { area: ffi-reflect, args: -p crabby_ffi --test reflect }
           - { area: ffi-tiles, args: -p crabby_ffi --test tiles }
           - { area: ffi-flow, args: -p crabby_ffi --test flow }
