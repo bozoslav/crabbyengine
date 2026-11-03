@@ -90,7 +90,11 @@ A component's name is its type name without the module path:
 `my_game::units::Health` is `"Health"`. Reflecting two different types with
 the same short name panics and names both, so a name always means one type.
 
-`Transform2D` is reflected in every game already.
+`Transform2D`, `Sprite` and `Attached` are reflected in every game already.
+A sprite's texture is written as the name of its image in `assets/`
+(`"texture": "crab.png"`), and setting one loads the image. Sprites of
+textures made in code (`create_texture`) have no file to name, so they're
+left out of saves.
 
 ## The methods
 

@@ -175,7 +175,7 @@ fn games_reflect_the_builtin_components_by_default() {
     });
     let mut names = world.reflected_components();
     names.sort();
-    assert_eq!(names, ["Attached", "Transform2D"]);
+    assert_eq!(names, ["Attached", "Sprite", "Transform2D"]);
 }
 
 // -------------------------------------------------------------- save/load

@@ -15,6 +15,9 @@ says what that covers.
   file under `assets/`; `ctx.spawn_prefab`/`save_prefab` keep one entity's
   components and spawn copies where you say. In C (`crabby_ctx_load_scene`
   and friends) and C++ (`ctx.load_scene` and friends).
+- `Sprite` is reflected in every game, its texture written as the image's
+  name in `assets/` (`"texture": "crab.png"`); setting or loading one loads
+  the image. `Color` and `Rect` implement serde's traits.
 
 ## [1.0.0] - 2026-11-03
 

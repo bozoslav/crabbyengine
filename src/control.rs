@@ -602,19 +602,18 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
         }
         "entity.get" => ctx.world.entity_json(entity_param(params)?).map_err(err)?,
         "entity.spawn" => {
-            let e = ctx
-                .world
-                .spawn_json(param(params, "components")?.clone())
-                .map_err(err)?;
+            let components = param(params, "components")?.clone();
+            ctx.load_sprite_textures(&components)?;
+            let e = ctx.world.spawn_json(components).map_err(err)?;
             json!({ "entity": e.to_bits() })
         }
         "entity.despawn" => json!(ctx.world.despawn(entity_param(params)?)),
         "component.set" => {
             let e = entity_param(params)?;
             let name = str_param(params, "component")?;
-            ctx.world
-                .set_json(e, name, param(params, "value")?.clone())
-                .map_err(err)?;
+            let value = param(params, "value")?.clone();
+            ctx.load_sprite_textures(&json!({ name: &value }))?;
+            ctx.world.set_json(e, name, value).map_err(err)?;
             ctx.world.get_json(e, name).map_err(err)?
         }
         "component.remove" => {
@@ -660,6 +659,7 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
             let path = str_param(params, "path")?;
             let text = std::fs::read_to_string(path).map_err(|e| format!("could not read {path}: {e}"))?;
             let save: Value = serde_json::from_str(&text).map_err(|e| format!("{path} is not JSON: {e}"))?;
+            ctx.load_sprite_textures(&save)?;
             ctx.world.load(&save).map_err(err)?;
             json!({ "path": path, "entities": ctx.world.len() })
         }

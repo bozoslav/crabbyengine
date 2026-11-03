@@ -137,3 +137,59 @@ fn the_guide_beach_has_five_palms() {
     heights.sort_by(f32::total_cmp);
     assert_eq!(heights, [3.0, 4.0, 4.0, 4.0, 5.0]);
 }
+
+#[test]
+fn sprites_are_saved_by_their_image_name_and_load_it() {
+    let file = TempAsset("test-prefab-crab.json");
+    game().run_headless(0, |ctx| {
+        let crab = ctx.load_texture("crab.png");
+        let mut sprite = Sprite::new(crab);
+        sprite.z = 3.0;
+        let model = ctx.world.spawn((Transform2D::default(), sprite));
+        ctx.save_prefab(model, file.0).unwrap();
+    });
+    let text = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("assets")
+            .join(file.0),
+    )
+    .unwrap();
+    assert!(text.contains(r#""texture": "crab.png""#), "{text}");
+    // A new game hasn't loaded crab.png: spawning the prefab loads it.
+    game().run_headless(0, |ctx| {
+        let e = ctx.spawn_prefab(file.0, vec2(5.0, 5.0)).unwrap();
+        let sprite = *ctx.world.get::<Sprite>(e).unwrap();
+        assert_eq!(sprite.z, 3.0);
+        assert_eq!(sprite.texture, ctx.load_texture("crab.png"), "the same handle");
+    });
+}
+
+#[test]
+fn sprites_of_textures_made_in_code_are_left_out_of_saves() {
+    game().run_headless(0, |ctx| {
+        let made = ctx.create_texture(1, 1, &[255; 4]);
+        let e = ctx.world.spawn((Transform2D::default(), Sprite::new(made)));
+        let json = ctx.world.entity_json(e).unwrap();
+        assert!(
+            json.get("Transform2D").is_some() && json.get("Sprite").is_none(),
+            "{json}"
+        );
+    });
+}
+
+#[test]
+fn a_sprite_needs_an_image_that_exists() {
+    game().run_headless(0, |ctx| {
+        let e = ctx.world.spawn((Transform2D::default(),));
+        let missing = ctx
+            .world
+            .set_json(e, "Sprite", serde_json::json!({ "z": 1 }))
+            .unwrap_err();
+        assert!(missing.to_string().contains("needs \"texture\""), "{missing}");
+        let unloaded = ctx
+            .world
+            .set_json(e, "Sprite", serde_json::json!({ "texture": "crab.png" }))
+            .unwrap_err();
+        assert!(unloaded.to_string().contains("isn't loaded"), "{unloaded}");
+    });
+}

@@ -31,8 +31,9 @@ agents and your own code write them like any other file.
   The file is read once, then kept in memory, so spawning a thousand trees
   reads it once.
 - Only [reflected](reflection.md) components go in files: reflect your
-  types before loading or saving. `Transform2D` and the physics components
-  are reflected already.
+  types before loading or saving. `Transform2D`, `Sprite` and the physics
+  components are reflected already. A sprite names its image
+  (`"texture": "crab.png"`), and loading the scene or prefab loads it.
 - Errors say what's wrong and change nothing: a missing file lists the
   folders searched, and a component that isn't reflected is named.
 

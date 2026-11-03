@@ -130,7 +130,8 @@ static void scenes_and_prefabs() {
     auto w = crabby::game("scenes", 1, 1).run_headless(0, [&](crabby::ctx& ctx) {
         auto world = ctx.world();
         world.reflect<game::Health>({crabby::field("value", &game::Health::value)});
-        auto model = world.spawn(crabby::transform_at({70, 80}), game::Health{9});
+        // Sprites are saved by their image's name, and spawning loads it.
+        auto model = world.spawn(crabby::transform_at({70, 80}), game::Health{9}, crabby::sprite_of(ctx.load_texture("crab.png"), crabby::colors::white, 4));
         ctx.save_prefab(model, "test-cpp-prefab.json");
         world.despawn(model);
         for (float x : {0.0f, 10.0f}) palms.push_back(ctx.spawn_prefab("test-cpp-prefab.json", {x, 100}));
@@ -142,6 +143,7 @@ static void scenes_and_prefabs() {
     });
     CHECK(w.size() == 2);
     CHECK(w.get<crabby::transform2d>(palms[1]).position.x == 10 && w.get<game::Health>(palms[1]).value == 9);
+    CHECK(w.get<crabby::sprite>(palms[1]).z == 4);
     auto loaded = crabby::game("scenes", 1, 1).run_headless(0, [&](crabby::ctx& ctx) {
         ctx.world().reflect<game::Health>({crabby::field("value", &game::Health::value)});
         ctx.world().spawn(Tag{});   // replaced by the scene

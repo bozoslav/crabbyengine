@@ -320,7 +320,10 @@ impl Panels {
                 .default_open(true)
                 .show(ui, |ui| {
                     if edit_value(ui, &mut value) {
-                        self.error = ctx.world.set_json(e, &name, value).err().map(|e| e.to_string());
+                        let textures = ctx.load_sprite_textures(&serde_json::json!({ &name: &value }));
+                        self.error = textures
+                            .and_then(|()| ctx.world.set_json(e, &name, value).map_err(|e| e.to_string()))
+                            .err();
                     }
                     remove = ui.small_button("Remove").clicked();
                 });
