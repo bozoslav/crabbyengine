@@ -55,27 +55,32 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
         let ids = &mut *user.cast::<Ids>();
         let w = crabby_ctx_world(ctx);
         ids_of(w, ids);
+        // Every value is a named local: `value` keeps only a raw pointer, so a
+        // temporary would be gone before crabby_spawn reads it.
         let dynamic = crabby_rigid_body(CRABBY_BODY_DYNAMIC as u32);
         let fixed = crabby_rigid_body(CRABBY_BODY_FIXED as u32);
+        let (ball_at, ball_shape, still) = (at(0.0, 0.0), crabby_collider_circle(10.0), CrabbyVelocity::default());
         let ball = [
-            value(ids.transform, &at(0.0, 0.0)),
+            value(ids.transform, &ball_at),
             value(ids.body, &dynamic),
-            value(ids.collider, &crabby_collider_circle(10.0)),
-            value(ids.velocity, &CrabbyVelocity::default()),
+            value(ids.collider, &ball_shape),
+            value(ids.velocity, &still),
         ];
         assert_eq!(crabby_spawn(w, ball.as_ptr(), 4, &mut ids.ball), CRABBY_OK);
         let mut trigger = crabby_collider_rect(CrabbyVec2 { x: 80.0, y: 20.0 });
         trigger.sensor = true;
+        let sensor_at = at(0.0, 100.0);
         let sensor = [
-            value(ids.transform, &at(0.0, 100.0)),
+            value(ids.transform, &sensor_at),
             value(ids.body, &fixed),
             value(ids.collider, &trigger),
         ];
         assert_eq!(crabby_spawn(w, sensor.as_ptr(), 3, &mut ids.sensor), CRABBY_OK);
+        let (floor_at, floor_shape) = (at(0.0, 300.0), crabby_collider_rect(CrabbyVec2 { x: 400.0, y: 20.0 }));
         let floor = [
-            value(ids.transform, &at(0.0, 300.0)),
+            value(ids.transform, &floor_at),
             value(ids.body, &fixed),
-            value(ids.collider, &crabby_collider_rect(CrabbyVec2 { x: 400.0, y: 20.0 })),
+            value(ids.collider, &floor_shape),
         ];
         assert_eq!(crabby_spawn(w, floor.as_ptr(), 3, &mut ids.floor), CRABBY_OK);
     }
