@@ -692,8 +692,54 @@ static void the_beach_has_five_palms() {
     if (palms != 5) { std::fprintf(stderr, "%zu palms\n", palms); std::abort(); }
 }
 
+// ---- 3D -------------------------------------------------------------------------------
+// ANCHOR: three_d
+/// Turns around its own Y axis, this many radians a second.
+struct Spin { float speed; };
+
+static void village(crabby::ctx& ctx) {
+    auto grass_look = crabby::material_of(crabby::rgb(.37f, .55f, .29f));
+    grass_look.roughness = 0.9f;
+    auto grass = ctx.create_material(grass_look);
+    auto ground = ctx.create_mesh(crabby::mesh_data::plane(100), grass);
+    ctx.world().spawn(crabby::transform3d_at({0, 0, 0}), crabby::model_of(ground));
+
+    auto house = ctx.load_mesh("models/house.glb");   // its walls and roof keep their materials
+    for (int i = 0; i < 5; ++i) {
+        crabby::vec3 at{float(i) * 4 - 8, 0, -6};
+        ctx.world().spawn(crabby::transform3d_at(at), crabby::model_of(house), Spin{0.5f});
+    }
+
+    auto camera = ctx.camera3d();
+    camera.position = {0, 6, 12};
+    ctx.set_camera3d(camera);
+    ctx.camera3d_look_at({0, 0, -4});
+    auto light = ctx.lighting();
+    light.sun_direction = {-0.8f, -0.6f, -0.4f};   // late afternoon: long shadows
+    ctx.set_lighting(light);
+}
+
+static void spin(crabby::ctx& ctx) {
+    const float dt = ctx.dt();
+    ctx.world().each([&](crabby::transform3d& t, const Spin& s) {
+        t.rotation *= crabby::quat_from_rotation_y(s.speed * dt);
+    });
+}
+// ANCHOR_END: three_d
+
+static void the_village_has_five_spinning_houses() {
+    auto world = crabby::game("guide", 640, 480).sim_system(spin, "spin").run_headless(60, village);
+    int houses = 0;
+    world.each([&](const crabby::transform3d& t, const Spin&) {
+        ++houses;
+        if (std::abs(t.rotation.y - std::sin(0.25f)) > 1e-3f) { std::fprintf(stderr, "rotation %f\n", t.rotation.y); std::abort(); }
+    });
+    if (houses != 5) { std::fprintf(stderr, "%d houses\n", houses); std::abort(); }
+}
+
 int main() {
     the_beach_has_five_palms();
+    the_village_has_five_spinning_houses();
     things_fall_ten_units_per_second();
     turrets_ride_on_tanks();
     crowds_reach_the_goal();

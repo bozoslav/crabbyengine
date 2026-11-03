@@ -40,7 +40,13 @@ impl Renderer {
         match *self {}
     }
     #[cfg(feature = "3d")]
-    pub fn prepare_3d(&mut self, _frame: &crate::three::Frame3D, _lighting: &crate::Lighting, _camera: glam::Vec3) {
+    pub fn prepare_3d(
+        &mut self,
+        _frame: &crate::three::Frame3D,
+        _lighting: &crate::Lighting,
+        _camera: glam::Vec3,
+        _collect_ms: f32,
+    ) {
         match *self {}
     }
     pub fn render(

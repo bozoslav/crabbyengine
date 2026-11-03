@@ -68,7 +68,8 @@ impl Ctx {
     /// ```no_run
     /// # use crabbyengine::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let ball = ctx.create_mesh(&MeshData::sphere(0.5, 32), ctx.default_material());
+    /// let white = ctx.default_material();
+    /// let ball = ctx.create_mesh(&MeshData::sphere(0.5, 32), white);
     /// # }
     /// ```
     pub fn default_material(&mut self) -> Material {
@@ -199,8 +200,10 @@ impl Ctx {
         if self.assets3d.bounds.is_empty() {
             return; // no meshes, no 3D pass
         }
+        let start = web_time::Instant::now();
         self.frame3d
             .collect(&mut self.world, &self.assets3d, &self.camera3d, &self.lighting);
-        renderer.prepare_3d(&self.frame3d, &self.lighting, self.camera3d.position);
+        let collect_ms = start.elapsed().as_secs_f32() * 1000.0;
+        renderer.prepare_3d(&self.frame3d, &self.lighting, self.camera3d.position, collect_ms);
     }
 }

@@ -46,6 +46,9 @@ pub(crate) struct Renderer {
     /// The 3D pass, made when the game first creates a mesh or material.
     #[cfg(feature = "3d")]
     three: Option<super::gpu3d::Renderer3D>,
+    /// Time spent collecting and uploading this frame's 3D models.
+    #[cfg(feature = "3d")]
+    prepare_3d_ms: f32,
     /// The last captured frame, waiting to be picked up.
     screenshot: Option<Screenshot>,
 
@@ -374,6 +377,8 @@ impl Renderer {
             stats: RenderStats::default(),
             #[cfg(feature = "3d")]
             three: None,
+            #[cfg(feature = "3d")]
+            prepare_3d_ms: 0.0,
             screenshot: None,
             #[cfg(feature = "inspector")]
             overlay: None,
@@ -423,12 +428,21 @@ impl Renderer {
     }
 
     /// Uploads the frame's 3D models, camera and light for the next `render`.
+    /// `collect_ms`: how long collecting the models took, counted in `cpu_ms`.
     #[cfg(feature = "3d")]
-    pub fn prepare_3d(&mut self, frame: &crate::three::Frame3D, lighting: &crate::Lighting, camera: glam::Vec3) {
+    pub fn prepare_3d(
+        &mut self,
+        frame: &crate::three::Frame3D,
+        lighting: &crate::Lighting,
+        camera: glam::Vec3,
+        collect_ms: f32,
+    ) {
+        let start = web_time::Instant::now();
         let size = (self.config.width, self.config.height);
         if let Some(three) = &mut self.three {
             three.prepare(&self.device, &self.queue, frame, lighting, camera, size);
         }
+        self.prepare_3d_ms = collect_ms + start.elapsed().as_secs_f32() * 1000.0;
     }
 
     pub fn max_texture_size(&self) -> u32 {
@@ -707,6 +721,10 @@ impl Renderer {
             self.stats.gpu_ms = timer.smoothed_ms;
         }
         self.stats.cpu_ms = cpu_start.elapsed().as_secs_f32() * 1000.0;
+        #[cfg(feature = "3d")]
+        {
+            self.stats.cpu_ms += std::mem::take(&mut self.prepare_3d_ms);
+        }
         if let Some(frame) = frame {
             self.window.pre_present_notify();
             self.queue.present(frame);

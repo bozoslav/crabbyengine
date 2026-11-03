@@ -230,7 +230,8 @@ impl MaterialDesc {
 /// ```no_run
 /// # use crabbyengine::*;
 /// # fn f(ctx: &mut Ctx) {
-/// let cube = ctx.create_mesh(&MeshData::cube(1.0), ctx.default_material());
+/// let white = ctx.default_material();
+/// let cube = ctx.create_mesh(&MeshData::cube(1.0), white);
 /// for i in 0..10 {
 ///     let tint = Color::rgb(i as f32 / 10.0, 0.5, 1.0);
 ///     ctx.world.spawn((Transform3D::at(vec3(i as f32 * 2.0, 0.0, 0.0)), Model::new(cube).with_color(tint)));
