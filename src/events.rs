@@ -110,6 +110,7 @@ impl Events {
 
     /// Every `T` event still kept, read or not, oldest first. Doesn't move
     /// this system's read position.
+    #[must_use]
     pub fn peek<T: 'static>(&self) -> &[T] {
         match self.by_key.get(&Key::Type(TypeId::of::<T>())) {
             Some(&i) => {

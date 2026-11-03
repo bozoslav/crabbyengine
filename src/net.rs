@@ -237,6 +237,7 @@ impl Net {
     /// let nets = Net::loopback(2);
     /// assert_eq!(nets.len(), 2);
     /// ```
+    #[must_use]
     pub fn loopback(players: usize) -> Vec<Net> {
         Self::loopback_lossy(players, 0)
     }
@@ -244,6 +245,7 @@ impl Net {
     /// Like [`loopback`](Self::loopback), dropping one packet in `drop_one_in`
     /// (0: none), to test that games survive loss.
     #[doc(hidden)]
+    #[must_use]
     pub fn loopback_lossy(players: usize, drop_one_in: u32) -> Vec<Net> {
         assert!((2..=MAX_PLAYERS).contains(&players), "2 to 8 players");
         let (txs, rxs): (Vec<_>, Vec<_>) = (0..players).map(|_| mpsc::channel()).unzip();
@@ -327,23 +329,28 @@ impl Net {
     }
 
     /// The address this side listens on (`None` offline).
+    #[must_use]
     pub fn local_addr(&self) -> Option<SocketAddr> {
         self.session.as_ref().map(|s| s.transport.local_addr())
     }
 
     /// Which player this is: 0 is the host (and the offline player).
+    #[must_use]
     pub fn player(&self) -> usize {
         self.player
     }
     /// How many players there are (0 while joining).
+    #[must_use]
     pub fn players(&self) -> usize {
         self.players
     }
     /// Where the session is.
+    #[must_use]
     pub fn state(&self) -> NetState {
         self.state
     }
     /// Why the session was lost, if it was.
+    #[must_use]
     pub fn error(&self) -> Option<&str> {
         self.error.as_deref()
     }
@@ -352,6 +359,7 @@ impl Net {
         self.session.as_ref().map_or_else(NetStats::default, |s| s.stats)
     }
     /// The first desync found, if any.
+    #[must_use]
     pub fn desync(&self) -> Option<&Desync> {
         self.desync.as_ref()
     }
@@ -386,6 +394,7 @@ impl Net {
 
     /// `player`'s input for the current tick, or `None` if they sent none
     /// (or it isn't a `T`). Read it in simulation systems.
+    #[must_use]
     pub fn input<T: DeserializeOwned>(&self, player: usize) -> Option<T> {
         let bytes = self.input_bytes(player);
         if bytes.is_empty() {

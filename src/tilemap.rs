@@ -46,6 +46,7 @@ impl TileMap {
     pub const EMPTY: u16 = u16::MAX;
 
     /// An empty `width` × `height` map using `sheet`'s frames as tiles.
+    #[must_use]
     pub fn new(sheet: SpriteSheet, width: u32, height: u32) -> Self {
         Self {
             sheet,
@@ -81,6 +82,7 @@ impl TileMap {
     /// let solid = map.get(10, 2).is_some();
     /// # }
     /// ```
+    #[must_use]
     pub fn get(&self, x: u32, y: u32) -> Option<u16> {
         if x >= self.size.x || y >= self.size.y {
             return None;
@@ -100,6 +102,7 @@ impl TileMap {
     /// }
     /// # }
     /// ```
+    #[must_use]
     pub fn tile_at(&self, origin: Vec2, world: Vec2) -> Option<UVec2> {
         let t = ((world - origin) / self.tile_size).floor();
         (t.x >= 0.0 && t.y >= 0.0 && t.x < self.size.x as f32 && t.y < self.size.y as f32)

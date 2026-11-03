@@ -61,6 +61,7 @@ const OCCLUDED_POLL: Duration = Duration::from_millis(100);
 ///     ctx.world.spawn((Transform2D::at(vec2(100.0, 100.0)), Sprite::new(crab), Vel(vec2(50.0, 0.0))));
 /// });
 /// ```
+#[must_use = "a Game does nothing until `.run()` or `.run_headless()`"]
 pub struct Game {
     title: String,
     width: u32,

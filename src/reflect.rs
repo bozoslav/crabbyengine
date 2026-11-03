@@ -229,6 +229,7 @@ pub enum FieldType {
 
 impl FieldType {
     /// Bytes the field takes.
+    #[must_use]
     pub fn size(self) -> usize {
         match self {
             Self::I8 | Self::U8 | Self::Bool => 1,

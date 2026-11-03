@@ -219,6 +219,7 @@ impl Filters {
 /// let moved = world.query::<&Pos>().iter().filter(|p| p.0 > 0.0).count();
 /// assert_eq!(moved, 1);
 /// ```
+#[must_use = "a query does nothing until iterated"]
 pub struct Query<'w, Q: QueryData> {
     world: &'w mut World,
     ids: Q::Ids,

@@ -27,11 +27,13 @@ pub struct Chunk<'a> {
 
 impl Chunk<'_> {
     /// Number of entities (rows) in the chunk.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.entities.len()
     }
 
     /// `true` if the chunk has no rows (never true for chunks passed to callbacks).
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.entities.is_empty()
     }
@@ -123,6 +125,7 @@ impl Default for World {
 
 impl World {
     /// An empty world.
+    #[must_use]
     pub fn new() -> Self {
         let mut w = World {
             infos: Vec::new(),
@@ -283,16 +286,19 @@ impl World {
     }
 
     /// `true` if `e` hasn't been despawned.
+    #[must_use]
     pub fn is_alive(&self, e: Entity) -> bool {
         self.entities.get(e).is_some()
     }
 
     /// Number of live entities.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.entities.len()
     }
 
     /// `true` if there are no live entities.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -300,6 +306,7 @@ impl World {
     // ---- single-entity access -----------------------------------------------
 
     /// Component `T` of entity `e`, or `None` if `e` is dead or doesn't have one.
+    #[must_use]
     pub fn get<T: Component>(&self, e: Entity) -> Option<&T> {
         let ptr = self.get_dynamic(e, self.component_id::<T>()?)?;
         Some(unsafe { &*ptr.cast::<T>() })
@@ -312,6 +319,7 @@ impl World {
     }
 
     /// `true` if `e` is alive and has component `T`.
+    #[must_use]
     pub fn has<T: Component>(&self, e: Entity) -> bool {
         self.component_id::<T>()
             .is_some_and(|id| self.get_dynamic(e, id).is_some())
@@ -412,6 +420,7 @@ impl World {
     /// # Panics
     /// If there is none; use [`get_resource`](Self::get_resource) to check.
     #[track_caller]
+    #[must_use]
     pub fn resource<R: Send + Sync + 'static>(&self) -> &R {
         self.get_resource().unwrap_or_else(|| missing_resource::<R>())
     }
@@ -423,6 +432,7 @@ impl World {
     }
 
     /// The resource of type `R`, if there is one.
+    #[must_use]
     pub fn get_resource<R: Send + Sync + 'static>(&self) -> Option<&R> {
         self.resources
             .get(&TypeId::of::<R>())
@@ -481,11 +491,13 @@ impl World {
     /// Pointer to resource `name` (one stored with
     /// [`insert_resource_dynamic`](Self::insert_resource_dynamic)), or `None`.
     /// It stays valid until the resource is replaced or removed.
+    #[must_use]
     pub fn get_resource_dynamic(&self, name: &str) -> Option<*mut u8> {
         self.dynamic_resources.get(name).map(|r| r.ptr.as_ptr())
     }
 
     /// The size and alignment of resource `name`, if it exists.
+    #[must_use]
     pub fn resource_layout_dynamic(&self, name: &str) -> Option<Layout> {
         self.dynamic_resources.get(name).map(|r| r.layout)
     }
@@ -566,11 +578,13 @@ impl World {
 
     /// The id of Rust component `T`, if it has been used in this world.
     #[inline]
+    #[must_use]
     pub fn component_id<T: Component>(&self) -> Option<ComponentId> {
         self.by_type.get(&TypeId::of::<T>()).copied()
     }
 
     /// Looks a component up by name (registered name, or Rust type name).
+    #[must_use]
     pub fn component_by_name(&self, name: &str) -> Option<ComponentId> {
         self.by_name.get(name).copied()
     }
@@ -584,6 +598,7 @@ impl World {
     /// assert_eq!(world.component_at(id.index()), Some(id));
     /// assert_eq!(world.component_at(99), None);
     /// ```
+    #[must_use]
     pub fn component_at(&self, index: usize) -> Option<ComponentId> {
         (index < self.infos.len()).then_some(ComponentId(index as u32))
     }
@@ -592,16 +607,19 @@ impl World {
     ///
     /// # Panics
     /// If `id` came from a different world.
+    #[must_use]
     pub fn component_info(&self, id: ComponentId) -> &ComponentInfo {
         &self.infos[id.index()]
     }
 
     /// Every component type registered so far, indexed by [`ComponentId::index`].
+    #[must_use]
     pub fn components(&self) -> &[ComponentInfo] {
         &self.infos
     }
 
     /// The archetype tables, for tools such as the inspector.
+    #[must_use]
     pub fn archetypes(&self) -> &[Archetype] {
         &self.archetypes
     }
@@ -622,12 +640,14 @@ impl World {
     /// world.despawn(e);
     /// assert!(world.components_of(e).is_none());
     /// ```
+    #[must_use]
     pub fn components_of(&self, e: Entity) -> Option<&[ComponentId]> {
         let loc = self.entities.get(e)?;
         Some(self.archetypes[loc.archetype as usize].component_ids())
     }
 
     /// Pointer to component `id` of entity `e`, or `None`.
+    #[must_use]
     pub fn get_dynamic(&self, e: Entity, id: ComponentId) -> Option<*mut u8> {
         let loc = self.entities.get(e)?;
         let arch = &self.archetypes[loc.archetype as usize];

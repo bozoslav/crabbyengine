@@ -120,6 +120,7 @@ impl SpatialGrid {
     /// # Panics
     /// If `cell_size` isn't a positive, finite number.
     #[track_caller]
+    #[must_use]
     pub fn new(cell_size: f32) -> Self {
         Self::with_data(cell_size)
     }
@@ -154,6 +155,7 @@ impl<T: Copy + Send + Sync> SpatialGrid<T> {
     /// # Panics
     /// If `cell_size` isn't a positive, finite number.
     #[track_caller]
+    #[must_use]
     pub fn with_data(cell_size: f32) -> Self {
         assert!(
             cell_size.is_finite() && cell_size > 0.0,
@@ -174,21 +176,25 @@ impl<T: Copy + Send + Sync> SpatialGrid<T> {
     }
 
     /// Side length of one cell.
+    #[must_use]
     pub fn cell_size(&self) -> f32 {
         self.cell_size
     }
 
     /// Number of indexed entities.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
     /// `true` if nothing is indexed.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
     /// Every indexed entity, grouped by cell.
+    #[must_use]
     pub fn entries(&self) -> &[GridEntry<T>] {
         &self.entries
     }
@@ -274,6 +280,7 @@ impl<T: Copy + Send + Sync> SpatialGrid<T> {
     /// The grid's arrays, for language bindings that walk the grid inline
     /// (the C++ header). Valid until the next rebuild.
     #[doc(hidden)]
+    #[must_use]
     pub fn raw_view(&self) -> RawGridView<'_, T> {
         RawGridView {
             entries: &self.entries,
@@ -336,6 +343,7 @@ impl<T: Copy + Send + Sync> SpatialGrid<T> {
     }
 
     /// Number of entities within `radius` of `center`.
+    #[must_use]
     pub fn count_in_radius(&self, center: Vec2, radius: f32) -> usize {
         let mut n = 0;
         self.for_each_in_radius(center, radius, |_| n += 1);
@@ -384,6 +392,7 @@ fn cell_of(p: Vec2, inv_cell: f32) -> (i32, i32) {
 /// ctx.world.sort_by::<Transform2D>(|t| spatial_key(t.position, 32.0));
 /// # }
 /// ```
+#[must_use]
 pub fn spatial_key(position: Vec2, cell_size: f32) -> u64 {
     let (cx, cy) = cell_of(position, 1.0 / cell_size);
     // Shift to unsigned so negative cells order correctly, then interleave bits.

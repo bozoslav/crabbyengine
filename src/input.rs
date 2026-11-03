@@ -187,6 +187,7 @@ impl Gamepad {
     /// }
     /// # }
     /// ```
+    #[must_use]
     pub fn slot(self) -> usize {
         usize::from(self.0)
     }
@@ -201,6 +202,7 @@ impl Gamepad {
     /// assert_eq!(player_two.slot(), 1);
     /// assert_eq!(Gamepad::from_slot(MAX_GAMEPADS), None);
     /// ```
+    #[must_use]
     pub fn from_slot(slot: usize) -> Option<Gamepad> {
         (slot < MAX_GAMEPADS).then_some(Gamepad(slot as u8))
     }

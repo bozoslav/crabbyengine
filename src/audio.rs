@@ -27,6 +27,7 @@ impl Sound {
     /// println!("{:.1} s", sound.seconds());
     /// # }
     /// ```
+    #[must_use]
     pub fn seconds(&self) -> f32 {
         self.seconds
     }

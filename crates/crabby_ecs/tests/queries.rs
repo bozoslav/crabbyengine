@@ -89,7 +89,7 @@ fn query_get_single_entity() {
 #[should_panic(expected = "twice")]
 fn aliasing_query_panics() {
     let mut w = World::new();
-    w.query::<(&mut Pos, &Pos)>();
+    let _ = w.query::<(&mut Pos, &Pos)>();
 }
 
 #[test]

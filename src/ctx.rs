@@ -1594,6 +1594,7 @@ impl Turns {
     /// # }
     /// ```
     #[inline]
+    #[must_use]
     pub fn includes(self, entity: crabby_ecs::Entity) -> bool {
         entity.index() % self.every == self.now
     }
@@ -1607,6 +1608,7 @@ impl Turns {
     /// assert_eq!(turn.dt(), ctx.dt() * 4.0);
     /// # }
     /// ```
+    #[must_use]
     pub fn dt(self) -> f32 {
         self.dt
     }

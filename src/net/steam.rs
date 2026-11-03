@@ -173,6 +173,7 @@ impl Net {
     ///     .lockstep(Net::steam_host(&client, 2))
     ///     .run(|_| {});
     /// ```
+    #[must_use]
     pub fn steam_host(client: &Client, players: usize) -> Net {
         assert!((2..=super::MAX_PLAYERS).contains(&players), "2 to 8 players");
         let steam = Steam::new(client, true);
@@ -202,6 +203,7 @@ impl Net {
     /// };
     /// Game::new("RTS", 1280, 720).lockstep(net).run(|_| {});
     /// ```
+    #[must_use]
     pub fn steam_join(client: &Client, lobby: LobbyId) -> Net {
         let steam = Steam::new(client, false);
         let joined = steam.lobby.clone();
@@ -217,6 +219,7 @@ impl Net {
 
     /// The Steam lobby of this session, once created or joined (`None`
     /// for other sessions).
+    #[must_use]
     pub fn steam_lobby(&self) -> Option<LobbyId> {
         self.session.as_ref()?.transport.steam()?.1
     }
@@ -258,6 +261,7 @@ pub fn steam_lobby_from_args() -> Option<LobbyId> {
 ///     Game::new("RTS", 1280, 720).lockstep(Net::steam_join(&client, lobby)).run(|_| {});
 /// }
 /// ```
+#[must_use]
 pub fn steam_wait_for_invite(client: &Client, timeout: std::time::Duration) -> Option<LobbyId> {
     let accepted = Arc::new(Mutex::new(None));
     let seen = accepted.clone();

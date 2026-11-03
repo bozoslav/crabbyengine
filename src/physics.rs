@@ -61,6 +61,7 @@ impl Default for RigidBody {
 
 impl RigidBody {
     /// A body moved by gravity and collisions.
+    #[must_use]
     pub const fn dynamic() -> Self {
         Self {
             kind: BodyKind::Dynamic,
@@ -72,6 +73,7 @@ impl RigidBody {
         }
     }
     /// A body that never moves.
+    #[must_use]
     pub const fn fixed() -> Self {
         Self {
             kind: BodyKind::Fixed,
@@ -79,6 +81,7 @@ impl RigidBody {
         }
     }
     /// A body only you move.
+    #[must_use]
     pub const fn kinematic() -> Self {
         Self {
             kind: BodyKind::Kinematic,
@@ -141,14 +144,17 @@ impl Collider {
         }
     }
     /// A circle.
+    #[must_use]
     pub fn circle(radius: f32) -> Self {
         Self::of(Shape::Circle { radius })
     }
     /// A rectangle `size` wide and high.
+    #[must_use]
     pub fn rect(size: Vec2) -> Self {
         Self::of(Shape::Rect { size })
     }
     /// A vertical capsule (good for characters).
+    #[must_use]
     pub fn capsule(height: f32, radius: f32) -> Self {
         Self::of(Shape::Capsule { height, radius })
     }
@@ -197,6 +203,7 @@ pub struct Velocity {
 
 impl Velocity {
     /// Moving at `linear`, not spinning.
+    #[must_use]
     pub const fn linear(linear: Vec2) -> Self {
         Self { linear, angular: 0.0 }
     }
@@ -276,6 +283,7 @@ fn from_rp(v: rp::Vector) -> Vec2 {
 impl Physics {
     /// Physics pulling everything by `gravity` (pixels/s²; y is down, so
     /// `vec2(0.0, 980.0)` falls).
+    #[must_use]
     pub fn new(gravity: Vec2) -> Self {
         let (collision_tx, collisions) = mpsc::channel();
         let (force_tx, forces) = mpsc::channel();

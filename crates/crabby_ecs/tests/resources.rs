@@ -19,7 +19,7 @@ fn resources() {
 #[should_panic(expected = "insert_resource")]
 fn missing_resource_panics_helpfully() {
     struct Missing;
-    World::new().resource::<Missing>();
+    let _ = World::new().resource::<Missing>();
 }
 
 #[test]
