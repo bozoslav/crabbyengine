@@ -86,6 +86,11 @@ using material = CrabbyMaterial;
 using material_desc = CrabbyMaterialDesc;
 using camera3d = CrabbyCamera3D;
 using lighting = CrabbyLighting;
+/// Post-processing of the 3D frame (Rust `Post`); read and change it with
+/// ctx::post / ctx::set_post. tonemap: see crabby::tonemap.
+using post = CrabbyPost;
+/// How HDR light maps to the screen (`post::tonemap`).
+enum class tonemap : uint32_t { aces = 0, agx = 1, neutral = 2, none = 3 };
 using draw_params = CrabbyDrawParams;
 using grid_hit = CrabbyGridHit;
 using grid_item = CrabbyGridItem;
@@ -1152,6 +1157,10 @@ public:
     crabby::lighting lighting() const { crabby::lighting l{}; detail::check(crabby_ctx_lighting(raw_, &l)); return l; }
     /// Intensities and the shadow distance can't be negative.
     void set_lighting(const crabby::lighting& l) { detail::check(crabby_ctx_set_lighting(raw_, &l)); }
+    /// Exposure, bloom, color grading and tone mapping of the 3D frame.
+    crabby::post post() const { crabby::post p{}; detail::check(crabby_ctx_post(raw_, &p)); return p; }
+    /// Bloom, its threshold, contrast and saturation can't be negative.
+    void set_post(const crabby::post& p) { detail::check(crabby_ctx_set_post(raw_, &p)); }
     void save_screenshot(const char* path) { detail::check(crabby_ctx_save_screenshot(raw_, path)); }
     /// texture_filter::nearest keeps pixel art square.
     void set_texture_filter(texture t, texture_filter f) {

@@ -204,6 +204,12 @@ impl Ctx {
         self.frame3d
             .collect(&mut self.world, &self.assets3d, &self.camera3d, &self.lighting);
         let collect_ms = start.elapsed().as_secs_f32() * 1000.0;
-        renderer.prepare_3d(&self.frame3d, &self.lighting, self.camera3d.position, collect_ms);
+        renderer.prepare_3d(
+            &self.frame3d,
+            &self.lighting,
+            self.camera3d.position,
+            &self.post,
+            collect_ms,
+        );
     }
 }

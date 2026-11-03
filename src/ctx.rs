@@ -225,6 +225,18 @@ pub struct Ctx {
     /// ```
     #[cfg(feature = "3d")]
     pub lighting: crate::Lighting,
+    /// What happens to the lit 3D frame on its way to the screen (feature
+    /// `3d`): exposure, bloom, color grading, tone mapping.
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// ctx.post.bloom = 0.2;
+    /// ctx.post.vignette = 0.3;
+    /// # }
+    /// ```
+    #[cfg(feature = "3d")]
+    pub post: crate::Post,
     #[cfg(feature = "3d")]
     pub(crate) assets3d: crate::three::Assets3D,
     #[cfg(feature = "3d")]
@@ -310,6 +322,8 @@ impl Ctx {
             camera3d: crate::Camera3D::new(window_size),
             #[cfg(feature = "3d")]
             lighting: crate::Lighting::default(),
+            #[cfg(feature = "3d")]
+            post: crate::Post::default(),
             #[cfg(feature = "3d")]
             assets3d: Default::default(),
             #[cfg(feature = "3d")]

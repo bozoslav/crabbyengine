@@ -61,11 +61,14 @@ struct Bench {
     render_cpu_ms: f64,
     /// Frame time minus waiting for the display: the work.
     busy_ms: f64,
+    /// GPU time of the frame's passes.
+    gpu_ms: f64,
 }
 
 fn bench(ctx: &mut Ctx) {
     let now = std::time::Instant::now();
     let cpu = ctx.render_stats().cpu_ms as f64;
+    let gpu = ctx.render_stats().gpu_ms.unwrap_or(0.0) as f64;
     let wait = ctx.display_wait_ms() as f64;
     let b = ctx.world.resource_mut::<Bench>();
     let start = *b.start.get_or_insert(now);
@@ -77,21 +80,24 @@ fn bench(ctx: &mut Ctx) {
         b.frames += 1;
         b.frame_ms += now.duration_since(last).as_secs_f64() * 1000.0;
         b.render_cpu_ms += cpu;
+        b.gpu_ms += gpu;
         b.busy_ms += now.duration_since(last).as_secs_f64() * 1000.0 - wait;
     }
     let done = elapsed > 3.0 + b.seconds;
-    let (frames, frame_ms, render_cpu_ms, busy_ms) = (b.frames, b.frame_ms, b.render_cpu_ms, b.busy_ms);
+    let (frames, frame_ms, render_cpu_ms, busy_ms, gpu_ms) =
+        (b.frames, b.frame_ms, b.render_cpu_ms, b.busy_ms, b.gpu_ms);
     if first && let Ok(path) = std::env::var("BENCH_SHOT") {
         ctx.save_screenshot(path);
     }
     if done {
         let n = frames as f64;
         println!(
-            "{{\"engine\":\"crabby\",\"frames\":{frames},\"fps\":{:.3},\"frame_ms\":{:.3},\"render_cpu_ms\":{:.3},\"busy_ms\":{:.3}}}",
+            "{{\"engine\":\"crabby\",\"frames\":{frames},\"fps\":{:.3},\"frame_ms\":{:.3},\"render_cpu_ms\":{:.3},\"busy_ms\":{:.3},\"gpu_ms\":{:.3}}}",
             n / (frame_ms / 1000.0),
             frame_ms / n,
             render_cpu_ms / n,
-            busy_ms / n
+            busy_ms / n,
+            gpu_ms / n
         );
         ctx.quit();
     }
@@ -121,6 +127,7 @@ fn main() {
                 frame_ms: 0.0,
                 render_cpu_ms: 0.0,
                 busy_ms: 0.0,
+                gpu_ms: 0.0,
             });
         }
         ctx.world.insert_resource(Orbit {

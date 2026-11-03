@@ -4,7 +4,8 @@
 use std::ffi::c_char;
 
 use crabbyengine::{
-    Camera3D, Color, Lighting, Material, MaterialDesc, Mesh, MeshData, Model, Quat, Transform3D, Vec2, Vec3,
+    Camera3D, Color, Lighting, Material, MaterialDesc, Mesh, MeshData, Model, Post, Quat, Tonemap, Transform3D, Vec2,
+    Vec3,
 };
 
 use crate::ctx::{ctx_access, out, text};
@@ -173,6 +174,40 @@ pub struct CrabbyLighting {
     pub shadows: bool,
     /// How far from the camera shadows reach.
     pub shadow_distance: f32,
+}
+
+/// What happens to the lit 3D frame on its way to the screen (Rust
+/// `ctx.post`). `tonemap`: 0 ACES (default), 1 AgX, 2 Khronos PBR Neutral,
+/// 3 none. `lut` is used when `has_lut`.
+/// ```
+/// let mut p = std::mem::MaybeUninit::<crabby_ffi::CrabbyPost>::uninit();
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_post(std::ptr::null_mut(), p.as_mut_ptr()) } as u32, 1);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CrabbyPost {
+    /// Brightness in stops: +1 doubles the light.
+    pub exposure: f32,
+    /// How light maps to the screen (see above).
+    pub tonemap: u32,
+    /// How strongly bright light glows; 0 is off.
+    pub bloom: f32,
+    /// How bright light must be to glow (1 is white).
+    pub bloom_threshold: f32,
+    /// 1 keeps the contrast.
+    pub contrast: f32,
+    /// 1 keeps the colors, 0 is grey.
+    pub saturation: f32,
+    /// White balance, -1 (cool) to 1 (warm).
+    pub temperature: f32,
+    /// White balance, -1 (green) to 1 (magenta).
+    pub tint: f32,
+    /// How much the corners darken, 0 to 1.
+    pub vignette: f32,
+    /// Whether `lut` is used.
+    pub has_lut: bool,
+    /// A color lookup table: n squares of n x n pixels in a row.
+    pub lut: CrabbyTexture,
 }
 
 /// Triangles on the CPU (Rust `MeshData`), before `crabby_ctx_create_mesh`
@@ -838,6 +873,93 @@ pub unsafe extern "C" fn crabby_ctx_set_lighting(ctx: *mut CrabbyCtx, lighting: 
                 ambient_intensity: l.ambient_intensity,
                 shadows: l.shadows,
                 shadow_distance: l.shadow_distance,
+            };
+            Ok(())
+        })
+    })
+}
+
+/// Reads the 3D post-processing settings.
+/// # Safety
+/// `ctx` null or live; output writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_post(ctx: *mut CrabbyCtx, out_post: *mut CrabbyPost) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let p = &c.post;
+            out(
+                out_post,
+                CrabbyPost {
+                    exposure: p.exposure,
+                    tonemap: p.tonemap as u32,
+                    bloom: p.bloom,
+                    bloom_threshold: p.bloom_threshold,
+                    contrast: p.contrast,
+                    saturation: p.saturation,
+                    temperature: p.temperature,
+                    tint: p.tint,
+                    vignette: p.vignette,
+                    has_lut: p.lut.is_some(),
+                    lut: p.lut.map(texture_to_c).unwrap_or(CrabbyTexture {
+                        id: 0,
+                        width: 0,
+                        height: 0,
+                    }),
+                },
+            )
+        })
+    })
+}
+
+/// Changes the 3D post-processing settings. `tonemap` must be 0 to 3;
+/// bloom, its threshold, contrast and saturation can't be negative.
+/// # Safety
+/// `ctx` null or live; `post` valid.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_post(std::ptr::null_mut(), std::ptr::null()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_post(ctx: *mut CrabbyCtx, post: *const CrabbyPost) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let Some(&p) = post.as_ref() else {
+                return Err(invalid("post is null"));
+            };
+            let tonemap = match p.tonemap {
+                0 => Tonemap::Aces,
+                1 => Tonemap::AgX,
+                2 => Tonemap::Neutral,
+                3 => Tonemap::None,
+                _ => return Err(invalid("tonemap must be 0 to 3")),
+            };
+            let finite = [
+                p.exposure,
+                p.bloom,
+                p.bloom_threshold,
+                p.contrast,
+                p.saturation,
+                p.temperature,
+                p.tint,
+                p.vignette,
+            ]
+            .iter()
+            .all(|v| v.is_finite());
+            if !finite || p.bloom < 0.0 || p.bloom_threshold < 0.0 || p.contrast < 0.0 || p.saturation < 0.0 {
+                return Err(invalid("bloom, threshold, contrast and saturation can't be negative"));
+            }
+            c.post = Post {
+                exposure: p.exposure,
+                tonemap,
+                bloom: p.bloom,
+                bloom_threshold: p.bloom_threshold,
+                contrast: p.contrast,
+                saturation: p.saturation,
+                temperature: p.temperature,
+                tint: p.tint,
+                vignette: p.vignette,
+                lut: p.has_lut.then(|| texture_from_c(p.lut)),
             };
             Ok(())
         })

@@ -13,10 +13,13 @@ mod api;
 mod collect;
 mod gltf;
 mod mesh;
+mod post;
 
 pub(crate) use api::MaterialUniform;
 pub(crate) use collect::{Frame3D, Instance3D, SHADOW_MAP_SIZE};
 pub use mesh::MeshData;
+pub(crate) use post::PostUniform;
+pub use post::{Post, Tonemap};
 
 use glam::{Mat3, Mat4, Quat, Vec2, Vec3, Vec4};
 

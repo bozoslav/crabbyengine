@@ -1,7 +1,8 @@
 //! GPU frame timing with timestamp queries.
 //!
 //! Every timed pass writes a timestamp when it starts and when it ends; the
-//! frame's GPU time runs from the first pass's start to the last one's end.
+//! frame's GPU time runs from the earliest of them to the latest, so it
+//! includes any time the GPU idles between passes.
 //! The results come back through a small ring of readback buffers, so reading
 //! them never waits for the GPU: a frame's time shows up one to three frames
 //! later. If every buffer is still in flight, that frame isn't timed.
@@ -12,7 +13,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 
 const SLOTS: usize = 3;
 /// Most passes timed in one frame.
-const MAX_PASSES: u32 = 16;
+const MAX_PASSES: u32 = 32;
 const QUERIES: u32 = MAX_PASSES * 2;
 const BYTES: u64 = QUERIES as u64 * 8;
 const FREE: u8 = 0;
@@ -91,8 +92,13 @@ impl GpuTimer {
                 match slot.buffer.get_mapped_range(..) {
                     Ok(view) => {
                         let t: &[u64] = bytemuck::cast_slice(&view);
-                        let n = slot.written as usize;
-                        (n >= 2).then(|| t[n - 1].saturating_sub(t[0]))
+                        // From the earliest timestamp to the latest: passes
+                        // can overlap (tile-based GPUs start one before the
+                        // last ends), so their own times don't add up. Zero
+                        // marks a timestamp the GPU didn't write.
+                        let written = t[..slot.written as usize].iter().copied().filter(|&x| x != 0);
+                        let (first, last) = written.fold((u64::MAX, 0), |(lo, hi), x| (lo.min(x), hi.max(x)));
+                        (last > first).then(|| last - first)
                     }
                     Err(_) => None,
                 }

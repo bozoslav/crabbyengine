@@ -8,7 +8,10 @@
 //!    lights each pixel once, and later passes can read the depth;
 //! 3. **opaque**: lit models into an HDR (16-bit float) target, keeping only
 //!    the fragments the prepass found nearest;
-//! 4. **post**: maps the HDR light to the screen (tone mapping).
+//! 4. **bloom**: bright light is blurred through a chain of ever smaller
+//!    images and back up (skipped when bloom is off);
+//! 5. **post**: exposure, bloom, color grading and tone mapping, onto the
+//!    screen.
 //!
 //! Sprites and UI are drawn on top afterwards, without tone mapping.
 
@@ -19,7 +22,7 @@ use wgpu::util::DeviceExt;
 
 use super::gpu::GpuTexture;
 use super::timer::GpuTimer;
-use crate::three::{Frame3D, Instance3D, MaterialUniform, MeshData, SHADOW_MAP_SIZE, linear};
+use crate::three::{Frame3D, Instance3D, MaterialUniform, MeshData, PostUniform, SHADOW_MAP_SIZE, linear};
 use crate::{Lighting, Material};
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
@@ -69,6 +72,11 @@ struct GpuMaterial {
     texture: u32,
 }
 
+/// Most bloom steps: the smallest image is 1/128 of the screen.
+const BLOOM_MIPS: u32 = 7;
+/// How much each bloom step keeps of the wider glow below it.
+const BLOOM_SCATTER: f64 = 0.7;
+
 /// Window-sized targets.
 struct Targets {
     /// Multisampled HDR color, resolved into `hdr`.
@@ -76,9 +84,27 @@ struct Targets {
     hdr: wgpu::TextureView,
     /// Multisampled depth, written by the prepass.
     depth: wgpu::TextureView,
-    /// The post pass's input: `hdr`.
+    /// The post pass's input: `hdr` and the bloom.
     post: wgpu::BindGroup,
+    /// Bloom: render target of each mip, and the bind groups of its
+    /// steps: the first downsample (reading `hdr`), the other downsamples
+    /// (reading the mip above) and the upsamples (reading the mip below).
+    bloom_mips: Vec<wgpu::TextureView>,
+    bloom_prefilter: wgpu::BindGroup,
+    bloom_down: Vec<wgpu::BindGroup>,
+    bloom_up: Vec<wgpu::BindGroup>,
     size: (u32, u32),
+}
+
+/// What `Renderer3D::prepare` needs for a frame.
+pub(crate) struct Prepare3D<'a> {
+    pub frame: &'a Frame3D,
+    pub lighting: &'a Lighting,
+    pub camera: Vec3,
+    pub post: &'a crate::Post,
+    /// The lookup table's texture and its size, when there is one.
+    pub lut: Option<(u32, u32)>,
+    pub size: (u32, u32),
 }
 
 pub(crate) struct Renderer3D {
@@ -87,6 +113,16 @@ pub(crate) struct Renderer3D {
     shadow_pipeline: wgpu::RenderPipeline,
     post_pipeline: wgpu::RenderPipeline,
     post_layout: wgpu::BindGroupLayout,
+    bloom_prefilter: wgpu::RenderPipeline,
+    bloom_down: wgpu::RenderPipeline,
+    bloom_up: wgpu::RenderPipeline,
+    post_buffer: wgpu::Buffer,
+    linear_clamp: wgpu::Sampler,
+    /// Bound as the bloom input of the bloom steps themselves.
+    black: wgpu::TextureView,
+    /// This frame's lookup table texture (or white), and whether bloom runs.
+    lut: u32,
+    bloom: bool,
     frame_buffer: wgpu::Buffer,
     frame_bind_group: wgpu::BindGroup,
     /// The frame uniform alone, for the shadow pass (which can't also read
@@ -273,49 +309,130 @@ impl Renderer3D {
             cache: None,
         });
         let post_shader = device.create_shader_module(wgpu::include_wgsl!("post.wgsl"));
+        let texture_entry = |binding| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        };
         let post_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("3d post layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: false,
+            entries: &[
+                texture_entry(0),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
                 },
-                count: None,
-            }],
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    ..uniform_entry(wgpu::ShaderStages::FRAGMENT)
+                },
+                texture_entry(3),
+            ],
         });
         let post_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("3d post pipeline layout"),
+            bind_group_layouts: &[Some(&post_layout), Some(texture_layout)],
+            immediate_size: 0,
+        });
+        let bloom_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("3d bloom pipeline layout"),
             bind_group_layouts: &[Some(&post_layout)],
             immediate_size: 0,
         });
-        let post_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("3d post pipeline"),
-            layout: Some(&post_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &post_shader,
-                entry_point: Some("vs_full"),
-                compilation_options: Default::default(),
-                buffers: &[],
-            },
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &post_shader,
-                entry_point: Some("fs_tonemap"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
+        let full_screen = |label, layout, entry_point, format, blend| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(layout),
+                vertex: wgpu::VertexState {
+                    module: &post_shader,
+                    entry_point: Some("vs_full"),
+                    compilation_options: Default::default(),
+                    buffers: &[],
+                },
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &post_shader,
+                    entry_point: Some(entry_point),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format,
+                        blend,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let post_pipeline = full_screen("3d post pipeline", &post_pipeline_layout, "fs_tonemap", format, None);
+        let bloom_prefilter = full_screen(
+            "3d bloom prefilter",
+            &bloom_pipeline_layout,
+            "fs_bloom_prefilter",
+            HDR_FORMAT,
+            None,
+        );
+        let bloom_down = full_screen(
+            "3d bloom down",
+            &bloom_pipeline_layout,
+            "fs_bloom_down",
+            HDR_FORMAT,
+            None,
+        );
+        // Each upsample is blended over the mip's own downsample:
+        // lerp(mip, upsampled, scatter), the scatter set as blend constant.
+        let lerp = wgpu::BlendComponent {
+            src_factor: wgpu::BlendFactor::Constant,
+            dst_factor: wgpu::BlendFactor::OneMinusConstant,
+            operation: wgpu::BlendOperation::Add,
+        };
+        let bloom_up = full_screen(
+            "3d bloom up",
+            &bloom_pipeline_layout,
+            "fs_bloom_up",
+            HDR_FORMAT,
+            Some(wgpu::BlendState {
+                color: lerp,
+                alpha: lerp,
             }),
-            multiview_mask: None,
-            cache: None,
+        );
+        let post_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("3d post"),
+            size: size_of::<PostUniform>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
+        let linear_clamp = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("3d linear clamp"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let black = device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("3d black"),
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: HDR_FORMAT,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+            .create_view(&Default::default());
         let frame_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("3d frame"),
             size: size_of::<FrameUniform>() as u64,
@@ -377,6 +494,14 @@ impl Renderer3D {
             shadow_pipeline,
             post_pipeline,
             post_layout,
+            bloom_prefilter,
+            bloom_down,
+            bloom_up,
+            post_buffer,
+            linear_clamp,
+            black,
+            lut: white,
+            bloom: false,
             frame_buffer,
             frame_bind_group,
             shadow_bind_group,
@@ -451,16 +576,23 @@ impl Renderer3D {
         self.meshes.len() as u32 - 1
     }
 
-    /// Uploads this frame's instances, camera and light.
-    pub fn prepare(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        frame: &Frame3D,
-        lighting: &Lighting,
-        camera: Vec3,
-        size: (u32, u32),
-    ) {
+    /// Uploads this frame's instances, camera, light and post settings.
+    pub fn prepare(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, input: &Prepare3D<'_>) {
+        let &Prepare3D {
+            frame,
+            lighting,
+            camera,
+            post,
+            lut,
+            size,
+        } = input;
+        queue.write_buffer(
+            &self.post_buffer,
+            0,
+            bytemuck::bytes_of(&PostUniform::new(post, lut.map(|(_, n)| n))),
+        );
+        self.lut = lut.map_or(self.white, |(id, _)| id);
+        self.bloom = post.bloom > 0.0;
         self.runs.clear();
         self.runs.extend_from_slice(&frame.runs);
         self.shadow_runs.clear();
@@ -518,33 +650,90 @@ impl Renderer3D {
             };
             let none = wgpu::TextureUsages::empty();
             let hdr = target("3d hdr", HDR_FORMAT, 1, wgpu::TextureUsages::TEXTURE_BINDING);
-            let post = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("3d post"),
-                layout: &self.post_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&hdr),
-                }],
+            // Bloom starts at half size and halves until about 8 pixels.
+            let half = (size.0.div_ceil(2).max(1), size.1.div_ceil(2).max(1));
+            let mips = (32 - half.0.min(half.1).max(1).leading_zeros())
+                .saturating_sub(3)
+                .clamp(1, BLOOM_MIPS);
+            let bloom = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("3d bloom"),
+                size: wgpu::Extent3d {
+                    width: half.0,
+                    height: half.1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: mips,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: HDR_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
             });
+            let bloom_mips: Vec<wgpu::TextureView> = (0..mips)
+                .map(|mip| {
+                    bloom.create_view(&wgpu::TextureViewDescriptor {
+                        base_mip_level: mip,
+                        mip_level_count: Some(1),
+                        ..Default::default()
+                    })
+                })
+                .collect();
+            let group = |source: &wgpu::TextureView, bloom: &wgpu::TextureView| {
+                device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("3d post"),
+                    layout: &self.post_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(source),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(&self.linear_clamp),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: self.post_buffer.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::TextureView(bloom),
+                        },
+                    ],
+                })
+            };
+            let n = bloom_mips.len();
             self.targets = Some(Targets {
                 color: target("3d color", HDR_FORMAT, MSAA, none),
-                hdr,
                 depth: target("3d depth", DEPTH_FORMAT, MSAA, none),
-                post,
+                post: group(&hdr, &bloom_mips[0]),
+                bloom_prefilter: group(&hdr, &self.black),
+                bloom_down: (1..n).map(|i| group(&bloom_mips[i - 1], &self.black)).collect(),
+                bloom_up: (0..n - 1).map(|i| group(&bloom_mips[i + 1], &self.black)).collect(),
+                bloom_mips,
+                hdr,
                 size,
             });
         }
     }
 
     /// Draw calls the frame's models take: two per mesh part (depth
-    /// prepass and lit), one per mesh in the shadow map, and the post pass.
+    /// prepass and lit), one per mesh in the shadow map, the bloom steps and
+    /// the post pass.
     pub fn draw_calls(&self) -> usize {
         let parts: usize = self
             .runs
             .iter()
             .map(|&(mesh, _, _)| self.meshes[mesh as usize].parts.len())
             .sum();
-        parts * 2 + self.shadow_runs.len() + 1
+        parts * 2
+            + self.shadow_runs.len()
+            + 1
+            + if self.bloom {
+                self.targets.as_ref().map_or(0, |t| t.bloom_mips.len() * 2 - 1)
+            } else {
+                0
+            }
     }
 
     /// Whether this frame has anything to draw.
@@ -639,6 +828,63 @@ impl Renderer3D {
             pass.set_pipeline(&self.pipeline);
             self.draw_models(&mut pass, textures);
         }
+        if self.bloom {
+            let step = |encoder: &mut wgpu::CommandEncoder,
+                        label,
+                        pipeline,
+                        group: &wgpu::BindGroup,
+                        target: &wgpu::TextureView,
+                        load| {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some(label),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: target,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: time(),
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                pass.set_pipeline(pipeline);
+                pass.set_bind_group(0, group, &[]);
+                pass.set_blend_constant(wgpu::Color {
+                    r: BLOOM_SCATTER,
+                    g: BLOOM_SCATTER,
+                    b: BLOOM_SCATTER,
+                    a: BLOOM_SCATTER,
+                });
+                pass.draw(0..3, 0..1);
+            };
+            let clear = wgpu::LoadOp::Clear(wgpu::Color::BLACK);
+            let mips = &targets.bloom_mips;
+            step(
+                encoder,
+                "3d bloom",
+                &self.bloom_prefilter,
+                &targets.bloom_prefilter,
+                &mips[0],
+                clear,
+            );
+            for (i, group) in targets.bloom_down.iter().enumerate() {
+                step(encoder, "3d bloom down", &self.bloom_down, group, &mips[i + 1], clear);
+            }
+            for (i, group) in targets.bloom_up.iter().enumerate().rev() {
+                step(
+                    encoder,
+                    "3d bloom up",
+                    &self.bloom_up,
+                    group,
+                    &mips[i],
+                    wgpu::LoadOp::Load,
+                );
+            }
+        }
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("3d post"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -657,6 +903,7 @@ impl Renderer3D {
         });
         pass.set_pipeline(&self.post_pipeline);
         pass.set_bind_group(0, &targets.post, &[]);
+        pass.set_bind_group(1, &textures[self.lut as usize].bind_group, &[]);
         pass.draw(0..3, 0..1);
     }
 

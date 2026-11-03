@@ -180,6 +180,14 @@ static void three_d() {
         CHECK(light.shadows);
         light.sun_direction = {-1, -1, 0};
         ctx.set_lighting(light);
+        auto post = ctx.post();
+        CHECK(post.tonemap == uint32_t(crabby::tonemap::aces) && post.contrast == 1 && !post.has_lut);
+        post.tonemap = uint32_t(crabby::tonemap::neutral);
+        post.bloom = 0.2f;
+        ctx.set_post(post);
+        CHECK(ctx.post().tonemap == uint32_t(crabby::tonemap::neutral));
+        post.saturation = -1;
+        throws([&] { ctx.set_post(post); });
     });
     const auto t = w.get<crabby::transform3d>(cubes[1]);
     CHECK(t.position.x == 2 && std::abs(t.rotation.y - std::sin(0.25f)) < 1e-5f);

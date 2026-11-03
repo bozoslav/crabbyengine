@@ -79,6 +79,18 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
             ..light
         };
         ids.errors.push(crabby_ctx_set_lighting(ctx, &dark));
+
+        let mut post = std::mem::zeroed::<CrabbyPost>();
+        assert_eq!(crabby_ctx_post(ctx, &mut post), CRABBY_OK);
+        assert_eq!((post.tonemap, post.contrast, post.has_lut), (0, 1.0, false));
+        post.tonemap = 1;
+        post.bloom = 0.3;
+        assert_eq!(crabby_ctx_set_post(ctx, &post), CRABBY_OK);
+        let mut back = std::mem::zeroed::<CrabbyPost>();
+        assert_eq!(crabby_ctx_post(ctx, &mut back), CRABBY_OK);
+        assert_eq!(back, post);
+        ids.errors
+            .push(crabby_ctx_set_post(ctx, &CrabbyPost { tonemap: 7, ..post }));
     }
 }
 
@@ -117,8 +129,8 @@ fn games_build_and_move_3d_worlds_from_c() {
         let mut world = null_mut();
         assert_eq!(crabby_game_run_headless(g, 5, Some(setup), user, &mut world), CRABBY_OK);
         assert_eq!(
-            ids.errors, [CRABBY_INVALID_ARGUMENT; 4],
-            "bad material, bad metallic, bad camera, negative light"
+            ids.errors, [CRABBY_INVALID_ARGUMENT; 5],
+            "bad material, bad metallic, bad camera, negative light, bad tone map"
         );
 
         // Five ticks of 0.1 radians, as Rust sees it through the same bytes.

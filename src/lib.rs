@@ -121,7 +121,7 @@ pub use steamworks;
 pub use text::{Font, TextParams};
 pub use texture::{DrawParams, Texture, TextureFilter};
 #[cfg(feature = "3d")]
-pub use three::{Camera3D, Lighting, Material, MaterialDesc, Mesh, MeshData, Model, Transform3D};
+pub use three::{Camera3D, Lighting, Material, MaterialDesc, Mesh, MeshData, Model, Post, Tonemap, Transform3D};
 pub use tilemap::{TileMap, draw_tilemaps};
 pub use ui::UiStyle;
 

@@ -8,6 +8,14 @@ says what that covers.
 ## [Unreleased]
 
 ### Added
+- 3D post-processing, `ctx.post` (`Post`): exposure, bloom, white balance
+  (temperature, tint), contrast, saturation, tone mapping (`Tonemap::Aces`,
+  `AgX`, `Neutral`, `None`), a color lookup table (`Post::neutral_lut` to
+  start one) and vignette. In C (`crabby_ctx_post`, `crabby_ctx_set_post`)
+  and C++ (`ctx.post()`, `ctx.set_post`, `crabby::tonemap`).
+- The 3D frame is lit in HDR, with a depth prepass (each pixel is lit
+  once). `render_stats().gpu_ms` now times the whole frame, 3D and shadow
+  passes included.
 - Polygon colliders: `Collider::polygon` (3 to 8 corners, convex), in C
   (`crabby_set_polygon_collider`, `crabby_collider_points`) and C++
   (`crabby::polygon_collider`).

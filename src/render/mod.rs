@@ -31,8 +31,10 @@ pub struct RenderStats {
     pub draw_calls: usize,
     /// CPU time spent sorting, batching, uploading and submitting, in ms.
     pub cpu_ms: f32,
-    /// GPU time of the frame in ms (smoothed): every pass, 3D and shadows
-    /// included, measured with timestamp queries. `None` when the GPU doesn't support them, and in headless runs.
+    /// GPU time of the frame in ms (smoothed), from the start of its first
+    /// pass to the end of its last, 3D and shadows included, measured with
+    /// timestamp queries. It includes any time the GPU waits between
+    /// passes, so it's an upper bound. `None` when the GPU doesn't support them, and in headless runs.
     pub gpu_ms: Option<f32>,
 }
 

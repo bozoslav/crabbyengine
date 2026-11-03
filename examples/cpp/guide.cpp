@@ -727,8 +727,26 @@ static void spin(crabby::ctx& ctx) {
 }
 // ANCHOR_END: three_d
 
+// ANCHOR: post
+/// A warm, glowing evening look.
+static void golden_hour(crabby::ctx& ctx) {
+    auto post = ctx.post();
+    post.exposure = 0.3f;      // a third of a stop brighter
+    post.bloom = 0.2f;         // highlights glow
+    post.temperature = 0.4f;   // warmer
+    post.saturation = 1.1f;
+    post.vignette = 0.3f;      // darker corners
+    post.tonemap = uint32_t(crabby::tonemap::agx);
+    ctx.set_post(post);
+}
+// ANCHOR_END: post
+
 static void the_village_has_five_spinning_houses() {
-    auto world = crabby::game("guide", 640, 480).sim_system(spin, "spin").run_headless(60, village);
+    auto world = crabby::game("guide", 640, 480).sim_system(spin, "spin").run_headless(60, [](crabby::ctx& ctx) {
+        village(ctx);
+        golden_hour(ctx);
+        if (ctx.post().tonemap != uint32_t(crabby::tonemap::agx)) { std::fprintf(stderr, "post\n"); std::abort(); }
+    });
     int houses = 0;
     world.each([&](const crabby::transform3d& t, const Spin&) {
         ++houses;

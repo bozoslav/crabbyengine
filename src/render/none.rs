@@ -48,6 +48,7 @@ impl Renderer {
         _frame: &crate::three::Frame3D,
         _lighting: &crate::Lighting,
         _camera: glam::Vec3,
+        _post: &crate::Post,
         _collect_ms: f32,
     ) {
         match *self {}

@@ -504,6 +504,20 @@ typedef struct CrabbyLighting {
   float shadow_distance;
 } CrabbyLighting;
 
+typedef struct CrabbyPost {
+  float exposure;
+  uint32_t tonemap;
+  float bloom;
+  float bloom_threshold;
+  float contrast;
+  float saturation;
+  float temperature;
+  float tint;
+  float vignette;
+  bool has_lut;
+  struct CrabbyTexture lut;
+} CrabbyPost;
+
 typedef struct CrabbySpriteSheet {
   struct CrabbyTexture texture;
   struct CrabbyVec2 frame_size;
@@ -1192,6 +1206,10 @@ enum CrabbyStatus crabby_ctx_lighting(struct CrabbyCtx *ctx, struct CrabbyLighti
 
 enum CrabbyStatus crabby_ctx_set_lighting(struct CrabbyCtx *ctx,
                                           const struct CrabbyLighting *lighting);
+
+enum CrabbyStatus crabby_ctx_post(struct CrabbyCtx *ctx, struct CrabbyPost *out_post);
+
+enum CrabbyStatus crabby_ctx_set_post(struct CrabbyCtx *ctx, const struct CrabbyPost *post);
 
 enum CrabbyStatus crabby_sprite_sheet(struct CrabbyTexture texture,
                                       uint32_t frame_width,
