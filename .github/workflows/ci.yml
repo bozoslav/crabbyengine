@@ -64,8 +64,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
           key: clippy-${{ matrix.name }}
       - run: cargo clippy --workspace --all-targets ${{ matrix.args }}
 
@@ -81,8 +79,6 @@ jobs:
         with:
           toolchain: "1.95"
       - uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           key: msrv
@@ -212,8 +208,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
           key: native
       - name: Verify generated C header
         shell: bash
@@ -247,8 +241,6 @@ jobs:
           targets: wasm32-unknown-unknown
           components: clippy
       - uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           key: web
