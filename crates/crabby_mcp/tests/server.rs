@@ -210,6 +210,24 @@ fn agents_drive_several_games_through_mcp() {
         .unwrap_err();
     assert!(err.contains("no reflected resource"), "{err}");
 
+    // Watch: run 10 ticks, sampled every 5, in one call.
+    let watched = agent
+        .tool(
+            "watch",
+            json!({ "instance": "alpha", "ticks": 10, "every": 5, "resources": ["Rules"], "count": ["Health", "Nothing"] }),
+        )
+        .unwrap();
+    let samples = watched["samples"].as_array().unwrap();
+    let ticks: Vec<u64> = samples.iter().map(|s| s["tick"].as_u64().unwrap()).collect();
+    assert_eq!(ticks, [7, 12, 17], "a sample before, then one every 5 ticks");
+    assert_eq!(samples[2]["resources"]["Rules"]["round"], 17);
+    assert_eq!(samples[2]["counts"], json!({ "Health": 1, "Nothing": 0 }));
+    assert!(samples[0]["wall_ms_per_tick"].is_null() && samples[1]["wall_ms_per_tick"].is_number());
+    let err = agent
+        .tool("watch", json!({ "instance": "alpha", "ticks": 1_000_000, "every": 1 }))
+        .unwrap_err();
+    assert!(err.contains("too many"), "{err}");
+
     // Beta is untouched.
     let b = json!(port_b.to_string());
     assert_eq!(
@@ -238,7 +256,7 @@ fn agents_drive_several_games_through_mcp() {
     assert!(
         !names
             .iter()
-            .any(|n| n == "spawn_entity" || n == "launch" || n == "run_ticks")
+            .any(|n| n == "spawn_entity" || n == "launch" || n == "run_ticks" || n == "watch")
     );
     let listed = viewer
         .tool("list_entities", json!({ "instance": port_a, "with": ["Health"] }))

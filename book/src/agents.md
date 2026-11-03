@@ -46,6 +46,7 @@ ctx.world.reflect::<Health>();
 | `screenshot` | | the next frame of a windowed game, as an image the agent can look at |
 | `set_camera` | | move or zoom the camera (`look_at`, `zoom`, `position`), e.g. before a screenshot |
 | `run_ticks` | ✓ | run exactly N ticks of a paused sim and wait |
+| `watch` | ✓ | run N ticks and sample every K: tick, resources, entity counts, time per tick |
 | `pause` / `resume` / `set_speed` | ✓ | sim clock |
 | `spawn_entity` / `despawn_entity` | ✓ | |
 | `set_component` / `remove_component` | ✓ | change values; object fields merge |
@@ -88,6 +89,18 @@ roll back and try the next value.
 
 Because the sim only advances on `run_ticks`, every run is repeatable and the
 agent can check results at exact ticks.
+
+To see how a run develops, `watch` does it in one call. In the battle
+example, with its `Battle` stats reflected:
+
+```json
+{"ticks": 3600, "every": 600, "resources": ["Score"], "count": ["Unit"]}
+```
+
+returns seven samples (before, then every 10 simulated seconds), each with
+the tick, the `Score` resource, how many entities have a `Unit`, and the
+wall-clock time per tick, so "who's winning, and does it get slower as
+the armies meet?" is one answer.
 
 To check how things look, `launch` with `headless: false` and call
 `screenshot`. It works while the window is hidden behind others, and is
