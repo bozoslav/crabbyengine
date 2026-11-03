@@ -241,3 +241,13 @@ fn headless_runs_have_no_render_stats_or_screenshots() {
 fn run_without_the_window_feature_says_to_use_run_headless() {
     Game::new("no window", 320, 240).run(|_| {});
 }
+
+#[test]
+fn loading_a_texture_twice_gives_the_same_handle() {
+    Game::new("cache", 1, 1).run_headless(0, |ctx| {
+        let a = ctx.load_texture("crab.png");
+        let b = ctx.load_texture("crab.png");
+        assert_eq!(a, b);
+        assert_ne!(a, ctx.create_texture(1, 1, &[0; 4]), "created textures are their own");
+    });
+}

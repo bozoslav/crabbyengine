@@ -2,6 +2,7 @@
 
 use crabby_ecs::{Commands, Entity, World};
 use glam::{Mat4, Vec2};
+use std::collections::HashMap;
 
 use crate::assets;
 use crate::audio::Audio;
@@ -65,6 +66,14 @@ fn screen_projection(size: Vec2) -> Mat4 {
 ///
 /// Use it to draw, read input, check timing and window info, and reach the
 /// ECS [`World`] through `ctx.world`.
+/// Which loader a cached file went through.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum AssetKind {
+    Texture,
+    Font,
+    Sound,
+}
+
 /// Applies a data file's text to the world.
 type DataLoader = Box<dyn Fn(&mut World, &str) -> Result<(), String>>;
 
@@ -137,6 +146,11 @@ pub struct Ctx {
     pub(crate) watcher: crate::hot_reload::Watcher,
     /// How to apply each loaded data file's text (`load_resource`).
     data_loaders: Vec<DataLoader>,
+    /// Files already loaded, by resolved path: loading one again returns the same handle.
+    pub(crate) loaded: HashMap<(std::path::PathBuf, AssetKind), u64>,
+    /// Textures and sounds loaded from files, indexed by `loaded` values.
+    cached_textures: Vec<Texture>,
+    pub(crate) cached_sounds: Vec<crate::Sound>,
     pub(crate) timings: Vec<SystemTiming>,
     pub(crate) input: Input,
     timing: FrameTiming,
@@ -213,6 +227,9 @@ impl Ctx {
             headless_textures: 0,
             watcher: Default::default(),
             data_loaders: Vec::new(),
+            loaded: HashMap::new(),
+            cached_textures: Vec::new(),
+            cached_sounds: Vec::new(),
             timings: Vec::new(),
             input: Input::new(),
             timing: FrameTiming {
@@ -776,6 +793,7 @@ impl Ctx {
     }
 
     /// Loads a TrueType or OpenType font from the `assets/` folder.
+    /// Loading the same file again returns the same handle.
     ///
     /// # Panics
     /// With a clear message if the file is missing or isn't a font.
@@ -789,16 +807,24 @@ impl Ctx {
     /// ```
     pub fn load_font(&mut self, path: &str) -> Font {
         let file = assets::resolve(path).unwrap_or_else(|e| panic!("crabbyengine: {e}"));
+        if let Some(&id) = self.loaded.get(&(file.clone(), AssetKind::Font)) {
+            return Font(id as u32);
+        }
         let bytes =
             std::fs::read(&file).unwrap_or_else(|e| panic!("crabbyengine: could not read {}: {e}", file.display()));
-        self.text
+        let font = self
+            .text
             .add_font(&bytes)
-            .unwrap_or_else(|e| panic!("crabbyengine: {}: {e}", file.display()))
+            .unwrap_or_else(|e| panic!("crabbyengine: {}: {e}", file.display()));
+        self.loaded.insert((file, AssetKind::Font), u64::from(font.0));
+        font
     }
 
     /// Loads an image from the `assets/` folder (PNG for now).
     ///
     /// Do this once in setup and keep the [`Texture`]; it's a cheap handle.
+    /// Loading the same file again returns the same texture (use
+    /// [`create_texture`](Self::create_texture) for a copy of your own).
     ///
     /// # Panics
     /// With a clear message if the file is missing or isn't a valid image.
@@ -812,8 +838,14 @@ impl Ctx {
     /// ```
     pub fn load_texture(&mut self, path: &str) -> Texture {
         let file = assets::resolve(path).unwrap_or_else(|e| panic!("crabbyengine: {e}"));
+        if let Some(&i) = self.loaded.get(&(file.clone(), AssetKind::Texture)) {
+            return self.cached_textures[i as usize];
+        }
         let image = assets::load_image_at(&file, path).unwrap_or_else(|e| panic!("crabbyengine: {e}"));
         let texture = self.create_texture(image.width, image.height, &image.rgba);
+        self.loaded
+            .insert((file.clone(), AssetKind::Texture), self.cached_textures.len() as u64);
+        self.cached_textures.push(texture);
         self.watcher.watch(path, file, Asset::Texture(texture));
         texture
     }

@@ -195,6 +195,7 @@ pub(crate) use backend::Audio;
 
 impl Ctx {
     /// Loads a sound from the `assets/` folder: OGG Vorbis, WAV, MP3 or FLAC.
+    /// Loading the same file again returns the same handle.
     ///
     /// # Panics
     /// With a clear message if the file is missing or can't be decoded.
@@ -208,13 +209,20 @@ impl Ctx {
     /// ```
     pub fn load_sound(&mut self, path: &str) -> Sound {
         let file = crate::assets::resolve(path).unwrap_or_else(|e| panic!("crabbyengine: {e}"));
+        let key = (file, crate::ctx::AssetKind::Sound);
+        if let Some(&i) = self.loaded.get(&key) {
+            return self.cached_sounds[i as usize];
+        }
         let bytes =
-            std::fs::read(&file).unwrap_or_else(|e| panic!("crabbyengine: could not read {}: {e}", file.display()));
+            std::fs::read(&key.0).unwrap_or_else(|e| panic!("crabbyengine: could not read {}: {e}", key.0.display()));
         let (id, seconds) = self
             .audio
             .load(bytes)
-            .unwrap_or_else(|e| panic!("crabbyengine: {}: {e}", file.display()));
-        Sound { id, seconds }
+            .unwrap_or_else(|e| panic!("crabbyengine: {}: {e}", key.0.display()));
+        let sound = Sound { id, seconds };
+        self.loaded.insert(key, self.cached_sounds.len() as u64);
+        self.cached_sounds.push(sound);
+        sound
     }
 
     /// Makes a sound from mono samples in -1..1 at `sample_rate` Hz, for
