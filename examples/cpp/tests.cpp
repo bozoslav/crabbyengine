@@ -60,6 +60,16 @@ static void parallel_queries() {
     w.query([&](auto chunk) { auto col = chunk.template column<0>(); for (std::size_t i = 0; i < chunk.size(); ++i) sum += col[i]; }, n);
     CHECK(sum == 100000LL * 99999LL);
     throws([&] { w.query_par([](auto) { throw std::runtime_error("par"); }, n); });
+
+    // Filling a buffer from all cores: rows are numbered the same way in both queries.
+    auto tag = w.component<char>("tag");
+    for (int i = 0; i < 5000; ++i) w.spawn(n.with(-1), tag.with('x'));
+    CHECK(w.count(n) == 105000 && w.count(n, tag) == 5000);
+    std::vector<int> seq(w.count(n)), par(w.count(n));
+    w.query([&](auto chunk) { for (std::size_t i = 0; i < chunk.size(); ++i) seq[chunk.first() + i] = chunk.template column<0>()[i]; }, n);
+    w.query_par([&](auto chunk) { for (std::size_t i = 0; i < chunk.size(); ++i) par[chunk.first() + i] = chunk.template column<0>()[i]; }, n);
+    CHECK(seq == par);
+    CHECK(std::count(seq.begin(), seq.end(), -1) == 5000);
 }
 
 static void games() {

@@ -214,6 +214,7 @@ typedef struct CrabbyChunk {
   size_t column_count;
   void *const *columns;
   const struct CrabbyEntity *entities;
+  size_t first;
 } CrabbyChunk;
 
 typedef void (*CrabbyQueryFn)(const struct CrabbyChunk*, void*);

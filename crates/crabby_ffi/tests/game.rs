@@ -322,6 +322,59 @@ fn parallel_queries_visit_every_row_once_and_turn_commands_off() {
     }
 }
 
+/// Values seen at each query row number (`first + i`).
+struct Rows(Vec<std::sync::atomic::AtomicU32>);
+unsafe extern "C" fn record_rows(chunk: *const CrabbyChunk, user: *mut c_void) {
+    unsafe {
+        let (c, rows) = (&*chunk, &*user.cast::<Rows>());
+        for i in 0..c.count {
+            let v = *(*c.columns).cast::<u32>().add(i);
+            rows.0[c.first + i].store(v + 1, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "rayon needs tree borrows: see AGENTS.md (run with MIRIFLAGS)")]
+fn chunks_number_their_rows_the_same_way_in_both_queries() {
+    unsafe {
+        let world = crabby_world_new();
+        let (mut n, mut m) = (0, 0);
+        crabby_component_register(world, c"N".as_ptr(), 4, 4, &mut n);
+        crabby_component_register(world, c"M".as_ptr(), 4, 4, &mut m);
+        let total = 30_000u32;
+        for i in 0..total {
+            let v = CrabbyValue {
+                component: n,
+                data: (&i as *const u32).cast(),
+                size: 4,
+            };
+            let extra = CrabbyValue {
+                component: m,
+                data: (&i as *const u32).cast(),
+                size: 4,
+            };
+            // Two archetypes, interleaved.
+            let values = [v, extra];
+            crabby_spawn(world, values.as_ptr(), if i % 3 == 0 { 2 } else { 1 }, &mut 0);
+        }
+        let fresh = || Rows((0..total).map(|_| 0.into()).collect());
+        let (seq, par) = (fresh(), fresh());
+        let ptr = |r: &Rows| (r as *const Rows).cast_mut().cast();
+        assert_eq!(crabby_query(world, &n, 1, Some(record_rows), ptr(&seq)), CRABBY_OK);
+        assert_eq!(crabby_query_par(world, &n, 1, Some(record_rows), ptr(&par)), CRABBY_OK);
+        let load = |r: &Rows| {
+            r.0.iter()
+                .map(|a| a.load(std::sync::atomic::Ordering::Relaxed))
+                .collect::<Vec<_>>()
+        };
+        let (seq, par) = (load(&seq), load(&par));
+        assert!(seq.iter().all(|&v| v != 0), "every row number in 0..count is used");
+        assert_eq!(seq, par);
+        crabby_world_free(world);
+    }
+}
+
 // ---- built-in components, spatial queries, random ---------------------------
 
 unsafe extern "C" fn spawn_grid(ctx: *mut CrabbyCtx, _: *mut c_void) {

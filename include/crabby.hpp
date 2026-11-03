@@ -250,6 +250,10 @@ template<class... Ts> class chunk {
 public:
     explicit chunk(const CrabbyChunk* raw) : raw_(raw) {}
     std::size_t size() const noexcept { return raw_->count; }
+    /// Where row 0 is in the whole query (rows are numbered 0..count() in the
+    /// same order every time): row `i` of a query_par chunk can fill slot
+    /// `first() + i` of a buffer sized with world::count().
+    std::size_t first() const noexcept { return raw_->first; }
     template<std::size_t I> auto column() const noexcept {
         using T = typename std::tuple_element<I, std::tuple<Ts...>>::type;
         return static_cast<T*>(raw_->columns[I]);
@@ -415,6 +419,12 @@ public:
     /// only touch its own chunk (plus ctx::dt/random and spatial queries).
     template<class F, class... Ts> void query_par(F&& fn, const crabby::component<Ts>&... tokens) {
         run_query(crabby_query_par, std::forward<F>(fn), tokens...);
+    }
+    /// How many entities have all of these components.
+    template<class... Ts> std::size_t count(const crabby::component<Ts>&... tokens) {
+        std::size_t n = 0;
+        query([&](auto chunk) { n += chunk.size(); }, tokens...);
+        return n;
     }
     /// Reorders Transform2D entities so that neighbors are close in memory.
     void sort_spatial(float cell_size) { valid(); detail::check(crabby_world_sort_spatial(raw_, cell_size)); }

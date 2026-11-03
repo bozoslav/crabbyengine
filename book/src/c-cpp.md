@@ -109,11 +109,13 @@ all cores, reinforcements and rounds. Same seed, same map, same armies
 | Units | Rust | C++ |
 |---:|---:|---:|
 | 20k | 0.57 ms/tick | 0.57 ms/tick |
-| 200k | 4.40 ms/tick | 4.41 ms/tick |
-| 1M | 20.99 ms/tick | 21.04 ms/tick |
+| 200k | 4.04 ms/tick | 4.24 ms/tick |
+| 1M | 18.85 ms/tick | 19.97 ms/tick |
 
 The hot loops use views (`grid.view()`, `flow.view()`) that the header reads
-inline, so nothing crosses into the engine per unit.
+inline, so nothing crosses into the engine per unit. The gap for big armies
+is in rebuilding the per-team grids: Rust feeds them straight from the
+units, C++ copies each team's units into an array first.
 
 `HEADLESS=1 BOIDS=… ./crabby_cpp_boids` and `HEADLESS=1 BOIDS=… cargo run
 --release --example boids` run the same flocking, release builds, on the

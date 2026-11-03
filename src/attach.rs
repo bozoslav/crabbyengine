@@ -78,12 +78,11 @@ struct Scratch {
 /// a simulation system after the ones that move things.
 pub fn follow_attachments(ctx: &mut Ctx) {
     let mut s = ctx.world.remove_resource::<Scratch>().unwrap_or_default();
-    s.attached.clear();
     // Same entities, in the same order, as the writing query below.
     ctx.world
         .query::<(Entity, &Attached)>()
         .with::<Transform2D>()
-        .for_each(|(e, a)| s.attached.push((e, *a)));
+        .par_collect_into(&mut s.attached, |(e, a)| (e, *a));
     if !s.attached.is_empty() {
         let world = &ctx.world;
         s.placed.clear();
