@@ -63,7 +63,7 @@ An entity becomes a physics body with three components: a `Transform2D`, a
 | `Collider::circle(r)` | `crabby::circle_collider(r)` | |
 | `Collider::rect(size)` | `crabby::rect_collider(size)` | |
 | `Collider::capsule(h, r)` | `crabby::capsule_collider(h, r)` | vertical, good for characters |
-| `Collider::polygon(&points)` | `world.set_polygon_collider(e, {points...})` | convex, 3 to 8 corners: ramps, rocks, ships |
+| `Collider::polygon(&points)` | `crabby::polygon_collider({points...})` | convex, 3 to 8 corners: ramps, rocks, ships |
 | `.density(d)`, `.friction(f)`, `.restitution(r)` | fields of the same name | mass per pixel², 0 ice..1 rubber, bounciness |
 | `.sensor()` | `.sensor = true` | reports overlaps, doesn't push |
 | `.offset(v)` | `.offset = v` | shape moved from the entity's position |

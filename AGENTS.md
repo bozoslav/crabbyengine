@@ -65,7 +65,5 @@ MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-ignore-leaks" cargo +nightly miri test --t
 - Every `unsafe` block needs a test that exercises it.
 - Public API: simple first. One obvious way to do each thing.
 - Guide examples come in Rust and C++, side by side: wrap the pair in `<div class="lang-pair">` (see `book/theme/lang-pair.css`), with the C++ snippet pulled from `examples/cpp/guide.cpp` (compiled and run by the native CI job). If C++ can't do it yet, the chapter says so.
-- Rust first, C/C++ after: features ship in Rust on their own; their C API (`crates/crabby_ffi`) and C++ wrapper (`include/crabby.hpp`) come in a later PR, usually by another agent.
-  - The Rust author adds a C API spec for each feature to `CPP_BACKLOG.md`: exact C signatures, C++ wrapper methods, and every ABI decision (C struct layouts never change within an ABI version, see STABILITY.md). Whoever does the C/C++ side follows the spec, adds the C test, the C++ test (`examples/cpp/tests.cpp`) and the guide snippet (`examples/cpp/guide.cpp`), and removes the entry.
-  - Until then the guide shows the Rust example alone, with a note that the C++ version is coming.
+- New engine features get a C API (`crates/crabby_ffi`) and a C++ wrapper (`include/crabby.hpp`) in the same PR, written to match the Rust API, when they're part of writing games, unless that's much bigger than the feature; then say so in the PR.
 - Docs ship with the feature: a PR that adds or changes how games are written updates the guide in `book/src/` in the same PR (check with `mdbook build book`). Code that the guide shows from examples is pulled in with `{{#include}}` anchors, so it can't go stale.

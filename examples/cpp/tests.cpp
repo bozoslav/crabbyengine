@@ -348,6 +348,22 @@ static void physics() {
         });
     };
     CHECK(touched(ball, sensor) && touched(ball, floor));
+
+    // A wedge, flat side down, comes to rest on it (as tests/physics.rs).
+    crabby::entity wedge = 0;
+    auto rested = crabby::game("t", 1, 1).physics({0, 980}).run_headless(240, [&](crabby::ctx& ctx) {
+        auto world = ctx.world();
+        auto shape = crabby::polygon_collider({{-30, 15}, {30, 15}, {-30, -15}});
+        shape.friction = 0.9f;
+        wedge = world.spawn(crabby::transform_at({0, 0}), crabby::dynamic_body(), shape);
+        world.spawn(crabby::transform_at({0, 200}), crabby::fixed_body(), crabby::rect_collider({400, 20}));
+    });
+    const auto t = rested.get<crabby::transform2d>(wedge);
+    CHECK(std::fabs(t.position.y - 175) < 1.5f && std::fabs(t.rotation) < 0.01f);
+    CHECK(rested.collider_points(wedge).size() == 3);
+    CHECK(rested.get<crabby::collider>(wedge).shape == CRABBY_SHAPE_POLYGON);
+    CHECK(rested.get<crabby::collider>(wedge).friction == 0.9f);
+    throws([] { crabby::polygon_collider({{0, 0}, {1, 0}}); });
     CHECK(hit && crabby::bits(hit->entity) == floor && std::fabs(hit->distance - 290) < 1e-3f);
     CHECK(mass && std::fabs(*mass - 314.159f) < 1);
     CHECK(!kicked_nothing);

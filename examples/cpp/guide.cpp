@@ -351,6 +351,9 @@ static void build_level(crabby::world_view world) {
     auto box = crabby::rect_collider({40, 40});
     box.friction = 0.9f;
     world.spawn(crabby::transform_at({320, 0}), crabby::dynamic_body(), box);
+    // A ramp: any convex shape of up to 8 corners, around its position.
+    world.spawn(crabby::transform_at({150, 620}), crabby::fixed_body(),
+                crabby::polygon_collider({{-140, 60}, {140, 60}, {-140, -60}}));
     // A sensor reports overlaps but doesn't push.
     auto bucket = crabby::rect_collider({120, 80});
     bucket.sensor = true;
@@ -396,7 +399,7 @@ static bool physics_snippets() {
             if (ctx.sim_tick() == 1) landed = laser(ctx, {500, 0}).has_value();
         }, "test")
         .run_headless(120, [](crabby::ctx& ctx) { build_level(ctx.world()); });
-    return landed && world.size() == 4;
+    return landed && world.size() == 5;
 }
 
 // ---- Lockstep networking ----------------------------------------------------------
