@@ -4,7 +4,7 @@
 use std::ffi::c_char;
 
 use crabbyengine::{
-    Blend, Camera3D, Color, Lighting, Material, MaterialDesc, Mesh, MeshData, Model, Post, Quat, Shader, Tonemap,
+    Blend, Camera3D, Color, Lighting, Material, MaterialDesc, Mesh, MeshData, Model, Post, Quat, Shader, Sky, Tonemap,
     Transform3D, Vec2, Vec3, Vec4,
 };
 
@@ -218,6 +218,46 @@ pub struct CrabbyLighting {
     /// How many shadow maps share that distance, 1 to 4: more keep near
     /// shadows sharp, fewer are cheaper.
     pub shadow_cascades: u32,
+}
+
+/// The sky behind the 3D world and the fog in front of it (Rust
+/// `ctx.sky`, `Sky`).
+/// ```
+/// let mut s = std::mem::MaybeUninit::<crabby_ffi::CrabbySky>::uninit();
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_sky(std::ptr::null_mut(), s.as_mut_ptr()) } as u32, 1);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CrabbySky {
+    /// A physical sky lit by the sun, which also lights the scene.
+    pub atmosphere: bool,
+    /// Dust and water in the air, 0 up.
+    pub haze: f32,
+    /// The sun's size in the sky, in degrees across.
+    pub sun_size: f32,
+    /// How bright the stars are at night.
+    pub stars: f32,
+    /// Light at night.
+    pub night_light: CrabbyColor,
+    /// Fog thickness near the ground, per world unit; 0 is none.
+    pub fog_density: f32,
+    /// The height the fog lies at.
+    pub fog_height: f32,
+    /// How quickly the fog thins out above it, in world units.
+    pub fog_falloff: f32,
+    /// The fog's color without an atmosphere.
+    pub fog_color: CrabbyColor,
+}
+
+/// Which way sunlight travels at `hour` o'clock, for a day and night cycle
+/// (Rust `Sky::sun_direction_at`): rising in the east (+X) at 6, highest
+/// at noon, setting in the west at 18.
+/// ```
+/// assert!(crabby_ffi::crabby_sun_direction_at(12.0).y < -0.8);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn crabby_sun_direction_at(hour: f32) -> CrabbyVec3 {
+    to_c(Sky::sun_direction_at(hour))
 }
 
 /// What happens to the lit 3D frame on its way to the screen (Rust
@@ -638,7 +678,7 @@ pub extern "C" fn crabby_mesh_data_sphere(radius: f32, segments: u32) -> *mut Cr
 /// # Safety
 /// `data` null or live; `colors` holds `count` colors (may be null when 0).
 /// ```
-/// use crabby_ffi::*;
+/// use crabby_ffi::{CrabbyStatus::*, *};
 /// let d = crabby_mesh_data_plane(1.0);
 /// let red = [CrabbyColor { r: 1.0, g: 0.0, b: 0.0, a: 1.0 }; 4];
 /// assert_eq!(unsafe { crabby_mesh_data_set_colors(d, red.as_ptr(), 4) }, CRABBY_OK);
@@ -1104,6 +1144,73 @@ pub unsafe extern "C" fn crabby_ctx_set_lighting(ctx: *mut CrabbyCtx, lighting: 
                 shadows: l.shadows,
                 shadow_distance: l.shadow_distance,
                 shadow_cascades: l.shadow_cascades,
+            };
+            Ok(())
+        })
+    })
+}
+
+/// Reads the sky and fog settings.
+/// # Safety
+/// `ctx` null or live; output writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_sky(ctx: *mut CrabbyCtx, out_sky: *mut CrabbySky) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let s = &c.sky;
+            out(
+                out_sky,
+                CrabbySky {
+                    atmosphere: s.atmosphere,
+                    haze: s.haze,
+                    sun_size: s.sun_size,
+                    stars: s.stars,
+                    night_light: to_c(s.night_light),
+                    fog_density: s.fog_density,
+                    fog_height: s.fog_height,
+                    fog_falloff: s.fog_falloff,
+                    fog_color: to_c(s.fog_color),
+                },
+            )
+        })
+    })
+}
+
+/// Changes the sky and fog. Haze, stars and fog density can't be negative;
+/// the sun's size and the fog falloff must be above 0.
+/// # Safety
+/// `ctx` null or live; `sky` valid.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_sky(std::ptr::null_mut(), std::ptr::null()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_sky(ctx: *mut CrabbyCtx, sky: *const CrabbySky) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let Some(&s) = sky.as_ref() else {
+                return Err(invalid("sky is null"));
+            };
+            let finite = [s.haze, s.sun_size, s.stars, s.fog_density, s.fog_height, s.fog_falloff]
+                .iter()
+                .all(|v| v.is_finite());
+            if !finite || s.haze < 0.0 || s.stars < 0.0 || s.fog_density < 0.0 {
+                return Err(invalid("haze, stars and fog density can't be negative"));
+            }
+            if s.sun_size <= 0.0 || s.fog_falloff <= 0.0 {
+                return Err(invalid("sun_size and fog_falloff must be above 0"));
+            }
+            c.sky = Sky {
+                atmosphere: s.atmosphere,
+                haze: s.haze,
+                sun_size: s.sun_size,
+                stars: s.stars,
+                night_light: to_c(s.night_light),
+                fog_density: s.fog_density,
+                fog_height: s.fog_height,
+                fog_falloff: s.fog_falloff,
+                fog_color: to_c(s.fog_color),
             };
             Ok(())
         })

@@ -4,7 +4,9 @@
 //!   `cargo run --release --example shaders --features 3d`
 //!
 //! The shaders are in `assets/shaders/`: edit one while the game runs and
-//! it reloads. `SHOT=path.png` saves the second frame and quits.
+//! it reloads. Left and right arrows turn the time of day, F switches fog.
+//! `SHOT=path.png` saves the second frame and quits; `HOUR=19` and `FOG=1`
+//! set the time and the fog.
 
 use crabbyengine::*;
 
@@ -36,11 +38,27 @@ fn surface(s: Surface) -> Surface {
 }";
 
 fn main() {
+    let env = |name| std::env::var(name).ok().and_then(|v| v.parse::<f32>().ok());
+    let mut hour = env("HOUR").unwrap_or(15.5);
+    let mut fog = env("FOG").unwrap_or(0.0) > 0.0;
     Game::new("Crabby Engine: shaders", 1280, 720)
-        .system(|ctx: &mut Ctx| {
+        .system(move |ctx: &mut Ctx| {
             if ctx.key_pressed(Key::Escape) {
                 ctx.quit();
             }
+            // Two hours a second.
+            if ctx.key_down(Key::Right) {
+                hour = (hour + ctx.dt() * 2.0) % 24.0;
+            }
+            if ctx.key_down(Key::Left) {
+                hour = (hour - ctx.dt() * 2.0).rem_euclid(24.0);
+            }
+            if ctx.key_pressed(Key::F) {
+                fog = !fog;
+            }
+            ctx.lighting.sun_direction = Sky::sun_direction_at(hour);
+            ctx.sky.fog_density = if fog { 0.02 } else { 0.0 };
+            ctx.sky.fog_falloff = 8.0;
             if ctx.frame() == 2
                 && let Ok(path) = std::env::var("SHOT")
             {
@@ -54,7 +72,6 @@ fn main() {
             ctx.clear(Color::hex(0x9CC4E4));
             ctx.camera3d.position = vec3(0.0, 4.0, 11.0);
             ctx.camera3d.look_at(vec3(0.0, 0.5, 0.0));
-            ctx.lighting.sun_direction = vec3(-0.6, -0.5, -0.6);
             ctx.post.bloom = 0.1;
 
             let ground_look = MaterialDesc {
@@ -62,7 +79,7 @@ fn main() {
                 ..MaterialDesc::color(Color::hex(0x5E7A3A))
             };
             let ground = ctx.create_material(ground_look);
-            let ground = ctx.create_mesh(&MeshData::plane(60.0), ground);
+            let ground = ctx.create_mesh(&MeshData::plane(600.0), ground);
             ctx.world.spawn((Transform3D::default(), Model::new(ground)));
 
             let water = ctx.load_shader("shaders/water.wgsl");

@@ -21,6 +21,14 @@ says what that covers.
   `blend` (`Blend::Transparent`) and `double_sided`;
   `ctx.update_material` changes a material. In C and C++ too. The
   `shaders` example shows water, wind and a procedural pattern.
+- A physical sky and height fog, `ctx.sky` (`Sky`): Rayleigh and Mie
+  scattering lit by the sun, a sun disk, stars at night; the sun dims
+  and reddens as it sets and the scene's ambient light comes from the
+  sky. `Sky::sun_direction_at(hour)` for a day and night cycle. In C
+  (`crabby_ctx_sky`, `crabby_ctx_set_sky`, `crabby_sun_direction_at`) and
+  C++ (`ctx.sky()`, `ctx.set_sky`, `crabby::sun_direction_at`).
+- `Lighting::ambient_intensity` now defaults to 1 (light as bright as the
+  sky gives), with the default sky and ground colors halved to match.
 - Cascaded sun shadows: `Lighting::shadow_cascades` (1 to 4, default 4)
   shadow maps share `shadow_distance`, sharp near the camera and reaching
   far, blended where they meet. In C and C++ (`shadow_cascades` in the

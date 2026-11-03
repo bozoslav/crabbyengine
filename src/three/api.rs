@@ -2,6 +2,8 @@
 
 use std::ops::Range;
 
+use glam::Vec3;
+
 use super::{Blend, Material, MaterialDesc, Mesh, MeshData, Shader, gltf, linear};
 use crate::{Ctx, assets};
 
@@ -398,14 +400,36 @@ impl Ctx {
         let start = web_time::Instant::now();
         self.frame3d
             .collect(&mut self.world, &self.assets3d, &self.camera3d, &self.lighting);
+        let light = if self.sky.atmosphere {
+            match self.frame3d.sky_light {
+                Some((lighting, sky, light)) if lighting == self.lighting && sky == self.sky => light,
+                _ => {
+                    let light = super::SkyLight::new(&self.lighting, &self.sky);
+                    self.frame3d.sky_light = Some((self.lighting, self.sky, light));
+                    light
+                }
+            }
+        } else {
+            let rgb = |c| {
+                let [r, g, b, _] = super::linear(c);
+                Vec3::new(r, g, b)
+            };
+            super::SkyLight {
+                sun: rgb(self.lighting.sun_color) * self.lighting.sun_intensity,
+                sky: rgb(self.lighting.sky_color),
+                ground: rgb(self.lighting.ground_color),
+            }
+        };
         let collect_ms = start.elapsed().as_secs_f32() * 1000.0;
-        renderer.prepare_3d(
-            &self.frame3d,
-            &self.lighting,
-            self.camera3d.position,
-            &self.post,
+        let scene = super::Scene3D {
+            frame: &self.frame3d,
+            lighting: &self.lighting,
+            sky: &self.sky,
+            light,
+            camera: self.camera3d.position,
+            post: &self.post,
             time,
-            collect_ms,
-        );
+        };
+        renderer.prepare_3d(&scene, collect_ms);
     }
 }

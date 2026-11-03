@@ -14,6 +14,7 @@ mod collect;
 mod gltf;
 mod mesh;
 mod post;
+mod sky;
 
 pub(crate) use api::GpuMaterialDesc;
 #[cfg(feature = "window")]
@@ -25,6 +26,8 @@ pub use mesh::MeshData;
 #[cfg(feature = "window")]
 pub(crate) use post::PostUniform;
 pub use post::{Post, Tonemap};
+pub use sky::Sky;
+pub(crate) use sky::SkyLight;
 
 use glam::{Mat3, Mat4, Quat, Vec2, Vec3, Vec4};
 
@@ -489,11 +492,14 @@ pub struct Lighting {
     pub sun_color: Color,
     /// How bright the sun is. Default 3.
     pub sun_intensity: f32,
-    /// Light from the sky, on surfaces facing up.
+    /// Light from the sky, on surfaces facing up. Used when
+    /// [`Sky::atmosphere`] is off; with it, the sky's own light is used.
     pub sky_color: Color,
-    /// Light bounced off the ground, on surfaces facing down.
+    /// Light bounced off the ground, on surfaces facing down. Like
+    /// `sky_color`, only without an atmosphere.
     pub ground_color: Color,
-    /// How bright the sky and ground light is. Default 0.5.
+    /// How bright the sky and ground light is: 1 is as bright as the sky
+    /// makes it. Default 1.
     pub ambient_intensity: f32,
     /// Whether the sun casts shadows. Default on.
     pub shadows: bool,
@@ -512,14 +518,27 @@ impl Default for Lighting {
             sun_direction: Vec3::new(-0.4, -1.0, -0.3),
             sun_color: Color::hex(0xFFF4E0),
             sun_intensity: 3.0,
-            sky_color: Color::hex(0xB8D4F0),
-            ground_color: Color::hex(0x6B5B4B),
-            ambient_intensity: 0.5,
+            sky_color: Color::hex(0x869BB0),
+            ground_color: Color::hex(0x4D4135),
+            ambient_intensity: 1.0,
             shadows: true,
             shadow_distance: 60.0,
             shadow_cascades: 4,
         }
     }
+}
+
+/// This frame's 3D scene, as the renderer gets it.
+pub(crate) struct Scene3D<'a> {
+    pub frame: &'a Frame3D,
+    pub lighting: &'a Lighting,
+    pub sky: &'a Sky,
+    /// The sun and ambient light (from the sky, with an atmosphere).
+    pub light: SkyLight,
+    pub camera: Vec3,
+    pub post: &'a Post,
+    /// Seconds since the game started, and since the last frame.
+    pub time: (f32, f32),
 }
 
 /// What the engine keeps about each mesh and material on the CPU side: for

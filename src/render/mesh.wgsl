@@ -23,6 +23,11 @@ struct Frame {
     time: vec4<f32>,       // x: seconds since the game started, y: seconds since the last frame
     inv_view_proj: mat4x4<f32>, // clip space back to the world
     screen: vec4<f32>,     // width and height in pixels, then their inverses
+    atmosphere: vec4<f32>, // x: a physical sky (1) or not (0), y: haze, z: cos of the sun's radius, w: stars
+    sky_light: vec4<f32>,  // rgb: the sunlight the sky is lit by, w: camera height in km
+    fog: vec4<f32>,        // x: density per unit, y: fog height, z: 1 / falloff
+    fog_color: vec4<f32>,  // rgb: linear, without an atmosphere
+    night: vec4<f32>,      // rgb: light at night
 };
 
 struct MaterialData {
@@ -36,6 +41,9 @@ struct MaterialData {
 @group(0) @binding(0) var<uniform> frame: Frame;
 @group(0) @binding(1) var shadow_map: texture_depth_2d_array;
 @group(0) @binding(2) var shadow_sampler: sampler_comparison;
+// The sky around the camera (see sky_radiance), made each frame.
+@group(0) @binding(3) var sky_texture: texture_2d<f32>;
+@group(0) @binding(4) var sky_sampler: sampler;
 @group(1) @binding(0) var<uniform> material: MaterialData;
 @group(1) @binding(1) var material_sampler: sampler;
 @group(1) @binding(2) var base_texture: texture_2d<f32>;
@@ -96,6 +104,54 @@ fn scene_position(screen: vec2<f32>) -> vec3<f32> {
 // How far the opaque scene is from the camera at a pixel.
 fn scene_distance(screen: vec2<f32>) -> f32 {
     return distance(scene_position(screen), frame.camera.xyz);
+}
+
+// Where direction `dir` is in the sky texture: around the horizon in u,
+// from straight up (v 0) to straight down (v 1), squeezed towards the
+// horizon where the sky changes fastest.
+fn sky_uv(dir: vec3<f32>) -> vec2<f32> {
+    let around = atan2(dir.z, dir.x) / (2.0 * PI) + 0.5;
+    let up = asin(clamp(dir.y, -1.0, 1.0)) / (0.5 * PI);
+    return vec2<f32>(around, 0.5 - 0.5 * sign(up) * sqrt(abs(up)));
+}
+
+// The direction at `uv` of the sky texture (the inverse of sky_uv).
+fn sky_dir(uv: vec2<f32>) -> vec3<f32> {
+    let around = (uv.x - 0.5) * 2.0 * PI;
+    let s = (0.5 - uv.y) * 2.0;
+    let up = sign(s) * s * s * 0.5 * PI;
+    return vec3<f32>(cos(up) * cos(around), sin(up), cos(up) * sin(around));
+}
+
+// The sky's light from direction `dir` (towards the sky), without the sun
+// itself. Black without an atmosphere.
+fn sky_radiance(dir: vec3<f32>) -> vec3<f32> {
+    return textureSampleLevel(sky_texture, sky_sampler, sky_uv(dir), 0.0).rgb;
+}
+
+// `color` seen through the fog between the camera and `world`: height fog,
+// thickest at the fog height and thinning out above it, colored by the sky
+// behind it (or the fog color, without an atmosphere).
+fn fog(color: vec3<f32>, world: vec3<f32>) -> vec3<f32> {
+    let density = frame.fog.x;
+    if density <= 0.0 {
+        return color;
+    }
+    let ray = world - frame.camera.xyz;
+    let span = length(ray);
+    let k = frame.fog.z;
+    // The fog along the ray: density * exp(-(height - fog height) * k),
+    // integrated from the camera to `world`.
+    let start = density * exp(-(frame.camera.y - frame.fog.y) * k);
+    let rise = ray.y * k;
+    let along = select((1.0 - exp(-rise)) / rise, 1.0, abs(rise) < 1e-4);
+    let seen = exp(-start * span * along);
+    let dir = ray / max(span, 1e-6);
+    var fog_color = frame.fog_color.rgb;
+    if frame.atmosphere.x > 0.0 {
+        fog_color = sky_radiance(normalize(vec3<f32>(dir.x, max(dir.y, 0.03), dir.z)));
+    }
+    return mix(fog_color, color, seen);
 }
 
 // A pseudo-random number in 0..1 for a 2D point.

@@ -3,11 +3,13 @@
 //! material.
 //!
 //! The frame, in order:
+//! 0. **sky texture**: with an atmosphere, the sky in every direction;
 //! 1. **shadows**: one pass per cascade of the sun's shadow map;
 //! 2. **depth prepass**: the nearest depth of every pixel, so the next pass
 //!    lights each pixel once, and later passes can read the depth;
 //! 3. **opaque**: lit models into an HDR (16-bit float) target, keeping only
-//!    the fragments the prepass found nearest;
+//!    the fragments the prepass found nearest, then the sky behind them and
+//!    the transparent models over them;
 //! 4. **bloom**: bright light is blurred through a chain of ever smaller
 //!    images and back up (skipped when bloom is off);
 //! 5. **post**: exposure, bloom, color grading and tone mapping, onto the
@@ -22,11 +24,11 @@ use wgpu::util::DeviceExt;
 
 use super::gpu::GpuTexture;
 use super::timer::GpuTimer;
+use crate::Material;
+use crate::three::Scene3D;
 use crate::three::{
-    Frame3D, GpuMaterialDesc, Instance3D, MAX_CASCADES, MaterialTextures, MeshData, PostUniform, SHADOW_MAP_SIZE,
-    linear,
+    GpuMaterialDesc, Instance3D, MAX_CASCADES, MaterialTextures, MeshData, PostUniform, SHADOW_MAP_SIZE, linear,
 };
-use crate::{Lighting, Material};
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 /// The lit frame before tone mapping: light brighter than white survives.
@@ -59,6 +61,17 @@ struct FrameUniform {
     inv_view_proj: [[f32; 4]; 4],
     /// Width and height in pixels, then their inverses.
     screen: [f32; 4],
+    /// x: a physical sky (1) or not, y: haze, z: cos of the sun's radius,
+    /// w: how bright the stars are.
+    atmosphere: [f32; 4],
+    /// rgb: the sunlight the sky is lit by (before the air), w: camera
+    /// height in km.
+    sky_light: [f32; 4],
+    /// x: fog density per unit, y: fog height, z: 1 / falloff.
+    fog: [f32; 4],
+    fog_color: [f32; 4],
+    /// Light at night.
+    night: [f32; 4],
 }
 
 /// One corner of a mesh on the GPU.
@@ -112,6 +125,9 @@ struct Pipelines {
 /// The built-in parts of every material shader.
 const MESH_PRELUDE: &str = include_str!("mesh.wgsl");
 const MESH_MAIN: &str = include_str!("mesh_main.wgsl");
+const SKY: &str = include_str!("sky.wgsl");
+/// The sky texture: every direction around the camera.
+const SKY_SIZE: (u32, u32) = (256, 128);
 
 /// Whether WGSL `source` defines a function called `name`.
 fn defines(source: &str, name: &str) -> bool {
@@ -198,15 +214,10 @@ struct Targets {
 
 /// What `Renderer3D::prepare` needs for a frame.
 pub(crate) struct Prepare3D<'a> {
-    pub frame: &'a Frame3D,
-    pub lighting: &'a Lighting,
-    pub camera: Vec3,
-    pub post: &'a crate::Post,
+    pub scene: &'a Scene3D<'a>,
     /// The lookup table's texture and its size, when there is one.
     pub lut: Option<(u32, u32)>,
     pub size: (u32, u32),
-    /// Seconds since the game started, and since the last frame.
-    pub time: (f32, f32),
 }
 
 pub(crate) struct Renderer3D {
@@ -233,6 +244,12 @@ pub(crate) struct Renderer3D {
     lut: u32,
     bloom: bool,
     frame_buffer: wgpu::Buffer,
+    /// The physical sky: made into `sky_view` each frame, then drawn behind
+    /// everything. Only with an atmosphere.
+    sky_view: wgpu::TextureView,
+    sky_lut: wgpu::RenderPipeline,
+    sky: wgpu::RenderPipeline,
+    atmosphere: bool,
     frame_bind_group: wgpu::BindGroup,
     /// The frame uniform alone, for the shadow pass (which can't also read
     /// the shadow map it draws into): one copy per cascade, each with its
@@ -292,6 +309,22 @@ impl Renderer3D {
                     binding: 2,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
             ],
@@ -593,6 +626,89 @@ impl Renderer3D {
             compare: Some(wgpu::CompareFunction::LessEqual),
             ..Default::default()
         });
+        let sky_view = device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("3d sky"),
+                size: wgpu::Extent3d {
+                    width: SKY_SIZE.0,
+                    height: SKY_SIZE.1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: HDR_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+            .create_view(&Default::default());
+        let sky_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("3d sky"),
+            // Around the horizon it wraps; up and down it stops.
+            address_mode_u: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let sky_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("3d sky"),
+            source: wgpu::ShaderSource::Wgsl(format!("{MESH_PRELUDE}\n{SKY}").into()),
+        });
+        let sky_pipeline = |label, layout: &wgpu::PipelineLayout, entry_point, samples, depth| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(layout),
+                vertex: wgpu::VertexState {
+                    module: &sky_module,
+                    entry_point: Some("vs_far"),
+                    compilation_options: Default::default(),
+                    buffers: &[],
+                },
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: depth,
+                multisample: wgpu::MultisampleState {
+                    count: samples,
+                    ..Default::default()
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &sky_module,
+                    entry_point: Some(entry_point),
+                    compilation_options: Default::default(),
+                    targets: &[Some(HDR_FORMAT.into())],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let sky_lut = sky_pipeline(
+            "3d sky texture",
+            &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("3d sky texture"),
+                bind_group_layouts: &[Some(&shadow_layout)],
+                immediate_size: 0,
+            }),
+            "fs_lut",
+            1,
+            None,
+        );
+        // Behind everything: only where the depth is still the far plane.
+        let sky = sky_pipeline(
+            "3d sky",
+            &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("3d sky"),
+                bind_group_layouts: &[Some(&frame_layout)],
+                immediate_size: 0,
+            }),
+            "fs_sky",
+            MSAA,
+            Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+        );
         let frame_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("3d frame"),
             layout: &frame_layout,
@@ -608,6 +724,14 @@ impl Renderer3D {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: wgpu::BindingResource::Sampler(&shadow_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&sky_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::Sampler(&sky_sampler),
                 },
             ],
         });
@@ -642,6 +766,10 @@ impl Renderer3D {
             lut: white,
             bloom: false,
             frame_buffer,
+            sky_view,
+            sky_lut,
+            sky,
+            atmosphere: false,
             frame_bind_group,
             shadow_frames,
             shadow_stride,
@@ -807,15 +935,16 @@ impl Renderer3D {
 
     /// Uploads this frame's instances, camera, light and post settings.
     pub fn prepare(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, input: &Prepare3D<'_>) {
-        let &Prepare3D {
+        let &Prepare3D { scene, lut, size } = input;
+        let &Scene3D {
             frame,
             lighting,
+            sky,
+            light,
             camera,
             post,
-            lut,
-            size,
             time,
-        } = input;
+        } = scene;
         queue.write_buffer(
             &self.post_buffer,
             0,
@@ -823,6 +952,7 @@ impl Renderer3D {
         );
         self.lut = lut.map_or(self.white, |(id, _)| id);
         self.bloom = post.bloom > 0.0;
+        self.atmosphere = sky.atmosphere;
         self.runs.clear();
         self.runs.extend_from_slice(&frame.runs);
         self.cascades = frame.cascades;
@@ -842,6 +972,7 @@ impl Renderer3D {
             let [r, g, b, _] = linear(c);
             [r * k, g * k, b * k, 0.0]
         };
+        let ambient = |light: Vec3| (light * lighting.ambient_intensity).extend(0.0).to_array();
         let sun = (-lighting.sun_direction).try_normalize().unwrap_or(Vec3::Y);
         let mut uniform = FrameUniform {
             view_proj: frame.view_proj.to_cols_array_2d(),
@@ -849,9 +980,9 @@ impl Renderer3D {
             caster_view_proj: Mat4::IDENTITY.to_cols_array_2d(),
             camera: camera.extend(1.0).to_array(),
             sun_dir: sun.extend(0.0).to_array(),
-            sun_color: scaled(lighting.sun_color, lighting.sun_intensity),
-            sky: scaled(lighting.sky_color, lighting.ambient_intensity),
-            ground: scaled(lighting.ground_color, lighting.ambient_intensity),
+            sun_color: light.sun.extend(0.0).to_array(),
+            sky: ambient(light.sky),
+            ground: ambient(light.ground),
             // The shadow lookup moves out along the normal by 1.5 texels,
             // against acne on surfaces facing away from the sun.
             shadow: [
@@ -869,10 +1000,29 @@ impl Renderer3D {
                 1.0 / size.0.max(1) as f32,
                 1.0 / size.1.max(1) as f32,
             ],
+            atmosphere: [
+                if sky.atmosphere { 1.0 } else { 0.0 },
+                sky.haze.max(0.0),
+                (sky.sun_size.clamp(0.01, 20.0).to_radians() * 0.5).cos(),
+                sky.stars.max(0.0),
+            ],
+            sky_light: {
+                let [r, g, b, _] = scaled(lighting.sun_color, lighting.sun_intensity);
+                [r, g, b, (camera.y / 1000.0).max(0.0)]
+            },
+            fog: [
+                sky.fog_density.max(0.0),
+                sky.fog_height,
+                1.0 / sky.fog_falloff.max(1e-3),
+                0.0,
+            ],
+            fog_color: scaled(sky.fog_color, 1.0),
+            night: scaled(sky.night_light, 1.0),
         };
         queue.write_buffer(&self.frame_buffer, 0, bytemuck::bytes_of(&uniform));
-        for i in 0..frame.cascades {
-            uniform.caster_view_proj = uniform.sun_view_proj[i];
+        // Copy 0 also serves the sky texture's pass.
+        for i in 0..frame.cascades.max(1) {
+            uniform.caster_view_proj = uniform.sun_view_proj[i.min(MAX_CASCADES - 1)];
             queue.write_buffer(
                 &self.shadow_frames,
                 self.shadow_stride * i as u64,
@@ -1003,6 +1153,7 @@ impl Renderer3D {
             .map(|&(mesh, _, _)| self.meshes[mesh as usize].parts.len())
             .sum();
         parts * 2
+            + if self.atmosphere { 2 } else { 0 }
             + self.shadow_runs[..self.cascades].iter().map(Vec::len).sum::<usize>()
             + 1
             + if self.bloom {
@@ -1029,6 +1180,27 @@ impl Renderer3D {
     ) {
         let Some(targets) = &self.targets else { return };
         let time = || timer.and_then(GpuTimer::pass);
+        if self.atmosphere {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("3d sky texture"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.sky_view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: time(),
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.sky_lut);
+            pass.set_bind_group(0, &self.shadow_bind_group, &[0]);
+            pass.draw(0..3, 0..1);
+        }
         for cascade in 0..self.cascades {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("3d shadows"),
@@ -1109,6 +1281,12 @@ impl Renderer3D {
             pass.set_bind_group(0, &self.frame_bind_group, &[]);
             pass.set_bind_group(2, &self.no_scene, &[]);
             self.draw_models(&mut pass, &self.runs, Kind::Opaque);
+            if self.atmosphere {
+                pass.set_pipeline(&self.sky);
+                pass.set_bind_group(0, &self.frame_bind_group, &[]);
+                pass.draw(0..3, 0..1);
+                pass.set_bind_group(2, &self.no_scene, &[]);
+            }
             if !split {
                 self.draw_models(&mut pass, &self.runs, Kind::Transparent);
             }
@@ -1457,6 +1635,11 @@ mod tests {
     #[test]
     fn the_built_in_shader_is_valid() {
         check_shader("built-in", &compose_shader("")).unwrap();
+    }
+
+    #[test]
+    fn the_sky_shader_is_valid() {
+        check_shader("sky", &format!("{MESH_PRELUDE}\n{SKY}")).unwrap();
     }
 
     #[test]

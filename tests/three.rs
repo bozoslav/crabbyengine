@@ -51,6 +51,29 @@ fn the_guide_village_has_five_spinning_houses() {
     assert_eq!(houses, 5);
 }
 
+// ANCHOR: sky
+/// A misty morning: the sun low in the east, fog lying in the valleys.
+fn misty_morning(ctx: &mut Ctx) {
+    ctx.lighting.sun_direction = Sky::sun_direction_at(7.5);
+    ctx.sky.haze = 2.0; // a paler sky, a bigger glow around the sun
+    ctx.sky.fog_density = 0.03; // thick near the ground
+    ctx.sky.fog_height = 0.0;
+    ctx.sky.fog_falloff = 10.0; // and thin ten meters up
+}
+// ANCHOR_END: sky
+
+#[test]
+fn sky_settings_stay_as_set() {
+    Game::new("t", 1, 1).run_headless(1, |ctx| {
+        assert_eq!(ctx.sky, Sky::default());
+        assert!(ctx.sky.atmosphere);
+        misty_morning(ctx);
+        assert_eq!(ctx.sky.fog_density, 0.03);
+        let to_sun = -ctx.lighting.sun_direction;
+        assert!(to_sun.x > 0.0 && to_sun.y > 0.0, "morning: low in the east");
+    });
+}
+
 // ANCHOR: post
 /// A warm, glowing evening look.
 fn golden_hour(ctx: &mut Ctx) {

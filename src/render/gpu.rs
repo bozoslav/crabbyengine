@@ -477,33 +477,17 @@ impl Renderer {
     /// Uploads the frame's 3D models, camera and light for the next `render`.
     /// `collect_ms`: how long collecting the models took, counted in `cpu_ms`.
     #[cfg(feature = "3d")]
-    pub fn prepare_3d(
-        &mut self,
-        frame: &crate::three::Frame3D,
-        lighting: &crate::Lighting,
-        camera: glam::Vec3,
-        post: &crate::Post,
-        time: (f32, f32),
-        collect_ms: f32,
-    ) {
+    pub fn prepare_3d(&mut self, scene: &crate::three::Scene3D<'_>, collect_ms: f32) {
         let start = web_time::Instant::now();
         let size = (self.config.width, self.config.height);
         // A lookup table must be a strip of n squares of n x n.
-        let lut = post.lut.filter(|t| {
+        let lut = scene.post.lut.filter(|t| {
             let n = t.height();
             (2..=64).contains(&n) && t.width() == n * n && (t.id as usize) < self.textures.len()
         });
         if let Some(three) = &mut self.three {
             let lut = lut.map(|t| (t.id, t.height()));
-            let input = super::gpu3d::Prepare3D {
-                frame,
-                lighting,
-                camera,
-                post,
-                lut,
-                size,
-                time,
-            };
+            let input = super::gpu3d::Prepare3D { scene, lut, size };
             three.prepare(&self.device, &self.queue, &input);
         }
         self.prepare_3d_ms = collect_ms + start.elapsed().as_secs_f32() * 1000.0;

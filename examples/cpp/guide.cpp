@@ -727,6 +727,21 @@ static void spin(crabby::ctx& ctx) {
 }
 // ANCHOR_END: three_d
 
+// ANCHOR: sky
+/// A misty morning: the sun low in the east, fog lying in the valleys.
+static void misty_morning(crabby::ctx& ctx) {
+    auto light = ctx.lighting();
+    light.sun_direction = crabby::sun_direction_at(7.5f);
+    ctx.set_lighting(light);
+    auto sky = ctx.sky();
+    sky.haze = 2;              // a paler sky, a bigger glow around the sun
+    sky.fog_density = 0.03f;   // thick near the ground
+    sky.fog_height = 0;
+    sky.fog_falloff = 10;      // and thin ten meters up
+    ctx.set_sky(sky);
+}
+// ANCHOR_END: sky
+
 // ANCHOR: post
 /// A warm, glowing evening look.
 static void golden_hour(crabby::ctx& ctx) {
@@ -767,6 +782,7 @@ static void the_village_has_five_spinning_houses() {
     auto world = crabby::game("guide", 640, 480).sim_system(spin, "spin").run_headless(60, [](crabby::ctx& ctx) {
         village(ctx);
         golden_hour(ctx);
+        misty_morning(ctx);
         meadow(ctx);
         if (ctx.post().tonemap != uint32_t(crabby::tonemap::agx)) { std::fprintf(stderr, "post\n"); std::abort(); }
     });

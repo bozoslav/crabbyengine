@@ -203,12 +203,13 @@ fn shade(s: Surface) -> vec3<f32> {
 // Opaque: the prepass already cut the cut-outs.
 @fragment
 fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
-    return vec4<f32>(shade(surface_at(in, front)), 1.0);
+    let s = surface_at(in, front);
+    return vec4<f32>(fog(shade(s), s.world), 1.0);
 }
 
 // Transparent: blended over what's behind it (premultiplied alpha).
 @fragment
 fn fs_transparent(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
     let s = surface_at(in, front);
-    return vec4<f32>(shade(s) * s.alpha, s.alpha);
+    return vec4<f32>(fog(shade(s), s.world) * s.alpha, s.alpha);
 }

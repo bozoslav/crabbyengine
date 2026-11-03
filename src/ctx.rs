@@ -237,6 +237,18 @@ pub struct Ctx {
     /// ```
     #[cfg(feature = "3d")]
     pub post: crate::Post,
+    /// The sky behind the 3D world and the fog in front of it (feature
+    /// `3d`): a physical sky lit by the sun, by default.
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// ctx.lighting.sun_direction = Sky::sun_direction_at(7.0); // morning
+    /// ctx.sky.fog_density = 0.01;
+    /// # }
+    /// ```
+    #[cfg(feature = "3d")]
+    pub sky: crate::Sky,
     #[cfg(feature = "3d")]
     pub(crate) assets3d: crate::three::Assets3D,
     #[cfg(feature = "3d")]
@@ -324,6 +336,8 @@ impl Ctx {
             lighting: crate::Lighting::default(),
             #[cfg(feature = "3d")]
             post: crate::Post::default(),
+            #[cfg(feature = "3d")]
+            sky: crate::Sky::default(),
             #[cfg(feature = "3d")]
             assets3d: Default::default(),
             #[cfg(feature = "3d")]

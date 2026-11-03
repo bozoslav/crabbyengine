@@ -184,6 +184,14 @@ static void three_d() {
         CHECK(ctx.lighting().shadow_cascades == 2);
         light.shadow_cascades = 0;
         throws([&] { ctx.set_lighting(light); });
+        auto sky = ctx.sky();
+        CHECK(sky.atmosphere && sky.fog_density == 0);
+        sky.fog_density = 0.01f;
+        ctx.set_sky(sky);
+        CHECK(ctx.sky().fog_density == 0.01f);
+        sky.sun_size = 0;
+        throws([&] { ctx.set_sky(sky); });
+        CHECK(crabby::sun_direction_at(12).y < -0.8f);
         auto post = ctx.post();
         CHECK(post.tonemap == uint32_t(crabby::tonemap::aces) && post.contrast == 1 && !post.has_lut);
         post.tonemap = uint32_t(crabby::tonemap::neutral);

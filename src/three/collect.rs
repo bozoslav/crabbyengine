@@ -46,6 +46,8 @@ pub(crate) struct Frame3D {
     pub cascade_texel: [f32; MAX_CASCADES],
     /// How many of `instances` the camera sees (the rest cast shadows).
     pub visible: usize,
+    /// The light the sky gave last, and what it was worked out from.
+    pub sky_light: Option<(Lighting, super::Sky, super::SkyLight)>,
     scratch: Vec<Entry>,
     counts: Vec<u32>,
 }

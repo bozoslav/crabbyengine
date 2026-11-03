@@ -434,18 +434,18 @@ typedef struct CrabbyField {
   size_t offset;
 } CrabbyField;
 
+typedef struct CrabbyVec3 {
+  float x;
+  float y;
+  float z;
+} CrabbyVec3;
+
 typedef struct CrabbyQuat {
   float x;
   float y;
   float z;
   float w;
 } CrabbyQuat;
-
-typedef struct CrabbyVec3 {
-  float x;
-  float y;
-  float z;
-} CrabbyVec3;
 
 typedef struct CrabbyTransform3D {
   struct CrabbyQuat rotation;
@@ -522,6 +522,18 @@ typedef struct CrabbyLighting {
   float shadow_distance;
   uint32_t shadow_cascades;
 } CrabbyLighting;
+
+typedef struct CrabbySky {
+  bool atmosphere;
+  float haze;
+  float sun_size;
+  float stars;
+  struct CrabbyColor night_light;
+  float fog_density;
+  float fog_height;
+  float fog_falloff;
+  struct CrabbyColor fog_color;
+} CrabbySky;
 
 typedef struct CrabbyPost {
   float exposure;
@@ -1150,6 +1162,8 @@ enum CrabbyStatus crabby_ctx_steam_lobby(struct CrabbyCtx *ctx, uint64_t *out_lo
 
 enum CrabbyStatus crabby_ctx_steam_invite(struct CrabbyCtx *ctx);
 
+struct CrabbyVec3 crabby_sun_direction_at(float hour);
+
 struct CrabbyQuat crabby_quat_identity(void);
 
 struct CrabbyQuat crabby_quat_from_axis_angle(struct CrabbyVec3 axis, float angle);
@@ -1242,6 +1256,10 @@ enum CrabbyStatus crabby_ctx_lighting(struct CrabbyCtx *ctx, struct CrabbyLighti
 
 enum CrabbyStatus crabby_ctx_set_lighting(struct CrabbyCtx *ctx,
                                           const struct CrabbyLighting *lighting);
+
+enum CrabbyStatus crabby_ctx_sky(struct CrabbyCtx *ctx, struct CrabbySky *out_sky);
+
+enum CrabbyStatus crabby_ctx_set_sky(struct CrabbyCtx *ctx, const struct CrabbySky *sky);
 
 enum CrabbyStatus crabby_ctx_post(struct CrabbyCtx *ctx, struct CrabbyPost *out_post);
 

@@ -91,6 +91,10 @@ enum class blend : uint32_t { opaque = 0, transparent = 1 };
 using camera3d = CrabbyCamera3D;
 using lighting = CrabbyLighting;
 /// Post-processing of the 3D frame (Rust `Post`); read and change it with
+/// ctx::sky / ctx::set_sky: the sky behind the 3D world and the fog.
+using sky = CrabbySky;
+/// Which way sunlight travels at `hour` o'clock, for a day and night cycle.
+inline vec3 sun_direction_at(float hour) { return crabby_sun_direction_at(hour); }
 /// ctx::post / ctx::set_post. tonemap: see crabby::tonemap.
 using post = CrabbyPost;
 /// How HDR light maps to the screen (`post::tonemap`).
@@ -1176,6 +1180,10 @@ public:
     crabby::lighting lighting() const { crabby::lighting l{}; detail::check(crabby_ctx_lighting(raw_, &l)); return l; }
     /// Intensities and the shadow distance can't be negative; shadow_cascades is 1 to 4.
     void set_lighting(const crabby::lighting& l) { detail::check(crabby_ctx_set_lighting(raw_, &l)); }
+    /// The sky behind the 3D world and the fog in front of it.
+    crabby::sky sky() const { crabby::sky s{}; detail::check(crabby_ctx_sky(raw_, &s)); return s; }
+    /// Haze, stars and fog density can't be negative; sun_size and fog_falloff must be above 0.
+    void set_sky(const crabby::sky& s) { detail::check(crabby_ctx_set_sky(raw_, &s)); }
     /// Exposure, bloom, color grading and tone mapping of the 3D frame.
     crabby::post post() const { crabby::post p{}; detail::check(crabby_ctx_post(raw_, &p)); return p; }
     /// Bloom, its threshold, contrast and saturation can't be negative.

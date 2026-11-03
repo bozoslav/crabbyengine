@@ -122,7 +122,7 @@ pub use text::{Font, TextParams};
 pub use texture::{DrawParams, Texture, TextureFilter};
 #[cfg(feature = "3d")]
 pub use three::{
-    Blend, Camera3D, Lighting, Material, MaterialDesc, Mesh, MeshData, Model, Post, Shader, Tonemap, Transform3D,
+    Blend, Camera3D, Lighting, Material, MaterialDesc, Mesh, MeshData, Model, Post, Shader, Sky, Tonemap, Transform3D,
 };
 pub use tilemap::{TileMap, draw_tilemaps};
 pub use ui::UiStyle;
