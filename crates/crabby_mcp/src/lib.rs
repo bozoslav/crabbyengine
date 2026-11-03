@@ -222,7 +222,7 @@ fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "world_summary",
-            description: "Overview of a game's world: entity count, archetypes (which component sets exist and how many entities each has), and which components are reflected (readable/writable as JSON).",
+            description: "Overview of a game's world: entity count, archetypes (which component sets exist and how many entities each has), and which components and resources are reflected (readable/writable as JSON).",
             writes: false,
             params: no_params,
             required: &[],
@@ -246,6 +246,20 @@ fn tools() -> Vec<Tool> {
             writes: false,
             params: || json!({ "entity": { "type": "integer", "description": "Entity id from list_entities" } }),
             required: &["entity"],
+        },
+        Tool {
+            name: "list_resources",
+            description: "Every reflected resource (game-wide state such as scores, settings, the current round) with its value as JSON; null when it's not in the world right now. Resources must be reflected in the game (world.reflect_resource::<T>()).",
+            writes: false,
+            params: no_params,
+            required: &[],
+        },
+        Tool {
+            name: "get_resource",
+            description: "One reflected resource as JSON.",
+            writes: false,
+            params: || json!({ "resource": { "type": "string", "description": "Resource name from list_resources, e.g. \"Score\"" } }),
+            required: &["resource"],
         },
         Tool {
             name: "system_timings",
@@ -367,6 +381,18 @@ fn tools() -> Vec<Tool> {
             required: &["entity", "component", "value"],
         },
         Tool {
+            name: "set_resource",
+            description: "Write a reflected resource (inserts it if missing). For an existing resource, object fields you give are changed and the rest keep their values, e.g. {\"blue\": 0}. Returns the new value.",
+            writes: true,
+            params: || {
+                json!({
+                    "resource": { "type": "string", "description": "Resource name from list_resources" },
+                    "value": { "description": "JSON value (or partial object)" }
+                })
+            },
+            required: &["resource", "value"],
+        },
+        Tool {
             name: "remove_component",
             description: "Remove a reflected component from an entity.",
             writes: true,
@@ -375,14 +401,14 @@ fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "save_world",
-            description: "Save every entity that has reflected components (with its id) to a JSON file. Use it as a checkpoint before experiments; restore with load_world.",
+            description: "Save every entity that has reflected components (with its id), and every reflected resource, to a JSON file. Use it as a checkpoint before experiments; restore with load_world.",
             writes: false,
             params: || json!({ "path": { "type": "string", "description": "File to write, e.g. /tmp/before.json" } }),
             required: &["path"],
         },
         Tool {
             name: "load_world",
-            description: "Replace every entity with those in a save file from save_world, with the same ids. The file is checked first: on error nothing changes. Doesn't change the tick, seed or resources.",
+            description: "Replace every entity with those in a save file from save_world, with the same ids. The file is checked first: on error nothing changes. Reflected resources in the file are restored too; the tick, seed and other resources don't change.",
             writes: true,
             params: || json!({ "path": { "type": "string", "description": "File from save_world" } }),
             required: &["path"],
@@ -572,6 +598,9 @@ impl Server {
                 .call("entities.list", pass(&["with", "limit", "offset"])),
             "get_entity" => self.instance(args)?.call("entity.get", pass(&["entity"])),
             "system_timings" => self.instance(args)?.call("systems.timings", json!({})),
+            "list_resources" => self.instance(args)?.call("resources.list", json!({})),
+            "get_resource" => self.instance(args)?.call("resource.get", pass(&["resource"])),
+            "set_resource" => self.instance(args)?.call("resource.set", pass(&["resource", "value"])),
             "read_logs" => self.read_logs(args),
             "set_camera" => self
                 .instance(args)?

@@ -147,5 +147,6 @@ normally; never let a C++ exception or `longjmp` cross them.
 ## Still Rust-only
 
 Resources: keep game-wide data in your own objects, captured by your
-systems (`[&]`), as the examples do. Everything else in this guide works
+systems (`[&]`), as the examples do. To let tools and agents see that
+state, keep it in a reflected component on one entity. Everything else in this guide works
 from C++, and each chapter shows both.

@@ -40,6 +40,7 @@ ctx.world.reflect::<Health>();
 | `world_summary` | | archetypes, entity counts, reflected components |
 | `list_entities` | | entities with component values; filter by component names, paged |
 | `get_entity` | | one entity's components |
+| `list_resources` / `get_resource` | | game-wide state: scores, rules, the current round |
 | `system_timings` | | which systems are slow |
 | `read_logs` | | stdout/stderr of launched games |
 | `screenshot` | | the next frame of a windowed game, as an image the agent can look at |
@@ -48,6 +49,7 @@ ctx.world.reflect::<Health>();
 | `pause` / `resume` / `set_speed` | ✓ | sim clock |
 | `spawn_entity` / `despawn_entity` | ✓ | |
 | `set_component` / `remove_component` | ✓ | change values; object fields merge |
+| `set_resource` | ✓ | change game-wide state; object fields merge |
 | `save_world` | | checkpoint the world to a file |
 | `load_world` | ✓ | roll back to a checkpoint (same entity ids) |
 | `quit_instance` | ✓ | |
@@ -96,7 +98,9 @@ deliveries in that time from 328 to 1,747.
 
 ## Making your game agent-friendly
 
-- Reflect the components that matter for gameplay.
+- Reflect the components that matter for gameplay, and the resources that
+  hold game-wide state (`world.reflect_resource::<Score>()`), so an agent
+  can ask "who's winning?" without counting entities.
 - Read sizes and seeds from environment variables (like the examples'
   `BOIDS` and `HEADLESS`), so `launch` can set them through `env`.
 - Support headless: put game logic in sim systems; it then runs without a
