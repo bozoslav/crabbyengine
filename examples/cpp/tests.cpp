@@ -152,6 +152,46 @@ static void scenes_and_prefabs() {
     CHECK(loaded.size() == 2 && loaded.get<game::Health>(first).value == 9);
 }
 
+static void three_d() {
+    std::vector<crabby::entity> cubes;
+    crabby::mesh cube{};
+    auto spin = [](crabby::ctx& ctx) {
+        ctx.world().each([](crabby::transform3d& t, const crabby::model&) { t.rotation = crabby::quat_from_rotation_y(0.1f) * t.rotation; });
+    };
+    auto w = crabby::game("3d", 640, 480).sim_system(spin, "spin").run_headless(5, [&](crabby::ctx& ctx) {
+        auto stone = ctx.create_material(crabby::material_of(crabby::rgb(.5f, .5f, .5f)));
+        cube = ctx.create_mesh(crabby::mesh_data::cube(1), stone);
+        for (int i = 0; i < 3; ++i)
+            cubes.push_back(ctx.world().spawn(crabby::transform3d_at({float(i) * 2, 0, 0}), crabby::model_of(cube, crabby::colors::red)));
+        throws([&] { ctx.create_mesh(crabby::mesh_data::cube(1), crabby::material{99}); });
+        auto shiny = crabby::material_of(crabby::colors::white);
+        shiny.metallic = 2;
+        throws([&] { ctx.create_material(shiny); });
+        throws([] { crabby::mesh_data({{0, 0, 0}, {1, 0, 0}, {0, 1, 0}}, {0, 1}); });
+
+        auto cam = ctx.camera3d();
+        cam.position = {0, 5, 10};
+        ctx.set_camera3d(cam);
+        ctx.camera3d_look_at({0, 0, 0});
+        CHECK(crabby::forward(crabby::looking_at(crabby::transform3d_at(cam.position), {0, 0, 0})).z < 0);
+        cam.near = 0;
+        throws([&] { ctx.set_camera3d(cam); });
+        auto light = ctx.lighting();
+        CHECK(light.shadows);
+        light.sun_direction = {-1, -1, 0};
+        ctx.set_lighting(light);
+    });
+    const auto t = w.get<crabby::transform3d>(cubes[1]);
+    CHECK(t.position.x == 2 && std::abs(t.rotation.y - std::sin(0.25f)) < 1e-5f);
+    CHECK(w.get<crabby::model>(cubes[2]).mesh.id == cube.id);
+    // Quaternion math matches the engine's.
+    const auto q = crabby::quat_from_rotation_y(1.5707964f);
+    const auto v = q * crabby::vec3{1, 0, 0};
+    CHECK(std::abs(v.z + 1) < 1e-5f);
+    auto tri = crabby::mesh_data({{0, 0, 0}, {1, 0, 0}, {0, 1, 0}}, {0, 1, 2});
+    CHECK(tri.view().vertex_count == 3 && tri.view().normals == nullptr);
+}
+
 static void parallel_queries() {
     crabby::world w;
     for (int i = 0; i < 100000; ++i) w.spawn(i);
@@ -442,6 +482,7 @@ int main() {
     resources();
     data_files();
     scenes_and_prefabs();
+    three_d();
     parallel_queries();
     games();
     attachments();

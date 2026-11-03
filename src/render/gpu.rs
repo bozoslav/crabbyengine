@@ -411,6 +411,8 @@ impl Renderer {
     #[cfg(feature = "3d")]
     pub fn create_material(&mut self, uniform: &crate::three::MaterialUniform, texture: Option<u32>) -> u32 {
         let device = self.device.clone();
+        // An unknown texture (from C) would break drawing: use none.
+        let texture = texture.filter(|&t| (t as usize) < self.textures.len());
         self.three().create_material(&device, uniform, texture)
     }
 

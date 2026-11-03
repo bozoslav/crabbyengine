@@ -44,6 +44,29 @@ inline CrabbyVec2& operator-=(CrabbyVec2& a, CrabbyVec2 b) { a.x -= b.x; a.y -= 
 inline CrabbyVec2& operator*=(CrabbyVec2& a, float s) { a.x *= s; a.y *= s; return a; }
 inline bool operator==(CrabbyVec2 a, CrabbyVec2 b) { return a.x == b.x && a.y == b.y; }
 inline bool operator!=(CrabbyVec2 a, CrabbyVec2 b) { return !(a == b); }
+inline CrabbyVec3 operator+(CrabbyVec3 a, CrabbyVec3 b) { return {a.x + b.x, a.y + b.y, a.z + b.z}; }
+inline CrabbyVec3 operator-(CrabbyVec3 a, CrabbyVec3 b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
+inline CrabbyVec3 operator-(CrabbyVec3 a) { return {-a.x, -a.y, -a.z}; }
+inline CrabbyVec3 operator*(CrabbyVec3 a, float s) { return {a.x * s, a.y * s, a.z * s}; }
+inline CrabbyVec3 operator*(float s, CrabbyVec3 a) { return {a.x * s, a.y * s, a.z * s}; }
+inline CrabbyVec3 operator/(CrabbyVec3 a, float s) { return {a.x / s, a.y / s, a.z / s}; }
+inline CrabbyVec3& operator+=(CrabbyVec3& a, CrabbyVec3 b) { a.x += b.x; a.y += b.y; a.z += b.z; return a; }
+inline CrabbyVec3& operator-=(CrabbyVec3& a, CrabbyVec3 b) { a.x -= b.x; a.y -= b.y; a.z -= b.z; return a; }
+inline CrabbyVec3& operator*=(CrabbyVec3& a, float s) { a.x *= s; a.y *= s; a.z *= s; return a; }
+inline bool operator==(CrabbyVec3 a, CrabbyVec3 b) { return a.x == b.x && a.y == b.y && a.z == b.z; }
+inline bool operator!=(CrabbyVec3 a, CrabbyVec3 b) { return !(a == b); }
+/// `a` after `b`: rotating by the result is rotating by `b`, then by `a`.
+inline CrabbyQuat operator*(CrabbyQuat a, CrabbyQuat b) {
+    return {a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y, a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+            a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w, a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z};
+}
+inline CrabbyQuat& operator*=(CrabbyQuat& a, CrabbyQuat b) { a = a * b; return a; }
+/// `v` rotated by `q`.
+inline CrabbyVec3 operator*(CrabbyQuat q, CrabbyVec3 v) {
+    const CrabbyVec3 u{q.x, q.y, q.z};
+    const CrabbyVec3 t{2 * (u.y * v.z - u.z * v.y), 2 * (u.z * v.x - u.x * v.z), 2 * (u.x * v.y - u.y * v.x)};
+    return v + q.w * t + CrabbyVec3{u.y * t.z - u.z * t.y, u.z * t.x - u.x * t.z, u.x * t.y - u.y * t.x};
+}
 
 namespace crabby {
 using entity = std::uint64_t;
@@ -54,6 +77,15 @@ using transform2d = CrabbyTransform2D;
 using attached = CrabbyAttached;
 using sprite = CrabbySprite;
 using camera = CrabbyCamera;
+using vec3 = CrabbyVec3;
+using quat = CrabbyQuat;
+using transform3d = CrabbyTransform3D;
+using model = CrabbyModel;
+using mesh = CrabbyMesh;
+using material = CrabbyMaterial;
+using material_desc = CrabbyMaterialDesc;
+using camera3d = CrabbyCamera3D;
+using lighting = CrabbyLighting;
 using draw_params = CrabbyDrawParams;
 using grid_hit = CrabbyGridHit;
 using grid_item = CrabbyGridItem;
@@ -147,6 +179,27 @@ inline sprite sprite_of(texture t, color tint = colors::white, float z = 0) {
     sprite s{}; s.texture = t; s.color = tint; s.z = z; s.pivot = {.5f, .5f}; return s;
 }
 inline draw_params draw_defaults() { return crabby_draw_params_default(); }
+
+// 3D (Rust `Transform3D`, `Model`, `MaterialDesc`, `Quat`).
+/// A rotation of `angle` radians around `axis` (Rust `Quat::from_axis_angle`).
+inline quat quat_from_axis_angle(vec3 axis, float angle) { return crabby_quat_from_axis_angle(axis, angle); }
+/// Rotations around one axis (Rust `Quat::from_rotation_x` and friends).
+inline quat quat_from_rotation_x(float angle) { return crabby_quat_from_axis_angle({1, 0, 0}, angle); }
+inline quat quat_from_rotation_y(float angle) { return crabby_quat_from_axis_angle({0, 1, 0}, angle); }
+inline quat quat_from_rotation_z(float angle) { return crabby_quat_from_axis_angle({0, 0, 1}, angle); }
+/// A 3D transform at `position`, turned by `rotation`, scaled by `scale` on every axis.
+inline transform3d transform3d_at(vec3 position, quat rotation = {0, 0, 0, 1}, float scale = 1) {
+    transform3d t = crabby_transform3d_at(position); t.rotation = rotation; t.scale = {scale, scale, scale}; return t;
+}
+/// `t` turned so its -Z axis points at `target`, +Y up.
+inline transform3d looking_at(const transform3d& t, vec3 target) { return crabby_transform3d_looking_at(t, target); }
+/// The direction `t` faces: its -Z axis.
+inline vec3 forward(const transform3d& t) { return crabby_transform3d_forward(t); }
+/// Draws `m` tinted by `tint` (white: its own colors).
+inline model model_of(mesh m, color tint = colors::white) { model x = crabby_model(m); x.color = tint; return x; }
+/// A plain material of one color: roughness 0.6, not metallic. Change
+/// roughness, metallic, emissive or set a texture on the result.
+inline material_desc material_of(color c) { return crabby_material_desc(c); }
 /// Built-in font, 16 px, white.
 inline text_params text_defaults() { return crabby_text_params_default(); }
 /// Full volume, normal speed, once.
@@ -415,6 +468,8 @@ protected:
         else if constexpr (std::is_same<T, rigid_body>::value) status = crabby_rigid_body_component(world, &id);
         else if constexpr (std::is_same<T, collider>::value) status = crabby_collider_component(world, &id);
         else if constexpr (std::is_same<T, velocity>::value) status = crabby_velocity_component(world, &id);
+        else if constexpr (std::is_same<T, transform3d>::value) status = crabby_transform3d_component(world, &id);
+        else if constexpr (std::is_same<T, model>::value) status = crabby_model_component(world, &id);
         else status = crabby_component_register(world, name ? name : detail::type_name<T>().c_str(), sizeof(T), alignof(T), &id);
         if (status == CRABBY_BUSY) return std::nullopt;
         detail::check(status);
@@ -838,6 +893,40 @@ public:
     }
 };
 
+/// Triangles on the CPU (Rust `MeshData`), before ctx::create_mesh puts
+/// them on the GPU.
+class mesh_data {
+    CrabbyMeshData* raw_;
+    explicit mesh_data(CrabbyMeshData* raw) : raw_(raw) { if (!raw_) detail::check(CRABBY_INVALID_ARGUMENT); }
+public:
+    /// Corners and three indices per triangle, counter-clockwise seen from
+    /// the front. Without normals they're computed; without texture
+    /// coordinates they're zero. Throws if they don't fit together.
+    mesh_data(const std::vector<vec3>& positions, const std::vector<std::uint32_t>& indices,
+              const std::vector<vec3>& normals = {}, const std::vector<vec2>& uvs = {})
+        : raw_(nullptr) {
+        if ((!normals.empty() && normals.size() != positions.size()) || (!uvs.empty() && uvs.size() != positions.size()))
+            throw std::invalid_argument("mesh_data: one normal and texture coordinate per corner");
+        raw_ = crabby_mesh_data_new(positions.data(), normals.empty() ? nullptr : normals.data(),
+                                    uvs.empty() ? nullptr : uvs.data(), positions.size(), indices.data(), indices.size());
+        if (!raw_) detail::check(CRABBY_INVALID_ARGUMENT);
+    }
+    /// A cube `size` wide around the origin.
+    static mesh_data cube(float size) { return mesh_data(crabby_mesh_data_cube(size)); }
+    /// A flat square `size` wide on the XZ plane, facing up: ground.
+    static mesh_data plane(float size) { return mesh_data(crabby_mesh_data_plane(size)); }
+    /// A sphere of `radius` from `segments` slices around.
+    static mesh_data sphere(float radius, std::uint32_t segments) { return mesh_data(crabby_mesh_data_sphere(radius, segments)); }
+    ~mesh_data() { crabby_mesh_data_free(raw_); }
+    mesh_data(mesh_data&& o) noexcept : raw_(o.raw_) { o.raw_ = nullptr; }
+    mesh_data& operator=(mesh_data&& o) noexcept { std::swap(raw_, o.raw_); return *this; }
+    mesh_data(const mesh_data&) = delete;
+    mesh_data& operator=(const mesh_data&) = delete;
+    /// Its arrays, valid while it lives.
+    CrabbyMeshView view() const { CrabbyMeshView v{}; detail::check(crabby_mesh_data_view(raw_, &v)); return v; }
+    const CrabbyMeshData* raw() const noexcept { return raw_; }
+};
+
 /// Inline lookups into a flow field, from any thread (flow_field::view()).
 /// Expires when the field is computed again.
 class flow_view {
@@ -1036,6 +1125,33 @@ public:
     vec2 measure_text(const char* text, float size) { vec2 v{}; detail::check(crabby_ctx_measure_text(raw_, text, size, &v)); return v; }
     crabby::camera camera() const { crabby::camera c{}; detail::check(crabby_ctx_camera(raw_, &c)); return c; }
     void set_camera(const crabby::camera& c) { detail::check(crabby_ctx_set_camera(raw_, &c)); }
+
+    // 3D: meshes, materials, the camera and the sun.
+    /// Puts a material on the GPU (roughness and metallic 0 to 1).
+    material create_material(const material_desc& d) { material m{}; detail::check(crabby_ctx_create_material(raw_, &d, &m)); return m; }
+    /// A plain white material, made once and shared.
+    material default_material() { material m{}; detail::check(crabby_ctx_default_material(raw_, &m)); return m; }
+    /// Puts triangles on the GPU as a mesh of one material; draw it with
+    /// entities that have a transform3d and a model_of(it).
+    mesh create_mesh(const mesh_data& data, material m) { mesh x{}; detail::check(crabby_ctx_create_mesh(raw_, data.raw(), m, &x)); return x; }
+    /// Loads a glTF model (.glb, or .gltf with its files) from assets/ as
+    /// one mesh with its materials; the same file again gives the same mesh.
+    mesh load_mesh(const char* path) { mesh x{}; detail::check(crabby_ctx_load_mesh(raw_, path, &x)); return x; }
+    /// How many 3D models were drawn last frame.
+    std::size_t models_drawn() const { std::size_t n = 0; detail::check(crabby_ctx_models_drawn(raw_, &n)); return n; }
+    crabby::camera3d camera3d() const { crabby::camera3d c{}; detail::check(crabby_ctx_camera3d(raw_, &c)); return c; }
+    /// fov_y between 0 and pi, 0 < near < far.
+    void set_camera3d(const crabby::camera3d& c) { detail::check(crabby_ctx_set_camera3d(raw_, &c)); }
+    /// Turns the 3D camera to look at `target`, +Y up.
+    void camera3d_look_at(vec3 target) { detail::check(crabby_ctx_camera3d_look_at(raw_, target)); }
+    /// The ray from the 3D camera through a window point (as the mouse
+    /// position): its start and unit direction.
+    std::pair<vec3, vec3> screen_ray(vec2 screen) const {
+        vec3 origin{}, direction{}; detail::check(crabby_ctx_screen_ray(raw_, screen, &origin, &direction)); return {origin, direction};
+    }
+    crabby::lighting lighting() const { crabby::lighting l{}; detail::check(crabby_ctx_lighting(raw_, &l)); return l; }
+    /// Intensities and the shadow distance can't be negative.
+    void set_lighting(const crabby::lighting& l) { detail::check(crabby_ctx_set_lighting(raw_, &l)); }
     void save_screenshot(const char* path) { detail::check(crabby_ctx_save_screenshot(raw_, path)); }
     /// texture_filter::nearest keeps pixel art square.
     void set_texture_filter(texture t, texture_filter f) {

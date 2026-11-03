@@ -56,6 +56,13 @@ impl Ctx {
         Material { id }
     }
 
+    /// Whether this game made `material` (for the C API, which takes ids).
+    #[doc(hidden)]
+    #[must_use]
+    pub fn has_material(&self, material: Material) -> bool {
+        material.id < self.assets3d.materials
+    }
+
     /// A plain white material, made once and shared.
     ///
     /// ```no_run
@@ -87,11 +94,16 @@ impl Ctx {
     ///
     /// # Panics
     ///
-    /// If the data doesn't fit together (see [`MeshData::check`]).
+    /// If the data doesn't fit together (see [`MeshData::check`]), or the
+    /// material comes from another game.
     pub fn create_mesh(&mut self, data: &MeshData, material: Material) -> Mesh {
         if let Err(e) = data.check() {
             panic!("crabbyengine: create_mesh: {e}");
         }
+        assert!(
+            material.id < self.assets3d.materials,
+            "crabbyengine: create_mesh: that material wasn't made by this game"
+        );
         self.mesh_from_parts(data, &[(0..data.indices.len() as u32, material)])
     }
 

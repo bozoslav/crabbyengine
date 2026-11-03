@@ -31,11 +31,12 @@ use crate::{Color, Texture};
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
+#[repr(C, align(16))] // shared with C/C++ (`CrabbyTransform3D`): 48 bytes everywhere
 pub struct Transform3D {
-    /// Where it is, in world units.
-    pub position: Vec3,
     /// Which way it faces.
     pub rotation: Quat,
+    /// Where it is, in world units.
+    pub position: Vec3,
     /// Size along its own axes. Default `(1, 1, 1)`.
     pub scale: Vec3,
 }
@@ -153,6 +154,7 @@ fn look_rotation(direction: Vec3) -> Quat {
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(C)] // shared with C/C++ (`CrabbyMesh`)
 pub struct Mesh {
     pub(crate) id: u32,
 }
@@ -168,6 +170,7 @@ pub struct Mesh {
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(C)] // shared with C/C++ (`CrabbyMaterial`)
 pub struct Material {
     pub(crate) id: u32,
 }
@@ -235,6 +238,7 @@ impl MaterialDesc {
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)] // shared with C/C++ (`CrabbyModel`)
 pub struct Model {
     /// What to draw.
     pub mesh: Mesh,

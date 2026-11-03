@@ -24,7 +24,8 @@ header = """
  * destructors. Built-ins: Transform2D (CrabbyTransform2D, a plain value) and
  * Sprite (CrabbySprite in spawn/get/set, never a query column); with physics,
  * RigidBody and Collider (CrabbyRigidBody, CrabbyCollider: like sprites) and
- * Velocity (CrabbyVelocity, a plain value).
+ * Velocity (CrabbyVelocity, a plain value). 3D: Transform3D and Model
+ * (CrabbyTransform3D, CrabbyModel: plain values).
  *
  * Queries take up to 32 distinct component ids; zero ids match every entity.
  * Columns follow query order with registered-size stride; chunk memory expires
@@ -43,4 +44,4 @@ header = """
 parse_deps = false
 [export]
 exclude = ["Failure"]
-include = ["CrabbyKey", "CrabbyMouseButton", "CrabbyGamepadButton", "CrabbyGamepadAxis", "CrabbyTransform2D", "CrabbySprite", "CrabbyFieldType", "CrabbyAnimation", "CrabbyAttached", "CrabbyBodyKind", "CrabbyShapeKind", "CrabbyVelocity", "CrabbyNetState"]
+include = ["CrabbyKey", "CrabbyMouseButton", "CrabbyGamepadButton", "CrabbyGamepadAxis", "CrabbyTransform2D", "CrabbySprite", "CrabbyFieldType", "CrabbyAnimation", "CrabbyAttached", "CrabbyBodyKind", "CrabbyShapeKind", "CrabbyVelocity", "CrabbyNetState", "CrabbyTransform3D", "CrabbyModel"]
