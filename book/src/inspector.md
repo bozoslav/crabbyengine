@@ -26,6 +26,8 @@ is what agents and save files use, so one `reflect` call covers all three.
 
 ## Editing: build levels in the game
 
+To try it: `cargo run --example editor`, press `` ` ``, then **Pause**.
+
 Pause, and the inspector is an editor. Clicks and the editor's keys in the
 world go to it, not to the game:
 
