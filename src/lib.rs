@@ -29,6 +29,7 @@ mod color;
 mod control;
 mod ctx;
 mod ecs;
+mod flow;
 mod game;
 mod input;
 mod random;
@@ -47,6 +48,9 @@ pub use camera::{Camera2D, Rect, camera_controls};
 pub use color::Color;
 pub use ctx::{Ctx, SystemTiming, Turns};
 pub use ecs::{Sprite, Transform2D, draw_sprites};
+#[doc(hidden)]
+pub use flow::RawFlowView;
+pub use flow::{FlowField, NavGrid};
 pub use game::{Game, SetupResult};
 pub use input::{Key, MouseButton};
 pub use random::{DEFAULT_SEED, Random, Rng};
