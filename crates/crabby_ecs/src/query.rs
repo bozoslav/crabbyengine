@@ -238,6 +238,10 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     }
 
     /// Only match entities that also have component `T` (without fetching it).
+    ///
+    /// # Panics
+    ///
+    /// With more than 4 `with` filters on one query.
     pub fn with<T: Component>(mut self) -> Self {
         let id = self.world.register::<T>();
         let f = &mut self.filters;
@@ -248,6 +252,10 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     }
 
     /// Skip entities that have component `T`.
+    ///
+    /// # Panics
+    ///
+    /// With more than 4 `without` filters on one query.
     pub fn without<T: Component>(mut self) -> Self {
         let id = self.world.register::<T>();
         let f = &mut self.filters;

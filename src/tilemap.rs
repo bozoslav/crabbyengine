@@ -26,6 +26,7 @@ use crate::sheet::SpriteSheet;
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct TileMap {
+    /// The tiles' images: tile `n` is frame `n` of this sheet.
     pub sheet: SpriteSheet,
     /// Map size in tiles.
     pub size: UVec2,

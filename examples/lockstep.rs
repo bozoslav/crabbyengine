@@ -104,6 +104,7 @@ fn draw(ctx: &mut Ctx) {
         ),
         NetState::Lost => format!("connection lost: {}", net.error().unwrap_or("?")),
         NetState::Offline => "offline".into(),
+        _ => String::new(),
     };
     ctx.draw_text(&status, vec2(20.0, 20.0), 20.0, Color::WHITE);
     #[cfg(feature = "steam")]

@@ -17,6 +17,8 @@
 //! unsafe { assert_eq!(crabby_world_free(world), CrabbyStatus::CRABBY_OK); }
 //! ```
 
+#![warn(missing_docs)]
+
 mod attach;
 mod ctx;
 mod flow;

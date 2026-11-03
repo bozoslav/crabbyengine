@@ -54,6 +54,7 @@ const HELLO_EVERY: Duration = Duration::from_millis(100);
 
 /// Where a session is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum NetState {
     /// No session: one local player, inputs apply at once.
     Offline,
@@ -198,6 +199,11 @@ impl Net {
     /// let net = Net::host("127.0.0.1:0", 2).unwrap();
     /// assert!(net.local_addr().unwrap().port() != 0);
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// `InvalidInput` unless `players` is 2 to 8; the socket's error if `addr`
+    /// can't be bound (in use, not this machine's).
     pub fn host(addr: impl ToSocketAddrs, players: usize) -> io::Result<Net> {
         if !(2..=MAX_PLAYERS).contains(&players) {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "2 to 8 players"));
@@ -215,6 +221,10 @@ impl Net {
     /// let net = Net::join("127.0.0.1:7777").unwrap();
     /// assert_eq!(net.state(), NetState::Connecting);
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// If `host` doesn't resolve to an address, or no local socket can be bound.
     pub fn join(host: impl ToSocketAddrs) -> io::Result<Net> {
         let host = host
             .to_socket_addrs()?
@@ -292,6 +302,10 @@ impl Net {
     /// let net = Net::host("127.0.0.1:0", 2).unwrap().input_delay(5);
     /// # let _ = net;
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// If `ticks` is over 64.
     #[must_use]
     pub fn input_delay(mut self, ticks: u32) -> Self {
         assert!(ticks <= MAX_DELAY, "input delay is at most {MAX_DELAY} ticks");
@@ -386,6 +400,10 @@ impl Net {
     /// let mut net = Net::default();
     /// net.set_input_bytes(&[1, 2, 3]);
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// If `input` is over [`MAX_INPUT_BYTES`].
     pub fn set_input_bytes(&mut self, input: &[u8]) {
         assert!(input.len() <= MAX_INPUT_BYTES, "input is over {MAX_INPUT_BYTES} bytes");
         self.pending.clear();

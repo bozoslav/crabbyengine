@@ -213,6 +213,10 @@ impl Events {
     ///     ctx.events.reflect::<Died>();
     /// });
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// If another reflected event type has the same short name.
     #[track_caller]
     pub fn reflect<T: Serialize + 'static>(&mut self) {
         let type_name = std::any::type_name::<T>();

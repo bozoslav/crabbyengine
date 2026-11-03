@@ -22,6 +22,7 @@ use crate::texture::Texture;
 #[serde(default)]
 #[repr(C)] // shared with C/C++ (`CrabbyTransform2D`)
 pub struct Transform2D {
+    /// Where the entity is, in world pixels.
     pub position: Vec2,
     /// Radians, clockwise on screen.
     pub rotation: f32,
@@ -77,6 +78,7 @@ impl Transform2D {
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Sprite {
+    /// The image to draw.
     pub texture: Texture,
     /// Tint multiplied with the texture. Default white (no tint).
     pub color: Color,

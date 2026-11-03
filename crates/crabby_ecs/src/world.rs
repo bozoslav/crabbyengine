@@ -804,6 +804,10 @@ impl World {
     /// Calls `f` once per archetype that has all of `ids`, with raw column
     /// pointers in `ids` order. This is how C/C++ systems see the world: whole
     /// columns, never one call per entity.
+    ///
+    /// # Panics
+    ///
+    /// With more than 32 component ids.
     pub fn for_each_chunk(&mut self, ids: &[ComponentId], mut f: impl FnMut(Chunk<'_>)) {
         const MAX: usize = 32;
         assert!(ids.len() <= MAX, "for_each_chunk: at most {MAX} components");

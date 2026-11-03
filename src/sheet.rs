@@ -21,6 +21,7 @@ use crate::texture::Texture;
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct SpriteSheet {
+    /// The image holding every frame.
     pub texture: Texture,
     /// Frame size in texture pixels.
     pub frame_size: Vec2,
@@ -113,9 +114,11 @@ impl SpriteSheet {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct Animation {
+    /// The frames come from this sheet.
     pub sheet: SpriteSheet,
     /// First frame and how many frames to play.
     pub first: u32,
+    /// How many frames to play, from `first`.
     pub frames: u32,
     /// Frames per second.
     pub fps: f32,

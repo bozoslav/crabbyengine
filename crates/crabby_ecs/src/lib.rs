@@ -36,6 +36,8 @@
 //! (name, size, alignment, drop). Rust types are registered on first use;
 //! C/C++ code uses [`World::register_component`] and [`World::for_each_chunk`].
 
+#![warn(missing_docs)]
+
 mod bundle;
 mod commands;
 mod entity;

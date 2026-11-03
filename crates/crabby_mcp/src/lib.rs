@@ -10,6 +10,8 @@
 //! The protocol logic is in [`Server::handle`], which maps one JSON-RPC
 //! message to its reply, so it can be tested without stdio.
 
+#![warn(missing_docs)]
+
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{SocketAddr, TcpStream};
@@ -518,6 +520,8 @@ pub struct Server {
 }
 
 impl Server {
+    /// A server with `config`, before any request.
+    #[must_use]
     pub fn new(config: Config) -> Self {
         Self {
             config,

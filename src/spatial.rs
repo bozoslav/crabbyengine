@@ -11,8 +11,11 @@ use crate::ecs::Transform2D;
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)] // C/C++ read query results directly
 pub struct GridEntry<T = ()> {
+    /// The entity.
     pub entity: Entity,
+    /// Where it was at the last rebuild.
     pub position: Vec2,
+    /// Data stored with it (`()` unless rebuilt with data).
     pub data: T,
 }
 

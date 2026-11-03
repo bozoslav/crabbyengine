@@ -259,6 +259,10 @@ impl Ctx {
     /// # }
     /// # Game::new("t", 1, 1).run_headless(0, setup);
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// If `sample_rate` is 0.
     pub fn create_sound(&mut self, sample_rate: u32, samples: &[f32]) -> Sound {
         assert!(sample_rate > 0, "crabbyengine: the sample rate must not be zero");
         let (id, seconds) = self.audio.create(sample_rate, samples);

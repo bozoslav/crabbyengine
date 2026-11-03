@@ -488,6 +488,7 @@ mod imp {
                     BodyKind::Dynamic => 0,
                     BodyKind::Fixed => 1,
                     BodyKind::Kinematic => 2,
+                    _ => unreachable!("a new BodyKind needs a CrabbyBodyKind"),
                 },
                 gravity_scale: self.gravity_scale,
                 linear_damping: self.linear_damping,
@@ -530,6 +531,7 @@ mod imp {
                 Shape::Circle { radius } => crabby_collider_circle(radius),
                 Shape::Rect { size } => crabby_collider_rect(to_c(size)),
                 Shape::Capsule { height, radius } => crabby_collider_capsule(height, radius),
+                _ => unreachable!("a new Shape needs a CrabbyShapeKind"),
             };
             CrabbyCollider {
                 density: self.density,

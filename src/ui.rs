@@ -24,13 +24,19 @@ use crate::text::TextParams;
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct UiStyle {
+    /// A panel's background.
     pub panel: Color,
+    /// A button's background.
     pub button: Color,
+    /// A button's background while the mouse is over it.
     pub button_hovered: Color,
+    /// A button's background while held down.
     pub button_pressed: Color,
     /// Used for highlights, such as a button's outline while hovered.
     pub accent: Color,
+    /// Text color.
     pub text: Color,
+    /// Text size in pixels.
     pub text_size: f32,
     /// Space between a panel's edge and its contents, in pixels.
     pub padding: f32,

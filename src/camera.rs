@@ -14,7 +14,9 @@ use glam::{Mat4, Vec2, vec4};
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 #[repr(C)] // shared with C/C++ (`CrabbyRect`)
 pub struct Rect {
+    /// Top-left corner (smallest x and y).
     pub min: Vec2,
+    /// Bottom-right corner (largest x and y).
     pub max: Vec2,
 }
 

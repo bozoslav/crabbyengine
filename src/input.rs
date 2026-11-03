@@ -16,6 +16,7 @@ macro_rules! define_keys {
         /// `Key::W` is the key above `S` on QWERTY, AZERTY and Dvorak alike.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         #[non_exhaustive]
+        #[allow(missing_docs)] // named after the keys
         pub enum Key {
             $($(#[$meta])* $name),*
         }
@@ -79,8 +80,11 @@ define_keys! {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum MouseButton {
+    /// The left (primary) button.
     Left,
+    /// The right (secondary) button.
     Right,
+    /// The wheel, pressed.
     Middle,
     /// The "back" side button found on many mice.
     Back,
@@ -136,9 +140,13 @@ pub enum GamepadButton {
     LeftStick,
     /// Pressing the right stick in.
     RightStick,
+    /// The d-pad, up.
     DPadUp,
+    /// The d-pad, down.
     DPadDown,
+    /// The d-pad, left.
     DPadLeft,
+    /// The d-pad, right.
     DPadRight,
 }
 
@@ -151,11 +159,17 @@ impl GamepadButton {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum GamepadAxis {
+    /// Left stick, left (-1) to right (1).
     LeftStickX,
+    /// Left stick, up (-1) to down (1).
     LeftStickY,
+    /// Right stick, left (-1) to right (1).
     RightStickX,
+    /// Right stick, up (-1) to down (1).
     RightStickY,
+    /// Left trigger, released (0) to fully pulled (1).
     LeftTrigger,
+    /// Right trigger, released (0) to fully pulled (1).
     RightTrigger,
 }
 
@@ -166,7 +180,9 @@ impl GamepadAxis {
 /// Which stick, for [`Ctx::gamepad_stick`](crate::Ctx::gamepad_stick).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GamepadStick {
+    /// The left stick.
     Left,
+    /// The right stick.
     Right,
 }
 

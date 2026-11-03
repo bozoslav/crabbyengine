@@ -173,6 +173,10 @@ impl Net {
     ///     .lockstep(Net::steam_host(&client, 2))
     ///     .run(|_| {});
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// Unless `players` is 2 to 8.
     #[must_use]
     pub fn steam_host(client: &Client, players: usize) -> Net {
         assert!((2..=super::MAX_PLAYERS).contains(&players), "2 to 8 players");
