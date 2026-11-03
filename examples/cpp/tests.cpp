@@ -10,6 +10,7 @@
 #include <string>
 #include <thread>
 #include <type_traits>
+#include <vector>
 #define CHECK(...) do { if (!(__VA_ARGS__)) { std::cerr << "failed: " #__VA_ARGS__ << " (line " << __LINE__ << ")\n"; std::abort(); } } while (false)
 struct Pos { float x, y; };
 struct Vel { float x, y; };
@@ -120,6 +121,35 @@ static void data_files() {
     });
     CHECK(w.resource<game::Tuning>().speed == 2.5f && w.resource<game::Tuning>().waves == 3);
     std::filesystem::remove(file);
+}
+
+// Saved under the executable's assets/ copy (build output), so nothing to clean.
+static void scenes_and_prefabs() {
+    crabby::entity first = 0;
+    std::vector<crabby::entity> palms;
+    auto w = crabby::game("scenes", 1, 1).run_headless(0, [&](crabby::ctx& ctx) {
+        auto world = ctx.world();
+        world.reflect<game::Health>({crabby::field("value", &game::Health::value)});
+        // Sprites are saved by their image's name, and spawning loads it.
+        auto model = world.spawn(crabby::transform_at({70, 80}), game::Health{9}, crabby::sprite_of(ctx.load_texture("crab.png"), crabby::colors::white, 4));
+        ctx.save_prefab(model, "test-cpp-prefab.json");
+        world.despawn(model);
+        for (float x : {0.0f, 10.0f}) palms.push_back(ctx.spawn_prefab("test-cpp-prefab.json", {x, 100}));
+        throws([&] { ctx.spawn_prefab("test-cpp-missing.json", {0, 0}); });
+        throws([&] { ctx.load_scene("test-cpp-missing.json"); });
+        throws([&] { ctx.save_prefab(model, "test-cpp-dead.json"); });
+        first = palms[0];
+        ctx.save_scene("test-cpp-scene.json");
+    });
+    CHECK(w.size() == 2);
+    CHECK(w.get<crabby::transform2d>(palms[1]).position.x == 10 && w.get<game::Health>(palms[1]).value == 9);
+    CHECK(w.get<crabby::sprite>(palms[1]).z == 4);
+    auto loaded = crabby::game("scenes", 1, 1).run_headless(0, [&](crabby::ctx& ctx) {
+        ctx.world().reflect<game::Health>({crabby::field("value", &game::Health::value)});
+        ctx.world().spawn(Tag{});   // replaced by the scene
+        ctx.load_scene("test-cpp-scene.json");
+    });
+    CHECK(loaded.size() == 2 && loaded.get<game::Health>(first).value == 9);
 }
 
 static void parallel_queries() {
@@ -348,6 +378,22 @@ static void physics() {
         });
     };
     CHECK(touched(ball, sensor) && touched(ball, floor));
+
+    // A wedge, flat side down, comes to rest on it (as tests/physics.rs).
+    crabby::entity wedge = 0;
+    auto rested = crabby::game("t", 1, 1).physics({0, 980}).run_headless(240, [&](crabby::ctx& ctx) {
+        auto world = ctx.world();
+        auto shape = crabby::polygon_collider({{-30, 15}, {30, 15}, {-30, -15}});
+        shape.friction = 0.9f;
+        wedge = world.spawn(crabby::transform_at({0, 0}), crabby::dynamic_body(), shape);
+        world.spawn(crabby::transform_at({0, 200}), crabby::fixed_body(), crabby::rect_collider({400, 20}));
+    });
+    const auto t = rested.get<crabby::transform2d>(wedge);
+    CHECK(std::fabs(t.position.y - 175) < 1.5f && std::fabs(t.rotation) < 0.01f);
+    CHECK(rested.collider_points(wedge).size() == 3);
+    CHECK(rested.get<crabby::collider>(wedge).shape == CRABBY_SHAPE_POLYGON);
+    CHECK(rested.get<crabby::collider>(wedge).friction == 0.9f);
+    throws([] { crabby::polygon_collider({{0, 0}, {1, 0}}); });
     CHECK(hit && crabby::bits(hit->entity) == floor && std::fabs(hit->distance - 290) < 1e-3f);
     CHECK(mass && std::fabs(*mass - 314.159f) < 1);
     CHECK(!kicked_nothing);
@@ -395,6 +441,7 @@ int main() {
     names_and_reflection();
     resources();
     data_files();
+    scenes_and_prefabs();
     parallel_queries();
     games();
     attachments();

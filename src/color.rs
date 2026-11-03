@@ -9,7 +9,7 @@
 /// let ghost = Color::WHITE.with_alpha(0.5);
 /// let orange = Color::hex(0xFF8800);
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[repr(C)] // shared with C/C++ (`CrabbyColor`)
 pub struct Color {
     /// Red, 0 to 1.

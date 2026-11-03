@@ -169,6 +169,8 @@ pub struct Ctx {
     pub(crate) watcher: crate::hot_reload::Watcher,
     /// How to apply each loaded data file's text (`load_resource`).
     data_loaders: Vec<DataLoader>,
+    /// Parsed prefab files, by name (`spawn_prefab`).
+    pub(crate) prefabs: HashMap<String, serde_json::Value>,
     /// Files already loaded, by resolved path: loading one again returns the same handle.
     pub(crate) loaded: HashMap<(std::path::PathBuf, AssetKind), u64>,
     /// Textures and sounds loaded from files, indexed by `loaded` values.
@@ -230,6 +232,7 @@ impl Ctx {
                 let mut world = World::new();
                 crate::reflect::WorldReflect::reflect::<crate::Transform2D>(&mut world);
                 crate::reflect::WorldReflect::reflect::<crate::Attached>(&mut world);
+                crate::reflect::reflect_sprite(&mut world);
                 world
             },
             commands: Commands::new(),
@@ -254,6 +257,7 @@ impl Ctx {
             headless_textures: 0,
             watcher: Default::default(),
             data_loaders: Vec::new(),
+            prefabs: HashMap::new(),
             loaded: HashMap::new(),
             cached_textures: Vec::new(),
             cached_sounds: Vec::new(),
@@ -865,17 +869,42 @@ impl Ctx {
     /// });
     /// ```
     pub fn load_texture(&mut self, path: &str) -> Texture {
-        let file = assets::resolve(path).unwrap_or_else(|e| panic!("crabbyengine: {e}"));
-        if let Some(&i) = self.loaded.get(&(file.clone(), AssetKind::Texture)) {
-            return self.cached_textures[i as usize];
+        self.try_load_texture(path)
+            .unwrap_or_else(|e| panic!("crabbyengine: {e}"))
+    }
+
+    /// [`load_texture`](Self::load_texture) with errors as values; also
+    /// names the texture, so sprites showing it can be saved.
+    pub(crate) fn try_load_texture(&mut self, path: &str) -> Result<Texture, String> {
+        let file = assets::resolve(path)?;
+        let texture = match self.loaded.get(&(file.clone(), AssetKind::Texture)) {
+            Some(&i) => self.cached_textures[i as usize],
+            None => {
+                let image = assets::load_image_at(&file, path)?;
+                let texture = self.create_texture(image.width, image.height, &image.rgba);
+                self.loaded
+                    .insert((file.clone(), AssetKind::Texture), self.cached_textures.len() as u64);
+                self.cached_textures.push(texture);
+                self.watcher.watch(path, file, Asset::Texture(texture));
+                texture
+            }
+        };
+        if let Some(names) = self.world.get_resource_mut::<crate::reflect::TextureNames>() {
+            names.by_id.entry(texture.id).or_insert_with(|| path.to_string());
+            names.by_name.entry(path.to_string()).or_insert(texture);
         }
-        let image = assets::load_image_at(&file, path).unwrap_or_else(|e| panic!("crabbyengine: {e}"));
-        let texture = self.create_texture(image.width, image.height, &image.rgba);
-        self.loaded
-            .insert((file.clone(), AssetKind::Texture), self.cached_textures.len() as u64);
-        self.cached_textures.push(texture);
-        self.watcher.watch(path, file, Asset::Texture(texture));
-        texture
+        Ok(texture)
+    }
+
+    /// Loads the textures that sprites in `json` (a scene, a prefab, or
+    /// components) name, so they can be spawned.
+    pub(crate) fn load_sprite_textures(&mut self, json: &serde_json::Value) -> Result<(), String> {
+        let mut names = Vec::new();
+        crate::reflect::sprite_textures(json, &mut names);
+        for name in names {
+            self.try_load_texture(&name)?;
+        }
+        Ok(())
     }
 
     /// Loads resource `R` from a JSON file in `assets/`. With [hot

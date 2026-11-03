@@ -115,6 +115,21 @@ inline rigid_body kinematic_body() { return crabby_rigid_body(CRABBY_BODY_KINEMA
 inline collider circle_collider(float radius) { return crabby_collider_circle(radius); }
 inline collider rect_collider(vec2 size) { return crabby_collider_rect(size); }
 inline collider capsule_collider(float height, float radius) { return crabby_collider_capsule(height, radius); }
+/// A convex polygon collider: the convex hull of 3 to 8 corners around the
+/// entity's position (Rust: `Collider::polygon`). Spawn or set it like any
+/// collider; `world.collider_points(e)` reads the corners back.
+struct polygon : collider {
+    std::array<vec2, 8> points{};
+    std::uint32_t count = 0;
+};
+inline polygon polygon_collider(std::initializer_list<vec2> corners) {
+    if (corners.size() < 3 || corners.size() > 8) throw std::invalid_argument("polygon_collider: 3 to 8 points");
+    polygon p;
+    static_cast<collider&>(p) = crabby_collider_circle(1.0f);  // the default settings
+    std::copy(corners.begin(), corners.end(), p.points.begin());
+    p.count = static_cast<std::uint32_t>(corners.size());
+    return p;
+}
 
 inline color rgb(float r, float g, float b) { return {r, g, b, 1}; }
 inline color rgba(float r, float g, float b, float a) { return {r, g, b, a}; }
@@ -493,9 +508,29 @@ public:
     // ---- entities and components ----
     /// A new entity with these components: `world.spawn(crabby::transform_at({0, 0}), Health{100})`.
     template<class... Ts> entity spawn(const Ts&... components) {
-        valid(); std::array<CrabbyValue, sizeof...(Ts)> args{{CrabbyValue{id<Ts>(), &components, sizeof(Ts)}...}};
+        valid();
+        constexpr std::size_t polygons = (std::size_t{std::is_same<Ts, polygon>::value} + ... + 0);
+        static_assert(polygons <= 1, "one collider per entity");
         entity result = 0;
-        detail::check(crabby_spawn(raw_, args.data(), args.size(), &result));
+        if constexpr (polygons == 0) {
+            std::array<CrabbyValue, sizeof...(Ts)> args{{CrabbyValue{id<Ts>(), &components, sizeof(Ts)}...}};
+            detail::check(crabby_spawn(raw_, args.data(), args.size(), &result));
+        } else {
+            // C has no polygon component value: spawn the rest, then add it.
+            std::array<CrabbyValue, sizeof...(Ts) - 1> args{};
+            std::size_t n = 0;
+            const polygon* shape = nullptr;
+            auto add = [&](const auto& c) {
+                using C = std::decay_t<decltype(c)>;
+                if constexpr (std::is_same<C, polygon>::value) shape = &c;
+                else args[n++] = CrabbyValue{id<C>(), &c, sizeof(C)};
+            };
+            (add(components), ...);
+            detail::check(crabby_spawn(raw_, args.data(), args.size(), &result));
+            const auto status = crabby_set_polygon_collider(raw_, result, shape->points.data(), shape->count, *shape);
+            if (status != CRABBY_OK) crabby_despawn(raw_, result);
+            detail::check(status);
+        }
         return result;
     }
     void despawn(entity e) { valid(); detail::check(crabby_despawn(raw_, e)); }
@@ -520,6 +555,17 @@ public:
         detail::check(crabby_set(raw_, e, id<T>(), &component, sizeof(T)));
     }
     template<class T> void remove(entity e) { detail::check(crabby_remove(raw_, e, id<T>())); }
+    /// Gives `e` a polygon collider (see polygon_collider).
+    void set(entity e, const polygon& shape) {
+        detail::check(crabby_set_polygon_collider(raw_, e, shape.points.data(), shape.count, shape));
+    }
+    /// `e`'s polygon corners (empty if its collider isn't a polygon).
+    std::vector<vec2> collider_points(entity e) const {
+        vec2 points[8];
+        std::uint32_t n = 0;
+        detail::check(crabby_collider_points(raw_, e, points, &n));
+        return std::vector<vec2>(points, points + n);
+    }
 
     // ---- resources: one value of a type per world, not on any entity ----
     /// Adds or replaces the world's `T`: `world.set_resource(Score{0, 0})`.
@@ -969,6 +1015,15 @@ public:
     template<class T> void load_json(const char* path, entity e) {
         detail::check(crabby_ctx_load_json(raw_, path, e, id<T>()));
     }
+    // Scenes and prefabs: worlds and entities kept as JSON under assets/.
+    /// Replaces the world with the scene in assets/`path`; ids are kept.
+    void load_scene(const char* path) { detail::check(crabby_ctx_load_scene(raw_, path)); }
+    /// Saves the world as a scene in assets/`path`.
+    void save_scene(const char* path) { detail::check(crabby_ctx_save_scene(raw_, path)); }
+    /// Spawns the prefab in assets/`path` with its position at `at`.
+    entity spawn_prefab(const char* path, vec2 at) { entity e = 0; detail::check(crabby_ctx_spawn_prefab(raw_, path, at, &e)); return e; }
+    /// Saves `e` as a prefab in assets/`path` (without its position).
+    void save_prefab(entity e, const char* path) { detail::check(crabby_ctx_save_prefab(raw_, e, path)); }
     texture load_texture(const char* path) { texture t{}; detail::check(crabby_ctx_load_texture(raw_, path, &t)); return t; }
     texture create_texture(std::uint32_t w, std::uint32_t h, const std::uint8_t* rgba, std::size_t len) {
         texture t{}; detail::check(crabby_ctx_create_texture(raw_, w, h, rgba, len, &t)); return t;
@@ -1029,6 +1084,7 @@ public:
     // (A type used for the first time inside a query can't be registered
     // yet; such commands and events are sent right after the system returns.)
     template<class... Ts> void spawn_later(const Ts&... components) {
+        static_assert(!std::disjunction<std::is_same<Ts, polygon>...>::value, "spawn polygon colliders with world.spawn");
         const std::array<std::optional<std::uint32_t>, sizeof...(Ts)> ids{{find_id<Ts>()...}};
         if (!std::all_of(ids.begin(), ids.end(), [](const auto& id) { return id.has_value(); })) {
             after_system([=](ctx& c) { c.spawn_later(components...); });
@@ -1039,6 +1095,7 @@ public:
         detail::check(crabby_ctx_spawn_later(raw_, args.data(), args.size()));
     }
     template<class T> void set_later(entity e, const T& component) {
+        static_assert(!std::is_same<T, polygon>::value, "set polygon colliders with world.set");
         const auto id = find_id<T>();
         if (!id) { after_system([=](ctx& c) { c.set_later(e, component); }); return; }
         CrabbyValue v{*id, &component, sizeof(T)};

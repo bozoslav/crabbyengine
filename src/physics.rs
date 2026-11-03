@@ -92,6 +92,9 @@ impl RigidBody {
     }
 }
 
+/// Most corners a [`Shape::Polygon`] can have.
+pub const MAX_POLYGON_POINTS: usize = 8;
+
 /// A collider's shape, in pixels, centered on the entity (plus
 /// [`Collider::offset`]) and turned with it.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -114,6 +117,33 @@ pub enum Shape {
         /// Radius of the round ends, in pixels.
         radius: f32,
     },
+    /// A convex polygon: the convex hull of its corners, in pixels around
+    /// the entity's position. Make one with [`Collider::polygon`]; read the
+    /// corners with [`Shape::points`].
+    Polygon {
+        /// The corners; only the first `count` are used.
+        points: [Vec2; MAX_POLYGON_POINTS],
+        /// How many corners: 3 to [`MAX_POLYGON_POINTS`].
+        count: u8,
+    },
+}
+
+impl Shape {
+    /// A polygon's corners (empty for other shapes).
+    ///
+    /// ```
+    /// use crabbyengine::*;
+    /// let wedge = Collider::polygon(&[vec2(0.0, 0.0), vec2(40.0, 0.0), vec2(0.0, -20.0)]);
+    /// assert_eq!(wedge.shape.points().len(), 3);
+    /// assert!(Collider::circle(5.0).shape.points().is_empty());
+    /// ```
+    #[must_use]
+    pub fn points(&self) -> &[Vec2] {
+        match self {
+            Shape::Polygon { points, count } => &points[..usize::from(*count).min(MAX_POLYGON_POINTS)],
+            _ => &[],
+        }
+    }
 }
 
 /// The solid shape of a body, and how it touches others.
@@ -127,18 +157,31 @@ pub enum Shape {
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Collider {
-    /// Circle, rectangle or capsule.
+    /// Circle, rectangle, capsule or convex polygon.
     pub shape: Shape,
-    /// Mass per square pixel (mass = density × area).
+    /// Mass per square pixel (mass = density × area). Default 1.
+    #[serde(default = "one")]
     pub density: f32,
-    /// 0 ice, 1 rubber.
+    /// 0 ice, 1 rubber. Default 0.5.
+    #[serde(default = "half")]
     pub friction: f32,
-    /// Bounciness: 0 none, 1 keeps all its speed.
+    /// Bounciness: 0 none, 1 keeps all its speed. Default 0.
+    #[serde(default)]
     pub restitution: f32,
     /// Detects overlaps (sends [`CollisionStarted`]) but doesn't push.
+    #[serde(default)]
     pub sensor: bool,
     /// Where the shape sits relative to the entity's position.
+    #[serde(default)]
     pub offset: Vec2,
+}
+
+// Collider defaults for fields missing from JSON, as in `Collider::of`.
+fn one() -> f32 {
+    1.0
+}
+fn half() -> f32 {
+    0.5
 }
 
 impl Collider {
@@ -166,6 +209,39 @@ impl Collider {
     #[must_use]
     pub fn capsule(height: f32, radius: f32) -> Self {
         Self::of(Shape::Capsule { height, radius })
+    }
+    /// A convex polygon around the entity's position: the convex hull of
+    /// `points` (3 to 8 of them, any order). Ramps, wedges, rocks, ships.
+    /// For a concave shape, put convex pieces on separate bodies.
+    ///
+    /// ```
+    /// use crabbyengine::*;
+    /// let ramp = Collider::polygon(&[vec2(-50.0, 10.0), vec2(50.0, 10.0), vec2(50.0, -10.0)]);
+    /// assert_eq!(ramp.shape.points().len(), 3);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// With fewer than 3 or more than [`MAX_POLYGON_POINTS`] points, or a
+    /// point that isn't finite.
+    #[must_use]
+    #[track_caller]
+    pub fn polygon(points: &[Vec2]) -> Self {
+        assert!(
+            (3..=MAX_POLYGON_POINTS).contains(&points.len()),
+            "Collider::polygon: 3 to {MAX_POLYGON_POINTS} points, got {}",
+            points.len()
+        );
+        assert!(
+            points.iter().all(|p| p.is_finite()),
+            "Collider::polygon: points must be finite"
+        );
+        let mut corners = [Vec2::ZERO; MAX_POLYGON_POINTS];
+        corners[..points.len()].copy_from_slice(points);
+        Self::of(Shape::Polygon {
+            points: corners,
+            count: points.len() as u8,
+        })
     }
     /// With this density.
     #[must_use]
@@ -465,6 +541,11 @@ fn collider_of(c: Collider, e: Entity) -> rp::Collider {
         }
         Shape::Capsule { height, radius } => {
             rp::ColliderBuilder::capsule_y((height * 0.5).max(0.0), radius.max(f32::EPSILON))
+        }
+        Shape::Polygon { .. } => {
+            let points: Vec<rp::Vector> = c.shape.points().iter().map(|&p| to_rp(p)).collect();
+            // All corners on one line: no area, so a sliver of a ball instead.
+            rp::ColliderBuilder::convex_hull(&points).unwrap_or_else(|| rp::ColliderBuilder::ball(f32::EPSILON))
         }
     };
     builder

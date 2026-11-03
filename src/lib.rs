@@ -53,6 +53,8 @@ mod color;
 mod control;
 mod ctx;
 mod ecs;
+#[cfg(feature = "inspector")]
+mod editor;
 mod events;
 mod flow;
 mod game;
@@ -71,6 +73,7 @@ mod query;
 mod random;
 mod reflect;
 mod render;
+mod scene;
 mod sheet;
 mod spatial;
 mod text;
@@ -98,7 +101,8 @@ pub use net::{Desync, MAX_INPUT_BYTES, MAX_PLAYERS, Net, NetState, NetStats};
 pub use net::{steam_lobby_from_args, steam_wait_for_invite};
 #[cfg(feature = "physics")]
 pub use physics::{
-    BodyKind, Collider, CollisionStarted, CollisionStopped, Physics, RayHit, RigidBody, Shape, Velocity, step_physics,
+    BodyKind, Collider, CollisionStarted, CollisionStopped, MAX_POLYGON_POINTS, Physics, RayHit, RigidBody, Shape,
+    Velocity, step_physics,
 };
 pub use random::{DEFAULT_SEED, Random, Rng};
 pub use reflect::{Field, FieldType, ReflectError, WorldReflect};

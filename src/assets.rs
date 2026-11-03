@@ -48,6 +48,66 @@ pub(crate) fn read(path: &Path) -> std::io::Result<Vec<u8>> {
     std::fs::read(path)
 }
 
+/// Writes `name` (relative to `assets/`): over the file where [`resolve`]
+/// finds it, else into the first `assets/` folder that exists (or the first
+/// one, created). Returns where it went.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn write(name: &str, bytes: &[u8]) -> Result<PathBuf, String> {
+    let path = match resolve(name) {
+        Ok(existing) => existing,
+        Err(_) => {
+            let roots = asset_roots();
+            let root = roots
+                .iter()
+                .find(|r| r.is_dir())
+                .or(roots.first())
+                .ok_or("no assets/ folder")?;
+            root.join(name)
+        }
+    };
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
+    }
+    std::fs::write(&path, bytes).map_err(|e| format!("could not write {}: {e}", path.display()))?;
+    Ok(path)
+}
+
+/// Files in folder `dir` of `assets/` ending in `.{extension}`, as asset
+/// names (`"prefabs/palm.json"`), sorted, from every assets folder found.
+#[cfg(all(not(target_arch = "wasm32"), feature = "inspector"))]
+pub(crate) fn list(dir: &str, extension: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    for root in asset_roots() {
+        let Ok(entries) = std::fs::read_dir(root.join(dir)) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file()
+                && path.extension().is_some_and(|e| e == extension)
+                && let Some(file) = path.file_name().and_then(|f| f.to_str())
+            {
+                names.push(format!("{dir}/{file}"));
+            }
+        }
+    }
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// Web builds have no folders to list.
+#[cfg(all(target_arch = "wasm32", feature = "inspector"))]
+pub(crate) fn list(_dir: &str, _extension: &str) -> Vec<String> {
+    Vec::new()
+}
+
+/// Web builds can't write files.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn write(name: &str, _: &[u8]) -> Result<PathBuf, String> {
+    Err(format!("can't save \"{name}\": web builds have no files"))
+}
+
 /// Reads an asset file found by [`resolve`] as UTF-8 text.
 pub(crate) fn read_to_string(path: &Path) -> Result<String, String> {
     let bytes = read(path).map_err(|e| format!("could not read {}: {e}", path.display()))?;

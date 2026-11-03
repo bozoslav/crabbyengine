@@ -230,6 +230,7 @@ typedef enum CrabbyShapeKind {
   CRABBY_SHAPE_CIRCLE,
   CRABBY_SHAPE_RECT,
   CRABBY_SHAPE_CAPSULE,
+  CRABBY_SHAPE_POLYGON,
 } CrabbyShapeKind;
 
 typedef enum CrabbyNetState {
@@ -926,6 +927,17 @@ struct CrabbyCollider crabby_collider_rect(struct CrabbyVec2 size);
 
 struct CrabbyCollider crabby_collider_capsule(float height, float radius);
 
+enum CrabbyStatus crabby_set_polygon_collider(struct CrabbyWorld *world,
+                                              uint64_t entity,
+                                              const struct CrabbyVec2 *points,
+                                              uint32_t count,
+                                              struct CrabbyCollider settings);
+
+enum CrabbyStatus crabby_collider_points(struct CrabbyWorld *world,
+                                         uint64_t entity,
+                                         struct CrabbyVec2 *out_points,
+                                         uint32_t *out_count);
+
 enum CrabbyStatus crabby_rigid_body_component(struct CrabbyWorld *world, uint32_t *out_id);
 
 enum CrabbyStatus crabby_collider_component(struct CrabbyWorld *world, uint32_t *out_id);
@@ -998,6 +1010,17 @@ enum CrabbyStatus crabby_resource_reflect(struct CrabbyWorld *world,
                                           size_t alignment,
                                           const struct CrabbyField *fields,
                                           size_t len);
+
+enum CrabbyStatus crabby_ctx_load_scene(struct CrabbyCtx *ctx, const char *path);
+
+enum CrabbyStatus crabby_ctx_save_scene(struct CrabbyCtx *ctx, const char *path);
+
+enum CrabbyStatus crabby_ctx_spawn_prefab(struct CrabbyCtx *ctx,
+                                          const char *path,
+                                          struct CrabbyVec2 at,
+                                          uint64_t *out_entity);
+
+enum CrabbyStatus crabby_ctx_save_prefab(struct CrabbyCtx *ctx, uint64_t entity, const char *path);
 
 enum CrabbyStatus crabby_game_lockstep_steam_host(struct CrabbyGame *game,
                                                   uint32_t app_id,

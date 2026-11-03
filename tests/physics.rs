@@ -284,3 +284,58 @@ fn changing_a_collider_rebuilds_it() {
         .fold(f32::MIN, f32::max);
     assert!(lowest > 300.0, "fell through: {lowest}");
 }
+
+/// A wedge, flat side down: 60 wide, 30 high, corners around its position.
+fn wedge() -> Collider {
+    Collider::polygon(&[vec2(-30.0, 15.0), vec2(30.0, 15.0), vec2(-30.0, -15.0)])
+}
+
+#[test]
+fn a_falling_polygon_comes_to_rest_on_its_flat_side() {
+    let mut piece = None;
+    let world = Game::new("t", 1, 1).physics(GRAVITY).run_headless(240, |ctx| {
+        piece = Some(
+            ctx.world
+                .spawn((Transform2D::at(vec2(0.0, 0.0)), RigidBody::dynamic(), wedge())),
+        );
+        ctx.world.spawn(ground(vec2(0.0, 200.0)));
+    });
+    let t = *world.get::<Transform2D>(piece.unwrap()).unwrap();
+    // Ground top at 190, flat side 15 below the position: rests near y = 175.
+    assert!((t.position.y - 175.0).abs() < 1.5, "rests at {}", t.position.y);
+    assert!(t.rotation.abs() < 0.01, "stays flat: {}", t.rotation);
+}
+
+#[test]
+fn polygons_survive_save_and_load() {
+    let mut world = World::new();
+    world.reflect::<Collider>();
+    let e = world.spawn((wedge(),));
+    let save = world.save();
+    world.get_mut::<Collider>(e).unwrap().shape = Collider::circle(1.0).shape;
+    world.load(&save).unwrap();
+    assert_eq!(world.get::<Collider>(e).unwrap().shape.points(), wedge().shape.points());
+}
+
+#[test]
+#[should_panic(expected = "Collider::polygon: 3 to 8 points, got 2")]
+fn a_polygon_needs_three_points() {
+    let _ = Collider::polygon(&[Vec2::ZERO, Vec2::X]);
+}
+
+#[test]
+#[should_panic(expected = "Collider::polygon: 3 to 8 points, got 9")]
+fn a_polygon_has_at_most_eight_points() {
+    let _ = Collider::polygon(&[Vec2::ONE; 9]);
+}
+
+#[test]
+fn collider_json_needs_only_a_shape() {
+    let mut world = World::new();
+    world.reflect::<Collider>();
+    let e = world.spawn((Transform2D::default(),));
+    world
+        .set_json(e, "Collider", json!({ "shape": { "Circle": { "radius": 4.0 } } }))
+        .unwrap();
+    assert_eq!(*world.get::<Collider>(e).unwrap(), Collider::circle(4.0));
+}

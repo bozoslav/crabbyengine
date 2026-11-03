@@ -7,6 +7,25 @@ says what that covers.
 
 ## [Unreleased]
 
+### Added
+- Polygon colliders: `Collider::polygon` (3 to 8 corners, convex), in C
+  (`crabby_set_polygon_collider`, `crabby_collider_points`) and C++
+  (`crabby::polygon_collider`).
+- Scenes and prefabs: `ctx.load_scene`/`save_scene` keep a whole world in a
+  file under `assets/`; `ctx.spawn_prefab`/`save_prefab` keep one entity's
+  components and spawn copies where you say. In C (`crabby_ctx_load_scene`
+  and friends) and C++ (`ctx.load_scene` and friends).
+- `Sprite` is reflected in every game, its texture written as the image's
+  name in `assets/` (`"texture": "crab.png"`); setting or loading one loads
+  the image. `Color` and `Rect` implement serde's traits.
+- The inspector is an editor while the game is paused: click to select,
+  drag to move, pan and zoom, Delete, Ctrl+D duplicate, Ctrl+Z undo, add
+  components, place prefabs from `assets/prefabs/`, save and load scenes,
+  and Play / Stop (Stop puts the world back as it was at Play).
+- Control endpoint `scene.save`, `scene.load`, `prefab.spawn`,
+  `prefab.save`, and the MCP tools `save_scene`, `load_scene`,
+  `spawn_prefab`, `save_prefab`, so agents can build levels.
+
 ## [1.0.0] - 2026-11-03
 
 The first release: a 2D engine for simulations with up to millions of

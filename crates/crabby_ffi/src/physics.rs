@@ -37,6 +37,10 @@ pub enum CrabbyShapeKind {
     CRABBY_SHAPE_RECT,
     /// A vertical capsule: `height` between the centers of its round ends, and `radius`.
     CRABBY_SHAPE_CAPSULE,
+    /// A convex polygon, set with `crabby_set_polygon_collider`; its corners
+    /// come from `crabby_collider_points`. Reading one gives its bounding
+    /// box size in `size`.
+    CRABBY_SHAPE_POLYGON,
 }
 
 /// The built-in `RigidBody` component: makes an entity a physics body (it
@@ -215,6 +219,52 @@ pub extern "C" fn crabby_collider_capsule(height: f32, radius: f32) -> CrabbyCol
         radius,
         ..collider(CrabbyShapeKind::CRABBY_SHAPE_CAPSULE)
     }
+}
+
+/// Gives `entity` a convex polygon collider: the convex hull of `count`
+/// corners (3 to 8) at `points`, around the entity's position. `settings`
+/// gives density, friction, restitution, sensor and offset (its shape is
+/// ignored), e.g. `crabby_collider_circle(1)` for the defaults.
+/// # Safety
+/// Live world; `points` readable for `count` values.
+/// ```
+/// use crabby_ffi::*;
+/// let tri = [CrabbyVec2 { x: 0.0, y: 0.0 }, CrabbyVec2 { x: 10.0, y: 0.0 }, CrabbyVec2 { x: 0.0, y: 10.0 }];
+/// let status = unsafe { crabby_set_polygon_collider(std::ptr::null_mut(), 0, tri.as_ptr(), 3, crabby_collider_circle(1.0)) };
+/// assert_eq!(status, CrabbyStatus::CRABBY_INVALID_ARGUMENT); // no world
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_set_polygon_collider(
+    world: *mut CrabbyWorld,
+    entity: u64,
+    points: *const CrabbyVec2,
+    count: u32,
+    settings: CrabbyCollider,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe { imp::set_polygon(world, entity, points, count, settings) }
+}
+
+/// `entity`'s polygon corners: writes up to 8 into `out_points` and how
+/// many into `*out_count` (0 if its collider isn't a polygon).
+/// # Safety
+/// Live world; `out_points` writable for 8 values; writable `out_count`.
+/// ```
+/// use crabby_ffi::*;
+/// let mut points = [CrabbyVec2 { x: 0.0, y: 0.0 }; 8];
+/// let mut n = 0;
+/// let status = unsafe { crabby_collider_points(std::ptr::null_mut(), 0, points.as_mut_ptr(), &mut n) };
+/// assert_eq!(status, CrabbyStatus::CRABBY_INVALID_ARGUMENT); // no world
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_collider_points(
+    world: *mut CrabbyWorld,
+    entity: u64,
+    out_points: *mut CrabbyVec2,
+    out_count: *mut u32,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe { imp::polygon_points(world, entity, out_points, out_count) }
 }
 
 /// The id of the built-in `RigidBody` component (`CrabbyRigidBody` in
@@ -514,6 +564,7 @@ mod imp {
                     height: non_negative(c.height, SIZE)?,
                     radius: positive(c.radius, SIZE)?,
                 },
+                3 => return Err(invalid("polygon colliders are set with crabby_set_polygon_collider")),
                 _ => return Err(invalid("unknown collider shape")),
             };
             const AMOUNT: &str = "density, friction and restitution must not be negative";
@@ -531,6 +582,15 @@ mod imp {
                 Shape::Circle { radius } => crabby_collider_circle(radius),
                 Shape::Rect { size } => crabby_collider_rect(to_c(size)),
                 Shape::Capsule { height, radius } => crabby_collider_capsule(height, radius),
+                Shape::Polygon { .. } => {
+                    let points = self.shape.points();
+                    let lo = points.iter().fold(Vec2::splat(f32::INFINITY), |a, &p| a.min(p));
+                    let hi = points.iter().fold(Vec2::splat(f32::NEG_INFINITY), |a, &p| a.max(p));
+                    CrabbyCollider {
+                        size: to_c(hi - lo),
+                        ..collider(CrabbyShapeKind::CRABBY_SHAPE_POLYGON)
+                    }
+                }
                 _ => unreachable!("a new Shape needs a CrabbyShapeKind"),
             };
             CrabbyCollider {
@@ -542,6 +602,75 @@ mod imp {
                 ..base
             }
         }
+    }
+
+    pub(super) unsafe fn set_polygon(
+        world: *mut CrabbyWorld,
+        entity: u64,
+        points: *const CrabbyVec2,
+        count: u32,
+        settings: CrabbyCollider,
+    ) -> CrabbyStatus {
+        boundary(|| {
+            let count = count as usize;
+            if !(3..=crabbyengine::MAX_POLYGON_POINTS).contains(&count) {
+                return Err(invalid("a polygon has 3 to 8 points"));
+            }
+            if points.is_null() {
+                return Err(invalid("points is null"));
+            }
+            // SAFETY: caller supplies `count` readable points.
+            let corners: Vec<Vec2> = unsafe { std::slice::from_raw_parts(points, count) }
+                .iter()
+                .map(|p| Vec2::new(p.x, p.y))
+                .collect();
+            if !corners.iter().all(|p| p.is_finite()) {
+                return Err(invalid("polygon points must be finite"));
+            }
+            // The other settings are checked like any collider's.
+            let mut c = Collider::from_c(&CrabbyCollider {
+                shape: CrabbyShapeKind::CRABBY_SHAPE_CIRCLE as u32,
+                radius: 1.0,
+                ..settings
+            })?;
+            c.shape = Collider::polygon(&corners).shape;
+            // SAFETY: forwarded caller contract.
+            unsafe {
+                crate::access(world, |w, _| {
+                    if w.insert(Entity::from_bits(entity), c) {
+                        Ok(())
+                    } else {
+                        Err(error(CrabbyStatus::CRABBY_NOT_FOUND, "no such entity"))
+                    }
+                })
+            }
+        })
+    }
+
+    pub(super) unsafe fn polygon_points(
+        world: *mut CrabbyWorld,
+        entity: u64,
+        out_points: *mut CrabbyVec2,
+        out_count: *mut u32,
+    ) -> CrabbyStatus {
+        boundary(|| {
+            if out_points.is_null() {
+                return Err(invalid("output is null"));
+            }
+            // SAFETY: forwarded caller contract.
+            unsafe {
+                let corners = crate::access(world, |w, _| {
+                    let c = w
+                        .get::<Collider>(Entity::from_bits(entity))
+                        .ok_or_else(|| error(CrabbyStatus::CRABBY_NOT_FOUND, "entity or collider not found"))?;
+                    Ok(c.shape.points().to_vec())
+                })?;
+                for (i, p) in corners.iter().enumerate() {
+                    out_points.add(i).write(to_c(*p));
+                }
+                out(out_count, corners.len() as u32)
+            }
+        })
     }
 
     static RIGID_BODY: Mirror = mirror::<RigidBody>();
@@ -734,6 +863,18 @@ mod imp {
         boundary(off)
     }
     pub(super) unsafe fn game_physics(_: *mut CrabbyGame, _: CrabbyVec2) -> CrabbyStatus {
+        boundary(off)
+    }
+    pub(super) unsafe fn set_polygon(
+        _: *mut CrabbyWorld,
+        _: u64,
+        _: *const CrabbyVec2,
+        _: u32,
+        _: CrabbyCollider,
+    ) -> CrabbyStatus {
+        boundary(off)
+    }
+    pub(super) unsafe fn polygon_points(_: *mut CrabbyWorld, _: u64, _: *mut CrabbyVec2, _: *mut u32) -> CrabbyStatus {
         boundary(off)
     }
     pub(super) unsafe fn set_gravity(_: *mut CrabbyCtx, _: CrabbyVec2) -> CrabbyStatus {

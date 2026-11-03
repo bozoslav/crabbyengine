@@ -452,7 +452,8 @@ pub trait WorldReflect {
     /// the module path (`my_game::Health` becomes `"Health"`).
     /// Registering the same type again does nothing.
     ///
-    /// `Transform2D` is reflected in every game by default.
+    /// `Transform2D`, `Sprite` and `Attached` are reflected in every game by
+    /// default (a sprite with its texture's file name).
     ///
     /// ```
     /// use crabbyengine::*;
@@ -1180,5 +1181,127 @@ mod tests {
         let mut base = json!({ "a": 1, "b": { "x": 1, "y": 2 }, "c": [1, 2] });
         merge(&mut base, json!({ "b": { "y": 9 }, "c": [3] }));
         assert_eq!(base, json!({ "a": 1, "b": { "x": 1, "y": 9 }, "c": [3] }));
+    }
+}
+
+// ---- Sprites ------------------------------------------------------------------------
+
+/// The asset names of textures loaded from files (`Ctx::load_texture`), so
+/// sprites are saved as `"texture": "crab.png"`. A resource of the game's world.
+#[derive(Default)]
+pub(crate) struct TextureNames {
+    pub(crate) by_id: HashMap<u32, String>,
+    pub(crate) by_name: HashMap<String, crate::Texture>,
+}
+
+/// A [`Sprite`](crate::Sprite) as JSON: the texture by its file name.
+#[derive(Serialize, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct SpriteJson {
+    texture: Option<String>,
+    color: crate::Color,
+    z: f32,
+    pivot: glam::Vec2,
+    region: Option<crate::Rect>,
+}
+
+impl Default for SpriteJson {
+    fn default() -> Self {
+        Self {
+            texture: None,
+            color: crate::Color::WHITE,
+            z: 0.0,
+            pivot: glam::Vec2::splat(0.5),
+            region: None,
+        }
+    }
+}
+
+/// `None` for a texture made in code: it has no file to name, so the sprite
+/// isn't saved (the rest of the entity is).
+fn sprite_json(world: &World, s: &crate::Sprite) -> Option<Result<Value, String>> {
+    let name = world.get_resource::<TextureNames>()?.by_id.get(&s.texture.id)?;
+    let json = SpriteJson {
+        texture: Some(name.clone()),
+        color: s.color,
+        z: s.z,
+        pivot: s.pivot,
+        region: s.region,
+    };
+    Some(serde_json::to_value(json).map_err(|err| err.to_string()))
+}
+
+fn sprite_from_json(world: &World, value: Value) -> Result<crate::Sprite, String> {
+    let json: SpriteJson = serde_json::from_value(value).map_err(|err| err.to_string())?;
+    let name = json
+        .texture
+        .ok_or("a sprite needs \"texture\": an image in assets/, like \"crab.png\"")?;
+    let texture = world
+        .get_resource::<TextureNames>()
+        .and_then(|t| t.by_name.get(&name))
+        .copied()
+        .ok_or_else(|| format!("texture \"{name}\" isn't loaded: ctx.load_texture(\"{name}\") first"))?;
+    Ok(crate::Sprite {
+        texture,
+        color: json.color,
+        z: json.z,
+        pivot: json.pivot,
+        region: json.region,
+    })
+}
+
+/// Reflects [`Sprite`](crate::Sprite) as `"Sprite"`, its texture saved by
+/// file name (see [`TextureNames`]).
+pub(crate) fn reflect_sprite(world: &mut World) {
+    if world.get_resource::<TextureNames>().is_none() {
+        world.insert_resource(TextureNames::default());
+    }
+    if world.get_resource::<Registry>().is_none() {
+        world.insert_resource(Registry::default());
+    }
+    let reg = world.resource_mut::<Registry>();
+    if reg.by_name.contains_key("Sprite") {
+        return;
+    }
+    reg.by_name.insert("Sprite".into(), reg.list.len());
+    reg.list.push(Reflected {
+        name: "Sprite".into(),
+        type_name: std::any::type_name::<crate::Sprite>().into(),
+        get: Arc::new(|w: &World, e| w.get::<crate::Sprite>(e).and_then(|s| sprite_json(w, s))),
+        set: Arc::new(|w: &mut World, e, v| {
+            let sprite = sprite_from_json(w, v)?;
+            w.insert(e, sprite);
+            Ok(())
+        }),
+        spawn: Arc::new(|w: &mut World, v| {
+            let sprite = sprite_from_json(w, v)?;
+            Ok(w.spawn((sprite,)))
+        }),
+        spawn_at: Arc::new(|w: &mut World, e, v| {
+            let sprite = sprite_from_json(w, v)?;
+            Ok(w.spawn_at(e, (sprite,)))
+        }),
+        check: Arc::new(check::<SpriteJson>),
+        remove: Arc::new(remove::<crate::Sprite>),
+    });
+}
+
+/// The texture names under `"Sprite"` objects anywhere in `json` (a scene,
+/// a prefab, or an entity's components), for loading them first.
+pub(crate) fn sprite_textures(json: &Value, out: &mut Vec<String>) {
+    match json {
+        Value::Object(map) => {
+            for (key, value) in map {
+                if key == "Sprite"
+                    && let Some(name) = value.get("texture").and_then(Value::as_str)
+                {
+                    out.push(name.to_string());
+                } else {
+                    sprite_textures(value, out);
+                }
+            }
+        }
+        Value::Array(list) => list.iter().for_each(|v| sprite_textures(v, out)),
+        _ => {}
     }
 }

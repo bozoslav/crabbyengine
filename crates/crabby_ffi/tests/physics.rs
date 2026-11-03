@@ -233,3 +233,61 @@ fn bodies_and_colliders_round_trip_and_are_checked() {
         crabby_world_free(w);
     }
 }
+
+#[test]
+fn polygon_colliders_are_set_and_read_by_their_corners() {
+    let mut ids = Ids::default();
+    unsafe {
+        let w = crabby_world_new();
+        ids_of(w, &mut ids);
+        let mut e = 0;
+        assert_eq!(crabby_spawn(w, null(), 0, &mut e), CRABBY_OK);
+        let v = |x, y| CrabbyVec2 { x, y };
+        let wedge = [v(-30.0, 15.0), v(30.0, 15.0), v(-30.0, -15.0)];
+        let mut settings = crabby_collider_circle(1.0);
+        settings.friction = 0.9;
+        assert_eq!(
+            crabby_set_polygon_collider(w, e, wedge.as_ptr(), 3, settings),
+            CRABBY_OK
+        );
+
+        let mut corners = [v(0.0, 0.0); 8];
+        let mut n = 0;
+        assert_eq!(crabby_collider_points(w, e, corners.as_mut_ptr(), &mut n), CRABBY_OK);
+        assert_eq!(&corners[..n as usize], &wedge);
+
+        // Read as a plain collider: the polygon's kind, bounding box and settings.
+        let mut c = crabby_collider_circle(1.0);
+        let size = size_of::<CrabbyCollider>();
+        assert_eq!(crabby_get(w, e, ids.collider, (&raw mut c).cast(), size), CRABBY_OK);
+        assert_eq!(c.shape, CrabbyShapeKind::CRABBY_SHAPE_POLYGON as u32);
+        assert_eq!((c.size, c.friction), (v(60.0, 30.0), 0.9));
+        // Written back as a plain collider it would lose its corners: refused.
+        assert_eq!(
+            crabby_set(w, e, ids.collider, (&raw const c).cast(), size),
+            CRABBY_INVALID_ARGUMENT
+        );
+
+        assert_eq!(
+            crabby_set_polygon_collider(w, e, wedge.as_ptr(), 2, settings),
+            CRABBY_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            crabby_set_polygon_collider(w, e, wedge.as_ptr(), 9, settings),
+            CRABBY_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            crabby_set_polygon_collider(w, 12345, wedge.as_ptr(), 3, settings),
+            CRABBY_NOT_FOUND
+        );
+        // Other shapes have no corners.
+        let ball = crabby_collider_circle(4.0);
+        assert_eq!(
+            crabby_set(w, e, ids.collider, (&raw const ball).cast(), size),
+            CRABBY_OK
+        );
+        assert_eq!(crabby_collider_points(w, e, corners.as_mut_ptr(), &mut n), CRABBY_OK);
+        assert_eq!(n, 0);
+        crabby_world_free(w);
+    }
+}

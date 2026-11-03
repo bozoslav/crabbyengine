@@ -56,6 +56,8 @@ ctx.world.reflect::<Health>();
 | `set_resource` | ✓ | change game-wide state; object fields merge |
 | `save_world` | | checkpoint the world to a file |
 | `load_world` | ✓ | roll back to a checkpoint (same entity ids) |
+| `save_scene` / `load_scene` | ✓ | write or read a [scene](scenes.md) in the game's `assets/` |
+| `spawn_prefab` / `save_prefab` | ✓ | place a [prefab](scenes.md) at a point, or save an entity as one |
 | `quit_instance` | ✓ | |
 
 `--read-only` hides every tool marked ✓, for agents that should only watch.

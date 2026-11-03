@@ -351,6 +351,9 @@ static void build_level(crabby::world_view world) {
     auto box = crabby::rect_collider({40, 40});
     box.friction = 0.9f;
     world.spawn(crabby::transform_at({320, 0}), crabby::dynamic_body(), box);
+    // A ramp: any convex shape of up to 8 corners, around its position.
+    world.spawn(crabby::transform_at({150, 620}), crabby::fixed_body(),
+                crabby::polygon_collider({{-140, 60}, {140, 60}, {-140, -60}}));
     // A sensor reports overlaps but doesn't push.
     auto bucket = crabby::rect_collider({120, 80});
     bucket.sensor = true;
@@ -396,7 +399,7 @@ static bool physics_snippets() {
             if (ctx.sim_tick() == 1) landed = laser(ctx, {500, 0}).has_value();
         }, "test")
         .run_headless(120, [](crabby::ctx& ctx) { build_level(ctx.world()); });
-    return landed && world.size() == 4;
+    return landed && world.size() == 5;
 }
 
 // ---- Lockstep networking ----------------------------------------------------------
@@ -670,7 +673,27 @@ static void turrets_ride_on_tanks() {
 }
 // ANCHOR_END: attach
 
+// ---- Scenes and prefabs -------------------------------------------------------------
+// ANCHOR: scenes
+struct Palm { float height; };
+
+static void beach(crabby::ctx& ctx) {
+    ctx.world().reflect<Palm>({crabby::field("height", &Palm::height)});   // components in files must be reflected
+    ctx.load_scene("levels/beach.json");   // the level: its entities, ids kept
+    for (int i = 0; i < 3; ++i)            // three more palms, all alike, in a row
+        ctx.spawn_prefab("prefabs/palm.json", {400.0f + float(i) * 64, 400});
+}
+// ANCHOR_END: scenes
+
+static void the_beach_has_five_palms() {
+    auto world = crabby::game("guide", 1, 1).run_headless(0, beach);
+    std::size_t palms = 0;
+    world.each([&](const Palm&) { ++palms; });
+    if (palms != 5) { std::fprintf(stderr, "%zu palms\n", palms); std::abort(); }
+}
+
 int main() {
+    the_beach_has_five_palms();
     things_fall_ten_units_per_second();
     turrets_ride_on_tanks();
     crowds_reach_the_goal();

@@ -1,0 +1,9 @@
+{
+  "format": "crabby-prefab",
+  "version": 1,
+  "components": {
+    "Transform2D": {},
+    "Sprite": { "texture": "crab.png" },
+    "Walker": { "speed": 50.0, "heading": 0.0 }
+  }
+}

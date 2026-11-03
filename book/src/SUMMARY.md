@@ -20,6 +20,7 @@
 - [Sprite sheets, animation, tilemaps](tiles.md)
 - [Sound](audio.md)
 - [Data files: tune without restarting](data-files.md)
+- [Scenes and prefabs](scenes.md)
 - [Changing code while the game runs](hot-patching.md)
 - [Headless runs and testing](headless.md)
 - [Web builds: games in the browser](web.md)
