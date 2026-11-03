@@ -610,3 +610,59 @@ fn owned_grids_answer_radius_queries_with_user_data() {
         crabby_grid_free(g);
     }
 }
+
+/// Status codes and values from every gamepad call, in a headless run (no pads).
+unsafe extern "C" fn check_gamepads(ctx: *mut CrabbyCtx, user: *mut c_void) {
+    unsafe {
+        let seen = &mut *user.cast::<Vec<(CrabbyStatus, f32)>>();
+        let mut count = 99;
+        seen.push((crabby_ctx_gamepad_count(ctx, &mut count), count as f32));
+        let mut pad = 0;
+        seen.push((crabby_ctx_gamepad_at(ctx, 0, &mut pad), 0.0));
+        let mut down = true;
+        let south = CrabbyGamepadButton::CRABBY_GAMEPAD_SOUTH as u32;
+        seen.push((
+            crabby_ctx_gamepad_down(ctx, 0, south, &mut down),
+            f32::from(u8::from(down)),
+        ));
+        seen.push((
+            crabby_ctx_gamepad_pressed(ctx, 1, south, &mut down),
+            f32::from(u8::from(down)),
+        ));
+        seen.push((
+            crabby_ctx_gamepad_released(ctx, 7, south, &mut down),
+            f32::from(u8::from(down)),
+        ));
+        let mut value = 5.0;
+        let stick_y = CrabbyGamepadAxis::CRABBY_GAMEPAD_LEFT_STICK_Y as u32;
+        seen.push((crabby_ctx_gamepad_axis(ctx, 0, stick_y, &mut value), value));
+        // Out of range: slot 8, button 16, axis 6.
+        seen.push((crabby_ctx_gamepad_down(ctx, 8, south, &mut down), 0.0));
+        seen.push((crabby_ctx_gamepad_down(ctx, 0, 16, &mut down), 0.0));
+        seen.push((crabby_ctx_gamepad_axis(ctx, 0, 6, &mut value), 0.0));
+    }
+}
+
+#[test]
+fn gamepad_calls_read_empty_slots_and_reject_bad_arguments() {
+    let mut seen: Vec<(CrabbyStatus, f32)> = vec![];
+    unsafe {
+        let g = game();
+        crabby_game_sim_system(g, null(), 1, Some(check_gamepads), user(&mut seen));
+        crabby_world_free(run(g, 1, None, null_mut()));
+    }
+    assert_eq!(
+        seen,
+        [
+            (CRABBY_OK, 0.0),               // no pads in a headless run
+            (CRABBY_INVALID_ARGUMENT, 0.0), // so none at index 0
+            (CRABBY_OK, 0.0),               // empty slots read as up
+            (CRABBY_OK, 0.0),
+            (CRABBY_OK, 0.0),
+            (CRABBY_OK, 0.0), // and centered
+            (CRABBY_INVALID_ARGUMENT, 0.0),
+            (CRABBY_INVALID_ARGUMENT, 0.0),
+            (CRABBY_INVALID_ARGUMENT, 0.0),
+        ]
+    );
+}

@@ -23,7 +23,7 @@
  * Callbacks must return normally: C++ exceptions and Rust panics must never
  * cross the C boundary (crabby.hpp catches them for you).
  *
- * Enums (CrabbyKey, CrabbyMouseButton) are passed as uint32_t.
+ * Enums (CrabbyKey, CrabbyMouseButton, CrabbyGamepadButton, CrabbyGamepadAxis) are passed as uint32_t.
  * Last-error text is thread-local, borrowed until the next failed call;
  * successful calls leave it unchanged.
  */
@@ -41,6 +41,8 @@
 #include <stdlib.h>
 
 #define CRABBY_NAV_WALL 0
+
+#define CRABBY_MAX_GAMEPADS 8
 
 #define CRABBY_TILE_EMPTY 65535
 
@@ -161,6 +163,34 @@ typedef enum CrabbyMouseButton {
   CRABBY_MOUSE_BACK,
   CRABBY_MOUSE_FORWARD,
 } CrabbyMouseButton;
+
+typedef enum CrabbyGamepadButton {
+  CRABBY_GAMEPAD_SOUTH,
+  CRABBY_GAMEPAD_EAST,
+  CRABBY_GAMEPAD_NORTH,
+  CRABBY_GAMEPAD_WEST,
+  CRABBY_GAMEPAD_LEFT_BUMPER,
+  CRABBY_GAMEPAD_RIGHT_BUMPER,
+  CRABBY_GAMEPAD_LEFT_TRIGGER,
+  CRABBY_GAMEPAD_RIGHT_TRIGGER,
+  CRABBY_GAMEPAD_SELECT,
+  CRABBY_GAMEPAD_START,
+  CRABBY_GAMEPAD_LEFT_STICK,
+  CRABBY_GAMEPAD_RIGHT_STICK,
+  CRABBY_GAMEPAD_DPAD_UP,
+  CRABBY_GAMEPAD_DPAD_DOWN,
+  CRABBY_GAMEPAD_DPAD_LEFT,
+  CRABBY_GAMEPAD_DPAD_RIGHT,
+} CrabbyGamepadButton;
+
+typedef enum CrabbyGamepadAxis {
+  CRABBY_GAMEPAD_LEFT_STICK_X,
+  CRABBY_GAMEPAD_LEFT_STICK_Y,
+  CRABBY_GAMEPAD_RIGHT_STICK_X,
+  CRABBY_GAMEPAD_RIGHT_STICK_Y,
+  CRABBY_GAMEPAD_LEFT_TRIGGER_AXIS,
+  CRABBY_GAMEPAD_RIGHT_TRIGGER_AXIS,
+} CrabbyGamepadAxis;
 
 enum CrabbyFieldType
 #ifdef __cplusplus
@@ -498,6 +528,30 @@ enum CrabbyStatus crabby_ctx_mouse_down(struct CrabbyCtx *ctx, uint32_t input, b
 enum CrabbyStatus crabby_ctx_mouse_pressed(struct CrabbyCtx *ctx, uint32_t input, bool *out_state);
 
 enum CrabbyStatus crabby_ctx_mouse_released(struct CrabbyCtx *ctx, uint32_t input, bool *out_state);
+
+enum CrabbyStatus crabby_ctx_gamepad_count(struct CrabbyCtx *ctx, uint32_t *out_count);
+
+enum CrabbyStatus crabby_ctx_gamepad_at(struct CrabbyCtx *ctx, uint32_t index, uint32_t *out_pad);
+
+enum CrabbyStatus crabby_ctx_gamepad_down(struct CrabbyCtx *ctx,
+                                          uint32_t pad,
+                                          uint32_t button,
+                                          bool *out_state);
+
+enum CrabbyStatus crabby_ctx_gamepad_pressed(struct CrabbyCtx *ctx,
+                                             uint32_t pad,
+                                             uint32_t button,
+                                             bool *out_state);
+
+enum CrabbyStatus crabby_ctx_gamepad_released(struct CrabbyCtx *ctx,
+                                              uint32_t pad,
+                                              uint32_t button,
+                                              bool *out_state);
+
+enum CrabbyStatus crabby_ctx_gamepad_axis(struct CrabbyCtx *ctx,
+                                          uint32_t pad,
+                                          uint32_t axis,
+                                          float *out_value);
 
 enum CrabbyStatus crabby_ctx_mouse_pos(struct CrabbyCtx *ctx, struct CrabbyVec2 *out_pos);
 

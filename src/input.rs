@@ -1,4 +1,4 @@
-//! Keyboard and mouse state.
+//! Keyboard, mouse and gamepad state.
 //!
 //! The engine records raw window events here; game code reads the result
 //! through [`Ctx`](crate::Ctx). State lives in fixed-size arrays indexed by enum
@@ -105,6 +105,126 @@ impl MouseButton {
     }
 }
 
+/// A gamepad button, named by its position, so it means the same on every
+/// brand of controller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum GamepadButton {
+    /// The bottom face button: A on Xbox, Cross on PlayStation, B on Nintendo.
+    South,
+    /// The right face button: B on Xbox, Circle on PlayStation, A on Nintendo.
+    East,
+    /// The top face button: Y on Xbox, Triangle on PlayStation, X on Nintendo.
+    North,
+    /// The left face button: X on Xbox, Square on PlayStation, Y on Nintendo.
+    West,
+    /// The upper shoulder button on the left (LB, L1, L).
+    LeftBumper,
+    /// The upper shoulder button on the right (RB, R1, R).
+    RightBumper,
+    /// The lower shoulder trigger on the left (LT, L2, ZL), pulled more than
+    /// halfway. For how far, read [`GamepadAxis::LeftTrigger`].
+    LeftTrigger,
+    /// The lower shoulder trigger on the right (RT, R2, ZR), pulled more than
+    /// halfway. For how far, read [`GamepadAxis::RightTrigger`].
+    RightTrigger,
+    /// The small button left of center (View, Share, Minus).
+    Select,
+    /// The small button right of center (Menu, Options, Plus).
+    Start,
+    /// Pressing the left stick in.
+    LeftStick,
+    /// Pressing the right stick in.
+    RightStick,
+    DPadUp,
+    DPadDown,
+    DPadLeft,
+    DPadRight,
+}
+
+impl GamepadButton {
+    pub(crate) const COUNT: usize = 16;
+}
+
+/// One axis of a gamepad: a stick's x or y (`-1.0..=1.0`, y down is
+/// positive like screen coordinates) or a trigger (`0.0..=1.0`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum GamepadAxis {
+    LeftStickX,
+    LeftStickY,
+    RightStickX,
+    RightStickY,
+    LeftTrigger,
+    RightTrigger,
+}
+
+impl GamepadAxis {
+    pub(crate) const COUNT: usize = 6;
+}
+
+/// Which stick, for [`Ctx::gamepad_stick`](crate::Ctx::gamepad_stick).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum GamepadStick {
+    Left,
+    Right,
+}
+
+/// A connected gamepad, from [`Ctx::gamepads`](crate::Ctx::gamepads). It
+/// keeps its slot while connected, so `pads[0]` stays player one; a pad that
+/// reconnects takes the lowest free slot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Gamepad(pub(crate) u8);
+
+impl Gamepad {
+    /// The pad's slot, `0..MAX_GAMEPADS`: a stable number for "player 1, 2, ...".
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// for pad in ctx.gamepads() {
+    ///     println!("player {} is connected", pad.slot() + 1);
+    /// }
+    /// # }
+    /// ```
+    pub fn slot(self) -> usize {
+        usize::from(self.0)
+    }
+
+    /// The pad in `slot`, whether or not one is connected there (queries
+    /// on an empty slot read as nothing pressed). `None` past
+    /// [`MAX_GAMEPADS`].
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// let player_two = Gamepad::from_slot(1).unwrap();
+    /// assert_eq!(player_two.slot(), 1);
+    /// assert_eq!(Gamepad::from_slot(MAX_GAMEPADS), None);
+    /// ```
+    pub fn from_slot(slot: usize) -> Option<Gamepad> {
+        (slot < MAX_GAMEPADS).then_some(Gamepad(slot as u8))
+    }
+}
+
+/// How many gamepads the engine tracks at once.
+pub const MAX_GAMEPADS: usize = 8;
+
+/// One gamepad's buttons and axes.
+#[derive(Debug, Clone)]
+struct PadState {
+    buttons: ButtonStates<{ GamepadButton::COUNT }>,
+    axes: [f32; GamepadAxis::COUNT],
+}
+
+impl PadState {
+    const fn new() -> Self {
+        Self {
+            buttons: ButtonStates::new(),
+            axes: [0.0; GamepadAxis::COUNT],
+        }
+    }
+}
+
 /// Down / pressed-this-frame / released-this-frame flags for `N` buttons.
 #[derive(Debug, Clone)]
 struct ButtonStates<const N: usize> {
@@ -151,6 +271,9 @@ pub(crate) struct Input {
     mouse_pos: Vec2,
     mouse_pos_at_frame_start: Vec2,
     mouse_wheel: Vec2,
+    pads: [PadState; MAX_GAMEPADS],
+    /// Connected pads, sorted by slot.
+    connected: Vec<Gamepad>,
 }
 
 impl Input {
@@ -161,6 +284,8 @@ impl Input {
             mouse_pos: Vec2::ZERO,
             mouse_pos_at_frame_start: Vec2::ZERO,
             mouse_wheel: Vec2::ZERO,
+            pads: [const { PadState::new() }; MAX_GAMEPADS],
+            connected: Vec::with_capacity(MAX_GAMEPADS),
         }
     }
 
@@ -182,6 +307,33 @@ impl Input {
         self.mouse_wheel += delta;
     }
 
+    /// A pad was plugged in: it takes the lowest free slot. `None` when all
+    /// [`MAX_GAMEPADS`] slots are taken.
+    pub fn connect_gamepad(&mut self) -> Option<Gamepad> {
+        let slot = (0..MAX_GAMEPADS as u8).find(|&s| !self.connected.contains(&Gamepad(s)))?;
+        let pad = Gamepad(slot);
+        self.pads[usize::from(slot)] = PadState::new();
+        let at = self.connected.partition_point(|p| p.0 < slot);
+        self.connected.insert(at, pad);
+        Some(pad)
+    }
+
+    /// A pad was unplugged: its held buttons count as released this frame.
+    pub fn disconnect_gamepad(&mut self, pad: Gamepad) {
+        self.connected.retain(|&p| p != pad);
+        let state = &mut self.pads[pad.slot()];
+        state.buttons.release_all();
+        state.axes = [0.0; GamepadAxis::COUNT];
+    }
+
+    pub fn set_gamepad_button(&mut self, pad: Gamepad, button: GamepadButton, is_down: bool) {
+        self.pads[pad.slot()].buttons.set(button as usize, is_down);
+    }
+
+    pub fn set_gamepad_axis(&mut self, pad: Gamepad, axis: GamepadAxis, value: f32) {
+        self.pads[pad.slot()].axes[axis as usize] = value;
+    }
+
     /// Called when the window loses focus: we will never see the matching
     /// key-up events, so treat everything as released to avoid stuck keys.
     pub fn release_all(&mut self) {
@@ -193,6 +345,9 @@ impl Input {
     pub fn end_frame(&mut self) {
         self.keys.end_frame();
         self.mouse.end_frame();
+        for pad in &mut self.pads {
+            pad.buttons.end_frame();
+        }
         self.mouse_wheel = Vec2::ZERO;
         self.mouse_pos_at_frame_start = self.mouse_pos;
     }
@@ -233,6 +388,26 @@ impl Input {
 
     pub fn mouse_wheel(&self) -> Vec2 {
         self.mouse_wheel
+    }
+
+    pub fn gamepads(&self) -> &[Gamepad] {
+        &self.connected
+    }
+
+    pub fn gamepad_down(&self, pad: Gamepad, button: GamepadButton) -> bool {
+        self.pads[pad.slot()].buttons.down[button as usize]
+    }
+
+    pub fn gamepad_pressed(&self, pad: Gamepad, button: GamepadButton) -> bool {
+        self.pads[pad.slot()].buttons.pressed[button as usize]
+    }
+
+    pub fn gamepad_released(&self, pad: Gamepad, button: GamepadButton) -> bool {
+        self.pads[pad.slot()].buttons.released[button as usize]
+    }
+
+    pub fn gamepad_axis(&self, pad: Gamepad, axis: GamepadAxis) -> f32 {
+        self.pads[pad.slot()].axes[axis as usize]
     }
 }
 
@@ -313,6 +488,52 @@ mod tests {
         assert_eq!(input.mouse_delta(), Vec2::ZERO);
         assert_eq!(input.mouse_wheel(), Vec2::ZERO);
         assert_eq!(input.mouse_pos(), Vec2::new(15.0, 18.0));
+    }
+
+    #[test]
+    fn gamepads_take_the_lowest_free_slot() {
+        let mut input = Input::new();
+        let a = input.connect_gamepad().unwrap();
+        let b = input.connect_gamepad().unwrap();
+        assert_eq!((a.slot(), b.slot()), (0, 1));
+        input.disconnect_gamepad(a);
+        assert_eq!(input.gamepads(), [b]);
+        let c = input.connect_gamepad().unwrap();
+        assert_eq!(c.slot(), 0, "a new pad fills the gap");
+        assert_eq!(input.gamepads(), [c, b], "sorted by slot");
+        for _ in 2..MAX_GAMEPADS {
+            input.connect_gamepad().unwrap();
+        }
+        assert_eq!(input.connect_gamepad(), None, "all slots taken");
+    }
+
+    #[test]
+    fn gamepad_buttons_and_axes() {
+        let mut input = Input::new();
+        let pad = input.connect_gamepad().unwrap();
+        input.set_gamepad_button(pad, GamepadButton::South, true);
+        input.set_gamepad_axis(pad, GamepadAxis::LeftStickX, -0.5);
+        assert!(input.gamepad_pressed(pad, GamepadButton::South));
+        assert!(input.gamepad_down(pad, GamepadButton::South));
+        assert_eq!(input.gamepad_axis(pad, GamepadAxis::LeftStickX), -0.5);
+        input.end_frame();
+        assert!(!input.gamepad_pressed(pad, GamepadButton::South));
+        assert!(input.gamepad_down(pad, GamepadButton::South));
+        assert_eq!(input.gamepad_axis(pad, GamepadAxis::LeftStickX), -0.5, "axes hold");
+    }
+
+    #[test]
+    fn unplugging_releases_buttons_and_centers_sticks() {
+        let mut input = Input::new();
+        let pad = input.connect_gamepad().unwrap();
+        input.set_gamepad_button(pad, GamepadButton::Start, true);
+        input.set_gamepad_axis(pad, GamepadAxis::RightTrigger, 1.0);
+        input.end_frame();
+        input.disconnect_gamepad(pad);
+        assert!(input.gamepad_released(pad, GamepadButton::Start));
+        assert!(!input.gamepad_down(pad, GamepadButton::Start));
+        assert_eq!(input.gamepad_axis(pad, GamepadAxis::RightTrigger), 0.0);
+        assert!(input.gamepads().is_empty());
     }
 
     #[test]

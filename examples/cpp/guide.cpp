@@ -126,6 +126,25 @@ static void controls(crabby::ctx& ctx) {
 // crabby::game("Colony", 1280, 720).sim_system(ants).system(controls);
 // ANCHOR_END: controls
 
+// ---- Input -------------------------------------------------------------------
+// ANCHOR: gamepad
+// One hero per gamepad slot: the left stick moves it, A / Cross spins it.
+struct Hero { crabby::vec2 pos; float spin; };
+static Hero heroes[CRABBY_MAX_GAMEPADS];
+
+static void move_heroes(crabby::ctx& ctx) {
+    for (std::uint32_t i = 0; i < ctx.gamepad_count(); ++i) {
+        crabby::gamepad pad = ctx.gamepad_at(i);
+        Hero& hero = heroes[pad.slot];
+        crabby::vec2 stick = ctx.gamepad_stick(pad, crabby::stick::left);
+        hero.pos.x += stick.x * 400 * ctx.dt();
+        hero.pos.y += stick.y * 400 * ctx.dt();
+        if (ctx.gamepad_pressed(pad, CRABBY_GAMEPAD_SOUTH)) hero.spin = 6.28f;
+        hero.spin = std::max(0.0f, hero.spin - ctx.gamepad_axis(pad, CRABBY_GAMEPAD_RIGHT_TRIGGER_AXIS));
+    }
+}
+// ANCHOR_END: gamepad
+
 [[maybe_unused]] static void plan_routes(crabby::ctx&) {}
 [[maybe_unused]] static void grow_food(crabby::ctx&) {}
 [[maybe_unused]] static void every() {
@@ -536,6 +555,7 @@ int main() {
         .sim_system(Spawner{2}, "spawner")
         .sim_system(think, "think")
         .system(Hud{}, "hud")
+        .sim_system(move_heroes, "heroes")   // no pads headless: nothing moves
         .camera_controls()
         .sim_system([&](crabby::ctx& ctx) {
             ctx.world().each([&](const Neighbors& n) { most = std::max(most, n.count); });

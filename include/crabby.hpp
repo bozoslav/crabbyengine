@@ -59,6 +59,13 @@ using grid_hit = CrabbyGridHit;
 using grid_item = CrabbyGridItem;
 using key = CrabbyKey;
 using mouse = CrabbyMouseButton;
+using gamepad_button = CrabbyGamepadButton;
+using gamepad_axis = CrabbyGamepadAxis;
+/// A gamepad, by slot (0 is player one). Get the connected ones from
+/// ctx::gamepad_count and ctx::gamepad_at.
+struct gamepad { std::uint32_t slot; };
+/// Which stick, for ctx::gamepad_stick.
+enum class stick { left, right };
 using rect = CrabbyRect;
 using font = CrabbyFont;
 using text_params = CrabbyTextParams;
@@ -825,6 +832,20 @@ public:
     vec2 mouse_pos() const { vec2 v{}; detail::check(crabby_ctx_mouse_pos(raw_, &v)); return v; }
     vec2 mouse_world() const { vec2 v{}; detail::check(crabby_ctx_mouse_world(raw_, &v)); return v; }
     vec2 mouse_wheel() const { vec2 v{}; detail::check(crabby_ctx_mouse_wheel(raw_, &v)); return v; }
+    /// Connected gamepads: `for (uint32_t i = 0; i < ctx.gamepad_count(); ++i) ctx.gamepad_at(i)`.
+    std::uint32_t gamepad_count() const { std::uint32_t n = 0; detail::check(crabby_ctx_gamepad_count(raw_, &n)); return n; }
+    gamepad gamepad_at(std::uint32_t index) const { gamepad p{}; detail::check(crabby_ctx_gamepad_at(raw_, index, &p.slot)); return p; }
+    bool gamepad_down(gamepad p, gamepad_button b) const { bool v = false; detail::check(crabby_ctx_gamepad_down(raw_, p.slot, b, &v)); return v; }
+    bool gamepad_pressed(gamepad p, gamepad_button b) const { bool v = false; detail::check(crabby_ctx_gamepad_pressed(raw_, p.slot, b, &v)); return v; }
+    bool gamepad_released(gamepad p, gamepad_button b) const { bool v = false; detail::check(crabby_ctx_gamepad_released(raw_, p.slot, b, &v)); return v; }
+    /// Sticks -1..1 (y down), triggers 0..1.
+    float gamepad_axis(gamepad p, gamepad_axis a) const { float v = 0; detail::check(crabby_ctx_gamepad_axis(raw_, p.slot, a, &v)); return v; }
+    /// A stick as a vector, y down: add it to a position to move that way.
+    vec2 gamepad_stick(gamepad p, stick s) const {
+        bool left = s == stick::left;
+        return {gamepad_axis(p, left ? CRABBY_GAMEPAD_LEFT_STICK_X : CRABBY_GAMEPAD_RIGHT_STICK_X),
+                gamepad_axis(p, left ? CRABBY_GAMEPAD_LEFT_STICK_Y : CRABBY_GAMEPAD_RIGHT_STICK_Y)};
+    }
 
     // Textures and drawing.
     /// Loads a JSON file from assets/ into a reflected component of `e`

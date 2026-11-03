@@ -19,7 +19,8 @@ This page is the short version.
 ## Setting up
 
 You need stable Rust (`rustup update stable`). On Linux, also install the
-ALSA headers for audio (`sudo apt-get install libasound2-dev`). For the C++
+ALSA and udev headers for audio and gamepads
+(`sudo apt-get install libasound2-dev libudev-dev`). For the C++
 side, you need CMake and a C++17 compiler.
 
 ```sh

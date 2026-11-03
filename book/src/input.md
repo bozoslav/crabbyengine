@@ -1,0 +1,86 @@
+# Input: keyboard, mouse, gamepads
+
+Input is read from `ctx` in any system. Every kind works the same way:
+`_down` while held, `_pressed` on the frame it went down, `_released` on the
+frame it came up. A tap shorter than a frame still shows up as pressed and
+released.
+
+## Keyboard
+
+```rust
+# use crabbyengine::*;
+# fn update(ctx: &mut Ctx, pos: &mut Vec2) {
+if ctx.key_down(Key::Right) { pos.x += 200.0 * ctx.dt(); }
+if ctx.key_pressed(Key::Space) { println!("jump"); }
+# }
+```
+
+Keys are named by their **position** on a US keyboard: `Key::W` is the key
+above `S` on every layout, so WASD controls stay in place for AZERTY and
+Dvorak players too. In C++: `ctx.key_down(CRABBY_KEY_RIGHT)`.
+
+## Mouse
+
+- `ctx.mouse_pos()`: in window pixels; `ctx.mouse_world()`: through the
+  [camera](camera-ui.md), in world units.
+- `ctx.mouse_down(MouseButton::Left)` (and `_pressed`, `_released`).
+- `ctx.mouse_delta()` since the last frame, and `ctx.mouse_wheel()`.
+- `ctx.mouse_over_ui()`: `true` over a UI panel or the
+  [inspector](inspector.md), so a click on a button doesn't also act in the
+  world.
+
+## Gamepads
+
+Xbox, PlayStation, Switch and most other controllers work, plugged in or
+over Bluetooth, and can come and go while the game runs.
+`ctx.gamepads()` lists the connected ones. Each keeps its **slot** while
+connected (`pad.slot()`: 0 is player one), and a pad plugged in later takes
+the lowest free slot.
+
+<div class="lang-pair">
+<div>
+
+```rust
+{{#include ../../examples/gamepad.rs:gamepad}}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:gamepad}}
+```
+
+</div>
+</div>
+
+Buttons are named by position, so a game's controls mean the same on every
+brand:
+
+| `GamepadButton` | Xbox | PlayStation | Nintendo |
+|---|---|---|---|
+| `South` | A | Cross | B |
+| `East` | B | Circle | A |
+| `North` | Y | Triangle | X |
+| `West` | X | Square | Y |
+| `LeftBumper` / `RightBumper` | LB / RB | L1 / R1 | L / R |
+| `LeftTrigger` / `RightTrigger` | LT / RT | L2 / R2 | ZL / ZR |
+| `Select` / `Start` | View / Menu | Share / Options | Minus / Plus |
+| `LeftStick` / `RightStick` | stick clicks | L3 / R3 | stick clicks |
+| `DPadUp`, `DPadDown`, `DPadLeft`, `DPadRight` | d-pad | d-pad | d-pad |
+
+Sticks and triggers are axes:
+
+- `ctx.gamepad_stick(pad, GamepadStick::Left)` is a `Vec2` from `-1` to `1`,
+  **y down** like screen coordinates, so adding it to a position moves that
+  way. Small wobbles around the center read as zero.
+- `ctx.gamepad_axis(pad, GamepadAxis::RightTrigger)` goes from `0` (released)
+  to `1` (fully pulled): use it for throttles and charge-ups. The triggers
+  also count as buttons once pulled past halfway.
+
+`examples/gamepad.rs` gives every connected pad its own crab:
+`cargo run --example gamepad`.
+
+Gamepads need the `gamepad` cargo feature, on by default. Without it, or in
+[headless runs](headless.md), `ctx.gamepads()` is empty. On Linux, building
+it needs the udev headers (`sudo apt-get install libudev-dev`).

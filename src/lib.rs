@@ -31,6 +31,8 @@
 //! - `audio` (default): sound through kira; without it sounds are silent.
 //! - `inspector` (default): the in-game inspector overlay (egui), opened
 //!   with the backquote key. On in debug builds; see `Game::inspector`.
+//! - `gamepad` (default): gamepads through gilrs; without it
+//!   `Ctx::gamepads` is always empty. On Linux it needs libudev headers.
 //! - `profiling`: per-system scopes for `puffin_viewer`.
 //! - `hotpatch`: change system code while the game runs, with
 //!   `dx serve --hot-patch --features hotpatch`.
@@ -49,6 +51,8 @@ mod ecs;
 mod events;
 mod flow;
 mod game;
+#[cfg(feature = "gamepad")]
+mod gamepad;
 mod hot_reload;
 mod input;
 #[cfg(feature = "inspector")]
@@ -80,7 +84,7 @@ pub use events::Events;
 pub use flow::RawFlowView;
 pub use flow::{FlowField, NavGrid};
 pub use game::{Game, SetupResult};
-pub use input::{Key, MouseButton};
+pub use input::{Gamepad, GamepadAxis, GamepadButton, GamepadStick, Key, MAX_GAMEPADS, MouseButton};
 pub use random::{DEFAULT_SEED, Random, Rng};
 pub use reflect::{Field, FieldType, ReflectError, WorldReflect};
 pub use render::RenderStats;
