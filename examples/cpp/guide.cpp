@@ -128,20 +128,24 @@ static void controls(crabby::ctx& ctx) {
 
 // ---- Input -------------------------------------------------------------------
 // ANCHOR: gamepad
-// One hero per gamepad slot: the left stick moves it, A / Cross spins it.
-struct Hero { crabby::vec2 pos; float spin; };
-static Hero heroes[CRABBY_MAX_GAMEPADS];
+struct Player { std::uint32_t slot; float spin; };   // one per connected pad
 
-static void move_heroes(crabby::ctx& ctx) {
-    for (std::uint32_t i = 0; i < ctx.gamepad_count(); ++i) {
-        crabby::gamepad pad = ctx.gamepad_at(i);
-        Hero& hero = heroes[pad.slot];
-        crabby::vec2 stick = ctx.gamepad_stick(pad, crabby::stick::left);
-        hero.pos.x += stick.x * 400 * ctx.dt();
-        hero.pos.y += stick.y * 400 * ctx.dt();
-        if (ctx.gamepad_pressed(pad, CRABBY_GAMEPAD_SOUTH)) hero.spin = 6.28f;
-        hero.spin = std::max(0.0f, hero.spin - ctx.gamepad_axis(pad, CRABBY_GAMEPAD_RIGHT_TRIGGER_AXIS));
+static void move_players(crabby::ctx& ctx) {
+    const float dt = ctx.dt();
+    // Read the pads first: the loop below borrows the world.
+    crabby::vec2 sticks[CRABBY_MAX_GAMEPADS] = {};
+    bool spins[CRABBY_MAX_GAMEPADS] = {};
+    float grow[CRABBY_MAX_GAMEPADS] = {};
+    for (crabby::gamepad pad : ctx.gamepads()) {
+        sticks[pad.slot] = ctx.gamepad_stick(pad, crabby::stick::left);
+        spins[pad.slot] = ctx.gamepad_pressed(pad, CRABBY_GAMEPAD_SOUTH);
+        grow[pad.slot] = ctx.gamepad_axis(pad, CRABBY_GAMEPAD_RIGHT_TRIGGER_AXIS);
     }
+    ctx.world().each([&](crabby::transform2d& t, Player& player) {
+        t.position += sticks[player.slot] * 400 * dt;
+        if (spins[player.slot]) player.spin = 6.2831853f;
+        t.scale = crabby::vec2{1, 1} * (1 + 2 * grow[player.slot]);
+    });
 }
 // ANCHOR_END: gamepad
 
@@ -555,7 +559,7 @@ int main() {
         .sim_system(Spawner{2}, "spawner")
         .sim_system(think, "think")
         .system(Hud{}, "hud")
-        .sim_system(move_heroes, "heroes")   // no pads headless: nothing moves
+        .sim_system(move_players, "players")   // no pads headless: nothing moves
         .camera_controls()
         .sim_system([&](crabby::ctx& ctx) {
             ctx.world().each([&](const Neighbors& n) { most = std::max(most, n.count); });

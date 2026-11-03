@@ -61,9 +61,17 @@ using key = CrabbyKey;
 using mouse = CrabbyMouseButton;
 using gamepad_button = CrabbyGamepadButton;
 using gamepad_axis = CrabbyGamepadAxis;
-/// A gamepad, by slot (0 is player one). Get the connected ones from
-/// ctx::gamepad_count and ctx::gamepad_at.
+/// A gamepad, by slot (0 is player one): `for (crabby::gamepad pad : ctx.gamepads())`.
 struct gamepad { std::uint32_t slot; };
+/// The connected gamepads (ctx::gamepads), oldest slot first. No allocation.
+struct gamepad_list {
+    std::array<gamepad, CRABBY_MAX_GAMEPADS> pads{};
+    std::uint32_t count = 0;
+    const gamepad* begin() const noexcept { return pads.data(); }
+    const gamepad* end() const noexcept { return pads.data() + count; }
+    std::size_t size() const noexcept { return count; }
+    bool empty() const noexcept { return count == 0; }
+};
 /// Which stick, for ctx::gamepad_stick.
 enum class stick { left, right };
 using rect = CrabbyRect;
@@ -832,9 +840,14 @@ public:
     vec2 mouse_pos() const { vec2 v{}; detail::check(crabby_ctx_mouse_pos(raw_, &v)); return v; }
     vec2 mouse_world() const { vec2 v{}; detail::check(crabby_ctx_mouse_world(raw_, &v)); return v; }
     vec2 mouse_wheel() const { vec2 v{}; detail::check(crabby_ctx_mouse_wheel(raw_, &v)); return v; }
-    /// Connected gamepads: `for (uint32_t i = 0; i < ctx.gamepad_count(); ++i) ctx.gamepad_at(i)`.
-    std::uint32_t gamepad_count() const { std::uint32_t n = 0; detail::check(crabby_ctx_gamepad_count(raw_, &n)); return n; }
-    gamepad gamepad_at(std::uint32_t index) const { gamepad p{}; detail::check(crabby_ctx_gamepad_at(raw_, index, &p.slot)); return p; }
+    /// The connected gamepads: `for (crabby::gamepad pad : ctx.gamepads())`.
+    gamepad_list gamepads() const {
+        gamepad_list list;
+        detail::check(crabby_ctx_gamepad_count(raw_, &list.count));
+        list.count = std::min<std::uint32_t>(list.count, CRABBY_MAX_GAMEPADS);
+        for (std::uint32_t i = 0; i < list.count; ++i) detail::check(crabby_ctx_gamepad_at(raw_, i, &list.pads[i].slot));
+        return list;
+    }
     bool gamepad_down(gamepad p, gamepad_button b) const { bool v = false; detail::check(crabby_ctx_gamepad_down(raw_, p.slot, b, &v)); return v; }
     bool gamepad_pressed(gamepad p, gamepad_button b) const { bool v = false; detail::check(crabby_ctx_gamepad_pressed(raw_, p.slot, b, &v)); return v; }
     bool gamepad_released(gamepad p, gamepad_button b) const { bool v = false; detail::check(crabby_ctx_gamepad_released(raw_, p.slot, b, &v)); return v; }

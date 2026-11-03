@@ -111,7 +111,11 @@ static void games() {
     // Systems, the clock, quit and exceptions.
     std::uint64_t ticks = 0; float dt = 0;
     auto sim = crabby::game("t", 1, 1).fixed_hz(50)
-        .sim_system([&](crabby::ctx& ctx) { ++ticks; dt = ctx.dt(); if (ctx.sim_tick() == 2) ctx.quit(); }, "count")
+        .sim_system([&](crabby::ctx& ctx) {
+            ++ticks; dt = ctx.dt();
+            CHECK(ctx.gamepads().empty());   // no pads in headless runs
+            if (ctx.sim_tick() == 2) ctx.quit();
+        }, "count")
         .run_headless(100, [&](crabby::ctx& ctx) { ctx.world().spawn(Pos{1, 1}); });
     CHECK(ticks == 3 && dt > .019f && dt < .021f && sim.size() == 1);
     // The returned world knows the game's components.

@@ -29,6 +29,9 @@ Everything so far, ahead of the first release.
 - `Camera2D` (pan, zoom, follow), text, shapes, simple UI.
 - Sprite sheets, animation and tilemaps.
 - Sound through kira (`audio` feature).
+- Gamepads through gilrs (`gamepad` feature, on by default): buttons named
+  by position, sticks and triggers, up to 8 pads in fixed slots, plugged in
+  and out while the game runs; in C and C++ too.
 
 ### Fast iteration
 - Hot reload of images, sounds, fonts and JSON data files.

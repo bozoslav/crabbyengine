@@ -197,7 +197,7 @@ reproduce it on the [benchmarks page](https://bozoslav.github.io/crabbyengine/pe
 - wgpu sprite batcher: instancing, z-order, tint, rotation, scale
 - 2D camera (pan, zoom, follow), text, shapes, simple UI (panels, buttons, labels)
 - Sprite sheets, animation, tilemaps; sound through kira
-- Keyboard and mouse input; CPU and GPU timings per frame
+- Keyboard, mouse and gamepads (Xbox, PlayStation, Switch, hot-plugged); CPU and GPU timings per frame
 
 **Iteration and tools**
 - Hot reload of images, sounds, fonts and JSON data files; hot-patching of game code
@@ -232,7 +232,7 @@ change, and the guide is kept in sync with `main`, but the API still
 changes between versions and there's no crates.io release yet. See the
 [changelog](CHANGELOG.md).
 
-Not built in (yet): physics, networking, gamepads.
+Not built in (yet): physics, networking.
 
 ## Contributing
 
