@@ -32,6 +32,7 @@ mod reflect;
 mod resources;
 mod scene;
 mod steam;
+mod three;
 mod tiles;
 mod types;
 pub use attach::*;
@@ -47,6 +48,7 @@ pub use reflect::*;
 pub use resources::*;
 pub use scene::*;
 pub use steam::*;
+pub use three::*;
 pub use tiles::*;
 pub use types::*;
 
@@ -328,6 +330,10 @@ pub(crate) fn component(world: &World, id: u32) -> Result<(ComponentId, Kind), F
         // repr(C), layout checked against CrabbyAnimation; `looping` must be 0 or 1.
         Some(t) if t == TypeId::of::<crabbyengine::Animation>() => Kind::Plain,
         Some(t) if t == TypeId::of::<Sprite>() => Kind::Mirror(&SPRITE),
+        // repr(C), layout checked against CrabbyTransform3D / CrabbyModel;
+        // any bits are a valid value (unknown meshes draw nothing).
+        Some(t) if t == TypeId::of::<crabbyengine::Transform3D>() => Kind::Plain,
+        Some(t) if t == TypeId::of::<crabbyengine::Model>() => Kind::Plain,
         Some(t) => match crate::physics::kind(t) {
             Some(kind) => kind,
             None => {

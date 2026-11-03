@@ -10,8 +10,8 @@ use super::timer::GpuTimer;
 use super::{FrameStatus, RenderStats, Screenshot};
 use crate::color::Color;
 
-struct GpuTexture {
-    bind_group: wgpu::BindGroup,
+pub(super) struct GpuTexture {
+    pub(super) bind_group: wgpu::BindGroup,
     texture: wgpu::Texture,
 }
 
@@ -43,6 +43,12 @@ pub(crate) struct Renderer {
 
     timer: Option<GpuTimer>,
     stats: RenderStats,
+    /// The 3D pass, made when the game first creates a mesh or material.
+    #[cfg(feature = "3d")]
+    three: Option<super::gpu3d::Renderer3D>,
+    /// Time spent collecting and uploading this frame's 3D models.
+    #[cfg(feature = "3d")]
+    prepare_3d_ms: f32,
     /// The last captured frame, waiting to be picked up.
     screenshot: Option<Screenshot>,
 
@@ -369,6 +375,10 @@ impl Renderer {
             instance_capacity: INITIAL_INSTANCE_CAPACITY,
             timer,
             stats: RenderStats::default(),
+            #[cfg(feature = "3d")]
+            three: None,
+            #[cfg(feature = "3d")]
+            prepare_3d_ms: 0.0,
             screenshot: None,
             #[cfg(feature = "inspector")]
             overlay: None,
@@ -386,6 +396,53 @@ impl Renderer {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         })
+    }
+
+    /// The 3D pass, made on first use (with its white texture).
+    #[cfg(feature = "3d")]
+    fn three(&mut self) -> &mut super::gpu3d::Renderer3D {
+        if self.three.is_none() {
+            let white = self.create_texture(1, 1, &[255; 4]);
+            self.three = Some(super::gpu3d::Renderer3D::new(
+                &self.device,
+                &self.texture_layout,
+                self.view_format,
+                white,
+            ));
+        }
+        self.three.as_mut().expect("just made")
+    }
+
+    #[cfg(feature = "3d")]
+    pub fn create_material(&mut self, uniform: &crate::three::MaterialUniform, texture: Option<u32>) -> u32 {
+        let device = self.device.clone();
+        // An unknown texture (from C) would break drawing: use none.
+        let texture = texture.filter(|&t| (t as usize) < self.textures.len());
+        self.three().create_material(&device, uniform, texture)
+    }
+
+    #[cfg(feature = "3d")]
+    pub fn create_mesh(&mut self, data: &crate::MeshData, parts: &[(std::ops::Range<u32>, crate::Material)]) -> u32 {
+        let device = self.device.clone();
+        self.three().create_mesh(&device, data, parts)
+    }
+
+    /// Uploads the frame's 3D models, camera and light for the next `render`.
+    /// `collect_ms`: how long collecting the models took, counted in `cpu_ms`.
+    #[cfg(feature = "3d")]
+    pub fn prepare_3d(
+        &mut self,
+        frame: &crate::three::Frame3D,
+        lighting: &crate::Lighting,
+        camera: glam::Vec3,
+        collect_ms: f32,
+    ) {
+        let start = web_time::Instant::now();
+        let size = (self.config.width, self.config.height);
+        if let Some(three) = &mut self.three {
+            three.prepare(&self.device, &self.queue, frame, lighting, camera, size);
+        }
+        self.prepare_3d_ms = collect_ms + start.elapsed().as_secs_f32() * 1000.0;
     }
 
     pub fn max_texture_size(&self) -> u32 {
@@ -583,6 +640,10 @@ impl Renderer {
         let total = world.len() + ui.len();
         self.stats.sprites = total;
         self.stats.draw_calls = world_batches.len() + ui_batches.len();
+        #[cfg(feature = "3d")]
+        if let Some(three) = &self.three {
+            self.stats.draw_calls += three.draw_calls();
+        }
 
         if total > self.instance_capacity {
             self.instance_capacity = total.next_power_of_two();
@@ -628,15 +689,17 @@ impl Renderer {
             })
         });
         if let Some(view) = &view {
+            let sprite_clear = self.draw_3d(&mut encoder, view, clear);
             let timestamps = self.timer.as_mut().and_then(GpuTimer::begin);
-            Self::sprite_pass(&mut encoder, view, clear, timestamps, &pass);
+            Self::sprite_pass(&mut encoder, view, sprite_clear, timestamps, &pass);
         }
         // A screenshot draws the same sprites a second time, into a texture
         // that can be copied (the window's surface can't, on some GPUs).
         let capture = capture.then(|| {
             let target = Capture::new(&self.device, self.config.width, self.config.height, self.view_format);
             let target_view = target.texture.create_view(&wgpu::TextureViewDescriptor::default());
-            Self::sprite_pass(&mut encoder, &target_view, clear, None, &pass);
+            let sprite_clear = self.draw_3d(&mut encoder, &target_view, clear);
+            Self::sprite_pass(&mut encoder, &target_view, sprite_clear, None, &pass);
             target.copy(&mut encoder);
             target
         });
@@ -658,6 +721,10 @@ impl Renderer {
             self.stats.gpu_ms = timer.smoothed_ms;
         }
         self.stats.cpu_ms = cpu_start.elapsed().as_secs_f32() * 1000.0;
+        #[cfg(feature = "3d")]
+        {
+            self.stats.cpu_ms += std::mem::take(&mut self.prepare_3d_ms);
+        }
         if let Some(frame) = frame {
             self.window.pre_present_notify();
             self.queue.present(frame);
@@ -735,10 +802,24 @@ impl Renderer {
         commands
     }
 
+    /// Draws the frame's 3D models (clearing to `clear`) when there are
+    /// any. Returns the color the sprite pass should clear to: `None` when
+    /// it draws over the 3D models.
+    #[cfg_attr(not(feature = "3d"), allow(clippy::unused_self))]
+    fn draw_3d(&self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView, clear: Color) -> Option<Color> {
+        #[cfg(feature = "3d")]
+        if let Some(three) = self.three.as_ref().filter(|t| t.has_draws()) {
+            three.draw(encoder, view, clear.to_linear_wgpu(), &self.textures);
+            return None;
+        }
+        let _ = (encoder, view);
+        Some(clear)
+    }
+
     fn sprite_pass(
         encoder: &mut wgpu::CommandEncoder,
         view: &wgpu::TextureView,
-        clear: Color,
+        clear: Option<Color>,
         timestamp_writes: Option<wgpu::RenderPassTimestampWrites<'_>>,
         p: &SpritePass<'_>,
     ) {
@@ -749,7 +830,7 @@ impl Renderer {
                 depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(clear.to_linear_wgpu()),
+                    load: clear.map_or(wgpu::LoadOp::Load, |c| wgpu::LoadOp::Clear(c.to_linear_wgpu())),
                     store: wgpu::StoreOp::Store,
                 },
             })],

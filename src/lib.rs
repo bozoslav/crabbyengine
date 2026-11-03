@@ -78,6 +78,8 @@ mod sheet;
 mod spatial;
 mod text;
 mod texture;
+#[cfg(feature = "3d")]
+mod three;
 mod tilemap;
 mod time;
 mod ui;
@@ -118,6 +120,8 @@ pub use spatial::{GridEntry, SPATIAL_SORT_EVERY, SpatialGrid, rebuild_spatial_gr
 pub use steamworks;
 pub use text::{Font, TextParams};
 pub use texture::{DrawParams, Texture, TextureFilter};
+#[cfg(feature = "3d")]
+pub use three::{Camera3D, Lighting, Material, MaterialDesc, Mesh, MeshData, Model, Transform3D};
 pub use tilemap::{TileMap, draw_tilemaps};
 pub use ui::UiStyle;
 
@@ -127,6 +131,9 @@ pub use crabby_ecs::{Commands, Component, ComponentId, Entity, Query, World};
 /// The full ECS crate, for advanced use (C path, chunks, archetypes).
 pub use crabby_ecs as ecs_core;
 
+/// 3D vector, rotation and 4x4 matrix, for 3D (re-exported from `glam`).
+#[cfg(feature = "3d")]
+pub use glam::{Mat4, Quat, Vec3, vec3};
 /// Whole-number 2D vector, for tile coordinates (re-exported from `glam`).
 pub use glam::{UVec2, uvec2};
 /// 2D vector used for positions, sizes and velocities (re-exported from `glam`).

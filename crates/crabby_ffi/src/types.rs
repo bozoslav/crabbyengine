@@ -239,6 +239,7 @@ macro_rules! same_layout {
         };
     };
 }
+pub(crate) use same_layout;
 same_layout!(CrabbyVec2, Vec2, x = x, y = y);
 same_layout!(CrabbyColor, Color, r = r, g = g, b = b, a = a);
 same_layout!(

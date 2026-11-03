@@ -22,6 +22,17 @@ says what that covers.
   drag to move, pan and zoom, Delete, Ctrl+D duplicate, Ctrl+Z undo, add
   components, place prefabs from `assets/prefabs/`, save and load scenes,
   and Play / Stop (Stop puts the world back as it was at Play).
+- 3D, behind the `3d` feature: `Transform3D` and `Model` components on
+  the same ECS, meshes (`MeshData::cube`/`plane`/`sphere`, your own
+  triangles, or glTF with `ctx.load_mesh`), physically based materials
+  (`ctx.create_material`), `ctx.camera3d` with `screen_ray` picking, and
+  `ctx.lighting`: a sun with soft shadows that follow the camera, plus sky
+  light. Instanced by mesh, culled to the view, 4x multisampled, drawn
+  under the 2D layer. 100,000 spinning cubes hold 120 fps. In C (`crabby_ctx_create_mesh`
+  and friends; `CrabbyTransform3D` and `CrabbyModel` are plain query
+  columns) and C++ (`crabby::transform3d_at`, `crabby::mesh_data`,
+  `ctx.create_material`, ...). The `3d` example and the "3D" book chapter.
+- The MCP `launch` tool takes `features`, for games behind Cargo features.
 - Control endpoint `scene.save`, `scene.load`, `prefab.spawn`,
   `prefab.save`, and the MCP tools `save_scene`, `load_scene`,
   `spawn_prefab`, `save_prefab`, so agents can build levels.

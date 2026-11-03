@@ -31,6 +31,24 @@ impl Renderer {
     pub fn update_texture_region(&mut self, _id: u32, _at: [u32; 2], _size: [u32; 2], _rgba: &[u8]) {
         match *self {}
     }
+    #[cfg(feature = "3d")]
+    pub fn create_material(&mut self, _uniform: &crate::three::MaterialUniform, _texture: Option<u32>) -> u32 {
+        match *self {}
+    }
+    #[cfg(feature = "3d")]
+    pub fn create_mesh(&mut self, _data: &crate::MeshData, _parts: &[(std::ops::Range<u32>, crate::Material)]) -> u32 {
+        match *self {}
+    }
+    #[cfg(feature = "3d")]
+    pub fn prepare_3d(
+        &mut self,
+        _frame: &crate::three::Frame3D,
+        _lighting: &crate::Lighting,
+        _camera: glam::Vec3,
+        _collect_ms: f32,
+    ) {
+        match *self {}
+    }
     pub fn render(
         &mut self,
         _world: &mut DrawList,
