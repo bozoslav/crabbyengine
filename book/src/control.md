@@ -72,14 +72,17 @@ headless game waits for requests and runs only the ticks you step.
 |---|---|---|
 | `methods` | | every method with a description |
 | `info` | | pid, headless, tick, sim time, paused, speed, fps, entity count, render stats (sprites, draw calls, CPU and GPU ms) |
-| `world.summary` | | entity count, reflected components, archetypes and sizes |
+| `world.summary` | | entity count, reflected components and resources, archetypes and sizes |
 | `entities.list` | `with?`, `limit?` (100), `offset?` | entities with reflected components as JSON, names of the others |
 | `entity.get` | `entity` | `{component: value}` |
 | `entity.spawn` | `components` | `{entity}` |
 | `entity.despawn` | `entity` | `true` if it existed |
 | `component.set` | `entity`, `component`, `value` | the new value (object fields merge) |
 | `component.remove` | `entity`, `component` | `true` if it had it |
-| `world.save` | `path` | writes a [save](determinism.md#saving-and-loading-the-world); entity count, bytes, tick |
+| `resources.list` | | `{resource: value}` for every reflected resource (`null` if it's not in the world) |
+| `resource.get` | `resource` | its value |
+| `resource.set` | `resource`, `value` | the new value (object fields merge; inserted if missing) |
+| `world.save` | `path` | writes a [save](determinism.md#saving-and-loading-the-world); entity and resource counts, bytes, tick |
 | `world.load` | `path` | replaces every entity from a save (same ids; checked first) |
 | `sim.pause` / `sim.resume` | | |
 | `sim.step` | `ticks?` (1) | ticks queued |
@@ -91,7 +94,8 @@ headless game waits for requests and runs only the ticks you step.
 | `game.quit` | | |
 
 Component values use [reflection](reflection.md): call
-`world.reflect::<T>()` for a component to make it readable and writable.
+`world.reflect::<T>()` for a component, `world.reflect_resource::<R>()` for
+a resource, to make it readable and writable.
 Entity ids are the numbers from `Entity::to_bits`.
 
 ## Trying it by hand

@@ -16,7 +16,7 @@
 //! spatial grid with data (the team of every unit) for targeting on all
 //! cores, decide-in-parallel then apply-in-order combat, deterministic
 //! seeded randomness, and reflection, so `crabby-mcp` agents can inspect a
-//! running battle or change any unit.
+//! running battle (the `Score` resource says who's winning) or change any unit.
 
 use std::time::Instant;
 
@@ -108,10 +108,17 @@ struct Battle {
     base_entities: [Entity; 2],
     /// Units per team the bases keep alive.
     cap: usize,
-    alive: [usize; 2],
-    winner: Option<Team>,
-    battles_won: [u32; 2],
     field_ms: f32,
+}
+
+/// Who's winning, reflected so tools can read it (`crabby-mcp`'s
+/// `get_resource`, `watch`) and change it. Pairs are `[red, blue]`.
+#[derive(Serialize, Deserialize, Default)]
+struct Score {
+    alive: [usize; 2],
+    rounds_won: [u32; 2],
+    /// Set when a base falls; the round is over until a restart.
+    winner: Option<Team>,
 }
 
 impl Battle {
@@ -235,6 +242,7 @@ fn fight() -> impl FnMut(&mut Ctx) {
             s.spawn(|_| far_red.rebuild_from(red.iter().copied()));
             s.spawn(|_| far_blue.rebuild_from(blue.iter().copied()));
         });
+        let over = ctx.world.resource::<Score>().winner.is_some();
         let battle = ctx.world.remove_resource::<Battle>().expect("battle");
         let (near, far, b) = (&near, &far, &battle);
         ctx.world
@@ -274,7 +282,7 @@ fn fight() -> impl FnMut(&mut Ctx) {
                     }
                     Some((_, _, at)) => (at - me).normalize_or_zero() * SPEED,
                     None if me.distance(enemy_base) < BASE_RADIUS + REACH => {
-                        if unit.cooldown <= 0.0 && b.winner.is_none() {
+                        if unit.cooldown <= 0.0 && !over {
                             unit.cooldown = COOLDOWN;
                             unit.hit = Some(Hit::Base);
                         }
@@ -341,11 +349,11 @@ fn resolve() -> impl FnMut(&mut Ctx) {
                 fallen = Some(b.team);
             }
         });
-        let battle = ctx.world.resource_mut::<Battle>();
-        battle.alive = alive;
-        if let (Some(team), None) = (fallen, battle.winner) {
-            battle.winner = Some(team.enemy());
-            battle.battles_won[team.enemy().index()] += 1;
+        let score = ctx.world.resource_mut::<Score>();
+        score.alive = alive;
+        if let (Some(team), None) = (fallen, score.winner) {
+            score.winner = Some(team.enemy());
+            score.rounds_won[team.enemy().index()] += 1;
         }
     }
 }
@@ -354,9 +362,10 @@ fn resolve() -> impl FnMut(&mut Ctx) {
 fn reinforce(ctx: &mut Ctx) {
     let mut rng = ctx.random().stream(1);
     let sprite = ctx.world.resource::<Look>().0;
-    let (cap, alive, winner) = {
-        let b = ctx.world.resource::<Battle>();
-        (b.cap, b.alive, b.winner)
+    let cap = ctx.world.resource::<Battle>().cap;
+    let (alive, winner) = {
+        let s = ctx.world.resource::<Score>();
+        (s.alive, s.winner)
     };
     if winner.is_some() {
         return;
@@ -385,8 +394,9 @@ fn reinforce(ctx: &mut Ctx) {
 
 /// Blue's general: attack red's base, or defend when outnumbered 2 to 1.
 fn blue_ai(ctx: &mut Ctx) {
+    let alive = ctx.world.resource::<Score>().alive;
     let b = ctx.world.resource_mut::<Battle>();
-    let goal = if b.alive[1] * 2 < b.alive[0] {
+    let goal = if alive[1] * 2 < alive[0] {
         b.bases[1]
     } else {
         b.bases[0]
@@ -439,14 +449,13 @@ fn setup(ctx: &mut Ctx, units: usize, seed: u64, sprite: Option<Texture>) {
         bases,
         base_entities,
         cap: units / 2,
-        alive: [0; 2],
-        winner: None,
-        battles_won: [0; 2],
         field_ms: 0.0,
     };
     battle.set_rally(Team::Red, bases[1]);
     battle.set_rally(Team::Blue, bases[0]);
     ctx.world.insert_resource(battle);
+    ctx.world.reflect_resource::<Score>();
+    ctx.world.insert_resource(Score::default());
     ctx.world.insert_resource(Look(sprite));
     start_round(ctx);
 }
@@ -458,8 +467,8 @@ fn start_round(ctx: &mut Ctx) {
     ctx.world.query::<(Entity, &Unit)>().for_each(|(e, _)| cmds.despawn(e));
     ctx.world.query::<&mut Base>().for_each(|b| b.hp = b.max_hp);
     let sprite = ctx.world.resource::<Look>().0;
+    ctx.world.resource_mut::<Score>().winner = None;
     let battle = ctx.world.resource_mut::<Battle>();
-    battle.winner = None;
     let (cap, bases) = (battle.cap, battle.bases);
     let nav = &battle.nav;
     // Spread each army over the walkable ground around its base.
@@ -583,8 +592,9 @@ fn draw_map(ctx: &mut Ctx) -> impl FnMut(&mut Ctx) + use<> {
 }
 
 fn hud(ctx: &mut Ctx) {
-    let b = ctx.world.resource::<Battle>();
-    let (alive, won, winner, field_ms) = (b.alive, b.battles_won, b.winner, b.field_ms);
+    let field_ms = ctx.world.resource::<Battle>().field_ms;
+    let s = ctx.world.resource::<Score>();
+    let (alive, won, winner) = (s.alive, s.rounds_won, s.winner);
     let sim_ms: f32 = ctx.system_timings().iter().filter(|t| t.sim).map(|t| t.avg_ms).sum();
     let speed = if ctx.is_paused() {
         "paused".to_string()
@@ -624,11 +634,11 @@ fn main() {
         let world = battle_systems(Game::new("battle", 1, 1).seed(seed))
             .sim_system(|ctx: &mut Ctx| {
                 // Headless rounds restart on their own.
-                if ctx.world.resource::<Battle>().winner.is_some() {
+                if ctx.world.resource::<Score>().winner.is_some() {
                     start_round(ctx);
                 }
                 if ctx.sim_tick().is_multiple_of(120) {
-                    let b = ctx.world.resource::<Battle>();
+                    let b = ctx.world.resource::<Score>();
                     let timings: Vec<String> = ctx
                         .system_timings()
                         .iter()
@@ -640,8 +650,8 @@ fn main() {
                         ctx.sim_tick(),
                         b.alive[0],
                         b.alive[1],
-                        b.battles_won[0],
-                        b.battles_won[1],
+                        b.rounds_won[0],
+                        b.rounds_won[1],
                         timings.join(", ")
                     );
                 }
