@@ -83,6 +83,11 @@ using playing = CrabbyPlaying;
 using sound_params = CrabbySoundParams;
 using sprite_sheet = CrabbySpriteSheet;
 using animation = CrabbyAnimation;
+using rigid_body = CrabbyRigidBody;
+using collider = CrabbyCollider;
+using velocity = CrabbyVelocity;
+using ray_hit = CrabbyRayHit;
+using collision = CrabbyCollision;
 enum class texture_filter { linear, nearest };
 
 inline float length(vec2 v) { return std::sqrt(v.x * v.x + v.y * v.y); }
@@ -99,6 +104,17 @@ inline vec2 rem_euclid(vec2 v, vec2 m) {
 inline entity bits(CrabbyEntity e) { return entity(e.generation) << 32 | e.index; }
 /// The entity struct (as in query chunks and crabby::attached) for an id.
 inline CrabbyEntity entity_of(entity e) { return {static_cast<std::uint32_t>(e), static_cast<std::uint32_t>(e >> 32)}; }
+
+/// Physics bodies (game::physics): moved by gravity and collisions, never
+/// moving, or moved only by you.
+inline rigid_body dynamic_body() { return crabby_rigid_body(CRABBY_BODY_DYNAMIC); }
+inline rigid_body fixed_body() { return crabby_rigid_body(CRABBY_BODY_FIXED); }
+inline rigid_body kinematic_body() { return crabby_rigid_body(CRABBY_BODY_KINEMATIC); }
+/// Collider shapes, in pixels; change density, friction, restitution,
+/// sensor and offset on the result.
+inline collider circle_collider(float radius) { return crabby_collider_circle(radius); }
+inline collider rect_collider(vec2 size) { return crabby_collider_rect(size); }
+inline collider capsule_collider(float height, float radius) { return crabby_collider_capsule(height, radius); }
 
 inline color rgb(float r, float g, float b) { return {r, g, b, 1}; }
 inline color rgba(float r, float g, float b, float a) { return {r, g, b, a}; }
@@ -381,6 +397,9 @@ protected:
         else if constexpr (std::is_same<T, sprite>::value) status = crabby_sprite_component(world, &id);
         else if constexpr (std::is_same<T, attached>::value) status = crabby_attached_component(world, &id);
         else if constexpr (std::is_same<T, animation>::value) status = crabby_animation_component(world, &id);
+        else if constexpr (std::is_same<T, rigid_body>::value) status = crabby_rigid_body_component(world, &id);
+        else if constexpr (std::is_same<T, collider>::value) status = crabby_collider_component(world, &id);
+        else if constexpr (std::is_same<T, velocity>::value) status = crabby_velocity_component(world, &id);
         else status = crabby_component_register(world, name ? name : detail::type_name<T>().c_str(), sizeof(T), alignof(T), &id);
         if (status == CRABBY_BUSY) return std::nullopt;
         detail::check(status);
@@ -419,6 +438,8 @@ protected:
         static_assert(sizeof...(Ts) > 0, "a query needs at least one component");
         static_assert(!std::disjunction<std::is_same<Ts, sprite>...>::value,
                       "sprite is not a query column: query transform2d (and your own components) instead");
+        static_assert(!std::disjunction<std::is_same<Ts, rigid_body>..., std::is_same<Ts, collider>...>::value,
+                      "rigid_body and collider are not query columns: use get/set (velocity is fine)");
         valid(); std::array<std::uint32_t, sizeof...(Ts)> ids{{id<Ts>()...}};
         struct context { F* fn; detail::first_error error; } c{&fn, {}};
         auto trampoline = [](const CrabbyChunk* raw, void* user) noexcept {
@@ -1017,6 +1038,61 @@ public:
         return events_view<T>(static_cast<const T*>(data), count);
     }
 
+    // Physics (game::physics), as of the last physics step. Not inside query callbacks.
+    void set_gravity(vec2 gravity) { detail::check(crabby_ctx_set_gravity(raw_, gravity)); }
+    /// The first collider a ray from `origin` towards `direction` hits within `max_distance`.
+    std::optional<ray_hit> cast_ray(vec2 origin, vec2 direction, float max_distance) {
+        bool found = false;
+        ray_hit hit{};
+        detail::check(crabby_ctx_cast_ray(raw_, origin, direction, max_distance, &found, &hit));
+        if (!found) return std::nullopt;
+        return hit;
+    }
+    /// Entities whose collider contains `point`, into `out`.
+    void entities_at(vec2 point, std::vector<CrabbyEntity>& out) {
+        std::size_t n = 0;
+        out.resize(out.capacity());
+        detail::check(crabby_ctx_physics_at(raw_, point, out.data(), out.size(), &n));
+        if (n > out.size()) { out.resize(n); detail::check(crabby_ctx_physics_at(raw_, point, out.data(), out.size(), &n)); }
+        out.resize(n);
+    }
+    /// Entities whose collider overlaps the circle, into `out`.
+    void entities_in_circle(vec2 center, float radius, std::vector<CrabbyEntity>& out) {
+        std::size_t n = 0;
+        out.resize(out.capacity());
+        detail::check(crabby_ctx_physics_in_circle(raw_, center, radius, out.data(), out.size(), &n));
+        if (n > out.size()) { out.resize(n); detail::check(crabby_ctx_physics_in_circle(raw_, center, radius, out.data(), out.size(), &n)); }
+        out.resize(n);
+    }
+    /// Pushes a dynamic body once (mass × pixels/s); false if `e` isn't a body.
+    bool apply_impulse(entity e, vec2 impulse) {
+        auto status = crabby_ctx_apply_impulse(raw_, e, impulse);
+        if (status == CRABBY_NOT_FOUND) return false;
+        detail::check(status);
+        return true;
+    }
+    /// A body's mass (density × area), if `e` is a body.
+    std::optional<float> mass(entity e) {
+        float m = 0;
+        auto status = crabby_ctx_body_mass(raw_, e, &m);
+        if (status == CRABBY_NOT_FOUND) return std::nullopt;
+        detail::check(status);
+        return m;
+    }
+    /// Pairs that started touching since this system last asked (sensor
+    /// overlaps too), oldest first; valid until the system returns.
+    events_view<collision> collisions_started() { return collisions(true); }
+    /// Pairs that stopped touching since this system last asked.
+    events_view<collision> collisions_stopped() { return collisions(false); }
+private:
+    events_view<collision> collisions(bool started) {
+        const collision* data = nullptr;
+        std::size_t count = 0;
+        detail::check(crabby_ctx_collisions(raw_, started, &data, &count));
+        return events_view<collision>(data, count);
+    }
+public:
+
     // The built-in spatial grid (game::spatial_grid); safe from query_par callbacks.
     void spatial_radius(vec2 center, float radius, std::vector<grid_hit>& out) const {
         std::size_t n = 0;
@@ -1097,6 +1173,10 @@ public:
     /// entity they follow (and despawns them when it's gone). Add it after
     /// the sim systems that move things.
     game& follow_attachments() { return check(crabby_game_follow_attachments(raw_)); }
+    /// Turns on 2D physics with `gravity` in pixels/s² (y is down): entities
+    /// with a rigid_body, a collider and a transform2d are simulated. Adds
+    /// the physics step here in the order: after the sim systems that move things.
+    game& physics(vec2 gravity) { return check(crabby_game_physics(raw_, gravity)); }
     /// A system on the fixed simulation tick; `every` > 1 runs it every n ticks.
     template<class F> game& sim_system(F fn, const char* name = nullptr, std::uint32_t every = 1) {
         return check(crabby_game_sim_system(raw_, name, every, trampoline, keep(std::move(fn))));

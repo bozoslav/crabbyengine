@@ -18,6 +18,11 @@ Everything so far, ahead of the first release.
   so neighbors on the map are neighbors in memory.
 - Flow-field pathfinding (`NavGrid`, `FlowField`).
 - Events between systems; attachments (things that follow other things).
+- 2D physics with rapier (`physics` feature): `RigidBody`, `Collider` and
+  `Velocity` components synced with `Transform2D`, `CollisionStarted` /
+  `CollisionStopped` events, ray casts, overlap queries and impulses
+  (`ctx.physics`), and `physics-determinism` for bit-identical results across
+  platforms. In C (`crabby_game_physics`, `crabby_ctx_cast_ray`, ...) and C++.
 - Determinism: seeded randomness per (seed, tick, system, entity), the same
   with parallel queries. Save and load the whole world, keeping entity ids.
 - Headless runs (`Game::run_headless`) and an optional `window` feature for

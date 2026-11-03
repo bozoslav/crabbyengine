@@ -38,6 +38,10 @@ where
     if let Some(cell) = game.spatial_cell {
         ctx.spatial = crate::SpatialGrid::new(cell);
     }
+    #[cfg(feature = "physics")]
+    if let Some(gravity) = game.gravity {
+        crate::physics::start(&mut ctx, gravity);
+    }
     let control = game.start_control(&mut ctx, false);
     let mut app = App {
         #[cfg(target_arch = "wasm32")]

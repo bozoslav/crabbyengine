@@ -119,7 +119,7 @@ unsafe fn commands<R>(
 }
 
 /// Events, usable inside `crabby_query` callbacks like commands.
-unsafe fn events<R>(
+pub(crate) unsafe fn events<R>(
     handle: *const CrabbyCtx,
     f: impl FnOnce(&mut crabbyengine::Events) -> Result<R, Failure>,
 ) -> Result<R, Failure> {
@@ -1153,7 +1153,7 @@ pub unsafe extern "C" fn crabby_ctx_set_later(
                 let v = owned.values()[0];
                 let applied = crate::value_layout(w, v.component, v.data, v.size)
                     // SAFETY: layout validated against the world just now.
-                    .map(|(id, kind): (_, Kind)| insert_value(w, Entity::from_bits(entity), id, kind, v.data));
+                    .and_then(|(id, kind): (_, Kind)| insert_value(w, Entity::from_bits(entity), id, kind, v.data));
                 if let Err(f) = applied {
                     report("set_later", f)
                 }

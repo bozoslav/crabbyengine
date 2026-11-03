@@ -74,6 +74,9 @@ pub struct Game {
     draw_systems: Vec<System>,
     /// Cell size from `spatial_grid`, applied to `ctx.spatial` when the game starts.
     spatial_cell: Option<f32>,
+    /// Gravity from `physics`, applied to `ctx.physics` when the game starts.
+    #[cfg(feature = "physics")]
+    gravity: Option<Vec2>,
     /// Open the control endpoint (also on with `CRABBY_CONTROL=1`).
     control: bool,
     /// Reload asset and data files when they change (`CRABBY_HOT_RELOAD` overrides).
@@ -223,6 +226,8 @@ impl Game {
                 System::new(draw_sprites),
             ],
             spatial_cell: None,
+            #[cfg(feature = "physics")]
+            gravity: None,
             control: control::env_flag(control::ENV_CONTROL),
             hot_reload: cfg!(debug_assertions),
             inspector: cfg!(debug_assertions),
@@ -326,6 +331,38 @@ impl Game {
         self.systems.retain(|s| s.name != name);
         self.draw_systems.retain(|s| s.name != name);
         before - (self.sim_systems.len() + self.systems.len() + self.draw_systems.len())
+    }
+
+    /// Turns on 2D physics (feature `physics`): every entity with a
+    /// [`RigidBody`](crate::RigidBody), a [`Collider`](crate::Collider) and a
+    /// [`Transform2D`](crate::Transform2D) is simulated each tick, pulled by
+    /// `gravity` (pixels/s²; y is down). Collisions arrive as
+    /// [`CollisionStarted`](crate::CollisionStarted) events; `ctx.physics`
+    /// casts rays and finds overlaps.
+    ///
+    /// The step is the built-in [`step_physics`](crate::step_physics) sim
+    /// system, removable or reorderable like any other. It runs after the
+    /// systems added before this call.
+    ///
+    /// ```
+    /// use crabbyengine::*;
+    /// let mut world = Game::new("Drop", 800, 600)
+    ///     .physics(vec2(0.0, 980.0))
+    ///     .run_headless(60, |ctx| {
+    ///         ctx.world.spawn((Transform2D::at(vec2(0.0, 0.0)), RigidBody::dynamic(), Collider::circle(8.0)));
+    ///     });
+    /// // One second of free fall: about 490 pixels down.
+    /// let y = world.query::<&Transform2D>().iter().next().unwrap().position.y;
+    /// assert!((y - 490.0).abs() < 10.0, "{y}");
+    /// ```
+    #[cfg(feature = "physics")]
+    pub fn physics(mut self, gravity: Vec2) -> Self {
+        self.gravity = Some(gravity);
+        let name = std::any::type_name_of_val(&crate::step_physics);
+        if !self.sim_systems.iter().any(|s| s.name == name) {
+            self.sim_systems.push(System::new(crate::step_physics));
+        }
+        self
     }
 
     /// Turns on the built-in [`SpatialGrid`](crate::SpatialGrid) with square
@@ -624,6 +661,10 @@ impl Game {
         ctx.watcher.on = crate::hot_reload::enabled(self.hot_reload);
         if let Some(cell) = self.spatial_cell {
             ctx.spatial = crate::SpatialGrid::new(cell);
+        }
+        #[cfg(feature = "physics")]
+        if let Some(gravity) = self.gravity {
+            crate::physics::start(&mut ctx, gravity);
         }
         let control = self.start_control(&mut ctx, true);
         drop(setup(&mut ctx).into_frame_fn()); // no frames, so no frame closure

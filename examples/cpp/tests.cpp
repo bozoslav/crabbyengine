@@ -1,10 +1,12 @@
 #include "crabby.hpp"
 #include <algorithm>
+#include <cmath>
 #include <atomic>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <type_traits>
 #define CHECK(...) do { if (!(__VA_ARGS__)) { std::cerr << "failed: " #__VA_ARGS__ << " (line " << __LINE__ << ")\n"; std::abort(); } } while (false)
@@ -304,6 +306,55 @@ static void attachments() {
     CHECK(!w.alive(root) && !w.alive(arm) && !w.alive(hand));
 }
 
+static void physics() {
+    // A ball drops through a sensor onto the floor; queries and events work from C++.
+    crabby::entity ball = 0, floor = 0, sensor = 0;
+    std::vector<crabby::collision> started;
+    std::optional<crabby::ray_hit> hit;
+    std::optional<float> mass;
+    bool kicked_nothing = true;
+    auto w = crabby::game("t", 1, 1)
+        .physics({0, 980})
+        .sim_system([&](crabby::ctx& ctx) {
+            for (const auto& c : ctx.collisions_started()) started.push_back(c);
+            if (ctx.sim_tick() == 1) {
+                hit = ctx.cast_ray({150, 0}, {0, 1}, 1000);
+                mass = ctx.mass(ball);
+                kicked_nothing = ctx.apply_impulse(12345, {1, 0});
+                std::vector<CrabbyEntity> at;
+                ctx.entities_at({150, 300}, at);
+                CHECK(at.size() == 1 && crabby::bits(at[0]) == floor);
+            }
+        })
+        .run_headless(120, [&](crabby::ctx& ctx) {
+            auto world = ctx.world();
+            auto bouncy = crabby::circle_collider(10);
+            bouncy.restitution = 0;
+            ball = world.spawn(crabby::transform_at({0, 0}), crabby::dynamic_body(), bouncy, crabby::velocity{});
+            auto trigger = crabby::rect_collider({80, 20});
+            trigger.sensor = true;
+            sensor = world.spawn(crabby::transform_at({0, 100}), crabby::fixed_body(), trigger);
+            floor = world.spawn(crabby::transform_at({0, 300}), crabby::fixed_body(), crabby::rect_collider({400, 20}));
+        });
+    CHECK(std::fabs(w.get<crabby::transform2d>(ball).position.y - 280) < 2);
+    CHECK(std::fabs(w.get<crabby::velocity>(ball).linear.y) < 5);
+    CHECK(w.get<crabby::rigid_body>(floor).kind == CRABBY_BODY_FIXED);
+    CHECK(w.get<crabby::collider>(sensor).sensor);
+    auto touched = [&](crabby::entity a, crabby::entity b) {
+        return std::any_of(started.begin(), started.end(), [&](const crabby::collision& c) {
+            const auto x = crabby::bits(c.a), y = crabby::bits(c.b);
+            return (x == a && y == b) || (x == b && y == a);
+        });
+    };
+    CHECK(touched(ball, sensor) && touched(ball, floor));
+    CHECK(hit && crabby::bits(hit->entity) == floor && std::fabs(hit->distance - 290) < 1e-3f);
+    CHECK(mass && std::fabs(*mass - 314.159f) < 1);
+    CHECK(!kicked_nothing);
+    // Bad values are rejected, not simulated.
+    auto flat = crabby::rect_collider({10, 0});
+    throws([&] { w.set(floor, flat); });
+}
+
 int main() {
     worlds();
     names_and_reflection();
@@ -312,6 +363,7 @@ int main() {
     parallel_queries();
     games();
     attachments();
+    physics();
     events();
     rng_matches_rust();
     grid_views_match_engine_queries();

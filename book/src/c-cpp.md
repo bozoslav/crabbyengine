@@ -73,9 +73,11 @@ saves show it; `world.reflect<T>("Name", fields)` picks another name.
 
 The built-ins are C++ types too: `crabby::transform2d` is `Transform2D`
 (the same bytes as Rust), `crabby::attached` is `Attached`,
-`crabby::animation` is `Animation`, and `crabby::sprite` is `Sprite`
-(spawn, get and set, but not a query parameter, since the engine stores
-sprites in a Rust layout; the compiler tells you).
+`crabby::animation` is `Animation`, `crabby::velocity` is `Velocity`, and
+`crabby::sprite` is `Sprite` (spawn, get and set, but not a query parameter,
+since the engine stores sprites in a Rust layout; the compiler tells you).
+[Physics](physics.md) bodies and colliders, `crabby::rigid_body` and
+`crabby::collider`, work like sprites.
 
 ```cpp
 {{#include ../../examples/cpp/main.cpp:cpp_world}}

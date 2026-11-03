@@ -81,7 +81,7 @@ impl Default for CrabbyTransform2D {
 /// assert_eq!(crabby_ffi::crabby_entity_bits(e), (1u64 << 32) | 3);
 /// ```
 #[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CrabbyEntity {
     /// Slot number.
     pub index: u32,
@@ -305,6 +305,15 @@ pub(crate) fn sprite_from_c(s: &CrabbySprite) -> Sprite {
     sprite.pivot = to_c(s.pivot);
     sprite.region = rect_from_c(s.has_region, s.region);
     sprite
+}
+impl crate::CMirror for Sprite {
+    type C = CrabbySprite;
+    fn from_c(c: &CrabbySprite) -> Result<Self, crate::Failure> {
+        Ok(sprite_from_c(c))
+    }
+    fn to_c(&self) -> CrabbySprite {
+        sprite_to_c(self)
+    }
 }
 pub(crate) fn draw_params_from_c(p: &CrabbyDrawParams) -> DrawParams {
     DrawParams {

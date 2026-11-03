@@ -21,7 +21,9 @@ header = """
  * size; dangling/forged pointers cannot be detected. Only free owned handles,
  * exactly once. Components made from C are memcpy-safe values without
  * destructors. Built-ins: Transform2D (CrabbyTransform2D, a plain value) and
- * Sprite (CrabbySprite in spawn/get/set, never a query column).
+ * Sprite (CrabbySprite in spawn/get/set, never a query column); with physics,
+ * RigidBody and Collider (CrabbyRigidBody, CrabbyCollider: like sprites) and
+ * Velocity (CrabbyVelocity, a plain value).
  *
  * Queries take up to 32 distinct component ids; zero ids match every entity.
  * Columns follow query order with registered-size stride; chunk memory expires
@@ -30,7 +32,8 @@ header = """
  * Callbacks must return normally: C++ exceptions and Rust panics must never
  * cross the C boundary (crabby.hpp catches them for you).
  *
- * Enums (CrabbyKey, CrabbyMouseButton, CrabbyGamepadButton, CrabbyGamepadAxis) are passed as uint32_t.
+ * Enums (CrabbyKey, CrabbyMouseButton, CrabbyGamepadButton, CrabbyGamepadAxis,
+ * CrabbyBodyKind, CrabbyShapeKind) are passed as uint32_t.
  * Last-error text is thread-local, borrowed until the next failed call;
  * successful calls leave it unchanged.
  */
@@ -39,4 +42,4 @@ header = """
 parse_deps = false
 [export]
 exclude = ["Failure"]
-include = ["CrabbyKey", "CrabbyMouseButton", "CrabbyGamepadButton", "CrabbyGamepadAxis", "CrabbyTransform2D", "CrabbySprite", "CrabbyFieldType", "CrabbyAnimation", "CrabbyAttached"]
+include = ["CrabbyKey", "CrabbyMouseButton", "CrabbyGamepadButton", "CrabbyGamepadAxis", "CrabbyTransform2D", "CrabbySprite", "CrabbyFieldType", "CrabbyAnimation", "CrabbyAttached", "CrabbyBodyKind", "CrabbyShapeKind", "CrabbyVelocity"]

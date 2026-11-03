@@ -25,6 +25,7 @@ puffin_http = { version = "0.17.0", optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 rayon = "1.12.0"
+rapier2d = { version = "0.36.1", optional = true }
 fontdue = "0.9.5"
 epaint_default_fonts = "0.37.0"
 kira = { version = "0.12.6", default-features = false, features = ["cpal", "ogg", "vorbis", "wav", "pcm", "mp3", "flac"], optional = true }
@@ -72,6 +73,16 @@ profiling = ["dep:puffin", "dep:puffin_http"]
 # with Dioxus's CLI, `dx serve --hot-patch --features hotpatch` (see the
 # guide's "Changing code while the game runs" chapter). Off: systems are called directly.
 hotpatch = ["dep:subsecond", "dep:dioxus-devtools"]
+# 2D physics with rapier: `Game::physics`, the RigidBody / Collider /
+# Velocity components, collision events and ray casts. Off: no rapier in the build.
+physics = ["dep:rapier2d"]
+# Physics that gives bit-identical results on every platform (for lockstep
+# networking and replays), a little slower: rapier's enhanced-determinism.
+physics-determinism = ["physics", "rapier2d/enhanced-determinism"]
+
+[[example]]
+name = "physics"
+required-features = ["physics"]
 
 [workspace]
 members = [".", "crates/crabby_ecs", "crates/crabby_bench", "crates/crabby_mcp", "crates/crabby_ffi"]

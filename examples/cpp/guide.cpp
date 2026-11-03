@@ -1,9 +1,11 @@
 // The C++ code shown in the guide (book/src), next to the Rust versions.
 // Everything here compiles in CI; main() runs the headless parts as a test.
 #include "crabby.hpp"
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstdio>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -335,6 +337,68 @@ struct Hud {
     // ANCHOR_END: hot_reload
 }
 
+// ---- Physics -----------------------------------------------------------------------
+// ANCHOR: physics_bodies
+struct Bell { float rang; };
+
+static void build_level(crabby::world_view world) {
+    // Fixed bodies never move: the ground.
+    world.spawn(crabby::transform_at({500, 690}), crabby::fixed_body(), crabby::rect_collider({1000, 20}));
+    // A bouncy ball and a crate, both dynamic: gravity and collisions move them.
+    auto ball = crabby::circle_collider(16);
+    ball.restitution = 0.8f;
+    world.spawn(crabby::transform_at({300, 100}), crabby::dynamic_body(), ball);
+    auto box = crabby::rect_collider({40, 40});
+    box.friction = 0.9f;
+    world.spawn(crabby::transform_at({320, 0}), crabby::dynamic_body(), box);
+    // A sensor reports overlaps but doesn't push.
+    auto bucket = crabby::rect_collider({120, 80});
+    bucket.sensor = true;
+    world.spawn(crabby::transform_at({800, 640}), crabby::fixed_body(), bucket, Bell{0});
+}
+// ANCHOR_END: physics_bodies
+
+// ANCHOR: physics_collisions
+static void ring_the_bell(crabby::ctx& ctx) {
+    auto world = ctx.world();
+    bool rang = false;
+    for (const crabby::collision& c : ctx.collisions_started())
+        rang |= c.sensor && (world.has<Bell>(crabby::bits(c.a)) || world.has<Bell>(crabby::bits(c.b)));
+    world.each([&](Bell& bell) { bell.rang = rang ? 1.0f : std::max(0.0f, bell.rang - ctx.dt() * 2); });
+}
+// ANCHOR_END: physics_collisions
+
+// ANCHOR: physics_queries
+static void blast(crabby::ctx& ctx, crabby::vec2 center) {
+    std::vector<CrabbyEntity> near;
+    ctx.entities_in_circle(center, 200, near);
+    for (CrabbyEntity found : near) {
+        const crabby::entity e = crabby::bits(found);
+        const crabby::vec2 away = crabby::normalize_or(ctx.world().get<crabby::transform2d>(e).position - center, {0, -1});
+        if (auto mass = ctx.mass(e)) ctx.apply_impulse(e, away * *mass * 600.0f);
+    }
+}
+
+static std::optional<crabby::ray_hit> laser(crabby::ctx& ctx, crabby::vec2 from) {
+    return ctx.cast_ray(from, {0, 1}, 700);   // what's straight below
+}
+// ANCHOR_END: physics_queries
+
+static bool physics_snippets() {
+    bool landed = false;
+    // ANCHOR: physics_setup
+    auto world = crabby::game("Physics", 1000, 700)
+        .physics({0, 980})   // pixels/s², y is down
+        .sim_system(ring_the_bell, "bell")
+        // ANCHOR_END: physics_setup
+        .sim_system([&](crabby::ctx& ctx) {
+            if (ctx.sim_tick() == 100) blast(ctx, {300, 690});
+            if (ctx.sim_tick() == 1) landed = laser(ctx, {500, 0}).has_value();
+        }, "test")
+        .run_headless(120, [](crabby::ctx& ctx) { build_level(ctx.world()); });
+    return landed && world.size() == 4;
+}
+
 // ---- Data files ----------------------------------------------------------------------
 // ANCHOR: data_files
 struct Tuning { float speed; float damage; };
@@ -643,6 +707,10 @@ int main() {
             std::fprintf(stderr, "resource not saved: %s\n", w.save().c_str());
             return 1;
         }
+    }
+    if (!physics_snippets()) {
+        std::fprintf(stderr, "physics snippets failed\n");
+        return 1;
     }
     (void)&score_point;
     (void)&my_game;

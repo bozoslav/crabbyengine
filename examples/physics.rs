@@ -1,0 +1,183 @@
+//! Physics: crates and balls fall, stack and bounce. Left click drops a
+//! crate, right click a ball, Space blasts everything near the mouse away,
+//! and the bell rings (turns red) when something lands in the bucket.
+//!
+//!   `cargo run --release --example physics --features physics`
+//!
+//! Keys: R starts over, Escape quits.
+
+use crabbyengine::*;
+
+const W: f32 = 1000.0;
+const H: f32 = 700.0;
+
+/// Marks the sensor in the bucket.
+struct Bell {
+    rang: f32,
+}
+
+// ANCHOR: bodies
+fn build_level(ctx: &mut Ctx) {
+    // Fixed bodies never move: the ground and two walls.
+    for (at, size) in [
+        (vec2(W / 2.0, H - 10.0), vec2(W, 20.0)),
+        (vec2(10.0, H / 2.0), vec2(20.0, H)),
+        (vec2(W - 10.0, H / 2.0), vec2(20.0, H)),
+    ] {
+        ctx.world
+            .spawn((Transform2D::at(at), RigidBody::fixed(), Collider::rect(size)));
+    }
+    // A bouncy ball and a crate, both dynamic: gravity and collisions move them.
+    ctx.world.spawn((
+        Transform2D::at(vec2(300.0, 100.0)),
+        RigidBody::dynamic(),
+        Collider::circle(16.0).restitution(0.8),
+    ));
+    ctx.world.spawn((
+        Transform2D::at(vec2(320.0, 0.0)),
+        RigidBody::dynamic(),
+        Collider::rect(vec2(40.0, 40.0)).friction(0.9),
+    ));
+    // A sensor reports overlaps but doesn't push.
+    ctx.world.spawn((
+        Transform2D::at(vec2(800.0, H - 60.0)),
+        RigidBody::fixed(),
+        Collider::rect(vec2(120.0, 80.0)).sensor(),
+        Bell { rang: 0.0 },
+    ));
+}
+// ANCHOR_END: bodies
+
+// ANCHOR: collisions
+fn ring_the_bell(ctx: &mut Ctx) {
+    let mut rang = false;
+    for c in ctx.events.read::<CollisionStarted>() {
+        rang |= c.sensor && [c.a, c.b].iter().any(|&e| ctx.world.has::<Bell>(e));
+    }
+    let dt = ctx.dt();
+    for bell in ctx.world.query::<&mut Bell>().iter() {
+        bell.rang = if rang { 1.0 } else { (bell.rang - dt * 2.0).max(0.0) };
+    }
+}
+// ANCHOR_END: collisions
+
+// ANCHOR: queries
+fn blast(ctx: &mut Ctx) {
+    if !ctx.key_pressed(Key::Space) {
+        return;
+    }
+    let center = ctx.mouse_world();
+    let mut near = Vec::new();
+    ctx.physics.entities_in_circle(center, 200.0, &mut near);
+    for e in near {
+        let Some(t) = ctx.world.get::<Transform2D>(e) else {
+            continue;
+        };
+        let away = (t.position - center).normalize_or(Vec2::NEG_Y);
+        if let Some(mass) = ctx.physics.mass(e) {
+            ctx.physics.apply_impulse(e, away * mass * 600.0);
+        }
+    }
+}
+
+/// What's under the mouse, straight down: a laser from the cursor.
+fn laser(ctx: &mut Ctx) -> Option<RayHit> {
+    ctx.physics.cast_ray(ctx.mouse_world(), vec2(0.0, 1.0), H)
+}
+// ANCHOR_END: queries
+
+fn drop_things(ctx: &mut Ctx) {
+    let at = ctx.mouse_world();
+    if ctx.mouse_pressed(MouseButton::Left) {
+        ctx.world.spawn((
+            Transform2D::at(at),
+            RigidBody::dynamic(),
+            Collider::rect(vec2(30.0, 30.0)).friction(0.8),
+        ));
+    }
+    if ctx.mouse_pressed(MouseButton::Right) {
+        ctx.world.spawn((
+            Transform2D::at(at),
+            RigidBody::dynamic(),
+            Collider::circle(12.0).restitution(0.6),
+        ));
+    }
+    if ctx.key_pressed(Key::R) {
+        let all: Vec<Entity> = ctx.world.query::<Entity>().with::<RigidBody>().iter().collect();
+        for e in all {
+            ctx.world.despawn(e);
+        }
+        build_level(ctx);
+    }
+    if ctx.key_pressed(Key::Escape) {
+        ctx.quit();
+    }
+}
+
+fn draw(ctx: &mut Ctx) {
+    ctx.clear(Color::hex(0x1d2330));
+    let shapes: Vec<(Transform2D, Collider, bool, f32)> = ctx
+        .world
+        .query::<(&Transform2D, &Collider, &RigidBody, Option<&Bell>)>()
+        .iter()
+        .map(|(t, c, b, bell)| (*t, *c, b.kind == BodyKind::Fixed, bell.map_or(0.0, |b| b.rang)))
+        .collect();
+    for (t, c, fixed, rang) in shapes {
+        let color = if c.sensor {
+            Color::rgba(1.0, 0.3 + 0.7 * (1.0 - rang), 0.3, 0.35)
+        } else if fixed {
+            Color::hex(0x4a5568)
+        } else {
+            Color::hex(0xf6ad55)
+        };
+        match c.shape {
+            Shape::Circle { radius } => {
+                ctx.draw_circle(t.position, radius, color);
+                // A spoke shows the spin.
+                let spoke = t.position + Vec2::from_angle(t.rotation) * radius;
+                ctx.draw_line(t.position, spoke, 2.0, Color::hex(0x1d2330));
+            }
+            Shape::Rect { size } => {
+                // Four corners turned with the body, drawn as edges.
+                let (sin, cos) = t.rotation.sin_cos();
+                let turn = |v: Vec2| t.position + vec2(v.x * cos - v.y * sin, v.x * sin + v.y * cos);
+                let h = size / 2.0;
+                let corners = [vec2(-h.x, -h.y), vec2(h.x, -h.y), vec2(h.x, h.y), vec2(-h.x, h.y)].map(turn);
+                if fixed || c.sensor {
+                    ctx.draw_rect(Rect::new(t.position.x - h.x, t.position.y - h.y, size.x, size.y), color);
+                } else {
+                    for i in 0..4 {
+                        ctx.draw_line(corners[i], corners[(i + 1) % 4], 3.0, color);
+                    }
+                }
+            }
+            Shape::Capsule { height, radius } => {
+                let up = Vec2::from_angle(t.rotation + std::f32::consts::FRAC_PI_2) * height / 2.0;
+                ctx.draw_line(t.position - up, t.position + up, radius * 2.0, color);
+            }
+        }
+    }
+    if let Some(hit) = laser(ctx) {
+        ctx.draw_line(ctx.mouse_world(), hit.point, 1.0, Color::rgba(1.0, 0.2, 0.2, 0.8));
+        ctx.draw_circle(hit.point, 4.0, Color::rgb(1.0, 0.2, 0.2));
+    }
+    let bodies = ctx.physics.body_count();
+    ctx.draw_text(
+        &format!("{bodies} bodies  |  left click: crate  right click: ball  space: blast  R: reset"),
+        vec2(30.0, 30.0),
+        18.0,
+        Color::WHITE,
+    );
+}
+
+fn main() {
+    // ANCHOR: setup
+    Game::new("Physics", W as u32, H as u32)
+        .physics(vec2(0.0, 980.0)) // pixels/s², y is down
+        .sim_system(ring_the_bell)
+        // ANCHOR_END: setup
+        .system(drop_things)
+        .system(blast)
+        .system(draw)
+        .run(build_level);
+}
