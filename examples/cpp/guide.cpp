@@ -455,7 +455,10 @@ static void the_dead_are_buried() {
         .sim_system([&](crabby::ctx& ctx) { funerals(ctx, died); }, "funerals")
         .run_headless(1, [&](crabby::ctx& ctx) {
             health = ctx.world().component<Hp>("Hp");
-            died = ctx.world().component<Died>("Died");
+            // ANCHOR: events_reflect
+            // Registered with its fields: tools can collect Died events as JSON.
+            died = ctx.world().component<Died>("Died", {crabby::field("who", &Died::who)});
+            // ANCHOR_END: events_reflect
             for (int hp : {0, 3, -1, 5}) ctx.world().spawn(health.with(Hp{hp}));
         });
     if (world.size() != 2) {

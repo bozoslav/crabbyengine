@@ -7,7 +7,12 @@
 //! next run. Old events are dropped automatically.
 
 use std::any::{Any, TypeId};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+
+use serde::Serialize;
+use serde_json::{Value, json};
+
+use crate::reflect::{raw_json, short_name};
 
 /// Messages between systems, by type: [`Ctx::events`](crate::Ctx::events).
 ///
@@ -52,6 +57,31 @@ pub struct Events {
     tick: u64,
     /// Events live at least this many ticks: the slowest `sim_system_every`.
     pub(crate) keep_ticks: u32,
+    /// Types tools can see as JSON.
+    reflected: Vec<ReflectedEvent>,
+    /// What a tool subscribed to, collected between frames.
+    pub(crate) feed: Option<Feed>,
+}
+
+/// Reader id of the tools' feed; systems count up from 1.
+const FEED_READER: u32 = u32::MAX;
+
+struct ReflectedEvent {
+    name: String,
+    type_id: TypeId,
+    /// Calls back with (tick, JSON) for each event `reader` hasn't seen.
+    drain: fn(&mut Events, u32, &mut dyn FnMut(u64, Value)),
+    kept: fn(&Events) -> usize,
+}
+
+/// Events collected for a tool: the newest `capacity`, oldest first.
+pub(crate) struct Feed {
+    /// Event type names to collect; empty means every reflected type.
+    pub(crate) types: Vec<String>,
+    pub(crate) items: VecDeque<Value>,
+    pub(crate) capacity: usize,
+    /// Events that didn't fit since the last take.
+    pub(crate) dropped: u64,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -159,6 +189,7 @@ impl Events {
         let i = self.channel(Key::Raw(id), || {
             Box::new(Raw {
                 log: Log::default(),
+                id,
                 size,
                 blocks: Vec::new(),
             })
@@ -167,6 +198,122 @@ impl Events {
             .as_any_mut()
             .downcast_mut::<Raw>()
             .expect("channel type")
+    }
+
+    /// Lets tools (the control endpoint, the MCP server) see `T` events as
+    /// JSON: list them and subscribe to them. Named by the type's short name.
+    ///
+    /// ```
+    /// use crabbyengine::*;
+    /// #[derive(serde::Serialize)]
+    /// struct Died { who: Entity }
+    ///
+    /// Game::new("events", 320, 240).run_headless(0, |ctx| {
+    ///     ctx.events.reflect::<Died>();
+    /// });
+    /// ```
+    #[track_caller]
+    pub fn reflect<T: Serialize + 'static>(&mut self) {
+        let type_name = std::any::type_name::<T>();
+        let name = short_name(type_name);
+        if let Some(r) = self.reflected.iter().find(|r| r.name == name) {
+            assert!(
+                r.type_id == TypeId::of::<T>(),
+                "Events::reflect: two event types would both be named `{name}`"
+            );
+            return;
+        }
+        fn drain<T: Serialize + 'static>(ev: &mut Events, reader: u32, f: &mut dyn FnMut(u64, Value)) {
+            let ch = ev.typed::<T>();
+            let range = ch.log.read(reader);
+            for i in range {
+                let v = serde_json::to_value(&ch.items[i]).unwrap_or_else(|e| json!({ "error": e.to_string() }));
+                f(ch.log.tick_at(i), v);
+            }
+        }
+        fn kept<T: 'static>(ev: &Events) -> usize {
+            ev.peek::<T>().len()
+        }
+        self.reflected.push(ReflectedEvent {
+            name,
+            type_id: TypeId::of::<T>(),
+            drain: drain::<T>,
+            kept: kept::<T>,
+        });
+    }
+
+    /// Reflected event types and how many of each are kept now, including C
+    /// events whose type is a component described with `reflect_fields`.
+    pub(crate) fn reflected_json(&self, world: &crate::World) -> Vec<Value> {
+        let mut out: Vec<Value> = (self.reflected.iter())
+            .map(|r| json!({ "name": r.name, "kept": (r.kept)(self) }))
+            .collect();
+        for ch in &self.channels {
+            if let Some(raw) = ch.as_any().downcast_ref::<Raw>()
+                && let Some(name) = raw_name(world, raw.id, raw)
+            {
+                out.push(json!({ "name": name, "kept": raw.log.len }));
+            }
+        }
+        out
+    }
+
+    /// Engine side: moves new events of subscribed types into the feed.
+    pub(crate) fn collect_feed(&mut self, world: &crate::World) {
+        let Some(mut feed) = self.feed.take() else {
+            return;
+        };
+        let wanted = |feed: &Feed, name: &str| feed.types.is_empty() || feed.types.iter().any(|t| t == name);
+        for i in 0..self.reflected.len() {
+            if !wanted(&feed, &self.reflected[i].name) {
+                continue;
+            }
+            let (drain, name) = (self.reflected[i].drain, self.reflected[i].name.clone());
+            drain(self, FEED_READER, &mut |tick, data| {
+                feed.push(json!({ "tick": tick, "type": name, "data": data }));
+            });
+        }
+        // In the order the types were first sent, so the feed is reproducible.
+        for i in 0..self.channels.len() {
+            let Some(raw) = self.channels[i].as_any_mut().downcast_mut::<Raw>() else {
+                continue;
+            };
+            let (id, size) = (raw.id, raw.size);
+            let Some(name) = raw_name(world, id, raw).map(str::to_string) else {
+                continue;
+            };
+            if !wanted(&feed, &name) {
+                continue;
+            }
+            let range = raw.log.read(FEED_READER);
+            let Some(component) = world.component_at(id as usize) else {
+                continue;
+            };
+            for e in range {
+                let p = raw.bytes()[e * size..].as_ptr();
+                // SAFETY: `p` covers one `size`-byte event, and `size` is the
+                // component's size (checked by `raw_name`).
+                if let Some((_, data)) = unsafe { raw_json(world, component, p) } {
+                    feed.push(json!({ "tick": raw.log.tick_at(e), "type": name, "data": data }));
+                }
+            }
+        }
+        self.feed = Some(feed);
+    }
+
+    /// Starts a feed of new events of `types` (all reflected types if empty).
+    pub(crate) fn subscribe(&mut self, world: &crate::World, types: Vec<String>, capacity: usize) {
+        self.feed = Some(Feed {
+            types,
+            items: VecDeque::new(),
+            capacity,
+            dropped: 0,
+        });
+        // Only events from now on: skip what's already kept.
+        self.collect_feed(world);
+        if let Some(f) = &mut self.feed {
+            f.items.clear();
+        }
     }
 
     /// Engine side: a new frame starts at `frame`, after `tick` ticks. Drops
@@ -185,6 +332,28 @@ impl Events {
     pub(crate) fn set_tick(&mut self, tick: u64) {
         self.tick = tick;
     }
+}
+
+impl Feed {
+    fn push(&mut self, v: Value) {
+        if self.items.len() == self.capacity {
+            self.items.pop_front();
+            self.dropped += 1;
+        }
+        if self.capacity > 0 {
+            self.items.push_back(v);
+        }
+    }
+}
+
+/// The name of a C event type, if its id is a component described with
+/// `reflect_fields` and of the events' size.
+fn raw_name<'w>(world: &'w crate::World, id: u32, raw: &Raw) -> Option<&'w str> {
+    let component = world.component_at(id as usize)?;
+    if world.component_info(component).layout().size() != raw.size {
+        return None;
+    }
+    crate::reflect::raw_name(world, component)
 }
 
 trait Channel: Any {
@@ -229,6 +398,13 @@ impl Log {
         };
         let start = cursor.max(self.base) - self.base;
         start as usize..self.len
+    }
+
+    /// The tick kept event `index` was sent in.
+    fn tick_at(&self, index: usize) -> u64 {
+        let seq = self.base + index as u64;
+        let run = self.runs.partition_point(|r| r.0 <= seq) - 1;
+        self.runs[run].2
     }
 
     /// Forgets the oldest events that expired; returns how many.
@@ -278,6 +454,7 @@ struct Block([u8; 16]);
 /// Foreign events: `size`-byte values packed back to back.
 struct Raw {
     log: Log,
+    id: u32,
     size: usize,
     blocks: Vec<Block>,
 }
@@ -389,5 +566,56 @@ mod tests {
         assert_eq!(n, 1);
         let (_, n) = ev.read_raw(9, 3).unwrap();
         assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn feeds_collect_reflected_rust_and_c_events() {
+        use crate::{Field, FieldType, World, WorldReflect};
+        #[derive(serde::Serialize)]
+        struct Ping(u32);
+        struct Hidden;
+
+        let mut world = World::new();
+        // A C struct { float damage; uint32_t target; }.
+        // SAFETY: plain bytes, no destructor; any field values are valid.
+        let hit = unsafe { world.register_component("Hit", 8, 4, None) };
+        unsafe {
+            world.reflect_fields(
+                hit,
+                &[
+                    Field::new("damage", FieldType::F32, 0),
+                    Field::new("target", FieldType::U32, 4),
+                ],
+            );
+        }
+        let mut ev = Events::default();
+        ev.reflect::<Ping>();
+        ev.send(Ping(1)); // before subscribing: not in the feed
+        ev.subscribe(&world, Vec::new(), 10);
+        ev.send(Ping(2));
+        ev.send(Hidden);
+        let mut bytes = [0u8; 8];
+        bytes[..4].copy_from_slice(&2.5f32.to_ne_bytes());
+        bytes[4..].copy_from_slice(&7u32.to_ne_bytes());
+        ev.send_raw(hit.index() as u32, &bytes).unwrap();
+        ev.collect_feed(&world);
+        let feed = ev.feed.as_ref().unwrap();
+        let items: Vec<&Value> = feed.items.iter().collect();
+        assert_eq!(
+            items,
+            [
+                &json!({ "tick": 0, "type": "Ping", "data": 2 }),
+                &json!({ "tick": 0, "type": "Hit", "data": { "damage": 2.5, "target": 7 } }),
+            ]
+        );
+        let names: Vec<Value> = ev.reflected_json(&world).iter().map(|v| v["name"].clone()).collect();
+        assert_eq!(names, [json!("Ping"), json!("Hit")]);
+
+        // Only the asked-for types.
+        ev.subscribe(&world, vec!["Hit".into()], 10);
+        ev.send(Ping(3));
+        ev.send_raw(hit.index() as u32, &bytes).unwrap();
+        ev.collect_feed(&world);
+        assert_eq!(ev.feed.as_ref().unwrap().items.len(), 1);
     }
 }

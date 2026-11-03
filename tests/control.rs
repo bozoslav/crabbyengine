@@ -199,3 +199,79 @@ fn the_endpoint_is_off_by_default() {
     Game::new("t", 1, 1).run_headless(1, |ctx| addr = ctx.control_addr());
     assert_eq!(addr, None);
 }
+
+#[derive(serde::Serialize)]
+struct Ping {
+    tick: u64,
+}
+
+fn wait_for_tick(c: &mut Client, tick: u64) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while c.call("info", json!({})).unwrap()["tick"] != tick {
+        assert!(Instant::now() < deadline, "tick {tick} never came");
+        thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[test]
+fn subscribers_get_reflected_events_with_their_ticks() {
+    let (addr_tx, addr_rx) = mpsc::channel();
+    let game = thread::spawn(move || {
+        Game::new("events-test", 1, 1)
+            .control_endpoint(true)
+            .sim_system(|ctx| {
+                let tick = ctx.sim_tick();
+                ctx.events.send(Ping { tick });
+            })
+            .run_headless(u64::MAX, move |ctx| {
+                ctx.events.reflect::<Ping>();
+                ctx.pause();
+                addr_tx.send(ctx.control_addr().unwrap()).unwrap();
+            })
+    });
+    let addr = addr_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    let info: Value = serde_json::from_str(&std::fs::read_to_string(registry_file(addr)).unwrap()).unwrap();
+    let mut c = Client::connect(addr, info["token"].as_str().unwrap().to_string());
+
+    assert!(c.call("events.take", json!({})).unwrap_err().contains("subscribe"));
+    let list = c.call("events.list", json!({})).unwrap();
+    assert_eq!(list, json!([{ "name": "Ping", "kept": 0 }]));
+
+    c.call("events.subscribe", json!({ "types": ["Ping"] })).unwrap();
+    c.call("sim.step", json!({ "ticks": 5 })).unwrap();
+    wait_for_tick(&mut c, 5);
+    let got = c.call("events.take", json!({})).unwrap();
+    let ticks: Vec<u64> = got["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["tick"].as_u64().unwrap())
+        .collect();
+    assert_eq!(ticks, [0, 1, 2, 3, 4]);
+    assert_eq!(
+        got["events"][2],
+        json!({ "tick": 2, "type": "Ping", "data": { "tick": 2 } })
+    );
+    assert_eq!(got["dropped"], 0);
+    assert_eq!(c.call("events.take", json!({})).unwrap()["events"], json!([]));
+
+    // A small buffer keeps the newest and counts the rest.
+    c.call("events.subscribe", json!({ "capacity": 2 })).unwrap();
+    c.call("sim.step", json!({ "ticks": 5 })).unwrap();
+    wait_for_tick(&mut c, 10);
+    let got = c.call("events.take", json!({})).unwrap();
+    let ticks: Vec<u64> = got["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["tick"].as_u64().unwrap())
+        .collect();
+    assert_eq!((ticks, got["dropped"].clone()), (vec![8, 9], json!(3)));
+
+    assert_eq!(c.call("events.unsubscribe", json!({})).unwrap(), json!(true));
+    assert!(c.call("events.take", json!({})).is_err());
+    let summary = c.call("world.summary", json!({})).unwrap();
+    assert_eq!(summary["reflected_events"][0]["name"], "Ping");
+    c.call("game.quit", json!({})).unwrap();
+    game.join().unwrap();
+}

@@ -52,6 +52,33 @@ query and read while changing the world (as above). C++ `ctx.send` works
 inside `world().query` but not `query_par`, which runs on many threads:
 collect there, then send.
 
+## Tools and agents see events
+
+Reflect an event type and the [control endpoint](control.md) and the
+[MCP server](agents.md) can collect it: an agent subscribes, runs ticks,
+and gets every event with the tick it was sent in, as JSON. In C and C++,
+events whose type is a reflected component (registered with fields) show up
+the same way.
+
+<div class="lang-pair">
+<div>
+
+```rust
+{{#include ../../tests/events.rs:events_reflect}}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:events_reflect}}
+```
+
+</div>
+</div>
+
+Collecting costs nothing until a tool subscribes.
+
 ## Cost
 
 Sending is a push onto a vector, and reading returns a slice of it: about

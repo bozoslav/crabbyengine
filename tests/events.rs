@@ -136,3 +136,39 @@ fn old_events_are_dropped() {
     let most = seen_by(&world, "kept").iter().map(|s| s.1).max().unwrap();
     assert!(most <= 3, "only the last couple of ticks are kept, saw {most}");
 }
+
+// ANCHOR: events_reflect
+#[derive(serde::Serialize)]
+struct Scored {
+    points: u32,
+}
+
+fn setup_tools(ctx: &mut Ctx) {
+    // Tools (the control endpoint, MCP) can now collect Scored events as JSON.
+    ctx.events.reflect::<Scored>();
+}
+// ANCHOR_END: events_reflect
+
+#[test]
+fn reflecting_an_event_type_twice_is_fine() {
+    Game::new("events", 320, 240).run_headless(0, |ctx| {
+        setup_tools(ctx);
+        setup_tools(ctx);
+        ctx.events.send(Scored { points: 3 });
+        assert_eq!(ctx.events.peek::<Scored>()[0].points, 3);
+    });
+}
+
+mod other {
+    #[derive(serde::Serialize)]
+    pub struct Scored;
+}
+
+#[test]
+#[should_panic(expected = "two event types would both be named `Scored`")]
+fn two_event_types_with_one_name_are_refused() {
+    Game::new("events", 320, 240).run_headless(0, |ctx| {
+        ctx.events.reflect::<Scored>();
+        ctx.events.reflect::<other::Scored>();
+    });
+}

@@ -41,6 +41,8 @@ ctx.world.reflect::<Health>();
 | `list_entities` | | entities with component values; filter by component names, paged |
 | `get_entity` | | one entity's components |
 | `system_timings` | | which systems are slow |
+| `list_events` | | event types the game shows tools, and how many are in flight |
+| `subscribe_events` / `take_events` | | collect [events](events.md) while ticks run, then see what happened (each with its tick) |
 | `read_logs` | | stdout/stderr of launched games |
 | `screenshot` | | the next frame of a windowed game, as an image the agent can look at |
 | `set_camera` | | move or zoom the camera (`look_at`, `zoom`, `position`), e.g. before a screenshot |
@@ -96,7 +98,9 @@ deliveries in that time from 328 to 1,747.
 
 ## Making your game agent-friendly
 
-- Reflect the components that matter for gameplay.
+- Reflect the components that matter for gameplay, and the events
+  (`ctx.events.reflect::<Died>()`), so an agent can see what happened, not
+  only the state afterwards.
 - Read sizes and seeds from environment variables (like the examples'
   `BOIDS` and `HEADLESS`), so `launch` can set them through `env`.
 - Support headless: put game logic in sim systems; it then runs without a
