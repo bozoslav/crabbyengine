@@ -463,6 +463,10 @@ typedef struct CrabbyModel {
   struct CrabbyColor color;
 } CrabbyModel;
 
+typedef struct CrabbyShader {
+  uint32_t id;
+} CrabbyShader;
+
 typedef struct CrabbyMaterialDesc {
   struct CrabbyColor color;
   bool has_texture;
@@ -470,6 +474,20 @@ typedef struct CrabbyMaterialDesc {
   float roughness;
   float metallic;
   struct CrabbyColor emissive;
+  bool has_normal_map;
+  struct CrabbyTexture normal_map;
+  float normal_strength;
+  bool has_orm_map;
+  struct CrabbyTexture orm_map;
+  bool has_emissive_map;
+  struct CrabbyTexture emissive_map;
+  uint32_t blend;
+  bool double_sided;
+  bool has_shader;
+  struct CrabbyShader shader;
+  float custom[16];
+  bool has_custom_textures[2];
+  struct CrabbyTexture custom_textures[2];
 } CrabbyMaterialDesc;
 
 typedef struct CrabbyMeshView {
@@ -1175,6 +1193,19 @@ enum CrabbyStatus crabby_mesh_data_view(const struct CrabbyMeshData *data,
 enum CrabbyStatus crabby_ctx_create_material(struct CrabbyCtx *ctx,
                                              const struct CrabbyMaterialDesc *desc,
                                              struct CrabbyMaterial *out_material);
+
+enum CrabbyStatus crabby_ctx_update_material(struct CrabbyCtx *ctx,
+                                             struct CrabbyMaterial material,
+                                             const struct CrabbyMaterialDesc *desc);
+
+enum CrabbyStatus crabby_ctx_load_shader(struct CrabbyCtx *ctx,
+                                         const char *path,
+                                         struct CrabbyShader *out_shader);
+
+enum CrabbyStatus crabby_ctx_create_shader(struct CrabbyCtx *ctx,
+                                           const char *name,
+                                           const char *source,
+                                           struct CrabbyShader *out_shader);
 
 enum CrabbyStatus crabby_ctx_default_material(struct CrabbyCtx *ctx,
                                               struct CrabbyMaterial *out_material);

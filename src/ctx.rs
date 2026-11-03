@@ -1111,6 +1111,12 @@ impl Ctx {
                     self.report_reload(name, applied);
                     continue;
                 }
+                #[cfg(feature = "3d")]
+                Asset::Shader(id) => {
+                    let applied = assets::read_to_string(&file).and_then(|text| self.reload_shader(id, &name, &text));
+                    self.report_reload(name, applied);
+                    continue;
+                }
             };
             match assets::load_image_at(&file, &name) {
                 Ok(image) if (image.width, image.height) == (texture.width(), texture.height()) => {

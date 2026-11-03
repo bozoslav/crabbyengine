@@ -188,6 +188,21 @@ static void three_d() {
         CHECK(ctx.post().tonemap == uint32_t(crabby::tonemap::neutral));
         post.saturation = -1;
         throws([&] { ctx.set_post(post); });
+
+        auto tiles = ctx.create_shader("tiles", R"(
+            fn surface(s: Surface) -> Surface {
+                var out = s;
+                out.albedo *= step(0.5, fract(s.uv.x * 8.0));
+                return out;
+            })");
+        auto look = crabby::material_of(crabby::rgb(1, 1, 1));
+        look.has_shader = true;
+        look.shader = tiles;
+        look.blend = uint32_t(crabby::blend::transparent);
+        auto tiled = ctx.create_material(look);
+        look.double_sided = true;
+        ctx.update_material(tiled, look);
+        throws([&] { ctx.create_shader("broken", "fn surface(s: Surface) -> Surface { return 1; }"); });
     });
     const auto t = w.get<crabby::transform3d>(cubes[1]);
     CHECK(t.position.x == 2 && std::abs(t.rotation.y - std::sin(0.25f)) < 1e-5f);

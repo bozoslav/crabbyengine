@@ -13,6 +13,8 @@ mod timer;
 
 #[cfg(feature = "window")]
 pub(crate) use gpu::Renderer;
+#[cfg(all(feature = "window", feature = "3d"))]
+pub(crate) use gpu3d::{check_shader, compose_shader};
 #[cfg(not(feature = "window"))]
 pub(crate) use none::Renderer;
 

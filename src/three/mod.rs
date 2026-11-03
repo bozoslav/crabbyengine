@@ -15,9 +15,14 @@ mod gltf;
 mod mesh;
 mod post;
 
-pub(crate) use api::MaterialUniform;
-pub(crate) use collect::{Frame3D, Instance3D, SHADOW_MAP_SIZE};
+pub(crate) use api::GpuMaterialDesc;
+#[cfg(feature = "window")]
+pub(crate) use api::MaterialTextures;
+pub(crate) use collect::Frame3D;
+#[cfg(feature = "window")]
+pub(crate) use collect::{Instance3D, SHADOW_MAP_SIZE};
 pub use mesh::MeshData;
+#[cfg(feature = "window")]
 pub(crate) use post::PostUniform;
 pub use post::{Post, Tonemap};
 
@@ -178,6 +183,53 @@ pub struct Material {
     pub(crate) id: u32,
 }
 
+/// A material shader written in WGSL: made with
+/// [`Ctx::load_shader`](crate::Ctx::load_shader) or
+/// [`Ctx::create_shader`](crate::Ctx::create_shader); a cheap handle. See
+/// the 3D chapter of the guide for what a shader can do.
+///
+/// ```no_run
+/// # use crabbyengine::*;
+/// # fn f(ctx: &mut Ctx) {
+/// let water = ctx.load_shader("shaders/water.wgsl");
+/// let lake = ctx.create_material(MaterialDesc { shader: Some(water), ..Default::default() });
+/// # }
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(C)] // shared with C/C++ (`CrabbyShader`)
+pub struct Shader {
+    pub(crate) id: u32,
+}
+
+impl Shader {
+    /// The engine's id of this shader (for the C API).
+    #[doc(hidden)]
+    #[must_use]
+    pub fn id(self) -> u32 {
+        self.id
+    }
+
+    /// A shader handle from an id (for the C API; check it with `Ctx::has_shader`).
+    #[doc(hidden)]
+    #[must_use]
+    pub fn from_id(id: u32) -> Self {
+        Self { id }
+    }
+}
+
+/// How a material covers what's behind it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(u32)]
+pub enum Blend {
+    /// Solid; pixels with alpha below 0.5 are cut out (leaves, fences).
+    #[default]
+    Opaque = 0,
+    /// See-through by its alpha (glass, water). Drawn after everything
+    /// solid, casts no shadow; overlapping transparent models are not
+    /// sorted, so one may show over another that is in front of it.
+    Transparent = 1,
+}
+
 /// What a [`Material`] is made from.
 ///
 /// ```
@@ -197,6 +249,28 @@ pub struct MaterialDesc {
     pub metallic: f32,
     /// Light it gives off itself (not lighting anything else). Default black.
     pub emissive: Color,
+    /// A normal map: surface detail (bumps, grooves) as tangent-space
+    /// normals, OpenGL style (green up), as glTF has them.
+    pub normal_map: Option<Texture>,
+    /// How strong the normal map is. Default 1.
+    pub normal_strength: f32,
+    /// An occlusion-roughness-metallic map, as glTF has it: red is ambient
+    /// occlusion, green multiplies `roughness`, blue multiplies `metallic`.
+    pub orm_map: Option<Texture>,
+    /// Multiplies `emissive` (which must not be black for it to show).
+    pub emissive_map: Option<Texture>,
+    /// How it covers what's behind it. Default [`Blend::Opaque`].
+    pub blend: Blend,
+    /// Draws the back of each triangle too (leaves, cloth, planes seen from
+    /// below). Default false.
+    pub double_sided: bool,
+    /// A custom shader; `None` is the built-in one.
+    pub shader: Option<Shader>,
+    /// Values for a custom shader: `material.custom[0]` to `[3]` there.
+    pub custom: [Vec4; 4],
+    /// Textures for a custom shader: `custom_texture0` and
+    /// `custom_texture1` there.
+    pub custom_textures: [Option<Texture>; 2],
 }
 
 impl Default for MaterialDesc {
@@ -207,6 +281,15 @@ impl Default for MaterialDesc {
             roughness: 0.6,
             metallic: 0.0,
             emissive: Color::rgb(0.0, 0.0, 0.0),
+            normal_map: None,
+            normal_strength: 1.0,
+            orm_map: None,
+            emissive_map: None,
+            blend: Blend::Opaque,
+            double_sided: false,
+            shader: None,
+            custom: [Vec4::ZERO; 4],
+            custom_textures: [None; 2],
         }
     }
 }
@@ -441,6 +524,10 @@ pub(crate) struct Assets3D {
     /// Bounding sphere of each mesh, in its own space: center and radius.
     pub bounds: Vec<(Vec3, f32)>,
     pub materials: u32,
+    /// Shaders made so far (the built-in one is not counted).
+    pub shaders: u32,
+    /// Shaders loaded from files, by resolved path.
+    pub loaded_shaders: std::collections::HashMap<std::path::PathBuf, Shader>,
     /// The material handed out for meshes without one.
     pub default_material: Option<Material>,
     /// Meshes loaded from files, by resolved path.

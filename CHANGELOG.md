@@ -13,6 +13,15 @@ says what that covers.
   `AgX`, `Neutral`, `None`), a color lookup table (`Post::neutral_lut` to
   start one) and vignette. In C (`crabby_ctx_post`, `crabby_ctx_set_post`)
   and C++ (`ctx.post()`, `ctx.set_post`, `crabby::tonemap`).
+- Custom 3D material shaders in WGSL: `ctx.load_shader` (hot reloaded)
+  and `ctx.create_shader`. A shader defines `vertex` (move vertices)
+  and/or `surface` (change each pixel); the engine lights and shadows it.
+  `MaterialDesc` gains `shader`, `custom` values, `custom_textures`,
+  `normal_map` (with `normal_strength`), `orm_map`, `emissive_map`,
+  `blend` (`Blend::Transparent`) and `double_sided`;
+  `ctx.update_material` changes a material. In C and C++ too. The
+  `shaders` example shows water, wind and a procedural pattern.
+- `Vec4` and `vec4` are re-exported (feature `3d`).
 - The 3D frame is lit in HDR, with a depth prepass (each pixel is lit
   once). `render_stats().gpu_ms` now times the whole frame, 3D and shadow
   passes included.

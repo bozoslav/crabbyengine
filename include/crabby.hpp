@@ -84,6 +84,10 @@ using model = CrabbyModel;
 using mesh = CrabbyMesh;
 using material = CrabbyMaterial;
 using material_desc = CrabbyMaterialDesc;
+/// A material shader in WGSL (ctx::load_shader, ctx::create_shader).
+using shader = CrabbyShader;
+/// How a material covers what's behind it (`material_desc::blend`).
+enum class blend : uint32_t { opaque = 0, transparent = 1 };
 using camera3d = CrabbyCamera3D;
 using lighting = CrabbyLighting;
 /// Post-processing of the 3D frame (Rust `Post`); read and change it with
@@ -1134,6 +1138,16 @@ public:
     // 3D: meshes, materials, the camera and the sun.
     /// Puts a material on the GPU (roughness and metallic 0 to 1).
     material create_material(const material_desc& d) { material m{}; detail::check(crabby_ctx_create_material(raw_, &d, &m)); return m; }
+    /// Changes a material: every model drawn with it changes too.
+    void update_material(material m, const material_desc& d) { detail::check(crabby_ctx_update_material(raw_, m, &d)); }
+    /// Loads a material shader (WGSL) from assets/: it may define
+    /// `fn vertex(v: Vertex) -> Vertex` and `fn surface(s: Surface) -> Surface`.
+    /// Hot reloaded; throws if it doesn't compile (the message says where).
+    crabby::shader load_shader(const char* path) { crabby::shader x{}; detail::check(crabby_ctx_load_shader(raw_, path, &x)); return x; }
+    /// Makes a material shader from WGSL source; `name` is for error messages.
+    crabby::shader create_shader(const char* name, const char* source) {
+        crabby::shader x{}; detail::check(crabby_ctx_create_shader(raw_, name, source, &x)); return x;
+    }
     /// A plain white material, made once and shared.
     material default_material() { material m{}; detail::check(crabby_ctx_default_material(raw_, &m)); return m; }
     /// Puts triangles on the GPU as a mesh of one material; draw it with

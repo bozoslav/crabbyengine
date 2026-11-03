@@ -35,7 +35,19 @@ impl Renderer {
         match *self {}
     }
     #[cfg(feature = "3d")]
-    pub fn create_material(&mut self, _uniform: &crate::three::MaterialUniform, _texture: Option<u32>) -> u32 {
+    pub fn create_material(&mut self, _desc: &crate::three::GpuMaterialDesc) -> u32 {
+        match *self {}
+    }
+    #[cfg(feature = "3d")]
+    pub fn update_material(&mut self, _id: u32, _desc: &crate::three::GpuMaterialDesc) {
+        match *self {}
+    }
+    #[cfg(feature = "3d")]
+    pub fn create_shader(&mut self, _name: &str, _source: &str) -> Result<u32, String> {
+        match *self {}
+    }
+    #[cfg(feature = "3d")]
+    pub fn replace_shader(&mut self, _id: u32, _name: &str, _source: &str) -> Result<(), String> {
         match *self {}
     }
     #[cfg(feature = "3d")]
@@ -49,6 +61,7 @@ impl Renderer {
         _lighting: &crate::Lighting,
         _camera: glam::Vec3,
         _post: &crate::Post,
+        _time: (f32, f32),
         _collect_ms: f32,
     ) {
         match *self {}

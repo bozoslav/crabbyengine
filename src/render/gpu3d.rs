@@ -22,7 +22,9 @@ use wgpu::util::DeviceExt;
 
 use super::gpu::GpuTexture;
 use super::timer::GpuTimer;
-use crate::three::{Frame3D, Instance3D, MaterialUniform, MeshData, PostUniform, SHADOW_MAP_SIZE, linear};
+use crate::three::{
+    Frame3D, GpuMaterialDesc, Instance3D, MaterialTextures, MeshData, PostUniform, SHADOW_MAP_SIZE, linear,
+};
 use crate::{Lighting, Material};
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
@@ -46,6 +48,8 @@ struct FrameUniform {
     /// z: how far the shadow lookup moves along the normal (world units),
     /// w: where shadows fade out (distance from the camera).
     shadow: [f32; 4],
+    /// x: seconds since the game started, y: seconds since the last frame.
+    time: [f32; 4],
 }
 
 /// One corner of a mesh on the GPU.
@@ -57,19 +61,89 @@ struct Vertex {
     uv: [f32; 2],
 }
 
+const VERTEX_ATTRIBUTES: [wgpu::VertexAttribute; 3] =
+    wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2];
+const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
+    3 => Float32x4, 4 => Float32x4, 5 => Float32x4, 6 => Float32x4, // model matrix
+    7 => Float32x4, // tint
+];
+
 struct GpuMesh {
     vertices: wgpu::Buffer,
     indices: wgpu::Buffer,
     /// Index range and material of each part.
     parts: Vec<(Range<u32>, u32)>,
-    /// Every part's indices, for the shadow pass (materials don't matter there).
-    all: Range<u32>,
 }
 
 struct GpuMaterial {
+    buffer: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
-    /// The renderer's texture to sample (white when the material has none).
-    texture: u32,
+    shader: u32,
+    transparent: bool,
+    double_sided: bool,
+}
+
+/// One material shader's pipelines, for one-sided and double-sided surfaces.
+struct ShaderPipelines {
+    sides: [Pipelines; 2],
+}
+
+struct Pipelines {
+    prepass: wgpu::RenderPipeline,
+    opaque: wgpu::RenderPipeline,
+    transparent: wgpu::RenderPipeline,
+    shadow: wgpu::RenderPipeline,
+}
+
+/// The built-in parts of every material shader.
+const MESH_PRELUDE: &str = include_str!("mesh.wgsl");
+const MESH_MAIN: &str = include_str!("mesh_main.wgsl");
+
+/// Whether WGSL `source` defines a function called `name`.
+fn defines(source: &str, name: &str) -> bool {
+    let mut rest = source;
+    while let Some(at) = rest.find("fn") {
+        let before_ok = at == 0 || !rest[..at].ends_with(|c: char| c.is_alphanumeric() || c == '_');
+        let after = rest[at + 2..].trim_start();
+        if before_ok && rest[at + 2..].starts_with(char::is_whitespace) && after.starts_with(name) {
+            let tail = after[name.len()..].trim_start();
+            if tail.starts_with('(') {
+                return true;
+            }
+        }
+        rest = &rest[at + 2..];
+    }
+    false
+}
+
+/// A whole material shader: the engine's prelude, the game's code (with
+/// pass-through `vertex` and `surface` functions when it has none) and the
+/// engine's entry points.
+pub(crate) fn compose_shader(user: &str) -> String {
+    let mut source = String::with_capacity(MESH_PRELUDE.len() + user.len() + MESH_MAIN.len() + 200);
+    source.push_str(MESH_PRELUDE);
+    source.push_str("\n// ---- the game's shader ----\n");
+    source.push_str(user);
+    source.push_str("\n// ---- the engine's entry points ----\n");
+    if !defines(user, "vertex") {
+        source.push_str("fn vertex(v: Vertex) -> Vertex { return v; }\n");
+    }
+    if !defines(user, "surface") {
+        source.push_str("fn surface(s: Surface) -> Surface { return s; }\n");
+    }
+    source.push_str(MESH_MAIN);
+    source
+}
+
+/// Checks a composed shader, with an error message that points at the
+/// line, as WGSL compilers print them.
+pub(crate) fn check_shader(name: &str, source: &str) -> Result<(), String> {
+    use wgpu::naga;
+    let module = naga::front::wgsl::parse_str(source).map_err(|e| e.emit_to_string_with_path(source, name))?;
+    naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::all())
+        .validate(&module)
+        .map_err(|e| e.emit_to_string_with_path(source, name))?;
+    Ok(())
 }
 
 /// Most bloom steps: the smallest image is 1/128 of the screen.
@@ -105,12 +179,18 @@ pub(crate) struct Prepare3D<'a> {
     /// The lookup table's texture and its size, when there is one.
     pub lut: Option<(u32, u32)>,
     pub size: (u32, u32),
+    /// Seconds since the game started, and since the last frame.
+    pub time: (f32, f32),
 }
 
 pub(crate) struct Renderer3D {
-    pipeline: wgpu::RenderPipeline,
-    prepass_pipeline: wgpu::RenderPipeline,
-    shadow_pipeline: wgpu::RenderPipeline,
+    /// Pipeline layouts of the material shaders: lit passes, and the
+    /// shadow pass (which can't read the shadow map it draws into).
+    layout: wgpu::PipelineLayout,
+    shadow_pipeline_layout: wgpu::PipelineLayout,
+    /// Each shader's pipelines; 0 is the built-in shader.
+    shaders: Vec<ShaderPipelines>,
+    material_sampler: wgpu::Sampler,
     post_pipeline: wgpu::RenderPipeline,
     post_layout: wgpu::BindGroupLayout,
     bloom_prefilter: wgpu::RenderPipeline,
@@ -150,7 +230,6 @@ impl Renderer3D {
         format: wgpu::TextureFormat,
         white: u32,
     ) -> Self {
-        let shader = device.create_shader_module(wgpu::include_wgsl!("mesh.wgsl"));
         let uniform_entry = |visibility| wgpu::BindGroupLayoutEntry {
             binding: 0,
             visibility,
@@ -185,129 +264,63 @@ impl Renderer3D {
         });
         let shadow_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("3d shadow layout"),
-            entries: &[uniform_entry(wgpu::ShaderStages::VERTEX)],
+            entries: &[uniform_entry(wgpu::ShaderStages::VERTEX_FRAGMENT)],
         });
+        let material_texture = |binding| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        };
         let material_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("3d material layout"),
-            entries: &[uniform_entry(wgpu::ShaderStages::FRAGMENT)],
+            entries: &[
+                uniform_entry(wgpu::ShaderStages::VERTEX_FRAGMENT),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                material_texture(2),
+                material_texture(3),
+                material_texture(4),
+                material_texture(5),
+                material_texture(6),
+                material_texture(7),
+            ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("3d pipeline layout"),
-            bind_group_layouts: &[Some(&frame_layout), Some(texture_layout), Some(&material_layout)],
+            bind_group_layouts: &[Some(&frame_layout), Some(&material_layout)],
             immediate_size: 0,
-        });
-        let vertex_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2];
-        let instance_attributes = wgpu::vertex_attr_array![
-            3 => Float32x4, 4 => Float32x4, 5 => Float32x4, 6 => Float32x4, // model matrix
-            7 => Float32x4, // tint
-        ];
-        let buffers = [
-            Some(wgpu::VertexBufferLayout {
-                array_stride: size_of::<Vertex>() as u64,
-                step_mode: wgpu::VertexStepMode::Vertex,
-                attributes: &vertex_attributes,
-            }),
-            Some(wgpu::VertexBufferLayout {
-                array_stride: size_of::<Instance3D>() as u64,
-                step_mode: wgpu::VertexStepMode::Instance,
-                attributes: &instance_attributes,
-            }),
-        ];
-        let depth = |write, compare, bias| {
-            Some(wgpu::DepthStencilState {
-                format: DEPTH_FORMAT,
-                depth_write_enabled: Some(write),
-                depth_compare: Some(compare),
-                stencil: Default::default(),
-                bias,
-            })
-        };
-        let msaa = wgpu::MultisampleState {
-            count: MSAA,
-            ..Default::default()
-        };
-        let culled = wgpu::PrimitiveState {
-            cull_mode: Some(wgpu::Face::Back),
-            ..Default::default()
-        };
-        let prepass_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("3d depth prepass pipeline"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &buffers,
-            },
-            primitive: culled,
-            depth_stencil: depth(true, wgpu::CompareFunction::Less, Default::default()),
-            multisample: msaa,
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_prepass"),
-                compilation_options: Default::default(),
-                targets: &[],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("3d pipeline"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &buffers,
-            },
-            primitive: culled,
-            // Only the fragments the prepass found nearest: each pixel is lit once.
-            depth_stencil: depth(false, wgpu::CompareFunction::Equal, Default::default()),
-            multisample: msaa,
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: HDR_FORMAT,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
         });
         let shadow_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("3d shadow pipeline layout"),
-            bind_group_layouts: &[Some(&shadow_layout)],
+            bind_group_layouts: &[Some(&shadow_layout), Some(&material_layout)],
             immediate_size: 0,
         });
-        let shadow_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("3d shadow pipeline"),
-            layout: Some(&shadow_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_shadow"),
-                compilation_options: Default::default(),
-                buffers: &buffers,
-            },
-            // Both faces: thin things (leaves, planes) cast too.
-            primitive: wgpu::PrimitiveState::default(),
-            // Pushes the stored depth back a little, against shadow acne.
-            depth_stencil: depth(
-                true,
-                wgpu::CompareFunction::Less,
-                wgpu::DepthBiasState {
-                    constant: 2,
-                    slope_scale: 2.0,
-                    clamp: 0.0,
-                },
-            ),
-            multisample: wgpu::MultisampleState::default(),
-            fragment: None,
-            multiview_mask: None,
-            cache: None,
+        let material_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("3d material sampler"),
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
+            anisotropy_clamp: 8,
+            ..Default::default()
         });
+        let builtin = build_pipelines(
+            device,
+            &layout,
+            &shadow_pipeline_layout,
+            "built-in",
+            &compose_shader(""),
+        );
         let post_shader = device.create_shader_module(wgpu::include_wgsl!("post.wgsl"));
         let texture_entry = |binding| wgpu::BindGroupLayoutEntry {
             binding,
@@ -489,9 +502,10 @@ impl Renderer3D {
         });
         let capacity = 1024;
         Self {
-            pipeline,
-            prepass_pipeline,
-            shadow_pipeline,
+            layout,
+            shadow_pipeline_layout,
+            shaders: vec![builtin],
+            material_sampler,
             post_pipeline,
             post_layout,
             bloom_prefilter,
@@ -527,25 +541,107 @@ impl Renderer3D {
         })
     }
 
-    pub fn create_material(&mut self, device: &wgpu::Device, uniform: &MaterialUniform, texture: Option<u32>) -> u32 {
-        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("3d material"),
-            contents: bytemuck::bytes_of(uniform),
-            usage: wgpu::BufferUsages::UNIFORM,
-        });
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("3d material"),
-            layout: &self.material_layout,
-            entries: &[wgpu::BindGroupEntry {
+    /// Compiles a material shader from the game's WGSL; returns its index.
+    pub fn create_shader(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, String> {
+        let source = compose_shader(user);
+        check_shader(name, &source)?;
+        let pipelines = build_pipelines(device, &self.layout, &self.shadow_pipeline_layout, name, &source);
+        self.shaders.push(pipelines);
+        Ok(self.shaders.len() as u32 - 1)
+    }
+
+    /// Recompiles shader `id` (hot reload). On an error the old one stays.
+    pub fn replace_shader(&mut self, device: &wgpu::Device, id: u32, name: &str, user: &str) -> Result<(), String> {
+        let source = compose_shader(user);
+        check_shader(name, &source)?;
+        self.shaders[id as usize] = build_pipelines(device, &self.layout, &self.shadow_pipeline_layout, name, &source);
+        Ok(())
+    }
+
+    fn material_bind_group(
+        &self,
+        device: &wgpu::Device,
+        buffer: &wgpu::Buffer,
+        maps: &MaterialTextures,
+        textures: &[GpuTexture],
+    ) -> wgpu::BindGroup {
+        // Normal and ORM maps hold data, not colors: read them without sRGB decoding.
+        let linear = [false, true, true, false, false, false];
+        let views: Vec<wgpu::TextureView> = maps
+            .iter()
+            .zip(linear)
+            .map(|(map, linear)| {
+                let id = map.filter(|&t| (t as usize) < textures.len()).unwrap_or(self.white);
+                textures[id as usize].texture.create_view(&wgpu::TextureViewDescriptor {
+                    format: Some(if linear {
+                        wgpu::TextureFormat::Rgba8Unorm
+                    } else {
+                        wgpu::TextureFormat::Rgba8UnormSrgb
+                    }),
+                    ..Default::default()
+                })
+            })
+            .collect();
+        let mut entries = vec![
+            wgpu::BindGroupEntry {
                 binding: 0,
                 resource: buffer.as_entire_binding(),
-            }],
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(&self.material_sampler),
+            },
+        ];
+        for (i, view) in views.iter().enumerate() {
+            entries.push(wgpu::BindGroupEntry {
+                binding: 2 + i as u32,
+                resource: wgpu::BindingResource::TextureView(view),
+            });
+        }
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("3d material"),
+            layout: &self.material_layout,
+            entries: &entries,
+        })
+    }
+
+    pub fn create_material(&mut self, device: &wgpu::Device, desc: &GpuMaterialDesc, textures: &[GpuTexture]) -> u32 {
+        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("3d material"),
+            contents: bytemuck::bytes_of(&desc.uniform),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
+        let bind_group = self.material_bind_group(device, &buffer, &desc.textures, textures);
         self.materials.push(GpuMaterial {
+            buffer,
             bind_group,
-            texture: texture.unwrap_or(self.white),
+            shader: desc.shader.min(self.shaders.len() as u32 - 1),
+            transparent: desc.transparent,
+            double_sided: desc.double_sided,
         });
         self.materials.len() as u32 - 1
+    }
+
+    /// Changes material `id` in place: every model using it changes.
+    pub fn update_material(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        id: u32,
+        desc: &GpuMaterialDesc,
+        textures: &[GpuTexture],
+    ) {
+        let Some(material) = self.materials.get(id as usize) else {
+            return;
+        };
+        queue.write_buffer(&material.buffer, 0, bytemuck::bytes_of(&desc.uniform));
+        let bind_group = self.material_bind_group(device, &material.buffer, &desc.textures, textures);
+        let shader = desc.shader.min(self.shaders.len() as u32 - 1);
+        let material = &mut self.materials[id as usize];
+        material.bind_group = bind_group;
+        material.shader = shader;
+        material.transparent = desc.transparent;
+        material.double_sided = desc.double_sided;
     }
 
     pub fn create_mesh(&mut self, device: &wgpu::Device, data: &MeshData, parts: &[(Range<u32>, Material)]) -> u32 {
@@ -571,7 +667,6 @@ impl Renderer3D {
             vertices,
             indices,
             parts: parts.iter().map(|(r, m)| (r.clone(), m.id)).collect(),
-            all: 0..data.indices.len() as u32,
         });
         self.meshes.len() as u32 - 1
     }
@@ -585,6 +680,7 @@ impl Renderer3D {
             post,
             lut,
             size,
+            time,
         } = input;
         queue.write_buffer(
             &self.post_buffer,
@@ -627,6 +723,7 @@ impl Renderer3D {
                 texel_world * 1.5,
                 lighting.shadow_distance,
             ],
+            time: [time.0, time.1, 0.0, 0.0],
         };
         queue.write_buffer(&self.frame_buffer, 0, bytemuck::bytes_of(&uniform));
         if self.targets.as_ref().is_none_or(|t| t.size != size) {
@@ -718,7 +815,7 @@ impl Renderer3D {
     }
 
     /// Draw calls the frame's models take: two per mesh part (depth
-    /// prepass and lit), one per mesh in the shadow map, the bloom steps and
+    /// prepass and lit), one per mesh part in the shadow map, the bloom steps and
     /// the post pass.
     pub fn draw_calls(&self) -> usize {
         let parts: usize = self
@@ -769,17 +866,8 @@ impl Renderer3D {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            if !self.shadow_runs.is_empty() {
-                pass.set_pipeline(&self.shadow_pipeline);
-                pass.set_bind_group(0, &self.shadow_bind_group, &[]);
-                pass.set_vertex_buffer(1, self.instances.slice(..));
-                for &(mesh, start, count) in &self.shadow_runs {
-                    let mesh = &self.meshes[mesh as usize];
-                    pass.set_vertex_buffer(0, mesh.vertices.slice(..));
-                    pass.set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
-                    pass.draw_indexed(mesh.all.clone(), 0, start..start + count);
-                }
-            }
+            pass.set_bind_group(0, &self.shadow_bind_group, &[]);
+            self.draw_models(&mut pass, &self.shadow_runs, Kind::Shadow);
         }
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -797,8 +885,8 @@ impl Renderer3D {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            pass.set_pipeline(&self.prepass_pipeline);
-            self.draw_models(&mut pass, textures);
+            pass.set_bind_group(0, &self.frame_bind_group, &[]);
+            self.draw_models(&mut pass, &self.runs, Kind::Prepass);
         }
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -825,8 +913,9 @@ impl Renderer3D {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            pass.set_pipeline(&self.pipeline);
-            self.draw_models(&mut pass, textures);
+            pass.set_bind_group(0, &self.frame_bind_group, &[]);
+            self.draw_models(&mut pass, &self.runs, Kind::Opaque);
+            self.draw_models(&mut pass, &self.runs, Kind::Transparent);
         }
         if self.bloom {
             let step = |encoder: &mut wgpu::CommandEncoder,
@@ -907,20 +996,222 @@ impl Renderer3D {
         pass.draw(0..3, 0..1);
     }
 
-    /// Every mesh part of the frame, with its material, all its models at once.
-    fn draw_models(&self, pass: &mut wgpu::RenderPass<'_>, textures: &[GpuTexture]) {
-        pass.set_bind_group(0, &self.frame_bind_group, &[]);
+    /// The mesh parts of `runs` that `kind` draws, each with its material
+    /// and all its models at once.
+    fn draw_models(&self, pass: &mut wgpu::RenderPass<'_>, runs: &[(u32, u32, u32)], kind: Kind) {
         pass.set_vertex_buffer(1, self.instances.slice(..));
-        for &(mesh, start, count) in &self.runs {
+        let mut bound = None;
+        for &(mesh, start, count) in runs {
             let mesh = &self.meshes[mesh as usize];
-            pass.set_vertex_buffer(0, mesh.vertices.slice(..));
-            pass.set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
+            let mut buffers_set = false;
             for (range, material) in &mesh.parts {
-                let material = &self.materials[*material as usize];
-                pass.set_bind_group(1, &textures[material.texture as usize].bind_group, &[]);
-                pass.set_bind_group(2, &material.bind_group, &[]);
+                let m = &self.materials[*material as usize];
+                // Transparent surfaces are drawn last and cast no shadows.
+                if m.transparent != (kind == Kind::Transparent) {
+                    continue;
+                }
+                let pipelines = &self.shaders[m.shader as usize].sides[usize::from(m.double_sided)];
+                let pipeline = match kind {
+                    Kind::Shadow => &pipelines.shadow,
+                    Kind::Prepass => &pipelines.prepass,
+                    Kind::Opaque => &pipelines.opaque,
+                    Kind::Transparent => &pipelines.transparent,
+                };
+                if bound != Some(pipeline as *const _) {
+                    pass.set_pipeline(pipeline);
+                    bound = Some(pipeline as *const _);
+                }
+                if !buffers_set {
+                    pass.set_vertex_buffer(0, mesh.vertices.slice(..));
+                    pass.set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
+                    buffers_set = true;
+                }
+                pass.set_bind_group(1, &m.bind_group, &[]);
                 pass.draw_indexed(range.clone(), 0, start..start + count);
             }
         }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Shadow,
+    Prepass,
+    Opaque,
+    Transparent,
+}
+
+/// A material shader's pipelines: depth prepass, opaque, transparent and
+/// shadow, each for one-sided and double-sided surfaces.
+fn build_pipelines(
+    device: &wgpu::Device,
+    layout: &wgpu::PipelineLayout,
+    shadow_layout: &wgpu::PipelineLayout,
+    name: &str,
+    source: &str,
+) -> ShaderPipelines {
+    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some(name),
+        source: wgpu::ShaderSource::Wgsl(source.into()),
+    });
+    let buffers = [
+        Some(wgpu::VertexBufferLayout {
+            array_stride: size_of::<Vertex>() as u64,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &VERTEX_ATTRIBUTES,
+        }),
+        Some(wgpu::VertexBufferLayout {
+            array_stride: size_of::<Instance3D>() as u64,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &INSTANCE_ATTRIBUTES,
+        }),
+    ];
+    let depth = |write, compare, bias| {
+        Some(wgpu::DepthStencilState {
+            format: DEPTH_FORMAT,
+            depth_write_enabled: Some(write),
+            depth_compare: Some(compare),
+            stencil: Default::default(),
+            bias,
+        })
+    };
+    let msaa = wgpu::MultisampleState {
+        count: MSAA,
+        ..Default::default()
+    };
+    let color = |blend| {
+        [Some(wgpu::ColorTargetState {
+            format: HDR_FORMAT,
+            blend,
+            write_mask: wgpu::ColorWrites::ALL,
+        })]
+    };
+    let opaque_target = color(None);
+    let transparent_target = color(Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING));
+    let pipeline = |label: &str,
+                    layout: &wgpu::PipelineLayout,
+                    vertex: &str,
+                    fragment: &str,
+                    cull: Option<wgpu::Face>,
+                    depth_stencil,
+                    multisample,
+                    targets: &[Option<wgpu::ColorTargetState>]| {
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(label),
+            layout: Some(layout),
+            vertex: wgpu::VertexState {
+                module: &module,
+                entry_point: Some(vertex),
+                compilation_options: Default::default(),
+                buffers: &buffers,
+            },
+            primitive: wgpu::PrimitiveState {
+                cull_mode: cull,
+                ..Default::default()
+            },
+            depth_stencil,
+            multisample,
+            fragment: Some(wgpu::FragmentState {
+                module: &module,
+                entry_point: Some(fragment),
+                compilation_options: Default::default(),
+                targets,
+            }),
+            multiview_mask: None,
+            cache: None,
+        })
+    };
+    let side = |cull: Option<wgpu::Face>| Pipelines {
+        prepass: pipeline(
+            "3d depth prepass",
+            layout,
+            "vs_main",
+            "fs_depth",
+            cull,
+            depth(true, wgpu::CompareFunction::Less, Default::default()),
+            msaa,
+            &[],
+        ),
+        // Only the fragments the prepass found nearest: each pixel is lit once.
+        opaque: pipeline(
+            "3d opaque",
+            layout,
+            "vs_main",
+            "fs_main",
+            cull,
+            depth(false, wgpu::CompareFunction::Equal, Default::default()),
+            msaa,
+            &opaque_target,
+        ),
+        // Over the opaque frame, without hiding what's behind it.
+        transparent: pipeline(
+            "3d transparent",
+            layout,
+            "vs_main",
+            "fs_transparent",
+            cull,
+            depth(false, wgpu::CompareFunction::Less, Default::default()),
+            msaa,
+            &transparent_target,
+        ),
+        // Both faces cast: thin things (leaves, planes) too. The stored
+        // depth is pushed back a little, against shadow acne.
+        shadow: pipeline(
+            "3d shadow",
+            shadow_layout,
+            "vs_shadow",
+            "fs_depth",
+            None,
+            depth(
+                true,
+                wgpu::CompareFunction::Less,
+                wgpu::DepthBiasState {
+                    constant: 2,
+                    slope_scale: 2.0,
+                    clamp: 0.0,
+                },
+            ),
+            wgpu::MultisampleState::default(),
+            &[],
+        ),
+    };
+    ShaderPipelines {
+        sides: [side(Some(wgpu::Face::Back)), side(None)],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finds_defined_functions() {
+        assert!(defines("fn vertex(v: Vertex) -> Vertex { return v; }", "vertex"));
+        assert!(defines("fn  surface (s: Surface) -> Surface", "surface"));
+        assert!(!defines("fn vertex_helper() {}", "vertex"));
+        assert!(!defines("fn myvertex() {}", "vertex"));
+        assert!(!defines("let fnvertex = 1;", "vertex"));
+    }
+
+    #[test]
+    fn the_built_in_shader_is_valid() {
+        check_shader("built-in", &compose_shader("")).unwrap();
+    }
+
+    #[test]
+    fn a_shader_with_both_hooks_is_valid() {
+        let user = "fn vertex(v: Vertex) -> Vertex { var o = v; o.position.y += sin(frame.time.x); return o; }\n\
+                    fn surface(s: Surface) -> Surface { var o = s; o.albedo *= noise2(s.uv * 8.0); return o; }";
+        check_shader("both", &compose_shader(user)).unwrap();
+    }
+
+    #[test]
+    fn shader_errors_name_the_file() {
+        let e = check_shader(
+            "water.wgsl",
+            &compose_shader("fn surface(s: Surface) -> Surface { return 1; }"),
+        )
+        .unwrap_err();
+        assert!(e.contains("water.wgsl"), "{e}");
     }
 }

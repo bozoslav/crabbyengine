@@ -12,7 +12,7 @@ use crate::color::Color;
 
 pub(super) struct GpuTexture {
     pub(super) bind_group: wgpu::BindGroup,
-    texture: wgpu::Texture,
+    pub(super) texture: wgpu::Texture,
 }
 
 pub(crate) struct Renderer {
@@ -417,11 +417,31 @@ impl Renderer {
     }
 
     #[cfg(feature = "3d")]
-    pub fn create_material(&mut self, uniform: &crate::three::MaterialUniform, texture: Option<u32>) -> u32 {
+    pub fn create_material(&mut self, desc: &crate::three::GpuMaterialDesc) -> u32 {
         let device = self.device.clone();
-        // An unknown texture (from C) would break drawing: use none.
-        let texture = texture.filter(|&t| (t as usize) < self.textures.len());
-        self.three().create_material(&device, uniform, texture)
+        self.three();
+        let three = self.three.as_mut().expect("just made");
+        three.create_material(&device, desc, &self.textures)
+    }
+
+    #[cfg(feature = "3d")]
+    pub fn update_material(&mut self, id: u32, desc: &crate::three::GpuMaterialDesc) {
+        if let Some(three) = &mut self.three {
+            three.update_material(&self.device, &self.queue, id, desc, &self.textures);
+        }
+    }
+
+    /// Compiles a material shader; its index, or the compiler's message.
+    #[cfg(feature = "3d")]
+    pub fn create_shader(&mut self, name: &str, source: &str) -> Result<u32, String> {
+        let device = self.device.clone();
+        self.three().create_shader(&device, name, source)
+    }
+
+    #[cfg(feature = "3d")]
+    pub fn replace_shader(&mut self, id: u32, name: &str, source: &str) -> Result<(), String> {
+        let device = self.device.clone();
+        self.three().replace_shader(&device, id, name, source)
     }
 
     #[cfg(feature = "3d")]
@@ -439,6 +459,7 @@ impl Renderer {
         lighting: &crate::Lighting,
         camera: glam::Vec3,
         post: &crate::Post,
+        time: (f32, f32),
         collect_ms: f32,
     ) {
         let start = web_time::Instant::now();
@@ -457,6 +478,7 @@ impl Renderer {
                 post,
                 lut,
                 size,
+                time,
             };
             three.prepare(&self.device, &self.queue, &input);
         }
@@ -487,7 +509,8 @@ impl Renderer {
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8UnormSrgb,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
+            // Materials read normal maps (data, not colors) without sRGB decoding.
+            view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
         });
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {

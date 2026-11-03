@@ -4,8 +4,8 @@
 use std::ffi::c_char;
 
 use crabbyengine::{
-    Camera3D, Color, Lighting, Material, MaterialDesc, Mesh, MeshData, Model, Post, Quat, Tonemap, Transform3D, Vec2,
-    Vec3,
+    Blend, Camera3D, Color, Lighting, Material, MaterialDesc, Mesh, MeshData, Model, Post, Quat, Shader, Tonemap,
+    Transform3D, Vec2, Vec3, Vec4,
 };
 
 use crate::ctx::{ctx_access, out, text};
@@ -107,11 +107,24 @@ pub struct CrabbyModel {
     pub color: CrabbyColor,
 }
 
+/// A material shader (`crabby_ctx_load_shader`, `crabby_ctx_create_shader`).
+/// ```
+/// let s = crabby_ffi::CrabbyShader { id: 0 };
+/// assert_eq!(s.id, 0);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CrabbyShader {
+    /// Engine-internal id.
+    pub id: u32,
+}
+
 /// What a material is made from (Rust `MaterialDesc`). Start from
-/// `crabby_material_desc`.
+/// `crabby_material_desc`. Each texture is used when its `has_` flag is set.
+/// `blend`: 0 opaque, 1 transparent.
 /// ```
 /// let d = crabby_ffi::crabby_material_desc(crabby_ffi::CrabbyColor { r: 1.0, g: 0.0, b: 0.0, a: 1.0 });
-/// assert_eq!((d.roughness, d.metallic, d.has_texture), (0.6, 0.0, false));
+/// assert_eq!((d.roughness, d.metallic, d.has_texture, d.normal_strength), (0.6, 0.0, false, 1.0));
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -128,6 +141,34 @@ pub struct CrabbyMaterialDesc {
     pub metallic: f32,
     /// Light it gives off itself.
     pub emissive: CrabbyColor,
+    /// Whether `normal_map` is used.
+    pub has_normal_map: bool,
+    /// Surface detail as tangent-space normals (OpenGL style, green up).
+    pub normal_map: CrabbyTexture,
+    /// How strong the normal map is (1: as painted).
+    pub normal_strength: f32,
+    /// Whether `orm_map` is used.
+    pub has_orm_map: bool,
+    /// Occlusion (red), roughness (green) and metallic (blue), as glTF.
+    pub orm_map: CrabbyTexture,
+    /// Whether `emissive_map` is used.
+    pub has_emissive_map: bool,
+    /// Multiplies `emissive`.
+    pub emissive_map: CrabbyTexture,
+    /// 0 opaque (alpha below 0.5 cut out), 1 transparent.
+    pub blend: u32,
+    /// Draws the back of each triangle too.
+    pub double_sided: bool,
+    /// Whether `shader` is used (else the built-in one).
+    pub has_shader: bool,
+    /// A custom shader.
+    pub shader: CrabbyShader,
+    /// Values for a custom shader: `material.custom[0..4]` there, four floats each.
+    pub custom: [f32; 16],
+    /// Whether each of `custom_textures` is used.
+    pub has_custom_textures: [bool; 2],
+    /// `custom_texture0` and `custom_texture1` in a custom shader.
+    pub custom_textures: [CrabbyTexture; 2],
 }
 
 /// The 3D camera (Rust `ctx.camera3d`).
@@ -381,18 +422,77 @@ pub extern "C" fn crabby_model(mesh: CrabbyMesh) -> CrabbyModel {
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_material_desc(color: CrabbyColor) -> CrabbyMaterialDesc {
     let d = MaterialDesc::color(to_c(color));
+    let none = CrabbyTexture {
+        id: 0,
+        width: 0,
+        height: 0,
+    };
     CrabbyMaterialDesc {
         color: to_c(d.color),
         has_texture: false,
-        texture: CrabbyTexture {
-            id: 0,
-            width: 0,
-            height: 0,
-        },
+        texture: none,
         roughness: d.roughness,
         metallic: d.metallic,
         emissive: to_c(d.emissive),
+        has_normal_map: false,
+        normal_map: none,
+        normal_strength: d.normal_strength,
+        has_orm_map: false,
+        orm_map: none,
+        has_emissive_map: false,
+        emissive_map: none,
+        blend: 0,
+        double_sided: false,
+        has_shader: false,
+        shader: CrabbyShader { id: 0 },
+        custom: [0.0; 16],
+        has_custom_textures: [false; 2],
+        custom_textures: [none; 2],
     }
+}
+
+/// A C material description as Rust's, checked.
+fn material_from_c(c: &crabbyengine::Ctx, d: &CrabbyMaterialDesc) -> Result<MaterialDesc, crate::Failure> {
+    if !((0.0..=1.0).contains(&d.roughness) && (0.0..=1.0).contains(&d.metallic)) {
+        return Err(invalid("roughness and metallic go from 0 to 1"));
+    }
+    let blend = match d.blend {
+        0 => Blend::Opaque,
+        1 => Blend::Transparent,
+        _ => return Err(invalid("blend must be 0 (opaque) or 1 (transparent)")),
+    };
+    let shader = d.has_shader.then_some(Shader::from_id(d.shader.id));
+    if shader.is_some_and(|s| !c.has_shader(s)) {
+        return Err(invalid("that shader wasn't made by this game"));
+    }
+    let map = |has: bool, t: CrabbyTexture| has.then(|| texture_from_c(t));
+    let v = |i: usize| {
+        Vec4::new(
+            d.custom[i * 4],
+            d.custom[i * 4 + 1],
+            d.custom[i * 4 + 2],
+            d.custom[i * 4 + 3],
+        )
+    };
+    Ok(MaterialDesc {
+        color: to_c(d.color),
+        texture: map(d.has_texture, d.texture),
+        roughness: d.roughness,
+        metallic: d.metallic,
+        emissive: to_c(d.emissive),
+        normal_map: map(d.has_normal_map, d.normal_map),
+        normal_strength: d.normal_strength,
+        orm_map: map(d.has_orm_map, d.orm_map),
+        emissive_map: map(d.has_emissive_map, d.emissive_map),
+        blend,
+        double_sided: d.double_sided,
+        shader,
+        custom: [v(0), v(1), v(2), v(3)],
+        custom_textures: [
+            map(d.has_custom_textures[0], d.custom_textures[0]),
+            map(d.has_custom_textures[1], d.custom_textures[1]),
+        ],
+    })
 }
 
 // ---- components -------------------------------------------------------------
@@ -615,17 +715,93 @@ pub unsafe extern "C" fn crabby_ctx_create_material(
             if out_material.is_null() {
                 return Err(invalid("output is null"));
             }
-            if !((0.0..=1.0).contains(&d.roughness) && (0.0..=1.0).contains(&d.metallic)) {
-                return Err(invalid("roughness and metallic go from 0 to 1"));
+            let desc = material_from_c(c, d)?;
+            out(out_material, to_c(c.create_material(desc)))
+        })
+    })
+}
+
+/// Changes a material: every model drawn with it changes too.
+/// # Safety
+/// `ctx` null or live; `desc` valid.
+/// ```
+/// let m = crabby_ffi::CrabbyMaterial { id: 0 };
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_update_material(std::ptr::null_mut(), m, std::ptr::null()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_update_material(
+    ctx: *mut CrabbyCtx,
+    material: CrabbyMaterial,
+    desc: *const CrabbyMaterialDesc,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let Some(d) = desc.as_ref() else {
+                return Err(invalid("material desc is null"));
+            };
+            let material: Material = to_c(material);
+            if !c.has_material(material) {
+                return Err(invalid("that material wasn't made by this game"));
             }
-            let material = c.create_material(MaterialDesc {
-                color: to_c(d.color),
-                texture: d.has_texture.then(|| texture_from_c(d.texture)),
-                roughness: d.roughness,
-                metallic: d.metallic,
-                emissive: to_c(d.emissive),
-            });
-            out(out_material, to_c(material))
+            let desc = material_from_c(c, d)?;
+            c.update_material(material, desc);
+            Ok(())
+        })
+    })
+}
+
+/// Loads a material shader (WGSL) from `assets/`; with hot reload on,
+/// saving the file updates the game. A file that can't be read or doesn't
+/// compile is an error; `crabby_last_error` says where.
+/// # Safety
+/// `ctx` null or live; `path` a C string; output writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_load_shader(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_load_shader(
+    ctx: *mut CrabbyCtx,
+    path: *const c_char,
+    out_shader: *mut CrabbyShader,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let path = text(path)?;
+            if out_shader.is_null() {
+                return Err(invalid("output is null"));
+            }
+            let shader = c.try_load_shader(path).map_err(invalid_owned)?;
+            out(out_shader, CrabbyShader { id: shader.id() })
+        })
+    })
+}
+
+/// Makes a material shader from WGSL source; `name` is for error messages.
+/// Source that doesn't compile is an error; `crabby_last_error` says where.
+/// # Safety
+/// `ctx` null or live; `name` and `source` C strings; output writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_create_shader(std::ptr::null_mut(), std::ptr::null(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_create_shader(
+    ctx: *mut CrabbyCtx,
+    name: *const c_char,
+    source: *const c_char,
+    out_shader: *mut CrabbyShader,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let name = text(name)?;
+            let source = text(source)?;
+            if out_shader.is_null() {
+                return Err(invalid("output is null"));
+            }
+            let shader = c.try_create_shader(name, source).map_err(invalid_owned)?;
+            out(out_shader, CrabbyShader { id: shader.id() })
         })
     })
 }

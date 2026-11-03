@@ -741,10 +741,33 @@ static void golden_hour(crabby::ctx& ctx) {
 }
 // ANCHOR_END: post
 
+// ANCHOR: shader
+/// Grass that sways in the wind: the higher a vertex, the more it moves.
+static const char* wind_shader = R"(
+fn vertex(v: Vertex) -> Vertex {
+    var out = v;
+    let sway = sin(frame.time.x * 2.0 + v.position.x) * material.custom[0].x;
+    out.position.x += sway * v.uv.y * v.uv.y;
+    return out;
+})";
+
+static void meadow(crabby::ctx& ctx) {
+    auto look = crabby::material_of(crabby::rgb(.5f, .66f, .24f));
+    look.has_shader = true;
+    look.shader = ctx.create_shader("wind", wind_shader);
+    look.double_sided = true;
+    look.custom[0] = 0.2f;
+    auto grass = ctx.create_material(look);
+    auto blade = ctx.create_mesh(crabby::mesh_data::plane(0.5f), grass);
+    ctx.world().spawn(crabby::transform3d_at({0, 0, 0}), crabby::model_of(blade));
+}
+// ANCHOR_END: shader
+
 static void the_village_has_five_spinning_houses() {
     auto world = crabby::game("guide", 640, 480).sim_system(spin, "spin").run_headless(60, [](crabby::ctx& ctx) {
         village(ctx);
         golden_hour(ctx);
+        meadow(ctx);
         if (ctx.post().tonemap != uint32_t(crabby::tonemap::agx)) { std::fprintf(stderr, "post\n"); std::abort(); }
     });
     int houses = 0;

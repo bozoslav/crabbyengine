@@ -1,0 +1,138 @@
+//! Custom material shaders: a lake with waves, grass in the wind, and a
+//! procedural pattern, with post-processing.
+//!
+//!   `cargo run --release --example shaders --features 3d`
+//!
+//! The shaders are in `assets/shaders/`: edit one while the game runs and
+//! it reloads. `SHOT=path.png` saves the second frame and quits.
+
+use crabbyengine::*;
+
+/// One blade of grass: a thin quad, texture v from 0 at the root to 1 at the tip.
+fn blade() -> MeshData {
+    MeshData {
+        positions: vec![
+            vec3(-0.03, 0.0, 0.0),
+            vec3(0.03, 0.0, 0.0),
+            vec3(0.01, 0.6, 0.0),
+            vec3(-0.01, 0.6, 0.0),
+        ],
+        normals: vec![Vec3::Z; 4],
+        uvs: vec![vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(1.0, 1.0), vec2(0.0, 1.0)],
+        indices: vec![0, 1, 2, 0, 2, 3],
+    }
+}
+
+/// A pattern made in the shader: no texture needed.
+const TILES: &str = "
+fn surface(s: Surface) -> Surface {
+    var out = s;
+    let cell = floor(s.uv * vec2<f32>(16.0, 8.0));
+    let checker = (cell.x + cell.y) % 2.0;
+    out.albedo = mix(vec3<f32>(0.8, 0.3, 0.1), vec3<f32>(0.95, 0.85, 0.6), checker);
+    out.roughness = mix(0.25, 0.7, checker);
+    return out;
+}";
+
+fn main() {
+    Game::new("Crabby Engine: shaders", 1280, 720)
+        .system(|ctx: &mut Ctx| {
+            if ctx.key_pressed(Key::Escape) {
+                ctx.quit();
+            }
+            if ctx.frame() == 2
+                && let Ok(path) = std::env::var("SHOT")
+            {
+                ctx.save_screenshot(path);
+            }
+            if ctx.frame() == 4 && std::env::var("SHOT").is_ok() {
+                ctx.quit();
+            }
+        })
+        .run(|ctx| {
+            ctx.clear(Color::hex(0x9CC4E4));
+            ctx.camera3d.position = vec3(0.0, 4.0, 11.0);
+            ctx.camera3d.look_at(vec3(0.0, 0.5, 0.0));
+            ctx.lighting.sun_direction = vec3(-0.6, -0.5, -0.6);
+            ctx.post.bloom = 0.1;
+
+            let ground_look = MaterialDesc {
+                roughness: 0.95,
+                ..MaterialDesc::color(Color::hex(0x5E7A3A))
+            };
+            let ground = ctx.create_material(ground_look);
+            let ground = ctx.create_mesh(&MeshData::plane(60.0), ground);
+            ctx.world.spawn((Transform3D::default(), Model::new(ground)));
+
+            let water = ctx.load_shader("shaders/water.wgsl");
+            let lake = ctx.create_material(MaterialDesc {
+                shader: Some(water),
+                blend: Blend::Transparent,
+                custom: [vec4(0.06, 1.5, 1.2, 0.0), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO],
+                ..MaterialDesc::color(Color::hex(0x1E4D6B))
+            });
+            let mut surface = MeshData::plane(12.0);
+            // More vertices, so the waves have something to move.
+            surface = subdivide(surface, 5);
+            let lake = ctx.create_mesh(&surface, lake);
+            ctx.world
+                .spawn((Transform3D::at(vec3(-3.0, 0.15, -4.0)), Model::new(lake)));
+
+            let wind = ctx.load_shader("shaders/wind.wgsl");
+            let grass = ctx.create_material(MaterialDesc {
+                shader: Some(wind),
+                double_sided: true,
+                roughness: 0.8,
+                custom: [vec4(0.25, 2.0, 0.0, 0.0), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO],
+                ..MaterialDesc::color(Color::hex(0x7FA83C))
+            });
+            let blade = ctx.create_mesh(&blade(), grass);
+            let mut seed = 7u32;
+            let mut random = move || {
+                seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                (seed >> 8) as f32 / (1 << 24) as f32
+            };
+            for _ in 0..6000 {
+                let at = vec3(random() * 14.0 - 2.0, 0.0, random() * 10.0 - 3.0);
+                if at.x < 4.0 && at.z < 2.5 {
+                    continue; // the lake
+                }
+                let t = Transform3D {
+                    rotation: Quat::from_rotation_y(random() * 6.3),
+                    scale: Vec3::splat(0.6 + random() * 0.8),
+                    ..Transform3D::at(at)
+                };
+                ctx.world.spawn((t, Model::new(blade)));
+            }
+
+            let tiles = ctx.create_shader("tiles", TILES);
+            let ball = ctx.create_material(MaterialDesc {
+                shader: Some(tiles),
+                ..Default::default()
+            });
+            let ball = ctx.create_mesh(&MeshData::sphere(1.0, 48), ball);
+            ctx.world
+                .spawn((Transform3D::at(vec3(3.5, 1.0, 1.0)), Model::new(ball)));
+        });
+}
+
+/// Splits every triangle into four, `times` times.
+fn subdivide(mut mesh: MeshData, times: u32) -> MeshData {
+    for _ in 0..times {
+        let mut indices = Vec::with_capacity(mesh.indices.len() * 4);
+        for tri in mesh.indices.as_chunks::<3>().0 {
+            let mut mid = |a: u32, b: u32| {
+                let (a, b) = (a as usize, b as usize);
+                mesh.positions.push((mesh.positions[a] + mesh.positions[b]) / 2.0);
+                mesh.normals.push(mesh.normals[a]);
+                mesh.uvs.push((mesh.uvs[a] + mesh.uvs[b]) / 2.0);
+                mesh.positions.len() as u32 - 1
+            };
+            let (a, b, c) = (tri[0], tri[1], tri[2]);
+            let (ab, bc, ca) = (mid(a, b), mid(b, c), mid(c, a));
+            indices.extend_from_slice(&[a, ab, ca, ab, b, bc, ca, bc, c, ab, bc, ca]);
+        }
+        mesh.indices = indices;
+    }
+    mesh
+}
