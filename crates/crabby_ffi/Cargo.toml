@@ -5,6 +5,7 @@ description = "C API for Crabby Engine; include/crabby.hpp wraps it for C++17."
 keywords = ["gamedev", "ffi", "c", "cpp"]
 categories = ["game-engines", "api-bindings"]
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true

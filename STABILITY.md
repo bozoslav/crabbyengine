@@ -1,0 +1,99 @@
+# Stability
+
+What Crabby Engine promises from 1.0 on, and what it doesn't.
+
+## Semantic versioning
+
+From 1.0.0, the public API of these crates follows [semver](https://semver.org):
+
+| Crate | What is covered |
+|---|---|
+| `crabbyengine` | Every public item that is not `#[doc(hidden)]`, and the cargo features |
+| `crabby_ecs` | Every public item that is not `#[doc(hidden)]` |
+| `crabby_ffi` | The C ABI in `include/crabby.h` and the C++ wrapper `include/crabby.hpp` (see [C ABI](#c-abi)) |
+| `crabby_mcp` | The MCP tool names and their parameters |
+
+- **Patch** releases (1.0.x) fix bugs. They change no public signatures.
+- **Minor** releases (1.x.0) add things: new functions, types, cargo
+  features, enum variants on `#[non_exhaustive]` enums, MCP tools, optional
+  parameters. Existing code keeps compiling.
+- **Major** releases (2.0.0) are the only ones that remove or change things.
+
+Enums that will grow are `#[non_exhaustive]` (`NetState`, `BodyKind`,
+`Shape`, `FieldType`, `ReflectError`, `Key`, `MouseButton`, `GamepadButton`,
+`GamepadAxis`): matches on them need a `_` arm, so new variants (polygon
+colliders are planned for `Shape`) can arrive in a minor release.
+
+Not covered, and allowed to change in any release:
+
+- `#[doc(hidden)]` items: test helpers such as `Net::loopback_lossy` and
+  macro internals.
+- `crabby_bench`, which is not published.
+- Error message text, log output, the inspector's look, and the exact
+  frames rendered: tests should check behavior, not strings or pixels.
+- Performance. Regressions are bugs, and benchmark numbers go in PRs, but
+  timings are not part of the API.
+
+## Deprecation
+
+Nothing is removed without warning. Before an item is removed in the next
+major release, at least one minor release ships it marked `#[deprecated]`
+(Rust) or with a note in the header (C), saying what to use instead. The
+CHANGELOG lists every deprecation.
+
+## Minimum Rust version (MSRV)
+
+Crabby builds with **Rust 1.95** and newer (`rust-version` in Cargo.toml;
+CI checks it). Raising it is allowed in a **minor** release, never in a
+patch release, and the CHANGELOG says so. It follows the dependencies
+(wgpu, egui, rapier) and stays at least a few releases behind stable.
+
+## C ABI
+
+The C ABI has its own version, `crabby_abi_version()` (currently 2), which
+only changes when existing functions or structs change incompatibly. That
+happens only in a major release of the engine. Minor releases add new
+functions and enum values; existing struct layouts never change within an
+ABI version. Programs check the version at startup if they load the
+library dynamically:
+
+```c
+if (crabby_abi_version() != 2) { /* built against another version */ }
+```
+
+## Saved worlds
+
+`World::save` writes JSON tagged `"format": "crabby-world"` and a save
+version (currently 1). Every 1.x release loads saves from every earlier 1.x
+release. Your own components are yours to migrate: give a component
+`#[serde(default)]` and saves written before you added a field still load.
+
+## Determinism
+
+What gives the same world from the same seed and inputs:
+
+| | Same machine, same build | Other OS or CPU, same build | Other engine version |
+|---|---|---|---|
+| ECS, scheduling, `ctx.random` | yes | yes, see below | not promised |
+| Your sim code with `+ - * /` and `sqrt` on `f32`/`f64` | yes | yes | yes |
+| `sin`, `cos`, `powf`, `exp`, ... | yes | **may differ** | — |
+| Physics (`physics`) | yes | **no** | not promised |
+| Physics (`physics-determinism`) | yes | yes | not promised |
+
+- IEEE-754 makes basic arithmetic and `sqrt` bit-identical everywhere, but
+  the standard library's `sin`, `cos`, `powf` and friends call the platform's
+  math library, which may round differently. For lockstep between
+  different platforms, keep them out of the simulation or use a pure-Rust
+  implementation such as the `libm` crate.
+- Lockstep peers, and replays, must use the same game build and engine
+  version. Lockstep packets carry a protocol version, and a peer with
+  another version is ignored and times out.
+- Iteration order of queries is deterministic but not part of the API: it
+  can change between versions.
+
+## Platforms
+
+Tested in CI on every change: Linux x86-64, macOS (Apple Silicon) and
+Windows x86-64. Built in CI on every change: the web (wasm32, WebGPU with a
+WebGL2 fallback). Other targets that wgpu and winit support usually work
+but aren't tested.
