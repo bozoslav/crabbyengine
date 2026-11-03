@@ -24,6 +24,7 @@ where
     #[cfg(feature = "profiling")]
     let _puffin_server = start_profiler();
 
+    connect_hotpatch();
     let event_loop = EventLoop::new().unwrap_or_else(|e| panic!("crabbyengine: could not start the event loop: {e}"));
 
     let clock = Clock::new(game.fixed_hz);

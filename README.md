@@ -7,10 +7,10 @@ millions of entities on all CPU cores, a pausable fixed-rate simulation clock,
 events between systems, spatial queries, flow-field pathfinding for crowds,
 and headless runs for tests and servers (a build without the window is half
 the size). Images, sounds, fonts and JSON data files hot reload while the
-game runs, and an in-game inspector (the backquote key) shows every entity
-and lets you edit components, pause and step. A 2D camera, text and simple UI
-come built in, and AI agents can
-drive running games through an MCP server (inspect, step, watch events,
+game runs, and so does game code (`dx serve --hot-patch`, state kept). An
+in-game inspector (the backquote key) shows every entity and lets you edit
+components, pause and step. A 2D camera, text and simple UI come built in,
+and AI agents can drive running games through an MCP server (inspect, step, watch events,
 screenshot). Games can be written in Rust or
 C++ (a header-only C++17 wrapper over a C API) at close to the same speed.
 

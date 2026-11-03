@@ -132,11 +132,48 @@ impl System {
     fn new<F: FnMut(&mut Ctx) + 'static>(f: F) -> Self {
         System {
             name: std::any::type_name::<F>(),
-            run: Box::new(f),
+            run: hot(f),
             every: 1,
             phase: 0,
             id: next_system_id(),
         }
+    }
+}
+
+/// Boxes system `f`. With the `hotpatch` feature, each call goes through
+/// subsecond's jump table, so a patched version of the system (and of what
+/// it calls) runs from the next call on.
+#[cfg(not(feature = "hotpatch"))]
+fn hot<F: FnMut(&mut Ctx) + 'static>(f: F) -> SystemFn {
+    Box::new(f)
+}
+
+#[cfg(feature = "hotpatch")]
+fn hot<F: FnMut(&mut Ctx) + 'static>(mut f: F) -> SystemFn {
+    /// Calls the system. A zero-sized function item, instantiated in the
+    /// game's crate, so subsecond finds its patched version in the jump
+    /// table (a pointer-sized `&mut F` would be taken for a fn pointer).
+    fn call<F: FnMut(&mut Ctx)>(f: &mut F, ctx: &mut Ctx) {
+        f(ctx);
+    }
+    Box::new(move |ctx: &mut Ctx| {
+        // A patch that changed code "above" this system (in its caller)
+        // can't run in place; skip this call, the next one is current.
+        let _ = subsecond::HotFn::current(call::<F>).try_call((&mut f, ctx));
+    })
+}
+
+/// With the `hotpatch` feature: connects to `dx serve --hotpatch` (when the
+/// game was started by it) so patches are applied as they arrive.
+fn connect_hotpatch() {
+    #[cfg(feature = "hotpatch")]
+    {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            // stdout: `dx` shows stderr lines as errors.
+            subsecond::register_handler(std::sync::Arc::new(|| println!("crabbyengine: code patched")));
+            dioxus_devtools::connect_subsecond();
+        });
     }
 }
 
@@ -574,6 +611,7 @@ impl Game {
         S: FnOnce(&mut Ctx) -> U,
         U: SetupResult,
     {
+        connect_hotpatch();
         let fixed_dt = Clock::new(self.fixed_hz).fixed_dt();
         let mut ctx = Ctx::new(fixed_dt, Vec2::new(self.width as f32, self.height as f32));
         ctx.seed = self.seed;
