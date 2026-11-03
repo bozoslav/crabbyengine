@@ -24,6 +24,7 @@ mod game;
 mod grid;
 mod keys;
 mod media;
+mod physics;
 mod reflect;
 mod resources;
 mod tiles;
@@ -35,6 +36,7 @@ pub use game::*;
 pub use grid::*;
 pub use keys::*;
 pub use media::*;
+pub use physics::*;
 pub use reflect::*;
 pub use resources::*;
 pub use tiles::*;
@@ -46,7 +48,6 @@ use std::alloc::Layout;
 use std::any::TypeId;
 use std::cell::RefCell;
 use std::ffi::{CStr, c_char, c_void};
-use std::mem::ManuallyDrop;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -225,15 +226,85 @@ pub(crate) unsafe fn access<R>(
 }
 
 /// How the C side sees a component's bytes.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) enum Kind {
     /// Same bytes in C and in the world: C-registered components, Transform2D.
     Plain,
-    /// Stored as Rust `Sprite`, seen in C as `CrabbySprite`.
-    Sprite,
+    /// A Rust type seen in C as a mirror struct (`CrabbySprite`, ...),
+    /// converted on every spawn/get/set.
+    Mirror(&'static Mirror),
 }
-const _: () = assert!(!std::mem::needs_drop::<Sprite>());
+impl Kind {
+    pub(crate) fn is_plain(self) -> bool {
+        matches!(self, Kind::Plain)
+    }
+}
 const _: () = assert!(!std::mem::needs_drop::<crabbyengine::Animation>());
+
+/// A Rust component and the C struct that stands for it.
+pub(crate) trait CMirror: Sized + 'static {
+    type C: Copy;
+    /// Checks a value from C; bad fields are `CRABBY_INVALID_ARGUMENT`.
+    fn from_c(c: &Self::C) -> Result<Self, Failure>;
+    fn to_c(&self) -> Self::C;
+}
+
+/// Type-erased conversions of a [`CMirror`].
+#[derive(Debug)]
+pub(crate) struct Mirror {
+    c_size: usize,
+    /// Reads a C value (maybe unaligned) and writes the Rust value to a [`Slot`].
+    from_c: unsafe fn(*const c_void, *mut Slot) -> Result<(), Failure>,
+    /// Reads a stored Rust value and writes the C value (maybe unaligned).
+    to_c: unsafe fn(*const u8, *mut c_void),
+}
+
+/// Room for one converted Rust value, without a heap allocation per value.
+#[repr(C, align(16))]
+pub(crate) struct Slot(std::mem::MaybeUninit<[u8; 64]>);
+impl Slot {
+    pub(crate) const fn new() -> Self {
+        Self(std::mem::MaybeUninit::uninit())
+    }
+}
+
+pub(crate) const fn mirror<T: CMirror>() -> Mirror {
+    // Values are moved as raw bytes and never dropped.
+    assert!(!std::mem::needs_drop::<T>());
+    assert!(size_of::<T>() <= size_of::<Slot>() && align_of::<T>() <= align_of::<Slot>());
+    unsafe fn from_c<T: CMirror>(src: *const c_void, dst: *mut Slot) -> Result<(), Failure> {
+        // SAFETY: the caller checked `src` holds `size_of::<T::C>()` readable
+        // bytes; `dst` fits `T` (asserted above).
+        unsafe {
+            let value = T::from_c(&src.cast::<T::C>().read_unaligned())?;
+            dst.cast::<T>().write(value);
+        }
+        Ok(())
+    }
+    unsafe fn to_c<T: CMirror>(src: *const u8, dst: *mut c_void) {
+        // SAFETY: `src` is a stored `T`; the caller checked `dst` holds
+        // `size_of::<T::C>()` writable bytes.
+        unsafe { dst.cast::<T::C>().write_unaligned((*src.cast::<T>()).to_c()) }
+    }
+    Mirror {
+        c_size: size_of::<T::C>(),
+        from_c: from_c::<T>,
+        to_c: to_c::<T>,
+    }
+}
+impl Mirror {
+    /// Converts the C value at `src` into `slot`; returns the Rust value's address.
+    /// # Safety
+    /// `src` readable for `c_size` bytes.
+    pub(crate) unsafe fn convert(&self, src: *const c_void, slot: &mut Slot) -> Result<*const u8, Failure> {
+        let slot: *mut Slot = slot;
+        // SAFETY: forwarded caller contract.
+        unsafe { (self.from_c)(src, slot)? };
+        Ok(slot.cast_const().cast())
+    }
+}
+
+static SPRITE: Mirror = mirror::<Sprite>();
 
 pub(crate) fn component(world: &World, id: u32) -> Result<(ComponentId, Kind), Failure> {
     let id = world
@@ -248,8 +319,16 @@ pub(crate) fn component(world: &World, id: u32) -> Result<(ComponentId, Kind), F
         Some(t) if t == TypeId::of::<crabbyengine::Attached>() => Kind::Plain,
         // repr(C), layout checked against CrabbyAnimation; `looping` must be 0 or 1.
         Some(t) if t == TypeId::of::<crabbyengine::Animation>() => Kind::Plain,
-        Some(t) if t == TypeId::of::<Sprite>() => Kind::Sprite,
-        _ => {
+        Some(t) if t == TypeId::of::<Sprite>() => Kind::Mirror(&SPRITE),
+        Some(t) => match crate::physics::kind(t) {
+            Some(kind) => kind,
+            None => {
+                return Err(invalid(
+                    "component has no C layout (a Rust type or one with a destructor)",
+                ));
+            }
+        },
+        None => {
             return Err(invalid(
                 "component has no C layout (a Rust type or one with a destructor)",
             ));
@@ -260,7 +339,7 @@ pub(crate) fn component(world: &World, id: u32) -> Result<(ComponentId, Kind), F
 pub(crate) fn c_size(world: &World, id: ComponentId, kind: Kind) -> usize {
     match kind {
         Kind::Plain => world.component_info(id).layout().size(),
-        Kind::Sprite => size_of::<CrabbySprite>(),
+        Kind::Mirror(m) => m.c_size,
     }
 }
 pub(crate) fn value_layout(
@@ -496,8 +575,9 @@ pub(crate) unsafe fn spawn_values(w: &mut World, values: &[CrabbyValue]) -> Resu
     if values.len() > w.components().len() {
         return Err(invalid("more values than registered components"));
     }
-    // At most one sprite (duplicates are rejected), converted to its Rust form here.
-    let mut sprite = ManuallyDrop::new(None::<Sprite>);
+    // Mirrored values are converted to their Rust form here. Never grown
+    // past its capacity, so the pointers into it stay valid.
+    let mut slots: Vec<Slot> = Vec::with_capacity(values.len());
     let mut components = Vec::with_capacity(values.len());
     for v in values {
         let (id, kind) = value_layout(w, v.component, v.data, v.size)?;
@@ -506,10 +586,11 @@ pub(crate) unsafe fn spawn_values(w: &mut World, values: &[CrabbyValue]) -> Resu
         }
         let ptr: *const u8 = match kind {
             Kind::Plain => v.data.cast(),
-            // SAFETY: size checked; caller promises a readable CrabbySprite (maybe unaligned).
-            Kind::Sprite => {
-                let c = unsafe { v.data.cast::<CrabbySprite>().read_unaligned() };
-                (sprite.insert(sprite_from_c(&c)) as *const Sprite).cast()
+            Kind::Mirror(m) => {
+                slots.push(Slot::new());
+                let slot = slots.last_mut().expect("just pushed");
+                // SAFETY: size checked; the caller promises readable bytes (maybe unaligned).
+                unsafe { m.convert(v.data, slot)? }
             }
         };
         components.push((id, ptr));
@@ -604,9 +685,7 @@ pub unsafe extern "C" fn crabby_get(
                 .ok_or_else(|| error(CRABBY_NOT_FOUND, "entity or component not found"))?;
             match kind {
                 Kind::Plain => std::ptr::copy_nonoverlapping(src, out_data.cast(), size),
-                Kind::Sprite => out_data
-                    .cast::<CrabbySprite>()
-                    .write(sprite_to_c(&*src.cast::<Sprite>())),
+                Kind::Mirror(m) => (m.to_c)(src, out_data),
             }
             Ok(())
         })
@@ -632,22 +711,30 @@ pub unsafe extern "C" fn crabby_set(
     boundary(|| unsafe {
         access(world, |w, _| {
             let (id, kind) = value_layout(w, id, data, size)?;
-            present(insert_value(w, Entity::from_bits(entity), id, kind, data))
+            present(insert_value(w, Entity::from_bits(entity), id, kind, data)?)
         })
     })
 }
 
 /// Inserts a validated value; shared by `crabby_set` and `crabby_ctx_set_later`.
-pub(crate) unsafe fn insert_value(w: &mut World, e: Entity, id: ComponentId, kind: Kind, data: *const c_void) -> bool {
+/// `Ok(false)`: no such entity.
+pub(crate) unsafe fn insert_value(
+    w: &mut World,
+    e: Entity,
+    id: ComponentId,
+    kind: Kind,
+    data: *const c_void,
+) -> Result<bool, Failure> {
     // SAFETY: the caller validated the layout of `data`.
     unsafe {
-        match kind {
+        Ok(match kind {
             Kind::Plain => w.insert_dynamic(e, id, data.cast()),
-            Kind::Sprite => {
-                let sprite = ManuallyDrop::new(sprite_from_c(&data.cast::<CrabbySprite>().read_unaligned()));
-                w.insert_dynamic(e, id, (&*sprite as *const Sprite).cast())
+            Kind::Mirror(m) => {
+                let mut slot = Slot::new();
+                let value = m.convert(data, &mut slot)?;
+                w.insert_dynamic(e, id, value)
             }
-        }
+        })
     }
 }
 
@@ -705,8 +792,10 @@ fn resolve(w: &World, input: &[u32]) -> Result<([ComponentId; 32], [usize; 32]),
             return Err(invalid("duplicate query component id"));
         }
         let (id, kind) = component(w, raw)?;
-        if kind != Kind::Plain {
-            return Err(invalid("sprites can't be query columns: use crabby_get/crabby_set"));
+        if !kind.is_plain() {
+            return Err(invalid(
+                "sprites and physics bodies/colliders can't be query columns: use crabby_get/crabby_set",
+            ));
         }
         resolved[i] = id;
         sizes[i] = w.component_info(id).layout().size();

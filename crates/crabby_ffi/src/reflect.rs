@@ -4,7 +4,7 @@ use std::ffi::{CStr, c_char};
 
 use crabbyengine::{Field, FieldType, WorldReflect};
 
-use crate::{CrabbyStatus, CrabbyWorld, Failure, Kind, access, boundary, component, invalid, invalid_owned};
+use crate::{CrabbyStatus, CrabbyWorld, Failure, access, boundary, component, invalid, invalid_owned};
 
 /// Field types for `CrabbyField::kind`, and how they look in JSON.
 /// ```
@@ -160,7 +160,7 @@ pub unsafe extern "C" fn crabby_component_reflect(
         unsafe {
             access(world, |w, _| {
                 let (id, kind) = component(w, component_id)?;
-                if kind != Kind::Plain || w.component_info(id).type_id().is_some() {
+                if !kind.is_plain() || w.component_info(id).type_id().is_some() {
                     return Err(invalid("only components registered from C can be described"));
                 }
                 check_fields(&list, w.component_info(id).layout().size(), "component")?;

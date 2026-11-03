@@ -80,6 +80,10 @@ physics = ["dep:rapier2d"]
 # networking and replays), a little slower: rapier's enhanced-determinism.
 physics-determinism = ["physics", "rapier2d/enhanced-determinism"]
 
+[[example]]
+name = "physics"
+required-features = ["physics"]
+
 [workspace]
 members = [".", "crates/crabby_ecs", "crates/crabby_bench", "crates/crabby_mcp", "crates/crabby_ffi"]
 

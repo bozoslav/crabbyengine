@@ -40,6 +40,8 @@ jobs:
             args: ""
           - name: profiling feature
             args: --features profiling
+          - name: cross-platform deterministic physics
+            args: --features crabbyengine/physics-determinism
           - name: ECS without parallel
             args: -p crabby_ecs --no-default-features
           - name: engine without window or audio
@@ -91,6 +93,10 @@ jobs:
       - name: Tests, engine with hotpatch
         if: ${{ !cancelled() }}
         run: cargo test -p crabbyengine --no-fail-fast --features hotpatch --test headless --test determinism --test events
+      # The same pile on every OS: rapier's cross-platform determinism.
+      - name: Tests, physics with cross-platform determinism
+        if: ${{ !cancelled() }}
+        run: cargo test -p crabbyengine --no-fail-fast --features physics-determinism --test physics
       - name: Build examples
         if: ${{ !cancelled() }}
         run: cargo build --workspace --examples

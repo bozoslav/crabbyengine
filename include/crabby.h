@@ -14,7 +14,9 @@
  * size; dangling/forged pointers cannot be detected. Only free owned handles,
  * exactly once. Components made from C are memcpy-safe values without
  * destructors. Built-ins: Transform2D (CrabbyTransform2D, a plain value) and
- * Sprite (CrabbySprite in spawn/get/set, never a query column).
+ * Sprite (CrabbySprite in spawn/get/set, never a query column); with physics,
+ * RigidBody and Collider (CrabbyRigidBody, CrabbyCollider: like sprites) and
+ * Velocity (CrabbyVelocity, a plain value).
  *
  * Queries take up to 32 distinct component ids; zero ids match every entity.
  * Columns follow query order with registered-size stride; chunk memory expires
@@ -23,7 +25,8 @@
  * Callbacks must return normally: C++ exceptions and Rust panics must never
  * cross the C boundary (crabby.hpp catches them for you).
  *
- * Enums (CrabbyKey, CrabbyMouseButton, CrabbyGamepadButton, CrabbyGamepadAxis) are passed as uint32_t.
+ * Enums (CrabbyKey, CrabbyMouseButton, CrabbyGamepadButton, CrabbyGamepadAxis,
+ * CrabbyBodyKind, CrabbyShapeKind) are passed as uint32_t.
  * Last-error text is thread-local, borrowed until the next failed call;
  * successful calls leave it unchanged.
  */
@@ -216,6 +219,18 @@ enum CrabbyFieldType
 typedef uint32_t CrabbyFieldType;
 #endif // __cplusplus
 
+typedef enum CrabbyBodyKind {
+  CRABBY_BODY_DYNAMIC,
+  CRABBY_BODY_FIXED,
+  CRABBY_BODY_KINEMATIC,
+} CrabbyBodyKind;
+
+typedef enum CrabbyShapeKind {
+  CRABBY_SHAPE_CIRCLE,
+  CRABBY_SHAPE_RECT,
+  CRABBY_SHAPE_CAPSULE,
+} CrabbyShapeKind;
+
 typedef struct CrabbyCtx CrabbyCtx;
 
 typedef struct CrabbyFlowField CrabbyFlowField;
@@ -367,6 +382,40 @@ typedef struct CrabbyTurns {
   float dt;
 } CrabbyTurns;
 
+typedef struct CrabbyRigidBody {
+  uint32_t kind;
+  float gravity_scale;
+  float linear_damping;
+  float angular_damping;
+  bool lock_rotation;
+  bool ccd;
+} CrabbyRigidBody;
+
+typedef struct CrabbyCollider {
+  uint32_t shape;
+  float radius;
+  float height;
+  struct CrabbyVec2 size;
+  struct CrabbyVec2 offset;
+  float density;
+  float friction;
+  float restitution;
+  bool sensor;
+} CrabbyCollider;
+
+typedef struct CrabbyRayHit {
+  struct CrabbyEntity entity;
+  struct CrabbyVec2 point;
+  struct CrabbyVec2 normal;
+  float distance;
+} CrabbyRayHit;
+
+typedef struct CrabbyCollision {
+  struct CrabbyEntity a;
+  struct CrabbyEntity b;
+  bool sensor;
+} CrabbyCollision;
+
 typedef struct CrabbyField {
   const char *name;
   uint32_t kind;
@@ -419,6 +468,11 @@ typedef struct CrabbyAttached {
   struct CrabbyVec2 offset;
   float rotation;
 } CrabbyAttached;
+
+typedef struct CrabbyVelocity {
+  struct CrabbyVec2 linear;
+  float angular;
+} CrabbyVelocity;
 
 #ifdef __cplusplus
 extern "C" {
@@ -828,6 +882,55 @@ enum CrabbyStatus crabby_ctx_reloaded_textures(const struct CrabbyCtx *ctx,
 enum CrabbyStatus crabby_ctx_turns(const struct CrabbyCtx *ctx,
                                    uint32_t every,
                                    struct CrabbyTurns *out_turns);
+
+struct CrabbyRigidBody crabby_rigid_body(uint32_t kind);
+
+struct CrabbyCollider crabby_collider_circle(float radius);
+
+struct CrabbyCollider crabby_collider_rect(struct CrabbyVec2 size);
+
+struct CrabbyCollider crabby_collider_capsule(float height, float radius);
+
+enum CrabbyStatus crabby_rigid_body_component(struct CrabbyWorld *world, uint32_t *out_id);
+
+enum CrabbyStatus crabby_collider_component(struct CrabbyWorld *world, uint32_t *out_id);
+
+enum CrabbyStatus crabby_velocity_component(struct CrabbyWorld *world, uint32_t *out_id);
+
+enum CrabbyStatus crabby_game_physics(struct CrabbyGame *game, struct CrabbyVec2 gravity);
+
+enum CrabbyStatus crabby_ctx_set_gravity(struct CrabbyCtx *ctx, struct CrabbyVec2 gravity);
+
+enum CrabbyStatus crabby_ctx_cast_ray(struct CrabbyCtx *ctx,
+                                      struct CrabbyVec2 origin,
+                                      struct CrabbyVec2 direction,
+                                      float max_distance,
+                                      bool *out_found,
+                                      struct CrabbyRayHit *out_hit);
+
+enum CrabbyStatus crabby_ctx_physics_at(struct CrabbyCtx *ctx,
+                                        struct CrabbyVec2 point,
+                                        struct CrabbyEntity *out_entities,
+                                        size_t capacity,
+                                        size_t *out_count);
+
+enum CrabbyStatus crabby_ctx_physics_in_circle(struct CrabbyCtx *ctx,
+                                               struct CrabbyVec2 center,
+                                               float radius,
+                                               struct CrabbyEntity *out_entities,
+                                               size_t capacity,
+                                               size_t *out_count);
+
+enum CrabbyStatus crabby_ctx_apply_impulse(struct CrabbyCtx *ctx,
+                                           uint64_t entity,
+                                           struct CrabbyVec2 impulse);
+
+enum CrabbyStatus crabby_ctx_body_mass(struct CrabbyCtx *ctx, uint64_t entity, float *out_mass);
+
+enum CrabbyStatus crabby_ctx_collisions(struct CrabbyCtx *ctx,
+                                        bool started,
+                                        const struct CrabbyCollision **out_data,
+                                        size_t *out_count);
 
 enum CrabbyStatus crabby_component_reflect(struct CrabbyWorld *world,
                                            uint32_t component_id,

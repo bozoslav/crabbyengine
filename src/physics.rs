@@ -189,6 +189,7 @@ impl Collider {
 /// ```
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[repr(C)] // C sees it as CrabbyVelocity.
 pub struct Velocity {
     pub linear: Vec2,
     pub angular: f32,
@@ -204,6 +205,7 @@ impl Velocity {
 /// Event: two colliders started touching (or overlapping, for sensors).
 /// Read with `ctx.events.read::<CollisionStarted>()`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(C)] // C reads these in place as CrabbyCollision.
 pub struct CollisionStarted {
     pub a: Entity,
     pub b: Entity,
@@ -213,6 +215,7 @@ pub struct CollisionStarted {
 
 /// Event: two colliders stopped touching.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(C)]
 pub struct CollisionStopped {
     pub a: Entity,
     pub b: Entity,
