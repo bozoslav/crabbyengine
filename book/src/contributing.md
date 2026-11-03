@@ -25,7 +25,9 @@ Every page has an edit button (top right) that opens the file on GitHub.
 
 ## License
 
-Crabby Engine is dual licensed under
-[MIT](https://github.com/bozoslav/crabbyengine/blob/main/LICENSE-MIT) or
-[Apache-2.0](https://github.com/bozoslav/crabbyengine/blob/main/LICENSE-APACHE),
-at your option. Contributions are accepted under the same terms.
+Crabby Engine is created by Leon Mamić and licensed under the
+[Apache License, Version 2.0](https://github.com/bozoslav/crabbyengine/blob/main/LICENSE).
+Games that ship it include the license and the
+[NOTICE](https://github.com/bozoslav/crabbyengine/blob/main/NOTICE) file,
+for example in their credits. Contributions are accepted under the same
+license.

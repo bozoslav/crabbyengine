@@ -77,6 +77,6 @@ both in the pull request. Avoid per-frame heap allocations on hot paths.
 
 ## License
 
-By contributing, you agree that your contributions are dual licensed under
-[MIT](LICENSE-MIT) and [Apache-2.0](LICENSE-APACHE), like the rest of the
-project, without any additional terms or conditions.
+By contributing, you agree that your contributions are licensed under the
+[Apache License, Version 2.0](LICENSE), like the rest of the project,
+without any additional terms or conditions.
