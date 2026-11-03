@@ -694,6 +694,13 @@ public:
 
     /// Spreads work over `every` ticks (safe from query_par callbacks).
     crabby::turns turns(std::uint32_t every) const { crabby::turns t; detail::check(crabby_ctx_turns(raw_, every, &t.raw)); return t; }
+    /// Textures reloaded from changed files at the start of this frame (hot
+    /// reload). They keep their handles; redo anything computed from them.
+    std::vector<texture> reloaded_textures() const {
+        const CrabbyTexture* list = nullptr; std::size_t n = 0;
+        detail::check(crabby_ctx_reloaded_textures(raw_, &list, &n));
+        return std::vector<texture>(list, list + n);
+    }
 
     // Commands: applied after the system; usable inside world().query (not query_par).
     void despawn_later(entity e) { detail::check(crabby_ctx_despawn_later(raw_, e)); }
@@ -777,6 +784,9 @@ public:
     game& vsync(bool on) { return check(crabby_game_vsync(raw_, on)); }
     game& spatial_grid(float cell_size) { return check(crabby_game_spatial_grid(raw_, cell_size)); }
     game& control_endpoint(bool on) { return check(crabby_game_control_endpoint(raw_, on)); }
+    /// Reload textures when their files change, under the same handles (on by
+    /// default in debug builds of the engine; CRABBY_HOT_RELOAD=1/0 overrides).
+    game& hot_reload(bool on) { return check(crabby_game_hot_reload(raw_, on)); }
     /// The built-in camera controls: right/middle drag pans, the wheel zooms.
     game& camera_controls() { return check(crabby_game_camera_controls(raw_)); }
     /// A system on the fixed simulation tick; `every` > 1 runs it every n ticks.

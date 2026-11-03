@@ -173,6 +173,20 @@ pub unsafe extern "C" fn crabby_game_control_endpoint(game: *mut CrabbyGame, on:
     unsafe { build(game, |g| ok(g.control_endpoint(on))) }
 }
 
+/// Reloads textures from `assets/` when their files change, under the same
+/// handles. On by default in debug builds of the engine, off in release;
+/// `CRABBY_HOT_RELOAD=1` or `0` overrides. See `crabby_ctx_reloaded_textures`.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_game_hot_reload(std::ptr::null_mut(), true) } as u32, 1);
+/// ```
+/// # Safety
+/// `game` must be null or a live game.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_game_hot_reload(game: *mut CrabbyGame, on: bool) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe { build(game, |g| ok(g.hot_reload(on))) }
+}
+
 /// Systems are named by `&'static str`, so C names are interned: each
 /// distinct name is stored once for the life of the program.
 unsafe fn system_name(ptr: *const c_char, fallback: &'static str) -> Result<&'static str, Failure> {

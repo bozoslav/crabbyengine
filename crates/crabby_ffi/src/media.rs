@@ -626,6 +626,39 @@ pub unsafe extern "C" fn crabby_ctx_save_screenshot(ctx: *mut CrabbyCtx, path: *
     })
 }
 
+/// Textures whose files changed and were reloaded at the start of this frame
+/// (hot reload, see `crabby_game_hot_reload`): `*out_textures` points at
+/// `*out_count` of them, valid until the system returns. They keep their
+/// handles; use this to redo anything computed from an image.
+/// ```
+/// let (mut p, mut n) = (std::ptr::null(), 0);
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_reloaded_textures(std::ptr::null(), &mut p, &mut n) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; outputs writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_reloaded_textures(
+    ctx: *const CrabbyCtx,
+    out_textures: *mut *const CrabbyTexture,
+    out_count: *mut usize,
+) -> CrabbyStatus {
+    boundary(|| {
+        if out_textures.is_null() || out_count.is_null() {
+            return Err(invalid("output is null"));
+        }
+        // SAFETY: forwarded caller contract; outputs checked non-null.
+        unsafe {
+            ctx_access(ctx, |c| {
+                let list = c.reloaded_textures();
+                // Texture and CrabbyTexture have the same layout (types.rs).
+                out_textures.write(list.as_ptr().cast());
+                out_count.write(list.len());
+                Ok(())
+            })
+        }
+    })
+}
+
 /// Spreads work over `every` ticks: see `CrabbyTurns`. `every` must be at least 1.
 /// ```
 /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_turns(std::ptr::null(), 4, std::ptr::null_mut()) } as u32, 1);

@@ -31,6 +31,7 @@ mod ctx;
 mod ecs;
 mod flow;
 mod game;
+mod hot_reload;
 mod input;
 mod random;
 mod reflect;

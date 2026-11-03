@@ -296,6 +296,20 @@ struct Hud {
     // ANCHOR_END: screenshot
 }
 
+// ---- Hot reload --------------------------------------------------------------------
+[[maybe_unused]] static void hot_reload_game() {
+    // ANCHOR: hot_reload
+    crabby::texture level{};
+    crabby::game("Art test", 1280, 720)
+        .hot_reload(true)   // the default in debug builds of the engine
+        .system([&](crabby::ctx& ctx) {
+            for (crabby::texture t : ctx.reloaded_textures())
+                if (t.id == level.id) std::puts("level.png changed: rebuilding the map");
+        }, "watch_level")
+        .run([&](crabby::ctx& ctx) { level = ctx.load_texture("level.png"); });
+    // ANCHOR_END: hot_reload
+}
+
 // ---- Sound -------------------------------------------------------------------------
 [[maybe_unused]] static void sound(crabby::ctx& ctx) {
     // ANCHOR: sound
