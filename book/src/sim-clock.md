@@ -105,7 +105,7 @@ fn think(ctx: &mut Ctx) {
 </div>
 
 This keeps the per-tick cost flat instead of spiking every 8th tick, and
-works in `par_for_each` (C++: `query_par`).
+works in `par_for_each` (C++: `each_par`).
 
 ## Smooth motion between ticks
 

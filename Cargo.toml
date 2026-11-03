@@ -35,6 +35,7 @@ subsecond = { version = "0.7.10", optional = true }
 dioxus-devtools = { version = "0.7.10", default-features = false, optional = true }
 # `Instant` that also works in browsers; on desktop it is std's own type.
 web-time = "1.1.0"
+gilrs = { version = "0.11.2", optional = true }
 
 [target.'cfg(any(unix, windows))'.dependencies]
 libc = "0.2"
@@ -51,7 +52,7 @@ cpal = { version = "0.18.2", features = ["wasm-bindgen"], optional = true }
 web-sys = { version = "0.3.107", features = ["Window", "Document", "Element", "HtmlCanvasElement", "Location", "Response", "console"] }
 
 [features]
-default = ["audio", "window", "inspector"]
+default = ["audio", "window", "inspector", "gamepad"]
 # A window and GPU rendering (winit + wgpu). Off: `Game::run_headless` only,
 # for simulation servers and CI; drawing calls do nothing, `Game::run` panics.
 window = ["dep:wgpu", "dep:winit", "dep:pollster"]
@@ -61,6 +62,9 @@ audio = ["dep:kira", "dep:cpal"]
 # components with live editing, resources, system timings, sim controls.
 # Off: no egui in the build.
 inspector = ["window", "dep:egui", "dep:egui-wgpu", "dep:egui-winit"]
+# Gamepads through gilrs (Xbox, PlayStation, Switch and other controllers).
+# Off: `ctx.gamepads()` is always empty. On Linux it needs libudev headers.
+gamepad = ["window", "dep:gilrs"]
 # Frame profiler: per-system scopes, viewable live with `puffin_viewer`
 # (cargo install puffin_viewer; connects to 127.0.0.1:8585).
 profiling = ["dep:puffin", "dep:puffin_http"]

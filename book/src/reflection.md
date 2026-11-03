@@ -27,9 +27,11 @@ Add `serde = { version = "1", features = ["derive"] }` to your `Cargo.toml`.
 
 ## C and C++ components
 
-C++ has no serde, so a C++ component lists its fields when it is
-registered. From then on it is a reflected component like any other:
-agents read and write it through `crabby-mcp`, and saves include it.
+C++ has no serde, so a C++ component lists its fields with
+`world.reflect<T>`. From then on it is a reflected component like any other:
+agents read and write it through `crabby-mcp`, and saves include it, under
+the type's name (`Unit`, or `game::Unit` in a namespace) or the one you pass
+first: `world.reflect<Unit>("Soldier", {...})`.
 
 ```cpp
 {{#include ../../examples/cpp/guide.cpp:reflect}}
@@ -51,6 +53,9 @@ that are registered at runtime and have no Rust type.
 Game-wide state (a score, the current round, rules an agent might want to
 tweak) lives in resources. Reflect them the same way:
 
+<div class="lang-pair">
+<div>
+
 ```rust
 #[derive(Serialize, Deserialize)]
 struct Score { red: u32, blue: u32 }
@@ -62,11 +67,22 @@ world.resource_json("Score")?;                          // {"red": 0, "blue": 0}
 world.set_resource_json("Score", json!({ "blue": 3 }))?; // only blue changes
 ```
 
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:reflect_resource}}
+```
+
+</div>
+</div>
+
 Reflected resources show up in `crabby-mcp` (`list_resources`,
 `get_resource`, `set_resource`) and are part of [world saves](determinism.md#saving-and-loading-the-world).
 Resources hold whatever Rust type you like, so the ones that can't be JSON
-(a nav grid, a GPU handle) just stay unreflected. C and C++ games have no
-resources yet: keep game-wide state in a component on one entity there.
+(a nav grid, a GPU handle) just stay unreflected. A C++ resource is saved
+under its type name with namespaces (`game::Score`); C names it in
+`crabby_resource_reflect`.
 
 ## Names
 

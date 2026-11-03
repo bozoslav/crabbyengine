@@ -14,7 +14,7 @@ homepage.workspace = true
 crate-type = ["rlib", "staticlib", "cdylib"]
 
 [features]
-default = ["audio", "window", "inspector"]
+default = ["audio", "window", "inspector", "gamepad"]
 # A window and GPU rendering. Off: crabby_game_run fails with an error and
 # only headless runs work, from a build half the size.
 window = ["crabbyengine/window"]
@@ -22,6 +22,8 @@ window = ["crabbyengine/window"]
 audio = ["crabbyengine/audio"]
 # The runtime inspector overlay (backquote key); see crabby_game_inspector.
 inspector = ["crabbyengine/inspector"]
+# Gamepads (crabby_ctx_gamepad_*). Off: no pads are ever connected.
+gamepad = ["crabbyengine/gamepad"]
 
 [dependencies]
 crabbyengine = { path = "../..", default-features = false }

@@ -67,7 +67,52 @@ pub struct World {
     pub(crate) entities: Entities,
     bundles: TypeMap<BundleInfo>,
     resources: TypeMap<Box<dyn Any + Send + Sync>>,
+    /// Resources without a Rust type (the C and C++ path), by name.
+    dynamic_resources: HashMap<String, RawValue>,
     scratch_ids: Vec<ComponentId>,
+}
+
+/// One value with no Rust type: plain bytes in their own allocation, so a
+/// pointer to it stays valid until the value is replaced or removed.
+struct RawValue {
+    ptr: std::ptr::NonNull<u8>,
+    layout: Layout,
+}
+
+// SAFETY: a RawValue is plain bytes with no destructor and no shared state;
+// the world hands out access to it under its own borrows.
+unsafe impl Send for RawValue {}
+unsafe impl Sync for RawValue {}
+
+impl RawValue {
+    /// A copy of `layout.size()` bytes at `data`.
+    ///
+    /// # Safety
+    /// `data` points to `layout.size()` readable bytes (any pointer for size 0).
+    unsafe fn copy_of(layout: Layout, data: *const u8) -> Self {
+        let ptr = if layout.size() == 0 {
+            // SAFETY: an alignment is never zero; nothing is read or written.
+            unsafe { std::ptr::NonNull::new_unchecked(std::ptr::without_provenance_mut(layout.align())) }
+        } else {
+            // SAFETY: the size is non-zero.
+            let p = unsafe { std::alloc::alloc(layout) };
+            std::ptr::NonNull::new(p).unwrap_or_else(|| std::alloc::handle_alloc_error(layout))
+        };
+        if layout.size() != 0 {
+            // SAFETY: the caller's bytes are readable; ours are fresh and don't overlap.
+            unsafe { std::ptr::copy_nonoverlapping(data, ptr.as_ptr(), layout.size()) };
+        }
+        RawValue { ptr, layout }
+    }
+}
+
+impl Drop for RawValue {
+    fn drop(&mut self) {
+        if self.layout.size() != 0 {
+            // SAFETY: allocated in `copy_of` with this layout.
+            unsafe { std::alloc::dealloc(self.ptr.as_ptr(), self.layout) };
+        }
+    }
 }
 
 impl Default for World {
@@ -88,6 +133,7 @@ impl World {
             entities: Entities::default(),
             bundles: TypeMap::default(),
             resources: TypeMap::default(),
+            dynamic_resources: HashMap::new(),
             scratch_ids: Vec::new(),
         };
         w.archetype_for(&[]); // archetype 0: entities with no components
@@ -395,6 +441,58 @@ impl World {
         self.resources
             .remove(&TypeId::of::<R>())
             .map(|r| *r.downcast().unwrap())
+    }
+
+    /// Stores a resource that has no Rust type, by name: a copy of
+    /// `layout.size()` bytes from `value`, replacing any resource of that
+    /// name. This is how C and C++ games keep global values.
+    ///
+    /// ```
+    /// use crabby_ecs::*;
+    /// use std::alloc::Layout;
+    ///
+    /// let mut world = World::new();
+    /// let score: [u32; 2] = [3, 1];
+    /// // SAFETY: `score` is 8 readable bytes.
+    /// unsafe { world.insert_resource_dynamic("Score", Layout::new::<[u32; 2]>(), score.as_ptr().cast()) };
+    /// let p = world.get_resource_dynamic("Score").unwrap() as *const [u32; 2];
+    /// // SAFETY: the resource holds the bytes of a [u32; 2].
+    /// assert_eq!(unsafe { *p }, [3, 1]);
+    /// ```
+    ///
+    /// # Safety
+    /// `value` points to `layout.size()` readable bytes (any pointer for size 0).
+    ///
+    /// # Panics
+    /// If a resource of that name exists with a different layout.
+    #[track_caller]
+    pub unsafe fn insert_resource_dynamic(&mut self, name: &str, layout: Layout, value: *const u8) {
+        if let Some(old) = self.dynamic_resources.get(name) {
+            assert!(
+                old.layout == layout,
+                "insert_resource_dynamic: `{name}` exists with a different size or alignment"
+            );
+        }
+        // SAFETY: forwarded from the caller.
+        let raw = unsafe { RawValue::copy_of(layout, value) };
+        self.dynamic_resources.insert(name.to_string(), raw);
+    }
+
+    /// Pointer to resource `name` (one stored with
+    /// [`insert_resource_dynamic`](Self::insert_resource_dynamic)), or `None`.
+    /// It stays valid until the resource is replaced or removed.
+    pub fn get_resource_dynamic(&self, name: &str) -> Option<*mut u8> {
+        self.dynamic_resources.get(name).map(|r| r.ptr.as_ptr())
+    }
+
+    /// The size and alignment of resource `name`, if it exists.
+    pub fn resource_layout_dynamic(&self, name: &str) -> Option<Layout> {
+        self.dynamic_resources.get(name).map(|r| r.layout)
+    }
+
+    /// Removes resource `name`; `false` if there was none.
+    pub fn remove_resource_dynamic(&mut self, name: &str) -> bool {
+        self.dynamic_resources.remove(name).is_some()
     }
 
     // ---- commands --------------------------------------------------------------

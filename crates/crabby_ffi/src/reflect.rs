@@ -4,7 +4,7 @@ use std::ffi::{CStr, c_char};
 
 use crabbyengine::{Field, FieldType, WorldReflect};
 
-use crate::{CrabbyStatus, CrabbyWorld, Kind, access, boundary, component, invalid};
+use crate::{CrabbyStatus, CrabbyWorld, Failure, Kind, access, boundary, component, invalid, invalid_owned};
 
 /// Field types for `CrabbyField::kind`, and how they look in JSON.
 /// ```
@@ -78,6 +78,55 @@ pub struct CrabbyField {
     pub offset: usize,
 }
 
+/// Reads `len` C field descriptions.
+///
+/// # Safety
+/// `fields` holds `len` readable fields with NUL-terminated names (or is
+/// null with `len` 0).
+pub(crate) unsafe fn fields_from_c(fields: *const CrabbyField, len: usize) -> Result<Vec<Field>, Failure> {
+    if fields.is_null() && len > 0 {
+        return Err(invalid("fields is null"));
+    }
+    let raw = if len == 0 {
+        &[][..]
+    } else {
+        // SAFETY: caller supplies `len` readable fields.
+        unsafe { std::slice::from_raw_parts(fields, len) }
+    };
+    let mut list = Vec::with_capacity(raw.len());
+    for f in raw {
+        if f.name.is_null() {
+            return Err(invalid("a field name is null"));
+        }
+        // SAFETY: caller supplies NUL-terminated names.
+        let name = unsafe { CStr::from_ptr(f.name) }
+            .to_str()
+            .map_err(|_| invalid("a field name is not UTF-8"))?;
+        let ty = *TYPES
+            .get(f.kind as usize)
+            .ok_or_else(|| invalid("unknown CrabbyFieldType"))?;
+        if f.offset.checked_add(ty.size()).is_none() {
+            return Err(invalid("field offset overflows"));
+        }
+        list.push(Field::new(name, ty, f.offset));
+    }
+    Ok(list)
+}
+
+/// Every field fits in `size` bytes and has its own name.
+pub(crate) fn check_fields(list: &[Field], size: usize, what: &str) -> Result<(), Failure> {
+    let mut names = std::collections::HashSet::new();
+    for f in list {
+        if f.offset + f.ty.size() > size {
+            return Err(invalid_owned(format!("a field doesn't fit in the {what}")));
+        }
+        if !names.insert(f.name.as_str()) {
+            return Err(invalid("two fields have the same name"));
+        }
+    }
+    Ok(())
+}
+
 /// Makes a C component readable and writable as JSON by tools and agents
 /// (the control endpoint and `crabby-mcp`) and saved by `crabby_world_save`,
 /// by describing its fields. Bytes no field covers are zero in values made
@@ -105,33 +154,8 @@ pub unsafe extern "C" fn crabby_component_reflect(
     len: usize,
 ) -> CrabbyStatus {
     boundary(|| {
-        if fields.is_null() && len > 0 {
-            return Err(invalid("fields is null"));
-        }
-        let raw = if len == 0 {
-            &[][..]
-        } else {
-            // SAFETY: caller supplies `len` readable fields.
-            unsafe { std::slice::from_raw_parts(fields, len) }
-        };
-        let mut list = Vec::with_capacity(raw.len());
-        for f in raw {
-            if f.name.is_null() {
-                return Err(invalid("a field name is null"));
-            }
-            // SAFETY: caller supplies NUL-terminated names.
-            let name = unsafe { CStr::from_ptr(f.name) }
-                .to_str()
-                .map_err(|_| invalid("a field name is not UTF-8"))?;
-            let ty = *TYPES
-                .get(f.kind as usize)
-                .ok_or_else(|| invalid("unknown CrabbyFieldType"))?;
-            let size = ty.size();
-            if f.offset.checked_add(size).is_none() {
-                return Err(invalid("field offset overflows"));
-            }
-            list.push(Field::new(name, ty, f.offset));
-        }
+        // SAFETY: forwarded from the caller.
+        let list = unsafe { fields_from_c(fields, len)? };
         // SAFETY: access validates null and guards the live handle.
         unsafe {
             access(world, |w, _| {
@@ -139,16 +163,7 @@ pub unsafe extern "C" fn crabby_component_reflect(
                 if kind != Kind::Plain || w.component_info(id).type_id().is_some() {
                     return Err(invalid("only components registered from C can be described"));
                 }
-                let size = w.component_info(id).layout().size();
-                let mut names = std::collections::HashSet::new();
-                for f in &list {
-                    if f.offset + f.ty.size() > size {
-                        return Err(invalid("a field doesn't fit in the component"));
-                    }
-                    if !names.insert(f.name.as_str()) {
-                        return Err(invalid("two fields have the same name"));
-                    }
-                }
+                check_fields(&list, w.component_info(id).layout().size(), "component")?;
                 // SAFETY: checked above; the caller promised field values make valid values.
                 w.reflect_fields(id, &list);
                 Ok(())

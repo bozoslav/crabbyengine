@@ -1,5 +1,6 @@
-//! Keyboard keys and mouse buttons as C enums, in the same order as the Rust ones.
-use crabbyengine::{Key, MouseButton};
+//! Keyboard keys, mouse buttons and gamepad inputs as C enums, in the same
+//! order as the Rust ones.
+use crabbyengine::{GamepadAxis, GamepadButton, Key, MouseButton};
 
 /// A keyboard key, by position on a US layout (`CRABBY_KEY_A`, ...).
 /// ```
@@ -359,9 +360,153 @@ pub(crate) fn button_from_c(b: u32) -> Option<MouseButton> {
         .then(|| button(unsafe { std::mem::transmute::<u32, CrabbyMouseButton>(b) }))
 }
 
+/// A gamepad button, by position (`CRABBY_GAMEPAD_SOUTH` is A on Xbox,
+/// Cross on PlayStation). See Rust's `GamepadButton`.
+/// ```
+/// assert_eq!(crabby_ffi::CrabbyGamepadButton::CRABBY_GAMEPAD_SOUTH as u32, 0);
+/// ```
+#[repr(C)]
+#[allow(non_camel_case_types)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CrabbyGamepadButton {
+    /// Bottom face button (A, Cross).
+    CRABBY_GAMEPAD_SOUTH,
+    /// Right face button (B, Circle).
+    CRABBY_GAMEPAD_EAST,
+    /// Top face button (Y, Triangle).
+    CRABBY_GAMEPAD_NORTH,
+    /// Left face button (X, Square).
+    CRABBY_GAMEPAD_WEST,
+    /// Upper left shoulder (LB, L1).
+    CRABBY_GAMEPAD_LEFT_BUMPER,
+    /// Upper right shoulder (RB, R1).
+    CRABBY_GAMEPAD_RIGHT_BUMPER,
+    /// Lower left trigger pulled past halfway (LT, L2).
+    CRABBY_GAMEPAD_LEFT_TRIGGER,
+    /// Lower right trigger pulled past halfway (RT, R2).
+    CRABBY_GAMEPAD_RIGHT_TRIGGER,
+    /// Left center button (View, Share).
+    CRABBY_GAMEPAD_SELECT,
+    /// Right center button (Menu, Options).
+    CRABBY_GAMEPAD_START,
+    /// Left stick pressed in.
+    CRABBY_GAMEPAD_LEFT_STICK,
+    /// Right stick pressed in.
+    CRABBY_GAMEPAD_RIGHT_STICK,
+    /// D-pad up.
+    CRABBY_GAMEPAD_DPAD_UP,
+    /// D-pad down.
+    CRABBY_GAMEPAD_DPAD_DOWN,
+    /// D-pad left.
+    CRABBY_GAMEPAD_DPAD_LEFT,
+    /// D-pad right.
+    CRABBY_GAMEPAD_DPAD_RIGHT,
+}
+
+/// A gamepad axis: sticks `-1..1` (y down is positive), triggers `0..1`.
+/// ```
+/// assert_eq!(crabby_ffi::CrabbyGamepadAxis::CRABBY_GAMEPAD_LEFT_STICK_X as u32, 0);
+/// ```
+#[repr(C)]
+#[allow(non_camel_case_types)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CrabbyGamepadAxis {
+    /// Left stick, right is positive.
+    CRABBY_GAMEPAD_LEFT_STICK_X,
+    /// Left stick, down is positive.
+    CRABBY_GAMEPAD_LEFT_STICK_Y,
+    /// Right stick, right is positive.
+    CRABBY_GAMEPAD_RIGHT_STICK_X,
+    /// Right stick, down is positive.
+    CRABBY_GAMEPAD_RIGHT_STICK_Y,
+    /// Left trigger, `0` released to `1` fully pulled.
+    CRABBY_GAMEPAD_LEFT_TRIGGER_AXIS,
+    /// Right trigger, `0` released to `1` fully pulled.
+    CRABBY_GAMEPAD_RIGHT_TRIGGER_AXIS,
+}
+
+/// How many gamepads the engine tracks: slots run `0..CRABBY_MAX_GAMEPADS`.
+/// ```
+/// assert_eq!(crabby_ffi::CRABBY_MAX_GAMEPADS as usize, crabbyengine::MAX_GAMEPADS);
+/// ```
+pub const CRABBY_MAX_GAMEPADS: u32 = 8;
+const _: () = assert!(CRABBY_MAX_GAMEPADS as usize == crabbyengine::MAX_GAMEPADS);
+
+/// The Rust buttons in `CrabbyGamepadButton` order.
+const GAMEPAD_BUTTONS: [GamepadButton; 16] = {
+    use GamepadButton::*;
+    [
+        South,
+        East,
+        North,
+        West,
+        LeftBumper,
+        RightBumper,
+        LeftTrigger,
+        RightTrigger,
+        Select,
+        Start,
+        LeftStick,
+        RightStick,
+        DPadUp,
+        DPadDown,
+        DPadLeft,
+        DPadRight,
+    ]
+};
+
+/// The Rust axes in `CrabbyGamepadAxis` order.
+const GAMEPAD_AXES: [GamepadAxis; 6] = {
+    use GamepadAxis::*;
+    [
+        LeftStickX,
+        LeftStickY,
+        RightStickX,
+        RightStickY,
+        LeftTrigger,
+        RightTrigger,
+    ]
+};
+
+pub(crate) fn gamepad_button_from_c(b: u32) -> Option<GamepadButton> {
+    GAMEPAD_BUTTONS.get(b as usize).copied()
+}
+pub(crate) fn gamepad_axis_from_c(a: u32) -> Option<GamepadAxis> {
+    GAMEPAD_AXES.get(a as usize).copied()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gamepad_enums_line_up_with_rust() {
+        use CrabbyGamepadButton::*;
+        assert_eq!(
+            gamepad_button_from_c(CRABBY_GAMEPAD_SOUTH as u32),
+            Some(GamepadButton::South)
+        );
+        assert_eq!(
+            gamepad_button_from_c(CRABBY_GAMEPAD_START as u32),
+            Some(GamepadButton::Start)
+        );
+        assert_eq!(
+            gamepad_button_from_c(CRABBY_GAMEPAD_DPAD_RIGHT as u32),
+            Some(GamepadButton::DPadRight)
+        );
+        assert_eq!(gamepad_button_from_c(CRABBY_GAMEPAD_DPAD_RIGHT as u32 + 1), None);
+        use CrabbyGamepadAxis::*;
+        assert_eq!(
+            gamepad_axis_from_c(CRABBY_GAMEPAD_RIGHT_STICK_Y as u32),
+            Some(GamepadAxis::RightStickY)
+        );
+        assert_eq!(
+            gamepad_axis_from_c(CRABBY_GAMEPAD_RIGHT_TRIGGER_AXIS as u32),
+            Some(GamepadAxis::RightTrigger)
+        );
+        assert_eq!(gamepad_axis_from_c(6), None);
+    }
+
     #[test]
     fn every_c_key_maps_to_a_distinct_rust_key() {
         let keys: std::collections::HashSet<_> = (0..KEY_COUNT).map(|k| key_from_c(k).unwrap()).collect();

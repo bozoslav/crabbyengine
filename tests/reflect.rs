@@ -653,3 +653,112 @@ fn rust_types_use_reflect_instead() {
     // SAFETY: never reached: the call panics.
     unsafe { world.reflect_fields(id, &[Field::new("rotation", FieldType::F32, 8)]) };
 }
+
+// ---- resources described by fields (C and C++ resources) ---------------------------
+
+/// A C-style struct `{ uint32_t red, blue; float time; }`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct CScore {
+    red: u32,
+    blue: u32,
+    time: f32,
+}
+
+fn c_score_world() -> World {
+    let mut w = World::new();
+    // SAFETY: any field values make a valid CScore.
+    unsafe {
+        w.reflect_resource_fields(
+            "game::Score",
+            std::alloc::Layout::new::<CScore>(),
+            &[
+                Field::new("red", FieldType::U32, std::mem::offset_of!(CScore, red)),
+                Field::new("blue", FieldType::U32, std::mem::offset_of!(CScore, blue)),
+                Field::new("time", FieldType::F32, std::mem::offset_of!(CScore, time)),
+            ],
+        );
+    }
+    w
+}
+
+fn c_score(w: &World) -> CScore {
+    // SAFETY: the resource holds a CScore.
+    unsafe { *w.get_resource_dynamic("game::Score").unwrap().cast::<CScore>() }
+}
+
+#[test]
+fn field_described_resources_read_write_and_save() {
+    let mut w = c_score_world();
+    assert_eq!(w.reflected_resources(), ["game::Score"]);
+    assert_eq!(
+        w.resource_json("game::Score"),
+        Err(ReflectError::MissingResource("game::Score".into()))
+    );
+    let value = CScore {
+        red: 2,
+        blue: 5,
+        time: 1.5,
+    };
+    // SAFETY: `value` is a CScore.
+    unsafe {
+        w.insert_resource_dynamic(
+            "game::Score",
+            std::alloc::Layout::new::<CScore>(),
+            (&value as *const CScore).cast(),
+        )
+    };
+    assert_eq!(
+        w.resource_json("game::Score").unwrap(),
+        json!({ "red": 2, "blue": 5, "time": 1.5 })
+    );
+    w.set_resource_json("game::Score", json!({ "blue": 9 })).unwrap();
+    assert_eq!(
+        c_score(&w),
+        CScore {
+            red: 2,
+            blue: 9,
+            time: 1.5
+        },
+        "only blue changed"
+    );
+    assert!(w.set_resource_json("game::Score", json!({ "red": "lots" })).is_err());
+
+    let save = w.save();
+    assert_eq!(save["resources"]["game::Score"]["blue"], 9);
+    w.set_resource_json("game::Score", json!({ "red": 0, "blue": 0 }))
+        .unwrap();
+    w.load(&save).unwrap();
+    assert_eq!(
+        c_score(&w),
+        CScore {
+            red: 2,
+            blue: 9,
+            time: 1.5
+        }
+    );
+}
+
+#[test]
+fn setting_a_missing_field_described_resource_inserts_it() {
+    let mut w = c_score_world();
+    w.set_resource_json("game::Score", json!({ "red": 4 })).unwrap();
+    assert_eq!(
+        c_score(&w),
+        CScore {
+            red: 4,
+            blue: 0,
+            time: 0.0
+        },
+        "missing fields are zero"
+    );
+}
+
+#[test]
+#[should_panic(expected = "is already reflected as")]
+fn a_field_described_resource_cannot_take_a_rust_resources_name() {
+    let mut w = World::new();
+    w.reflect_resource::<Score>();
+    // SAFETY: never read; the call panics.
+    unsafe { w.reflect_resource_fields("Score", std::alloc::Layout::new::<u32>(), &[]) };
+}

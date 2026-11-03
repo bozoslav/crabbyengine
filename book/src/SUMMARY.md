@@ -7,6 +7,7 @@
 - [Getting started](getting-started.md)
 - [Entities, components, queries](ecs.md)
 - [Systems and the frame](systems.md)
+- [Input: keyboard, mouse, gamepads](input.md)
 - [Events: messages between systems](events.md)
 - [The simulation clock](sim-clock.md)
 - [Spatial queries](spatial.md)

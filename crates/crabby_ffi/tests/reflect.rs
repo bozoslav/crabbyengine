@@ -131,6 +131,29 @@ fn described_c_components_are_saved_and_loaded_with_their_ids() {
 }
 
 #[test]
+fn described_c_components_with_namespaced_names_are_not_listed_as_unsaved() {
+    let w = crabby_world_new();
+    let mut id = 0;
+    let fields = unit_fields();
+    unsafe {
+        let name = c"game::Unit";
+        assert_eq!(
+            crabby_component_register(w, name.as_ptr(), size_of::<Unit>(), align_of::<Unit>(), &mut id),
+            CRABBY_OK
+        );
+        assert_eq!(
+            crabby_component_reflect(w, id, fields.as_ptr(), fields.len()),
+            CRABBY_OK
+        );
+    }
+    spawn(w, id, Unit::default());
+    let saved: serde_json::Value = serde_json::from_str(&save(w)).unwrap();
+    assert!(saved["entities"][0]["components"]["game::Unit"].is_object(), "{saved}");
+    assert_eq!(saved["not_saved"], serde_json::json!({}), "{saved}");
+    unsafe { crabby_world_free(w) };
+}
+
+#[test]
 fn small_save_buffers_get_an_empty_string_and_the_size() {
     let (w, id) = world();
     let fields = unit_fields();
