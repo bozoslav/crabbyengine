@@ -706,6 +706,7 @@ dependencies = [
  "glam 0.34.2",
  "image",
  "kira",
+ "libc",
  "pollster",
  "puffin",
  "puffin_http",

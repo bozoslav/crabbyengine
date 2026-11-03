@@ -38,13 +38,14 @@ ctx.world.reflect::<Health>();
 | `launch` | ✓ | build and start a game or example; headless and paused by default |
 | `instance_info` | | tick, sim time, paused, speed, fps, entity count, render CPU/GPU ms |
 | `world_summary` | | archetypes, entity counts, reflected components |
-| `list_entities` | | entities with component values; filter by component names, paged |
+| `list_entities` | | entities with component values; filter by component names and `where` conditions (`Health.current < 5`), paged |
 | `get_entity` | | one entity's components |
+| `entity_stats` | | min, max, mean and value counts over every matching entity: "how many units per team, how hurt are they?" ([details](control.md#questions-about-many-entities)) |
 | `list_resources` / `get_resource` | | game-wide state: scores, rules, the current round |
 | `system_timings` | | which systems are slow |
 | `list_events` | | event types the game shows tools, and how many are in flight |
 | `subscribe_events` / `take_events` | | collect [events](events.md) while ticks run, then see what happened (each with its tick) |
-| `read_logs` | | stdout/stderr of launched games |
+| `read_logs` | | recent stdout/stderr of any running game, also one you started yourself ([logs](control.md#logs)); pass `next` back as `since` for only new lines |
 | `screenshot` | | the next frame of a windowed game, as an image the agent can look at |
 | `set_camera` | | move or zoom the camera (`look_at`, `zoom`, `position`), e.g. before a screenshot |
 | `run_ticks` | ✓ | run exactly N ticks of a paused sim and wait |
@@ -80,8 +81,10 @@ An agent asked to "find out why boids clump at the edges" might do:
 1. `launch` with `example: "boids"`. The game builds, starts headless and
    paused, and returns `{"id": "6257-57560", "name": "boids", ...}`.
 2. `world_summary`: one archetype `[Transform2D, Sprite, Vel]` with 20,000 entities.
-3. `run_ticks` with `ticks: 600` (10 simulated seconds), then `list_entities`
-   to read positions and count how many are near the borders.
+3. `run_ticks` with `ticks: 600` (10 simulated seconds), then
+   `entity_stats` with `fields: ["Transform2D.position"]` and
+   `where: ["Transform2D.position.0 < 20"]` to count how many are near the
+   left border (and `list_entities` with the same `where` to look at some).
 4. Edit the steering code, `quit_instance`, `launch` again, and compare.
 5. `system_timings` to check the fix didn't make the tick slower.
 

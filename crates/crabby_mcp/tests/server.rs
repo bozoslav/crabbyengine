@@ -195,6 +195,45 @@ fn agents_drive_several_games_through_mcp() {
         6.0
     );
 
+    // Questions about many entities: filtered lists and summaries.
+    agent
+        .tool(
+            "spawn_entity",
+            json!({ "instance": "alpha", "components": { "Health": { "current": 2, "max": 2 } } }),
+        )
+        .unwrap();
+    let low = agent
+        .tool(
+            "list_entities",
+            json!({ "instance": "alpha", "where": ["Health.current < 4"] }),
+        )
+        .unwrap();
+    assert_eq!(low["total"], 1);
+    let stats = agent
+        .tool(
+            "entity_stats",
+            json!({ "instance": "alpha", "fields": ["Health.current", "Health.max"] }),
+        )
+        .unwrap();
+    assert_eq!(stats["entities"], 2);
+    assert_eq!(
+        stats["fields"]["Health.current"],
+        json!({ "count": 2, "min": 2.0, "max": 6.0, "mean": 4.0 })
+    );
+    let err = agent
+        .tool(
+            "entity_stats",
+            json!({ "instance": "alpha", "fields": ["Mana.current"] }),
+        )
+        .unwrap_err();
+    assert!(err.contains("not a reflected component"), "{err}");
+    agent
+        .tool(
+            "despawn_entity",
+            json!({ "instance": "alpha", "entity": low["entities"][0]["entity"] }),
+        )
+        .unwrap();
+
     // Resources: listed with their values, changed field by field.
     assert_eq!(
         agent.tool("list_resources", json!({ "instance": "alpha" })).unwrap(),
@@ -294,12 +333,20 @@ fn agents_drive_several_games_through_mcp() {
             .unwrap_err()
             .contains("no running instance")
     );
-    assert!(
-        agent
-            .tool("read_logs", json!({ "instance": "alpha" }))
-            .unwrap_err()
-            .contains("launch")
-    );
+    // Not started with `launch`, and its output is still there.
+    let logs = agent.tool("read_logs", json!({ "instance": "alpha", "lines": 5000 }));
+    if !cfg!(unix) {
+        assert!(logs.unwrap_err().contains("captured"), "says why there are no logs");
+    } else {
+        let logs = logs.unwrap();
+        // (The test harness keeps `eprintln!` itself, so the text may be empty.)
+        assert!(logs["text"].is_string(), "{logs}");
+        let next = logs["next"].as_u64().unwrap();
+        let none = agent
+            .tool("read_logs", json!({ "instance": "alpha", "since": next }))
+            .unwrap();
+        assert!(none["next"].as_u64().unwrap() >= next);
+    }
 
     // Checkpoint, experiment, roll back.
     let checkpoint = dir.join("checkpoint.json");

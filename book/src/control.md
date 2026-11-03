@@ -73,7 +73,8 @@ headless game waits for requests and runs only the ticks you step.
 | `methods` | | every method with a description |
 | `info` | | pid, headless, tick, sim time, paused, speed, fps, entity count, render stats (sprites, draw calls, CPU and GPU ms) |
 | `world.summary` | | entity count, reflected components and resources, archetypes and sizes |
-| `entities.list` | `with?`, `limit?` (100), `offset?` | entities with reflected components as JSON, names of the others |
+| `entities.list` | `with?`, `where?`, `limit?` (100), `offset?` | entities with reflected components as JSON, names of the others |
+| `entities.stats` | `fields`, `with?`, `where?` | `{entities, fields: {path: {count, min, max, mean} or {count, values}}}` (see below) |
 | `entity.get` | `entity` | `{component: value}` |
 | `entity.spawn` | `components` | `{entity}` |
 | `entity.despawn` | `entity` | `true` if it existed |
@@ -92,6 +93,7 @@ headless game waits for requests and runs only the ticks you step.
 | `events.subscribe` | `types?` (all), `capacity?` (1000) | starts collecting new events between frames; the newest `capacity` are kept |
 | `events.take` | | `{events: [{tick, type, data}], dropped}` since the last take |
 | `events.unsubscribe` | | `true` if there was a subscription |
+| `logs.get` | `lines?` (100), `since?` | `{lines, next, missed}`: the game's recent stdout and stderr (see below) |
 | `camera.get` | | position, zoom, center, visible rect |
 | `camera.set` | `position`?, `zoom`?, `look_at`? | move the camera; returns `camera.get` |
 | `screenshot` | `path`?, `max_size`? | save the next frame as a PNG (windowed games only); returns `path`, `width`, `height` |
@@ -101,6 +103,43 @@ Component values use [reflection](reflection.md): call
 `world.reflect::<T>()` for a component, `world.reflect_resource::<R>()` for
 a resource, to make it readable and writable.
 Entity ids are the numbers from `Entity::to_bits`.
+
+## Questions about many entities
+
+A simulation with a million units is too big to list. `entities.stats`
+answers questions about all of them at once, from reflected fields:
+
+```json
+{"method": "entities.stats", "params": {
+  "fields": ["Unit.hp", "Transform2D.position", "Unit.team"],
+  "where": ["Unit.hp < 5"]}}
+```
+
+gives, for the matching entities, `count`, `min`, `max` and `mean` of
+numbers (per axis for vectors like positions) and counts per value for
+names and enums (`"values": {"Red": 120, "Blue": 98}`). A field path is a
+component name, then fields, array elements by number:
+`Transform2D.position.0` is x. A bare component name (`Team`) is its whole
+value.
+
+`where` takes conditions on field paths with `==`, `!=`, `<`, `<=`, `>`,
+`>=` and a JSON value (a bare word is a string: `Unit.team == Red`). It
+filters `entities.list` too. On the battle demo, stats over 1M units take
+about 0.3 s (release); the game is paused for that long.
+
+## Logs
+
+While the endpoint is open, the engine keeps the game's last 5,000 lines of
+stdout and stderr: `println!`, C and C++ `printf` and `std::cout`, panic
+messages and the engine's own notes. The terminal still shows everything.
+So a tool can read the output of a game you started yourself, from a
+terminal or an IDE. `logs.get` is answered right away, not between frames,
+so it works while a frame is stuck too.
+
+Without `since` you get the newest `lines`. Pass the `next` of one answer as
+`since` in the next request to get only what's new; `missed` counts lines
+that were dropped before you read them. Unix (macOS, Linux) only for now; on
+Windows `logs.get` says the output isn't captured.
 
 ## Trying it by hand
 

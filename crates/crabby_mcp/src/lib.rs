@@ -229,16 +229,30 @@ fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "list_entities",
-            description: "List entities with their reflected components as JSON and the names of their other components. Filter with `with` (component names); page with `limit`/`offset`.",
+            description: "List entities with their reflected components as JSON and the names of their other components. Filter with `with` (component names) and `where` (conditions on reflected fields); page with `limit`/`offset`. To summarize many entities, use entity_stats instead.",
             writes: false,
             params: || {
                 json!({
                     "with": { "type": "array", "items": { "type": "string" }, "description": "Only entities that have all these components, e.g. [\"Transform2D\", \"Health\"]" },
+                    "where": { "type": "array", "items": { "type": "string" }, "description": "Only entities passing all of these, e.g. [\"Health.current < 5\", \"Team == Red\", \"Transform2D.position.0 > 100\"]. Operators: == != < <= > >=" },
                     "limit": { "type": "integer", "minimum": 0, "description": "Max entities to return (default 100, max 10000)" },
                     "offset": { "type": "integer", "minimum": 0, "description": "Skip this many matching entities first" }
                 })
             },
             required: &[],
+        },
+        Tool {
+            name: "entity_stats",
+            description: "Summarize reflected fields over all matching entities without listing them: count, min, max and mean for numbers (per axis for vectors), counts per value for names and enums (e.g. how many units per team). Works on millions of entities.",
+            writes: false,
+            params: || {
+                json!({
+                    "fields": { "type": "array", "items": { "type": "string" }, "description": "Field paths, e.g. [\"Health.current\", \"Transform2D.position\", \"Team\"] (a bare component name means its whole value)" },
+                    "with": { "type": "array", "items": { "type": "string" }, "description": "Only entities that have all these components" },
+                    "where": { "type": "array", "items": { "type": "string" }, "description": "Only entities passing all of these, e.g. [\"Team == Red\"]" }
+                })
+            },
+            required: &["fields"],
         },
         Tool {
             name: "get_entity",
@@ -296,9 +310,14 @@ fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "read_logs",
-            description: "The last lines of a game's stdout/stderr. Works for games started with `launch`.",
+            description: "The game's recent stdout/stderr (println, printf, panics, engine messages), for any running game, also while a frame is stuck. Pass the returned `next` as `since` to get only newer lines.",
             writes: false,
-            params: || json!({ "lines": { "type": "integer", "minimum": 1, "description": "How many lines from the end (default 100)" } }),
+            params: || {
+                json!({
+                    "lines": { "type": "integer", "minimum": 1, "description": "How many lines at most (default 100): the newest, or the first ones after `since`" },
+                    "since": { "type": "integer", "minimum": 0, "description": "`next` from a previous read_logs: only lines printed after it" },
+                })
+            },
             required: &[],
         },
         Tool {
@@ -636,7 +655,10 @@ impl Server {
             "world_summary" => self.instance(args)?.call("world.summary", json!({})),
             "list_entities" => self
                 .instance(args)?
-                .call("entities.list", pass(&["with", "limit", "offset"])),
+                .call("entities.list", pass(&["with", "where", "limit", "offset"])),
+            "entity_stats" => self
+                .instance(args)?
+                .call("entities.stats", pass(&["fields", "with", "where"])),
             "get_entity" => self.instance(args)?.call("entity.get", pass(&["entity"])),
             "system_timings" => self.instance(args)?.call("systems.timings", json!({})),
             "list_resources" => self.instance(args)?.call("resources.list", json!({})),
@@ -858,9 +880,26 @@ impl Server {
     fn read_logs(&self, args: &Value) -> Result<Value, String> {
         let lines = args["lines"].as_u64().unwrap_or(100) as usize;
         let i = self.instance(args)?;
-        let id = i.info["launch_id"].as_str().ok_or(
-            "this game wasn't started with `launch`, so its output isn't captured; check the terminal it runs in",
-        )?;
+        // The game keeps its own recent output: works for any game, also
+        // mid-frame. Older engines don't have `logs.get`; then the log file
+        // of a game started with `launch`.
+        let mut params = json!({ "lines": lines });
+        if let Some(since) = args.get("since").and_then(Value::as_u64) {
+            params["since"] = json!(since);
+        }
+        let kept = i.call("logs.get", params);
+        if let Ok(logs) = &kept {
+            let text: Vec<&str> = logs["lines"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .collect();
+            return Ok(json!({ "text": text.join("\n"), "next": logs["next"], "missed": logs["missed"] }));
+        }
+        let Some(id) = i.info["launch_id"].as_str() else {
+            return Err(kept.unwrap_err());
+        };
         let path = self
             .launched
             .get(id)
