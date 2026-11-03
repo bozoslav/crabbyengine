@@ -91,7 +91,6 @@ jobs:
           - engine-events
           - engine-without-window
           - engine-hot-reload
-          - engine-without-window
           - mcp
           - ffi-unit
           - ffi-abi
@@ -124,7 +123,6 @@ jobs:
           - { area: engine-events, args: -p crabbyengine --test events }
           - { area: engine-without-window, args: -p crabbyengine --tests --no-default-features --features audio }
           - { area: engine-hot-reload, args: -p crabbyengine --test hot_reload }
-          - { area: engine-without-window, args: -p crabbyengine --tests --no-default-features --features audio }
           - { area: mcp, args: -p crabby_mcp }
           - { area: ffi-unit, args: -p crabby_ffi --lib }
           - { area: ffi-abi, args: -p crabby_ffi --test abi }
