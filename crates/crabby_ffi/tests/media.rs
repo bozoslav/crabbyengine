@@ -284,6 +284,9 @@ unsafe extern "C" fn edit_and_watch(ctx: *mut CrabbyCtx, user: *mut c_void) {
         if tick == 2 {
             // Save the same image again: a new modification time is a change.
             let bytes = std::fs::read(&h.file).unwrap();
+            // Windows file times move in ~16 ms steps: without the wait, a
+            // same-length edit can carry the first write's time and length.
+            std::thread::sleep(std::time::Duration::from_millis(50));
             std::fs::write(&h.file, bytes).unwrap();
             std::thread::sleep(std::time::Duration::from_millis(400));
         }
@@ -445,6 +448,7 @@ unsafe extern "C" fn reload_rules(ctx: *mut CrabbyCtx, user: *mut c_void) {
         assert_eq!(crabby_get(w, t.entity, t.id, (&raw mut waves).cast(), 4), CRABBY_OK);
         t.seen.push((tick, reloaded, waves));
         if tick == 1 {
+            std::thread::sleep(std::time::Duration::from_millis(50)); // see above
             std::fs::write(&t.file, r#"{"waves": 9}"#).unwrap();
             std::thread::sleep(std::time::Duration::from_millis(400));
         }

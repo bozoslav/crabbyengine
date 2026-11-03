@@ -334,10 +334,11 @@ fn agents_drive_several_games_through_mcp() {
             .contains("no running instance")
     );
     // Not started with `launch`, and its output is still there.
-    let logs = agent
-        .tool("read_logs", json!({ "instance": "alpha", "lines": 5000 }))
-        .unwrap();
-    if cfg!(unix) {
+    let logs = agent.tool("read_logs", json!({ "instance": "alpha", "lines": 5000 }));
+    if !cfg!(unix) {
+        assert!(logs.unwrap_err().contains("captured"), "says why there are no logs");
+    } else {
+        let logs = logs.unwrap();
         // (The test harness keeps `eprintln!` itself, so the text may be empty.)
         assert!(logs["text"].is_string(), "{logs}");
         let next = logs["next"].as_u64().unwrap();

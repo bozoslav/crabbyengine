@@ -352,6 +352,7 @@ fn subscribers_get_reflected_events_with_their_ticks() {
     game.join().unwrap();
 }
 
+#[cfg(unix)]
 /// Lines this test printed. Other tests share the process, and the test
 /// harness's progress dots (no newline) can end up in front of ours.
 fn ours(logs: &Value) -> Vec<String> {

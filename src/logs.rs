@@ -8,6 +8,9 @@
 //! covers Rust's `println!`, C and C++ `printf`/`std::cout`, and panic
 //! messages. Unix only for now; elsewhere `logs.get` says so.
 
+// Only filled by the unix capture; elsewhere the ring stays empty.
+#![cfg_attr(not(unix), allow(dead_code))]
+
 use std::collections::VecDeque;
 use std::sync::Mutex;
 
@@ -16,7 +19,6 @@ use serde_json::{Value, json};
 /// Lines kept, oldest dropped first.
 pub(crate) const MAX_LINES: usize = 5_000;
 /// Longer lines are cut, so one huge line can't fill the memory.
-#[cfg_attr(not(unix), allow(dead_code))]
 const MAX_LINE_BYTES: usize = 4_096;
 
 /// The kept lines. `next` numbers lines from the start of the capture, so a
@@ -31,7 +33,6 @@ static RING: Mutex<Ring> = Mutex::new(Ring {
     next: 0,
 });
 
-#[cfg_attr(not(unix), allow(dead_code))]
 fn push_line(bytes: &[u8]) {
     let bytes = bytes.strip_suffix(b"\r").unwrap_or(bytes);
     let cut = &bytes[..bytes.len().min(MAX_LINE_BYTES)];
