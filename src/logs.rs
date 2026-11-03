@@ -123,6 +123,10 @@ mod capture {
         which: Std,
         saved: sys::Saved,
         done: Receiver<()>,
+        /// Windows: the pipe and the real stream again, for the exit hook,
+        /// which passes on what's left itself (see `register_exit_hook`).
+        #[cfg(windows)]
+        at_exit: Option<(PipeReader, File)>,
     }
 
     /// The process-wide capture, shared by every open endpoint: started by
@@ -187,8 +191,16 @@ mod capture {
     fn redirect(which: Std) -> std::io::Result<Stream> {
         flush(which);
         let (saved, reader, out) = sys::redirect(which)?;
+        #[cfg(windows)]
+        let at_exit = reader.try_clone().ok().zip(out.try_clone().ok());
         let done = spawn_copier(which, reader, out)?;
-        Ok(Stream { which, saved, done })
+        Ok(Stream {
+            which,
+            saved,
+            done,
+            #[cfg(windows)]
+            at_exit,
+        })
     }
 
     /// Copies everything from `reader` to `out` and keeps it line by line,
@@ -252,12 +264,23 @@ mod capture {
 
     /// `std::process::exit` skips destructors: restore at exit too, so the
     /// last lines a game prints still reach the terminal.
+    ///
+    /// On Windows, exiting ends the other threads before this hook runs, so
+    /// the copy threads can't pass on the rest: the hook does, reading only
+    /// what's in the pipe (never waiting).
     fn register_exit_hook() {
         static ONCE: std::sync::Once = std::sync::Once::new();
         extern "C" fn restore_at_exit() {
             // try_lock: never wait at exit (a thread may hold it forever).
             // No flushing either: another thread may hold Rust's stdout lock.
             if let Ok(mut s) = STATE.try_lock() {
+                #[cfg(windows)]
+                for stream in &mut s.streams {
+                    sys::restore(stream.which, &mut stream.saved);
+                    if let Some((reader, out)) = &mut stream.at_exit {
+                        sys::drain(reader, out);
+                    }
+                }
                 undo(&mut s.streams, false);
             }
         }
@@ -330,6 +353,45 @@ mod windows {
     unsafe extern "system" {
         fn GetStdHandle(id: u32) -> *mut c_void;
         fn SetStdHandle(id: u32, handle: *mut c_void) -> i32;
+        fn PeekNamedPipe(
+            pipe: *mut c_void,
+            buffer: *mut c_void,
+            size: u32,
+            read: *mut u32,
+            available: *mut u32,
+            left: *mut u32,
+        ) -> i32;
+    }
+
+    /// Copies what's in the pipe now to `out`, without waiting for more.
+    pub(super) fn drain(reader: &mut PipeReader, out: &mut File) {
+        use std::io::{Read, Write};
+        let mut buf = [0u8; 8192];
+        loop {
+            let mut available = 0u32;
+            let null = std::ptr::null_mut();
+            // SAFETY: a live pipe handle; only the count is written.
+            let ok = unsafe {
+                PeekNamedPipe(
+                    reader.as_raw_handle(),
+                    null,
+                    0,
+                    null.cast(),
+                    &mut available,
+                    null.cast(),
+                )
+            };
+            if ok == 0 || available == 0 {
+                return;
+            }
+            let want = (available as usize).min(buf.len());
+            match reader.read(&mut buf[..want]) {
+                Ok(n) if n > 0 => {
+                    let _ = out.write_all(&buf[..n]);
+                }
+                _ => return,
+            }
+        }
     }
 
     /// Where the stream went before, and the pipe end the standard handle
