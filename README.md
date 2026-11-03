@@ -25,6 +25,7 @@ cargo run --release --example ui
 cargo build -p crabby_ffi --release
 cmake -S examples/cpp -B target/native -DCMAKE_BUILD_TYPE=Release && cmake --build target/native
 ./target/native/crabby_cpp_boids
+./target/native/crabby_cpp_battle   # the battle demo in C++: same speed as Rust
 ```
 
 Contributing (humans and agents): see [AGENTS.md](AGENTS.md).
