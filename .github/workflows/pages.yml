@@ -1,5 +1,5 @@
-# Publishes the guide (book/) with the API reference under /api to GitHub Pages
-# on every push to main.
+# Publishes the guide (book/) with the API reference under /api and playable
+# web builds of the demos under /play to GitHub Pages on every push to main.
 
 name: Pages
 
@@ -27,13 +27,22 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
+      - name: Find the wasm-bindgen version in Cargo.lock
+        run: echo "WASM_BINDGEN=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/version = |"/, ""); print }' Cargo.lock)" >> "$GITHUB_ENV"
       - uses: taiki-e/install-action@v2
         with:
-          tool: mdbook@0.5.4
+          tool: mdbook@0.5.4,wasm-bindgen@${{ env.WASM_BINDGEN }}
       - run: mdbook build book
       - run: cargo doc --workspace --no-deps
       - run: cp -r target/doc book/book/api
+      # Playable demos, built for the browser: /play/<example>/
+      - run: |
+          for example in battle flow ants; do
+            web/build.sh "$example" "book/book/play/$example"
+          done
       - uses: actions/upload-pages-artifact@v3
         with:
           path: book/book

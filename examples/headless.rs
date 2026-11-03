@@ -4,8 +4,6 @@
 //!   `cargo run --release --example headless`
 //!   `AGENTS=10000000 TICKS=300 cargo run --release --example headless`
 
-use std::time::Instant;
-
 use crabbyengine::*;
 
 struct Agent {

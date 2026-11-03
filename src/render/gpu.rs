@@ -22,6 +22,9 @@ pub(crate) struct Renderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
+    /// The format we draw in: the surface's, or its sRGB view where the
+    /// surface itself can't be sRGB (browser canvases).
+    view_format: wgpu::TextureFormat,
 
     pipeline: wgpu::RenderPipeline,
     camera_buffer: wgpu::Buffer,
@@ -165,27 +168,47 @@ impl Renderer {
         self.screenshot.take()
     }
 
+    /// Opens the GPU and sets up drawing to `window`, waiting for the GPU
+    /// (desktop; the web build calls [`Self::new_async`]).
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn new(window: Arc<Window>, display: winit::event_loop::OwnedDisplayHandle, vsync: bool) -> Self {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(
-            display,
-        )));
+        pollster::block_on(Self::new_async(window, display, vsync))
+    }
+
+    pub async fn new_async(window: Arc<Window>, display: winit::event_loop::OwnedDisplayHandle, vsync: bool) -> Self {
+        let descriptor = wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(display));
+        // In a browser, use WebGPU where it works and WebGL2 elsewhere.
+        #[cfg(target_arch = "wasm32")]
+        let instance = wgpu::util::new_instance_with_webgpu_detection(descriptor).await;
+        #[cfg(not(target_arch = "wasm32"))]
+        let instance = wgpu::Instance::new(descriptor);
         let surface = instance
             .create_surface(window.clone())
             .unwrap_or_else(|e| panic!("crabbyengine: could not create a GPU surface: {e}"));
 
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: Some(&surface),
-            ..Default::default()
-        }))
-        .unwrap_or_else(|e| panic!("crabbyengine: no compatible GPU found: {e}"));
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: Some(&surface),
+                ..Default::default()
+            })
+            .await
+            .unwrap_or_else(|e| panic!("crabbyengine: no compatible GPU found: {e}"));
 
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("crabbyengine device"),
-            required_features: adapter.features() & wgpu::Features::TIMESTAMP_QUERY,
-            ..Default::default()
-        }))
-        .unwrap_or_else(|e| panic!("crabbyengine: could not open the GPU device: {e}"));
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor {
+                label: Some("crabbyengine device"),
+                required_features: adapter.features() & wgpu::Features::TIMESTAMP_QUERY,
+                // The defaults ask for more than WebGL2 has; we need little.
+                required_limits: if cfg!(target_arch = "wasm32") {
+                    adapter.limits()
+                } else {
+                    wgpu::Limits::default()
+                },
+                ..Default::default()
+            })
+            .await
+            .unwrap_or_else(|e| panic!("crabbyengine: could not open the GPU device: {e}"));
 
         let size = window.inner_size();
         let mut config = surface
@@ -195,6 +218,11 @@ impl Renderer {
         let caps = surface.get_capabilities(&adapter);
         if let Some(srgb) = caps.formats.iter().copied().find(|f| f.is_srgb()) {
             config.format = srgb;
+        }
+        // Browser canvases are never sRGB themselves; draw through an sRGB view.
+        let view_format = config.format.add_srgb_suffix();
+        if view_format != config.format {
+            config.view_formats.push(view_format);
         }
         config.present_mode = if vsync {
             wgpu::PresentMode::AutoVsync
@@ -277,7 +305,7 @@ impl Renderer {
                 entry_point: Some("fs_main"),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
+                    format: view_format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -327,6 +355,7 @@ impl Renderer {
             device,
             queue,
             config,
+            view_format,
             pipeline,
             camera_buffer,
             camera_bind_group,
@@ -545,7 +574,7 @@ impl Renderer {
             return status;
         }
 
-        let cpu_start = std::time::Instant::now();
+        let cpu_start = web_time::Instant::now();
         if let Some(timer) = &mut self.timer {
             timer.collect(&self.device);
         }
@@ -592,9 +621,12 @@ impl Renderer {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frame") });
-        let view = frame
-            .as_ref()
-            .map(|frame| frame.texture.create_view(&wgpu::TextureViewDescriptor::default()));
+        let view = frame.as_ref().map(|frame| {
+            frame.texture.create_view(&wgpu::TextureViewDescriptor {
+                format: Some(self.view_format),
+                ..Default::default()
+            })
+        });
         if let Some(view) = &view {
             let timestamps = self.timer.as_mut().and_then(GpuTimer::begin);
             Self::sprite_pass(&mut encoder, view, clear, timestamps, &pass);
@@ -602,7 +634,7 @@ impl Renderer {
         // A screenshot draws the same sprites a second time, into a texture
         // that can be copied (the window's surface can't, on some GPUs).
         let capture = capture.then(|| {
-            let target = Capture::new(&self.device, self.config.width, self.config.height, self.config.format);
+            let target = Capture::new(&self.device, self.config.width, self.config.height, self.view_format);
             let target_view = target.texture.create_view(&wgpu::TextureViewDescriptor::default());
             Self::sprite_pass(&mut encoder, &target_view, clear, None, &pass);
             target.copy(&mut encoder);
@@ -665,7 +697,7 @@ impl Renderer {
                 dithering: true,
                 predictable_texture_filtering: false,
             };
-            egui_wgpu::Renderer::new(&self.device, self.config.format, options)
+            egui_wgpu::Renderer::new(&self.device, self.view_format, options)
         });
         for id in self.egui_free.drain(..) {
             renderer.free_texture(&id);

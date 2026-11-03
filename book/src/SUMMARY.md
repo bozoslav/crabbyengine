@@ -19,6 +19,7 @@
 - [Data files: tune without restarting](data-files.md)
 - [Changing code while the game runs](hot-patching.md)
 - [Headless runs and testing](headless.md)
+- [Web builds: games in the browser](web.md)
 - [C and C++](c-cpp.md)
 - [Reflection: components as JSON](reflection.md)
 - [The inspector: look inside a running game](inspector.md)

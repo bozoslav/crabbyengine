@@ -33,9 +33,22 @@ egui-wgpu = { version = "0.37", default-features = false, optional = true }
 egui-winit = { version = "0.37", default-features = false, optional = true }
 subsecond = { version = "0.7.10", optional = true }
 dioxus-devtools = { version = "0.7.10", default-features = false, optional = true }
+# `Instant` that also works in browsers; on desktop it is std's own type.
+web-time = "1.1.0"
 
 [target.'cfg(any(unix, windows))'.dependencies]
 libc = "0.2"
+
+# The web build (wasm32): the browser APIs for the canvas and fetching
+# assets, and WebGL2 for browsers without WebGPU.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wgpu = { version = "30.0.1", optional = true, features = ["webgl"] }
+wasm-bindgen = "0.2.130"
+wasm-bindgen-futures = "0.4.80"
+js-sys = "0.3.107"
+# Sound through WebAudio (kira plays through cpal).
+cpal = { version = "0.18.2", features = ["wasm-bindgen"], optional = true }
+web-sys = { version = "0.3.107", features = ["Window", "Document", "Element", "HtmlCanvasElement", "Location", "Response", "console"] }
 
 [features]
 default = ["audio", "window", "inspector"]
@@ -43,7 +56,7 @@ default = ["audio", "window", "inspector"]
 # for simulation servers and CI; drawing calls do nothing, `Game::run` panics.
 window = ["dep:wgpu", "dep:winit", "dep:pollster"]
 # Sound with kira. Off: the sound API stays and is silent (for servers).
-audio = ["dep:kira"]
+audio = ["dep:kira", "dep:cpal"]
 # The runtime inspector (egui overlay, toggled with the ` key): entities and their
 # components with live editing, resources, system timings, sim controls.
 # Off: no egui in the build.

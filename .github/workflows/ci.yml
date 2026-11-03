@@ -258,10 +258,32 @@ jobs:
 
   # Single check for branch protection: passes only if every job above passed.
   # (Requiring one job keeps the rule valid when jobs are added or renamed.)
+  # The web build (wasm32): lint the browser-only code, and build the battle
+  # demo the way the docs site does.
+  web:
+    name: Web build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: web
+      - run: cargo clippy -p crabbyengine --target wasm32-unknown-unknown --examples
+      - name: Find the wasm-bindgen version in Cargo.lock
+        run: echo "WASM_BINDGEN=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/version = |"/, ""); print }' Cargo.lock)" >> "$GITHUB_ENV"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ env.WASM_BINDGEN }}
+      - run: web/build.sh battle
+
   ci-passed:
     name: CI passed
     if: always()
-    needs: [fmt, clippy, test, examples, docs, book, miri, native]
+    needs: [fmt, clippy, test, examples, docs, book, miri, native, web]
     runs-on: ubuntu-latest
     steps:
       - name: Check every job
