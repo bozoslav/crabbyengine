@@ -12,8 +12,6 @@
 //! Shows: `NavGrid` and `FlowField` (one search shared by every agent),
 //! looked up from `par_for_each`, recomputed when the goal moves.
 
-use std::time::Instant;
-
 use crabbyengine::*;
 use serde::{Deserialize, Serialize};
 

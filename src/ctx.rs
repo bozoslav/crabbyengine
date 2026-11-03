@@ -812,7 +812,7 @@ impl Ctx {
             return Font(id as u32);
         }
         let bytes =
-            std::fs::read(&file).unwrap_or_else(|e| panic!("crabbyengine: could not read {}: {e}", file.display()));
+            assets::read(&file).unwrap_or_else(|e| panic!("crabbyengine: could not read {}: {e}", file.display()));
         let font = self
             .text
             .add_font(&bytes)
@@ -906,7 +906,7 @@ impl Ctx {
 
     fn load_data(&mut self, path: &str, apply: DataLoader) -> Result<(), String> {
         let file = assets::resolve(path)?;
-        let text = std::fs::read_to_string(&file).map_err(|e| format!("could not read {}: {e}", file.display()))?;
+        let text = assets::read_to_string(&file)?;
         apply(&mut self.world, &text).map_err(|e| format!("{path}: {e}"))?;
         self.data_loaders.push(apply);
         self.watcher.watch(path, file, Asset::Data(self.data_loaders.len() - 1));
@@ -964,28 +964,27 @@ impl Ctx {
             return;
         }
         let mut changed = std::mem::take(&mut self.watcher.pending);
-        self.watcher.changed(std::time::Instant::now(), &mut changed);
+        self.watcher.changed(web_time::Instant::now(), &mut changed);
         for (asset, file, name) in changed.drain(..) {
             let texture = match asset {
                 Asset::Texture(t) => t,
                 Asset::Font(id) => {
-                    let applied = std::fs::read(&file)
+                    let applied = assets::read(&file)
                         .map_err(|e| e.to_string())
                         .and_then(|bytes| self.text.replace_font(Font(id), &bytes));
                     self.report_reload(name, applied);
                     continue;
                 }
                 Asset::Sound(id) => {
-                    let applied = std::fs::read(&file)
+                    let applied = assets::read(&file)
                         .map_err(|e| e.to_string())
                         .and_then(|bytes| self.audio.replace(id, bytes));
                     self.report_reload(name, applied);
                     continue;
                 }
                 Asset::Data(i) => {
-                    let applied = std::fs::read_to_string(&file)
-                        .map_err(|e| e.to_string())
-                        .and_then(|text| (self.data_loaders[i])(&mut self.world, &text));
+                    let applied =
+                        assets::read_to_string(&file).and_then(|text| (self.data_loaders[i])(&mut self.world, &text));
                     self.report_reload(name, applied);
                     continue;
                 }

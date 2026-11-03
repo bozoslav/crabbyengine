@@ -19,8 +19,6 @@
 //! and reflection, so agents can inspect and save a running colony through
 //! `crabby-mcp`.
 
-use std::time::Instant;
-
 use crabbyengine::*;
 use serde::{Deserialize, Serialize};
 

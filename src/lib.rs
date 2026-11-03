@@ -54,6 +54,8 @@ mod input;
 #[cfg(feature = "inspector")]
 mod inspector;
 mod logs;
+#[cfg(any(all(target_arch = "wasm32", feature = "window"), test))]
+mod query;
 mod random;
 mod reflect;
 mod render;
@@ -64,6 +66,8 @@ mod texture;
 mod tilemap;
 mod time;
 mod ui;
+#[cfg(all(target_arch = "wasm32", feature = "window"))]
+mod web;
 
 pub use attach::{Attached, follow_attachments};
 pub use audio::{Playing, Sound, SoundParams};
@@ -102,3 +106,18 @@ pub use glam::{Vec2, vec2};
 
 /// JSON values used by reflection (re-exported from `serde_json`).
 pub use serde_json::{self, Value, json};
+
+/// A point in time for measuring how long something took, like
+/// `std::time::Instant` (which it is, on desktop), but also working in web
+/// builds, where `std::time::Instant::now()` panics. Re-exported from
+/// `web-time`.
+///
+/// ```
+/// # use crabbyengine::*;
+/// let nav = NavGrid::new(256, 256, 8.0);
+/// let mut field = FlowField::new();
+/// let start = Instant::now();
+/// field.compute(&nav, &[vec2(40.0, 40.0)]);
+/// println!("flow field in {:.2} ms", start.elapsed().as_secs_f64() * 1000.0);
+/// ```
+pub use web_time::Instant;

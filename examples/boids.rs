@@ -7,8 +7,6 @@
 //!
 //! Keys: Space pause, Period single step, 1-4 speed (1x/4x/16x/64x), Escape quit.
 
-use std::time::Instant;
-
 use crabbyengine::*;
 
 /// Reflected, so tools and agents (crabby-mcp) can read and change velocities.

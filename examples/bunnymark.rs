@@ -10,8 +10,6 @@
 //! Vsync is off so the FPS shows what the engine can actually do.
 //! Set `SECONDS=10` to quit automatically after that long (for scripted runs).
 
-use std::time::Instant;
-
 use crabbyengine::*;
 
 struct Crab {

@@ -226,8 +226,8 @@ impl Ctx {
         if let Some(&i) = self.loaded.get(&key) {
             return self.cached_sounds[i as usize];
         }
-        let bytes =
-            std::fs::read(&key.0).unwrap_or_else(|e| panic!("crabbyengine: could not read {}: {e}", key.0.display()));
+        let bytes = crate::assets::read(&key.0)
+            .unwrap_or_else(|e| panic!("crabbyengine: could not read {}: {e}", key.0.display()));
         let (id, seconds) = self
             .audio
             .load(bytes)

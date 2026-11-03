@@ -12,7 +12,8 @@ keeps two goals in view:
 ![The battle demo: two armies of 10,000 units each march around rocks and mud and meet in two fronts](images/battle.jpg)
 
 *The battle demo (`cargo run --release --example battle`): 20,000 units
-on flow fields, under a millisecond of simulation per frame.*
+on flow fields, under a millisecond of simulation per frame.
+[Play it in your browser](play/battle/).*
 
 ```rust
 use crabbyengine::*;

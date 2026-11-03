@@ -3,7 +3,8 @@
 //! image or text editor show up in the running game.
 
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
+use web_time::Instant;
 
 use crate::Texture;
 
@@ -79,6 +80,10 @@ impl Default for Watcher {
 
 /// `on` unless `CRABBY_HOT_RELOAD` says otherwise.
 pub(crate) fn enabled(on: bool) -> bool {
+    // Web builds have no files to watch.
+    if cfg!(target_arch = "wasm32") {
+        return false;
+    }
     match std::env::var(ENV_HOT_RELOAD).as_deref() {
         Ok("1") => true,
         Ok("0") => false,

@@ -1,6 +1,7 @@
 //! [`Game`]: window creation and the main loop.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 use glam::Vec2;
 
@@ -464,6 +465,10 @@ impl Game {
             ctx.pause();
         }
         if !self.control {
+            return None;
+        }
+        if cfg!(target_arch = "wasm32") {
+            eprintln!("crabbyengine: the control endpoint isn't available in web builds");
             return None;
         }
         match Control::start(&self.title, headless) {

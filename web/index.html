@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{TITLE}} · Crabby Engine</title>
+  <link rel="icon" href="data:,">
+  <style>
+    html, body { margin: 0; height: 100%; background: #14161b; color: #d6d9e0;
+                 font: 15px/1.4 system-ui, sans-serif; overflow: hidden; }
+    /* The game fills the page; winit reports the size to the game. */
+    canvas#crabby { display: block; width: 100vw !important; height: 100vh !important; outline: none; }
+    #status { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; }
+    #status.error { color: #ff8a80; padding: 2em; text-align: center; }
+  </style>
+</head>
+<body>
+  <canvas id="crabby" tabindex="0"></canvas>
+  <div id="status">Loading…</div>
+  <script type="module">
+    import init from "./game.js";
+    const status = document.getElementById("status");
+    const canvas = document.getElementById("crabby");
+    window.addEventListener("error", (e) => {
+      status.className = "error";
+      status.textContent = "The game stopped: " + e.message + " (see the browser console)";
+    });
+    try {
+      await init();
+    } catch (e) {
+      // winit leaves its startup function by throwing; that's not an error.
+      if (!String(e).includes("Using exceptions for control flow")) {
+        status.className = "error";
+        status.textContent = "Could not start the game: " + e + ". It needs a browser with WebGPU or WebGL2.";
+        throw e;
+      }
+    }
+    status.remove();
+    canvas.focus();
+  </script>
+</body>
+</html>

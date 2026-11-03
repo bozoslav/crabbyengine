@@ -1,7 +1,7 @@
 //! The windowed game loop (winit + wgpu), behind the `window` feature.
 
 use std::sync::Arc;
-use std::time::Instant;
+use web_time::Instant;
 
 use glam::Vec2;
 use winit::application::ApplicationHandler;
@@ -24,8 +24,12 @@ where
     #[cfg(feature = "profiling")]
     let _puffin_server = start_profiler();
 
+    #[cfg(target_arch = "wasm32")]
+    crate::web::show_panics_in_console();
     connect_hotpatch();
-    let event_loop = EventLoop::new().unwrap_or_else(|e| panic!("crabbyengine: could not start the event loop: {e}"));
+    let event_loop = EventLoop::<Ready>::with_user_event()
+        .build()
+        .unwrap_or_else(|e| panic!("crabbyengine: could not start the event loop: {e}"));
 
     let clock = Clock::new(game.fixed_hz);
     let mut ctx = Ctx::new(clock.fixed_dt(), Vec2::new(game.width as f32, game.height as f32));
@@ -36,6 +40,8 @@ where
     }
     let control = game.start_control(&mut ctx, false);
     let mut app = App {
+        #[cfg(target_arch = "wasm32")]
+        proxy: Some(event_loop.create_proxy()),
         control,
         config: game,
         setup: Some(setup),
@@ -71,7 +77,13 @@ fn start_profiler() -> Option<puffin_http::Server> {
     }
 }
 
+/// The GPU is ready (with the assets, on the web): setup can run.
+struct Ready(Renderer);
+
 struct App<S> {
+    /// Delivers [`Ready`] from the task that opens the GPU (web builds).
+    #[cfg(target_arch = "wasm32")]
+    proxy: Option<winit::event_loop::EventLoopProxy<Ready>>,
     /// Kept for the whole run: dropping it closes the endpoint.
     control: Option<Control>,
     config: Game,
@@ -142,29 +154,17 @@ where
     }
 }
 
-impl<S, U> ApplicationHandler for App<S>
+impl<S, U> App<S>
 where
     S: FnOnce(&mut Ctx) -> U,
     U: SetupResult,
 {
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.window.is_some() {
+    /// The GPU is open: run setup and start the frames.
+    fn start(&mut self, renderer: Renderer) {
+        let Some(window) = self.window.clone() else {
             return;
-        }
-
-        let attributes = Window::default_attributes()
-            .with_title(self.config.title.clone())
-            .with_inner_size(LogicalSize::new(self.config.width, self.config.height));
-        let window = event_loop
-            .create_window(attributes)
-            .unwrap_or_else(|e| panic!("crabbyengine: could not create the window: {e}"));
-        let window = Arc::new(window);
-
-        self.ctx.renderer = Some(Renderer::new(
-            window.clone(),
-            event_loop.owned_display_handle(),
-            self.config.vsync,
-        ));
+        };
+        self.ctx.renderer = Some(renderer);
         self.ctx.set_window_size(Self::logical_window_size(&window));
         self.ctx.set_scale_factor(window.scale_factor() as f32);
         #[cfg(feature = "inspector")]
@@ -193,7 +193,50 @@ where
         // Don't count setup time (e.g. asset loading) as the first frame's dt.
         self.last_frame = Instant::now();
         window.request_redraw();
-        self.window = Some(window);
+    }
+}
+
+impl<S, U> ApplicationHandler<Ready> for App<S>
+where
+    S: FnOnce(&mut Ctx) -> U,
+    U: SetupResult,
+{
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_some() {
+            return;
+        }
+
+        let attributes = Window::default_attributes()
+            .with_title(self.config.title.clone())
+            .with_inner_size(LogicalSize::new(self.config.width, self.config.height));
+        #[cfg(target_arch = "wasm32")]
+        let attributes = crate::web::canvas_attributes(attributes);
+        let window = event_loop
+            .create_window(attributes)
+            .unwrap_or_else(|e| panic!("crabbyengine: could not create the window: {e}"));
+        let window = Arc::new(window);
+        self.window = Some(window.clone());
+        let display = event_loop.owned_display_handle();
+        let vsync = self.config.vsync;
+
+        // Desktop: open the GPU and start right away.
+        #[cfg(not(target_arch = "wasm32"))]
+        self.start(Renderer::new(window, display, vsync));
+
+        // Web: the browser can't block, so fetch the assets and open the GPU
+        // in a task, which sends `Ready` when done.
+        #[cfg(target_arch = "wasm32")]
+        if let Some(proxy) = self.proxy.take() {
+            wasm_bindgen_futures::spawn_local(async move {
+                crate::web::fetch_assets().await;
+                let renderer = Renderer::new_async(window, display, vsync).await;
+                let _ = proxy.send_event(Ready(renderer));
+            });
+        }
+    }
+
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, Ready(renderer): Ready) {
+        self.start(renderer);
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {

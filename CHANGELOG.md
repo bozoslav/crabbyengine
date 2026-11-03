@@ -42,6 +42,14 @@ Everything so far, ahead of the first release.
 - `crabby_mcp`: an MCP server for AI agents (launch, inspect, edit, step,
   events, logs, stats, screenshots, save and load).
 
+### Web
+- Web builds (wasm32): the same game runs in a browser, drawing with WebGPU
+  or WebGL2. Assets listed in `assets/index.json` are fetched before setup,
+  sound plays through WebAudio, and the inspector opens with `?inspector=open`.
+- `web/build.sh` builds an example or a game's binary into a static site.
+- `crabbyengine::Instant`: an `Instant` that also works in browsers.
+- The docs site publishes playable builds of the battle, flow and ants demos.
+
 ### C and C++
 - C API (`crabby_ffi`) with a generated header, and a header-only C++17
   wrapper (`include/crabby.hpp`) covering nearly the whole engine.

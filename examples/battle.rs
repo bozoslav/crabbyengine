@@ -18,8 +18,6 @@
 //! seeded randomness, and reflection, so `crabby-mcp` agents can inspect a
 //! running battle (the `Score` resource says who's winning) or change any unit.
 
-use std::time::Instant;
-
 use crabbyengine::*;
 use serde::{Deserialize, Serialize};
 

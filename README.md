@@ -14,6 +14,7 @@ the same speed.
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-green)](#license)
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 
+[**▶ Play in your browser**](https://bozoslav.github.io/crabbyengine/play/battle/) ·
 [**Guide**](https://bozoslav.github.io/crabbyengine/) ·
 [**Examples**](#examples) ·
 [**Benchmarks**](https://bozoslav.github.io/crabbyengine/performance.html) ·
@@ -41,6 +42,8 @@ It runs a million units headless at 19 ms per tick.</sub>
 - **Agents can play it.** An [MCP](https://modelcontextprotocol.io) server
   lets AI coding agents launch your game, inspect and edit entities, step
   the simulation, watch events, read logs, and take screenshots.
+- **Runs in the browser.** The same game builds for the web (WebGPU, with
+  WebGL2 as a fallback): [play the battle demo](https://bozoslav.github.io/crabbyengine/play/battle/).
 - **Rust or C++.** A header-only C++17 wrapper over a C API covers nearly the
   whole engine. The C++ version of the battle demo is within 6% of the Rust
   speed.
@@ -162,7 +165,7 @@ cargo run --release --example battle     # two armies, 20k units; click to rally
 
 ## Performance
 
-Release builds on a MacBook Pro (M4 Max). Every number has a command to
+Native release builds on a MacBook Pro (M4 Max); web builds run on one thread and are slower. Every number has a command to
 reproduce it on the [benchmarks page](https://bozoslav.github.io/crabbyengine/performance.html).
 
 | Workload | Time |
@@ -184,6 +187,7 @@ reproduce it on the [benchmarks page](https://bozoslav.github.io/crabbyengine/pe
 - Spatial grids (radius, rectangle, nearest), flow-field pathfinding, events between systems, attachments
 - Deterministic: seeded randomness per (seed, tick, system, entity), even in parallel; save and load the whole world
 - Headless runs for tests, servers and batch simulations; the build without a window has about half as many crates
+- Web builds: WebGPU or WebGL2, assets fetched before setup, sound through WebAudio ([guide](https://bozoslav.github.io/crabbyengine/web.html))
 
 **Drawing, sound, input**
 - wgpu sprite batcher: instancing, z-order, tint, rotation, scale
@@ -224,7 +228,7 @@ change, and the guide is kept in sync with `main`, but the API still
 changes between versions and there's no crates.io release yet. See the
 [changelog](CHANGELOG.md).
 
-Not built in (yet): physics, networking, gamepads, web builds.
+Not built in (yet): physics, networking, gamepads.
 
 ## Contributing
 
