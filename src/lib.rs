@@ -44,6 +44,7 @@ mod ecs;
 mod events;
 mod flow;
 mod game;
+mod hot_reload;
 mod input;
 mod random;
 mod reflect;

@@ -1,0 +1,40 @@
+# Data files: tune without restarting
+
+Keep the numbers you tweak (speeds, damage, costs, wave sizes) in a JSON
+file in `assets/` instead of in code. With [hot reload](drawing.md#hot-reload)
+on (the default in debug builds), saving the file changes them in the
+running game, within a quarter of a second, so you can tune a
+fight while watching it.
+
+<div class="lang-pair">
+<div>
+
+```rust
+{{#include ../../tests/hot_reload.rs:data_files}}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:data_files}}
+```
+
+</div>
+</div>
+
+In Rust the file becomes a resource: any type that implements
+`serde::Deserialize`, replaced whole on each reload (use `#[serde(default)]`
+for optional fields). C and C++ have no resources, so the file is loaded
+into a reflected component on an entity you choose; its fields merge, so
+the file may list only some of them.
+
+- Loading fails with a clear message: a missing file lists the folders
+  searched, and bad JSON says the line and column.
+- A file that doesn't parse while the game runs (often one caught halfway
+  through saving) keeps the old values and prints why; the next good save
+  applies.
+- `ctx.reloaded_files()` names the files reloaded this frame, textures
+  included, for work that depends on them (rebuilding a map, say).
+- Headless runs reload too, so an agent or a test can change a file
+  between ticks.

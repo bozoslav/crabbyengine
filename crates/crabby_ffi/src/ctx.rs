@@ -587,6 +587,38 @@ pub unsafe extern "C" fn crabby_ctx_load_texture(
         })
     })
 }
+/// Loads a JSON file from `assets/` into reflected component `component` of
+/// `entity` (object fields merge; reflect it with `crabby_component_reflect`
+/// first). With hot reload on, editing the file updates the component while
+/// the game runs; a file that doesn't parse keeps the old values. C's way to
+/// keep tunable game data (speeds, costs, waves) in a file.
+/// # Safety
+/// `ctx` must be null or live; `path` a NUL-terminated string.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_load_json(std::ptr::null_mut(), std::ptr::null(), 0, 0) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_load_json(
+    ctx: *mut CrabbyCtx,
+    path: *const c_char,
+    entity: u64,
+    component: u32,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let path = text(path)?;
+            let id = c
+                .world
+                .component_at(component as usize)
+                .ok_or_else(|| invalid("component id is not registered in this world"))?;
+            let full = c.world.component_info(id).name();
+            let name = full.rsplit("::").next().unwrap_or(full).to_string();
+            c.load_component_json(path, Entity::from_bits(entity), &name)
+                .map_err(crate::invalid_owned)
+        })
+    })
+}
 /// Makes a texture from `width * height * 4` RGBA bytes.
 /// ```
 /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_create_texture(std::ptr::null_mut(), 1, 1, std::ptr::null(), 4, std::ptr::null_mut()) } as u32, 1);

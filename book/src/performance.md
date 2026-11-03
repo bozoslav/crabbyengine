@@ -160,6 +160,8 @@ component set costs. Agents get both from the control endpoint's
 
 ## C++
 
+The [battle demo in C++](c-cpp.md#speed) runs at the same speed as the Rust
+one: 21.04 against 20.99 ms/tick for a million units.
 [C++ boids](c-cpp.md#speed) run 1M boids at 34.5 ms/tick headless, against
 31.3 ms/tick for the Rust version; plain column updates are the same speed in
 both (about 0.15 ms per million).

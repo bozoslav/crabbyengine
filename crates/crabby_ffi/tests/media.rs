@@ -256,3 +256,151 @@ fn turns_cycle_through_the_round_with_its_whole_dt() {
     );
     assert_eq!(log.zero, Some(CRABBY_INVALID_ARGUMENT));
 }
+
+#[derive(Default)]
+struct HotReload {
+    path: std::ffi::CString,
+    file: std::path::PathBuf,
+    texture: Option<CrabbyTexture>,
+    /// (tick, reloaded texture ids)
+    seen: Vec<(u64, Vec<u32>)>,
+}
+
+unsafe extern "C" fn edit_and_watch(ctx: *mut CrabbyCtx, user: *mut c_void) {
+    let h = unsafe { &mut *user.cast::<HotReload>() };
+    unsafe {
+        let tick = crabby_ctx_sim_tick(ctx);
+        if h.texture.is_none() {
+            let mut t = std::mem::zeroed();
+            assert_eq!(crabby_ctx_load_texture(ctx, h.path.as_ptr(), &mut t), CRABBY_OK);
+            h.texture = Some(t);
+        }
+        let (mut list, mut n) = (null(), 0);
+        assert_eq!(crabby_ctx_reloaded_textures(ctx, &mut list, &mut n), CRABBY_OK);
+        if n > 0 {
+            let ids = std::slice::from_raw_parts(list, n).iter().map(|t| t.id).collect();
+            h.seen.push((tick, ids));
+        }
+        if tick == 2 {
+            // Save the same image again: a new modification time is a change.
+            let bytes = std::fs::read(&h.file).unwrap();
+            std::fs::write(&h.file, bytes).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(400));
+        }
+    }
+}
+
+#[test]
+fn edited_textures_are_reported_after_reloading() {
+    let dir = std::env::temp_dir().join(format!("crabby-ffi-hot-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("crab.png");
+    std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/crab.png"), &file).unwrap();
+    let mut h = HotReload {
+        path: std::ffi::CString::new(file.to_str().unwrap()).unwrap(),
+        file,
+        ..Default::default()
+    };
+    unsafe {
+        let game = crabby_game_new(c"hot".as_ptr(), 1, 1);
+        assert_eq!(crabby_game_hot_reload(game, true), CRABBY_OK);
+        let user = (&mut h as *mut HotReload).cast();
+        assert_eq!(
+            crabby_game_sim_system(game, c"s".as_ptr(), 1, Some(edit_and_watch), user),
+            CRABBY_OK
+        );
+        let mut world = null_mut();
+        assert_eq!(
+            crabby_game_run_headless(game, 5, None, null_mut(), &mut world),
+            CRABBY_OK
+        );
+        crabby_world_free(world);
+    }
+    let id = h.texture.unwrap().id;
+    assert_eq!(h.seen, vec![(3, vec![id])]);
+    let (mut list, mut n) = (null(), 0);
+    assert_eq!(
+        unsafe { crabby_ctx_reloaded_textures(null(), &mut list, &mut n) },
+        CRABBY_INVALID_ARGUMENT
+    );
+}
+
+#[repr(C)]
+#[derive(Default, Clone, Copy)]
+struct Rules {
+    speed: f32,
+    waves: u32,
+}
+
+#[derive(Default)]
+struct DataTest {
+    path: std::ffi::CString,
+    rules: Rules,
+    statuses: Vec<CrabbyStatus>,
+    errors: Vec<String>,
+}
+
+unsafe extern "C" fn load_rules(ctx: *mut CrabbyCtx, user: *mut c_void) {
+    unsafe {
+        let t = &mut *user.cast::<DataTest>();
+        if crabby_ctx_sim_tick(ctx) > 0 {
+            return;
+        }
+        let w = crabby_ctx_world(ctx);
+        let mut id = 0;
+        assert_eq!(
+            crabby_component_register(w, c"Rules".as_ptr(), 8, 4, &mut id),
+            CRABBY_OK
+        );
+        let mut e = 0;
+        let v = CrabbyValue {
+            component: id,
+            data: (&raw const t.rules).cast(),
+            size: 8,
+        };
+        assert_eq!(crabby_spawn(w, &v, 1, &mut e), CRABBY_OK);
+        // Not reflected yet: refused with a reason.
+        t.statuses.push(crabby_ctx_load_json(ctx, t.path.as_ptr(), e, id));
+        t.errors.push(last_error());
+        let fields = [
+            CrabbyField {
+                name: c"speed".as_ptr(),
+                kind: CrabbyFieldType::CRABBY_FIELD_F32 as u32,
+                offset: 0,
+            },
+            CrabbyField {
+                name: c"waves".as_ptr(),
+                kind: CrabbyFieldType::CRABBY_FIELD_U32 as u32,
+                offset: 4,
+            },
+        ];
+        assert_eq!(crabby_component_reflect(w, id, fields.as_ptr(), 2), CRABBY_OK);
+        t.statuses.push(crabby_ctx_load_json(ctx, t.path.as_ptr(), e, id));
+        t.statuses
+            .push(crabby_ctx_load_json(ctx, c"no-such-rules.json".as_ptr(), e, id));
+        t.errors.push(last_error());
+        let mut out = Rules::default();
+        assert_eq!(crabby_get(w, e, id, (&raw mut out).cast(), 8), CRABBY_OK);
+        t.rules = out;
+    }
+}
+
+#[test]
+fn json_files_load_into_reflected_c_components() {
+    let dir = std::env::temp_dir().join(format!("crabby-ffi-data-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("rules.json");
+    std::fs::write(&file, r#"{"speed": 2.5, "waves": 7}"#).unwrap();
+    let mut t = DataTest {
+        path: std::ffi::CString::new(file.to_str().unwrap()).unwrap(),
+        ..Default::default()
+    };
+    run(1, Some(load_rules), (&raw mut t).cast());
+    assert_eq!(
+        t.statuses,
+        [CRABBY_INVALID_ARGUMENT, CRABBY_OK, CRABBY_INVALID_ARGUMENT]
+    );
+    assert!(t.errors[0].contains("Rules"), "{}", t.errors[0]);
+    assert!(t.errors[1].contains("not found in assets/"), "{}", t.errors[1]);
+    assert_eq!((t.rules.speed, t.rules.waves), (2.5, 7));
+}

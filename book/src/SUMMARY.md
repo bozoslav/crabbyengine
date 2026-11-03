@@ -15,6 +15,7 @@
 - [Camera, text and UI](camera-ui.md)
 - [Sprite sheets, animation, tilemaps](tiles.md)
 - [Sound](audio.md)
+- [Data files: tune without restarting](data-files.md)
 - [Headless runs and testing](headless.md)
 - [C and C++](c-cpp.md)
 - [Reflection: components as JSON](reflection.md)

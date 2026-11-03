@@ -661,6 +661,11 @@ public:
     vec2 mouse_wheel() const { vec2 v{}; detail::check(crabby_ctx_mouse_wheel(raw_, &v)); return v; }
 
     // Textures and drawing.
+    /// Loads a JSON file from assets/ into a reflected component of `e`
+    /// (fields merge); with hot reload on, edits to the file show up live.
+    template<class T> void load_json(const char* path, entity e, const component<T>& token) {
+        detail::check(crabby_ctx_load_json(raw_, path, e, world().id(token)));
+    }
     texture load_texture(const char* path) { texture t{}; detail::check(crabby_ctx_load_texture(raw_, path, &t)); return t; }
     texture create_texture(std::uint32_t w, std::uint32_t h, const std::uint8_t* rgba, std::size_t len) {
         texture t{}; detail::check(crabby_ctx_create_texture(raw_, w, h, rgba, len, &t)); return t;
@@ -708,6 +713,13 @@ public:
 
     /// Spreads work over `every` ticks (safe from query_par callbacks).
     crabby::turns turns(std::uint32_t every) const { crabby::turns t; detail::check(crabby_ctx_turns(raw_, every, &t.raw)); return t; }
+    /// Textures reloaded from changed files at the start of this frame (hot
+    /// reload). They keep their handles; redo anything computed from them.
+    std::vector<texture> reloaded_textures() const {
+        const CrabbyTexture* list = nullptr; std::size_t n = 0;
+        detail::check(crabby_ctx_reloaded_textures(raw_, &list, &n));
+        return std::vector<texture>(list, list + n);
+    }
 
     // Commands: applied after the system; usable inside world().query (not query_par).
     void despawn_later(entity e) { detail::check(crabby_ctx_despawn_later(raw_, e)); }
@@ -807,6 +819,9 @@ public:
     game& vsync(bool on) { return check(crabby_game_vsync(raw_, on)); }
     game& spatial_grid(float cell_size) { return check(crabby_game_spatial_grid(raw_, cell_size)); }
     game& control_endpoint(bool on) { return check(crabby_game_control_endpoint(raw_, on)); }
+    /// Reload textures when their files change, under the same handles (on by
+    /// default in debug builds of the engine; CRABBY_HOT_RELOAD=1/0 overrides).
+    game& hot_reload(bool on) { return check(crabby_game_hot_reload(raw_, on)); }
     /// The built-in camera controls: right/middle drag pans, the wheel zooms.
     game& camera_controls() { return check(crabby_game_camera_controls(raw_)); }
     /// A system on the fixed simulation tick; `every` > 1 runs it every n ticks.
