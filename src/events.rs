@@ -1,0 +1,621 @@
+//! Events: messages from one system to others.
+//!
+//! A system sends with `ctx.events.send(Died { .. })` and others read with
+//! `ctx.events.read::<Died>()`. Every system has its own read position, so a
+//! system that runs every tick (or every frame) sees each event exactly
+//! once: events sent earlier in the same tick right away, later ones on its
+//! next run. Old events are dropped automatically.
+
+use std::any::{Any, TypeId};
+use std::collections::{HashMap, VecDeque};
+
+use serde::Serialize;
+use serde_json::{Value, json};
+
+use crate::reflect::{raw_json, short_name};
+
+/// Messages between systems, by type: [`Ctx::events`](crate::Ctx::events).
+///
+/// ```
+/// use crabbyengine::*;
+///
+/// struct Died(Entity);
+/// struct Health(i32);
+///
+/// fn damage(ctx: &mut Ctx) {
+///     ctx.world.query::<(Entity, &Health)>().for_each(|(e, h)| {
+///         if h.0 <= 0 {
+///             ctx.events.send(Died(e));
+///         }
+///     });
+/// }
+///
+/// fn funerals(ctx: &mut Ctx) {
+///     for died in ctx.events.read::<Died>() {
+///         ctx.world.despawn(died.0);
+///     }
+/// }
+///
+/// let world = Game::new("events", 320, 240)
+///     .sim_system(damage)
+///     .sim_system(funerals)
+///     .run_headless(2, |ctx| {
+///         ctx.world.spawn((Health(0),));
+///         ctx.world.spawn((Health(5),));
+///     });
+/// assert_eq!(world.len(), 1);
+/// ```
+#[derive(Default)]
+pub struct Events {
+    channels: Vec<Box<dyn Channel>>,
+    by_key: HashMap<Key, usize>,
+    /// The channel used last: most systems send one type in a loop.
+    last: Option<(Key, usize)>,
+    /// The system running now (0 outside systems); each has its own cursor.
+    pub(crate) reader: u32,
+    frame: u64,
+    tick: u64,
+    /// Events live at least this many ticks: the slowest `sim_system_every`.
+    pub(crate) keep_ticks: u32,
+    /// Types tools can see as JSON.
+    reflected: Vec<ReflectedEvent>,
+    /// What a tool subscribed to, collected between frames.
+    pub(crate) feed: Option<Feed>,
+}
+
+/// Reader id of the tools' feed; systems count up from 1.
+const FEED_READER: u32 = u32::MAX;
+
+struct ReflectedEvent {
+    name: String,
+    type_id: TypeId,
+    /// Calls back with (tick, JSON) for each event `reader` hasn't seen.
+    drain: fn(&mut Events, u32, &mut dyn FnMut(u64, Value)),
+    kept: fn(&Events) -> usize,
+}
+
+/// Events collected for a tool: the newest `capacity`, oldest first.
+pub(crate) struct Feed {
+    /// Event type names to collect; empty means every reflected type.
+    pub(crate) types: Vec<String>,
+    pub(crate) items: VecDeque<Value>,
+    pub(crate) capacity: usize,
+    /// Events that didn't fit since the last take.
+    pub(crate) dropped: u64,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Key {
+    Type(TypeId),
+    Raw(u32),
+}
+
+impl Events {
+    /// Sends an event to every system that reads `T`.
+    pub fn send<T: 'static>(&mut self, event: T) {
+        let (frame, tick) = (self.frame, self.tick);
+        let ch = self.typed::<T>();
+        ch.log.push(frame, tick);
+        ch.items.push(event);
+    }
+
+    /// The `T` events this system hasn't seen yet, oldest first. The next
+    /// call from the same system returns only newer ones.
+    pub fn read<T: 'static>(&mut self) -> &[T] {
+        let reader = self.reader;
+        let ch = self.typed::<T>();
+        let range = ch.log.read(reader);
+        &ch.items[range]
+    }
+
+    /// Every `T` event still kept, read or not, oldest first. Doesn't move
+    /// this system's read position.
+    pub fn peek<T: 'static>(&self) -> &[T] {
+        match self.by_key.get(&Key::Type(TypeId::of::<T>())) {
+            Some(&i) => {
+                let any: &dyn Any = self.channels[i].as_any();
+                &any.downcast_ref::<Typed<T>>().expect("channel type").items
+            }
+            None => &[],
+        }
+    }
+
+    fn typed<T: 'static>(&mut self) -> &mut Typed<T> {
+        let i = self.channel(Key::Type(TypeId::of::<T>()), || {
+            Box::new(Typed::<T> {
+                log: Log::default(),
+                items: Vec::new(),
+            })
+        });
+        self.channels[i]
+            .as_any_mut()
+            .downcast_mut::<Typed<T>>()
+            .expect("channel type")
+    }
+
+    #[inline]
+    fn channel(&mut self, key: Key, make: impl FnOnce() -> Box<dyn Channel>) -> usize {
+        if let Some((k, i)) = self.last
+            && k == key
+        {
+            return i;
+        }
+        let i = match self.by_key.get(&key) {
+            Some(&i) => i,
+            None => {
+                self.channels.push(make());
+                let i = self.channels.len() - 1;
+                self.by_key.insert(key, i);
+                i
+            }
+        };
+        self.last = Some((key, i));
+        i
+    }
+
+    /// Sends an event of foreign type `id` (C and C++ use component ids):
+    /// `bytes` is one value, at most 16-byte aligned. The first send of an
+    /// id fixes its size.
+    #[doc(hidden)]
+    pub fn send_raw(&mut self, id: u32, bytes: &[u8]) -> Result<(), &'static str> {
+        let (frame, tick) = (self.frame, self.tick);
+        let ch = self.raw(id, bytes.len());
+        if ch.size != bytes.len() {
+            return Err("event size does not match earlier sends of this event type");
+        }
+        ch.push(bytes);
+        ch.log.push(frame, tick);
+        Ok(())
+    }
+
+    /// Unseen events of foreign type `id`: a pointer to `count` values of
+    /// `size` bytes each, 16-byte aligned. Valid until the next send of this
+    /// type or the end of the system.
+    #[doc(hidden)]
+    pub fn read_raw(&mut self, id: u32, size: usize) -> Result<(*const u8, usize), &'static str> {
+        let reader = self.reader;
+        let ch = self.raw(id, size);
+        if ch.size != size {
+            return Err("event size does not match earlier sends of this event type");
+        }
+        let range = ch.log.read(reader);
+        let bytes = ch.bytes();
+        let start = range.start * size;
+        // `start` is at most the length, so the pointer stays in (or one past) the buffer.
+        Ok((bytes[start..].as_ptr(), range.len()))
+    }
+
+    fn raw(&mut self, id: u32, size: usize) -> &mut Raw {
+        let i = self.channel(Key::Raw(id), || {
+            Box::new(Raw {
+                log: Log::default(),
+                id,
+                size,
+                blocks: Vec::new(),
+            })
+        });
+        self.channels[i]
+            .as_any_mut()
+            .downcast_mut::<Raw>()
+            .expect("channel type")
+    }
+
+    /// Lets tools (the control endpoint, the MCP server) see `T` events as
+    /// JSON: list them and subscribe to them. Named by the type's short name.
+    ///
+    /// ```
+    /// use crabbyengine::*;
+    /// #[derive(serde::Serialize)]
+    /// struct Died { who: Entity }
+    ///
+    /// Game::new("events", 320, 240).run_headless(0, |ctx| {
+    ///     ctx.events.reflect::<Died>();
+    /// });
+    /// ```
+    #[track_caller]
+    pub fn reflect<T: Serialize + 'static>(&mut self) {
+        let type_name = std::any::type_name::<T>();
+        let name = short_name(type_name);
+        if let Some(r) = self.reflected.iter().find(|r| r.name == name) {
+            assert!(
+                r.type_id == TypeId::of::<T>(),
+                "Events::reflect: two event types would both be named `{name}`"
+            );
+            return;
+        }
+        fn drain<T: Serialize + 'static>(ev: &mut Events, reader: u32, f: &mut dyn FnMut(u64, Value)) {
+            let ch = ev.typed::<T>();
+            let range = ch.log.read(reader);
+            for i in range {
+                let v = serde_json::to_value(&ch.items[i]).unwrap_or_else(|e| json!({ "error": e.to_string() }));
+                f(ch.log.tick_at(i), v);
+            }
+        }
+        fn kept<T: 'static>(ev: &Events) -> usize {
+            ev.peek::<T>().len()
+        }
+        self.reflected.push(ReflectedEvent {
+            name,
+            type_id: TypeId::of::<T>(),
+            drain: drain::<T>,
+            kept: kept::<T>,
+        });
+    }
+
+    /// Reflected event types and how many of each are kept now, including C
+    /// events whose type is a component described with `reflect_fields`.
+    pub(crate) fn reflected_json(&self, world: &crate::World) -> Vec<Value> {
+        let mut out: Vec<Value> = (self.reflected.iter())
+            .map(|r| json!({ "name": r.name, "kept": (r.kept)(self) }))
+            .collect();
+        for ch in &self.channels {
+            if let Some(raw) = ch.as_any().downcast_ref::<Raw>()
+                && let Some(name) = raw_name(world, raw.id, raw)
+            {
+                out.push(json!({ "name": name, "kept": raw.log.len }));
+            }
+        }
+        out
+    }
+
+    /// Engine side: moves new events of subscribed types into the feed.
+    pub(crate) fn collect_feed(&mut self, world: &crate::World) {
+        let Some(mut feed) = self.feed.take() else {
+            return;
+        };
+        let wanted = |feed: &Feed, name: &str| feed.types.is_empty() || feed.types.iter().any(|t| t == name);
+        for i in 0..self.reflected.len() {
+            if !wanted(&feed, &self.reflected[i].name) {
+                continue;
+            }
+            let (drain, name) = (self.reflected[i].drain, self.reflected[i].name.clone());
+            drain(self, FEED_READER, &mut |tick, data| {
+                feed.push(json!({ "tick": tick, "type": name, "data": data }));
+            });
+        }
+        // In the order the types were first sent, so the feed is reproducible.
+        for i in 0..self.channels.len() {
+            let Some(raw) = self.channels[i].as_any_mut().downcast_mut::<Raw>() else {
+                continue;
+            };
+            let (id, size) = (raw.id, raw.size);
+            let Some(name) = raw_name(world, id, raw).map(str::to_string) else {
+                continue;
+            };
+            if !wanted(&feed, &name) {
+                continue;
+            }
+            let range = raw.log.read(FEED_READER);
+            let Some(component) = world.component_at(id as usize) else {
+                continue;
+            };
+            for e in range {
+                let p = raw.bytes()[e * size..].as_ptr();
+                // SAFETY: `p` covers one `size`-byte event, and `size` is the
+                // component's size (checked by `raw_name`).
+                if let Some((_, data)) = unsafe { raw_json(world, component, p) } {
+                    feed.push(json!({ "tick": raw.log.tick_at(e), "type": name, "data": data }));
+                }
+            }
+        }
+        self.feed = Some(feed);
+    }
+
+    /// Starts a feed of new events of `types` (all reflected types if empty).
+    pub(crate) fn subscribe(&mut self, world: &crate::World, types: Vec<String>, capacity: usize) {
+        self.feed = Some(Feed {
+            types,
+            items: VecDeque::new(),
+            capacity,
+            dropped: 0,
+        });
+        // Only events from now on: skip what's already kept.
+        self.collect_feed(world);
+        if let Some(f) = &mut self.feed {
+            f.items.clear();
+        }
+    }
+
+    /// Engine side: a new frame starts at `frame`, after `tick` ticks. Drops
+    /// events that every system has had its chance to read: at least one
+    /// whole frame old and older than `keep_ticks` ticks.
+    pub(crate) fn begin_frame(&mut self, frame: u64, tick: u64) {
+        self.frame = frame;
+        self.tick = tick;
+        let keep = u64::from(self.keep_ticks.max(1));
+        for ch in &mut self.channels {
+            ch.drop_old(frame, tick, keep);
+        }
+    }
+
+    /// Engine side: the tick counter moved on.
+    pub(crate) fn set_tick(&mut self, tick: u64) {
+        self.tick = tick;
+    }
+}
+
+impl Feed {
+    fn push(&mut self, v: Value) {
+        if self.items.len() == self.capacity {
+            self.items.pop_front();
+            self.dropped += 1;
+        }
+        if self.capacity > 0 {
+            self.items.push_back(v);
+        }
+    }
+}
+
+/// The name of a C event type, if its id is a component described with
+/// `reflect_fields` and of the events' size.
+fn raw_name<'w>(world: &'w crate::World, id: u32, raw: &Raw) -> Option<&'w str> {
+    let component = world.component_at(id as usize)?;
+    if world.component_info(component).layout().size() != raw.size {
+        return None;
+    }
+    crate::reflect::raw_name(world, component)
+}
+
+trait Channel: Any {
+    fn drop_old(&mut self, frame: u64, tick: u64, keep_ticks: u64);
+    fn as_any(&self) -> &dyn Any;
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+}
+
+/// When each kept event was sent, and where each reader is.
+#[derive(Default)]
+struct Log {
+    /// Sequence number of the oldest kept event.
+    base: u64,
+    /// How many events are kept.
+    len: usize,
+    /// Runs of kept events sent in the same frame and tick: (first sequence
+    /// number, frame, tick), oldest first.
+    runs: Vec<(u64, u64, u64)>,
+    /// Next sequence number each reader will read.
+    cursors: Vec<(u32, u64)>,
+}
+
+impl Log {
+    #[inline]
+    fn push(&mut self, frame: u64, tick: u64) {
+        match self.runs.last() {
+            Some(&(_, f, t)) if f == frame && t == tick => {}
+            _ => self.runs.push((self.base + self.len as u64, frame, tick)),
+        }
+        self.len += 1;
+    }
+
+    /// Indexes of events `reader` hasn't seen, and marks them seen.
+    fn read(&mut self, reader: u32) -> std::ops::Range<usize> {
+        let end = self.base + self.len as u64;
+        let cursor = match self.cursors.iter_mut().find(|c| c.0 == reader) {
+            Some(c) => std::mem::replace(&mut c.1, end),
+            None => {
+                self.cursors.push((reader, end));
+                self.base
+            }
+        };
+        let start = cursor.max(self.base) - self.base;
+        start as usize..self.len
+    }
+
+    /// The tick kept event `index` was sent in.
+    fn tick_at(&self, index: usize) -> u64 {
+        let seq = self.base + index as u64;
+        let run = self.runs.partition_point(|r| r.0 <= seq) - 1;
+        self.runs[run].2
+    }
+
+    /// Forgets the oldest events that expired; returns how many.
+    fn drop_expired(&mut self, frame: u64, tick: u64, keep_ticks: u64) -> usize {
+        let gone = self
+            .runs
+            .iter()
+            .take_while(|&&(_, f, t)| f + 1 < frame && t + keep_ticks < tick)
+            .count();
+        if gone == 0 {
+            return 0;
+        }
+        self.runs.drain(..gone);
+        let new_base = self.runs.first().map_or(self.base + self.len as u64, |r| r.0);
+        let n = (new_base - self.base) as usize;
+        self.base = new_base;
+        self.len -= n;
+        n
+    }
+}
+
+struct Typed<T> {
+    log: Log,
+    items: Vec<T>,
+}
+
+impl<T: 'static> Channel for Typed<T> {
+    fn drop_old(&mut self, frame: u64, tick: u64, keep_ticks: u64) {
+        let n = self.log.drop_expired(frame, tick, keep_ticks);
+        if n > 0 {
+            self.items.drain(..n);
+        }
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+/// 16 bytes, 16-byte aligned: storage for foreign events.
+#[derive(Clone, Copy, bytemuck::Zeroable, bytemuck::Pod)]
+#[repr(C, align(16))]
+struct Block([u8; 16]);
+
+/// Foreign events: `size`-byte values packed back to back.
+struct Raw {
+    log: Log,
+    id: u32,
+    size: usize,
+    blocks: Vec<Block>,
+}
+
+impl Raw {
+    fn bytes(&self) -> &[u8] {
+        let all: &[u8] = bytemuck::cast_slice(&self.blocks);
+        &all[..self.log.len * self.size]
+    }
+
+    fn push(&mut self, value: &[u8]) {
+        let start = self.log.len * self.size;
+        let end = start + value.len();
+        self.blocks.resize(end.div_ceil(16), Block([0; 16]));
+        let all: &mut [u8] = bytemuck::cast_slice_mut(&mut self.blocks);
+        all[start..end].copy_from_slice(value);
+    }
+}
+
+impl Channel for Raw {
+    fn drop_old(&mut self, frame: u64, tick: u64, keep_ticks: u64) {
+        let old_len = self.log.len;
+        let n = self.log.drop_expired(frame, tick, keep_ticks);
+        if n > 0 {
+            let all: &mut [u8] = bytemuck::cast_slice_mut(&mut self.blocks);
+            all.copy_within(n * self.size..old_len * self.size, 0);
+            self.blocks.truncate((self.log.len * self.size).div_ceil(16));
+        }
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_reader_sees_each_event_once() {
+        let mut ev = Events::default();
+        ev.send(1u32);
+        ev.reader = 1;
+        assert_eq!(ev.read::<u32>(), &[1]);
+        assert!(ev.read::<u32>().is_empty());
+        ev.send(2u32);
+        ev.reader = 2;
+        assert_eq!(ev.read::<u32>(), &[1, 2]);
+        ev.reader = 1;
+        assert_eq!(ev.read::<u32>(), &[2]);
+        assert_eq!(ev.peek::<u32>(), &[1, 2]);
+    }
+
+    #[test]
+    fn events_last_one_frame_and_keep_ticks() {
+        let mut ev = Events {
+            keep_ticks: 2,
+            ..Default::default()
+        };
+        ev.begin_frame(1, 0);
+        ev.send("a");
+        ev.begin_frame(2, 1);
+        ev.begin_frame(3, 2);
+        assert_eq!(ev.peek::<&str>(), &["a"], "kept for keep_ticks ticks");
+        ev.begin_frame(4, 3);
+        assert!(ev.peek::<&str>().is_empty());
+        // A paused game (no ticks) keeps them for frame systems.
+        ev.send("b");
+        ev.begin_frame(5, 3);
+        ev.begin_frame(6, 3);
+        assert_eq!(ev.peek::<&str>(), &["b"]);
+    }
+
+    #[test]
+    fn a_reader_that_missed_dropped_events_gets_what_is_left() {
+        let mut ev = Events {
+            reader: 1,
+            ..Default::default()
+        };
+        assert!(ev.read::<u8>().is_empty());
+        ev.begin_frame(1, 0);
+        ev.send(1u8);
+        ev.begin_frame(5, 5);
+        ev.send(2u8);
+        assert_eq!(ev.read::<u8>(), &[2]);
+    }
+
+    #[test]
+    fn raw_events_are_packed_aligned_and_dropped() {
+        let mut ev = Events::default();
+        for i in 0..5u8 {
+            ev.send_raw(9, &[i, i, i]).unwrap();
+        }
+        assert!(ev.send_raw(9, &[0; 4]).is_err());
+        assert!(ev.read_raw(9, 4).is_err());
+        ev.reader = 3;
+        let (ptr, n) = ev.read_raw(9, 3).unwrap();
+        assert_eq!(n, 5);
+        assert_eq!(ptr as usize % 16, 0);
+        assert_eq!(ev.raw(9, 3).bytes()[12..15], [4, 4, 4]);
+        ev.begin_frame(1, 0);
+        ev.send_raw(9, &[7, 7, 7]).unwrap();
+        ev.begin_frame(2, 3);
+        assert_eq!(ev.raw(9, 3).bytes(), &[7, 7, 7]);
+        let (_, n) = ev.read_raw(9, 3).unwrap();
+        assert_eq!(n, 1);
+        let (_, n) = ev.read_raw(9, 3).unwrap();
+        assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn feeds_collect_reflected_rust_and_c_events() {
+        use crate::{Field, FieldType, World, WorldReflect};
+        #[derive(serde::Serialize)]
+        struct Ping(u32);
+        struct Hidden;
+
+        let mut world = World::new();
+        // A C struct { float damage; uint32_t target; }.
+        // SAFETY: plain bytes, no destructor; any field values are valid.
+        let hit = unsafe { world.register_component("Hit", 8, 4, None) };
+        unsafe {
+            world.reflect_fields(
+                hit,
+                &[
+                    Field::new("damage", FieldType::F32, 0),
+                    Field::new("target", FieldType::U32, 4),
+                ],
+            );
+        }
+        let mut ev = Events::default();
+        ev.reflect::<Ping>();
+        ev.send(Ping(1)); // before subscribing: not in the feed
+        ev.subscribe(&world, Vec::new(), 10);
+        ev.send(Ping(2));
+        ev.send(Hidden);
+        let mut bytes = [0u8; 8];
+        bytes[..4].copy_from_slice(&2.5f32.to_ne_bytes());
+        bytes[4..].copy_from_slice(&7u32.to_ne_bytes());
+        ev.send_raw(hit.index() as u32, &bytes).unwrap();
+        ev.collect_feed(&world);
+        let feed = ev.feed.as_ref().unwrap();
+        let items: Vec<&Value> = feed.items.iter().collect();
+        assert_eq!(
+            items,
+            [
+                &json!({ "tick": 0, "type": "Ping", "data": 2 }),
+                &json!({ "tick": 0, "type": "Hit", "data": { "damage": 2.5, "target": 7 } }),
+            ]
+        );
+        let names: Vec<Value> = ev.reflected_json(&world).iter().map(|v| v["name"].clone()).collect();
+        assert_eq!(names, [json!("Ping"), json!("Hit")]);
+
+        // Only the asked-for types.
+        ev.subscribe(&world, vec!["Hit".into()], 10);
+        ev.send(Ping(3));
+        ev.send_raw(hit.index() as u32, &bytes).unwrap();
+        ev.collect_feed(&world);
+        assert_eq!(ev.feed.as_ref().unwrap().items.len(), 1);
+    }
+}

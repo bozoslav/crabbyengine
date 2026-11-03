@@ -16,6 +16,11 @@ struct Health {
     max: f32,
 }
 
+#[derive(serde::Serialize)]
+struct Regen {
+    tick: u64,
+}
+
 /// Game-wide state, reflected so agents can read and change it.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Rules {
@@ -27,6 +32,8 @@ fn regen(ctx: &mut Ctx) {
     ctx.world
         .query::<&mut Health>()
         .for_each(|h| h.current = (h.current + 1.0).min(h.max));
+    let tick = ctx.sim_tick();
+    ctx.events.send(Regen { tick });
     ctx.world.resource_mut::<Rules>().round += 1;
 }
 
@@ -39,6 +46,7 @@ fn start_game(name: &'static str) -> (u16, thread::JoinHandle<World>) {
             .sim_system(regen)
             .run_headless(u64::MAX, move |ctx| {
                 ctx.world.reflect::<Health>();
+                ctx.events.reflect::<Regen>();
                 ctx.world.reflect_resource::<Rules>();
                 ctx.world.insert_resource(Rules { regen: 1.0, round: 0 });
                 ctx.pause();
@@ -336,6 +344,24 @@ fn agents_drive_several_games_through_mcp() {
             .unwrap_err()
             .contains("read-only")
     );
+
+    // Events: what happened while ticks ran.
+    let kinds = agent.tool("list_events", json!({ "instance": "alpha" })).unwrap();
+    assert_eq!(kinds[0]["name"], "Regen");
+    viewer
+        .tool("subscribe_events", json!({ "instance": "alpha", "types": ["Regen"] }))
+        .unwrap();
+    let start = agent.tool("instance_info", json!({ "instance": "alpha" })).unwrap()["tick"]
+        .as_u64()
+        .unwrap();
+    agent
+        .tool("run_ticks", json!({ "instance": "alpha", "ticks": 3 }))
+        .unwrap();
+    let got = viewer.tool("take_events", json!({ "instance": "alpha" })).unwrap();
+    let ticks: Vec<u64> = (got["events"].as_array().unwrap().iter())
+        .map(|e| e["data"]["tick"].as_u64().unwrap())
+        .collect();
+    assert_eq!(ticks, [start, start + 1, start + 2]);
 
     agent.tool("quit_instance", json!({ "instance": "alpha" })).unwrap();
     agent.tool("quit_instance", json!({ "instance": b })).unwrap();

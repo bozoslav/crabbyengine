@@ -310,6 +310,19 @@ struct Hud {
     // ANCHOR_END: hot_reload
 }
 
+// ---- Data files ----------------------------------------------------------------------
+// ANCHOR: data_files
+struct Tuning { float speed; float damage; };
+
+[[maybe_unused]] static void load_tuning(crabby::ctx& ctx) {
+    auto tuning = ctx.world().component<Tuning>("Tuning",
+        {crabby::field("speed", &Tuning::speed), crabby::field("damage", &Tuning::damage)});
+    const crabby::entity settings = ctx.world().spawn(tuning.with(Tuning{}));
+    ctx.load_json("tuning.json", settings, tuning);   // {"speed": 30, "damage": 2}
+    // Systems read ctx.world().get(settings, tuning): the file's current values.
+}
+// ANCHOR_END: data_files
+
 // ---- Sound -------------------------------------------------------------------------
 [[maybe_unused]] static void sound(crabby::ctx& ctx) {
     // ANCHOR: sound
@@ -440,6 +453,47 @@ static void steer(crabby::ctx& ctx, const crabby::flow_field& flow,
 }
 // ANCHOR_END: flow_steer
 
+// ---- Events --------------------------------------------------------------------------
+// ANCHOR: events
+struct Hp { int value; };
+struct Died { crabby::entity who; };
+
+// Sends one Died per entity out of health, from inside a query.
+static void deaths(crabby::ctx& ctx, const crabby::component<Hp>& health,
+                   const crabby::component<Died>& died) {
+    ctx.world().query([&](auto chunk) {
+        auto h = chunk.template column<0>();
+        for (std::size_t i = 0; i < chunk.size(); ++i)
+            if (h[i].value <= 0) ctx.send(died, Died{chunk.entity(i)});
+    }, health);
+}
+
+// Any later system (or this one next tick) reads them, once each.
+static void funerals(crabby::ctx& ctx, const crabby::component<Died>& died) {
+    for (const Died& d : ctx.read(died)) ctx.despawn_later(d.who);
+}
+// ANCHOR_END: events
+
+static void the_dead_are_buried() {
+    crabby::component<Hp> health;
+    crabby::component<Died> died;
+    auto world = crabby::game("events", 1, 1)
+        .sim_system([&](crabby::ctx& ctx) { deaths(ctx, health, died); }, "deaths")
+        .sim_system([&](crabby::ctx& ctx) { funerals(ctx, died); }, "funerals")
+        .run_headless(1, [&](crabby::ctx& ctx) {
+            health = ctx.world().component<Hp>("Hp");
+            // ANCHOR: events_reflect
+            // Registered with its fields: tools can collect Died events as JSON.
+            died = ctx.world().component<Died>("Died", {crabby::field("who", &Died::who)});
+            // ANCHOR_END: events_reflect
+            for (int hp : {0, 3, -1, 5}) ctx.world().spawn(health.with(Hp{hp}));
+        });
+    if (world.size() != 2) {
+        std::fprintf(stderr, "events: %zu alive, expected 2\n", world.size());
+        std::abort();
+    }
+}
+
 static void crowds_reach_the_goal() {
     // ANCHOR: flow_compute
     crabby::nav_grid nav(100, 80, 4.0f);   // 100 x 80 cells, 4 world units each
@@ -471,6 +525,7 @@ static void crowds_reach_the_goal() {
 int main() {
     things_fall_ten_units_per_second();
     crowds_reach_the_goal();
+    the_dead_are_buried();
 
     // Run the other snippets headless once, so they're exercised, not only compiled.
     crabby::component<Health> health;

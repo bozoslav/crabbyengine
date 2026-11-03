@@ -269,6 +269,32 @@ fn tools() -> Vec<Tool> {
             required: &[],
         },
         Tool {
+            name: "list_events",
+            description: "Event types the game lets tools see (ctx.events.reflect, or C events whose type is a reflected component) and how many of each are in flight now.",
+            writes: false,
+            params: no_params,
+            required: &[],
+        },
+        Tool {
+            name: "subscribe_events",
+            description: "Start collecting a game's events (messages between systems, e.g. Died or Scored) as they happen, so take_events can show what happened while ticks ran. Starts fresh; the newest `capacity` are kept.",
+            writes: false,
+            params: || {
+                json!({
+                    "types": { "type": "array", "items": { "type": "string" }, "description": "Event type names from list_events (default: all)" },
+                    "capacity": { "type": "integer", "minimum": 0, "description": "Max events kept between takes (default 1000, max 100000)" }
+                })
+            },
+            required: &[],
+        },
+        Tool {
+            name: "take_events",
+            description: "Events collected since subscribe_events or the last take, oldest first, each with its tick, type and data; plus how many were dropped for space.",
+            writes: false,
+            params: no_params,
+            required: &[],
+        },
+        Tool {
             name: "read_logs",
             description: "The last lines of a game's stdout/stderr. Works for games started with `launch`.",
             writes: false,
@@ -617,6 +643,11 @@ impl Server {
             "get_resource" => self.instance(args)?.call("resource.get", pass(&["resource"])),
             "set_resource" => self.instance(args)?.call("resource.set", pass(&["resource", "value"])),
             "read_logs" => self.read_logs(args),
+            "list_events" => self.instance(args)?.call("events.list", json!({})),
+            "subscribe_events" => self
+                .instance(args)?
+                .call("events.subscribe", pass(&["types", "capacity"])),
+            "take_events" => self.instance(args)?.call("events.take", json!({})),
             "set_camera" => self
                 .instance(args)?
                 .call("camera.set", pass(&["position", "zoom", "look_at"])),

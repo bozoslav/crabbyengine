@@ -42,6 +42,8 @@ ctx.world.reflect::<Health>();
 | `get_entity` | | one entity's components |
 | `list_resources` / `get_resource` | | game-wide state: scores, rules, the current round |
 | `system_timings` | | which systems are slow |
+| `list_events` | | event types the game shows tools, and how many are in flight |
+| `subscribe_events` / `take_events` | | collect [events](events.md) while ticks run, then see what happened (each with its tick) |
 | `read_logs` | | stdout/stderr of launched games |
 | `screenshot` | | the next frame of a windowed game, as an image the agent can look at |
 | `set_camera` | | move or zoom the camera (`look_at`, `zoom`, `position`), e.g. before a screenshot |
@@ -111,9 +113,11 @@ deliveries in that time from 328 to 1,747.
 
 ## Making your game agent-friendly
 
-- Reflect the components that matter for gameplay, and the resources that
+- Reflect the components that matter for gameplay, the resources that
   hold game-wide state (`world.reflect_resource::<Score>()`), so an agent
-  can ask "who's winning?" without counting entities.
+  can ask "who's winning?" without counting entities, and the events
+  (`ctx.events.reflect::<Died>()`), so it can see what happened, not only
+  the state afterwards.
 - Read sizes and seeds from environment variables (like the examples'
   `BOIDS` and `HEADLESS`), so `launch` can set them through `env`.
 - Support headless: put game logic in sim systems; it then runs without a

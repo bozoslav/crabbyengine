@@ -88,6 +88,8 @@ other world or context calls throw (C: return `CRABBY_BUSY`), except
 
 - commands: `despawn_later`, `spawn_later`, `set_later`, `remove_later`,
   applied when the system returns (in `query`, not in `query_par`);
+- events: `send` and `read` (in `query`, not in `query_par`; see
+  [Events](events.md));
 - spatial queries, and the clock values `dt()`, `sim_tick()`, `random()`.
 
 `query_par` splits archetypes into slices and runs your function on all

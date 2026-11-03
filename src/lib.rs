@@ -41,6 +41,7 @@ mod color;
 mod control;
 mod ctx;
 mod ecs;
+mod events;
 mod flow;
 mod game;
 mod hot_reload;
@@ -61,6 +62,7 @@ pub use camera::{Camera2D, Rect, camera_controls};
 pub use color::Color;
 pub use ctx::{Ctx, SystemTiming, Turns};
 pub use ecs::{Sprite, Transform2D, draw_sprites};
+pub use events::Events;
 #[doc(hidden)]
 pub use flow::RawFlowView;
 pub use flow::{FlowField, NavGrid};

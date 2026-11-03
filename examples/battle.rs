@@ -130,6 +130,14 @@ impl Battle {
     }
 }
 
+/// A unit died: sent by `resolve`, reflected so tools can watch the
+/// fighting (`crabby-mcp`'s `subscribe_events` / `take_events`).
+#[derive(Serialize)]
+struct Fallen {
+    team: Team,
+    at: Vec2,
+}
+
 /// What new units look like: a sprite when there's a window, nothing headless.
 struct Look(Option<Texture>);
 
@@ -335,14 +343,20 @@ fn resolve() -> impl FnMut(&mut Ctx) {
             }
         }
         let mut alive = [0; 2];
-        let cmds = &mut ctx.commands;
-        ctx.world.query::<(Entity, &Unit)>().for_each(|(e, u)| {
-            if u.hp <= 0.0 {
-                cmds.despawn(e);
-            } else {
-                alive[u.team.index()] += 1;
-            }
-        });
+        let (cmds, events) = (&mut ctx.commands, &mut ctx.events);
+        ctx.world
+            .query::<(Entity, &Transform2D, &Unit)>()
+            .for_each(|(e, t, u)| {
+                if u.hp <= 0.0 {
+                    cmds.despawn(e);
+                    events.send(Fallen {
+                        team: u.team,
+                        at: t.position,
+                    });
+                } else {
+                    alive[u.team.index()] += 1;
+                }
+            });
         let mut fallen = None;
         ctx.world.query::<&Base>().for_each(|b| {
             if b.hp <= 0.0 {
@@ -455,6 +469,7 @@ fn setup(ctx: &mut Ctx, units: usize, seed: u64, sprite: Option<Texture>) {
     battle.set_rally(Team::Blue, bases[0]);
     ctx.world.insert_resource(battle);
     ctx.world.reflect_resource::<Score>();
+    ctx.events.reflect::<Fallen>();
     ctx.world.insert_resource(Score::default());
     ctx.world.insert_resource(Look(sprite));
     start_round(ctx);

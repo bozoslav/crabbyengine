@@ -75,7 +75,7 @@ pub struct Game {
     spatial_cell: Option<f32>,
     /// Open the control endpoint (also on with `CRABBY_CONTROL=1`).
     control: bool,
-    /// Reload textures when their files change (`CRABBY_HOT_RELOAD` overrides).
+    /// Reload asset and data files when they change (`CRABBY_HOT_RELOAD` overrides).
     hot_reload: bool,
 }
 
@@ -88,6 +88,15 @@ struct System {
     /// Simulation systems only: run on ticks where `tick % every == phase`.
     every: u32,
     phase: u32,
+    /// Unique per system: its read position for events.
+    id: u32,
+}
+
+/// Ids for [`System::id`]; 0 means "outside any system".
+fn next_system_id() -> u32 {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static NEXT: AtomicU32 = AtomicU32::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
 }
 
 /// This frame's timing: the clock at the current sim speed (0 while
@@ -111,7 +120,9 @@ fn run_one(s: &mut System, ctx: &mut Ctx, timing_index: usize) {
     puffin::profile_scope!("system", s.name);
     let start = Instant::now();
     ctx.system_index = timing_index;
+    ctx.events.reader = s.id;
     (s.run)(ctx);
+    ctx.events.reader = 0;
     ctx.apply_commands();
     ctx.timings[timing_index].last_ms += start.elapsed().as_secs_f32() * 1000.0;
 }
@@ -123,6 +134,7 @@ impl System {
             run: Box::new(f),
             every: 1,
             phase: 0,
+            id: next_system_id(),
         }
     }
 }
@@ -360,8 +372,9 @@ impl Game {
         self
     }
 
-    /// Reload textures from `assets/` when their files change, under the same
-    /// handles: save an image in your editor and the running game shows it
+    /// Reload textures, fonts, sounds and data files ([`Ctx::load_resource`])
+    /// from `assets/` when their files change, under the same handles: save an
+    /// image or a JSON file in your editor and the running game shows it
     /// within a quarter of a second. On by default in debug builds, off in
     /// release builds; `CRABBY_HOT_RELOAD=1` or `0` overrides both.
     ///
@@ -495,6 +508,7 @@ impl Game {
         for t in &mut ctx.timings {
             t.last_ms = 0.0;
         }
+        ctx.events.keep_ticks = self.sim_systems.iter().map(|s| s.every).max().unwrap_or(1);
     }
 
     /// Runs the simulation without a window or GPU, as fast as possible, and
