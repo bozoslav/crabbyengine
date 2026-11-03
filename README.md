@@ -181,6 +181,7 @@ reproduce it on the [benchmarks page](https://bozoslav.github.io/crabbyengine/pe
 | Boids, 1M, with neighbor search | ~33 ms per tick |
 | 100k events sent and read | 0.42 ms per tick |
 | 1M moving sprites (1.6 px), rendered | 120 FPS (display cap) |
+| 3D, 100k spinning cubes with shadows: Crabby / Unity 6 | **402** / 54 FPS (7.5x) |
 | Memory per entity, 1M agents | 76 bytes |
 
 ## Features

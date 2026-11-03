@@ -69,6 +69,7 @@ pub struct Game {
     fixed_hz: u32,
     seed: u64,
     vsync: bool,
+    fullscreen: bool,
     sim_systems: Vec<System>,
     systems: Vec<System>,
     /// Built-in drawing; runs after every other system so it sees final positions.
@@ -221,6 +222,7 @@ impl Game {
             fixed_hz: DEFAULT_FIXED_HZ,
             seed: crate::random::DEFAULT_SEED,
             vsync: true,
+            fullscreen: false,
             sim_systems: Vec::new(),
             systems: Vec::new(),
             draw_systems: vec![
@@ -592,6 +594,20 @@ impl Game {
     /// ```
     pub fn vsync(mut self, on: bool) -> Self {
         self.vsync = on;
+        self
+    }
+
+    /// Fills the screen with the game instead of opening a window (off by
+    /// default). On macOS, windowed games are shown at most once per display
+    /// refresh even with vsync off; fullscreen ones aren't. Web builds
+    /// ignore it.
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// Game::new("Benchmark", 1280, 720).fullscreen(true).vsync(false).run(|_| |_: &mut Ctx| {});
+    /// ```
+    pub fn fullscreen(mut self, on: bool) -> Self {
+        self.fullscreen = on;
         self
     }
 

@@ -1239,6 +1239,14 @@ impl Ctx {
         }
     }
 
+    /// How long the last frame waited for the display (ms): idle time, not
+    /// work. For benchmarks that subtract it from the frame time.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn display_wait_ms(&self) -> f32 {
+        self.renderer.as_ref().map_or(0.0, Renderer::display_wait_ms)
+    }
+
     /// Draw calls, sprites and vertices of the last rendered frame (all zero headless).
     pub fn render_stats(&self) -> RenderStats {
         self.renderer.as_ref().map(Renderer::stats).unwrap_or_default()

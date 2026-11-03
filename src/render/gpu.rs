@@ -49,6 +49,8 @@ pub(crate) struct Renderer {
     /// Time spent collecting and uploading this frame's 3D models.
     #[cfg(feature = "3d")]
     prepare_3d_ms: f32,
+    /// How long the last frame waited for the window's next image.
+    display_wait_ms: f32,
     /// The last captured frame, waiting to be picked up.
     screenshot: Option<Screenshot>,
 
@@ -377,6 +379,7 @@ impl Renderer {
             stats: RenderStats::default(),
             #[cfg(feature = "3d")]
             three: None,
+            display_wait_ms: 0.0,
             #[cfg(feature = "3d")]
             prepare_3d_ms: 0.0,
             screenshot: None,
@@ -443,6 +446,10 @@ impl Renderer {
             three.prepare(&self.device, &self.queue, frame, lighting, camera, size);
         }
         self.prepare_3d_ms = collect_ms + start.elapsed().as_secs_f32() * 1000.0;
+    }
+
+    pub fn display_wait_ms(&self) -> f32 {
+        self.display_wait_ms
     }
 
     pub fn max_texture_size(&self) -> u32 {
@@ -603,7 +610,10 @@ impl Renderer {
         // `None` when the window can't be drawn to right now; a requested
         // screenshot is still drawn (offscreen), so it never waits on the
         // window being visible.
-        let (frame, status) = match self.surface.get_current_texture() {
+        let acquire_start = web_time::Instant::now();
+        let acquired = self.surface.get_current_texture();
+        self.display_wait_ms = acquire_start.elapsed().as_secs_f32() * 1000.0;
+        let (frame, status) = match acquired {
             wgpu::CurrentSurfaceTexture::Success(t) => (Some(t), FrameStatus::Presented),
             wgpu::CurrentSurfaceTexture::Suboptimal(t) => {
                 // Draw this one, reconfigure for the next.

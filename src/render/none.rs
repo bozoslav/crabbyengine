@@ -16,6 +16,9 @@ impl Renderer {
     pub fn take_screenshot(&mut self) -> Option<Screenshot> {
         match *self {}
     }
+    pub fn display_wait_ms(&self) -> f32 {
+        match *self {}
+    }
     pub fn max_texture_size(&self) -> u32 {
         match *self {}
     }
