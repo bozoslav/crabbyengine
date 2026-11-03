@@ -195,6 +195,45 @@ fn agents_drive_several_games_through_mcp() {
         6.0
     );
 
+    // Questions about many entities: filtered lists and summaries.
+    agent
+        .tool(
+            "spawn_entity",
+            json!({ "instance": "alpha", "components": { "Health": { "current": 2, "max": 2 } } }),
+        )
+        .unwrap();
+    let low = agent
+        .tool(
+            "list_entities",
+            json!({ "instance": "alpha", "where": ["Health.current < 4"] }),
+        )
+        .unwrap();
+    assert_eq!(low["total"], 1);
+    let stats = agent
+        .tool(
+            "entity_stats",
+            json!({ "instance": "alpha", "fields": ["Health.current", "Health.max"] }),
+        )
+        .unwrap();
+    assert_eq!(stats["entities"], 2);
+    assert_eq!(
+        stats["fields"]["Health.current"],
+        json!({ "count": 2, "min": 2.0, "max": 6.0, "mean": 4.0 })
+    );
+    let err = agent
+        .tool(
+            "entity_stats",
+            json!({ "instance": "alpha", "fields": ["Mana.current"] }),
+        )
+        .unwrap_err();
+    assert!(err.contains("not a reflected component"), "{err}");
+    agent
+        .tool(
+            "despawn_entity",
+            json!({ "instance": "alpha", "entity": low["entities"][0]["entity"] }),
+        )
+        .unwrap();
+
     // Resources: listed with their values, changed field by field.
     assert_eq!(
         agent.tool("list_resources", json!({ "instance": "alpha" })).unwrap(),

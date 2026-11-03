@@ -29,6 +29,9 @@ use serde_json::{Value, json};
 use crate::ctx::Ctx;
 use crate::reflect::WorldReflect;
 
+mod query;
+use query::{Condition, FieldPath, FieldStats};
+
 /// Environment variable that turns the endpoint on (`1`).
 pub(crate) const ENV_CONTROL: &str = "CRABBY_CONTROL";
 /// Environment variable that starts the simulation paused (`1`).
@@ -270,6 +273,79 @@ fn handle_line(line: &str, token: &str, tx: &Sender<Request>) -> Value {
     })
 }
 
+/// The JSON of the components an entity was matched on.
+#[derive(Clone, Copy)]
+struct Found<'a> {
+    names: &'a [String],
+    jsons: &'a [Value],
+}
+
+impl<'a> Found<'a> {
+    fn get(&self, component: &str) -> Option<&'a Value> {
+        self.names.iter().position(|n| n == component).map(|i| &self.jsons[i])
+    }
+}
+
+/// Calls `f` for every entity that has the `with` components, the ones the
+/// `fields` name, and passes every `where` condition. `f` gets the entity,
+/// its archetype's component names, and a lookup of the JSON of the
+/// components named in conditions and fields.
+fn for_each_matching(
+    world: &crabby_ecs::World,
+    params: &Value,
+    fields: &[FieldPath],
+    mut f: impl FnMut(Entity, &[&str], Found) -> Result<(), String>,
+) -> Result<(), String> {
+    let mut with: Vec<String> = match params.get("with") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(v) => serde_json::from_value(v.clone()).map_err(|_| "`with` must be a list of component names")?,
+    };
+    let conditions = query::list(params, "where", Condition::parse)?;
+    // The components whose JSON is needed, each once.
+    let mut needed: Vec<String> = Vec::new();
+    for c in conditions.iter().map(|c| &c.path).chain(fields) {
+        if !needed.contains(&c.component) {
+            needed.push(c.component.clone());
+        }
+    }
+    let reflected = world.reflected_components();
+    if let Some(n) = needed.iter().find(|n| !reflected.contains(&n.as_str())) {
+        return Err(format!(
+            "`{n}` is not a reflected component (reflected: {})",
+            reflected.join(", ")
+        ));
+    }
+    with.extend(needed.iter().cloned());
+    let mut jsons: Vec<Value> = Vec::with_capacity(needed.len());
+    for a in world.archetypes().iter().filter(|a| !a.is_empty()) {
+        let names: Vec<&str> = a
+            .component_ids()
+            .iter()
+            .map(|&id| short(world.component_info(id).name()))
+            .collect();
+        if !with.iter().all(|w| names.contains(&w.as_str())) {
+            continue;
+        }
+        for &e in a.entities() {
+            jsons.clear();
+            for n in &needed {
+                jsons.push(world.get_json(e, n).map_err(|e| e.to_string())?);
+            }
+            let found = Found {
+                names: &needed,
+                jsons: &jsons,
+            };
+            if conditions
+                .iter()
+                .all(|c| found.get(&c.path.component).is_some_and(|j| c.holds(j)))
+            {
+                f(e, &names, found)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 fn logs_get(params: &Value) -> Result<Value, String> {
     let since = params.get("since").and_then(Value::as_u64);
     let max = params.get("lines").and_then(Value::as_u64).unwrap_or(100) as usize;
@@ -336,7 +412,11 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
     ),
     (
         "entities.list",
-        "entities with their reflected components as JSON and the names of the others; params: with? (component names), limit? (100), offset?",
+        "entities with their reflected components as JSON and the names of the others; params: with? (component names), where? (like [\"Health.current < 5\"]), limit? (100), offset?",
+    ),
+    (
+        "entities.stats",
+        "count, min, max, mean of reflected fields (per axis for vectors; value counts for names and enums); params: fields (like [\"Health.current\", \"Team\"]), with?, where?",
     ),
     ("entity.get", "one entity's reflected components; params: entity"),
     ("entity.spawn", "spawn from {component: value}; params: components"),
@@ -481,35 +561,44 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
             })
         }
         "entities.list" => {
-            let with: Vec<String> = match params.get("with") {
-                None | Some(Value::Null) => Vec::new(),
-                Some(v) => serde_json::from_value(v.clone()).map_err(|_| "`with` must be a list of component names")?,
-            };
             let limit = usize_param(params, "limit", 100)?.min(MAX_LIST);
             let offset = usize_param(params, "offset", 0)?;
             let world = &ctx.world;
             let reflected = world.reflected_components();
-            let mut total = 0;
-            let mut out = Vec::new();
-            for a in world.archetypes().iter().filter(|a| !a.is_empty()) {
-                let names: Vec<&str> = a
-                    .component_ids()
-                    .iter()
-                    .map(|&id| short(world.component_info(id).name()))
-                    .collect();
-                if !with.iter().all(|w| names.contains(&w.as_str())) {
-                    continue;
-                }
-                let skip = offset.saturating_sub(total).min(a.len());
-                let take = (limit - out.len()).min(a.len() - skip);
-                let other: Vec<&str> = names.iter().copied().filter(|n| !reflected.contains(n)).collect();
-                for &e in &a.entities()[skip..skip + take] {
+            let (mut total, mut out) = (0, Vec::new());
+            for_each_matching(world, params, &[], |e, names, _| {
+                if total >= offset && out.len() < limit {
                     let components = world.entity_json(e).map_err(err)?;
+                    let other: Vec<&str> = names.iter().copied().filter(|n| !reflected.contains(n)).collect();
                     out.push(json!({ "entity": e.to_bits(), "components": components, "other_components": other }));
                 }
-                total += a.len();
-            }
+                total += 1;
+                Ok(())
+            })?;
             json!({ "total": total, "offset": offset, "entities": out })
+        }
+        "entities.stats" => {
+            let fields = query::list(params, "fields", FieldPath::parse)?;
+            if fields.is_empty() {
+                return Err("missing param `fields` (like [\"Health.current\", \"Team\"])".into());
+            }
+            let mut stats: Vec<FieldStats> = fields.iter().map(|_| FieldStats::default()).collect();
+            let mut count = 0u64;
+            for_each_matching(&ctx.world, params, &fields, |_, _, found| {
+                count += 1;
+                for (f, s) in fields.iter().zip(&mut stats) {
+                    if let Some(v) = found.get(&f.component).and_then(|c| f.get(c)) {
+                        s.add(v);
+                    }
+                }
+                Ok(())
+            })?;
+            let by_field: serde_json::Map<String, Value> = fields
+                .iter()
+                .zip(&stats)
+                .map(|(f, s)| (f.text().to_string(), s.to_json()))
+                .collect();
+            json!({ "entities": count, "fields": by_field })
         }
         "entity.get" => ctx.world.entity_json(entity_param(params)?).map_err(err)?,
         "entity.spawn" => {

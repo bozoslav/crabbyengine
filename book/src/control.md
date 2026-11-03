@@ -73,7 +73,8 @@ headless game waits for requests and runs only the ticks you step.
 | `methods` | | every method with a description |
 | `info` | | pid, headless, tick, sim time, paused, speed, fps, entity count, render stats (sprites, draw calls, CPU and GPU ms) |
 | `world.summary` | | entity count, reflected components and resources, archetypes and sizes |
-| `entities.list` | `with?`, `limit?` (100), `offset?` | entities with reflected components as JSON, names of the others |
+| `entities.list` | `with?`, `where?`, `limit?` (100), `offset?` | entities with reflected components as JSON, names of the others |
+| `entities.stats` | `fields`, `with?`, `where?` | `{entities, fields: {path: {count, min, max, mean} or {count, values}}}` (see below) |
 | `entity.get` | `entity` | `{component: value}` |
 | `entity.spawn` | `components` | `{entity}` |
 | `entity.despawn` | `entity` | `true` if it existed |
@@ -102,6 +103,29 @@ Component values use [reflection](reflection.md): call
 `world.reflect::<T>()` for a component, `world.reflect_resource::<R>()` for
 a resource, to make it readable and writable.
 Entity ids are the numbers from `Entity::to_bits`.
+
+## Questions about many entities
+
+A simulation with a million units is too big to list. `entities.stats`
+answers questions about all of them at once, from reflected fields:
+
+```json
+{"method": "entities.stats", "params": {
+  "fields": ["Unit.hp", "Transform2D.position", "Unit.team"],
+  "where": ["Unit.hp < 5"]}}
+```
+
+gives, for the matching entities, `count`, `min`, `max` and `mean` of
+numbers (per axis for vectors like positions) and counts per value for
+names and enums (`"values": {"Red": 120, "Blue": 98}`). A field path is a
+component name, then fields, array elements by number:
+`Transform2D.position.0` is x. A bare component name (`Team`) is its whole
+value.
+
+`where` takes conditions on field paths with `==`, `!=`, `<`, `<=`, `>`,
+`>=` and a JSON value (a bare word is a string: `Unit.team == Red`). It
+filters `entities.list` too. On the battle demo, stats over 1M units take
+about 0.3 s (release); the game is paused for that long.
 
 ## Logs
 

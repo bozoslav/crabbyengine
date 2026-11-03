@@ -229,16 +229,30 @@ fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "list_entities",
-            description: "List entities with their reflected components as JSON and the names of their other components. Filter with `with` (component names); page with `limit`/`offset`.",
+            description: "List entities with their reflected components as JSON and the names of their other components. Filter with `with` (component names) and `where` (conditions on reflected fields); page with `limit`/`offset`. To summarize many entities, use entity_stats instead.",
             writes: false,
             params: || {
                 json!({
                     "with": { "type": "array", "items": { "type": "string" }, "description": "Only entities that have all these components, e.g. [\"Transform2D\", \"Health\"]" },
+                    "where": { "type": "array", "items": { "type": "string" }, "description": "Only entities passing all of these, e.g. [\"Health.current < 5\", \"Team == Red\", \"Transform2D.position.0 > 100\"]. Operators: == != < <= > >=" },
                     "limit": { "type": "integer", "minimum": 0, "description": "Max entities to return (default 100, max 10000)" },
                     "offset": { "type": "integer", "minimum": 0, "description": "Skip this many matching entities first" }
                 })
             },
             required: &[],
+        },
+        Tool {
+            name: "entity_stats",
+            description: "Summarize reflected fields over all matching entities without listing them: count, min, max and mean for numbers (per axis for vectors), counts per value for names and enums (e.g. how many units per team). Works on millions of entities.",
+            writes: false,
+            params: || {
+                json!({
+                    "fields": { "type": "array", "items": { "type": "string" }, "description": "Field paths, e.g. [\"Health.current\", \"Transform2D.position\", \"Team\"] (a bare component name means its whole value)" },
+                    "with": { "type": "array", "items": { "type": "string" }, "description": "Only entities that have all these components" },
+                    "where": { "type": "array", "items": { "type": "string" }, "description": "Only entities passing all of these, e.g. [\"Team == Red\"]" }
+                })
+            },
+            required: &["fields"],
         },
         Tool {
             name: "get_entity",
@@ -641,7 +655,10 @@ impl Server {
             "world_summary" => self.instance(args)?.call("world.summary", json!({})),
             "list_entities" => self
                 .instance(args)?
-                .call("entities.list", pass(&["with", "limit", "offset"])),
+                .call("entities.list", pass(&["with", "where", "limit", "offset"])),
+            "entity_stats" => self
+                .instance(args)?
+                .call("entities.stats", pass(&["fields", "with", "where"])),
             "get_entity" => self.instance(args)?.call("entity.get", pass(&["entity"])),
             "system_timings" => self.instance(args)?.call("systems.timings", json!({})),
             "list_resources" => self.instance(args)?.call("resources.list", json!({})),
