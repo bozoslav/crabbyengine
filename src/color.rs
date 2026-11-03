@@ -81,6 +81,7 @@ impl Color {
     }
 
     /// Linear-light values, which is what an sRGB render target expects.
+    #[cfg(feature = "window")]
     pub(crate) fn to_linear_wgpu(self) -> wgpu::Color {
         fn lin(c: f32) -> f64 {
             let c = f64::from(c.clamp(0.0, 1.0));
@@ -120,6 +121,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "window")]
     fn linear_conversion_endpoints_and_midpoint() {
         let c = Color::rgb(0.0, 1.0, 0.5).to_linear_wgpu();
         assert_eq!(c.r, 0.0);

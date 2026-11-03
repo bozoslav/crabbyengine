@@ -43,8 +43,10 @@ jobs:
             args: --features profiling
           - name: ECS without parallel
             args: -p crabby_ecs --no-default-features
-          - name: engine without audio
+          - name: engine without window or audio
             args: -p crabbyengine --no-default-features
+          - name: engine without window
+            args: -p crabbyengine --no-default-features --features audio
     steps:
       - uses: actions/checkout@v5
       - name: Install ALSA headers (audio)
@@ -87,6 +89,7 @@ jobs:
           - engine-determinism
           - engine-flow
           - engine-hot-reload
+          - engine-without-window
           - mcp
           - ffi-unit
           - ffi-abi
@@ -116,6 +119,7 @@ jobs:
           - { area: engine-determinism, args: -p crabbyengine --test determinism }
           - { area: engine-flow, args: -p crabbyengine --test flow }
           - { area: engine-hot-reload, args: -p crabbyengine --test hot_reload }
+          - { area: engine-without-window, args: -p crabbyengine --tests --no-default-features --features audio }
           - { area: mcp, args: -p crabby_mcp }
           - { area: ffi-unit, args: -p crabby_ffi --lib }
           - { area: ffi-abi, args: -p crabby_ffi --test abi }

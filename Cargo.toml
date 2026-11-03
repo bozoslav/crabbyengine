@@ -8,9 +8,9 @@ crabby_ecs = { path = "crates/crabby_ecs", features = ["serde"] }
 bytemuck = { version = "1.25.2", features = ["derive"] }
 glam = { version = "0.34.2", features = ["serde"] }
 image = { version = "0.25.10", default-features = false, features = ["png"] }
-pollster = "1.0.1"
-wgpu = "30.0.1"
-winit = "0.30.13"
+pollster = { version = "1.0.1", optional = true }
+wgpu = { version = "30.0.1", optional = true }
+winit = { version = "0.30.13", optional = true }
 puffin = { version = "0.20.0", optional = true }
 puffin_http = { version = "0.17.0", optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
@@ -21,7 +21,10 @@ epaint_default_fonts = "0.37.0"
 kira = { version = "0.12.6", default-features = false, features = ["cpal", "ogg", "vorbis", "wav", "pcm", "mp3", "flac"], optional = true }
 
 [features]
-default = ["audio"]
+default = ["audio", "window"]
+# A window and GPU rendering (winit + wgpu). Off: `Game::run_headless` only,
+# for simulation servers and CI; drawing calls do nothing, `Game::run` panics.
+window = ["dep:wgpu", "dep:winit", "dep:pollster"]
 # Sound with kira. Off: the sound API stays and is silent (for servers).
 audio = ["dep:kira"]
 # Frame profiler: per-system scopes, viewable live with `puffin_viewer`

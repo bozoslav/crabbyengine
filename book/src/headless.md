@@ -57,3 +57,34 @@ The same game can run windowed or headless: the boids example does both
 (`HEADLESS=1 cargo run --release --example boids`), and
 [`examples/headless.rs`](https://github.com/bozoslav/crabbyengine/blob/main/examples/headless.rs)
 simulates a million agents this way.
+
+## Builds without a window
+
+A simulation server or a CI job that only runs headless doesn't need winit
+and wgpu. Turn the `window` feature off and keep the rest:
+
+<div class="lang-pair">
+<div>
+
+```toml
+# Cargo.toml
+[dependencies]
+crabbyengine = { version = "*", default-features = false, features = ["audio"] }
+```
+
+</div>
+<div>
+
+```sh
+# Build the C library without a window
+cargo build --release -p crabby_ffi \
+  --no-default-features --features audio
+```
+
+</div>
+</div>
+
+That build has 82 crates instead of 142, builds from clean in 7 s instead of
+15 s (release, M-series Mac) and leaves half the build output. Everything in
+this chapter works the same. Drawing calls do nothing, and `Game::run`
+(C: `crabby_game_run`) stops with a message that says to use `run_headless`.
