@@ -35,6 +35,10 @@ impl Stamp {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Asset {
     Texture(Texture),
+    /// A font id.
+    Font(u32),
+    /// A sound id.
+    Sound(u32),
     /// Index into `Ctx`'s data loaders.
     Data(usize),
 }

@@ -101,11 +101,13 @@ mod backend {
         }
 
         pub fn load(&mut self, bytes: Vec<u8>) -> Result<(u32, f32), String> {
-            let data = StaticSoundData::from_cursor(std::io::Cursor::new(bytes)).map_err(|e| match e {
-                FromFileError::UnsupportedChannelConfiguration => "only mono and stereo sounds are supported".into(),
-                other => format!("could not decode the sound: {other}"),
-            })?;
-            Ok(self.add(data))
+            Ok(self.add(decode(bytes)?))
+        }
+
+        /// Replaces sound `id`'s data (hot reload); playing copies go on.
+        pub fn replace(&mut self, id: u32, bytes: Vec<u8>) -> Result<(), String> {
+            self.sounds[id as usize] = decode(bytes)?;
+            Ok(())
         }
 
         pub fn create(&mut self, sample_rate: u32, samples: &[f32]) -> (u32, f32) {
@@ -150,6 +152,13 @@ mod backend {
         }
     }
 
+    fn decode(bytes: Vec<u8>) -> Result<StaticSoundData, String> {
+        StaticSoundData::from_cursor(std::io::Cursor::new(bytes)).map_err(|e| match e {
+            FromFileError::UnsupportedChannelConfiguration => "only mono and stereo sounds are supported".into(),
+            other => format!("could not decode the sound: {other}"),
+        })
+    }
+
     /// Linear volume (0..1) to decibels.
     fn volume_db(v: f32) -> Decibels {
         if v <= 0.001 {
@@ -175,6 +184,10 @@ mod backend {
         pub fn load(&mut self, _bytes: Vec<u8>) -> Result<(u32, f32), String> {
             self.count += 1;
             Ok((self.count - 1, 0.0))
+        }
+
+        pub fn replace(&mut self, _id: u32, _bytes: Vec<u8>) -> Result<(), String> {
+            Ok(())
         }
 
         pub fn create(&mut self, sample_rate: u32, samples: &[f32]) -> (u32, f32) {
@@ -220,8 +233,9 @@ impl Ctx {
             .load(bytes)
             .unwrap_or_else(|e| panic!("crabbyengine: {}: {e}", key.0.display()));
         let sound = Sound { id, seconds };
-        self.loaded.insert(key, self.cached_sounds.len() as u64);
+        self.loaded.insert(key.clone(), self.cached_sounds.len() as u64);
         self.cached_sounds.push(sound);
+        self.watcher.watch(path, key.0, crate::hot_reload::Asset::Sound(id));
         sound
     }
 

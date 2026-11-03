@@ -120,6 +120,15 @@ impl Text {
         Ok(Font(self.fonts.len() as u32 - 1))
     }
 
+    /// Replaces a loaded font's data (hot reload); its glyphs are drawn again.
+    pub fn replace_font(&mut self, font: Font, bytes: &[u8]) -> Result<(), String> {
+        let new = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default())
+            .map_err(|e| format!("not a font file this engine can read: {e}"))?;
+        self.fonts[font.0 as usize] = Some(new);
+        self.glyphs.retain(|k, _| k.0 != font.0);
+        Ok(())
+    }
+
     fn font(&mut self, font: Font) -> &fontdue::Font {
         let slot = &mut self.fonts[font.0 as usize];
         slot.get_or_insert_with(|| {

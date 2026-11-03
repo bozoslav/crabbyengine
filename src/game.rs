@@ -75,7 +75,7 @@ pub struct Game {
     spatial_cell: Option<f32>,
     /// Open the control endpoint (also on with `CRABBY_CONTROL=1`).
     control: bool,
-    /// Reload textures and data files when they change (`CRABBY_HOT_RELOAD` overrides).
+    /// Reload asset and data files when they change (`CRABBY_HOT_RELOAD` overrides).
     hot_reload: bool,
 }
 
@@ -372,8 +372,8 @@ impl Game {
         self
     }
 
-    /// Reload textures and data files ([`Ctx::load_resource`]) from `assets/`
-    /// when their files change, textures under the same handles: save an
+    /// Reload textures, fonts, sounds and data files ([`Ctx::load_resource`])
+    /// from `assets/` when their files change, under the same handles: save an
     /// image or a JSON file in your editor and the running game shows it
     /// within a quarter of a second. On by default in debug builds, off in
     /// release builds; `CRABBY_HOT_RELOAD=1` or `0` overrides both.

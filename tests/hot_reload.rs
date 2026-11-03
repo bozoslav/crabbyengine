@@ -168,3 +168,73 @@ fn the_guide_data_file_example_runs() {
         .run_headless(1, |ctx| load_tuning(ctx, &name));
     assert_eq!(world.resource::<Tuning>().speed, 30.0);
 }
+
+/// Loads `name` (written as `before`) with `load`, rewrites it as `after`
+/// on tick 1, and returns the ticks on which it was listed as reloaded.
+fn reload_ticks(name: &str, before: &[u8], after: Vec<u8>, load: fn(&mut Ctx, &str)) -> Vec<u64> {
+    let dir = std::env::temp_dir().join(format!("crabby-media-reload-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(name);
+    std::fs::write(&path, before).unwrap();
+    let file = path.to_str().unwrap().to_string();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let log = seen.clone();
+    let watched = file.clone();
+    Game::new("media", 1, 1)
+        .hot_reload(true)
+        .sim_system(move |ctx: &mut Ctx| {
+            if ctx.reloaded_files().contains(&watched) {
+                log.lock().unwrap().push(ctx.sim_tick());
+            }
+            if ctx.sim_tick() == 1 {
+                std::fs::write(&path, &after).unwrap();
+                std::thread::sleep(Duration::from_millis(400));
+            }
+        })
+        .run_headless(4, move |ctx| load(ctx, &file));
+    seen.lock().unwrap().clone()
+}
+
+fn wav(samples: usize, level: i16) -> Vec<u8> {
+    let data_len = (samples * 2) as u32;
+    let mut out = Vec::new();
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&(36 + data_len).to_le_bytes());
+    out.extend_from_slice(b"WAVEfmt ");
+    for v in [
+        16u32.to_le_bytes(),
+        [1, 0, 1, 0],
+        8000u32.to_le_bytes(),
+        16000u32.to_le_bytes(),
+        [2, 0, 16, 0],
+    ] {
+        out.extend_from_slice(&v);
+    }
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&data_len.to_le_bytes());
+    for _ in 0..samples {
+        out.extend_from_slice(&level.to_le_bytes());
+    }
+    out
+}
+
+#[test]
+fn edited_fonts_reload_and_broken_ones_are_kept() {
+    let font = epaint_default_fonts::UBUNTU_LIGHT;
+    let load = |ctx: &mut Ctx, f: &str| {
+        ctx.load_font(f);
+    };
+    assert_eq!(reload_ticks("good.ttf", font, font[..].to_vec(), load), [2]);
+    assert_eq!(
+        reload_ticks("broken.ttf", font, b"not a font".to_vec(), load),
+        Vec::<u64>::new()
+    );
+}
+
+#[test]
+fn edited_sounds_reload() {
+    let load = |ctx: &mut Ctx, f: &str| {
+        ctx.load_sound(f);
+    };
+    assert_eq!(reload_ticks("beep.wav", &wav(800, 1000), wav(1600, 2000), load), [2]);
+}

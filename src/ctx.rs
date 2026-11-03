@@ -816,7 +816,8 @@ impl Ctx {
             .text
             .add_font(&bytes)
             .unwrap_or_else(|e| panic!("crabbyengine: {}: {e}", file.display()));
-        self.loaded.insert((file, AssetKind::Font), u64::from(font.0));
+        self.loaded.insert((file.clone(), AssetKind::Font), u64::from(font.0));
+        self.watcher.watch(path, file, Asset::Font(font.0));
         font
     }
 
@@ -944,7 +945,17 @@ impl Ctx {
         &self.watcher.reloaded
     }
 
-    /// Reloads textures and data files that changed (checked a few times a second).
+    fn report_reload(&mut self, name: String, applied: Result<(), String>) {
+        match applied {
+            Ok(()) => {
+                eprintln!("crabbyengine: reloaded {name}");
+                self.watcher.reloaded_files.push(name);
+            }
+            Err(e) => eprintln!("crabbyengine: could not reload {name} (keeping the old one): {e}"),
+        }
+    }
+
+    /// Reloads textures, fonts, sounds and data files that changed (checked a few times a second).
     pub(crate) fn reload_changed_assets(&mut self) {
         self.watcher.reloaded.clear();
         self.watcher.reloaded_files.clear();
@@ -956,17 +967,25 @@ impl Ctx {
         for (asset, file, name) in changed.drain(..) {
             let texture = match asset {
                 Asset::Texture(t) => t,
+                Asset::Font(id) => {
+                    let applied = std::fs::read(&file)
+                        .map_err(|e| e.to_string())
+                        .and_then(|bytes| self.text.replace_font(Font(id), &bytes));
+                    self.report_reload(name, applied);
+                    continue;
+                }
+                Asset::Sound(id) => {
+                    let applied = std::fs::read(&file)
+                        .map_err(|e| e.to_string())
+                        .and_then(|bytes| self.audio.replace(id, bytes));
+                    self.report_reload(name, applied);
+                    continue;
+                }
                 Asset::Data(i) => {
                     let applied = std::fs::read_to_string(&file)
                         .map_err(|e| e.to_string())
                         .and_then(|text| (self.data_loaders[i])(&mut self.world, &text));
-                    match applied {
-                        Ok(()) => {
-                            eprintln!("crabbyengine: reloaded {name}");
-                            self.watcher.reloaded_files.push(name);
-                        }
-                        Err(e) => eprintln!("crabbyengine: could not reload {name} (keeping the old values): {e}"),
-                    }
+                    self.report_reload(name, applied);
                     continue;
                 }
             };
