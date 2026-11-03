@@ -4,8 +4,8 @@ The game world lives in `ctx.world`, an entity-component system (ECS).
 
 - An **entity** is an id (`Entity`). It has no data of its own.
 - A **component** is any `Send + Sync + 'static` Rust type. No derive needed.
-  In C++ it is a plain struct (trivially copyable), registered by name once
-  with `world.component<T>("Name")`, which gives a token you use in calls.
+  In C++ it is any plain struct (trivially copyable), found by its type:
+  nothing to register.
 - A **query** visits every entity that has a given set of components.
 
 ## Spawning
@@ -34,7 +34,7 @@ ctx.world.spawn_batch((0..100_000).map(|i| (Transform2D::at(vec2(i as f32, 0.0))
 </div>
 
 A tuple of components is a *bundle*; bundles go up to 12 components. C++
-passes values as `token.with(value)`.
+passes the components straight to `spawn`.
 
 ```cpp
 {{#include ../../examples/cpp/guide.cpp:ecs_components}}
@@ -87,13 +87,23 @@ ctx.world
 </div>
 </div>
 
-In C++ a query hands you whole columns, one *chunk* (archetype) at a time,
-in the order you listed the tokens; `chunk.entity(i)` is row `i`'s entity.
-`world.query_par` is the C++ `par_for_each`: your function runs on all
-cores at once, so it must only touch its own chunk. To fill a buffer from
-it, size the buffer with `world.count(tokens...)` and write row `i` of a
-chunk to slot `chunk.first() + i`: rows are numbered the same way in every
-query.
+In C++, `each` reads the components to visit from your function's
+parameters: `T&` to change one, `const T&` to read it, and a first
+`crabby::entity` parameter gets the entity's id. `world.each_par` is the C++
+`par_for_each`: your function runs on all cores at once, so it must only
+touch its own entity.
+
+For code that works on whole arrays, `world.query<A, B>(fn)` hands you one
+*chunk* (archetype) at a time, with an array per component:
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:ecs_columns}}
+```
+
+`each` compiles to the same loop, so it's as fast. With `query_par`, size a
+buffer with `world.count<A, B>()` and write row `i` of a chunk to slot
+`chunk.first() + i` to fill it from all cores: rows are numbered the same
+way in every query.
 
 What you can ask for (Rust):
 

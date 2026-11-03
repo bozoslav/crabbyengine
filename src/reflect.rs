@@ -922,8 +922,11 @@ impl WorldReflect for World {
         let mut not_saved: std::collections::BTreeMap<String, usize> = Default::default();
         for a in self.archetypes().iter().filter(|a| !a.is_empty()) {
             for &id in a.component_ids() {
-                let name = short_name(self.component_info(id).name());
-                if !reflected.contains(&name.as_str()) {
+                // Rust components are reflected under their short name, C ones
+                // under the name they were registered with ("game::Health").
+                let full = self.component_info(id).name();
+                let name = short_name(full);
+                if !reflected.contains(&name.as_str()) && !reflected.contains(&full) {
                     *not_saved.entry(name).or_default() += a.len();
                 }
             }

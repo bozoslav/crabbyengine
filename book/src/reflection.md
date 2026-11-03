@@ -27,9 +27,11 @@ Add `serde = { version = "1", features = ["derive"] }` to your `Cargo.toml`.
 
 ## C and C++ components
 
-C++ has no serde, so a C++ component lists its fields when it is
-registered. From then on it is a reflected component like any other:
-agents read and write it through `crabby-mcp`, and saves include it.
+C++ has no serde, so a C++ component lists its fields with
+`world.reflect<T>`. From then on it is a reflected component like any other:
+agents read and write it through `crabby-mcp`, and saves include it, under
+the type's name (`Unit`, or `game::Unit` in a namespace) or the one you pass
+first: `world.reflect<Unit>("Soldier", {...})`.
 
 ```cpp
 {{#include ../../examples/cpp/guide.cpp:reflect}}

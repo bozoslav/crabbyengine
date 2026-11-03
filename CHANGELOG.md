@@ -51,6 +51,13 @@ Everything so far, ahead of the first release.
 - The docs site publishes playable builds of the battle, flow and ants demos.
 
 ### C and C++
+- C++: components are found by their type, with nothing to register:
+  `world.spawn(transform_at(p), Health{100})`, `world.get<Health>(e)`,
+  `world.each([](transform2d& t, const Vel& v) { ... })` (as fast as a
+  hand-written loop), `each_par` on all cores, `ctx.send(Died{e})` and
+  `ctx.read<Died>()`. `world.reflect<T>(fields)` describes a type for tools
+  and saves. Replaces component tokens (`world.component<T>("Name")`,
+  `token.with(value)`).
 - C API (`crabby_ffi`) with a generated header, and a header-only C++17
   wrapper (`include/crabby.hpp`) covering nearly the whole engine.
 

@@ -13,9 +13,9 @@ next to the Rust one.
 - One shared library, `crabby_ffi` (`libcrabby_ffi.dylib`/`.so`,
   `crabby_ffi.dll`).
 
-Systems get **whole component columns**, so a million entities never mean a
-million calls across the language boundary, and `query_par` runs C++ code on
-all cores.
+Loops over entities run in your C++ code, over **whole component arrays**,
+so a million entities never mean a million calls across the language
+boundary, and `each_par` runs them on all cores.
 
 ## Build and run the examples
 
@@ -66,15 +66,16 @@ components; store ids or indices and keep other objects outside the ECS.
 {{#include ../../examples/cpp/main.cpp:cpp_components}}
 ```
 
-Register each type by name once; the token you get is how calls name it.
-Tokens belong to one game or world, and reusing a name for a different C++
-type is an error, even with the same layout.
+There's nothing to register: calls find a component by its C++ type, and
+the engine learns about the type the first time it sees one. It's named
+after the type, namespaces included (`game::Health`), which is how tools and
+saves show it; `world.reflect<T>("Name", fields)` picks another name.
 
-The built-ins: `world.transforms()` is `Transform2D` (`crabby::transform2d`,
-the same bytes as Rust, usable as a query column), and `world.sprites()` is
-`Sprite` (`crabby::sprite`: spawn, get and set, but not a query column, since
-the engine stores sprites in a Rust layout). Rust components without a C
-layout are refused by every call.
+The built-ins are C++ types too: `crabby::transform2d` is `Transform2D`
+(the same bytes as Rust), `crabby::attached` is `Attached`,
+`crabby::animation` is `Animation`, and `crabby::sprite` is `Sprite`
+(spawn, get and set, but not a query parameter, since the engine stores
+sprites in a Rust layout; the compiler tells you).
 
 ```cpp
 {{#include ../../examples/cpp/main.cpp:cpp_world}}
@@ -82,19 +83,25 @@ layout are refused by every call.
 
 ## Queries and threads
 
-A query calls your function once per archetype (*chunk*) with columns in the
-order you listed the tokens. While it runs, the world and context are busy:
+`world.each(fn)` calls your function for every entity with the components
+it takes (see [Queries](ecs.md#queries)); `world.query<A, B>(fn)` hands you
+whole arrays instead. While a loop runs, the world and context are busy:
 other world or context calls throw (C: return `CRABBY_BUSY`), except
 
 - commands: `despawn_later`, `spawn_later`, `set_later`, `remove_later`,
-  applied when the system returns (in `query`, not in `query_par`);
-- events: `send` and `read` (in `query`, not in `query_par`; see
+  applied when the system returns (in `each` and `query`, not in the `_par`
+  versions);
+- events: `send` and `read` (also not in the `_par` versions; see
   [Events](events.md));
 - spatial queries, and the clock values `dt()`, `sim_tick()`, `random()`.
 
-`query_par` splits archetypes into slices and runs your function on all
-cores at once. It must only touch its own chunk and read shared data; that
-is the same rule as Rust's `par_for_each`.
+`each_par` and `query_par` split archetypes into slices and run your function
+on all cores at once. It must only touch its own entity and read shared
+data; that is the same rule as Rust's `par_for_each`.
+
+`each` is as fast as a hand-written loop over the arrays: 1M entities,
+`position += velocity`, take 0.15 ms either way
+(`examples/cpp/bench.cpp`).
 
 Everything else stays on the thread that runs the game.
 
@@ -128,8 +135,8 @@ development Mac (arm64, 2026-11-03):
 
 The remaining gap is mostly the C++ version copying velocities into its own
 array each tick before rebuilding its grid. Plain column updates (one million
-`p += v`, `cargo run --release --example ffi_bench` vs `crabby_cpp_bench`) run
-at the same speed in both: about 0.15 ms.
+`p += v`, `cargo run --release --example ffi_bench` vs `crabby_cpp_bench`,
+which times `each` and `query`) run at the same speed in both: about 0.15 ms.
 
 Grid queries in hot loops should use views (`ctx.spatial_view()`,
 `grid.view()`): the header walks the grid inline, as Rust does. Through the

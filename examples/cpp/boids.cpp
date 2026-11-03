@@ -34,8 +34,6 @@ static double env_number(const char* name, double fallback) {
 struct Flocking {
     explicit Flocking(vec2 world_size) : bounds(world_size) {}
     vec2 bounds;
-    crabby::component<crabby::transform2d> transforms;
-    crabby::component<Vel> vel;
     std::shared_ptr<crabby::grid> grid = std::make_shared<crabby::grid>(RADIUS);
     std::shared_ptr<std::vector<crabby::grid_item>> items = std::make_shared<std::vector<crabby::grid_item>>();
     std::shared_ptr<std::vector<vec2>> velocities = std::make_shared<std::vector<vec2>>();
@@ -47,43 +45,34 @@ struct Flocking {
         if (ctx.sim_tick() % SPATIAL_SORT_EVERY == 0) world.sort_spatial(RADIUS);
         items->clear();
         velocities->clear();
-        world.query([&](auto chunk) {
-            auto t = chunk.template column<0>();
-            auto v = chunk.template column<1>();
-            for (std::size_t i = 0; i < chunk.size(); ++i) {
-                items->push_back({chunk.entities()[i], t[i].position, std::uint32_t(velocities->size())});
-                velocities->push_back(v[i].v);
-            }
-        }, transforms, vel);
+        world.each([&](crabby::entity e, const crabby::transform2d& t, const Vel& v) {
+            items->push_back({crabby::entity_of(e), t.position, std::uint32_t(velocities->size())});
+            velocities->push_back(v.v);
+        });
         grid->rebuild(*items);
 
         const auto view = grid->view();
         const auto& vels = *velocities;
         const vec2 b = bounds;
-        world.query_par([&](auto chunk) {
-            auto t = chunk.template column<0>();
-            auto v = chunk.template column<1>();
-            for (std::size_t i = 0; i < chunk.size(); ++i) {
-                const CrabbyEntity me = chunk.entities()[i];
-                vec2 away{0, 0}, heading{0, 0}, center{0, 0};
-                float n = 0;
-                view.for_each_in_radius(t[i].position, RADIUS, [&](const crabby::grid_item& o) {
-                    if (o.entity.index == me.index && o.entity.generation == me.generation) return;
-                    const vec2 d = t[i].position - o.position;
-                    away += d / std::max(crabby::length_squared(d), 1.0f);
-                    heading += vels[o.data];
-                    center += o.position;
-                    n += 1;
-                });
-                vec2 steer = away * 900.0f;
-                if (n > 0) steer += (heading / n - v[i].v) * 1.5f + (center / n - t[i].position) * 1.2f;
-                const vec2 next = v[i].v + steer * dt;
-                const float speed = std::min(std::max(crabby::length(next), MIN_SPEED), MAX_SPEED);
-                v[i].v = crabby::normalize_or(next, {1, 0}) * speed;
-                t[i].position = crabby::rem_euclid(t[i].position + v[i].v * dt, b);
-                t[i].rotation = crabby::to_angle(v[i].v);
-            }
-        }, transforms, vel);
+        world.each_par([&](crabby::entity me, crabby::transform2d& t, Vel& v) {
+            vec2 away{0, 0}, heading{0, 0}, center{0, 0};
+            float n = 0;
+            view.for_each_in_radius(t.position, RADIUS, [&](const crabby::grid_item& o) {
+                if (crabby::bits(o.entity) == me) return;
+                const vec2 d = t.position - o.position;
+                away += d / std::max(crabby::length_squared(d), 1.0f);
+                heading += vels[o.data];
+                center += o.position;
+                n += 1;
+            });
+            vec2 steer = away * 900.0f;
+            if (n > 0) steer += (heading / n - v.v) * 1.5f + (center / n - t.position) * 1.2f;
+            const vec2 next = v.v + steer * dt;
+            const float speed = std::min(std::max(crabby::length(next), MIN_SPEED), MAX_SPEED);
+            v.v = crabby::normalize_or(next, {1, 0}) * speed;
+            t.position = crabby::rem_euclid(t.position + v.v * dt, b);
+            t.rotation = crabby::to_angle(v.v);
+        });
     }
 };
 // ANCHOR_END: cpp_flocking
@@ -97,11 +86,9 @@ static void controls(crabby::ctx& ctx) {
     if (ctx.key_pressed(CRABBY_KEY_ESCAPE)) ctx.quit();
 }
 
-static void spawn_boids(crabby::ctx& ctx, Flocking& f, std::size_t n) {
+static void spawn_boids(crabby::ctx& ctx, const Flocking& f, std::size_t n) {
     auto world = ctx.world();
-    f.transforms = world.transforms();
-    f.vel = world.component<Vel>("Vel", {crabby::field("v", &Vel::v)});   // agents can read and set it
-    auto sprites = world.sprites();
+    world.reflect<Vel>({crabby::field("v", &Vel::v)});   // agents can read and set it
     const crabby::texture tex = ctx.load_texture("crab.png");
     std::uint64_t s = 0x9E3779B97F4A7C15ull;
     auto rand = [&] {
@@ -112,9 +99,7 @@ static void spawn_boids(crabby::ctx& ctx, Flocking& f, std::size_t n) {
         const vec2 pos{rand() * f.bounds.x, rand() * f.bounds.y};
         const vec2 vel = crabby::from_angle(rand() * 6.2831853f) * MIN_SPEED;
         const crabby::color tint = crabby::rgb(0.5f + rand() * 0.5f, 0.7f + rand() * 0.3f, 0.9f);
-        world.spawn(f.transforms.with(crabby::transform_at(pos, 0, {0.5f, 0.5f})),
-                    sprites.with(crabby::sprite_of(tex, tint)),
-                    f.vel.with(Vel{vel}));
+        world.spawn(crabby::transform_at(pos, 0, {0.5f, 0.5f}), crabby::sprite_of(tex, tint), Vel{vel});
     }
 }
 

@@ -1,9 +1,12 @@
 // Crabby Engine for C++17: a header-only wrapper over crabby.h.
 //
 // Mirrors the Rust API: crabby::game is Game, crabby::ctx is Ctx,
-// crabby::world_view is World. Errors become exceptions; exceptions thrown by
-// your systems and callbacks are caught before they reach the engine and
-// rethrown from run()/run_headless()/query().
+// crabby::world_view is World. Components are plain structs, found by their
+// C++ type: world.spawn(Health{100}), world.get<Health>(e) and
+// world.each([](crabby::transform2d& t, const Health& h) { ... }).
+// Errors become exceptions; exceptions thrown by your systems and callbacks
+// are caught before they reach the engine and rethrown from
+// run()/run_headless()/each()/query().
 #ifndef CRABBY_HPP
 #define CRABBY_HPP
 #include "crabby.h"
@@ -12,6 +15,7 @@
 #include <atomic>
 #include <climits>
 #include <cmath>
+#include <cstring>
 #include <cstdint>
 #include <exception>
 #include <functional>
@@ -77,7 +81,7 @@ inline vec2 rem_euclid(vec2 v, vec2 m) {
     return {r(v.x, m.x), r(v.y, m.y)};
 }
 /// The id other calls take, from an entity in a query chunk.
-inline entity bits(CrabbyEntity e) { return crabby_entity_bits(e); }
+inline entity bits(CrabbyEntity e) { return entity(e.generation) << 32 | e.index; }
 /// The entity struct (as in query chunks and crabby::attached) for an id.
 inline CrabbyEntity entity_of(entity e) { return {static_cast<std::uint32_t>(e), static_cast<std::uint32_t>(e >> 32)}; }
 
@@ -178,13 +182,52 @@ public:
     rng of(entity e) const { return stream(e); }
 };
 
+class ctx;
 namespace detail {
-struct identity { std::unordered_map<std::uint32_t, std::type_index> types; };
 inline void check(CrabbyStatus status) {
     if (status != CRABBY_OK) throw std::runtime_error(crabby_last_error());
 }
 template<class T> constexpr bool pod = std::is_trivially_copyable<T>::value &&
     std::is_trivially_destructible<T>::value && std::is_standard_layout<T>::value;
+template<class T> using bare = typename std::remove_cv<typename std::remove_reference<T>::type>::type;
+
+/// A small number per C++ type, so a world finds a type's component id by
+/// indexing an array instead of a hash map.
+inline std::size_t next_type_slot() { static std::atomic<std::size_t> next{0}; return next++; }
+template<class T> std::size_t type_slot() { static const std::size_t slot = next_type_slot(); return slot; }
+
+/// The name a component gets unless reflect() names it: the C++ type's name
+/// with its namespaces, as the compiler spells it ("Health", "game::Unit").
+template<class T> std::string make_type_name() {
+#if defined(_MSC_VER) && !defined(__clang__)
+    std::string s = __FUNCSIG__;
+    const auto open = s.find("make_type_name<") + 15;
+    s = s.substr(open, s.rfind(">(") - open);
+    for (const char* prefix : {"struct ", "class ", "enum ", "union "})
+        for (std::size_t at; (at = s.find(prefix)) != std::string::npos;) s.erase(at, std::strlen(prefix));
+    return s;
+#else
+    const std::string s = __PRETTY_FUNCTION__;
+    const auto open = s.find("T = ") + 4;
+    return s.substr(open, s.find_first_of(";]", open) - open);
+#endif
+}
+template<class T> const std::string& type_name() {
+    static const std::string name = make_type_name<T>();
+    return name;
+}
+
+/// Component ids of one world, by C++ type. Shared by a game, its ctx and
+/// the world run_headless returns.
+struct identity {
+    std::vector<std::uint32_t> ids;  // type_slot -> id + 1 (0: not registered yet)
+    std::unordered_map<std::uint32_t, std::type_index> types;  // id -> the C++ type using it
+    // Commands and events whose type was first used inside a query, when the
+    // world can't register it: replayed right after the system returns.
+    std::mutex later_lock;
+    std::vector<std::function<void(ctx&)>> later;
+};
+
 /// The first exception thrown by a callback, kept until the C call returns.
 struct first_error {
     std::mutex lock;
@@ -197,6 +240,17 @@ struct first_error {
     }
     void rethrow() { if (error) std::rethrow_exception(error); }
 };
+
+/// The parameter types of a function, lambda or function object, and
+/// whether calling it can change it (a `mutable` lambda can).
+template<class F> struct params : params<decltype(&F::operator())> {};
+template<class R, class... A> struct params<R (*)(A...)> { using type = std::tuple<A...>; static constexpr bool changes = false; };
+template<class R, class... A> struct params<R (*)(A...) noexcept> { using type = std::tuple<A...>; static constexpr bool changes = false; };
+template<class C, class R, class... A> struct params<R (C::*)(A...)> { using type = std::tuple<A...>; static constexpr bool changes = true; };
+template<class C, class R, class... A> struct params<R (C::*)(A...) const> { using type = std::tuple<A...>; static constexpr bool changes = false; };
+template<class C, class R, class... A> struct params<R (C::*)(A...) noexcept> { using type = std::tuple<A...>; static constexpr bool changes = true; };
+template<class C, class R, class... A> struct params<R (C::*)(A...) const noexcept> { using type = std::tuple<A...>; static constexpr bool changes = false; };
+
 template<class M> struct field_type;
 template<> struct field_type<float> { static constexpr CrabbyFieldType value = CRABBY_FIELD_F32; };
 template<> struct field_type<double> { static constexpr CrabbyFieldType value = CRABBY_FIELD_F64; };
@@ -225,28 +279,13 @@ template<class T, class M> field_info<T> field(const char* name, M T::*m) {
 }
 class world_view;
 class ctx;
-template<class T> class component;
-// Owns the copied value until spawn returns, including values made from temporaries.
-template<class T> struct value {
-    component<T> token;
-    T data;
-};
-// A token belongs to one world (or game); it remains valid when that world is moved.
-template<class T> class component {
-    static_assert(detail::pod<T>, "components must be trivial, standard-layout values");
-    std::uint32_t id_ = 0;
-    std::shared_ptr<detail::identity> owner_;
-    component(std::uint32_t id, std::shared_ptr<detail::identity> owner) : id_(id), owner_(std::move(owner)) {}
-    friend class world_view;
-    friend class ctx;
-public:
-    /// An unset token; assign one from world_view::component before use.
-    component() = default;
-    value<T> with(T data) const { return {*this, data}; }
-};
-// Borrowed columns are valid only for the duration of the query callback.
+/// One archetype's rows in a query: a column (array) per component, in the
+/// order the query lists them. Valid only during the query callback.
 template<class... Ts> class chunk {
     const CrabbyChunk* raw_;
+    template<std::size_t... I> std::tuple<Ts*...> columns(std::index_sequence<I...>) const noexcept {
+        return std::tuple<Ts*...>{static_cast<Ts*>(raw_->columns[I])...};
+    }
 public:
     explicit chunk(const CrabbyChunk* raw) : raw_(raw) {}
     std::size_t size() const noexcept { return raw_->count; }
@@ -254,10 +293,11 @@ public:
     /// same order every time): row `i` of a query_par chunk can fill slot
     /// `first() + i` of a buffer sized with world::count().
     std::size_t first() const noexcept { return raw_->first; }
-    template<std::size_t I> auto column() const noexcept {
-        using T = typename std::tuple_element<I, std::tuple<Ts...>>::type;
-        return static_cast<T*>(raw_->columns[I]);
-    }
+    /// The C chunk (columns, entities, count).
+    const CrabbyChunk* raw_chunk() const noexcept { return raw_; }
+    /// All columns at once: `auto [pos, vel] = chunk.columns();`
+    std::tuple<Ts*...> columns() const noexcept { return columns(std::index_sequence_for<Ts...>{}); }
+    /// The entity in row `index`.
     crabby::entity entity(std::size_t index) const {
         if (index >= raw_->count) throw std::out_of_range("chunk entity index");
         return bits(raw_->entities[index]);
@@ -300,7 +340,9 @@ public:
     CrabbyTileMap& style() noexcept { return map_; }
     void apply() { detail::check(crabby_tilemap_update(world_, e_, &map_)); }
 };
-// A non-owning view. Views given to systems must not escape their call.
+/// The entities and their components (Rust `World`). Components are plain
+/// structs, found by their C++ type: no registration needed. A view given to
+/// a system must not escape the call.
 class world_view {
     friend class world;
     friend class ctx;
@@ -309,24 +351,61 @@ protected:
     std::shared_ptr<detail::identity> owner_;
     world_view(CrabbyWorld* raw, std::shared_ptr<detail::identity> owner) : raw_(raw), owner_(std::move(owner)) {}
     void valid() const { if (!raw_) throw std::logic_error("world has been moved from"); }
-    template<class T> std::uint32_t id(const crabby::component<T>& token) const {
-        valid();
-        if (!token.owner_) throw std::invalid_argument("component token is unset");
-        if (token.owner_ != owner_) throw std::invalid_argument("component belongs to another world");
-        return token.id_;
+
+    template<class T> static void check_component() {
+        static_assert(detail::pod<T>, "components must be plain structs: trivially copyable, standard layout");
+        static_assert(!std::is_empty<T>::value || sizeof(T) == 1, "empty components must have size 1");
     }
-    template<class T> CrabbyValue c_value(const value<T>& v) const { return {id(v.token), &v.data, sizeof(T)}; }
-    template<class T> crabby::component<T> token(std::uint32_t id) {
+    /// Registers `T` in `world` under `name` (or its type name) and remembers
+    /// its id. Nothing if the world is busy (inside a query).
+    template<class T> static std::optional<std::uint32_t> try_register(CrabbyWorld* world, detail::identity& owner, const char* name) {
+        check_component<T>();
+        std::uint32_t id = 0;
+        CrabbyStatus status;
+        if constexpr (std::is_same<T, transform2d>::value) status = crabby_transform_component(world, &id);
+        else if constexpr (std::is_same<T, sprite>::value) status = crabby_sprite_component(world, &id);
+        else if constexpr (std::is_same<T, attached>::value) status = crabby_attached_component(world, &id);
+        else if constexpr (std::is_same<T, animation>::value) status = crabby_animation_component(world, &id);
+        else status = crabby_component_register(world, name ? name : detail::type_name<T>().c_str(), sizeof(T), alignof(T), &id);
+        if (status == CRABBY_BUSY) return std::nullopt;
+        detail::check(status);
         const std::type_index type(typeid(T));
-        const auto registered = owner_->types.emplace(id, type);
-        if (!registered.second && registered.first->second != type)
-            throw std::invalid_argument("component name is registered for a different C++ type");
-        return crabby::component<T>(id, owner_);
+        const auto known = owner.types.emplace(id, type);
+        if (!known.second && known.first->second != type)
+            throw std::invalid_argument("component name " + std::string(name ? name : detail::type_name<T>()) +
+                                        " is already used by a different C++ type");
+        const std::size_t slot = detail::type_slot<T>();
+        if (owner.ids.size() <= slot) owner.ids.resize(slot + 1, 0);
+        if (owner.ids[slot] != 0 && owner.ids[slot] != id + 1)
+            throw std::logic_error("reflect<" + detail::type_name<T>() + ">(name, ...) must come before the component is first used");
+        owner.ids[slot] = id + 1;
+        return id;
     }
-    template<class F, class... Ts, class Run> void run_query(Run run, F&& fn, const crabby::component<Ts>&... tokens) {
-        valid(); std::array<std::uint32_t, sizeof...(Ts)> ids{{id(tokens)...}};
-        using function = typename std::remove_reference<F>::type;
-        struct context { function* fn; detail::first_error error; } c{&fn, {}};
+    template<class T> static std::uint32_t register_type(CrabbyWorld* world, detail::identity& owner, const char* name) {
+        if (auto id = try_register<T>(world, owner, name)) return *id;
+        throw std::logic_error(detail::type_name<T>() + " is used for the first time while the world is borrowed by a query");
+    }
+    /// The component id of `T` in this world, registering it on first use;
+    /// nothing if it's new and the world is busy.
+    template<class T> static std::optional<std::uint32_t> find_id(CrabbyWorld* world, detail::identity& owner) {
+        const std::size_t slot = detail::type_slot<T>();
+        if (slot < owner.ids.size() && owner.ids[slot] != 0) return owner.ids[slot] - 1;
+        return try_register<T>(world, owner, nullptr);
+    }
+    template<class T> static std::uint32_t id_of(CrabbyWorld* world, detail::identity& owner) {
+        const std::size_t slot = detail::type_slot<T>();
+        if (slot < owner.ids.size() && owner.ids[slot] != 0) return owner.ids[slot] - 1;
+        return register_type<T>(world, owner, nullptr);
+    }
+    template<class T> std::uint32_t id() const { valid(); return id_of<T>(raw_, *owner_); }
+
+    /// Runs `fn(chunk<Ts...>)` for every archetype with all of `Ts`.
+    template<class... Ts, class Run, class F> void run_query(Run run, F& fn) {
+        static_assert(sizeof...(Ts) > 0, "a query needs at least one component");
+        static_assert(!std::disjunction<std::is_same<Ts, sprite>...>::value,
+                      "sprite is not a query column: query transform2d (and your own components) instead");
+        valid(); std::array<std::uint32_t, sizeof...(Ts)> ids{{id<Ts>()...}};
+        struct context { F* fn; detail::first_error error; } c{&fn, {}};
         auto trampoline = [](const CrabbyChunk* raw, void* user) noexcept {
             auto& c = *static_cast<context*>(user);
             if (c.error.set.load()) return;
@@ -336,22 +415,126 @@ protected:
         c.error.rethrow();
         detail::check(status);
     }
+    /// each(): calls `fn` per row with the row's entity (if `fn` asks for one)
+    /// and its components. Inlined into a plain loop over the columns.
+    template<bool WithEntity, class... Ts> struct each_row {
+        template<class F, std::size_t... I> static void chunk_rows(F& fn, const CrabbyChunk* raw, std::index_sequence<I...> rows) {
+            // A local copy of a function that can't change itself does the
+            // same, and lets the compiler keep its captures in registers:
+            // writes to components can't touch a local the engine never saw.
+            if constexpr (!detail::params<F>::changes && std::is_copy_constructible<F>::value) {
+                const F local(fn);
+                rows_of(local, raw, rows);
+            } else {
+                rows_of(fn, raw, rows);
+            }
+        }
+        template<class F, std::size_t... I> static void rows_of(F& fn, const CrabbyChunk* raw, std::index_sequence<I...>) {
+            const std::tuple<Ts*...> cols{static_cast<Ts*>(raw->columns[I])...};
+            const std::size_t n = raw->count;
+            if constexpr (WithEntity) {
+                const CrabbyEntity* es = raw->entities;
+                for (std::size_t i = 0; i < n; ++i)
+                    fn(entity(es[i].generation) << 32 | es[i].index, std::get<I>(cols)[i]...);
+            } else {
+                for (std::size_t i = 0; i < n; ++i) fn(std::get<I>(cols)[i]...);
+            }
+        }
+        template<class F, class Run> static void run(world_view& w, Run run_fn, F& fn) {
+            auto per_chunk = [&fn](chunk<Ts...> c) { chunk_rows(fn, c.raw_chunk(), std::index_sequence_for<Ts...>{}); };
+            w.run_query<Ts...>(run_fn, per_chunk);
+        }
+    };
+    template<class Args> struct each_of;
+    template<class First, class... Rest> struct each_of<std::tuple<First, Rest...>> {
+        static constexpr bool with_entity = std::is_same<First, entity>::value;
+        template<class F, class Run> static void run(world_view& w, Run run_fn, F& fn) {
+            if constexpr (with_entity) each_row<true, detail::bare<Rest>...>::run(w, run_fn, fn);
+            else each_row<false, detail::bare<First>, detail::bare<Rest>...>::run(w, run_fn, fn);
+        }
+    };
 public:
-    template<class T> crabby::component<T> component(const char* name) {
-        static_assert(detail::pod<T>, "components must be trivial, standard-layout values");
-        valid(); std::uint32_t result = 0;
-        detail::check(crabby_component_register(raw_, name, sizeof(T), alignof(T), &result));
-        return token<T>(result);
+    // ---- entities and components ----
+    /// A new entity with these components: `world.spawn(crabby::transform_at({0, 0}), Health{100})`.
+    template<class... Ts> entity spawn(const Ts&... components) {
+        valid(); std::array<CrabbyValue, sizeof...(Ts)> args{{CrabbyValue{id<Ts>(), &components, sizeof(Ts)}...}};
+        entity result = 0;
+        detail::check(crabby_spawn(raw_, args.data(), args.size(), &result));
+        return result;
     }
-    /// Registers `T` and describes its fields, so tools and agents can read
-    /// and write it as JSON (`crabby-mcp`) and `save()` includes it.
-    template<class T> crabby::component<T> component(const char* name, std::initializer_list<field_info<T>> fields) {
-        auto token = component<T>(name);
+    void despawn(entity e) { valid(); detail::check(crabby_despawn(raw_, e)); }
+    bool alive(entity e) const { valid(); bool result = false; detail::check(crabby_is_alive(raw_, e, &result)); return result; }
+    /// How many entities are alive.
+    std::size_t size() const { valid(); std::size_t result = 0; detail::check(crabby_world_len(raw_, &result)); return result; }
+    /// A copy of `e`'s `T`; throws if `e` is dead or has no `T` (see try_get).
+    template<class T> T get(entity e) const {
+        T result{}; detail::check(crabby_get(raw_, e, id<T>(), &result, sizeof(T))); return result;
+    }
+    /// A copy of `e`'s `T`, or nothing if `e` is dead or has no `T`.
+    template<class T> std::optional<T> try_get(entity e) const {
+        T result{};
+        const auto status = crabby_get(raw_, e, id<T>(), &result, sizeof(T));
+        if (status == CRABBY_NOT_FOUND) return std::nullopt;
+        detail::check(status);
+        return result;
+    }
+    template<class T> bool has(entity e) const { return try_get<T>(e).has_value(); }
+    /// Adds or replaces `e`'s component of this type: `world.set(e, Health{50})`.
+    template<class T> void set(entity e, const T& component) {
+        detail::check(crabby_set(raw_, e, id<T>(), &component, sizeof(T)));
+    }
+    template<class T> void remove(entity e) { detail::check(crabby_remove(raw_, e, id<T>())); }
+
+    // ---- queries ----
+    /// Calls `fn` for every entity that has all the components `fn` takes:
+    ///
+    ///     world.each([](crabby::transform2d& t, const Velocity& v) { t.position += v.value; });
+    ///
+    /// Take components by `&` to change them, by `const&` to read them. A
+    /// first `crabby::entity` parameter gets the entity. As fast as a
+    /// hand-written loop over the columns (see query).
+    template<class F> void each(F&& fn) {
+        using args = typename detail::params<detail::bare<F>>::type;
+        each_of<args>::run(*this, crabby_query, fn);
+    }
+    /// Like each, but on all CPU cores at once: `fn` must be thread-safe and
+    /// only touch its own entity's components (plus ctx::dt/random and
+    /// spatial queries).
+    template<class F> void each_par(F&& fn) {
+        using args = typename detail::params<detail::bare<F>>::type;
+        each_of<args>::run(*this, crabby_query_par, fn);
+    }
+    /// The lower-level loop: calls `fn(chunk)` for every archetype with all of
+    /// `Ts`, with a column (array) per component, for code that works on
+    /// whole arrays:
+    ///
+    ///     world.query<Position, Velocity>([](auto chunk) {
+    ///         auto [pos, vel] = chunk.columns();
+    ///         for (std::size_t i = 0; i < chunk.size(); ++i) pos[i].x += vel[i].x;
+    ///     });
+    template<class... Ts, class F> void query(F&& fn) { run_query<Ts...>(crabby_query, fn); }
+    /// query on all CPU cores at once (see each_par).
+    template<class... Ts, class F> void query_par(F&& fn) { run_query<Ts...>(crabby_query_par, fn); }
+    /// How many entities have all of these components.
+    template<class... Ts> std::size_t count() {
+        std::size_t n = 0;
+        auto add = [&n](chunk<Ts...> c) { n += c.size(); };
+        run_query<Ts...>(crabby_query, add);
+        return n;
+    }
+
+    // ---- reflection and saves ----
+    /// Describes `T`'s fields, so tools and agents can read and write it as
+    /// JSON (`crabby-mcp`) and `save()` includes it. It's saved under its
+    /// C++ type name, or under `name` (call this before `T` is first used).
+    template<class T> void reflect(std::initializer_list<field_info<T>> fields) { reflect<T>(nullptr, fields); }
+    template<class T> void reflect(const char* name, std::initializer_list<field_info<T>> fields) {
+        valid();
+        const std::uint32_t id = register_type<T>(raw_, *owner_, name);
         std::vector<CrabbyField> raw;
         raw.reserve(fields.size());
         for (const auto& f : fields) raw.push_back(f.raw);
-        detail::check(crabby_component_reflect(raw_, token.id_, raw.data(), raw.size()));
-        return token;
+        detail::check(crabby_component_reflect(raw_, id, raw.data(), raw.size()));
     }
     /// Every entity with reflected components as JSON, with its id.
     std::string save() const {
@@ -365,67 +548,12 @@ public:
     /// Replaces every entity with those in `json` (from save()), with the
     /// same ids. On error (an exception) the world is unchanged.
     void load(const std::string& json) { valid(); detail::check(crabby_world_load(raw_, json.c_str())); }
-    /// The built-in Transform2D component.
-    crabby::component<transform2d> transforms() {
-        valid(); std::uint32_t result = 0;
-        detail::check(crabby_transform_component(raw_, &result));
-        return token<transform2d>(result);
-    }
-    /// The built-in Attached component (crabby::attached, see attach_to).
-    crabby::component<attached> attachments() {
-        valid(); std::uint32_t result = 0;
-        detail::check(crabby_attached_component(raw_, &result));
-        return token<attached>(result);
-    }
-    /// The built-in Sprite component (get/set/spawn only, not a query column).
-    crabby::component<sprite> sprites() {
-        valid(); std::uint32_t result = 0;
-        detail::check(crabby_sprite_component(raw_, &result));
-        return token<sprite>(result);
-    }
-    /// The built-in Animation component (crabby::animation), a query column too.
-    crabby::component<animation> animations() {
-        valid(); std::uint32_t result = 0;
-        detail::check(crabby_animation_component(raw_, &result));
-        return token<animation>(result);
-    }
+
+    // ---- the rest ----
     /// Gives `e` an empty `width` x `height` tilemap (its Transform2D is the top-left).
     tilemap_ref add_tilemap(entity e, const sprite_sheet& sheet, std::uint32_t width, std::uint32_t height);
     /// `e`'s tilemap; throws if it has none. Valid until `e` loses its map.
     tilemap_ref tilemap(entity e);
-    template<class... Ts> entity spawn(const value<Ts>&... values) {
-        valid(); std::array<CrabbyValue, sizeof...(Ts)> args{{c_value(values)...}};
-        entity result = 0;
-        detail::check(crabby_spawn(raw_, args.data(), args.size(), &result));
-        return result;
-    }
-    void despawn(entity e) { valid(); detail::check(crabby_despawn(raw_, e)); }
-    bool alive(entity e) const { valid(); bool result = false; detail::check(crabby_is_alive(raw_, e, &result)); return result; }
-    std::size_t size() const { valid(); std::size_t result = 0; detail::check(crabby_world_len(raw_, &result)); return result; }
-    template<class T> T get(entity e, const crabby::component<T>& token) const {
-        T result{}; detail::check(crabby_get(raw_, e, id(token), &result, sizeof(T))); return result;
-    }
-    template<class T> void set(entity e, const crabby::component<T>& token, const T& data) {
-        detail::check(crabby_set(raw_, e, id(token), &data, sizeof(T)));
-    }
-    template<class T> void remove(entity e, const crabby::component<T>& token) {
-        detail::check(crabby_remove(raw_, e, id(token)));
-    }
-    /// Calls `fn(chunk)` for every archetype with all the given components.
-    template<class F, class... Ts> void query(F&& fn, const crabby::component<Ts>&... tokens) {
-        run_query(crabby_query, std::forward<F>(fn), tokens...);
-    }
-    /// Like query, but on all CPU cores at once: `fn` must be thread-safe and
-    /// only touch its own chunk (plus ctx::dt/random and spatial queries).
-    template<class F, class... Ts> void query_par(F&& fn, const crabby::component<Ts>&... tokens) {
-        run_query(crabby_query_par, std::forward<F>(fn), tokens...);
-    }
-    /// How many entities have all of these components.
-    template<class... Ts> std::size_t count(const crabby::component<Ts>&... tokens) {
-        std::size_t n = 0;
-        query([&](auto chunk) { n += chunk.size(); }, tokens...);
-        return n;
-    }
     /// Reorders Transform2D entities so that neighbors are close in memory.
     void sort_spatial(float cell_size) { valid(); detail::check(crabby_world_sort_spatial(raw_, cell_size)); }
 };
@@ -646,7 +774,23 @@ public:
 class ctx {
     CrabbyCtx* raw_;
     std::shared_ptr<detail::identity> owner_;
-    template<class T> CrabbyValue c_value(const value<T>& v) const { return {world().id(v.token), &v.data, sizeof(T)}; }
+    template<class T> std::uint32_t id() const { return world_view::id_of<T>(crabby_ctx_world(raw_), *owner_); }
+    template<class T> std::optional<std::uint32_t> find_id() const { return world_view::find_id<T>(crabby_ctx_world(raw_), *owner_); }
+    /// Runs `fn` right after the system returns (see detail::identity::later).
+    void after_system(std::function<void(ctx&)> fn) {
+        std::lock_guard<std::mutex> guard(owner_->later_lock);
+        owner_->later.push_back(std::move(fn));
+    }
+    friend class game;
+    /// Replays what after_system queued, now that no query holds the world.
+    void run_after_system() {
+        for (;;) {
+            std::vector<std::function<void(ctx&)>> todo;
+            { std::lock_guard<std::mutex> guard(owner_->later_lock); todo.swap(owner_->later); }
+            if (todo.empty()) return;
+            for (auto& fn : todo) fn(*this);
+        }
+    }
 public:
     ctx(CrabbyCtx* raw, std::shared_ptr<detail::identity> owner) : raw_(raw), owner_(std::move(owner)) {}
     CrabbyCtx* raw() const noexcept { return raw_; }
@@ -687,8 +831,8 @@ public:
     /// (fields merge); with hot reload on, edits to the file show up live.
     /// Whether `path` (as loaded) was reloaded at the start of this frame.
     bool was_reloaded(const char* path) const { bool b = false; detail::check(crabby_ctx_was_reloaded(raw_, path, &b)); return b; }
-    template<class T> void load_json(const char* path, entity e, const component<T>& token) {
-        detail::check(crabby_ctx_load_json(raw_, path, e, world().id(token)));
+    template<class T> void load_json(const char* path, entity e) {
+        detail::check(crabby_ctx_load_json(raw_, path, e, id<T>()));
     }
     texture load_texture(const char* path) { texture t{}; detail::check(crabby_ctx_load_texture(raw_, path, &t)); return t; }
     texture create_texture(std::uint32_t w, std::uint32_t h, const std::uint8_t* rgba, std::size_t len) {
@@ -745,33 +889,49 @@ public:
         return std::vector<texture>(list, list + n);
     }
 
-    // Commands: applied after the system; usable inside world().query (not query_par).
+    // Commands: applied after the system; usable inside world().each (not each_par).
     void despawn_later(entity e) { detail::check(crabby_ctx_despawn_later(raw_, e)); }
-    template<class... Ts> void spawn_later(const value<Ts>&... values) {
-        std::array<CrabbyValue, sizeof...(Ts)> args{{c_value(values)...}};
+    // (A type used for the first time inside a query can't be registered
+    // yet; such commands and events are sent right after the system returns.)
+    template<class... Ts> void spawn_later(const Ts&... components) {
+        const std::array<std::optional<std::uint32_t>, sizeof...(Ts)> ids{{find_id<Ts>()...}};
+        if (!std::all_of(ids.begin(), ids.end(), [](const auto& id) { return id.has_value(); })) {
+            after_system([=](ctx& c) { c.spawn_later(components...); });
+            return;
+        }
+        std::size_t i = 0;
+        std::array<CrabbyValue, sizeof...(Ts)> args{{CrabbyValue{*ids[i++], &components, sizeof(Ts)}...}};
         detail::check(crabby_ctx_spawn_later(raw_, args.data(), args.size()));
     }
-    template<class T> void set_later(entity e, const component<T>& token, const T& data) {
-        CrabbyValue v = c_value(token.with(data));
+    template<class T> void set_later(entity e, const T& component) {
+        const auto id = find_id<T>();
+        if (!id) { after_system([=](ctx& c) { c.set_later(e, component); }); return; }
+        CrabbyValue v{*id, &component, sizeof(T)};
         detail::check(crabby_ctx_set_later(raw_, e, &v));
     }
-    template<class T> void remove_later(entity e, const component<T>& token) {
-        detail::check(crabby_ctx_remove_later(raw_, e, world().id(token)));
+    template<class T> void remove_later(entity e) {
+        const auto id = find_id<T>();
+        if (!id) { after_system([=](ctx& c) { c.remove_later<T>(e); }); return; }
+        detail::check(crabby_ctx_remove_later(raw_, e, *id));
     }
 
-    // Events: messages between systems, typed by a component token (register
-    // the event struct like a component). Usable inside world().query (not query_par).
-    template<class T> void send(const component<T>& type, const T& event) {
+    // Events: messages between systems, any plain struct. Usable inside
+    // world().each (not each_par).
+    template<class T> void send(const T& event) {
         static_assert(alignof(T) <= 16, "events can be at most 16-byte aligned");
-        detail::check(crabby_ctx_send_event(raw_, world().id(type), &event, sizeof(T)));
+        const auto id = find_id<T>();
+        if (!id) { after_system([=](ctx& c) { c.send(event); }); return; }
+        detail::check(crabby_ctx_send_event(raw_, *id, &event, sizeof(T)));
     }
-    /// The events of this type this system hasn't read yet, oldest first;
+    /// The events of type `T` this system hasn't read yet, oldest first;
     /// valid until the next send of this type or the end of the system.
-    template<class T> events_view<T> read(const component<T>& type) {
+    template<class T> events_view<T> read() {
         static_assert(alignof(T) <= 16, "events can be at most 16-byte aligned");
         const void* data = nullptr;
         std::size_t count = 0;
-        detail::check(crabby_ctx_read_events(raw_, world().id(type), sizeof(T), &data, &count));
+        const auto id = find_id<T>();
+        if (!id) return events_view<T>(nullptr, 0);  // never used, so never sent
+        detail::check(crabby_ctx_read_events(raw_, *id, sizeof(T), &data, &count));
         return events_view<T>(static_cast<const T*>(data), count);
     }
 
@@ -818,7 +978,7 @@ class game {
     static void trampoline(CrabbyCtx* raw, void* user) noexcept {
         auto& h = *static_cast<holder*>(user);
         if (h.st->error.set.load()) return;
-        try { ctx c(raw, h.st->owner); h.fn(c); }
+        try { ctx c(raw, h.st->owner); h.fn(c); c.run_after_system(); }
         catch (...) { h.st->error.capture(); (void)crabby_ctx_quit(raw); }
     }
     holder* keep(std::function<void(ctx&)> fn) {

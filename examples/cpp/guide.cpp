@@ -34,44 +34,43 @@ struct Enemy {};
 static void ecs(crabby::ctx& ctx) {
     auto world = ctx.world();
     // ANCHOR: ecs_spawn
-    auto transforms = world.transforms();
-    auto health = world.component<Health>("Health");
-    auto enemy = world.component<Enemy>("Enemy");
-
-    crabby::entity e = world.spawn(transforms.with(transform_at({10, 20})),
-                                   health.with(Health{100}), enemy.with(Enemy{}));
+    crabby::entity e = world.spawn(transform_at({10, 20}), Health{100}, Enemy{});
 
     // Many at once:
     for (int i = 0; i < 100000; ++i)
-        world.spawn(transforms.with(transform_at({float(i), 0})), health.with(Health{10}));
+        world.spawn(transform_at({float(i), 0}), Health{10});
     // ANCHOR_END: ecs_spawn
 
     // ANCHOR: ecs_one
-    Health h = world.get(e, health);
-    world.set(e, health, Health{h.value - 5});
-    world.set(e, enemy, Enemy{});     // add or replace a component
-    world.remove(e, enemy);
+    Health h = world.get<Health>(e);
+    world.set(e, Health{h.value - 5});
+    world.set(e, Enemy{});            // add or replace a component
+    if (world.has<Enemy>(e)) world.remove<Enemy>(e);
     world.despawn(e);
     assert(!world.alive(e));          // old handles stay dead, even if the slot is reused
+    assert(!world.try_get<Health>(e));
     // ANCHOR_END: ecs_one
 
     // ANCHOR: ecs_query
-    world.query([](auto chunk) {
-        auto t = chunk.template column<0>();
-        auto hp = chunk.template column<1>();
+    world.each([](transform2d& t, const Health& hp) {
+        t.position.y += hp.value;
+    });
+    // ANCHOR_END: ecs_query
+
+    // ANCHOR: ecs_columns
+    world.query<transform2d, Health>([](auto chunk) {
+        auto [t, hp] = chunk.columns();   // one array per component
         for (std::size_t i = 0; i < chunk.size(); ++i)
             t[i].position.y += hp[i].value;
-    }, transforms, health);
-    // ANCHOR_END: ecs_query
+    });
+    // ANCHOR_END: ecs_columns
 }
 
 // ANCHOR: ecs_commands
-static void die(crabby::ctx& ctx, const crabby::component<Health>& health) {
-    ctx.world().query([&](auto chunk) {
-        auto hp = chunk.template column<0>();
-        for (std::size_t i = 0; i < chunk.size(); ++i)
-            if (hp[i].value <= 0) ctx.despawn_later(chunk.entity(i));
-    }, health);
+static void die(crabby::ctx& ctx) {
+    ctx.world().each([&](crabby::entity e, const Health& hp) {
+        if (hp.value <= 0) ctx.despawn_later(e);
+    });
 }
 // ANCHOR_END: ecs_commands
 
@@ -96,7 +95,7 @@ struct Spawner {
     int spawned = 0;
     void operator()(crabby::ctx& ctx) {
         if (ctx.sim_tick() % every == 0) {
-            ctx.spawn_later(ctx.world().transforms().with(crabby::transform_at({0, 0})));
+            ctx.spawn_later(crabby::transform_at({0, 0}));
             ++spawned;
         }
     }
@@ -145,20 +144,14 @@ struct Neighbors { std::uint32_t count; };
 
 // ANCHOR: spatial
 // crabby::game("Boids", 1280, 720).spatial_grid(24).sim_system(count_neighbors);
-static void count_neighbors(crabby::ctx& ctx, const crabby::component<crabby::transform2d>& transforms,
-                            const crabby::component<Neighbors>& neighbors) {
+static void count_neighbors(crabby::ctx& ctx) {
     const auto grid = ctx.spatial_view();
-    ctx.world().query_par([&](auto chunk) {
-        auto t = chunk.template column<0>();
-        auto n = chunk.template column<1>();
-        for (std::size_t i = 0; i < chunk.size(); ++i) {
-            const CrabbyEntity me = chunk.entities()[i];
-            n[i].count = 0;
-            grid.for_each_in_radius(t[i].position, 10, [&](const crabby::grid_hit& o) {
-                if (o.entity.index != me.index || o.entity.generation != me.generation) ++n[i].count;
-            });
-        }
-    }, transforms, neighbors);
+    ctx.world().each_par([&](crabby::entity me, const crabby::transform2d& t, Neighbors& n) {
+        n.count = 0;
+        grid.for_each_in_radius(t.position, 10, [&](const crabby::grid_hit& o) {
+            if (crabby::bits(o.entity) != me) ++n.count;
+        });
+    });
 }
 // ANCHOR_END: spatial
 
@@ -167,8 +160,8 @@ static void count_neighbors(crabby::ctx& ctx, const crabby::component<crabby::tr
     // ANCHOR: sprites
     auto crab = ctx.load_texture("crab.png");
     auto world = ctx.world();
-    world.spawn(world.transforms().with(crabby::transform_at({400, 300}, 0.3f, {2, 2})),
-                world.sprites().with(crabby::sprite_of(crab, crabby::colors::red, 1)));
+    world.spawn(crabby::transform_at({400, 300}, 0.3f, {2, 2}),
+                crabby::sprite_of(crab, crabby::colors::red, 1));
     // ANCHOR_END: sprites
     // ANCHOR: immediate
     ctx.clear(crabby::rgb(0.125f, 0.19f, 0.25f));
@@ -193,8 +186,7 @@ static void count_neighbors(crabby::ctx& ctx, const crabby::component<crabby::tr
     // ANCHOR: sheet
     auto tex = ctx.load_texture("units.png");
     auto sheet = crabby::sheet_of(tex, 32, 32);   // 32 x 32 frames
-    world.spawn(world.transforms().with(crabby::transform_at(pos)),
-                world.sprites().with(crabby::sprite_of(sheet, 5)));   // frame 5
+    world.spawn(crabby::transform_at(pos), crabby::sprite_of(sheet, 5));   // frame 5
     // ANCHOR_END: sheet
     // ANCHOR: nearest
     ctx.set_texture_filter(tex, crabby::texture_filter::nearest);
@@ -203,9 +195,8 @@ static void count_neighbors(crabby::ctx& ctx, const crabby::component<crabby::tr
 
 static void animate(crabby::world_view world, crabby::sprite_sheet sheet, crabby::vec2 pos) {
     // ANCHOR: animation
-    world.spawn(world.transforms().with(crabby::transform_at(pos)),
-                world.sprites().with(crabby::sprite_of(sheet, 0)),
-                world.animations().with(crabby::animation_of(sheet, 0, 8, 12)));   // frames 0-7 at 12 fps
+    world.spawn(crabby::transform_at(pos), crabby::sprite_of(sheet, 0),
+                crabby::animation_of(sheet, 0, 8, 12));   // frames 0-7 at 12 fps
     auto boom = crabby::animation_of(sheet, 8, 8, 24);
     boom.looping = false;   // stops on the last frame; crabby::finished(boom) says when
     // ANCHOR_END: animation
@@ -216,7 +207,7 @@ constexpr std::uint16_t GRASS = 0, STONE = 3;
 
 // ANCHOR: tilemap
 static crabby::entity make_map(crabby::world_view world, crabby::sprite_sheet tiles, std::uint32_t side) {
-    const crabby::entity map = world.spawn(world.transforms().with(crabby::transform_at({0, 0})));
+    const crabby::entity map = world.spawn(crabby::transform_at({0, 0}));
     auto t = world.add_tilemap(map, tiles, side, side);   // the transform is its top-left corner
     for (std::uint32_t y = 0; y < side; ++y)
         for (std::uint32_t x = 0; x < side; ++x)
@@ -229,7 +220,7 @@ static crabby::entity make_map(crabby::world_view world, crabby::sprite_sheet ti
 static void paint(crabby::ctx& ctx, crabby::entity map) {
     if (!ctx.mouse_down(CRABBY_MOUSE_LEFT) || ctx.mouse_over_ui()) return;
     auto world = ctx.world();
-    const crabby::vec2 origin = world.get(map, world.transforms()).position;
+    const crabby::vec2 origin = world.get<crabby::transform2d>(map).position;
     auto tiles = world.tilemap(map);
     if (auto tile = tiles.tile_at(origin, ctx.mouse_world())) tiles.set((*tile)[0], (*tile)[1], STONE);
 }
@@ -315,11 +306,10 @@ struct Hud {
 struct Tuning { float speed; float damage; };
 
 [[maybe_unused]] static void load_tuning(crabby::ctx& ctx) {
-    auto tuning = ctx.world().component<Tuning>("Tuning",
-        {crabby::field("speed", &Tuning::speed), crabby::field("damage", &Tuning::damage)});
-    const crabby::entity settings = ctx.world().spawn(tuning.with(Tuning{}));
-    ctx.load_json("tuning.json", settings, tuning);   // {"speed": 30, "damage": 2}
-    // Systems read ctx.world().get(settings, tuning): the file's current values.
+    ctx.world().reflect<Tuning>({crabby::field("speed", &Tuning::speed), crabby::field("damage", &Tuning::damage)});
+    const crabby::entity settings = ctx.world().spawn(Tuning{});
+    ctx.load_json<Tuning>("tuning.json", settings);   // {"speed": 30, "damage": 2}
+    // Systems read ctx.world().get<Tuning>(settings): the file's current values.
 }
 // ANCHOR_END: data_files
 
@@ -351,14 +341,12 @@ static crabby::sound beep(crabby::ctx& ctx) {
 // ANCHOR: turns
 struct Brain { std::uint32_t plans; };
 
-static void think(crabby::ctx& ctx, const crabby::component<Brain>& brain) {
+static void think(crabby::ctx& ctx) {
     const crabby::turns turn = ctx.turns(8);   // each ant thinks every 8th tick
-    ctx.world().query_par([&](auto chunk) {
-        auto b = chunk.template column<0>();
-        for (std::size_t i = 0; i < chunk.size(); ++i)
-            if (turn.includes(chunk.entities()[i]))
-                b[i].plans += 1;   // turn.dt(): time since this ant's last turn
-    }, brain);
+    ctx.world().each_par([&](crabby::entity e, Brain& brain) {
+        if (turn.includes(e))
+            brain.plans += 1;   // turn.dt(): time since this ant's last turn
+    });
 }
 // ANCHOR_END: turns
 
@@ -372,9 +360,9 @@ struct Unit {
     bool angry;
 };
 
-static crabby::component<Unit> reflect_units(crabby::world_view world) {
+static void reflect_units(crabby::world_view world) {
     // Tools and agents (crabby-mcp) now see {"current", "max", "home", "target", "angry"}.
-    return world.component<Unit>("Unit", {
+    world.reflect<Unit>({
         crabby::field("current", &Unit::current),
         crabby::field("max", &Unit::max),
         crabby::field("home", &Unit::home),
@@ -406,21 +394,14 @@ static void save_and_load(crabby::world_view world) {
 struct Pos { float y; };
 
 static void things_fall_ten_units_per_second() {
-    crabby::component<Pos> pos;
+    crabby::entity thing = 0;
     auto world = crabby::game("test", 800, 600)
-        .sim_system([&](crabby::ctx& ctx) {
+        .sim_system([](crabby::ctx& ctx) {
             const float dt = ctx.dt();
-            ctx.world().query([dt](auto chunk) {
-                auto p = chunk.template column<0>();
-                for (std::size_t i = 0; i < chunk.size(); ++i) p[i].y -= 10 * dt;
-            }, pos);
+            ctx.world().each([dt](Pos& p) { p.y -= 10 * dt; });
         }, "fall")
-        .run_headless(60, [&](crabby::ctx& ctx) {
-            pos = ctx.world().component<Pos>("Pos");
-            ctx.world().spawn(pos.with(Pos{100}));
-        });
-    float y = 0;
-    world.query([&](auto chunk) { y = chunk.template column<0>()[0].y; }, pos);
+        .run_headless(60, [&](crabby::ctx& ctx) { thing = ctx.world().spawn(Pos{100}); });
+    const float y = world.get<Pos>(thing).y;
     if (std::fabs(y - 90) > 1e-3f) { std::fprintf(stderr, "fell to %f\n", double(y)); std::abort(); }
 }
 // ANCHOR_END: headless
@@ -429,13 +410,11 @@ static void things_fall_ten_units_per_second() {
 // ANCHOR: random
 struct Heading { float radians; };
 
-static void wander(crabby::ctx& ctx, const crabby::component<Heading>& heading) {
+static void wander(crabby::ctx& ctx) {
     const crabby::random random = ctx.random();
-    ctx.world().query_par([&](auto chunk) {
-        auto h = chunk.template column<0>();
-        for (std::size_t i = 0; i < chunk.size(); ++i)
-            h[i].radians += random.of(chunk.entity(i)).range(-0.2f, 0.2f);
-    }, heading);
+    ctx.world().each_par([&](crabby::entity e, Heading& h) {
+        h.radians += random.of(e).range(-0.2f, 0.2f);
+    });
 }
 // ANCHOR_END: random
 
@@ -450,15 +429,12 @@ static void make_walls(crabby::nav_grid& nav) {
 // ANCHOR_END: flow_map
 
 // ANCHOR: flow_steer
-static void steer(crabby::ctx& ctx, const crabby::flow_field& flow,
-                  const crabby::component<crabby::transform2d>& transforms) {
+static void steer(crabby::ctx& ctx, const crabby::flow_field& flow) {
     const float step = 40 * ctx.dt();
     const crabby::flow_view view = flow.view();   // inline lookups, safe from every thread
-    ctx.world().query_par([&](auto chunk) {
-        auto t = chunk.template column<0>();
-        for (std::size_t i = 0; i < chunk.size(); ++i)
-            t[i].position += view.direction_at(t[i].position) * step;
-    }, transforms);
+    ctx.world().each_par([&](crabby::transform2d& t) {
+        t.position += view.direction_at(t.position) * step;
+    });
 }
 // ANCHOR_END: flow_steer
 
@@ -467,35 +443,29 @@ static void steer(crabby::ctx& ctx, const crabby::flow_field& flow,
 struct Hp { int value; };
 struct Died { crabby::entity who; };
 
-// Sends one Died per entity out of health, from inside a query.
-static void deaths(crabby::ctx& ctx, const crabby::component<Hp>& health,
-                   const crabby::component<Died>& died) {
-    ctx.world().query([&](auto chunk) {
-        auto h = chunk.template column<0>();
-        for (std::size_t i = 0; i < chunk.size(); ++i)
-            if (h[i].value <= 0) ctx.send(died, Died{chunk.entity(i)});
-    }, health);
+// Sends one Died per entity out of health, from inside a loop.
+static void deaths(crabby::ctx& ctx) {
+    ctx.world().each([&](crabby::entity e, const Hp& hp) {
+        if (hp.value <= 0) ctx.send(Died{e});
+    });
 }
 
 // Any later system (or this one next tick) reads them, once each.
-static void funerals(crabby::ctx& ctx, const crabby::component<Died>& died) {
-    for (const Died& d : ctx.read(died)) ctx.despawn_later(d.who);
+static void funerals(crabby::ctx& ctx) {
+    for (const Died& d : ctx.read<Died>()) ctx.despawn_later(d.who);
 }
 // ANCHOR_END: events
 
 static void the_dead_are_buried() {
-    crabby::component<Hp> health;
-    crabby::component<Died> died;
     auto world = crabby::game("events", 1, 1)
-        .sim_system([&](crabby::ctx& ctx) { deaths(ctx, health, died); }, "deaths")
-        .sim_system([&](crabby::ctx& ctx) { funerals(ctx, died); }, "funerals")
-        .run_headless(1, [&](crabby::ctx& ctx) {
-            health = ctx.world().component<Hp>("Hp");
+        .sim_system(deaths, "deaths")
+        .sim_system(funerals, "funerals")
+        .run_headless(1, [](crabby::ctx& ctx) {
             // ANCHOR: events_reflect
-            // Registered with its fields: tools can collect Died events as JSON.
-            died = ctx.world().component<Died>("Died", {crabby::field("who", &Died::who)});
+            // Described with its fields: tools can collect Died events as JSON.
+            ctx.world().reflect<Died>({crabby::field("who", &Died::who)});
             // ANCHOR_END: events_reflect
-            for (int hp : {0, 3, -1, 5}) ctx.world().spawn(health.with(Hp{hp}));
+            for (int hp : {0, 3, -1, 5}) ctx.world().spawn(Hp{hp});
         });
     if (world.size() != 2) {
         std::fprintf(stderr, "events: %zu alive, expected 2\n", world.size());
@@ -510,20 +480,16 @@ static void crowds_reach_the_goal() {
     crabby::flow_field flow;
     flow.compute(nav, crabby::vec2{390, 10});   // or several goals: the nearest wins
     // ANCHOR_END: flow_compute
-    crabby::component<crabby::transform2d> transforms;
     auto world = crabby::game("flow", 1, 1)
-        .sim_system([&](crabby::ctx& ctx) { steer(ctx, flow, transforms); }, "steer")
-        .run_headless(1200, [&](crabby::ctx& ctx) {
-            transforms = ctx.world().transforms();
+        .sim_system([&](crabby::ctx& ctx) { steer(ctx, flow); }, "steer")
+        .run_headless(1200, [](crabby::ctx& ctx) {
             for (int i = 0; i < 1000; ++i)
-                ctx.world().spawn(transforms.with(crabby::transform_at({2.0f + float(i % 30) * 5, 2.0f + float(i / 30) * 9})));
+                ctx.world().spawn(crabby::transform_at({2.0f + float(i % 30) * 5, 2.0f + float(i / 30) * 9}));
         });
     std::size_t arrived = 0;
-    world.query([&](auto chunk) {
-        auto t = chunk.template column<0>();
-        for (std::size_t i = 0; i < chunk.size(); ++i)
-            arrived += flow.distance_at(t[i].position).value_or(1e9f) < 12;
-    }, transforms);
+    world.each([&](const crabby::transform2d& t) {
+        arrived += flow.distance_at(t.position).value_or(1e9f) < 12;
+    });
     const auto start = flow.distance_at({2, 2});
     if (arrived < 990 || !start || *start < 390 || nav.walkable({162, 10}) || !nav.walkable({2, 2})) {
         std::fprintf(stderr, "flow: %zu of 1000 arrived\n", arrived);
@@ -536,26 +502,18 @@ static void crowds_reach_the_goal() {
 struct Tank { float speed; };
 
 static void turrets_ride_on_tanks() {
-    crabby::component<Tank> tanks;
     crabby::entity turret = 0;
     auto world = crabby::game("tanks", 800, 600)
-        .sim_system([&](crabby::ctx& ctx) {
-            auto transforms = ctx.world().transforms();
-            ctx.world().query([](auto chunk) {
-                auto t = chunk.template column<0>();
-                auto tank = chunk.template column<1>();
-                for (std::size_t i = 0; i < chunk.size(); ++i) t[i].position.x += tank[i].speed;
-            }, transforms, tanks);
+        .sim_system([](crabby::ctx& ctx) {
+            ctx.world().each([](crabby::transform2d& t, const Tank& tank) { t.position.x += tank.speed; });
         }, "drive")
         .follow_attachments() // after the systems that move things
         .run_headless(10, [&](crabby::ctx& ctx) {
             auto w = ctx.world();
-            tanks = w.component<Tank>("Tank");
-            const auto tank = w.spawn(w.transforms().with(crabby::transform_at({0, 0})), tanks.with(Tank{1}));
-            turret = w.spawn(w.transforms().with(crabby::transform_at({0, 0})),
-                             w.attachments().with(crabby::attach_to(tank, {0, -4})));
+            const auto tank = w.spawn(crabby::transform_at({0, 0}), Tank{1});
+            turret = w.spawn(crabby::transform_at({0, 0}), crabby::attach_to(tank, {0, -4}));
         });
-    const auto at = world.get(turret, world.transforms()).position;
+    const auto at = world.get<crabby::transform2d>(turret).position;
     if (at != crabby::vec2{10, -4}) { std::fprintf(stderr, "turret at %f,%f\n", double(at.x), double(at.y)); std::abort(); }
 }
 // ANCHOR_END: attach
@@ -567,38 +525,25 @@ int main() {
     the_dead_are_buried();
 
     // Run the other snippets headless once, so they're exercised, not only compiled.
-    crabby::component<Health> health;
-    crabby::component<crabby::transform2d> transforms;
-    crabby::component<Neighbors> neighbors;
-    crabby::component<Heading> heading;
-    crabby::component<Brain> brain;
     crabby::sound click{};
     crabby::entity map = 0;
     std::uint32_t most = 0;
     auto world = crabby::game("guide", 1, 1)
         .spatial_grid(10)
-        .sim_system([&](crabby::ctx& ctx) { die(ctx, health); }, "die")
-        .sim_system([&](crabby::ctx& ctx) { count_neighbors(ctx, transforms, neighbors); }, "neighbors")
-        .sim_system([&](crabby::ctx& ctx) { wander(ctx, heading); }, "wander")
+        .sim_system(die, "die")
+        .sim_system(count_neighbors, "neighbors")
+        .sim_system(wander, "wander")
         .sim_system(Spawner{2}, "spawner")
-        .sim_system([&](crabby::ctx& ctx) { think(ctx, brain); }, "think")
+        .sim_system(think, "think")
         .system(Hud{}, "hud")
         .camera_controls()
         .sim_system([&](crabby::ctx& ctx) {
-            ctx.world().query([&](auto chunk) {
-                auto n = chunk.template column<0>();
-                for (std::size_t i = 0; i < chunk.size(); ++i) most = std::max(most, n[i].count);
-            }, neighbors);
+            ctx.world().each([&](const Neighbors& n) { most = std::max(most, n.count); });
         }, "check")
         .run_headless(8, [&](crabby::ctx& ctx) {
             ecs(ctx);
             auto w = ctx.world();
-            health = w.component<Health>("Health");
-            transforms = w.transforms();
-            neighbors = w.component<Neighbors>("Neighbors");
-            heading = w.component<Heading>("Heading");
-            brain = w.component<Brain>("Brain");
-            for (int i = 0; i < 16; ++i) w.spawn(brain.with(Brain{0}));
+            for (int i = 0; i < 16; ++i) w.spawn(Brain{0});
             click = beep(ctx);
             std::vector<std::uint8_t> pixels(64 * 40 * 4, 255);
             const auto sheet = crabby::sheet_of(ctx.create_texture(64, 40, pixels.data(), pixels.size()), 16, 16);
@@ -607,8 +552,7 @@ int main() {
             paint(ctx, map);   // nobody holds the mouse headless: nothing changes
             ctx.play_sound(click);   // silent: headless
             for (int i = 0; i < 100; ++i)
-                w.spawn(transforms.with(crabby::transform_at({float(i), 0})), neighbors.with(Neighbors{0}),
-                        heading.with(Heading{0}), health.with(Health{float(i % 2)}));
+                w.spawn(crabby::transform_at({float(i), 0}), Neighbors{0}, Heading{0}, Health{float(i % 2)});
         });
     {
         auto tiles = world.tilemap(map);
@@ -621,9 +565,7 @@ int main() {
     }
     // Over 8 ticks every brain gets exactly one turn.
     std::uint32_t plans = 0;
-    world.query([&](auto chunk) {
-        for (std::size_t i = 0; i < chunk.size(); ++i) plans += chunk.template column<0>()[i].plans;
-    }, brain);
+    world.each([&](const Brain& b) { plans += b.plans; });
     if (plans != 16 || std::fabs(click.seconds - 0.1f) > 1e-3f) {
         std::fprintf(stderr, "unexpected: %u plans, %f s click\n", plans, double(click.seconds));
         return 1;
@@ -636,14 +578,14 @@ int main() {
     // Reflected components survive a save and load with their ids.
     {
         auto w = crabby::game("save", 1, 1).run_headless(0, [](crabby::ctx&) {});
-        auto unit = reflect_units(w);
-        const crabby::entity a = w.spawn(unit.with(Unit{3, 10, {1, 2}, 0, false}));
-        const crabby::entity b = w.spawn(unit.with(Unit{5, 10, {0, 0}, a, true}));
+        reflect_units(w);
+        const crabby::entity a = w.spawn(Unit{3, 10, {1, 2}, 0, false});
+        const crabby::entity b = w.spawn(Unit{5, 10, {0, 0}, a, true});
         const std::string before = w.save();
-        w.set(b, unit, Unit{0, 0, {0, 0}, 0, false});
+        w.set(b, Unit{0, 0, {0, 0}, 0, false});
         save_and_load(w);   // saves the changed world and loads it straight back
         w.load(before);
-        const Unit u = w.get(b, unit);
+        const Unit u = w.get<Unit>(b);
         if (u.current != 5 || u.target != a || !u.angry || before.find("\"angry\":true") == std::string::npos) {
             std::fprintf(stderr, "save/load lost data: %s\n", before.c_str());
             return 1;

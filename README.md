@@ -94,21 +94,25 @@ fn main() {
 #include "crabby.hpp"
 using namespace crabby;
 
+struct Vel { vec2 v; };
+
+void movement(ctx& ctx) {
+    const float dt = ctx.dt();
+    ctx.world().each_par([dt](transform2d& t, const Vel& v) {
+        t.position += v.v * dt;
+    });
+}
+
 int main() {
-    texture crab{};
-    vec2 pos{400, 300};
-    game("My Game", 800, 600)
-        .system([&](ctx& ctx) {
-            if (ctx.key_down(CRABBY_KEY_RIGHT))
-                pos.x += 200 * ctx.dt();
-            if (ctx.key_down(CRABBY_KEY_LEFT))
-                pos.x -= 200 * ctx.dt();
-            if (ctx.key_pressed(CRABBY_KEY_ESCAPE))
-                ctx.quit();
-            ctx.draw(crab, pos);
-        })
-        .run([&](ctx& ctx) {
-            crab = ctx.load_texture("crab.png");
+    game("Crabs", 1280, 720)
+        .sim_system(movement)
+        .run([](ctx& ctx) {
+            auto crab = ctx.load_texture("crab.png");
+            for (int i = 0; i < 100000; ++i) {
+                vec2 pos{float(i % 1280), float(i / 1280) * 8};
+                ctx.world().spawn(transform_at(pos), sprite_of(crab),
+                                  Vel{{20, 0}});
+            }
         });
 }
 ```
@@ -204,7 +208,7 @@ reproduce it on the [benchmarks page](https://bozoslav.github.io/crabbyengine/pe
 
 **C and C++**
 - C API (`crabby_ffi`) with a generated header, plus a header-only C++17 wrapper (`include/crabby.hpp`)
-- C++ components and systems get raw component columns: no per-entity calls across the language boundary
+- C++ components are plain structs found by type; `world.each([](transform2d& t, const Vel& v) {...})` loops inline over component arrays, as fast as Rust, with no per-entity calls across the language boundary
 
 ## Working with AI agents
 

@@ -21,9 +21,9 @@ cares read it, instead of having systems call each other or poll flags.
 </div>
 </div>
 
-Any type can be an event in Rust. In C and C++, register the event struct
-like a component and pass its token (`world.component<Died>("Died")`), so
-every system agrees on the type. Events can be at most 16-byte aligned.
+Any type can be an event: a Rust type, or a plain C++ struct. In C, register
+the event struct like a component and pass its id. Events can be at most
+16-byte aligned.
 
 ## Who sees what
 
@@ -49,7 +49,7 @@ moving the read position.
 
 `ctx.events` is a separate field from `ctx.world`, so you can send inside a
 query and read while changing the world (as above). C++ `ctx.send` works
-inside `world().query` but not `query_par`, which runs on many threads:
+inside `world().each` but not `each_par`, which runs on many threads:
 collect there, then send.
 
 ## Tools and agents see events
@@ -57,8 +57,8 @@ collect there, then send.
 Reflect an event type and the [control endpoint](control.md) and the
 [MCP server](agents.md) can collect it: an agent subscribes, runs ticks,
 and gets every event with the tick it was sent in, as JSON. In C and C++,
-events whose type is a reflected component (registered with fields) show up
-the same way.
+events whose type is reflected (described with its fields) show up the same
+way.
 
 <div class="lang-pair">
 <div>
