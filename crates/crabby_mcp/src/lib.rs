@@ -476,6 +476,44 @@ fn tools() -> Vec<Tool> {
             required: &["path"],
         },
         Tool {
+            name: "save_scene",
+            description: "Save the world as a scene file in the game's assets/ folder, the format the game loads with ctx.load_scene and the inspector's editor reads. Use it to write a level the game ships with.",
+            writes: true,
+            params: || json!({ "path": { "type": "string", "description": "Path inside assets/, e.g. levels/beach.json" } }),
+            required: &["path"],
+        },
+        Tool {
+            name: "load_scene",
+            description: "Replace the world with a scene from the game's assets/ folder (entities keep their ids; images that sprites name are loaded). On error nothing changes.",
+            writes: true,
+            params: || json!({ "path": { "type": "string", "description": "Path inside assets/, e.g. levels/beach.json" } }),
+            required: &["path"],
+        },
+        Tool {
+            name: "spawn_prefab",
+            description: "Spawn a prefab (one entity's components, from a file in assets/) with its position at a world point. Returns the new entity.",
+            writes: true,
+            params: || {
+                json!({
+                    "path": { "type": "string", "description": "Path inside assets/, e.g. prefabs/palm.json" },
+                    "at": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2, "description": "World position [x, y]" }
+                })
+            },
+            required: &["path", "at"],
+        },
+        Tool {
+            name: "save_prefab",
+            description: "Save an entity's reflected components as a prefab file in assets/ (its position isn't kept: each spawn says where), for spawn_prefab, ctx.spawn_prefab and the editor's palette (assets/prefabs/).",
+            writes: true,
+            params: || {
+                json!({
+                    "entity": { "type": "integer", "description": "Entity id" },
+                    "path": { "type": "string", "description": "Path inside assets/, e.g. prefabs/palm.json" }
+                })
+            },
+            required: &["entity", "path"],
+        },
+        Tool {
             name: "quit_instance",
             description: "Ask a game to exit.",
             writes: true,
@@ -693,6 +731,10 @@ impl Server {
                 .call("component.remove", pass(&["entity", "component"])),
             "save_world" => self.instance(args)?.call("world.save", pass(&["path"])),
             "load_world" => self.instance(args)?.call("world.load", pass(&["path"])),
+            "save_scene" => self.instance(args)?.call("scene.save", pass(&["path"])),
+            "load_scene" => self.instance(args)?.call("scene.load", pass(&["path"])),
+            "spawn_prefab" => self.instance(args)?.call("prefab.spawn", pass(&["path", "at"])),
+            "save_prefab" => self.instance(args)?.call("prefab.save", pass(&["entity", "path"])),
             "quit_instance" => self.instance(args)?.call("game.quit", json!({})),
             _ => Err(format!("unknown tool `{name}`")),
         }

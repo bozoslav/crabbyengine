@@ -433,3 +433,54 @@ fn output_printed_right_before_exit_still_reaches_the_terminal() {
     assert!(out.status.success(), "{text}");
     assert!(text.contains("exit-test line 19999"), "lost the last lines: {text}");
 }
+
+#[test]
+fn scenes_and_prefabs_are_saved_and_loaded_over_tcp() {
+    let names = ["test-control-prefab.json", "test-control-scene.json"];
+    let assets = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets");
+    let (addr_tx, addr_rx) = mpsc::channel();
+    let game = thread::spawn(move || {
+        Game::new("scenes-test", 1, 1)
+            .control_endpoint(true)
+            .run_headless(u64::MAX, move |ctx| {
+                ctx.pause();
+                addr_tx.send(ctx.control_addr().unwrap()).unwrap();
+            })
+    });
+    let addr = addr_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    let info: Value = serde_json::from_str(&std::fs::read_to_string(registry_file(addr)).unwrap()).unwrap();
+    let mut c = Client::connect(addr, info["token"].as_str().unwrap().to_string());
+
+    // An agent builds a level: a crab sprite saved as a prefab, placed twice.
+    let crab = json!({ "Transform2D": { "rotation": 0.5 }, "Sprite": { "texture": "crab.png", "z": 2 } });
+    let model = c.call("entity.spawn", json!({ "components": crab })).unwrap()["entity"].clone();
+    c.call("prefab.save", json!({ "entity": model, "path": names[0] }))
+        .unwrap();
+    c.call("entity.despawn", json!({ "entity": model })).unwrap();
+    let a = c
+        .call("prefab.spawn", json!({ "path": names[0], "at": [10, 20] }))
+        .unwrap()["entity"]
+        .clone();
+    c.call("prefab.spawn", json!({ "path": names[0], "at": [30, 20] }))
+        .unwrap();
+    let placed = c.call("entity.get", json!({ "entity": a })).unwrap();
+    assert_eq!(placed["Transform2D"]["position"], json!([10.0, 20.0]));
+    assert_eq!(placed["Sprite"]["texture"], "crab.png");
+
+    c.call("scene.save", json!({ "path": names[1] })).unwrap();
+    c.call("entity.despawn", json!({ "entity": a })).unwrap();
+    let loaded = c.call("scene.load", json!({ "path": names[1] })).unwrap();
+    assert_eq!(loaded["entities"], 2);
+    assert!(c.call("entity.get", json!({ "entity": a })).is_ok(), "same id back");
+    let missing = c.call(
+        "prefab.spawn",
+        json!({ "path": "test-control-missing.json", "at": [0, 0] }),
+    );
+    assert!(missing.unwrap_err().contains("not found"));
+
+    c.call("game.quit", json!({})).unwrap();
+    game.join().unwrap();
+    for name in names {
+        let _ = std::fs::remove_file(assets.join(name));
+    }
+}

@@ -22,6 +22,9 @@ says what that covers.
   drag to move, pan and zoom, Delete, Ctrl+D duplicate, Ctrl+Z undo, add
   components, place prefabs from `assets/prefabs/`, save and load scenes,
   and Play / Stop (Stop puts the world back as it was at Play).
+- Control endpoint `scene.save`, `scene.load`, `prefab.spawn`,
+  `prefab.save`, and the MCP tools `save_scene`, `load_scene`,
+  `spawn_prefab`, `save_prefab`, so agents can build levels.
 
 ## [1.0.0] - 2026-11-03
 

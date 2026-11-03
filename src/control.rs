@@ -443,6 +443,22 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
         "world.load",
         "replace every entity with a save file's (same ids); params: path. Checked first: on error nothing changes",
     ),
+    (
+        "scene.save",
+        "save the world as a scene in assets/ (what ctx.load_scene and the editor read); params: path (relative to assets/)",
+    ),
+    (
+        "scene.load",
+        "replace the world with a scene from assets/, loading the images its sprites name; params: path",
+    ),
+    (
+        "prefab.spawn",
+        "spawn a prefab from assets/ at a point; params: path, at [x, y]. Returns the entity",
+    ),
+    (
+        "prefab.save",
+        "save an entity's reflected components (without its position) as a prefab in assets/; params: entity, path",
+    ),
     ("sim.pause", "pause simulation systems"),
     ("sim.resume", "resume simulation systems"),
     ("sim.step", "run extra simulation ticks; params: ticks? (default 1)"),
@@ -654,6 +670,29 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
                 "not_saved": save["not_saved"],
                 "tick": ctx.sim_tick(),
             })
+        }
+        "scene.save" => {
+            let path = str_param(params, "path")?;
+            ctx.save_scene(path)?;
+            json!({ "path": path, "entities": ctx.world.len() })
+        }
+        "scene.load" => {
+            let path = str_param(params, "path")?;
+            ctx.load_scene(path)?;
+            json!({ "path": path, "entities": ctx.world.len() })
+        }
+        "prefab.spawn" => {
+            let path = str_param(params, "path")?;
+            let at: [f32; 2] = serde_json::from_value(param(params, "at")?.clone())
+                .map_err(|e| format!("`at` must be [x, y]: {e}"))?;
+            let e = ctx.spawn_prefab(path, crate::vec2(at[0], at[1]))?;
+            json!({ "entity": e.to_bits() })
+        }
+        "prefab.save" => {
+            let e = entity_param(params)?;
+            let path = str_param(params, "path")?;
+            ctx.save_prefab(e, path)?;
+            json!({ "path": path })
         }
         "world.load" => {
             let path = str_param(params, "path")?;
