@@ -121,8 +121,17 @@ fn play(nets: Vec<Net>, ticks: u64, units: usize, tweak: fn(&mut Ctx)) -> Vec<(V
 fn nothing(_: &mut Ctx) {}
 
 fn assert_identical(results: &[(Value, Outcome)]) {
+    // The host is player 0; guests are numbered in the order their hellos
+    // arrive, which packet loss can shuffle.
+    let mut players: Vec<usize> = results.iter().map(|(_, o)| o.player).collect();
+    assert_eq!(players[0], 0, "the host is player 0");
+    players.sort_unstable();
+    assert_eq!(
+        players,
+        (0..results.len()).collect::<Vec<_>>(),
+        "every player has its own number"
+    );
     for (i, (save, outcome)) in results.iter().enumerate() {
-        assert_eq!(outcome.player, i, "players are numbered in join order");
         assert!(outcome.desync.is_none(), "no desync: {:?}", outcome.desync);
         assert!(outcome.steered, "player 1's input arrived");
         assert_eq!(*save, results[0].0, "player {i} has the same world");

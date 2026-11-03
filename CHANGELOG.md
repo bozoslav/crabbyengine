@@ -31,8 +31,9 @@ GitHub release. Everything below is new.
   platforms. In C (`crabby_game_physics`, `crabby_ctx_cast_ray`, ...) and C++.
 - Deterministic lockstep multiplayer for 2–8 players (`Game::lockstep`,
   `Net::host` / `Net::join`, `ctx.net`): plain UDP, input delay, lost
-  packets recovered, and desync checks that name the components that
-  differ. `Net::loopback` for tests. In C and C++ too.
+  packets recovered (a peer that stops keeps resending for up to a second
+  until the others have its last inputs), and desync checks that name the
+  components that differ. `Net::loopback` for tests. In C and C++ too.
 - Lockstep over Steam (feature `steam`): `Net::steam_host` / `steam_join`,
   friends-only lobbies, overlay invites, Steam's relays (no port
   forwarding). The Steam library is copied next to examples and tests. In C
