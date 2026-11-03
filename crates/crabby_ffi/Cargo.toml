@@ -27,6 +27,10 @@ gamepad = ["crabbyengine/gamepad"]
 # 2D physics with rapier (crabby_game_physics, rigid bodies, colliders, rays).
 # Off: those calls fail with an error.
 physics = ["crabbyengine/physics"]
+# Lockstep over Steam (crabby_game_lockstep_steam_*). Off by default: it
+# links libsteam_api, which then ships next to the game. Off: those calls
+# fail with an error.
+steam = ["crabbyengine/steam"]
 
 [dependencies]
 crabbyengine = { path = "../..", default-features = false }

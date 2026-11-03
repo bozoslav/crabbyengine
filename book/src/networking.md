@@ -114,6 +114,55 @@ simulation changes.
 or the host refused us; `ctx.net.error()` says why). `ctx.net.player()` and
 `players()` say who's who; `stats()` counts packets and bytes sent.
 
+## Over Steam
+
+With the `steam` feature, Steam carries the packets: players meet in a
+friends-only Steam lobby, invites come from the Steam overlay, and Steam's
+relays get through any router, with no port forwarding and no addresses
+to type. The lockstep itself is the same, so nothing else in the game changes.
+
+```toml
+crabbyengine = { version = "...", features = ["steam"] }
+```
+
+The host makes the lobby and invites; a friend either launches the game
+from the invite (Steam passes `+connect_lobby`) or accepts it while the
+game waits:
+
+<div class="lang-pair">
+<div>
+
+```rust
+{{#include ../../examples/lockstep.rs:steam}}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:steam_setup}}
+```
+
+</div>
+</div>
+
+While connecting, `ctx.net.steam_lobby()` is the lobby, and
+`ctx.net.steam_invite()` opens the overlay's invite dialog (the example
+does that on the I key). `steamworks` is re-exported, so the same `Client`
+also gives you achievements, stats and the rest of Steam.
+
+Shipping: the game needs Steam running, its Steam app id (480, Valve's
+test app "Spacewar", works for development) and Valve's `libsteam_api`
+library next to the executable (`libsteam_api.dylib`, `libsteam_api.so`
+or `steam_api64.dll`). Cargo puts it there for `cargo run`, examples and
+tests; when you package the game, copy it from `target/<profile>/`. For C
+and C++, build crabby_ffi with `--features steam`.
+
+Try it with two Steam accounts on two machines:
+`cargo run --example lockstep --features steam -- steam` on one, press I
+to invite, and `cargo run --example lockstep --features steam -- steam-join`
+on the other, then accept the invite.
+
 ## Testing
 
 `Net::loopback(players)` connects sessions in memory, so a test can run a

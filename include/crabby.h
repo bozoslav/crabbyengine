@@ -999,6 +999,26 @@ enum CrabbyStatus crabby_resource_reflect(struct CrabbyWorld *world,
                                           const struct CrabbyField *fields,
                                           size_t len);
 
+enum CrabbyStatus crabby_game_lockstep_steam_host(struct CrabbyGame *game,
+                                                  uint32_t app_id,
+                                                  uint32_t players,
+                                                  uint32_t input_delay,
+                                                  uint32_t checksum_every);
+
+enum CrabbyStatus crabby_game_lockstep_steam_join(struct CrabbyGame *game,
+                                                  uint32_t app_id,
+                                                  uint64_t lobby);
+
+enum CrabbyStatus crabby_steam_lobby_from_args(uint64_t *out_lobby);
+
+enum CrabbyStatus crabby_steam_wait_for_invite(uint32_t app_id,
+                                               uint32_t timeout_ms,
+                                               uint64_t *out_lobby);
+
+enum CrabbyStatus crabby_ctx_steam_lobby(struct CrabbyCtx *ctx, uint64_t *out_lobby);
+
+enum CrabbyStatus crabby_ctx_steam_invite(struct CrabbyCtx *ctx);
+
 enum CrabbyStatus crabby_sprite_sheet(struct CrabbyTexture texture,
                                       uint32_t frame_width,
                                       uint32_t frame_height,

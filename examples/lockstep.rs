@@ -6,6 +6,11 @@
 //!   `cargo run --example lockstep -- join 127.0.0.1:7777`
 //!
 //! (or on two machines on one network). Space shoves the other crab away.
+//!
+//! Over Steam (feature `steam`; Steam running; Valve's test app 480):
+//!
+//!   `cargo run --example lockstep --features steam -- steam`       host, press I to invite
+//!   `cargo run --example lockstep --features steam -- steam-join`  then accept the invite
 
 use crabbyengine::*;
 use serde::{Deserialize, Serialize};
@@ -101,6 +106,16 @@ fn draw(ctx: &mut Ctx) {
         NetState::Offline => "offline".into(),
     };
     ctx.draw_text(&status, vec2(20.0, 20.0), 20.0, Color::WHITE);
+    #[cfg(feature = "steam")]
+    if ctx.net.state() == NetState::Connecting
+        && let Some(lobby) = ctx.net.steam_lobby()
+    {
+        let text = format!("Steam lobby {}: press I to invite a friend", lobby.raw());
+        ctx.draw_text(&text, vec2(20.0, 50.0), 20.0, Color::WHITE);
+        if ctx.key_pressed(Key::I) {
+            ctx.net.steam_invite();
+        }
+    }
     if ctx.key_pressed(Key::Escape) {
         ctx.quit();
     }
@@ -108,16 +123,24 @@ fn draw(ctx: &mut Ctx) {
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    #[cfg(feature = "steam")]
+    if let Some(net) = steam_session(&args) {
+        return play(net);
+    }
     // ANCHOR: session
     let net = match args.first().map(String::as_str) {
         Some("host") => Net::host(format!("0.0.0.0:{}", args.get(1).map_or("7777", |p| p)), 2),
         Some("join") => Net::join(args.get(1).map_or("127.0.0.1:7777", |a| a)),
         _ => {
-            eprintln!("usage: lockstep host [port] | lockstep join <host:port>");
+            eprintln!("usage: lockstep host [port] | join <host:port> | steam | steam-join");
             return;
         }
     }
     .expect("could not open a socket");
+    play(net);
+}
+
+fn play(net: Net) {
     Game::new("Lockstep", 800, 600)
         .lockstep(net)
         .system(read_keys) // frame system: input out
@@ -137,3 +160,27 @@ fn main() {
         });
     // ANCHOR_END: session
 }
+
+// ANCHOR: steam
+/// Steam: the host creates a friends-only lobby and invites from the
+/// overlay; the friend accepts in Steam. No addresses, no port forwarding.
+#[cfg(feature = "steam")]
+fn steam_session(args: &[String]) -> Option<Net> {
+    let mode = args.first().map(String::as_str);
+    let invited = steam_lobby_from_args(); // launched by accepting an invite
+    if !matches!(mode, Some("steam" | "steam-join")) && invited.is_none() {
+        return None;
+    }
+    // 480 is Valve's test app; a real game uses its own app id.
+    let client = steamworks::Client::init_app(480).expect("Steam must be running and logged in");
+    if let Some(lobby) = invited {
+        return Some(Net::steam_join(&client, lobby));
+    }
+    if mode == Some("steam") {
+        return Some(Net::steam_host(&client, 2));
+    }
+    println!("waiting for you to accept a Steam invite...");
+    let lobby = steam_wait_for_invite(&client, std::time::Duration::from_secs(300))?;
+    Some(Net::steam_join(&client, lobby))
+}
+// ANCHOR_END: steam

@@ -431,6 +431,20 @@ static void obey_orders(crabby::ctx& ctx) {
     // ANCHOR_END: lockstep_setup
 }
 
+[[maybe_unused]] static void steam_multiplayer(bool hosting) {
+    // ANCHOR: steam_setup
+    // crabby_ffi built with --features steam; 480 is Valve's test app.
+    crabby::game game("RTS", 1280, 720);
+    if (std::uint64_t lobby = crabby::steam_lobby_from_args())   // launched from an invite
+        game.lockstep_steam_join(480, lobby);
+    else if (hosting)
+        game.lockstep_steam_host(480, 2);                          // then ctx.steam_invite()
+    else
+        game.lockstep_steam_join(480, crabby::steam_wait_for_invite(480, 120000));
+    // ANCHOR_END: steam_setup
+    game.sim_system(send_orders).sim_system(obey_orders).run([](crabby::ctx&) {});
+}
+
 // ---- Data files ----------------------------------------------------------------------
 // ANCHOR: data_files
 struct Tuning { float speed; float damage; };

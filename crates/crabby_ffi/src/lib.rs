@@ -28,6 +28,7 @@ mod net;
 mod physics;
 mod reflect;
 mod resources;
+mod steam;
 mod tiles;
 mod types;
 pub use attach::*;
@@ -41,6 +42,7 @@ pub use net::*;
 pub use physics::*;
 pub use reflect::*;
 pub use resources::*;
+pub use steam::*;
 pub use tiles::*;
 pub use types::*;
 

@@ -189,7 +189,7 @@ reproduce it on the [benchmarks page](https://bozoslav.github.io/crabbyengine/pe
 - Own archetype ECS: queries, `par_for_each` on all cores, commands, resources, runtime-registered components
 - Fixed-rate sim clock: pause, step, 1–64× speed, systems that run only every N ticks
 - Spatial grids (radius, rectangle, nearest), flow-field pathfinding, events between systems, attachments
-- Lockstep multiplayer for 2–8 players over UDP: only inputs cross the network (~50 bytes/tick), desyncs reported by component
+- Lockstep multiplayer for 2–8 players over UDP or Steam (lobbies, invites, relays): only inputs cross the network (~50 bytes/tick), desyncs reported by component
 - 2D physics (rapier, `physics` feature): rigid bodies and colliders as components, collision events, rays, impulses; optionally bit-identical across platforms
 - Deterministic: seeded randomness per (seed, tick, system, entity), even in parallel; save and load the whole world
 - Headless runs for tests, servers and batch simulations; the build without a window has about half as many crates

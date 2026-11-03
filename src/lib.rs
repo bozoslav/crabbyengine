@@ -36,6 +36,10 @@
 //! - `profiling`: per-system scopes for `puffin_viewer`.
 //! - `hotpatch`: change system code while the game runs, with
 //!   `dx serve --hot-patch --features hotpatch`.
+//! - `physics`: 2D physics with rapier (`Game::physics`); `physics-determinism`
+//!   for bit-identical results across platforms.
+//! - `steam`: lockstep multiplayer over Steam's relays and lobbies
+//!   (`Net::steam_host`), with the `steamworks` crate re-exported.
 
 // Without a window, the code that only the window loop calls is unused.
 #![cfg_attr(not(feature = "window"), allow(dead_code))]
@@ -89,6 +93,8 @@ pub use flow::{FlowField, NavGrid};
 pub use game::{Game, SetupResult};
 pub use input::{Gamepad, GamepadAxis, GamepadButton, GamepadStick, Key, MAX_GAMEPADS, MouseButton};
 pub use net::{Desync, MAX_INPUT_BYTES, MAX_PLAYERS, Net, NetState, NetStats};
+#[cfg(feature = "steam")]
+pub use net::{steam_lobby_from_args, steam_wait_for_invite};
 #[cfg(feature = "physics")]
 pub use physics::{
     BodyKind, Collider, CollisionStarted, CollisionStopped, Physics, RayHit, RigidBody, Shape, Velocity, step_physics,
@@ -100,6 +106,11 @@ pub use sheet::{Animation, SpriteSheet, animate_sprites};
 #[doc(hidden)]
 pub use spatial::RawGridView;
 pub use spatial::{GridEntry, SPATIAL_SORT_EVERY, SpatialGrid, rebuild_spatial_grid, spatial_key};
+/// The Steamworks SDK (re-exported `steamworks` crate, feature `steam`):
+/// create the [`steamworks::Client`] for [`Net::steam_host`] here, and use
+/// it for achievements, friends and the rest of Steam.
+#[cfg(feature = "steam")]
+pub use steamworks;
 pub use text::{Font, TextParams};
 pub use texture::{DrawParams, Texture, TextureFilter};
 pub use tilemap::{TileMap, draw_tilemaps};

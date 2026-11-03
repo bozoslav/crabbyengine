@@ -914,6 +914,10 @@ public:
         std::memcpy(&value, data, sizeof(T));
         return value;
     }
+    /// The Steam lobby of this session, or 0 (not created yet, or not Steam).
+    std::uint64_t steam_lobby() const { std::uint64_t l = 0; detail::check(crabby_ctx_steam_lobby(raw_, &l)); return l; }
+    /// Opens the Steam overlay to invite friends to this session's lobby.
+    void steam_invite() { detail::check(crabby_ctx_steam_invite(raw_)); }
     void pause() { detail::check(crabby_ctx_pause(raw_)); }
     void resume() { detail::check(crabby_ctx_resume(raw_)); }
     void step() { detail::check(crabby_ctx_step(raw_)); }
@@ -1215,6 +1219,17 @@ public:
     }
     /// Joins the lockstep session hosted at `addr` ("192.168.1.20:7777").
     game& lockstep_join(const char* addr) { return check(crabby_game_lockstep_join(raw_, addr)); }
+    /// Hosts a lockstep session over Steam (crabby_ffi feature `steam`):
+    /// starts Steam for `app_id` (480: Valve's test app) and opens a
+    /// friends-only lobby; friends join through invites (ctx::steam_invite).
+    game& lockstep_steam_host(std::uint32_t app_id, std::uint32_t players, std::uint32_t input_delay = 3,
+                              std::uint32_t checksum_every = 60) {
+        return check(crabby_game_lockstep_steam_host(raw_, app_id, players, input_delay, checksum_every));
+    }
+    /// Joins a Steam lobby (from steam_lobby_from_args or steam_wait_for_invite).
+    game& lockstep_steam_join(std::uint32_t app_id, std::uint64_t lobby) {
+        return check(crabby_game_lockstep_steam_join(raw_, app_id, lobby));
+    }
     /// A system on the fixed simulation tick; `every` > 1 runs it every n ticks.
     template<class F> game& sim_system(F fn, const char* name = nullptr, std::uint32_t every = 1) {
         return check(crabby_game_sim_system(raw_, name, every, trampoline, keep(std::move(fn))));
@@ -1246,5 +1261,19 @@ public:
     }
     crabby::world run_headless(std::uint64_t ticks) { return run_headless(ticks, [](ctx&) {}); }
 };
+
+/// The lobby of the Steam invite the game was launched with, or 0.
+inline std::uint64_t steam_lobby_from_args() {
+    std::uint64_t l = 0;
+    detail::check(crabby_steam_lobby_from_args(&l));
+    return l;
+}
+/// Waits up to `timeout_ms` for the player to accept a friend's Steam
+/// invite; the lobby, or 0. Starts Steam for `app_id`.
+inline std::uint64_t steam_wait_for_invite(std::uint32_t app_id, std::uint32_t timeout_ms) {
+    std::uint64_t l = 0;
+    detail::check(crabby_steam_wait_for_invite(app_id, timeout_ms, &l));
+    return l;
+}
 } // namespace crabby
 #endif
