@@ -8,6 +8,7 @@
 #include <iostream>
 #include <optional>
 #include <string>
+#include <thread>
 #include <type_traits>
 #define CHECK(...) do { if (!(__VA_ARGS__)) { std::cerr << "failed: " #__VA_ARGS__ << " (line " << __LINE__ << ")\n"; std::abort(); } } while (false)
 struct Pos { float x, y; };
@@ -355,6 +356,39 @@ static void physics() {
     throws([&] { w.set(floor, flat); });
 }
 
+static void lockstep() {
+    // Two games over UDP on localhost see the same inputs, tick for tick.
+    struct Order { std::uint32_t tick; float x; };
+    struct Seen { std::uint64_t sum = 0; std::uint32_t others = 0, player = 9; bool desync = false; };
+    auto play = [](crabby::game& g, Seen& seen) {
+        g.sim_system([&seen](crabby::ctx& ctx) {
+            seen.player = ctx.player();
+            ctx.set_input(Order{std::uint32_t(ctx.sim_tick()), float(ctx.player())});
+            for (std::uint32_t p = 0; p < ctx.players(); ++p)
+                if (auto o = ctx.input<Order>(p)) {
+                    seen.sum += o->tick * (p + 1);
+                    if (p != ctx.player()) ++seen.others;
+                }
+            seen.desync = ctx.desynced();
+        });
+        g.run_headless(200, [](crabby::ctx&) {});
+    };
+    std::uint16_t port = 0;
+    Seen host_seen, guest_seen;
+    crabby::game host("host", 1, 1);
+    host.lockstep_host("127.0.0.1:0", 2, 2, 30, &port);
+    CHECK(port != 0);
+    std::thread host_thread([&] { play(host, host_seen); });
+    crabby::game guest("guest", 1, 1);
+    guest.lockstep_join(("127.0.0.1:" + std::to_string(port)).c_str());
+    play(guest, guest_seen);
+    host_thread.join();
+    CHECK(host_seen.player == 0 && guest_seen.player == 1);
+    CHECK(host_seen.sum == guest_seen.sum && host_seen.others > 150 && guest_seen.others > 150);
+    CHECK(!host_seen.desync && !guest_seen.desync);
+    throws([] { crabby::game("t", 1, 1).lockstep_host("127.0.0.1:0", 1); });
+}
+
 int main() {
     worlds();
     names_and_reflection();
@@ -364,6 +398,7 @@ int main() {
     games();
     attachments();
     physics();
+    lockstep();
     events();
     rng_matches_rust();
     grid_views_match_engine_queries();

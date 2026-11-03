@@ -5,6 +5,7 @@
 //! Each benchmark builds its state untimed, then times one operation; we report
 //! the median and minimum over several runs.
 
+mod net;
 #[allow(dead_code)] // spike: API surface kept for the M3 port
 mod own;
 mod physics;
@@ -126,6 +127,7 @@ fn main() {
     let mut b = Bench { filter };
     println!("N = {N}, add/remove N = {ADD_REMOVE_N}\n");
     physics::run(&mut b);
+    net::run(&mut b);
 
     // ---- baseline: plain Vecs (upper bound for iteration) -------------------
     b.steady(

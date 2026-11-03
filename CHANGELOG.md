@@ -23,6 +23,10 @@ Everything so far, ahead of the first release.
   `CollisionStopped` events, ray casts, overlap queries and impulses
   (`ctx.physics`), and `physics-determinism` for bit-identical results across
   platforms. In C (`crabby_game_physics`, `crabby_ctx_cast_ray`, ...) and C++.
+- Deterministic lockstep multiplayer for 2–8 players (`Game::lockstep`,
+  `Net::host` / `Net::join`, `ctx.net`): plain UDP, input delay, lost
+  packets recovered, and desync checks that name the components that
+  differ. `Net::loopback` for tests. In C and C++ too.
 - Determinism: seeded randomness per (seed, tick, system, entity), the same
   with parallel queries. Save and load the whole world, keeping entity ids.
 - Headless runs (`Game::run_headless`) and an optional `window` feature for

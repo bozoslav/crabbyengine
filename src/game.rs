@@ -77,6 +77,8 @@ pub struct Game {
     /// Gravity from `physics`, applied to `ctx.physics` when the game starts.
     #[cfg(feature = "physics")]
     gravity: Option<Vec2>,
+    /// The lockstep session from `lockstep`, moved into `ctx.net` at start.
+    net: Option<crate::Net>,
     /// Open the control endpoint (also on with `CRABBY_CONTROL=1`).
     control: bool,
     /// Reload asset and data files when they change (`CRABBY_HOT_RELOAD` overrides).
@@ -228,10 +230,39 @@ impl Game {
             spatial_cell: None,
             #[cfg(feature = "physics")]
             gravity: None,
+            net: None,
             control: control::env_flag(control::ENV_CONTROL),
             hot_reload: cfg!(debug_assertions),
             inspector: cfg!(debug_assertions),
         }
+    }
+
+    /// Plays over the network in deterministic lockstep: `net` from
+    /// [`Net::host`](crate::Net::host), [`Net::join`](crate::Net::join) or
+    /// [`Net::loopback`](crate::Net::loopback). Ticks then run only once
+    /// every player's input for them is in, and the setup and simulation
+    /// systems must be deterministic (same seed, no wall clock, no frame
+    /// systems changing the world). Without it, `ctx.net` is offline.
+    ///
+    /// ```
+    /// use crabbyengine::*;
+    /// use std::thread;
+    ///
+    /// // Two players in one process; over the network it's Net::host / Net::join.
+    /// let games: Vec<_> = Net::loopback(2)
+    ///     .into_iter()
+    ///     .map(|net| thread::spawn(move || {
+    ///         let world = Game::new("t", 1, 1).lockstep(net).run_headless(30, |_| {});
+    ///         world.len()
+    ///     }))
+    ///     .collect();
+    /// for g in games {
+    ///     assert_eq!(g.join().unwrap(), 0);
+    /// }
+    /// ```
+    pub fn lockstep(mut self, net: crate::Net) -> Self {
+        self.net = Some(net);
+        self
     }
 
     /// Adds a simulation system: it runs at the fixed rate
@@ -569,6 +600,10 @@ impl Game {
         self.begin_timings(ctx);
         ctx.set_in_sim(true);
         for _ in 0..fixed_steps {
+            // Lockstep: a tick waits for everyone's input; the frame goes on.
+            if !ctx.net.ready(ctx.sim_tick()) {
+                break;
+            }
             self.run_sim_tick(ctx);
         }
         ctx.set_in_sim(false);
@@ -594,6 +629,7 @@ impl Game {
             run_one(s, ctx, i);
         }
         ctx.set_sim_steps(1);
+        ctx.net.end_tick(&ctx.world, tick);
         ctx.advance_tick();
     }
 
@@ -667,6 +703,10 @@ impl Game {
             crate::physics::start(&mut ctx, gravity);
         }
         let control = self.start_control(&mut ctx, true);
+        if let Some(net) = self.net.take() {
+            ctx.net = net;
+        }
+        ctx.net.begin(ctx.seed);
         drop(setup(&mut ctx).into_frame_fn()); // no frames, so no frame closure
         ctx.apply_commands();
         ctx.discard_draws();
@@ -688,6 +728,12 @@ impl Game {
                     control.wait(&mut ctx, Duration::from_millis(50));
                     continue;
                 }
+            }
+            if !ctx.net.ready(ctx.sim_tick()) {
+                if !ctx.net.wait() {
+                    break;
+                }
+                continue;
             }
             ran += 1;
             ctx.begin_frame(timing);

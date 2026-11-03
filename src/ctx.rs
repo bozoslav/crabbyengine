@@ -118,6 +118,10 @@ pub struct Ctx {
     /// (feature `physics`).
     #[cfg(feature = "physics")]
     pub physics: crate::Physics,
+    /// Lockstep networking: this player's input out, everyone's in. Offline
+    /// (one player) unless the game was given a session with
+    /// [`Game::lockstep`](crate::Game::lockstep).
+    pub net: crate::Net,
     /// Messages between systems: [`Events::send`] and [`Events::read`].
     /// A separate field, so you can read events while changing the world.
     ///
@@ -218,6 +222,7 @@ impl Ctx {
             spatial: SpatialGrid::default(),
             #[cfg(feature = "physics")]
             physics: crate::Physics::default(),
+            net: crate::Net::default(),
             events: Events::default(),
             in_sim: false,
             sim_steps: 1,

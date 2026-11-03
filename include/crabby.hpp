@@ -886,6 +886,34 @@ public:
 
     // Simulation controls.
     void quit() { detail::check(crabby_ctx_quit(raw_)); }
+
+    // Lockstep networking (game::lockstep_host / lockstep_join); offline: one player.
+    std::uint32_t player() const { std::uint32_t p = 0, n = 0; detail::check(crabby_ctx_net_player(raw_, &p, &n)); return p; }
+    std::uint32_t players() const { std::uint32_t p = 0, n = 0; detail::check(crabby_ctx_net_player(raw_, &p, &n)); return n; }
+    CrabbyNetState net_state() const { std::uint32_t s = 0; detail::check(crabby_ctx_net_state(raw_, &s)); return static_cast<CrabbyNetState>(s); }
+    /// Whether the players' worlds stopped matching (details on stderr).
+    bool desynced() const {
+        bool found = false; std::uint64_t tick = 0; std::uint32_t who = 0;
+        detail::check(crabby_ctx_net_desync(raw_, &found, &tick, &who));
+        return found;
+    }
+    /// This player's input for the next tick it can go into (a plain struct
+    /// of at most 1024 bytes). The last call before that tick wins.
+    template<class T> void set_input(const T& input) {
+        static_assert(detail::pod<T> && sizeof(T) <= 1024, "inputs are plain structs of at most 1024 bytes");
+        detail::check(crabby_ctx_set_input(raw_, &input, sizeof(T)));
+    }
+    /// `player`'s input for this tick, if they sent one.
+    template<class T> std::optional<T> input(std::uint32_t player) const {
+        static_assert(detail::pod<T>, "inputs are plain structs");
+        const void* data = nullptr;
+        std::size_t size = 0;
+        detail::check(crabby_ctx_input(raw_, player, &data, &size));
+        if (size != sizeof(T)) return std::nullopt;
+        T value;
+        std::memcpy(&value, data, sizeof(T));
+        return value;
+    }
     void pause() { detail::check(crabby_ctx_pause(raw_)); }
     void resume() { detail::check(crabby_ctx_resume(raw_)); }
     void step() { detail::check(crabby_ctx_step(raw_)); }
@@ -1177,6 +1205,16 @@ public:
     /// with a rigid_body, a collider and a transform2d are simulated. Adds
     /// the physics step here in the order: after the sim systems that move things.
     game& physics(vec2 gravity) { return check(crabby_game_physics(raw_, gravity)); }
+    /// Hosts a lockstep session for `players` (2-8; you are player 0) on
+    /// `addr` ("0.0.0.0:7777"; port 0 picks one, written to `*port`). Input
+    /// is scheduled `input_delay` ticks ahead; worlds are compared every
+    /// `checksum_every` ticks. Ticks run once every player's input is in.
+    game& lockstep_host(const char* addr, std::uint32_t players, std::uint32_t input_delay = 3,
+                        std::uint32_t checksum_every = 60, std::uint16_t* port = nullptr) {
+        return check(crabby_game_lockstep_host(raw_, addr, players, input_delay, checksum_every, port));
+    }
+    /// Joins the lockstep session hosted at `addr` ("192.168.1.20:7777").
+    game& lockstep_join(const char* addr) { return check(crabby_game_lockstep_join(raw_, addr)); }
     /// A system on the fixed simulation tick; `every` > 1 runs it every n ticks.
     template<class F> game& sim_system(F fn, const char* name = nullptr, std::uint32_t every = 1) {
         return check(crabby_game_sim_system(raw_, name, every, trampoline, keep(std::move(fn))));
