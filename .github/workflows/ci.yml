@@ -7,6 +7,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, edited]
   workflow_dispatch:
 
 concurrency:
@@ -22,6 +23,35 @@ env:
   CARGO_PROFILE_DEV_DEBUG: "0"
 
 jobs:
+  # Words from private projects that use the engine must never land here.
+  # The list is the LEAK_WORDS secret (so it isn't in this repo either);
+  # pull requests from forks don't get secrets, and skip it.
+  leaks:
+    name: Leak check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Files
+        env:
+          LEAK_WORDS: ${{ secrets.LEAK_WORDS }}
+        run: scripts/leak-check.sh files
+      - name: Commit messages
+        env:
+          LEAK_WORDS: ${{ secrets.LEAK_WORDS }}
+          RANGE: ${{ github.event_name == 'pull_request' && format('{0}..{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) || format('{0}~1..{0}', github.sha) }}
+        run: scripts/leak-check.sh messages "$RANGE"
+      - name: Pull request title and description
+        if: github.event_name == 'pull_request'
+        env:
+          LEAK_WORDS: ${{ secrets.LEAK_WORDS }}
+          TITLE: ${{ github.event.pull_request.title }}
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          printf '%s\n%s\n' "$TITLE" "$BODY" > "$RUNNER_TEMP/pr.txt"
+          scripts/leak-check.sh text "$RUNNER_TEMP/pr.txt"
+
   fmt:
     name: Format
     runs-on: ubuntu-latest
@@ -257,7 +287,7 @@ jobs:
   ci-passed:
     name: CI passed
     if: always()
-    needs: [fmt, clippy, msrv, test, docs, book, miri, native, web]
+    needs: [leaks, fmt, clippy, msrv, test, docs, book, miri, native, web]
     runs-on: ubuntu-latest
     steps:
       - name: Check every job
