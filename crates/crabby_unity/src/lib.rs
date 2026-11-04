@@ -18,6 +18,7 @@ mod import;
 mod material;
 mod mesh;
 mod project;
+mod terrain;
 mod texture;
 mod value;
 
@@ -26,6 +27,7 @@ pub use import::{Importer, Report};
 pub use material::{Surface, UnityMaterial};
 pub use mesh::{Channel, UnityMesh, VertexFormat};
 pub use project::Project;
+pub use terrain::UnityTerrain;
 pub use texture::UnityTexture;
 pub use value::{ObjRef, Value};
 
