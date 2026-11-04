@@ -328,14 +328,31 @@ impl Ctx {
             return Ok(mesh);
         }
         let bytes = assets::read(&file).map_err(|e| format!("could not read {}: {e}", file.display()))?;
-        let loaded = gltf::load(path, &bytes, &mut |name| {
-            let file = assets::resolve(name)?;
-            assets::read(&file).map_err(|e| format!("could not read {}: {e}", file.display()))
-        })?;
+        let shared = &self.assets3d.shared_images;
+        let loaded = gltf::load(
+            path,
+            &bytes,
+            &mut |name| {
+                let file = assets::resolve(name)?;
+                assets::read(&file).map_err(|e| format!("could not read {}: {e}", file.display()))
+            },
+            &|source| shared.contains_key(source),
+        )?;
         let textures: Vec<crate::Texture> = loaded
             .images
             .iter()
-            .map(|(w, h, rgba)| self.create_texture(*w, *h, rgba))
+            .zip(&loaded.image_sources)
+            .map(|((w, h, rgba), source)| match source {
+                Some(s) => match self.assets3d.shared_images.get(s) {
+                    Some(&t) => t,
+                    None => {
+                        let t = self.create_texture(*w, *h, rgba);
+                        self.assets3d.shared_images.insert(s.clone(), t);
+                        t
+                    }
+                },
+                None => self.create_texture(*w, *h, rgba),
+            })
             .collect();
         let materials: Vec<Material> = loaded
             .materials
@@ -365,6 +382,10 @@ impl Ctx {
             .collect();
         let mesh = self.mesh_from_parts(&loaded.data, &parts);
         self.assets3d.loaded.insert(file, mesh);
+        if let Some(names) = self.world.get_resource_mut::<crate::reflect::MeshNames>() {
+            names.by_id.insert(mesh.id, path.to_string());
+            names.by_name.insert(path.to_string(), mesh);
+        }
         Ok(mesh)
     }
 
@@ -403,6 +424,11 @@ impl Ctx {
         }
         *bounds = (Vec3::ZERO, -1.0);
         self.assets3d.loaded.retain(|_, m| *m != mesh);
+        if let Some(names) = self.world.get_resource_mut::<crate::reflect::MeshNames>()
+            && let Some(name) = names.by_id.remove(&mesh.id)
+        {
+            names.by_name.remove(&name);
+        }
         if let Some(renderer) = self.renderer.as_mut()
             && !self.headless
         {

@@ -20,6 +20,10 @@ pub(crate) struct Loaded {
     pub materials: Vec<LoadedMaterial>,
     /// The materials' images: width, height, RGBA8 pixels.
     pub images: Vec<Image>,
+    /// Where each image came from, when that's files (asset names, or
+    /// `orm:` plus two of them for a merged image), so files sharing an
+    /// image upload it once. One the caller said it has is left empty.
+    pub image_sources: Vec<Option<String>>,
 }
 
 /// Width, height and RGBA8 pixels.
@@ -61,10 +65,13 @@ impl LoadedMaterial {
 }
 
 /// Parses glTF `bytes`; `read` fetches files it refers to, by asset name.
+/// Images from files that `have` says are loaded already aren't read (they
+/// come back 0×0, with their source).
 pub(crate) fn load(
     name: &str,
     bytes: &[u8],
     read: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
+    have: &dyn Fn(&str) -> bool,
 ) -> Result<Loaded, String> {
     let gltf = gltf::Gltf::from_slice(bytes).map_err(|e| format!("{name}: not a glTF file: {e}"))?;
     let folder = name.rfind('/').map_or("", |i| &name[..=i]);
@@ -87,6 +94,8 @@ pub(crate) fn load(
     let mut images = Images {
         decoded: Vec::new(),
         keys: Vec::new(),
+        sources: Vec::new(),
+        have,
         document: &gltf.document,
         buffers: &buffers,
         folder,
@@ -134,6 +143,7 @@ pub(crate) fn load(
             double_sided: material.double_sided(),
         });
     }
+    let image_sources = images.sources;
     let images = images.decoded;
     let default_material = materials.len();
 
@@ -189,6 +199,7 @@ pub(crate) fn load(
         parts,
         materials,
         images,
+        image_sources,
     })
 }
 
@@ -264,6 +275,9 @@ struct Images<'a> {
     decoded: Vec<Image>,
     /// What each of `decoded` is, so each is decoded or merged once.
     keys: Vec<Key>,
+    /// Which files each of `decoded` came from (see `Loaded::image_sources`).
+    sources: Vec<Option<String>>,
+    have: &'a dyn Fn(&str) -> bool,
     document: &'a gltf::Document,
     buffers: &'a [Vec<u8>],
     folder: &'a str,
@@ -286,8 +300,22 @@ impl Images<'_> {
         if let Some(at) = self.keys.iter().position(|k| *k == Key::Image(index)) {
             return Ok(at);
         }
-        let image = self.decode(index, read)?;
-        Ok(self.add(Key::Image(index), image))
+        let source = self.source(index);
+        let image = match &source {
+            Some(s) if (self.have)(s) => (0, 0, Vec::new()),
+            _ => self.decode(index, read)?,
+        };
+        Ok(self.add(Key::Image(index), image, source))
+    }
+
+    /// The asset name of image `index`, if it's a file of its own.
+    fn source(&self, index: usize) -> Option<String> {
+        match self.document.images().nth(index)?.source() {
+            gltf::image::Source::Uri { uri, .. } if !uri.starts_with("data:") => {
+                Some(format!("{}{}", self.folder, percent_decode(uri)))
+            }
+            _ => None,
+        }
     }
 
     /// An ORM image from glTF's metallic-roughness image (roughness in
@@ -297,6 +325,15 @@ impl Images<'_> {
         let key = Key::Orm(metal_rough, occlusion);
         if let Some(at) = self.keys.iter().position(|k| *k == key) {
             return Ok(at);
+        }
+        let file = |i: Option<usize>| i.map_or(Some(String::new()), |i| self.source(i));
+        let source = file(metal_rough)
+            .zip(file(occlusion))
+            .map(|(m, o)| format!("orm:{m}|{o}"));
+        if let Some(s) = &source
+            && (self.have)(s)
+        {
+            return Ok(self.add(key, (0, 0, Vec::new()), source));
         }
         let occlusion = occlusion.map(|o| self.decode(o, read)).transpose()?;
         let mut orm = match metal_rough {
@@ -316,11 +353,12 @@ impl Images<'_> {
             }
             _ => pixels.iter_mut().for_each(|px| px[0] = 255),
         }
-        Ok(self.add(key, orm))
+        Ok(self.add(key, orm, source))
     }
 
-    fn add(&mut self, key: Key, image: Image) -> usize {
+    fn add(&mut self, key: Key, image: Image, source: Option<String>) -> usize {
         self.keys.push(key);
+        self.sources.push(source);
         self.decoded.push(image);
         self.decoded.len() - 1
     }
@@ -459,7 +497,7 @@ mod tests {
             r#""materials": [{ "pbrMetallicRoughness": { "baseColorFactor": [1, 0, 0, 1], "roughnessFactor": 0.25 } }],"#,
             r#""materials": [{ "alphaMode": "MASK" }, {}],"#,
         );
-        let loaded = load("mask.gltf", gltf.as_bytes(), &mut |f| Err(f.to_string())).unwrap();
+        let loaded = load("mask.gltf", gltf.as_bytes(), &mut |f| Err(f.to_string()), &|_| false).unwrap();
         assert_eq!(loaded.materials[0].blend, Blend::Cutout);
         assert_eq!(loaded.materials[1].blend, Blend::Opaque);
     }
@@ -486,7 +524,7 @@ mod tests {
             r#""materials": [{ "pbrMetallicRoughness": { "baseColorFactor": [1, 0, 0, 1], "roughnessFactor": 0.25 } }],"#,
             &materials,
         );
-        let loaded = load("maps.gltf", gltf.as_bytes(), &mut |f| Err(f.to_string())).unwrap();
+        let loaded = load("maps.gltf", gltf.as_bytes(), &mut |f| Err(f.to_string()), &|_| false).unwrap();
         let m = &loaded.materials[0];
         assert!(m.blend == Blend::Transparent && m.double_sided);
         assert_eq!(m.normal_strength, 0.5);
@@ -504,6 +542,52 @@ mod tests {
             "no roughness or metalness map: 1"
         );
         assert_eq!(loaded.images.len(), 3, "normal, ORM and occlusion-only ORM");
+    }
+
+    #[test]
+    fn image_files_say_where_they_came_from_and_known_ones_are_not_read() {
+        let gltf = triangle_gltf(None).replace(
+            r#""materials": [{ "pbrMetallicRoughness": { "baseColorFactor": [1, 0, 0, 1], "roughnessFactor": 0.25 } }],"#,
+            r#""materials": [{ "pbrMetallicRoughness": { "baseColorTexture": { "index": 0 } },
+                              "normalTexture": { "index": 1 } }],
+            "textures": [{ "source": 0 }, { "source": 1 }],
+            "images": [{ "uri": "textures/bark%20a.png" }, { "uri": "textures/bark_n.png" }],"#,
+        );
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::from_pixel(1, 1, image::Rgba([1, 2, 3, 4]))
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+        let mut reads = Vec::new();
+        let loaded = load(
+            "models/oak.gltf",
+            gltf.as_bytes(),
+            &mut |f| {
+                reads.push(f.to_string());
+                Ok(png.get_ref().clone())
+            },
+            &|source| source == "models/textures/bark a.png",
+        )
+        .unwrap();
+        assert_eq!(reads, ["models/textures/bark_n.png"], "the known one isn't read");
+        let m = &loaded.materials[0];
+        assert_eq!(
+            loaded.image_sources[m.image.unwrap()].as_deref(),
+            Some("models/textures/bark a.png")
+        );
+        assert_eq!(loaded.images[m.image.unwrap()].0, 0, "left empty");
+        assert_eq!(loaded.images[m.normal_map.unwrap()].2, [1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn inline_images_have_no_source() {
+        let loaded = load(
+            "t.gltf",
+            triangle_gltf(None).as_bytes(),
+            &mut |f| Err(f.to_string()),
+            &|_| true,
+        )
+        .unwrap();
+        assert!(loaded.image_sources.is_empty());
     }
 
     /// A one-triangle .gltf under a node that moves it up by 2 and mirrors
@@ -535,7 +619,13 @@ mod tests {
 
     #[test]
     fn a_gltf_file_loads_placed_by_its_node_with_its_material() {
-        let loaded = load("tri.gltf", triangle_gltf(None).as_bytes(), &mut |f| Err(f.to_string())).unwrap();
+        let loaded = load(
+            "tri.gltf",
+            triangle_gltf(None).as_bytes(),
+            &mut |f| Err(f.to_string()),
+            &|_| false,
+        )
+        .unwrap();
         let data = &loaded.data;
         assert_eq!(
             data.positions,
@@ -557,11 +647,16 @@ mod tests {
 
     #[test]
     fn missing_files_and_junk_are_errors() {
-        assert!(load("junk.glb", b"not a gltf", &mut |_| Ok(vec![])).is_err());
+        assert!(load("junk.glb", b"not a gltf", &mut |_| Ok(vec![]), &|_| false).is_err());
         let external = triangle_gltf(Some("my%20tri.bin"));
-        let err = load("models/tri.gltf", external.as_bytes(), &mut |f| Err(format!("no {f}")))
-            .err()
-            .unwrap();
+        let err = load(
+            "models/tri.gltf",
+            external.as_bytes(),
+            &mut |f| Err(format!("no {f}")),
+            &|_| false,
+        )
+        .err()
+        .unwrap();
         assert_eq!(err, "no models/my tri.bin");
     }
 }

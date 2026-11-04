@@ -34,7 +34,7 @@ impl Ctx {
         let file = assets::resolve(path)?;
         let text = assets::read_to_string(&file)?;
         let scene: Value = serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
-        self.load_sprite_textures(&scene).map_err(|e| format!("{path}: {e}"))?;
+        self.load_scene_assets(&scene).map_err(|e| format!("{path}: {e}"))?;
         self.world.load(&scene).map_err(|e| format!("{path}: {e}"))
     }
 
@@ -78,7 +78,7 @@ impl Ctx {
             let text = assets::read_to_string(&file)?;
             let prefab: Value = serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
             let components = components_of(&prefab).map_err(|e| format!("{path}: {e}"))?;
-            self.load_sprite_textures(&components)
+            self.load_scene_assets(&components)
                 .map_err(|e| format!("{path}: {e}"))?;
             self.prefabs.insert(path.to_string(), components);
         }

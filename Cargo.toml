@@ -118,6 +118,10 @@ name = "streaming"
 required-features = ["3d"]
 
 [[example]]
+name = "scene_viewer"
+required-features = ["3d"]
+
+[[example]]
 name = "compute"
 required-features = ["3d"]
 

@@ -453,7 +453,8 @@ pub trait WorldReflect {
     /// Registering the same type again does nothing.
     ///
     /// `Transform2D`, `Sprite` and `Attached` are reflected in every game by
-    /// default (a sprite with its texture's file name).
+    /// default (a sprite with its texture's file name), and with 3D on,
+    /// `Transform3D` and `Model` too (a model with its mesh's file name).
     ///
     /// ```
     /// use crabbyengine::*;
@@ -1286,22 +1287,119 @@ pub(crate) fn reflect_sprite(world: &mut World) {
     });
 }
 
-/// The texture names under `"Sprite"` objects anywhere in `json` (a scene,
-/// a prefab, or an entity's components), for loading them first.
-pub(crate) fn sprite_textures(json: &Value, out: &mut Vec<String>) {
+// ---- Models ------------------------------------------------------------------------
+
+/// The asset names of meshes loaded from files (`Ctx::load_mesh`), so
+/// models are saved as `"mesh": "tree.glb"`. A resource of the game's world.
+#[cfg(feature = "3d")]
+#[derive(Default)]
+pub(crate) struct MeshNames {
+    pub(crate) by_id: HashMap<u32, String>,
+    pub(crate) by_name: HashMap<String, crate::Mesh>,
+}
+
+/// A [`Model`](crate::Model) as JSON: the mesh by its file name.
+#[cfg(feature = "3d")]
+#[derive(Serialize, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct ModelJson {
+    mesh: Option<String>,
+    color: crate::Color,
+}
+
+#[cfg(feature = "3d")]
+impl Default for ModelJson {
+    fn default() -> Self {
+        Self {
+            mesh: None,
+            color: crate::Color::WHITE,
+        }
+    }
+}
+
+/// `None` for a mesh made in code: it has no file to name, so the model
+/// isn't saved (the rest of the entity is).
+#[cfg(feature = "3d")]
+fn model_json(world: &World, m: &crate::Model) -> Option<Result<Value, String>> {
+    let name = world.get_resource::<MeshNames>()?.by_id.get(&m.mesh.id)?;
+    let json = ModelJson {
+        mesh: Some(name.clone()),
+        color: m.color,
+    };
+    Some(serde_json::to_value(json).map_err(|err| err.to_string()))
+}
+
+#[cfg(feature = "3d")]
+fn model_from_json(world: &World, value: Value) -> Result<crate::Model, String> {
+    let json: ModelJson = serde_json::from_value(value).map_err(|err| err.to_string())?;
+    let name = json
+        .mesh
+        .ok_or("a model needs \"mesh\": a glTF file in assets/, like \"tree.glb\"")?;
+    let mesh = world
+        .get_resource::<MeshNames>()
+        .and_then(|t| t.by_name.get(&name))
+        .copied()
+        .ok_or_else(|| format!("mesh \"{name}\" isn't loaded: ctx.load_mesh(\"{name}\") first"))?;
+    Ok(crate::Model {
+        mesh,
+        color: json.color,
+    })
+}
+
+/// Reflects [`Model`](crate::Model) as `"Model"`, its mesh saved by file
+/// name (see [`MeshNames`]).
+#[cfg(feature = "3d")]
+pub(crate) fn reflect_model(world: &mut World) {
+    if world.get_resource::<MeshNames>().is_none() {
+        world.insert_resource(MeshNames::default());
+    }
+    if world.get_resource::<Registry>().is_none() {
+        world.insert_resource(Registry::default());
+    }
+    let reg = world.resource_mut::<Registry>();
+    if reg.by_name.contains_key("Model") {
+        return;
+    }
+    reg.by_name.insert("Model".into(), reg.list.len());
+    reg.list.push(Reflected {
+        name: "Model".into(),
+        type_name: std::any::type_name::<crate::Model>().into(),
+        get: Arc::new(|w: &World, e| w.get::<crate::Model>(e).and_then(|m| model_json(w, m))),
+        set: Arc::new(|w: &mut World, e, v| {
+            let model = model_from_json(w, v)?;
+            w.insert(e, model);
+            Ok(())
+        }),
+        spawn: Arc::new(|w: &mut World, v| {
+            let model = model_from_json(w, v)?;
+            Ok(w.spawn((model,)))
+        }),
+        spawn_at: Arc::new(|w: &mut World, e, v| {
+            let model = model_from_json(w, v)?;
+            Ok(w.spawn_at(e, (model,)))
+        }),
+        check: Arc::new(check::<ModelJson>),
+        remove: Arc::new(remove::<crate::Model>),
+    });
+}
+
+/// The asset names under `key` objects' `field` anywhere in `json` (a
+/// scene, a prefab, or an entity's components): the textures of `"Sprite"`s
+/// and meshes of `"Model"`s, for loading them first.
+pub(crate) fn asset_names(json: &Value, key: &str, field: &str, out: &mut Vec<String>) {
     match json {
         Value::Object(map) => {
-            for (key, value) in map {
-                if key == "Sprite"
-                    && let Some(name) = value.get("texture").and_then(Value::as_str)
+            for (k, value) in map {
+                if k == key
+                    && let Some(name) = value.get(field).and_then(Value::as_str)
                 {
                     out.push(name.to_string());
                 } else {
-                    sprite_textures(value, out);
+                    asset_names(value, key, field, out);
                 }
             }
         }
-        Value::Array(list) => list.iter().for_each(|v| sprite_textures(v, out)),
+        Value::Array(list) => list.iter().for_each(|v| asset_names(v, key, field, out)),
         _ => {}
     }
 }

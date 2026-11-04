@@ -62,7 +62,7 @@ impl Editor {
             return Ok(());
         };
         self.undo.truncate(steps);
-        ctx.load_sprite_textures(&save)?;
+        ctx.load_scene_assets(&save)?;
         ctx.world.load(&save).map_err(|e| e.to_string())
     }
 
@@ -85,7 +85,7 @@ impl Editor {
     /// Writes component `name` of `e` (adding it if missing), with undo.
     pub fn set(&mut self, ctx: &mut Ctx, e: Entity, name: &str, value: Value) -> Result<(), String> {
         let before = ctx.world.get_json(e, name).ok();
-        ctx.load_sprite_textures(&json!({ name: &value }))?;
+        ctx.load_scene_assets(&json!({ name: &value }))?;
         ctx.world.set_json(e, name, value).map_err(|e| e.to_string())?;
         self.record(Undo::Component {
             e,
