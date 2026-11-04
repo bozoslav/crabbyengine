@@ -66,6 +66,7 @@ struct Vertex {
     uv: vec2<f32>,
     color: vec4<f32>, // the model's tint times the vertex color
     uv1: vec2<f32>,   // the mesh's second texture coordinates (zero without)
+    origin: vec3<f32>, // read-only: where the model is (its transform's position)
 };
 
 // A pixel's surface, as a shader's `surface` function gets and returns it:
@@ -85,6 +86,7 @@ struct Surface {
     view: vec3<f32>,     // unit vector from the surface to the camera
     screen: vec2<f32>,   // the pixel, in pixels from the top left
     uv1: vec2<f32>,      // the mesh's second texture coordinates (zero without)
+    origin: vec3<f32>,   // where the model is (its transform's position)
 };
 
 // The opaque scene's light at a pixel, before tone mapping (in screen

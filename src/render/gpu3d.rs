@@ -2427,6 +2427,13 @@ mod tests {
     }
 
     #[test]
+    fn shaders_read_the_model_origin() {
+        let user = "fn vertex(v: Vertex) -> Vertex { var o = v; o.position.x += sin(v.origin.x); return o; }\n\
+                    fn surface(s: Surface) -> Surface { var o = s; o.albedo *= fract(s.origin.x * 0.37); return o; }";
+        check_shader("origin", &compose_shader(user)).unwrap();
+    }
+
+    #[test]
     fn shader_errors_name_the_file() {
         let e = check_shader(
             "water.wgsl",
