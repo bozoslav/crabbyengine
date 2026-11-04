@@ -575,6 +575,12 @@ impl Renderer {
         self.three().create_mesh(&device, data, parts)
     }
 
+    /// Frees 3D mesh `id`'s GPU memory.
+    #[cfg(feature = "3d")]
+    pub fn free_mesh(&mut self, id: u32) {
+        self.three().free_mesh(id);
+    }
+
     /// Uploads the frame's 3D models, camera and light for the next `render`.
     /// `collect_ms`: how long collecting the models took, counted in `cpu_ms`.
     #[cfg(feature = "3d")]

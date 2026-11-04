@@ -249,6 +249,8 @@ typedef enum CrabbyNetState {
   CRABBY_NET_LOST,
 } CrabbyNetState;
 
+typedef struct CrabbyCellStreamer CrabbyCellStreamer;
+
 typedef struct CrabbyCtx CrabbyCtx;
 
 typedef struct CrabbyFlowField CrabbyFlowField;
@@ -260,6 +262,8 @@ typedef struct CrabbyGrid CrabbyGrid;
 typedef struct CrabbyMeshData CrabbyMeshData;
 
 typedef struct CrabbyNavGrid CrabbyNavGrid;
+
+typedef struct CrabbyTerrainTileData CrabbyTerrainTileData;
 
 typedef struct CrabbyWorld CrabbyWorld;
 
@@ -448,6 +452,24 @@ typedef struct CrabbyVec3 {
   float z;
 } CrabbyVec3;
 
+typedef struct CrabbyCell {
+  int32_t x;
+  int32_t z;
+} CrabbyCell;
+
+typedef struct CrabbyMaterial {
+  uint32_t id;
+} CrabbyMaterial;
+
+typedef struct CrabbyMesh {
+  uint32_t id;
+} CrabbyMesh;
+
+typedef struct CrabbyTerrainTile {
+  struct CrabbyMesh lods[CRABBY_TERRAIN_LODS];
+  float lod_distance;
+} CrabbyTerrainTile;
+
 typedef struct CrabbyQuat {
   float x;
   float y;
@@ -461,10 +483,6 @@ typedef struct CrabbyTransform3D {
   struct CrabbyVec3 scale;
   float reserved[2];
 } CrabbyTransform3D;
-
-typedef struct CrabbyMesh {
-  uint32_t id;
-} CrabbyMesh;
 
 typedef struct CrabbyModel {
   struct CrabbyMesh mesh;
@@ -519,10 +537,6 @@ typedef struct CrabbyTerrainMaterialDesc {
   float roughness;
 } CrabbyTerrainMaterialDesc;
 
-typedef struct CrabbyMaterial {
-  uint32_t id;
-} CrabbyMaterial;
-
 typedef struct CrabbyMeshView {
   const struct CrabbyVec3 *positions;
   const struct CrabbyVec3 *normals;
@@ -552,11 +566,6 @@ typedef struct CrabbyScreenEffect {
   bool has_material;
   struct CrabbyMaterial material;
 } CrabbyScreenEffect;
-
-typedef struct CrabbyTerrainTile {
-  struct CrabbyMesh lods[CRABBY_TERRAIN_LODS];
-  float lod_distance;
-} CrabbyTerrainTile;
 
 typedef struct CrabbyCamera3D {
   struct CrabbyVec3 position;
@@ -1223,6 +1232,49 @@ enum CrabbyStatus crabby_steam_wait_for_invite(uint32_t app_id,
 enum CrabbyStatus crabby_ctx_steam_lobby(struct CrabbyCtx *ctx, uint64_t *out_lobby);
 
 enum CrabbyStatus crabby_ctx_steam_invite(struct CrabbyCtx *ctx);
+
+struct CrabbyCellStreamer *crabby_cells_new(float cell_size, float load_radius, float keep_radius);
+
+void crabby_cells_free(struct CrabbyCellStreamer *cells);
+
+enum CrabbyStatus crabby_cells_update(struct CrabbyCellStreamer *cells,
+                                      struct CrabbyVec3 at,
+                                      size_t max_new);
+
+enum CrabbyStatus crabby_cells_to_load(struct CrabbyCellStreamer *cells,
+                                       const struct CrabbyCell **out_cells,
+                                       size_t *out_len);
+
+enum CrabbyStatus crabby_cells_to_drop(struct CrabbyCellStreamer *cells,
+                                       const struct CrabbyCell **out_cells,
+                                       size_t *out_len);
+
+enum CrabbyStatus crabby_cells_is_loaded(struct CrabbyCellStreamer *cells,
+                                         struct CrabbyCell cell,
+                                         bool *out_loaded,
+                                         size_t *out_count);
+
+enum CrabbyStatus crabby_cells_clear(struct CrabbyCellStreamer *cells);
+
+struct CrabbyTerrainTileData *crabby_terrain_tile_data_new(const float *heights,
+                                                           size_t count,
+                                                           float size);
+
+void crabby_terrain_tile_data_free(struct CrabbyTerrainTileData *data);
+
+enum CrabbyStatus crabby_ctx_upload_terrain_tile(struct CrabbyCtx *ctx,
+                                                 const struct CrabbyTerrainTileData *data,
+                                                 struct CrabbyMaterial material,
+                                                 struct CrabbyTerrainTile *out_tile);
+
+enum CrabbyStatus crabby_ctx_free_mesh(struct CrabbyCtx *ctx, struct CrabbyMesh mesh);
+
+enum CrabbyStatus crabby_ctx_is_mesh_live(struct CrabbyCtx *ctx,
+                                          struct CrabbyMesh mesh,
+                                          bool *out_live);
+
+enum CrabbyStatus crabby_ctx_free_terrain_tile(struct CrabbyCtx *ctx,
+                                               struct CrabbyTerrainTile tile);
 
 struct CrabbyVec3 crabby_sun_direction_at(float hour);
 

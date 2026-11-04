@@ -599,3 +599,94 @@ fn transforms_are_reflected_as_json() {
         assert_eq!(ctx.world.get::<Transform3D>(e).unwrap().position, vec3(0.0, 5.0, 0.0));
     });
 }
+
+// ANCHOR: streaming
+/// Ground that loads around the camera: tiles 128 m wide within 600 m,
+/// built on worker threads, freed past 800 m.
+struct Ground {
+    cells: CellStreamer,
+    tiles: std::collections::HashMap<(i32, i32), Tile>,
+    material: Material,
+}
+
+enum Tile {
+    Building(Job<TerrainTileData>),
+    Live(Entity, TerrainTile),
+}
+
+fn hill(x: f32, z: f32) -> f32 {
+    (x * 0.01).sin() * (z * 0.013).cos() * 20.0
+}
+
+impl Ground {
+    fn new(material: Material) -> Self {
+        Self {
+            cells: CellStreamer::new(128.0, 600.0, 800.0),
+            tiles: Default::default(),
+            material,
+        }
+    }
+
+    /// Every frame: start up to 4 tiles, drop the far ones, and put up to
+    /// 2 finished ones in the world.
+    fn update(&mut self, ctx: &mut Ctx) {
+        self.cells.update(ctx.camera3d.position, 4);
+        for &cell in self.cells.to_load() {
+            let corner = self.cells.corner(cell);
+            let job = Job::spawn(move || {
+                // 65 x 65 heights, 2 m apart.
+                let heights: Vec<f32> = (0..65 * 65)
+                    .map(|i| hill(corner.x + (i % 65) as f32 * 2.0, corner.z + (i / 65) as f32 * 2.0))
+                    .collect();
+                TerrainTileData::new(&heights, 128.0)
+            });
+            self.tiles.insert(cell, Tile::Building(job));
+        }
+        for cell in self.cells.to_drop() {
+            if let Some(Tile::Live(entity, tile)) = self.tiles.remove(cell) {
+                ctx.world.despawn(entity);
+                ctx.free_terrain_tile(tile);
+            }
+        }
+        let mut uploads = 0;
+        for (&cell, tile) in &mut self.tiles {
+            if let Tile::Building(job) = tile
+                && uploads < 2
+                && let Some(data) = job.take()
+            {
+                let made = ctx.upload_terrain_tile(&data, self.material);
+                let entity = ctx.world.spawn((Transform3D::at(self.cells.corner(cell)), made));
+                *tile = Tile::Live(entity, made);
+                uploads += 1;
+            }
+        }
+    }
+}
+// ANCHOR_END: streaming
+
+#[test]
+fn the_guide_ground_streams_in_and_out() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        let material = ctx.default_material();
+        let mut ground = Ground::new(material);
+        let live = |g: &Ground| g.tiles.values().filter(|t| matches!(t, Tile::Live(..))).count();
+        // Until everything around the start is in.
+        for _ in 0..10_000 {
+            ground.update(ctx);
+            if ground.tiles.len() == ground.cells.loaded_count()
+                && live(&ground) == ground.tiles.len()
+                && ground.cells.to_load().is_empty()
+            {
+                break;
+            }
+            std::thread::yield_now();
+        }
+        let first = live(&ground);
+        assert!(first > 20, "{first} tiles");
+        // Far away: the old tiles are freed.
+        ctx.camera3d.position = vec3(10_000.0, 0.0, 0.0);
+        ground.update(ctx);
+        assert_eq!(ground.cells.to_drop().len(), first);
+        assert!(ground.tiles.keys().all(|&(x, _)| x > 50));
+    });
+}

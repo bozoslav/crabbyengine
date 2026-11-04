@@ -76,6 +76,7 @@ mod render;
 mod scene;
 mod sheet;
 mod spatial;
+mod stream;
 mod text;
 mod texture;
 #[cfg(feature = "3d")]
@@ -118,13 +119,16 @@ pub use spatial::{GridEntry, SPATIAL_SORT_EVERY, SpatialGrid, rebuild_spatial_gr
 /// it for achievements, friends and the rest of Steam.
 #[cfg(feature = "steam")]
 pub use steamworks;
+#[cfg(feature = "3d")]
+pub use stream::CellStreamer;
+pub use stream::Job;
 pub use text::{Font, TextParams};
 pub use texture::{DrawParams, Texture, TextureFilter};
 #[cfg(feature = "3d")]
 pub use three::{
     Blend, Camera3D, Compute, ComputePass, Effect, Lighting, Material, MaterialDesc, Mesh, MeshData, Model, Post,
     ScreenEffect, Shader, Sky, TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera, TerrainMaterialDesc, TerrainTile,
-    TextureArray, TextureKind, Tonemap, Transform3D,
+    TerrainTileData, TextureArray, TextureKind, Tonemap, Transform3D,
 };
 pub use tilemap::{TileMap, draw_tilemaps};
 pub use ui::UiStyle;

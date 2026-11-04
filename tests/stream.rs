@@ -1,0 +1,193 @@
+//! Streaming: background jobs, the cell streamer, and freeing meshes and
+//! terrain tiles as a world streams in and out.
+
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use crabbyengine::*;
+
+#[test]
+fn jobs_run_off_the_calling_thread() {
+    let caller = std::thread::current().id();
+    let worker = Job::spawn(|| std::thread::current().id()).wait();
+    assert_ne!(worker, caller);
+}
+
+#[test]
+fn a_job_hands_its_result_over_once() {
+    let mut job = Job::spawn(|| vec![1, 2, 3]);
+    while !job.is_done() {
+        std::thread::yield_now();
+    }
+    assert_eq!(job.take(), Some(vec![1, 2, 3]));
+    assert_eq!(job.take(), None);
+    assert!(job.is_done(), "still done after taking");
+}
+
+#[test]
+fn many_jobs_all_finish() {
+    let ran = Arc::new(AtomicUsize::new(0));
+    let jobs: Vec<_> = (0..64)
+        .map(|i| {
+            let ran = ran.clone();
+            Job::spawn(move || {
+                ran.fetch_add(1, Ordering::Relaxed);
+                i * 2
+            })
+        })
+        .collect();
+    let sum: i32 = jobs.into_iter().map(Job::wait).sum();
+    assert_eq!(sum, (0..64).map(|i| i * 2).sum::<i32>());
+    assert_eq!(ran.load(Ordering::Relaxed), 64);
+}
+
+#[test]
+#[should_panic(expected = "a job's work panicked")]
+fn a_panicking_job_panics_when_waited_on() {
+    let job = Job::<i32>::spawn(|| panic!("boom"));
+    job.wait();
+}
+
+#[test]
+#[should_panic(expected = "the result was already taken")]
+fn waiting_after_taking_panics() {
+    let mut job = Job::spawn(|| 1);
+    while job.take().is_none() {}
+    job.wait();
+}
+
+#[cfg(feature = "3d")]
+mod cells {
+    use super::*;
+
+    fn sorted(cells: impl Iterator<Item = (i32, i32)>) -> Vec<(i32, i32)> {
+        let mut v: Vec<_> = cells.collect();
+        v.sort_unstable();
+        v
+    }
+
+    #[test]
+    fn cells_load_nearest_first() {
+        let mut cells = CellStreamer::new(10.0, 30.0, 30.0);
+        cells.update(vec3(5.0, 0.0, 5.0), usize::MAX);
+        let loads = cells.to_load();
+        assert_eq!(loads[0], (0, 0), "the cell holding the point comes first");
+        // Distance from the point to the nearest spot of each cell.
+        let away = |&(x, z): &(i32, i32)| {
+            let min = vec2(x as f32, z as f32) * 10.0;
+            (vec2(5.0, 5.0).clamp(min, min + 10.0) - vec2(5.0, 5.0)).length()
+        };
+        for pair in loads.windows(2) {
+            assert!(away(&pair[0]) <= away(&pair[1]), "{pair:?}");
+        }
+        assert!(loads.contains(&(3, 0)) && !loads.contains(&(4, 0)));
+    }
+
+    #[test]
+    fn only_max_new_cells_start_per_update() {
+        let mut cells = CellStreamer::new(1.0, 5.0, 5.0);
+        let mut total = 0;
+        for _ in 0..1000 {
+            cells.update(Vec3::ZERO, 3);
+            assert!(cells.to_load().len() <= 3);
+            total += cells.to_load().len();
+            if cells.to_load().is_empty() {
+                break;
+            }
+        }
+        assert_eq!(total, cells.loaded().count());
+        assert!(total > 50);
+    }
+
+    #[test]
+    fn the_keep_radius_stops_edge_cells_flickering() {
+        let mut cells = CellStreamer::new(10.0, 20.0, 40.0);
+        cells.update(vec3(5.0, 0.0, 5.0), usize::MAX);
+        let first = sorted(cells.loaded());
+        // A small step and back: nothing drops, and nothing new is left
+        // after the step back.
+        cells.update(vec3(15.0, 0.0, 5.0), usize::MAX);
+        assert!(cells.to_drop().is_empty());
+        cells.update(vec3(5.0, 0.0, 5.0), usize::MAX);
+        assert!(cells.to_drop().is_empty());
+        assert!(cells.to_load().is_empty());
+        assert!(first.iter().all(|c| cells.loaded().any(|l| l == *c)));
+    }
+
+    #[test]
+    fn far_cells_drop_and_every_cell_is_accounted_for() {
+        let mut cells = CellStreamer::new(16.0, 50.0, 70.0);
+        let mut live = std::collections::HashSet::new();
+        for step in 0..200 {
+            let at = vec3(step as f32 * 7.0, 0.0, (step as f32 * 0.1).sin() * 100.0);
+            cells.update(at, 4);
+            for c in cells.to_drop() {
+                assert!(live.remove(c), "{c:?} dropped but never loaded");
+            }
+            for c in cells.to_load() {
+                assert!(live.insert(*c), "{c:?} loaded twice");
+            }
+            assert_eq!(sorted(live.iter().copied()), sorted(cells.loaded()));
+        }
+    }
+
+    #[test]
+    fn clearing_forgets_every_cell() {
+        let mut cells = CellStreamer::new(1.0, 2.0, 2.0);
+        cells.update(Vec3::ZERO, usize::MAX);
+        cells.clear();
+        cells.update(Vec3::ZERO, usize::MAX);
+        assert_eq!(cells.to_load().len(), cells.loaded().count());
+        assert!(cells.to_drop().is_empty());
+    }
+
+    #[test]
+    #[should_panic(expected = "cell_size must be above 0")]
+    fn cells_need_a_size() {
+        let _ = CellStreamer::new(0.0, 1.0, 1.0);
+    }
+
+    #[test]
+    fn freed_meshes_are_not_drawn() {
+        Game::new("t", 64, 64).run_headless(1, |ctx| {
+            let material = ctx.default_material();
+            let kept = ctx.create_mesh(&MeshData::cube(1.0), material);
+            let freed = ctx.create_mesh(&MeshData::cube(1.0), material);
+            ctx.camera3d.position = vec3(0.0, 0.0, 5.0);
+            ctx.camera3d.look_at(Vec3::ZERO);
+            ctx.world.spawn((Transform3D::default(), Model::new(kept)));
+            ctx.world.spawn((Transform3D::default(), Model::new(freed)));
+            ctx.free_mesh(freed);
+            ctx.free_mesh(freed); // twice is fine
+            assert!(ctx.is_mesh_live(kept));
+            assert!(!ctx.is_mesh_live(freed));
+        });
+    }
+
+    #[test]
+    fn tiles_built_on_a_worker_match_tiles_built_in_place() {
+        Game::new("t", 1, 1).run_headless(0, |ctx| {
+            let heights: Vec<f32> = (0..17 * 17).map(|i| (i % 17) as f32 * 0.5).collect();
+            let material = ctx.default_material();
+            let here = ctx.create_terrain_tile(&heights, 32.0, material);
+            let moved = heights.clone();
+            let job = Job::spawn(move || TerrainTileData::new(&moved, 32.0));
+            let there = ctx.upload_terrain_tile(&job.wait(), material);
+            assert_eq!(here.lod_distance, there.lod_distance);
+            ctx.free_terrain_tile(there);
+            assert!(there.lods.iter().all(|&m| !ctx.is_mesh_live(m)));
+            assert!(here.lods.iter().all(|&m| ctx.is_mesh_live(m)));
+        });
+    }
+
+    #[test]
+    fn freeing_a_loaded_mesh_lets_it_load_again() {
+        Game::new("t", 1, 1).run_headless(0, |ctx| {
+            let a = ctx.load_mesh("models/house.glb");
+            ctx.free_mesh(a);
+            let b = ctx.load_mesh("models/house.glb");
+            assert_ne!(a, b);
+            assert!(ctx.is_mesh_live(b));
+        });
+    }
+}

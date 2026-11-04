@@ -381,6 +381,50 @@ impl Ctx {
         Mesh { id }
     }
 
+    /// Frees `mesh`'s GPU memory, for worlds streamed in and out. Models
+    /// still showing it draw nothing; despawn them too. A mesh loaded from
+    /// a file loads afresh next time. Freeing it again does nothing.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let material = ctx.default_material();
+    ///     let rock = ctx.create_mesh(&MeshData::cube(1.0), material);
+    ///     ctx.free_mesh(rock);
+    ///     assert!(!ctx.is_mesh_live(rock));
+    /// });
+    /// ```
+    pub fn free_mesh(&mut self, mesh: Mesh) {
+        let Some(bounds) = self.assets3d.bounds.get_mut(mesh.id as usize) else {
+            return;
+        };
+        if bounds.1 < 0.0 {
+            return;
+        }
+        *bounds = (Vec3::ZERO, -1.0);
+        self.assets3d.loaded.retain(|_, m| *m != mesh);
+        if let Some(renderer) = self.renderer.as_mut()
+            && !self.headless
+        {
+            renderer.free_mesh(mesh.id);
+        }
+    }
+
+    /// Whether `mesh` was made by this game and not freed.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let material = ctx.default_material();
+    ///     let cube = ctx.create_mesh(&MeshData::cube(1.0), material);
+    ///     assert!(ctx.is_mesh_live(cube));
+    /// });
+    /// ```
+    #[must_use]
+    pub fn is_mesh_live(&self, mesh: Mesh) -> bool {
+        self.assets3d.live_bounds(mesh.id).is_some()
+    }
+
     /// How many 3D models were drawn last frame: those the camera could see.
     ///
     /// ```no_run

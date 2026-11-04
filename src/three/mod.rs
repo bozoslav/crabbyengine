@@ -36,7 +36,7 @@ pub use post::{Post, Tonemap};
 pub use sky::Sky;
 pub(crate) use sky::SkyLight;
 pub use target::TargetCamera;
-pub use terrain::{TERRAIN_LAYERS, TERRAIN_LODS, TerrainMaterialDesc, TerrainTile};
+pub use terrain::{TERRAIN_LAYERS, TERRAIN_LODS, TerrainMaterialDesc, TerrainTile, TerrainTileData};
 pub use texture_array::{TextureArray, TextureKind};
 
 use glam::{Mat3, Mat4, Quat, Vec2, Vec3, Vec4};
@@ -592,6 +592,13 @@ pub(crate) struct Assets3D {
     pub default_material: Option<Material>,
     /// Meshes loaded from files, by resolved path.
     pub loaded: std::collections::HashMap<std::path::PathBuf, Mesh>,
+}
+
+impl Assets3D {
+    /// Mesh `id`'s bounds, unless there's no such mesh or it was freed.
+    pub(crate) fn live_bounds(&self, id: u32) -> Option<(Vec3, f32)> {
+        self.bounds.get(id as usize).copied().filter(|&(_, r)| r >= 0.0)
+    }
 }
 
 /// sRGB color to linear RGBA, for the GPU.

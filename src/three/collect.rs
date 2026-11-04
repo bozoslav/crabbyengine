@@ -149,7 +149,7 @@ impl Frame3D {
             }
         };
         world.query::<(&Transform3D, &Model)>().for_each(|(t, m)| {
-            if let Some(&(center, radius)) = assets.bounds.get(m.mesh.id as usize) {
+            if let Some((center, radius)) = assets.live_bounds(m.mesh.id) {
                 add([m.mesh.id; 1 + MAX_CASCADES], t, linear(m.color), center, radius);
             }
         });
@@ -158,7 +158,7 @@ impl Frame3D {
         // Shadow cascade i draws at least level i: its texels are too big
         // for finer detail to show.
         world.query::<(&Transform3D, &TerrainTile)>().for_each(|(t, tile)| {
-            let Some(&(center, radius)) = assets.bounds.get(tile.lods[0].id as usize) else {
+            let Some((center, radius)) = assets.live_bounds(tile.lods[0].id) else {
                 return;
             };
             let scale = t.scale.abs().max_element();
@@ -172,7 +172,7 @@ impl Frame3D {
                 }]
                 .id
             });
-            if meshes.iter().all(|&m| (m as usize) < assets.bounds.len()) {
+            if meshes.iter().all(|&m| assets.live_bounds(m).is_some()) {
                 add(meshes, t, [1.0; 4], center, radius);
             }
         });

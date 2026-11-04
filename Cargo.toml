@@ -114,6 +114,10 @@ name = "terrain"
 required-features = ["3d"]
 
 [[example]]
+name = "streaming"
+required-features = ["3d"]
+
+[[example]]
 name = "compute"
 required-features = ["3d"]
 

@@ -8,6 +8,17 @@ says what that covers.
 ## [Unreleased]
 
 ### Added
+- Streaming big worlds: `CellStreamer` says which cells of a ground grid
+  to load (nearest first, a few per frame) and drop around a point;
+  `Job::spawn` runs work on a worker thread and `job.take()` collects it;
+  `TerrainTileData` builds a terrain tile on any thread and
+  `ctx.upload_terrain_tile` puts it on the GPU; `ctx.free_mesh`,
+  `ctx.free_terrain_tile` and `ctx.is_mesh_live` free GPU memory. In C
+  (`crabby_cells_*`, `crabby_terrain_tile_data_new`,
+  `crabby_ctx_upload_terrain_tile`, `crabby_ctx_free_mesh`,
+  `crabby_ctx_free_terrain_tile`, `crabby_ctx_is_mesh_live`) and C++
+  (`crabby::cell_streamer`, `crabby::terrain_tile_data`, and the same
+  `ctx` methods; C++ uses `std::async` for jobs). New `streaming` example.
 - Compute passes: `ctx.create_compute` and `ctx.load_compute` (hot
   reloaded) make a WGSL shader defining `fn compute(c: Cell)`, run once per
   texel of a render target each frame before drawing (ripples, trails in

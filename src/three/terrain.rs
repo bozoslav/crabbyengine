@@ -265,18 +265,102 @@ impl Ctx {
     /// If `heights` isn't a square grid of at least 2 × 2, `size` isn't
     /// above 0, or the material comes from another game.
     pub fn create_terrain_tile(&mut self, heights: &[f32], size: f32, material: Material) -> TerrainTile {
+        self.upload_terrain_tile(&TerrainTileData::new(heights, size), material)
+    }
+
+    /// Puts a tile's meshes, made by [`TerrainTileData::new`] (on any
+    /// thread), on the GPU: the fast half of [`Ctx::create_terrain_tile`],
+    /// for tiles streamed in while the game runs.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let ground = ctx.default_material();
+    ///     let job = Job::spawn(|| TerrainTileData::new(&[0.0; 33 * 33], 64.0));
+    ///     let tile = ctx.upload_terrain_tile(&job.wait(), ground);
+    ///     assert_eq!(tile.lod_distance, 64.0);
+    /// });
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// If the material comes from another game.
+    pub fn upload_terrain_tile(&mut self, data: &TerrainTileData, material: Material) -> TerrainTile {
+        let lods = std::array::from_fn(|i| self.create_mesh(&data.lods[i], material));
+        TerrainTile {
+            lods,
+            lod_distance: data.size,
+        }
+    }
+
+    /// Frees the GPU memory of every detail level of `tile` (see
+    /// [`Ctx::free_mesh`]); despawn its entity too.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let ground = ctx.default_material();
+    ///     let tile = ctx.create_terrain_tile(&[0.0; 9 * 9], 16.0, ground);
+    ///     ctx.free_terrain_tile(tile);
+    ///     assert!(!ctx.is_mesh_live(tile.lods[0]));
+    /// });
+    /// ```
+    pub fn free_terrain_tile(&mut self, tile: TerrainTile) {
+        for mesh in tile.lods {
+            self.free_mesh(mesh);
+        }
+    }
+}
+
+/// The meshes of a terrain tile at every detail level, made on the CPU
+/// from its heights: build them on a worker thread with a [`Job`](crate::Job),
+/// then [`Ctx::upload_terrain_tile`] on the game's.
+///
+/// ```
+/// # use crabbyengine::*;
+/// let data = TerrainTileData::new(&[0.0; 5 * 5], 8.0);
+/// assert_eq!(data.size(), 8.0);
+/// ```
+#[derive(Debug, Clone)]
+pub struct TerrainTileData {
+    lods: [MeshData; TERRAIN_LODS],
+    size: f32,
+}
+
+impl TerrainTileData {
+    /// A tile `size` wide from a square grid of heights, as
+    /// [`Ctx::create_terrain_tile`] takes them.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// let flat = TerrainTileData::new(&[1.0; 3 * 3], 4.0);
+    /// assert_eq!(flat.size(), 4.0);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// If `heights` isn't a square grid of at least 2 × 2 or `size` isn't above 0.
+    #[must_use]
+    pub fn new(heights: &[f32], size: f32) -> Self {
         assert!(
             size > 0.0 && size.is_finite(),
             "crabbyengine: create_terrain_tile: size must be above 0 (got {size})"
         );
-        let lods = std::array::from_fn(|i| {
-            let data = MeshData::heightfield(heights, size, 1 << i);
-            self.create_mesh(&data, material)
-        });
-        TerrainTile {
-            lods,
-            lod_distance: size,
+        Self {
+            lods: std::array::from_fn(|i| MeshData::heightfield(heights, size, 1 << i)),
+            size,
         }
+    }
+
+    /// How wide the tile is.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// assert_eq!(TerrainTileData::new(&[0.0; 4], 2.0).size(), 2.0);
+    /// ```
+    #[must_use]
+    pub fn size(&self) -> f32 {
+        self.size
     }
 }
 
