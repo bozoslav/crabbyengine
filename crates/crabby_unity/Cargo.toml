@@ -1,0 +1,12 @@
+[package]
+name = "crabby_unity"
+description = "Reads Unity projects (text YAML scenes, prefabs, materials and meshes, .meta GUIDs) for importing into Crabby Engine"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+yaml-rust2 = "0.10"
+serde_json = "1"
