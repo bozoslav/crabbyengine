@@ -93,8 +93,8 @@ const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array!
 ];
 
 struct GpuMesh {
-    vertices: wgpu::Buffer,
-    indices: wgpu::Buffer,
+    /// Vertex and index buffers; `None` once freed (its parts are gone too).
+    buffers: Option<(wgpu::Buffer, wgpu::Buffer)>,
     /// Index range and material of each part.
     parts: Vec<(Range<u32>, u32)>,
 }
@@ -1277,11 +1277,18 @@ impl Renderer3D {
             usage: wgpu::BufferUsages::INDEX,
         });
         self.meshes.push(GpuMesh {
-            vertices,
-            indices,
+            buffers: Some((vertices, indices)),
             parts: parts.iter().map(|(r, m)| (r.clone(), m.id)).collect(),
         });
         self.meshes.len() as u32 - 1
+    }
+
+    /// Frees mesh `id`'s GPU memory; it draws nothing from now on.
+    pub fn free_mesh(&mut self, id: u32) {
+        if let Some(mesh) = self.meshes.get_mut(id as usize) {
+            mesh.buffers = None;
+            mesh.parts = Vec::new();
+        }
     }
 
     /// Uploads this frame's instances, camera, light and post settings.
@@ -1989,6 +1996,9 @@ impl Renderer3D {
         let mut bound = None;
         for &(mesh, start, count) in runs {
             let mesh = &self.meshes[mesh as usize];
+            let Some((vertices, indices)) = &mesh.buffers else {
+                continue;
+            };
             let mut buffers_set = false;
             for (range, material) in &mesh.parts {
                 let m = &self.materials[*material as usize];
@@ -2010,8 +2020,8 @@ impl Renderer3D {
                     bound = Some(pipeline as *const _);
                 }
                 if !buffers_set {
-                    pass.set_vertex_buffer(0, mesh.vertices.slice(..));
-                    pass.set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.set_vertex_buffer(0, vertices.slice(..));
+                    pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
                     buffers_set = true;
                 }
                 pass.set_bind_group(1, &m.bind_group, &[]);
