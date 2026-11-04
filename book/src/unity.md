@@ -91,6 +91,21 @@ keep that and change the shader:
 Call it after the scene (or model) is loaded: models loaded later aren't
 in it yet. C: `crabby_ctx_loaded_materials`.
 
+A shader that reads something else per vertex, such as a second UV set,
+can have it put in the vertex colors instead, which is what Crabby's
+shaders get per vertex besides one UV set:
+
+```rust
+// A river shader with its flow in UV set 1: speed up to 4, foam 0 to 1.
+import.vertex_colors("Assets/Shaders/River.shader", |mesh, v| {
+    let [speed, foam] = mesh.uvs[1].get(v).copied().unwrap_or_default();
+    [speed / 4.0, foam, 0.0, 1.0]
+});
+```
+
+Each channel keeps 8 bits, from 0 to 1, so scale values into that range
+and back in the shader.
+
 ## Terrain
 
 Unity terrain (`TerrainData`, text or binary) reads as a
