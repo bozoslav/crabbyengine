@@ -113,8 +113,10 @@ Transform:
   m_Father: {fileID: 700}
 ";
 
-fn project() -> (Project, std::path::PathBuf) {
-    let dir = std::env::temp_dir().join(format!("crabby_unity_hierarchy_{}", std::process::id()));
+/// A small project in its own temp dir: tests run in parallel, so each
+/// passes its own `name`.
+fn project(name: &str) -> (Project, std::path::PathBuf) {
+    let dir = std::env::temp_dir().join(format!("crabby_unity_{name}_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("Assets")).unwrap();
     std::fs::write(dir.join("Assets/Lamp.prefab"), LAMP).unwrap();
@@ -126,7 +128,7 @@ fn project() -> (Project, std::path::PathBuf) {
 
 #[test]
 fn nested_prefabs_expand_with_their_overrides() {
-    let (project, dir) = project();
+    let (project, dir) = project("nested");
     let scene = Hierarchy::build(&UnityFile::parse(SCENE).unwrap(), &project).unwrap();
     let by_name = |n: &str| {
         scene
@@ -166,7 +168,7 @@ fn nested_prefabs_expand_with_their_overrides() {
 
 #[test]
 fn model_instances_keep_the_model_and_its_inner_overrides() {
-    let (project, dir) = project();
+    let (project, dir) = project("model");
     let scene = Hierarchy::build(&UnityFile::parse(SCENE).unwrap(), &project).unwrap();
     let oak = scene.objects.iter().find(|o| o.model.is_some()).unwrap();
     assert_eq!(oak.name, "Oak");
