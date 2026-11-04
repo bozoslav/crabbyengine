@@ -427,7 +427,9 @@ impl Ctx {
         if self.renderer.is_none() || self.assets3d.bounds.is_empty() {
             return; // no meshes, no 3D pass
         }
-        let fallback = if self.effects.iter().any(|e| e.material.is_none()) {
+        let fallback = if self.effects.iter().any(|e| e.material.is_none())
+            || self.compute_passes.iter().any(|c| c.material.is_none())
+        {
             Some(self.default_material())
         } else {
             None
@@ -439,6 +441,14 @@ impl Ctx {
         }));
         let start = web_time::Instant::now();
         self.collect_views();
+        let targets = &self.assets3d.render_targets;
+        self.frame3d.computes.clear();
+        self.frame3d.computes.extend(self.compute_passes.iter().filter_map(|c| {
+            let material = c.material.or(fallback)?;
+            targets
+                .contains(&c.target)
+                .then_some((c.compute.id, c.target.id, material.id))
+        }));
         let Some(renderer) = self.renderer.as_mut() else {
             return;
         };

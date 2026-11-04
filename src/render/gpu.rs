@@ -528,6 +528,20 @@ impl Renderer {
         }
     }
 
+    /// Compiles a compute pass; its id, or the compiler's message.
+    #[cfg(feature = "3d")]
+    pub fn create_compute(&mut self, name: &str, source: &str) -> Result<u32, String> {
+        let device = self.device.clone();
+        self.three().create_compute(&device, name, source)
+    }
+
+    /// Recompiles compute pass `id` in place (hot reload).
+    #[cfg(feature = "3d")]
+    pub fn replace_compute(&mut self, id: u32, name: &str, source: &str) -> Result<(), String> {
+        let device = self.device.clone();
+        self.three().replace_compute(&device, id, name, source)
+    }
+
     /// Compiles a screen effect; its id, or the compiler's message.
     #[cfg(feature = "3d")]
     pub fn create_effect(&mut self, name: &str, source: &str) -> Result<u32, String> {
@@ -591,6 +605,9 @@ impl Renderer {
     /// A texture target cameras draw into (linear HDR); returns its id.
     #[cfg(feature = "3d")]
     pub fn create_render_target(&mut self, width: u32, height: u32) -> u32 {
+        // Made first: making the 3D renderer adds textures of its own, and
+        // the id below must be this one's.
+        self.three();
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("render target"),
             size: wgpu::Extent3d {
@@ -602,13 +619,15 @@ impl Renderer {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: super::gpu3d::HDR_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            // Drawn into by target cameras, copied into by compute passes.
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
         let bind_group = self.sprite_bind_group(&texture, false);
         let id = self.textures.len() as u32;
-        let device = self.device.clone();
-        self.three().add_view_target(&device, id, &texture);
+        self.three().add_render_target(id, &texture);
         self.textures.push(GpuTexture {
             bind_group,
             texture,

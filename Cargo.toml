@@ -113,6 +113,10 @@ required-features = ["3d"]
 name = "terrain"
 required-features = ["3d"]
 
+[[example]]
+name = "compute"
+required-features = ["3d"]
+
 [workspace]
 members = [".", "crates/crabby_ecs", "crates/crabby_bench", "crates/crabby_mcp", "crates/crabby_ffi"]
 

@@ -133,6 +133,8 @@ const MESH_PRELUDE: &str = include_str!("mesh.wgsl");
 const MESH_MAIN: &str = include_str!("mesh_main.wgsl");
 const EFFECT_PRELUDE: &str = include_str!("effect.wgsl");
 const EFFECT_MAIN: &str = include_str!("effect_main.wgsl");
+const COMPUTE_PRELUDE: &str = include_str!("compute.wgsl");
+const COMPUTE_MAIN: &str = include_str!("compute_main.wgsl");
 const SKY: &str = include_str!("sky.wgsl");
 /// The sky texture: every direction around the camera.
 const SKY_SIZE: (u32, u32) = (256, 128);
@@ -194,6 +196,20 @@ pub(crate) fn compose_effect(user: &str) -> String {
     source
 }
 
+/// A whole compute pass shader from the game's part: the mesh prelude
+/// (bindings and helpers), `Cell`, the game's `compute`, the entry point.
+pub(crate) fn compose_compute(user: &str) -> String {
+    let mut source =
+        String::with_capacity(MESH_PRELUDE.len() + COMPUTE_PRELUDE.len() + user.len() + COMPUTE_MAIN.len() + 100);
+    source.push_str(MESH_PRELUDE);
+    source.push_str(COMPUTE_PRELUDE);
+    source.push_str("\n// ---- the game's compute pass ----\n");
+    source.push_str(user);
+    source.push_str("\n// ---- the engine's entry point ----\n");
+    source.push_str(COMPUTE_MAIN);
+    source
+}
+
 /// Checks a composed shader, with an error message that points at the
 /// line, as WGSL compilers print them.
 pub(crate) fn check_shader(name: &str, source: &str) -> Result<(), String> {
@@ -204,6 +220,10 @@ pub(crate) fn check_shader(name: &str, source: &str) -> Result<(), String> {
         .map_err(|e| e.emit_to_string_with_path(source, name))?;
     Ok(())
 }
+
+/// The material shaders' bindings are seen by every stage: compute passes
+/// read the frame and their material too.
+const ALL_STAGES: wgpu::ShaderStages = wgpu::ShaderStages::VERTEX_FRAGMENT.union(wgpu::ShaderStages::COMPUTE);
 
 /// Most bloom steps: the smallest image is 1/128 of the screen.
 const BLOOM_MIPS: u32 = 7;
@@ -297,6 +317,14 @@ struct ViewTarget {
     frame_bind_group: wgpu::BindGroup,
 }
 
+/// A render target compute passes run on: the scratch texture each pass
+/// writes (then copied back into the target) and its bind group.
+struct ComputeState {
+    target: wgpu::Texture,
+    scratch: wgpu::Texture,
+    group: wgpu::BindGroup,
+}
+
 /// What `Renderer3D::prepare` needs for a frame.
 pub(crate) struct Prepare3D<'a> {
     pub scene: &'a Scene3D<'a>,
@@ -338,8 +366,21 @@ pub(crate) struct Renderer3D {
     frame_bind_group: wgpu::BindGroup,
     /// What frame bind groups are made of, for each target camera's own.
     frame_sources: FrameSources,
-    /// The render targets target cameras draw into, by texture id.
+    /// Every render target's texture, by texture id.
+    render_targets: Vec<(u32, wgpu::Texture)>,
+    /// What target cameras need of the render targets they draw into,
+    /// made the first time one does, by texture id.
     view_targets: Vec<(u32, ViewTarget)>,
+    /// Compute pass pipelines, by compute id, and their layouts.
+    compute_pipelines: Vec<wgpu::ComputePipeline>,
+    compute_layout: wgpu::BindGroupLayout,
+    compute_pipeline_layout: wgpu::PipelineLayout,
+    /// What compute passes need of the render targets they run on, made
+    /// the first time one does, by texture id.
+    compute_states: Vec<(u32, ComputeState)>,
+    /// This frame's compute passes, in order: (compute, index into
+    /// `compute_states`, material).
+    computes: Vec<(u32, usize, u32)>,
     /// This frame's target cameras: (index into `view_targets`, first
     /// instance offset already added to its runs, runs).
     views: Vec<(usize, Vec<Run>)>,
@@ -395,10 +436,10 @@ impl Renderer3D {
         let frame_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("3d frame layout"),
             entries: &[
-                uniform_entry(wgpu::ShaderStages::VERTEX_FRAGMENT),
+                uniform_entry(ALL_STAGES),
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    visibility: ALL_STAGES,
                     ty: wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Depth,
                         view_dimension: wgpu::TextureViewDimension::D2Array,
@@ -408,13 +449,13 @@ impl Renderer3D {
                 },
                 wgpu::BindGroupLayoutEntry {
                     binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    visibility: ALL_STAGES,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
                     count: None,
                 },
                 wgpu::BindGroupLayoutEntry {
                     binding: 3,
-                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    visibility: ALL_STAGES,
                     ty: wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Float { filterable: true },
                         view_dimension: wgpu::TextureViewDimension::D2,
@@ -424,7 +465,7 @@ impl Renderer3D {
                 },
                 wgpu::BindGroupLayoutEntry {
                     binding: 4,
-                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    visibility: ALL_STAGES,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
@@ -434,7 +475,7 @@ impl Renderer3D {
             label: Some("3d shadow layout"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                visibility: ALL_STAGES,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: true,
@@ -445,7 +486,7 @@ impl Renderer3D {
         });
         let material_texture = |binding| wgpu::BindGroupLayoutEntry {
             binding,
-            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+            visibility: ALL_STAGES,
             ty: wgpu::BindingType::Texture {
                 sample_type: wgpu::TextureSampleType::Float { filterable: true },
                 view_dimension: wgpu::TextureViewDimension::D2,
@@ -455,7 +496,7 @@ impl Renderer3D {
         };
         let material_array = |binding| wgpu::BindGroupLayoutEntry {
             binding,
-            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+            visibility: ALL_STAGES,
             ty: wgpu::BindingType::Texture {
                 sample_type: wgpu::TextureSampleType::Float { filterable: true },
                 view_dimension: wgpu::TextureViewDimension::D2Array,
@@ -466,10 +507,10 @@ impl Renderer3D {
         let material_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("3d material layout"),
             entries: &[
-                uniform_entry(wgpu::ShaderStages::VERTEX_FRAGMENT),
+                uniform_entry(ALL_STAGES),
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
-                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    visibility: ALL_STAGES,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
@@ -489,7 +530,7 @@ impl Renderer3D {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    visibility: ALL_STAGES,
                     ty: wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Float { filterable: false },
                         view_dimension: wgpu::TextureViewDimension::D2,
@@ -499,7 +540,7 @@ impl Renderer3D {
                 },
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    visibility: ALL_STAGES,
                     ty: wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Depth,
                         view_dimension: wgpu::TextureViewDimension::D2,
@@ -831,6 +872,42 @@ impl Renderer3D {
             sky_sampler,
         };
         let frame_bind_group = frame_sources.bind_group(device, &frame_buffer);
+        // A compute pass reads its render target and writes a scratch copy.
+        let compute_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("3d compute layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::StorageTexture {
+                        access: wgpu::StorageTextureAccess::WriteOnly,
+                        format: HDR_FORMAT,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let compute_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("3d compute pipeline layout"),
+            bind_group_layouts: &[
+                Some(&frame_sources.layout),
+                Some(&material_layout),
+                Some(&scene_layout),
+                Some(&compute_layout),
+            ],
+            immediate_size: 0,
+        });
         let shadow_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("3d shadow"),
             layout: &shadow_layout,
@@ -868,7 +945,13 @@ impl Renderer3D {
             atmosphere: false,
             frame_bind_group,
             frame_sources,
+            render_targets: Vec::new(),
             view_targets: Vec::new(),
+            compute_pipelines: Vec::new(),
+            compute_pipeline_layout,
+            compute_layout,
+            compute_states: Vec::new(),
+            computes: Vec::new(),
             views: Vec::new(),
             shadow_frames,
             shadow_stride,
@@ -910,9 +993,18 @@ impl Renderer3D {
         Ok(())
     }
 
-    /// Makes texture `id` (`texture`, in `HDR_FORMAT`) a target cameras can
-    /// draw into.
-    pub fn add_view_target(&mut self, device: &wgpu::Device, id: u32, texture: &wgpu::Texture) {
+    /// Keeps render target `id` (`texture`, in `HDR_FORMAT`), for target
+    /// cameras and compute passes.
+    pub fn add_render_target(&mut self, id: u32, texture: &wgpu::Texture) {
+        self.render_targets.push((id, texture.clone()));
+    }
+
+    /// The index in `view_targets` of render target `id`, made on first use.
+    fn view_target(&mut self, device: &wgpu::Device, id: u32) -> Option<usize> {
+        if let Some(i) = self.view_targets.iter().position(|&(t, _)| t == id) {
+            return Some(i);
+        }
+        let texture = &self.render_targets.iter().find(|&&(t, _)| t == id)?.1;
         let target = |label, format| {
             device
                 .create_texture(&wgpu::TextureDescriptor {
@@ -934,16 +1026,74 @@ impl Renderer3D {
             mapped_at_creation: false,
         });
         let frame_bind_group = self.frame_sources.bind_group(device, &frame_buffer);
-        self.view_targets.push((
-            id,
-            ViewTarget {
-                color: target("3d target camera color", HDR_FORMAT),
-                depth: target("3d target camera depth", DEPTH_FORMAT),
-                resolve: texture.create_view(&Default::default()),
-                frame_buffer,
-                frame_bind_group,
-            },
-        ));
+        let view = ViewTarget {
+            color: target("3d target camera color", HDR_FORMAT),
+            depth: target("3d target camera depth", DEPTH_FORMAT),
+            resolve: texture.create_view(&Default::default()),
+            frame_buffer,
+            frame_bind_group,
+        };
+        self.view_targets.push((id, view));
+        Some(self.view_targets.len() - 1)
+    }
+
+    /// The index in `compute_states` of render target `id`, made on first use.
+    fn compute_state(&mut self, device: &wgpu::Device, id: u32) -> Option<usize> {
+        if let Some(i) = self.compute_states.iter().position(|&(t, _)| t == id) {
+            return Some(i);
+        }
+        let texture = &self.render_targets.iter().find(|&&(t, _)| t == id)?.1;
+        let scratch = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("3d compute scratch"),
+            size: texture.size(),
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: HDR_FORMAT,
+            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("3d compute"),
+            layout: &self.compute_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&texture.create_view(&Default::default())),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&scratch.create_view(&Default::default())),
+                },
+            ],
+        });
+        let state = ComputeState {
+            target: texture.clone(),
+            scratch,
+            group,
+        };
+        self.compute_states.push((id, state));
+        Some(self.compute_states.len() - 1)
+    }
+
+    /// Compiles a compute pass from the game's WGSL; returns its id.
+    pub fn create_compute(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, String> {
+        let source = compose_compute(user);
+        check_shader(name, &source)?;
+        let pipeline = build_compute(device, &self.compute_pipeline_layout, name, &source);
+        self.compute_pipelines.push(pipeline);
+        Ok(self.compute_pipelines.len() as u32 - 1)
+    }
+
+    /// Recompiles compute pass `id` (hot reload). On an error the old one stays.
+    pub fn replace_compute(&mut self, device: &wgpu::Device, id: u32, name: &str, user: &str) -> Result<(), String> {
+        let source = compose_compute(user);
+        check_shader(name, &source)?;
+        let pipeline = build_compute(device, &self.compute_pipeline_layout, name, &source);
+        if let Some(old) = self.compute_pipelines.get_mut(id as usize) {
+            *old = pipeline;
+        }
+        Ok(())
     }
 
     /// Keeps a texture array for materials; returns its id.
@@ -1147,13 +1297,22 @@ impl Renderer3D {
             mine.clear();
             mine.extend_from_slice(theirs);
         }
+        self.computes.clear();
+        for &(compute, target, material) in &frame.computes {
+            if (compute as usize) < self.compute_pipelines.len()
+                && (material as usize) < self.materials.len()
+                && let Some(state) = self.compute_state(device, target)
+            {
+                self.computes.push((compute, state, material));
+            }
+        }
         // Target cameras' instances follow the main view's in one buffer.
         let total = frame.instances.len() + frame.views.iter().map(|v| v.frame.instances.len()).sum::<usize>();
         let mut views = std::mem::take(&mut self.views);
         let mut used = 0;
         let mut offset = frame.instances.len() as u32;
         for view in &frame.views {
-            let Some(target) = self.view_targets.iter().position(|&(id, _)| id == view.target) else {
+            let Some(target) = self.view_target(device, view.target) else {
                 continue;
             };
             if used == views.len() {
@@ -1406,7 +1565,8 @@ impl Renderer3D {
             .flat_map(|(_, runs)| runs)
             .map(|&(mesh, _, _)| self.meshes[mesh as usize].parts.len())
             .sum();
-        (parts + view_parts) * 2
+        self.computes.len()
+            + (parts + view_parts) * 2
             + self.views.len() * usize::from(self.atmosphere)
             + self.effects.len()
             + if self.atmosphere { 2 } else { 0 }
@@ -1436,6 +1596,33 @@ impl Renderer3D {
     ) {
         let Some(targets) = &self.targets else { return };
         let time = || timer.and_then(GpuTimer::pass);
+        // Compute passes first, so this frame's materials see their results.
+        for &(compute, state, material) in &self.computes {
+            let state = &self.compute_states[state].1;
+            {
+                let timestamps = time().map(|t| wgpu::ComputePassTimestampWrites {
+                    query_set: t.query_set,
+                    beginning_of_pass_write_index: t.beginning_of_pass_write_index,
+                    end_of_pass_write_index: t.end_of_pass_write_index,
+                });
+                let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("3d compute"),
+                    timestamp_writes: timestamps,
+                });
+                pass.set_pipeline(&self.compute_pipelines[compute as usize]);
+                pass.set_bind_group(0, &self.frame_bind_group, &[]);
+                pass.set_bind_group(1, &self.materials[material as usize].bind_group, &[]);
+                pass.set_bind_group(2, &self.no_scene, &[]);
+                pass.set_bind_group(3, &state.group, &[]);
+                let size = state.target.size();
+                pass.dispatch_workgroups(size.width.div_ceil(8), size.height.div_ceil(8), 1);
+            }
+            encoder.copy_texture_to_texture(
+                state.scratch.as_image_copy(),
+                state.target.as_image_copy(),
+                state.target.size(),
+            );
+        }
         if self.atmosphere {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("3d sky texture"),
@@ -1822,6 +2009,27 @@ enum Kind {
 
 /// A material shader's pipelines: depth prepass, opaque, transparent and
 /// shadow, each for one-sided and double-sided surfaces.
+/// The pipeline of a compute pass.
+fn build_compute(
+    device: &wgpu::Device,
+    layout: &wgpu::PipelineLayout,
+    name: &str,
+    source: &str,
+) -> wgpu::ComputePipeline {
+    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some(name),
+        source: wgpu::ShaderSource::Wgsl(source.into()),
+    });
+    device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some(name),
+        layout: Some(layout),
+        module: &module,
+        entry_point: Some("cs_compute"),
+        compilation_options: Default::default(),
+        cache: None,
+    })
+}
+
 /// The pipeline of a screen effect: a full-screen triangle into the HDR
 /// frame, with the material pipelines' bindings.
 fn build_effect(
@@ -2050,6 +2258,21 @@ mod tests {
     #[test]
     fn the_built_in_shader_is_valid() {
         check_shader("built-in", &compose_shader("")).unwrap();
+    }
+
+    #[test]
+    fn compute_passes_compose_into_valid_shaders() {
+        let blur = "fn compute(c: Cell) -> vec4<f32> {
+            let around = cell_at(c.pixel + vec2<i32>(1, 0)) + cell_at(c.pixel - vec2<i32>(1, 0));
+            return mix(c.value, around * 0.5, material.custom[0].x * frame.time.y);
+        }";
+        check_shader("blur", &compose_compute(blur)).unwrap();
+        let err = check_shader(
+            "bad.wgsl",
+            &compose_compute("fn compute(c: Cell) -> f32 { return 1.0; }"),
+        )
+        .unwrap_err();
+        assert!(err.contains("bad.wgsl"), "{err}");
     }
 
     #[test]

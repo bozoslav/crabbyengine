@@ -263,6 +263,20 @@ pub struct Ctx {
     /// ```
     #[cfg(feature = "3d")]
     pub target_cameras: Vec<crate::TargetCamera>,
+    /// Compute passes run on the GPU each frame, in order, before anything
+    /// is drawn (feature `3d`): each updates a render target texel by
+    /// texel. See [`ComputePass`](crate::ComputePass).
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// let ripples = ctx.load_compute("compute/ripples.wgsl");
+    /// let water = ctx.create_render_target(256, 256);
+    /// ctx.compute_passes.push(ComputePass::new(ripples, water));
+    /// # }
+    /// ```
+    #[cfg(feature = "3d")]
+    pub compute_passes: Vec<crate::ComputePass>,
     /// The sky behind the 3D world and the fog in front of it (feature
     /// `3d`): a physical sky lit by the sun, by default.
     ///
@@ -366,6 +380,8 @@ impl Ctx {
             effects: Vec::new(),
             #[cfg(feature = "3d")]
             target_cameras: Vec::new(),
+            #[cfg(feature = "3d")]
+            compute_passes: Vec::new(),
             #[cfg(feature = "3d")]
             sky: crate::Sky::default(),
             #[cfg(feature = "3d")]
@@ -1164,6 +1180,12 @@ impl Ctx {
                 #[cfg(feature = "3d")]
                 Asset::Effect(id) => {
                     let applied = assets::read_to_string(&file).and_then(|text| self.reload_effect(id, &name, &text));
+                    self.report_reload(name, applied);
+                    continue;
+                }
+                #[cfg(feature = "3d")]
+                Asset::Compute(id) => {
+                    let applied = assets::read_to_string(&file).and_then(|text| self.reload_compute(id, &name, &text));
                     self.report_reload(name, applied);
                     continue;
                 }

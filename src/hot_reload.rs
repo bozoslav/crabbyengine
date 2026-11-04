@@ -48,6 +48,9 @@ pub(crate) enum Asset {
     /// A 3D screen effect id.
     #[cfg(feature = "3d")]
     Effect(u32),
+    /// A 3D compute pass id.
+    #[cfg(feature = "3d")]
+    Compute(u32),
 }
 
 struct Watched {

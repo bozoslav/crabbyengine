@@ -55,6 +55,14 @@ impl Renderer {
         match *self {}
     }
     #[cfg(feature = "3d")]
+    pub fn create_compute(&mut self, _name: &str, _source: &str) -> Result<u32, String> {
+        match *self {}
+    }
+    #[cfg(feature = "3d")]
+    pub fn replace_compute(&mut self, _id: u32, _name: &str, _source: &str) -> Result<(), String> {
+        match *self {}
+    }
+    #[cfg(feature = "3d")]
     pub fn create_effect(&mut self, _name: &str, _source: &str) -> Result<u32, String> {
         match *self {}
     }
