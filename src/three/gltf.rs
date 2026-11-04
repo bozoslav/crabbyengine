@@ -18,15 +18,46 @@ pub(crate) struct Loaded {
     /// Index ranges of `data`, each with its material (an index into `materials`).
     pub parts: Vec<(Range<u32>, usize)>,
     pub materials: Vec<LoadedMaterial>,
+    /// The materials' images: width, height, RGBA8 pixels.
+    pub images: Vec<Image>,
 }
+
+/// Width, height and RGBA8 pixels.
+pub(crate) type Image = (u32, u32, Vec<u8>);
 
 pub(crate) struct LoadedMaterial {
     pub color: Color,
     pub roughness: f32,
     pub metallic: f32,
     pub emissive: Color,
-    /// Base color image: width, height, RGBA8 pixels.
-    pub image: Option<(u32, u32, Vec<u8>)>,
+    /// Images, as indices into `Loaded::images`.
+    pub image: Option<usize>,
+    pub normal_map: Option<usize>,
+    pub normal_strength: f32,
+    /// Occlusion in red, roughness in green, metalness in blue.
+    pub orm_map: Option<usize>,
+    pub emissive_map: Option<usize>,
+    /// glTF's alpha mode BLEND.
+    pub transparent: bool,
+    pub double_sided: bool,
+}
+
+impl LoadedMaterial {
+    fn plain() -> Self {
+        Self {
+            color: Color::WHITE,
+            roughness: 0.6,
+            metallic: 0.0,
+            emissive: Color::rgb(0.0, 0.0, 0.0),
+            image: None,
+            normal_map: None,
+            normal_strength: 1.0,
+            orm_map: None,
+            emissive_map: None,
+            transparent: false,
+            double_sided: false,
+        }
+    }
 }
 
 /// Parses glTF `bytes`; `read` fetches files it refers to, by asset name.
@@ -52,15 +83,37 @@ pub(crate) fn load(
         buffers.push(data);
     }
 
-    // Materials, with the base color image decoded once each.
+    // Materials, with each image decoded once.
+    let mut images = Images {
+        decoded: Vec::new(),
+        keys: Vec::new(),
+        document: &gltf.document,
+        buffers: &buffers,
+        folder,
+        name,
+    };
     let mut materials: Vec<LoadedMaterial> = Vec::new();
     for material in gltf.materials() {
         let pbr = material.pbr_metallic_roughness();
         let [r, g, b, a] = pbr.base_color_factor();
         let [er, eg, eb] = material.emissive_factor();
-        let image = match pbr.base_color_texture() {
-            Some(info) => Some(image(&info.texture().source(), &buffers, folder, read, name)?),
-            None => None,
+        let mut get = |t: Option<gltf::Texture>| match t {
+            Some(t) => images.get(t.source().index(), read).map(Some),
+            None => Ok(None),
+        };
+        let image = get(pbr.base_color_texture().map(|i| i.texture()))?;
+        let emissive_map = get(material.emissive_texture().map(|i| i.texture()))?;
+        let normal = material.normal_texture();
+        let normal_strength = normal.as_ref().map_or(1.0, |n| n.scale());
+        let normal_map = get(normal.map(|n| n.texture()))?;
+        // glTF keeps roughness in green and metalness in blue, and
+        // occlusion in red of its own image, often the same one.
+        let mr = pbr.metallic_roughness_texture().map(|i| i.texture().source().index());
+        let occlusion = material.occlusion_texture().map(|i| i.texture().source().index());
+        let orm_map = match (mr, occlusion) {
+            (None, None) => None,
+            (Some(m), Some(o)) if m == o => Some(images.get(m, read)?),
+            (m, o) => Some(images.orm(m, o, read)?),
         };
         // glTF factors are linear; Color is sRGB.
         materials.push(LoadedMaterial {
@@ -69,8 +122,15 @@ pub(crate) fn load(
             metallic: pbr.metallic_factor(),
             emissive: Color::rgb(to_srgb(er), to_srgb(eg), to_srgb(eb)),
             image,
+            normal_map,
+            normal_strength,
+            orm_map,
+            emissive_map,
+            transparent: material.alpha_mode() == gltf::material::AlphaMode::Blend,
+            double_sided: material.double_sided(),
         });
     }
+    let images = images.decoded;
     let default_material = materials.len();
 
     // Every primitive in the scene, placed by its node, grouped by material.
@@ -104,13 +164,7 @@ pub(crate) fn load(
         return Err(format!("{name}: has no triangles"));
     }
     if by_material.iter().any(|(m, _)| *m == default_material) {
-        materials.push(LoadedMaterial {
-            color: Color::WHITE,
-            roughness: 0.6,
-            metallic: 0.0,
-            emissive: Color::rgb(0.0, 0.0, 0.0),
-            image: None,
-        });
+        materials.push(LoadedMaterial::plain());
     }
 
     let mut data = MeshData::default();
@@ -121,11 +175,17 @@ pub(crate) fn load(
         data.positions.extend(part.positions);
         data.normals.extend(part.normals);
         data.uvs.extend(part.uvs);
+        data.colors.extend(part.colors);
         data.indices.extend(part.indices.iter().map(|i| i + base));
         parts.push((first..data.indices.len() as u32, material));
     }
     data.check().map_err(|e| format!("{name}: {e}"))?;
-    Ok(Loaded { data, parts, materials })
+    Ok(Loaded {
+        data,
+        parts,
+        materials,
+        images,
+    })
 }
 
 /// Adds one primitive's triangles to `out`, moved by `matrix`.
@@ -158,6 +218,15 @@ fn append(
             .map(|t| t.into_f32().map(Vec2::from).collect())
             .unwrap_or_default(),
         indices,
+        // glTF's colors are linear; Color is sRGB.
+        colors: reader
+            .read_colors(0)
+            .map(|c| {
+                c.into_rgba_f32()
+                    .map(|[r, g, b, a]| Color::rgba(to_srgb(r), to_srgb(g), to_srgb(b), a))
+                    .collect()
+            })
+            .unwrap_or_default(),
     };
     part.check().map_err(|e| format!("{name}: {e}"))?;
     let normals = part.normals_or_computed().into_owned();
@@ -174,6 +243,11 @@ fn append(
     } else {
         out.uvs.extend(part.uvs);
     }
+    if part.colors.is_empty() {
+        out.colors.extend(std::iter::repeat_n(Color::WHITE, count as usize));
+    } else {
+        out.colors.extend(part.colors);
+    }
     for tri in part.indices.as_chunks::<3>().0 {
         let [a, b, c] = [tri[0] + base, tri[1] + base, tri[2] + base];
         out.indices.extend(if flips { [a, c, b] } else { [a, b, c] });
@@ -181,14 +255,85 @@ fn append(
     Ok(())
 }
 
+/// The file's images, decoded on first use.
+struct Images<'a> {
+    decoded: Vec<Image>,
+    /// What each of `decoded` is, so each is decoded or merged once.
+    keys: Vec<Key>,
+    document: &'a gltf::Document,
+    buffers: &'a [Vec<u8>],
+    folder: &'a str,
+    name: &'a str,
+}
+
+#[derive(PartialEq)]
+enum Key {
+    /// An image of the file.
+    Image(usize),
+    /// An ORM image made from glTF's metallic-roughness and occlusion images.
+    Orm(Option<usize>, Option<usize>),
+}
+
+type Read<'r> = &'r mut dyn FnMut(&str) -> Result<Vec<u8>, String>;
+
+impl Images<'_> {
+    /// Image `index`, decoded: its index in `decoded`.
+    fn get(&mut self, index: usize, read: Read) -> Result<usize, String> {
+        if let Some(at) = self.keys.iter().position(|k| *k == Key::Image(index)) {
+            return Ok(at);
+        }
+        let image = self.decode(index, read)?;
+        Ok(self.add(Key::Image(index), image))
+    }
+
+    /// An ORM image from glTF's metallic-roughness image (roughness in
+    /// green, metalness in blue) and occlusion image (red), either of
+    /// which can be missing: what's missing is 1.
+    fn orm(&mut self, metal_rough: Option<usize>, occlusion: Option<usize>, read: Read) -> Result<usize, String> {
+        let key = Key::Orm(metal_rough, occlusion);
+        if let Some(at) = self.keys.iter().position(|k| *k == key) {
+            return Ok(at);
+        }
+        let occlusion = occlusion.map(|o| self.decode(o, read)).transpose()?;
+        let mut orm = match metal_rough {
+            Some(m) => self.decode(m, read)?,
+            None => {
+                let (w, h, _) = occlusion.as_ref().expect("one of the two is there");
+                (*w, *h, vec![255; (*w * *h * 4) as usize])
+            }
+        };
+        let pixels = orm.2.as_chunks_mut::<4>().0;
+        match occlusion {
+            // Red from the occlusion image, when it lines up texel for texel.
+            Some((w, h, ao)) if (w, h) == (orm.0, orm.1) => {
+                for (px, o) in pixels.iter_mut().zip(ao.as_chunks::<4>().0) {
+                    px[0] = o[0];
+                }
+            }
+            _ => pixels.iter_mut().for_each(|px| px[0] = 255),
+        }
+        Ok(self.add(key, orm))
+    }
+
+    fn add(&mut self, key: Key, image: Image) -> usize {
+        self.keys.push(key);
+        self.decoded.push(image);
+        self.decoded.len() - 1
+    }
+
+    /// Decodes image `index` of the file to RGBA8.
+    fn decode(&self, index: usize, read: Read) -> Result<Image, String> {
+        let image = self
+            .document
+            .images()
+            .nth(index)
+            .ok_or_else(|| format!("{}: image {index} isn't in the file", self.name))?;
+        decode(&image, self.buffers, self.folder, read, self.name)
+    }
+}
+
 /// Decodes an image of the file to RGBA8.
-fn image(
-    image: &gltf::Image,
-    buffers: &[Vec<u8>],
-    folder: &str,
-    read: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
-    name: &str,
-) -> Result<(u32, u32, Vec<u8>), String> {
+fn decode(image: &gltf::Image, buffers: &[Vec<u8>], folder: &str, read: Read, name: &str) -> Result<Image, String> {
     let bytes = match image.source() {
         gltf::image::Source::View { view, .. } => {
             let buffer = &buffers[view.buffer().index()];
@@ -278,15 +423,7 @@ mod tests {
         assert_eq!(percent_decode("my%20tree.bin"), "my tree.bin");
     }
 
-    /// A one-triangle .gltf under a node that moves it up by 2 and mirrors
-    /// x; its buffer inline, or in `file` next to it.
-    fn triangle_gltf(file: Option<&str>) -> String {
-        let mut bytes = Vec::new();
-        for v in [[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]] {
-            for c in v {
-                bytes.extend(c.to_le_bytes());
-            }
-        }
+    fn to_base64(bytes: &[u8]) -> String {
         let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
         let mut b64 = String::new();
         for chunk in bytes.chunks(3) {
@@ -298,6 +435,72 @@ mod tests {
                 b64.push(alphabet[(n >> (18 - 6 * i) & 63) as usize] as char);
             }
         }
+        while !b64.len().is_multiple_of(4) {
+            b64.push('=');
+        }
+        b64
+    }
+
+    /// A PNG of two `pixel`s side by side, as a data URI.
+    fn png(pixel: [u8; 4]) -> String {
+        let image = image::RgbaImage::from_fn(2, 1, |_, _| image::Rgba(pixel));
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+        format!("data:image/png;base64,{}", to_base64(&bytes.into_inner()))
+    }
+
+    #[test]
+    fn material_maps_load_with_occlusion_packed_into_red() {
+        let gltf = triangle_gltf(None);
+        let materials = format!(
+            r#""materials": [
+                {{ "pbrMetallicRoughness": {{ "metallicRoughnessTexture": {{ "index": 0 }} }},
+                   "occlusionTexture": {{ "index": 1 }},
+                   "normalTexture": {{ "index": 2, "scale": 0.5 }},
+                   "emissiveTexture": {{ "index": 2 }},
+                   "alphaMode": "BLEND", "doubleSided": true }},
+                {{ "occlusionTexture": {{ "index": 1 }} }}
+            ],
+            "textures": [{{ "source": 0 }}, {{ "source": 1 }}, {{ "source": 2 }}],
+            "images": [{{ "uri": "{}" }}, {{ "uri": "{}" }}, {{ "uri": "{}" }}],"#,
+            png([9, 100, 200, 255]),
+            png([50, 50, 50, 255]),
+            png([128, 128, 255, 255]),
+        );
+        let gltf = gltf.replace(
+            r#""materials": [{ "pbrMetallicRoughness": { "baseColorFactor": [1, 0, 0, 1], "roughnessFactor": 0.25 } }],"#,
+            &materials,
+        );
+        let loaded = load("maps.gltf", gltf.as_bytes(), &mut |f| Err(f.to_string())).unwrap();
+        let m = &loaded.materials[0];
+        assert!(m.transparent && m.double_sided);
+        assert_eq!(m.normal_strength, 0.5);
+        assert_eq!(m.normal_map, m.emissive_map, "one image, decoded once");
+        let orm = &loaded.images[m.orm_map.unwrap()];
+        assert_eq!(
+            &orm.2[..4],
+            &[50, 100, 200, 255],
+            "occlusion in red, roughness and metalness as they were"
+        );
+        let only_occlusion = &loaded.images[loaded.materials[1].orm_map.unwrap()];
+        assert_eq!(
+            &only_occlusion.2[..4],
+            &[50, 255, 255, 255],
+            "no roughness or metalness map: 1"
+        );
+        assert_eq!(loaded.images.len(), 3, "normal, ORM and occlusion-only ORM");
+    }
+
+    /// A one-triangle .gltf under a node that moves it up by 2 and mirrors
+    /// x; its buffer inline, or in `file` next to it.
+    fn triangle_gltf(file: Option<&str>) -> String {
+        let mut bytes = Vec::new();
+        for v in [[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]] {
+            for c in v {
+                bytes.extend(c.to_le_bytes());
+            }
+        }
+        let b64 = to_base64(&bytes);
         let uri = file.map_or(format!("data:application/octet-stream;base64,{b64}"), str::to_string);
         format!(
             r#"{{

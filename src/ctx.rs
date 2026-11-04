@@ -225,6 +225,30 @@ pub struct Ctx {
     /// ```
     #[cfg(feature = "3d")]
     pub lighting: crate::Lighting,
+    /// What happens to the lit 3D frame on its way to the screen (feature
+    /// `3d`): exposure, bloom, color grading, tone mapping.
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// ctx.post.bloom = 0.2;
+    /// ctx.post.vignette = 0.3;
+    /// # }
+    /// ```
+    #[cfg(feature = "3d")]
+    pub post: crate::Post,
+    /// The sky behind the 3D world and the fog in front of it (feature
+    /// `3d`): a physical sky lit by the sun, by default.
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// ctx.lighting.sun_direction = Sky::sun_direction_at(7.0); // morning
+    /// ctx.sky.fog_density = 0.01;
+    /// # }
+    /// ```
+    #[cfg(feature = "3d")]
+    pub sky: crate::Sky,
     #[cfg(feature = "3d")]
     pub(crate) assets3d: crate::three::Assets3D,
     #[cfg(feature = "3d")]
@@ -310,6 +334,10 @@ impl Ctx {
             camera3d: crate::Camera3D::new(window_size),
             #[cfg(feature = "3d")]
             lighting: crate::Lighting::default(),
+            #[cfg(feature = "3d")]
+            post: crate::Post::default(),
+            #[cfg(feature = "3d")]
+            sky: crate::Sky::default(),
             #[cfg(feature = "3d")]
             assets3d: Default::default(),
             #[cfg(feature = "3d")]
@@ -1094,6 +1122,12 @@ impl Ctx {
                 Asset::Data(i) => {
                     let applied =
                         assets::read_to_string(&file).and_then(|text| (self.data_loaders[i])(&mut self.world, &text));
+                    self.report_reload(name, applied);
+                    continue;
+                }
+                #[cfg(feature = "3d")]
+                Asset::Shader(id) => {
+                    let applied = assets::read_to_string(&file).and_then(|text| self.reload_shader(id, &name, &text));
                     self.report_reload(name, applied);
                     continue;
                 }

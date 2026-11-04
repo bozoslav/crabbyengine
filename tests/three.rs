@@ -51,6 +51,145 @@ fn the_guide_village_has_five_spinning_houses() {
     assert_eq!(houses, 5);
 }
 
+// ANCHOR: sky
+/// A misty morning: the sun low in the east, fog lying in the valleys.
+fn misty_morning(ctx: &mut Ctx) {
+    ctx.lighting.sun_direction = Sky::sun_direction_at(7.5);
+    ctx.sky.haze = 2.0; // a paler sky, a bigger glow around the sun
+    ctx.sky.fog_density = 0.03; // thick near the ground
+    ctx.sky.fog_height = 0.0;
+    ctx.sky.fog_falloff = 10.0; // and thin ten meters up
+}
+// ANCHOR_END: sky
+
+#[test]
+fn sky_settings_stay_as_set() {
+    Game::new("t", 1, 1).run_headless(1, |ctx| {
+        assert_eq!(ctx.sky, Sky::default());
+        assert!(ctx.sky.atmosphere);
+        misty_morning(ctx);
+        assert_eq!(ctx.sky.fog_density, 0.03);
+        let to_sun = -ctx.lighting.sun_direction;
+        assert!(to_sun.x > 0.0 && to_sun.y > 0.0, "morning: low in the east");
+    });
+}
+
+// ANCHOR: post
+/// A warm, glowing evening look.
+fn golden_hour(ctx: &mut Ctx) {
+    ctx.post.exposure = 0.3; // a third of a stop brighter
+    ctx.post.bloom = 0.2; // highlights glow
+    ctx.post.temperature = 0.4; // warmer
+    ctx.post.saturation = 1.1;
+    ctx.post.vignette = 0.3; // darker corners
+    ctx.post.tonemap = Tonemap::AgX;
+}
+// ANCHOR_END: post
+
+#[test]
+fn post_settings_stay_as_set() {
+    Game::new("t", 1, 1).run_headless(1, |ctx| {
+        assert_eq!(ctx.post, Post::default());
+        golden_hour(ctx);
+        assert_eq!(ctx.post.tonemap, Tonemap::AgX);
+        let (w, h, pixels) = Post::neutral_lut(16);
+        ctx.post.lut = Some(ctx.create_texture(w, h, &pixels));
+        assert_eq!(ctx.post.lut.map(|t| (t.width(), t.height())), Some((256, 16)));
+    });
+}
+
+#[test]
+#[should_panic(expected = "2 to 64 steps")]
+fn lookup_tables_have_two_to_64_steps() {
+    let _ = Post::neutral_lut(1);
+}
+
+// ANCHOR: shader
+/// Grass that sways in the wind: the higher a vertex, the more it moves.
+const WIND: &str = "
+fn vertex(v: Vertex) -> Vertex {
+    var out = v;
+    let sway = sin(frame.time.x * 2.0 + v.position.x) * material.custom[0].x;
+    out.position.x += sway * v.uv.y * v.uv.y;
+    return out;
+}";
+
+fn meadow(ctx: &mut Ctx) {
+    let wind = ctx.create_shader("wind", WIND);
+    let grass = ctx.create_material(MaterialDesc {
+        shader: Some(wind),
+        double_sided: true,
+        custom: [vec4(0.2, 0.0, 0.0, 0.0), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO],
+        ..MaterialDesc::color(Color::hex(0x7FA83C))
+    });
+    let blade = ctx.create_mesh(&MeshData::plane(0.5), grass);
+    ctx.world.spawn((Transform3D::default(), Model::new(blade)));
+}
+// ANCHOR_END: shader
+
+#[test]
+fn shaders_and_their_materials_are_made() {
+    Game::new("t", 1, 1).run_headless(1, |ctx| {
+        meadow(ctx);
+        let water = ctx.load_shader("shaders/water.wgsl");
+        assert_eq!(ctx.load_shader("shaders/water.wgsl"), water, "loaded once");
+        let lake = ctx.create_material(MaterialDesc {
+            shader: Some(water),
+            blend: Blend::Transparent,
+            ..Default::default()
+        });
+        ctx.update_material(
+            lake,
+            MaterialDesc {
+                roughness: 0.1,
+                ..Default::default()
+            },
+        );
+    });
+}
+
+#[test]
+fn transparent_shaders_can_read_the_scene_behind_them() {
+    Game::new("t", 1, 1).run_headless(1, |ctx| {
+        let glass = ctx.create_shader(
+            "glass",
+            "fn surface(s: Surface) -> Surface {
+                var out = s;
+                let deep = scene_distance(s.screen) - distance(s.world, frame.camera.xyz);
+                out.emissive = scene_color(s.screen + vec2<f32>(4.0, 0.0)) * exp(-deep);
+                out.albedo = scene_position(s.screen) * 0.0 + s.albedo;
+                return out;
+            }",
+        );
+        ctx.create_material(MaterialDesc {
+            shader: Some(glass),
+            blend: Blend::Transparent,
+            ..Default::default()
+        });
+    });
+}
+
+#[test]
+#[should_panic(expected = "fix.wgsl")]
+fn shader_errors_say_which_shader() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        ctx.create_shader("fix.wgsl", "fn surface(s: Surface) -> Surface { return 1.0; }");
+    });
+}
+
+#[test]
+#[should_panic(expected = "wasn't made by this game")]
+fn materials_only_take_this_games_shaders() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        let mut shader = None;
+        Game::new("v", 1, 1).run_headless(0, |c| shader = Some(c.create_shader("s", "")));
+        ctx.create_material(MaterialDesc {
+            shader,
+            ..Default::default()
+        });
+    });
+}
+
 #[test]
 fn loading_a_model_twice_gives_the_same_mesh() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
@@ -79,6 +218,21 @@ fn materials_check_their_numbers() {
             metallic: 1.5,
             ..Default::default()
         });
+    });
+}
+
+#[test]
+#[should_panic(expected = "2 colors for 3 corners")]
+fn vertex_colors_come_one_per_corner() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        let tri = MeshData {
+            positions: vec![Vec3::ZERO, Vec3::X, Vec3::Y],
+            indices: vec![0, 1, 2],
+            colors: vec![Color::RED, Color::WHITE],
+            ..Default::default()
+        };
+        let white = ctx.default_material();
+        let _ = ctx.create_mesh(&tri, white);
     });
 }
 

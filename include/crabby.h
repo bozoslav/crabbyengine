@@ -434,18 +434,18 @@ typedef struct CrabbyField {
   size_t offset;
 } CrabbyField;
 
+typedef struct CrabbyVec3 {
+  float x;
+  float y;
+  float z;
+} CrabbyVec3;
+
 typedef struct CrabbyQuat {
   float x;
   float y;
   float z;
   float w;
 } CrabbyQuat;
-
-typedef struct CrabbyVec3 {
-  float x;
-  float y;
-  float z;
-} CrabbyVec3;
 
 typedef struct CrabbyTransform3D {
   struct CrabbyQuat rotation;
@@ -463,6 +463,10 @@ typedef struct CrabbyModel {
   struct CrabbyColor color;
 } CrabbyModel;
 
+typedef struct CrabbyShader {
+  uint32_t id;
+} CrabbyShader;
+
 typedef struct CrabbyMaterialDesc {
   struct CrabbyColor color;
   bool has_texture;
@@ -470,6 +474,20 @@ typedef struct CrabbyMaterialDesc {
   float roughness;
   float metallic;
   struct CrabbyColor emissive;
+  bool has_normal_map;
+  struct CrabbyTexture normal_map;
+  float normal_strength;
+  bool has_orm_map;
+  struct CrabbyTexture orm_map;
+  bool has_emissive_map;
+  struct CrabbyTexture emissive_map;
+  uint32_t blend;
+  bool double_sided;
+  bool has_shader;
+  struct CrabbyShader shader;
+  float custom[16];
+  bool has_custom_textures[2];
+  struct CrabbyTexture custom_textures[2];
 } CrabbyMaterialDesc;
 
 typedef struct CrabbyMeshView {
@@ -502,7 +520,34 @@ typedef struct CrabbyLighting {
   float ambient_intensity;
   bool shadows;
   float shadow_distance;
+  uint32_t shadow_cascades;
 } CrabbyLighting;
+
+typedef struct CrabbySky {
+  bool atmosphere;
+  float haze;
+  float sun_size;
+  float stars;
+  struct CrabbyColor night_light;
+  float fog_density;
+  float fog_height;
+  float fog_falloff;
+  struct CrabbyColor fog_color;
+} CrabbySky;
+
+typedef struct CrabbyPost {
+  float exposure;
+  uint32_t tonemap;
+  float bloom;
+  float bloom_threshold;
+  float contrast;
+  float saturation;
+  float temperature;
+  float tint;
+  float vignette;
+  bool has_lut;
+  struct CrabbyTexture lut;
+} CrabbyPost;
 
 typedef struct CrabbySpriteSheet {
   struct CrabbyTexture texture;
@@ -1117,6 +1162,8 @@ enum CrabbyStatus crabby_ctx_steam_lobby(struct CrabbyCtx *ctx, uint64_t *out_lo
 
 enum CrabbyStatus crabby_ctx_steam_invite(struct CrabbyCtx *ctx);
 
+struct CrabbyVec3 crabby_sun_direction_at(float hour);
+
 struct CrabbyQuat crabby_quat_identity(void);
 
 struct CrabbyQuat crabby_quat_from_axis_angle(struct CrabbyVec3 axis, float angle);
@@ -1153,6 +1200,10 @@ struct CrabbyMeshData *crabby_mesh_data_plane(float size);
 
 struct CrabbyMeshData *crabby_mesh_data_sphere(float radius, uint32_t segments);
 
+enum CrabbyStatus crabby_mesh_data_set_colors(struct CrabbyMeshData *data,
+                                              const struct CrabbyColor *colors,
+                                              size_t count);
+
 void crabby_mesh_data_free(struct CrabbyMeshData *data);
 
 enum CrabbyStatus crabby_mesh_data_view(const struct CrabbyMeshData *data,
@@ -1161,6 +1212,19 @@ enum CrabbyStatus crabby_mesh_data_view(const struct CrabbyMeshData *data,
 enum CrabbyStatus crabby_ctx_create_material(struct CrabbyCtx *ctx,
                                              const struct CrabbyMaterialDesc *desc,
                                              struct CrabbyMaterial *out_material);
+
+enum CrabbyStatus crabby_ctx_update_material(struct CrabbyCtx *ctx,
+                                             struct CrabbyMaterial material,
+                                             const struct CrabbyMaterialDesc *desc);
+
+enum CrabbyStatus crabby_ctx_load_shader(struct CrabbyCtx *ctx,
+                                         const char *path,
+                                         struct CrabbyShader *out_shader);
+
+enum CrabbyStatus crabby_ctx_create_shader(struct CrabbyCtx *ctx,
+                                           const char *name,
+                                           const char *source,
+                                           struct CrabbyShader *out_shader);
 
 enum CrabbyStatus crabby_ctx_default_material(struct CrabbyCtx *ctx,
                                               struct CrabbyMaterial *out_material);
@@ -1192,6 +1256,14 @@ enum CrabbyStatus crabby_ctx_lighting(struct CrabbyCtx *ctx, struct CrabbyLighti
 
 enum CrabbyStatus crabby_ctx_set_lighting(struct CrabbyCtx *ctx,
                                           const struct CrabbyLighting *lighting);
+
+enum CrabbyStatus crabby_ctx_sky(struct CrabbyCtx *ctx, struct CrabbySky *out_sky);
+
+enum CrabbyStatus crabby_ctx_set_sky(struct CrabbyCtx *ctx, const struct CrabbySky *sky);
+
+enum CrabbyStatus crabby_ctx_post(struct CrabbyCtx *ctx, struct CrabbyPost *out_post);
+
+enum CrabbyStatus crabby_ctx_set_post(struct CrabbyCtx *ctx, const struct CrabbyPost *post);
 
 enum CrabbyStatus crabby_sprite_sheet(struct CrabbyTexture texture,
                                       uint32_t frame_width,

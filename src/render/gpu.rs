@@ -12,7 +12,13 @@ use crate::color::Color;
 
 pub(super) struct GpuTexture {
     pub(super) bind_group: wgpu::BindGroup,
-    texture: wgpu::Texture,
+    pub(super) texture: wgpu::Texture,
+    /// Sampled with hard edges (pixel art).
+    nearest: bool,
+    /// Whether it has mipmaps (made once a 3D material uses it), and
+    /// whether they average data (normals, ORM) rather than colors.
+    #[cfg(feature = "3d")]
+    mips: Option<bool>,
 }
 
 pub(crate) struct Renderer {
@@ -46,6 +52,8 @@ pub(crate) struct Renderer {
     /// The 3D pass, made when the game first creates a mesh or material.
     #[cfg(feature = "3d")]
     three: Option<super::gpu3d::Renderer3D>,
+    #[cfg(feature = "3d")]
+    mips: Option<super::mips::MipMaker>,
     /// Time spent collecting and uploading this frame's 3D models.
     #[cfg(feature = "3d")]
     prepare_3d_ms: f32,
@@ -379,6 +387,8 @@ impl Renderer {
             stats: RenderStats::default(),
             #[cfg(feature = "3d")]
             three: None,
+            #[cfg(feature = "3d")]
+            mips: None,
             display_wait_ms: 0.0,
             #[cfg(feature = "3d")]
             prepare_3d_ms: 0.0,
@@ -417,11 +427,45 @@ impl Renderer {
     }
 
     #[cfg(feature = "3d")]
-    pub fn create_material(&mut self, uniform: &crate::three::MaterialUniform, texture: Option<u32>) -> u32 {
+    pub fn create_material(&mut self, desc: &crate::three::GpuMaterialDesc) -> u32 {
+        self.material_mips(desc);
         let device = self.device.clone();
-        // An unknown texture (from C) would break drawing: use none.
-        let texture = texture.filter(|&t| (t as usize) < self.textures.len());
-        self.three().create_material(&device, uniform, texture)
+        self.three();
+        let three = self.three.as_mut().expect("just made");
+        three.create_material(&device, desc, &self.textures)
+    }
+
+    #[cfg(feature = "3d")]
+    pub fn update_material(&mut self, id: u32, desc: &crate::three::GpuMaterialDesc) {
+        self.material_mips(desc);
+        if let Some(three) = &mut self.three {
+            three.update_material(&self.device, &self.queue, id, desc, &self.textures);
+        }
+    }
+
+    /// Mipmaps for the textures a material reads.
+    #[cfg(feature = "3d")]
+    fn material_mips(&mut self, desc: &crate::three::GpuMaterialDesc) {
+        // Normal and ORM maps (the 2nd and 3rd) hold data, not colors.
+        let linear = [false, true, true, false, false, false];
+        for (map, linear) in desc.textures.iter().zip(linear) {
+            if let Some(id) = *map {
+                self.ensure_mips(id, linear);
+            }
+        }
+    }
+
+    /// Compiles a material shader; its index, or the compiler's message.
+    #[cfg(feature = "3d")]
+    pub fn create_shader(&mut self, name: &str, source: &str) -> Result<u32, String> {
+        let device = self.device.clone();
+        self.three().create_shader(&device, name, source)
+    }
+
+    #[cfg(feature = "3d")]
+    pub fn replace_shader(&mut self, id: u32, name: &str, source: &str) -> Result<(), String> {
+        let device = self.device.clone();
+        self.three().replace_shader(&device, id, name, source)
     }
 
     #[cfg(feature = "3d")]
@@ -433,17 +477,18 @@ impl Renderer {
     /// Uploads the frame's 3D models, camera and light for the next `render`.
     /// `collect_ms`: how long collecting the models took, counted in `cpu_ms`.
     #[cfg(feature = "3d")]
-    pub fn prepare_3d(
-        &mut self,
-        frame: &crate::three::Frame3D,
-        lighting: &crate::Lighting,
-        camera: glam::Vec3,
-        collect_ms: f32,
-    ) {
+    pub fn prepare_3d(&mut self, scene: &crate::three::Scene3D<'_>, collect_ms: f32) {
         let start = web_time::Instant::now();
         let size = (self.config.width, self.config.height);
+        // A lookup table must be a strip of n squares of n x n.
+        let lut = scene.post.lut.filter(|t| {
+            let n = t.height();
+            (2..=64).contains(&n) && t.width() == n * n && (t.id as usize) < self.textures.len()
+        });
         if let Some(three) = &mut self.three {
-            three.prepare(&self.device, &self.queue, frame, lighting, camera, size);
+            let lut = lut.map(|t| (t.id, t.height()));
+            let input = super::gpu3d::Prepare3D { scene, lut, size };
+            three.prepare(&self.device, &self.queue, &input);
         }
         self.prepare_3d_ms = collect_ms + start.elapsed().as_secs_f32() * 1000.0;
     }
@@ -471,8 +516,10 @@ impl Renderer {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
+            // Copied from when a 3D material first uses it and it gets mipmaps.
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC,
+            // Materials read normal maps (data, not colors) without sRGB decoding.
+            view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
         });
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
@@ -489,8 +536,26 @@ impl Renderer {
             },
             size,
         );
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let bind_group = self.sprite_bind_group(&texture, false);
+        self.textures.push(GpuTexture {
+            bind_group,
+            texture,
+            nearest: false,
+            #[cfg(feature = "3d")]
+            mips: None,
+        });
+        (self.textures.len() - 1) as u32
+    }
+
+    /// The bind group sprites draw a texture with: its full-size level only,
+    /// so mipmaps made for 3D don't change how sprites look.
+    fn sprite_bind_group(&self, texture: &wgpu::Texture, nearest: bool) -> wgpu::BindGroup {
+        let view = texture.create_view(&wgpu::TextureViewDescriptor {
+            format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
+            mip_level_count: Some(1),
+            ..Default::default()
+        });
+        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("sprite texture"),
             layout: &self.texture_layout,
             entries: &[
@@ -500,12 +565,81 @@ impl Renderer {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    resource: wgpu::BindingResource::Sampler(if nearest {
+                        &self.nearest_sampler
+                    } else {
+                        &self.sampler
+                    }),
                 },
             ],
+        })
+    }
+
+    /// Gives texture `id` mipmaps, so 3D materials far away or at a slant
+    /// read it smoothly instead of shimmering. `linear`: it holds data
+    /// (normals, ORM), averaged as stored rather than as light.
+    #[cfg(feature = "3d")]
+    fn ensure_mips(&mut self, id: u32, linear: bool) {
+        let Some(tex) = self.textures.get(id as usize) else {
+            return;
+        };
+        if tex.mips.is_some() {
+            return;
+        }
+        let (width, height) = (tex.texture.width(), tex.texture.height());
+        let levels = super::mips::levels(width, height);
+        if levels == 1 {
+            self.textures[id as usize].mips = Some(linear);
+            return;
+        }
+        let size = wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        };
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("material texture"),
+            size,
+            mip_level_count: levels,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
         });
-        self.textures.push(GpuTexture { bind_group, texture });
-        (self.textures.len() - 1) as u32
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        encoder.copy_texture_to_texture(
+            self.textures[id as usize].texture.as_image_copy(),
+            texture.as_image_copy(),
+            size,
+        );
+        let mips = self
+            .mips
+            .get_or_insert_with(|| super::mips::MipMaker::new(&self.device));
+        mips.generate(&self.device, &mut encoder, &texture, linear);
+        self.queue.submit([encoder.finish()]);
+        let bind_group = self.sprite_bind_group(&texture, self.textures[id as usize].nearest);
+        let tex = &mut self.textures[id as usize];
+        tex.texture = texture;
+        tex.bind_group = bind_group;
+        tex.mips = Some(linear);
+    }
+
+    /// Remakes texture `id`'s mipmaps after its pixels changed.
+    fn refresh_mips(&mut self, id: u32) {
+        #[cfg(feature = "3d")]
+        if let Some(linear) = self.textures[id as usize].mips
+            && let Some(mips) = &self.mips
+        {
+            let mut encoder = self.device.create_command_encoder(&Default::default());
+            mips.generate(&self.device, &mut encoder, &self.textures[id as usize].texture, linear);
+            self.queue.submit([encoder.finish()]);
+        }
+        #[cfg(not(feature = "3d"))]
+        let _ = id;
     }
 
     /// Replaces every pixel of texture `id` (same size as created).
@@ -530,30 +664,15 @@ impl Renderer {
                 depth_or_array_layers: 1,
             },
         );
+        self.refresh_mips(id);
     }
 
     /// Switches texture `id` between smooth and hard-edged sampling.
     pub fn set_filter(&mut self, id: u32, nearest: bool) {
+        let bind_group = self.sprite_bind_group(&self.textures[id as usize].texture, nearest);
         let tex = &mut self.textures[id as usize];
-        let view = tex.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        tex.bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("sprite texture"),
-            layout: &self.texture_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(if nearest {
-                        &self.nearest_sampler
-                    } else {
-                        &self.sampler
-                    }),
-                },
-            ],
-        });
+        tex.bind_group = bind_group;
+        tex.nearest = nearest;
     }
 
     /// Replaces a `width` × `height` block of texture `id` at `(x, y)`.
@@ -582,6 +701,7 @@ impl Renderer {
                 depth_or_array_layers: 1,
             },
         );
+        self.refresh_mips(id);
     }
 
     /// Call when the window's physical size changes.
@@ -644,6 +764,7 @@ impl Renderer {
         let cpu_start = web_time::Instant::now();
         if let Some(timer) = &mut self.timer {
             timer.collect(&self.device);
+            timer.begin_frame();
         }
         let (world, world_batches) = world.finish();
         let (ui, ui_batches) = ui.finish();
@@ -699,16 +820,16 @@ impl Renderer {
             })
         });
         if let Some(view) = &view {
-            let sprite_clear = self.draw_3d(&mut encoder, view, clear);
-            let timestamps = self.timer.as_mut().and_then(GpuTimer::begin);
-            Self::sprite_pass(&mut encoder, view, sprite_clear, timestamps, &pass);
+            let timer = self.timer.as_ref();
+            let sprite_clear = self.draw_3d(&mut encoder, view, clear, timer);
+            Self::sprite_pass(&mut encoder, view, sprite_clear, timer.and_then(GpuTimer::pass), &pass);
         }
         // A screenshot draws the same sprites a second time, into a texture
         // that can be copied (the window's surface can't, on some GPUs).
         let capture = capture.then(|| {
             let target = Capture::new(&self.device, self.config.width, self.config.height, self.view_format);
             let target_view = target.texture.create_view(&wgpu::TextureViewDescriptor::default());
-            let sprite_clear = self.draw_3d(&mut encoder, &target_view, clear);
+            let sprite_clear = self.draw_3d(&mut encoder, &target_view, clear, None);
             Self::sprite_pass(&mut encoder, &target_view, sprite_clear, None, &pass);
             target.copy(&mut encoder);
             target
@@ -721,7 +842,7 @@ impl Renderer {
         };
         #[cfg(not(feature = "inspector"))]
         let overlay_commands: [wgpu::CommandBuffer; 0] = [];
-        if let Some(timer) = &self.timer {
+        if let Some(timer) = &mut self.timer {
             timer.resolve(&mut encoder);
         }
         self.queue
@@ -816,13 +937,19 @@ impl Renderer {
     /// any. Returns the color the sprite pass should clear to: `None` when
     /// it draws over the 3D models.
     #[cfg_attr(not(feature = "3d"), allow(clippy::unused_self))]
-    fn draw_3d(&self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView, clear: Color) -> Option<Color> {
+    fn draw_3d(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+        clear: Color,
+        timer: Option<&GpuTimer>,
+    ) -> Option<Color> {
         #[cfg(feature = "3d")]
         if let Some(three) = self.three.as_ref().filter(|t| t.has_draws()) {
-            three.draw(encoder, view, clear.to_linear_wgpu(), &self.textures);
+            three.draw(encoder, view, clear.to_linear_wgpu(), &self.textures, timer);
             return None;
         }
-        let _ = (encoder, view);
+        let _ = (encoder, view, timer);
         Some(clear)
     }
 

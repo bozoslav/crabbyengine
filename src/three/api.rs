@@ -2,7 +2,9 @@
 
 use std::ops::Range;
 
-use super::{Material, MaterialDesc, Mesh, MeshData, gltf, linear};
+use glam::Vec3;
+
+use super::{Blend, Material, MaterialDesc, Mesh, MeshData, Shader, gltf, linear};
 use crate::{Ctx, assets};
 
 /// A material as the GPU reads it (one uniform block).
@@ -13,8 +15,58 @@ pub(crate) struct MaterialUniform {
     pub color: [f32; 4],
     /// Linear RGB, then unused.
     pub emissive: [f32; 4],
-    /// roughness, metallic, unused, unused.
+    /// roughness, metallic, normal map strength, unused.
     pub params: [f32; 4],
+    /// Which maps it has (1/0): normal, ORM, emissive, unused.
+    pub maps: [u32; 4],
+    /// For custom shaders.
+    pub custom: [[f32; 4]; 4],
+}
+
+/// A material's textures, in binding order: base color, normal map, ORM
+/// map, emissive map and two for custom shaders. `None`: the default.
+pub(crate) type MaterialTextures = [Option<u32>; 6];
+
+/// Everything the GPU needs to make or change a material.
+pub(crate) struct GpuMaterialDesc {
+    pub uniform: MaterialUniform,
+    pub textures: MaterialTextures,
+    /// Index into the renderer's shaders (0: the built-in one).
+    pub shader: u32,
+    pub transparent: bool,
+    pub double_sided: bool,
+}
+
+impl GpuMaterialDesc {
+    fn new(desc: &MaterialDesc) -> Self {
+        let [r, g, b, _] = linear(desc.emissive);
+        let id = |t: Option<crate::Texture>| t.map(|t| t.id);
+        Self {
+            uniform: MaterialUniform {
+                color: linear(desc.color),
+                emissive: [r, g, b, 0.0],
+                params: [desc.roughness.max(0.03), desc.metallic, desc.normal_strength, 0.0],
+                maps: [
+                    u32::from(desc.normal_map.is_some()),
+                    u32::from(desc.orm_map.is_some()),
+                    u32::from(desc.emissive_map.is_some()),
+                    0,
+                ],
+                custom: desc.custom.map(|v| v.to_array()),
+            },
+            textures: [
+                id(desc.texture),
+                id(desc.normal_map),
+                id(desc.orm_map),
+                id(desc.emissive_map),
+                id(desc.custom_textures[0]),
+                id(desc.custom_textures[1]),
+            ],
+            shader: desc.shader.map_or(0, |s| s.id + 1),
+            transparent: desc.blend == Blend::Transparent,
+            double_sided: desc.double_sided,
+        }
+    }
 }
 
 impl Ctx {
@@ -33,27 +85,147 @@ impl Ctx {
     ///
     /// If roughness or metallic is outside 0..=1.
     pub fn create_material(&mut self, desc: MaterialDesc) -> Material {
+        self.check_material(&desc);
+        let id = self.assets3d.materials;
+        self.assets3d.materials += 1;
+        if let Some(renderer) = self.renderer.as_mut()
+            && !self.headless
+        {
+            let gpu_id = renderer.create_material(&GpuMaterialDesc::new(&desc));
+            debug_assert_eq!(gpu_id, id);
+        }
+        Material { id }
+    }
+
+    /// Changes a material: every model drawn with it changes too. Handy for
+    /// animating a custom shader's values, or a glow.
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx, lamp: Material) {
+    /// let on = MaterialDesc { emissive: Color::hex(0xFFD080), ..Default::default() };
+    /// ctx.update_material(lamp, on);
+    /// # }
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// As [`Ctx::create_material`], or if the material comes from another game.
+    pub fn update_material(&mut self, material: Material, desc: MaterialDesc) {
+        assert!(
+            material.id < self.assets3d.materials,
+            "crabbyengine: update_material: that material wasn't made by this game"
+        );
+        self.check_material(&desc);
+        if let Some(renderer) = self.renderer.as_mut()
+            && !self.headless
+        {
+            renderer.update_material(material.id, &GpuMaterialDesc::new(&desc));
+        }
+    }
+
+    fn check_material(&self, desc: &MaterialDesc) {
         assert!(
             (0.0..=1.0).contains(&desc.roughness) && (0.0..=1.0).contains(&desc.metallic),
             "crabbyengine: material roughness and metallic go from 0 to 1 (got {} and {})",
             desc.roughness,
             desc.metallic
         );
-        let id = self.assets3d.materials;
-        self.assets3d.materials += 1;
+        if let Some(shader) = desc.shader {
+            assert!(
+                shader.id < self.assets3d.shaders,
+                "crabbyengine: that shader wasn't made by this game"
+            );
+        }
+    }
+
+    /// Loads a material shader (WGSL) from `assets/`. It can define
+    /// `fn vertex(v: Vertex) -> Vertex`, to move vertices (wind, waves), and
+    /// `fn surface(s: Surface) -> Surface`, to change how each pixel looks;
+    /// the engine lights it, shadows it and does the rest. With hot reload
+    /// on, saving the file updates the game (an error keeps the old one).
+    /// Loading the same file again returns the same shader.
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// let wind = ctx.load_shader("shaders/wind.wgsl");
+    /// let leaves = ctx.create_material(MaterialDesc { shader: Some(wind), double_sided: true, ..Default::default() });
+    /// # }
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// If the file can't be read or doesn't compile (the message says where).
+    pub fn load_shader(&mut self, path: &str) -> Shader {
+        self.try_load_shader(path)
+            .unwrap_or_else(|e| panic!("crabbyengine: {e}"))
+    }
+
+    /// [`Ctx::load_shader`] that returns errors (for the C API).
+    #[doc(hidden)]
+    pub fn try_load_shader(&mut self, path: &str) -> Result<Shader, String> {
+        let file = crate::assets::resolve(path)?;
+        if let Some(&shader) = self.assets3d.loaded_shaders.get(&file) {
+            return Ok(shader);
+        }
+        let source = crate::assets::read_to_string(&file)?;
+        let shader = self.try_create_shader(path, &source)?;
+        self.assets3d.loaded_shaders.insert(file.clone(), shader);
+        self.watcher
+            .watch(path, file, crate::hot_reload::Asset::Shader(shader.id));
+        Ok(shader)
+    }
+
+    /// Makes a material shader from WGSL source; `name` is for error
+    /// messages. See [`Ctx::load_shader`] for what it can define.
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// let stripes = ctx.create_shader("stripes", "
+    ///     fn surface(s: Surface) -> Surface {
+    ///         var out = s;
+    ///         out.albedo *= step(0.5, fract(s.uv.x * 8.0));
+    ///         return out;
+    ///     }");
+    /// # }
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// If it doesn't compile (the message says where).
+    pub fn create_shader(&mut self, name: &str, source: &str) -> Shader {
+        self.try_create_shader(name, source)
+            .unwrap_or_else(|e| panic!("crabbyengine: {e}"))
+    }
+
+    /// [`Ctx::create_shader`] that returns errors (for the C API).
+    #[doc(hidden)]
+    pub fn try_create_shader(&mut self, name: &str, source: &str) -> Result<Shader, String> {
+        #[cfg(feature = "window")]
+        crate::render::check_shader(name, &crate::render::compose_shader(source))?;
+        let id = self.assets3d.shaders;
         if let Some(renderer) = self.renderer.as_mut()
             && !self.headless
         {
-            let [r, g, b, _] = linear(desc.emissive);
-            let uniform = MaterialUniform {
-                color: linear(desc.color),
-                emissive: [r, g, b, 0.0],
-                params: [desc.roughness.max(0.03), desc.metallic, 0.0, 0.0],
-            };
-            let gpu_id = renderer.create_material(&uniform, desc.texture.map(|t| t.id));
-            debug_assert_eq!(gpu_id, id);
+            let gpu_id = renderer.create_shader(name, source)?;
+            debug_assert_eq!(gpu_id, id + 1);
         }
-        Material { id }
+        self.assets3d.shaders += 1;
+        Ok(Shader { id })
+    }
+
+    /// Recompiles a shader whose file changed (hot reload).
+    pub(crate) fn reload_shader(&mut self, id: u32, name: &str, source: &str) -> Result<(), String> {
+        #[cfg(feature = "window")]
+        crate::render::check_shader(name, &crate::render::compose_shader(source))?;
+        if let Some(renderer) = self.renderer.as_mut()
+            && !self.headless
+        {
+            renderer.replace_shader(id + 1, name, source)?;
+        }
+        Ok(())
     }
 
     /// Whether this game made `material` (for the C API, which takes ids).
@@ -61,6 +233,13 @@ impl Ctx {
     #[must_use]
     pub fn has_material(&self, material: Material) -> bool {
         material.id < self.assets3d.materials
+    }
+
+    /// Whether this game made `shader` (for the C API, which takes ids).
+    #[doc(hidden)]
+    #[must_use]
+    pub fn has_shader(&self, shader: Shader) -> bool {
+        shader.id < self.assets3d.shaders
     }
 
     /// A plain white material, made once and shared.
@@ -110,7 +289,8 @@ impl Ctx {
 
     /// Loads a glTF model (`.glb`, or `.gltf` with its files next to it)
     /// from `assets/` as one [`Mesh`]: every mesh in the file's scene, where
-    /// the file puts it, with its materials and base color textures.
+    /// the file puts it, with its materials and their base color, normal,
+    /// occlusion-roughness-metalness and emissive maps.
     /// Loading the same file again returns the same mesh.
     ///
     /// ```no_run
@@ -141,17 +321,33 @@ impl Ctx {
             let file = assets::resolve(name)?;
             assets::read(&file).map_err(|e| format!("could not read {}: {e}", file.display()))
         })?;
+        let textures: Vec<crate::Texture> = loaded
+            .images
+            .iter()
+            .map(|(w, h, rgba)| self.create_texture(*w, *h, rgba))
+            .collect();
         let materials: Vec<Material> = loaded
             .materials
             .iter()
             .map(|m| {
-                let texture = m.image.as_ref().map(|(w, h, rgba)| self.create_texture(*w, *h, rgba));
+                let texture = |i: Option<usize>| i.map(|i| textures[i]);
                 self.create_material(MaterialDesc {
                     color: m.color,
-                    texture,
+                    texture: texture(m.image),
                     roughness: m.roughness.clamp(0.0, 1.0),
                     metallic: m.metallic.clamp(0.0, 1.0),
                     emissive: m.emissive,
+                    normal_map: texture(m.normal_map),
+                    normal_strength: m.normal_strength,
+                    orm_map: texture(m.orm_map),
+                    emissive_map: texture(m.emissive_map),
+                    blend: if m.transparent {
+                        Blend::Transparent
+                    } else {
+                        Blend::Opaque
+                    },
+                    double_sided: m.double_sided,
+                    ..Default::default()
                 })
             })
             .collect();
@@ -194,6 +390,7 @@ impl Ctx {
     /// Engine side, before drawing: collect the visible models and hand
     /// them, the camera and the light to the renderer.
     pub(crate) fn prepare_3d(&mut self) {
+        let time = (self.time() as f32, self.dt());
         let Some(renderer) = self.renderer.as_mut() else {
             return;
         };
@@ -203,7 +400,36 @@ impl Ctx {
         let start = web_time::Instant::now();
         self.frame3d
             .collect(&mut self.world, &self.assets3d, &self.camera3d, &self.lighting);
+        let light = if self.sky.atmosphere {
+            match self.frame3d.sky_light {
+                Some((lighting, sky, light)) if lighting == self.lighting && sky == self.sky => light,
+                _ => {
+                    let light = super::SkyLight::new(&self.lighting, &self.sky);
+                    self.frame3d.sky_light = Some((self.lighting, self.sky, light));
+                    light
+                }
+            }
+        } else {
+            let rgb = |c| {
+                let [r, g, b, _] = super::linear(c);
+                Vec3::new(r, g, b)
+            };
+            super::SkyLight {
+                sun: rgb(self.lighting.sun_color) * self.lighting.sun_intensity,
+                sky: rgb(self.lighting.sky_color),
+                ground: rgb(self.lighting.ground_color),
+            }
+        };
         let collect_ms = start.elapsed().as_secs_f32() * 1000.0;
-        renderer.prepare_3d(&self.frame3d, &self.lighting, self.camera3d.position, collect_ms);
+        let scene = super::Scene3D {
+            frame: &self.frame3d,
+            lighting: &self.lighting,
+            sky: &self.sky,
+            light,
+            camera: self.camera3d.position,
+            post: &self.post,
+            time,
+        };
+        renderer.prepare_3d(&scene, collect_ms);
     }
 }

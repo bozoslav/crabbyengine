@@ -177,9 +177,44 @@ static void three_d() {
         cam.near = 0;
         throws([&] { ctx.set_camera3d(cam); });
         auto light = ctx.lighting();
-        CHECK(light.shadows);
+        CHECK(light.shadows && light.shadow_cascades == 4);
         light.sun_direction = {-1, -1, 0};
+        light.shadow_cascades = 2;
         ctx.set_lighting(light);
+        CHECK(ctx.lighting().shadow_cascades == 2);
+        light.shadow_cascades = 0;
+        throws([&] { ctx.set_lighting(light); });
+        auto sky = ctx.sky();
+        CHECK(sky.atmosphere && sky.fog_density == 0);
+        sky.fog_density = 0.01f;
+        ctx.set_sky(sky);
+        CHECK(ctx.sky().fog_density == 0.01f);
+        sky.sun_size = 0;
+        throws([&] { ctx.set_sky(sky); });
+        CHECK(crabby::sun_direction_at(12).y < -0.8f);
+        auto post = ctx.post();
+        CHECK(post.tonemap == uint32_t(crabby::tonemap::aces) && post.contrast == 1 && !post.has_lut);
+        post.tonemap = uint32_t(crabby::tonemap::neutral);
+        post.bloom = 0.2f;
+        ctx.set_post(post);
+        CHECK(ctx.post().tonemap == uint32_t(crabby::tonemap::neutral));
+        post.saturation = -1;
+        throws([&] { ctx.set_post(post); });
+
+        auto tiles = ctx.create_shader("tiles", R"(
+            fn surface(s: Surface) -> Surface {
+                var out = s;
+                out.albedo *= step(0.5, fract(s.uv.x * 8.0));
+                return out;
+            })");
+        auto look = crabby::material_of(crabby::rgb(1, 1, 1));
+        look.has_shader = true;
+        look.shader = tiles;
+        look.blend = uint32_t(crabby::blend::transparent);
+        auto tiled = ctx.create_material(look);
+        look.double_sided = true;
+        ctx.update_material(tiled, look);
+        throws([&] { ctx.create_shader("broken", "fn surface(s: Surface) -> Surface { return 1; }"); });
     });
     const auto t = w.get<crabby::transform3d>(cubes[1]);
     CHECK(t.position.x == 2 && std::abs(t.rotation.y - std::sin(0.25f)) < 1e-5f);
@@ -190,6 +225,8 @@ static void three_d() {
     CHECK(std::abs(v.z + 1) < 1e-5f);
     auto tri = crabby::mesh_data({{0, 0, 0}, {1, 0, 0}, {0, 1, 0}}, {0, 1, 2});
     CHECK(tri.view().vertex_count == 3 && tri.view().normals == nullptr);
+    tri.set_colors({{1, 0, 0, 1}, {0, 1, 0, 1}, {0, 0, 1, 1}});
+    throws([&] { tri.set_colors({{1, 1, 1, 1}}); });
 }
 
 static void parallel_queries() {

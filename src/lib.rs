@@ -121,7 +121,9 @@ pub use steamworks;
 pub use text::{Font, TextParams};
 pub use texture::{DrawParams, Texture, TextureFilter};
 #[cfg(feature = "3d")]
-pub use three::{Camera3D, Lighting, Material, MaterialDesc, Mesh, MeshData, Model, Transform3D};
+pub use three::{
+    Blend, Camera3D, Lighting, Material, MaterialDesc, Mesh, MeshData, Model, Post, Shader, Sky, Tonemap, Transform3D,
+};
 pub use tilemap::{TileMap, draw_tilemaps};
 pub use ui::UiStyle;
 
@@ -131,9 +133,9 @@ pub use crabby_ecs::{Commands, Component, ComponentId, Entity, Query, World};
 /// The full ECS crate, for advanced use (C path, chunks, archetypes).
 pub use crabby_ecs as ecs_core;
 
-/// 3D vector, rotation and 4x4 matrix, for 3D (re-exported from `glam`).
+/// 3D and 4D vectors, rotation and 4x4 matrix, for 3D (re-exported from `glam`).
 #[cfg(feature = "3d")]
-pub use glam::{Mat4, Quat, Vec3, vec3};
+pub use glam::{Mat4, Quat, Vec3, Vec4, vec3, vec4};
 /// Whole-number 2D vector, for tile coordinates (re-exported from `glam`).
 pub use glam::{UVec2, uvec2};
 /// 2D vector used for positions, sizes and velocities (re-exported from `glam`).

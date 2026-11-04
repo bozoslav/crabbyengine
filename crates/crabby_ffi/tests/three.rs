@@ -79,6 +79,61 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
             ..light
         };
         ids.errors.push(crabby_ctx_set_lighting(ctx, &dark));
+        assert_eq!(light.shadow_cascades, 4);
+        let many = CrabbyLighting {
+            shadow_cascades: 5,
+            ..light
+        };
+        ids.errors.push(crabby_ctx_set_lighting(ctx, &many));
+
+        let mut sky = std::mem::zeroed::<CrabbySky>();
+        assert_eq!(crabby_ctx_sky(ctx, &mut sky), CRABBY_OK);
+        assert!(sky.atmosphere && sky.fog_density == 0.0);
+        sky.fog_density = 0.01;
+        assert_eq!(crabby_ctx_set_sky(ctx, &sky), CRABBY_OK);
+        let flat = CrabbySky {
+            fog_falloff: 0.0,
+            ..sky
+        };
+        ids.errors.push(crabby_ctx_set_sky(ctx, &flat));
+        assert!(crabby_sun_direction_at(12.0).y < -0.8);
+
+        let mut post = std::mem::zeroed::<CrabbyPost>();
+        assert_eq!(crabby_ctx_post(ctx, &mut post), CRABBY_OK);
+        assert_eq!((post.tonemap, post.contrast, post.has_lut), (0, 1.0, false));
+        post.tonemap = 1;
+        post.bloom = 0.3;
+        assert_eq!(crabby_ctx_set_post(ctx, &post), CRABBY_OK);
+        let mut back = std::mem::zeroed::<CrabbyPost>();
+        assert_eq!(crabby_ctx_post(ctx, &mut back), CRABBY_OK);
+        assert_eq!(back, post);
+        ids.errors
+            .push(crabby_ctx_set_post(ctx, &CrabbyPost { tonemap: 7, ..post }));
+
+        let mut wind = CrabbyShader::default();
+        let source = c"fn vertex(v: Vertex) -> Vertex { var o = v; o.position.x += material.custom[0].x; return o; }";
+        assert_eq!(
+            crabby_ctx_create_shader(ctx, c"wind".as_ptr(), source.as_ptr(), &mut wind),
+            CRABBY_OK
+        );
+        let mut leaves = CrabbyMaterial::default();
+        let mut desc = crabby_material_desc(WHITE);
+        desc.has_shader = true;
+        desc.shader = wind;
+        desc.double_sided = true;
+        desc.custom[0] = 0.2;
+        assert_eq!(crabby_ctx_create_material(ctx, &desc, &mut leaves), CRABBY_OK);
+        desc.blend = 1;
+        assert_eq!(crabby_ctx_update_material(ctx, leaves, &desc), CRABBY_OK);
+        let broken = c"fn surface(s: Surface) -> Surface { return 1; }";
+        ids.errors.push(crabby_ctx_create_shader(
+            ctx,
+            c"broken".as_ptr(),
+            broken.as_ptr(),
+            &mut wind,
+        ));
+        desc.shader = CrabbyShader { id: 42 };
+        ids.errors.push(crabby_ctx_create_material(ctx, &desc, &mut leaves));
     }
 }
 
@@ -117,8 +172,8 @@ fn games_build_and_move_3d_worlds_from_c() {
         let mut world = null_mut();
         assert_eq!(crabby_game_run_headless(g, 5, Some(setup), user, &mut world), CRABBY_OK);
         assert_eq!(
-            ids.errors, [CRABBY_INVALID_ARGUMENT; 4],
-            "bad material, bad metallic, bad camera, negative light"
+            ids.errors, [CRABBY_INVALID_ARGUMENT; 9],
+            "bad material, bad metallic, bad camera, negative light, bad tone map, broken shader, unknown shader"
         );
 
         // Five ticks of 0.1 radians, as Rust sees it through the same bytes.

@@ -8,6 +8,45 @@ says what that covers.
 ## [Unreleased]
 
 ### Added
+- 3D post-processing, `ctx.post` (`Post`): exposure, bloom, white balance
+  (temperature, tint), contrast, saturation, tone mapping (`Tonemap::Aces`,
+  `AgX`, `Neutral`, `None`), a color lookup table (`Post::neutral_lut` to
+  start one) and vignette. In C (`crabby_ctx_post`, `crabby_ctx_set_post`)
+  and C++ (`ctx.post()`, `ctx.set_post`, `crabby::tonemap`).
+- Custom 3D material shaders in WGSL: `ctx.load_shader` (hot reloaded)
+  and `ctx.create_shader`. A shader defines `vertex` (move vertices)
+  and/or `surface` (change each pixel); the engine lights and shadows it.
+  `MaterialDesc` gains `shader`, `custom` values, `custom_textures`,
+  `normal_map` (with `normal_strength`), `orm_map`, `emissive_map`,
+  `blend` (`Blend::Transparent`) and `double_sided`;
+  `ctx.update_material` changes a material. In C and C++ too. The
+  `shaders` example shows water, wind and a procedural pattern.
+- A physical sky and height fog, `ctx.sky` (`Sky`): Rayleigh and Mie
+  scattering lit by the sun, a sun disk, stars at night; the sun dims
+  and reddens as it sets and the scene's ambient light comes from the
+  sky. `Sky::sun_direction_at(hour)` for a day and night cycle. In C
+  (`crabby_ctx_sky`, `crabby_ctx_set_sky`, `crabby_sun_direction_at`) and
+  C++ (`ctx.sky()`, `ctx.set_sky`, `crabby::sun_direction_at`).
+- `Lighting::ambient_intensity` now defaults to 1 (light as bright as the
+  sky gives), with the default sky and ground colors halved to match.
+- Cascaded sun shadows: `Lighting::shadow_cascades` (1 to 4, default 4)
+  shadow maps share `shadow_distance`, sharp near the camera and reaching
+  far, blended where they meet. In C and C++ (`shadow_cascades` in the
+  lighting struct).
+- 3D textures get mipmaps when a material first uses them (made on the
+  GPU; sprites still draw the full-size image).
+- glTF models load their normal, occlusion, metallic-roughness and
+  emissive maps (occlusion packed into the ORM map), vertex colors, alpha
+  blending and double-sidedness.
+- Vertex colors: `MeshData::colors`, multiplying the material's color and
+  readable in shaders. In C (`crabby_mesh_data_set_colors`) and C++
+  (`mesh_data::set_colors`).
+- Transparent shaders can read the scene behind them: `scene_color`,
+  `scene_position` and `scene_distance`, for refraction and water depth.
+- `Vec4` and `vec4` are re-exported (feature `3d`).
+- The 3D frame is lit in HDR, with a depth prepass (each pixel is lit
+  once). `render_stats().gpu_ms` now times the whole frame, 3D and shadow
+  passes included.
 - Polygon colliders: `Collider::polygon` (3 to 8 corners, convex), in C
   (`crabby_set_polygon_collider`, `crabby_collider_points`) and C++
   (`crabby::polygon_collider`).
