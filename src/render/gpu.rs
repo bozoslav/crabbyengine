@@ -528,6 +528,34 @@ impl Renderer {
         }
     }
 
+    /// Compiles a compute pass; its id, or the compiler's message.
+    #[cfg(feature = "3d")]
+    pub fn create_compute(&mut self, name: &str, source: &str) -> Result<u32, String> {
+        let device = self.device.clone();
+        self.three().create_compute(&device, name, source)
+    }
+
+    /// Recompiles compute pass `id` in place (hot reload).
+    #[cfg(feature = "3d")]
+    pub fn replace_compute(&mut self, id: u32, name: &str, source: &str) -> Result<(), String> {
+        let device = self.device.clone();
+        self.three().replace_compute(&device, id, name, source)
+    }
+
+    /// Compiles a screen effect; its id, or the compiler's message.
+    #[cfg(feature = "3d")]
+    pub fn create_effect(&mut self, name: &str, source: &str) -> Result<u32, String> {
+        let device = self.device.clone();
+        self.three().create_effect(&device, name, source)
+    }
+
+    /// Recompiles screen effect `id` (hot reload).
+    #[cfg(feature = "3d")]
+    pub fn replace_effect(&mut self, id: u32, name: &str, source: &str) -> Result<(), String> {
+        let device = self.device.clone();
+        self.three().replace_effect(&device, id, name, source)
+    }
+
     /// Compiles a material shader; its index, or the compiler's message.
     #[cfg(feature = "3d")]
     pub fn create_shader(&mut self, name: &str, source: &str) -> Result<u32, String> {
@@ -572,6 +600,42 @@ impl Renderer {
 
     pub fn max_texture_size(&self) -> u32 {
         self.device.limits().max_texture_dimension_2d
+    }
+
+    /// A texture target cameras draw into (linear HDR); returns its id.
+    #[cfg(feature = "3d")]
+    pub fn create_render_target(&mut self, width: u32, height: u32) -> u32 {
+        // Made first: making the 3D renderer adds textures of its own, and
+        // the id below must be this one's.
+        self.three();
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("render target"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: super::gpu3d::HDR_FORMAT,
+            // Drawn into by target cameras, copied into by compute passes.
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let bind_group = self.sprite_bind_group(&texture, false);
+        let id = self.textures.len() as u32;
+        self.three().add_render_target(id, &texture);
+        self.textures.push(GpuTexture {
+            bind_group,
+            texture,
+            nearest: false,
+            // Drawn fresh each frame: no mipmaps to make.
+            mips: Some(false),
+        });
+        id
     }
 
     /// Uploads RGBA8 (sRGB) pixels and returns the texture's id.
@@ -623,8 +687,8 @@ impl Renderer {
     /// The bind group sprites draw a texture with: its full-size level only,
     /// so mipmaps made for 3D don't change how sprites look.
     fn sprite_bind_group(&self, texture: &wgpu::Texture, nearest: bool) -> wgpu::BindGroup {
+        // Its own format: sRGB for images, HDR for render targets.
         let view = texture.create_view(&wgpu::TextureViewDescriptor {
-            format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
             mip_level_count: Some(1),
             ..Default::default()
         });

@@ -8,6 +8,33 @@ says what that covers.
 ## [Unreleased]
 
 ### Added
+- Compute passes: `ctx.create_compute` and `ctx.load_compute` (hot
+  reloaded) make a WGSL shader defining `fn compute(c: Cell)`, run once per
+  texel of a render target each frame before drawing (ripples, trails in
+  snow, wet ground), by adding a `ComputePass` to `ctx.compute_passes`,
+  with a material's values and textures. In C
+  (`crabby_ctx_create_compute`, `crabby_ctx_load_compute`,
+  `crabby_ctx_set_compute_passes`, `crabby_ctx_compute_passes`) and C++
+  (`ctx.create_compute`, `ctx.load_compute`, `ctx.set_compute_passes`,
+  `ctx.compute_passes()`, `crabby::compute_pass_of`).
+- Render targets: `ctx.create_render_target` makes a texture that a
+  `TargetCamera` in `ctx.target_cameras` draws the lit 3D world into each
+  frame, for materials to read (mirrors, reflections, monitors). An
+  optional clip plane tilts the near plane onto a mirror;
+  `TargetCamera::reflection` makes the camera for a level one. In C
+  (`crabby_ctx_create_render_target`, `crabby_ctx_reflection_camera`,
+  `crabby_ctx_set_target_cameras`, `crabby_ctx_target_cameras`) and C++
+  (`ctx.create_render_target`, `ctx.reflection_camera`,
+  `ctx.set_target_cameras`, `ctx.target_cameras()`,
+  `crabby::target_camera_of`).
+- 3D screen effects: `ctx.create_effect` and `ctx.load_effect` (hot
+  reloaded) make a WGSL shader defining `fn effect(p: Pixel)`, run over the
+  lit frame before bloom and tone mapping by adding a `ScreenEffect` to
+  `ctx.effects`, with a material's values and textures. In C
+  (`crabby_ctx_create_effect`, `crabby_ctx_load_effect`,
+  `crabby_ctx_set_effects`, `crabby_ctx_effects`) and C++
+  (`ctx.create_effect`, `ctx.load_effect`, `ctx.set_effects`,
+  `ctx.effects()`, `crabby::screen_effect_of`).
 - Terrain materials: `ctx.create_terrain_material` (`TerrainMaterialDesc`)
   blends up to 8 ground layers by a weight map, with textures lined up
   with the world and optional normal maps. In C
@@ -95,6 +122,16 @@ says what that covers.
 - The `3d` example's benchmark mode (`BENCH_SECONDS`), and the same scene
   in Unity 6 under `bench/unity`: 100k spinning cubes run at 402 FPS in
   Crabby and 54 in Unity.
+
+### Changed
+- 3D materials: `Blend::Opaque` is now fully solid, whatever the alpha;
+  the new `Blend::Cutout` (2 in C, `crabby::blend::cutout` in C++) cuts
+  out pixels with alpha below 0.5, as `Opaque` did before. glTF materials
+  with alpha mode MASK load as `Cutout`. Solid materials write depth and
+  shadows without running their shader.
+- Shadows: each pixel samples only the cascade it falls in (and the next
+  one near the edge), not every cascade, and none when it faces away from
+  the sun. Distant cascades draw terrain tiles at a coarser detail level.
 
 ### Fixed
 - `vsync(false)` no longer waits for the window's redraw events, which

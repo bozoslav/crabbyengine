@@ -101,9 +101,20 @@ using material = CrabbyMaterial;
 using material_desc = CrabbyMaterialDesc;
 /// A material shader in WGSL (ctx::load_shader, ctx::create_shader).
 using shader = CrabbyShader;
+/// A compute pass shader in WGSL (ctx::load_compute, ctx::create_compute).
+using compute = CrabbyCompute;
+/// One compute pass run each frame (Rust `ComputePass`); see compute_pass_of.
+using compute_pass = CrabbyComputePass;
+/// A screen effect shader in WGSL (ctx::load_effect, ctx::create_effect).
+using effect = CrabbyEffect;
+/// One screen effect run over the lit 3D frame (Rust `ScreenEffect`); see screen_effect_of.
+using screen_effect = CrabbyScreenEffect;
 /// How a material covers what's behind it (`material_desc::blend`).
-enum class blend : uint32_t { opaque = 0, transparent = 1 };
+enum class blend : uint32_t { opaque = 0, transparent = 1, cutout = 2 };
 using camera3d = CrabbyCamera3D;
+/// A camera drawing the 3D world into a render target each frame (Rust
+/// `TargetCamera`); see target_camera_of and ctx::reflection_camera.
+using target_camera = CrabbyTargetCamera;
 using lighting = CrabbyLighting;
 /// Post-processing of the 3D frame (Rust `Post`); read and change it with
 /// ctx::sky / ctx::set_sky: the sky behind the 3D world and the fog.
@@ -228,6 +239,17 @@ inline model model_of(mesh m, color tint = colors::white) { model x = crabby_mod
 /// A plain material of one color: roughness 0.6, not metallic. Change
 /// roughness, metallic, emissive or set a texture on the result.
 inline material_desc material_of(color c) { return crabby_material_desc(c); }
+/// Runs `e`, reading its values and textures from `m` (or from the default
+/// material when `m` is left out).
+inline screen_effect screen_effect_of(effect e) { return {e, false, {}}; }
+inline screen_effect screen_effect_of(effect e, material m) { return {e, true, m}; }
+/// Runs `c` on render target `target`, reading its values and textures
+/// from `m` (or from the default material when `m` is left out).
+inline compute_pass compute_pass_of(compute c, texture target) { return {c, target, false, {}}; }
+inline compute_pass compute_pass_of(compute c, texture target, material m) { return {c, target, true, m}; }
+/// `c` drawing into render target `target` (ctx::create_render_target),
+/// with no clip plane.
+inline target_camera target_camera_of(const camera3d& c, texture target) { return {c, target, false, {0, 0, 0, 0}}; }
 /// Built-in font, 16 px, white.
 inline text_params text_defaults() { return crabby_text_params_default(); }
 /// Full volume, normal speed, once.
@@ -1178,6 +1200,65 @@ public:
     /// Makes a material shader from WGSL source; `name` is for error messages.
     crabby::shader create_shader(const char* name, const char* source) {
         crabby::shader x{}; detail::check(crabby_ctx_create_shader(raw_, name, source, &x)); return x;
+    }
+    /// Loads a screen effect (WGSL defining `fn effect(p: Pixel) -> vec3<f32>`)
+    /// from assets/, hot reloaded; the same file again gives the same effect.
+    crabby::effect load_effect(const char* path) { crabby::effect e{}; detail::check(crabby_ctx_load_effect(raw_, path, &e)); return e; }
+    /// A screen effect from WGSL source; `name` is for error messages.
+    crabby::effect create_effect(const char* name, const char* source) {
+        crabby::effect e{}; detail::check(crabby_ctx_create_effect(raw_, name, source, &e)); return e;
+    }
+    /// The screen effects run over the lit 3D frame each frame, in order.
+    std::vector<screen_effect> effects() const {
+        std::size_t n = 0;
+        detail::check(crabby_ctx_effects(raw_, nullptr, 0, &n));
+        std::vector<screen_effect> list(n);
+        detail::check(crabby_ctx_effects(raw_, list.data(), list.size(), &n));
+        return list;
+    }
+    /// Replaces the screen effects run each frame (empty: none).
+    void set_effects(const std::vector<screen_effect>& list) { detail::check(crabby_ctx_set_effects(raw_, list.data(), list.size())); }
+    /// Loads a compute pass (WGSL defining `fn compute(c: Cell) -> vec4<f32>`)
+    /// from assets/, hot reloaded; the same file again gives the same one.
+    crabby::compute load_compute(const char* path) { crabby::compute c{}; detail::check(crabby_ctx_load_compute(raw_, path, &c)); return c; }
+    /// A compute pass from WGSL source; `name` is for error messages.
+    crabby::compute create_compute(const char* name, const char* source) {
+        crabby::compute c{}; detail::check(crabby_ctx_create_compute(raw_, name, source, &c)); return c;
+    }
+    /// The compute passes run each frame, in order, before anything is drawn.
+    std::vector<compute_pass> compute_passes() const {
+        std::size_t n = 0;
+        detail::check(crabby_ctx_compute_passes(raw_, nullptr, 0, &n));
+        std::vector<compute_pass> list(n);
+        detail::check(crabby_ctx_compute_passes(raw_, list.data(), list.size(), &n));
+        return list;
+    }
+    /// Replaces the compute passes run each frame (empty: none).
+    void set_compute_passes(const std::vector<compute_pass>& list) {
+        detail::check(crabby_ctx_set_compute_passes(raw_, list.data(), list.size()));
+    }
+    /// A texture target cameras draw the 3D world into (linear HDR light);
+    /// materials use it like any texture.
+    texture create_render_target(std::uint32_t w, std::uint32_t h) {
+        texture t{}; detail::check(crabby_ctx_create_render_target(raw_, w, h, &t)); return t;
+    }
+    /// The target camera seeing `c`'s view mirrored in the level plane at
+    /// height `level`, clipped to what's above it. Read its target at the
+    /// screen position flipped upside down.
+    target_camera reflection_camera(const camera3d& c, texture target, float level) {
+        target_camera t{}; detail::check(crabby_ctx_reflection_camera(raw_, &c, target, level, &t)); return t;
+    }
+    /// The cameras drawing into render targets each frame, before the main view.
+    std::vector<target_camera> target_cameras() const {
+        std::size_t n = 0;
+        detail::check(crabby_ctx_target_cameras(raw_, nullptr, 0, &n));
+        std::vector<target_camera> list(n);
+        detail::check(crabby_ctx_target_cameras(raw_, list.data(), list.size(), &n));
+        return list;
+    }
+    /// Replaces the target cameras drawn each frame (empty: none).
+    void set_target_cameras(const std::vector<target_camera>& list) {
+        detail::check(crabby_ctx_set_target_cameras(raw_, list.data(), list.size()));
     }
     /// A plain white material, made once and shared.
     material default_material() { material m{}; detail::check(crabby_ctx_default_material(raw_, &m)); return m; }

@@ -85,8 +85,9 @@ struct Surface {
     screen: vec2<f32>,   // the pixel, in pixels from the top left
 };
 
-// The opaque scene's light at a pixel, before tone mapping. Only
-// transparent materials see the scene; elsewhere this is black.
+// The opaque scene's light at a pixel, before tone mapping (in screen
+// effects: the frame so far). Only transparent materials and screen effects
+// see the scene; elsewhere this is black.
 fn scene_color(screen: vec2<f32>) -> vec3<f32> {
     let size = vec2<i32>(textureDimensions(scene_color_texture));
     let at = clamp(vec2<i32>(screen), vec2<i32>(0), size - 1);
@@ -94,7 +95,8 @@ fn scene_color(screen: vec2<f32>) -> vec3<f32> {
 }
 
 // Where the opaque scene is at a pixel, in the world. Only transparent
-// materials see the scene; elsewhere this is as far as the camera sees.
+// materials and screen effects see the scene; elsewhere this is as far as
+// the camera sees.
 fn scene_position(screen: vec2<f32>) -> vec3<f32> {
     let size = vec2<i32>(textureDimensions(scene_depth_texture));
     let at = clamp(vec2<i32>(screen), vec2<i32>(0), size - 1);

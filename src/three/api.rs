@@ -36,6 +36,7 @@ pub(crate) struct GpuMaterialDesc {
     /// Index into the renderer's shaders (0: the built-in one).
     pub shader: u32,
     pub transparent: bool,
+    pub cutout: bool,
     pub double_sided: bool,
 }
 
@@ -67,6 +68,7 @@ impl GpuMaterialDesc {
             arrays: desc.custom_arrays.map(|a| a.map(|a| a.id)),
             shader: desc.shader.map_or(0, |s| s.id + 1),
             transparent: desc.blend == Blend::Transparent,
+            cutout: desc.blend == Blend::Cutout,
             double_sided: desc.double_sided,
         }
     }
@@ -350,11 +352,7 @@ impl Ctx {
                     normal_strength: m.normal_strength,
                     orm_map: texture(m.orm_map),
                     emissive_map: texture(m.emissive_map),
-                    blend: if m.transparent {
-                        Blend::Transparent
-                    } else {
-                        Blend::Opaque
-                    },
+                    blend: m.blend,
                     double_sided: m.double_sided,
                     ..Default::default()
                 })
@@ -398,15 +396,62 @@ impl Ctx {
 
     /// Engine side, before drawing: collect the visible models and hand
     /// them, the camera and the light to the renderer.
+    /// What each target camera into a real render target sees.
+    fn collect_views(&mut self) {
+        let targets = &self.assets3d.render_targets;
+        let cameras = self.target_cameras.iter().filter(|c| targets.contains(&c.target));
+        let count = cameras.clone().count();
+        let views = &mut self.frame3d.views;
+        views.resize_with(count, Default::default);
+        let lighting = super::Lighting {
+            shadows: false,
+            ..self.lighting
+        };
+        for (view, camera) in views.iter_mut().zip(cameras) {
+            let size = (camera.target.width(), camera.target.height());
+            let mut eye = camera.camera;
+            eye.set_viewport(glam::Vec2::new(size.0 as f32, size.1 as f32));
+            view.frame.collect(&mut self.world, &self.assets3d, &eye, &lighting);
+            view.target = camera.target.id;
+            view.size = size;
+            view.camera = eye.position;
+            view.view_proj = match camera.clip_plane {
+                Some(plane) => super::target::oblique(eye.view_proj(), eye.view(), plane),
+                None => eye.view_proj(),
+            };
+        }
+    }
+
     pub(crate) fn prepare_3d(&mut self) {
         let time = (self.time() as f32, self.dt());
+        if self.renderer.is_none() || self.assets3d.bounds.is_empty() {
+            return; // no meshes, no 3D pass
+        }
+        let fallback = if self.effects.iter().any(|e| e.material.is_none())
+            || self.compute_passes.iter().any(|c| c.material.is_none())
+        {
+            Some(self.default_material())
+        } else {
+            None
+        };
+        self.frame3d.effects.clear();
+        self.frame3d.effects.extend(self.effects.iter().filter_map(|e| {
+            let material = e.material.or(fallback)?;
+            Some((e.effect.id, material.id))
+        }));
+        let start = web_time::Instant::now();
+        self.collect_views();
+        let targets = &self.assets3d.render_targets;
+        self.frame3d.computes.clear();
+        self.frame3d.computes.extend(self.compute_passes.iter().filter_map(|c| {
+            let material = c.material.or(fallback)?;
+            targets
+                .contains(&c.target)
+                .then_some((c.compute.id, c.target.id, material.id))
+        }));
         let Some(renderer) = self.renderer.as_mut() else {
             return;
         };
-        if self.assets3d.bounds.is_empty() {
-            return; // no meshes, no 3D pass
-        }
-        let start = web_time::Instant::now();
         self.frame3d
             .collect(&mut self.world, &self.assets3d, &self.camera3d, &self.lighting);
         let light = if self.sky.atmosphere {

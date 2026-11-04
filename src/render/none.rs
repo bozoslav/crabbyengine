@@ -25,6 +25,10 @@ impl Renderer {
     pub fn create_texture(&mut self, _width: u32, _height: u32, _rgba: &[u8]) -> u32 {
         match *self {}
     }
+    #[cfg(feature = "3d")]
+    pub fn create_render_target(&mut self, _width: u32, _height: u32) -> u32 {
+        match *self {}
+    }
     pub fn update_texture(&mut self, _id: u32, _width: u32, _height: u32, _rgba: &[u8]) {
         match *self {}
     }
@@ -48,6 +52,22 @@ impl Renderer {
     }
     #[cfg(feature = "3d")]
     pub fn create_texture_array(&mut self, _width: u32, _height: u32, _layers: &[&[u8]], _linear: bool) -> u32 {
+        match *self {}
+    }
+    #[cfg(feature = "3d")]
+    pub fn create_compute(&mut self, _name: &str, _source: &str) -> Result<u32, String> {
+        match *self {}
+    }
+    #[cfg(feature = "3d")]
+    pub fn replace_compute(&mut self, _id: u32, _name: &str, _source: &str) -> Result<(), String> {
+        match *self {}
+    }
+    #[cfg(feature = "3d")]
+    pub fn create_effect(&mut self, _name: &str, _source: &str) -> Result<u32, String> {
+        match *self {}
+    }
+    #[cfg(feature = "3d")]
+    pub fn replace_effect(&mut self, _id: u32, _name: &str, _source: &str) -> Result<(), String> {
         match *self {}
     }
     #[cfg(feature = "3d")]

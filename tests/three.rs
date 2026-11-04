@@ -333,6 +333,196 @@ fn the_guide_hills_are_nine_tiles_of_four_details() {
     assert_eq!(meshes.len(), 9 * TERRAIN_LODS, "every tile and level has its own mesh");
 }
 
+// ANCHOR: effect
+/// Under water, light fades to deep blue with distance (and the sky above
+/// is gone). `material.custom[0].x` is the water's height.
+const UNDERWATER: &str = "
+fn effect(p: Pixel) -> vec3<f32> {
+    if frame.camera.y > material.custom[0].x {
+        return p.color; // above the water: nothing changes
+    }
+    let deep = vec3<f32>(0.02, 0.12, 0.18);
+    let fade = 1.0 - exp(-p.distance * 0.08);
+    return mix(p.color * vec3<f32>(0.6, 0.9, 1.0), deep, fade);
+}";
+
+fn dive(ctx: &mut Ctx) {
+    let underwater = ctx.create_effect("underwater.wgsl", UNDERWATER);
+    let lake = ctx.create_material(MaterialDesc {
+        custom: [vec4(2.0, 0.0, 0.0, 0.0), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO], // water at y = 2
+        ..Default::default()
+    });
+    ctx.effects.push(ScreenEffect::new(underwater).with_material(lake));
+}
+// ANCHOR_END: effect
+
+// ANCHOR: mirror
+/// A still pond: its color is the world mirrored in it, which a target
+/// camera below the surface draws into `custom_texture0`, upside down.
+const MIRROR: &str = "
+fn surface(s: Surface) -> Surface {
+    var out = s;
+    let uv = s.screen * frame.screen.zw;
+    out.emissive = textureSample(custom_texture0, material_sampler, vec2<f32>(uv.x, 1.0 - uv.y)).rgb * 0.9;
+    out.albedo = vec3<f32>(0.0);
+    return out;
+}";
+
+fn pond(ctx: &mut Ctx) {
+    let size = ctx.window_size();
+    let reflection = ctx.create_render_target(size.x as u32 / 2, size.y as u32 / 2);
+    let mirror = ctx.create_shader("mirror", MIRROR);
+    let water = ctx.create_material(MaterialDesc {
+        shader: Some(mirror),
+        custom_textures: [Some(reflection), None],
+        ..Default::default()
+    });
+    let surface = ctx.create_mesh(&MeshData::plane(20.0), water);
+    ctx.world.spawn((Transform3D::default(), Model::new(surface)));
+    ctx.target_cameras
+        .push(TargetCamera::reflection(ctx.camera3d, reflection, 0.0));
+}
+
+/// Every frame: the mirrored camera follows the real one.
+fn follow_reflections(ctx: &mut Ctx) {
+    for t in &mut ctx.target_cameras {
+        *t = TargetCamera::reflection(ctx.camera3d, t.target, 0.0);
+    }
+}
+// ANCHOR_END: mirror
+
+// ANCHOR: compute
+/// Ripples: each texel moves toward the average of its neighbours,
+/// overshooting like water. Red is the height now, green the height a
+/// frame ago; `material.custom[0]` drops a stone (uv x, uv y, strength).
+const RIPPLES: &str = "
+fn compute(c: Cell) -> vec4<f32> {
+    let around = cell_at(c.pixel + vec2<i32>(1, 0)).x + cell_at(c.pixel - vec2<i32>(1, 0)).x
+        + cell_at(c.pixel + vec2<i32>(0, 1)).x + cell_at(c.pixel - vec2<i32>(0, 1)).x;
+    var height = (around * 0.5 - c.value.y) * 0.985;
+    let drop = material.custom[0];
+    if drop.z > 0.0 && distance(c.uv, drop.xy) * f32(c.size.x) < 3.0 {
+        height -= drop.z;
+    }
+    return vec4<f32>(height, c.value.x, 0.0, 0.0);
+}";
+
+/// The simulated heights, for a water material to read, and the material
+/// that drops stones into them.
+fn ripples(ctx: &mut Ctx) -> (Texture, Material) {
+    let heights = ctx.create_render_target(256, 256);
+    let ripples = ctx.create_compute("ripples", RIPPLES);
+    let stones = ctx.create_material(MaterialDesc::default());
+    ctx.compute_passes
+        .push(ComputePass::new(ripples, heights).with_material(stones));
+    (heights, stones)
+}
+
+/// Drops a stone at `uv` (0 to 1 across the water) this frame; `strength`
+/// 0 drops none.
+fn drop_stone(ctx: &mut Ctx, stones: Material, uv: Vec2, strength: f32) {
+    let stone = uv.extend(strength).extend(0.0);
+    ctx.update_material(
+        stones,
+        MaterialDesc {
+            custom: [stone, Vec4::ZERO, Vec4::ZERO, Vec4::ZERO],
+            ..Default::default()
+        },
+    );
+}
+// ANCHOR_END: compute
+
+#[test]
+fn the_guide_ripples_run_on_a_render_target() {
+    Game::new("ripples", 64, 64).run_headless(1, |ctx| {
+        let (heights, stones) = ripples(ctx);
+        drop_stone(ctx, stones, vec2(0.5, 0.5), 1.0);
+        assert!(ctx.is_render_target(heights));
+        assert_eq!(ctx.compute_passes.len(), 1);
+        assert_eq!(ctx.compute_passes[0].material, Some(stones));
+    });
+}
+
+#[test]
+#[should_panic(expected = "ripples.wgsl")]
+fn compute_errors_say_which_pass() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        ctx.create_compute("ripples.wgsl", "fn compute(c: Cell) -> f32 { return 1.0; }");
+    });
+}
+
+#[test]
+fn the_guide_pond_mirrors_the_camera() {
+    Game::new("pond", 64, 64).run_headless(0, |ctx| {
+        pond(ctx);
+        ctx.camera3d.position = vec3(3.0, 5.0, 1.0);
+        follow_reflections(ctx);
+        let below = ctx.target_cameras[0];
+        assert!(ctx.is_render_target(below.target));
+        assert_eq!(below.target.width(), 32);
+        assert_eq!(below.camera.position, vec3(3.0, -5.0, 1.0));
+        assert_eq!(below.clip_plane, Some(vec4(0.0, 1.0, 0.0, 0.0)));
+    });
+}
+
+#[test]
+#[should_panic(expected = "render target size must not be zero")]
+fn render_targets_need_a_size() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        ctx.create_render_target(0, 16);
+    });
+}
+
+#[test]
+#[should_panic(expected = "not updated with pixels")]
+fn render_targets_take_no_pixels() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        let target = ctx.create_render_target(1, 1);
+        ctx.update_texture(&target, &[0; 4]);
+    });
+}
+
+#[test]
+fn the_guide_effect_is_added_once() {
+    let mut effects = Vec::new();
+    Game::new("dive", 64, 64).run_headless(2, |ctx| {
+        dive(ctx);
+        effects = ctx.effects.clone();
+    });
+    assert_eq!(effects.len(), 1);
+    assert!(effects[0].material.is_some());
+}
+
+#[test]
+fn effect_errors_say_which_effect() {
+    let err = std::panic::catch_unwind(|| {
+        Game::new("t", 1, 1).run_headless(0, |ctx| {
+            let _ = ctx.create_effect("broken.wgsl", "fn effect(p: Pixel) -> vec3<f32> { return p; }");
+        });
+    })
+    .unwrap_err();
+    let message = err.downcast_ref::<String>().cloned().unwrap_or_default();
+    assert!(message.contains("broken.wgsl"), "{message}");
+}
+
+#[test]
+fn effects_read_every_pixel_field() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        let all = ctx.create_effect(
+            "all.wgsl",
+            "fn effect(p: Pixel) -> vec3<f32> {
+                let far = select(p.distance, 0.0, p.sky);
+                let near = scene_color(p.screen + vec2<f32>(1.0, 0.0));
+                return p.color + near * 0.1 + p.world * 0.0 + vec3<f32>(p.uv, far * material.custom[0].x);
+            }",
+        );
+        assert_ne!(
+            all,
+            ctx.create_effect("other.wgsl", "fn effect(p: Pixel) -> vec3<f32> { return p.color; }")
+        );
+    });
+}
+
 #[test]
 fn texture_arrays_hold_one_image_per_layer() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {

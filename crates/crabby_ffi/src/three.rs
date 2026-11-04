@@ -4,9 +4,9 @@
 use std::ffi::c_char;
 
 use crabbyengine::{
-    Blend, Camera3D, Color, Lighting, Material, MaterialDesc, Mesh, MeshData, Model, Post, Quat, Shader, Sky,
-    TERRAIN_LAYERS, TERRAIN_LODS, TerrainMaterialDesc, TerrainTile, TextureArray, TextureKind, Tonemap, Transform3D,
-    Vec2, Vec3, Vec4,
+    Blend, Camera3D, Color, Compute, ComputePass, Effect, Lighting, Material, MaterialDesc, Mesh, MeshData, Model,
+    Post, Quat, ScreenEffect, Shader, Sky, TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera, TerrainMaterialDesc,
+    TerrainTile, TextureArray, TextureKind, Tonemap, Transform3D, Vec2, Vec3, Vec4,
 };
 
 use crate::ctx::{ctx_access, out, text};
@@ -131,6 +131,99 @@ pub struct CrabbyTerrainTile {
 pub const CRABBY_TERRAIN_LODS: usize = 4;
 const _: () = assert!(CRABBY_TERRAIN_LODS == TERRAIN_LODS);
 
+/// A compute pass shader (`crabby_ctx_load_compute`, `crabby_ctx_create_compute`).
+/// ```
+/// let c = crabby_ffi::CrabbyCompute { id: 0 };
+/// assert_eq!(c.id, 0);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CrabbyCompute {
+    /// Engine-internal id.
+    pub id: u32,
+}
+
+/// One compute pass run each frame (Rust `ComputePass`): its shader, the
+/// render target it updates, and the material its custom values and
+/// textures come from (the default material without one).
+/// ```
+/// let p = crabby_ffi::CrabbyComputePass {
+///     compute: crabby_ffi::CrabbyCompute { id: 0 },
+///     target: crabby_ffi::CrabbyTexture { id: 0, width: 8, height: 8 },
+///     has_material: false,
+///     material: Default::default(),
+/// };
+/// assert!(!p.has_material);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CrabbyComputePass {
+    /// The shader.
+    pub compute: CrabbyCompute,
+    /// What it updates: from `crabby_ctx_create_render_target`.
+    pub target: CrabbyTexture,
+    /// Whether `material` is used.
+    pub has_material: bool,
+    /// Where its values and textures come from.
+    pub material: CrabbyMaterial,
+}
+
+/// A screen effect shader (`crabby_ctx_load_effect`, `crabby_ctx_create_effect`).
+/// ```
+/// let e = crabby_ffi::CrabbyEffect { id: 0 };
+/// assert_eq!(e.id, 0);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CrabbyEffect {
+    /// Engine-internal id.
+    pub id: u32,
+}
+
+/// One screen effect run over the lit 3D frame (Rust `ScreenEffect`):
+/// its shader, and the material its custom values and textures come from
+/// (the default material without one).
+/// ```
+/// let s = crabby_ffi::CrabbyScreenEffect { effect: crabby_ffi::CrabbyEffect { id: 0 }, has_material: false, material: Default::default() };
+/// assert!(!s.has_material);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CrabbyScreenEffect {
+    /// The shader.
+    pub effect: CrabbyEffect,
+    /// Whether `material` is used.
+    pub has_material: bool,
+    /// Where its values and textures come from.
+    pub material: CrabbyMaterial,
+}
+
+/// A camera drawing the 3D world into a render target each frame (Rust
+/// `TargetCamera`). Only what's on the front of the clip plane (`x, y, z`
+/// the normal, `w` the offset: kept where `normal . p + w >= 0`) is drawn,
+/// when `has_clip_plane`.
+/// ```
+/// let t = crabby_ffi::CrabbyTargetCamera {
+///     camera: crabby_ffi::CrabbyCamera3D { position: Default::default(), rotation: crabby_ffi::crabby_quat_identity(), fov_y: 1.0, near: 0.1, far: 100.0 },
+///     target: crabby_ffi::CrabbyTexture { id: 0, width: 64, height: 64 },
+///     has_clip_plane: false,
+///     clip_plane: [0.0; 4],
+/// };
+/// assert!(!t.has_clip_plane);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CrabbyTargetCamera {
+    /// Where it looks from; its aspect ratio follows the target's.
+    pub camera: CrabbyCamera3D,
+    /// From `crabby_ctx_create_render_target`.
+    pub target: CrabbyTexture,
+    /// Whether `clip_plane` is used.
+    pub has_clip_plane: bool,
+    /// The plane: normal (x, y, z) and offset (w).
+    pub clip_plane: [f32; 4],
+}
+
 /// A material shader (`crabby_ctx_load_shader`, `crabby_ctx_create_shader`).
 /// ```
 /// let s = crabby_ffi::CrabbyShader { id: 0 };
@@ -179,7 +272,7 @@ pub struct CrabbyMaterialDesc {
     pub has_emissive_map: bool,
     /// Multiplies `emissive`.
     pub emissive_map: CrabbyTexture,
-    /// 0 opaque (alpha below 0.5 cut out), 1 transparent.
+    /// 0 opaque, 1 transparent, 2 cut out (pixels with alpha below 0.5).
     pub blend: u32,
     /// Draws the back of each triangle too.
     pub double_sided: bool,
@@ -593,7 +686,8 @@ fn material_from_c(c: &crabbyengine::Ctx, d: &CrabbyMaterialDesc) -> Result<Mate
     let blend = match d.blend {
         0 => Blend::Opaque,
         1 => Blend::Transparent,
-        _ => return Err(invalid("blend must be 0 (opaque) or 1 (transparent)")),
+        2 => Blend::Cutout,
+        _ => return Err(invalid("blend must be 0 (opaque), 1 (transparent) or 2 (cut out)")),
     };
     let shader = d.has_shader.then_some(Shader::from_id(d.shader.id));
     if shader.is_some_and(|s| !c.has_shader(s)) {
@@ -1208,6 +1302,276 @@ pub unsafe extern "C" fn crabby_ctx_create_shader(
     })
 }
 
+/// Loads a compute pass shader (WGSL, defining `fn compute(c: Cell) ->
+/// vec4<f32>`) from assets/, hot reloaded; the same file again gives the
+/// same compute pass (Rust `Ctx::load_compute`).
+/// # Safety
+/// `ctx` null or live; `path` a NUL-terminated string; output writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_load_compute(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_load_compute(
+    ctx: *mut CrabbyCtx,
+    path: *const c_char,
+    out_compute: *mut CrabbyCompute,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let path = text(path)?;
+            if out_compute.is_null() {
+                return Err(invalid("output is null"));
+            }
+            let compute = c.try_load_compute(path).map_err(invalid_owned)?;
+            out(out_compute, CrabbyCompute { id: compute.id() })
+        })
+    })
+}
+
+/// Makes a compute pass shader from WGSL source; `name` is for error
+/// messages (Rust `Ctx::create_compute`).
+/// # Safety
+/// `ctx` null or live; `name` and `source` NUL-terminated strings; output writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_create_compute(std::ptr::null_mut(), std::ptr::null(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_create_compute(
+    ctx: *mut CrabbyCtx,
+    name: *const c_char,
+    source: *const c_char,
+    out_compute: *mut CrabbyCompute,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let name = text(name)?;
+            let source = text(source)?;
+            if out_compute.is_null() {
+                return Err(invalid("output is null"));
+            }
+            let compute = c.try_create_compute(name, source).map_err(invalid_owned)?;
+            out(out_compute, CrabbyCompute { id: compute.id() })
+        })
+    })
+}
+
+/// Replaces the compute passes run each frame with `count` of them, in
+/// order (Rust `ctx.compute_passes`); 0 runs none.
+/// # Safety
+/// `ctx` null or live; `passes` holds `count` values (may be null when 0).
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_compute_passes(std::ptr::null_mut(), std::ptr::null(), 0) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_compute_passes(
+    ctx: *mut CrabbyCtx,
+    passes: *const CrabbyComputePass,
+    count: usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            if passes.is_null() && count > 0 {
+                return Err(invalid("passes is null"));
+            }
+            let given = if count == 0 {
+                &[][..]
+            } else {
+                std::slice::from_raw_parts(passes, count)
+            };
+            let mut list = Vec::with_capacity(count);
+            for p in given {
+                let compute = Compute::from_id(p.compute.id);
+                if !c.has_compute(compute) {
+                    return Err(invalid("that compute pass wasn't made by this game"));
+                }
+                let target = texture_from_c(p.target);
+                if !c.is_render_target(target) {
+                    return Err(invalid("that texture isn't a render target of this game"));
+                }
+                let material = p.has_material.then(|| to_c(p.material));
+                if material.is_some_and(|m| !c.has_material(m)) {
+                    return Err(invalid("that material wasn't made by this game"));
+                }
+                list.push(ComputePass {
+                    compute,
+                    target,
+                    material,
+                });
+            }
+            c.compute_passes = list;
+            Ok(())
+        })
+    })
+}
+
+/// The compute passes run each frame: writes up to `capacity` of them to
+/// `out_passes` and how many there are to `out_count` (Rust
+/// `ctx.compute_passes`).
+/// # Safety
+/// `ctx` null or live; `out_passes` holds `capacity` values (may be null
+/// when 0); `out_count` writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_compute_passes(std::ptr::null_mut(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_compute_passes(
+    ctx: *mut CrabbyCtx,
+    out_passes: *mut CrabbyComputePass,
+    capacity: usize,
+    out_count: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            if out_count.is_null() || (out_passes.is_null() && capacity > 0) {
+                return Err(invalid("output is null"));
+            }
+            for (i, p) in c.compute_passes.iter().take(capacity).enumerate() {
+                out_passes.add(i).write(CrabbyComputePass {
+                    compute: CrabbyCompute { id: p.compute.id() },
+                    target: texture_to_c(p.target),
+                    has_material: p.material.is_some(),
+                    material: p.material.map(to_c).unwrap_or_default(),
+                });
+            }
+            out(out_count, c.compute_passes.len())
+        })
+    })
+}
+
+/// Loads a screen effect shader (WGSL, defining `fn effect(p: Pixel) ->
+/// vec3<f32>`) from assets/, hot reloaded; the same file again gives the
+/// same effect (Rust `Ctx::load_effect`).
+/// # Safety
+/// `ctx` null or live; `path` a NUL-terminated string; output writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_load_effect(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_load_effect(
+    ctx: *mut CrabbyCtx,
+    path: *const c_char,
+    out_effect: *mut CrabbyEffect,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let path = text(path)?;
+            if out_effect.is_null() {
+                return Err(invalid("output is null"));
+            }
+            let effect = c.try_load_effect(path).map_err(invalid_owned)?;
+            out(out_effect, CrabbyEffect { id: effect.id() })
+        })
+    })
+}
+
+/// Makes a screen effect shader from WGSL source; `name` is for error
+/// messages (Rust `Ctx::create_effect`).
+/// # Safety
+/// `ctx` null or live; `name` and `source` NUL-terminated strings; output writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_create_effect(std::ptr::null_mut(), std::ptr::null(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_create_effect(
+    ctx: *mut CrabbyCtx,
+    name: *const c_char,
+    source: *const c_char,
+    out_effect: *mut CrabbyEffect,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let name = text(name)?;
+            let source = text(source)?;
+            if out_effect.is_null() {
+                return Err(invalid("output is null"));
+            }
+            let effect = c.try_create_effect(name, source).map_err(invalid_owned)?;
+            out(out_effect, CrabbyEffect { id: effect.id() })
+        })
+    })
+}
+
+/// Replaces the screen effects run each frame with `count` of them, in
+/// order (Rust `ctx.effects`); 0 runs none.
+/// # Safety
+/// `ctx` null or live; `effects` holds `count` values (may be null when 0).
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_effects(std::ptr::null_mut(), std::ptr::null(), 0) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_effects(
+    ctx: *mut CrabbyCtx,
+    effects: *const CrabbyScreenEffect,
+    count: usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            if effects.is_null() && count > 0 {
+                return Err(invalid("effects is null"));
+            }
+            let given = if count == 0 {
+                &[][..]
+            } else {
+                std::slice::from_raw_parts(effects, count)
+            };
+            let mut list = Vec::with_capacity(count);
+            for e in given {
+                let effect = Effect::from_id(e.effect.id);
+                if !c.has_effect(effect) {
+                    return Err(invalid("that effect wasn't made by this game"));
+                }
+                let material = e.has_material.then(|| to_c(e.material));
+                if material.is_some_and(|m| !c.has_material(m)) {
+                    return Err(invalid("that material wasn't made by this game"));
+                }
+                list.push(ScreenEffect { effect, material });
+            }
+            c.effects = list;
+            Ok(())
+        })
+    })
+}
+
+/// The screen effects run each frame: writes up to `capacity` of them to
+/// `out_effects` and how many there are to `out_count` (Rust `ctx.effects`).
+/// # Safety
+/// `ctx` null or live; `out_effects` holds `capacity` values (may be null
+/// when 0); `out_count` writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_effects(std::ptr::null_mut(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_effects(
+    ctx: *mut CrabbyCtx,
+    out_effects: *mut CrabbyScreenEffect,
+    capacity: usize,
+    out_count: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            if out_count.is_null() || (out_effects.is_null() && capacity > 0) {
+                return Err(invalid("output is null"));
+            }
+            for (i, e) in c.effects.iter().take(capacity).enumerate() {
+                out_effects.add(i).write(CrabbyScreenEffect {
+                    effect: CrabbyEffect { id: e.effect.id() },
+                    has_material: e.material.is_some(),
+                    material: e.material.map(to_c).unwrap_or_default(),
+                });
+            }
+            out(out_count, c.effects.len())
+        })
+    })
+}
+
 /// A plain white material, made once and shared.
 /// # Safety
 /// `ctx` null or live; output writable.
@@ -1344,6 +1708,176 @@ fn camera_to_c(c: &Camera3D) -> CrabbyCamera3D {
     }
 }
 
+/// A Rust camera from a C one, keeping `base`'s window size; checked.
+fn camera_from_c(base: Camera3D, cam: &CrabbyCamera3D) -> Result<Camera3D, crate::Failure> {
+    if !(cam.fov_y > 0.0 && cam.fov_y < std::f32::consts::PI) {
+        return Err(invalid("fov_y must be between 0 and pi"));
+    }
+    if !(cam.near > 0.0 && cam.far > cam.near && cam.far.is_finite()) {
+        return Err(invalid("needs 0 < near < far"));
+    }
+    let rotation = quat_from_c(cam.rotation);
+    if !(rotation.length_squared() > 1e-12 && rotation.is_finite()) {
+        return Err(invalid("rotation must not be zero"));
+    }
+    let mut camera = base;
+    camera.position = to_c(cam.position);
+    camera.rotation = rotation.normalize();
+    camera.fov_y = cam.fov_y;
+    camera.near = cam.near;
+    camera.far = cam.far;
+    Ok(camera)
+}
+
+fn target_camera_to_c(t: &TargetCamera) -> CrabbyTargetCamera {
+    CrabbyTargetCamera {
+        camera: camera_to_c(&t.camera),
+        target: texture_to_c(t.target),
+        has_clip_plane: t.clip_plane.is_some(),
+        clip_plane: t.clip_plane.unwrap_or(Vec4::ZERO).to_array(),
+    }
+}
+
+/// Makes a texture of `width` x `height` pixels that target cameras draw
+/// the 3D world into (Rust `Ctx::create_render_target`); materials use it
+/// like any texture.
+/// # Safety
+/// `ctx` null or live; output writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_create_render_target(std::ptr::null_mut(), 64, 64, std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_create_render_target(
+    ctx: *mut CrabbyCtx,
+    width: u32,
+    height: u32,
+    out_texture: *mut CrabbyTexture,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            if out_texture.is_null() {
+                return Err(invalid("output is null"));
+            }
+            let texture = c.try_create_render_target(width, height).map_err(invalid_owned)?;
+            out(out_texture, texture_to_c(texture))
+        })
+    })
+}
+
+/// The target camera seeing `camera`'s view mirrored in the level plane at
+/// height `level`, clipped to what's above it (Rust
+/// `TargetCamera::reflection`). Read its target at the screen position
+/// flipped upside down.
+/// # Safety
+/// `ctx` null or live; `camera` valid; output writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_reflection_camera(std::ptr::null_mut(), std::ptr::null(), crabby_ffi::CrabbyTexture { id: 0, width: 1, height: 1 }, 0.0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_reflection_camera(
+    ctx: *mut CrabbyCtx,
+    camera: *const CrabbyCamera3D,
+    target: CrabbyTexture,
+    level: f32,
+    out_camera: *mut CrabbyTargetCamera,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let Some(cam) = camera.as_ref() else {
+                return Err(invalid("camera is null"));
+            };
+            if out_camera.is_null() {
+                return Err(invalid("output is null"));
+            }
+            if !level.is_finite() {
+                return Err(invalid("level must be finite"));
+            }
+            let eye = camera_from_c(c.camera3d, cam)?;
+            let reflection = TargetCamera::reflection(eye, texture_from_c(target), level);
+            out(out_camera, target_camera_to_c(&reflection))
+        })
+    })
+}
+
+/// Replaces the target cameras drawn each frame with `count` of them
+/// (Rust `ctx.target_cameras`); 0 draws none. Each target must come from
+/// `crabby_ctx_create_render_target`.
+/// # Safety
+/// `ctx` null or live; `cameras` holds `count` values (may be null when 0).
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_target_cameras(std::ptr::null_mut(), std::ptr::null(), 0) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_target_cameras(
+    ctx: *mut CrabbyCtx,
+    cameras: *const CrabbyTargetCamera,
+    count: usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            if cameras.is_null() && count > 0 {
+                return Err(invalid("cameras is null"));
+            }
+            let given = if count == 0 {
+                &[][..]
+            } else {
+                std::slice::from_raw_parts(cameras, count)
+            };
+            let mut list = Vec::with_capacity(count);
+            for t in given {
+                let target = texture_from_c(t.target);
+                if !c.is_render_target(target) {
+                    return Err(invalid("that texture isn't a render target of this game"));
+                }
+                let plane = Vec4::from_array(t.clip_plane);
+                if t.has_clip_plane && !(plane.is_finite() && plane.truncate().length_squared() > 0.0) {
+                    return Err(invalid("the clip plane needs a finite, nonzero normal"));
+                }
+                list.push(TargetCamera {
+                    camera: camera_from_c(c.camera3d, &t.camera)?,
+                    target,
+                    clip_plane: t.has_clip_plane.then_some(plane),
+                });
+            }
+            c.target_cameras = list;
+            Ok(())
+        })
+    })
+}
+
+/// The target cameras drawn each frame: writes up to `capacity` of them
+/// to `out_cameras` and how many there are to `out_count` (Rust
+/// `ctx.target_cameras`).
+/// # Safety
+/// `ctx` null or live; `out_cameras` holds `capacity` values (may be null
+/// when 0); `out_count` writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_target_cameras(std::ptr::null_mut(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_target_cameras(
+    ctx: *mut CrabbyCtx,
+    out_cameras: *mut CrabbyTargetCamera,
+    capacity: usize,
+    out_count: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            if out_count.is_null() || (out_cameras.is_null() && capacity > 0) {
+                return Err(invalid("output is null"));
+            }
+            for (i, t) in c.target_cameras.iter().take(capacity).enumerate() {
+                out_cameras.add(i).write(target_camera_to_c(t));
+            }
+            out(out_count, c.target_cameras.len())
+        })
+    })
+}
+
 /// Reads the 3D camera.
 /// # Safety
 /// `ctx` null or live; output writable.
@@ -1368,25 +1902,10 @@ pub unsafe extern "C" fn crabby_ctx_set_camera3d(ctx: *mut CrabbyCtx, camera: *c
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            let Some(&cam) = camera.as_ref() else {
+            let Some(cam) = camera.as_ref() else {
                 return Err(invalid("camera is null"));
             };
-            if !(cam.fov_y > 0.0 && cam.fov_y < std::f32::consts::PI) {
-                return Err(invalid("fov_y must be between 0 and pi"));
-            }
-            if !(cam.near > 0.0 && cam.far > cam.near && cam.far.is_finite()) {
-                return Err(invalid("needs 0 < near < far"));
-            }
-            let rotation = quat_from_c(cam.rotation);
-            if !(rotation.length_squared() > 1e-12 && rotation.is_finite()) {
-                return Err(invalid("rotation must not be zero"));
-            }
-            let rotation = rotation.normalize();
-            c.camera3d.position = to_c(cam.position);
-            c.camera3d.rotation = rotation;
-            c.camera3d.fov_y = cam.fov_y;
-            c.camera3d.near = cam.near;
-            c.camera3d.far = cam.far;
+            c.camera3d = camera_from_c(c.camera3d, cam)?;
             Ok(())
         })
     })

@@ -779,6 +779,104 @@ static void meadow(crabby::ctx& ctx) {
 }
 // ANCHOR_END: shader
 
+// ANCHOR: effect
+/// Under water, light fades to deep blue with distance (and the sky above
+/// is gone). `material.custom[0].x` is the water's height.
+static const char* underwater_effect = R"(
+fn effect(p: Pixel) -> vec3<f32> {
+    if frame.camera.y > material.custom[0].x {
+        return p.color; // above the water: nothing changes
+    }
+    let deep = vec3<f32>(0.02, 0.12, 0.18);
+    let fade = 1.0 - exp(-p.distance * 0.08);
+    return mix(p.color * vec3<f32>(0.6, 0.9, 1.0), deep, fade);
+})";
+
+static void dive(crabby::ctx& ctx) {
+    auto underwater = ctx.create_effect("underwater.wgsl", underwater_effect);
+    auto desc = crabby::material_of(crabby::colors::white);
+    desc.custom[0] = 2; // water at y = 2
+    auto lake = ctx.create_material(desc);
+    auto list = ctx.effects();
+    list.push_back(crabby::screen_effect_of(underwater, lake));
+    ctx.set_effects(list);
+}
+// ANCHOR_END: effect
+
+// ANCHOR: compute
+/// Ripples: each texel moves toward the average of its neighbours,
+/// overshooting like water. Red is the height now, green the height a
+/// frame ago; `material.custom[0]` drops a stone (uv x, uv y, strength).
+static const char* ripples_compute = R"(
+fn compute(c: Cell) -> vec4<f32> {
+    let around = cell_at(c.pixel + vec2<i32>(1, 0)).x + cell_at(c.pixel - vec2<i32>(1, 0)).x
+        + cell_at(c.pixel + vec2<i32>(0, 1)).x + cell_at(c.pixel - vec2<i32>(0, 1)).x;
+    var height = (around * 0.5 - c.value.y) * 0.985;
+    let drop = material.custom[0];
+    if drop.z > 0.0 && distance(c.uv, drop.xy) * f32(c.size.x) < 3.0 {
+        height -= drop.z;
+    }
+    return vec4<f32>(height, c.value.x, 0.0, 0.0);
+})";
+
+struct ripples_state { crabby::texture heights; crabby::material stones; };
+
+/// The simulated heights, for a water material to read, and the material
+/// that drops stones into them.
+static ripples_state ripples(crabby::ctx& ctx) {
+    auto heights = ctx.create_render_target(256, 256);
+    auto ripples = ctx.create_compute("ripples", ripples_compute);
+    auto stones = ctx.create_material(crabby::material_of(crabby::colors::white));
+    auto list = ctx.compute_passes();
+    list.push_back(crabby::compute_pass_of(ripples, heights, stones));
+    ctx.set_compute_passes(list);
+    return {heights, stones};
+}
+
+/// Drops a stone at `uv` (0 to 1 across the water) this frame; `strength`
+/// 0 drops none.
+static void drop_stone(crabby::ctx& ctx, crabby::material stones, crabby::vec2 uv, float strength) {
+    auto desc = crabby::material_of(crabby::colors::white);
+    desc.custom[0] = uv.x;
+    desc.custom[1] = uv.y;
+    desc.custom[2] = strength;
+    ctx.update_material(stones, desc);
+}
+// ANCHOR_END: compute
+
+// ANCHOR: mirror
+/// A still pond: its color is the world mirrored in it, which a target
+/// camera below the surface draws into `custom_texture0`, upside down.
+static const char* mirror_shader = R"(
+fn surface(s: Surface) -> Surface {
+    var out = s;
+    let uv = s.screen * frame.screen.zw;
+    out.emissive = textureSample(custom_texture0, material_sampler, vec2<f32>(uv.x, 1.0 - uv.y)).rgb * 0.9;
+    out.albedo = vec3<f32>(0.0);
+    return out;
+})";
+
+static void pond(crabby::ctx& ctx) {
+    auto size = ctx.window_size();
+    auto reflection = ctx.create_render_target(std::uint32_t(size.x / 2), std::uint32_t(size.y / 2));
+    auto look = crabby::material_of(crabby::colors::white);
+    look.has_shader = true;
+    look.shader = ctx.create_shader("mirror", mirror_shader);
+    look.has_custom_textures[0] = true;
+    look.custom_textures[0] = reflection;
+    auto surface = ctx.create_mesh(crabby::mesh_data::plane(20), ctx.create_material(look));
+    ctx.world().spawn(crabby::transform3d_at({0, 0, 0}), crabby::model_of(surface));
+    ctx.set_target_cameras({ctx.reflection_camera(ctx.camera3d(), reflection, 0)});
+}
+
+/// Every frame: the mirrored camera follows the real one.
+static void follow_reflections(crabby::ctx& ctx) {
+    auto list = ctx.target_cameras();
+    for (auto& t : list) t = ctx.reflection_camera(ctx.camera3d(), t.target, 0);
+    ctx.set_target_cameras(list);
+}
+// ANCHOR_END: mirror
+
 // ANCHOR: terrain_material
 static float hill_height(float x, float z) { return std::sin(x * 0.02f) * 6 + std::cos(z * 0.03f) * 4; }
 
@@ -856,6 +954,41 @@ static void the_village_has_five_spinning_houses() {
     if (houses != 5) { std::fprintf(stderr, "%d houses\n", houses); std::abort(); }
 }
 
+static void the_dive_adds_one_effect() {
+    crabby::game("dive", 64, 64).run_headless(1, [](crabby::ctx& ctx) {
+        dive(ctx);
+        auto list = ctx.effects();
+        if (list.size() != 1 || !list[0].has_material) { std::fprintf(stderr, "effects\n"); std::abort(); }
+    });
+}
+
+static void the_ripples_run_on_a_render_target() {
+    crabby::game("ripples", 64, 64).run_headless(1, [](crabby::ctx& ctx) {
+        auto state = ripples(ctx);
+        drop_stone(ctx, state.stones, {0.5f, 0.5f}, 1);
+        auto list = ctx.compute_passes();
+        if (list.size() != 1 || list[0].target.id != state.heights.id || !list[0].has_material) {
+            std::fprintf(stderr, "ripples\n");
+            std::abort();
+        }
+    });
+}
+
+static void the_pond_mirrors_the_camera() {
+    crabby::game("pond", 64, 64).run_headless(1, [](crabby::ctx& ctx) {
+        pond(ctx);
+        auto cam = ctx.camera3d();
+        cam.position = {3, 5, 1};
+        ctx.set_camera3d(cam);
+        follow_reflections(ctx);
+        auto list = ctx.target_cameras();
+        if (list.size() != 1 || list[0].camera.position.y != -5 || list[0].target.width != 32) {
+            std::fprintf(stderr, "pond\n");
+            std::abort();
+        }
+    });
+}
+
 static void the_hills_are_nine_tiles() {
     auto world = crabby::game("hills", 640, 480).run_headless(1, [](crabby::ctx& ctx) { hills(ctx); });
     int tiles = 0;
@@ -867,7 +1000,10 @@ static void the_hills_are_nine_tiles() {
 }
 
 int main() {
+    the_ripples_run_on_a_render_target();
+    the_pond_mirrors_the_camera();
     the_hills_are_nine_tiles();
+    the_dive_adds_one_effect();
     the_beach_has_five_palms();
     the_village_has_five_spinning_houses();
     things_fall_ten_units_per_second();

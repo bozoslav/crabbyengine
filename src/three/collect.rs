@@ -3,7 +3,7 @@
 
 use glam::{Mat4, Vec3, Vec4};
 
-use super::{Assets3D, Camera3D, Lighting, Model, TerrainTile, Transform3D, linear};
+use super::{Assets3D, Camera3D, Lighting, Model, TERRAIN_LODS, TerrainTile, Transform3D, linear};
 use crate::World;
 
 /// Width and height of each of the sun's shadow maps, in texels.
@@ -44,12 +44,32 @@ pub(crate) struct Frame3D {
     pub sun_view_proj: [Mat4; MAX_CASCADES],
     /// Each cascade's size, in world units per shadow-map texel.
     pub cascade_texel: [f32; MAX_CASCADES],
+    /// The screen effects to run, in order: (effect, material).
+    pub effects: Vec<(u32, u32)>,
+    /// The compute passes to run, in order: (compute, target texture, material).
+    pub computes: Vec<(u32, u32, u32)>,
     /// How many of `instances` the camera sees (the rest cast shadows).
     pub visible: usize,
+    /// What each target camera draws, in `Ctx::target_cameras` order (only
+    /// the main frame has these).
+    pub views: Vec<ViewFrame>,
     /// The light the sky gave last, and what it was worked out from.
     pub sky_light: Option<(Lighting, super::Sky, super::SkyLight)>,
     scratch: Vec<Entry>,
     counts: Vec<u32>,
+}
+
+/// What one target camera draws this frame.
+#[derive(Default)]
+pub(crate) struct ViewFrame {
+    /// The render target's texture id and size.
+    pub target: u32,
+    pub size: (u32, u32),
+    pub camera: Vec3,
+    /// What it draws with: the camera's, tilted onto the clip plane.
+    pub view_proj: Mat4,
+    /// Its models, without shadow casters (it uses the main view's).
+    pub frame: Frame3D,
 }
 
 impl Frame3D {
@@ -83,7 +103,9 @@ impl Frame3D {
         self.scratch.clear();
         let planes = frustum_planes(self.view_proj);
         let scratch = &mut self.scratch;
-        let mut add = |mesh: u32, t: &Transform3D, color: [f32; 4], center: Vec3, radius: f32| {
+        // `meshes`: what the camera draws, then what each cascade's shadow
+        // map draws (the same for models; coarser for distant terrain).
+        let mut add = |meshes: [u32; 1 + MAX_CASCADES], t: &Transform3D, color: [f32; 4], center: Vec3, radius: f32| {
             let matrix = t.matrix();
             let world_center = matrix.transform_point3(center);
             let world_radius = radius * t.scale.abs().max_element();
@@ -94,30 +116,64 @@ impl Frame3D {
                     casts |= 1 << i;
                 }
             }
-            if seen || casts != 0 {
-                let instance = Instance3D {
-                    model: matrix.to_cols_array_2d(),
-                    color,
-                };
-                scratch.push((mesh, instance, seen, casts));
+            if !seen && casts == 0 {
+                return;
+            }
+            let instance = Instance3D {
+                model: matrix.to_cols_array_2d(),
+                color,
+            };
+            // One entry per distinct mesh, with the passes that draw it.
+            let mut done = 0u8; // cascades already in an entry
+            let camera_mesh = meshes[0];
+            let in_cascades = |mesh: u32| {
+                (0..MAX_CASCADES).fold(0u8, |m, i| {
+                    if casts & (1 << i) != 0 && meshes[i + 1] == mesh {
+                        m | 1 << i
+                    } else {
+                        m
+                    }
+                })
+            };
+            if seen {
+                let mask = in_cascades(camera_mesh);
+                done |= mask;
+                scratch.push((camera_mesh, instance, true, mask));
+            }
+            while casts & !done != 0 {
+                let first = (casts & !done).trailing_zeros() as usize;
+                let mesh = meshes[first + 1];
+                let mask = in_cascades(mesh);
+                done |= mask;
+                scratch.push((mesh, instance, false, mask));
             }
         };
         world.query::<(&Transform3D, &Model)>().for_each(|(t, m)| {
             if let Some(&(center, radius)) = assets.bounds.get(m.mesh.id as usize) {
-                add(m.mesh.id, t, linear(m.color), center, radius);
+                add([m.mesh.id; 1 + MAX_CASCADES], t, linear(m.color), center, radius);
             }
         });
         // Terrain: the detail level for how far the camera is from the
         // tile's bounds (the finest level's, which hold every coarser one).
+        // Shadow cascade i draws at least level i: its texels are too big
+        // for finer detail to show.
         world.query::<(&Transform3D, &TerrainTile)>().for_each(|(t, tile)| {
             let Some(&(center, radius)) = assets.bounds.get(tile.lods[0].id as usize) else {
                 return;
             };
             let scale = t.scale.abs().max_element();
             let away = t.matrix().transform_point3(center).distance(camera.position) - radius * scale;
-            let mesh = tile.lods[tile.lod(away.max(0.0))].id;
-            if (mesh as usize) < assets.bounds.len() {
-                add(mesh, t, [1.0; 4], center, radius);
+            let level = tile.lod(away.max(0.0));
+            let meshes: [u32; 1 + MAX_CASCADES] = std::array::from_fn(|i| {
+                tile.lods[if i == 0 {
+                    level
+                } else {
+                    level.max(i - 1).min(TERRAIN_LODS - 1)
+                }]
+                .id
+            });
+            if meshes.iter().all(|&m| (m as usize) < assets.bounds.len()) {
+                add(meshes, t, [1.0; 4], center, radius);
             }
         });
         let meshes = assets.bounds.len();
@@ -343,6 +399,35 @@ mod tests {
         assert_eq!(frame.visible, 1);
         assert_eq!(frame.runs, vec![(0, 0, 1)]);
         assert_eq!(frame.shadow_runs[0], vec![(0, 1, 2)]);
+    }
+
+    #[test]
+    fn farther_shadow_cascades_draw_coarser_terrain() {
+        let mut world = World::new();
+        // Bounds big enough to reach into every cascade.
+        let assets = Assets3D {
+            bounds: vec![(Vec3::ZERO, 500.0); TERRAIN_LODS],
+            ..Default::default()
+        };
+        let tile = TerrainTile {
+            lods: std::array::from_fn(|id| Mesh { id: id as u32 }),
+            lod_distance: 5.0,
+        };
+        world.spawn((Transform3D::default(), tile));
+        let lighting = Lighting {
+            shadow_distance: 100.0,
+            shadow_cascades: 4,
+            ..Default::default()
+        };
+        let mut frame = Frame3D::default();
+        frame.collect(&mut world, &assets, &camera(), &lighting);
+        assert_eq!(frame.runs.iter().map(|r| r.0).collect::<Vec<_>>(), vec![0]);
+        let meshes: Vec<Vec<u32>> = frame
+            .shadow_runs
+            .iter()
+            .map(|c| c.iter().map(|r| r.0).collect())
+            .collect();
+        assert_eq!(meshes, vec![vec![0], vec![1], vec![2], vec![3]]);
     }
 
     #[test]

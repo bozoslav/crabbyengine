@@ -532,6 +532,27 @@ typedef struct CrabbyMeshView {
   size_t index_count;
 } CrabbyMeshView;
 
+typedef struct CrabbyCompute {
+  uint32_t id;
+} CrabbyCompute;
+
+typedef struct CrabbyComputePass {
+  struct CrabbyCompute compute;
+  struct CrabbyTexture target;
+  bool has_material;
+  struct CrabbyMaterial material;
+} CrabbyComputePass;
+
+typedef struct CrabbyEffect {
+  uint32_t id;
+} CrabbyEffect;
+
+typedef struct CrabbyScreenEffect {
+  struct CrabbyEffect effect;
+  bool has_material;
+  struct CrabbyMaterial material;
+} CrabbyScreenEffect;
+
 typedef struct CrabbyTerrainTile {
   struct CrabbyMesh lods[CRABBY_TERRAIN_LODS];
   float lod_distance;
@@ -544,6 +565,13 @@ typedef struct CrabbyCamera3D {
   float near;
   float far;
 } CrabbyCamera3D;
+
+typedef struct CrabbyTargetCamera {
+  struct CrabbyCamera3D camera;
+  struct CrabbyTexture target;
+  bool has_clip_plane;
+  float clip_plane[4];
+} CrabbyTargetCamera;
 
 typedef struct CrabbyLighting {
   struct CrabbyVec3 sun_direction;
@@ -1290,6 +1318,42 @@ enum CrabbyStatus crabby_ctx_create_shader(struct CrabbyCtx *ctx,
                                            const char *source,
                                            struct CrabbyShader *out_shader);
 
+enum CrabbyStatus crabby_ctx_load_compute(struct CrabbyCtx *ctx,
+                                          const char *path,
+                                          struct CrabbyCompute *out_compute);
+
+enum CrabbyStatus crabby_ctx_create_compute(struct CrabbyCtx *ctx,
+                                            const char *name,
+                                            const char *source,
+                                            struct CrabbyCompute *out_compute);
+
+enum CrabbyStatus crabby_ctx_set_compute_passes(struct CrabbyCtx *ctx,
+                                                const struct CrabbyComputePass *passes,
+                                                size_t count);
+
+enum CrabbyStatus crabby_ctx_compute_passes(struct CrabbyCtx *ctx,
+                                            struct CrabbyComputePass *out_passes,
+                                            size_t capacity,
+                                            size_t *out_count);
+
+enum CrabbyStatus crabby_ctx_load_effect(struct CrabbyCtx *ctx,
+                                         const char *path,
+                                         struct CrabbyEffect *out_effect);
+
+enum CrabbyStatus crabby_ctx_create_effect(struct CrabbyCtx *ctx,
+                                           const char *name,
+                                           const char *source,
+                                           struct CrabbyEffect *out_effect);
+
+enum CrabbyStatus crabby_ctx_set_effects(struct CrabbyCtx *ctx,
+                                         const struct CrabbyScreenEffect *effects,
+                                         size_t count);
+
+enum CrabbyStatus crabby_ctx_effects(struct CrabbyCtx *ctx,
+                                     struct CrabbyScreenEffect *out_effects,
+                                     size_t capacity,
+                                     size_t *out_count);
+
 enum CrabbyStatus crabby_ctx_default_material(struct CrabbyCtx *ctx,
                                               struct CrabbyMaterial *out_material);
 
@@ -1310,6 +1374,26 @@ enum CrabbyStatus crabby_ctx_load_mesh(struct CrabbyCtx *ctx,
                                        struct CrabbyMesh *out_mesh);
 
 enum CrabbyStatus crabby_ctx_models_drawn(struct CrabbyCtx *ctx, size_t *out_count);
+
+enum CrabbyStatus crabby_ctx_create_render_target(struct CrabbyCtx *ctx,
+                                                  uint32_t width,
+                                                  uint32_t height,
+                                                  struct CrabbyTexture *out_texture);
+
+enum CrabbyStatus crabby_ctx_reflection_camera(struct CrabbyCtx *ctx,
+                                               const struct CrabbyCamera3D *camera,
+                                               struct CrabbyTexture target,
+                                               float level,
+                                               struct CrabbyTargetCamera *out_camera);
+
+enum CrabbyStatus crabby_ctx_set_target_cameras(struct CrabbyCtx *ctx,
+                                                const struct CrabbyTargetCamera *cameras,
+                                                size_t count);
+
+enum CrabbyStatus crabby_ctx_target_cameras(struct CrabbyCtx *ctx,
+                                            struct CrabbyTargetCamera *out_cameras,
+                                            size_t capacity,
+                                            size_t *out_count);
 
 enum CrabbyStatus crabby_ctx_camera3d(struct CrabbyCtx *ctx, struct CrabbyCamera3D *out_camera);
 

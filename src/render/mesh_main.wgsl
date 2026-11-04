@@ -112,7 +112,9 @@ fn surface_at(in: VertexOut, front: bool) -> Surface {
     return s;
 }
 
-// The depth prepass and the shadow map: depth only, but cut-outs still cut.
+// The depth prepass and the shadow map of cut-out materials (Blend::Cutout):
+// depth only, minus the pixels their alpha cuts out. Solid materials use no
+// fragment shader there.
 @fragment
 fn fs_depth(in: VertexOut, @builtin(front_facing) front: bool) {
     if surface_at(in, front).alpha < 0.5 {
@@ -120,21 +122,26 @@ fn fs_depth(in: VertexOut, @builtin(front_facing) front: bool) {
     }
 }
 
-// How much light one shadow cascade lets through at `world`, softened over
-// 3x3 texels; `edge` is how near the edge of the cascade's box it is
-// (0 at the center, 1 at the edge, more outside).
-fn cascade_light(i: i32, world: vec3<f32>, n: vec3<f32>, edge: ptr<function, f32>) -> f32 {
+// Where `world` falls in shadow cascade `i`: the shadow map uv, the depth
+// to compare, and how near the edge of the cascade's box it is (0 at the
+// center, 1 at the edge, more outside).
+fn cascade_coords(i: i32, world: vec3<f32>, n: vec3<f32>) -> vec4<f32> {
     // Looking up a little off the surface keeps it from shadowing itself.
     let offset = n * frame.shadow.z * frame.cascade_texel[i];
     let clip = frame.sun_view_proj[i] * vec4<f32>(world + offset, 1.0);
     let ndc = clip.xyz / clip.w;
-    *edge = max(max(abs(ndc.x), abs(ndc.y)), select(0.0, 2.0, ndc.z > 1.0));
-    let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+    let edge = max(max(abs(ndc.x), abs(ndc.y)), select(0.0, 2.0, ndc.z > 1.0));
+    return vec4<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5, ndc.z, edge);
+}
+
+// How much light cascade `i` lets through at `c` (from `cascade_coords`),
+// softened over 3x3 texels.
+fn cascade_light(i: i32, c: vec4<f32>) -> f32 {
     var lit = 0.0;
     for (var y = -1; y <= 1; y++) {
         for (var x = -1; x <= 1; x++) {
-            let at = uv + vec2<f32>(f32(x), f32(y)) * frame.shadow.y;
-            lit += textureSampleCompareLevel(shadow_map, shadow_sampler, at, i, ndc.z);
+            let at = c.xy + vec2<f32>(f32(x), f32(y)) * frame.shadow.y;
+            lit += textureSampleCompareLevel(shadow_map, shadow_sampler, at, i, c.z);
         }
     }
     return lit / 9.0;
@@ -143,30 +150,29 @@ fn cascade_light(i: i32, world: vec3<f32>, n: vec3<f32>, edge: ptr<function, f32
 // How much sun reaches `world` (0 in shadow, 1 lit). The first cascade
 // whose box holds the point gives the sharpest shadow; near that box's edge
 // it fades into the next cascade, so the step between them doesn't show.
+// Only the cascades used are sampled.
 fn sunlight(world: vec3<f32>, n: vec3<f32>) -> f32 {
     let count = i32(frame.shadow.x);
-    if count == 0 {
+    // Towards the shadow distance, shadows fade out.
+    let fade = smoothstep(0.85, 1.0, distance(world, frame.camera.xyz) / frame.shadow.w);
+    if count == 0 || fade >= 1.0 {
         return 1.0;
     }
     // The 3x3 filter reaches one texel further out than the point.
     let inside = 1.0 - 2.0 * frame.shadow.y;
     var lit = 1.0;
     for (var i = 0; i < count; i++) {
-        var edge = 0.0;
-        let here = cascade_light(i, world, n, &edge);
-        if edge < inside {
-            lit = here;
-            let blend = smoothstep(0.85, 1.0, edge / inside);
+        let c = cascade_coords(i, world, n);
+        if c.w < inside {
+            lit = cascade_light(i, c);
+            let blend = smoothstep(0.85, 1.0, c.w / inside);
             if blend > 0.0 && i + 1 < count {
-                var next_edge = 0.0;
-                lit = mix(here, cascade_light(i + 1, world, n, &next_edge), blend);
+                lit = mix(lit, cascade_light(i + 1, cascade_coords(i + 1, world, n)), blend);
             }
             break;
         }
     }
-    // Towards the shadow distance, shadows fade out.
-    let far = distance(world, frame.camera.xyz) / frame.shadow.w;
-    return mix(lit, 1.0, smoothstep(0.85, 1.0, far));
+    return mix(lit, 1.0, fade);
 }
 
 fn shade(s: Surface) -> vec3<f32> {
@@ -189,7 +195,12 @@ fn shade(s: Surface) -> vec3<f32> {
     let f = f0 + (vec3<f32>(1.0) - f0) * pow(1.0 - v_h, 5.0);
     let specular = d * g * f / max(4.0 * n_v * n_l, 1e-4);
     let diffuse = (vec3<f32>(1.0) - f) * (1.0 - s.metallic) * s.albedo / PI;
-    let direct = (diffuse + specular) * frame.sun_color.rgb * n_l * sunlight(s.world, n);
+    // Facing away from the sun, it's unlit anyway: no shadow lookup.
+    var sun = 0.0;
+    if n_l > 0.0 {
+        sun = sunlight(s.world, n);
+    }
+    let direct = (diffuse + specular) * frame.sun_color.rgb * n_l * sun;
 
     // Sky from above, ground from below; metals reflect it in their color.
     let ambient_light = mix(frame.ground.rgb, frame.sky.rgb, n.y * 0.5 + 0.5);

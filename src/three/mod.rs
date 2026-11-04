@@ -11,10 +11,13 @@
 
 mod api;
 mod collect;
+mod compute;
+mod effect;
 mod gltf;
 mod mesh;
 mod post;
 mod sky;
+mod target;
 mod terrain;
 mod texture_array;
 
@@ -24,12 +27,15 @@ pub(crate) use api::MaterialTextures;
 pub(crate) use collect::Frame3D;
 #[cfg(feature = "window")]
 pub(crate) use collect::{Instance3D, MAX_CASCADES, SHADOW_MAP_SIZE};
+pub use compute::{Compute, ComputePass};
+pub use effect::{Effect, ScreenEffect};
 pub use mesh::MeshData;
 #[cfg(feature = "window")]
 pub(crate) use post::PostUniform;
 pub use post::{Post, Tonemap};
 pub use sky::Sky;
 pub(crate) use sky::SkyLight;
+pub use target::TargetCamera;
 pub use terrain::{TERRAIN_LAYERS, TERRAIN_LODS, TerrainMaterialDesc, TerrainTile};
 pub use texture_array::{TextureArray, TextureKind};
 
@@ -228,13 +234,17 @@ impl Shader {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u32)]
 pub enum Blend {
-    /// Solid; pixels with alpha below 0.5 are cut out (leaves, fences).
+    /// Solid, whatever its alpha. The fastest: hidden pixels and shadows
+    /// skip the material's shader.
     #[default]
     Opaque = 0,
     /// See-through by its alpha (glass, water). Drawn after everything
     /// solid, casts no shadow; overlapping transparent models are not
     /// sorted, so one may show over another that is in front of it.
     Transparent = 1,
+    /// Solid, with pixels whose alpha is below 0.5 cut out (leaves,
+    /// fences, grass cards). Their shadows have the same holes.
+    Cutout = 2,
 }
 
 /// What a [`Material`] is made from.
@@ -451,8 +461,12 @@ impl Camera3D {
     pub(crate) fn view_proj(&self) -> Mat4 {
         let aspect = (self.viewport.x / self.viewport.y.max(1.0)).max(1e-3);
         let projection = glam::camera::rh::proj::directx::perspective(self.fov_y, aspect, self.near, self.far);
-        let view = Mat4::from_rotation_translation(self.rotation, self.position).inverse();
-        projection * view
+        projection * self.view()
+    }
+
+    /// World to the camera's own space.
+    pub(crate) fn view(&self) -> Mat4 {
+        Mat4::from_rotation_translation(self.rotation, self.position).inverse()
     }
 
     /// The ray from the camera through window point `screen` (logical
@@ -559,6 +573,15 @@ pub(crate) struct Assets3D {
     pub materials: u32,
     /// Texture arrays made so far, by id.
     pub arrays: Vec<TextureArray>,
+    /// Render targets made so far.
+    pub render_targets: Vec<crate::Texture>,
+    /// Screen effects made so far.
+    pub effects: u32,
+    /// Compute passes made so far, and those loaded from files.
+    pub computes: u32,
+    pub loaded_computes: std::collections::HashMap<std::path::PathBuf, Compute>,
+    /// Effects loaded from files, by resolved path.
+    pub loaded_effects: std::collections::HashMap<std::path::PathBuf, Effect>,
     /// The built-in terrain shader, once a terrain material needs it.
     pub terrain_shader: Option<Shader>,
     /// Shaders made so far (the built-in one is not counted).

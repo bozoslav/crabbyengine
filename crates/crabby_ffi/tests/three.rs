@@ -125,6 +125,8 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
         assert_eq!(crabby_ctx_create_material(ctx, &desc, &mut leaves), CRABBY_OK);
         desc.blend = 1;
         assert_eq!(crabby_ctx_update_material(ctx, leaves, &desc), CRABBY_OK);
+        desc.blend = 2; // cut out
+        assert_eq!(crabby_ctx_update_material(ctx, leaves, &desc), CRABBY_OK);
         let broken = c"fn surface(s: Surface) -> Surface { return 1; }";
         ids.errors.push(crabby_ctx_create_shader(
             ctx,
@@ -338,4 +340,174 @@ fn terrain_tiles_are_made_and_spawned_from_c() {
         crabby_world_free(world);
     }
     assert_eq!(errors, vec![CRABBY_INVALID_ARGUMENT; 7]);
+}
+
+unsafe extern "C" fn effects(ctx: *mut CrabbyCtx, user: *mut c_void) {
+    unsafe {
+        let errors = &mut *user.cast::<Vec<CrabbyStatus>>();
+        let mut grey = CrabbyEffect::default();
+        let source = c"fn effect(p: Pixel) -> vec3<f32> { return vec3<f32>(dot(p.color, vec3<f32>(0.3, 0.6, 0.1))); }";
+        assert_eq!(
+            crabby_ctx_create_effect(ctx, c"grey".as_ptr(), source.as_ptr(), &mut grey),
+            CRABBY_OK
+        );
+        let mut values = CrabbyMaterial::default();
+        assert_eq!(
+            crabby_ctx_create_material(ctx, &crabby_material_desc(WHITE), &mut values),
+            CRABBY_OK
+        );
+        let list = [
+            CrabbyScreenEffect {
+                effect: grey,
+                has_material: false,
+                material: CrabbyMaterial::default(),
+            },
+            CrabbyScreenEffect {
+                effect: grey,
+                has_material: true,
+                material: values,
+            },
+        ];
+        assert_eq!(crabby_ctx_set_effects(ctx, list.as_ptr(), 2), CRABBY_OK);
+        let mut back = [CrabbyScreenEffect::default(); 4];
+        let mut n = 0;
+        assert_eq!(crabby_ctx_effects(ctx, back.as_mut_ptr(), 4, &mut n), CRABBY_OK);
+        assert_eq!((n, back[1]), (2, list[1]));
+        // A broken shader, an unknown effect, and another game's material.
+        let mut other = CrabbyEffect::default();
+        errors.push(crabby_ctx_create_effect(
+            ctx,
+            c"bad".as_ptr(),
+            c"fn effect(p: Pixel) -> f32 { return 1.0; }".as_ptr(),
+            &mut other,
+        ));
+        let unknown = [CrabbyScreenEffect {
+            effect: CrabbyEffect { id: 9 },
+            ..list[0]
+        }];
+        errors.push(crabby_ctx_set_effects(ctx, unknown.as_ptr(), 1));
+        let foreign = [CrabbyScreenEffect {
+            material: CrabbyMaterial { id: 99 },
+            ..list[1]
+        }];
+        errors.push(crabby_ctx_set_effects(ctx, foreign.as_ptr(), 1));
+        // The bad lists changed nothing.
+        assert_eq!(crabby_ctx_effects(ctx, back.as_mut_ptr(), 4, &mut n), CRABBY_OK);
+        assert_eq!(n, 2);
+    }
+}
+
+unsafe extern "C" fn target_cameras(ctx: *mut CrabbyCtx, user: *mut c_void) {
+    unsafe {
+        let errors = &mut *user.cast::<Vec<CrabbyStatus>>();
+        let mut mirror = CrabbyTexture {
+            id: 0,
+            width: 0,
+            height: 0,
+        };
+        assert_eq!(crabby_ctx_create_render_target(ctx, 64, 32, &mut mirror), CRABBY_OK);
+        assert_eq!((mirror.width, mirror.height), (64, 32));
+        let mut eye = std::mem::zeroed::<CrabbyCamera3D>();
+        assert_eq!(crabby_ctx_camera3d(ctx, &mut eye), CRABBY_OK);
+        eye.position = CrabbyVec3 { x: 0.0, y: 4.0, z: 0.0 };
+        let mut below = std::mem::zeroed::<CrabbyTargetCamera>();
+        assert_eq!(
+            crabby_ctx_reflection_camera(ctx, &eye, mirror, 1.0, &mut below),
+            CRABBY_OK
+        );
+        assert_eq!(below.camera.position.y, -2.0);
+        assert!(below.has_clip_plane && below.clip_plane == [0.0, 1.0, 0.0, -1.0]);
+        assert_eq!(crabby_ctx_set_target_cameras(ctx, &below, 1), CRABBY_OK);
+        let mut back = [below; 2];
+        let mut n = 0;
+        assert_eq!(crabby_ctx_target_cameras(ctx, back.as_mut_ptr(), 2, &mut n), CRABBY_OK);
+        assert_eq!((n, back[0].target, back[0].clip_plane), (1, mirror, below.clip_plane));
+        assert_eq!(back[0].camera.position, below.camera.position);
+        // A plain texture, a zero normal, and a zero size.
+        let pixel = [255u8; 4];
+        let mut plain = mirror;
+        assert_eq!(
+            crabby_ctx_create_texture(ctx, 1, 1, pixel.as_ptr(), 4, &mut plain),
+            CRABBY_OK
+        );
+        let wrong = CrabbyTargetCamera { target: plain, ..below };
+        errors.push(crabby_ctx_set_target_cameras(ctx, &wrong, 1));
+        let flat = CrabbyTargetCamera {
+            clip_plane: [0.0; 4],
+            ..below
+        };
+        errors.push(crabby_ctx_set_target_cameras(ctx, &flat, 1));
+        errors.push(crabby_ctx_create_render_target(ctx, 0, 8, &mut plain));
+        assert_eq!(crabby_ctx_target_cameras(ctx, back.as_mut_ptr(), 2, &mut n), CRABBY_OK);
+        assert_eq!(n, 1, "failed calls change nothing");
+        // A compute pass on the render target.
+        let mut fade = CrabbyCompute::default();
+        let source = c"fn compute(c: Cell) -> vec4<f32> { return c.value * 0.9; }";
+        assert_eq!(
+            crabby_ctx_create_compute(ctx, c"fade".as_ptr(), source.as_ptr(), &mut fade),
+            CRABBY_OK
+        );
+        let pass = CrabbyComputePass {
+            compute: fade,
+            target: mirror,
+            has_material: false,
+            material: CrabbyMaterial::default(),
+        };
+        assert_eq!(crabby_ctx_set_compute_passes(ctx, &pass, 1), CRABBY_OK);
+        let mut passes = [pass; 2];
+        assert_eq!(
+            crabby_ctx_compute_passes(ctx, passes.as_mut_ptr(), 2, &mut n),
+            CRABBY_OK
+        );
+        assert_eq!((n, passes[0]), (1, pass));
+        // A broken shader, a plain texture, an unknown compute pass.
+        errors.push(crabby_ctx_create_compute(
+            ctx,
+            c"bad".as_ptr(),
+            c"fn compute(c: Cell) -> f32 { return 1.0; }".as_ptr(),
+            &mut fade,
+        ));
+        errors.push(crabby_ctx_set_compute_passes(
+            ctx,
+            &CrabbyComputePass { target: plain, ..pass },
+            1,
+        ));
+        let unknown = CrabbyComputePass {
+            compute: CrabbyCompute { id: 9 },
+            ..pass
+        };
+        errors.push(crabby_ctx_set_compute_passes(ctx, &unknown, 1));
+    }
+}
+
+#[test]
+fn target_cameras_and_compute_passes_are_set_from_c() {
+    let mut errors: Vec<CrabbyStatus> = Vec::new();
+    unsafe {
+        let g = crabby_game_new(c"targets".as_ptr(), 64, 64);
+        let mut world = null_mut();
+        let user = (&raw mut errors).cast();
+        assert_eq!(
+            crabby_game_run_headless(g, 1, Some(target_cameras), user, &mut world),
+            CRABBY_OK
+        );
+        crabby_world_free(world);
+    }
+    assert_eq!(errors, vec![CRABBY_INVALID_ARGUMENT; 6]);
+}
+
+#[test]
+fn screen_effects_are_made_and_listed_from_c() {
+    let mut errors: Vec<CrabbyStatus> = Vec::new();
+    unsafe {
+        let g = crabby_game_new(c"effects".as_ptr(), 64, 64);
+        let mut world = null_mut();
+        let user = (&raw mut errors).cast();
+        assert_eq!(
+            crabby_game_run_headless(g, 1, Some(effects), user, &mut world),
+            CRABBY_OK
+        );
+        crabby_world_free(world);
+    }
+    assert_eq!(errors, vec![CRABBY_INVALID_ARGUMENT; 3]);
 }
