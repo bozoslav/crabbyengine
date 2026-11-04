@@ -93,7 +93,7 @@ impl ModelFile {
             name: name.clone(),
             ..Default::default()
         };
-        let mut seen: HashMap<[u32; 8], u32> = HashMap::new();
+        let mut seen: HashMap<[u32; 12], u32> = HashMap::new();
         let mut corners = vec![0u32; mesh.max_face_triangles * 3];
         let groups: Vec<Vec<u32>> = if mesh.material_parts.is_empty() {
             vec![(0..mesh.faces.len() as u32).collect()]
@@ -124,11 +124,22 @@ impl ModelFile {
                         } else {
                             [0.0; 2]
                         };
-                        let key = [p[0], p[1], p[2], nrm[0], nrm[1], nrm[2], uv[0], uv[1]].map(f32::to_bits);
+                        let color = if mesh.vertex_color.exists {
+                            let c = mesh.vertex_color[i];
+                            [c.x as f32, c.y as f32, c.z as f32, c.w as f32]
+                        } else {
+                            [1.0; 4]
+                        };
+                        let key = [
+                            p[0], p[1], p[2], nrm[0], nrm[1], nrm[2], uv[0], uv[1], color[0], color[1], color[2],
+                            color[3],
+                        ]
+                        .map(f32::to_bits);
                         let at = *seen.entry(key).or_insert_with(|| {
                             out.positions.push(p);
                             out.normals.push(nrm);
                             out.uvs[0].push(uv);
+                            out.colors.push(color);
                             (out.positions.len() - 1) as u32
                         });
                         indices.push(at);
@@ -139,6 +150,9 @@ impl ModelFile {
         }
         if !mesh.vertex_uv.exists {
             out.uvs[0].clear();
+        }
+        if !mesh.vertex_color.exists {
+            out.colors.clear();
         }
         Ok(out)
     }

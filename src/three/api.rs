@@ -359,7 +359,7 @@ impl Ctx {
             .iter()
             .map(|m| {
                 let texture = |i: Option<usize>| i.map(|i| textures[i]);
-                self.create_material(MaterialDesc {
+                let desc = MaterialDesc {
                     color: m.color,
                     texture: texture(m.image),
                     roughness: m.roughness.clamp(0.0, 1.0),
@@ -372,7 +372,16 @@ impl Ctx {
                     blend: m.blend,
                     double_sided: m.double_sided,
                     ..Default::default()
-                })
+                };
+                let material = self.create_material(desc);
+                if !m.name.is_empty() {
+                    self.assets3d
+                        .loaded_materials
+                        .entry(m.name.clone())
+                        .or_default()
+                        .push((material, desc));
+                }
+                material
             })
             .collect();
         let parts: Vec<(Range<u32>, Material)> = loaded
@@ -400,6 +409,26 @@ impl Ctx {
             debug_assert_eq!(gpu_id, id);
         }
         Mesh { id }
+    }
+
+    /// Every material loaded from glTF files so far that the files call
+    /// `name`, with what it was made from: to give materials of imported
+    /// models a shader of your own, keep their textures and change the
+    /// rest with [`Ctx::update_material`]. Models loaded later aren't in it.
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// ctx.load_scene("town/Town.json").unwrap();
+    /// let brick = ctx.load_shader("shaders/brick.wgsl");
+    /// for (material, desc) in ctx.loaded_materials("Brick") {
+    ///     ctx.update_material(material, MaterialDesc { shader: Some(brick), ..desc });
+    /// }
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn loaded_materials(&self, name: &str) -> Vec<(Material, MaterialDesc)> {
+        self.assets3d.loaded_materials.get(name).cloned().unwrap_or_default()
     }
 
     /// Frees `mesh`'s GPU memory, for worlds streamed in and out. Models

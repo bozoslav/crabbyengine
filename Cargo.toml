@@ -44,7 +44,7 @@ dioxus-devtools = { version = "0.7.10", default-features = false, optional = tru
 web-time = "1.1.0"
 gilrs = { version = "0.11.2", optional = true }
 steamworks = { version = "0.13.1", optional = true }
-gltf = { version = "1.4.1", default-features = false, features = ["utils"], optional = true }
+gltf = { version = "1.4.1", default-features = false, features = ["utils", "names"], optional = true }
 
 [target.'cfg(any(unix, windows))'.dependencies]
 libc = "0.2"

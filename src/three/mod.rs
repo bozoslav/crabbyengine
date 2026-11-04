@@ -595,6 +595,9 @@ pub(crate) struct Assets3D {
     /// Images that glTF files take from files of their own, by asset name
     /// (see `gltf::Loaded::image_sources`): many models share them.
     pub shared_images: std::collections::HashMap<String, crate::Texture>,
+    /// Materials loaded from glTF files, by their name in the file, with
+    /// what they were made from (`Ctx::loaded_materials`).
+    pub loaded_materials: std::collections::HashMap<String, Vec<(Material, MaterialDesc)>>,
 }
 
 impl Assets3D {
