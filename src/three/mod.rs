@@ -36,7 +36,7 @@ pub use post::{Post, Tonemap};
 pub use sky::Sky;
 pub(crate) use sky::SkyLight;
 pub use target::TargetCamera;
-pub use terrain::{TERRAIN_LAYERS, TERRAIN_LODS, TerrainMaterialDesc, TerrainTile, TerrainTileData};
+pub use terrain::{Heightfield, TERRAIN_LAYERS, TERRAIN_LODS, TerrainMaterialDesc, TerrainTile, TerrainTileData};
 pub use texture_array::{TextureArray, TextureKind};
 
 use glam::{Mat3, Mat4, Quat, Vec2, Vec3, Vec4};

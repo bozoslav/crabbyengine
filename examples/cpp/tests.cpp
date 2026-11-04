@@ -566,6 +566,10 @@ static void streaming() {
     CHECK(cells.loaded_count() == 0);
     throws([] { crabby::cell_streamer(0, 1, 1); });
     throws([] { crabby::terrain_tile_data(std::vector<float>(8, 0.0f), 4); });
+    crabby::heightfield slope({0, 2, 0, 2}, 1);
+    CHECK(std::abs(*slope.height_at(0.5f, 0.5f) - 1) < 1e-5f && slope.normal_at(0.5f, 0.5f)->x < 0);
+    CHECK(!slope.height_at(2, 0.5f) && !slope.normal_at(-1, 0));
+    throws([] { crabby::heightfield({0, 0, 0}, 1); });
     crabby::game("stream", 64, 64).run_headless(0, [](crabby::ctx& ctx) {
         auto ground = ctx.create_material(crabby::material_of(crabby::colors::white));
         // Built on another thread, uploaded on the game's.

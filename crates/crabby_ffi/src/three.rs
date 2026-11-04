@@ -2174,3 +2174,117 @@ pub unsafe extern "C" fn crabby_ctx_set_post(ctx: *mut CrabbyCtx, post: *const C
         })
     })
 }
+
+/// A terrain tile's heights for finding the ground on the CPU (Rust
+/// `Heightfield`). Make it with `crabby_heightfield_new`.
+pub struct CrabbyHeightfield(crabbyengine::Heightfield);
+
+/// Makes a heightfield `size` wide from `count` heights (n x n, as
+/// `crabby_ctx_create_terrain_tile` takes them). Returns null (see
+/// `crabby_last_error`) for bad input.
+/// ```
+/// let h = [0.0f32; 9];
+/// let g = unsafe { crabby_ffi::crabby_heightfield_new(h.as_ptr(), 9, 4.0) };
+/// assert!(!g.is_null());
+/// unsafe { crabby_ffi::crabby_heightfield_free(g) };
+/// assert!(unsafe { crabby_ffi::crabby_heightfield_new(h.as_ptr(), 8, 4.0) }.is_null());
+/// ```
+/// # Safety
+/// `heights` holds `count` floats.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_heightfield_new(
+    heights: *const f32,
+    count: usize,
+    size: f32,
+) -> *mut CrabbyHeightfield {
+    let mut made = std::ptr::null_mut();
+    let status = boundary(|| {
+        if heights.is_null() {
+            return Err(invalid("heights is null"));
+        }
+        if !square_grid(count) {
+            return Err(invalid("the heights aren't a square grid of at least 2 x 2"));
+        }
+        if !(size > 0.0 && size.is_finite()) {
+            return Err(invalid("size must be above 0"));
+        }
+        // SAFETY: caller supplies `count` floats.
+        let heights = unsafe { std::slice::from_raw_parts(heights, count) };
+        made = Box::into_raw(Box::new(CrabbyHeightfield(crabbyengine::Heightfield::new(
+            heights, size,
+        ))));
+        Ok(())
+    });
+    if status == CrabbyStatus::CRABBY_OK {
+        made
+    } else {
+        std::ptr::null_mut()
+    }
+}
+
+/// Frees a heightfield. Null is ignored.
+/// ```
+/// unsafe { crabby_ffi::crabby_heightfield_free(std::ptr::null_mut()) };
+/// ```
+/// # Safety
+/// `ground` must be null or live, and not used afterwards.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_heightfield_free(ground: *mut CrabbyHeightfield) {
+    if !ground.is_null() {
+        // SAFETY: caller passes a heightfield from crabby_heightfield_new, once.
+        drop(unsafe { Box::from_raw(ground) });
+    }
+}
+
+/// The ground's height and facing at `(x, z)` from the tile's corner,
+/// following the drawn triangles. `out_found` is false off the tile or
+/// over a hole (the others are then left alone). `out_normal` may be null.
+/// Safe from any thread at once.
+/// ```
+/// use crabby_ffi::*;
+/// let h = [0.0f32, 2.0, 0.0, 2.0];
+/// let (mut found, mut y, mut n) = (false, 0.0, CrabbyVec3::default());
+/// unsafe {
+///     let g = crabby_heightfield_new(h.as_ptr(), 4, 1.0);
+///     assert_eq!(crabby_heightfield_at(g, 0.5, 0.5, &mut found, &mut y, &mut n), CrabbyStatus::CRABBY_OK);
+///     assert!(found && (y - 1.0).abs() < 1e-6 && n.x < 0.0);
+///     crabby_heightfield_at(g, 5.0, 0.5, &mut found, &mut y, std::ptr::null_mut());
+///     assert!(!found);
+///     crabby_heightfield_free(g);
+/// }
+/// ```
+/// # Safety
+/// `ground` null or live; `out_found` and `out_height` writable; `out_normal` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_heightfield_at(
+    ground: *const CrabbyHeightfield,
+    x: f32,
+    z: f32,
+    out_found: *mut bool,
+    out_height: *mut f32,
+    out_normal: *mut CrabbyVec3,
+) -> CrabbyStatus {
+    boundary(|| {
+        // SAFETY: caller supplies a live heightfield.
+        let Some(ground) = (unsafe { ground.as_ref() }) else {
+            return Err(invalid("heightfield is null"));
+        };
+        if out_found.is_null() || out_height.is_null() {
+            return Err(invalid("output is null"));
+        }
+        let height = ground.0.height_at(x, z);
+        // SAFETY: outputs checked non-null (normal below).
+        unsafe {
+            out_found.write(height.is_some());
+            if let Some(h) = height {
+                out_height.write(h);
+                if !out_normal.is_null()
+                    && let Some(n) = ground.0.normal_at(x, z)
+                {
+                    out_normal.write(CrabbyVec3 { x: n.x, y: n.y, z: n.z });
+                }
+            }
+        }
+        Ok(())
+    })
+}
