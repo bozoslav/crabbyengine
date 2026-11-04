@@ -10,6 +10,7 @@
 //! assert_eq!(file.objects[0].body["m_Name"].as_str(), Some("Lamp"));
 //! ```
 
+mod binary;
 mod mesh;
 mod project;
 mod value;
@@ -108,6 +109,36 @@ impl UnityFile {
         }
         finish(header, &text[start..])?;
         Ok(Self { objects })
+    }
+
+    /// Parses a binary serialized asset saved by the Unity editor (Unity
+    /// 2022 or later, with type trees), such as terrain data. Objects'
+    /// fields are named as in the text format; references to other
+    /// files carry their GUID.
+    ///
+    /// # Errors
+    ///
+    /// If it isn't one, it's older, it has no type trees, or its data
+    /// doesn't match them.
+    pub fn parse_binary(data: &[u8]) -> Result<Self, Error> {
+        binary::parse(data)
+    }
+
+    /// Reads a Unity file, text or binary.
+    ///
+    /// # Errors
+    ///
+    /// If it can't be read or parsed (the message names the file).
+    pub fn read(path: impl AsRef<std::path::Path>) -> Result<Self, Error> {
+        let path = path.as_ref();
+        let data = std::fs::read(path).map_err(|e| Error::new(format!("{}: {e}", path.display())))?;
+        let parsed = if binary::is_binary(&data) {
+            Self::parse_binary(&data)
+        } else {
+            let text = std::str::from_utf8(&data).map_err(|_| Error::new("neither Unity text nor a binary asset"))?;
+            Self::parse(text)
+        };
+        parsed.map_err(|e| Error::new(format!("{}: {e}", path.display())))
     }
 
     /// The object with this file id.

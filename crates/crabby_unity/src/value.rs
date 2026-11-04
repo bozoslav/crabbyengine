@@ -26,6 +26,11 @@ pub enum Value {
     Map(Vec<(String, Value)>),
     /// A list.
     Seq(Vec<Value>),
+    /// Raw bytes (binary assets' `TypelessData`, such as image data).
+    Bytes(Vec<u8>),
+    /// A list of numbers (binary assets' arrays of numbers, such as
+    /// heights), kept compact.
+    Numbers(Vec<f64>),
 }
 
 static NULL: Value = Value::Null;
@@ -108,6 +113,24 @@ impl Value {
     pub fn as_seq(&self) -> Option<&[Value]> {
         match self {
             Value::Seq(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    /// Raw bytes.
+    #[must_use]
+    pub fn as_bytes(&self) -> Option<&[u8]> {
+        match self {
+            Value::Bytes(b) => Some(b),
+            _ => None,
+        }
+    }
+
+    /// A compact list of numbers (see [`Value::Numbers`]).
+    #[must_use]
+    pub fn as_numbers(&self) -> Option<&[f64]> {
+        match self {
+            Value::Numbers(n) => Some(n),
             _ => None,
         }
     }

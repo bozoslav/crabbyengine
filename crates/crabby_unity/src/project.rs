@@ -98,20 +98,17 @@ impl Project {
         self.guids.get(path).map(String::as_str)
     }
 
-    /// Reads and parses the text asset with this GUID.
+    /// Reads and parses the asset with this GUID (Unity text or binary).
     ///
     /// # Errors
     ///
-    /// If no asset has the GUID, it can't be read, or it isn't Unity text
-    /// (binary assets and model files aren't).
+    /// If no asset has the GUID, it can't be read, or it isn't a Unity
+    /// asset (model files and shaders aren't).
     pub fn load(&self, guid: &str) -> Result<UnityFile, Error> {
         let path = self
             .path_of(guid)
             .ok_or_else(|| Error::new(format!("no asset has GUID {guid}")))?;
-        let bytes = std::fs::read(path).map_err(|e| Error::new(format!("{}: {e}", path.display())))?;
-        let text = std::str::from_utf8(&bytes)
-            .map_err(|_| Error::new(format!("{} isn't text (a binary asset?)", path.display())))?;
-        UnityFile::parse(text).map_err(|e| Error::new(format!("{}: {e}", path.display())))
+        UnityFile::read(path)
     }
 }
 
