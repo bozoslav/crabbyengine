@@ -214,6 +214,15 @@ struct Targets {
     scene_texture: wgpu::Texture,
     /// The scene bind group of the transparent pass: `scene_texture` and `depth`.
     scene: wgpu::BindGroup,
+    /// `scene_texture` as a render target: screen effects swap between it
+    /// and `hdr` (ping-pong), each reading one and writing the other.
+    scene_view: wgpu::TextureView,
+    /// The scene bind group reading `hdr` (and `depth`), for effects.
+    scene_of_hdr: wgpu::BindGroup,
+    /// `post` and `bloom_prefilter`, reading `scene_texture`: for when an
+    /// odd number of effects ran and the frame ended up there.
+    post_of_scene: wgpu::BindGroup,
+    bloom_prefilter_of_scene: wgpu::BindGroup,
     /// Multisampled depth, written by the prepass.
     depth: wgpu::TextureView,
     /// The post pass's input: `hdr` and the bloom.
@@ -1149,15 +1158,14 @@ impl Renderer3D {
                 "3d scene copy",
                 HDR_FORMAT,
                 1,
-                wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_DST
+                    | wgpu::TextureUsages::RENDER_ATTACHMENT,
             );
+            let scene_view = scene_texture.create_view(&Default::default());
             let depth = target("3d depth", DEPTH_FORMAT, MSAA, wgpu::TextureUsages::TEXTURE_BINDING);
-            let scene = scene_bind_group(
-                device,
-                &self.scene_layout,
-                &scene_texture.create_view(&Default::default()),
-                &depth,
-            );
+            let scene = scene_bind_group(device, &self.scene_layout, &scene_view, &depth);
+            let scene_of_hdr = scene_bind_group(device, &self.scene_layout, &hdr, &depth);
             // Bloom starts at half size and halves until about 8 pixels.
             let half = (size.0.div_ceil(2).max(1), size.1.div_ceil(2).max(1));
             let mips = (32 - half.0.min(half.1).max(1).leading_zeros())
@@ -1219,6 +1227,10 @@ impl Renderer3D {
                 scene,
                 post: group(&hdr, &bloom_mips[0]),
                 bloom_prefilter: group(&hdr, &self.black),
+                post_of_scene: group(&scene_view, &bloom_mips[0]),
+                bloom_prefilter_of_scene: group(&scene_view, &self.black),
+                scene_of_hdr,
+                scene_view,
                 bloom_down: (1..n).map(|i| group(&bloom_mips[i - 1], &self.black)).collect(),
                 bloom_up: (0..n - 1).map(|i| group(&bloom_mips[i + 1], &self.black)).collect(),
                 bloom_mips,
@@ -1408,17 +1420,21 @@ impl Renderer3D {
             pass.set_bind_group(2, &targets.scene, &[]);
             self.draw_models(&mut pass, &self.runs, Kind::Transparent);
         }
-        // Screen effects, in order: each reads a copy of the frame so far.
+        // Screen effects, in order, swapping between `hdr` and the scene
+        // texture (free once the transparents are drawn): each reads the
+        // frame so far from one and writes the other, with no copies.
+        let mut in_hdr = true;
         for &(effect, material) in &self.effects {
-            encoder.copy_texture_to_texture(
-                targets.hdr_texture.as_image_copy(),
-                targets.scene_texture.as_image_copy(),
-                targets.hdr_texture.size(),
-            );
+            let (source, target) = if in_hdr {
+                (&targets.scene_of_hdr, &targets.scene_view)
+            } else {
+                (&targets.scene, &targets.hdr)
+            };
+            in_hdr = !in_hdr;
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("3d screen effect"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &targets.hdr,
+                    view: target,
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
@@ -1434,9 +1450,14 @@ impl Renderer3D {
             pass.set_pipeline(&self.effect_pipelines[effect as usize]);
             pass.set_bind_group(0, &self.frame_bind_group, &[]);
             pass.set_bind_group(1, &self.materials[material as usize].bind_group, &[]);
-            pass.set_bind_group(2, &targets.scene, &[]);
+            pass.set_bind_group(2, source, &[]);
             pass.draw(0..3, 0..1);
         }
+        let (post, bloom_prefilter) = if in_hdr {
+            (&targets.post, &targets.bloom_prefilter)
+        } else {
+            (&targets.post_of_scene, &targets.bloom_prefilter_of_scene)
+        };
         if self.bloom {
             let step = |encoder: &mut wgpu::CommandEncoder,
                         label,
@@ -1476,7 +1497,7 @@ impl Renderer3D {
                 encoder,
                 "3d bloom",
                 &self.bloom_prefilter,
-                &targets.bloom_prefilter,
+                bloom_prefilter,
                 &mips[0],
                 clear,
             );
@@ -1511,7 +1532,7 @@ impl Renderer3D {
             multiview_mask: None,
         });
         pass.set_pipeline(&self.post_pipeline);
-        pass.set_bind_group(0, &targets.post, &[]);
+        pass.set_bind_group(0, post, &[]);
         pass.set_bind_group(1, &textures[self.lut as usize].bind_group, &[]);
         pass.draw(0..3, 0..1);
     }
