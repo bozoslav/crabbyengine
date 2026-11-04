@@ -34,6 +34,9 @@ agents and your own code write them like any other file.
   types before loading or saving. `Transform2D`, `Sprite` and the physics
   components are reflected already. A sprite names its image
   (`"texture": "crab.png"`), and loading the scene or prefab loads it.
+  With 3D on, `Transform3D` and `Model` are reflected too: a model names
+  its mesh's glTF file (`"mesh": "tree.glb"`), loaded the same way. Scenes
+  can also come from Unity ([Importing from Unity](unity.md)).
 - Errors say what's wrong and change nothing: a missing file lists the
   folders searched, and a component that isn't reflected is named.
 
