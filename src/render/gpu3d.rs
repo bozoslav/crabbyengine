@@ -445,56 +445,14 @@ impl Renderer3D {
             },
             count: None,
         };
+        let frame_bindings = frame_entries(all_stages, false);
         let frame_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("3d frame layout"),
-            entries: &[
-                uniform_entry(all_stages),
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: all_stages,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Depth,
-                        view_dimension: wgpu::TextureViewDimension::D2Array,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: all_stages,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: all_stages,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 4,
-                    visibility: all_stages,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
+            entries: &frame_bindings,
         });
         let shadow_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("3d shadow layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: all_stages,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: true,
-                    min_binding_size: wgpu::BufferSize::new(size_of::<FrameUniform>() as u64),
-                },
-                count: None,
-            }],
+            entries: &frame_entries(all_stages, true),
         });
         let material_texture = |binding| wgpu::BindGroupLayoutEntry {
             binding,
@@ -923,17 +881,63 @@ impl Renderer3D {
             });
             (compute_layout, compute_pipeline_layout)
         });
+        let stand_in = |label, format, layers| {
+            device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some(label),
+                    size: wgpu::Extent3d {
+                        width: 1,
+                        height: 1,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                })
+                .create_view(&wgpu::TextureViewDescriptor {
+                    dimension: Some(layers),
+                    ..Default::default()
+                })
+        };
+        let no_shadow = stand_in("3d no shadow", DEPTH_FORMAT, wgpu::TextureViewDimension::D2Array);
+        let no_sky = stand_in("3d no sky", HDR_FORMAT, wgpu::TextureViewDimension::D2);
+        let no_sky_sampler = device.create_sampler(&Default::default());
+        let no_shadow_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            compare: Some(wgpu::CompareFunction::LessEqual),
+            ..Default::default()
+        });
         let shadow_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("3d shadow"),
             layout: &shadow_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                    buffer: &shadow_frames,
-                    offset: 0,
-                    size: wgpu::BufferSize::new(size_of::<FrameUniform>() as u64),
-                }),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &shadow_frames,
+                        offset: 0,
+                        size: wgpu::BufferSize::new(size_of::<FrameUniform>() as u64),
+                    }),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&no_shadow),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&no_shadow_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&no_sky),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::Sampler(&no_sky_sampler),
+                },
+            ],
         });
         let capacity = 1024;
         Self {
@@ -2097,6 +2101,60 @@ fn build_effect(
     })
 }
 
+/// The frame's bindings (group 0) as material shaders see them. The
+/// shadow and sky-texture passes bind the frame at a dynamic offset (one
+/// per cascade) and stand-ins for the shadow map and sky, which they draw
+/// into: a material shader that reads them (from `surface`, which runs
+/// for cut-outs' alpha) must build there too.
+fn frame_entries(stages: wgpu::ShaderStages, per_cascade: bool) -> Vec<wgpu::BindGroupLayoutEntry> {
+    vec![
+        wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: stages,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: per_cascade,
+                min_binding_size: per_cascade
+                    .then(|| wgpu::BufferSize::new(size_of::<FrameUniform>() as u64))
+                    .flatten(),
+            },
+            count: None,
+        },
+        wgpu::BindGroupLayoutEntry {
+            binding: 1,
+            visibility: stages,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Depth,
+                view_dimension: wgpu::TextureViewDimension::D2Array,
+                multisampled: false,
+            },
+            count: None,
+        },
+        wgpu::BindGroupLayoutEntry {
+            binding: 2,
+            visibility: stages,
+            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
+            count: None,
+        },
+        wgpu::BindGroupLayoutEntry {
+            binding: 3,
+            visibility: stages,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        },
+        wgpu::BindGroupLayoutEntry {
+            binding: 4,
+            visibility: stages,
+            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+            count: None,
+        },
+    ]
+}
+
 fn build_pipelines(
     device: &wgpu::Device,
     layout: &wgpu::PipelineLayout,
@@ -2326,6 +2384,36 @@ mod tests {
         let user = "fn vertex(v: Vertex) -> Vertex { var o = v; o.position.y += sin(frame.time.x); return o; }\n\
                     fn surface(s: Surface) -> Surface { var o = s; o.albedo *= noise2(s.uv * 8.0); return o; }";
         check_shader("both", &compose_shader(user)).unwrap();
+    }
+
+    #[test]
+    fn shadow_passes_bind_everything_a_material_shader_reads() {
+        let user = "fn surface(s: Surface) -> Surface { var o = s; o.emissive = sky_radiance(s.normal) * sunlight(s.world, s.normal); return o; }";
+        let module = wgpu::naga::front::wgsl::parse_str(&compose_shader(user)).unwrap();
+        let shadow: Vec<u32> = frame_entries(wgpu::ShaderStages::VERTEX_FRAGMENT, true)
+            .iter()
+            .map(|e| e.binding)
+            .collect();
+        let frame: Vec<u32> = frame_entries(wgpu::ShaderStages::VERTEX_FRAGMENT, false)
+            .iter()
+            .map(|e| e.binding)
+            .collect();
+        for (_, g) in module.global_variables.iter() {
+            if let Some(b) = &g.binding
+                && b.group == 0
+            {
+                assert!(
+                    shadow.contains(&b.binding),
+                    "group 0 binding {} is not in the shadow passes",
+                    b.binding
+                );
+                assert!(
+                    frame.contains(&b.binding),
+                    "group 0 binding {} is not in the frame",
+                    b.binding
+                );
+            }
+        }
     }
 
     #[test]
