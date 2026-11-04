@@ -83,10 +83,12 @@ struct Vertex {
     uv: [f32; 2],
     /// Linear RGBA, 0..255.
     color: [u8; 4],
+    /// The second texture coordinate set.
+    uv1: [f32; 2],
 }
 
-const VERTEX_ATTRIBUTES: [wgpu::VertexAttribute; 4] =
-    wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 8 => Unorm8x4];
+const VERTEX_ATTRIBUTES: [wgpu::VertexAttribute; 5] =
+    wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 8 => Unorm8x4, 9 => Float32x2];
 const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
     3 => Float32x4, 4 => Float32x4, 5 => Float32x4, 6 => Float32x4, // model matrix
     7 => Float32x4, // tint
@@ -1268,6 +1270,7 @@ impl Renderer3D {
                 color: data.colors.get(i).map_or([255; 4], |&c| {
                     linear(c).map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8)
                 }),
+                uv1: data.uvs1.get(i).map_or([0.0; 2], |uv| uv.to_array()),
             })
             .collect();
         let vertices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -2414,6 +2417,13 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn shaders_read_the_second_uv_set() {
+        let user = "fn vertex(v: Vertex) -> Vertex { var o = v; o.position.y += v.uv1.x; return o; }\n\
+                    fn surface(s: Surface) -> Surface { var o = s; o.albedo *= s.uv1.y; return o; }";
+        check_shader("uv1", &compose_shader(user)).unwrap();
     }
 
     #[test]

@@ -194,6 +194,7 @@ pub(crate) fn load(
         data.normals.extend(part.normals);
         data.uvs.extend(part.uvs);
         data.colors.extend(part.colors);
+        data.uvs1.extend(part.uvs1);
         data.indices.extend(part.indices.iter().map(|i| i + base));
         parts.push((first..data.indices.len() as u32, material));
     }
@@ -246,6 +247,10 @@ fn append(
                     .collect()
             })
             .unwrap_or_default(),
+        uvs1: reader
+            .read_tex_coords(1)
+            .map(|t| t.into_f32().map(Vec2::from).collect())
+            .unwrap_or_default(),
     };
     part.check().map_err(|e| format!("{name}: {e}"))?;
     let normals = part.normals_or_computed().into_owned();
@@ -261,6 +266,11 @@ fn append(
         out.uvs.extend(std::iter::repeat_n(Vec2::ZERO, count as usize));
     } else {
         out.uvs.extend(part.uvs);
+    }
+    if part.uvs1.is_empty() {
+        out.uvs1.extend(std::iter::repeat_n(Vec2::ZERO, count as usize));
+    } else {
+        out.uvs1.extend(part.uvs1);
     }
     if part.colors.is_empty() {
         out.colors.extend(std::iter::repeat_n(Color::WHITE, count as usize));
@@ -647,6 +657,46 @@ mod tests {
         let m = &loaded.materials[0];
         assert!((m.color.r - 1.0).abs() < 1e-5 && m.color.g == 0.0);
         assert_eq!((m.roughness, m.metallic), (0.25, 1.0), "metallic defaults to 1 in glTF");
+    }
+
+    #[test]
+    fn a_second_uv_set_loads_for_shaders() {
+        let mut bytes = Vec::new();
+        for c in [0.0f32, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0] {
+            bytes.extend(c.to_le_bytes());
+        }
+        for c in [0.5f32, 7.0, 1.5, 7.0, 2.5, 7.0] {
+            bytes.extend(c.to_le_bytes());
+        }
+        let b64 = to_base64(&bytes);
+        let text = format!(
+            r#"{{
+            "asset": {{ "version": "2.0" }},
+            "meshes": [{{ "primitives": [{{ "attributes": {{ "POSITION": 0, "TEXCOORD_1": 1 }} }}] }}],
+            "nodes": [{{ "mesh": 0 }}], "scenes": [{{ "nodes": [0] }}], "scene": 0,
+            "buffers": [{{ "byteLength": 60, "uri": "data:application/octet-stream;base64,{b64}" }}],
+            "bufferViews": [{{ "buffer": 0, "byteLength": 36 }}, {{ "buffer": 0, "byteOffset": 36, "byteLength": 24 }}],
+            "accessors": [{{ "bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3", "min": [0, 0, 0], "max": [1, 1, 0] }},
+                          {{ "bufferView": 1, "componentType": 5126, "count": 3, "type": "VEC2" }}]
+        }}"#
+        );
+        let loaded = load("uv1.gltf", text.as_bytes(), &mut |f| Err(f.to_string()), &|_| false).unwrap();
+        assert_eq!(
+            loaded.data.uvs1,
+            vec![Vec2::new(0.5, 7.0), Vec2::new(1.5, 7.0), Vec2::new(2.5, 7.0)]
+        );
+        assert!(
+            loaded.data.uvs.iter().all(|uv| *uv == Vec2::ZERO),
+            "no first set: zeros"
+        );
+        let plain = load(
+            "tri.gltf",
+            triangle_gltf(None).as_bytes(),
+            &mut |f| Err(f.to_string()),
+            &|_| false,
+        )
+        .unwrap();
+        assert_eq!(plain.data.uvs1, vec![Vec2::ZERO; 3], "none: zeros");
     }
 
     #[test]

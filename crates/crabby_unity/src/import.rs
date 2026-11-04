@@ -140,7 +140,8 @@ impl<'p> Importer<'p> {
 
     /// Says the game draws materials of `shader` (its asset path, as
     /// [`Report::shaders`] lists it) with a Crabby shader of its own. Their
-    /// meshes keep their vertex colors, and [`finish`](Self::finish)
+    /// meshes keep their vertex colors and UV set 1 (as Unity has it, not
+    /// flipped: shaders read it as `s.uv1`), and [`finish`](Self::finish)
     /// writes `materials.json`: each such material by name (the name its
     /// glTF material has, for `Ctx::loaded_materials`), with its shader and
     /// every number, color and texture it sets, the textures written as
@@ -470,7 +471,8 @@ impl<'p> Importer<'p> {
             .iter()
             .flatten()
             .find_map(|m| self.vertex_colors.get(&self.shader_name(m)).cloned());
-        let colors = made.is_some() || (!mesh.colors.is_empty() && mats.iter().flatten().any(|m| self.is_custom(m)));
+        let custom = mats.iter().flatten().any(|m| self.is_custom(m));
+        let colors = made.is_some() || (!mesh.colors.is_empty() && custom);
         // Submeshes past the last material reuse it, as in Unity; materials
         // past the last submesh draw it again, which is skipped.
         for (s, indices) in mesh.submeshes.iter().enumerate() {
@@ -495,6 +497,9 @@ impl<'p> Importer<'p> {
                             vertices.colors.push(made(mesh, v).map(|c| c.clamp(0.0, 1.0)));
                         } else if colors {
                             vertices.colors.push(mesh.colors.get(v).copied().unwrap_or([1.0; 4]));
+                        }
+                        if custom && !mesh.uvs[1].is_empty() {
+                            vertices.uvs1.push(mesh.uvs[1].get(v).copied().unwrap_or_default());
                         }
                         if !mesh.uvs[0].is_empty() {
                             let uv = mesh.uvs[0].get(v).copied().unwrap_or_default();
@@ -931,6 +936,34 @@ mod tests {
         assert_eq!(speeds, [0.0, 0.5, 1.0, 1.0], "from UV set 1, clamped to 0..1");
         assert!(colors.iter().all(|c| c[1] == 0.5 && c[2] == 0.0 && c[3] == 1.0));
         assert!(import.is_custom(river[0].as_ref().unwrap()), "it's a custom shader too");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn has_uv1(glb: &[u8]) -> bool {
+        let len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let doc: Json = serde_json::from_slice(&glb[20..20 + len]).unwrap();
+        doc["meshes"][0]["primitives"][0]["attributes"]
+            .get("TEXCOORD_1")
+            .is_some()
+    }
+
+    #[test]
+    fn uv_set_1_is_kept_only_for_custom_shaders() {
+        let dir = std::env::temp_dir().join(format!("crabby_unity_uv1_{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("Assets")).unwrap();
+        std::fs::write(dir.join("Assets/Leaf.shader"), "Shader \"Leaf\" {}").unwrap();
+        std::fs::write(dir.join("Assets/Leaf.shader.meta"), "guid: leaf0000\n").unwrap();
+        let project = Project::open(&dir).unwrap();
+        let mut quad = UnityMesh::builtin(crate::builtin::QUAD).unwrap();
+        quad.uvs[1] = vec![[3.0, 1.0]; quad.positions.len()];
+        let leaf = [Some(material_of("leaf0000"))];
+        let mut plain = Importer::new(&project, dir.join("out"), "");
+        assert!(!has_uv1(&plain.build_glb(&quad, &leaf)));
+        let mut custom = Importer::new(&project, dir.join("out"), "");
+        custom.custom_shader("Assets/Leaf.shader");
+        assert!(has_uv1(&custom.build_glb(&quad, &leaf)));
+        quad.uvs[1].clear();
+        assert!(!has_uv1(&custom.build_glb(&quad, &leaf)), "none to keep");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

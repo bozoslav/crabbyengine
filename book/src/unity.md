@@ -63,8 +63,9 @@ shaders those are:
 import.custom_shader("Assets/Shaders/Wall.shader"); // as the report lists it
 ```
 
-Their meshes then keep their vertex colors (which custom shaders often
-read; in Crabby's shaders they're `s.color`), and the importer writes
+Their meshes then keep their vertex colors and UV set 1 (which custom
+shaders often read; in Crabby's shaders they're `s.color` and `s.uv1`,
+UV set 1 unflipped, as Unity has it), and the importer writes
 `materials.json` next to the scenes: each such material by name, with its
 shader and every number, color and texture it sets, the textures written
 as PNGs. In the game, `loaded_materials(name)` gives every material loaded
