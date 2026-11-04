@@ -803,6 +803,47 @@ static void dive(crabby::ctx& ctx) {
 }
 // ANCHOR_END: effect
 
+// ANCHOR: compute
+/// Ripples: each texel moves toward the average of its neighbours,
+/// overshooting like water. Red is the height now, green the height a
+/// frame ago; `material.custom[0]` drops a stone (uv x, uv y, strength).
+static const char* ripples_compute = R"(
+fn compute(c: Cell) -> vec4<f32> {
+    let around = cell_at(c.pixel + vec2<i32>(1, 0)).x + cell_at(c.pixel - vec2<i32>(1, 0)).x
+        + cell_at(c.pixel + vec2<i32>(0, 1)).x + cell_at(c.pixel - vec2<i32>(0, 1)).x;
+    var height = (around * 0.5 - c.value.y) * 0.985;
+    let drop = material.custom[0];
+    if drop.z > 0.0 && distance(c.uv, drop.xy) * f32(c.size.x) < 3.0 {
+        height -= drop.z;
+    }
+    return vec4<f32>(height, c.value.x, 0.0, 0.0);
+})";
+
+struct ripples_state { crabby::texture heights; crabby::material stones; };
+
+/// The simulated heights, for a water material to read, and the material
+/// that drops stones into them.
+static ripples_state ripples(crabby::ctx& ctx) {
+    auto heights = ctx.create_render_target(256, 256);
+    auto ripples = ctx.create_compute("ripples", ripples_compute);
+    auto stones = ctx.create_material(crabby::material_of(crabby::colors::white));
+    auto list = ctx.compute_passes();
+    list.push_back(crabby::compute_pass_of(ripples, heights, stones));
+    ctx.set_compute_passes(list);
+    return {heights, stones};
+}
+
+/// Drops a stone at `uv` (0 to 1 across the water) this frame; `strength`
+/// 0 drops none.
+static void drop_stone(crabby::ctx& ctx, crabby::material stones, crabby::vec2 uv, float strength) {
+    auto desc = crabby::material_of(crabby::colors::white);
+    desc.custom[0] = uv.x;
+    desc.custom[1] = uv.y;
+    desc.custom[2] = strength;
+    ctx.update_material(stones, desc);
+}
+// ANCHOR_END: compute
+
 // ANCHOR: mirror
 /// A still pond: its color is the world mirrored in it, which a target
 /// camera below the surface draws into `custom_texture0`, upside down.
@@ -921,6 +962,18 @@ static void the_dive_adds_one_effect() {
     });
 }
 
+static void the_ripples_run_on_a_render_target() {
+    crabby::game("ripples", 64, 64).run_headless(1, [](crabby::ctx& ctx) {
+        auto state = ripples(ctx);
+        drop_stone(ctx, state.stones, {0.5f, 0.5f}, 1);
+        auto list = ctx.compute_passes();
+        if (list.size() != 1 || list[0].target.id != state.heights.id || !list[0].has_material) {
+            std::fprintf(stderr, "ripples\n");
+            std::abort();
+        }
+    });
+}
+
 static void the_pond_mirrors_the_camera() {
     crabby::game("pond", 64, 64).run_headless(1, [](crabby::ctx& ctx) {
         pond(ctx);
@@ -947,6 +1000,7 @@ static void the_hills_are_nine_tiles() {
 }
 
 int main() {
+    the_ripples_run_on_a_render_target();
     the_pond_mirrors_the_camera();
     the_hills_are_nine_tiles();
     the_dive_adds_one_effect();

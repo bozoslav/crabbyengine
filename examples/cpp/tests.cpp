@@ -200,6 +200,13 @@ static void three_d() {
         throws([&] { ctx.set_target_cameras({crabby::target_camera_of(eye, plain)}); });
         throws([&] { ctx.create_render_target(0, 4); });
         ctx.set_target_cameras({});
+        auto fade = ctx.create_compute("fade", "fn compute(c: Cell) -> vec4<f32> { return c.value * 0.9; }");
+        ctx.set_compute_passes({crabby::compute_pass_of(fade, mirror), crabby::compute_pass_of(fade, mirror, stone)});
+        CHECK(ctx.compute_passes().size() == 2 && ctx.compute_passes()[1].material.id == stone.id);
+        throws([&] { ctx.create_compute("bad", "fn compute(c: Cell) -> f32 { return 1.0; }"); });
+        throws([&] { ctx.set_compute_passes({crabby::compute_pass_of(fade, plain)}); });
+        throws([&] { ctx.set_compute_passes({crabby::compute_pass_of(crabby::compute{9}, mirror)}); });
+        ctx.set_compute_passes({});
 
         auto cam = ctx.camera3d();
         cam.position = {0, 5, 10};

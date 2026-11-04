@@ -440,11 +440,48 @@ unsafe extern "C" fn target_cameras(ctx: *mut CrabbyCtx, user: *mut c_void) {
         errors.push(crabby_ctx_create_render_target(ctx, 0, 8, &mut plain));
         assert_eq!(crabby_ctx_target_cameras(ctx, back.as_mut_ptr(), 2, &mut n), CRABBY_OK);
         assert_eq!(n, 1, "failed calls change nothing");
+        // A compute pass on the render target.
+        let mut fade = CrabbyCompute::default();
+        let source = c"fn compute(c: Cell) -> vec4<f32> { return c.value * 0.9; }";
+        assert_eq!(
+            crabby_ctx_create_compute(ctx, c"fade".as_ptr(), source.as_ptr(), &mut fade),
+            CRABBY_OK
+        );
+        let pass = CrabbyComputePass {
+            compute: fade,
+            target: mirror,
+            has_material: false,
+            material: CrabbyMaterial::default(),
+        };
+        assert_eq!(crabby_ctx_set_compute_passes(ctx, &pass, 1), CRABBY_OK);
+        let mut passes = [pass; 2];
+        assert_eq!(
+            crabby_ctx_compute_passes(ctx, passes.as_mut_ptr(), 2, &mut n),
+            CRABBY_OK
+        );
+        assert_eq!((n, passes[0]), (1, pass));
+        // A broken shader, a plain texture, an unknown compute pass.
+        errors.push(crabby_ctx_create_compute(
+            ctx,
+            c"bad".as_ptr(),
+            c"fn compute(c: Cell) -> f32 { return 1.0; }".as_ptr(),
+            &mut fade,
+        ));
+        errors.push(crabby_ctx_set_compute_passes(
+            ctx,
+            &CrabbyComputePass { target: plain, ..pass },
+            1,
+        ));
+        let unknown = CrabbyComputePass {
+            compute: CrabbyCompute { id: 9 },
+            ..pass
+        };
+        errors.push(crabby_ctx_set_compute_passes(ctx, &unknown, 1));
     }
 }
 
 #[test]
-fn target_cameras_are_set_and_listed_from_c() {
+fn target_cameras_and_compute_passes_are_set_from_c() {
     let mut errors: Vec<CrabbyStatus> = Vec::new();
     unsafe {
         let g = crabby_game_new(c"targets".as_ptr(), 64, 64);
@@ -456,7 +493,7 @@ fn target_cameras_are_set_and_listed_from_c() {
         );
         crabby_world_free(world);
     }
-    assert_eq!(errors, vec![CRABBY_INVALID_ARGUMENT; 3]);
+    assert_eq!(errors, vec![CRABBY_INVALID_ARGUMENT; 6]);
 }
 
 #[test]

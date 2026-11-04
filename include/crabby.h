@@ -532,6 +532,17 @@ typedef struct CrabbyMeshView {
   size_t index_count;
 } CrabbyMeshView;
 
+typedef struct CrabbyCompute {
+  uint32_t id;
+} CrabbyCompute;
+
+typedef struct CrabbyComputePass {
+  struct CrabbyCompute compute;
+  struct CrabbyTexture target;
+  bool has_material;
+  struct CrabbyMaterial material;
+} CrabbyComputePass;
+
 typedef struct CrabbyEffect {
   uint32_t id;
 } CrabbyEffect;
@@ -1306,6 +1317,24 @@ enum CrabbyStatus crabby_ctx_create_shader(struct CrabbyCtx *ctx,
                                            const char *name,
                                            const char *source,
                                            struct CrabbyShader *out_shader);
+
+enum CrabbyStatus crabby_ctx_load_compute(struct CrabbyCtx *ctx,
+                                          const char *path,
+                                          struct CrabbyCompute *out_compute);
+
+enum CrabbyStatus crabby_ctx_create_compute(struct CrabbyCtx *ctx,
+                                            const char *name,
+                                            const char *source,
+                                            struct CrabbyCompute *out_compute);
+
+enum CrabbyStatus crabby_ctx_set_compute_passes(struct CrabbyCtx *ctx,
+                                                const struct CrabbyComputePass *passes,
+                                                size_t count);
+
+enum CrabbyStatus crabby_ctx_compute_passes(struct CrabbyCtx *ctx,
+                                            struct CrabbyComputePass *out_passes,
+                                            size_t capacity,
+                                            size_t *out_count);
 
 enum CrabbyStatus crabby_ctx_load_effect(struct CrabbyCtx *ctx,
                                          const char *path,

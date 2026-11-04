@@ -4,9 +4,9 @@
 use std::ffi::c_char;
 
 use crabbyengine::{
-    Blend, Camera3D, Color, Effect, Lighting, Material, MaterialDesc, Mesh, MeshData, Model, Post, Quat, ScreenEffect,
-    Shader, Sky, TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera, TerrainMaterialDesc, TerrainTile, TextureArray,
-    TextureKind, Tonemap, Transform3D, Vec2, Vec3, Vec4,
+    Blend, Camera3D, Color, Compute, ComputePass, Effect, Lighting, Material, MaterialDesc, Mesh, MeshData, Model,
+    Post, Quat, ScreenEffect, Shader, Sky, TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera, TerrainMaterialDesc,
+    TerrainTile, TextureArray, TextureKind, Tonemap, Transform3D, Vec2, Vec3, Vec4,
 };
 
 use crate::ctx::{ctx_access, out, text};
@@ -130,6 +130,43 @@ pub struct CrabbyTerrainTile {
 /// How many detail levels a `CrabbyTerrainTile` has.
 pub const CRABBY_TERRAIN_LODS: usize = 4;
 const _: () = assert!(CRABBY_TERRAIN_LODS == TERRAIN_LODS);
+
+/// A compute pass shader (`crabby_ctx_load_compute`, `crabby_ctx_create_compute`).
+/// ```
+/// let c = crabby_ffi::CrabbyCompute { id: 0 };
+/// assert_eq!(c.id, 0);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CrabbyCompute {
+    /// Engine-internal id.
+    pub id: u32,
+}
+
+/// One compute pass run each frame (Rust `ComputePass`): its shader, the
+/// render target it updates, and the material its custom values and
+/// textures come from (the default material without one).
+/// ```
+/// let p = crabby_ffi::CrabbyComputePass {
+///     compute: crabby_ffi::CrabbyCompute { id: 0 },
+///     target: crabby_ffi::CrabbyTexture { id: 0, width: 8, height: 8 },
+///     has_material: false,
+///     material: Default::default(),
+/// };
+/// assert!(!p.has_material);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CrabbyComputePass {
+    /// The shader.
+    pub compute: CrabbyCompute,
+    /// What it updates: from `crabby_ctx_create_render_target`.
+    pub target: CrabbyTexture,
+    /// Whether `material` is used.
+    pub has_material: bool,
+    /// Where its values and textures come from.
+    pub material: CrabbyMaterial,
+}
 
 /// A screen effect shader (`crabby_ctx_load_effect`, `crabby_ctx_create_effect`).
 /// ```
@@ -1261,6 +1298,146 @@ pub unsafe extern "C" fn crabby_ctx_create_shader(
             }
             let shader = c.try_create_shader(name, source).map_err(invalid_owned)?;
             out(out_shader, CrabbyShader { id: shader.id() })
+        })
+    })
+}
+
+/// Loads a compute pass shader (WGSL, defining `fn compute(c: Cell) ->
+/// vec4<f32>`) from assets/, hot reloaded; the same file again gives the
+/// same compute pass (Rust `Ctx::load_compute`).
+/// # Safety
+/// `ctx` null or live; `path` a NUL-terminated string; output writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_load_compute(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_load_compute(
+    ctx: *mut CrabbyCtx,
+    path: *const c_char,
+    out_compute: *mut CrabbyCompute,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let path = text(path)?;
+            if out_compute.is_null() {
+                return Err(invalid("output is null"));
+            }
+            let compute = c.try_load_compute(path).map_err(invalid_owned)?;
+            out(out_compute, CrabbyCompute { id: compute.id() })
+        })
+    })
+}
+
+/// Makes a compute pass shader from WGSL source; `name` is for error
+/// messages (Rust `Ctx::create_compute`).
+/// # Safety
+/// `ctx` null or live; `name` and `source` NUL-terminated strings; output writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_create_compute(std::ptr::null_mut(), std::ptr::null(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_create_compute(
+    ctx: *mut CrabbyCtx,
+    name: *const c_char,
+    source: *const c_char,
+    out_compute: *mut CrabbyCompute,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let name = text(name)?;
+            let source = text(source)?;
+            if out_compute.is_null() {
+                return Err(invalid("output is null"));
+            }
+            let compute = c.try_create_compute(name, source).map_err(invalid_owned)?;
+            out(out_compute, CrabbyCompute { id: compute.id() })
+        })
+    })
+}
+
+/// Replaces the compute passes run each frame with `count` of them, in
+/// order (Rust `ctx.compute_passes`); 0 runs none.
+/// # Safety
+/// `ctx` null or live; `passes` holds `count` values (may be null when 0).
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_compute_passes(std::ptr::null_mut(), std::ptr::null(), 0) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_compute_passes(
+    ctx: *mut CrabbyCtx,
+    passes: *const CrabbyComputePass,
+    count: usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            if passes.is_null() && count > 0 {
+                return Err(invalid("passes is null"));
+            }
+            let given = if count == 0 {
+                &[][..]
+            } else {
+                std::slice::from_raw_parts(passes, count)
+            };
+            let mut list = Vec::with_capacity(count);
+            for p in given {
+                let compute = Compute::from_id(p.compute.id);
+                if !c.has_compute(compute) {
+                    return Err(invalid("that compute pass wasn't made by this game"));
+                }
+                let target = texture_from_c(p.target);
+                if !c.is_render_target(target) {
+                    return Err(invalid("that texture isn't a render target of this game"));
+                }
+                let material = p.has_material.then(|| to_c(p.material));
+                if material.is_some_and(|m| !c.has_material(m)) {
+                    return Err(invalid("that material wasn't made by this game"));
+                }
+                list.push(ComputePass {
+                    compute,
+                    target,
+                    material,
+                });
+            }
+            c.compute_passes = list;
+            Ok(())
+        })
+    })
+}
+
+/// The compute passes run each frame: writes up to `capacity` of them to
+/// `out_passes` and how many there are to `out_count` (Rust
+/// `ctx.compute_passes`).
+/// # Safety
+/// `ctx` null or live; `out_passes` holds `capacity` values (may be null
+/// when 0); `out_count` writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_compute_passes(std::ptr::null_mut(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_compute_passes(
+    ctx: *mut CrabbyCtx,
+    out_passes: *mut CrabbyComputePass,
+    capacity: usize,
+    out_count: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            if out_count.is_null() || (out_passes.is_null() && capacity > 0) {
+                return Err(invalid("output is null"));
+            }
+            for (i, p) in c.compute_passes.iter().take(capacity).enumerate() {
+                out_passes.add(i).write(CrabbyComputePass {
+                    compute: CrabbyCompute { id: p.compute.id() },
+                    target: texture_to_c(p.target),
+                    has_material: p.material.is_some(),
+                    material: p.material.map(to_c).unwrap_or_default(),
+                });
+            }
+            out(out_count, c.compute_passes.len())
         })
     })
 }

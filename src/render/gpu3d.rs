@@ -221,9 +221,12 @@ pub(crate) fn check_shader(name: &str, source: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// The material shaders' bindings are seen by every stage: compute passes
-/// read the frame and their material too.
-const ALL_STAGES: wgpu::ShaderStages = wgpu::ShaderStages::VERTEX_FRAGMENT.union(wgpu::ShaderStages::COMPUTE);
+/// Whether `device` runs compute passes: WebGL2 has no compute shaders
+/// or storage textures.
+fn can_compute(device: &wgpu::Device) -> bool {
+    let limits = device.limits();
+    limits.max_compute_workgroups_per_dimension > 0 && limits.max_storage_textures_per_shader_stage > 0
+}
 
 /// Most bloom steps: the smallest image is 1/128 of the screen.
 const BLOOM_MIPS: u32 = 7;
@@ -373,8 +376,9 @@ pub(crate) struct Renderer3D {
     view_targets: Vec<(u32, ViewTarget)>,
     /// Compute pass pipelines, by compute id, and their layouts.
     compute_pipelines: Vec<wgpu::ComputePipeline>,
-    compute_layout: wgpu::BindGroupLayout,
-    compute_pipeline_layout: wgpu::PipelineLayout,
+    /// Their bind group and pipeline layouts; `None` where the GPU can't
+    /// run compute shaders (WebGL2).
+    compute_layouts: Option<(wgpu::BindGroupLayout, wgpu::PipelineLayout)>,
     /// What compute passes need of the render targets they run on, made
     /// the first time one does, by texture id.
     compute_states: Vec<(u32, ComputeState)>,
@@ -423,6 +427,14 @@ impl Renderer3D {
         white: u32,
         white_array: &wgpu::Texture,
     ) -> Self {
+        // The material shaders' bindings are seen by compute passes too
+        // (they read the frame and their material), where there are any.
+        let compute = can_compute(device);
+        let all_stages = if compute {
+            wgpu::ShaderStages::VERTEX_FRAGMENT | wgpu::ShaderStages::COMPUTE
+        } else {
+            wgpu::ShaderStages::VERTEX_FRAGMENT
+        };
         let uniform_entry = |visibility| wgpu::BindGroupLayoutEntry {
             binding: 0,
             visibility,
@@ -436,10 +448,10 @@ impl Renderer3D {
         let frame_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("3d frame layout"),
             entries: &[
-                uniform_entry(ALL_STAGES),
+                uniform_entry(all_stages),
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
-                    visibility: ALL_STAGES,
+                    visibility: all_stages,
                     ty: wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Depth,
                         view_dimension: wgpu::TextureViewDimension::D2Array,
@@ -449,13 +461,13 @@ impl Renderer3D {
                 },
                 wgpu::BindGroupLayoutEntry {
                     binding: 2,
-                    visibility: ALL_STAGES,
+                    visibility: all_stages,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
                     count: None,
                 },
                 wgpu::BindGroupLayoutEntry {
                     binding: 3,
-                    visibility: ALL_STAGES,
+                    visibility: all_stages,
                     ty: wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Float { filterable: true },
                         view_dimension: wgpu::TextureViewDimension::D2,
@@ -465,7 +477,7 @@ impl Renderer3D {
                 },
                 wgpu::BindGroupLayoutEntry {
                     binding: 4,
-                    visibility: ALL_STAGES,
+                    visibility: all_stages,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
@@ -475,7 +487,7 @@ impl Renderer3D {
             label: Some("3d shadow layout"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: ALL_STAGES,
+                visibility: all_stages,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: true,
@@ -486,7 +498,7 @@ impl Renderer3D {
         });
         let material_texture = |binding| wgpu::BindGroupLayoutEntry {
             binding,
-            visibility: ALL_STAGES,
+            visibility: all_stages,
             ty: wgpu::BindingType::Texture {
                 sample_type: wgpu::TextureSampleType::Float { filterable: true },
                 view_dimension: wgpu::TextureViewDimension::D2,
@@ -496,7 +508,7 @@ impl Renderer3D {
         };
         let material_array = |binding| wgpu::BindGroupLayoutEntry {
             binding,
-            visibility: ALL_STAGES,
+            visibility: all_stages,
             ty: wgpu::BindingType::Texture {
                 sample_type: wgpu::TextureSampleType::Float { filterable: true },
                 view_dimension: wgpu::TextureViewDimension::D2Array,
@@ -507,10 +519,10 @@ impl Renderer3D {
         let material_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("3d material layout"),
             entries: &[
-                uniform_entry(ALL_STAGES),
+                uniform_entry(all_stages),
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
-                    visibility: ALL_STAGES,
+                    visibility: all_stages,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
@@ -530,7 +542,7 @@ impl Renderer3D {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: ALL_STAGES,
+                    visibility: all_stages,
                     ty: wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Float { filterable: false },
                         view_dimension: wgpu::TextureViewDimension::D2,
@@ -540,7 +552,7 @@ impl Renderer3D {
                 },
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
-                    visibility: ALL_STAGES,
+                    visibility: all_stages,
                     ty: wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Depth,
                         view_dimension: wgpu::TextureViewDimension::D2,
@@ -873,40 +885,43 @@ impl Renderer3D {
         };
         let frame_bind_group = frame_sources.bind_group(device, &frame_buffer);
         // A compute pass reads its render target and writes a scratch copy.
-        let compute_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("3d compute layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
+        let compute_layouts = compute.then(|| {
+            let compute_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("3d compute layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::StorageTexture {
-                        access: wgpu::StorageTextureAccess::WriteOnly,
-                        format: HDR_FORMAT,
-                        view_dimension: wgpu::TextureViewDimension::D2,
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::StorageTexture {
+                            access: wgpu::StorageTextureAccess::WriteOnly,
+                            format: HDR_FORMAT,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-            ],
-        });
-        let compute_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("3d compute pipeline layout"),
-            bind_group_layouts: &[
-                Some(&frame_sources.layout),
-                Some(&material_layout),
-                Some(&scene_layout),
-                Some(&compute_layout),
-            ],
-            immediate_size: 0,
+                ],
+            });
+            let compute_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("3d compute pipeline layout"),
+                bind_group_layouts: &[
+                    Some(&frame_sources.layout),
+                    Some(&material_layout),
+                    Some(&scene_layout),
+                    Some(&compute_layout),
+                ],
+                immediate_size: 0,
+            });
+            (compute_layout, compute_pipeline_layout)
         });
         let shadow_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("3d shadow"),
@@ -948,8 +963,7 @@ impl Renderer3D {
             render_targets: Vec::new(),
             view_targets: Vec::new(),
             compute_pipelines: Vec::new(),
-            compute_pipeline_layout,
-            compute_layout,
+            compute_layouts,
             compute_states: Vec::new(),
             computes: Vec::new(),
             views: Vec::new(),
@@ -1055,7 +1069,7 @@ impl Renderer3D {
         });
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("3d compute"),
-            layout: &self.compute_layout,
+            layout: &self.compute_layouts.as_ref()?.0,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -1080,7 +1094,12 @@ impl Renderer3D {
     pub fn create_compute(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, String> {
         let source = compose_compute(user);
         check_shader(name, &source)?;
-        let pipeline = build_compute(device, &self.compute_pipeline_layout, name, &source);
+        let Some((_, layout)) = &self.compute_layouts else {
+            return Err(format!(
+                "{name}: this GPU can't run compute passes (WebGL2 has no compute shaders)"
+            ));
+        };
+        let pipeline = build_compute(device, layout, name, &source);
         self.compute_pipelines.push(pipeline);
         Ok(self.compute_pipelines.len() as u32 - 1)
     }
@@ -1089,7 +1108,10 @@ impl Renderer3D {
     pub fn replace_compute(&mut self, device: &wgpu::Device, id: u32, name: &str, user: &str) -> Result<(), String> {
         let source = compose_compute(user);
         check_shader(name, &source)?;
-        let pipeline = build_compute(device, &self.compute_pipeline_layout, name, &source);
+        let Some((_, layout)) = &self.compute_layouts else {
+            return Ok(());
+        };
+        let pipeline = build_compute(device, layout, name, &source);
         if let Some(old) = self.compute_pipelines.get_mut(id as usize) {
             *old = pipeline;
         }

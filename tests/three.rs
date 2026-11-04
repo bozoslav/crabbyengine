@@ -391,6 +391,66 @@ fn follow_reflections(ctx: &mut Ctx) {
 }
 // ANCHOR_END: mirror
 
+// ANCHOR: compute
+/// Ripples: each texel moves toward the average of its neighbours,
+/// overshooting like water. Red is the height now, green the height a
+/// frame ago; `material.custom[0]` drops a stone (uv x, uv y, strength).
+const RIPPLES: &str = "
+fn compute(c: Cell) -> vec4<f32> {
+    let around = cell_at(c.pixel + vec2<i32>(1, 0)).x + cell_at(c.pixel - vec2<i32>(1, 0)).x
+        + cell_at(c.pixel + vec2<i32>(0, 1)).x + cell_at(c.pixel - vec2<i32>(0, 1)).x;
+    var height = (around * 0.5 - c.value.y) * 0.985;
+    let drop = material.custom[0];
+    if drop.z > 0.0 && distance(c.uv, drop.xy) * f32(c.size.x) < 3.0 {
+        height -= drop.z;
+    }
+    return vec4<f32>(height, c.value.x, 0.0, 0.0);
+}";
+
+/// The simulated heights, for a water material to read, and the material
+/// that drops stones into them.
+fn ripples(ctx: &mut Ctx) -> (Texture, Material) {
+    let heights = ctx.create_render_target(256, 256);
+    let ripples = ctx.create_compute("ripples", RIPPLES);
+    let stones = ctx.create_material(MaterialDesc::default());
+    ctx.compute_passes
+        .push(ComputePass::new(ripples, heights).with_material(stones));
+    (heights, stones)
+}
+
+/// Drops a stone at `uv` (0 to 1 across the water) this frame; `strength`
+/// 0 drops none.
+fn drop_stone(ctx: &mut Ctx, stones: Material, uv: Vec2, strength: f32) {
+    let stone = uv.extend(strength).extend(0.0);
+    ctx.update_material(
+        stones,
+        MaterialDesc {
+            custom: [stone, Vec4::ZERO, Vec4::ZERO, Vec4::ZERO],
+            ..Default::default()
+        },
+    );
+}
+// ANCHOR_END: compute
+
+#[test]
+fn the_guide_ripples_run_on_a_render_target() {
+    Game::new("ripples", 64, 64).run_headless(1, |ctx| {
+        let (heights, stones) = ripples(ctx);
+        drop_stone(ctx, stones, vec2(0.5, 0.5), 1.0);
+        assert!(ctx.is_render_target(heights));
+        assert_eq!(ctx.compute_passes.len(), 1);
+        assert_eq!(ctx.compute_passes[0].material, Some(stones));
+    });
+}
+
+#[test]
+#[should_panic(expected = "ripples.wgsl")]
+fn compute_errors_say_which_pass() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        ctx.create_compute("ripples.wgsl", "fn compute(c: Cell) -> f32 { return 1.0; }");
+    });
+}
+
 #[test]
 fn the_guide_pond_mirrors_the_camera() {
     Game::new("pond", 64, 64).run_headless(0, |ctx| {

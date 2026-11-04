@@ -8,6 +8,15 @@ says what that covers.
 ## [Unreleased]
 
 ### Added
+- Compute passes: `ctx.create_compute` and `ctx.load_compute` (hot
+  reloaded) make a WGSL shader defining `fn compute(c: Cell)`, run once per
+  texel of a render target each frame before drawing (ripples, trails in
+  snow, wet ground), by adding a `ComputePass` to `ctx.compute_passes`,
+  with a material's values and textures. In C
+  (`crabby_ctx_create_compute`, `crabby_ctx_load_compute`,
+  `crabby_ctx_set_compute_passes`, `crabby_ctx_compute_passes`) and C++
+  (`ctx.create_compute`, `ctx.load_compute`, `ctx.set_compute_passes`,
+  `ctx.compute_passes()`, `crabby::compute_pass_of`).
 - Render targets: `ctx.create_render_target` makes a texture that a
   `TargetCamera` in `ctx.target_cameras` draws the lit 3D world into each
   frame, for materials to read (mirrors, reflections, monitors). An
