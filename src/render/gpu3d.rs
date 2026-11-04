@@ -1683,6 +1683,15 @@ mod tests {
     }
 
     #[test]
+    fn every_built_in_shader_is_valid() {
+        // Compiled only on a GPU, so naga checks them here (a reserved word
+        // once crashed every textured material at startup).
+        check_shader("mipmaps", super::super::mips::SHADER).unwrap();
+        check_shader("post", include_str!("post.wgsl")).unwrap();
+        check_shader("sprite", include_str!("sprite.wgsl")).unwrap();
+    }
+
+    #[test]
     fn the_sky_shader_is_valid() {
         check_shader("sky", &format!("{MESH_PRELUDE}\n{SKY}")).unwrap();
     }
