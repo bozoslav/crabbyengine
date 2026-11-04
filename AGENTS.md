@@ -11,6 +11,7 @@ Rules for any coding agent (Claude Code, Codex, Cursor, ...) working in this rep
 2. **Commit and push along the way**, not only at the end. Make a commit at every meaningful, working step (it builds, and tests pass) and push it right away (`git push -u origin <branch>` the first time).
    - Commit messages: short imperative subject line, then a body listing what changed.
    - Never commit `docs/`, which holds local planning notes and is git-ignored. Never commit `.DS_Store`, build output or secrets.
+   - Run `scripts/leak-check.sh install` once per checkout. It checks every commit (and CI checks every PR) against a private list of words that must stay out of this public repo. If it stops a commit, take the private details out and describe the change generically. Don't weaken or skip the check.
 3. **Everything reaches `main` through a pull request.** Never push to `main` and never merge locally into `main`.
    - **One PR per big chunk of work**, not per small feature or fix: keep committing and pushing on the branch, and open the PR when a whole part is done (for example a milestone's worth: reflection + control endpoint + MCP server). Don't stack many small PRs and wait on CI for each.
    - Open the PR with `gh pr create --base main`. The body says what changed and how it was verified (commands run, benchmark numbers).
