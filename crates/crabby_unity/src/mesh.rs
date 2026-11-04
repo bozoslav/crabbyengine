@@ -275,8 +275,10 @@ fn hex(text: &str) -> Vec<u8> {
     };
     text.trim()
         .as_bytes()
-        .chunks_exact(2)
-        .map_while(|p| Some(digit(p[0])? << 4 | digit(p[1])?))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map_while(|&[hi, lo]| Some(digit(hi)? << 4 | digit(lo)?))
         .collect()
 }
 
