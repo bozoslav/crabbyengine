@@ -103,7 +103,11 @@ unsafe fn cells_mut<'a>(cells: *mut CrabbyCellStreamer) -> Result<&'a mut Crabby
 /// # Safety
 /// `cells` must be null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_cells_update(cells: *mut CrabbyCellStreamer, at: CrabbyVec3, max_new: usize) -> CrabbyStatus {
+pub unsafe extern "C" fn crabby_cells_update(
+    cells: *mut CrabbyCellStreamer,
+    at: CrabbyVec3,
+    max_new: usize,
+) -> CrabbyStatus {
     boundary(|| {
         // SAFETY: forwarded caller contract.
         let s = unsafe { cells_mut(cells)? };
@@ -350,7 +354,11 @@ pub unsafe extern "C" fn crabby_ctx_free_mesh(ctx: *mut CrabbyCtx, mesh: CrabbyM
 /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_is_mesh_live(std::ptr::null_mut(), Default::default(), &mut live) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_is_mesh_live(ctx: *mut CrabbyCtx, mesh: CrabbyMesh, out_live: *mut bool) -> CrabbyStatus {
+pub unsafe extern "C" fn crabby_ctx_is_mesh_live(
+    ctx: *mut CrabbyCtx,
+    mesh: CrabbyMesh,
+    out_live: *mut bool,
+) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe { ctx_access(ctx, |c| out(out_live, c.is_mesh_live(to_c(mesh)))) })
 }

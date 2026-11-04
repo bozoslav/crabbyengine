@@ -6,6 +6,8 @@
 #include <cassert>
 #include <cmath>
 #include <cstdio>
+#include <future>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -938,6 +940,56 @@ static void hills(crabby::ctx& ctx) {
 }
 // ANCHOR_END: terrain
 
+// ANCHOR: streaming
+/// Ground that loads around the camera: tiles 128 m wide within 600 m,
+/// built on worker threads, freed past 800 m.
+static float hill(float x, float z) { return std::sin(x * 0.01f) * std::cos(z * 0.013f) * 20.0f; }
+
+struct Ground {
+    struct Tile {
+        std::future<crabby::terrain_tile_data> building;
+        crabby::entity entity = 0;   // once built (`building` is then spent)
+        crabby::terrain_tile tile{};
+    };
+    crabby::cell_streamer cells{128, 600, 800};
+    std::map<std::pair<int, int>, Tile> tiles;
+    crabby::material material;
+
+    /// Every frame: start up to 4 tiles, drop the far ones, and put up to
+    /// 2 finished ones in the world.
+    void update(crabby::ctx& ctx) {
+        cells.update(ctx.camera3d().position, 4);
+        for (auto cell : cells.to_load()) {
+            auto corner = cells.corner(cell);
+            tiles[{cell.x, cell.z}].building = std::async(std::launch::async, [corner] {
+                // 65 x 65 heights, 2 m apart.
+                std::vector<float> heights(65 * 65);
+                for (std::size_t i = 0; i < heights.size(); ++i)
+                    heights[i] = hill(corner.x + float(i % 65) * 2, corner.z + float(i / 65) * 2);
+                return crabby::terrain_tile_data(heights, 128);
+            });
+        }
+        for (auto cell : cells.to_drop()) {
+            auto found = tiles.find({cell.x, cell.z});
+            if (found == tiles.end()) continue;
+            if (!found->second.building.valid()) {
+                ctx.world().despawn(found->second.entity);
+                ctx.free_terrain_tile(found->second.tile);
+            }
+            tiles.erase(found);   // a tile still building is waited for here
+        }
+        int uploads = 0;
+        for (auto& [cell, t] : tiles) {
+            if (uploads == 2) break;
+            if (!t.building.valid() || t.building.wait_for(std::chrono::seconds(0)) != std::future_status::ready) continue;
+            t.tile = ctx.upload_terrain_tile(t.building.get(), material);
+            t.entity = ctx.world().spawn(crabby::transform3d_at(cells.corner({cell.first, cell.second})), t.tile);
+            ++uploads;
+        }
+    }
+};
+// ANCHOR_END: streaming
+
 static void the_village_has_five_spinning_houses() {
     auto world = crabby::game("guide", 640, 480).sim_system(spin, "spin").run_headless(60, [](crabby::ctx& ctx) {
         village(ctx);
@@ -999,10 +1051,27 @@ static void the_hills_are_nine_tiles() {
     if (tiles != 9) { std::fprintf(stderr, "%d tiles\n", tiles); std::abort(); }
 }
 
+static void the_ground_streams_in_and_out() {
+    crabby::game("ground", 1, 1).run_headless(0, [](crabby::ctx& ctx) {
+        Ground ground{};
+        ground.material = ctx.create_material(crabby::material_of(crabby::colors::white));
+        auto live = [&] { std::size_t n = 0; for (auto& [c, t] : ground.tiles) n += !t.building.valid(); return n; };
+        for (int i = 0; i < 100000 && (live() < ground.tiles.size() || ground.tiles.empty()); ++i) ground.update(ctx);
+        auto first = live();
+        if (first < 20) { std::fprintf(stderr, "%zu tiles\n", first); std::abort(); }
+        auto camera = ctx.camera3d();
+        camera.position = {10000, 0, 0};
+        ctx.set_camera3d(camera);
+        ground.update(ctx);
+        if (ground.cells.to_drop().size() != first) { std::fprintf(stderr, "dropped %zu\n", ground.cells.to_drop().size()); std::abort(); }
+    });
+}
+
 int main() {
     the_ripples_run_on_a_render_target();
     the_pond_mirrors_the_camera();
     the_hills_are_nine_tiles();
+    the_ground_streams_in_and_out();
     the_dive_adds_one_effect();
     the_beach_has_five_palms();
     the_village_has_five_spinning_houses();

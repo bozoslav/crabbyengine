@@ -113,22 +113,22 @@ pub use render::RenderStats;
 pub use sheet::{Animation, SpriteSheet, animate_sprites};
 #[doc(hidden)]
 pub use spatial::RawGridView;
-#[cfg(feature = "3d")]
-pub use stream::CellStreamer;
-pub use stream::Job;
 pub use spatial::{GridEntry, SPATIAL_SORT_EVERY, SpatialGrid, rebuild_spatial_grid, spatial_key};
 /// The Steamworks SDK (re-exported `steamworks` crate, feature `steam`):
 /// create the [`steamworks::Client`] for [`Net::steam_host`] here, and use
 /// it for achievements, friends and the rest of Steam.
 #[cfg(feature = "steam")]
 pub use steamworks;
+#[cfg(feature = "3d")]
+pub use stream::CellStreamer;
+pub use stream::Job;
 pub use text::{Font, TextParams};
 pub use texture::{DrawParams, Texture, TextureFilter};
 #[cfg(feature = "3d")]
 pub use three::{
     Blend, Camera3D, Compute, ComputePass, Effect, Lighting, Material, MaterialDesc, Mesh, MeshData, Model, Post,
-    ScreenEffect, Shader, Sky, TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera, TerrainMaterialDesc, TerrainTile, TerrainTileData,
-    TextureArray, TextureKind, Tonemap, Transform3D,
+    ScreenEffect, Shader, Sky, TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera, TerrainMaterialDesc, TerrainTile,
+    TerrainTileData, TextureArray, TextureKind, Tonemap, Transform3D,
 };
 pub use tilemap::{TileMap, draw_tilemaps};
 pub use ui::UiStyle;

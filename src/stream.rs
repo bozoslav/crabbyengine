@@ -31,8 +31,9 @@ use glam::{Vec2, Vec3};
 #[derive(Debug)]
 pub struct Job<T> {
     result: mpsc::Receiver<T>,
-    /// Kept here once received, until taken.
-    done: Option<T>,
+    /// Kept here once received, until taken (boxed, so a job stays small
+    /// while it runs).
+    done: Option<Box<T>>,
     taken: bool,
 }
 
@@ -101,7 +102,7 @@ impl<T> Job<T> {
         if result.is_some() {
             self.taken = true;
         }
-        result
+        result.map(|r| *r)
     }
 
     /// Waits for the result, blocking this thread (for loading screens and
@@ -117,7 +118,7 @@ impl<T> Job<T> {
     /// If the work panicked, or its result was already taken.
     pub fn wait(mut self) -> T {
         if let Some(result) = self.done.take() {
-            return result;
+            return *result;
         }
         assert!(!self.taken, "crabbyengine: Job::wait: the result was already taken");
         self.result
@@ -130,7 +131,7 @@ impl<T> Job<T> {
             return;
         }
         match self.result.try_recv() {
-            Ok(result) => self.done = Some(result),
+            Ok(result) => self.done = Some(Box::new(result)),
             Err(mpsc::TryRecvError::Empty) => {}
             Err(mpsc::TryRecvError::Disconnected) => panic!("crabbyengine: a job's work panicked"),
         }
@@ -251,7 +252,8 @@ impl CellStreamer {
             }
         }
         // Nearest first; equal distances in a fixed order.
-        self.wanted.sort_unstable_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+        self.wanted
+            .sort_unstable_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
         self.to_load.clear();
         for &(_, cell) in self.wanted.iter().take(max_new) {
             self.loaded.insert(cell);
