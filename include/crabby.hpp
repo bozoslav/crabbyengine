@@ -101,6 +101,10 @@ using material = CrabbyMaterial;
 using material_desc = CrabbyMaterialDesc;
 /// A material shader in WGSL (ctx::load_shader, ctx::create_shader).
 using shader = CrabbyShader;
+/// A screen effect shader in WGSL (ctx::load_effect, ctx::create_effect).
+using effect = CrabbyEffect;
+/// One screen effect run over the lit 3D frame (Rust `ScreenEffect`); see screen_effect_of.
+using screen_effect = CrabbyScreenEffect;
 /// How a material covers what's behind it (`material_desc::blend`).
 enum class blend : uint32_t { opaque = 0, transparent = 1 };
 using camera3d = CrabbyCamera3D;
@@ -228,6 +232,10 @@ inline model model_of(mesh m, color tint = colors::white) { model x = crabby_mod
 /// A plain material of one color: roughness 0.6, not metallic. Change
 /// roughness, metallic, emissive or set a texture on the result.
 inline material_desc material_of(color c) { return crabby_material_desc(c); }
+/// Runs `e`, reading its values and textures from `m` (or from the default
+/// material when `m` is left out).
+inline screen_effect screen_effect_of(effect e) { return {e, false, {}}; }
+inline screen_effect screen_effect_of(effect e, material m) { return {e, true, m}; }
 /// Built-in font, 16 px, white.
 inline text_params text_defaults() { return crabby_text_params_default(); }
 /// Full volume, normal speed, once.
@@ -1179,6 +1187,23 @@ public:
     crabby::shader create_shader(const char* name, const char* source) {
         crabby::shader x{}; detail::check(crabby_ctx_create_shader(raw_, name, source, &x)); return x;
     }
+    /// Loads a screen effect (WGSL defining `fn effect(p: Pixel) -> vec3<f32>`)
+    /// from assets/, hot reloaded; the same file again gives the same effect.
+    crabby::effect load_effect(const char* path) { crabby::effect e{}; detail::check(crabby_ctx_load_effect(raw_, path, &e)); return e; }
+    /// A screen effect from WGSL source; `name` is for error messages.
+    crabby::effect create_effect(const char* name, const char* source) {
+        crabby::effect e{}; detail::check(crabby_ctx_create_effect(raw_, name, source, &e)); return e;
+    }
+    /// The screen effects run over the lit 3D frame each frame, in order.
+    std::vector<screen_effect> effects() const {
+        std::size_t n = 0;
+        detail::check(crabby_ctx_effects(raw_, nullptr, 0, &n));
+        std::vector<screen_effect> list(n);
+        detail::check(crabby_ctx_effects(raw_, list.data(), list.size(), &n));
+        return list;
+    }
+    /// Replaces the screen effects run each frame (empty: none).
+    void set_effects(const std::vector<screen_effect>& list) { detail::check(crabby_ctx_set_effects(raw_, list.data(), list.size())); }
     /// A plain white material, made once and shared.
     material default_material() { material m{}; detail::check(crabby_ctx_default_material(raw_, &m)); return m; }
     /// Puts triangles on the GPU as a mesh of one material; draw it with

@@ -8,6 +8,14 @@ says what that covers.
 ## [Unreleased]
 
 ### Added
+- 3D screen effects: `ctx.create_effect` and `ctx.load_effect` (hot
+  reloaded) make a WGSL shader defining `fn effect(p: Pixel)`, run over the
+  lit frame before bloom and tone mapping by adding a `ScreenEffect` to
+  `ctx.effects`, with a material's values and textures. In C
+  (`crabby_ctx_create_effect`, `crabby_ctx_load_effect`,
+  `crabby_ctx_set_effects`, `crabby_ctx_effects`) and C++
+  (`ctx.create_effect`, `ctx.load_effect`, `ctx.set_effects`,
+  `ctx.effects()`, `crabby::screen_effect_of`).
 - Terrain materials: `ctx.create_terrain_material` (`TerrainMaterialDesc`)
   blends up to 8 ground layers by a weight map, with textures lined up
   with the world and optional normal maps. In C

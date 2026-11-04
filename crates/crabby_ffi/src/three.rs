@@ -4,9 +4,9 @@
 use std::ffi::c_char;
 
 use crabbyengine::{
-    Blend, Camera3D, Color, Lighting, Material, MaterialDesc, Mesh, MeshData, Model, Post, Quat, Shader, Sky,
-    TERRAIN_LAYERS, TERRAIN_LODS, TerrainMaterialDesc, TerrainTile, TextureArray, TextureKind, Tonemap, Transform3D,
-    Vec2, Vec3, Vec4,
+    Blend, Camera3D, Color, Effect, Lighting, Material, MaterialDesc, Mesh, MeshData, Model, Post, Quat, ScreenEffect,
+    Shader, Sky, TERRAIN_LAYERS, TERRAIN_LODS, TerrainMaterialDesc, TerrainTile, TextureArray, TextureKind, Tonemap,
+    Transform3D, Vec2, Vec3, Vec4,
 };
 
 use crate::ctx::{ctx_access, out, text};
@@ -130,6 +130,36 @@ pub struct CrabbyTerrainTile {
 /// How many detail levels a `CrabbyTerrainTile` has.
 pub const CRABBY_TERRAIN_LODS: usize = 4;
 const _: () = assert!(CRABBY_TERRAIN_LODS == TERRAIN_LODS);
+
+/// A screen effect shader (`crabby_ctx_load_effect`, `crabby_ctx_create_effect`).
+/// ```
+/// let e = crabby_ffi::CrabbyEffect { id: 0 };
+/// assert_eq!(e.id, 0);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CrabbyEffect {
+    /// Engine-internal id.
+    pub id: u32,
+}
+
+/// One screen effect run over the lit 3D frame (Rust `ScreenEffect`):
+/// its shader, and the material its custom values and textures come from
+/// (the default material without one).
+/// ```
+/// let s = crabby_ffi::CrabbyScreenEffect { effect: crabby_ffi::CrabbyEffect { id: 0 }, has_material: false, material: Default::default() };
+/// assert!(!s.has_material);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CrabbyScreenEffect {
+    /// The shader.
+    pub effect: CrabbyEffect,
+    /// Whether `material` is used.
+    pub has_material: bool,
+    /// Where its values and textures come from.
+    pub material: CrabbyMaterial,
+}
 
 /// A material shader (`crabby_ctx_load_shader`, `crabby_ctx_create_shader`).
 /// ```
@@ -1204,6 +1234,136 @@ pub unsafe extern "C" fn crabby_ctx_create_shader(
             }
             let shader = c.try_create_shader(name, source).map_err(invalid_owned)?;
             out(out_shader, CrabbyShader { id: shader.id() })
+        })
+    })
+}
+
+/// Loads a screen effect shader (WGSL, defining `fn effect(p: Pixel) ->
+/// vec3<f32>`) from assets/, hot reloaded; the same file again gives the
+/// same effect (Rust `Ctx::load_effect`).
+/// # Safety
+/// `ctx` null or live; `path` a NUL-terminated string; output writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_load_effect(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_load_effect(
+    ctx: *mut CrabbyCtx,
+    path: *const c_char,
+    out_effect: *mut CrabbyEffect,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let path = text(path)?;
+            if out_effect.is_null() {
+                return Err(invalid("output is null"));
+            }
+            let effect = c.try_load_effect(path).map_err(invalid_owned)?;
+            out(out_effect, CrabbyEffect { id: effect.id() })
+        })
+    })
+}
+
+/// Makes a screen effect shader from WGSL source; `name` is for error
+/// messages (Rust `Ctx::create_effect`).
+/// # Safety
+/// `ctx` null or live; `name` and `source` NUL-terminated strings; output writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_create_effect(std::ptr::null_mut(), std::ptr::null(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_create_effect(
+    ctx: *mut CrabbyCtx,
+    name: *const c_char,
+    source: *const c_char,
+    out_effect: *mut CrabbyEffect,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let name = text(name)?;
+            let source = text(source)?;
+            if out_effect.is_null() {
+                return Err(invalid("output is null"));
+            }
+            let effect = c.try_create_effect(name, source).map_err(invalid_owned)?;
+            out(out_effect, CrabbyEffect { id: effect.id() })
+        })
+    })
+}
+
+/// Replaces the screen effects run each frame with `count` of them, in
+/// order (Rust `ctx.effects`); 0 runs none.
+/// # Safety
+/// `ctx` null or live; `effects` holds `count` values (may be null when 0).
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_effects(std::ptr::null_mut(), std::ptr::null(), 0) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_effects(
+    ctx: *mut CrabbyCtx,
+    effects: *const CrabbyScreenEffect,
+    count: usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            if effects.is_null() && count > 0 {
+                return Err(invalid("effects is null"));
+            }
+            let given = if count == 0 {
+                &[][..]
+            } else {
+                std::slice::from_raw_parts(effects, count)
+            };
+            let mut list = Vec::with_capacity(count);
+            for e in given {
+                let effect = Effect::from_id(e.effect.id);
+                if !c.has_effect(effect) {
+                    return Err(invalid("that effect wasn't made by this game"));
+                }
+                let material = e.has_material.then(|| to_c(e.material));
+                if material.is_some_and(|m| !c.has_material(m)) {
+                    return Err(invalid("that material wasn't made by this game"));
+                }
+                list.push(ScreenEffect { effect, material });
+            }
+            c.effects = list;
+            Ok(())
+        })
+    })
+}
+
+/// The screen effects run each frame: writes up to `capacity` of them to
+/// `out_effects` and how many there are to `out_count` (Rust `ctx.effects`).
+/// # Safety
+/// `ctx` null or live; `out_effects` holds `capacity` values (may be null
+/// when 0); `out_count` writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_effects(std::ptr::null_mut(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_effects(
+    ctx: *mut CrabbyCtx,
+    out_effects: *mut CrabbyScreenEffect,
+    capacity: usize,
+    out_count: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            if out_count.is_null() || (out_effects.is_null() && capacity > 0) {
+                return Err(invalid("output is null"));
+            }
+            for (i, e) in c.effects.iter().take(capacity).enumerate() {
+                out_effects.add(i).write(CrabbyScreenEffect {
+                    effect: CrabbyEffect { id: e.effect.id() },
+                    has_material: e.material.is_some(),
+                    material: e.material.map(to_c).unwrap_or_default(),
+                });
+            }
+            out(out_count, c.effects.len())
         })
     })
 }

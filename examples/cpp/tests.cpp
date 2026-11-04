@@ -180,6 +180,13 @@ static void three_d() {
         CHECK(ground.id != stone.id);
         throws([&] { ctx.create_texture_array(1, 1, std::vector<std::uint8_t>(6, 0), crabby::texture_kind::color); });
         throws([&] { ctx.create_terrain_material(crabby::terrain_material_of(layers, weights, {0, 0}, {0, 0})); });
+        auto grey = ctx.create_effect("grey", "fn effect(p: Pixel) -> vec3<f32> { return vec3<f32>(p.color.g); }");
+        ctx.set_effects({crabby::screen_effect_of(grey), crabby::screen_effect_of(grey, stone)});
+        CHECK(ctx.effects().size() == 2 && ctx.effects()[1].material.id == stone.id);
+        throws([&] { ctx.create_effect("bad", "fn effect(p: Pixel) -> f32 { return 1.0; }"); });
+        throws([&] { ctx.set_effects({crabby::screen_effect_of(crabby::effect{99})}); });
+        ctx.set_effects({});
+        CHECK(ctx.effects().empty());
 
         auto cam = ctx.camera3d();
         cam.position = {0, 5, 10};

@@ -400,12 +400,22 @@ impl Ctx {
     /// them, the camera and the light to the renderer.
     pub(crate) fn prepare_3d(&mut self) {
         let time = (self.time() as f32, self.dt());
+        if self.renderer.is_none() || self.assets3d.bounds.is_empty() {
+            return; // no meshes, no 3D pass
+        }
+        let fallback = if self.effects.iter().any(|e| e.material.is_none()) {
+            Some(self.default_material())
+        } else {
+            None
+        };
+        self.frame3d.effects.clear();
+        self.frame3d.effects.extend(self.effects.iter().filter_map(|e| {
+            let material = e.material.or(fallback)?;
+            Some((e.effect.id, material.id))
+        }));
         let Some(renderer) = self.renderer.as_mut() else {
             return;
         };
-        if self.assets3d.bounds.is_empty() {
-            return; // no meshes, no 3D pass
-        }
         let start = web_time::Instant::now();
         self.frame3d
             .collect(&mut self.world, &self.assets3d, &self.camera3d, &self.lighting);

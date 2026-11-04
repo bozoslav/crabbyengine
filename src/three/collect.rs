@@ -44,6 +44,8 @@ pub(crate) struct Frame3D {
     pub sun_view_proj: [Mat4; MAX_CASCADES],
     /// Each cascade's size, in world units per shadow-map texel.
     pub cascade_texel: [f32; MAX_CASCADES],
+    /// The screen effects to run, in order: (effect, material).
+    pub effects: Vec<(u32, u32)>,
     /// How many of `instances` the camera sees (the rest cast shadows).
     pub visible: usize,
     /// The light the sky gave last, and what it was worked out from.

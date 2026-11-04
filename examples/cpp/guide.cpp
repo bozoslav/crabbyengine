@@ -779,6 +779,30 @@ static void meadow(crabby::ctx& ctx) {
 }
 // ANCHOR_END: shader
 
+// ANCHOR: effect
+/// Under water, light fades to deep blue with distance (and the sky above
+/// is gone). `material.custom[0].x` is the water's height.
+static const char* underwater_effect = R"(
+fn effect(p: Pixel) -> vec3<f32> {
+    if frame.camera.y > material.custom[0].x {
+        return p.color; // above the water: nothing changes
+    }
+    let deep = vec3<f32>(0.02, 0.12, 0.18);
+    let fade = 1.0 - exp(-p.distance * 0.08);
+    return mix(p.color * vec3<f32>(0.6, 0.9, 1.0), deep, fade);
+})";
+
+static void dive(crabby::ctx& ctx) {
+    auto underwater = ctx.create_effect("underwater.wgsl", underwater_effect);
+    auto desc = crabby::material_of(crabby::colors::white);
+    desc.custom[0] = 2; // water at y = 2
+    auto lake = ctx.create_material(desc);
+    auto list = ctx.effects();
+    list.push_back(crabby::screen_effect_of(underwater, lake));
+    ctx.set_effects(list);
+}
+// ANCHOR_END: effect
+
 // ANCHOR: terrain_material
 static float hill_height(float x, float z) { return std::sin(x * 0.02f) * 6 + std::cos(z * 0.03f) * 4; }
 
@@ -856,6 +880,14 @@ static void the_village_has_five_spinning_houses() {
     if (houses != 5) { std::fprintf(stderr, "%d houses\n", houses); std::abort(); }
 }
 
+static void the_dive_adds_one_effect() {
+    crabby::game("dive", 64, 64).run_headless(1, [](crabby::ctx& ctx) {
+        dive(ctx);
+        auto list = ctx.effects();
+        if (list.size() != 1 || !list[0].has_material) { std::fprintf(stderr, "effects\n"); std::abort(); }
+    });
+}
+
 static void the_hills_are_nine_tiles() {
     auto world = crabby::game("hills", 640, 480).run_headless(1, [](crabby::ctx& ctx) { hills(ctx); });
     int tiles = 0;
@@ -868,6 +900,7 @@ static void the_hills_are_nine_tiles() {
 
 int main() {
     the_hills_are_nine_tiles();
+    the_dive_adds_one_effect();
     the_beach_has_five_palms();
     the_village_has_five_spinning_houses();
     things_fall_ten_units_per_second();

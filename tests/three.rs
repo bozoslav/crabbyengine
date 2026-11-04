@@ -333,6 +333,70 @@ fn the_guide_hills_are_nine_tiles_of_four_details() {
     assert_eq!(meshes.len(), 9 * TERRAIN_LODS, "every tile and level has its own mesh");
 }
 
+// ANCHOR: effect
+/// Under water, light fades to deep blue with distance (and the sky above
+/// is gone). `material.custom[0].x` is the water's height.
+const UNDERWATER: &str = "
+fn effect(p: Pixel) -> vec3<f32> {
+    if frame.camera.y > material.custom[0].x {
+        return p.color; // above the water: nothing changes
+    }
+    let deep = vec3<f32>(0.02, 0.12, 0.18);
+    let fade = 1.0 - exp(-p.distance * 0.08);
+    return mix(p.color * vec3<f32>(0.6, 0.9, 1.0), deep, fade);
+}";
+
+fn dive(ctx: &mut Ctx) {
+    let underwater = ctx.create_effect("underwater.wgsl", UNDERWATER);
+    let lake = ctx.create_material(MaterialDesc {
+        custom: [vec4(2.0, 0.0, 0.0, 0.0), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO], // water at y = 2
+        ..Default::default()
+    });
+    ctx.effects.push(ScreenEffect::new(underwater).with_material(lake));
+}
+// ANCHOR_END: effect
+
+#[test]
+fn the_guide_effect_is_added_once() {
+    let mut effects = Vec::new();
+    Game::new("dive", 64, 64).run_headless(2, |ctx| {
+        dive(ctx);
+        effects = ctx.effects.clone();
+    });
+    assert_eq!(effects.len(), 1);
+    assert!(effects[0].material.is_some());
+}
+
+#[test]
+fn effect_errors_say_which_effect() {
+    let err = std::panic::catch_unwind(|| {
+        Game::new("t", 1, 1).run_headless(0, |ctx| {
+            let _ = ctx.create_effect("broken.wgsl", "fn effect(p: Pixel) -> vec3<f32> { return p; }");
+        });
+    })
+    .unwrap_err();
+    let message = err.downcast_ref::<String>().cloned().unwrap_or_default();
+    assert!(message.contains("broken.wgsl"), "{message}");
+}
+
+#[test]
+fn effects_read_every_pixel_field() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        let all = ctx.create_effect(
+            "all.wgsl",
+            "fn effect(p: Pixel) -> vec3<f32> {
+                let far = select(p.distance, 0.0, p.sky);
+                let near = scene_color(p.screen + vec2<f32>(1.0, 0.0));
+                return p.color + near * 0.1 + p.world * 0.0 + vec3<f32>(p.uv, far * material.custom[0].x);
+            }",
+        );
+        assert_ne!(
+            all,
+            ctx.create_effect("other.wgsl", "fn effect(p: Pixel) -> vec3<f32> { return p.color; }")
+        );
+    });
+}
+
 #[test]
 fn texture_arrays_hold_one_image_per_layer() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {

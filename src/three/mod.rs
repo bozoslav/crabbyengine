@@ -11,6 +11,7 @@
 
 mod api;
 mod collect;
+mod effect;
 mod gltf;
 mod mesh;
 mod post;
@@ -24,6 +25,7 @@ pub(crate) use api::MaterialTextures;
 pub(crate) use collect::Frame3D;
 #[cfg(feature = "window")]
 pub(crate) use collect::{Instance3D, MAX_CASCADES, SHADOW_MAP_SIZE};
+pub use effect::{Effect, ScreenEffect};
 pub use mesh::MeshData;
 #[cfg(feature = "window")]
 pub(crate) use post::PostUniform;
@@ -559,6 +561,10 @@ pub(crate) struct Assets3D {
     pub materials: u32,
     /// Texture arrays made so far, by id.
     pub arrays: Vec<TextureArray>,
+    /// Screen effects made so far.
+    pub effects: u32,
+    /// Effects loaded from files, by resolved path.
+    pub loaded_effects: std::collections::HashMap<std::path::PathBuf, Effect>,
     /// The built-in terrain shader, once a terrain material needs it.
     pub terrain_shader: Option<Shader>,
     /// Shaders made so far (the built-in one is not counted).

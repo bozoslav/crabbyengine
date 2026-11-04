@@ -532,6 +532,16 @@ typedef struct CrabbyMeshView {
   size_t index_count;
 } CrabbyMeshView;
 
+typedef struct CrabbyEffect {
+  uint32_t id;
+} CrabbyEffect;
+
+typedef struct CrabbyScreenEffect {
+  struct CrabbyEffect effect;
+  bool has_material;
+  struct CrabbyMaterial material;
+} CrabbyScreenEffect;
+
 typedef struct CrabbyTerrainTile {
   struct CrabbyMesh lods[CRABBY_TERRAIN_LODS];
   float lod_distance;
@@ -1289,6 +1299,24 @@ enum CrabbyStatus crabby_ctx_create_shader(struct CrabbyCtx *ctx,
                                            const char *name,
                                            const char *source,
                                            struct CrabbyShader *out_shader);
+
+enum CrabbyStatus crabby_ctx_load_effect(struct CrabbyCtx *ctx,
+                                         const char *path,
+                                         struct CrabbyEffect *out_effect);
+
+enum CrabbyStatus crabby_ctx_create_effect(struct CrabbyCtx *ctx,
+                                           const char *name,
+                                           const char *source,
+                                           struct CrabbyEffect *out_effect);
+
+enum CrabbyStatus crabby_ctx_set_effects(struct CrabbyCtx *ctx,
+                                         const struct CrabbyScreenEffect *effects,
+                                         size_t count);
+
+enum CrabbyStatus crabby_ctx_effects(struct CrabbyCtx *ctx,
+                                     struct CrabbyScreenEffect *out_effects,
+                                     size_t capacity,
+                                     size_t *out_count);
 
 enum CrabbyStatus crabby_ctx_default_material(struct CrabbyCtx *ctx,
                                               struct CrabbyMaterial *out_material);

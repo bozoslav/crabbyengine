@@ -339,3 +339,74 @@ fn terrain_tiles_are_made_and_spawned_from_c() {
     }
     assert_eq!(errors, vec![CRABBY_INVALID_ARGUMENT; 7]);
 }
+
+unsafe extern "C" fn effects(ctx: *mut CrabbyCtx, user: *mut c_void) {
+    unsafe {
+        let errors = &mut *user.cast::<Vec<CrabbyStatus>>();
+        let mut grey = CrabbyEffect::default();
+        let source = c"fn effect(p: Pixel) -> vec3<f32> { return vec3<f32>(dot(p.color, vec3<f32>(0.3, 0.6, 0.1))); }";
+        assert_eq!(
+            crabby_ctx_create_effect(ctx, c"grey".as_ptr(), source.as_ptr(), &mut grey),
+            CRABBY_OK
+        );
+        let mut values = CrabbyMaterial::default();
+        assert_eq!(
+            crabby_ctx_create_material(ctx, &crabby_material_desc(WHITE), &mut values),
+            CRABBY_OK
+        );
+        let list = [
+            CrabbyScreenEffect {
+                effect: grey,
+                has_material: false,
+                material: CrabbyMaterial::default(),
+            },
+            CrabbyScreenEffect {
+                effect: grey,
+                has_material: true,
+                material: values,
+            },
+        ];
+        assert_eq!(crabby_ctx_set_effects(ctx, list.as_ptr(), 2), CRABBY_OK);
+        let mut back = [CrabbyScreenEffect::default(); 4];
+        let mut n = 0;
+        assert_eq!(crabby_ctx_effects(ctx, back.as_mut_ptr(), 4, &mut n), CRABBY_OK);
+        assert_eq!((n, back[1]), (2, list[1]));
+        // A broken shader, an unknown effect, and another game's material.
+        let mut other = CrabbyEffect::default();
+        errors.push(crabby_ctx_create_effect(
+            ctx,
+            c"bad".as_ptr(),
+            c"fn effect(p: Pixel) -> f32 { return 1.0; }".as_ptr(),
+            &mut other,
+        ));
+        let unknown = [CrabbyScreenEffect {
+            effect: CrabbyEffect { id: 9 },
+            ..list[0]
+        }];
+        errors.push(crabby_ctx_set_effects(ctx, unknown.as_ptr(), 1));
+        let foreign = [CrabbyScreenEffect {
+            material: CrabbyMaterial { id: 99 },
+            ..list[1]
+        }];
+        errors.push(crabby_ctx_set_effects(ctx, foreign.as_ptr(), 1));
+        // The bad lists changed nothing.
+        assert_eq!(crabby_ctx_effects(ctx, back.as_mut_ptr(), 4, &mut n), CRABBY_OK);
+        assert_eq!(n, 2);
+    }
+}
+
+#[test]
+fn screen_effects_are_made_and_listed_from_c() {
+    let mut errors: Vec<CrabbyStatus> = Vec::new();
+    unsafe {
+        let g = crabby_game_new(c"effects".as_ptr(), 64, 64);
+        let mut world = null_mut();
+        let user = (&raw mut errors).cast();
+        assert_eq!(
+            crabby_game_run_headless(g, 1, Some(effects), user, &mut world),
+            CRABBY_OK
+        );
+        crabby_world_free(world);
+    }
+    assert_eq!(errors, vec![CRABBY_INVALID_ARGUMENT; 3]);
+}

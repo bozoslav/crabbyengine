@@ -125,6 +125,8 @@ struct Pipelines {
 /// The built-in parts of every material shader.
 const MESH_PRELUDE: &str = include_str!("mesh.wgsl");
 const MESH_MAIN: &str = include_str!("mesh_main.wgsl");
+const EFFECT_PRELUDE: &str = include_str!("effect.wgsl");
+const EFFECT_MAIN: &str = include_str!("effect_main.wgsl");
 const SKY: &str = include_str!("sky.wgsl");
 /// The sky texture: every direction around the camera.
 const SKY_SIZE: (u32, u32) = (256, 128);
@@ -169,6 +171,20 @@ pub(crate) fn compose_shader(user: &str) -> String {
         source.push_str("fn surface(s: Surface) -> Surface { return s; }\n");
     }
     source.push_str(MESH_MAIN);
+    source
+}
+
+/// A whole screen effect shader from the game's part: the mesh prelude
+/// (bindings and helpers), `Pixel`, the game's `effect`, the entry points.
+pub(crate) fn compose_effect(user: &str) -> String {
+    let mut source =
+        String::with_capacity(MESH_PRELUDE.len() + EFFECT_PRELUDE.len() + user.len() + EFFECT_MAIN.len() + 100);
+    source.push_str(MESH_PRELUDE);
+    source.push_str(EFFECT_PRELUDE);
+    source.push_str("\n// ---- the game's effect ----\n");
+    source.push_str(user);
+    source.push_str("\n// ---- the engine's entry points ----\n");
+    source.push_str(EFFECT_MAIN);
     source
 }
 
@@ -269,6 +285,10 @@ pub(crate) struct Renderer3D {
     targets: Option<Targets>,
     /// A 1x1 white texture, for materials without one.
     white: u32,
+    /// Screen effect pipelines, by effect id.
+    effect_pipelines: Vec<wgpu::RenderPipeline>,
+    /// This frame's effects, in order: (effect, material).
+    effects: Vec<(u32, u32)>,
     /// Texture arrays for materials (whole, every layer and mip level).
     arrays: Vec<wgpu::TextureView>,
     /// A 1x1 white one-layer array, for materials without one.
@@ -801,11 +821,32 @@ impl Renderer3D {
             capacity,
             targets: None,
             white,
+            effect_pipelines: Vec::new(),
+            effects: Vec::new(),
             arrays: Vec::new(),
             white_array: array_view(white_array),
             runs: Vec::new(),
             shadow_runs: Default::default(),
         }
+    }
+
+    /// Compiles a screen effect from the game's WGSL; returns its id.
+    pub fn create_effect(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, String> {
+        let source = compose_effect(user);
+        check_shader(name, &source)?;
+        self.effect_pipelines
+            .push(build_effect(device, &self.layout, name, &source));
+        Ok(self.effect_pipelines.len() as u32 - 1)
+    }
+
+    /// Recompiles effect `id` (hot reload). On an error the old one stays.
+    pub fn replace_effect(&mut self, device: &wgpu::Device, id: u32, name: &str, user: &str) -> Result<(), String> {
+        let source = compose_effect(user);
+        check_shader(name, &source)?;
+        if let Some(pipeline) = self.effect_pipelines.get_mut(id as usize) {
+            *pipeline = build_effect(device, &self.layout, name, &source);
+        }
+        Ok(())
     }
 
     /// Keeps a texture array for materials; returns its id.
@@ -991,6 +1032,14 @@ impl Renderer3D {
         self.atmosphere = sky.atmosphere;
         self.runs.clear();
         self.runs.extend_from_slice(&frame.runs);
+        self.effects.clear();
+        let (effects, materials) = (self.effect_pipelines.len(), self.materials.len());
+        self.effects.extend(
+            frame
+                .effects
+                .iter()
+                .filter(|&&(e, m)| (e as usize) < effects && (m as usize) < materials),
+        );
         self.cascades = frame.cascades;
         for (mine, theirs) in self.shadow_runs.iter_mut().zip(&frame.shadow_runs) {
             mine.clear();
@@ -1180,8 +1229,8 @@ impl Renderer3D {
     }
 
     /// Draw calls the frame's models take: two per mesh part (depth
-    /// prepass and lit), one per mesh part in each shadow cascade, the bloom steps and
-    /// the post pass.
+    /// prepass and lit), one per mesh part in each shadow cascade, one per
+    /// screen effect, the bloom steps and the post pass.
     pub fn draw_calls(&self) -> usize {
         let parts: usize = self
             .runs
@@ -1189,6 +1238,7 @@ impl Renderer3D {
             .map(|&(mesh, _, _)| self.meshes[mesh as usize].parts.len())
             .sum();
         parts * 2
+            + self.effects.len()
             + if self.atmosphere { 2 } else { 0 }
             + self.shadow_runs[..self.cascades].iter().map(Vec::len).sum::<usize>()
             + 1
@@ -1358,6 +1408,35 @@ impl Renderer3D {
             pass.set_bind_group(2, &targets.scene, &[]);
             self.draw_models(&mut pass, &self.runs, Kind::Transparent);
         }
+        // Screen effects, in order: each reads a copy of the frame so far.
+        for &(effect, material) in &self.effects {
+            encoder.copy_texture_to_texture(
+                targets.hdr_texture.as_image_copy(),
+                targets.scene_texture.as_image_copy(),
+                targets.hdr_texture.size(),
+            );
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("3d screen effect"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &targets.hdr,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: time(),
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.effect_pipelines[effect as usize]);
+            pass.set_bind_group(0, &self.frame_bind_group, &[]);
+            pass.set_bind_group(1, &self.materials[material as usize].bind_group, &[]);
+            pass.set_bind_group(2, &targets.scene, &[]);
+            pass.draw(0..3, 0..1);
+        }
         if self.bloom {
             let step = |encoder: &mut wgpu::CommandEncoder,
                         label,
@@ -1494,6 +1573,41 @@ enum Kind {
 
 /// A material shader's pipelines: depth prepass, opaque, transparent and
 /// shadow, each for one-sided and double-sided surfaces.
+/// The pipeline of a screen effect: a full-screen triangle into the HDR
+/// frame, with the material pipelines' bindings.
+fn build_effect(
+    device: &wgpu::Device,
+    layout: &wgpu::PipelineLayout,
+    name: &str,
+    source: &str,
+) -> wgpu::RenderPipeline {
+    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some(name),
+        source: wgpu::ShaderSource::Wgsl(source.into()),
+    });
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some(name),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module: &module,
+            entry_point: Some("vs_effect"),
+            compilation_options: Default::default(),
+            buffers: &[],
+        },
+        primitive: Default::default(),
+        depth_stencil: None,
+        multisample: Default::default(),
+        fragment: Some(wgpu::FragmentState {
+            module: &module,
+            entry_point: Some("fs_effect"),
+            compilation_options: Default::default(),
+            targets: &[Some(HDR_FORMAT.into())],
+        }),
+        multiview_mask: None,
+        cache: None,
+    })
+}
+
 fn build_pipelines(
     device: &wgpu::Device,
     layout: &wgpu::PipelineLayout,

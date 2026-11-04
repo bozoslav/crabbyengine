@@ -237,6 +237,19 @@ pub struct Ctx {
     /// ```
     #[cfg(feature = "3d")]
     pub post: crate::Post,
+    /// Screen effects run over the lit 3D frame each frame, in order,
+    /// before bloom and tone mapping (feature `3d`). Each reads what the
+    /// one before it left.
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// let haze = ctx.load_effect("effects/haze.wgsl");
+    /// ctx.effects.push(ScreenEffect::new(haze));
+    /// # }
+    /// ```
+    #[cfg(feature = "3d")]
+    pub effects: Vec<crate::ScreenEffect>,
     /// The sky behind the 3D world and the fog in front of it (feature
     /// `3d`): a physical sky lit by the sun, by default.
     ///
@@ -336,6 +349,8 @@ impl Ctx {
             lighting: crate::Lighting::default(),
             #[cfg(feature = "3d")]
             post: crate::Post::default(),
+            #[cfg(feature = "3d")]
+            effects: Vec::new(),
             #[cfg(feature = "3d")]
             sky: crate::Sky::default(),
             #[cfg(feature = "3d")]
@@ -1128,6 +1143,12 @@ impl Ctx {
                 #[cfg(feature = "3d")]
                 Asset::Shader(id) => {
                     let applied = assets::read_to_string(&file).and_then(|text| self.reload_shader(id, &name, &text));
+                    self.report_reload(name, applied);
+                    continue;
+                }
+                #[cfg(feature = "3d")]
+                Asset::Effect(id) => {
+                    let applied = assets::read_to_string(&file).and_then(|text| self.reload_effect(id, &name, &text));
                     self.report_reload(name, applied);
                     continue;
                 }
