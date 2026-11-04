@@ -1363,6 +1363,13 @@ enum CrabbyStatus crabby_ctx_update_material(struct CrabbyCtx *ctx,
                                              struct CrabbyMaterial material,
                                              const struct CrabbyMaterialDesc *desc);
 
+enum CrabbyStatus crabby_ctx_loaded_materials(struct CrabbyCtx *ctx,
+                                              const char *name,
+                                              struct CrabbyMaterial *out_materials,
+                                              struct CrabbyMaterialDesc *out_descs,
+                                              size_t capacity,
+                                              size_t *out_count);
+
 enum CrabbyStatus crabby_ctx_load_shader(struct CrabbyCtx *ctx,
                                          const char *path,
                                          struct CrabbyShader *out_shader);

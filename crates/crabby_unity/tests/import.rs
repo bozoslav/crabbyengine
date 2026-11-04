@@ -378,3 +378,39 @@ fn built_in_cubes_are_made_and_spheres_reported() {
     assert_eq!(position["count"], 24);
     assert_eq!(position["min"], serde_json::json!([-0.5, -0.5, -0.5]));
 }
+
+#[test]
+fn custom_shader_materials_are_described_for_the_game() {
+    let (fixture, project) = fixture("custom");
+    let out = fixture.dir.join("out");
+    let file = UnityFile::read(project.root().join("Assets/Tree.prefab")).unwrap();
+    let hierarchy = Hierarchy::build(&file, &project).unwrap();
+    let mut importer = Importer::new(&project, &out, "trees");
+    importer.custom_shader("Assets/Lit.shader");
+    let scene = importer.scene(&hierarchy).unwrap();
+    importer.finish().unwrap();
+    let described: Json = serde_json::from_str(&std::fs::read_to_string(out.join("materials.json")).unwrap()).unwrap();
+    let bark = &described["Bark"];
+    assert_eq!(bark["shader"], "Assets/Lit.shader");
+    assert_eq!(
+        bark["floats"]["_Cutoff"].as_f64().map(|f| (f * 10.0).round()),
+        Some(3.0)
+    );
+    assert_eq!(bark["colors"]["_BaseColor"], serde_json::json!([1.0, 0.5, 0.0, 1.0]));
+    // Every texture, written where the file says, with its tiling.
+    let base = &bark["textures"]["_BaseMap"];
+    assert_eq!(base["scale"], serde_json::json!([2.0, 1.0]));
+    let file = base["file"].as_str().unwrap();
+    assert!(out.join(file.strip_prefix("trees/").unwrap()).is_file(), "{file}");
+    assert!(bark["textures"]["_MetallicGlossMap"]["file"].is_string());
+    // The glTF material has the name materials.json uses.
+    let name = scene["entities"][0]["components"]["Model"]["mesh"].as_str().unwrap();
+    let glb = std::fs::read(out.join(name.strip_prefix("trees/").unwrap())).unwrap();
+    assert_eq!(glb_json(&glb)["materials"][0]["name"], "Bark");
+}
+
+#[test]
+fn without_custom_shaders_there_is_no_materials_file() {
+    let (f, _, _) = import("plain");
+    assert!(!f.dir.join("out/materials.json").exists());
+}

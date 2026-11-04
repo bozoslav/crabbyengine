@@ -45,10 +45,51 @@ space.
 - **Prefabs** inside prefabs, with their overrides, baked into one flat
   list of entities placed in the world.
 
+Vertex colors are kept only for shaders you name (see below): URP's
+shaders ignore them, so most meshes are drawn as Unity draws them without.
+
 Left out, and counted in the report: far levels of detail (only LOD 0 is
 kept), inactive objects and disabled renderers, skinned meshes, the
 built-in Sphere, Capsule and Cylinder, compressed meshes, and meshes or
 textures it can't find or read.
+
+## Your own shaders for imported materials
+
+Materials of the project's own shaders come over as plain PBR. To draw
+them with a Crabby [shader](3d.md) of your own, tell the importer which
+shaders those are:
+
+```rust
+import.custom_shader("Assets/Shaders/Wall.shader"); // as the report lists it
+```
+
+Their meshes then keep their vertex colors (which custom shaders often
+read; in Crabby's shaders they're `s.color`), and the importer writes
+`materials.json` next to the scenes: each such material by name, with its
+shader and every number, color and texture it sets, the textures written
+as PNGs. In the game, `loaded_materials(name)` gives every material loaded
+from glTF files under that name, with what it was made from, so you can
+keep that and change the shader:
+
+<div class="lang-pair">
+<div>
+
+```rust
+{{#include ../../tests/three.rs:loaded_materials}}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:loaded_materials}}
+```
+
+</div>
+</div>
+
+Call it after the scene (or model) is loaded: models loaded later aren't
+in it yet. C: `crabby_ctx_loaded_materials`.
 
 ## Terrain
 

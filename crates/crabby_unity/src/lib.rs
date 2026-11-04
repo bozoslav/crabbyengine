@@ -25,7 +25,7 @@ mod value;
 
 pub use hierarchy::{GameObject, Hierarchy};
 pub use import::{Importer, Report};
-pub use material::{Surface, UnityMaterial};
+pub use material::{Surface, TextureProperty, UnityMaterial};
 pub use mesh::{Channel, UnityMesh, VertexFormat};
 pub use project::Project;
 pub use terrain::UnityTerrain;

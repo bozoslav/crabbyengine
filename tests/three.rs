@@ -191,6 +191,40 @@ fn materials_only_take_this_games_shaders() {
 }
 
 #[test]
+fn loaded_materials_are_found_by_name_and_can_be_changed() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        assert!(ctx.loaded_materials("walls").is_empty(), "nothing loaded yet");
+        let _ = ctx.load_mesh("models/house.glb");
+        let walls = ctx.loaded_materials("walls");
+        assert_eq!(walls.len(), 1);
+        let roof = ctx.loaded_materials("roof");
+        assert_eq!(roof.len(), 1);
+        assert_ne!(walls[0].0, roof[0].0);
+        // Loading the file again makes no new materials.
+        let _ = ctx.load_mesh("models/house.glb");
+        assert_eq!(ctx.loaded_materials("walls").len(), 1);
+        // ANCHOR: loaded_materials
+        // The house's walls, drawn with a shader of our own: keep what they
+        // were made from (textures, colors) and change the shader.
+        let weathered = ctx.create_shader(
+            "weathered.wgsl",
+            "fn surface(s: Surface) -> Surface { var o = s; o.albedo *= 0.8; o.roughness = 0.95; return o; }",
+        );
+        for (walls, desc) in ctx.loaded_materials("walls") {
+            ctx.update_material(
+                walls,
+                MaterialDesc {
+                    shader: Some(weathered),
+                    ..desc
+                },
+            );
+        }
+        // ANCHOR_END: loaded_materials
+        assert!(ctx.loaded_materials("no such material").is_empty());
+    });
+}
+
+#[test]
 fn loading_a_model_twice_gives_the_same_mesh() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
         let a = ctx.load_mesh("models/house.glb");

@@ -646,35 +646,57 @@ pub extern "C" fn crabby_model(mesh: CrabbyMesh) -> CrabbyModel {
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_material_desc(color: CrabbyColor) -> CrabbyMaterialDesc {
-    let d = MaterialDesc::color(to_c(color));
+    material_to_c(&MaterialDesc::color(to_c(color)))
+}
+
+/// A Rust material description as C's.
+fn material_to_c(d: &MaterialDesc) -> CrabbyMaterialDesc {
     let none = CrabbyTexture {
         id: 0,
         width: 0,
         height: 0,
     };
+    let map = |t: Option<crabbyengine::Texture>| (t.is_some(), t.map_or(none, texture_to_c));
+    let (has_texture, texture) = map(d.texture);
+    let (has_normal_map, normal_map) = map(d.normal_map);
+    let (has_orm_map, orm_map) = map(d.orm_map);
+    let (has_emissive_map, emissive_map) = map(d.emissive_map);
+    let customs = d.custom_textures.map(map);
+    let mut custom = [0.0; 16];
+    for (i, v) in d.custom.iter().enumerate() {
+        custom[i * 4..i * 4 + 4].copy_from_slice(&v.to_array());
+    }
     CrabbyMaterialDesc {
         color: to_c(d.color),
-        has_texture: false,
-        texture: none,
+        has_texture,
+        texture,
         roughness: d.roughness,
         metallic: d.metallic,
         emissive: to_c(d.emissive),
-        has_normal_map: false,
-        normal_map: none,
+        has_normal_map,
+        normal_map,
         normal_strength: d.normal_strength,
-        has_orm_map: false,
-        orm_map: none,
-        has_emissive_map: false,
-        emissive_map: none,
-        blend: 0,
-        double_sided: false,
-        has_shader: false,
-        shader: CrabbyShader { id: 0 },
-        custom: [0.0; 16],
-        has_custom_textures: [false; 2],
-        custom_textures: [none; 2],
-        has_custom_arrays: [false; 3],
-        custom_arrays: [CrabbyTextureArray::default(); 3],
+        has_orm_map,
+        orm_map,
+        has_emissive_map,
+        emissive_map,
+        blend: match d.blend {
+            Blend::Opaque => 0,
+            Blend::Transparent => 1,
+            Blend::Cutout => 2,
+        },
+        double_sided: d.double_sided,
+        has_shader: d.shader.is_some(),
+        shader: CrabbyShader {
+            id: d.shader.map_or(0, |s| s.id()),
+        },
+        custom,
+        has_custom_textures: customs.map(|c| c.0),
+        custom_textures: customs.map(|c| c.1),
+        has_custom_arrays: d.custom_arrays.map(|a| a.is_some()),
+        custom_arrays: d
+            .custom_arrays
+            .map(|a| a.map_or_else(CrabbyTextureArray::default, array_to_c)),
     }
 }
 
@@ -1243,6 +1265,46 @@ pub unsafe extern "C" fn crabby_ctx_update_material(
             let desc = material_from_c(c, d)?;
             c.update_material(material, desc);
             Ok(())
+        })
+    })
+}
+
+/// The materials loaded from glTF files so far that the files call `name`,
+/// with what each was made from (Rust `Ctx::loaded_materials`): to give
+/// them a shader of your own with `crabby_ctx_update_material`. Writes up
+/// to `capacity` of them to `out_materials` and `out_descs` (either may be
+/// null to only count), and how many there are to `out_count`.
+/// # Safety
+/// `ctx` null or live; `name` a C string; the outputs writable for `capacity` entries.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_loaded_materials(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_loaded_materials(
+    ctx: *mut CrabbyCtx,
+    name: *const c_char,
+    out_materials: *mut CrabbyMaterial,
+    out_descs: *mut CrabbyMaterialDesc,
+    capacity: usize,
+    out_count: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let name = text(name)?;
+            if out_count.is_null() {
+                return Err(invalid("output is null"));
+            }
+            let found = c.loaded_materials(name);
+            for (i, (material, desc)) in found.iter().take(capacity).enumerate() {
+                if !out_materials.is_null() {
+                    out_materials.add(i).write(to_c(*material));
+                }
+                if !out_descs.is_null() {
+                    out_descs.add(i).write(material_to_c(desc));
+                }
+            }
+            out(out_count, found.len())
         })
     })
 }

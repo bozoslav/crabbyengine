@@ -708,6 +708,17 @@ static void village(crabby::ctx& ctx) {
     ctx.world().spawn(crabby::transform3d_at({0, 0, 0}), crabby::model_of(ground));
 
     auto house = ctx.load_mesh("models/house.glb");   // its walls and roof keep their materials
+    // ANCHOR: loaded_materials
+    // The house's walls, drawn with a shader of our own: keep what they
+    // were made from (textures, colors) and change the shader.
+    auto weathered = ctx.create_shader("weathered.wgsl",
+        "fn surface(s: Surface) -> Surface { var o = s; o.albedo *= 0.8; o.roughness = 0.95; return o; }");
+    for (auto [walls, desc] : ctx.loaded_materials("walls")) {
+        desc.has_shader = true;
+        desc.shader = weathered;
+        ctx.update_material(walls, desc);
+    }
+    // ANCHOR_END: loaded_materials
     for (int i = 0; i < 5; ++i) {
         crabby::vec3 at{float(i) * 4 - 8, 0, -6};
         ctx.world().spawn(crabby::transform3d_at(at), crabby::model_of(house), Spin{0.5f});

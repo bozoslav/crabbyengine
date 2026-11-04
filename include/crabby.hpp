@@ -1284,6 +1284,19 @@ public:
     material create_material(const material_desc& d) { material m{}; detail::check(crabby_ctx_create_material(raw_, &d, &m)); return m; }
     /// Changes a material: every model drawn with it changes too.
     void update_material(material m, const material_desc& d) { detail::check(crabby_ctx_update_material(raw_, m, &d)); }
+    /// The materials loaded from glTF files so far that the files call
+    /// `name`, with what each was made from: to give them a shader of your
+    /// own with update_material.
+    std::vector<std::pair<material, material_desc>> loaded_materials(const char* name) {
+        std::size_t n = 0;
+        detail::check(crabby_ctx_loaded_materials(raw_, name, nullptr, nullptr, 0, &n));
+        std::vector<material> ms(n);
+        std::vector<material_desc> ds(n);
+        detail::check(crabby_ctx_loaded_materials(raw_, name, ms.data(), ds.data(), n, &n));
+        std::vector<std::pair<material, material_desc>> out;
+        for (std::size_t i = 0; i < ms.size() && i < n; i++) out.emplace_back(ms[i], ds[i]);
+        return out;
+    }
     /// Loads a material shader (WGSL) from assets/: it may define
     /// `fn vertex(v: Vertex) -> Vertex` and `fn surface(s: Surface) -> Surface`.
     /// Hot reloaded; throws if it doesn't compile (the message says where).

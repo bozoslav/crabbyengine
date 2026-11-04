@@ -2,7 +2,20 @@
 //! Simple Lit and Unlit shaders (and most others, which follow their
 //! property names) mean by their textures, colors and numbers.
 
+use std::collections::BTreeMap;
+
 use crate::{ObjRef, UnityObject, Value};
+
+/// A texture property of a material: the texture, its tiling and offset.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextureProperty {
+    /// The texture.
+    pub texture: ObjRef,
+    /// Its tiling (`m_Scale`).
+    pub scale: [f32; 2],
+    /// Its offset (`m_Offset`).
+    pub offset: [f32; 2],
+}
 
 /// How a material covers what's behind it.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -25,6 +38,8 @@ pub enum Surface {
 /// assert_eq!(m.tiling, [2.0, 2.0]);
 /// assert_eq!(m.smoothness, 0.25);
 /// assert_eq!(m.color, [1.0, 0.5, 0.5, 1.0]);
+/// assert_eq!(m.floats["_Smoothness"], 0.25, "every property is kept too");
+/// assert_eq!(m.textures["_BaseMap"].scale, [2.0, 2.0]);
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnityMaterial {
@@ -65,6 +80,13 @@ pub struct UnityMaterial {
     pub surface: Surface,
     /// `_Cull` 0: both sides drawn.
     pub double_sided: bool,
+    /// Every number the material sets (`m_Floats`), by property name:
+    /// what a custom shader reads.
+    pub floats: BTreeMap<String, f32>,
+    /// Every color it sets (`m_Colors`), as saved (sRGB for colors).
+    pub colors: BTreeMap<String, [f32; 4]>,
+    /// Every texture it sets (`m_TexEnvs`, empty slots left out).
+    pub textures: BTreeMap<String, TextureProperty>,
 }
 
 impl UnityMaterial {
@@ -135,6 +157,31 @@ impl UnityMaterial {
         } else {
             Surface::Opaque
         };
+        let mut floats = BTreeMap::new();
+        for (k, v) in entries(&props["m_Floats"]) {
+            if let Some(f) = v.as_f32() {
+                floats.insert(k.to_string(), f);
+            }
+        }
+        let mut colors = BTreeMap::new();
+        for (k, v) in entries(&props["m_Colors"]) {
+            if let Some(c) = v.color() {
+                colors.insert(k.to_string(), c);
+            }
+        }
+        let mut textures = BTreeMap::new();
+        for (k, v) in entries(&props["m_TexEnvs"]) {
+            if let Some(r) = v["m_Texture"].obj_ref().filter(|r| !r.is_none() && r.guid.is_some()) {
+                textures.insert(
+                    k.to_string(),
+                    TextureProperty {
+                        texture: r,
+                        scale: v["m_Scale"].vec2().unwrap_or([1.0; 2]),
+                        offset: v["m_Offset"].vec2().unwrap_or([0.0; 2]),
+                    },
+                );
+            }
+        }
         Ok(Self {
             name: body["m_Name"].as_str().unwrap_or("").to_string(),
             shader: shader.guid.clone(),
@@ -159,7 +206,25 @@ impl UnityMaterial {
             },
             surface,
             double_sided: float(&["_Cull"], 2.0) < 0.5,
+            floats,
+            colors,
+            textures,
         })
+    }
+}
+
+/// Every property of a list (as [`find`] reads them), in order.
+fn entries(list: &Value) -> Vec<(&str, &Value)> {
+    match list {
+        Value::Seq(items) => items
+            .iter()
+            .filter_map(|item| match item {
+                Value::Map(entries) => entries.first().map(|(k, v)| (k.as_str(), v)),
+                _ => None,
+            })
+            .collect(),
+        Value::Map(entries) => entries.iter().map(|(k, v)| (k.as_str(), v)).collect(),
+        _ => Vec::new(),
     }
 }
 

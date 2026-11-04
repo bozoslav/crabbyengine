@@ -102,6 +102,10 @@ pub struct Importer<'p> {
     /// Images to write, by file name under `meshes/textures/`.
     jobs: BTreeMap<String, Job>,
     used_names: HashSet<String>,
+    /// Shaders the game draws with its own (`custom_shader`), by asset path.
+    custom_shaders: HashSet<String>,
+    /// Their materials, by name, for `materials.json`.
+    custom_materials: BTreeMap<String, Json>,
     report: Report,
 }
 
@@ -122,8 +126,29 @@ impl<'p> Importer<'p> {
             model_files: HashMap::new(),
             jobs: BTreeMap::new(),
             used_names: HashSet::new(),
+            custom_shaders: HashSet::new(),
+            custom_materials: BTreeMap::new(),
             report: Report::default(),
         }
+    }
+
+    /// Says the game draws materials of `shader` (its asset path, as
+    /// [`Report::shaders`] lists it) with a Crabby shader of its own. Their
+    /// meshes keep their vertex colors, and [`finish`](Self::finish)
+    /// writes `materials.json`: each such material by name (the name its
+    /// glTF material has, for `Ctx::loaded_materials`), with its shader and
+    /// every number, color and texture it sets, the textures written as
+    /// PNGs beside the others:
+    ///
+    /// ```json
+    /// { "Plaster": { "shader": "Assets/Shaders/Wall.shader",
+    ///   "floats": { "_Smoothness": 0.12 }, "colors": { "_BaseColor": [1, 1, 1, 1] },
+    ///   "textures": { "_MaskMap": { "file": "town/meshes/textures/9f3c.png", "scale": [1, 1], "offset": [0, 0] } } } }
+    /// ```
+    ///
+    /// Call it before importing scenes.
+    pub fn custom_shader(&mut self, shader: &str) {
+        self.custom_shaders.insert(shader.to_string());
     }
 
     /// What's been imported and left out so far.
@@ -351,9 +376,46 @@ impl<'p> Importer<'p> {
         }
         if let Some(m) = &m {
             *self.report.shaders.entry(self.shader_name(m)).or_default() += 1;
+            if self.is_custom(m) {
+                self.describe(m);
+            }
         }
         self.materials.insert(r.clone(), m.clone());
         m
+    }
+
+    fn is_custom(&self, m: &UnityMaterial) -> bool {
+        !self.custom_shaders.is_empty() && self.custom_shaders.contains(&self.shader_name(m))
+    }
+
+    /// Adds `m` to `materials.json`, queuing its textures.
+    fn describe(&mut self, m: &UnityMaterial) {
+        let mut textures = serde_json::Map::new();
+        for (prop, t) in &m.textures {
+            if let Some((name, job)) = self.copy_job(&t.texture) {
+                self.jobs.entry(name.clone()).or_insert(job);
+                textures.insert(
+                    prop.clone(),
+                    json!({ "file": format!("{}meshes/textures/{name}", self.prefix), "scale": t.scale, "offset": t.offset }),
+                );
+            }
+        }
+        let entry = json!({
+            "shader": self.shader_name(m),
+            "floats": m.floats,
+            "colors": m.colors,
+            "textures": textures,
+        });
+        match self.custom_materials.get(&m.name) {
+            Some(old) if *old != entry => self.report.skip(format!(
+                "a second material named {} (materials.json keeps the first)",
+                m.name
+            )),
+            Some(_) => {}
+            None => {
+                self.custom_materials.insert(m.name.clone(), entry);
+            }
+        }
     }
 
     fn shader_name(&self, m: &UnityMaterial) -> String {
@@ -376,6 +438,8 @@ impl<'p> Importer<'p> {
         let mut materials: Vec<Json> = Vec::new();
         let mut vertices = Vertices::default();
         let mut primitives = Vec::new();
+        // Vertex colors, for meshes a custom shader draws (`custom_shader`).
+        let colors = !mesh.colors.is_empty() && mats.iter().flatten().any(|m| self.is_custom(m));
         // Submeshes past the last material reuse it, as in Unity; materials
         // past the last submesh draw it again, which is skipped.
         for (s, indices) in mesh.submeshes.iter().enumerate() {
@@ -395,6 +459,9 @@ impl<'p> Importer<'p> {
                         if !mesh.normals.is_empty() {
                             let n = mesh.normals.get(v).copied().unwrap_or([0.0, 1.0, 0.0]);
                             vertices.normals.push([n[0], n[1], -n[2]]);
+                        }
+                        if colors {
+                            vertices.colors.push(mesh.colors.get(v).copied().unwrap_or([1.0; 4]));
                         }
                         if !mesh.uvs[0].is_empty() {
                             let uv = mesh.uvs[0].get(v).copied().unwrap_or_default();
@@ -619,6 +686,11 @@ impl<'p> Importer<'p> {
                 Ok(true)
             })
             .collect();
+        if !self.custom_materials.is_empty() {
+            let at = self.out.join("materials.json");
+            let text = serde_json::to_string_pretty(&self.custom_materials).expect("JSON");
+            std::fs::write(&at, text).map_err(|e| Error::new(format!("{}: {e}", at.display())))?;
+        }
         for r in results {
             if r? {
                 self.report.textures += 1;
@@ -768,5 +840,42 @@ mod tests {
         let c = linear([1.0, 0.5, 0.0, 0.25]);
         assert!((c[1] - 0.214).abs() < 1e-3);
         assert_eq!((c[0], c[2], c[3]), (1.0, 0.0, 0.25));
+    }
+
+    /// A material of the given shader GUID, everything else default.
+    fn material_of(shader: &str) -> UnityMaterial {
+        let text = format!(
+            "--- !u!21 &2100000\nMaterial:\n  m_Name: Wall\n  m_Shader: {{fileID: 4800000, guid: {shader}, type: 3}}\n"
+        );
+        UnityMaterial::from_object(&UnityFile::parse(&text).unwrap().objects[0]).unwrap()
+    }
+
+    fn has_colors(glb: &[u8]) -> bool {
+        let len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let doc: Json = serde_json::from_slice(&glb[20..20 + len]).unwrap();
+        doc["meshes"][0]["primitives"][0]["attributes"].get("COLOR_0").is_some()
+    }
+
+    #[test]
+    fn vertex_colors_are_kept_only_for_custom_shaders() {
+        let dir = std::env::temp_dir().join(format!("crabby_unity_colors_{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("Assets")).unwrap();
+        std::fs::write(dir.join("Assets/Wall.shader"), "Shader \"Wall\" {}").unwrap();
+        std::fs::write(dir.join("Assets/Wall.shader.meta"), "guid: wall0000\n").unwrap();
+        let project = Project::open(&dir).unwrap();
+        let mut cube = UnityMesh::builtin(crate::builtin::CUBE).unwrap();
+        cube.colors = vec![[0.5, 0.25, 1.0, 0.75]; cube.positions.len()];
+        let wall = [Some(material_of("wall0000"))];
+        let mut plain = Importer::new(&project, dir.join("out"), "");
+        assert!(
+            !has_colors(&plain.build_glb(&cube, &wall)),
+            "Lit-style shaders ignore them"
+        );
+        let mut custom = Importer::new(&project, dir.join("out"), "");
+        custom.custom_shader("Assets/Wall.shader");
+        assert!(has_colors(&custom.build_glb(&cube, &wall)));
+        cube.colors.clear();
+        assert!(!has_colors(&custom.build_glb(&cube, &wall)), "none to keep");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

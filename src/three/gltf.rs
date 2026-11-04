@@ -30,6 +30,8 @@ pub(crate) struct Loaded {
 pub(crate) type Image = (u32, u32, Vec<u8>);
 
 pub(crate) struct LoadedMaterial {
+    /// Its name in the file (empty without one).
+    pub name: String,
     pub color: Color,
     pub roughness: f32,
     pub metallic: f32,
@@ -49,6 +51,7 @@ pub(crate) struct LoadedMaterial {
 impl LoadedMaterial {
     fn plain() -> Self {
         Self {
+            name: String::new(),
             color: Color::WHITE,
             roughness: 0.6,
             metallic: 0.0,
@@ -126,6 +129,7 @@ pub(crate) fn load(
         };
         // glTF factors are linear; Color is sRGB.
         materials.push(LoadedMaterial {
+            name: material.name().unwrap_or("").to_string(),
             color: Color::rgba(to_srgb(r), to_srgb(g), to_srgb(b), a),
             roughness: pbr.roughness_factor(),
             metallic: pbr.metallic_factor(),

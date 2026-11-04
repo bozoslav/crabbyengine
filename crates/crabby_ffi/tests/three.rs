@@ -511,3 +511,75 @@ fn screen_effects_are_made_and_listed_from_c() {
     }
     assert_eq!(errors, vec![CRABBY_INVALID_ARGUMENT; 3]);
 }
+
+unsafe extern "C" fn materials(ctx: *mut CrabbyCtx, user: *mut c_void) {
+    unsafe {
+        let found = &mut *user.cast::<Vec<(usize, bool)>>();
+        let mut house = CrabbyMesh::default();
+        assert_eq!(
+            crabby_ctx_load_mesh(ctx, c"test-ffi-house.glb".as_ptr(), &mut house),
+            CRABBY_OK
+        );
+        let mut count = 0;
+        assert_eq!(
+            crabby_ctx_loaded_materials(ctx, c"walls".as_ptr(), null_mut(), null_mut(), 0, &mut count),
+            CRABBY_OK
+        );
+        let mut ms = vec![CrabbyMaterial::default(); count];
+        let mut ds = vec![crabby_material_desc(WHITE); count];
+        assert_eq!(
+            crabby_ctx_loaded_materials(
+                ctx,
+                c"walls".as_ptr(),
+                ms.as_mut_ptr(),
+                ds.as_mut_ptr(),
+                count,
+                &mut count
+            ),
+            CRABBY_OK
+        );
+        // A new shader on the walls, keeping the rest of what they were made from.
+        let mut tint = CrabbyShader::default();
+        let source = c"fn surface(s: Surface) -> Surface { var o = s; o.albedo *= 0.5; return o; }";
+        assert_eq!(
+            crabby_ctx_create_shader(ctx, c"tint".as_ptr(), source.as_ptr(), &mut tint),
+            CRABBY_OK
+        );
+        ds[0].has_shader = true;
+        ds[0].shader = tint;
+        let updated = crabby_ctx_update_material(ctx, ms[0], &ds[0]) == CRABBY_OK;
+        found.push((count, updated));
+        assert_eq!(
+            crabby_ctx_loaded_materials(ctx, c"nothing".as_ptr(), null_mut(), null_mut(), 0, &mut count),
+            CRABBY_OK
+        );
+        found.push((count, true));
+    }
+}
+
+#[test]
+fn loaded_materials_are_found_and_changed_from_c() {
+    // The engine's test house, copied under this crate's assets/ for the run.
+    let assets = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets");
+    std::fs::create_dir_all(&assets).unwrap();
+    let copy = assets.join("test-ffi-house.glb");
+    std::fs::copy(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/models/house.glb"),
+        &copy,
+    )
+    .unwrap();
+    let mut found: Vec<(usize, bool)> = Vec::new();
+    unsafe {
+        let g = crabby_game_new(c"materials".as_ptr(), 64, 64);
+        let mut world = null_mut();
+        let user = (&raw mut found).cast();
+        assert_eq!(
+            crabby_game_run_headless(g, 1, Some(materials), user, &mut world),
+            CRABBY_OK
+        );
+        crabby_world_free(world);
+    }
+    let _ = std::fs::remove_file(&copy);
+    let _ = std::fs::remove_dir(&assets); // only if empty
+    assert_eq!(found, vec![(1, true), (0, true)]);
+}
