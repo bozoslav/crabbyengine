@@ -10,6 +10,7 @@ struct VertexIn {
     @location(6) m3: vec4<f32>,
     @location(7) color: vec4<f32>,  // the model's tint
     @location(8) vertex_color: vec4<f32>,
+    @location(9) uv1: vec2<f32>,
 };
 
 struct VertexOut {
@@ -19,6 +20,7 @@ struct VertexOut {
     @location(1) normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
     @location(3) color: vec4<f32>,
+    @location(4) uv1: vec2<f32>,
 };
 
 // The vertex in world space, after the shader's `vertex` function.
@@ -32,6 +34,7 @@ fn world_vertex(in: VertexIn) -> Vertex {
     v.normal = normal;
     v.uv = in.uv;
     v.color = in.color * in.vertex_color;
+    v.uv1 = in.uv1;
     return vertex(v);
 }
 
@@ -44,6 +47,7 @@ fn vs_main(in: VertexIn) -> VertexOut {
     out.normal = v.normal;
     out.uv = v.uv;
     out.color = v.color;
+    out.uv1 = v.uv1;
     return out;
 }
 
@@ -57,6 +61,7 @@ fn vs_shadow(in: VertexIn) -> VertexOut {
     out.normal = v.normal;
     out.uv = v.uv;
     out.color = v.color;
+    out.uv1 = v.uv1;
     return out;
 }
 
@@ -68,6 +73,7 @@ fn surface_at(in: VertexOut, front: bool) -> Surface {
     s.alpha = base.a;
     s.world = in.world;
     s.uv = in.uv;
+    s.uv1 = in.uv1;
     s.color = in.color;
     s.view = normalize(frame.camera.xyz - in.world);
     s.screen = in.clip.xy;

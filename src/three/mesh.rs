@@ -34,6 +34,10 @@ pub struct MeshData {
     /// readable in shaders, for wind weights and other masks: `v.color`
     /// and `s.color`). Empty: all white. Kept to 8 bits per channel.
     pub colors: Vec<Color>,
+    /// A second texture coordinate per corner (glTF's `TEXCOORD_1`), for
+    /// the game's own shaders: `v.uv1` and `s.uv1` (lightmaps, texture
+    /// layers, masks). The built-in shading doesn't use it. Empty: all zero.
+    pub uvs1: Vec<Vec2>,
 }
 
 impl MeshData {
@@ -98,6 +102,7 @@ impl MeshData {
             ],
             indices: vec![0, 1, 2, 0, 2, 3],
             colors: Vec::new(),
+            uvs1: Vec::new(),
         }
     }
 
@@ -248,6 +253,8 @@ impl MeshData {
     /// ```
     /// # use crabbyengine::*;
     /// let broken = MeshData { positions: vec![Vec3::ZERO], indices: vec![0, 1, 2], ..Default::default() };
+    /// let short = MeshData { positions: vec![Vec3::ZERO; 3], indices: vec![0, 1, 2], uvs1: vec![Vec2::ZERO], ..Default::default() };
+    /// assert!(short.check().unwrap_err().contains("second texture coordinates"));
     /// assert!(broken.check().is_err());
     /// ```
     ///
@@ -267,6 +274,12 @@ impl MeshData {
         }
         if !self.uvs.is_empty() && self.uvs.len() != corners {
             return Err(format!("{} texture coordinates for {corners} corners", self.uvs.len()));
+        }
+        if !self.uvs1.is_empty() && self.uvs1.len() != corners {
+            return Err(format!(
+                "{} second texture coordinates for {corners} corners",
+                self.uvs1.len()
+            ));
         }
         if !self.colors.is_empty() && self.colors.len() != corners {
             return Err(format!("{} colors for {corners} corners", self.colors.len()));

@@ -17,6 +17,8 @@ pub(crate) struct Vertices {
     pub normals: Vec<[f32; 3]>,
     pub uvs: Vec<[f32; 2]>,
     pub colors: Vec<[f32; 4]>,
+    /// UV set 1 as Unity has it (not flipped: it's data for a shader).
+    pub uvs1: Vec<[f32; 2]>,
 }
 
 /// Builds the binary chunk and the JSON that points into it.
@@ -96,6 +98,9 @@ pub(crate) fn write(
     }
     if !vertices.colors.is_empty() {
         attributes.insert("COLOR_0".into(), json!(w.floats(&vertices.colors, "VEC4", json!({}))));
+    }
+    if !vertices.uvs1.is_empty() {
+        attributes.insert("TEXCOORD_1".into(), json!(w.floats(&vertices.uvs1, "VEC2", json!({}))));
     }
     let primitives: Vec<Json> = primitives
         .iter()

@@ -1027,6 +1027,7 @@ pub unsafe extern "C" fn crabby_mesh_data_new(
                 }
             },
             colors: Vec::new(),
+            uvs1: Vec::new(),
         };
         data.check().map_err(invalid_owned)?;
         result = boxed(data);
