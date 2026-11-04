@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use crabby_unity::{Project, UnityFile, UnityMesh, Value};
+use crabby_unity::{Hierarchy, Project, UnityFile, UnityMesh, Value};
 
 fn files(dir: &Path, out: &mut Vec<PathBuf>) {
     for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
@@ -93,6 +93,41 @@ fn main() {
     );
     println!("{meshes} meshes decoded, {vertices} vertices");
     println!("references to other files: {} resolved, {} not", links.0, links.1);
+    // Scenes and prefabs, flattened.
+    let start = Instant::now();
+    let (mut built, mut game_objects, mut models, mut orphans) = (0, 0, 0, 0);
+    for path in paths
+        .iter()
+        .filter(|p| p.extension().is_some_and(|e| e == "unity" || e == "prefab"))
+    {
+        let file = match UnityFile::read(path) {
+            Ok(f) => f,
+            Err(_) => continue,
+        };
+        match Hierarchy::build(&file, &project) {
+            Ok(h) => {
+                built += 1;
+                game_objects += h.objects.len();
+                models += h.objects.iter().filter(|o| o.model.is_some()).count();
+                // Objects with a parent link that didn't resolve.
+                orphans += h
+                    .objects
+                    .iter()
+                    .filter(|o| {
+                        o.parent.is_none()
+                            && o.transform()
+                                .and_then(|t| t["m_Father"].obj_ref())
+                                .is_some_and(|f| !f.is_none())
+                    })
+                    .count();
+            }
+            Err(e) => failed.push(format!("{}: {e}", path.display())),
+        }
+    }
+    println!(
+        "{built} scenes and prefabs flattened in {:.2} s: {game_objects} GameObjects, {models} model instances, {orphans} with a parent that didn't resolve",
+        start.elapsed().as_secs_f64()
+    );
     println!("{} failed", failed.len());
     for f in failed.iter().take(20) {
         println!("  {f}");

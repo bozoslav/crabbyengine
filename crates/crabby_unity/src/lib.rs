@@ -11,10 +11,12 @@
 //! ```
 
 mod binary;
+mod hierarchy;
 mod mesh;
 mod project;
 mod value;
 
+pub use hierarchy::{GameObject, Hierarchy};
 pub use mesh::{Channel, UnityMesh, VertexFormat};
 pub use project::Project;
 pub use value::{ObjRef, Value};
