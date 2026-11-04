@@ -91,5 +91,10 @@ fn bad_terrain_is_an_error() {
     let mut mesh = terrain(2, vec![0.0; 4], [1.0, 1.0, 1.0]);
     mesh.class_id = 43;
     mesh.type_name = "Mesh".into();
-    assert!(UnityTerrain::from_object(&mesh).unwrap_err().to_string().contains("not TerrainData"));
+    assert!(
+        UnityTerrain::from_object(&mesh)
+            .unwrap_err()
+            .to_string()
+            .contains("not TerrainData")
+    );
 }

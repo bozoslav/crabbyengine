@@ -11,6 +11,7 @@
 //! ```
 
 mod binary;
+mod builtin;
 mod fbx;
 mod glb;
 mod hierarchy;

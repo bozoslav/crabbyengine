@@ -300,3 +300,81 @@ fn shared_meshes_and_materials_are_written_once() {
     let report = importer.finish().unwrap();
     assert_eq!((report.entities, report.meshes, report.textures), (2, 1, 2));
 }
+
+/// A prefab drawing Unity's built-in Cube and Sphere.
+const BUILTINS: &str = "%YAML 1.1
+--- !u!1 &1
+GameObject:
+  m_Component:
+  - component: {fileID: 2}
+  - component: {fileID: 3}
+  - component: {fileID: 4}
+  m_Name: Box
+  m_IsActive: 1
+--- !u!4 &2
+Transform:
+  m_GameObject: {fileID: 1}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_Children:
+  - {fileID: 12}
+  m_Father: {fileID: 0}
+--- !u!33 &3
+MeshFilter:
+  m_GameObject: {fileID: 1}
+  m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!23 &4
+MeshRenderer:
+  m_GameObject: {fileID: 1}
+  m_Enabled: 1
+  m_Materials:
+  - {fileID: 2100000, guid: bark0mat, type: 2}
+--- !u!1 &11
+GameObject:
+  m_Component:
+  - component: {fileID: 12}
+  - component: {fileID: 13}
+  - component: {fileID: 14}
+  m_Name: Ball
+  m_IsActive: 1
+--- !u!4 &12
+Transform:
+  m_GameObject: {fileID: 11}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 1, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_Children: []
+  m_Father: {fileID: 2}
+--- !u!33 &13
+MeshFilter:
+  m_GameObject: {fileID: 11}
+  m_Mesh: {fileID: 10207, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!23 &14
+MeshRenderer:
+  m_GameObject: {fileID: 11}
+  m_Enabled: 1
+  m_Materials:
+  - {fileID: 2100000, guid: bark0mat, type: 2}
+";
+
+#[test]
+fn built_in_cubes_are_made_and_spheres_reported() {
+    let (fixture, project) = fixture("builtin");
+    let file = UnityFile::parse(BUILTINS).unwrap();
+    let hierarchy = Hierarchy::build(&file, &project).unwrap();
+    let mut importer = Importer::new(&project, fixture.dir.join("out"), "box/");
+    let scene = importer.scene(&hierarchy).unwrap();
+    let report = importer.finish().unwrap();
+    let entities = scene["entities"].as_array().unwrap();
+    assert_eq!(entities.len(), 1);
+    assert_eq!(report.skipped["built-in mesh Sphere"], 1);
+    let name = entities[0]["components"]["Model"]["mesh"].as_str().unwrap();
+    let glb = std::fs::read(fixture.dir.join("out").join(name.strip_prefix("box/").unwrap())).unwrap();
+    let doc = glb_json(&glb);
+    let position = &doc["accessors"][doc["meshes"][0]["primitives"][0]["attributes"]["POSITION"]
+        .as_u64()
+        .unwrap() as usize];
+    assert_eq!(position["count"], 24);
+    assert_eq!(position["min"], serde_json::json!([-0.5, -0.5, -0.5]));
+}

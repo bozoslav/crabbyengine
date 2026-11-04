@@ -246,10 +246,35 @@ impl<'p> Importer<'p> {
             self.report.skip("a mesh saved in the scene itself");
             return Ok(None);
         };
-        if guid == BUILTIN {
-            self.report.skip(format!("built-in mesh {}", mesh.file_id));
-            return Ok(None);
-        }
+        let unity = if guid == BUILTIN {
+            match UnityMesh::builtin(mesh.file_id) {
+                Some(m) => m,
+                None => {
+                    let what = crate::builtin::name(mesh.file_id).map_or(mesh.file_id.to_string(), str::to_owned);
+                    self.report.skip(format!("built-in mesh {what}"));
+                    return Ok(None);
+                }
+            }
+        } else {
+            match self.project_mesh(guid, mesh)? {
+                Some(m) => m,
+                None => return Ok(None),
+            }
+        };
+        let mats: Vec<Option<UnityMaterial>> = materials.iter().map(|m| self.material(m)).collect();
+        let glb = self.build_glb(&unity, &mats);
+        let file_name = self.unique_name(&unity.name, mesh, materials);
+        let dir = self.out.join("meshes");
+        std::fs::create_dir_all(&dir).map_err(|e| Error::new(format!("{}: {e}", dir.display())))?;
+        let at = dir.join(&file_name);
+        std::fs::write(&at, glb).map_err(|e| Error::new(format!("{}: {e}", at.display())))?;
+        self.report.meshes += 1;
+        Ok(Some(format!("{}meshes/{file_name}", self.prefix)))
+    }
+
+    /// A mesh from a file of the project: a mesh asset, FBX or OBJ; `None`
+    /// when it can't be read (and why is in the report).
+    fn project_mesh(&mut self, guid: &str, mesh: &ObjRef) -> Result<Option<UnityMesh>, Error> {
         let Some(path) = self.project.path_of(guid) else {
             self.report.skip("a mesh not in the project");
             return Ok(None);
@@ -303,17 +328,8 @@ impl<'p> Importer<'p> {
             self.report.skip(format!("a mesh in a .{ext} file"));
             return Ok(None);
         };
-        let mats: Vec<Option<UnityMaterial>> = materials.iter().map(|m| self.material(m)).collect();
-        let glb = self.build_glb(&unity, &mats);
-        let file_name = self.unique_name(&unity.name, mesh, materials);
-        let dir = self.out.join("meshes");
-        std::fs::create_dir_all(&dir).map_err(|e| Error::new(format!("{}: {e}", dir.display())))?;
-        let at = dir.join(&file_name);
-        std::fs::write(&at, glb).map_err(|e| Error::new(format!("{}: {e}", at.display())))?;
-        self.report.meshes += 1;
-        Ok(Some(format!("{}meshes/{file_name}", self.prefix)))
+        Ok(Some(unity))
     }
-
     /// The material `r` names, read once; `None` (drawn plain) when it
     /// can't be found.
     fn material(&mut self, r: &ObjRef) -> Option<UnityMaterial> {
