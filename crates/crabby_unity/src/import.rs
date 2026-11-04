@@ -106,8 +106,13 @@ pub struct Importer<'p> {
     custom_shaders: HashSet<String>,
     /// Their materials, by name, for `materials.json`.
     custom_materials: BTreeMap<String, Json>,
+    /// How some of them want their meshes' vertex colors (`vertex_colors`).
+    vertex_colors: HashMap<String, VertexColors>,
     report: Report,
 }
+
+/// Makes a mesh's vertex colors for a custom shader (`vertex_colors`).
+type VertexColors = std::rc::Rc<dyn Fn(&UnityMesh, usize) -> [f32; 4]>;
 
 impl<'p> Importer<'p> {
     /// Writes into `out` (a folder under the game's `assets/`), whose asset
@@ -128,6 +133,7 @@ impl<'p> Importer<'p> {
             used_names: HashSet::new(),
             custom_shaders: HashSet::new(),
             custom_materials: BTreeMap::new(),
+            vertex_colors: HashMap::new(),
             report: Report::default(),
         }
     }
@@ -149,6 +155,26 @@ impl<'p> Importer<'p> {
     /// Call it before importing scenes.
     pub fn custom_shader(&mut self, shader: &str) {
         self.custom_shaders.insert(shader.to_string());
+    }
+
+    /// Like [`custom_shader`](Self::custom_shader), and the vertex colors of
+    /// the meshes drawn with `shader` are `colors(mesh, vertex)` instead of
+    /// the mesh's own: for a shader that reads something else per vertex,
+    /// such as a second UV set, from the color its Crabby port gets
+    /// (`s.color`). They're stored as 8 bits per channel, from 0 to 1.
+    ///
+    /// ```no_run
+    /// # let project = crabby_unity::Project::open("MyUnityGame").unwrap();
+    /// let mut import = crabby_unity::Importer::new(&project, "my_game/assets/town", "town/");
+    /// // A river shader that reads its flow from UV set 1: speed up to 4, foam 0 to 1.
+    /// import.vertex_colors("Assets/Shaders/River.shader", |mesh, v| {
+    ///     let [speed, foam] = mesh.uvs[1].get(v).copied().unwrap_or_default();
+    ///     [speed / 4.0, foam, 0.0, 1.0]
+    /// });
+    /// ```
+    pub fn vertex_colors(&mut self, shader: &str, colors: impl Fn(&UnityMesh, usize) -> [f32; 4] + 'static) {
+        self.custom_shader(shader);
+        self.vertex_colors.insert(shader.to_string(), std::rc::Rc::new(colors));
     }
 
     /// What's been imported and left out so far.
@@ -438,8 +464,13 @@ impl<'p> Importer<'p> {
         let mut materials: Vec<Json> = Vec::new();
         let mut vertices = Vertices::default();
         let mut primitives = Vec::new();
-        // Vertex colors, for meshes a custom shader draws (`custom_shader`).
-        let colors = !mesh.colors.is_empty() && mats.iter().flatten().any(|m| self.is_custom(m));
+        // Vertex colors, for meshes a custom shader draws (`custom_shader`),
+        // made by that shader's function if it has one (`vertex_colors`).
+        let made = mats
+            .iter()
+            .flatten()
+            .find_map(|m| self.vertex_colors.get(&self.shader_name(m)).cloned());
+        let colors = made.is_some() || (!mesh.colors.is_empty() && mats.iter().flatten().any(|m| self.is_custom(m)));
         // Submeshes past the last material reuse it, as in Unity; materials
         // past the last submesh draw it again, which is skipped.
         for (s, indices) in mesh.submeshes.iter().enumerate() {
@@ -460,7 +491,9 @@ impl<'p> Importer<'p> {
                             let n = mesh.normals.get(v).copied().unwrap_or([0.0, 1.0, 0.0]);
                             vertices.normals.push([n[0], n[1], -n[2]]);
                         }
-                        if colors {
+                        if let Some(made) = &made {
+                            vertices.colors.push(made(mesh, v).map(|c| c.clamp(0.0, 1.0)));
+                        } else if colors {
                             vertices.colors.push(mesh.colors.get(v).copied().unwrap_or([1.0; 4]));
                         }
                         if !mesh.uvs[0].is_empty() {
@@ -854,6 +887,51 @@ mod tests {
         let len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
         let doc: Json = serde_json::from_slice(&glb[20..20 + len]).unwrap();
         doc["meshes"][0]["primitives"][0]["attributes"].get("COLOR_0").is_some()
+    }
+
+    /// The first primitive's COLOR_0.
+    fn colors_of(glb: &[u8]) -> Vec<[f32; 4]> {
+        let len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let doc: Json = serde_json::from_slice(&glb[20..20 + len]).unwrap();
+        let bin = &glb[20 + len + 8..];
+        let accessor = &doc["accessors"][doc["meshes"][0]["primitives"][0]["attributes"]["COLOR_0"]
+            .as_u64()
+            .unwrap() as usize];
+        let view = &doc["bufferViews"][accessor["bufferView"].as_u64().unwrap() as usize];
+        let start =
+            view["byteOffset"].as_u64().unwrap_or(0) as usize + accessor["byteOffset"].as_u64().unwrap_or(0) as usize;
+        let floats: Vec<f32> = bin[start..start + accessor["count"].as_u64().unwrap() as usize * 16]
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|b| f32::from_le_bytes(*b))
+            .collect();
+        floats.as_chunks::<4>().0.to_vec()
+    }
+
+    #[test]
+    fn vertex_colors_can_be_made_from_other_channels() {
+        let dir = std::env::temp_dir().join(format!("crabby_unity_made_colors_{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("Assets")).unwrap();
+        std::fs::write(dir.join("Assets/River.shader"), "Shader \"River\" {}").unwrap();
+        std::fs::write(dir.join("Assets/River.shader.meta"), "guid: river000\n").unwrap();
+        let project = Project::open(&dir).unwrap();
+        let mut quad = UnityMesh::builtin(crate::builtin::QUAD).unwrap();
+        quad.uvs[1] = (0..quad.positions.len()).map(|v| [v as f32, 0.5]).collect();
+        let river = [Some(material_of("river000"))];
+        let mut import = Importer::new(&project, dir.join("out"), "");
+        import.vertex_colors("Assets/River.shader", |mesh, v| {
+            let [speed, foam] = mesh.uvs[1][v];
+            [speed / 2.0, foam, 0.0, 9.0]
+        });
+        let colors = colors_of(&import.build_glb(&quad, &river));
+        assert_eq!(colors.len(), 4);
+        let mut speeds: Vec<f32> = colors.iter().map(|c| c[0]).collect();
+        speeds.sort_by(f32::total_cmp);
+        assert_eq!(speeds, [0.0, 0.5, 1.0, 1.0], "from UV set 1, clamped to 0..1");
+        assert!(colors.iter().all(|c| c[1] == 0.5 && c[2] == 0.0 && c[3] == 1.0));
+        assert!(import.is_custom(river[0].as_ref().unwrap()), "it's a custom shader too");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
