@@ -81,6 +81,21 @@ using vec3 = CrabbyVec3;
 using quat = CrabbyQuat;
 using transform3d = CrabbyTransform3D;
 using model = CrabbyModel;
+/// A square of heightfield terrain, drawn more coarsely further from the
+/// camera (Rust `TerrainTile`); made with ctx::create_terrain_tile.
+using terrain_tile = CrabbyTerrainTile;
+/// Several same-size images in one texture (Rust `TextureArray`).
+using texture_array = CrabbyTextureArray;
+/// What a texture array's pixels hold (Rust `TextureKind`).
+enum class texture_kind : uint32_t { color = 0, data = 1 };
+/// Ground layers and a weight map for ctx::create_terrain_material (Rust
+/// `TerrainMaterialDesc`); start from terrain_material_of.
+using terrain_material_desc = CrabbyTerrainMaterialDesc;
+/// Ground `layers` blended by a `weights` map lying over `size` world units
+/// from `corner` (x, z); no normal maps, each layer repeating every 4 units.
+inline terrain_material_desc terrain_material_of(texture_array layers, texture_array weights, vec2 corner, vec2 size) {
+    return crabby_terrain_material_desc(layers, weights, corner, size);
+}
 using mesh = CrabbyMesh;
 using material = CrabbyMaterial;
 using material_desc = CrabbyMaterialDesc;
@@ -483,6 +498,7 @@ protected:
         else if constexpr (std::is_same<T, velocity>::value) status = crabby_velocity_component(world, &id);
         else if constexpr (std::is_same<T, transform3d>::value) status = crabby_transform3d_component(world, &id);
         else if constexpr (std::is_same<T, model>::value) status = crabby_model_component(world, &id);
+        else if constexpr (std::is_same<T, terrain_tile>::value) status = crabby_terrain_tile_component(world, &id);
         else status = crabby_component_register(world, name ? name : detail::type_name<T>().c_str(), sizeof(T), alignof(T), &id);
         if (status == CRABBY_BUSY) return std::nullopt;
         detail::check(status);
@@ -930,6 +946,12 @@ public:
     static mesh_data plane(float size) { return mesh_data(crabby_mesh_data_plane(size)); }
     /// A sphere of `radius` from `segments` slices around.
     static mesh_data sphere(float radius, std::uint32_t segments) { return mesh_data(crabby_mesh_data_sphere(radius, segments)); }
+    /// A square of terrain `size` wide from n x n heights, row after row
+    /// along +Z (NaN: a hole), using every `step`-th one, with skirts at the
+    /// edges. Throws unless the heights are a square grid of at least 2 x 2.
+    static mesh_data heightfield(const std::vector<float>& heights, float size, std::uint32_t step = 1) {
+        return mesh_data(crabby_mesh_data_heightfield(heights.data(), heights.size(), size, step));
+    }
     ~mesh_data() { crabby_mesh_data_free(raw_); }
     mesh_data(mesh_data&& o) noexcept : raw_(o.raw_) { o.raw_ = nullptr; }
     mesh_data& operator=(mesh_data&& o) noexcept { std::swap(raw_, o.raw_); return *this; }
@@ -1165,6 +1187,29 @@ public:
     /// Loads a glTF model (.glb, or .gltf with its files) from assets/ as
     /// one mesh with its materials; the same file again gives the same mesh.
     mesh load_mesh(const char* path) { mesh x{}; detail::check(crabby_ctx_load_mesh(raw_, path, &x)); return x; }
+    /// A texture array of `width` x `height` images, one after another in
+    /// `rgba` (4 bytes a pixel).
+    texture_array create_texture_array(std::uint32_t width, std::uint32_t height, const std::vector<std::uint8_t>& rgba, texture_kind kind) {
+        texture_array a{};
+        detail::check(crabby_ctx_create_texture_array(raw_, width, height, rgba.data(), rgba.size(), std::uint32_t(kind), &a));
+        return a;
+    }
+    /// Loads same-size images from assets/ into a texture array, one layer each.
+    texture_array load_texture_array(const std::vector<const char*>& paths, texture_kind kind) {
+        texture_array a{};
+        detail::check(crabby_ctx_load_texture_array(raw_, paths.data(), paths.size(), std::uint32_t(kind), &a));
+        return a;
+    }
+    /// A material for terrain: ground layers blended by a weight map.
+    material create_terrain_material(const terrain_material_desc& desc) {
+        material m{}; detail::check(crabby_ctx_create_terrain_material(raw_, &desc, &m)); return m;
+    }
+    /// A terrain tile `size` wide from n x n heights (row after row along
+    /// +Z, NaN for a hole) drawn with `m`; spawn it with a transform3d at
+    /// the tile's corner instead of a model.
+    terrain_tile create_terrain_tile(const std::vector<float>& heights, float size, material m) {
+        terrain_tile t{}; detail::check(crabby_ctx_create_terrain_tile(raw_, heights.data(), heights.size(), size, m, &t)); return t;
+    }
     /// How many 3D models were drawn last frame.
     std::size_t models_drawn() const { std::size_t n = 0; detail::check(crabby_ctx_models_drawn(raw_, &n)); return n; }
     crabby::camera3d camera3d() const { crabby::camera3d c{}; detail::check(crabby_ctx_camera3d(raw_, &c)); return c; }

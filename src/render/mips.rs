@@ -108,7 +108,8 @@ impl MipMaker {
         }
     }
 
-    /// Fills every level of `texture` below the first from the one above.
+    /// Fills every level of `texture` below the first from the one above,
+    /// in each of its layers.
     pub fn generate(
         &self,
         device: &wgpu::Device,
@@ -121,18 +122,22 @@ impl MipMaker {
         } else {
             wgpu::TextureFormat::Rgba8UnormSrgb
         };
-        let view = |level| {
+        let view = |level, layer| {
             texture.create_view(&wgpu::TextureViewDescriptor {
                 label: Some("mip level"),
                 format: Some(format),
+                dimension: Some(wgpu::TextureViewDimension::D2),
                 base_mip_level: level,
                 mip_level_count: Some(1),
+                base_array_layer: layer,
+                array_layer_count: Some(1),
                 ..Default::default()
             })
         };
-        for level in 1..texture.mip_level_count() {
-            let source = view(level - 1);
-            let target = view(level);
+        let layers = texture.depth_or_array_layers();
+        for (layer, level) in (0..layers).flat_map(|l| (1..texture.mip_level_count()).map(move |m| (l, m))) {
+            let source = view(level - 1, layer);
+            let target = view(level, layer);
             let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("mipmaps"),
                 layout: &self.layout,

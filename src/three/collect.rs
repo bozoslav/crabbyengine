@@ -3,7 +3,7 @@
 
 use glam::{Mat4, Vec3, Vec4};
 
-use super::{Assets3D, Camera3D, Lighting, Model, Transform3D, linear};
+use super::{Assets3D, Camera3D, Lighting, Model, TerrainTile, Transform3D, linear};
 use crate::World;
 
 /// Width and height of each of the sun's shadow maps, in texels.
@@ -83,10 +83,7 @@ impl Frame3D {
         self.scratch.clear();
         let planes = frustum_planes(self.view_proj);
         let scratch = &mut self.scratch;
-        world.query::<(&Transform3D, &Model)>().for_each(|(t, m)| {
-            let Some(&(center, radius)) = assets.bounds.get(m.mesh.id as usize) else {
-                return;
-            };
+        let mut add = |mesh: u32, t: &Transform3D, color: [f32; 4], center: Vec3, radius: f32| {
             let matrix = t.matrix();
             let world_center = matrix.transform_point3(center);
             let world_radius = radius * t.scale.abs().max_element();
@@ -100,9 +97,27 @@ impl Frame3D {
             if seen || casts != 0 {
                 let instance = Instance3D {
                     model: matrix.to_cols_array_2d(),
-                    color: linear(m.color),
+                    color,
                 };
-                scratch.push((m.mesh.id, instance, seen, casts));
+                scratch.push((mesh, instance, seen, casts));
+            }
+        };
+        world.query::<(&Transform3D, &Model)>().for_each(|(t, m)| {
+            if let Some(&(center, radius)) = assets.bounds.get(m.mesh.id as usize) {
+                add(m.mesh.id, t, linear(m.color), center, radius);
+            }
+        });
+        // Terrain: the detail level for how far the camera is from the
+        // tile's bounds (the finest level's, which hold every coarser one).
+        world.query::<(&Transform3D, &TerrainTile)>().for_each(|(t, tile)| {
+            let Some(&(center, radius)) = assets.bounds.get(tile.lods[0].id as usize) else {
+                return;
+            };
+            let scale = t.scale.abs().max_element();
+            let away = t.matrix().transform_point3(center).distance(camera.position) - radius * scale;
+            let mesh = tile.lods[tile.lod(away.max(0.0))].id;
+            if (mesh as usize) < assets.bounds.len() {
+                add(mesh, t, [1.0; 4], center, radius);
             }
         });
         let meshes = assets.bounds.len();
@@ -229,6 +244,7 @@ fn sphere_visible(planes: &[Vec4], center: Vec3, radius: f32) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::super::TERRAIN_LODS;
     use super::*;
     use crate::{Color, Mesh};
     use glam::Vec2;
@@ -276,6 +292,30 @@ mod tests {
         assert!(frame.shadow_runs.iter().all(Vec::is_empty));
         let xs: Vec<f32> = frame.instances.iter().map(|i| i.model[3][0]).collect();
         assert_eq!(xs, vec![1.0, 4.0, 0.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn terrain_tiles_draw_coarser_further_away() {
+        let mut world = World::new();
+        let assets = Assets3D {
+            bounds: vec![(Vec3::ZERO, 1.0); TERRAIN_LODS],
+            ..Default::default()
+        };
+        let tile = TerrainTile {
+            lods: std::array::from_fn(|id| Mesh { id: id as u32 }),
+            lod_distance: 5.0,
+        };
+        // The camera is at z = 10, looking at the origin.
+        world.spawn((Transform3D::at(Vec3::new(0.0, 0.0, 7.0)), tile)); // 2 away: finest
+        world.spawn((Transform3D::at(Vec3::ZERO), tile)); // 9 away: every 2nd height
+        world.spawn((Transform3D::at(Vec3::new(0.0, 0.0, -30.0)), tile)); // 39 away: coarsest
+        let lighting = Lighting {
+            shadows: false,
+            ..Default::default()
+        };
+        let mut frame = Frame3D::default();
+        frame.collect(&mut world, &assets, &camera(), &lighting);
+        assert_eq!(frame.runs, vec![(0, 0, 1), (1, 1, 1), (3, 2, 1)]);
     }
 
     #[test]

@@ -2,6 +2,7 @@
 // Everything here compiles in CI; main() runs the headless parts as a test.
 #include "crabby.hpp"
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <cmath>
 #include <cstdio>
@@ -778,6 +779,67 @@ static void meadow(crabby::ctx& ctx) {
 }
 // ANCHOR_END: shader
 
+// ANCHOR: terrain_material
+static float hill_height(float x, float z) { return std::sin(x * 0.02f) * 6 + std::cos(z * 0.03f) * 4; }
+
+/// Three ground layers, speckled so they don't look flat (in a game,
+/// ctx.load_texture_array from image files), and one weight map over
+/// all nine tiles from the heights: red grass, green dirt, blue rock.
+static crabby::material hill_ground(crabby::ctx& ctx) {
+    std::vector<std::uint8_t> pixels;
+    for (auto base : {std::array<int, 3>{70, 120, 50}, {110, 85, 60}, {120, 120, 115}})
+        for (std::uint32_t i = 0; i < 64 * 64; ++i) {
+            int shade = int((i * 2654435761u) >> 27); // 0..31
+            for (int c : base) pixels.push_back(std::uint8_t(std::min(c + shade, 255)));
+            pixels.push_back(255);
+        }
+    auto layers = ctx.create_texture_array(64, 64, pixels, crabby::texture_kind::color);
+    const std::uint32_t cells = 96;
+    const float area = 384; // 4 m a pixel, from (-128, -128)
+    std::vector<std::uint8_t> weights;
+    for (std::uint32_t i = 0; i < cells * cells; ++i) {
+        float x = float(i % cells) * area / float(cells) - 128, z = float(i / cells) * area / float(cells) - 128;
+        float up = std::clamp((hill_height(x, z) + 10) / 20, 0.0f, 1.0f); // 0 low, 1 high
+        float rock = std::clamp((up - 0.7f) * 4, 0.0f, 1.0f);
+        float dirt = std::clamp(1 - std::abs(up - 0.5f) * 4, 0.0f, 1.0f);
+        float grass = 1 - std::max(rock, dirt);
+        for (float w : {grass, dirt, rock, 0.0f}) weights.push_back(std::uint8_t(w * 255));
+    }
+    auto weight_map = ctx.create_texture_array(cells, cells, weights, crabby::texture_kind::data);
+    auto desc = crabby::terrain_material_of(layers, weight_map, {-128, -128}, {area, area});
+    const float sizes[] = {6, 4, 8};
+    std::copy(std::begin(sizes), std::end(sizes), desc.layer_size);
+    return ctx.create_terrain_material(desc);
+}
+// ANCHOR_END: terrain_material
+
+// ANCHOR: terrain
+/// Rolling hills: 3 x 3 tiles of 128 m, each from 65 x 65 heights 2 m
+/// apart, sharing their edges, with a pond-sized hole in the middle tile.
+/// Grass in the valleys, dirt higher up and rock on the tops.
+static void hills(crabby::ctx& ctx) {
+    auto ground = hill_ground(ctx);
+    const int n = 65;
+    const float size = 128;
+    for (int tz = -1; tz <= 1; ++tz)
+        for (int tx = -1; tx <= 1; ++tx) {
+            crabby::vec3 corner{float(tx) * size, 0, float(tz) * size};
+            std::vector<float> heights(n * n);
+            for (int i = 0; i < n * n; ++i) {
+                float x = float(i % n) * 2 + corner.x, z = float(i / n) * 2 + corner.z;
+                bool hole = tx == 0 && tz == 0 && std::hypot(x - 64, z - 64) < 6;
+                heights[i] = hole ? NAN : hill_height(x, z);
+            }
+            auto tile = ctx.create_terrain_tile(heights, size, ground);
+            ctx.world().spawn(crabby::transform3d_at(corner), tile);
+        }
+    auto cam = ctx.camera3d();
+    cam.position = {64, 30, 220};
+    ctx.set_camera3d(cam);
+    ctx.camera3d_look_at({64, 0, 64});
+}
+// ANCHOR_END: terrain
+
 static void the_village_has_five_spinning_houses() {
     auto world = crabby::game("guide", 640, 480).sim_system(spin, "spin").run_headless(60, [](crabby::ctx& ctx) {
         village(ctx);
@@ -794,7 +856,18 @@ static void the_village_has_five_spinning_houses() {
     if (houses != 5) { std::fprintf(stderr, "%d houses\n", houses); std::abort(); }
 }
 
+static void the_hills_are_nine_tiles() {
+    auto world = crabby::game("hills", 640, 480).run_headless(1, [](crabby::ctx& ctx) { hills(ctx); });
+    int tiles = 0;
+    world.each([&](const crabby::terrain_tile& t) {
+        ++tiles;
+        if (t.lod_distance != 128) { std::fprintf(stderr, "lod distance %f\n", t.lod_distance); std::abort(); }
+    });
+    if (tiles != 9) { std::fprintf(stderr, "%d tiles\n", tiles); std::abort(); }
+}
+
 int main() {
+    the_hills_are_nine_tiles();
     the_beach_has_five_palms();
     the_village_has_five_spinning_houses();
     things_fall_ten_units_per_second();

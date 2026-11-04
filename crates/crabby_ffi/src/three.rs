@@ -4,8 +4,9 @@
 use std::ffi::c_char;
 
 use crabbyengine::{
-    Blend, Camera3D, Color, Lighting, Material, MaterialDesc, Mesh, MeshData, Model, Post, Quat, Shader, Sky, Tonemap,
-    Transform3D, Vec2, Vec3, Vec4,
+    Blend, Camera3D, Color, Lighting, Material, MaterialDesc, Mesh, MeshData, Model, Post, Quat, Shader, Sky,
+    TERRAIN_LAYERS, TERRAIN_LODS, TerrainMaterialDesc, TerrainTile, TextureArray, TextureKind, Tonemap, Transform3D,
+    Vec2, Vec3, Vec4,
 };
 
 use crate::ctx::{ctx_access, out, text};
@@ -107,6 +108,29 @@ pub struct CrabbyModel {
     pub color: CrabbyColor,
 }
 
+/// The built-in `TerrainTile` component: a square of heightfield terrain
+/// drawn more coarsely further from the camera, spawned with a
+/// `CrabbyTransform3D` at its corner instead of a `CrabbyModel`. Made with
+/// `crabby_ctx_create_terrain_tile`.
+/// ```
+/// let t = crabby_ffi::CrabbyTerrainTile { lods: [crabby_ffi::CrabbyMesh { id: 0 }; 4], lod_distance: 256.0 };
+/// assert_eq!(t.lods.len(), crabby_ffi::CRABBY_TERRAIN_LODS);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CrabbyTerrainTile {
+    /// One mesh per detail level, finest first: every height, then every
+    /// 2nd, 4th and 8th.
+    pub lods: [CrabbyMesh; CRABBY_TERRAIN_LODS],
+    /// Up to how far from the camera the finest mesh is drawn; each
+    /// doubling of that drops one level.
+    pub lod_distance: f32,
+}
+
+/// How many detail levels a `CrabbyTerrainTile` has.
+pub const CRABBY_TERRAIN_LODS: usize = 4;
+const _: () = assert!(CRABBY_TERRAIN_LODS == TERRAIN_LODS);
+
 /// A material shader (`crabby_ctx_load_shader`, `crabby_ctx_create_shader`).
 /// ```
 /// let s = crabby_ffi::CrabbyShader { id: 0 };
@@ -169,7 +193,71 @@ pub struct CrabbyMaterialDesc {
     pub has_custom_textures: [bool; 2],
     /// `custom_texture0` and `custom_texture1` in a custom shader.
     pub custom_textures: [CrabbyTexture; 2],
+    /// Whether each of `custom_arrays` is used.
+    pub has_custom_arrays: [bool; 3],
+    /// `custom_array0` to `custom_array2` in a custom shader.
+    pub custom_arrays: [CrabbyTextureArray; 3],
 }
+
+/// Several images of the same size in one texture (Rust `TextureArray`),
+/// from `crabby_ctx_create_texture_array` or `crabby_ctx_load_texture_array`.
+/// ```
+/// let a = crabby_ffi::CrabbyTextureArray { id: 0, width: 64, height: 64, layers: 3 };
+/// assert_eq!(a.layers, 3);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct CrabbyTextureArray {
+    /// Engine-internal id.
+    pub id: u32,
+    /// Width of each image, in pixels.
+    pub width: u32,
+    /// Height of each image, in pixels.
+    pub height: u32,
+    /// How many images it holds.
+    pub layers: u32,
+}
+
+/// What a terrain material is made from (Rust `TerrainMaterialDesc`):
+/// ground layers and a weight map. Start from `crabby_terrain_material_desc`.
+/// ```
+/// let a = crabby_ffi::CrabbyTextureArray::default();
+/// let d = crabby_ffi::crabby_terrain_material_desc(a, a, Default::default(), crabby_ffi::CrabbyVec2 { x: 256.0, y: 256.0 });
+/// assert_eq!(d.roughness, 0.9);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CrabbyTerrainMaterialDesc {
+    /// Each layer's color texture (`CRABBY_TEXTURE_COLOR`), up to `CRABBY_TERRAIN_LAYERS`.
+    pub layers: CrabbyTextureArray,
+    /// Whether `normals` is used.
+    pub has_normals: bool,
+    /// The layers' normal maps, one each (`CRABBY_TEXTURE_DATA`).
+    pub normals: CrabbyTextureArray,
+    /// How strong the normal maps are.
+    pub normal_strength: f32,
+    /// How much of each layer shows where (`CRABBY_TEXTURE_DATA`): the first
+    /// image's RGBA are layers 0-3, the second's 4-7.
+    pub weights: CrabbyTextureArray,
+    /// The world corner (x, z) under the weight map's top-left pixel.
+    pub weights_corner: CrabbyVec2,
+    /// How much ground (x, z) the weight map covers.
+    pub weights_size: CrabbyVec2,
+    /// How many world units each layer's texture covers before it repeats.
+    pub layer_size: [f32; CRABBY_TERRAIN_LAYERS],
+    /// 0 is mirror-smooth, 1 fully rough.
+    pub roughness: f32,
+}
+
+/// The most ground layers a terrain material blends.
+pub const CRABBY_TERRAIN_LAYERS: usize = 8;
+const _: () = assert!(CRABBY_TERRAIN_LAYERS == TERRAIN_LAYERS);
+/// `crabby_ctx_create_texture_array` kinds (Rust `TextureKind`): colors, stored as sRGB.
+pub const CRABBY_TEXTURE_COLOR: u32 = 0;
+/// Numbers read as stored: normal maps, masks, weights.
+pub const CRABBY_TEXTURE_DATA: u32 = 1;
+const _: () =
+    assert!(CRABBY_TEXTURE_COLOR == TextureKind::Color as u32 && CRABBY_TEXTURE_DATA == TextureKind::Data as u32);
 
 /// The 3D camera (Rust `ctx.camera3d`).
 /// ```
@@ -325,6 +413,7 @@ pub struct CrabbyMeshView {
 
 same_layout!(CrabbyVec3, Vec3, x = x, y = y, z = z);
 same_layout!(CrabbyModel, Model, mesh = mesh, color = color);
+same_layout!(CrabbyTerrainTile, TerrainTile, lods = lods, lod_distance = lod_distance);
 const _: () = {
     assert!(size_of::<CrabbyTransform3D>() == size_of::<Transform3D>());
     assert!(std::mem::offset_of!(CrabbyTransform3D, rotation) == std::mem::offset_of!(Transform3D, rotation));
@@ -491,6 +580,8 @@ pub extern "C" fn crabby_material_desc(color: CrabbyColor) -> CrabbyMaterialDesc
         custom: [0.0; 16],
         has_custom_textures: [false; 2],
         custom_textures: [none; 2],
+        has_custom_arrays: [false; 3],
+        custom_arrays: [CrabbyTextureArray::default(); 3],
     }
 }
 
@@ -509,6 +600,10 @@ fn material_from_c(c: &crabbyengine::Ctx, d: &CrabbyMaterialDesc) -> Result<Mate
         return Err(invalid("that shader wasn't made by this game"));
     }
     let map = |has: bool, t: CrabbyTexture| has.then(|| texture_from_c(t));
+    let arrays = std::array::from_fn(|i| d.has_custom_arrays[i].then(|| array_from_c(d.custom_arrays[i])));
+    if arrays.iter().flatten().any(|a| !c.has_texture_array(*a)) {
+        return Err(invalid("that texture array wasn't made by this game"));
+    }
     let v = |i: usize| {
         Vec4::new(
             d.custom[i * 4],
@@ -535,6 +630,174 @@ fn material_from_c(c: &crabbyengine::Ctx, d: &CrabbyMaterialDesc) -> Result<Mate
             map(d.has_custom_textures[0], d.custom_textures[0]),
             map(d.has_custom_textures[1], d.custom_textures[1]),
         ],
+        custom_arrays: arrays,
+    })
+}
+
+const _: () = assert!(
+    size_of::<CrabbyTextureArray>() == size_of::<TextureArray>()
+        && align_of::<CrabbyTextureArray>() == align_of::<TextureArray>()
+);
+fn array_from_c(a: CrabbyTextureArray) -> TextureArray {
+    // SAFETY: both repr(C), four u32 in the same order (id, width, height,
+    // layers); unknown ids are refused by `has_texture_array` or read as white.
+    unsafe { std::mem::transmute(a) }
+}
+fn array_to_c(a: TextureArray) -> CrabbyTextureArray {
+    // SAFETY: as above.
+    unsafe { std::mem::transmute(a) }
+}
+
+/// A terrain material description with the defaults (Rust
+/// `TerrainMaterialDesc::new`): ground `layers` blended by a `weights` map
+/// lying over `size` world units from `corner`, no normal maps, each layer
+/// repeating every 4 units, roughness 0.9.
+/// ```
+/// let a = crabby_ffi::CrabbyTextureArray::default();
+/// let d = crabby_ffi::crabby_terrain_material_desc(a, a, Default::default(), crabby_ffi::CrabbyVec2 { x: 1.0, y: 1.0 });
+/// assert_eq!(d.layer_size[7], 4.0);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn crabby_terrain_material_desc(
+    layers: CrabbyTextureArray,
+    weights: CrabbyTextureArray,
+    corner: CrabbyVec2,
+    size: CrabbyVec2,
+) -> CrabbyTerrainMaterialDesc {
+    let d = TerrainMaterialDesc::new(array_from_c(layers), array_from_c(weights), to_c(corner), to_c(size));
+    CrabbyTerrainMaterialDesc {
+        layers,
+        has_normals: false,
+        normals: CrabbyTextureArray::default(),
+        normal_strength: d.normal_strength,
+        weights,
+        weights_corner: corner,
+        weights_size: size,
+        layer_size: d.layer_size,
+        roughness: d.roughness,
+    }
+}
+
+/// Makes a texture array of `width` x `height` images (Rust
+/// `Ctx::create_texture_array`): `rgba` holds them one after another, 4
+/// bytes a pixel, `len` bytes in all (a whole number of images). `kind` is
+/// `CRABBY_TEXTURE_COLOR` or `CRABBY_TEXTURE_DATA`.
+/// # Safety
+/// `ctx` null or live; `rgba` holds `len` bytes; output writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_create_texture_array(std::ptr::null_mut(), 1, 1, std::ptr::null(), 0, 0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_create_texture_array(
+    ctx: *mut CrabbyCtx,
+    width: u32,
+    height: u32,
+    rgba: *const u8,
+    len: usize,
+    kind: u32,
+    out_array: *mut CrabbyTextureArray,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            if rgba.is_null() || out_array.is_null() {
+                return Err(invalid("pixels or output is null"));
+            }
+            let kind = kind_from_c(kind)?;
+            let image = width as usize * height as usize * 4;
+            if image == 0 || len == 0 || !len.is_multiple_of(image) {
+                return Err(invalid_owned(format!(
+                    "{len} bytes isn't a whole number of {width} x {height} RGBA images"
+                )));
+            }
+            let bytes = std::slice::from_raw_parts(rgba, len);
+            let layers: Vec<&[u8]> = bytes.chunks_exact(image).collect();
+            let array = c
+                .try_create_texture_array(width, height, &layers, kind)
+                .map_err(invalid_owned)?;
+            out(out_array, array_to_c(array))
+        })
+    })
+}
+
+/// Loads `count` images from assets/, all the same size, into a texture
+/// array, one layer each (Rust `Ctx::load_texture_array`). `kind` is
+/// `CRABBY_TEXTURE_COLOR` or `CRABBY_TEXTURE_DATA`.
+/// # Safety
+/// `ctx` null or live; `paths` holds `count` NUL-terminated strings; output writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_load_texture_array(std::ptr::null_mut(), std::ptr::null(), 0, 0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_load_texture_array(
+    ctx: *mut CrabbyCtx,
+    paths: *const *const c_char,
+    count: usize,
+    kind: u32,
+    out_array: *mut CrabbyTextureArray,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            if paths.is_null() || out_array.is_null() {
+                return Err(invalid("paths or output is null"));
+            }
+            let kind = kind_from_c(kind)?;
+            let names = std::slice::from_raw_parts(paths, count)
+                .iter()
+                .map(|&p| text(p))
+                .collect::<Result<Vec<&str>, _>>()?;
+            let array = c.try_load_texture_array(&names, kind).map_err(invalid_owned)?;
+            out(out_array, array_to_c(array))
+        })
+    })
+}
+
+fn kind_from_c(kind: u32) -> Result<TextureKind, crate::Failure> {
+    match kind {
+        CRABBY_TEXTURE_COLOR => Ok(TextureKind::Color),
+        CRABBY_TEXTURE_DATA => Ok(TextureKind::Data),
+        _ => Err(invalid(
+            "kind must be CRABBY_TEXTURE_COLOR (0) or CRABBY_TEXTURE_DATA (1)",
+        )),
+    }
+}
+
+/// Makes a terrain material (Rust `Ctx::create_terrain_material`): an
+/// ordinary material, for `crabby_ctx_create_terrain_tile` or any mesh.
+/// # Safety
+/// `ctx` null or live; `desc` readable; output writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_create_terrain_material(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_create_terrain_material(
+    ctx: *mut CrabbyCtx,
+    desc: *const CrabbyTerrainMaterialDesc,
+    out_material: *mut CrabbyMaterial,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let Some(d) = desc.as_ref() else {
+                return Err(invalid("description is null"));
+            };
+            if out_material.is_null() {
+                return Err(invalid("output is null"));
+            }
+            let rust = TerrainMaterialDesc {
+                layers: array_from_c(d.layers),
+                normals: d.has_normals.then(|| array_from_c(d.normals)),
+                normal_strength: d.normal_strength,
+                weights: array_from_c(d.weights),
+                weights_corner: to_c(d.weights_corner),
+                weights_size: to_c(d.weights_size),
+                layer_size: d.layer_size,
+                roughness: d.roughness,
+            };
+            let material = c.try_create_terrain_material(&rust).map_err(invalid_owned)?;
+            out(out_material, to_c(material))
+        })
     })
 }
 
@@ -568,6 +831,21 @@ pub unsafe extern "C" fn crabby_transform3d_component(world: *mut CrabbyWorld, o
 pub unsafe extern "C" fn crabby_model_component(world: *mut CrabbyWorld, out_id: *mut u32) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
     unsafe { builtin::<Model>(world, out_id) }
+}
+
+/// The id of the built-in `TerrainTile` component (`CrabbyTerrainTile`),
+/// registering it if needed.
+/// # Safety
+/// Live handle and writable output.
+/// ```
+/// use crabby_ffi::*;
+/// let w = crabby_world_new();
+/// unsafe { let mut id = 99; assert_eq!(crabby_terrain_tile_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_terrain_tile_component(world: *mut CrabbyWorld, out_id: *mut u32) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe { builtin::<TerrainTile>(world, out_id) }
 }
 
 // ---- mesh data --------------------------------------------------------------
@@ -670,6 +948,40 @@ pub extern "C" fn crabby_mesh_data_plane(size: f32) -> *mut CrabbyMeshData {
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_mesh_data_sphere(radius: f32, segments: u32) -> *mut CrabbyMeshData {
     boxed(MeshData::sphere(radius, segments))
+}
+
+/// Whether `count` heights make a square grid of at least 2 x 2.
+fn square_grid(count: usize) -> bool {
+    let n = (count as f64).sqrt() as usize;
+    n >= 2 && n * n == count
+}
+
+/// A square of terrain `size` wide from `count` heights: n x n of them, row
+/// after row along +Z, NaN for a hole; every `step`-th height is used, with
+/// skirts at the edges (Rust `MeshData::heightfield`). Null if the heights
+/// aren't a square grid of at least 2 x 2 or `step` is 0.
+/// # Safety
+/// `heights` holds `count` floats.
+/// ```
+/// let h = [0.0f32, 0.0, 0.0, 1.0];
+/// let d = unsafe { crabby_ffi::crabby_mesh_data_heightfield(h.as_ptr(), 4, 2.0, 1) };
+/// assert!(!d.is_null());
+/// assert!(unsafe { crabby_ffi::crabby_mesh_data_heightfield(h.as_ptr(), 3, 2.0, 1) }.is_null());
+/// unsafe { crabby_ffi::crabby_mesh_data_free(d) };
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_mesh_data_heightfield(
+    heights: *const f32,
+    count: usize,
+    size: f32,
+    step: u32,
+) -> *mut CrabbyMeshData {
+    if heights.is_null() || !square_grid(count) || step == 0 {
+        return std::ptr::null_mut();
+    }
+    // SAFETY: the caller's contract: `count` floats at `heights`.
+    let heights = unsafe { std::slice::from_raw_parts(heights, count) };
+    boxed(MeshData::heightfield(heights, size, step as usize))
 }
 
 /// Gives mesh data one color per corner (Rust `MeshData::colors`),
@@ -940,6 +1252,46 @@ pub unsafe extern "C" fn crabby_ctx_create_mesh(
                 return Err(invalid("that material wasn't made by this game"));
             }
             out(out_mesh, to_c(c.create_mesh(&data.0, to_c(material))))
+        })
+    })
+}
+
+/// Makes a terrain tile `size` wide from `count` heights (n x n, row after
+/// row along +Z, NaN for a hole) drawn with `material` (Rust
+/// `Ctx::create_terrain_tile`). Spawn it with a `CrabbyTransform3D` at the
+/// tile's corner.
+/// # Safety
+/// `ctx` null or live; `heights` holds `count` floats; output writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_create_terrain_tile(std::ptr::null_mut(), std::ptr::null(), 0, 1.0, Default::default(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_create_terrain_tile(
+    ctx: *mut CrabbyCtx,
+    heights: *const f32,
+    count: usize,
+    size: f32,
+    material: CrabbyMaterial,
+    out_tile: *mut CrabbyTerrainTile,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            if heights.is_null() || out_tile.is_null() {
+                return Err(invalid("heights or output is null"));
+            }
+            // Checked here so bad input is an error, not a panic.
+            if !square_grid(count) {
+                return Err(invalid("the heights aren't a square grid of at least 2 x 2"));
+            }
+            if !(size > 0.0 && size.is_finite()) {
+                return Err(invalid("size must be above 0"));
+            }
+            if !c.has_material(to_c(material)) {
+                return Err(invalid("that material wasn't made by this game"));
+            }
+            let heights = std::slice::from_raw_parts(heights, count);
+            out(out_tile, to_c(c.create_terrain_tile(heights, size, to_c(material))))
         })
     })
 }

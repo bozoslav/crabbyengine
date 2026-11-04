@@ -31,6 +31,8 @@ pub(crate) type MaterialTextures = [Option<u32>; 6];
 pub(crate) struct GpuMaterialDesc {
     pub uniform: MaterialUniform,
     pub textures: MaterialTextures,
+    /// Texture arrays for custom shaders, by id (`None`: a white one).
+    pub arrays: [Option<u32>; 3],
     /// Index into the renderer's shaders (0: the built-in one).
     pub shader: u32,
     pub transparent: bool,
@@ -62,6 +64,7 @@ impl GpuMaterialDesc {
                 id(desc.custom_textures[0]),
                 id(desc.custom_textures[1]),
             ],
+            arrays: desc.custom_arrays.map(|a| a.map(|a| a.id)),
             shader: desc.shader.map_or(0, |s| s.id + 1),
             transparent: desc.blend == Blend::Transparent,
             double_sided: desc.double_sided,
@@ -135,6 +138,12 @@ impl Ctx {
             assert!(
                 shader.id < self.assets3d.shaders,
                 "crabbyengine: that shader wasn't made by this game"
+            );
+        }
+        for array in desc.custom_arrays.into_iter().flatten() {
+            assert!(
+                self.has_texture_array(array),
+                "crabbyengine: that texture array wasn't made by this game"
             );
         }
     }

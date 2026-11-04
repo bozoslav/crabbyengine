@@ -416,11 +416,13 @@ impl Renderer {
     fn three(&mut self) -> &mut super::gpu3d::Renderer3D {
         if self.three.is_none() {
             let white = self.create_texture(1, 1, &[255; 4]);
+            let white_array = self.upload_texture_array(1, 1, &[&[255; 4]], false);
             self.three = Some(super::gpu3d::Renderer3D::new(
                 &self.device,
                 &self.texture_layout,
                 self.view_format,
                 white,
+                &white_array,
             ));
         }
         self.three.as_mut().expect("just made")
@@ -441,6 +443,77 @@ impl Renderer {
         if let Some(three) = &mut self.three {
             three.update_material(&self.device, &self.queue, id, desc, &self.textures);
         }
+    }
+
+    /// The largest texture array this GPU takes: width and height, and layers.
+    #[cfg(feature = "3d")]
+    pub fn max_texture_array_size(&self) -> (u32, u32) {
+        let limits = self.device.limits();
+        (limits.max_texture_dimension_2d, limits.max_texture_array_layers)
+    }
+
+    /// Uploads a texture array (RGBA8, one image per layer, sRGB unless
+    /// `linear`) with mipmaps; returns its id among the 3D arrays.
+    #[cfg(feature = "3d")]
+    pub fn create_texture_array(&mut self, width: u32, height: u32, layers: &[&[u8]], linear: bool) -> u32 {
+        let texture = self.upload_texture_array(width, height, layers, linear);
+        self.three().add_texture_array(&texture)
+    }
+
+    #[cfg(feature = "3d")]
+    fn upload_texture_array(&mut self, width: u32, height: u32, layers: &[&[u8]], linear: bool) -> wgpu::Texture {
+        let size = wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: layers.len() as u32,
+        };
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("3d texture array"),
+            size,
+            mip_level_count: super::mips::levels(width, height),
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: if linear {
+                wgpu::TextureFormat::Rgba8Unorm
+            } else {
+                wgpu::TextureFormat::Rgba8UnormSrgb
+            },
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        for (i, rgba) in layers.iter().enumerate() {
+            self.queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: i as u32,
+                    },
+                    aspect: wgpu::TextureAspect::All,
+                },
+                rgba,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(4 * width),
+                    rows_per_image: Some(height),
+                },
+                wgpu::Extent3d {
+                    depth_or_array_layers: 1,
+                    ..size
+                },
+            );
+        }
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        let mips = self
+            .mips
+            .get_or_insert_with(|| super::mips::MipMaker::new(&self.device));
+        mips.generate(&self.device, &mut encoder, &texture, linear);
+        self.queue.submit([encoder.finish()]);
+        texture
     }
 
     /// Mipmaps for the textures a material reads.

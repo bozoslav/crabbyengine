@@ -52,6 +52,9 @@ struct MaterialData {
 @group(1) @binding(5) var emissive_texture: texture_2d<f32>;
 @group(1) @binding(6) var custom_texture0: texture_2d<f32>;
 @group(1) @binding(7) var custom_texture1: texture_2d<f32>;
+@group(1) @binding(8) var custom_array0: texture_2d_array<f32>;
+@group(1) @binding(9) var custom_array1: texture_2d_array<f32>;
+@group(1) @binding(10) var custom_array2: texture_2d_array<f32>;
 // The opaque scene behind a transparent surface (see scene_color).
 @group(2) @binding(0) var scene_color_texture: texture_2d<f32>;
 @group(2) @binding(1) var scene_depth_texture: texture_depth_multisampled_2d;

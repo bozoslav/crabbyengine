@@ -269,6 +269,10 @@ pub(crate) struct Renderer3D {
     targets: Option<Targets>,
     /// A 1x1 white texture, for materials without one.
     white: u32,
+    /// Texture arrays for materials (whole, every layer and mip level).
+    arrays: Vec<wgpu::TextureView>,
+    /// A 1x1 white one-layer array, for materials without one.
+    white_array: wgpu::TextureView,
     /// This frame's runs: (mesh, first instance, count).
     runs: Vec<(u32, u32, u32)>,
     shadow_runs: [Vec<(u32, u32, u32)>; MAX_CASCADES],
@@ -280,6 +284,7 @@ impl Renderer3D {
         texture_layout: &wgpu::BindGroupLayout,
         format: wgpu::TextureFormat,
         white: u32,
+        white_array: &wgpu::Texture,
     ) -> Self {
         let uniform_entry = |visibility| wgpu::BindGroupLayoutEntry {
             binding: 0,
@@ -352,6 +357,16 @@ impl Renderer3D {
             },
             count: None,
         };
+        let material_array = |binding| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2Array,
+                multisampled: false,
+            },
+            count: None,
+        };
         let material_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("3d material layout"),
             entries: &[
@@ -368,6 +383,9 @@ impl Renderer3D {
                 material_texture(5),
                 material_texture(6),
                 material_texture(7),
+                material_array(8),
+                material_array(9),
+                material_array(10),
             ],
         });
         let scene_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -783,9 +801,17 @@ impl Renderer3D {
             capacity,
             targets: None,
             white,
+            arrays: Vec::new(),
+            white_array: array_view(white_array),
             runs: Vec::new(),
             shadow_runs: Default::default(),
         }
+    }
+
+    /// Keeps a texture array for materials; returns its id.
+    pub fn add_texture_array(&mut self, texture: &wgpu::Texture) -> u32 {
+        self.arrays.push(array_view(texture));
+        self.arrays.len() as u32 - 1
     }
 
     fn instance_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
@@ -822,6 +848,7 @@ impl Renderer3D {
         device: &wgpu::Device,
         buffer: &wgpu::Buffer,
         maps: &MaterialTextures,
+        arrays: &[Option<u32>; 3],
         textures: &[GpuTexture],
     ) -> wgpu::BindGroup {
         // Normal and ORM maps hold data, not colors: read them without sRGB decoding.
@@ -857,6 +884,15 @@ impl Renderer3D {
                 resource: wgpu::BindingResource::TextureView(view),
             });
         }
+        for (i, array) in arrays.iter().enumerate() {
+            let view = array
+                .and_then(|id| self.arrays.get(id as usize))
+                .unwrap_or(&self.white_array);
+            entries.push(wgpu::BindGroupEntry {
+                binding: 8 + i as u32,
+                resource: wgpu::BindingResource::TextureView(view),
+            });
+        }
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("3d material"),
             layout: &self.material_layout,
@@ -870,7 +906,7 @@ impl Renderer3D {
             contents: bytemuck::bytes_of(&desc.uniform),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
-        let bind_group = self.material_bind_group(device, &buffer, &desc.textures, textures);
+        let bind_group = self.material_bind_group(device, &buffer, &desc.textures, &desc.arrays, textures);
         self.materials.push(GpuMaterial {
             buffer,
             bind_group,
@@ -894,7 +930,7 @@ impl Renderer3D {
             return;
         };
         queue.write_buffer(&material.buffer, 0, bytemuck::bytes_of(&desc.uniform));
-        let bind_group = self.material_bind_group(device, &material.buffer, &desc.textures, textures);
+        let bind_group = self.material_bind_group(device, &material.buffer, &desc.textures, &desc.arrays, textures);
         let shader = desc.shader.min(self.shaders.len() as u32 - 1);
         let material = &mut self.materials[id as usize];
         material.bind_group = bind_group;
@@ -1616,6 +1652,15 @@ fn scene_bind_group(
                 resource: wgpu::BindingResource::TextureView(depth),
             },
         ],
+    })
+}
+
+/// A view of a whole texture array, as materials read it.
+fn array_view(texture: &wgpu::Texture) -> wgpu::TextureView {
+    texture.create_view(&wgpu::TextureViewDescriptor {
+        label: Some("3d texture array"),
+        dimension: Some(wgpu::TextureViewDimension::D2Array),
+        ..Default::default()
     })
 }
 
