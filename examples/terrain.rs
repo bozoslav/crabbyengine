@@ -1,0 +1,235 @@
+//! Heightfield terrain: 5 x 5 tiles of 256 m (129 x 129 heights, 2 m
+//! apart), drawn coarser with distance, with grass, dirt and rock blended
+//! by a weight map, a lake, and an underwater screen effect.
+//!
+//!   `cargo run --release --example terrain --features 3d`
+//!
+//! WASD moves, Q and E go down and up, the arrows turn, U switches the
+//! underwater effect. `SHOT=path.png` saves the third frame and quits;
+//! `VIEW=high|low|under` picks where the camera starts, `HOUR=18.5` the
+//! time of day. `BENCH=1` prints the frame's cost after 300 frames and quits.
+
+use crabbyengine::*;
+
+const TILES: i32 = 5;
+const N: usize = 129;
+const TILE: f32 = 256.0;
+const WATER: f32 = 2.0;
+
+/// Smooth value noise, 0 to 1.
+fn noise(x: f32, z: f32) -> f32 {
+    tiling_noise(x, z, i32::MAX)
+}
+
+/// Value noise that repeats every `period` cells, for textures that tile.
+fn tiling_noise(x: f32, z: f32, period: i32) -> f32 {
+    let hash = |i: i32, j: i32| {
+        let (i, j) = (i.rem_euclid(period), j.rem_euclid(period));
+        let h = (i.wrapping_mul(374_761_393) ^ j.wrapping_mul(668_265_263)) as u32;
+        let h = (h ^ (h >> 13)).wrapping_mul(1_274_126_177);
+        (h >> 8) as f32 / (1u32 << 24) as f32
+    };
+    let (i, j) = (x.floor() as i32, z.floor() as i32);
+    let (fx, fz) = (x - x.floor(), z - z.floor());
+    let (sx, sz) = (fx * fx * (3.0 - 2.0 * fx), fz * fz * (3.0 - 2.0 * fz));
+    let top = hash(i, j) + (hash(i + 1, j) - hash(i, j)) * sx;
+    let bottom = hash(i, j + 1) + (hash(i + 1, j + 1) - hash(i, j + 1)) * sx;
+    top + (bottom - top) * sz
+}
+
+/// Hills: a few octaves of noise, flattened in the valleys.
+fn height(x: f32, z: f32) -> f32 {
+    let mut h = 0.0;
+    let (mut scale, mut amp) = (1.0 / 300.0, 40.0);
+    for _ in 0..5 {
+        h += (noise(x * scale, z * scale) - 0.5) * amp;
+        scale *= 2.1;
+        amp *= 0.45;
+    }
+    h + 6.0
+}
+
+/// A ground layer: `base` color with two scales of noise in it.
+fn layer(base: [f32; 3], grain: f32) -> Vec<u8> {
+    let size = 256;
+    (0..size * size)
+        .flat_map(|i| {
+            let (x, y) = ((i % size) as f32, (i / size) as f32);
+            // Periods that divide the 256 pixels, so the layer tiles.
+            let n = tiling_noise(x / 16.0, y / 16.0, 16) * 0.6 + tiling_noise(x / 4.0, y / 4.0, 64) * 0.4;
+            let shade = 1.0 + (n - 0.5) * grain;
+            let c = base.map(|v| ((v * shade).clamp(0.0, 1.0) * 255.0) as u8);
+            [c[0], c[1], c[2], 255]
+        })
+        .collect()
+}
+
+fn ground(ctx: &mut Ctx) -> Material {
+    let layers = [
+        layer([0.24, 0.42, 0.16], 0.6),
+        layer([0.40, 0.31, 0.22], 0.7),
+        layer([0.46, 0.45, 0.42], 0.9),
+        layer([0.70, 0.62, 0.45], 0.4),
+    ];
+    let refs: Vec<&[u8]> = layers.iter().map(Vec::as_slice).collect();
+    let layers = ctx.create_texture_array(256, 256, &refs, TextureKind::Color);
+    // One weight map over the whole world, 2 m a pixel.
+    let cells = (TILES as usize * (N - 1)) / 2;
+    let area = TILES as f32 * TILE;
+    let origin = -area / 2.0;
+    let weights: Vec<u8> = (0..cells * cells)
+        .flat_map(|i| {
+            let x = origin + (i % cells) as f32 * area / cells as f32;
+            let z = origin + (i / cells) as f32 * area / cells as f32;
+            let h = height(x, z);
+            let slope = (height(x + 2.0, z) - height(x - 2.0, z)).hypot(height(x, z + 2.0) - height(x, z - 2.0)) / 4.0;
+            let sand = (1.0 - (h - WATER).abs() / 1.5).clamp(0.0, 1.0);
+            let rock = ((slope - 0.45) * 4.0).clamp(0.0, 1.0);
+            let dirt = ((h - 18.0) / 8.0).clamp(0.0, 1.0) * (1.0 - rock);
+            let grass = (1.0 - sand - rock - dirt).max(0.0);
+            [grass, dirt, rock, sand].map(|w| (w * 255.0) as u8)
+        })
+        .collect();
+    let weights = ctx.create_texture_array(cells as u32, cells as u32, &[&weights], TextureKind::Data);
+    let desc = TerrainMaterialDesc {
+        layer_size: [5.0, 4.0, 7.0, 3.0, 4.0, 4.0, 4.0, 4.0],
+        ..TerrainMaterialDesc::new(layers, weights, vec2(origin, origin), vec2(area, area))
+    };
+    ctx.create_terrain_material(&desc)
+}
+
+const UNDERWATER: &str = "
+fn effect(p: Pixel) -> vec3<f32> {
+    if frame.camera.y > material.custom[0].x {
+        return p.color;
+    }
+    let deep = vec3<f32>(0.02, 0.12, 0.18);
+    let fade = 1.0 - exp(-p.distance * 0.05);
+    return mix(p.color * vec3<f32>(0.6, 0.9, 1.0), deep, fade);
+}";
+
+fn main() {
+    let view = std::env::var("VIEW").unwrap_or_default();
+    let hour = std::env::var("HOUR").ok().and_then(|h| h.parse().ok()).unwrap_or(16.0);
+    // The first spot nearest the middle where the ground fits.
+    let spot = |fits: &dyn Fn(f32) -> bool| {
+        (0..200 * 200)
+            .map(|i| vec2((i % 200) as f32 * 4.0 - 400.0, (i / 200) as f32 * 4.0 - 400.0))
+            .filter(|p| fits(height(p.x, p.y)))
+            .min_by(|a, b| a.length().total_cmp(&b.length()))
+            .unwrap_or(Vec2::ZERO)
+    };
+    let (start, (mut yaw, mut pitch)) = match view.as_str() {
+        "low" => {
+            let p = spot(&|h| h > WATER + 4.0);
+            (vec3(p.x, height(p.x, p.y) + 1.8, p.y), (0.6f32, -0.08f32))
+        }
+        "under" => {
+            let p = spot(&|h| h < WATER - 2.0 && h > WATER - 5.0);
+            (vec3(p.x, WATER - 1.0, p.y), (0.6, -0.6))
+        }
+        _ => (vec3(-300.0, 90.0, 300.0), (-0.8, -0.25)),
+    };
+    let mut parked: Vec<ScreenEffect> = Vec::new();
+    let bench = std::env::var("BENCH").is_ok();
+    Game::new("Crabby Engine: terrain", 1280, 720)
+        .vsync(!bench)
+        .fullscreen(bench)
+        .system(move |ctx: &mut Ctx| {
+            if ctx.key_pressed(Key::Escape) {
+                ctx.quit();
+            }
+            let dt = ctx.dt();
+            if ctx.key_down(Key::Left) {
+                yaw += dt;
+            }
+            if ctx.key_down(Key::Right) {
+                yaw -= dt;
+            }
+            if ctx.key_down(Key::Up) {
+                pitch = (pitch + dt).min(1.4);
+            }
+            if ctx.key_down(Key::Down) {
+                pitch = (pitch - dt).max(-1.4);
+            }
+            let rotation = Quat::from_rotation_y(yaw) * Quat::from_rotation_x(pitch);
+            let forward = rotation * Vec3::NEG_Z;
+            let right = rotation * Vec3::X;
+            let speed = 60.0 * dt;
+            let mut go = Vec3::ZERO;
+            for (key, dir) in [
+                (Key::W, forward),
+                (Key::S, -forward),
+                (Key::D, right),
+                (Key::A, -right),
+                (Key::E, Vec3::Y),
+                (Key::Q, Vec3::NEG_Y),
+            ] {
+                if ctx.key_down(key) {
+                    go += dir;
+                }
+            }
+            ctx.camera3d.position += go * speed;
+            ctx.camera3d.rotation = rotation;
+            if ctx.key_pressed(Key::U) {
+                std::mem::swap(&mut ctx.effects, &mut parked);
+            }
+            if ctx.frame() == 3
+                && let Ok(path) = std::env::var("SHOT")
+            {
+                ctx.save_screenshot(path);
+            }
+            if ctx.frame() == 5 && std::env::var("SHOT").is_ok() {
+                ctx.quit();
+            }
+            if ctx.frame() == 300 {
+                let stats = ctx.render_stats();
+                println!("{stats:?} models drawn: {}", ctx.models_drawn());
+                if bench {
+                    ctx.quit();
+                }
+            }
+        })
+        .run(move |ctx| {
+            ctx.post.bloom = 0.1;
+            ctx.lighting.sun_direction = Sky::sun_direction_at(hour);
+            ctx.lighting.shadow_distance = 400.0;
+            ctx.camera3d.far = 3000.0;
+            ctx.sky.fog_density = 0.0015;
+            ctx.sky.fog_height = 0.0;
+            ctx.sky.fog_falloff = 60.0;
+
+            let ground = ground(ctx);
+            let half = TILES / 2;
+            for tz in -half..=half {
+                for tx in -half..=half {
+                    let corner = vec3(tx as f32 * TILE - TILE / 2.0, 0.0, tz as f32 * TILE - TILE / 2.0);
+                    let heights: Vec<f32> = (0..N * N)
+                        .map(|i| height(corner.x + (i % N) as f32 * 2.0, corner.z + (i / N) as f32 * 2.0))
+                        .collect();
+                    let tile = ctx.create_terrain_tile(&heights, TILE, ground);
+                    ctx.world.spawn((Transform3D::at(corner), tile));
+                }
+            }
+
+            let water = ctx.load_shader("shaders/water.wgsl");
+            let lake = ctx.create_material(MaterialDesc {
+                shader: Some(water),
+                blend: Blend::Transparent,
+                custom: [vec4(0.06, 1.5, 1.2, 1.2), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO],
+                ..MaterialDesc::color(Color::hex(0x1E4D6B))
+            });
+            let surface = ctx.create_mesh(&MeshData::plane(TILES as f32 * TILE), lake);
+            ctx.world
+                .spawn((Transform3D::at(vec3(0.0, WATER, 0.0)), Model::new(surface)));
+
+            let underwater = ctx.create_effect("underwater", UNDERWATER);
+            let level = ctx.create_material(MaterialDesc {
+                custom: [vec4(WATER, 0.0, 0.0, 0.0), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO],
+                ..Default::default()
+            });
+            ctx.effects.push(ScreenEffect::new(underwater).with_material(level));
+
+            ctx.camera3d.position = start;
+        });
+}

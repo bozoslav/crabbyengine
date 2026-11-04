@@ -36,6 +36,7 @@ pub(crate) struct GpuMaterialDesc {
     /// Index into the renderer's shaders (0: the built-in one).
     pub shader: u32,
     pub transparent: bool,
+    pub cutout: bool,
     pub double_sided: bool,
 }
 
@@ -67,6 +68,7 @@ impl GpuMaterialDesc {
             arrays: desc.custom_arrays.map(|a| a.map(|a| a.id)),
             shader: desc.shader.map_or(0, |s| s.id + 1),
             transparent: desc.blend == Blend::Transparent,
+            cutout: desc.blend == Blend::Cutout,
             double_sided: desc.double_sided,
         }
     }
@@ -350,11 +352,7 @@ impl Ctx {
                     normal_strength: m.normal_strength,
                     orm_map: texture(m.orm_map),
                     emissive_map: texture(m.emissive_map),
-                    blend: if m.transparent {
-                        Blend::Transparent
-                    } else {
-                        Blend::Opaque
-                    },
+                    blend: m.blend,
                     double_sided: m.double_sided,
                     ..Default::default()
                 })

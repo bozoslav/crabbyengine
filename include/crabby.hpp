@@ -106,7 +106,7 @@ using effect = CrabbyEffect;
 /// One screen effect run over the lit 3D frame (Rust `ScreenEffect`); see screen_effect_of.
 using screen_effect = CrabbyScreenEffect;
 /// How a material covers what's behind it (`material_desc::blend`).
-enum class blend : uint32_t { opaque = 0, transparent = 1 };
+enum class blend : uint32_t { opaque = 0, transparent = 1, cutout = 2 };
 using camera3d = CrabbyCamera3D;
 using lighting = CrabbyLighting;
 /// Post-processing of the 3D frame (Rust `Post`); read and change it with

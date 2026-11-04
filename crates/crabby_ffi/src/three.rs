@@ -209,7 +209,7 @@ pub struct CrabbyMaterialDesc {
     pub has_emissive_map: bool,
     /// Multiplies `emissive`.
     pub emissive_map: CrabbyTexture,
-    /// 0 opaque (alpha below 0.5 cut out), 1 transparent.
+    /// 0 opaque, 1 transparent, 2 cut out (pixels with alpha below 0.5).
     pub blend: u32,
     /// Draws the back of each triangle too.
     pub double_sided: bool,
@@ -623,7 +623,8 @@ fn material_from_c(c: &crabbyengine::Ctx, d: &CrabbyMaterialDesc) -> Result<Mate
     let blend = match d.blend {
         0 => Blend::Opaque,
         1 => Blend::Transparent,
-        _ => return Err(invalid("blend must be 0 (opaque) or 1 (transparent)")),
+        2 => Blend::Cutout,
+        _ => return Err(invalid("blend must be 0 (opaque), 1 (transparent) or 2 (cut out)")),
     };
     let shader = d.has_shader.then_some(Shader::from_id(d.shader.id));
     if shader.is_some_and(|s| !c.has_shader(s)) {

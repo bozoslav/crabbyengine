@@ -230,13 +230,17 @@ impl Shader {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u32)]
 pub enum Blend {
-    /// Solid; pixels with alpha below 0.5 are cut out (leaves, fences).
+    /// Solid, whatever its alpha. The fastest: hidden pixels and shadows
+    /// skip the material's shader.
     #[default]
     Opaque = 0,
     /// See-through by its alpha (glass, water). Drawn after everything
     /// solid, casts no shadow; overlapping transparent models are not
     /// sorted, so one may show over another that is in front of it.
     Transparent = 1,
+    /// Solid, with pixels whose alpha is below 0.5 cut out (leaves,
+    /// fences, grass cards). Their shadows have the same holes.
+    Cutout = 2,
 }
 
 /// What a [`Material`] is made from.

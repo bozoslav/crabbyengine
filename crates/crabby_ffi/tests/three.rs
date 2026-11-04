@@ -125,6 +125,8 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
         assert_eq!(crabby_ctx_create_material(ctx, &desc, &mut leaves), CRABBY_OK);
         desc.blend = 1;
         assert_eq!(crabby_ctx_update_material(ctx, leaves, &desc), CRABBY_OK);
+        desc.blend = 2; // cut out
+        assert_eq!(crabby_ctx_update_material(ctx, leaves, &desc), CRABBY_OK);
         let broken = c"fn surface(s: Surface) -> Surface { return 1; }";
         ids.errors.push(crabby_ctx_create_shader(
             ctx,

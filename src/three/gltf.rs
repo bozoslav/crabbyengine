@@ -9,7 +9,7 @@ use std::ops::Range;
 
 use glam::{Mat3, Mat4, Vec2, Vec3};
 
-use super::MeshData;
+use super::{Blend, MeshData};
 use crate::Color;
 
 /// A loaded file, before it goes to the GPU.
@@ -37,8 +37,8 @@ pub(crate) struct LoadedMaterial {
     /// Occlusion in red, roughness in green, metalness in blue.
     pub orm_map: Option<usize>,
     pub emissive_map: Option<usize>,
-    /// glTF's alpha mode BLEND.
-    pub transparent: bool,
+    /// glTF's alpha mode: OPAQUE, MASK (cut out) or BLEND (transparent).
+    pub blend: Blend,
     pub double_sided: bool,
 }
 
@@ -54,7 +54,7 @@ impl LoadedMaterial {
             normal_strength: 1.0,
             orm_map: None,
             emissive_map: None,
-            transparent: false,
+            blend: Blend::Opaque,
             double_sided: false,
         }
     }
@@ -126,7 +126,11 @@ pub(crate) fn load(
             normal_strength,
             orm_map,
             emissive_map,
-            transparent: material.alpha_mode() == gltf::material::AlphaMode::Blend,
+            blend: match material.alpha_mode() {
+                gltf::material::AlphaMode::Opaque => Blend::Opaque,
+                gltf::material::AlphaMode::Mask => Blend::Cutout,
+                gltf::material::AlphaMode::Blend => Blend::Transparent,
+            },
             double_sided: material.double_sided(),
         });
     }
@@ -450,6 +454,17 @@ mod tests {
     }
 
     #[test]
+    fn masked_materials_load_as_cut_outs() {
+        let gltf = triangle_gltf(None).replace(
+            r#""materials": [{ "pbrMetallicRoughness": { "baseColorFactor": [1, 0, 0, 1], "roughnessFactor": 0.25 } }],"#,
+            r#""materials": [{ "alphaMode": "MASK" }, {}],"#,
+        );
+        let loaded = load("mask.gltf", gltf.as_bytes(), &mut |f| Err(f.to_string())).unwrap();
+        assert_eq!(loaded.materials[0].blend, Blend::Cutout);
+        assert_eq!(loaded.materials[1].blend, Blend::Opaque);
+    }
+
+    #[test]
     fn material_maps_load_with_occlusion_packed_into_red() {
         let gltf = triangle_gltf(None);
         let materials = format!(
@@ -473,7 +488,7 @@ mod tests {
         );
         let loaded = load("maps.gltf", gltf.as_bytes(), &mut |f| Err(f.to_string())).unwrap();
         let m = &loaded.materials[0];
-        assert!(m.transparent && m.double_sided);
+        assert!(m.blend == Blend::Transparent && m.double_sided);
         assert_eq!(m.normal_strength, 0.5);
         assert_eq!(m.normal_map, m.emissive_map, "one image, decoded once");
         let orm = &loaded.images[m.orm_map.unwrap()];

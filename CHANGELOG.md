@@ -104,6 +104,16 @@ says what that covers.
   in Unity 6 under `bench/unity`: 100k spinning cubes run at 402 FPS in
   Crabby and 54 in Unity.
 
+### Changed
+- 3D materials: `Blend::Opaque` is now fully solid, whatever the alpha;
+  the new `Blend::Cutout` (2 in C, `crabby::blend::cutout` in C++) cuts
+  out pixels with alpha below 0.5, as `Opaque` did before. glTF materials
+  with alpha mode MASK load as `Cutout`. Solid materials write depth and
+  shadows without running their shader.
+- Shadows: each pixel samples only the cascade it falls in (and the next
+  one near the edge), not every cascade, and none when it faces away from
+  the sun. Distant cascades draw terrain tiles at a coarser detail level.
+
 ### Fixed
 - `vsync(false)` no longer waits for the window's redraw events, which
   macOS sends only once per display refresh.
