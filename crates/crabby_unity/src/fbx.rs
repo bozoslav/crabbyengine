@@ -108,7 +108,7 @@ impl ModelFile {
             for &f in &faces {
                 let face = mesh.faces[f as usize];
                 let n = ufbx::triangulate_face(&mut corners, mesh, face) as usize;
-                for tri in corners[..n * 3].chunks_exact(3) {
+                for tri in corners[..n * 3].as_chunks::<3>().0 {
                     // Mirrored, so the winding turns around.
                     for &i in &[tri[0], tri[2], tri[1]] {
                         let i = i as usize;
