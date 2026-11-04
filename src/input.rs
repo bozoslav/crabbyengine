@@ -289,6 +289,8 @@ pub(crate) struct Input {
     mouse_pos: Vec2,
     mouse_pos_at_frame_start: Vec2,
     mouse_wheel: Vec2,
+    /// Raw mouse movement this frame (also while the cursor is locked).
+    mouse_motion: Vec2,
     pads: [PadState; MAX_GAMEPADS],
     /// Connected pads, sorted by slot.
     connected: Vec<Gamepad>,
@@ -302,6 +304,7 @@ impl Input {
             mouse_pos: Vec2::ZERO,
             mouse_pos_at_frame_start: Vec2::ZERO,
             mouse_wheel: Vec2::ZERO,
+            mouse_motion: Vec2::ZERO,
             pads: [const { PadState::new() }; MAX_GAMEPADS],
             connected: Vec::with_capacity(MAX_GAMEPADS),
         }
@@ -323,6 +326,10 @@ impl Input {
 
     pub fn add_mouse_wheel(&mut self, delta: Vec2) {
         self.mouse_wheel += delta;
+    }
+
+    pub fn add_mouse_motion(&mut self, delta: Vec2) {
+        self.mouse_motion += delta;
     }
 
     /// A pad was plugged in: it takes the lowest free slot. `None` when all
@@ -367,6 +374,7 @@ impl Input {
             pad.buttons.end_frame();
         }
         self.mouse_wheel = Vec2::ZERO;
+        self.mouse_motion = Vec2::ZERO;
         self.mouse_pos_at_frame_start = self.mouse_pos;
     }
 
@@ -406,6 +414,10 @@ impl Input {
 
     pub fn mouse_wheel(&self) -> Vec2 {
         self.mouse_wheel
+    }
+
+    pub fn mouse_motion(&self) -> Vec2 {
+        self.mouse_motion
     }
 
     pub fn gamepads(&self) -> &[Gamepad] {
@@ -506,6 +518,18 @@ mod tests {
         assert_eq!(input.mouse_delta(), Vec2::ZERO);
         assert_eq!(input.mouse_wheel(), Vec2::ZERO);
         assert_eq!(input.mouse_pos(), Vec2::new(15.0, 18.0));
+    }
+
+    #[test]
+    fn raw_mouse_motion_adds_up_and_resets_each_frame() {
+        let mut input = Input::new();
+        input.add_mouse_motion(Vec2::new(3.0, -1.0));
+        input.add_mouse_motion(Vec2::new(2.0, 4.0));
+        // The cursor didn't move (it's locked), but the mouse did.
+        assert_eq!(input.mouse_delta(), Vec2::ZERO);
+        assert_eq!(input.mouse_motion(), Vec2::new(5.0, 3.0));
+        input.end_frame();
+        assert_eq!(input.mouse_motion(), Vec2::ZERO);
     }
 
     #[test]

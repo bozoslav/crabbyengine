@@ -9,6 +9,7 @@ mod net;
 #[allow(dead_code)] // spike: API surface kept for the M3 port
 mod own;
 mod physics;
+mod physics3d;
 
 use bevy_ecs::component::Component;
 use std::hint::black_box;
@@ -127,6 +128,7 @@ fn main() {
     let mut b = Bench { filter };
     println!("N = {N}, add/remove N = {ADD_REMOVE_N}\n");
     physics::run(&mut b);
+    physics3d::run(&mut b);
     net::run(&mut b);
 
     // ---- baseline: plain Vecs (upper bound for iteration) -------------------

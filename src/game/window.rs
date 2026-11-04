@@ -6,10 +6,10 @@ use web_time::Instant;
 use glam::Vec2;
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition};
-use winit::event::{ElementState, MouseScrollDelta, WindowEvent};
+use winit::event::{DeviceEvent, DeviceId, ElementState, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::PhysicalKey;
-use winit::window::{Window, WindowId};
+use winit::window::{CursorGrabMode, Window, WindowId};
 
 use super::*;
 use crate::input::{Key, MouseButton};
@@ -41,6 +41,10 @@ where
     #[cfg(feature = "physics")]
     if let Some(gravity) = game.gravity {
         crate::physics::start(&mut ctx, gravity);
+    }
+    #[cfg(feature = "physics3d")]
+    if let Some(gravity) = game.gravity3d {
+        crate::physics3d::start(&mut ctx, gravity);
     }
     if let Some(net) = game.net.take() {
         ctx.net = net;
@@ -162,6 +166,12 @@ where
         if self.ctx.quit_requested() {
             event_loop.exit();
             return;
+        }
+        if self.ctx.cursor_lock_changed
+            && let Some(window) = &self.window
+        {
+            self.ctx.cursor_lock_changed = false;
+            apply_cursor_lock(window, self.ctx.cursor_locked());
         }
 
         // With vsync, presenting blocks until the display is ready, which
@@ -320,6 +330,9 @@ where
 
             WindowEvent::Focused(false) => self.ctx.input.release_all(),
 
+            // The system lets go of the cursor while the window is away.
+            WindowEvent::Focused(true) if self.ctx.cursor_locked() => apply_cursor_lock(&window, true),
+
             WindowEvent::KeyboardInput { event, .. } => {
                 if event.repeat {
                     return;
@@ -358,6 +371,14 @@ where
         }
     }
 
+    fn device_event(&mut self, _event_loop: &ActiveEventLoop, _id: DeviceId, event: DeviceEvent) {
+        if let DeviceEvent::MouseMotion { delta: (x, y) } = event
+            && self.window.as_ref().is_some_and(|w| w.has_focus())
+        {
+            self.ctx.input.add_mouse_motion(Vec2::new(x as f32, y as f32));
+        }
+    }
+
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         if self.occluded {
             // Hidden: check back now and then instead of spinning a core.
@@ -373,4 +394,17 @@ where
             event_loop.set_control_flow(ControlFlow::Wait);
         }
     }
+}
+
+/// Hides the cursor and holds it in place (or in the window, where the
+/// system can't hold it still), or frees it.
+fn apply_cursor_lock(window: &Window, locked: bool) {
+    if locked {
+        if window.set_cursor_grab(CursorGrabMode::Locked).is_err() {
+            let _ = window.set_cursor_grab(CursorGrabMode::Confined);
+        }
+    } else {
+        let _ = window.set_cursor_grab(CursorGrabMode::None);
+    }
+    window.set_cursor_visible(!locked);
 }

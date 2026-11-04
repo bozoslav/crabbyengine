@@ -132,6 +132,11 @@ pub struct Ctx {
     /// (feature `physics`).
     #[cfg(feature = "physics")]
     pub physics: crate::Physics,
+    /// The 3D physics world: ray and shape casts, overlaps, impulses,
+    /// collision meshes, gravity. Simulated once enabled with
+    /// [`Game::physics3d`](crate::Game::physics3d) (feature `physics3d`).
+    #[cfg(feature = "physics3d")]
+    pub physics3d: crate::Physics3D,
     /// Lockstep networking: this player's input out, everyone's in. Offline
     /// (one player) unless the game was given a session with
     /// [`Game::lockstep`](crate::Game::lockstep).
@@ -185,6 +190,10 @@ pub struct Ctx {
     fps: f32,
     window_size: Vec2,
     quit_requested: bool,
+    /// The cursor is hidden and held in the window (`set_cursor_locked`).
+    cursor_locked: bool,
+    /// `cursor_locked` changed since the window last applied it.
+    pub(crate) cursor_lock_changed: bool,
     pub(crate) renderer: Option<Renderer>,
     /// Screenshots waiting for the next drawn frame.
     screenshots: Vec<ScreenshotRequest>,
@@ -332,6 +341,8 @@ impl Ctx {
             spatial: SpatialGrid::default(),
             #[cfg(feature = "physics")]
             physics: crate::Physics::default(),
+            #[cfg(feature = "physics3d")]
+            physics3d: crate::Physics3D::default(),
             net: crate::Net::default(),
             events: Events::default(),
             in_sim: false,
@@ -367,6 +378,8 @@ impl Ctx {
             fps: 0.0,
             window_size,
             quit_requested: false,
+            cursor_locked: false,
+            cursor_lock_changed: false,
             renderer: None,
             screenshots: Vec::new(),
             draw_list: DrawList::default(),
@@ -1583,6 +1596,49 @@ impl Ctx {
     /// ```
     pub fn mouse_delta(&self) -> Vec2 {
         self.input.mouse_delta()
+    }
+
+    /// How far the mouse itself moved this frame, in the system's raw
+    /// mouse units (about a pixel each, without pointer acceleration). Unlike
+    /// [`mouse_delta`](Self::mouse_delta) it keeps coming while the cursor is
+    /// locked and at the window's edge: use it to turn a first-person camera.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn look(ctx: &mut Ctx, yaw: &mut f32, pitch: &mut f32) {
+    /// let turn = ctx.mouse_motion() * 0.002; // radians per unit
+    /// *yaw -= turn.x;
+    /// *pitch = (*pitch - turn.y).clamp(-1.5, 1.5);
+    /// # }
+    /// ```
+    pub fn mouse_motion(&self) -> Vec2 {
+        self.input.mouse_motion()
+    }
+
+    /// Hides the cursor and holds it in the window (`true`), for mouse-look,
+    /// or shows and frees it again (`false`). Applied after the frame; read
+    /// the movement with [`mouse_motion`](Self::mouse_motion). The system
+    /// frees the cursor while the window isn't focused, and it's held again
+    /// when focus comes back. Headless runs only remember the setting.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// Game::new("t", 1, 1).run_headless(1, |ctx| {
+    ///     ctx.set_cursor_locked(true);
+    ///     assert!(ctx.cursor_locked());
+    /// });
+    /// ```
+    pub fn set_cursor_locked(&mut self, locked: bool) {
+        if self.cursor_locked != locked {
+            self.cursor_locked = locked;
+            self.cursor_lock_changed = true;
+        }
+    }
+
+    /// Whether the cursor is locked, as set with
+    /// [`set_cursor_locked`](Self::set_cursor_locked).
+    pub fn cursor_locked(&self) -> bool {
+        self.cursor_locked
     }
 
     /// Scroll wheel movement this frame. `y > 0` means scrolled up / away from
