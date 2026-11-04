@@ -6,7 +6,7 @@
 //!
 //! WASD moves, Q and E go down and up, the arrows turn, U switches the
 //! underwater effect. `SHOT=path.png` saves the third frame and quits;
-//! `VIEW=high|low|under` picks where the camera starts, `HOUR=18.5` the
+//! `VIEW=high|low|under|cliff` picks where the camera starts, `HOUR=18.5` the
 //! time of day. `BENCH=1` prints the frame's cost after 300 frames and quits.
 
 use crabbyengine::*;
@@ -164,6 +164,27 @@ fn main() {
         "under" => {
             let p = spot(&|h| h < WATER - 2.0 && h > WATER - 5.0);
             (vec3(p.x, WATER - 1.0, p.y), (0.6, -0.6))
+        }
+        "cliff" => {
+            // The steepest ground near the middle, seen from 30 m off its foot.
+            let slope = |p: Vec2| {
+                (height(p.x + 2.0, p.y) - height(p.x - 2.0, p.y)).hypot(height(p.x, p.y + 2.0) - height(p.x, p.y - 2.0))
+            };
+            let steep = (0..200 * 200)
+                .map(|i| vec2((i % 200) as f32 * 4.0 - 400.0, (i / 200) as f32 * 4.0 - 400.0))
+                .filter(|p| height(p.x, p.y) > WATER + 2.0)
+                .max_by(|a, b| slope(*a).total_cmp(&slope(*b)))
+                .unwrap_or(Vec2::ZERO);
+            // Downhill, away from the face.
+            let down = -vec2(
+                height(steep.x + 2.0, steep.y) - height(steep.x - 2.0, steep.y),
+                height(steep.x, steep.y + 2.0) - height(steep.x, steep.y - 2.0),
+            )
+            .normalize_or_zero();
+            let eye = steep + down * 30.0;
+            let at = vec3(eye.x, height(eye.x, eye.y).max(WATER) + 6.0, eye.y);
+            let to = vec3(steep.x, height(steep.x, steep.y), steep.y) - at;
+            (at, (f32::atan2(-to.x, -to.z), (to.y / to.length()).asin()))
         }
         _ => (vec3(-300.0, 90.0, 300.0), (-0.8, -0.25)),
     };

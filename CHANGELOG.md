@@ -8,6 +8,11 @@ says what that covers.
 ## [Unreleased]
 
 ### Added
+- `Heightfield`: the ground's height and facing under a point on the CPU
+  (`height_at`, `normal_at`), following the drawn triangles exactly, for
+  standing things on terrain; `TerrainTileData::heightfield` keeps one. In
+  C (`crabby_heightfield_new`, `crabby_heightfield_at`,
+  `crabby_heightfield_free`) and C++ (`crabby::heightfield`).
 - Streaming big worlds: `CellStreamer` says which cells of a ground grid
   to load (nearest first, a few per frame) and drop around a point;
   `Job::spawn` runs work on a worker thread and `job.take()` collects it;
@@ -135,6 +140,9 @@ says what that covers.
   Crabby and 54 in Unity.
 
 ### Changed
+- Terrain materials lay their layers on from the sides too on steep
+  ground (triplanar), so cliffs no longer stretch them; flat ground costs
+  the same.
 - 3D materials: `Blend::Opaque` is now fully solid, whatever the alpha;
   the new `Blend::Cutout` (2 in C, `crabby::blend::cutout` in C++) cuts
   out pixels with alpha below 0.5, as `Opaque` did before. glTF materials

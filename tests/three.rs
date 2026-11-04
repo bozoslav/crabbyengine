@@ -277,6 +277,36 @@ fn hills(ctx: &mut Ctx) {
 }
 // ANCHOR_END: terrain
 
+// ANCHOR: ground_height
+/// Trees standing on a 128 m tile: each at the ground's height under it,
+/// none over a hole.
+fn plant_trees(ctx: &mut Ctx, heights: &[f32], corner: Vec3, tree: Mesh) {
+    let ground = Heightfield::new(heights, 128.0);
+    for i in 0..20 {
+        let (x, z) = ((i * 37 % 128) as f32, (i * 71 % 128) as f32);
+        if let Some(y) = ground.height_at(x, z) {
+            ctx.world
+                .spawn((Transform3D::at(corner + vec3(x, y, z)), Model::new(tree)));
+        }
+    }
+}
+// ANCHOR_END: ground_height
+
+#[test]
+fn the_guide_trees_stand_on_the_ground() {
+    let mut world = Game::new("t", 1, 1).run_headless(0, |ctx| {
+        let material = ctx.default_material();
+        let tree = ctx.create_mesh(&MeshData::cube(1.0), material);
+        // Flat at 3 m, with the first cell's corner cut out.
+        let mut heights = vec![3.0; 65 * 65];
+        heights[0] = f32::NAN;
+        plant_trees(ctx, &heights, vec3(128.0, 0.0, 0.0), tree);
+    });
+    let trees: Vec<Vec3> = world.query::<&Transform3D>().iter().map(|t| t.position).collect();
+    assert_eq!(trees.len(), 19, "the tree at the corner is over the hole");
+    assert!(trees.iter().all(|p| (p.y - 3.0).abs() < 1e-4 && p.x >= 128.0));
+}
+
 // ANCHOR: terrain_material
 /// Three ground layers, speckled so they don't look flat (in a game,
 /// `ctx.load_texture_array` from image files), and one weight map over
