@@ -8,14 +8,15 @@
 //! top-down v.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use glam::{Mat4, Quat, Vec3};
 use serde_json::{Value as Json, json};
 
+use crate::fbx::ModelFile;
 use crate::glb::{self, Primitive, Vertices};
 use crate::material::{Surface, UnityMaterial};
-use crate::{Error, Hierarchy, ObjRef, Project, UnityFile, UnityMesh, Value};
+use crate::{Error, Hierarchy, ObjRef, Project, UnityFile, UnityMesh, UnityTexture, Value};
 
 const MESH_FILTER: i32 = 33;
 const MESH_RENDERER: i32 = 23;
@@ -46,18 +47,27 @@ impl Report {
     }
 }
 
+/// Where a texture's texels are.
+#[derive(Debug, Clone, PartialEq)]
+enum Source {
+    /// An image file.
+    File(PathBuf),
+    /// A texture asset: the file, and the object's id in it.
+    Asset(PathBuf, i64),
+}
+
 /// An image to write once the scenes are read, from source images.
 #[derive(Debug, Clone, PartialEq)]
 enum Job {
     /// A texture as it is (made at most `max` texels on a side).
-    Copy { from: PathBuf, max: u32 },
+    Copy { from: Source, max: u32 },
     /// glTF's occlusion (red), roughness (green) and metalness (blue) from
     /// Unity's maps: metalness in red and smoothness in alpha of `metal`,
     /// or smoothness in `gloss`'s alpha; occlusion in `occlusion`'s green.
     Orm {
-        metal: Option<PathBuf>,
-        gloss: Option<PathBuf>,
-        occlusion: Option<PathBuf>,
+        metal: Option<Source>,
+        gloss: Option<Source>,
+        occlusion: Option<Source>,
         smoothness: f32,
         occlusion_strength: f32,
         max: u32,
@@ -87,6 +97,8 @@ pub struct Importer<'p> {
     /// Mesh files written, by mesh and materials: their asset names.
     models: HashMap<(ObjRef, Vec<ObjRef>), Option<String>>,
     materials: HashMap<ObjRef, Option<UnityMaterial>>,
+    /// Model files (FBX, OBJ) read so far, by GUID.
+    model_files: HashMap<String, Result<ModelFile, String>>,
     /// Images to write, by file name under `meshes/textures/`.
     jobs: BTreeMap<String, Job>,
     used_names: HashSet<String>,
@@ -107,6 +119,7 @@ impl<'p> Importer<'p> {
             prefix,
             models: HashMap::new(),
             materials: HashMap::new(),
+            model_files: HashMap::new(),
             jobs: BTreeMap::new(),
             used_names: HashSet::new(),
             report: Report::default(),
@@ -246,28 +259,49 @@ impl<'p> Importer<'p> {
             .and_then(|e| e.to_str())
             .unwrap_or("")
             .to_ascii_lowercase();
-        if ext != "asset" {
+        let unity = if ext == "asset" {
+            let file = match UnityFile::read(self.project.root().join(path)) {
+                Ok(f) => f,
+                Err(e) => {
+                    self.report.skip(format!("an unreadable mesh file: {e}"));
+                    return Ok(None);
+                }
+            };
+            let Some(object) = file.get(mesh.file_id) else {
+                self.report.skip("a mesh missing from its file");
+                return Ok(None);
+            };
+            match UnityMesh::from_object(object) {
+                Ok(m) => m,
+                Err(e) => {
+                    self.report
+                        .skip(format!("a mesh that can't be read: {}", first_words(&e.message)));
+                    return Ok(None);
+                }
+            }
+        } else if ["fbx", "obj"].contains(&ext.as_str()) {
+            let full = self.project.root().join(path);
+            let model = self
+                .model_files
+                .entry(guid.to_string())
+                .or_insert_with(|| ModelFile::open(&full).map_err(|e| e.message));
+            let mesh = match model {
+                Ok(model) => model.mesh(mesh.file_id),
+                Err(e) => Err(Error::new(e.clone())),
+            };
+            match mesh {
+                Ok(m) => m,
+                Err(e) => {
+                    self.report.skip(format!(
+                        "a mesh that can't be read from a .{ext}: {}",
+                        first_words(&e.message)
+                    ));
+                    return Ok(None);
+                }
+            }
+        } else {
             self.report.skip(format!("a mesh in a .{ext} file"));
             return Ok(None);
-        }
-        let file = match UnityFile::read(self.project.root().join(path)) {
-            Ok(f) => f,
-            Err(e) => {
-                self.report.skip(format!("an unreadable mesh file: {e}"));
-                return Ok(None);
-            }
-        };
-        let Some(object) = file.get(mesh.file_id) else {
-            self.report.skip("a mesh missing from its file");
-            return Ok(None);
-        };
-        let unity = match UnityMesh::from_object(object) {
-            Ok(m) => m,
-            Err(e) => {
-                self.report
-                    .skip(format!("a mesh that can't be read: {}", first_words(&e.message)));
-                return Ok(None);
-            }
         };
         let mats: Vec<Option<UnityMaterial>> = materials.iter().map(|m| self.material(m)).collect();
         let glb = self.build_glb(&unity, &mats);
@@ -437,7 +471,7 @@ impl<'p> Importer<'p> {
 
     /// The source image of texture `r`, with the size limit its import
     /// settings give; `None` when it isn't a file this can read.
-    fn source(&mut self, r: &ObjRef) -> Option<(PathBuf, u32)> {
+    fn source(&mut self, r: &ObjRef) -> Option<(Source, u32)> {
         let guid = r.guid.as_deref()?;
         let Some(path) = self.project.path_of(guid) else {
             self.report.skip("a texture not in the project");
@@ -448,6 +482,10 @@ impl<'p> Importer<'p> {
             .and_then(|e| e.to_str())
             .unwrap_or("")
             .to_ascii_lowercase();
+        if ext == "asset" {
+            // Generated textures are as big as they were made.
+            return Some((Source::Asset(self.project.root().join(path), r.file_id), u32::MAX));
+        }
         if !["png", "jpg", "jpeg", "tga", "tif", "tiff", "bmp"].contains(&ext.as_str()) {
             self.report.skip(format!("a .{ext} texture"));
             return None;
@@ -463,12 +501,16 @@ impl<'p> Importer<'p> {
                     .and_then(|n| n.trim().parse().ok())
             })
             .unwrap_or(2048);
-        Some((file, max))
+        Some((Source::File(file), max))
     }
 
     fn copy_job(&mut self, r: &ObjRef) -> Option<(String, Job)> {
         let (from, max) = self.source(r)?;
-        Some((format!("{}.png", r.guid.as_deref()?), Job::Copy { from, max }))
+        let name = match &from {
+            Source::Asset(_, id) if *id != 2_800_000 => format!("{}_{id}.png", r.guid.as_deref()?),
+            _ => format!("{}.png", r.guid.as_deref()?),
+        };
+        Some((name, Job::Copy { from, max }))
     }
 
     /// The ORM image `m` needs, if any map feeds it.
@@ -580,8 +622,18 @@ fn mirror(m: Mat4) -> Mat4 {
 
 /// Makes one image of `job`; `None` if a source can't be read.
 fn run(job: &Job) -> Option<image::RgbaImage> {
-    let open = |p: &Path, max: u32| -> Option<image::RgbaImage> {
-        let image = image::open(p).ok()?;
+    let open = |source: &Source, max: u32| -> Option<image::RgbaImage> {
+        let image = match source {
+            Source::File(p) => image::open(p).ok()?,
+            Source::Asset(p, id) => {
+                let file = UnityFile::read(p).ok()?;
+                let t = UnityTexture::from_object(file.get(*id)?).ok()?;
+                // An array's first layer.
+                let one = (t.width * t.height * 4) as usize;
+                let rgba = image::RgbaImage::from_raw(t.width, t.height, t.rgba[..one].to_vec())?;
+                image::DynamicImage::ImageRgba8(rgba)
+            }
+        };
         Some(fit(image, max).to_rgba8())
     };
     match job {
@@ -594,12 +646,9 @@ fn run(job: &Job) -> Option<image::RgbaImage> {
             occlusion_strength,
             max,
         } => {
-            let metal = metal.as_deref().map(|p| open(p, *max)).map(Option::unwrap_or_default);
-            let gloss = gloss.as_deref().map(|p| open(p, *max)).map(Option::unwrap_or_default);
-            let occlusion = occlusion
-                .as_deref()
-                .map(|p| open(p, *max))
-                .map(Option::unwrap_or_default);
+            let metal = metal.as_ref().map(|p| open(p, *max)).map(Option::unwrap_or_default);
+            let gloss = gloss.as_ref().map(|p| open(p, *max)).map(Option::unwrap_or_default);
+            let occlusion = occlusion.as_ref().map(|p| open(p, *max)).map(Option::unwrap_or_default);
             let (w, h) = [&metal, &gloss, &occlusion]
                 .iter()
                 .filter_map(|i| i.as_ref().map(image::RgbaImage::dimensions))

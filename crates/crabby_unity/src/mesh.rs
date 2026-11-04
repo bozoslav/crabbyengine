@@ -266,7 +266,7 @@ impl UnityMesh {
 /// Bytes from hex text: its leading whole hex pairs. Some files carry a
 /// stray character after the data, which Unity ignores too; a buffer that
 /// comes out short for its layout is still an error where it's read.
-fn hex(text: &str) -> Vec<u8> {
+pub(crate) fn hex(text: &str) -> Vec<u8> {
     let digit = |c: u8| match c {
         b'0'..=b'9' => Some(c - b'0'),
         b'a'..=b'f' => Some(c - b'a' + 10),
