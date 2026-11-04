@@ -778,6 +778,35 @@ static void meadow(crabby::ctx& ctx) {
 }
 // ANCHOR_END: shader
 
+// ANCHOR: terrain
+/// Rolling hills: 3 x 3 tiles of 128 m, each from 65 x 65 heights 2 m
+/// apart, sharing their edges, with a pond-sized hole in the middle tile.
+static void hills(crabby::ctx& ctx) {
+    auto look = crabby::material_of(crabby::rgb(.35f, .54f, .24f));
+    look.roughness = 0.95f;
+    auto grass = ctx.create_material(look);
+    const int n = 65;
+    const float size = 128;
+    auto height = [](float x, float z) { return std::sin(x * 0.02f) * 6 + std::cos(z * 0.03f) * 4; };
+    for (int tz = -1; tz <= 1; ++tz)
+        for (int tx = -1; tx <= 1; ++tx) {
+            crabby::vec3 corner{float(tx) * size, 0, float(tz) * size};
+            std::vector<float> heights(n * n);
+            for (int i = 0; i < n * n; ++i) {
+                float x = float(i % n) * 2 + corner.x, z = float(i / n) * 2 + corner.z;
+                bool hole = tx == 0 && tz == 0 && std::hypot(x - 64, z - 64) < 6;
+                heights[i] = hole ? NAN : height(x, z);
+            }
+            auto tile = ctx.create_terrain_tile(heights, size, grass);
+            ctx.world().spawn(crabby::transform3d_at(corner), tile);
+        }
+    auto cam = ctx.camera3d();
+    cam.position = {64, 30, 220};
+    ctx.set_camera3d(cam);
+    ctx.camera3d_look_at({64, 0, 64});
+}
+// ANCHOR_END: terrain
+
 static void the_village_has_five_spinning_houses() {
     auto world = crabby::game("guide", 640, 480).sim_system(spin, "spin").run_headless(60, [](crabby::ctx& ctx) {
         village(ctx);
@@ -794,7 +823,18 @@ static void the_village_has_five_spinning_houses() {
     if (houses != 5) { std::fprintf(stderr, "%d houses\n", houses); std::abort(); }
 }
 
+static void the_hills_are_nine_tiles() {
+    auto world = crabby::game("hills", 640, 480).run_headless(1, [](crabby::ctx& ctx) { hills(ctx); });
+    int tiles = 0;
+    world.each([&](const crabby::terrain_tile& t) {
+        ++tiles;
+        if (t.lod_distance != 128) { std::fprintf(stderr, "lod distance %f\n", t.lod_distance); std::abort(); }
+    });
+    if (tiles != 9) { std::fprintf(stderr, "%d tiles\n", tiles); std::abort(); }
+}
+
 int main() {
+    the_hills_are_nine_tiles();
     the_beach_has_five_palms();
     the_village_has_five_spinning_houses();
     things_fall_ten_units_per_second();

@@ -8,6 +8,13 @@ says what that covers.
 ## [Unreleased]
 
 ### Added
+- Heightfield terrain: `ctx.create_terrain_tile` makes a `TerrainTile`
+  from a square grid of heights (NaN cuts a hole), drawn at four levels
+  of detail by distance from the camera, with skirts that hide the cracks
+  between levels. `MeshData::heightfield` gives the mesh for one level.
+  In C (`crabby_ctx_create_terrain_tile`, `crabby_terrain_tile_component`,
+  `crabby_mesh_data_heightfield`) and C++ (`ctx.create_terrain_tile`,
+  `crabby::terrain_tile`, `mesh_data::heightfield`).
 - 3D post-processing, `ctx.post` (`Post`): exposure, bloom, white balance
   (temperature, tint), contrast, saturation, tone mapping (`Tonemap::Aces`,
   `AgX`, `Neutral`, `None`), a color lookup table (`Post::neutral_lut` to

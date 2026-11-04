@@ -49,6 +49,8 @@
 
 #define CRABBY_MAX_GAMEPADS 8
 
+#define CRABBY_TERRAIN_LODS 4
+
 #define CRABBY_TILE_EMPTY 65535
 
 typedef enum CrabbyStatus {
@@ -502,6 +504,11 @@ typedef struct CrabbyMeshView {
 typedef struct CrabbyMaterial {
   uint32_t id;
 } CrabbyMaterial;
+
+typedef struct CrabbyTerrainTile {
+  struct CrabbyMesh lods[CRABBY_TERRAIN_LODS];
+  float lod_distance;
+} CrabbyTerrainTile;
 
 typedef struct CrabbyCamera3D {
   struct CrabbyVec3 position;
@@ -1187,6 +1194,8 @@ enum CrabbyStatus crabby_transform3d_component(struct CrabbyWorld *world, uint32
 
 enum CrabbyStatus crabby_model_component(struct CrabbyWorld *world, uint32_t *out_id);
 
+enum CrabbyStatus crabby_terrain_tile_component(struct CrabbyWorld *world, uint32_t *out_id);
+
 struct CrabbyMeshData *crabby_mesh_data_new(const struct CrabbyVec3 *positions,
                                             const struct CrabbyVec3 *normals,
                                             const struct CrabbyVec2 *uvs,
@@ -1199,6 +1208,11 @@ struct CrabbyMeshData *crabby_mesh_data_cube(float size);
 struct CrabbyMeshData *crabby_mesh_data_plane(float size);
 
 struct CrabbyMeshData *crabby_mesh_data_sphere(float radius, uint32_t segments);
+
+struct CrabbyMeshData *crabby_mesh_data_heightfield(const float *heights,
+                                                    size_t count,
+                                                    float size,
+                                                    uint32_t step);
 
 enum CrabbyStatus crabby_mesh_data_set_colors(struct CrabbyMeshData *data,
                                               const struct CrabbyColor *colors,
@@ -1233,6 +1247,13 @@ enum CrabbyStatus crabby_ctx_create_mesh(struct CrabbyCtx *ctx,
                                          const struct CrabbyMeshData *data,
                                          struct CrabbyMaterial material,
                                          struct CrabbyMesh *out_mesh);
+
+enum CrabbyStatus crabby_ctx_create_terrain_tile(struct CrabbyCtx *ctx,
+                                                 const float *heights,
+                                                 size_t count,
+                                                 float size,
+                                                 struct CrabbyMaterial material,
+                                                 struct CrabbyTerrainTile *out_tile);
 
 enum CrabbyStatus crabby_ctx_load_mesh(struct CrabbyCtx *ctx,
                                        const char *path,

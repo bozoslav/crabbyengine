@@ -15,6 +15,7 @@ mod gltf;
 mod mesh;
 mod post;
 mod sky;
+mod terrain;
 
 pub(crate) use api::GpuMaterialDesc;
 #[cfg(feature = "window")]
@@ -28,6 +29,7 @@ pub(crate) use post::PostUniform;
 pub use post::{Post, Tonemap};
 pub use sky::Sky;
 pub(crate) use sky::SkyLight;
+pub use terrain::{TERRAIN_LODS, TerrainTile};
 
 use glam::{Mat3, Mat4, Quat, Vec2, Vec3, Vec4};
 

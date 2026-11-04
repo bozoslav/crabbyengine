@@ -216,3 +216,72 @@ fn mesh_data_round_trips_and_is_checked() {
         assert!(error.contains("3 per triangle"), "{error}");
     }
 }
+
+unsafe extern "C" fn terrain(ctx: *mut CrabbyCtx, user: *mut c_void) {
+    unsafe {
+        let errors = &mut *user.cast::<Vec<CrabbyStatus>>();
+        let w = crabby_ctx_world(ctx);
+        let (mut transform, mut tile_id) = (0, 0);
+        assert_eq!(crabby_transform3d_component(w, &mut transform), CRABBY_OK);
+        assert_eq!(crabby_terrain_tile_component(w, &mut tile_id), CRABBY_OK);
+        let mut ground = CrabbyMaterial::default();
+        assert_eq!(
+            crabby_ctx_create_material(ctx, &crabby_material_desc(WHITE), &mut ground),
+            CRABBY_OK
+        );
+        let heights: Vec<f32> = (0..81).map(|i| (i % 9) as f32 * 0.5).collect();
+        let mut tile = std::mem::zeroed::<CrabbyTerrainTile>();
+        assert_eq!(
+            crabby_ctx_create_terrain_tile(ctx, heights.as_ptr(), heights.len(), 16.0, ground, &mut tile),
+            CRABBY_OK
+        );
+        assert_eq!(tile.lod_distance, 16.0);
+        let ids: Vec<u32> = tile.lods.iter().map(|m| m.id).collect();
+        assert!(ids.windows(2).all(|p| p[0] != p[1]), "one mesh per level: {ids:?}");
+        let t = crabby_transform3d_at(v3(0.0, 0.0, 0.0));
+        let parts = [value(transform, &t), value(tile_id, &tile)];
+        let mut e = 0;
+        assert_eq!(crabby_spawn(w, parts.as_ptr(), 2, &mut e), CRABBY_OK);
+        // Not a square grid, no size, and another game's material.
+        errors.push(crabby_ctx_create_terrain_tile(
+            ctx,
+            heights.as_ptr(),
+            80,
+            16.0,
+            ground,
+            &mut tile,
+        ));
+        errors.push(crabby_ctx_create_terrain_tile(
+            ctx,
+            heights.as_ptr(),
+            81,
+            0.0,
+            ground,
+            &mut tile,
+        ));
+        errors.push(crabby_ctx_create_terrain_tile(
+            ctx,
+            heights.as_ptr(),
+            81,
+            16.0,
+            CrabbyMaterial { id: 99 },
+            &mut tile,
+        ));
+    }
+}
+
+#[test]
+fn terrain_tiles_are_made_and_spawned_from_c() {
+    let mut errors: Vec<CrabbyStatus> = Vec::new();
+    unsafe {
+        let g = crabby_game_new(c"terrain".as_ptr(), 64, 64);
+        let mut world = null_mut();
+        let user = (&raw mut errors).cast();
+        assert_eq!(
+            crabby_game_run_headless(g, 1, Some(terrain), user, &mut world),
+            CRABBY_OK
+        );
+        crabby_world_free(world);
+    }
+    assert_eq!(errors, vec![CRABBY_INVALID_ARGUMENT; 3]);
+}

@@ -81,6 +81,9 @@ using vec3 = CrabbyVec3;
 using quat = CrabbyQuat;
 using transform3d = CrabbyTransform3D;
 using model = CrabbyModel;
+/// A square of heightfield terrain, drawn more coarsely further from the
+/// camera (Rust `TerrainTile`); made with ctx::create_terrain_tile.
+using terrain_tile = CrabbyTerrainTile;
 using mesh = CrabbyMesh;
 using material = CrabbyMaterial;
 using material_desc = CrabbyMaterialDesc;
@@ -483,6 +486,7 @@ protected:
         else if constexpr (std::is_same<T, velocity>::value) status = crabby_velocity_component(world, &id);
         else if constexpr (std::is_same<T, transform3d>::value) status = crabby_transform3d_component(world, &id);
         else if constexpr (std::is_same<T, model>::value) status = crabby_model_component(world, &id);
+        else if constexpr (std::is_same<T, terrain_tile>::value) status = crabby_terrain_tile_component(world, &id);
         else status = crabby_component_register(world, name ? name : detail::type_name<T>().c_str(), sizeof(T), alignof(T), &id);
         if (status == CRABBY_BUSY) return std::nullopt;
         detail::check(status);
@@ -930,6 +934,12 @@ public:
     static mesh_data plane(float size) { return mesh_data(crabby_mesh_data_plane(size)); }
     /// A sphere of `radius` from `segments` slices around.
     static mesh_data sphere(float radius, std::uint32_t segments) { return mesh_data(crabby_mesh_data_sphere(radius, segments)); }
+    /// A square of terrain `size` wide from n x n heights, row after row
+    /// along +Z (NaN: a hole), using every `step`-th one, with skirts at the
+    /// edges. Throws unless the heights are a square grid of at least 2 x 2.
+    static mesh_data heightfield(const std::vector<float>& heights, float size, std::uint32_t step = 1) {
+        return mesh_data(crabby_mesh_data_heightfield(heights.data(), heights.size(), size, step));
+    }
     ~mesh_data() { crabby_mesh_data_free(raw_); }
     mesh_data(mesh_data&& o) noexcept : raw_(o.raw_) { o.raw_ = nullptr; }
     mesh_data& operator=(mesh_data&& o) noexcept { std::swap(raw_, o.raw_); return *this; }
@@ -1165,6 +1175,12 @@ public:
     /// Loads a glTF model (.glb, or .gltf with its files) from assets/ as
     /// one mesh with its materials; the same file again gives the same mesh.
     mesh load_mesh(const char* path) { mesh x{}; detail::check(crabby_ctx_load_mesh(raw_, path, &x)); return x; }
+    /// A terrain tile `size` wide from n x n heights (row after row along
+    /// +Z, NaN for a hole) drawn with `m`; spawn it with a transform3d at
+    /// the tile's corner instead of a model.
+    terrain_tile create_terrain_tile(const std::vector<float>& heights, float size, material m) {
+        terrain_tile t{}; detail::check(crabby_ctx_create_terrain_tile(raw_, heights.data(), heights.size(), size, m, &t)); return t;
+    }
     /// How many 3D models were drawn last frame.
     std::size_t models_drawn() const { std::size_t n = 0; detail::check(crabby_ctx_models_drawn(raw_, &n)); return n; }
     crabby::camera3d camera3d() const { crabby::camera3d c{}; detail::check(crabby_ctx_camera3d(raw_, &c)); return c; }

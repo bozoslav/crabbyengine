@@ -250,6 +250,55 @@ fn meshes_check_their_triangles() {
     });
 }
 
+// ANCHOR: terrain
+/// Rolling hills: 3 x 3 tiles of 128 m, each from 65 x 65 heights 2 m
+/// apart, sharing their edges, with a pond-sized hole in the middle tile.
+fn hills(ctx: &mut Ctx) {
+    let grass = ctx.create_material(MaterialDesc {
+        roughness: 0.95,
+        ..MaterialDesc::color(Color::hex(0x5A8A3C))
+    });
+    let (n, size) = (65, 128.0);
+    let height = |x: f32, z: f32| (x * 0.02).sin() * 6.0 + (z * 0.03).cos() * 4.0;
+    for tz in -1..=1 {
+        for tx in -1..=1 {
+            let corner = vec3(tx as f32 * size, 0.0, tz as f32 * size);
+            let heights: Vec<f32> = (0..n * n)
+                .map(|i| {
+                    let (x, z) = ((i % n) as f32 * 2.0 + corner.x, (i / n) as f32 * 2.0 + corner.z);
+                    let hole = tx == 0 && tz == 0 && (vec2(x, z) - vec2(64.0, 64.0)).length() < 6.0;
+                    if hole { f32::NAN } else { height(x, z) }
+                })
+                .collect();
+            let tile = ctx.create_terrain_tile(&heights, size, grass);
+            ctx.world.spawn((Transform3D::at(corner), tile));
+        }
+    }
+    ctx.camera3d.position = vec3(64.0, 30.0, 220.0);
+    ctx.camera3d.look_at(vec3(64.0, 0.0, 64.0));
+}
+// ANCHOR_END: terrain
+
+#[test]
+fn the_guide_hills_are_nine_tiles_of_four_details() {
+    let mut world = Game::new("hills", 640, 480).run_headless(1, hills);
+    let mut meshes = std::collections::HashSet::new();
+    world.query::<&TerrainTile>().for_each(|tile| {
+        assert_eq!(tile.lod_distance, 128.0);
+        meshes.extend(tile.lods.map(|m| m));
+    });
+    assert_eq!(meshes.len(), 9 * TERRAIN_LODS, "every tile and level has its own mesh");
+}
+
+#[test]
+#[should_panic(expected = "size must be above 0")]
+fn terrain_tiles_need_a_size() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        let white = ctx.default_material();
+        let _ = ctx.create_terrain_tile(&[0.0; 4], 0.0, white);
+    });
+}
+
 #[test]
 fn transforms_are_reflected_as_json() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {

@@ -142,6 +142,105 @@ impl MeshData {
         mesh
     }
 
+    /// A square of terrain `size` wide from a grid of heights: `heights`
+    /// holds n × n of them (n at least 2), row after row, x along +X and
+    /// rows along +Z, from the corner at the origin to `(size, size)`. A
+    /// NaN height leaves a hole (for caves and tunnels). Texture
+    /// coordinates run 0 to 1 across the square.
+    ///
+    /// `step` thins it out for distant terrain: 1 uses every height, 2
+    /// every other one, and so on (normals still come from every height, so
+    /// lighting matches between details). The edges get a short skirt
+    /// hanging down, which hides the cracks between neighbouring squares
+    /// drawn at different details.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// // 3 x 3 heights: a little hill in the middle of a 10-unit square.
+    /// let hill = MeshData::heightfield(&[0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0], 10.0, 1);
+    /// assert!(hill.positions.contains(&vec3(5.0, 2.0, 5.0)));
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// If `heights` isn't a square grid of at least 2 x 2, or `step` is 0.
+    #[must_use]
+    pub fn heightfield(heights: &[f32], size: f32, step: usize) -> Self {
+        let n = (heights.len() as f64).sqrt() as usize;
+        assert!(
+            n >= 2 && n * n == heights.len(),
+            "heightfield: {} heights isn't a square grid of at least 2 x 2",
+            heights.len()
+        );
+        assert!(step > 0, "heightfield: step must be at least 1");
+        let cell = size / (n - 1) as f32;
+        let at = |x: usize, z: usize| heights[z * n + x];
+        // Every step-th column and row, and always the last.
+        let mut picks: Vec<usize> = (0..n).step_by(step).collect();
+        if picks.last() != Some(&(n - 1)) {
+            picks.push(n - 1);
+        }
+        let side = picks.len();
+        let mut mesh = Self::default();
+        for &z in &picks {
+            for &x in &picks {
+                // A hole's neighbours count as level with this corner, and a
+                // hole itself as 0 (it's in no triangle but the data is finite).
+                let h = at(x, z);
+                let here = if h.is_nan() { 0.0 } else { h };
+                let solid = |v: f32| if v.is_nan() { here } else { v };
+                // Slopes from the neighbours on each side (one side at an edge).
+                let (x0, x1) = (x.saturating_sub(1), (x + 1).min(n - 1));
+                let (z0, z1) = (z.saturating_sub(1), (z + 1).min(n - 1));
+                let dx = (solid(at(x1, z)) - solid(at(x0, z))) / ((x1 - x0) as f32 * cell);
+                let dz = (solid(at(x, z1)) - solid(at(x, z0))) / ((z1 - z0) as f32 * cell);
+                mesh.positions.push(Vec3::new(x as f32 * cell, here, z as f32 * cell));
+                mesh.normals.push(Vec3::new(-dx, 1.0, -dz).normalize());
+                mesh.uvs
+                    .push(Vec2::new(x as f32 / (n - 1) as f32, z as f32 / (n - 1) as f32));
+            }
+        }
+        let open = |i: usize, j: usize| !at(picks[i], picks[j]).is_nan();
+        let index = |i: usize, j: usize| (j * side + i) as u32;
+        for j in 0..side - 1 {
+            for i in 0..side - 1 {
+                if open(i, j) && open(i + 1, j) && open(i, j + 1) && open(i + 1, j + 1) {
+                    let [a, b, c, d] = [index(i, j), index(i + 1, j), index(i, j + 1), index(i + 1, j + 1)];
+                    mesh.indices.extend([a, c, b, b, c, d]);
+                }
+            }
+        }
+        // The skirt: around the edge, each corner again a little lower,
+        // facing out. Walking the edge with the outside on the left of
+        // the way down makes every wall face out.
+        let depth = cell * step as f32 * 2.0;
+        let last = side - 1;
+        let edge: Vec<(usize, usize)> = (0..last)
+            .map(|i| (i, 0))
+            .chain((0..last).map(|j| (last, j)))
+            .chain((0..last).map(|i| (last - i, last)))
+            .chain((0..last).map(|j| (0, last - j)))
+            .collect();
+        let first_skirt = mesh.positions.len() as u32;
+        for &(i, j) in &edge {
+            let top = index(i, j) as usize;
+            mesh.positions.push(mesh.positions[top] - Vec3::Y * depth);
+            mesh.normals.push(mesh.normals[top]);
+            mesh.uvs.push(mesh.uvs[top]);
+        }
+        for k in 0..edge.len() {
+            let next = (k + 1) % edge.len();
+            let ((i0, j0), (i1, j1)) = (edge[k], edge[next]);
+            if !open(i0, j0) || !open(i1, j1) {
+                continue;
+            }
+            let (a, b) = (index(i0, j0), index(i1, j1));
+            let (a_low, b_low) = (first_skirt + k as u32, first_skirt + next as u32);
+            mesh.indices.extend([a, b, a_low, b, b_low, a_low]);
+        }
+        mesh
+    }
+
     /// Checks the data fits together: whole triangles, indices in range,
     /// one normal and texture coordinate per corner when given, and finite
     /// numbers.
@@ -219,6 +318,7 @@ impl MeshData {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use glam::vec3;
 
     /// Every triangle's winding agrees with its corners' normals (faces out).
     fn faces_out(mesh: &MeshData) {
@@ -239,6 +339,81 @@ mod tests {
             mesh.check().unwrap();
             faces_out(&mesh);
         }
+    }
+
+    /// 9 x 9 heights over a 16-unit square: a ramp along x plus bumps.
+    fn ramp() -> Vec<f32> {
+        (0..81).map(|i| (i % 9) as f32 * 0.5 + ((i / 9) as f32).sin()).collect()
+    }
+
+    /// The heightfield's triangles: the top ones (up) and the skirt's (sideways).
+    fn split(mesh: &MeshData) -> (Vec<[Vec3; 3]>, Vec<[Vec3; 3]>) {
+        mesh.indices
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .map(|t| t.map(|i| mesh.positions[i as usize]))
+            .partition(|[a, b, c]| (*b - *a).cross(*c - *a).normalize().y > 0.1)
+    }
+
+    #[test]
+    fn heightfields_face_up_and_their_skirts_face_out() {
+        for step in [1, 2, 3, 4, 8, 100] {
+            let mesh = MeshData::heightfield(&ramp(), 16.0, step);
+            mesh.check().unwrap();
+            let (top, skirt) = split(&mesh);
+            assert!(!top.is_empty() && !skirt.is_empty());
+            for [a, b, c] in skirt {
+                let out = (b - a).cross(c - a);
+                let from_middle = (a + b) / 2.0 - Vec3::new(8.0, 0.0, 8.0);
+                assert!(out.y.abs() < 1e-4, "skirt walls are upright");
+                assert!(out.dot(from_middle) > 0.0, "skirt wall at {a} faces in (step {step})");
+            }
+        }
+    }
+
+    #[test]
+    fn every_detail_keeps_the_edge_heights() {
+        // Neighbouring tiles meet only if the edge corners stay put.
+        let full = MeshData::heightfield(&ramp(), 16.0, 1);
+        for step in [2, 3, 4, 8] {
+            let coarse = MeshData::heightfield(&ramp(), 16.0, step);
+            assert!(coarse.positions.len() < full.positions.len());
+            for corner in [
+                vec3(0.0, 0.0, 0.0),
+                vec3(16.0, 0.0, 0.0),
+                vec3(0.0, 0.0, 16.0),
+                vec3(16.0, 0.0, 16.0),
+            ] {
+                let found = |m: &MeshData| m.positions.iter().find(|p| p.x == corner.x && p.z == corner.z).copied();
+                assert_eq!(found(&coarse), found(&full), "step {step}");
+            }
+        }
+    }
+
+    #[test]
+    fn nan_heights_cut_holes() {
+        let mut heights = vec![0.0; 25];
+        let whole = MeshData::heightfield(&heights, 4.0, 1);
+        heights[12] = f32::NAN; // the middle corner: the 4 cells around it go
+        let holed = MeshData::heightfield(&heights, 4.0, 1);
+        holed.check().unwrap();
+        assert_eq!(split(&whole).0.len() - split(&holed).0.len(), 8);
+    }
+
+    #[test]
+    fn heightfield_normals_follow_the_slope() {
+        // Rising 1 per unit along x: normals lean back 45 degrees.
+        let heights: Vec<f32> = (0..16).map(|i| (i % 4) as f32).collect();
+        let mesh = MeshData::heightfield(&heights, 3.0, 1);
+        let lean = Vec3::new(-1.0, 1.0, 0.0).normalize();
+        assert!(mesh.normals.iter().all(|n| (*n - lean).length() < 1e-5));
+    }
+
+    #[test]
+    #[should_panic(expected = "isn't a square grid")]
+    fn heightfields_need_a_square_grid() {
+        let _ = MeshData::heightfield(&[0.0; 6], 1.0, 1);
     }
 
     #[test]

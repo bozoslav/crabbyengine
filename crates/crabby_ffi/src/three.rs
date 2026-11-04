@@ -4,8 +4,8 @@
 use std::ffi::c_char;
 
 use crabbyengine::{
-    Blend, Camera3D, Color, Lighting, Material, MaterialDesc, Mesh, MeshData, Model, Post, Quat, Shader, Sky, Tonemap,
-    Transform3D, Vec2, Vec3, Vec4,
+    Blend, Camera3D, Color, Lighting, Material, MaterialDesc, Mesh, MeshData, Model, Post, Quat, Shader, Sky,
+    TERRAIN_LODS, TerrainTile, Tonemap, Transform3D, Vec2, Vec3, Vec4,
 };
 
 use crate::ctx::{ctx_access, out, text};
@@ -106,6 +106,29 @@ pub struct CrabbyModel {
     /// Multiplied with the materials' colors (white: no change).
     pub color: CrabbyColor,
 }
+
+/// The built-in `TerrainTile` component: a square of heightfield terrain
+/// drawn more coarsely further from the camera, spawned with a
+/// `CrabbyTransform3D` at its corner instead of a `CrabbyModel`. Made with
+/// `crabby_ctx_create_terrain_tile`.
+/// ```
+/// let t = crabby_ffi::CrabbyTerrainTile { lods: [crabby_ffi::CrabbyMesh { id: 0 }; 4], lod_distance: 256.0 };
+/// assert_eq!(t.lods.len(), crabby_ffi::CRABBY_TERRAIN_LODS);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CrabbyTerrainTile {
+    /// One mesh per detail level, finest first: every height, then every
+    /// 2nd, 4th and 8th.
+    pub lods: [CrabbyMesh; CRABBY_TERRAIN_LODS],
+    /// Up to how far from the camera the finest mesh is drawn; each
+    /// doubling of that drops one level.
+    pub lod_distance: f32,
+}
+
+/// How many detail levels a `CrabbyTerrainTile` has.
+pub const CRABBY_TERRAIN_LODS: usize = 4;
+const _: () = assert!(CRABBY_TERRAIN_LODS == TERRAIN_LODS);
 
 /// A material shader (`crabby_ctx_load_shader`, `crabby_ctx_create_shader`).
 /// ```
@@ -325,6 +348,7 @@ pub struct CrabbyMeshView {
 
 same_layout!(CrabbyVec3, Vec3, x = x, y = y, z = z);
 same_layout!(CrabbyModel, Model, mesh = mesh, color = color);
+same_layout!(CrabbyTerrainTile, TerrainTile, lods = lods, lod_distance = lod_distance);
 const _: () = {
     assert!(size_of::<CrabbyTransform3D>() == size_of::<Transform3D>());
     assert!(std::mem::offset_of!(CrabbyTransform3D, rotation) == std::mem::offset_of!(Transform3D, rotation));
@@ -570,6 +594,21 @@ pub unsafe extern "C" fn crabby_model_component(world: *mut CrabbyWorld, out_id:
     unsafe { builtin::<Model>(world, out_id) }
 }
 
+/// The id of the built-in `TerrainTile` component (`CrabbyTerrainTile`),
+/// registering it if needed.
+/// # Safety
+/// Live handle and writable output.
+/// ```
+/// use crabby_ffi::*;
+/// let w = crabby_world_new();
+/// unsafe { let mut id = 99; assert_eq!(crabby_terrain_tile_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_terrain_tile_component(world: *mut CrabbyWorld, out_id: *mut u32) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe { builtin::<TerrainTile>(world, out_id) }
+}
+
 // ---- mesh data --------------------------------------------------------------
 
 fn boxed(data: MeshData) -> *mut CrabbyMeshData {
@@ -670,6 +709,40 @@ pub extern "C" fn crabby_mesh_data_plane(size: f32) -> *mut CrabbyMeshData {
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_mesh_data_sphere(radius: f32, segments: u32) -> *mut CrabbyMeshData {
     boxed(MeshData::sphere(radius, segments))
+}
+
+/// Whether `count` heights make a square grid of at least 2 x 2.
+fn square_grid(count: usize) -> bool {
+    let n = (count as f64).sqrt() as usize;
+    n >= 2 && n * n == count
+}
+
+/// A square of terrain `size` wide from `count` heights: n x n of them, row
+/// after row along +Z, NaN for a hole; every `step`-th height is used, with
+/// skirts at the edges (Rust `MeshData::heightfield`). Null if the heights
+/// aren't a square grid of at least 2 x 2 or `step` is 0.
+/// # Safety
+/// `heights` holds `count` floats.
+/// ```
+/// let h = [0.0f32, 0.0, 0.0, 1.0];
+/// let d = unsafe { crabby_ffi::crabby_mesh_data_heightfield(h.as_ptr(), 4, 2.0, 1) };
+/// assert!(!d.is_null());
+/// assert!(unsafe { crabby_ffi::crabby_mesh_data_heightfield(h.as_ptr(), 3, 2.0, 1) }.is_null());
+/// unsafe { crabby_ffi::crabby_mesh_data_free(d) };
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_mesh_data_heightfield(
+    heights: *const f32,
+    count: usize,
+    size: f32,
+    step: u32,
+) -> *mut CrabbyMeshData {
+    if heights.is_null() || !square_grid(count) || step == 0 {
+        return std::ptr::null_mut();
+    }
+    // SAFETY: the caller's contract: `count` floats at `heights`.
+    let heights = unsafe { std::slice::from_raw_parts(heights, count) };
+    boxed(MeshData::heightfield(heights, size, step as usize))
 }
 
 /// Gives mesh data one color per corner (Rust `MeshData::colors`),
@@ -940,6 +1013,46 @@ pub unsafe extern "C" fn crabby_ctx_create_mesh(
                 return Err(invalid("that material wasn't made by this game"));
             }
             out(out_mesh, to_c(c.create_mesh(&data.0, to_c(material))))
+        })
+    })
+}
+
+/// Makes a terrain tile `size` wide from `count` heights (n x n, row after
+/// row along +Z, NaN for a hole) drawn with `material` (Rust
+/// `Ctx::create_terrain_tile`). Spawn it with a `CrabbyTransform3D` at the
+/// tile's corner.
+/// # Safety
+/// `ctx` null or live; `heights` holds `count` floats; output writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_create_terrain_tile(std::ptr::null_mut(), std::ptr::null(), 0, 1.0, Default::default(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_create_terrain_tile(
+    ctx: *mut CrabbyCtx,
+    heights: *const f32,
+    count: usize,
+    size: f32,
+    material: CrabbyMaterial,
+    out_tile: *mut CrabbyTerrainTile,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            if heights.is_null() || out_tile.is_null() {
+                return Err(invalid("heights or output is null"));
+            }
+            // Checked here so bad input is an error, not a panic.
+            if !square_grid(count) {
+                return Err(invalid("the heights aren't a square grid of at least 2 x 2"));
+            }
+            if !(size > 0.0 && size.is_finite()) {
+                return Err(invalid("size must be above 0"));
+            }
+            if !c.has_material(to_c(material)) {
+                return Err(invalid("that material wasn't made by this game"));
+            }
+            let heights = std::slice::from_raw_parts(heights, count);
+            out(out_tile, to_c(c.create_terrain_tile(heights, size, to_c(material))))
         })
     })
 }

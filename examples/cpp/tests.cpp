@@ -168,6 +168,11 @@ static void three_d() {
         shiny.metallic = 2;
         throws([&] { ctx.create_material(shiny); });
         throws([] { crabby::mesh_data({{0, 0, 0}, {1, 0, 0}, {0, 1, 0}}, {0, 1}); });
+        auto tile = ctx.create_terrain_tile(std::vector<float>(81, 0.0f), 16, stone);
+        CHECK(tile.lod_distance == 16 && tile.lods[0].id != tile.lods[3].id);
+        ctx.world().spawn(crabby::transform3d_at({0, 0, 0}), tile);
+        throws([&] { ctx.create_terrain_tile(std::vector<float>(80, 0.0f), 16, stone); });
+        throws([] { crabby::mesh_data::heightfield({0, 0, 0}, 1); });
 
         auto cam = ctx.camera3d();
         cam.position = {0, 5, 10};
