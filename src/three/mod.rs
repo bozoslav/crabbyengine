@@ -592,6 +592,9 @@ pub(crate) struct Assets3D {
     pub default_material: Option<Material>,
     /// Meshes loaded from files, by resolved path.
     pub loaded: std::collections::HashMap<std::path::PathBuf, Mesh>,
+    /// Images that glTF files take from files of their own, by asset name
+    /// (see `gltf::Loaded::image_sources`): many models share them.
+    pub shared_images: std::collections::HashMap<String, crate::Texture>,
 }
 
 impl Assets3D {

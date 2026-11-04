@@ -11,12 +11,17 @@
 //! ```
 
 mod binary;
+mod glb;
 mod hierarchy;
+mod import;
+mod material;
 mod mesh;
 mod project;
 mod value;
 
 pub use hierarchy::{GameObject, Hierarchy};
+pub use import::{Importer, Report};
+pub use material::{Surface, UnityMaterial};
 pub use mesh::{Channel, UnityMesh, VertexFormat};
 pub use project::Project;
 pub use value::{ObjRef, Value};

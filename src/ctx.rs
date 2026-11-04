@@ -323,6 +323,8 @@ impl Ctx {
                 crate::reflect::WorldReflect::reflect::<crate::Attached>(&mut world);
                 #[cfg(feature = "3d")]
                 crate::reflect::WorldReflect::reflect::<crate::Transform3D>(&mut world);
+                #[cfg(feature = "3d")]
+                crate::reflect::reflect_model(&mut world);
                 crate::reflect::reflect_sprite(&mut world);
                 world
             },
@@ -1009,13 +1011,22 @@ impl Ctx {
         Ok(texture)
     }
 
-    /// Loads the textures that sprites in `json` (a scene, a prefab, or
-    /// components) name, so they can be spawned.
-    pub(crate) fn load_sprite_textures(&mut self, json: &serde_json::Value) -> Result<(), String> {
+    /// Loads the textures of sprites and meshes of models that `json` (a
+    /// scene, a prefab, or components) names, so they can be spawned.
+    pub(crate) fn load_scene_assets(&mut self, json: &serde_json::Value) -> Result<(), String> {
         let mut names = Vec::new();
-        crate::reflect::sprite_textures(json, &mut names);
-        for name in names {
+        crate::reflect::asset_names(json, "Sprite", "texture", &mut names);
+        for name in names.drain(..) {
             self.try_load_texture(&name)?;
+        }
+        #[cfg(feature = "3d")]
+        {
+            crate::reflect::asset_names(json, "Model", "mesh", &mut names);
+            names.sort_unstable();
+            names.dedup();
+            for name in names {
+                self.try_load_mesh(&name)?;
+            }
         }
         Ok(())
     }

@@ -720,3 +720,56 @@ fn the_guide_ground_streams_in_and_out() {
         assert!(ground.tiles.keys().all(|&(x, _)| x > 50));
     });
 }
+
+#[test]
+fn models_of_loaded_meshes_save_and_load_by_file_name() {
+    let file = "test-three-scene.json";
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("assets")
+        .join(file);
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        let house = ctx.load_mesh("models/house.glb");
+        let red = Color::rgb(1.0, 0.0, 0.0);
+        let e = ctx
+            .world
+            .spawn((Transform3D::at(vec3(1.0, 2.0, 3.0)), Model::new(house).with_color(red)));
+        assert_eq!(ctx.world.get_json(e, "Model").unwrap()["mesh"], "models/house.glb");
+        let white = ctx.default_material();
+        let cube = ctx.create_mesh(&MeshData::cube(1.0), white);
+        ctx.world.spawn((Transform3D::default(), Model::new(cube)));
+        ctx.save_scene(file).unwrap();
+    });
+    let result = std::panic::catch_unwind(|| {
+        Game::new("t", 1, 1).run_headless(0, |ctx| {
+            ctx.load_scene(file).unwrap();
+            let house = ctx.load_mesh("models/house.glb");
+            let models: Vec<(Transform3D, Model)> = ctx
+                .world
+                .query::<(&Transform3D, &Model)>()
+                .iter()
+                .map(|(t, m)| (*t, *m))
+                .collect();
+            assert_eq!(models.len(), 1, "the made-in-code cube has no file to name");
+            assert_eq!(models[0].1.mesh, house, "loaded with the scene");
+            assert_eq!(models[0].1.color, Color::rgb(1.0, 0.0, 0.0));
+            assert_eq!(models[0].0.position, vec3(1.0, 2.0, 3.0));
+        });
+    });
+    let _ = std::fs::remove_file(path);
+    result.unwrap();
+}
+
+#[test]
+fn models_name_meshes_that_must_be_files() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        let e = ctx.world.spawn((Transform3D::default(),));
+        let err = ctx
+            .world
+            .set_json(e, "Model", serde_json::json!({ "color": Color::WHITE }));
+        assert!(err.unwrap_err().to_string().contains("\"mesh\""));
+        let err = ctx
+            .world
+            .set_json(e, "Model", serde_json::json!({ "mesh": "nope.glb" }));
+        assert!(err.unwrap_err().to_string().contains("ctx.load_mesh(\"nope.glb\")"));
+    });
+}
