@@ -21,6 +21,7 @@ struct VertexOut {
     @location(2) uv: vec2<f32>,
     @location(3) color: vec4<f32>,
     @location(4) uv1: vec2<f32>,
+    @location(5) @interpolate(flat) origin: vec3<f32>,
 };
 
 // The vertex in world space, after the shader's `vertex` function.
@@ -35,7 +36,10 @@ fn world_vertex(in: VertexIn) -> Vertex {
     v.uv = in.uv;
     v.color = in.color * in.vertex_color;
     v.uv1 = in.uv1;
-    return vertex(v);
+    v.origin = in.m3.xyz;
+    var out = vertex(v);
+    out.origin = v.origin;
+    return out;
 }
 
 @vertex
@@ -48,6 +52,7 @@ fn vs_main(in: VertexIn) -> VertexOut {
     out.uv = v.uv;
     out.color = v.color;
     out.uv1 = v.uv1;
+    out.origin = v.origin;
     return out;
 }
 
@@ -62,6 +67,7 @@ fn vs_shadow(in: VertexIn) -> VertexOut {
     out.uv = v.uv;
     out.color = v.color;
     out.uv1 = v.uv1;
+    out.origin = v.origin;
     return out;
 }
 
@@ -74,6 +80,7 @@ fn surface_at(in: VertexOut, front: bool) -> Surface {
     s.world = in.world;
     s.uv = in.uv;
     s.uv1 = in.uv1;
+    s.origin = in.origin;
     s.color = in.color;
     s.view = normalize(frame.camera.xyz - in.world);
     s.screen = in.clip.xy;
