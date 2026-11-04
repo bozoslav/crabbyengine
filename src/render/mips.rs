@@ -3,7 +3,7 @@
 //! block. Color maps are averaged as light (sRGB decoded), data maps
 //! (normals, ORM) as stored.
 
-const SHADER: &str = r"
+pub(super) const SHADER: &str = r"
 struct Out {
     @builtin(position) clip: vec4<f32>,
     @location(0) uv: vec2<f32>,
@@ -19,11 +19,11 @@ fn vs(@builtin(vertex_index) i: u32) -> Out {
 }
 
 @group(0) @binding(0) var source: texture_2d<f32>;
-@group(0) @binding(1) var smooth: sampler;
+@group(0) @binding(1) var linear_filter: sampler;
 
 @fragment
 fn fs(in: Out) -> @location(0) vec4<f32> {
-    return textureSampleLevel(source, smooth, in.uv, 0.0);
+    return textureSampleLevel(source, linear_filter, in.uv, 0.0);
 }
 ";
 
