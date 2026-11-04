@@ -1045,7 +1045,7 @@ pub extern "C" fn crabby_mesh_data_sphere(radius: f32, segments: u32) -> *mut Cr
 }
 
 /// Whether `count` heights make a square grid of at least 2 x 2.
-fn square_grid(count: usize) -> bool {
+pub(crate) fn square_grid(count: usize) -> bool {
     let n = (count as f64).sqrt() as usize;
     n >= 2 && n * n == count
 }

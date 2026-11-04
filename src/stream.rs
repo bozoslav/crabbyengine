@@ -298,6 +298,31 @@ impl CellStreamer {
         self.loaded.iter().copied()
     }
 
+    /// Whether `cell` is loaded (or being loaded).
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// let mut cells = CellStreamer::new(1.0, 0.4, 0.4);
+    /// cells.update(vec3(0.5, 0.0, 0.5), 10);
+    /// assert!(cells.is_loaded((0, 0)) && !cells.is_loaded((5, 5)));
+    /// ```
+    #[must_use]
+    pub fn is_loaded(&self, cell: (i32, i32)) -> bool {
+        self.loaded.contains(&cell)
+    }
+
+    /// How many cells are loaded (or being loaded).
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// let cells = CellStreamer::new(1.0, 0.4, 0.4);
+    /// assert_eq!(cells.loaded_count(), 0);
+    /// ```
+    #[must_use]
+    pub fn loaded_count(&self) -> usize {
+        self.loaded.len()
+    }
+
     /// Where cell `cell` starts: its corner with the lowest X and Z, at
     /// height 0.
     ///

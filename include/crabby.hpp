@@ -1046,6 +1046,68 @@ public:
     const T& operator[](std::size_t i) const noexcept { return data_[i]; }
 };
 
+/// One cell of a cell_streamer's grid: it covers x * cell_size to
+/// (x + 1) * cell_size along X, and the same along Z.
+using cell = CrabbyCell;
+
+/// Which cells of a square grid on the ground (X and Z) to have loaded
+/// around a point, such as the camera (Rust `CellStreamer`): those within
+/// load_radius, started nearest first, and kept until they're beyond
+/// keep_radius. It only keeps the list; the game loads and drops each cell.
+class cell_streamer {
+    std::unique_ptr<CrabbyCellStreamer, void (*)(CrabbyCellStreamer*)> raw_;
+    float cell_size_;
+    static CrabbyCellStreamer* make(float cell_size, float load_radius, float keep_radius) {
+        CrabbyCellStreamer* s = crabby_cells_new(cell_size, load_radius, keep_radius);
+        if (!s) throw std::invalid_argument(crabby_last_error());
+        return s;
+    }
+    events_view<cell> list(CrabbyStatus (*f)(CrabbyCellStreamer*, const CrabbyCell**, std::size_t*)) const {
+        const CrabbyCell* c = nullptr; std::size_t n = 0;
+        detail::check(f(raw_.get(), &c, &n));
+        return {c, n};
+    }
+public:
+    /// cell_size above 0, radii not negative (keep_radius is raised to load_radius).
+    cell_streamer(float cell_size, float load_radius, float keep_radius)
+        : raw_(make(cell_size, load_radius, keep_radius), crabby_cells_free), cell_size_(cell_size) {}
+    /// Works out the cells to load and drop around `at` (its height is
+    /// ignored): at most max_new new ones, nearest first.
+    void update(vec3 at, std::size_t max_new) { detail::check(crabby_cells_update(raw_.get(), at, max_new)); }
+    /// What the last update started loading, nearest first; valid until the next update.
+    events_view<cell> to_load() const { return list(crabby_cells_to_load); }
+    /// What the last update dropped; valid until the next update.
+    events_view<cell> to_drop() const { return list(crabby_cells_to_drop); }
+    bool is_loaded(cell c) const {
+        bool loaded = false; detail::check(crabby_cells_is_loaded(raw_.get(), c, &loaded, nullptr)); return loaded;
+    }
+    std::size_t loaded_count() const {
+        bool loaded = false; std::size_t n = 0;
+        detail::check(crabby_cells_is_loaded(raw_.get(), cell{0, 0}, &loaded, &n)); return n;
+    }
+    /// Where a cell starts: its corner with the lowest X and Z, at height 0.
+    vec3 corner(cell c) const noexcept { return {float(c.x) * cell_size_, 0.0f, float(c.z) * cell_size_}; }
+    /// Forgets every cell, as if none were loaded.
+    void clear() { detail::check(crabby_cells_clear(raw_.get())); }
+};
+
+/// A terrain tile's meshes at every detail level, built on the CPU (Rust
+/// `TerrainTileData`): make it on any thread (std::async), then
+/// ctx::upload_terrain_tile on the game's.
+class terrain_tile_data {
+    std::unique_ptr<CrabbyTerrainTileData, void (*)(CrabbyTerrainTileData*)> raw_;
+    static CrabbyTerrainTileData* make(const std::vector<float>& heights, float size) {
+        CrabbyTerrainTileData* d = crabby_terrain_tile_data_new(heights.data(), heights.size(), size);
+        if (!d) throw std::invalid_argument(crabby_last_error());
+        return d;
+    }
+public:
+    /// n x n heights (row after row along +Z, NaN for a hole), `size` wide.
+    terrain_tile_data(const std::vector<float>& heights, float size)
+        : raw_(make(heights, size), crabby_terrain_tile_data_free) {}
+    const CrabbyTerrainTileData* raw() const noexcept { return raw_.get(); }
+};
+
 class ctx {
     CrabbyCtx* raw_;
     std::shared_ptr<detail::identity> owner_;
@@ -1291,6 +1353,16 @@ public:
     terrain_tile create_terrain_tile(const std::vector<float>& heights, float size, material m) {
         terrain_tile t{}; detail::check(crabby_ctx_create_terrain_tile(raw_, heights.data(), heights.size(), size, m, &t)); return t;
     }
+    /// Puts a tile built (on any thread) as terrain_tile_data on the GPU.
+    terrain_tile upload_terrain_tile(const terrain_tile_data& data, material m) {
+        terrain_tile t{}; detail::check(crabby_ctx_upload_terrain_tile(raw_, data.raw(), m, &t)); return t;
+    }
+    /// Frees every detail level of a tile's GPU memory; despawn its entity too.
+    void free_terrain_tile(terrain_tile t) { detail::check(crabby_ctx_free_terrain_tile(raw_, t)); }
+    /// Frees a mesh's GPU memory; models still showing it draw nothing.
+    void free_mesh(mesh m) { detail::check(crabby_ctx_free_mesh(raw_, m)); }
+    /// Whether this game made `m` and hasn't freed it.
+    bool is_mesh_live(mesh m) const { bool live = false; detail::check(crabby_ctx_is_mesh_live(raw_, m, &live)); return live; }
     /// How many 3D models were drawn last frame.
     std::size_t models_drawn() const { std::size_t n = 0; detail::check(crabby_ctx_models_drawn(raw_, &n)); return n; }
     crabby::camera3d camera3d() const { crabby::camera3d c{}; detail::check(crabby_ctx_camera3d(raw_, &c)); return c; }

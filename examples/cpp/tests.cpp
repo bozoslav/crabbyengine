@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <filesystem>
+#include <future>
 #include <fstream>
 #include <iostream>
 #include <optional>
@@ -552,6 +553,34 @@ static void lockstep() {
     throws([] { crabby::game("t", 1, 1).lockstep_steam_host(480, 2); });   // built without `steam`
 }
 
+static void streaming() {
+    crabby::cell_streamer cells(10, 25, 40);
+    cells.update({5, 0, 5}, 2);
+    CHECK(cells.to_load().size() == 2 && cells.to_load()[0].x == 0 && cells.to_load()[0].z == 0);
+    cells.update({5, 0, 5}, 1000);
+    CHECK(cells.loaded_count() > 2 && cells.is_loaded({1, 0}) && !cells.is_loaded({9, 9}));
+    cells.update({5000, 0, 5}, 1000);
+    CHECK(!cells.to_drop().empty() && !cells.is_loaded({0, 0}));
+    CHECK(cells.corner({2, -1}).x == 20 && cells.corner({2, -1}).z == -10);
+    cells.clear();
+    CHECK(cells.loaded_count() == 0);
+    throws([] { crabby::cell_streamer(0, 1, 1); });
+    throws([] { crabby::terrain_tile_data(std::vector<float>(8, 0.0f), 4); });
+    crabby::game("stream", 64, 64).run_headless(0, [](crabby::ctx& ctx) {
+        auto ground = ctx.create_material(crabby::material_of(crabby::colors::white));
+        // Built on another thread, uploaded on the game's.
+        auto data = std::async(std::launch::async, [] { return crabby::terrain_tile_data(std::vector<float>(33 * 33, 1.0f), 64); });
+        auto tile = ctx.upload_terrain_tile(data.get(), ground);
+        CHECK(tile.lod_distance == 64 && ctx.is_mesh_live(tile.lods[0]));
+        ctx.free_terrain_tile(tile);
+        CHECK(!ctx.is_mesh_live(tile.lods[0]) && !ctx.is_mesh_live(tile.lods[3]));
+        auto cube = ctx.create_mesh(crabby::mesh_data::cube(1), ground);
+        ctx.free_mesh(cube);
+        ctx.free_mesh(cube);
+        CHECK(!ctx.is_mesh_live(cube));
+    });
+}
+
 int main() {
     worlds();
     names_and_reflection();
@@ -559,6 +588,7 @@ int main() {
     data_files();
     scenes_and_prefabs();
     three_d();
+    streaming();
     parallel_queries();
     games();
     attachments();
