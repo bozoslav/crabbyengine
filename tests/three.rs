@@ -253,13 +253,11 @@ fn meshes_check_their_triangles() {
 // ANCHOR: terrain
 /// Rolling hills: 3 x 3 tiles of 128 m, each from 65 x 65 heights 2 m
 /// apart, sharing their edges, with a pond-sized hole in the middle tile.
+/// Grass in the valleys, dirt higher up and rock on the tops.
 fn hills(ctx: &mut Ctx) {
-    let grass = ctx.create_material(MaterialDesc {
-        roughness: 0.95,
-        ..MaterialDesc::color(Color::hex(0x5A8A3C))
-    });
-    let (n, size) = (65, 128.0);
     let height = |x: f32, z: f32| (x * 0.02).sin() * 6.0 + (z * 0.03).cos() * 4.0;
+    let ground = hill_ground(ctx, height);
+    let (n, size) = (65, 128.0);
     for tz in -1..=1 {
         for tx in -1..=1 {
             let corner = vec3(tx as f32 * size, 0.0, tz as f32 * size);
@@ -270,7 +268,7 @@ fn hills(ctx: &mut Ctx) {
                     if hole { f32::NAN } else { height(x, z) }
                 })
                 .collect();
-            let tile = ctx.create_terrain_tile(&heights, size, grass);
+            let tile = ctx.create_terrain_tile(&heights, size, ground);
             ctx.world.spawn((Transform3D::at(corner), tile));
         }
     }
@@ -278,6 +276,51 @@ fn hills(ctx: &mut Ctx) {
     ctx.camera3d.look_at(vec3(64.0, 0.0, 64.0));
 }
 // ANCHOR_END: terrain
+
+// ANCHOR: terrain_material
+/// Three ground layers, speckled so they don't look flat (in a game,
+/// `ctx.load_texture_array` from image files), and one weight map over
+/// all nine tiles from the heights: red grass, green dirt, blue rock.
+fn hill_ground(ctx: &mut Ctx, height: impl Fn(f32, f32) -> f32) -> Material {
+    let speckled = |base: [u8; 3]| -> Vec<u8> {
+        (0..64 * 64u32)
+            .flat_map(|i| {
+                let shade = (i.wrapping_mul(2_654_435_761) >> 27) as u8; // 0..31
+                [
+                    base[0].saturating_add(shade),
+                    base[1].saturating_add(shade),
+                    base[2].saturating_add(shade),
+                    255,
+                ]
+            })
+            .collect()
+    };
+    let (grass, dirt, rock) = (
+        speckled([70, 120, 50]),
+        speckled([110, 85, 60]),
+        speckled([120, 120, 115]),
+    );
+    let layers = ctx.create_texture_array(64, 64, &[&grass, &dirt, &rock], TextureKind::Color);
+    let (cells, area) = (96, 384.0); // 4 m a pixel, from (-128, -128)
+    let weights: Vec<u8> = (0..cells * cells)
+        .flat_map(|i| {
+            let x = (i % cells) as f32 * area / cells as f32 - 128.0;
+            let z = (i / cells) as f32 * area / cells as f32 - 128.0;
+            let up = ((height(x, z) + 10.0) / 20.0).clamp(0.0, 1.0); // 0 low, 1 high
+            let rock = ((up - 0.7) * 4.0).clamp(0.0, 1.0);
+            let dirt = (1.0 - (up - 0.5).abs() * 4.0).clamp(0.0, 1.0);
+            let grass = 1.0 - rock.max(dirt);
+            [grass, dirt, rock, 0.0].map(|w| (w * 255.0) as u8)
+        })
+        .collect();
+    let weights = ctx.create_texture_array(cells, cells, &[&weights], TextureKind::Data);
+    let desc = TerrainMaterialDesc {
+        layer_size: [6.0, 4.0, 8.0, 4.0, 4.0, 4.0, 4.0, 4.0],
+        ..TerrainMaterialDesc::new(layers, weights, vec2(-128.0, -128.0), vec2(area, area))
+    };
+    ctx.create_terrain_material(&desc)
+}
+// ANCHOR_END: terrain_material
 
 #[test]
 fn the_guide_hills_are_nine_tiles_of_four_details() {
@@ -288,6 +331,60 @@ fn the_guide_hills_are_nine_tiles_of_four_details() {
         meshes.extend(tile.lods.map(|m| m));
     });
     assert_eq!(meshes.len(), 9 * TERRAIN_LODS, "every tile and level has its own mesh");
+}
+
+#[test]
+fn texture_arrays_hold_one_image_per_layer() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        let red = [255, 0, 0, 255].repeat(4);
+        let blue = [0, 0, 255, 255].repeat(4);
+        let tints = ctx.create_texture_array(2, 2, &[&red, &blue], TextureKind::Color);
+        assert_eq!((tints.width(), tints.height(), tints.layers()), (2, 2, 2));
+        let wind = ctx.create_shader(
+            "layers.wgsl",
+            "fn surface(s: Surface) -> Surface { var o = s; o.albedo = textureSample(custom_array0, material_sampler, s.uv, 1).rgb; return o; }",
+        );
+        let mut custom_arrays = [None; 3];
+        custom_arrays[0] = Some(tints);
+        let _ = ctx.create_material(MaterialDesc { shader: Some(wind), custom_arrays, ..Default::default() });
+    });
+}
+
+#[test]
+#[should_panic(expected = "layer 1 of a 2 x 2 texture array needs 16 bytes")]
+fn texture_array_layers_are_all_one_size() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        let _ = ctx.create_texture_array(2, 2, &[&[0; 16], &[0; 12]], TextureKind::Data);
+    });
+}
+
+#[test]
+fn terrain_materials_check_their_layers() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        let image = [128u8; 16];
+        let five = ctx.create_texture_array(2, 2, &[&image[..]; 5], TextureKind::Color);
+        let one_weight = ctx.create_texture_array(2, 2, &[&image], TextureKind::Data);
+        let two_weights = ctx.create_texture_array(2, 2, &[&image[..]; 2], TextureKind::Data);
+        let nine = ctx.create_texture_array(2, 2, &[&image[..]; 9], TextureKind::Color);
+        let desc = |layers, weights| TerrainMaterialDesc::new(layers, weights, Vec2::ZERO, vec2(10.0, 10.0));
+        let err = |ctx: &mut Ctx, d: TerrainMaterialDesc| ctx.try_create_terrain_material(&d).unwrap_err();
+        assert!(err(ctx, desc(five, one_weight)).contains("need 2 weight images"));
+        assert!(err(ctx, desc(nine, two_weights)).contains("at most 8 layers"));
+        let no_size = TerrainMaterialDesc {
+            weights_size: Vec2::ZERO,
+            ..desc(five, two_weights)
+        };
+        assert!(err(ctx, no_size).contains("size must be above 0"));
+        let few_normals = TerrainMaterialDesc {
+            normals: Some(one_weight),
+            ..desc(five, two_weights)
+        };
+        assert!(err(ctx, few_normals).contains("need 5 normal maps"));
+        // Two terrain materials share the one built-in shader.
+        let a = ctx.create_terrain_material(&desc(five, two_weights));
+        let b = ctx.create_terrain_material(&desc(five, two_weights));
+        assert_ne!(a, b);
+    });
 }
 
 #[test]

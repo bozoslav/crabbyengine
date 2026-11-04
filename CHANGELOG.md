@@ -8,6 +8,17 @@ says what that covers.
 ## [Unreleased]
 
 ### Added
+- Terrain materials: `ctx.create_terrain_material` (`TerrainMaterialDesc`)
+  blends up to 8 ground layers by a weight map, with textures lined up
+  with the world and optional normal maps. In C
+  (`crabby_ctx_create_terrain_material`, `crabby_terrain_material_desc`)
+  and C++ (`ctx.create_terrain_material`, `crabby::terrain_material_of`).
+- Texture arrays for 3D materials: `ctx.create_texture_array` and
+  `ctx.load_texture_array` (`TextureArray`, `TextureKind::Color` or
+  `Data`), with mipmaps, read by custom shaders from
+  `MaterialDesc::custom_arrays` as `custom_array0` to `custom_array2`. In
+  C (`crabby_ctx_create_texture_array`, `crabby_ctx_load_texture_array`)
+  and C++ (`ctx.create_texture_array`, `ctx.load_texture_array`).
 - Heightfield terrain: `ctx.create_terrain_tile` makes a `TerrainTile`
   from a square grid of heights (NaN cuts a hole), drawn at four levels
   of detail by distance from the camera, with skirts that hide the cracks

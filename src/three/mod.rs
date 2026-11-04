@@ -16,6 +16,7 @@ mod mesh;
 mod post;
 mod sky;
 mod terrain;
+mod texture_array;
 
 pub(crate) use api::GpuMaterialDesc;
 #[cfg(feature = "window")]
@@ -29,7 +30,8 @@ pub(crate) use post::PostUniform;
 pub use post::{Post, Tonemap};
 pub use sky::Sky;
 pub(crate) use sky::SkyLight;
-pub use terrain::{TERRAIN_LODS, TerrainTile};
+pub use terrain::{TERRAIN_LAYERS, TERRAIN_LODS, TerrainMaterialDesc, TerrainTile};
+pub use texture_array::{TextureArray, TextureKind};
 
 use glam::{Mat3, Mat4, Quat, Vec2, Vec3, Vec4};
 
@@ -276,6 +278,10 @@ pub struct MaterialDesc {
     /// Textures for a custom shader: `custom_texture0` and
     /// `custom_texture1` there.
     pub custom_textures: [Option<Texture>; 2],
+    /// Texture arrays for a custom shader: `custom_array0` to
+    /// `custom_array2` there (`texture_2d_array<f32>`), each read as its
+    /// [`TextureKind`] says.
+    pub custom_arrays: [Option<TextureArray>; 3],
 }
 
 impl Default for MaterialDesc {
@@ -295,6 +301,7 @@ impl Default for MaterialDesc {
             shader: None,
             custom: [Vec4::ZERO; 4],
             custom_textures: [None; 2],
+            custom_arrays: [None; 3],
         }
     }
 }
@@ -550,6 +557,10 @@ pub(crate) struct Assets3D {
     /// Bounding sphere of each mesh, in its own space: center and radius.
     pub bounds: Vec<(Vec3, f32)>,
     pub materials: u32,
+    /// Texture arrays made so far, by id.
+    pub arrays: Vec<TextureArray>,
+    /// The built-in terrain shader, once a terrain material needs it.
+    pub terrain_shader: Option<Shader>,
     /// Shaders made so far (the built-in one is not counted).
     pub shaders: u32,
     /// Shaders loaded from files, by resolved path.

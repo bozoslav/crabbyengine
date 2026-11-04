@@ -51,6 +51,12 @@
 
 #define CRABBY_TERRAIN_LODS 4
 
+#define CRABBY_TERRAIN_LAYERS 8
+
+#define CRABBY_TEXTURE_COLOR 0
+
+#define CRABBY_TEXTURE_DATA 1
+
 #define CRABBY_TILE_EMPTY 65535
 
 typedef enum CrabbyStatus {
@@ -469,6 +475,13 @@ typedef struct CrabbyShader {
   uint32_t id;
 } CrabbyShader;
 
+typedef struct CrabbyTextureArray {
+  uint32_t id;
+  uint32_t width;
+  uint32_t height;
+  uint32_t layers;
+} CrabbyTextureArray;
+
 typedef struct CrabbyMaterialDesc {
   struct CrabbyColor color;
   bool has_texture;
@@ -490,7 +503,25 @@ typedef struct CrabbyMaterialDesc {
   float custom[16];
   bool has_custom_textures[2];
   struct CrabbyTexture custom_textures[2];
+  bool has_custom_arrays[3];
+  struct CrabbyTextureArray custom_arrays[3];
 } CrabbyMaterialDesc;
+
+typedef struct CrabbyTerrainMaterialDesc {
+  struct CrabbyTextureArray layers;
+  bool has_normals;
+  struct CrabbyTextureArray normals;
+  float normal_strength;
+  struct CrabbyTextureArray weights;
+  struct CrabbyVec2 weights_corner;
+  struct CrabbyVec2 weights_size;
+  float layer_size[CRABBY_TERRAIN_LAYERS];
+  float roughness;
+} CrabbyTerrainMaterialDesc;
+
+typedef struct CrabbyMaterial {
+  uint32_t id;
+} CrabbyMaterial;
 
 typedef struct CrabbyMeshView {
   const struct CrabbyVec3 *positions;
@@ -500,10 +531,6 @@ typedef struct CrabbyMeshView {
   const uint32_t *indices;
   size_t index_count;
 } CrabbyMeshView;
-
-typedef struct CrabbyMaterial {
-  uint32_t id;
-} CrabbyMaterial;
 
 typedef struct CrabbyTerrainTile {
   struct CrabbyMesh lods[CRABBY_TERRAIN_LODS];
@@ -1189,6 +1216,29 @@ struct CrabbyVec3 crabby_transform3d_forward(struct CrabbyTransform3D t);
 struct CrabbyModel crabby_model(struct CrabbyMesh mesh);
 
 struct CrabbyMaterialDesc crabby_material_desc(struct CrabbyColor color);
+
+struct CrabbyTerrainMaterialDesc crabby_terrain_material_desc(struct CrabbyTextureArray layers,
+                                                              struct CrabbyTextureArray weights,
+                                                              struct CrabbyVec2 corner,
+                                                              struct CrabbyVec2 size);
+
+enum CrabbyStatus crabby_ctx_create_texture_array(struct CrabbyCtx *ctx,
+                                                  uint32_t width,
+                                                  uint32_t height,
+                                                  const uint8_t *rgba,
+                                                  size_t len,
+                                                  uint32_t kind,
+                                                  struct CrabbyTextureArray *out_array);
+
+enum CrabbyStatus crabby_ctx_load_texture_array(struct CrabbyCtx *ctx,
+                                                const char *const *paths,
+                                                size_t count,
+                                                uint32_t kind,
+                                                struct CrabbyTextureArray *out_array);
+
+enum CrabbyStatus crabby_ctx_create_terrain_material(struct CrabbyCtx *ctx,
+                                                     const struct CrabbyTerrainMaterialDesc *desc,
+                                                     struct CrabbyMaterial *out_material);
 
 enum CrabbyStatus crabby_transform3d_component(struct CrabbyWorld *world, uint32_t *out_id);
 

@@ -43,6 +43,14 @@ impl Renderer {
         match *self {}
     }
     #[cfg(feature = "3d")]
+    pub fn max_texture_array_size(&self) -> (u32, u32) {
+        match *self {}
+    }
+    #[cfg(feature = "3d")]
+    pub fn create_texture_array(&mut self, _width: u32, _height: u32, _layers: &[&[u8]], _linear: bool) -> u32 {
+        match *self {}
+    }
+    #[cfg(feature = "3d")]
     pub fn create_shader(&mut self, _name: &str, _source: &str) -> Result<u32, String> {
         match *self {}
     }

@@ -242,6 +242,60 @@ unsafe extern "C" fn terrain(ctx: *mut CrabbyCtx, user: *mut c_void) {
         let parts = [value(transform, &t), value(tile_id, &tile)];
         let mut e = 0;
         assert_eq!(crabby_spawn(w, parts.as_ptr(), 2, &mut e), CRABBY_OK);
+        // A terrain material from two layers and a weight map.
+        let pixels = [200u8; 2 * 2 * 4 * 2];
+        let mut layers = CrabbyTextureArray::default();
+        assert_eq!(
+            crabby_ctx_create_texture_array(
+                ctx,
+                2,
+                2,
+                pixels.as_ptr(),
+                pixels.len(),
+                CRABBY_TEXTURE_COLOR,
+                &mut layers
+            ),
+            CRABBY_OK
+        );
+        assert_eq!((layers.width, layers.layers), (2, 2));
+        let mut weights = CrabbyTextureArray::default();
+        assert_eq!(
+            crabby_ctx_create_texture_array(ctx, 2, 2, pixels.as_ptr(), 16, CRABBY_TEXTURE_DATA, &mut weights),
+            CRABBY_OK
+        );
+        let size = CrabbyVec2 { x: 16.0, y: 16.0 };
+        let desc = crabby_terrain_material_desc(layers, weights, CrabbyVec2::default(), size);
+        let mut terrain = CrabbyMaterial::default();
+        assert_eq!(crabby_ctx_create_terrain_material(ctx, &desc, &mut terrain), CRABBY_OK);
+        // A made-up layer count, half an image, a bad kind, no weight area.
+        let forged = CrabbyTerrainMaterialDesc {
+            layers: CrabbyTextureArray { layers: 3, ..layers },
+            ..desc
+        };
+        errors.push(crabby_ctx_create_terrain_material(ctx, &forged, &mut terrain));
+        errors.push(crabby_ctx_create_texture_array(
+            ctx,
+            2,
+            2,
+            pixels.as_ptr(),
+            8,
+            CRABBY_TEXTURE_COLOR,
+            &mut layers,
+        ));
+        errors.push(crabby_ctx_create_texture_array(
+            ctx,
+            2,
+            2,
+            pixels.as_ptr(),
+            16,
+            7,
+            &mut layers,
+        ));
+        let flat = CrabbyTerrainMaterialDesc {
+            weights_size: CrabbyVec2::default(),
+            ..desc
+        };
+        errors.push(crabby_ctx_create_terrain_material(ctx, &flat, &mut terrain));
         // Not a square grid, no size, and another game's material.
         errors.push(crabby_ctx_create_terrain_tile(
             ctx,
@@ -283,5 +337,5 @@ fn terrain_tiles_are_made_and_spawned_from_c() {
         );
         crabby_world_free(world);
     }
-    assert_eq!(errors, vec![CRABBY_INVALID_ARGUMENT; 3]);
+    assert_eq!(errors, vec![CRABBY_INVALID_ARGUMENT; 7]);
 }

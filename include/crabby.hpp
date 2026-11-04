@@ -84,6 +84,18 @@ using model = CrabbyModel;
 /// A square of heightfield terrain, drawn more coarsely further from the
 /// camera (Rust `TerrainTile`); made with ctx::create_terrain_tile.
 using terrain_tile = CrabbyTerrainTile;
+/// Several same-size images in one texture (Rust `TextureArray`).
+using texture_array = CrabbyTextureArray;
+/// What a texture array's pixels hold (Rust `TextureKind`).
+enum class texture_kind : uint32_t { color = 0, data = 1 };
+/// Ground layers and a weight map for ctx::create_terrain_material (Rust
+/// `TerrainMaterialDesc`); start from terrain_material_of.
+using terrain_material_desc = CrabbyTerrainMaterialDesc;
+/// Ground `layers` blended by a `weights` map lying over `size` world units
+/// from `corner` (x, z); no normal maps, each layer repeating every 4 units.
+inline terrain_material_desc terrain_material_of(texture_array layers, texture_array weights, vec2 corner, vec2 size) {
+    return crabby_terrain_material_desc(layers, weights, corner, size);
+}
 using mesh = CrabbyMesh;
 using material = CrabbyMaterial;
 using material_desc = CrabbyMaterialDesc;
@@ -1175,6 +1187,23 @@ public:
     /// Loads a glTF model (.glb, or .gltf with its files) from assets/ as
     /// one mesh with its materials; the same file again gives the same mesh.
     mesh load_mesh(const char* path) { mesh x{}; detail::check(crabby_ctx_load_mesh(raw_, path, &x)); return x; }
+    /// A texture array of `width` x `height` images, one after another in
+    /// `rgba` (4 bytes a pixel).
+    texture_array create_texture_array(std::uint32_t width, std::uint32_t height, const std::vector<std::uint8_t>& rgba, texture_kind kind) {
+        texture_array a{};
+        detail::check(crabby_ctx_create_texture_array(raw_, width, height, rgba.data(), rgba.size(), std::uint32_t(kind), &a));
+        return a;
+    }
+    /// Loads same-size images from assets/ into a texture array, one layer each.
+    texture_array load_texture_array(const std::vector<const char*>& paths, texture_kind kind) {
+        texture_array a{};
+        detail::check(crabby_ctx_load_texture_array(raw_, paths.data(), paths.size(), std::uint32_t(kind), &a));
+        return a;
+    }
+    /// A material for terrain: ground layers blended by a weight map.
+    material create_terrain_material(const terrain_material_desc& desc) {
+        material m{}; detail::check(crabby_ctx_create_terrain_material(raw_, &desc, &m)); return m;
+    }
     /// A terrain tile `size` wide from n x n heights (row after row along
     /// +Z, NaN for a hole) drawn with `m`; spawn it with a transform3d at
     /// the tile's corner instead of a model.

@@ -173,6 +173,13 @@ static void three_d() {
         ctx.world().spawn(crabby::transform3d_at({0, 0, 0}), tile);
         throws([&] { ctx.create_terrain_tile(std::vector<float>(80, 0.0f), 16, stone); });
         throws([] { crabby::mesh_data::heightfield({0, 0, 0}, 1); });
+        auto layers = ctx.create_texture_array(1, 1, std::vector<std::uint8_t>(8, 200), crabby::texture_kind::color);
+        CHECK(layers.layers == 2);
+        auto weights = ctx.create_texture_array(1, 1, std::vector<std::uint8_t>(4, 255), crabby::texture_kind::data);
+        auto ground = ctx.create_terrain_material(crabby::terrain_material_of(layers, weights, {0, 0}, {16, 16}));
+        CHECK(ground.id != stone.id);
+        throws([&] { ctx.create_texture_array(1, 1, std::vector<std::uint8_t>(6, 0), crabby::texture_kind::color); });
+        throws([&] { ctx.create_terrain_material(crabby::terrain_material_of(layers, weights, {0, 0}, {0, 0})); });
 
         auto cam = ctx.camera3d();
         cam.position = {0, 5, 10};
