@@ -940,6 +940,19 @@ static void hills(crabby::ctx& ctx) {
 }
 // ANCHOR_END: terrain
 
+// ANCHOR: ground_height
+/// Trees standing on a 128 m tile: each at the ground's height under it,
+/// none over a hole.
+static void plant_trees(crabby::ctx& ctx, const std::vector<float>& heights, crabby::vec3 corner, crabby::mesh tree) {
+    crabby::heightfield ground(heights, 128);
+    for (int i = 0; i < 20; ++i) {
+        float x = float(i * 37 % 128), z = float(i * 71 % 128);
+        if (auto y = ground.height_at(x, z))
+            ctx.world().spawn(crabby::transform3d_at({corner.x + x, corner.y + *y, corner.z + z}), crabby::model_of(tree));
+    }
+}
+// ANCHOR_END: ground_height
+
 // ANCHOR: streaming
 /// Ground that loads around the camera: tiles 128 m wide within 600 m,
 /// built on worker threads, freed past 800 m.
@@ -1067,11 +1080,27 @@ static void the_ground_streams_in_and_out() {
     });
 }
 
+static void the_trees_stand_on_the_ground() {
+    auto world = crabby::game("trees", 1, 1).run_headless(0, [](crabby::ctx& ctx) {
+        auto tree = ctx.create_mesh(crabby::mesh_data::cube(1), ctx.create_material(crabby::material_of(crabby::colors::white)));
+        std::vector<float> heights(65 * 65, 3.0f);
+        heights[0] = NAN;
+        plant_trees(ctx, heights, {128, 0, 0}, tree);
+    });
+    int trees = 0;
+    world.each([&](const crabby::transform3d& t, const crabby::model&) {
+        ++trees;
+        if (std::abs(t.position.y - 3) > 1e-4f) { std::fprintf(stderr, "tree at %f\n", t.position.y); std::abort(); }
+    });
+    if (trees != 19) { std::fprintf(stderr, "%d trees\n", trees); std::abort(); }
+}
+
 int main() {
     the_ripples_run_on_a_render_target();
     the_pond_mirrors_the_camera();
     the_hills_are_nine_tiles();
     the_ground_streams_in_and_out();
+    the_trees_stand_on_the_ground();
     the_dive_adds_one_effect();
     the_beach_has_five_palms();
     the_village_has_five_spinning_houses();

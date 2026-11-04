@@ -1091,6 +1091,35 @@ public:
     void clear() { detail::check(crabby_cells_clear(raw_.get())); }
 };
 
+/// A terrain tile's heights, for finding the ground under a point on the
+/// CPU (Rust `Heightfield`): coordinates from the tile's corner, heights
+/// following the drawn triangles.
+class heightfield {
+    std::unique_ptr<CrabbyHeightfield, void (*)(CrabbyHeightfield*)> raw_;
+    static CrabbyHeightfield* make(const std::vector<float>& heights, float size) {
+        CrabbyHeightfield* g = crabby_heightfield_new(heights.data(), heights.size(), size);
+        if (!g) throw std::invalid_argument(crabby_last_error());
+        return g;
+    }
+public:
+    /// n x n heights (row after row along +Z, NaN for a hole), `size` wide.
+    heightfield(const std::vector<float>& heights, float size) : raw_(make(heights, size), crabby_heightfield_free) {}
+    /// The height at (x, z); nothing off the tile or over a hole.
+    std::optional<float> height_at(float x, float z) const {
+        bool found = false; float y = 0;
+        detail::check(crabby_heightfield_at(raw_.get(), x, z, &found, &y, nullptr));
+        if (!found) return std::nullopt;
+        return y;
+    }
+    /// Which way the flat triangle at (x, z) faces; nothing off the tile or over a hole.
+    std::optional<vec3> normal_at(float x, float z) const {
+        bool found = false; float y = 0; vec3 n{};
+        detail::check(crabby_heightfield_at(raw_.get(), x, z, &found, &y, &n));
+        if (!found) return std::nullopt;
+        return n;
+    }
+};
+
 /// A terrain tile's meshes at every detail level, built on the CPU (Rust
 /// `TerrainTileData`): make it on any thread (std::async), then
 /// ctx::upload_terrain_tile on the game's.

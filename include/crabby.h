@@ -259,6 +259,8 @@ typedef struct CrabbyGame CrabbyGame;
 
 typedef struct CrabbyGrid CrabbyGrid;
 
+typedef struct CrabbyHeightfield CrabbyHeightfield;
+
 typedef struct CrabbyMeshData CrabbyMeshData;
 
 typedef struct CrabbyNavGrid CrabbyNavGrid;
@@ -1471,6 +1473,17 @@ enum CrabbyStatus crabby_ctx_set_sky(struct CrabbyCtx *ctx, const struct CrabbyS
 enum CrabbyStatus crabby_ctx_post(struct CrabbyCtx *ctx, struct CrabbyPost *out_post);
 
 enum CrabbyStatus crabby_ctx_set_post(struct CrabbyCtx *ctx, const struct CrabbyPost *post);
+
+struct CrabbyHeightfield *crabby_heightfield_new(const float *heights, size_t count, float size);
+
+void crabby_heightfield_free(struct CrabbyHeightfield *ground);
+
+enum CrabbyStatus crabby_heightfield_at(const struct CrabbyHeightfield *ground,
+                                        float x,
+                                        float z,
+                                        bool *out_found,
+                                        float *out_height,
+                                        struct CrabbyVec3 *out_normal);
 
 enum CrabbyStatus crabby_sprite_sheet(struct CrabbyTexture texture,
                                       uint32_t frame_width,
