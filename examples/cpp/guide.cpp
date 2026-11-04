@@ -803,6 +803,39 @@ static void dive(crabby::ctx& ctx) {
 }
 // ANCHOR_END: effect
 
+// ANCHOR: mirror
+/// A still pond: its color is the world mirrored in it, which a target
+/// camera below the surface draws into `custom_texture0`, upside down.
+static const char* mirror_shader = R"(
+fn surface(s: Surface) -> Surface {
+    var out = s;
+    let uv = s.screen * frame.screen.zw;
+    out.emissive = textureSample(custom_texture0, material_sampler, vec2<f32>(uv.x, 1.0 - uv.y)).rgb * 0.9;
+    out.albedo = vec3<f32>(0.0);
+    return out;
+})";
+
+static void pond(crabby::ctx& ctx) {
+    auto size = ctx.window_size();
+    auto reflection = ctx.create_render_target(std::uint32_t(size.x / 2), std::uint32_t(size.y / 2));
+    auto look = crabby::material_of(crabby::colors::white);
+    look.has_shader = true;
+    look.shader = ctx.create_shader("mirror", mirror_shader);
+    look.has_custom_textures[0] = true;
+    look.custom_textures[0] = reflection;
+    auto surface = ctx.create_mesh(crabby::mesh_data::plane(20), ctx.create_material(look));
+    ctx.world().spawn(crabby::transform3d_at({0, 0, 0}), crabby::model_of(surface));
+    ctx.set_target_cameras({ctx.reflection_camera(ctx.camera3d(), reflection, 0)});
+}
+
+/// Every frame: the mirrored camera follows the real one.
+static void follow_reflections(crabby::ctx& ctx) {
+    auto list = ctx.target_cameras();
+    for (auto& t : list) t = ctx.reflection_camera(ctx.camera3d(), t.target, 0);
+    ctx.set_target_cameras(list);
+}
+// ANCHOR_END: mirror
+
 // ANCHOR: terrain_material
 static float hill_height(float x, float z) { return std::sin(x * 0.02f) * 6 + std::cos(z * 0.03f) * 4; }
 
@@ -888,6 +921,21 @@ static void the_dive_adds_one_effect() {
     });
 }
 
+static void the_pond_mirrors_the_camera() {
+    crabby::game("pond", 64, 64).run_headless(1, [](crabby::ctx& ctx) {
+        pond(ctx);
+        auto cam = ctx.camera3d();
+        cam.position = {3, 5, 1};
+        ctx.set_camera3d(cam);
+        follow_reflections(ctx);
+        auto list = ctx.target_cameras();
+        if (list.size() != 1 || list[0].camera.position.y != -5 || list[0].target.width != 32) {
+            std::fprintf(stderr, "pond\n");
+            std::abort();
+        }
+    });
+}
+
 static void the_hills_are_nine_tiles() {
     auto world = crabby::game("hills", 640, 480).run_headless(1, [](crabby::ctx& ctx) { hills(ctx); });
     int tiles = 0;
@@ -899,6 +947,7 @@ static void the_hills_are_nine_tiles() {
 }
 
 int main() {
+    the_pond_mirrors_the_camera();
     the_hills_are_nine_tiles();
     the_dive_adds_one_effect();
     the_beach_has_five_palms();

@@ -555,6 +555,13 @@ typedef struct CrabbyCamera3D {
   float far;
 } CrabbyCamera3D;
 
+typedef struct CrabbyTargetCamera {
+  struct CrabbyCamera3D camera;
+  struct CrabbyTexture target;
+  bool has_clip_plane;
+  float clip_plane[4];
+} CrabbyTargetCamera;
+
 typedef struct CrabbyLighting {
   struct CrabbyVec3 sun_direction;
   struct CrabbyColor sun_color;
@@ -1338,6 +1345,26 @@ enum CrabbyStatus crabby_ctx_load_mesh(struct CrabbyCtx *ctx,
                                        struct CrabbyMesh *out_mesh);
 
 enum CrabbyStatus crabby_ctx_models_drawn(struct CrabbyCtx *ctx, size_t *out_count);
+
+enum CrabbyStatus crabby_ctx_create_render_target(struct CrabbyCtx *ctx,
+                                                  uint32_t width,
+                                                  uint32_t height,
+                                                  struct CrabbyTexture *out_texture);
+
+enum CrabbyStatus crabby_ctx_reflection_camera(struct CrabbyCtx *ctx,
+                                               const struct CrabbyCamera3D *camera,
+                                               struct CrabbyTexture target,
+                                               float level,
+                                               struct CrabbyTargetCamera *out_camera);
+
+enum CrabbyStatus crabby_ctx_set_target_cameras(struct CrabbyCtx *ctx,
+                                                const struct CrabbyTargetCamera *cameras,
+                                                size_t count);
+
+enum CrabbyStatus crabby_ctx_target_cameras(struct CrabbyCtx *ctx,
+                                            struct CrabbyTargetCamera *out_cameras,
+                                            size_t capacity,
+                                            size_t *out_count);
 
 enum CrabbyStatus crabby_ctx_camera3d(struct CrabbyCtx *ctx, struct CrabbyCamera3D *out_camera);
 

@@ -32,7 +32,7 @@ use crate::three::{
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 /// The lit frame before tone mapping: light brighter than white survives.
-const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+pub(super) const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 /// Samples per pixel: smooth edges.
 const MSAA: u32 = 4;
 
@@ -243,6 +243,60 @@ struct Targets {
     size: (u32, u32),
 }
 
+/// (mesh, first instance, count): one instanced draw of a mesh.
+type Run = (u32, u32, u32);
+
+/// The shared parts of every frame bind group: the shadow map and the sky.
+struct FrameSources {
+    layout: wgpu::BindGroupLayout,
+    shadow_view: wgpu::TextureView,
+    shadow_sampler: wgpu::Sampler,
+    sky_view: wgpu::TextureView,
+    sky_sampler: wgpu::Sampler,
+}
+
+impl FrameSources {
+    fn bind_group(&self, device: &wgpu::Device, frame: &wgpu::Buffer) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("3d frame"),
+            layout: &self.layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: frame.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&self.shadow_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&self.shadow_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&self.sky_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::Sampler(&self.sky_sampler),
+                },
+            ],
+        })
+    }
+}
+
+/// A render target a target camera draws into: multisampled color and
+/// depth of its size, resolved into the target's texture, and its own
+/// frame uniform.
+struct ViewTarget {
+    color: wgpu::TextureView,
+    depth: wgpu::TextureView,
+    resolve: wgpu::TextureView,
+    frame_buffer: wgpu::Buffer,
+    frame_bind_group: wgpu::BindGroup,
+}
+
 /// What `Renderer3D::prepare` needs for a frame.
 pub(crate) struct Prepare3D<'a> {
     pub scene: &'a Scene3D<'a>,
@@ -282,6 +336,13 @@ pub(crate) struct Renderer3D {
     sky: wgpu::RenderPipeline,
     atmosphere: bool,
     frame_bind_group: wgpu::BindGroup,
+    /// What frame bind groups are made of, for each target camera's own.
+    frame_sources: FrameSources,
+    /// The render targets target cameras draw into, by texture id.
+    view_targets: Vec<(u32, ViewTarget)>,
+    /// This frame's target cameras: (index into `view_targets`, first
+    /// instance offset already added to its runs, runs).
+    views: Vec<(usize, Vec<Run>)>,
     /// The frame uniform alone, for the shadow pass (which can't also read
     /// the shadow map it draws into): one copy per cascade, each with its
     /// `caster_view_proj`, `shadow_stride` bytes apart.
@@ -762,32 +823,14 @@ impl Renderer3D {
                 bias: Default::default(),
             }),
         );
-        let frame_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("3d frame"),
-            layout: &frame_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: frame_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&shadow_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&shadow_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&sky_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::Sampler(&sky_sampler),
-                },
-            ],
-        });
+        let frame_sources = FrameSources {
+            layout: frame_layout,
+            shadow_view,
+            shadow_sampler,
+            sky_view: sky_view.clone(),
+            sky_sampler,
+        };
+        let frame_bind_group = frame_sources.bind_group(device, &frame_buffer);
         let shadow_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("3d shadow"),
             layout: &shadow_layout,
@@ -824,6 +867,9 @@ impl Renderer3D {
             sky,
             atmosphere: false,
             frame_bind_group,
+            frame_sources,
+            view_targets: Vec::new(),
+            views: Vec::new(),
             shadow_frames,
             shadow_stride,
             shadow_bind_group,
@@ -862,6 +908,42 @@ impl Renderer3D {
             *pipeline = build_effect(device, &self.layout, name, &source);
         }
         Ok(())
+    }
+
+    /// Makes texture `id` (`texture`, in `HDR_FORMAT`) a target cameras can
+    /// draw into.
+    pub fn add_view_target(&mut self, device: &wgpu::Device, id: u32, texture: &wgpu::Texture) {
+        let target = |label, format| {
+            device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some(label),
+                    size: texture.size(),
+                    mip_level_count: 1,
+                    sample_count: MSAA,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                    view_formats: &[],
+                })
+                .create_view(&Default::default())
+        };
+        let frame_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("3d target camera frame"),
+            size: size_of::<FrameUniform>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let frame_bind_group = self.frame_sources.bind_group(device, &frame_buffer);
+        self.view_targets.push((
+            id,
+            ViewTarget {
+                color: target("3d target camera color", HDR_FORMAT),
+                depth: target("3d target camera depth", DEPTH_FORMAT),
+                resolve: texture.create_view(&Default::default()),
+                frame_buffer,
+                frame_bind_group,
+            },
+        ));
     }
 
     /// Keeps a texture array for materials; returns its id.
@@ -914,8 +996,11 @@ impl Renderer3D {
             .zip(linear)
             .map(|(map, linear)| {
                 let id = map.filter(|&t| (t as usize) < textures.len()).unwrap_or(self.white);
-                textures[id as usize].texture.create_view(&wgpu::TextureViewDescriptor {
-                    format: Some(if linear {
+                let texture = &textures[id as usize].texture;
+                // Render targets (HDR) are read as they are.
+                let image = texture.format() == wgpu::TextureFormat::Rgba8UnormSrgb;
+                texture.create_view(&wgpu::TextureViewDescriptor {
+                    format: image.then_some(if linear {
                         wgpu::TextureFormat::Rgba8Unorm
                     } else {
                         wgpu::TextureFormat::Rgba8UnormSrgb
@@ -1062,14 +1147,48 @@ impl Renderer3D {
             mine.clear();
             mine.extend_from_slice(theirs);
         }
-        if frame.instances.is_empty() {
+        // Target cameras' instances follow the main view's in one buffer.
+        let total = frame.instances.len() + frame.views.iter().map(|v| v.frame.instances.len()).sum::<usize>();
+        let mut views = std::mem::take(&mut self.views);
+        let mut used = 0;
+        let mut offset = frame.instances.len() as u32;
+        for view in &frame.views {
+            let Some(target) = self.view_targets.iter().position(|&(id, _)| id == view.target) else {
+                continue;
+            };
+            if used == views.len() {
+                views.push((0, Vec::new()));
+            }
+            let (index, runs) = &mut views[used];
+            *index = target;
+            runs.clear();
+            runs.extend(
+                view.frame
+                    .runs
+                    .iter()
+                    .map(|&(mesh, start, count)| (mesh, start + offset, count)),
+            );
+            offset += view.frame.instances.len() as u32;
+            used += 1;
+        }
+        views.truncate(used);
+        self.views = views;
+        if total == 0 {
             return;
         }
-        if frame.instances.len() > self.capacity {
-            self.capacity = frame.instances.len().next_power_of_two();
+        if total > self.capacity {
+            self.capacity = total.next_power_of_two();
             self.instances = Self::instance_buffer(device, self.capacity);
         }
         queue.write_buffer(&self.instances, 0, bytemuck::cast_slice(&frame.instances));
+        let mut at = frame.instances.len();
+        for view in &frame.views {
+            if !view.frame.instances.is_empty() {
+                let bytes = (at * size_of::<Instance3D>()) as u64;
+                queue.write_buffer(&self.instances, bytes, bytemuck::cast_slice(&view.frame.instances));
+            }
+            at += view.frame.instances.len();
+        }
         let scaled = |c, k: f32| {
             let [r, g, b, _] = linear(c);
             [r * k, g * k, b * k, 0.0]
@@ -1122,6 +1241,30 @@ impl Renderer3D {
             night: scaled(sky.night_light, 1.0),
         };
         queue.write_buffer(&self.frame_buffer, 0, bytemuck::bytes_of(&uniform));
+        // Each target camera's frame: the same, seen from it.
+        for (view, &(target, _)) in frame
+            .views
+            .iter()
+            .filter(|v| self.view_targets.iter().any(|&(id, _)| id == v.target))
+            .zip(&self.views)
+        {
+            let mut theirs = uniform;
+            theirs.view_proj = view.view_proj.to_cols_array_2d();
+            theirs.inv_view_proj = view.view_proj.inverse().to_cols_array_2d();
+            theirs.camera = view.camera.extend(1.0).to_array();
+            theirs.screen = [
+                view.size.0 as f32,
+                view.size.1 as f32,
+                1.0 / view.size.0.max(1) as f32,
+                1.0 / view.size.1.max(1) as f32,
+            ];
+            theirs.sky_light[3] = (view.camera.y / 1000.0).max(0.0);
+            queue.write_buffer(
+                &self.view_targets[target].1.frame_buffer,
+                0,
+                bytemuck::bytes_of(&theirs),
+            );
+        }
         // Copy 0 also serves the sky texture's pass.
         for i in 0..frame.cascades.max(1) {
             uniform.caster_view_proj = uniform.sun_view_proj[i.min(MAX_CASCADES - 1)];
@@ -1257,7 +1400,14 @@ impl Renderer3D {
             .iter()
             .map(|&(mesh, _, _)| self.meshes[mesh as usize].parts.len())
             .sum();
-        parts * 2
+        let view_parts: usize = self
+            .views
+            .iter()
+            .flat_map(|(_, runs)| runs)
+            .map(|&(mesh, _, _)| self.meshes[mesh as usize].parts.len())
+            .sum();
+        (parts + view_parts) * 2
+            + self.views.len() * usize::from(self.atmosphere)
             + self.effects.len()
             + if self.atmosphere { 2 } else { 0 }
             + self.shadow_runs[..self.cascades].iter().map(Vec::len).sum::<usize>()
@@ -1327,6 +1477,11 @@ impl Renderer3D {
             pass.set_bind_group(0, &self.shadow_bind_group, &[offset]);
             pass.set_bind_group(2, &self.no_scene, &[]);
             self.draw_models(&mut pass, &self.shadow_runs[cascade], Kind::Shadow);
+        }
+        // Target cameras, before the main view, whose materials may read them.
+        for (target, runs) in &self.views {
+            let target = &self.view_targets[*target].1;
+            self.draw_view(encoder, target, runs, clear, &time);
         }
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1543,6 +1698,69 @@ impl Renderer3D {
         pass.set_bind_group(0, post, &[]);
         pass.set_bind_group(1, &textures[self.lut as usize].bind_group, &[]);
         pass.draw(0..3, 0..1);
+    }
+
+    /// One target camera's view: depth prepass, then the lit solid models
+    /// and the sky, resolved into its render target.
+    fn draw_view<'t>(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &ViewTarget,
+        runs: &[(u32, u32, u32)],
+        clear: wgpu::Color,
+        time: &dyn Fn() -> Option<wgpu::RenderPassTimestampWrites<'t>>,
+    ) {
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("3d target camera prepass"),
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &target.depth,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: time(),
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_bind_group(0, &target.frame_bind_group, &[]);
+            pass.set_bind_group(2, &self.no_scene, &[]);
+            self.draw_models(&mut pass, runs, Kind::Prepass);
+        }
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("3d target camera"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &target.color,
+                depth_slice: None,
+                resolve_target: Some(&target.resolve),
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(clear),
+                    store: wgpu::StoreOp::Discard,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &target.depth,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Discard,
+                }),
+                stencil_ops: None,
+            }),
+            timestamp_writes: time(),
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_bind_group(0, &target.frame_bind_group, &[]);
+        pass.set_bind_group(2, &self.no_scene, &[]);
+        self.draw_models(&mut pass, runs, Kind::Opaque);
+        if self.atmosphere {
+            pass.set_pipeline(&self.sky);
+            pass.set_bind_group(0, &target.frame_bind_group, &[]);
+            pass.draw(0..3, 0..1);
+        }
     }
 
     /// Whether a transparent surface this frame reads the scene behind it.

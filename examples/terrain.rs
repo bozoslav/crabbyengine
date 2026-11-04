@@ -98,6 +98,43 @@ fn ground(ctx: &mut Ctx) -> Material {
     ctx.create_terrain_material(&desc)
 }
 
+/// The lake: waves, the bottom seen through it, and the hills mirrored in
+/// it (custom_texture0, drawn by a target camera below the water).
+/// custom[0]: wave height, wave length, speed, clarity.
+const LAKE: &str = "
+fn vertex(v: Vertex) -> Vertex {
+    var out = v;
+    let p = v.position.xz / material.custom[0].y;
+    let t = frame.time.x * material.custom[0].z;
+    out.position.y += (sin(p.x + t) + sin(p.y * 1.3 + t * 0.8)) * material.custom[0].x;
+    return out;
+}
+
+fn surface(s: Surface) -> Surface {
+    var out = s;
+    let p = s.world.xz / material.custom[0].y;
+    let t = frame.time.x * material.custom[0].z;
+    let slope = vec2<f32>(cos(p.x + t), cos(p.y * 1.3 + t * 0.8) * 1.3) * material.custom[0].x / material.custom[0].y;
+    let fine = vec2<f32>(noise2(s.world.xz * 3.0 + t), noise2(s.world.zx * 3.0 - t)) - 0.5;
+    out.normal = normalize(vec3<f32>(-slope.x - fine.x * 0.15, 1.0, -slope.y - fine.y * 0.15));
+
+    let bent = s.screen + out.normal.xz * 25.0;
+    let depth = max(scene_distance(bent) - distance(s.world, frame.camera.xyz), 0.0);
+    let seen = exp(-depth * material.custom[0].w);
+    let fresnel = mix(0.02, 1.0, pow(1.0 - max(dot(out.normal, s.view), 0.0), 5.0));
+
+    // The mirror image, upside down, nudged by the ripples.
+    let uv = s.screen * frame.screen.zw;
+    let mirrored = vec2<f32>(uv.x, 1.0 - uv.y) + out.normal.xz * 0.008;
+    let reflected = textureSample(custom_texture0, material_sampler, mirrored).rgb;
+
+    out.emissive = scene_color(bent) * seen * (1.0 - fresnel) + reflected * fresnel;
+    out.albedo = s.albedo * (1.0 - seen) * (1.0 - fresnel);
+    out.alpha = 1.0;
+    out.roughness = 0.05;
+    return out;
+}";
+
 const UNDERWATER: &str = "
 fn effect(p: Pixel) -> vec3<f32> {
     if frame.camera.y > material.custom[0].x {
@@ -171,6 +208,10 @@ fn main() {
             }
             ctx.camera3d.position += go * speed;
             ctx.camera3d.rotation = rotation;
+            // The lake's mirror follows the camera.
+            if let Some(mirror) = ctx.target_cameras.first().map(|c| c.target) {
+                ctx.target_cameras[0] = TargetCamera::reflection(ctx.camera3d, mirror, WATER);
+            }
             if ctx.key_pressed(Key::U) {
                 std::mem::swap(&mut ctx.effects, &mut parked);
             }
@@ -212,10 +253,16 @@ fn main() {
                 }
             }
 
-            let water = ctx.load_shader("shaders/water.wgsl");
+            // Half the window's size is plenty for a rippled mirror.
+            let size = ctx.window_size();
+            let mirror = ctx.create_render_target((size.x as u32 / 2).max(1), (size.y as u32 / 2).max(1));
+            ctx.target_cameras
+                .push(TargetCamera::reflection(ctx.camera3d, mirror, WATER));
+            let water = ctx.create_shader("lake", LAKE);
             let lake = ctx.create_material(MaterialDesc {
                 shader: Some(water),
                 blend: Blend::Transparent,
+                custom_textures: [Some(mirror), None],
                 custom: [vec4(0.06, 1.5, 1.2, 1.2), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO],
                 ..MaterialDesc::color(Color::hex(0x1E4D6B))
             });

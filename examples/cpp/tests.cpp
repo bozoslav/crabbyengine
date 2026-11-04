@@ -187,6 +187,19 @@ static void three_d() {
         throws([&] { ctx.set_effects({crabby::screen_effect_of(crabby::effect{99})}); });
         ctx.set_effects({});
         CHECK(ctx.effects().empty());
+        auto mirror = ctx.create_render_target(32, 16);
+        CHECK(mirror.width == 32 && mirror.height == 16);
+        auto eye = ctx.camera3d();
+        eye.position = {0, 5, 0};
+        auto below = ctx.reflection_camera(eye, mirror, 1);
+        CHECK(below.camera.position.y == -3 && below.has_clip_plane && below.clip_plane[3] == -1);
+        ctx.set_target_cameras({below, crabby::target_camera_of(eye, mirror)});
+        CHECK(ctx.target_cameras().size() == 2 && !ctx.target_cameras()[1].has_clip_plane);
+        const std::uint8_t px[4] = {255, 255, 255, 255};
+        auto plain = ctx.create_texture(1, 1, px, sizeof px);
+        throws([&] { ctx.set_target_cameras({crabby::target_camera_of(eye, plain)}); });
+        throws([&] { ctx.create_render_target(0, 4); });
+        ctx.set_target_cameras({});
 
         auto cam = ctx.camera3d();
         cam.position = {0, 5, 10};

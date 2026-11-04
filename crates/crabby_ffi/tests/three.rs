@@ -397,6 +397,68 @@ unsafe extern "C" fn effects(ctx: *mut CrabbyCtx, user: *mut c_void) {
     }
 }
 
+unsafe extern "C" fn target_cameras(ctx: *mut CrabbyCtx, user: *mut c_void) {
+    unsafe {
+        let errors = &mut *user.cast::<Vec<CrabbyStatus>>();
+        let mut mirror = CrabbyTexture {
+            id: 0,
+            width: 0,
+            height: 0,
+        };
+        assert_eq!(crabby_ctx_create_render_target(ctx, 64, 32, &mut mirror), CRABBY_OK);
+        assert_eq!((mirror.width, mirror.height), (64, 32));
+        let mut eye = std::mem::zeroed::<CrabbyCamera3D>();
+        assert_eq!(crabby_ctx_camera3d(ctx, &mut eye), CRABBY_OK);
+        eye.position = CrabbyVec3 { x: 0.0, y: 4.0, z: 0.0 };
+        let mut below = std::mem::zeroed::<CrabbyTargetCamera>();
+        assert_eq!(
+            crabby_ctx_reflection_camera(ctx, &eye, mirror, 1.0, &mut below),
+            CRABBY_OK
+        );
+        assert_eq!(below.camera.position.y, -2.0);
+        assert!(below.has_clip_plane && below.clip_plane == [0.0, 1.0, 0.0, -1.0]);
+        assert_eq!(crabby_ctx_set_target_cameras(ctx, &below, 1), CRABBY_OK);
+        let mut back = [below; 2];
+        let mut n = 0;
+        assert_eq!(crabby_ctx_target_cameras(ctx, back.as_mut_ptr(), 2, &mut n), CRABBY_OK);
+        assert_eq!((n, back[0].target, back[0].clip_plane), (1, mirror, below.clip_plane));
+        assert_eq!(back[0].camera.position, below.camera.position);
+        // A plain texture, a zero normal, and a zero size.
+        let pixel = [255u8; 4];
+        let mut plain = mirror;
+        assert_eq!(
+            crabby_ctx_create_texture(ctx, 1, 1, pixel.as_ptr(), 4, &mut plain),
+            CRABBY_OK
+        );
+        let wrong = CrabbyTargetCamera { target: plain, ..below };
+        errors.push(crabby_ctx_set_target_cameras(ctx, &wrong, 1));
+        let flat = CrabbyTargetCamera {
+            clip_plane: [0.0; 4],
+            ..below
+        };
+        errors.push(crabby_ctx_set_target_cameras(ctx, &flat, 1));
+        errors.push(crabby_ctx_create_render_target(ctx, 0, 8, &mut plain));
+        assert_eq!(crabby_ctx_target_cameras(ctx, back.as_mut_ptr(), 2, &mut n), CRABBY_OK);
+        assert_eq!(n, 1, "failed calls change nothing");
+    }
+}
+
+#[test]
+fn target_cameras_are_set_and_listed_from_c() {
+    let mut errors: Vec<CrabbyStatus> = Vec::new();
+    unsafe {
+        let g = crabby_game_new(c"targets".as_ptr(), 64, 64);
+        let mut world = null_mut();
+        let user = (&raw mut errors).cast();
+        assert_eq!(
+            crabby_game_run_headless(g, 1, Some(target_cameras), user, &mut world),
+            CRABBY_OK
+        );
+        crabby_world_free(world);
+    }
+    assert_eq!(errors, vec![CRABBY_INVALID_ARGUMENT; 3]);
+}
+
 #[test]
 fn screen_effects_are_made_and_listed_from_c() {
     let mut errors: Vec<CrabbyStatus> = Vec::new();

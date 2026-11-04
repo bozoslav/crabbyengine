@@ -396,6 +396,32 @@ impl Ctx {
 
     /// Engine side, before drawing: collect the visible models and hand
     /// them, the camera and the light to the renderer.
+    /// What each target camera into a real render target sees.
+    fn collect_views(&mut self) {
+        let targets = &self.assets3d.render_targets;
+        let cameras = self.target_cameras.iter().filter(|c| targets.contains(&c.target));
+        let count = cameras.clone().count();
+        let views = &mut self.frame3d.views;
+        views.resize_with(count, Default::default);
+        let lighting = super::Lighting {
+            shadows: false,
+            ..self.lighting
+        };
+        for (view, camera) in views.iter_mut().zip(cameras) {
+            let size = (camera.target.width(), camera.target.height());
+            let mut eye = camera.camera;
+            eye.set_viewport(glam::Vec2::new(size.0 as f32, size.1 as f32));
+            view.frame.collect(&mut self.world, &self.assets3d, &eye, &lighting);
+            view.target = camera.target.id;
+            view.size = size;
+            view.camera = eye.position;
+            view.view_proj = match camera.clip_plane {
+                Some(plane) => super::target::oblique(eye.view_proj(), eye.view(), plane),
+                None => eye.view_proj(),
+            };
+        }
+    }
+
     pub(crate) fn prepare_3d(&mut self) {
         let time = (self.time() as f32, self.dt());
         if self.renderer.is_none() || self.assets3d.bounds.is_empty() {
@@ -411,10 +437,11 @@ impl Ctx {
             let material = e.material.or(fallback)?;
             Some((e.effect.id, material.id))
         }));
+        let start = web_time::Instant::now();
+        self.collect_views();
         let Some(renderer) = self.renderer.as_mut() else {
             return;
         };
-        let start = web_time::Instant::now();
         self.frame3d
             .collect(&mut self.world, &self.assets3d, &self.camera3d, &self.lighting);
         let light = if self.sky.atmosphere {

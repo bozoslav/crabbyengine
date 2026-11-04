@@ -356,6 +356,72 @@ fn dive(ctx: &mut Ctx) {
 }
 // ANCHOR_END: effect
 
+// ANCHOR: mirror
+/// A still pond: its color is the world mirrored in it, which a target
+/// camera below the surface draws into `custom_texture0`, upside down.
+const MIRROR: &str = "
+fn surface(s: Surface) -> Surface {
+    var out = s;
+    let uv = s.screen * frame.screen.zw;
+    out.emissive = textureSample(custom_texture0, material_sampler, vec2<f32>(uv.x, 1.0 - uv.y)).rgb * 0.9;
+    out.albedo = vec3<f32>(0.0);
+    return out;
+}";
+
+fn pond(ctx: &mut Ctx) {
+    let size = ctx.window_size();
+    let reflection = ctx.create_render_target(size.x as u32 / 2, size.y as u32 / 2);
+    let mirror = ctx.create_shader("mirror", MIRROR);
+    let water = ctx.create_material(MaterialDesc {
+        shader: Some(mirror),
+        custom_textures: [Some(reflection), None],
+        ..Default::default()
+    });
+    let surface = ctx.create_mesh(&MeshData::plane(20.0), water);
+    ctx.world.spawn((Transform3D::default(), Model::new(surface)));
+    ctx.target_cameras
+        .push(TargetCamera::reflection(ctx.camera3d, reflection, 0.0));
+}
+
+/// Every frame: the mirrored camera follows the real one.
+fn follow_reflections(ctx: &mut Ctx) {
+    for t in &mut ctx.target_cameras {
+        *t = TargetCamera::reflection(ctx.camera3d, t.target, 0.0);
+    }
+}
+// ANCHOR_END: mirror
+
+#[test]
+fn the_guide_pond_mirrors_the_camera() {
+    Game::new("pond", 64, 64).run_headless(0, |ctx| {
+        pond(ctx);
+        ctx.camera3d.position = vec3(3.0, 5.0, 1.0);
+        follow_reflections(ctx);
+        let below = ctx.target_cameras[0];
+        assert!(ctx.is_render_target(below.target));
+        assert_eq!(below.target.width(), 32);
+        assert_eq!(below.camera.position, vec3(3.0, -5.0, 1.0));
+        assert_eq!(below.clip_plane, Some(vec4(0.0, 1.0, 0.0, 0.0)));
+    });
+}
+
+#[test]
+#[should_panic(expected = "render target size must not be zero")]
+fn render_targets_need_a_size() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        ctx.create_render_target(0, 16);
+    });
+}
+
+#[test]
+#[should_panic(expected = "not updated with pixels")]
+fn render_targets_take_no_pixels() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        let target = ctx.create_render_target(1, 1);
+        ctx.update_texture(&target, &[0; 4]);
+    });
+}
+
 #[test]
 fn the_guide_effect_is_added_once() {
     let mut effects = Vec::new();

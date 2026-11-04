@@ -16,6 +16,7 @@ mod gltf;
 mod mesh;
 mod post;
 mod sky;
+mod target;
 mod terrain;
 mod texture_array;
 
@@ -32,6 +33,7 @@ pub(crate) use post::PostUniform;
 pub use post::{Post, Tonemap};
 pub use sky::Sky;
 pub(crate) use sky::SkyLight;
+pub use target::TargetCamera;
 pub use terrain::{TERRAIN_LAYERS, TERRAIN_LODS, TerrainMaterialDesc, TerrainTile};
 pub use texture_array::{TextureArray, TextureKind};
 
@@ -457,8 +459,12 @@ impl Camera3D {
     pub(crate) fn view_proj(&self) -> Mat4 {
         let aspect = (self.viewport.x / self.viewport.y.max(1.0)).max(1e-3);
         let projection = glam::camera::rh::proj::directx::perspective(self.fov_y, aspect, self.near, self.far);
-        let view = Mat4::from_rotation_translation(self.rotation, self.position).inverse();
-        projection * view
+        projection * self.view()
+    }
+
+    /// World to the camera's own space.
+    pub(crate) fn view(&self) -> Mat4 {
+        Mat4::from_rotation_translation(self.rotation, self.position).inverse()
     }
 
     /// The ray from the camera through window point `screen` (logical
@@ -565,6 +571,8 @@ pub(crate) struct Assets3D {
     pub materials: u32,
     /// Texture arrays made so far, by id.
     pub arrays: Vec<TextureArray>,
+    /// Render targets made so far.
+    pub render_targets: Vec<crate::Texture>,
     /// Screen effects made so far.
     pub effects: u32,
     /// Effects loaded from files, by resolved path.

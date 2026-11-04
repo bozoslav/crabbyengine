@@ -164,7 +164,7 @@ pub struct Ctx {
     pub(crate) headless: bool,
     /// Where the control endpoint listens, if it's on.
     pub(crate) control_addr: Option<std::net::SocketAddr>,
-    headless_textures: u32,
+    pub(crate) headless_textures: u32,
     /// Asset hot reload: which files textures came from.
     pub(crate) watcher: crate::hot_reload::Watcher,
     /// How to apply each loaded data file's text (`load_resource`).
@@ -250,6 +250,19 @@ pub struct Ctx {
     /// ```
     #[cfg(feature = "3d")]
     pub effects: Vec<crate::ScreenEffect>,
+    /// Cameras drawing the 3D world into render targets each frame, before
+    /// the main view (feature `3d`): mirrors, reflections, security
+    /// cameras. See [`TargetCamera`](crate::TargetCamera).
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// let lake = ctx.create_render_target(960, 540);
+    /// ctx.target_cameras.push(TargetCamera::reflection(ctx.camera3d, lake, 0.0));
+    /// # }
+    /// ```
+    #[cfg(feature = "3d")]
+    pub target_cameras: Vec<crate::TargetCamera>,
     /// The sky behind the 3D world and the fog in front of it (feature
     /// `3d`): a physical sky lit by the sun, by default.
     ///
@@ -352,6 +365,8 @@ impl Ctx {
             #[cfg(feature = "3d")]
             effects: Vec::new(),
             #[cfg(feature = "3d")]
+            target_cameras: Vec::new(),
+            #[cfg(feature = "3d")]
             sky: crate::Sky::default(),
             #[cfg(feature = "3d")]
             assets3d: Default::default(),
@@ -413,7 +428,7 @@ impl Ctx {
         self.screenshots.push(ScreenshotRequest { path, max_size, reply });
     }
 
-    fn renderer(&mut self) -> &mut Renderer {
+    pub(crate) fn renderer(&mut self) -> &mut Renderer {
         self.renderer
             .as_mut()
             .expect("crabbyengine: textures can only be created once the game is running (in setup or update)")
@@ -1244,6 +1259,11 @@ impl Ctx {
             expected,
             "crabbyengine: a {w} x {h} texture needs {expected} bytes of RGBA, got {}",
             rgba.len()
+        );
+        #[cfg(feature = "3d")]
+        assert!(
+            !self.is_render_target(*texture),
+            "crabbyengine: a render target is drawn by its target camera, not updated with pixels"
         );
         if self.headless {
             return;

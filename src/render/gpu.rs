@@ -588,6 +588,37 @@ impl Renderer {
         self.device.limits().max_texture_dimension_2d
     }
 
+    /// A texture target cameras draw into (linear HDR); returns its id.
+    #[cfg(feature = "3d")]
+    pub fn create_render_target(&mut self, width: u32, height: u32) -> u32 {
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("render target"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: super::gpu3d::HDR_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let bind_group = self.sprite_bind_group(&texture, false);
+        let id = self.textures.len() as u32;
+        let device = self.device.clone();
+        self.three().add_view_target(&device, id, &texture);
+        self.textures.push(GpuTexture {
+            bind_group,
+            texture,
+            nearest: false,
+            // Drawn fresh each frame: no mipmaps to make.
+            mips: Some(false),
+        });
+        id
+    }
+
     /// Uploads RGBA8 (sRGB) pixels and returns the texture's id.
     pub fn create_texture(&mut self, width: u32, height: u32, rgba: &[u8]) -> u32 {
         debug_assert_eq!(rgba.len(), (width * height * 4) as usize);
@@ -637,8 +668,8 @@ impl Renderer {
     /// The bind group sprites draw a texture with: its full-size level only,
     /// so mipmaps made for 3D don't change how sprites look.
     fn sprite_bind_group(&self, texture: &wgpu::Texture, nearest: bool) -> wgpu::BindGroup {
+        // Its own format: sRGB for images, HDR for render targets.
         let view = texture.create_view(&wgpu::TextureViewDescriptor {
-            format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
             mip_level_count: Some(1),
             ..Default::default()
         });

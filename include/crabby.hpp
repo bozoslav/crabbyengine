@@ -108,6 +108,9 @@ using screen_effect = CrabbyScreenEffect;
 /// How a material covers what's behind it (`material_desc::blend`).
 enum class blend : uint32_t { opaque = 0, transparent = 1, cutout = 2 };
 using camera3d = CrabbyCamera3D;
+/// A camera drawing the 3D world into a render target each frame (Rust
+/// `TargetCamera`); see target_camera_of and ctx::reflection_camera.
+using target_camera = CrabbyTargetCamera;
 using lighting = CrabbyLighting;
 /// Post-processing of the 3D frame (Rust `Post`); read and change it with
 /// ctx::sky / ctx::set_sky: the sky behind the 3D world and the fog.
@@ -236,6 +239,9 @@ inline material_desc material_of(color c) { return crabby_material_desc(c); }
 /// material when `m` is left out).
 inline screen_effect screen_effect_of(effect e) { return {e, false, {}}; }
 inline screen_effect screen_effect_of(effect e, material m) { return {e, true, m}; }
+/// `c` drawing into render target `target` (ctx::create_render_target),
+/// with no clip plane.
+inline target_camera target_camera_of(const camera3d& c, texture target) { return {c, target, false, {0, 0, 0, 0}}; }
 /// Built-in font, 16 px, white.
 inline text_params text_defaults() { return crabby_text_params_default(); }
 /// Full volume, normal speed, once.
@@ -1204,6 +1210,29 @@ public:
     }
     /// Replaces the screen effects run each frame (empty: none).
     void set_effects(const std::vector<screen_effect>& list) { detail::check(crabby_ctx_set_effects(raw_, list.data(), list.size())); }
+    /// A texture target cameras draw the 3D world into (linear HDR light);
+    /// materials use it like any texture.
+    texture create_render_target(std::uint32_t w, std::uint32_t h) {
+        texture t{}; detail::check(crabby_ctx_create_render_target(raw_, w, h, &t)); return t;
+    }
+    /// The target camera seeing `c`'s view mirrored in the level plane at
+    /// height `level`, clipped to what's above it. Read its target at the
+    /// screen position flipped upside down.
+    target_camera reflection_camera(const camera3d& c, texture target, float level) {
+        target_camera t{}; detail::check(crabby_ctx_reflection_camera(raw_, &c, target, level, &t)); return t;
+    }
+    /// The cameras drawing into render targets each frame, before the main view.
+    std::vector<target_camera> target_cameras() const {
+        std::size_t n = 0;
+        detail::check(crabby_ctx_target_cameras(raw_, nullptr, 0, &n));
+        std::vector<target_camera> list(n);
+        detail::check(crabby_ctx_target_cameras(raw_, list.data(), list.size(), &n));
+        return list;
+    }
+    /// Replaces the target cameras drawn each frame (empty: none).
+    void set_target_cameras(const std::vector<target_camera>& list) {
+        detail::check(crabby_ctx_set_target_cameras(raw_, list.data(), list.size()));
+    }
     /// A plain white material, made once and shared.
     material default_material() { material m{}; detail::check(crabby_ctx_default_material(raw_, &m)); return m; }
     /// Puts triangles on the GPU as a mesh of one material; draw it with

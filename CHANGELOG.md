@@ -8,6 +8,16 @@ says what that covers.
 ## [Unreleased]
 
 ### Added
+- Render targets: `ctx.create_render_target` makes a texture that a
+  `TargetCamera` in `ctx.target_cameras` draws the lit 3D world into each
+  frame, for materials to read (mirrors, reflections, monitors). An
+  optional clip plane tilts the near plane onto a mirror;
+  `TargetCamera::reflection` makes the camera for a level one. In C
+  (`crabby_ctx_create_render_target`, `crabby_ctx_reflection_camera`,
+  `crabby_ctx_set_target_cameras`, `crabby_ctx_target_cameras`) and C++
+  (`ctx.create_render_target`, `ctx.reflection_camera`,
+  `ctx.set_target_cameras`, `ctx.target_cameras()`,
+  `crabby::target_camera_of`).
 - 3D screen effects: `ctx.create_effect` and `ctx.load_effect` (hot
   reloaded) make a WGSL shader defining `fn effect(p: Pixel)`, run over the
   lit frame before bloom and tone mapping by adding a `ScreenEffect` to

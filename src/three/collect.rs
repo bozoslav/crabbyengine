@@ -48,10 +48,26 @@ pub(crate) struct Frame3D {
     pub effects: Vec<(u32, u32)>,
     /// How many of `instances` the camera sees (the rest cast shadows).
     pub visible: usize,
+    /// What each target camera draws, in `Ctx::target_cameras` order (only
+    /// the main frame has these).
+    pub views: Vec<ViewFrame>,
     /// The light the sky gave last, and what it was worked out from.
     pub sky_light: Option<(Lighting, super::Sky, super::SkyLight)>,
     scratch: Vec<Entry>,
     counts: Vec<u32>,
+}
+
+/// What one target camera draws this frame.
+#[derive(Default)]
+pub(crate) struct ViewFrame {
+    /// The render target's texture id and size.
+    pub target: u32,
+    pub size: (u32, u32),
+    pub camera: Vec3,
+    /// What it draws with: the camera's, tilted onto the clip plane.
+    pub view_proj: Mat4,
+    /// Its models, without shadow casters (it uses the main view's).
+    pub frame: Frame3D,
 }
 
 impl Frame3D {
