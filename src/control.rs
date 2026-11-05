@@ -497,7 +497,10 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
         "perf.trace",
         "record the next frames as a Chrome/Perfetto trace (systems, render, display wait, GPU passes; windowed games only); params: path? (default: a temp file), frames? (120). Returns the path; it's written when the frames are done",
     ),
-    ("perf.hud", "show or hide the on-screen performance overlay; params: on (bool)"),
+    (
+        "perf.hud",
+        "show or hide the on-screen performance overlay; params: on (bool)",
+    ),
     ("game.quit", "ask the game to exit"),
 ];
 
@@ -1000,7 +1003,12 @@ mod tests {
             })
             .collect();
         let perf = handle(&mut ctx, "perf.get", &json!({})).unwrap();
-        let names: Vec<_> = perf["systems"].as_array().unwrap().iter().map(|s| s["name"].clone()).collect();
+        let names: Vec<_> = perf["systems"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["name"].clone())
+            .collect();
         assert_eq!(names, [json!("slow"), json!("middle"), json!("fast")]);
         for key in ["fps", "frame_ms", "cpu_ms", "gpu_passes", "render"] {
             assert!(perf.get(key).is_some(), "{key} missing from {perf}");

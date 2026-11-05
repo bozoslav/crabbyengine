@@ -65,7 +65,10 @@ impl Default for CrabbyFrameStats {
 /// # Safety
 /// `ctx` must be null or live; `out_stats` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_frame_stats(ctx: *const CrabbyCtx, out_stats: *mut CrabbyFrameStats) -> CrabbyStatus {
+pub unsafe extern "C" fn crabby_ctx_frame_stats(
+    ctx: *const CrabbyCtx,
+    out_stats: *mut CrabbyFrameStats,
+) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         let s = ctx_access(ctx, |c| Ok(c.frame_stats()))?;
@@ -114,7 +117,11 @@ pub unsafe extern "C" fn crabby_ctx_set_perf_hud(ctx: *mut CrabbyCtx, on: bool) 
 /// # Safety
 /// `ctx` must be null or live; `path` NUL-terminated.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_record_trace(ctx: *mut CrabbyCtx, path: *const c_char, frames: u32) -> CrabbyStatus {
+pub unsafe extern "C" fn crabby_ctx_record_trace(
+    ctx: *mut CrabbyCtx,
+    path: *const c_char,
+    frames: u32,
+) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {

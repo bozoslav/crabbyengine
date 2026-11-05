@@ -17,7 +17,10 @@ fn perf_keys(ctx: &mut Ctx) {
     if stats.frames > 0 && stats.p99_ms > 20.0 && ctx.frame().is_multiple_of(600) {
         // Waiting on the display means the GPU (or vsync) is the limit.
         let gpu_bound = stats.display_wait_ms > stats.systems_ms;
-        println!("slow: p99 {:.1} ms, gpu {:?} ms, gpu bound: {gpu_bound}", stats.p99_ms, stats.gpu_ms);
+        println!(
+            "slow: p99 {:.1} ms, gpu {:?} ms, gpu bound: {gpu_bound}",
+            stats.p99_ms, stats.gpu_ms
+        );
         for pass in ctx.gpu_passes() {
             println!("  {}: {:.2} ms", pass.name, pass.ms);
         }

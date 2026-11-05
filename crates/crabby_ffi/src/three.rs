@@ -2450,7 +2450,8 @@ pub unsafe extern "C" fn crabby_ctx_set_shadow_mesh(
             if !c.world.is_alive(entity) {
                 return Err(invalid("no such entity"));
             }
-            c.world.insert(entity, crabbyengine::ShadowMesh(casts.then(|| to_c(mesh))));
+            c.world
+                .insert(entity, crabbyengine::ShadowMesh(casts.then(|| to_c(mesh))));
             Ok(())
         })
     })

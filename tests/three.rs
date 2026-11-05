@@ -90,14 +90,18 @@ fn grass_can_cast_no_shadow() {
 /// A detailed tree with a cheap shadow, a flat sign with none, and a stand-in
 /// shadow for a row of fence pieces that cast none themselves.
 fn yard(ctx: &mut Ctx, tree: Mesh, blob: Mesh, sign: Mesh, fence: Mesh, fence_shadow: Mesh) {
-    ctx.world.spawn((Transform3D::default(), Model::new(tree), ShadowMesh(Some(blob))));
-    ctx.world.spawn((Transform3D::at(vec3(4.0, 0.0, 0.0)), Model::new(sign), ShadowMesh(None)));
+    ctx.world
+        .spawn((Transform3D::default(), Model::new(tree), ShadowMesh(Some(blob))));
+    ctx.world
+        .spawn((Transform3D::at(vec3(4.0, 0.0, 0.0)), Model::new(sign), ShadowMesh(None)));
     for i in 0..10 {
         let at = vec3(i as f32, 0.0, 6.0);
-        ctx.world.spawn((Transform3D::at(at), Model::new(fence), ShadowMesh(None)));
+        ctx.world
+            .spawn((Transform3D::at(at), Model::new(fence), ShadowMesh(None)));
     }
     // Only a shadow: no Model.
-    ctx.world.spawn((Transform3D::at(vec3(0.0, 0.0, 6.0)), ShadowMesh(Some(fence_shadow))));
+    ctx.world
+        .spawn((Transform3D::at(vec3(0.0, 0.0, 6.0)), ShadowMesh(Some(fence_shadow))));
 }
 // ANCHOR_END: shadow_mesh
 
@@ -109,14 +113,21 @@ fn shadow_meshes_round_trip_through_scenes() {
         yard(ctx, mesh, mesh, mesh, mesh, mesh);
         let only_shadows = ctx.world.query::<&ShadowMesh>().without::<Model>().iter().count();
         assert_eq!(only_shadows, 1);
-        let none = ctx.world.query::<&ShadowMesh>().iter().filter(|s| s.0.is_none()).count();
+        let none = ctx
+            .world
+            .query::<&ShadowMesh>()
+            .iter()
+            .filter(|s| s.0.is_none())
+            .count();
         assert_eq!(none, 11);
         // No shadow, as JSON and back.
         let sign = ctx.world.spawn((Transform3D::default(), ShadowMesh(None)));
         let json = ctx.world.entity_json(sign).unwrap();
         assert_eq!(json["ShadowMesh"], serde_json::json!({ "mesh": null }), "{json}");
         let other = ctx.world.spawn((Transform3D::default(),));
-        ctx.world.set_json(other, "ShadowMesh", json["ShadowMesh"].clone()).unwrap();
+        ctx.world
+            .set_json(other, "ShadowMesh", json["ShadowMesh"].clone())
+            .unwrap();
         assert_eq!(ctx.world.get::<ShadowMesh>(other), Some(&ShadowMesh(None)));
         let unloaded = ctx
             .world
