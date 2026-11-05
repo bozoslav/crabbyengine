@@ -14,7 +14,7 @@ macro_rules! define_keys {
         ///
         /// Physical keys keep controls in the same place on every keyboard layout:
         /// `Key::W` is the key above `S` on QWERTY, AZERTY and Dvorak alike.
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
         #[non_exhaustive]
         #[allow(missing_docs)] // named after the keys
         pub enum Key {
@@ -77,7 +77,7 @@ define_keys! {
 }
 
 /// A mouse button.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[non_exhaustive]
 pub enum MouseButton {
     /// The left (primary) button.
@@ -111,7 +111,7 @@ impl MouseButton {
 
 /// A gamepad button, named by its position, so it means the same on every
 /// brand of controller.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[non_exhaustive]
 pub enum GamepadButton {
     /// The bottom face button: A on Xbox, Cross on PlayStation, B on Nintendo.
@@ -156,7 +156,7 @@ impl GamepadButton {
 
 /// One axis of a gamepad: a stick's x or y (`-1.0..=1.0`, y down is
 /// positive like screen coordinates) or a trigger (`0.0..=1.0`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[non_exhaustive]
 pub enum GamepadAxis {
     /// Left stick, left (-1) to right (1).
@@ -178,7 +178,7 @@ impl GamepadAxis {
 }
 
 /// Which stick, for [`Ctx::gamepad_stick`](crate::Ctx::gamepad_stick).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum GamepadStick {
     /// The left stick.
     Left,
@@ -189,8 +189,20 @@ pub enum GamepadStick {
 /// A connected gamepad, from [`Ctx::gamepads`](crate::Ctx::gamepads). It
 /// keeps its slot while connected, so `pads[0]` stays player one; a pad that
 /// reconnects takes the lowest free slot.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(try_from = "u8", into = "u8")]
 pub struct Gamepad(pub(crate) u8);
+impl TryFrom<u8> for Gamepad {
+    type Error = &'static str;
+    fn try_from(slot: u8) -> Result<Self, Self::Error> {
+        Self::from_slot(usize::from(slot)).ok_or("gamepad slot out of range")
+    }
+}
+impl From<Gamepad> for u8 {
+    fn from(pad: Gamepad) -> u8 {
+        pad.0
+    }
+}
 
 impl Gamepad {
     /// The pad's slot, `0..MAX_GAMEPADS`: a stable number for "player 1, 2, ...".
@@ -229,9 +241,9 @@ pub const MAX_GAMEPADS: usize = 8;
 
 /// One gamepad's buttons and axes.
 #[derive(Debug, Clone)]
-struct PadState {
-    buttons: ButtonStates<{ GamepadButton::COUNT }>,
-    axes: [f32; GamepadAxis::COUNT],
+pub(super) struct PadState {
+    pub(super) buttons: ButtonStates<{ GamepadButton::COUNT }>,
+    pub(super) axes: [f32; GamepadAxis::COUNT],
 }
 
 impl PadState {
@@ -245,8 +257,8 @@ impl PadState {
 
 /// Down / pressed-this-frame / released-this-frame flags for `N` buttons.
 #[derive(Debug, Clone)]
-struct ButtonStates<const N: usize> {
-    down: [bool; N],
+pub(super) struct ButtonStates<const N: usize> {
+    pub(super) down: [bool; N],
     pressed: [bool; N],
     released: [bool; N],
 }
@@ -284,16 +296,17 @@ impl<const N: usize> ButtonStates<N> {
 /// Everything the engine knows about keyboard and mouse this frame.
 #[derive(Debug, Clone)]
 pub(crate) struct Input {
-    keys: ButtonStates<{ Key::COUNT }>,
-    mouse: ButtonStates<{ MouseButton::COUNT }>,
+    pub(super) keys: ButtonStates<{ Key::COUNT }>,
+    pub(super) mouse: ButtonStates<{ MouseButton::COUNT }>,
     mouse_pos: Vec2,
     mouse_pos_at_frame_start: Vec2,
     mouse_wheel: Vec2,
     /// Raw mouse movement this frame (also while the cursor is locked).
     mouse_motion: Vec2,
-    pads: [PadState; MAX_GAMEPADS],
+    pub(super) pads: [PadState; MAX_GAMEPADS],
     /// Connected pads, sorted by slot.
     connected: Vec<Gamepad>,
+    pub(crate) actions: crate::ActionMap,
 }
 
 impl Input {
@@ -307,6 +320,7 @@ impl Input {
             mouse_motion: Vec2::ZERO,
             pads: [const { PadState::new() }; MAX_GAMEPADS],
             connected: Vec::with_capacity(MAX_GAMEPADS),
+            actions: crate::ActionMap::default(),
         }
     }
 
@@ -314,10 +328,12 @@ impl Input {
 
     pub fn set_key(&mut self, key: Key, is_down: bool) {
         self.keys.set(key as usize, is_down);
+        self.refresh_actions();
     }
 
     pub fn set_mouse_button(&mut self, button: MouseButton, is_down: bool) {
         self.mouse.set(button as usize, is_down);
+        self.refresh_actions();
     }
 
     pub fn set_mouse_pos(&mut self, pos: Vec2) {
@@ -340,6 +356,7 @@ impl Input {
         self.pads[usize::from(slot)] = PadState::new();
         let at = self.connected.partition_point(|p| p.0 < slot);
         self.connected.insert(at, pad);
+        self.refresh_actions();
         Some(pad)
     }
 
@@ -349,14 +366,17 @@ impl Input {
         let state = &mut self.pads[pad.slot()];
         state.buttons.release_all();
         state.axes = [0.0; GamepadAxis::COUNT];
+        self.refresh_actions();
     }
 
     pub fn set_gamepad_button(&mut self, pad: Gamepad, button: GamepadButton, is_down: bool) {
         self.pads[pad.slot()].buttons.set(button as usize, is_down);
+        self.refresh_actions();
     }
 
     pub fn set_gamepad_axis(&mut self, pad: Gamepad, axis: GamepadAxis, value: f32) {
         self.pads[pad.slot()].axes[axis as usize] = value;
+        self.refresh_actions();
     }
 
     /// Called when the window loses focus: we will never see the matching
@@ -364,10 +384,12 @@ impl Input {
     pub fn release_all(&mut self) {
         self.keys.release_all();
         self.mouse.release_all();
+        self.refresh_actions();
     }
 
     /// Clears per-frame state. Called after the game's update for the frame.
     pub fn end_frame(&mut self) {
+        self.actions.end_frame();
         self.keys.end_frame();
         self.mouse.end_frame();
         for pad in &mut self.pads {
@@ -376,6 +398,10 @@ impl Input {
         self.mouse_wheel = Vec2::ZERO;
         self.mouse_motion = Vec2::ZERO;
         self.mouse_pos_at_frame_start = self.mouse_pos;
+    }
+
+    pub(crate) fn refresh_actions(&mut self) {
+        self.actions.refresh(&self.keys, &self.mouse, &self.pads);
     }
 
     // --- queries (exposed through Ctx) ---
