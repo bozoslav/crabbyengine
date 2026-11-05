@@ -1111,6 +1111,18 @@ public:
     }
 };
 
+/// One shape a mesh can blend toward (Rust `MorphTarget`; a blend shape:
+/// a smile, a dent): one offset per corner in `positions`, plus one normal
+/// offset per corner in `normals` (empty when normals don't change).
+struct morph_target {
+    /// What the shape is called, to find it with ctx::morph_target.
+    std::string name;
+    /// One offset per corner.
+    std::vector<vec3> positions;
+    /// One normal offset per corner; empty when normals don't change.
+    std::vector<vec3> normals;
+};
+
 /// Triangles on the CPU (Rust `MeshData`), before ctx::create_mesh puts
 /// them on the GPU.
 class ctx;
@@ -1161,6 +1173,17 @@ public:
         if (joints.size() != weights.size()) throw std::invalid_argument("mesh_data::set_skin: one weight set per joint set");
         detail::check(crabby_mesh_data_set_skin(raw_, joints.empty() ? nullptr : joints.front().data(),
                                                 weights.empty() ? nullptr : weights.front().data(), joints.size()));
+    }
+    /// Adds a morph target (Rust `MeshData::morph_targets`): a shape the
+    /// mesh can blend toward. Targets are numbered in the order they're
+    /// added. Throws unless `positions` (and `normals`, when given) have one
+    /// offset per corner.
+    void add_morph_target(const morph_target& target) {
+        if (!target.normals.empty() && target.normals.size() != target.positions.size())
+            throw std::invalid_argument("mesh_data::add_morph_target: one normal offset per corner");
+        detail::check(crabby_mesh_data_add_morph_target(raw_, target.name.c_str(), target.positions.data(),
+                                                        target.normals.empty() ? nullptr : target.normals.data(),
+                                                        target.positions.size()));
     }
     /// Its arrays, valid while it lives.
     CrabbyMeshView view() const { CrabbyMeshView v{}; detail::check(crabby_mesh_data_view(raw_, &v)); return v; }
@@ -2110,6 +2133,34 @@ public:
     std::array<float, 16> joint_matrix(entity e, std::size_t j) const {
         std::array<float, 16> m{}; detail::check(crabby_ctx_joint_matrix(raw_, e, j, m.data())); return m;
     }
+    /// The index of mesh `m`'s morph target called `name` (Rust
+    /// `Ctx::morph_target`), for set_morph_weight and morph_weight.
+    std::optional<std::size_t> morph_target(mesh m, const char* name) const {
+        std::size_t result = 0;
+        const CrabbyStatus status = crabby_ctx_morph_target(raw_, m, name, &result);
+        if (status == CRABBY_NOT_FOUND) return std::nullopt;
+        detail::check(status);
+        return result;
+    }
+    /// Sets how much of morph target `t` `e`'s model shows: 0 none, 1 all
+    /// of it (Rust `MorphWeights::set`); outside that range exaggerates.
+    /// Gives `e` morph weights if it had none, so it stops showing its
+    /// mesh's default weights.
+    void set_morph_weight(entity e, std::size_t t, float weight) {
+        detail::check(crabby_ctx_set_morph_weight(raw_, e, t, weight));
+    }
+    /// How much of morph target `t` `e`'s model shows, or nothing when `e`
+    /// has no morph weights: then it shows its mesh's default weights.
+    std::optional<float> morph_weight(entity e, std::size_t t) const {
+        float result = 0;
+        const CrabbyStatus status = crabby_ctx_morph_weight(raw_, e, t, &result);
+        if (status == CRABBY_NOT_FOUND) return std::nullopt;
+        detail::check(status);
+        return result;
+    }
+    /// Takes `e`'s morph weights away, so its model shows its mesh's
+    /// default weights again (Rust `MorphWeights` removed).
+    void clear_morph_weights(entity e) { detail::check(crabby_ctx_clear_morph_weights(raw_, e)); }
     /// The clip called `name` of a glTF file with skins (Rust `Ctx::load_clip`).
     crabby::clip load_clip(const char* path, const char* name) {
         CrabbyClip* c = nullptr; detail::check(crabby_ctx_load_clip(raw_, path, name, &c)); return crabby::clip(c);

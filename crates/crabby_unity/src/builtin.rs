@@ -44,6 +44,7 @@ impl UnityMesh {
         let mut mesh = Self {
             name: name(file_id)?.to_string(),
             skin: None,
+            blend_shapes: Vec::new(),
             positions: Vec::new(),
             normals: Vec::new(),
             tangents: Vec::new(),

@@ -1,7 +1,7 @@
 //! A skinned model drawn through the whole frame offscreen: posing its
 //! skeleton must move its pixels (collection, posed mesh ids, the skinning
-//! pass and the depth, opaque and shadow passes together). Skips without a
-//! GPU.
+//! pass and the depth, opaque and shadow passes together). So must changing
+//! the weights of an unskinned model's morph target. Skips without a GPU.
 use super::gpu::GpuTexture;
 use super::gpu3d::*;
 use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight};
@@ -11,6 +11,17 @@ const SIZE: u32 = 64;
 
 #[test]
 fn posing_a_skeleton_moves_the_drawn_pixels() {
+    draw_bent(false);
+}
+
+#[test]
+fn morph_weights_move_the_drawn_pixels() {
+    draw_bent(true);
+}
+
+/// Draws a bar standing up, then bent left: by its skeleton, or (`morph`)
+/// unskinned, by a morph target.
+fn draw_bent(morph: bool) {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
         eprintln!("no GPU adapter: skipped");
@@ -121,16 +132,35 @@ fn posing_a_skeleton_moves_the_drawn_pixels() {
     for p in &mut bar.positions {
         *p = vec3(p.x * 0.3, (p.y + 0.5) * 2.0, p.z * 0.3);
     }
-    bar.joints = bar.positions.iter().map(|p| [u16::from(p.y > 1.0), 0, 0, 0]).collect();
-    bar.weights = vec![[1.0, 0.0, 0.0, 0.0]; bar.positions.len()];
+    if morph {
+        // "lean": the top corners go left and down.
+        bar.morph_targets.push(MorphTarget {
+            name: "lean".into(),
+            positions: bar
+                .positions
+                .iter()
+                .map(|p| if p.y > 1.0 { vec3(-1.6, -0.6, 0.0) } else { Vec3::ZERO })
+                .collect(),
+            normals: Vec::new(),
+        });
+    } else {
+        bar.joints = bar.positions.iter().map(|p| [u16::from(p.y > 1.0), 0, 0, 0]).collect();
+        bar.weights = vec![[1.0, 0.0, 0.0, 0.0]; bar.positions.len()];
+    }
     let glow = MaterialDesc {
         color: Color::rgb(0.0, 0.0, 0.0),
         emissive: Color::WHITE,
         ..Default::default()
     };
     let material = ctx.create_material(glow);
-    let mesh = ctx.create_skinned_mesh(&bar, material, &skeleton);
-    let entity = ctx.world.spawn((Transform3D::default(), Model::new(mesh), skeleton));
+    let entity = if morph {
+        let mesh = ctx.create_mesh(&bar, material);
+        ctx.world
+            .spawn((Transform3D::default(), Model::new(mesh), MorphWeights::default()))
+    } else {
+        let mesh = ctx.create_skinned_mesh(&bar, material, &skeleton);
+        ctx.world.spawn((Transform3D::default(), Model::new(mesh), skeleton))
+    };
     ctx.camera3d.position = vec3(0.0, 1.0, 6.0);
     ctx.camera3d.look_at(vec3(0.0, 1.0, 0.0));
     ctx.lighting.shadows = true; // the shadow passes draw it too
@@ -206,14 +236,19 @@ fn posing_a_skeleton_moves_the_drawn_pixels() {
         let y = ((0.5 - ndc.y * 0.5) * SIZE as f32) as usize;
         pixels[(y * SIZE as usize + x) * 4] > 128
     };
-    let (above, beside) = (vec3(0.0, 1.8, 0.0), vec3(-0.8, 1.0, 0.0));
+    // Leaning, the bar's top is at x -1.9 to -1.3, y 1.4.
+    let (above, beside) = (vec3(0.0, 1.8, 0.0), vec3(if morph { -1.1 } else { -0.8 }, 1.0, 0.0));
 
     let rest = draw(&mut ctx);
     assert!(lit(&rest, &ctx, above), "at rest the top half stands up");
     assert!(!lit(&rest, &ctx, beside));
 
-    let s = ctx.world.get_mut::<Skeleton>(entity).unwrap();
-    s.pose[1].rotation = Quat::from_rotation_z(std::f32::consts::FRAC_PI_2);
+    if morph {
+        ctx.world.get_mut::<MorphWeights>(entity).unwrap().set(0, 1.0);
+    } else {
+        let s = ctx.world.get_mut::<Skeleton>(entity).unwrap();
+        s.pose[1].rotation = Quat::from_rotation_z(std::f32::consts::FRAC_PI_2);
+    }
     let bent = draw(&mut ctx);
     assert!(!lit(&bent, &ctx, above), "bent, nothing stands above");
     assert!(lit(&bent, &ctx, beside), "bent, the top half points left");

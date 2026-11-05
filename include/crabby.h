@@ -580,6 +580,10 @@ typedef struct CrabbyMessageStats {
   uint64_t bytes_received;
 } CrabbyMessageStats;
 
+typedef struct CrabbyMesh {
+  uint32_t id;
+} CrabbyMesh;
+
 typedef struct CrabbyNavBakeSettings {
   float agent_radius;
   float agent_height;
@@ -798,10 +802,6 @@ typedef struct CrabbyJoint {
 typedef struct CrabbyMaterial {
   uint32_t id;
 } CrabbyMaterial;
-
-typedef struct CrabbyMesh {
-  uint32_t id;
-} CrabbyMesh;
 
 typedef struct CrabbyCell {
   int32_t x;
@@ -1855,6 +1855,33 @@ enum CrabbyStatus crabby_net_messages_disconnect(struct CrabbyNetMessages *endpo
 
 enum CrabbyStatus crabby_net_messages_stats(struct CrabbyNetMessages *endpoint,
                                             struct CrabbyMessageStats *out_stats);
+
+enum CrabbyStatus crabby_mesh_data_add_morph_target(struct CrabbyMeshData *data,
+                                                    const char *name,
+                                                    const struct CrabbyVec3 *positions,
+                                                    const struct CrabbyVec3 *normals,
+                                                    size_t count);
+
+enum CrabbyStatus crabby_mesh_data_clear_morph_targets(struct CrabbyMeshData *data);
+
+size_t crabby_mesh_data_morph_target_count(const struct CrabbyMeshData *data);
+
+enum CrabbyStatus crabby_ctx_morph_target(struct CrabbyCtx *ctx,
+                                          struct CrabbyMesh mesh,
+                                          const char *name,
+                                          size_t *out_target);
+
+enum CrabbyStatus crabby_ctx_set_morph_weight(struct CrabbyCtx *ctx,
+                                              uint64_t entity_bits,
+                                              size_t target,
+                                              float weight);
+
+enum CrabbyStatus crabby_ctx_morph_weight(struct CrabbyCtx *ctx,
+                                          uint64_t entity_bits,
+                                          size_t target,
+                                          float *out_weight);
+
+enum CrabbyStatus crabby_ctx_clear_morph_weights(struct CrabbyCtx *ctx, uint64_t entity_bits);
 
 struct CrabbyNavBakeSettings crabby_nav_bake_settings_default(void);
 

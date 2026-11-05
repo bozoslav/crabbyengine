@@ -225,7 +225,11 @@ impl Frame3D {
             color,
         };
         // Skinned models posed by a skeleton are drawn from `skins` instead.
-        let posed = |m: &Model, s: Option<&Skeleton>| s.is_some() && assets.skin(m.mesh.id).is_some();
+        // So are meshes with morph targets that aren't skinned.
+        let posed = |m: &Model, s: Option<&Skeleton>| match assets.skin(m.mesh.id) {
+            Some(_) => s.is_some(),
+            None => assets.morph(m.mesh.id).is_some(),
+        };
         // Models: culled on all cores (most of the work, and most models are
         // culled), then the few that are seen are added in order.
         let flags = &mut self.flags;

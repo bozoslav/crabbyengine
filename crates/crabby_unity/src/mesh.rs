@@ -137,6 +137,21 @@ pub struct UnityMesh {
     /// Each submesh's triangle list, as vertex indices (its base vertex
     /// added). Submesh i uses the renderer's material i.
     pub submeshes: Vec<Vec<u32>>,
+    /// Blend shapes (morph targets), in Unity's space.
+    pub blend_shapes: Vec<BlendShape>,
+}
+
+/// One blend shape of a mesh at full weight: how far each vertex moves.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct BlendShape {
+    /// Its name (the model file's channel name).
+    pub name: String,
+    /// One position offset per vertex.
+    pub positions: Vec<[f32; 3]>,
+    /// One normal offset per vertex, or none.
+    pub normals: Vec<[f32; 3]>,
+    /// The weight it starts at, 0 to 1.
+    pub weight: f32,
 }
 
 /// A skeleton in Unity space; matrices are column-major.
@@ -182,6 +197,46 @@ pub struct SkinNode {
     pub parent: Option<usize>,
     /// Local column-major matrix.
     pub matrix: [f32; 16],
+}
+
+/// A mesh asset's blend shapes (`m_Shapes`), each at its last (full
+/// weight) frame; in-between frames are left out.
+fn blend_shapes(shapes: &crate::Value, count: usize) -> Vec<BlendShape> {
+    let vertices = shapes["vertices"].as_seq().unwrap_or_default();
+    let frames = shapes["shapes"].as_seq().unwrap_or_default();
+    let xyz = |v: &crate::Value| ["x", "y", "z"].map(|k| v[k].as_f32().unwrap_or(0.0));
+    shapes["channels"]
+        .as_seq()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|c| {
+            let last = c["frameIndex"].as_i64()? + c["frameCount"].as_i64()? - 1;
+            let frame = frames.get(usize::try_from(last).ok()?)?;
+            let first = frame["firstVertex"].as_i64()? as usize;
+            let n = frame["vertexCount"].as_i64()? as usize;
+            let normals = frame["hasNormals"].as_i64().unwrap_or(0) != 0;
+            let mut shape = BlendShape {
+                name: c["name"].as_str().unwrap_or_default().to_owned(),
+                positions: vec![[0.0; 3]; count],
+                normals: if normals { vec![[0.0; 3]; count] } else { Vec::new() },
+                weight: 0.0,
+            };
+            for v in vertices.iter().skip(first).take(n) {
+                let Some(i) = v["index"]
+                    .as_i64()
+                    .and_then(|i| usize::try_from(i).ok())
+                    .filter(|&i| i < count)
+                else {
+                    continue;
+                };
+                shape.positions[i] = xyz(&v["vertex"]);
+                if normals {
+                    shape.normals[i] = xyz(&v["normal"]);
+                }
+            }
+            Some(shape)
+        })
+        .collect()
 }
 
 /// Unity's four-influence import policy.
@@ -296,6 +351,7 @@ impl UnityMesh {
             submeshes: Vec::new(),
             name: name.clone(),
             skin: None,
+            blend_shapes: blend_shapes(&m["m_Shapes"], count),
         };
         for (slot, uv) in mesh.uvs.iter_mut().zip(uvs) {
             *slot = uv?;

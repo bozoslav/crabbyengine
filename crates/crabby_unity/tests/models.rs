@@ -56,11 +56,16 @@ impl Mesh {
 /// Imports the prefab with the hand-written Z-up model `lid_z_up.fbx`
 /// next to it, whose `.meta` holds `settings` under `meshes:`.
 fn import(name: &str, settings: &str) -> Mesh {
+    read_glb(&import_glb(name, include_bytes!("fixtures/lid_z_up.fbx"), settings))
+}
+
+/// Imports the prefab with model `fbx` as `Lid.fbx`; the `.glb` written.
+fn import_glb(name: &str, fbx: &[u8], settings: &str) -> Vec<u8> {
     let dir = std::env::temp_dir().join(format!("crabby_unity_models_{name}_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let assets = dir.join("Assets");
     std::fs::create_dir_all(&assets).unwrap();
-    std::fs::write(assets.join("Lid.fbx"), include_bytes!("fixtures/lid_z_up.fbx")).unwrap();
+    std::fs::write(assets.join("Lid.fbx"), fbx).unwrap();
     std::fs::write(
         assets.join("Lid.fbx.meta"),
         format!("guid: lid00000\nModelImporter:\n  fileIDToRecycleName:\n    4300000: Lid\n  meshes:\n{settings}"),
@@ -78,7 +83,7 @@ fn import(name: &str, settings: &str) -> Mesh {
     let path = scene["entities"][0]["components"]["Model"]["mesh"].as_str().unwrap();
     let glb = std::fs::read(out.join(path.strip_prefix("lid/").unwrap())).unwrap();
     let _ = std::fs::remove_dir_all(&dir);
-    read_glb(&glb)
+    glb
 }
 
 /// The first primitive of a `.glb` the importer wrote (f32 vectors, u32
@@ -390,4 +395,49 @@ fn asset_and_fbx_skins_use_renderer_bones() {
         }
         std::fs::remove_dir_all(dir).unwrap();
     }
+}
+
+#[test]
+fn blend_shapes_become_named_morph_targets() {
+    let glb = import_glb(
+        "shape",
+        include_bytes!("fixtures/lid_shape.fbx"),
+        "    bakeAxisConversion: 1\n",
+    );
+    let mesh = read_glb(&glb);
+    let len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+    let doc: Json = serde_json::from_slice(&glb[20..20 + len]).unwrap();
+    let bin = &glb[20 + len + 8..];
+    let gltf_mesh = &doc["meshes"][0];
+    assert_eq!(gltf_mesh["extras"]["targetNames"], serde_json::json!(["Raise"]));
+    assert_eq!(gltf_mesh["weights"], serde_json::json!([0.25]));
+    let target = &gltf_mesh["primitives"][0]["targets"][0];
+    let a = &doc["accessors"][target["POSITION"].as_u64().unwrap() as usize];
+    assert!(
+        a["min"].is_array() && a["max"].is_array(),
+        "glTF wants bounds on POSITION"
+    );
+    let view = &doc["bufferViews"][a["bufferView"].as_u64().unwrap() as usize];
+    let at = view["byteOffset"].as_u64().unwrap_or(0) as usize;
+    let offsets: Vec<[f32; 3]> = bin[at..at + view["byteLength"].as_u64().unwrap() as usize]
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|w| f32::from_le_bytes(*w))
+        .collect::<Vec<_>>()
+        .as_chunks::<3>()
+        .0
+        .to_vec();
+    assert_eq!(offsets.len(), mesh.positions.len());
+    // Z-up turned Y-up: the far edge (y = 3 m in the file, z = -3 in
+    // glTF after the turn and mirror) goes 1 m up; the near edge stays.
+    let mut far_corners = 0;
+    for (p, d) in mesh.positions.iter().zip(&offsets) {
+        let far = (p[2].abs() - 3.0).abs() < 1e-4;
+        far_corners += usize::from(far);
+        let want = if far { [0.0, 1.0, 0.0] } else { [0.0; 3] };
+        assert!(close(*d, want), "corner {p:?} moves {d:?}, want {want:?}");
+    }
+    assert_eq!(far_corners, 2, "{:?}", mesh.positions);
+    assert!(target["NORMAL"].is_u64());
 }

@@ -124,6 +124,81 @@ fn meshes_decode_streams_and_submeshes() {
 }
 
 #[test]
+fn mesh_blend_shapes_keep_their_full_weight_frame() {
+    // "Lift" moves vertex 3 up; "Dent" has an in-between frame (vertex 0
+    // down by 0.5) and its full frame (vertex 1 down by 1, normal tilted).
+    let shapes = "  m_Shapes:
+    vertices:
+    - vertex: {x: 0, y: 1, z: 0}
+      normal: {x: 0, y: 0, z: 0}
+      tangent: {x: 0, y: 0, z: 0}
+      index: 3
+    - vertex: {x: 0, y: -0.5, z: 0}
+      normal: {x: 0, y: 0, z: 0}
+      tangent: {x: 0, y: 0, z: 0}
+      index: 0
+    - vertex: {x: 0, y: -1, z: 0}
+      normal: {x: 0.5, y: 0, z: 0}
+      tangent: {x: 0, y: 0, z: 0}
+      index: 1
+    shapes:
+    - firstVertex: 0
+      vertexCount: 1
+      hasNormals: 0
+      hasTangents: 0
+    - firstVertex: 1
+      vertexCount: 1
+      hasNormals: 1
+      hasTangents: 0
+    - firstVertex: 2
+      vertexCount: 1
+      hasNormals: 1
+      hasTangents: 0
+    channels:
+    - name: Lift
+      nameHash: 1
+      frameIndex: 0
+      frameCount: 1
+    - name: Dent
+      nameHash: 2
+      frameIndex: 1
+      frameCount: 2
+    fullWeights:
+    - 100
+    - 50
+    - 100
+";
+    // Windows checkouts may end the fixture's lines with \r\n.
+    let text = include_str!("fixtures/quad.asset")
+        .replace("\r\n", "\n")
+        .replace("  m_MeshCompression: 0\n", &format!("{shapes}  m_MeshCompression: 0\n"));
+    let file = UnityFile::parse(&text).unwrap();
+    let mesh = UnityMesh::from_object(&file.objects[0]).unwrap();
+    let [lift, dent] = &mesh.blend_shapes[..] else {
+        panic!("{:?}", mesh.blend_shapes);
+    };
+    assert_eq!(lift.name, "Lift");
+    assert_eq!(
+        lift.positions,
+        [[0.0; 3], [0.0; 3], [0.0; 3], [0.0, 1.0, 0.0], [0.0; 3]]
+    );
+    assert!(lift.normals.is_empty());
+    assert_eq!(dent.name, "Dent");
+    assert_eq!(dent.positions[0], [0.0; 3], "the in-between frame is left out");
+    assert_eq!(dent.positions[1], [0.0, -1.0, 0.0]);
+    assert_eq!(dent.normals[1], [0.5, 0.0, 0.0]);
+    assert_eq!(dent.normals.len(), 5);
+    // Meshes without shapes have none.
+    let plain = UnityFile::parse(include_str!("fixtures/quad.asset")).unwrap();
+    assert!(
+        UnityMesh::from_object(&plain.objects[0])
+            .unwrap()
+            .blend_shapes
+            .is_empty()
+    );
+}
+
+#[test]
 fn projects_map_guids_to_files() {
     let dir = std::env::temp_dir().join(format!("crabby_unity_project_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

@@ -22,6 +22,17 @@ pub(crate) struct Vertices {
     pub colors: Vec<[f32; 4]>,
     /// UV set 1 as Unity has it (not flipped: it's data for a shader).
     pub uvs1: Vec<[f32; 2]>,
+    /// Morph targets: offsets per vertex (normals' may be empty).
+    pub targets: Vec<Target>,
+}
+
+/// One morph target of [`Vertices`], in glTF's space.
+#[derive(Default)]
+pub(crate) struct Target {
+    pub name: String,
+    pub positions: Vec<[f32; 3]>,
+    pub normals: Vec<[f32; 3]>,
+    pub weight: f32,
 }
 
 /// Builds the binary chunk and the JSON that points into it.
@@ -127,13 +138,35 @@ pub(crate) fn write(
             json!({"joints": skin.joints.iter().map(|j| j + 1).collect::<Vec<_>>(), "inverseBindMatrices": binds}),
         );
     }
+    let targets: Vec<Json> = vertices
+        .targets
+        .iter()
+        .map(|t| {
+            let (mut min, mut max) = ([0.0f32; 3], [0.0f32; 3]);
+            for p in &t.positions {
+                for i in 0..3 {
+                    min[i] = min[i].min(p[i]);
+                    max[i] = max[i].max(p[i]);
+                }
+            }
+            let mut target = json!({ "POSITION": w.floats(&t.positions, "VEC3", json!({ "min": min, "max": max })) });
+            if !t.normals.is_empty() {
+                target["NORMAL"] = json!(w.floats(&t.normals, "VEC3", json!({})));
+            }
+            target
+        })
+        .collect();
     let primitives: Vec<Json> = primitives
         .iter()
         .filter(|p| !p.indices.is_empty())
         .map(|p| {
             let bytes: Vec<u8> = p.indices.iter().flat_map(|i| i.to_le_bytes()).collect();
             let indices = w.add(&bytes, p.indices.len(), "SCALAR", 5125, json!({}));
-            json!({ "attributes": attributes, "indices": indices, "material": p.material })
+            let mut primitive = json!({ "attributes": attributes, "indices": indices, "material": p.material });
+            if !targets.is_empty() {
+                primitive["targets"] = json!(targets);
+            }
+            primitive
         })
         .collect();
     let mut animations = Vec::new();
@@ -216,6 +249,11 @@ pub(crate) fn write(
         "bufferViews": w.views,
         "accessors": w.accessors,
     });
+    if !vertices.targets.is_empty() {
+        let names: Vec<&str> = vertices.targets.iter().map(|t| t.name.as_str()).collect();
+        doc["meshes"][0]["extras"] = json!({ "targetNames": names });
+        doc["meshes"][0]["weights"] = json!(vertices.targets.iter().map(|t| t.weight).collect::<Vec<_>>());
+    }
     if let (Some(skin), Some(mut skin_json)) = (&vertices.skin, skin_json) {
         if let Some(root) = skin.root {
             skin_json["skeleton"] = json!(root + 1);

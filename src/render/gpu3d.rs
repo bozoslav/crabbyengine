@@ -1449,8 +1449,20 @@ impl Renderer3D {
                 uv1: data.uvs1.get(i).map_or([0.0; 2], |uv| uv.to_array()),
             })
             .collect();
-        let skin = (skinned && !data.joints.is_empty())
-            .then(|| self.skinning.create(device, &vertices, &data.joints, &data.weights));
+        let skin = (skinned && (!data.joints.is_empty() || !data.morph_targets.is_empty())).then(|| {
+            let deltas = data
+                .morph_targets
+                .iter()
+                .flat_map(|t| {
+                    (0..vertices.len()).map(|i| skinning::Delta {
+                        position: t.positions[i].to_array(),
+                        normal: t.normals.get(i).map_or([0.0; 3], |n| n.to_array()),
+                    })
+                })
+                .collect();
+            self.skinning
+                .create(device, &vertices, &data.joints, &data.weights, deltas)
+        });
         let vertices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("3d vertices"),
             contents: bytemuck::cast_slice(&vertices),
