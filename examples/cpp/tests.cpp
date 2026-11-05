@@ -1288,6 +1288,45 @@ static void retained_ui() {
         CHECK(ui.rect(wide).min.x == 100 && ui.rect(wide).max.x == 300);  // the next two columns
         CHECK(ui.rect(pinned).min.x == 10 && ui.rect(pinned).min.y == 20 && ui.rect(pinned).max.x == 110);
 
+        // Named areas, owned builders, repeats and named line setters.
+        auto named_layout = u::layout().grid({u::repeat(2, u::fr(1))})
+            .grid_rows({u::track_points(40), u::track_points(160)})
+            .areas({"header header", "side main"}).size(300, 200);
+        auto copied = named_layout;
+        auto named = ui.add_panel(u::none, copied);
+        auto main = ui.add_panel(named, u::layout().area(std::string("main")));
+        ui.push_screen(named);
+        ui.layout_for(window);
+        CHECK(ui.rect(main).min.x == 150 && ui.rect(main).min.y == 40);
+        CHECK(ui.rect(main).max.x == 300 && ui.rect(main).max.y == 200);
+        throws([&] { ui.set_grid_template_areas(named, {"x x", "x y"}); });
+        ui.set_grid_line_names(named, 0, {"left", "right"});
+        ui.set_grid_named_line(main, 0, false, "left", 1);
+        ui.set_grid_named_line(main, 0, true, "right", 1);
+        ui.layout_for(window);
+        CHECK(ui.rect(main).min.x == 0 && ui.rect(main).max.x == 300);
+        auto repeated_names = ui.add_panel(u::none, u::layout()
+            .grid({u::repeat(2, u::fr(1)).names({"begin", "finish"})}).size(300, 100));
+        auto repeated_item = ui.add_panel(repeated_names);
+        ui.set_grid_named_line(repeated_item, 0, false, "begin", 2);
+        ui.set_grid_named_line(repeated_item, 0, true, "finish", -1);
+        ui.push_screen(repeated_names);
+        ui.layout_for(window);
+        CHECK(ui.rect(repeated_item).min.x == 150 && ui.rect(repeated_item).max.x == 300);
+        throws([&] { ui.add_panel(u::none, u::layout().grid({u::repeat(2, u::fr(1)).names({"bad"})})); });
+        ui.set_grid_area(main, "main");
+        ui.layout_for(window);
+        CHECK(ui.rect(main).min.x == 150);
+        for (auto component : {u::auto_fill(u::track_points(100)), u::auto_fit({u::track_points(100)})}) {
+            auto repeated = ui.add_panel(u::none, u::layout().grid({component}).size(300, 100));
+            auto item = ui.add_panel(repeated);
+            ui.push_screen(repeated);
+            ui.layout_for(window);
+            CHECK(ui.rect(item).max.x == 100);
+        }
+        throws([&] { ui.add_panel(u::none, u::layout().grid({u::repeat(0, u::fr(1))})); });
+        throws([&] { ui.add_panel(u::none, u::layout().grid({u::auto_fill(u::fr(1))})); });
+
         // Paint, scrolling and scale.
         ui.set_paint(go, u::paint().background({1, 0, 0, 1}).border({1, 1, 1, 1}, 2).font_size(24).wrap().align(u::text_align::center));
         auto scroll = ui.add_scroll(u::none, u::layout().size(100, 100));

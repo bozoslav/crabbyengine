@@ -804,3 +804,205 @@ unsafe fn text_typed_through_the_context(ctx: Ctx) {
 fn inserted_text_waits_for_the_engine_frame() {
     run(text_typed_through_the_context);
 }
+
+#[test]
+fn named_areas_lines_and_repeat_tracks_layout_and_validate() {
+    unsafe fn scenario(ctx: Ctx) {
+        unsafe {
+            let tracks = [CrabbyUiTrack {
+                kind: CrabbyUiTrackKind::CRABBY_UI_TRACK_FR as u32,
+                value: 1.0,
+            }];
+            let components = [CrabbyUiTemplateTrack {
+                track: tracks[0],
+                repetition: 1,
+                count: 2,
+                tracks: tracks.as_ptr(),
+                track_count: 1,
+                line_names: null(),
+                line_name_count: 0,
+            }];
+            let mut layout = size(300.0, 200.0);
+            layout.display = CrabbyUiDisplay::CRABBY_UI_DISPLAY_GRID as u32;
+            layout.grid_template_columns = components.as_ptr();
+            layout.grid_template_column_count = 1;
+            let rows = [
+                CrabbyUiTrack { kind: 1, value: 40.0 },
+                CrabbyUiTrack { kind: 1, value: 160.0 },
+            ];
+            layout.grid_rows = rows.as_ptr();
+            layout.grid_row_count = 2;
+            let root = panel(ctx, CRABBY_UI_NONE, &layout);
+            let area_rows = [c"header header".as_ptr(), c"side main".as_ptr()];
+            assert_eq!(
+                crabby_ctx_ui_set_grid_template_areas(ctx, CRABBY_UI_SCREEN, root, area_rows.as_ptr(), 2),
+                CRABBY_OK
+            );
+            let child = panel(ctx, root, &crabby_ui_layout_default());
+            assert_eq!(
+                crabby_ctx_ui_set_grid_area(ctx, CRABBY_UI_SCREEN, child, c"main".as_ptr()),
+                CRABBY_OK
+            );
+            assert_eq!(crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, root, false), CRABBY_OK);
+            assert_eq!(crabby_ctx_ui_layout(ctx, CRABBY_UI_SCREEN, SCREEN), CRABBY_OK);
+            let r = rect(ctx, child);
+            assert_eq!((r.min.x, r.min.y, r.max.x, r.max.y), (150.0, 40.0, 300.0, 200.0));
+            for bad in [
+                [c"a a".as_ptr(), c"a b".as_ptr()],
+                [c"a".as_ptr(), c"a b".as_ptr()],
+                [c"a !".as_ptr(), c"b b".as_ptr()],
+            ] {
+                assert_eq!(
+                    crabby_ctx_ui_set_grid_template_areas(ctx, CRABBY_UI_SCREEN, root, bad.as_ptr(), 2),
+                    CRABBY_INVALID_ARGUMENT
+                );
+                assert!(!last_error().is_empty());
+            }
+            // Invalid edits preserve both layout and placement.
+            assert_eq!(crabby_ctx_ui_layout(ctx, CRABBY_UI_SCREEN, SCREEN), CRABBY_OK);
+            assert_eq!(rect(ctx, child).min.x, 150.0);
+            let dots = [c"... .".as_ptr(), c". main".as_ptr()];
+            assert_eq!(
+                crabby_ctx_ui_set_grid_template_areas(ctx, CRABBY_UI_SCREEN, root, dots.as_ptr(), 2),
+                CRABBY_OK
+            );
+            assert_eq!(crabby_ctx_ui_layout(ctx, CRABBY_UI_SCREEN, SCREEN), CRABBY_OK);
+            assert_eq!((rect(ctx, child).min.x, rect(ctx, child).min.y), (150.0, 40.0));
+            assert_eq!(
+                crabby_ctx_ui_set_grid_template_areas(ctx, CRABBY_UI_SCREEN, root, null(), 0),
+                CRABBY_OK
+            );
+            assert_eq!(
+                crabby_ctx_ui_set_grid_area(ctx, CRABBY_UI_SCREEN, child, c"".as_ptr()),
+                CRABBY_OK
+            );
+            assert_eq!(
+                crabby_ctx_ui_set_grid_template_areas(ctx, CRABBY_UI_SCREEN, root, area_rows.as_ptr(), 2),
+                CRABBY_OK
+            );
+            assert_eq!(
+                crabby_ctx_ui_set_grid_area(ctx, CRABBY_UI_SCREEN, child, c"main".as_ptr()),
+                CRABBY_OK
+            );
+            let names = [c"left".as_ptr(), c"right".as_ptr()];
+            assert_eq!(
+                crabby_ctx_ui_set_grid_line_names(ctx, CRABBY_UI_SCREEN, root, 0, names.as_ptr(), 2),
+                CRABBY_OK
+            );
+            assert_eq!(
+                crabby_ctx_ui_set_grid_named_line(ctx, CRABBY_UI_SCREEN, child, 0, false, c"left".as_ptr(), 1),
+                CRABBY_OK
+            );
+            assert_eq!(
+                crabby_ctx_ui_set_grid_named_line(ctx, CRABBY_UI_SCREEN, child, 0, true, c"right".as_ptr(), 1),
+                CRABBY_OK
+            );
+            assert_eq!(crabby_ctx_ui_layout(ctx, CRABBY_UI_SCREEN, SCREEN), CRABBY_OK);
+            assert_eq!((rect(ctx, child).min.x, rect(ctx, child).max.x), (0.0, 300.0));
+            assert_eq!(
+                crabby_ctx_ui_set_grid_line_names(ctx, CRABBY_UI_SCREEN, root, 2, names.as_ptr(), 2),
+                CRABBY_INVALID_ARGUMENT
+            );
+            assert_eq!(
+                crabby_ctx_ui_set_grid_template_areas(ctx, CRABBY_UI_SCREEN, root, null(), 1),
+                CRABBY_INVALID_ARGUMENT
+            );
+            assert_eq!(
+                crabby_ctx_ui_set_grid_area(ctx, CRABBY_UI_SCREEN, child, null()),
+                CRABBY_INVALID_ARGUMENT
+            );
+            assert_eq!(
+                crabby_ctx_ui_set_grid_area(ctx, CRABBY_UI_SCREEN, CRABBY_UI_NONE, c"main".as_ptr()),
+                CRABBY_NOT_FOUND
+            );
+            assert_eq!(
+                crabby_ctx_ui_set_grid_area(ctx, 0, child, c"main".as_ptr()),
+                CRABBY_INVALID_ARGUMENT
+            );
+            for mode in [2, 3] {
+                let fixed = [CrabbyUiTrack { kind: 1, value: 100.0 }];
+                let auto = [CrabbyUiTemplateTrack {
+                    track: fixed[0],
+                    repetition: mode,
+                    count: 0,
+                    tracks: fixed.as_ptr(),
+                    track_count: 1,
+                    line_names: null(),
+                    line_name_count: 0,
+                }];
+                layout.grid_template_columns = auto.as_ptr();
+                let root = panel(ctx, CRABBY_UI_NONE, &layout);
+                let item = panel(ctx, root, &crabby_ui_layout_default());
+                let mut third = crabby_ui_layout_default();
+                third.grid_column_start = CrabbyUiGridLine { kind: 1, value: 3 };
+                let last = panel(ctx, root, &third);
+                assert_eq!(crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, root, false), CRABBY_OK);
+                assert_eq!(crabby_ctx_ui_layout(ctx, CRABBY_UI_SCREEN, SCREEN), CRABBY_OK);
+                assert_eq!(rect(ctx, item).max.x, 100.0);
+                assert_eq!(rect(ctx, last).min.x, if mode == 2 { 200.0 } else { 100.0 });
+                let invalid = [CrabbyUiTemplateTrack {
+                    tracks: tracks.as_ptr(),
+                    ..auto[0]
+                }];
+                layout.grid_template_columns = invalid.as_ptr();
+                let mut out = CRABBY_UI_NONE;
+                assert_eq!(
+                    crabby_ctx_ui_add_panel(ctx, CRABBY_UI_SCREEN, CRABBY_UI_NONE, &layout, &mut out),
+                    CRABBY_INVALID_ARGUMENT
+                );
+                assert_eq!(out, CRABBY_UI_NONE);
+            }
+            let repeat_names = [c"begin".as_ptr(), c"finish".as_ptr()];
+            let named_repeat = [CrabbyUiTemplateTrack {
+                line_names: repeat_names.as_ptr(),
+                line_name_count: 2,
+                ..components[0]
+            }];
+            layout.grid_template_columns = named_repeat.as_ptr();
+            let named_root = panel(ctx, CRABBY_UI_NONE, &layout);
+            let named_item = panel(ctx, named_root, &crabby_ui_layout_default());
+            assert_eq!(
+                crabby_ctx_ui_set_grid_named_line(ctx, CRABBY_UI_SCREEN, named_item, 0, false, c"begin".as_ptr(), 2),
+                CRABBY_OK
+            );
+            assert_eq!(
+                crabby_ctx_ui_set_grid_named_line(ctx, CRABBY_UI_SCREEN, named_item, 0, true, c"finish".as_ptr(), -1),
+                CRABBY_OK
+            );
+            assert_eq!(
+                crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, named_root, false),
+                CRABBY_OK
+            );
+            assert_eq!(crabby_ctx_ui_layout(ctx, CRABBY_UI_SCREEN, SCREEN), CRABBY_OK);
+            assert_eq!(
+                (rect(ctx, named_item).min.x, rect(ctx, named_item).max.x),
+                (150.0, 300.0)
+            );
+            let invalid_names = [CrabbyUiTemplateTrack {
+                line_name_count: 1,
+                ..named_repeat[0]
+            }];
+            layout.grid_template_columns = invalid_names.as_ptr();
+            let mut unused = CRABBY_UI_NONE;
+            assert_eq!(
+                crabby_ctx_ui_add_panel(ctx, CRABBY_UI_SCREEN, CRABBY_UI_NONE, &layout, &mut unused),
+                CRABBY_INVALID_ARGUMENT
+            );
+            for (mode, count, len) in [(1, 0, 1), (1, 65536, 1), (4, 1, 1), (1, 2, 0)] {
+                let bad = [CrabbyUiTemplateTrack {
+                    repetition: mode,
+                    count,
+                    track_count: len,
+                    ..components[0]
+                }];
+                layout.grid_template_columns = bad.as_ptr();
+                let mut out = CRABBY_UI_NONE;
+                assert_eq!(
+                    crabby_ctx_ui_add_panel(ctx, CRABBY_UI_SCREEN, CRABBY_UI_NONE, &layout, &mut out),
+                    CRABBY_INVALID_ARGUMENT
+                );
+            }
+        }
+    }
+    run(scenario);
+}

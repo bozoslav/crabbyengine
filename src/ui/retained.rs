@@ -584,6 +584,16 @@ impl Ui {
             let _ = self.tree.set_style(n.layout, style);
         }
     }
+    /// Returns the current layout style, or `None` for a removed node.
+    /// ```
+    /// use crabbyengine::*;
+    /// let mut ui = Ui::default();
+    /// let id = ui.add(UiWidget::Panel, ui_layout::Style::default());
+    /// assert!(ui.layout_style(id).is_some());
+    /// ```
+    pub fn layout_style(&self, id: UiId) -> Option<&Style> {
+        self.tree.style(self.node(id)?.layout).ok()
+    }
     /// Replace visual style.
     /// ```
     /// use crabbyengine::*;

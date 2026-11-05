@@ -19,8 +19,9 @@
 use std::ffi::c_char;
 
 use crabbyengine::ui_layout::{
-    AlignContent, AlignItems, Dimension, Display, FlexDirection, FlexWrap, GridPlacement, GridTemplateComponent,
-    LengthPercentage, LengthPercentageAuto, Line, Position, Rect as Edges, Size, Style, TrackSizingFunction,
+    AlignContent, AlignItems, Dimension, Display, FlexDirection, FlexWrap, GridPlacement, GridTemplateArea,
+    GridTemplateAreas, GridTemplateComponent, GridTemplateRepetition, LengthPercentage, LengthPercentageAuto, Line,
+    Position, Rect as Edges, RepetitionCount, Size, Style, TrackSizingFunction,
     style_helpers::{TaffyGridLine, TaffyGridSpan},
 };
 use crabbyengine::{Color, Entity, Ui, UiEvent, UiId, UiPaint, UiPanel3D, UiTextAlign, UiWidget};
@@ -360,6 +361,30 @@ pub struct CrabbyUiTrack {
     pub value: f32,
 }
 
+/// A template component: one track, or a non-nested repeat of tracks.
+/// `repetition`: 0 = single (`track`), 1 = count, 2 = auto-fill, 3 = auto-fit.
+/// ```
+/// assert!(std::mem::size_of::<crabby_ffi::CrabbyUiTemplateTrack>() > 0);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct CrabbyUiTemplateTrack {
+    /// Single track; ignored for repeats.
+    pub track: CrabbyUiTrack,
+    /// 0 single, 1 counted repeat, 2 auto-fill, 3 auto-fit.
+    pub repetition: u32,
+    /// Positive repeat count (1..65535), used only for repetition 1.
+    pub count: u32,
+    /// Repeated tracks, copied during the call. No nested repeats.
+    pub tracks: *const CrabbyUiTrack,
+    /// Number of repeated tracks; must be positive for repeats.
+    pub track_count: usize,
+    /// Optional space-separated names per repeated line. Zero, or track_count + 1 sets.
+    pub line_names: *const *const c_char,
+    /// Number of repeated line name sets (including both edge lines).
+    pub line_name_count: usize,
+}
+
 /// Where a grid item starts or ends on one axis. `kind` is a
 /// `CrabbyUiGridLineKind`.
 /// ```
@@ -459,6 +484,28 @@ pub struct CrabbyUiLayout {
     pub grid_row_start: CrabbyUiGridLine,
     /// A grid item's last row line.
     pub grid_row_end: CrabbyUiGridLine,
+    /// Optional template components, overriding grid_columns when count is nonzero.
+    pub grid_template_columns: *const CrabbyUiTemplateTrack,
+    /// Number of column template components.
+    pub grid_template_column_count: usize,
+    /// Optional template components, overriding grid_rows when count is nonzero.
+    pub grid_template_rows: *const CrabbyUiTemplateTrack,
+    /// Number of row template components.
+    pub grid_template_row_count: usize,
+    /// CSS-like area rows, e.g. "header header" and "side main". Copied during the call.
+    pub grid_template_areas: *const *const c_char,
+    /// Number of area rows. Zero clears the template.
+    pub grid_template_area_count: usize,
+    /// Space-separated names at each column line; empty strings mean unnamed lines.
+    pub grid_column_names: *const *const c_char,
+    /// Number of column line name sets (zero means no names).
+    pub grid_column_name_count: usize,
+    /// Space-separated names at each row line.
+    pub grid_row_names: *const *const c_char,
+    /// Number of row line name sets.
+    pub grid_row_name_count: usize,
+    /// Optional area name for all four placement edges. Null leaves numeric placement.
+    pub grid_area: *const c_char,
 }
 
 /// A node's looks, independent of layout (Rust `UiPaint`).
@@ -629,6 +676,17 @@ pub extern "C" fn crabby_ui_layout_default() -> CrabbyUiLayout {
         grid_column_end: NO_LINE,
         grid_row_start: NO_LINE,
         grid_row_end: NO_LINE,
+        grid_template_columns: std::ptr::null(),
+        grid_template_column_count: 0,
+        grid_template_rows: std::ptr::null(),
+        grid_template_row_count: 0,
+        grid_template_areas: std::ptr::null(),
+        grid_template_area_count: 0,
+        grid_column_names: std::ptr::null(),
+        grid_column_name_count: 0,
+        grid_row_names: std::ptr::null(),
+        grid_row_name_count: 0,
+        grid_area: std::ptr::null(),
     }
 }
 
@@ -760,6 +818,202 @@ unsafe fn track_list(ptr: *const CrabbyUiTrack, count: usize) -> Result<Vec<Trac
         .collect()
 }
 
+// All pointer helpers copy their inputs before returning.
+unsafe fn strings(ptr: *const *const c_char, count: usize) -> Result<Vec<String>, Failure> {
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+    if ptr.is_null() || count > u16::MAX as usize {
+        return Err(invalid("invalid UI grid string array"));
+    }
+    // SAFETY: caller supplies count readable pointers to NUL-terminated strings.
+    unsafe {
+        std::slice::from_raw_parts(ptr, count)
+            .iter()
+            .map(|&p| {
+                if p.is_null() {
+                    return Err(invalid("null UI grid string"));
+                }
+                Ok(text(p)?.to_owned())
+            })
+            .collect()
+    }
+}
+
+fn ident(s: &str) -> Result<(), Failure> {
+    if s.is_empty()
+        || s == "-"
+        || matches!(
+            s.to_ascii_lowercase().as_str(),
+            "auto" | "span" | "default" | "inherit" | "initial" | "unset" | "revert" | "revert-layer"
+        )
+        || !s.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+        || s.starts_with(|c: char| c.is_ascii_digit())
+        || s.strip_prefix('-')
+            .is_some_and(|v| v.starts_with(|c: char| c.is_ascii_digit()))
+    {
+        return Err(invalid("invalid UI grid identifier"));
+    }
+    Ok(())
+}
+
+unsafe fn line_names(ptr: *const *const c_char, count: usize) -> Result<Vec<Vec<String>>, Failure> {
+    // SAFETY: forwarded caller contract.
+    unsafe { strings(ptr, count)? }
+        .iter()
+        .map(|s| {
+            s.split_whitespace()
+                .map(|n| {
+                    ident(n)?;
+                    Ok(n.to_owned())
+                })
+                .collect()
+        })
+        .collect()
+}
+
+unsafe fn areas(ptr: *const *const c_char, count: usize) -> Result<Option<GridTemplateAreas<String>>, Failure> {
+    // SAFETY: forwarded caller contract.
+    let rows = unsafe { strings(ptr, count)? };
+    if rows.is_empty() {
+        return Ok(None);
+    }
+    let cells: Vec<Vec<&str>> = rows.iter().map(|s| s.split_whitespace().collect()).collect();
+    let width = cells[0].len();
+    if count >= u16::MAX as usize || width == 0 || width >= u16::MAX as usize || cells.iter().any(|r| r.len() != width)
+    {
+        return Err(invalid("UI grid area rows must be nonempty and have equal widths"));
+    }
+    let mut found = std::collections::BTreeMap::<&str, (usize, usize, usize, usize, usize)>::new();
+    for (y, row) in cells.iter().enumerate() {
+        for (x, &name) in row.iter().enumerate() {
+            if name.chars().all(|c| c == '.') {
+                continue;
+            }
+            ident(name)?;
+            let b = found.entry(name).or_insert((y, y, x, x, 0));
+            b.0 = b.0.min(y);
+            b.1 = b.1.max(y);
+            b.2 = b.2.min(x);
+            b.3 = b.3.max(x);
+            b.4 += 1;
+        }
+    }
+    let mut result = Vec::new();
+    for (name, (y0, y1, x0, x1, n)) in found {
+        if n != (y1 - y0 + 1) * (x1 - x0 + 1) {
+            return Err(invalid("UI grid areas must be rectangular"));
+        }
+        result.push(GridTemplateArea {
+            name: name.to_owned(),
+            row_start: (y0 + 1) as u16,
+            row_end: (y1 + 2) as u16,
+            column_start: (x0 + 1) as u16,
+            column_end: (x1 + 2) as u16,
+        });
+    }
+    Ok(Some(GridTemplateAreas {
+        areas: result,
+        row_count: count as u16,
+        column_count: width as u16,
+    }))
+}
+
+fn set_area(style: &mut Style, name: &str) -> Result<(), Failure> {
+    let p = if name.is_empty() {
+        GridPlacement::Auto
+    } else {
+        ident(name)?;
+        GridPlacement::NamedLine(name.to_owned(), 0)
+    };
+    style.grid_column = Line {
+        start: p.clone(),
+        end: p.clone(),
+    };
+    style.grid_row = Line {
+        start: p.clone(),
+        end: p,
+    };
+    Ok(())
+}
+
+unsafe fn template_tracks(
+    ptr: *const CrabbyUiTemplateTrack,
+    count: usize,
+) -> Result<Vec<GridTemplateComponent<String>>, Failure> {
+    if ptr.is_null() || count > u16::MAX as usize {
+        return Err(invalid("invalid UI grid template tracks"));
+    }
+    let mut result = Vec::new();
+    let mut auto = false;
+    let mut fixed = true;
+    // SAFETY: caller supplies count readable template components and their track arrays.
+    for t in unsafe { std::slice::from_raw_parts(ptr, count) } {
+        if t.repetition == 0 {
+            fixed &= matches!(t.track.kind, 1 | 2);
+            result.push(GridTemplateComponent::Single(track(t.track)?));
+        } else {
+            let repetition = match t.repetition {
+                1 if t.count > 0 && t.count <= u16::MAX as u32 => RepetitionCount::Count(t.count as u16),
+                2 | 3 if !auto => {
+                    auto = true;
+                    if t.repetition == 2 {
+                        RepetitionCount::AutoFill
+                    } else {
+                        RepetitionCount::AutoFit
+                    }
+                }
+                _ => {
+                    return Err(invalid(
+                        "invalid UI grid repetition (only one automatic repeat per axis)",
+                    ));
+                }
+            };
+            if t.track_count == 0 || t.track_count > u16::MAX as usize {
+                return Err(invalid("UI grid repeat requires tracks"));
+            }
+            // SAFETY: forwarded caller contract.
+            let tracks = unsafe { track_list(t.tracks, t.track_count)? };
+            // SAFETY: track_list has validated the pointer, and the caller supplies the array.
+            fixed &= unsafe { std::slice::from_raw_parts(t.tracks, t.track_count) }
+                .iter()
+                .all(|t| matches!(t.kind, 1 | 2));
+            if t.line_name_count != 0 && t.line_name_count != t.track_count + 1 {
+                return Err(invalid("UI grid repeat line names require track_count + 1 sets"));
+            }
+            // SAFETY: forwarded readable string-array contract.
+            let names = unsafe { line_names(t.line_names, t.line_name_count)? };
+            result.push(GridTemplateComponent::Repeat(GridTemplateRepetition {
+                count: repetition,
+                tracks,
+                line_names: names,
+            }));
+        }
+    }
+    if auto && !fixed {
+        return Err(invalid(
+            "UI grid automatic repeats require fixed point or percentage tracks throughout the axis",
+        ));
+    }
+    Ok(result)
+}
+
+// Taffy visits repeat line names while iterating outer boundary sets.
+fn prepare_grid_names(style: &mut Style) {
+    for (tracks, names) in [
+        (&style.grid_template_columns, &mut style.grid_template_column_names),
+        (&style.grid_template_rows, &mut style.grid_template_row_names),
+    ] {
+        if tracks
+            .iter()
+            .any(|t| matches!(t, GridTemplateComponent::Repeat(r) if !r.line_names.is_empty()))
+            && names.len() < tracks.len() + 1
+        {
+            names.resize_with(tracks.len() + 1, Vec::new);
+        }
+    }
+}
+
 fn placement(l: CrabbyUiGridLine) -> Result<GridPlacement, Failure> {
     const KINDS: [CrabbyUiGridLineKind; 3] = [
         CrabbyUiGridLineKind::CRABBY_UI_GRID_AUTO,
@@ -782,7 +1036,7 @@ fn placement(l: CrabbyUiGridLine) -> Result<GridPlacement, Failure> {
 /// Checks a C layout and converts it, so bad values are errors, not panics.
 ///
 /// # Safety
-/// The track pointers are null or point to their counts of tracks.
+/// Descriptor arrays point to their stated counts; strings are NUL-terminated UTF-8.
 unsafe fn layout_style(l: &CrabbyUiLayout) -> Result<Style, Failure> {
     // SAFETY: caller contract.
     let (columns, rows, auto_columns, auto_rows) = unsafe {
@@ -802,7 +1056,7 @@ unsafe fn layout_style(l: &CrabbyUiLayout) -> Result<Style, Failure> {
             .then(|| pick(&ALIGNS, value, "unknown UI alignment"))
             .transpose()
     };
-    Ok(Style {
+    let mut style = Style {
         display: pick(&DISPLAYS, l.display, "unknown UI display")?,
         position: pick(&POSITIONS, l.position, "unknown UI position")?,
         flex_direction: pick(&DIRECTIONS, l.flex_direction, "unknown UI flex direction")?,
@@ -849,13 +1103,30 @@ unsafe fn layout_style(l: &CrabbyUiLayout) -> Result<Style, Failure> {
             end: placement(l.grid_row_end)?,
         },
         ..Style::default()
-    })
+    };
+    // SAFETY: all descriptor arrays and strings are covered by the caller contract.
+    unsafe {
+        if l.grid_template_column_count != 0 {
+            style.grid_template_columns = template_tracks(l.grid_template_columns, l.grid_template_column_count)?;
+        }
+        if l.grid_template_row_count != 0 {
+            style.grid_template_rows = template_tracks(l.grid_template_rows, l.grid_template_row_count)?;
+        }
+        style.grid_template_areas = areas(l.grid_template_areas, l.grid_template_area_count)?;
+        style.grid_template_column_names = line_names(l.grid_column_names, l.grid_column_name_count)?;
+        style.grid_template_row_names = line_names(l.grid_row_names, l.grid_row_name_count)?;
+        if !l.grid_area.is_null() {
+            set_area(&mut style, text(l.grid_area)?)?;
+        }
+    }
+    prepare_grid_names(&mut style);
+    Ok(style)
 }
 
 /// The style for an optional C layout (null is the default).
 ///
 /// # Safety
-/// `layout` is null or a readable layout whose track pointers are valid.
+/// `layout` is null or a readable layout whose arrays and UTF-8 string pointers are valid.
 unsafe fn style_or_default(layout: *const CrabbyUiLayout) -> Result<Style, Failure> {
     // SAFETY: caller contract.
     match unsafe { layout.as_ref() } {
@@ -1302,7 +1573,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_remove(ctx: *mut CrabbyCtx, target: u64, 
 /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_set_layout(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, std::ptr::null()) } as u32, 1);
 /// ```
 /// # Safety
-/// `ctx` null or live; `layout` null or readable, with valid track pointers.
+/// `ctx` null or live; `layout` null or readable, with valid descriptor arrays and NUL-terminated UTF-8 strings.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_ui_set_layout(
     ctx: *mut CrabbyCtx,
@@ -1316,6 +1587,143 @@ pub unsafe extern "C" fn crabby_ctx_ui_set_layout(
         with_ui(ctx, target, |ui| {
             let id = existing(ui, id)?;
             ui.set_layout(id, style);
+            Ok(())
+        })
+    })
+}
+
+unsafe fn update_style(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    id: u64,
+    f: impl FnOnce(&mut Style) -> Result<(), Failure>,
+) -> Result<(), Failure> {
+    // SAFETY: forwarded context contract.
+    unsafe {
+        with_ui(ctx, target, |ui| {
+            let id = existing(ui, id)?;
+            let mut style = ui
+                .layout_style(id)
+                .ok_or_else(|| invalid("UI node has no style"))?
+                .clone();
+            f(&mut style)?;
+            prepare_grid_names(&mut style);
+            ui.set_layout(id, style);
+            Ok(())
+        })
+    }
+}
+
+/// Replaces area rows; count zero clears them. Invalid/non-rectangular templates leave the layout unchanged.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_set_grid_template_areas(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, std::ptr::null(), 0) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` is null or live. All string pointers are readable NUL-terminated UTF-8;
+/// arrays contain `count` readable string pointers. Inputs are copied during the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_ui_set_grid_template_areas(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    id: u64,
+    rows: *const *const c_char,
+    count: usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        let value = areas(rows, count)?;
+        update_style(ctx, target, id, |s| {
+            s.grid_template_areas = value;
+            Ok(())
+        })
+    })
+}
+
+/// Replaces space-separated line name sets on an axis (0 columns, 1 rows). Empty strings denote unnamed lines. With repeats, sets correspond to template component boundaries.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_set_grid_line_names(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, 0, std::ptr::null(), 0) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` is null or live. All string pointers are readable NUL-terminated UTF-8;
+/// arrays contain `count` readable string pointers. Inputs are copied during the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_ui_set_grid_line_names(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    id: u64,
+    axis: u32,
+    names: *const *const c_char,
+    count: usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        let value = line_names(names, count)?;
+        update_style(ctx, target, id, |s| {
+            match axis {
+                0 => s.grid_template_column_names = value,
+                1 => s.grid_template_row_names = value,
+                _ => return Err(invalid("UI grid axis must be 0 or 1")),
+            };
+            Ok(())
+        })
+    })
+}
+
+/// Places all four edges by an area name. Empty string restores automatic placement. Unknown names follow taffy implicit-line resolution.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_set_grid_area(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, std::ptr::null()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` is null or live. All string pointers are readable NUL-terminated UTF-8;
+/// arrays contain `count` readable string pointers. Inputs are copied during the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_ui_set_grid_area(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    id: u64,
+    name: *const c_char,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        let name = text(name)?;
+        update_style(ctx, target, id, |s| set_area(s, name))
+    })
+}
+
+/// Places one named edge: axis 0 columns/1 rows; end false start/true end. Occurrence 0 uses area-aware resolution, positive/negative count matching named lines.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_set_grid_named_line(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, 0, false, std::ptr::null(), 0) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` is null or live. All string pointers are readable NUL-terminated UTF-8;
+/// arrays contain `count` readable string pointers. Inputs are copied during the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_ui_set_grid_named_line(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    id: u64,
+    axis: u32,
+    end: bool,
+    name: *const c_char,
+    occurrence: i32,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        let name = text(name)?;
+        ident(name)?;
+        let occurrence = i16::try_from(occurrence).map_err(|_| invalid("UI grid line occurrence out of range"))?;
+        update_style(ctx, target, id, |s| {
+            let line = match axis {
+                0 => &mut s.grid_column,
+                1 => &mut s.grid_row,
+                _ => return Err(invalid("UI grid axis must be 0 or 1")),
+            };
+            let p = GridPlacement::NamedLine(name.to_owned(), occurrence);
+            if end {
+                line.end = p;
+            } else {
+                line.start = p;
+            }
             Ok(())
         })
     })

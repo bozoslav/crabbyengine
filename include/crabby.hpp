@@ -1540,6 +1540,30 @@ inline track track_percent(float fraction) { return {static_cast<std::uint32_t>(
 inline track fr(float share) { return {static_cast<std::uint32_t>(CRABBY_UI_TRACK_FR), share}; }
 inline track min_content() { return {static_cast<std::uint32_t>(CRABBY_UI_TRACK_MIN_CONTENT), 0.0f}; }
 inline track max_content() { return {static_cast<std::uint32_t>(CRABBY_UI_TRACK_MAX_CONTENT), 0.0f}; }
+/// A single template track or an owned, non-nested repeat fragment.
+class template_track {
+    track single_{};
+    std::uint32_t repetition_ = 0, count_ = 0;
+    std::vector<track> tracks_;
+    std::vector<std::string> names_;
+    mutable std::vector<const char*> raw_names_;
+public:
+    template_track(track t) : single_(t) {}
+    template_track(std::uint32_t mode, std::uint32_t count, std::initializer_list<track> tracks)
+        : repetition_(mode), count_(count), tracks_(tracks) {}
+    /// Names on every line in a repeat fragment, including both edges.
+    template_track& names(std::initializer_list<std::string> names) { names_.assign(names); return *this; }
+    CrabbyUiTemplateTrack raw() const {
+        raw_names_.clear(); for (const auto& n : names_) raw_names_.push_back(n.c_str());
+        return {single_, repetition_, count_, tracks_.data(), tracks_.size(), raw_names_.data(), raw_names_.size()};
+    }
+};
+inline template_track repeat(std::uint32_t count, std::initializer_list<track> tracks) { return {1, count, tracks}; }
+inline template_track repeat(std::uint32_t count, track t) { return repeat(count, {t}); }
+inline template_track auto_fill(std::initializer_list<track> tracks) { return {2, 0, tracks}; }
+inline template_track auto_fill(track t) { return auto_fill({t}); }
+inline template_track auto_fit(std::initializer_list<track> tracks) { return {3, 0, tracks}; }
+inline template_track auto_fit(track t) { return auto_fit({t}); }
 /// Where a grid item starts or ends: placed automatically, at a numbered line (from 1; negative counts from the end), or across `n` tracks.
 using grid_line = CrabbyUiGridLine;
 inline grid_line grid_auto() { return {static_cast<std::uint32_t>(CRABBY_UI_GRID_AUTO), 0}; }
@@ -1561,7 +1585,15 @@ enum class text_align : std::uint32_t { start = 0, center = 1, end = 2 };
 /// `ui::layout().column().size(ui::percent(1), ui::points(40)).padding(8).gap(4)`.
 class layout {
     CrabbyUiLayout c_ = crabby_ui_layout_default();
-    std::vector<CrabbyUiTrack> columns_, rows_, auto_columns_, auto_rows_;
+    std::vector<template_track> columns_, rows_;
+    std::vector<CrabbyUiTrack> auto_columns_, auto_rows_;
+    std::vector<std::string> areas_, column_names_, row_names_;
+    std::optional<std::string> area_;
+    mutable std::vector<CrabbyUiTemplateTrack> raw_columns_, raw_rows_;
+    mutable std::vector<const char*> raw_areas_, raw_column_names_, raw_row_names_;
+    static void strings(const std::vector<std::string>& from, std::vector<const char*>& to) {
+        to.clear(); for (const auto& s : from) to.push_back(s.c_str());
+    }
     static CrabbyUiSides sides(length top, length right, length bottom, length left) { return {top, right, bottom, left}; }
 public:
     layout& display(ui::display d) { c_.display = static_cast<std::uint32_t>(d); return *this; }
@@ -1603,8 +1635,8 @@ public:
     layout& align_content(content c) { c_.align_content = static_cast<std::uint32_t>(c); return *this; }
     layout& justify_content(content c) { c_.justify_content = static_cast<std::uint32_t>(c); return *this; }
     /// A grid with these columns (rows are added as needed, see `auto_rows`).
-    layout& grid(std::initializer_list<track> columns) { display(ui::display::grid); columns_.assign(columns); return *this; }
-    layout& grid_rows(std::initializer_list<track> rows) { rows_.assign(rows); return *this; }
+    layout& grid(std::initializer_list<template_track> columns) { display(ui::display::grid); columns_.assign(columns); return *this; }
+    layout& grid_rows(std::initializer_list<template_track> rows) { rows_.assign(rows); return *this; }
     /// Size of columns beyond the explicit ones; they repeat.
     layout& auto_columns(std::initializer_list<track> columns) { auto_columns_.assign(columns); return *this; }
     /// Size of rows beyond the explicit ones; they repeat.
@@ -1613,13 +1645,24 @@ public:
     layout& grid_column(grid_line start, grid_line end = grid_auto()) { c_.grid_column_start = start; c_.grid_column_end = end; return *this; }
     /// For a grid item: where it starts and ends along the rows.
     layout& grid_row(grid_line start, grid_line end = grid_auto()) { c_.grid_row_start = start; c_.grid_row_end = end; return *this; }
-    /// The C layout; its track pointers live as long as this object.
+    /// CSS-like template rows. Strings are owned by this builder.
+    layout& areas(std::initializer_list<std::string> rows) { areas_.assign(rows); return *this; }
+    layout& area(std::string name) { area_ = std::move(name); return *this; }
+    /// One space-separated set of names per template boundary (empty means unnamed).
+    layout& column_names(std::initializer_list<std::string> names) { column_names_.assign(names); return *this; }
+    layout& row_names(std::initializer_list<std::string> names) { row_names_.assign(names); return *this; }
+    /// The C layout; pointers remain valid until this builder is changed, destroyed, or raw() is called again.
     CrabbyUiLayout raw() const {
         CrabbyUiLayout c = c_;
-        c.grid_columns = columns_.data();
-        c.grid_column_count = columns_.size();
-        c.grid_rows = rows_.data();
-        c.grid_row_count = rows_.size();
+        raw_columns_.clear(); for (const auto& t : columns_) raw_columns_.push_back(t.raw());
+        raw_rows_.clear(); for (const auto& t : rows_) raw_rows_.push_back(t.raw());
+        c.grid_template_columns = raw_columns_.data(); c.grid_template_column_count = raw_columns_.size();
+        c.grid_template_rows = raw_rows_.data(); c.grid_template_row_count = raw_rows_.size();
+        strings(areas_, raw_areas_); strings(column_names_, raw_column_names_); strings(row_names_, raw_row_names_);
+        c.grid_template_areas = raw_areas_.data(); c.grid_template_area_count = raw_areas_.size();
+        c.grid_column_names = raw_column_names_.data(); c.grid_column_name_count = raw_column_names_.size();
+        c.grid_row_names = raw_row_names_.data(); c.grid_row_name_count = raw_row_names_.size();
+        c.grid_area = area_ ? area_->c_str() : nullptr;
         c.grid_auto_columns = auto_columns_.data();
         c.grid_auto_column_count = auto_columns_.size();
         c.grid_auto_rows = auto_rows_.data();
@@ -1720,6 +1763,10 @@ public:
 
     // Changing nodes. No setter makes an event.
     void set_layout(id node, const layout& l) { const CrabbyUiLayout c = l.raw(); detail::check(crabby_ctx_ui_set_layout(raw_, target_, node, &c)); }
+    void set_grid_template_areas(id node, std::initializer_list<const char*> rows) { detail::check(crabby_ctx_ui_set_grid_template_areas(raw_, target_, node, rows.begin(), rows.size())); }
+    void set_grid_line_names(id node, std::uint32_t axis, std::initializer_list<const char*> names) { detail::check(crabby_ctx_ui_set_grid_line_names(raw_, target_, node, axis, names.begin(), names.size())); }
+    void set_grid_area(id node, const char* name) { detail::check(crabby_ctx_ui_set_grid_area(raw_, target_, node, name)); }
+    void set_grid_named_line(id node, std::uint32_t axis, bool end, const char* name, int occurrence = 0) { detail::check(crabby_ctx_ui_set_grid_named_line(raw_, target_, node, axis, end, name, occurrence)); }
     void set_paint(id node, const paint& p) { const CrabbyUiPaint c = p.raw(); detail::check(crabby_ctx_ui_set_paint(raw_, target_, node, &c)); }
     void set_text(id node, const char* text) { detail::check(crabby_ctx_ui_set_text(raw_, target_, node, text)); }
     std::string text(id node) const {

@@ -53,6 +53,85 @@ size in texture pixels for nine-slice backgrounds. `UiWidget::Toggle` uses
 zero/one values; `Slider` uses normalized 0..1 values. Read them with `value`
 after a `Changed` event. Changes made with setters do not emit user events.
 
+## Named grid areas and repeat tracks
+
+Template areas name rectangular regions. A row is a space-separated list of names;
+`.` (or multiple dots) leaves a cell unnamed. All rows must have equal widths and
+each name must fill a rectangle. C/C++ rejects invalid templates with a status
+message. Names are UTF-8 identifiers using letters, digits, `_` and `-`, without
+CSS escapes; reserved CSS keywords and names starting with digits are rejected.
+
+<div class="lang-pair">
+<div>
+
+```rust
+use crabbyengine::{Ui, UiWidget, ui_layout::*};
+use crabbyengine::ui_layout::style_helpers::*;
+let mut tree = Ui::default();
+let dashboard = tree.add(UiWidget::Panel, Style {
+    display: Display::Grid,
+    size: Size { width: length(600.0), height: length(400.0) },
+    grid_template_columns: vec![repeat(2, vec![fr(1.0)])],
+    grid_template_rows: vec![length(40.0), fr(1.0)],
+    grid_template_areas: Some(GridTemplateAreas {
+        row_count: 2, column_count: 2,
+        areas: vec![
+            GridTemplateArea { name: "header".into(), row_start: 1, row_end: 2, column_start: 1, column_end: 3 },
+            GridTemplateArea { name: "side".into(), row_start: 2, row_end: 3, column_start: 1, column_end: 2 },
+            GridTemplateArea { name: "main".into(), row_start: 2, row_end: 3, column_start: 2, column_end: 3 },
+        ],
+    }),
+    ..Style::default()
+});
+let placement = GridPlacement::NamedLine("main".into(), 0);
+let main = tree.add_child(dashboard, UiWidget::Label, Style {
+    grid_column: Line { start: placement.clone(), end: placement.clone() },
+    grid_row: Line { start: placement.clone(), end: placement },
+    ..Style::default()
+});
+tree.set_text(main, "Content");
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:ui_grid_areas}}
+```
+
+</div>
+</div>
+
+C keeps `CrabbyUiTrack` and the original flat track arrays unchanged. For repeats,
+use `CrabbyUiTemplateTrack` arrays in `grid_template_columns`/`grid_template_rows`;
+a nonzero component count overrides the corresponding original track array.
+`repetition` is 0 for a single `track`, 1 for `count` repetitions of `tracks`,
+2 for auto-fill, or 3 for auto-fit. Repeat fragments cannot contain repeats.
+C++ accepts `ui::repeat(3, ui::fr(1))`, multi-track fragments such as
+`ui::repeat(2, {ui::track_points(40), ui::fr(1)})`, and
+`ui::auto_fill(ui::track_points(100))` / `ui::auto_fit(ui::track_points(100))`.
+Automatic repeats require fixed point or percentage tracks throughout the axis
+and at most one automatic repeat per axis, following taffy's supported subset.
+
+`column_names({"left", "middle split", "right"})` and `row_names(...)` name
+line boundaries. With repeats these are component boundaries, rather than every
+expanded track; use `ui::repeat(3, ui::fr(1)).names({"start", "end"})` for names inside
+a repeat fragment. Supply exactly one more name set than repeated tracks.
+`tree.set_grid_named_line(node, 0, false, "middle", 1)` places a column start at
+the first matching line (axis 1 selects rows, `true` selects the end). Negative
+occurrences count backwards; zero also resolves implicit area start/end names.
+Unknown names follow taffy's implicit-line placement rules. Named spans are
+currently Rust-only. Nested repeats are not supported by taffy.
+
+C can use the layout descriptor fields or change existing nodes with
+`crabby_ctx_ui_set_grid_template_areas`, `crabby_ctx_ui_set_grid_line_names`,
+`crabby_ctx_ui_set_grid_area`, and `crabby_ctx_ui_set_grid_named_line`.
+Each takes the same screen or world-panel `target` as other UI calls. Inputs
+are copied during the call. Passing zero area/name rows clears those definitions;
+an empty area name restores automatic placement. `set_layout` replaces the whole
+style, including areas and names. The C layout struct grew, so rebuild native
+callers against the regenerated header.
+
 ## Screen stack and modal dialogs
 
 <div class="lang-pair">

@@ -1143,6 +1143,16 @@ typedef struct CrabbyUiGridLine {
   int32_t value;
 } CrabbyUiGridLine;
 
+typedef struct CrabbyUiTemplateTrack {
+  struct CrabbyUiTrack track;
+  uint32_t repetition;
+  uint32_t count;
+  const struct CrabbyUiTrack *tracks;
+  size_t track_count;
+  const char *const *line_names;
+  size_t line_name_count;
+} CrabbyUiTemplateTrack;
+
 typedef struct CrabbyUiLayout {
   uint32_t display;
   uint32_t position;
@@ -1180,6 +1190,17 @@ typedef struct CrabbyUiLayout {
   struct CrabbyUiGridLine grid_column_end;
   struct CrabbyUiGridLine grid_row_start;
   struct CrabbyUiGridLine grid_row_end;
+  const struct CrabbyUiTemplateTrack *grid_template_columns;
+  size_t grid_template_column_count;
+  const struct CrabbyUiTemplateTrack *grid_template_rows;
+  size_t grid_template_row_count;
+  const char *const *grid_template_areas;
+  size_t grid_template_area_count;
+  const char *const *grid_column_names;
+  size_t grid_column_name_count;
+  const char *const *grid_row_names;
+  size_t grid_row_name_count;
+  const char *grid_area;
 } CrabbyUiLayout;
 
 typedef struct CrabbyUiPaint {
@@ -3096,6 +3117,32 @@ enum CrabbyStatus crabby_ctx_ui_set_layout(struct CrabbyCtx *ctx,
                                            uint64_t target,
                                            uint64_t id,
                                            const struct CrabbyUiLayout *layout);
+
+enum CrabbyStatus crabby_ctx_ui_set_grid_template_areas(struct CrabbyCtx *ctx,
+                                                        uint64_t target,
+                                                        uint64_t id,
+                                                        const char *const *rows,
+                                                        size_t count);
+
+enum CrabbyStatus crabby_ctx_ui_set_grid_line_names(struct CrabbyCtx *ctx,
+                                                    uint64_t target,
+                                                    uint64_t id,
+                                                    uint32_t axis,
+                                                    const char *const *names,
+                                                    size_t count);
+
+enum CrabbyStatus crabby_ctx_ui_set_grid_area(struct CrabbyCtx *ctx,
+                                              uint64_t target,
+                                              uint64_t id,
+                                              const char *name);
+
+enum CrabbyStatus crabby_ctx_ui_set_grid_named_line(struct CrabbyCtx *ctx,
+                                                    uint64_t target,
+                                                    uint64_t id,
+                                                    uint32_t axis,
+                                                    bool end,
+                                                    const char *name,
+                                                    int32_t occurrence);
 
 enum CrabbyStatus crabby_ctx_ui_set_paint(struct CrabbyCtx *ctx,
                                           uint64_t target,
