@@ -464,6 +464,18 @@ int main(void) {
     CHECK(crabby_spawn(w, &probe_value, 1, &e) == CRABBY_OK);
     CrabbyReflectionProbe3D probe_out;
     CHECK(crabby_get(w, e, probe_id, &probe_out, sizeof(probe_out)) == CRABBY_OK && probe_out.blend_distance == 1);
+    uint32_t decal_id, receives_id;
+    CHECK(crabby_decal3d_component(w, &decal_id) == CRABBY_OK);
+    CHECK(crabby_receives_decals_component(w, &receives_id) == CRABBY_OK);
+    CrabbyDecal3D decal = crabby_decal3d_default();
+    CHECK(decal.opacity == 1 && decal.image == 0 && decal.normal_image == CRABBY_DECAL_NO_IMAGE && decal.layers == 0xFFFF);
+    decal.size.x = 2; decal.order = 4;
+    CrabbyReceivesDecals none = {0};
+    CrabbyValue decal_values[] = {{decal_id, &decal, sizeof(decal)}, {receives_id, &none, sizeof(none)}};
+    CHECK(crabby_spawn(w, decal_values, 2, &e) == CRABBY_OK);
+    CrabbyDecal3D decal_out; CrabbyReceivesDecals none_out = {1};
+    CHECK(crabby_get(w, e, decal_id, &decal_out, sizeof(decal_out)) == CRABBY_OK && decal_out.size.x == 2 && decal_out.order == 4);
+    CHECK(crabby_get(w, e, receives_id, &none_out, sizeof(none_out)) == CRABBY_OK && none_out.layers == 0);
     uint32_t point_id, spot_id;
     CHECK(crabby_point_light3d_component(w, &point_id) == CRABBY_OK);
     CHECK(crabby_spot_light3d_component(w, &spot_id) == CRABBY_OK);

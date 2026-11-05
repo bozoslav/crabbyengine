@@ -164,6 +164,23 @@ static void three_d() {
         CHECK(ctx.world().get<crabby::reflection_probe3d>(e).content == 1);
     });
     CHECK(probes.size() == 1);
+    auto decals = crabby::game("decals", 1, 1).run_headless(0, [](crabby::ctx& ctx) {
+        std::vector<std::uint8_t> pixels(2 * 2 * 4, 255);
+        auto colors = ctx.create_texture_array(2, 2, pixels, crabby::texture_kind::color);
+        throws([&] { ctx.set_decal_textures(colors); }); // decals want TextureKind::Data arrays
+        auto images = ctx.create_texture_array(2, 2, pixels, crabby::texture_kind::data);
+        ctx.set_decal_textures(images);
+        CHECK(!ctx.supports_decals()); // no GPU in a headless run
+        auto mark = crabby::decal3d_default();
+        mark.size = {2, 2, 1};
+        mark.order = 3;
+        mark.normal_image = crabby::decal_no_image;
+        auto e = ctx.world().spawn(crabby::transform3d_at({0, 1, 0}), mark, crabby::receives_decals{0});
+        CHECK(ctx.world().get<crabby::decal3d>(e).order == 3 && ctx.world().get<crabby::decal3d>(e).size.x == 2);
+        CHECK(ctx.world().get<crabby::receives_decals>(e).layers == 0);
+        ctx.clear_decal_textures();
+    });
+    CHECK(decals.size() == 1);
     crabby::world lights;
     auto lamp = lights.spawn(crabby::transform3d_at({1, 2, 3}), crabby::point_light3d{crabby::colors::red, 20, 12, false});
     auto beam = lights.spawn(crabby::transform3d_at({0, 3, 0}), crabby::spot_light3d{crabby::colors::white, 40, 25, .2f, .5f, true});

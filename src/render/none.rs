@@ -60,6 +60,10 @@ impl Renderer {
         match *self {}
     }
     #[cfg(feature = "3d")]
+    pub fn supports_decals(&self) -> bool {
+        match *self {}
+    }
+    #[cfg(feature = "3d")]
     pub fn max_texture_array_size(&self) -> (u32, u32) {
         match *self {}
     }

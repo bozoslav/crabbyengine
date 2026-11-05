@@ -64,6 +64,8 @@
 
 #define CRABBY_TEXTURE_DATA 1
 
+#define CRABBY_DECAL_NO_IMAGE UINT32_MAX
+
 #define CRABBY_TILE_EMPTY 65535
 
 #define CRABBY_UI_NONE UINT64_MAX
@@ -1223,6 +1225,25 @@ typedef struct CrabbyReflectionProbe3D {
   bool box_projection;
 } CrabbyReflectionProbe3D;
 
+typedef struct CrabbyDecal3D {
+  struct CrabbyVec3 size;
+  uint32_t image;
+  uint32_t normal_image;
+  struct CrabbyVec2 uv_min;
+  struct CrabbyVec2 uv_max;
+  struct CrabbyColor color;
+  float opacity;
+  float normal_strength;
+  float roughness;
+  float metallic;
+  float angle_fade_start;
+  float angle_fade_end;
+  float depth_fade;
+  float max_distance;
+  int32_t order;
+  uint32_t layers;
+} CrabbyDecal3D;
+
 typedef struct CrabbySpriteSheet {
   struct CrabbyTexture texture;
   struct CrabbyVec2 frame_size;
@@ -1464,6 +1485,10 @@ typedef struct CrabbySpotLight3D {
   float outer_angle;
   bool shadows;
 } CrabbySpotLight3D;
+
+typedef struct CrabbyReceivesDecals {
+  uint32_t layers;
+} CrabbyReceivesDecals;
 
 typedef struct CrabbyVelocity3D {
   struct CrabbyVec3 linear;
@@ -3261,6 +3286,19 @@ enum CrabbyStatus crabby_spot_light3d_component(struct CrabbyWorld *world, uint3
 struct CrabbyReflectionProbe3D crabby_reflection_probe3d_default(void);
 
 enum CrabbyStatus crabby_reflection_probe3d_component(struct CrabbyWorld *world, uint32_t *out_id);
+
+struct CrabbyDecal3D crabby_decal3d_default(void);
+
+enum CrabbyStatus crabby_decal3d_component(struct CrabbyWorld *world, uint32_t *out_id);
+
+enum CrabbyStatus crabby_receives_decals_component(struct CrabbyWorld *world, uint32_t *out_id);
+
+enum CrabbyStatus crabby_ctx_set_decal_textures(struct CrabbyCtx *ctx,
+                                                struct CrabbyTextureArray array);
+
+enum CrabbyStatus crabby_ctx_clear_decal_textures(struct CrabbyCtx *ctx);
+
+enum CrabbyStatus crabby_ctx_supports_decals(struct CrabbyCtx *ctx, bool *out_supported);
 
 enum CrabbyStatus crabby_ctx_bake_reflection_probe(struct CrabbyCtx *ctx, uint64_t entity);
 

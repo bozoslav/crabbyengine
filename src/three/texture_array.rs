@@ -146,6 +146,7 @@ impl Ctx {
             layers: layers.len() as u32,
         };
         self.assets3d.arrays.push(array);
+        self.assets3d.array_data.push(kind == TextureKind::Data);
         Ok(array)
     }
 
@@ -201,5 +202,75 @@ impl Ctx {
     #[must_use]
     pub fn has_texture_array(&self, array: TextureArray) -> bool {
         self.assets3d.arrays.get(array.id as usize) == Some(&array)
+    }
+
+    /// Sets the texture array [`Decal3D`](crate::Decal3D)s take their images
+    /// from (`None`: flat-colored decals). Every decal shares it, so a
+    /// whole game's decals are drawn with fixed bindings: put the images in
+    /// its layers (or in parts of layers, with `uv_min`/`uv_max`), color
+    /// images and normal maps together.
+    ///
+    /// Make the array with [`TextureKind::Data`]: color images are decoded
+    /// from sRGB when a decal draws them, and normal maps are read as
+    /// stored, which one array can only do with its pixels left as they are.
+    /// Leave a few pixels of padding around atlas entries, as mipmaps blend
+    /// them.
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// let images = ctx.load_texture_array(&["blood.png", "tyre.png", "tyre_n.png"], TextureKind::Data);
+    /// ctx.set_decal_textures(Some(images));
+    /// # }
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// If the array wasn't made by this context or isn't `TextureKind::Data`.
+    pub fn set_decal_textures(&mut self, array: Option<TextureArray>) {
+        self.try_set_decal_textures(array)
+            .unwrap_or_else(|e| panic!("crabbyengine: {e}"))
+    }
+
+    /// [`Ctx::set_decal_textures`] that returns errors (for the C API).
+    #[doc(hidden)]
+    pub fn try_set_decal_textures(&mut self, array: Option<TextureArray>) -> Result<(), String> {
+        if let Some(a) = array {
+            if !self.has_texture_array(a) {
+                return Err("decal textures: that texture array wasn't made by this context".into());
+            }
+            if !self.assets3d.array_data.get(a.id as usize).copied().unwrap_or(false) {
+                return Err(
+                    "decal textures: make the array with TextureKind::Data (decals decode colors themselves)".into(),
+                );
+            }
+        }
+        self.assets3d.decal_array = array;
+        Ok(())
+    }
+
+    /// The texture array decals draw their images from, if one is set.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &Ctx) { assert!(ctx.decal_textures().is_none()); }
+    /// ```
+    #[must_use]
+    pub fn decal_textures(&self) -> Option<TextureArray> {
+        self.assets3d.decal_array
+    }
+
+    /// Whether this GPU draws projected decals: it needs one more sampled
+    /// texture in the mesh shader than WebGL2 (and GPUs at the default
+    /// limit) have. Where it's false, [`Decal3D`](crate::Decal3D)s are
+    /// skipped and everything else draws as usual. False in headless runs.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &Ctx) { let _ = ctx.supports_decals(); }
+    /// ```
+    #[must_use]
+    pub fn supports_decals(&self) -> bool {
+        self.renderer.as_ref().is_some_and(|r| r.supports_decals())
     }
 }

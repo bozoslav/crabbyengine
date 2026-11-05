@@ -1355,6 +1355,28 @@ static void reflection_probes(crabby::ctx& ctx) {
 }
 // ANCHOR_END: reflection_probes
 
+// ANCHOR: projected_decals
+static void projected_decals(crabby::ctx& ctx) {
+    // Images and normal maps share one texture array: layer 0 is a tyre mark,
+    // layer 1 its normal map. Make it with texture_kind::data.
+    std::vector<std::uint8_t> pixels(2 * 2 * 4 * 2, 255);
+    ctx.set_decal_textures(ctx.create_texture_array(2, 2, pixels, crabby::texture_kind::data));
+    auto mark = crabby::decal3d_default();
+    mark.size = {1.5f, 3.0f, 0.5f}; // width, length, depth
+    mark.image = 0;
+    mark.normal_image = 1;
+    mark.roughness = 0.9f;
+    mark.max_distance = 40;
+    // Looking down: the box's +Z turned to point up.
+    auto at = crabby::transform3d_at({4, 0.1f, 2});
+    at.rotation = crabby::quat_from_rotation_x(-1.5707964f);
+    auto tyre = ctx.world().spawn(at, mark);
+    (void)tyre;
+    // A character that no decal lands on:
+    ctx.world().spawn(crabby::transform3d_at({0, 0, 0}), crabby::receives_decals{0});
+}
+// ANCHOR_END: projected_decals
+
 // ANCHOR: punctual_lights
 static void punctual_lights(crabby::ctx& ctx) {
     ctx.world().spawn(crabby::transform3d_at({0, 3, 0}),
@@ -2014,6 +2036,7 @@ int main() {
     crabby::game("contacts guide", 1, 1).physics3d({0, -9.81f, 0}).run_headless(5, contacts);
     crabby::game("light guide", 64, 64).run_headless(0, punctual_lights);
     crabby::game("probe guide", 64, 64).run_headless(0, reflection_probes);
+    crabby::game("decal guide", 64, 64).run_headless(0, projected_decals);
     the_ripples_run_on_a_render_target();
     the_pond_mirrors_the_camera();
     the_hills_are_nine_tiles();

@@ -1,5 +1,6 @@
 //! Camera-local light textures, grown only when a new high-water mark is reached.
 use crate::three::lights::{LIST_WIDTH, LightGrid};
+use crate::three::projected::{DECAL_TEXELS, DecalGrid};
 
 pub(super) struct LightTextures {
     pub records: wgpu::Texture,
@@ -9,7 +10,14 @@ pub(super) struct LightTextures {
 }
 impl LightTextures {
     pub fn new(device: &wgpu::Device) -> Self {
-        let records = texture(device, "punctual lights", 4, 1, wgpu::TextureFormat::Rgba32Float);
+        // Four texels per light, then eight per decal.
+        let records = texture(
+            device,
+            "punctual lights",
+            DECAL_TEXELS as u32,
+            1,
+            wgpu::TextureFormat::Rgba32Float,
+        );
         let indices = texture(
             device,
             "light clusters",
@@ -26,19 +34,22 @@ impl LightTextures {
             indices_view,
         }
     }
-    /// True when bindings must be rebuilt (growth only).
-    pub fn upload(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, grid: &LightGrid) -> bool {
+    /// True when bindings must be rebuilt (growth only). Lights come first
+    /// in both textures, then the decals' rows.
+    pub fn upload(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, grid: &LightGrid, decals: &DecalGrid) -> bool {
+        let light_rows = grid.lights.len() as u32;
+        let list_rows = (grid.lists.len() / LIST_WIDTH) as u32;
         let mut changed = false;
         for (target, view, height) in [
             (
                 &mut self.records,
                 &mut self.records_view,
-                grid.lights.len().max(1) as u32,
+                (light_rows + decals.records.len() as u32).max(1),
             ),
             (
                 &mut self.indices,
                 &mut self.indices_view,
-                (grid.lists.len() / LIST_WIDTH).max(1) as u32,
+                (list_rows + (decals.lists.len() / LIST_WIDTH) as u32).max(1),
             ),
         ] {
             if height > target.height() {
@@ -55,15 +66,37 @@ impl LightTextures {
         write(
             queue,
             &self.records,
+            0,
+            4,
             bytemuck::cast_slice(&grid.lights),
-            grid.lights.len() as u32,
+            light_rows,
             64,
         );
         write(
             queue,
+            &self.records,
+            light_rows,
+            DECAL_TEXELS as u32,
+            bytemuck::cast_slice(&decals.records),
+            decals.records.len() as u32,
+            DECAL_TEXELS as u32 * 16,
+        );
+        write(
+            queue,
             &self.indices,
+            0,
+            LIST_WIDTH as u32,
             bytemuck::cast_slice(&grid.lists),
-            (grid.lists.len() / LIST_WIDTH) as u32,
+            list_rows,
+            LIST_WIDTH as u32 * 4,
+        );
+        write(
+            queue,
+            &self.indices,
+            list_rows,
+            LIST_WIDTH as u32,
+            bytemuck::cast_slice(&decals.lists),
+            (decals.lists.len() / LIST_WIDTH) as u32,
             LIST_WIDTH as u32 * 4,
         );
         changed
@@ -85,12 +118,19 @@ fn texture(device: &wgpu::Device, label: &str, width: u32, height: u32, format: 
         view_formats: &[],
     })
 }
-fn write(queue: &wgpu::Queue, texture: &wgpu::Texture, data: &[u8], height: u32, row: u32) {
+fn write(queue: &wgpu::Queue, texture: &wgpu::Texture, first_row: u32, width: u32, data: &[u8], height: u32, row: u32) {
     if height == 0 {
         return;
     }
     queue.write_texture(
-        texture.as_image_copy(),
+        wgpu::TexelCopyTextureInfo {
+            origin: wgpu::Origin3d {
+                x: 0,
+                y: first_row,
+                z: 0,
+            },
+            ..texture.as_image_copy()
+        },
         data,
         wgpu::TexelCopyBufferLayout {
             offset: 0,
@@ -98,7 +138,7 @@ fn write(queue: &wgpu::Queue, texture: &wgpu::Texture, data: &[u8], height: u32,
             rows_per_image: None,
         },
         wgpu::Extent3d {
-            width: texture.width(),
+            width,
             height,
             depth_or_array_layers: 1,
         },

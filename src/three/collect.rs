@@ -4,8 +4,8 @@
 use glam::{Mat4, Vec3, Vec4};
 
 use super::{
-    Assets3D, Camera3D, Lighting, Model, ShadowMesh, Skeleton, SkinFrame, SkinOf, TERRAIN_LODS, TerrainTile,
-    Transform3D, linear,
+    Assets3D, Camera3D, Lighting, Model, ReceivesDecals, ShadowMesh, Skeleton, SkinFrame, SkinOf, TERRAIN_LODS,
+    TerrainTile, Transform3D, linear,
 };
 use crate::World;
 
@@ -47,6 +47,10 @@ pub(crate) struct Frame3D {
     pub probe_bakes: Vec<(u32, [u32; 6])>,
     pub particles: super::particles::ParticleFrame,
     pub lights: super::lights::LightGrid,
+    /// Projected decals, in the lights' grid.
+    pub decals: super::projected::DecalGrid,
+    /// The decal texture array's id, when the game set one.
+    pub decal_array: Option<u32>,
     /// (mesh id, first instance, count) for the camera, in mesh order.
     pub runs: Vec<(u32, u32, u32)>,
     /// The same for each shadow view (see [`MAX_SHADOW_VIEWS`]); empty
@@ -127,6 +131,19 @@ impl Frame3D {
         };
         self.lights
             .collect(world, camera, self.light_budget, self.light_shadow_size);
+        self.decals.records.clear();
+        self.decals.lists.clear();
+        self.decal_array = assets.decal_array.map(|a| a.id);
+        if assets.decals_supported {
+            self.decals.collect(
+                world,
+                camera,
+                self.lights.depth,
+                assets.decal_array.map_or(0, |a| a.layers),
+                self.lights.lists.len(),
+                self.lights.lights.len(),
+            );
+        }
         self.light_views = self.lights.shadow_views.len();
         self.cascades = if lighting.shadows && lighting.shadow_distance > 0.0 {
             (lighting.shadow_cascades as usize).clamp(1, MAX_CASCADES)
@@ -243,10 +260,15 @@ impl Frame3D {
                 scratch.push((mesh, instance, false, mask));
             }
         };
-        let instance = |t: &Transform3D, color: [f32; 4]| Instance3D {
-            model: t.matrix().to_cols_array_2d(),
-            color,
+        // The matrix's fourth row is always (0, 0, 0, 1): its first three
+        // slots carry what the shader needs per model; the first holds the
+        // decal layers the model takes.
+        let instance = |t: &Transform3D, color: [f32; 4], receives: f32| {
+            let mut model = t.matrix().to_cols_array_2d();
+            model[0][3] = receives;
+            Instance3D { model, color }
         };
+        let all_decals = super::projected::receiver_mask(None);
         // Skinned models posed by a skeleton are drawn from `skins` instead.
         // So are meshes with morph targets that aren't skinned.
         let posed = |m: &Model, s: Option<&Skeleton>| match assets.skin(m.mesh.id) {
@@ -257,9 +279,15 @@ impl Frame3D {
         // culled), then the few that are seen are added in order.
         let flags = &mut self.flags;
         world
-            .query::<(&Transform3D, &Model, Option<&ShadowMesh>, Option<&Skeleton>)>()
+            .query::<(
+                &Transform3D,
+                &Model,
+                Option<&ShadowMesh>,
+                Option<&Skeleton>,
+                Option<&ReceivesDecals>,
+            )>()
             .without::<SkinOf>()
-            .par_collect_into(flags, |(t, m, shadow, skeleton)| {
+            .par_collect_into(flags, |(t, m, shadow, skeleton, _)| {
                 if posed(m, skeleton) {
                     return 0;
                 }
@@ -267,15 +295,25 @@ impl Frame3D {
             });
         let mut at = 0;
         world
-            .query::<(&Transform3D, &Model, Option<&ShadowMesh>, Option<&Skeleton>)>()
+            .query::<(
+                &Transform3D,
+                &Model,
+                Option<&ShadowMesh>,
+                Option<&Skeleton>,
+                Option<&ReceivesDecals>,
+            )>()
             .without::<SkinOf>()
-            .for_each(|(t, m, shadow, _)| {
+            .for_each(|(t, m, shadow, _, receives)| {
                 let f = flags[at];
                 at += 1;
                 if f != 0
                     && let Some((meshes, _, _)) = model_meshes(m, shadow)
                 {
-                    add_instance(meshes, instance(t, linear(m.color)), f);
+                    add_instance(
+                        meshes,
+                        instance(t, linear(m.color), super::projected::receiver_mask(receives)),
+                        f,
+                    );
                 }
             });
         // Shadows with no model: only the cascades that see them.
@@ -295,7 +333,7 @@ impl Frame3D {
                 if f != 0
                     && let Some((mesh, _)) = shadow_only(shadow)
                 {
-                    add_instance([mesh; 1 + MAX_CASCADES], instance(t, [1.0; 4]), f);
+                    add_instance([mesh; 1 + MAX_CASCADES], instance(t, [1.0; 4], all_decals), f);
                 }
             });
         // Skinned models: each its own mesh, skinned on the GPU this frame.
@@ -336,7 +374,7 @@ impl Frame3D {
                     let casts = !matches!(shadow, Some(ShadowMesh(None)));
                     let f = classify(t, (center, radius), casts.then_some((center, radius)));
                     if f != 0 {
-                        add_instance(meshes, instance(t, [1.0; 4]), f);
+                        add_instance(meshes, instance(t, [1.0; 4], all_decals), f);
                     }
                 }
             });

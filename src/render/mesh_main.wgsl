@@ -22,11 +22,15 @@ struct VertexOut {
     @location(3) color: vec4<f32>,
     @location(4) uv1: vec2<f32>,
     @location(5) @interpolate(flat) origin: vec3<f32>,
+    // Which decal layers the model takes (see apply_decals).
+    @location(6) @interpolate(flat) decal_layers: u32,
 };
 
 // The vertex in world space, after the shader's `vertex` function.
 fn world_vertex(in: VertexIn) -> Vertex {
-    let model = mat4x4<f32>(in.m0, in.m1, in.m2, in.m3);
+    // The matrix's last row is (0, 0, 0, 1); the first slot of it carries the
+    // model's decal layers instead (see instance_decal_layers).
+    let model = mat4x4<f32>(vec4<f32>(in.m0.xyz, 0.0), vec4<f32>(in.m1.xyz, 0.0), vec4<f32>(in.m2.xyz, 0.0), vec4<f32>(in.m3.xyz, 1.0));
     // For a scale-rotate matrix M = R S, the normal matrix R S^-1 is M S^-2.
     let scale = vec3<f32>(length(in.m0.xyz), length(in.m1.xyz), length(in.m2.xyz));
     let normal = mat3x3<f32>(in.m0.xyz, in.m1.xyz, in.m2.xyz) * (in.normal / max(scale * scale, vec3<f32>(1e-12)));
@@ -42,10 +46,16 @@ fn world_vertex(in: VertexIn) -> Vertex {
     return out;
 }
 
+// The decal layers the model takes, as the engine put them in the instance.
+fn instance_decal_layers(in: VertexIn) -> u32 {
+    return u32(in.m0.w + 0.5);
+}
+
 @vertex
 fn vs_main(in: VertexIn) -> VertexOut {
     let v = world_vertex(in);
     var out: VertexOut;
+    out.decal_layers = instance_decal_layers(in);
     out.clip = frame.view_proj * vec4<f32>(v.position, 1.0);
     out.world = v.position;
     out.normal = v.normal;
@@ -61,6 +71,7 @@ fn vs_main(in: VertexIn) -> VertexOut {
 fn vs_shadow(in: VertexIn) -> VertexOut {
     let v = world_vertex(in);
     var out: VertexOut;
+    out.decal_layers = 0u;
     out.clip = frame.caster_view_proj * vec4<f32>(v.position, 1.0);
     out.world = v.position;
     out.normal = v.normal;
@@ -204,7 +215,17 @@ fn shade(s: Surface) -> vec3<f32> {
 // Opaque: the prepass already cut the cut-outs.
 @fragment
 fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    // Screen derivatives need uniform control flow: taken before any branch.
+    let dp_x = dpdx(in.world);
+    let dp_y = dpdy(in.world);
     var s = surface_at(in, front);
+    var geometric = normalize(in.normal);
+    if !front {
+        geometric = -geometric;
+    }
+    s = apply_decals(s, geometric, in.decal_layers, dp_x, dp_y);
+    s.roughness = clamp(s.roughness, 0.03, 1.0);
+    s.metallic = clamp(s.metallic, 0.0, 1.0);
     // The opaque pass uses the otherwise unused scene-color slot for GTAO
     // occlusion (zero in the no-scene stand-in). Transparent passes retain
     // the actual scene color and never sample it as occlusion.

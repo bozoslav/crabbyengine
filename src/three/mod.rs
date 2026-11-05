@@ -29,6 +29,8 @@ pub use particles::{
 };
 mod decal;
 mod post;
+pub(crate) mod projected;
+pub use projected::{Decal3D, MAX_DECALS, MAX_DECALS_PER_CLUSTER, ReceivesDecals};
 pub(crate) mod probe;
 pub use probe::ReflectionProbe3D;
 mod quality;
@@ -710,6 +712,13 @@ pub(crate) struct Assets3D {
     pub materials: u32,
     /// Texture arrays made so far, by id.
     pub arrays: Vec<TextureArray>,
+    /// Whether each was made as `TextureKind::Data`, by id.
+    pub array_data: Vec<bool>,
+    /// The texture array decals take their images from.
+    pub decal_array: Option<TextureArray>,
+    /// Whether the renderer can draw projected decals (its GPU has a spare
+    /// texture slot); set each frame.
+    pub decals_supported: bool,
     /// Render targets made so far.
     pub render_targets: Vec<crate::Texture>,
     /// Screen effects made so far.

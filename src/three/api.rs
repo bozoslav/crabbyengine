@@ -1056,6 +1056,7 @@ impl Ctx {
             return; // no drawable 3D scene
         }
         let time = (self.time() as f32, self.dt());
+        self.assets3d.decals_supported = self.supports_decals();
         let fallback = if self.effects.iter().any(|e| e.material.is_none())
             || self.compute_passes.iter().any(|c| c.material.is_none())
         {
