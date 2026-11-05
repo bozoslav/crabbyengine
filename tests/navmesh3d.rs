@@ -10,6 +10,13 @@ fn floor() -> NavSource {
 fn bake(sources: &[NavSource]) -> NavMesh3D {
     NavMesh3D::bake(sources, NavBakeSettings::default()).unwrap()
 }
+fn carving_bake(sources: &[NavSource]) -> NavMesh3D {
+    let settings = NavBakeSettings {
+        carving: true,
+        ..Default::default()
+    };
+    NavMesh3D::bake(sources, settings).unwrap()
+}
 #[test]
 fn snaps_and_rejects_distant_points() {
     let nav = bake(&[floor()]);
@@ -434,7 +441,7 @@ fn drain_carving(nav: &mut NavMesh3D, budget: usize) -> usize {
 }
 #[test]
 fn carving_cuts_edges_and_removal_restores_straight_path() {
-    let mut nav = bake(&[floor()]);
+    let mut nav = carving_bake(&[floor()]);
     let from = vec3(-7.0, 0.0, 0.0);
     let to = vec3(7.0, 0.0, 0.0);
     let mut o = NavObstacle3D::new(vec3(0.0, 1.0, 0.0), vec3(0.5, 1.0, 2.0));
@@ -461,7 +468,7 @@ fn carving_cuts_edges_and_removal_restores_straight_path() {
 }
 #[test]
 fn carving_updates_received_while_pending_are_not_lost() {
-    let mut nav = bake(&[floor()]);
+    let mut nav = carving_bake(&[floor()]);
     let mut o = NavObstacle3D::new(vec3(0.0, 1.0, 0.0), Vec3::ONE);
     o.carve = true;
     nav.set_obstacles(&[o]);
@@ -491,7 +498,7 @@ fn crowd_reroutes_when_a_hole_is_carved_across_its_path() {
             .sim_system(check_crowd)
             .run_headless(600, |ctx| {
                 ctx.world.insert_resource(Tick(0));
-                ctx.world.insert_resource(bake(&[floor()]));
+                ctx.world.insert_resource(carving_bake(&[floor()]));
                 ctx.world.spawn((
                     Transform3D::at(vec3(-7.0, 0.0, 0.0)),
                     crowd_agent(Some(vec3(7.0, 0.0, 0.0))),

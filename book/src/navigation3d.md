@@ -35,6 +35,19 @@ work and memory. Bake uses bounded backend budgets and returns `NavBakeError`
 on invalid inputs or resource exhaustion. A scene with no walkable surface may
 produce an empty mesh.
 
+### Large levels
+
+The level is baked as a grid of square tiles, `tile_size` cells (default 32,
+6.4 m at the default cell size) on a side, and a navmesh holds at most 16,384
+tiles. When a level would need more, the baker grows `tile_size` for you, up to
+255 cells, so kilometre-wide terrain bakes with the default settings: 0.8 km
+square at the default cell size keeps 32-cell tiles, and the grown tiles reach
+about 6.5 km. Beyond that, raise `cell_size`; the error says which limit was hit
+and which setting to change. Bake time grows with the number of cells, about a
+second for a 500 m square at the defaults, so use a coarser `cell_size` and
+`cell_height` (for example 0.5 and 0.25) for the largest levels. Smaller tiles
+make carving cheaper, which is why the default is not larger.
+
 Sample explicitly when accepting a distant click or spawn position. Sampling
 uses Euclidean distance, including vertical distance. `find_path` accepts endpoints
 close to the surface (two cells horizontally and climb plus two cell heights
@@ -181,7 +194,11 @@ validation on a new target, and crowd updates are synchronous and headless.
 ## Dynamic carving
 
 Set `carve = true` to cut real holes using DetourTileCache. The default remains
-conservative polygon blocking. Tile size is configured in bake settings (8–255
+conservative polygon blocking. Carving needs the heightfield layers, which cost
+bake time and memory, so bake with `NavBakeSettings::carving` set to `true`
+(`carving` in the C struct). Without it, a `carve` obstacle blocks like an
+ordinary one. A carving bake builds the mesh from the layers alone, so it costs
+about the same as a normal bake. Tile size is configured in bake settings (8–255
 cells, default 32). Static heightfield layers are retained using the raw codec;
 updates never rasterize source triangles again.
 
@@ -190,6 +207,7 @@ updates never rasterize source triangles again.
 ```rust,no_run
 # use crabbyengine::*;
 # fn add(ctx: &mut Ctx) {
+// Bake with layers: NavBakeSettings { carving: true, ..Default::default() }.
 let mut obstacle = NavObstacle3D::new(vec3(6.0, 1.0, 6.0), Vec3::ONE);
 obstacle.carve = true;
 ctx.world.spawn((obstacle,));
@@ -228,5 +246,8 @@ already enclosed by a hole stop rather than being ejected. Budget units count
 cache update calls (at most one layer each); edits touching no layers can still
 consume one unit. The simulation uses one unit per tick. Rebuilds allocate backend
 scratch and refresh polygon bounds across the mesh; the budget bounds tile count,
-not wall-clock duration. Initial baking currently runs both the polygon baker
-(for layout) and the heightfield-layer pipeline, increasing bake cost and memory.
+not wall-clock duration. A carving bake keeps every tile's heightfield layers in
+memory. A carving mesh is built from those layers, so its polygons have no detail
+mesh heights; ordinary bakes keep the detail mesh. A carve obstacle that fully
+cuts a corridor leaves the two sides unconnected: `find_path` returns `None` and
+agents wait until the hole is removed.

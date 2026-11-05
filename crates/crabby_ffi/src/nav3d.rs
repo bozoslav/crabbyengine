@@ -38,8 +38,13 @@ pub struct CrabbyNavBakeSettings {
     pub cell_size: f32,
     /// Sampling size in height. Default 0.1.
     pub cell_height: f32,
-    /// Cells per tile side. Default 32.
+    /// Cells per tile side (8 to 255), grown automatically for very large levels
+    /// (a navmesh holds at most 16,384 tiles). Default 32.
     pub tile_size: u32,
+    /// Keep cached layers so carving obstacles can cut real holes. Costs bake
+    /// time and memory; without it carving obstacles block like ordinary ones.
+    /// Default false.
+    pub carving: bool,
 }
 
 /// The default bake: a 0.3 m wide, 1.8 m tall agent on 45° slopes.
@@ -59,6 +64,7 @@ fn settings_to_c(s: NavBakeSettings) -> CrabbyNavBakeSettings {
         cell_size: s.cell_size,
         cell_height: s.cell_height,
         tile_size: s.tile_size,
+        carving: s.carving,
     }
 }
 fn settings_from_c(s: &CrabbyNavBakeSettings) -> NavBakeSettings {
@@ -70,6 +76,7 @@ fn settings_from_c(s: &CrabbyNavBakeSettings) -> NavBakeSettings {
         cell_size: s.cell_size,
         cell_height: s.cell_height,
         tile_size: s.tile_size,
+        carving: s.carving,
     }
 }
 fn sources<'a>(s: *mut CrabbyNavSources) -> Result<&'a mut CrabbyNavSources, Failure> {

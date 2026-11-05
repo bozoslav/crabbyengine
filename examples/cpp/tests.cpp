@@ -1079,7 +1079,9 @@ static void navigation_carving() {
         }).run_headless(45, [&](crabby::ctx& ctx) {
             crabby::nav_sources sources;
             sources.add_mesh(crabby::mesh_data::plane(20), crabby::transform3d_at({0, 0, 0}));
-            ctx.bake_navmesh(sources);
+            auto settings = crabby::nav_bake_defaults();
+            settings.carving = true;
+            ctx.bake_navmesh(sources, settings);
             box = ctx.world().spawn();
             ctx.set_nav_carve_obstacle(box, {0, 1, 0}, {0.5f, 1, 2});
         });

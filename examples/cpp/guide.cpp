@@ -1711,7 +1711,9 @@ static void navigation_guide() {
             crabby::nav_sources sources;
             sources.add_mesh(crabby::mesh_data::plane(30), crabby::transform3d_at({0, 0, 0}));
             sources.add_mesh(crabby::mesh_data::cube(4), crabby::transform3d_at({0, 2, 0}));
-            ctx.bake_navmesh(sources); // or pass a nav_bake_settings
+            auto settings = crabby::nav_bake_defaults();
+            settings.carving = true; // keep layers so carving obstacles can cut holes
+            ctx.bake_navmesh(sources, settings);
             // ANCHOR_END: nav_bake
             // ANCHOR: nav_query
             start = ctx.navmesh_sample_position({-8, 1, 0}, 2).value();

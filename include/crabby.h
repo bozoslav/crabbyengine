@@ -701,6 +701,7 @@ typedef struct CrabbyNavBakeSettings {
   float cell_size;
   float cell_height;
   uint32_t tile_size;
+  bool carving;
 } CrabbyNavBakeSettings;
 
 typedef struct CrabbyTransform3D {
