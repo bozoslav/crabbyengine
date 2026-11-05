@@ -182,6 +182,25 @@ pub struct Mesh {
     pub(crate) id: u32,
 }
 
+/// What one mesh cost to draw in the last frame, from
+/// [`Ctx::mesh_costs`](crate::Ctx::mesh_costs).
+#[derive(Debug, Clone, PartialEq)]
+pub struct MeshCost {
+    /// The mesh.
+    pub mesh: Mesh,
+    /// The file it was loaded from, if it came from one (glTF meshes are
+    /// `file.glb#index`-style paths as they were loaded).
+    pub name: Option<String>,
+    /// Models the camera drew with it.
+    pub models: usize,
+    /// Triangles the camera's passes drew with it.
+    pub triangles: usize,
+    /// Models drawn with it into the shadow maps, all cascades together.
+    pub shadow_models: usize,
+    /// Triangles drawn with it into the shadow maps, all cascades together.
+    pub shadow_triangles: usize,
+}
+
 /// How a surface looks: its color (and texture), how rough and how metallic
 /// it is, and light it gives off. Made with
 /// [`Ctx::create_material`](crate::Ctx::create_material); a cheap handle.
@@ -357,6 +376,28 @@ pub struct Model {
     /// colors without more materials. Default white (no change).
     pub color: Color,
 }
+
+/// Draws a different mesh into the shadow maps than the entity's [`Model`]
+/// shows: a cheap stand-in for a detailed model's shadow (a simplified copy,
+/// a billboard), or `None` for no shadow from this entity. Without it, the
+/// model's own mesh casts the shadow (unless
+/// [`Ctx::set_mesh_shadows`](crate::Ctx::set_mesh_shadows) turned that
+/// mesh's shadows off).
+///
+/// Far from the camera, a shadow is a few texels of the shadow map, so a
+/// mesh with a tenth of the triangles casts the same shadow for a tenth of
+/// the cost. Swap it by distance, as you would the model's own detail.
+///
+/// ```no_run
+/// # use crabbyengine::*;
+/// # fn f(ctx: &mut Ctx) {
+/// let tree = ctx.load_mesh("tree.glb");
+/// let blob = ctx.load_mesh("tree_shadow.glb"); // a few dozen triangles
+/// ctx.world.spawn((Transform3D::default(), Model::new(tree), ShadowMesh(Some(blob))));
+/// # }
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ShadowMesh(pub Option<Mesh>);
 
 impl Model {
     /// Draws `mesh` as it is.

@@ -75,6 +75,7 @@ mod net;
 mod physics;
 #[cfg(feature = "physics3d")]
 mod physics3d;
+mod profiler;
 #[cfg(any(all(target_arch = "wasm32", feature = "window"), test))]
 mod query;
 mod random;
@@ -120,6 +121,7 @@ pub use physics3d::{
 };
 pub use random::{DEFAULT_SEED, Random, Rng};
 pub use reflect::{Field, FieldType, ReflectError, WorldReflect};
+pub use profiler::{FrameStats, GpuPass};
 pub use render::RenderStats;
 pub use sheet::{Animation, SpriteSheet, animate_sprites};
 #[doc(hidden)]
@@ -138,7 +140,7 @@ pub use texture::{DrawParams, Texture, TextureFilter};
 #[cfg(feature = "3d")]
 pub use three::{
     Blend, Camera3D, Compute, ComputePass, Effect, Heightfield, Lighting, Material, MaterialDesc, Mesh, MeshData,
-    Model, PointLight3D, Post, ScreenEffect, Shader, Sky, SpotLight3D, TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera,
+    MeshCost, Model, PointLight3D, Post, ScreenEffect, ShadowMesh, Shader, Sky, SpotLight3D, TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera,
     TerrainMaterialDesc, TerrainTile, TerrainTileData, TextureArray, TextureKind, Tonemap, Transform3D,
 };
 pub use tilemap::{TileMap, draw_tilemaps};

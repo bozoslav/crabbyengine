@@ -7,8 +7,10 @@
 //! them never waits for the GPU: a frame's time shows up one to three frames
 //! later. If every buffer is still in flight, that frame isn't timed.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::sync::Arc;
+
+use crate::profiler::{GpuPass, PassSpan};
 use std::sync::atomic::{AtomicU8, Ordering};
 
 const SLOTS: usize = 3;
@@ -25,6 +27,9 @@ struct Slot {
     state: Arc<AtomicU8>,
     /// Timestamps the frame in this slot wrote.
     written: u32,
+    /// The name of each timed pass, in order: pass `i` wrote timestamps
+    /// `2i` and `2i + 1`.
+    names: Vec<&'static str>,
 }
 
 pub(crate) struct GpuTimer {
@@ -38,8 +43,18 @@ pub(crate) struct GpuTimer {
     next: usize,
     /// Timestamps written so far this frame.
     used: Cell<u32>,
+    /// This frame's pass names so far.
+    names: RefCell<Vec<&'static str>>,
     /// Smoothed GPU time of the frame's passes, in milliseconds.
     pub smoothed_ms: Option<f32>,
+    /// Smoothed time of each pass, in the order of the latest frame.
+    pub passes: Vec<GpuPass>,
+    /// The latest timed frame's passes, unsmoothed, with their start times.
+    pub last_frame: Vec<PassSpan>,
+    /// Bumped whenever a frame's timestamps come back.
+    pub frames_read: u64,
+    /// Reused by `smooth_passes`, so reading results allocates nothing.
+    scratch: Vec<GpuPass>,
 }
 
 impl GpuTimer {
@@ -68,6 +83,7 @@ impl GpuTimer {
             }),
             state: Arc::new(AtomicU8::new(FREE)),
             written: 0,
+            names: Vec::with_capacity(MAX_PASSES as usize),
         };
         Some(Self {
             queries,
@@ -77,43 +93,44 @@ impl GpuTimer {
             current: None,
             next: 0,
             used: Cell::new(0),
+            names: RefCell::new(Vec::with_capacity(MAX_PASSES as usize)),
             smoothed_ms: None,
+            passes: Vec::new(),
+            last_frame: Vec::with_capacity(MAX_PASSES as usize),
+            frames_read: 0,
+            scratch: Vec::with_capacity(MAX_PASSES as usize),
         })
     }
 
     /// Picks up finished readbacks. Call once per frame, before `begin_frame`.
     pub fn collect(&mut self, device: &wgpu::Device) {
         let _ = device.poll(wgpu::PollType::Poll);
-        for slot in &self.slots {
-            if slot.state.load(Ordering::Acquire) != READY {
+        for i in 0..SLOTS {
+            if self.slots[i].state.load(Ordering::Acquire) != READY {
                 continue;
             }
-            let ticks = {
-                match slot.buffer.get_mapped_range(..) {
-                    Ok(view) => {
-                        let t: &[u64] = bytemuck::cast_slice(&view);
-                        // From the earliest timestamp to the latest: passes
-                        // can overlap (tile-based GPUs start one before the
-                        // last ends), so their own times don't add up. Zero
-                        // marks a timestamp the GPU didn't write.
-                        let written = t[..slot.written as usize].iter().copied().filter(|&x| x != 0);
-                        let (first, last) = written.fold((u64::MAX, 0), |(lo, hi), x| (lo.min(x), hi.max(x)));
-                        (last > first).then(|| last - first)
-                    }
-                    Err(_) => None,
+            let ok = match self.slots[i].buffer.get_mapped_range(..) {
+                Ok(view) => {
+                    let t: &[u64] = bytemuck::cast_slice(&view);
+                    let slot = &self.slots[i];
+                    read_frame(&t[..slot.written as usize], &slot.names, self.period, &mut self.last_frame)
                 }
+                Err(_) => None,
             };
+            let slot = &mut self.slots[i];
             slot.buffer.unmap();
             slot.state.store(FREE, Ordering::Release);
-            let Some(ticks) = ticks else { continue };
-            let ms = (ticks as f64 * self.period / 1e6) as f32;
+            let Some(ms) = ok else { continue };
             // A bogus sample (clock reset, overflow) would ruin the average.
-            if ms.is_finite() && ms < 10_000.0 {
-                self.smoothed_ms = Some(match self.smoothed_ms {
-                    None => ms,
-                    Some(avg) => avg + (ms - avg) * 0.1,
-                });
+            if !(ms.is_finite() && ms < 10_000.0) {
+                continue;
             }
+            self.frames_read += 1;
+            self.smoothed_ms = Some(match self.smoothed_ms {
+                None => ms,
+                Some(avg) => avg + (ms - avg) * 0.1,
+            });
+            smooth_passes(&mut self.passes, &mut self.scratch, &self.last_frame);
         }
     }
 
@@ -121,21 +138,24 @@ impl GpuTimer {
     pub fn begin_frame(&mut self) {
         let i = self.next;
         self.used.set(0);
+        self.names.borrow_mut().clear();
         self.current = (self.slots[i].state.load(Ordering::Acquire) == FREE).then_some(i);
         if self.current.is_some() {
             self.next = (i + 1) % SLOTS;
         }
     }
 
-    /// The timestamp writes for the frame's next pass: `None` when this
-    /// frame isn't timed or already timed `MAX_PASSES` passes.
-    pub fn pass(&self) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
+    /// The timestamp writes for the frame's next pass, called `name` in
+    /// the results: `None` when this frame isn't timed or already timed
+    /// `MAX_PASSES` passes.
+    pub fn pass(&self, name: &'static str) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
         self.current?;
         let at = self.used.get();
         if at + 2 > QUERIES {
             return None;
         }
         self.used.set(at + 2);
+        self.names.borrow_mut().push(name);
         Some(wgpu::RenderPassTimestampWrites {
             query_set: &self.queries,
             beginning_of_pass_write_index: Some(at),
@@ -154,6 +174,9 @@ impl GpuTimer {
             encoder.resolve_query_set(&self.queries, 0..used, &self.resolve, 0);
             encoder.copy_buffer_to_buffer(&self.resolve, 0, &self.slots[i].buffer, 0, u64::from(used) * 8);
             self.slots[i].written = used;
+            let slot = &mut self.slots[i];
+            slot.names.clear();
+            slot.names.extend_from_slice(&self.names.borrow());
         }
     }
 
@@ -167,5 +190,97 @@ impl GpuTimer {
                 state.store(if result.is_ok() { READY } else { FREE }, Ordering::Release);
             });
         }
+    }
+}
+
+/// Turns one frame's timestamps into `spans` (cleared first) and returns
+/// the frame's GPU time: from the earliest timestamp to the latest.
+///
+/// Each pass is charged from when the pass before it ended (or its own
+/// start, if later) to its own end. Tile-based GPUs start a pass before the
+/// last one ends, and a pass that waits for the one before it would
+/// otherwise count that wait as its own, so the passes would add up to far
+/// more than the frame. This way they add up to the frame's time, less any
+/// idle gaps. Zero marks a timestamp the GPU didn't write.
+fn read_frame(t: &[u64], names: &[&'static str], period: f64, spans: &mut Vec<PassSpan>) -> Option<f32> {
+    let written = t.iter().copied().filter(|&x| x != 0);
+    let (first, last) = written.fold((u64::MAX, 0), |(lo, hi), x| (lo.min(x), hi.max(x)));
+    if last <= first {
+        return None;
+    }
+    let ms = |ticks: u64| (ticks as f64 * period / 1e6) as f32;
+    spans.clear();
+    let mut done = first;
+    for (&[begin, end], &name) in t.as_chunks::<2>().0.iter().zip(names) {
+        if begin == 0 || end < begin {
+            continue;
+        }
+        let start = begin.max(done).min(end);
+        done = done.max(end);
+        spans.push(PassSpan {
+            name,
+            start_ms: ms(start - first),
+            ms: ms(end - start),
+        });
+    }
+    Some(ms(last - first))
+}
+
+/// Folds one frame's spans into the smoothed per-pass times. Passes with the
+/// same name are added; the order follows the frame, and passes the frame
+/// didn't run are dropped.
+fn smooth_passes(passes: &mut Vec<GpuPass>, out: &mut Vec<GpuPass>, frame: &[PassSpan]) {
+    out.clear();
+    for span in frame {
+        match out.iter_mut().find(|p| p.name == span.name) {
+            Some(p) => p.ms += span.ms,
+            None => out.push(GpuPass { name: span.name, ms: span.ms }),
+        }
+    }
+    for p in out.iter_mut() {
+        if let Some(old) = passes.iter().find(|o| o.name == p.name) {
+            p.ms = old.ms + (p.ms - old.ms) * 0.1;
+        }
+    }
+    std::mem::swap(passes, out);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn frames_split_into_named_passes() {
+        let mut spans = Vec::new();
+        // Two passes; the GPU skipped the third's timestamps.
+        let t = [1_000_000, 3_000_000, 3_000_000, 4_000_000, 0, 0];
+        let total = read_frame(&t, &["a", "b", "c"], 1.0, &mut spans).unwrap();
+        assert!((total - 3.0).abs() < 1e-6);
+        assert_eq!(spans.len(), 2);
+        assert_eq!(spans[1].name, "b");
+        assert!((spans[1].start_ms - 2.0).abs() < 1e-6 && (spans[1].ms - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn overlapping_passes_are_charged_from_the_previous_end() {
+        let mut spans = Vec::new();
+        // b begins while a still runs, waiting for it: b is charged 4..6
+        // (each timestamp is one past its time: zero means unwritten).
+        let t = [1, 5, 2, 7];
+        let total = read_frame(&t, &["a", "b"], 1e6, &mut spans).unwrap();
+        assert_eq!(total, 6.0);
+        assert_eq!(spans.iter().map(|s| s.ms).sum::<f32>(), total);
+        assert_eq!((spans[1].start_ms, spans[1].ms), (4.0, 2.0));
+    }
+
+    #[test]
+    fn same_named_passes_add_up_and_smooth() {
+        let span = |name, ms| PassSpan { name, start_ms: 0.0, ms };
+        let (mut passes, mut scratch) = (Vec::new(), Vec::new());
+        smooth_passes(&mut passes, &mut scratch, &[span("shadows", 1.0), span("opaque", 4.0), span("shadows", 1.0)]);
+        assert_eq!(passes, [GpuPass { name: "shadows", ms: 2.0 }, GpuPass { name: "opaque", ms: 4.0 }]);
+        smooth_passes(&mut passes, &mut scratch, &[span("opaque", 14.0)]);
+        assert_eq!(passes.len(), 1, "passes that stopped running are dropped");
+        assert!((passes[0].ms - 5.0).abs() < 1e-5, "{}", passes[0].ms);
     }
 }

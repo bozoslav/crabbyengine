@@ -25,6 +25,18 @@ use wgpu::util::DeviceExt;
 use super::gpu::GpuTexture;
 use super::lights::LightTextures;
 use super::timer::GpuTimer;
+
+/// GPU timer names of the shadow cascades' passes.
+const SHADOW_PASSES: [&str; 8] = [
+    "shadows 0",
+    "shadows 1",
+    "shadows 2",
+    "shadows 3",
+    "shadows 4",
+    "shadows 5",
+    "shadows 6",
+    "shadows 7",
+];
 use crate::Material;
 use crate::three::Scene3D;
 use crate::three::{
@@ -681,7 +693,7 @@ impl Renderer3D {
             operation: wgpu::BlendOperation::Add,
         };
         let bloom_up = full_screen(
-            "3d bloom up",
+            "bloom",
             &bloom_pipeline_layout,
             "fs_bloom_up",
             HDR_FORMAT,
@@ -1509,7 +1521,9 @@ impl Renderer3D {
                 bytemuck::bytes_of(&theirs),
             );
         }
-        // Copy 0 also serves the sky texture's pass.
+        // Copy 0 also serves the sky texture's pass. `camera.w` 0 tells
+        // material shaders they're drawing a shadow map (`drawing_shadows`).
+        uniform.camera[3] = 0.0;
         for i in 0..frame.cascades.max(1) {
             uniform.caster_view_proj = uniform.sun_view_proj[i.min(MAX_CASCADES - 1)];
             queue.write_buffer(
@@ -1664,6 +1678,64 @@ impl Renderer3D {
             }
     }
 
+    /// (instances, triangles) the camera draws, then the same for the shadow maps.
+    pub fn counts(&self) -> [(usize, usize); 2] {
+        let count = |runs: &[(u32, u32, u32)]| {
+            runs.iter().fold((0, 0), |(n, tris), &(mesh, _, k)| {
+                let per: u32 = self.meshes[mesh as usize]
+                    .parts
+                    .iter()
+                    .map(|(range, _)| range.len() as u32 / 3)
+                    .sum();
+                (n + k as usize, tris + per as usize * k as usize)
+            })
+        };
+        let shadows = self.shadow_runs[..self.cascades]
+            .iter()
+            .map(|r| count(r))
+            .fold((0, 0), |a, b| (a.0 + b.0, a.1 + b.1));
+        [count(&self.runs), shadows]
+    }
+
+    /// Per mesh: (mesh, camera models, camera triangles, shadow models,
+    /// shadow triangles), for meshes drawn this frame, in mesh order.
+    pub fn mesh_costs(&self) -> Vec<(u32, usize, usize, usize, usize)> {
+        let mut out: Vec<(u32, usize, usize, usize, usize)> = Vec::new();
+        let tris = |mesh: u32| -> usize {
+            self.meshes[mesh as usize]
+                .parts
+                .iter()
+                .map(|(range, _)| range.len() / 3)
+                .sum()
+        };
+        let mut add = |mesh: u32, count: u32, shadow: bool| {
+            let at = match out.binary_search_by_key(&mesh, |e| e.0) {
+                Ok(i) => i,
+                Err(i) => {
+                    out.insert(i, (mesh, 0, 0, 0, 0));
+                    i
+                }
+            };
+            let (n, t) = (count as usize, tris(mesh) * count as usize);
+            if shadow {
+                out[at].3 += n;
+                out[at].4 += t;
+            } else {
+                out[at].1 += n;
+                out[at].2 += t;
+            }
+        };
+        for &(mesh, _, count) in &self.runs {
+            add(mesh, count, false);
+        }
+        for runs in &self.shadow_runs[..self.cascades] {
+            for &(mesh, _, count) in runs {
+                add(mesh, count, true);
+            }
+        }
+        out
+    }
+
     /// Whether this frame has anything to draw.
     pub fn has_draws(&self) -> bool {
         !self.runs.is_empty()
@@ -1680,12 +1752,12 @@ impl Renderer3D {
         timer: Option<&GpuTimer>,
     ) {
         let Some(targets) = &self.targets else { return };
-        let time = || timer.and_then(GpuTimer::pass);
+        let time = |name| timer.and_then(|t| t.pass(name));
         // Compute passes first, so this frame's materials see their results.
         for &(compute, state, material) in &self.computes {
             let state = &self.compute_states[state].1;
             {
-                let timestamps = time().map(|t| wgpu::ComputePassTimestampWrites {
+                let timestamps = time("compute").map(|t| wgpu::ComputePassTimestampWrites {
                     query_set: t.query_set,
                     beginning_of_pass_write_index: t.beginning_of_pass_write_index,
                     end_of_pass_write_index: t.end_of_pass_write_index,
@@ -1721,7 +1793,7 @@ impl Renderer3D {
                     },
                 })],
                 depth_stencil_attachment: None,
-                timestamp_writes: time(),
+                timestamp_writes: time("sky texture"),
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
@@ -1741,7 +1813,7 @@ impl Renderer3D {
                     }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: time(),
+                timestamp_writes: time(SHADOW_PASSES[cascade.min(SHADOW_PASSES.len() - 1)]),
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
@@ -1767,7 +1839,7 @@ impl Renderer3D {
                     }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: time(),
+                timestamp_writes: time("depth prepass"),
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
@@ -1807,7 +1879,7 @@ impl Renderer3D {
                     }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: time(),
+                timestamp_writes: time("opaque"),
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
@@ -1847,7 +1919,7 @@ impl Renderer3D {
                     depth_ops: None,
                     stencil_ops: None,
                 }),
-                timestamp_writes: time(),
+                timestamp_writes: time("transparent"),
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
@@ -1878,7 +1950,7 @@ impl Renderer3D {
                     },
                 })],
                 depth_stencil_attachment: None,
-                timestamp_writes: time(),
+                timestamp_writes: time("screen effects"),
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
@@ -1895,7 +1967,7 @@ impl Renderer3D {
         };
         if self.bloom {
             let step = |encoder: &mut wgpu::CommandEncoder,
-                        label,
+                        label: &'static str,
                         pipeline,
                         group: &wgpu::BindGroup,
                         target: &wgpu::TextureView,
@@ -1912,7 +1984,7 @@ impl Renderer3D {
                         },
                     })],
                     depth_stencil_attachment: None,
-                    timestamp_writes: time(),
+                    timestamp_writes: time(label),
                     occlusion_query_set: None,
                     multiview_mask: None,
                 });
@@ -1930,19 +2002,19 @@ impl Renderer3D {
             let mips = &targets.bloom_mips;
             step(
                 encoder,
-                "3d bloom",
+                "bloom",
                 &self.bloom_prefilter,
                 bloom_prefilter,
                 &mips[0],
                 clear,
             );
             for (i, group) in targets.bloom_down.iter().enumerate() {
-                step(encoder, "3d bloom down", &self.bloom_down, group, &mips[i + 1], clear);
+                step(encoder, "bloom", &self.bloom_down, group, &mips[i + 1], clear);
             }
             for (i, group) in targets.bloom_up.iter().enumerate().rev() {
                 step(
                     encoder,
-                    "3d bloom up",
+                    "bloom",
                     &self.bloom_up,
                     group,
                     &mips[i],
@@ -1962,7 +2034,7 @@ impl Renderer3D {
                 },
             })],
             depth_stencil_attachment: None,
-            timestamp_writes: time(),
+            timestamp_writes: time("post"),
             occlusion_query_set: None,
             multiview_mask: None,
         });
@@ -1980,7 +2052,7 @@ impl Renderer3D {
         target: &ViewTarget,
         runs: &[(u32, u32, u32)],
         clear: wgpu::Color,
-        time: &dyn Fn() -> Option<wgpu::RenderPassTimestampWrites<'t>>,
+        time: &dyn Fn(&'static str) -> Option<wgpu::RenderPassTimestampWrites<'t>>,
     ) {
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1994,7 +2066,7 @@ impl Renderer3D {
                     }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: time(),
+                timestamp_writes: time("target cameras"),
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
@@ -2021,7 +2093,7 @@ impl Renderer3D {
                 }),
                 stencil_ops: None,
             }),
-            timestamp_writes: time(),
+            timestamp_writes: time("target cameras"),
             occlusion_query_set: None,
             multiview_mask: None,
         });

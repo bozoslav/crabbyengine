@@ -48,6 +48,10 @@ pub(crate) struct Renderer {
     instance_capacity: usize,
 
     timer: Option<GpuTimer>,
+    /// Draw frames the window can't take into `hidden_target` instead of
+    /// skipping them (benchmarks).
+    draw_hidden: bool,
+    hidden_target: Option<wgpu::Texture>,
     stats: RenderStats,
     /// The 3D pass, made when the game first creates a mesh or material.
     #[cfg(feature = "3d")]
@@ -57,6 +61,9 @@ pub(crate) struct Renderer {
     /// Time spent collecting and uploading this frame's 3D models.
     #[cfg(feature = "3d")]
     prepare_3d_ms: f32,
+    /// Of `prepare_3d_ms`, the time collecting models.
+    #[cfg(feature = "3d")]
+    collect_ms: f32,
     /// How long the last frame waited for the window's next image.
     display_wait_ms: f32,
     /// The last captured frame, waiting to be picked up.
@@ -177,6 +184,57 @@ impl Renderer {
     /// What drawing the last frame cost.
     pub fn stats(&self) -> RenderStats {
         self.stats
+    }
+
+    /// See `Renderer3D::mesh_costs`; empty before any 3D.
+    #[cfg(feature = "3d")]
+    pub fn mesh_costs(&self) -> Vec<(u32, usize, usize, usize, usize)> {
+        self.three.as_ref().map(|t| t.mesh_costs()).unwrap_or_default()
+    }
+
+    /// Draw frames that the window can't take offscreen instead of skipping
+    /// them, so benchmarks measure every frame.
+    pub fn set_draw_hidden(&mut self, on: bool) {
+        self.draw_hidden = on;
+    }
+
+    /// A view of the offscreen stand-in for the window, made at its size.
+    fn hidden_view(&mut self) -> wgpu::TextureView {
+        let (width, height) = (self.config.width, self.config.height);
+        let fits = self
+            .hidden_target
+            .as_ref()
+            .is_some_and(|t| t.width() == width && t.height() == height);
+        if !fits {
+            self.hidden_target = Some(self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("offscreen frame"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: self.view_format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            }));
+        }
+        self.hidden_target
+            .as_ref()
+            .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default()))
+            .expect("made above")
+    }
+
+    /// The GPU time of each pass, smoothed (empty without timestamp queries).
+    pub fn gpu_passes(&self) -> &[crate::profiler::GpuPass] {
+        self.timer.as_ref().map_or(&[], |t| &t.passes)
+    }
+
+    /// The latest GPU frame's passes and how many frames the timer has read.
+    pub fn gpu_frame(&self) -> Option<(&[crate::profiler::PassSpan], u64)> {
+        self.timer.as_ref().map(|t| (&t.last_frame[..], t.frames_read))
     }
 
     /// The last captured frame, if one is waiting.
@@ -384,6 +442,8 @@ impl Renderer {
             instance_buffer,
             instance_capacity: INITIAL_INSTANCE_CAPACITY,
             timer,
+            draw_hidden: false,
+            hidden_target: None,
             stats: RenderStats::default(),
             #[cfg(feature = "3d")]
             three: None,
@@ -392,6 +452,8 @@ impl Renderer {
             display_wait_ms: 0.0,
             #[cfg(feature = "3d")]
             prepare_3d_ms: 0.0,
+            #[cfg(feature = "3d")]
+            collect_ms: 0.0,
             screenshot: None,
             #[cfg(feature = "inspector")]
             overlay: None,
@@ -598,6 +660,7 @@ impl Renderer {
             three.prepare(&self.device, &self.queue, &input);
         }
         self.prepare_3d_ms = collect_ms + start.elapsed().as_secs_f32() * 1000.0;
+        self.collect_ms = collect_ms;
     }
 
     pub fn display_wait_ms(&self) -> f32 {
@@ -900,9 +963,12 @@ impl Renderer {
                 (None, FrameStatus::Skipped)
             }
         };
-        if frame.is_none() && !capture {
+        if frame.is_none() && !capture && !self.draw_hidden {
             return status;
         }
+        let hidden = frame.is_none() && self.draw_hidden;
+        let status = if hidden { FrameStatus::Offscreen } else { status };
+        let mut hidden_view = hidden.then(|| self.hidden_view());
 
         let cpu_start = web_time::Instant::now();
         if let Some(timer) = &mut self.timer {
@@ -917,6 +983,12 @@ impl Renderer {
         #[cfg(feature = "3d")]
         if let Some(three) = &self.three {
             self.stats.draw_calls += three.draw_calls();
+            let [(instances, triangles), (shadow_instances, shadow_triangles)] = three.counts();
+            self.stats.instances = instances;
+            self.stats.triangles = triangles;
+            self.stats.shadow_instances = shadow_instances;
+            self.stats.shadow_triangles = shadow_triangles;
+            self.stats.collect_ms = self.collect_ms;
         }
 
         if total > self.instance_capacity {
@@ -956,16 +1028,17 @@ impl Renderer {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frame") });
-        let view = frame.as_ref().map(|frame| {
-            frame.texture.create_view(&wgpu::TextureViewDescriptor {
+        let view = match &frame {
+            Some(frame) => Some(frame.texture.create_view(&wgpu::TextureViewDescriptor {
                 format: Some(self.view_format),
                 ..Default::default()
-            })
-        });
+            })),
+            None => hidden_view.take(),
+        };
         if let Some(view) = &view {
             let timer = self.timer.as_ref();
             let sprite_clear = self.draw_3d(&mut encoder, view, clear, timer);
-            Self::sprite_pass(&mut encoder, view, sprite_clear, timer.and_then(GpuTimer::pass), &pass);
+            Self::sprite_pass(&mut encoder, view, sprite_clear, timer.and_then(|t| t.pass("sprites")), &pass);
         }
         // A screenshot draws the same sprites a second time, into a texture
         // that can be copied (the window's surface can't, on some GPUs).

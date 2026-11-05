@@ -3,7 +3,7 @@
 
 use glam::{Mat4, Vec3, Vec4};
 
-use super::{Assets3D, Camera3D, Lighting, Model, TERRAIN_LODS, TerrainTile, Transform3D, linear};
+use super::{Assets3D, Camera3D, Lighting, Model, ShadowMesh, TERRAIN_LODS, TerrainTile, Transform3D, linear};
 use crate::World;
 
 /// Width and height of each of the sun's shadow maps, in texels.
@@ -107,20 +107,23 @@ impl Frame3D {
         let scratch = &mut self.scratch;
         // `meshes`: what the camera draws, then what each cascade's shadow
         // map draws (the same for models; coarser for distant terrain).
+        // `bounds`: the camera mesh's, and the shadow meshes' (`None`: no
+        // shadow), as (center, radius) in model space.
         let mut add = |meshes: [u32; 1 + MAX_CASCADES],
                        t: &Transform3D,
                        color: [f32; 4],
-                       center: Vec3,
-                       radius: f32,
-                       shadows: bool| {
+                       bounds: (Vec3, f32),
+                       shadow_bounds: Option<(Vec3, f32)>| {
             let matrix = t.matrix();
-            let world_center = matrix.transform_point3(center);
-            let world_radius = radius * t.scale.abs().max_element();
-            let seen = sphere_visible(&planes, world_center, world_radius);
+            let scale = t.scale.abs().max_element();
+            let seen = sphere_visible(&planes, matrix.transform_point3(bounds.0), bounds.1 * scale);
             let mut casts = 0;
-            for (i, p) in sun_planes.iter().enumerate().filter(|_| shadows) {
-                if sphere_visible(p, world_center, world_radius) {
-                    casts |= 1 << i;
+            if let Some((center, radius)) = shadow_bounds {
+                let (world_center, world_radius) = (matrix.transform_point3(center), radius * scale);
+                for (i, p) in sun_planes.iter().enumerate() {
+                    if sphere_visible(p, world_center, world_radius) {
+                        casts |= 1 << i;
+                    }
                 }
             }
             if !seen && casts == 0 {
@@ -155,19 +158,22 @@ impl Frame3D {
                 scratch.push((mesh, instance, false, mask));
             }
         };
-        world.query::<(&Transform3D, &Model)>().for_each(|(t, m)| {
-            if let Some((center, radius)) = assets.live_bounds(m.mesh.id) {
-                let shadows = assets.casts_shadows(m.mesh.id);
-                add(
-                    [m.mesh.id; 1 + MAX_CASCADES],
-                    t,
-                    linear(m.color),
-                    center,
-                    radius,
-                    shadows,
-                );
-            }
-        });
+        world
+            .query::<(&Transform3D, &Model, Option<&ShadowMesh>)>()
+            .for_each(|(t, m, shadow)| {
+                let Some(bounds) = assets.live_bounds(m.mesh.id) else {
+                    return;
+                };
+                let caster = match shadow {
+                    Some(ShadowMesh(caster)) => *caster,
+                    None => Some(m.mesh),
+                };
+                let caster = caster.filter(|c| assets.casts_shadows(c.id));
+                let shadow_bounds = caster.and_then(|c| assets.live_bounds(c.id));
+                let mut meshes = [caster.map_or(m.mesh.id, |c| c.id); 1 + MAX_CASCADES];
+                meshes[0] = m.mesh.id;
+                add(meshes, t, linear(m.color), bounds, shadow_bounds);
+            });
         // Terrain: the detail level for how far the camera is from the
         // tile's bounds (the finest level's, which hold every coarser one).
         // Shadow cascade i draws at least level i: its texels are too big
@@ -188,7 +194,7 @@ impl Frame3D {
                 .id
             });
             if meshes.iter().all(|&m| assets.live_bounds(m).is_some()) {
-                add(meshes, t, [1.0; 4], center, radius, true);
+                add(meshes, t, [1.0; 4], (center, radius), Some((center, radius)));
             }
         });
         let meshes = assets.bounds.len();

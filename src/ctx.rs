@@ -321,6 +321,10 @@ pub struct Ctx {
     pub ui_style: UiStyle,
     pub(crate) audio: Audio,
     pub(crate) last_render_stats: RenderStats,
+    /// Frame statistics, the HUD, traces and benchmark runs.
+    pub(crate) profiler: crate::profiler::Profiler,
+    /// The renderer's per-pass GPU times, copied after every frame.
+    gpu_passes: Vec<crate::GpuPass>,
 }
 
 impl Ctx {
@@ -417,6 +421,8 @@ impl Ctx {
             ui_style: UiStyle::default(),
             audio: Audio::default(),
             last_render_stats: RenderStats::default(),
+            profiler: crate::profiler::Profiler::new(),
+            gpu_passes: Vec::new(),
             clear_color: Color::CRABBY_DARK,
         }
     }
@@ -438,6 +444,10 @@ impl Ctx {
             None => FrameStatus::Skipped,
         };
         self.last_render_stats = self.renderer.as_ref().map(Renderer::stats).unwrap_or_default();
+        if let Some(renderer) = &self.renderer {
+            self.gpu_passes.clear();
+            self.gpu_passes.extend_from_slice(renderer.gpu_passes());
+        }
         self.draw_list.clear();
         self.ui_list.clear();
         if let Some(shot) = self.renderer.as_mut().and_then(Renderer::take_screenshot) {
@@ -1339,19 +1349,6 @@ impl Ctx {
         self.draw_list.len() + self.ui_list.len()
     }
 
-    /// What drawing the previous frame cost: sprites, draw calls, CPU time
-    /// and GPU time. All zero (and `gpu_ms` is `None`) in headless runs.
-    ///
-    /// ```
-    /// # use crabbyengine::*;
-    /// fn overlay(ctx: &mut Ctx) {
-    ///     let stats = ctx.render_stats();
-    ///     if let Some(gpu) = stats.gpu_ms {
-    ///         println!("{} sprites: {:.2} ms CPU, {gpu:.2} ms GPU", stats.sprites, stats.cpu_ms);
-    ///     }
-    /// }
-    /// # Game::new("t", 1, 1).system(overlay).run_headless(1, |_| {});
-    /// ```
     /// Saves the next frame as a PNG at `path`, once it has been drawn.
     /// Does nothing in headless runs (there is no frame). Errors are printed.
     ///
@@ -1378,9 +1375,140 @@ impl Ctx {
         self.renderer.as_ref().map_or(0.0, Renderer::display_wait_ms)
     }
 
-    /// Draw calls, sprites and vertices of the last rendered frame (all zero headless).
+    /// What drawing the previous frame cost: sprites, draw calls, CPU time
+    /// and GPU time. All zero (and `gpu_ms` is `None`) in headless runs.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// fn overlay(ctx: &mut Ctx) {
+    ///     let stats = ctx.render_stats();
+    ///     if let Some(gpu) = stats.gpu_ms {
+    ///         println!("{} sprites: {:.2} ms CPU, {gpu:.2} ms GPU", stats.sprites, stats.cpu_ms);
+    ///     }
+    /// }
+    /// # Game::new("t", 1, 1).system(overlay).run_headless(1, |_| {});
+    /// ```
     pub fn render_stats(&self) -> RenderStats {
         self.last_render_stats
+    }
+
+    /// Frame-time statistics over the last few seconds: frames per second,
+    /// average and percentile frame times, and where the time went (systems,
+    /// drawing on the CPU, waiting for the display, the GPU). Refreshed four
+    /// times a second. All zero in headless runs.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// fn report(ctx: &mut Ctx) {
+    ///     let s = ctx.frame_stats();
+    ///     if s.p99_ms > 2.0 * s.p50_ms {
+    ///         println!("stutter: p99 {:.1} ms vs median {:.1} ms", s.p99_ms, s.p50_ms);
+    ///     }
+    /// }
+    /// # Game::new("t", 1, 1).system(report).run_headless(1, |_| {});
+    /// ```
+    pub fn frame_stats(&self) -> crate::FrameStats {
+        self.profiler.stats()
+    }
+
+    /// The GPU time of each pass of the last frames (shadow cascades, depth
+    /// prepass, opaque, transparent, bloom, post, ...), smoothed, in the
+    /// order they run. Empty in headless runs and on GPUs without timestamp
+    /// queries.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// fn slowest_pass(ctx: &mut Ctx) {
+    ///     if let Some(p) = ctx.gpu_passes().iter().max_by(|a, b| a.ms.total_cmp(&b.ms)) {
+    ///         println!("slowest GPU pass: {} ({:.2} ms)", p.name, p.ms);
+    ///     }
+    /// }
+    /// # Game::new("t", 1, 1).system(slowest_pass).run_headless(1, |_| {});
+    /// ```
+    pub fn gpu_passes(&self) -> &[crate::GpuPass] {
+        &self.gpu_passes
+    }
+
+    /// Shows or hides the performance HUD: frame times, CPU and GPU time,
+    /// the slowest GPU passes and systems, drawn in the top-left corner.
+    /// `CRABBY_HUD=1` shows it from the start.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// fn toggle_hud(ctx: &mut Ctx) {
+    ///     if ctx.key_pressed(Key::F3) {
+    ///         let on = ctx.perf_hud();
+    ///         ctx.set_perf_hud(!on);
+    ///     }
+    /// }
+    /// # Game::new("t", 1, 1).system(toggle_hud).run_headless(1, |_| {});
+    /// ```
+    pub fn set_perf_hud(&mut self, on: bool) {
+        self.profiler.hud = on;
+    }
+
+    /// Whether the performance HUD is showing.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// let on = ctx.perf_hud();
+    /// # }
+    /// ```
+    pub fn perf_hud(&self) -> bool {
+        self.profiler.hud
+    }
+
+    /// Records the next `frames` frames as a Chrome trace at `path`: each
+    /// frame's systems, drawing and display wait on one track, and the GPU
+    /// passes on another. Open it in <https://ui.perfetto.dev>. Does nothing
+    /// in headless runs.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// fn capture(ctx: &mut Ctx) {
+    ///     if ctx.key_pressed(Key::F4) {
+    ///         ctx.record_trace("frames.json", 120);
+    ///     }
+    /// }
+    /// # Game::new("t", 1, 1).system(capture).run_headless(1, |_| {});
+    /// ```
+    pub fn record_trace(&mut self, path: impl Into<PathBuf>, frames: usize) {
+        if !self.headless {
+            self.profiler.start_trace(path.into(), frames.max(1));
+        }
+    }
+
+    /// Hands one frame's timings to the profiler. `true` when a benchmark
+    /// run is done and the game should quit.
+    pub(crate) fn record_frame(&mut self, sample: crate::profiler::FrameSample) -> bool {
+        let gpu_frame = self.renderer.as_ref().and_then(Renderer::gpu_frame);
+        self.profiler
+            .record(sample, &self.timings, &self.gpu_passes, gpu_frame, self.last_render_stats)
+    }
+
+    /// Queues the HUD's drawing for this frame (the game loop calls it
+    /// before rendering).
+    pub(crate) fn draw_perf_hud(&mut self) {
+        if !self.profiler.hud || self.profiler.hud_text().is_empty() {
+            return;
+        }
+        let text = std::mem::take(self.profiler.hud_text_mut());
+        let lines = text.lines().count() as f32;
+        let (size, pad) = (14.0, 8.0);
+        let panel = crate::Rect::new(4.0, 4.0, 420.0, lines * size * 1.25 + pad * 2.0);
+        self.ui_fill(panel, Color::rgba(0.0, 0.0, 0.0, 0.6), 100.0);
+        self.draw_text_ex(
+            &text,
+            panel.min + pad,
+            crate::TextParams {
+                size,
+                color: Color::WHITE,
+                z: 101.0,
+                ..Default::default()
+            },
+        );
+        *self.profiler.hud_text_mut() = text;
     }
 
     // ---------------------------------------------------------------- timing

@@ -163,7 +163,7 @@ fn offscreen_light_benchmark() {
                 cpu_ms: start.elapsed().as_secs_f32() * 1000.0,
                 gpu_ms: timer.smoothed_ms,
                 draw_calls: renderer.draw_calls(),
-                sprites: 0,
+                ..RenderStats::default()
             };
             // Completion is outside CPU timing, as display/GPU waits are in normal stats.
             device.poll(wgpu::PollType::wait_indefinitely()).unwrap();

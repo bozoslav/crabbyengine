@@ -42,6 +42,18 @@ pub struct RenderStats {
     /// timestamp queries. It includes any time the GPU waits between
     /// passes, so it's an upper bound. `None` when the GPU doesn't support them, and in headless runs.
     pub gpu_ms: Option<f32>,
+    /// 3D: of `cpu_ms`, the time spent finding what the camera and the
+    /// shadow maps see (culling every model), in ms.
+    pub collect_ms: f32,
+    /// 3D models the camera draws (one per drawn [`Model`](crate::Model)).
+    pub instances: usize,
+    /// Triangles the camera's passes draw (each once, though the depth
+    /// prepass draws the solid ones a second time).
+    pub triangles: usize,
+    /// 3D models drawn into the shadow maps, all cascades together.
+    pub shadow_instances: usize,
+    /// Triangles drawn into the shadow maps, all cascades together.
+    pub shadow_triangles: usize,
 }
 
 /// What happened when we tried to draw a frame.
@@ -52,6 +64,9 @@ pub(crate) enum FrameStatus {
     Occluded,
     /// Transient problem (timeout, outdated surface); just try the next frame.
     Skipped,
+    /// The window couldn't take the frame, so it was drawn offscreen
+    /// instead (benchmark runs, which must measure every frame).
+    Offscreen,
 }
 
 /// A captured frame: RGBA8 sRGB pixels, row by row from the top.
