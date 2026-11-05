@@ -1041,6 +1041,8 @@ impl Ctx {
                 self.try_load_mesh(&name)?;
             }
         }
+        #[cfg(feature = "physics3d")]
+        self.load_collider_files(json)?;
         Ok(())
     }
 

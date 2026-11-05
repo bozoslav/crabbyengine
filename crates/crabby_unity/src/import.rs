@@ -22,6 +22,10 @@ const MESH_FILTER: i32 = 33;
 const MESH_RENDERER: i32 = 23;
 const SKINNED_MESH_RENDERER: i32 = 137;
 const LOD_GROUP: i32 = 205;
+const BOX_COLLIDER: i32 = 65;
+const SPHERE_COLLIDER: i32 = 135;
+const CAPSULE_COLLIDER: i32 = 136;
+const MESH_COLLIDER: i32 = 64;
 /// The GUID Unity's built-in resources (Cube, Sphere, Default-Material) share.
 const BUILTIN: &str = "0000000000000000e000000000000000";
 
@@ -34,6 +38,8 @@ pub struct Report {
     pub meshes: usize,
     /// Images written.
     pub textures: usize,
+    /// Colliders written (`Importer::colliders`).
+    pub colliders: usize,
     /// What was left out, by reason, with how often.
     pub skipped: BTreeMap<String, usize>,
     /// The shaders of the materials imported, by asset path (or built-in
@@ -108,6 +114,8 @@ pub struct Importer<'p> {
     custom_materials: BTreeMap<String, Json>,
     /// How some of them want their meshes' vertex colors (`vertex_colors`).
     vertex_colors: HashMap<String, VertexColors>,
+    /// Whether scenes get their colliders too (`colliders`).
+    colliders: bool,
     report: Report,
 }
 
@@ -134,8 +142,28 @@ impl<'p> Importer<'p> {
             custom_shaders: HashSet::new(),
             custom_materials: BTreeMap::new(),
             vertex_colors: HashMap::new(),
+            colliders: false,
             report: Report::default(),
         }
+    }
+
+    /// Whether scenes get their colliders: off at first. On, every enabled
+    /// box, sphere, capsule and mesh collider of an active object (not
+    /// triggers) becomes an entity of its own with a fixed `RigidBody3D`
+    /// and a `Collider3D`, the object's scale worked into the shape (3D
+    /// physics doesn't scale colliders). A mesh collider's mesh is written
+    /// as a `.glb` like a model's and named in the scene; loading the scene
+    /// makes it a triangle mesh, or a convex hull for a convex one. Games
+    /// loading such a scene need 3D physics on (`Game::physics3d`). Bodies
+    /// that move (Unity's `Rigidbody`) are left as fixed ones too.
+    ///
+    /// ```no_run
+    /// # let project = crabby_unity::Project::open("MyUnityGame").unwrap();
+    /// let mut import = crabby_unity::Importer::new(&project, "my_game/assets/town", "town/");
+    /// import.colliders(true);
+    /// ```
+    pub fn colliders(&mut self, on: bool) {
+        self.colliders = on;
     }
 
     /// Says the game draws materials of `shader` (its asset path, as
@@ -278,6 +306,18 @@ impl<'p> Importer<'p> {
                 },
             }));
         }
+        if self.colliders {
+            for (i, o) in objects.iter().enumerate() {
+                if !active[i] {
+                    continue;
+                }
+                for c in &o.components {
+                    if let Some(collider) = self.collider(c, world[i])? {
+                        entities.push(json!({ "entity": entities.len(), "components": collider }));
+                    }
+                }
+            }
+        }
         self.report.entities += entities.len();
         Ok(json!({
             "format": "crabby-world",
@@ -285,6 +325,81 @@ impl<'p> Importer<'p> {
             "entities": entities,
             "resources": {},
         }))
+    }
+
+    /// A collider component's entity (Unity's `world` matrix): its
+    /// `Transform3D`, a fixed `RigidBody3D` and the `Collider3D`; `None`
+    /// for other components, and for triggers, disabled colliders and
+    /// meshes that can't be read (counted in the report).
+    fn collider(&mut self, c: &crate::UnityObject, world: Mat4) -> Result<Option<Json>, Error> {
+        if ![BOX_COLLIDER, SPHERE_COLLIDER, CAPSULE_COLLIDER, MESH_COLLIDER].contains(&c.class_id) {
+            return Ok(None);
+        }
+        let b = &c.body;
+        if b["m_Enabled"].as_i64() == Some(0) {
+            self.report.skip("collider off");
+            return Ok(None);
+        }
+        if b["m_IsTrigger"].as_i64() == Some(1) {
+            self.report.skip("a trigger collider");
+            return Ok(None);
+        }
+        let v3 = |v: &Value| {
+            Vec3::new(
+                v["x"].as_f32().unwrap_or(0.0),
+                v["y"].as_f32().unwrap_or(0.0),
+                v["z"].as_f32().unwrap_or(0.0),
+            )
+        };
+        let (scale, mut rotation, position) = mirror(world).to_scale_rotation_translation();
+        let scale = scale.abs();
+        // Local vectors in the mirrored frame: z turned around.
+        let flip = |v: Vec3| Vec3::new(v.x, v.y, -v.z);
+        let center = flip(v3(&b["m_Center"]) * scale);
+        let shape = match c.class_id {
+            BOX_COLLIDER => json!({ "Cuboid": { "size": (v3(&b["m_Size"]) * scale).abs().to_array() } }),
+            SPHERE_COLLIDER => {
+                let r = b["m_Radius"].as_f32().unwrap_or(0.5) * scale.max_element();
+                json!({ "Sphere": { "radius": r } })
+            }
+            CAPSULE_COLLIDER => {
+                // Unity's axis: 0 X, 1 Y, 2 Z; Crabby's capsules stand on Y.
+                let axis = b["m_Direction"].as_i64().unwrap_or(1) as usize;
+                let along = scale[axis.min(2)];
+                let across = (0..3).filter(|&a| a != axis).map(|a| scale[a]).fold(0.0, f32::max);
+                let r = b["m_Radius"].as_f32().unwrap_or(0.5) * across;
+                let h = (b["m_Height"].as_f32().unwrap_or(2.0) * along - 2.0 * r).max(0.0);
+                rotation *= match axis {
+                    0 => Quat::from_rotation_z(std::f32::consts::FRAC_PI_2),
+                    2 => Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
+                    _ => Quat::IDENTITY,
+                };
+                json!({ "Capsule": { "height": h, "radius": r } })
+            }
+            _ => {
+                let Some(mesh) = b["m_Mesh"].obj_ref().filter(|m| !m.is_none()) else {
+                    self.report.skip("a mesh collider without a mesh");
+                    return Ok(None);
+                };
+                let Some(name) = self.model(&mesh, &[])? else {
+                    return Ok(None);
+                };
+                json!({ "Mesh": { "file": name, "scale": scale.to_array(), "convex": b["m_Convex"].as_i64() == Some(1) } })
+            }
+        };
+        // A capsule turned on its side has its offset in the turned frame.
+        let offset = if c.class_id == CAPSULE_COLLIDER {
+            let (_, unturned, _) = mirror(world).to_scale_rotation_translation();
+            rotation.inverse() * (unturned * center)
+        } else {
+            center
+        };
+        self.report.colliders += 1;
+        Ok(Some(json!({
+            "Transform3D": { "position": position.to_array(), "rotation": rotation.to_array(), "scale": [1.0, 1.0, 1.0] },
+            "RigidBody3D": { "kind": "Fixed" },
+            "Collider3D": { "shape": shape, "offset": offset.to_array() },
+        })))
     }
 
     /// The asset name of the `.glb` for `mesh` drawn with `materials`,

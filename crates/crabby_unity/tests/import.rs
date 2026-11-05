@@ -447,3 +447,100 @@ fn without_custom_shaders_there_is_no_materials_file() {
     let (f, _, _) = import("plain");
     assert!(!f.dir.join("out/materials.json").exists());
 }
+
+/// A wall: a box collider on an object at (0, 1, 2) scaled (2, 1, 1),
+/// with a mesh collider on a child and a trigger on another.
+const WALL: &str = "%YAML 1.1
+--- !u!1 &1
+GameObject:
+  m_Component:
+  - component: {fileID: 2}
+  - component: {fileID: 3}
+  m_Name: Wall
+  m_IsActive: 1
+--- !u!4 &2
+Transform:
+  m_GameObject: {fileID: 1}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 1, z: 2}
+  m_LocalScale: {x: 2, y: 1, z: 1}
+  m_Children:
+  - {fileID: 12}
+  m_Father: {fileID: 0}
+--- !u!65 &3
+BoxCollider:
+  m_GameObject: {fileID: 1}
+  m_IsTrigger: 0
+  m_Enabled: 1
+  m_Size: {x: 1, y: 2, z: 3}
+  m_Center: {x: 0.5, y: 0, z: 1}
+--- !u!1 &11
+GameObject:
+  m_Component:
+  - component: {fileID: 12}
+  - component: {fileID: 13}
+  - component: {fileID: 14}
+  m_Name: Rock
+  m_IsActive: 1
+--- !u!4 &12
+Transform:
+  m_GameObject: {fileID: 11}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_Children: []
+  m_Father: {fileID: 2}
+--- !u!64 &13
+MeshCollider:
+  m_GameObject: {fileID: 11}
+  m_IsTrigger: 0
+  m_Enabled: 1
+  m_Convex: 1
+  m_Mesh: {fileID: 4300000, guid: quad0000, type: 2}
+--- !u!135 &14
+SphereCollider:
+  m_GameObject: {fileID: 11}
+  m_IsTrigger: 1
+  m_Enabled: 1
+  m_Radius: 3
+  m_Center: {x: 0, y: 0, z: 0}
+";
+
+#[test]
+fn colliders_become_fixed_bodies_with_their_objects_scale() {
+    let (fixture, project) = fixture("colliders");
+    let file = UnityFile::parse(WALL).unwrap();
+    let hierarchy = Hierarchy::build(&file, &project).unwrap();
+    let mut importer = Importer::new(&project, fixture.dir.join("out"), "wall/");
+    let without = importer.scene(&hierarchy).unwrap();
+    assert!(without["entities"].as_array().unwrap().is_empty(), "off unless asked");
+    importer.colliders(true);
+    let scene = importer.scene(&hierarchy).unwrap();
+    let entities = scene["entities"].as_array().unwrap();
+    assert_eq!(entities.len(), 2, "the trigger is left out");
+    let wall = &entities[0]["components"];
+    assert_eq!(wall["RigidBody3D"]["kind"], "Fixed");
+    assert_eq!(wall["Transform3D"]["position"], serde_json::json!([0.0, 1.0, -2.0]));
+    assert_eq!(wall["Transform3D"]["scale"], serde_json::json!([1.0, 1.0, 1.0]));
+    assert_eq!(
+        wall["Collider3D"]["shape"],
+        serde_json::json!({ "Cuboid": { "size": [2.0, 2.0, 3.0] } }),
+        "scaled by the object"
+    );
+    assert_eq!(wall["Collider3D"]["offset"], serde_json::json!([1.0, 0.0, -1.0]));
+    let rock = &entities[1]["components"]["Collider3D"]["shape"]["Mesh"];
+    assert_eq!(rock["convex"], true);
+    assert_eq!(rock["scale"], serde_json::json!([2.0, 1.0, 1.0]));
+    let mesh = rock["file"].as_str().unwrap();
+    assert!(mesh.starts_with("wall/meshes/"), "{mesh}");
+    assert!(
+        fixture
+            .dir
+            .join("out")
+            .join(mesh.strip_prefix("wall/").unwrap())
+            .exists()
+    );
+    let report = importer.finish().unwrap();
+    assert_eq!(report.colliders, 2);
+    assert_eq!(report.skipped["a trigger collider"], 1);
+}
