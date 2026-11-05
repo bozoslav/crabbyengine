@@ -557,10 +557,23 @@ impl Ctx {
         Ok(mesh)
     }
 
-    /// A glTF file's mesh on the CPU (all its parts in one), without
-    /// making anything on the GPU: for collision shapes.
-    #[cfg(feature = "physics3d")]
-    pub(crate) fn mesh_file_data(&self, path: &str) -> Result<MeshData, String> {
+    /// A glTF file's mesh on the CPU (all its parts in one, placed as in
+    /// the file), without making anything on the GPU: to cut
+    /// [decals](MeshData::decal) from, build collision shapes, or read its
+    /// corners. Loads the file each call; keep the result.
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) -> Result<(), String> {
+    /// let wall = ctx.load_mesh_data("models/wall.glb")?;
+    /// let hole = wall.decal(Mat4::from_scale(Vec3::splat(0.1)), 0.002);
+    /// # Ok(()) }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// If the file is missing or isn't a glTF file with triangles.
+    pub fn load_mesh_data(&self, path: &str) -> Result<MeshData, String> {
         let file = assets::resolve(path)?;
         let bytes = assets::read(&file).map_err(|e| format!("could not read {}: {e}", file.display()))?;
         let loaded = gltf::load(
@@ -813,8 +826,12 @@ impl Ctx {
         let mut emitters = self
             .world
             .query::<(&mut super::ParticleEmitter3D, &super::Transform3D)>();
-        let any = emitters.count() > 0;
+        let mut any = emitters.count() > 0;
         emitters.par_for_each(|(emitter, transform)| emitter.update(dt, transform));
+        let mut trails = self.world.query::<(&mut super::Trail3D, &super::Transform3D)>();
+        any |= trails.count() > 0;
+        trails.for_each(|(trail, transform)| trail.update(dt, transform.position));
+        any |= self.world.query::<&super::Line3D>().count() > 0;
         if any && !self.headless && self.renderer.is_some() {
             self.default_material(); // also initializes a particle-only 3D renderer
         }
@@ -884,7 +901,10 @@ impl Ctx {
         if self.renderer.is_none()
             || (self.assets3d.bounds.is_empty()
                 && self.frame3d.particles.runs.is_empty()
-                && self.world.query::<&super::ParticleEmitter3D>().count() == 0)
+                && self.frame3d.particles.strips.runs.is_empty()
+                && self.world.query::<&super::ParticleEmitter3D>().count() == 0
+                && self.world.query::<&super::Trail3D>().count() == 0
+                && self.world.query::<&super::Line3D>().count() == 0)
         {
             return; // no drawable 3D scene
         }

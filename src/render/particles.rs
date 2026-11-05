@@ -1,9 +1,13 @@
-//! Instanced camera-facing particles. GPU storage grows only at high-water marks.
+//! Instanced camera-facing particles, and the ribbons and lines drawn with
+//! them (strips built on the CPU). GPU storage grows only at high-water
+//! marks.
 use super::gpu::GpuTexture;
 use crate::ParticleBlend3D;
 use crate::three::particles::{ParticleFrame, ParticleInstance, ParticleRun};
+use crate::three::strips::{StripRun, StripVertex};
 
 const SHADER: &str = include_str!("particles.wgsl");
+const STRIP_SHADER: &str = include_str!("strips.wgsl");
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct Camera {
@@ -19,6 +23,11 @@ pub(super) struct Particles {
     instances: wgpu::Buffer,
     capacity: usize,
     pub runs: Vec<ParticleRun>,
+    strip_alpha: wgpu::RenderPipeline,
+    strip_additive: wgpu::RenderPipeline,
+    strip_vertices: wgpu::Buffer,
+    strip_capacity: usize,
+    strip_runs: Vec<StripRun>,
 }
 impl Particles {
     pub fn new(device: &wgpu::Device, texture_layout: &wgpu::BindGroupLayout, samples: u32) -> Self {
@@ -58,19 +67,29 @@ impl Particles {
             label: Some("particles"),
             source: wgpu::ShaderSource::Wgsl(SHADER.into()),
         });
-        let pipeline = |blend| {
+        let strip_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("strips"),
+            source: wgpu::ShaderSource::Wgsl(STRIP_SHADER.into()),
+        });
+        let particle_layout = wgpu::VertexBufferLayout {
+            array_stride: size_of::<ParticleInstance>() as u64,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4],
+        };
+        let strip_layout = wgpu::VertexBufferLayout {
+            array_stride: size_of::<StripVertex>() as u64,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Float32x4],
+        };
+        let pipeline = |module: &wgpu::ShaderModule, buffer: &wgpu::VertexBufferLayout, blend| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("particles"),
                 layout: Some(&pipeline_layout),
                 vertex: wgpu::VertexState {
-                    module: &module,
+                    module,
                     entry_point: Some("vs"),
                     compilation_options: Default::default(),
-                    buffers: &[Some(wgpu::VertexBufferLayout {
-                        array_stride: size_of::<ParticleInstance>() as u64,
-                        step_mode: wgpu::VertexStepMode::Instance,
-                        attributes: &wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4],
-                    })],
+                    buffers: &[Some(buffer.clone())],
                 },
                 primitive: wgpu::PrimitiveState::default(),
                 depth_stencil: Some(wgpu::DepthStencilState {
@@ -85,7 +104,7 @@ impl Particles {
                     ..Default::default()
                 },
                 fragment: Some(wgpu::FragmentState {
-                    module: &module,
+                    module,
                     entry_point: Some("fs"),
                     compilation_options: Default::default(),
                     targets: &[Some(wgpu::ColorTargetState {
@@ -103,17 +122,24 @@ impl Particles {
             dst_factor: wgpu::BlendFactor::One,
             operation: wgpu::BlendOperation::Add,
         };
+        let additive = wgpu::BlendState {
+            color: add,
+            alpha: wgpu::BlendComponent::OVER,
+        };
+        let alpha = wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING;
         Self {
-            alpha: pipeline(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-            additive: pipeline(wgpu::BlendState {
-                color: add,
-                alpha: wgpu::BlendComponent::OVER,
-            }),
+            alpha: pipeline(&module, &particle_layout, alpha),
+            additive: pipeline(&module, &particle_layout, additive),
             camera,
             group,
             instances: buffer(device, 1),
             capacity: 1,
             runs: Vec::new(),
+            strip_alpha: pipeline(&strip_module, &strip_layout, alpha),
+            strip_additive: pipeline(&strip_module, &strip_layout, additive),
+            strip_vertices: strip_buffer(device, 6),
+            strip_capacity: 6,
+            strip_runs: Vec::new(),
         }
     }
     pub fn prepare(
@@ -125,14 +151,26 @@ impl Particles {
     ) {
         self.runs.clear();
         self.runs.extend_from_slice(&frame.runs);
-        if frame.instances.is_empty() {
+        self.strip_runs.clear();
+        self.strip_runs.extend_from_slice(&frame.strips.runs);
+        if !self.has_draws() {
             return;
         }
         if frame.instances.len() > self.capacity {
             self.capacity = frame.instances.len().next_power_of_two();
             self.instances = buffer(device, self.capacity);
         }
-        queue.write_buffer(&self.instances, 0, bytemuck::cast_slice(&frame.instances));
+        if !frame.instances.is_empty() {
+            queue.write_buffer(&self.instances, 0, bytemuck::cast_slice(&frame.instances));
+        }
+        let strips = &frame.strips.vertices;
+        if strips.len() > self.strip_capacity {
+            self.strip_capacity = strips.len().next_power_of_two();
+            self.strip_vertices = strip_buffer(device, self.strip_capacity);
+        }
+        if !strips.is_empty() {
+            queue.write_buffer(&self.strip_vertices, 0, bytemuck::cast_slice(strips));
+        }
         queue.write_buffer(
             &self.camera,
             0,
@@ -143,11 +181,46 @@ impl Particles {
             }),
         );
     }
+    /// Whether there are particles, ribbons or lines to draw.
+    pub fn has_draws(&self) -> bool {
+        !self.runs.is_empty() || !self.strip_runs.is_empty()
+    }
+
+    /// How many draw calls `draw` makes.
+    pub fn draw_count(&self) -> usize {
+        self.runs.len() + self.strip_runs.len()
+    }
+
+    /// Draws the ribbons and lines, then the particles (each set farthest
+    /// first).
     pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, textures: &[GpuTexture], white: u32) {
+        if !self.has_draws() {
+            return;
+        }
+        let texture = |id: Option<u32>| {
+            textures
+                .get(id.unwrap_or(white) as usize)
+                .or_else(|| textures.get(white as usize))
+        };
+        pass.set_bind_group(0, &self.group, &[]);
+        if !self.strip_runs.is_empty() {
+            pass.set_vertex_buffer(0, self.strip_vertices.slice(..));
+            for run in &self.strip_runs {
+                let Some(texture) = texture(run.texture) else {
+                    continue;
+                };
+                pass.set_pipeline(if run.blend == ParticleBlend3D::Alpha {
+                    &self.strip_alpha
+                } else {
+                    &self.strip_additive
+                });
+                pass.set_bind_group(1, &texture.bind_group, &[]);
+                pass.draw(run.first..run.first + run.count, 0..1);
+            }
+        }
         if self.runs.is_empty() {
             return;
         }
-        pass.set_bind_group(0, &self.group, &[]);
         pass.set_vertex_buffer(0, self.instances.slice(..));
         for run in &self.runs {
             let Some(texture) = textures
@@ -166,6 +239,15 @@ impl Particles {
         }
     }
 }
+fn strip_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("strip vertices"),
+        size: (capacity * size_of::<StripVertex>()) as u64,
+        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
+}
+
 fn buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("particle instances"),
@@ -186,6 +268,7 @@ mod tests {
     #[test]
     fn particles_shader_is_valid() {
         super::super::gpu3d::check_shader("particles", super::SHADER).unwrap();
+        super::super::gpu3d::check_shader("strips", super::STRIP_SHADER).unwrap();
     }
 
     #[test]
@@ -344,6 +427,21 @@ mod tests {
         };
 
         let before = draw(&mut ctx, &mut renderer);
+        let center = ((SIZE / 2 * SIZE + SIZE / 2) * 4) as usize;
+
+        // A glowing line across the middle lights it; the corner stays dark.
+        let mut line = Line3D::new(
+            vec![vec3(-2.0, 0.0, 0.0), vec3(2.0, 0.0, 0.0)],
+            0.3,
+            Color::rgb(1.0, 0.2, 0.0),
+        );
+        line.blend = ParticleBlend3D::Additive;
+        let beam = ctx.world.spawn((Transform3D::default(), line));
+        let lit = draw(&mut ctx, &mut renderer);
+        assert!(lit[center] > before[center] + 40, "the line must brighten its pixels");
+        assert_eq!(&lit[0..3], &before[0..3]);
+        ctx.world.despawn(beam);
+        assert_eq!(draw(&mut ctx, &mut renderer)[center], before[center]);
         let e = ctx.world.spawn((
             Transform3D::default(),
             ParticleEmitter3D::new(ParticleSettings3D {
@@ -359,7 +457,6 @@ mod tests {
         ));
         ctx.update_particles();
         let after = draw(&mut ctx, &mut renderer);
-        let center = ((SIZE / 2 * SIZE + SIZE / 2) * 4) as usize;
         assert!(
             after[center] > before[center] + 40,
             "additive particles must brighten their location"

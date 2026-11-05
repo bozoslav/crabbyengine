@@ -1058,6 +1058,70 @@ static void particles3d() {
     });
 }
 
+// A 4 x 4 m floor facing up, as a glTF file.
+static void ribbons_and_decals() {
+    const auto file = std::filesystem::temp_directory_path() / "crabby-cpp-floor.gltf";
+    std::ofstream(file) << R"({"asset": {"version": "2.0"}, "scene": 0, "scenes": [{"nodes": [0]}],
+        "nodes": [{"mesh": 0}],
+        "meshes": [{"primitives": [{"attributes": {"POSITION": 0}, "indices": 1}]}],
+        "buffers": [{"byteLength": 60, "uri": "data:application/octet-stream;base64,AAAAwAAAAAAAAABAAAAAQAAAAAAAAABAAAAAQAAAAAAAAADAAAAAwAAAAAAAAADAAAABAAIAAAACAAMA"}],
+        "bufferViews": [{"buffer": 0, "byteLength": 48}, {"buffer": 0, "byteOffset": 48, "byteLength": 12}],
+        "accessors": [{"bufferView": 0, "componentType": 5126, "count": 4, "type": "VEC3", "min": [-2, 0, -2], "max": [2, 0, 2]},
+            {"bufferView": 1, "componentType": 5123, "count": 6, "type": "SCALAR"}]})";
+    const std::string path = file.string();
+    // The box's +Z turned up, 0.5 m wide and 0.2 m deep, at (1, 0, 0).
+    const std::array<float, 16> down = {0.5f, 0, 0, 0,   0, 0, -0.2f, 0,   0, 0.5f, 0, 0,   1, 0, 0, 1};
+    crabby::game("ribbons", 1, 1).run_headless(0, [&](crabby::ctx& ctx) {
+        auto e = ctx.world().spawn(crabby::transform3d_at({0, 1, 0}));
+        auto tracer = crabby::trail3d(0.25f, 0.05f)
+                          .width_over_age({{0, 0.1f}, {1, 0}})
+                          .color_over_age({{0, {1, 0.8f, 0.3f, 1}}, {1, {1, 0.3f, 0, 0}}})
+                          .blend(crabby::particle_blend::additive)
+                          .min_distance(0.1f)
+                          .max_points(32);
+        ctx.set_trail3d(e, tracer);
+        // Trails record in the visual frame phase, which headless runs skip.
+        CHECK(ctx.trail3d_point_count(e) == 0);
+        ctx.set_trail3d_emitting(e, false);
+        ctx.clear_trail3d(e);
+        throws([&] { ctx.set_trail3d(e, crabby::trail3d(0, 0.1f)); });
+        throws([&] { ctx.set_trail3d(e, crabby::trail3d(1, -0.1f)); });
+        throws([&] { ctx.set_trail3d(e, crabby::trail3d(1, 0.1f).max_points(1)); });
+        throws([&] { ctx.set_trail3d(e, crabby::trail3d(1, 0.1f).width_over_age({{0, -1}})); });
+        ctx.remove_trail3d(e);
+        throws([&] { ctx.trail3d_point_count(e); });
+        throws([&] { ctx.clear_trail3d(e); });
+
+        auto beam = crabby::line3d({{0, 0, 0}, {0, 0, -20}}, 0.02f, crabby::colors::red)
+                        .blend(crabby::particle_blend::additive)
+                        .texture_length(2);
+        ctx.set_line3d(e, beam);
+        ctx.set_line3d(e, crabby::line3d({{0, 0, 0}, {1, 0, 0}, {1, 1, 0}}, 0.1f, crabby::colors::white)); // replaces it
+        throws([&] { ctx.set_line3d(e, crabby::line3d({{0, 0, 0}, {1, 0, 0}}, -1, crabby::colors::white)); });
+        throws([&] { ctx.set_line3d(e, crabby::line3d({{0, 0, 0}, {1, NAN, 0}}, 0.1f, crabby::colors::white)); });
+        ctx.remove_line3d(e);
+
+        auto floor = ctx.load_mesh_data(path.c_str());
+        CHECK(floor.view().vertex_count == 4 && floor.view().index_count == 6);
+        auto mark = floor.decal(down, 0.002f);
+        auto view = mark.view();
+        CHECK(view.index_count >= 3 && view.index_count % 3 == 0);
+        for (std::size_t i = 0; i < view.vertex_count; i++) {
+            CHECK(std::fabs(view.positions[i].x - 1) <= 0.26f && std::fabs(view.positions[i].z) <= 0.26f);
+            CHECK(std::fabs(view.positions[i].y - 0.002f) < 1e-4f);
+        }
+        // A box that misses gives an empty decal; a broken projector throws.
+        auto away = down;
+        away[12] = 50;
+        CHECK(floor.decal(away, 0.002f).view().index_count == 0);
+        auto broken = down;
+        broken[0] = NAN;
+        throws([&] { floor.decal(broken, 0.002f); });
+        throws([&] { ctx.load_mesh_data("no/such.glb"); });
+    });
+    std::filesystem::remove(file);
+}
+
 int main() {
     worlds();
     names_and_reflection();
@@ -1082,6 +1146,7 @@ int main() {
     particles3d();
     ragdolls();
     contacts3d();
+    ribbons_and_decals();
     events();
     rng_matches_rust();
     grid_views_match_engine_queries();

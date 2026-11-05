@@ -199,7 +199,36 @@ pub extern "C" fn crabby_particle_settings3d_default() -> CrabbyParticleSettings
     }
 }
 
-fn finite(values: &[f32]) -> bool {
+/// A `CrabbyParticleBlend3D` value.
+pub(crate) fn blend_from_c(blend: u32) -> Result<ParticleBlend3D, Failure> {
+    match blend {
+        0 => Ok(ParticleBlend3D::Alpha),
+        1 => Ok(ParticleBlend3D::Additive),
+        _ => Err(invalid("unknown particle blend")),
+    }
+}
+
+/// A curve from C keys, or `None` for no keys (keep the default).
+pub(crate) fn curve_from_c(keys: &[CrabbyParticleKey]) -> Result<Option<ParticleCurve>, Failure> {
+    if !keys.iter().all(|k| finite(&[k.t, k.value])) {
+        return Err(invalid("particle curve keys must be finite"));
+    }
+    Ok((!keys.is_empty()).then(|| ParticleCurve::new(keys.iter().map(|k| (k.t, k.value)).collect())))
+}
+
+/// A gradient from C keys, or `None` for no keys (keep the default).
+pub(crate) fn gradient_from_c(keys: &[CrabbyParticleColorKey]) -> Result<Option<ParticleGradient>, Failure> {
+    if !keys
+        .iter()
+        .all(|k| finite(&[k.t, k.color.r, k.color.g, k.color.b, k.color.a]))
+    {
+        return Err(invalid("particle curve keys must be finite"));
+    }
+    Ok((!keys.is_empty())
+        .then(|| ParticleGradient::new(keys.iter().map(|k| (k.t, to_c::<_, Color>(k.color))).collect())))
+}
+
+pub(crate) fn finite(values: &[f32]) -> bool {
     values.iter().all(|v| v.is_finite())
 }
 
@@ -250,11 +279,7 @@ unsafe fn settings_from_c(s: &CrabbyParticleSettings3D) -> Result<ParticleSettin
         },
         _ => return Err(invalid("unknown particle shape")),
     };
-    let blend = match s.blend {
-        0 => ParticleBlend3D::Alpha,
-        1 => ParticleBlend3D::Additive,
-        _ => return Err(invalid("unknown particle blend")),
-    };
+    let blend = blend_from_c(s.blend)?;
     let space = match s.space {
         0 => ParticleSpace3D::World,
         1 => ParticleSpace3D::Local,
@@ -263,13 +288,7 @@ unsafe fn settings_from_c(s: &CrabbyParticleSettings3D) -> Result<ParticleSettin
     // SAFETY: caller contract.
     let size_keys = unsafe { keys(s.size_keys, s.size_key_count, "size_keys")? };
     let color_keys = unsafe { keys(s.color_keys, s.color_key_count, "color_keys")? };
-    if !size_keys.iter().all(|k| finite(&[k.t, k.value]))
-        || !color_keys
-            .iter()
-            .all(|k| finite(&[k.t, k.color.r, k.color.g, k.color.b, k.color.a]))
-    {
-        return Err(invalid("particle curve keys must be finite"));
-    }
+    let (size_curve, color_gradient) = (curve_from_c(size_keys)?, gradient_from_c(color_keys)?);
     let defaults = ParticleSettings3D::default();
     Ok(ParticleSettings3D {
         rate: s.rate,
@@ -283,16 +302,8 @@ unsafe fn settings_from_c(s: &CrabbyParticleSettings3D) -> Result<ParticleSettin
         drag: s.drag,
         size: (s.size_min, s.size_max),
         rotation: (s.rotation_min, s.rotation_max),
-        size_over_life: if size_keys.is_empty() {
-            defaults.size_over_life
-        } else {
-            ParticleCurve::new(size_keys.iter().map(|k| (k.t, k.value)).collect())
-        },
-        color_over_life: if color_keys.is_empty() {
-            defaults.color_over_life
-        } else {
-            ParticleGradient::new(color_keys.iter().map(|k| (k.t, to_c::<_, Color>(k.color))).collect())
-        },
+        size_over_life: size_curve.unwrap_or(defaults.size_over_life),
+        color_over_life: color_gradient.unwrap_or(defaults.color_over_life),
         texture: s.has_texture.then(|| texture_from_c(s.texture)),
         sheet: (s.sheet_columns, s.sheet_rows),
         blend,
@@ -304,7 +315,7 @@ unsafe fn settings_from_c(s: &CrabbyParticleSettings3D) -> Result<ParticleSettin
 
 /// # Safety
 /// `ptr` is null or points to `count` values.
-unsafe fn keys<'a, T>(ptr: *const T, count: usize, name: &str) -> Result<&'a [T], Failure> {
+pub(crate) unsafe fn keys<'a, T>(ptr: *const T, count: usize, name: &str) -> Result<&'a [T], Failure> {
     if count == 0 {
         return Ok(&[]);
     }
@@ -315,7 +326,7 @@ unsafe fn keys<'a, T>(ptr: *const T, count: usize, name: &str) -> Result<&'a [T]
     Ok(unsafe { std::slice::from_raw_parts(ptr, count) })
 }
 
-fn entity(c: &Ctx, bits: u64) -> Result<Entity, Failure> {
+pub(crate) fn entity(c: &Ctx, bits: u64) -> Result<Entity, Failure> {
     let e = Entity::from_bits(bits);
     if c.world.is_alive(e) {
         Ok(e)

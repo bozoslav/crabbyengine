@@ -186,4 +186,8 @@ name = "particles"
 required-features = ["3d"]
 
 [[example]]
+name = "ribbons"
+required-features = ["3d"]
+
+[[example]]
 name = "ui_shop"
