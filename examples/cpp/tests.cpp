@@ -1053,6 +1053,41 @@ static void messages() {
     throws([] { crabby::net_messages::loopback(1); });
 }
 
+static void navigation_carving() {
+    crabby::entity box = 0;
+    int tick = 0;
+    bool cut = false, restored = false;
+    crabby::game("carve", 1, 1).navmesh3d()
+        .sim_system([&](crabby::ctx& ctx) {
+            ++tick;
+            auto state = ctx.navmesh_update_carving(1);
+            CHECK(state.first <= 1);
+            if (tick == 20) {
+                CHECK(!state.second);
+                auto path = ctx.navmesh_find_path({-7, 0, 0}, {7, 0, 0});
+                CHECK(path.size() >= 3);
+                CHECK(!ctx.navmesh_sample_position({0, 0, 0}, 0.2f));
+                cut = true;
+                ctx.remove_nav(box);
+            }
+            if (tick == 40) {
+                CHECK(!state.second);
+                auto path = ctx.navmesh_find_path({-7, 0, 0}, {7, 0, 0});
+                CHECK(path.size() == 2);
+                restored = true;
+            }
+        }).run_headless(45, [&](crabby::ctx& ctx) {
+            crabby::nav_sources sources;
+            sources.add_mesh(crabby::mesh_data::plane(20), crabby::transform3d_at({0, 0, 0}));
+            auto settings = crabby::nav_bake_defaults();
+            settings.carving = true;
+            ctx.bake_navmesh(sources, settings);
+            box = ctx.world().spawn();
+            ctx.set_nav_carve_obstacle(box, {0, 1, 0}, {0.5f, 1, 2});
+        });
+    CHECK(cut && restored);
+}
+
 // A 20 m floor with a wall across the middle, open at one end: the agent walks around.
 static void navigation() {
     crabby::entity walker = 0;
@@ -1068,6 +1103,9 @@ static void navigation() {
         auto snapped = ctx.navmesh_sample_position({-5, 3, 0}, 5);
         CHECK(snapped && std::fabs(snapped->y) < 0.3f);
         auto path = ctx.navmesh_find_path({-5, 0, 0}, {5, 0, 0});
+        auto status = ctx.navmesh_update_carving(0);
+        CHECK(status.first == 0 && !status.second);
+        ctx.set_nav_carve_obstacle(ctx.world().spawn(), {8, 1, 8}, {0.5f, 1, 0.5f});
         corners = path.size();
         CHECK(path.size() >= 3); // around the wall's end
         walker = ctx.world().spawn(crabby::transform3d_at({-5, 0, 0}));
@@ -1414,6 +1452,7 @@ int main() {
     lockstep();
     messages();
     navigation();
+    navigation_carving();
     particles3d();
     ragdolls();
     contacts3d();

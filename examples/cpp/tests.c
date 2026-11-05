@@ -37,6 +37,11 @@ static void setup(CrabbyCtx* ctx, void* user) {
 
     CHECK(crabby_ctx_set_nav_avoidance(ctx, e, true, 2, 3.6f) == CRABBY_NOT_FOUND);
     CHECK(crabby_ctx_set_nav_agent(ctx, e, 3, 0.3f, 10) == CRABBY_OK);
+    CrabbyVec3 center = {0, 1, 0}, half = {1, 1, 1};
+    CHECK(!crabby_nav_bake_settings_default().carving && crabby_nav_bake_settings_default().tile_size == 32);
+    CHECK(crabby_ctx_set_nav_carve_obstacle(ctx, e, center, half) == CRABBY_OK);
+    size_t steps = 0; bool pending = false;
+    CHECK(crabby_ctx_navmesh_update_carving(ctx, 0, &steps, &pending) == CRABBY_INVALID_ARGUMENT);
     CHECK(crabby_ctx_set_nav_avoidance(ctx, e, true, 2, 3.6f) == CRABBY_OK);
     CHECK(crabby_ctx_set_nav_avoidance(ctx, e, false, 0, 1) == CRABBY_OK);
     CHECK(crabby_ctx_set_nav_avoidance(ctx, e, true, -1, 3) == CRABBY_INVALID_ARGUMENT);

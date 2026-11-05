@@ -701,6 +701,7 @@ typedef struct CrabbyNavBakeSettings {
   float cell_size;
   float cell_height;
   uint32_t tile_size;
+  bool carving;
 } CrabbyNavBakeSettings;
 
 typedef struct CrabbyTransform3D {
@@ -2205,6 +2206,16 @@ enum CrabbyStatus crabby_ctx_set_nav_obstacle(struct CrabbyCtx *ctx,
                                               uint64_t entity_bits,
                                               struct CrabbyVec3 center,
                                               struct CrabbyVec3 half_extents);
+
+enum CrabbyStatus crabby_ctx_set_nav_carve_obstacle(struct CrabbyCtx *ctx,
+                                                    uint64_t entity_bits,
+                                                    struct CrabbyVec3 center,
+                                                    struct CrabbyVec3 half_extents);
+
+enum CrabbyStatus crabby_ctx_navmesh_update_carving(struct CrabbyCtx *ctx,
+                                                    size_t budget,
+                                                    size_t *steps,
+                                                    bool *pending);
 
 enum CrabbyStatus crabby_ctx_remove_nav(struct CrabbyCtx *ctx, uint64_t entity_bits);
 

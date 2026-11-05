@@ -1711,7 +1711,9 @@ static void navigation_guide() {
             crabby::nav_sources sources;
             sources.add_mesh(crabby::mesh_data::plane(30), crabby::transform3d_at({0, 0, 0}));
             sources.add_mesh(crabby::mesh_data::cube(4), crabby::transform3d_at({0, 2, 0}));
-            ctx.bake_navmesh(sources); // or pass a nav_bake_settings
+            auto settings = crabby::nav_bake_defaults();
+            settings.carving = true; // keep layers so carving obstacles can cut holes
+            ctx.bake_navmesh(sources, settings);
             // ANCHOR_END: nav_bake
             // ANCHOR: nav_query
             start = ctx.navmesh_sample_position({-8, 1, 0}, 2).value();
@@ -1728,6 +1730,13 @@ static void navigation_guide() {
             // A world-space box; move it or remove it to reopen polygons.
             ctx.set_nav_obstacle(ctx.world().spawn(), {0, 1, 8}, {1, 1, 1});
             // ANCHOR_END: nav_agent_spawn
+            // ANCHOR: nav_carve
+            ctx.set_nav_carve_obstacle(ctx.world().spawn(), {6, 1, 6}, {1, 1, 1});
+            // Simulation gathers components and rebuilds one cached layer per tick.
+            // After a tick, optional extra work reports steps and pending updates:
+            auto carving = ctx.navmesh_update_carving(0);
+            (void)carving;
+            // ANCHOR_END: nav_carve
         });
     (void)world;
 }

@@ -38,8 +38,13 @@ pub struct CrabbyNavBakeSettings {
     pub cell_size: f32,
     /// Sampling size in height. Default 0.1.
     pub cell_height: f32,
-    /// Cells per tile side. Default 32.
+    /// Cells per tile side (8 to 255), grown automatically for very large levels
+    /// (a navmesh holds at most 16,384 tiles). Default 32.
     pub tile_size: u32,
+    /// Keep cached layers so carving obstacles can cut real holes. Costs bake
+    /// time and memory; without it carving obstacles block like ordinary ones.
+    /// Default false.
+    pub carving: bool,
 }
 
 /// The default bake: a 0.3 m wide, 1.8 m tall agent on 45° slopes.
@@ -59,6 +64,7 @@ fn settings_to_c(s: NavBakeSettings) -> CrabbyNavBakeSettings {
         cell_size: s.cell_size,
         cell_height: s.cell_height,
         tile_size: s.tile_size,
+        carving: s.carving,
     }
 }
 fn settings_from_c(s: &CrabbyNavBakeSettings) -> NavBakeSettings {
@@ -70,6 +76,7 @@ fn settings_from_c(s: &CrabbyNavBakeSettings) -> NavBakeSettings {
         cell_size: s.cell_size,
         cell_height: s.cell_height,
         tile_size: s.tile_size,
+        carving: s.carving,
     }
 }
 fn sources<'a>(s: *mut CrabbyNavSources) -> Result<&'a mut CrabbyNavSources, Failure> {
@@ -352,6 +359,62 @@ pub unsafe extern "C" fn crabby_ctx_set_nav_obstacle(
         ctx_access(ctx, |c| {
             let e = entity(c, entity_bits)?;
             c.world.insert(e, NavObstacle3D::new(to_c(center), to_c(half_extents)));
+            Ok(())
+        })
+    })
+}
+
+/// Sets an axis-aligned carving obstacle. Tile updates run during simulation or
+/// through `crabby_ctx_navmesh_update_carving`.
+/// ```
+/// let v = crabby_ffi::CrabbyVec3::default();
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_nav_carve_obstacle(std::ptr::null_mut(), 0, v, v) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` null or live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_nav_carve_obstacle(
+    ctx: *mut CrabbyCtx,
+    entity_bits: u64,
+    center: CrabbyVec3,
+    half_extents: CrabbyVec3,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let e = entity(c, entity_bits)?;
+            let mut obstacle = NavObstacle3D::new(to_c(center), to_c(half_extents));
+            obstacle.carve = true;
+            c.world.insert(e, obstacle);
+            Ok(())
+        })
+    })
+}
+
+/// Runs at most `budget` tile-cache updates, reporting steps and pending work.
+/// Call after a simulation tick has gathered obstacle components.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_navmesh_update_carving(std::ptr::null_mut(), 1, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` null or live; outputs null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_navmesh_update_carving(
+    ctx: *mut CrabbyCtx,
+    budget: usize,
+    steps: *mut usize,
+    pending: *mut bool,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let nav = c
+                .world
+                .get_resource_mut::<NavMesh3D>()
+                .ok_or_else(|| invalid("no navmesh"))?;
+            let n = nav.update_carving(budget).map_err(|e| invalid_owned(e.to_string()))?;
+            out(steps, n)?;
+            out(pending, nav.carving_pending())?;
             Ok(())
         })
     })

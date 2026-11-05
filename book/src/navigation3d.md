@@ -35,6 +35,19 @@ work and memory. Bake uses bounded backend budgets and returns `NavBakeError`
 on invalid inputs or resource exhaustion. A scene with no walkable surface may
 produce an empty mesh.
 
+### Large levels
+
+The level is baked as a grid of square tiles, `tile_size` cells (default 32,
+6.4 m at the default cell size) on a side, and a navmesh holds at most 16,384
+tiles. When a level would need more, the baker grows `tile_size` for you, up to
+255 cells, so kilometre-wide terrain bakes with the default settings: 0.8 km
+square at the default cell size keeps 32-cell tiles, and the grown tiles reach
+about 6.5 km. Beyond that, raise `cell_size`; the error says which limit was hit
+and which setting to change. Bake time grows with the number of cells, about a
+second for a 500 m square at the defaults, so use a coarser `cell_size` and
+`cell_height` (for example 0.5 and 0.25) for the largest levels. Smaller tiles
+make carving cheaper, which is why the default is not larger.
+
 Sample explicitly when accepting a distant click or spawn position. Sampling
 uses Euclidean distance, including vertical distance. `find_path` accepts endpoints
 close to the surface (two cells horizontally and climb plus two cell heights
@@ -99,8 +112,8 @@ newly blocked polygon stops; it is not automatically pushed out.
 
 Dynamic boxes **block entire overlapping polygon bounds**, expanded by agent radius
 and vertical clearance. This is conservative: a small obstacle may close a much
-larger region, especially with large tiles. Tiles are baked, but local rebaking and
-precise carving are not exposed yet. Changes scan all polygons; no spatial obstacle
+larger region, especially with large tiles. Opt-in carving instead cuts new polygon edges from cached heightfield layers.
+Non-carving changes scan all polygons; no spatial obstacle
 index is maintained. Use geometry in the bake for permanent walls and holes.
 For manual queries without the sim system, call `set_obstacles`; when registered,
 the system owns the obstacle list and replaces it from ECS components.
@@ -167,9 +180,8 @@ overlaps, narrow passages and opposing bottlenecks can cause penetration or
 stalling. Stopped agents can be displaced by overlap correction. Several agents
 sharing one destination settle in a region around it: nonzero discs cannot all
 arrive at one exact point. Give agents distinct reachable targets when precise
-arrival is required. Moving boxes still use conservative polygon blocking and
-invalidate crowd corridors; there is no predictive box velocity or tile-cache
-carving.
+arrival is required. Moving boxes invalidate crowd corridors. Carving is available as described above;
+there is no predictive box velocity.
 
 Slots and corridors persist across ticks. Capacity grows in powers of two up to
 16383 agents; excess agents wait. Mesh or obstacle changes rebuild the crowd,
@@ -177,3 +189,65 @@ and teleports recreate the affected slot. The backend currently allocates query
 scratch during updates; avoid assuming allocation-free crowd simulation. The
 original follower retains its allocation-free steady path. Baking, full-route
 validation on a new target, and crowd updates are synchronous and headless.
+
+
+## Dynamic carving
+
+Set `carve = true` to cut real holes using DetourTileCache. The default remains
+conservative polygon blocking. Carving needs the heightfield layers, which cost
+bake time and memory, so bake with `NavBakeSettings::carving` set to `true`
+(`carving` in the C struct). Without it, a `carve` obstacle blocks like an
+ordinary one. A carving bake builds the mesh from the layers alone, so it costs
+about the same as a normal bake. Tile size is configured in bake settings (8–255
+cells, default 32). Static heightfield layers are retained using the raw codec;
+updates never rasterize source triangles again.
+
+<div class="lang-pair">
+
+```rust,no_run
+# use crabbyengine::*;
+# fn add(ctx: &mut Ctx) {
+// Bake with layers: NavBakeSettings { carving: true, ..Default::default() }.
+let mut obstacle = NavObstacle3D::new(vec3(6.0, 1.0, 6.0), Vec3::ONE);
+obstacle.carve = true;
+ctx.world.spawn((obstacle,));
+// step_navmesh3d gathers components and rebuilds one cached layer per tick.
+let nav = ctx.world.resource_mut::<NavMesh3D>();
+let steps = nav.update_carving(0).unwrap();
+let pending = nav.carving_pending();
+# let _ = (steps, pending);
+# }
+```
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:nav_carve}}
+```
+
+</div>
+
+For manual Rust meshes, `set_obstacles` queues changes and `update_carving(budget)`
+advances at most that many layer rebuilds. C/C++ components are gathered by the
+simulation before extra manual updates can advance them. A zero budget only
+queries pending work. Changes arriving during rebuilds are retained. Movement
+under half a cell from the last applied position does not rebuild; size changes
+do. Ordered obstacle lists supply identity, so reordering can cause extra work.
+
+Each edit is submitted separately. Only layers touched by changed obstacles are
+rebuilt; moving an obstacle touches its old and new bounds. All agent paths and
+crowd corridors are invalidated after tile updates, conservatively including
+agents whose paths do not cross those tiles. Paths see each tile as it completes,
+so carving is eventually consistent rather than atomic across tiles.
+
+The backend accepts at most eight layers per obstacle and 256 obstacle handles;
+large boxes or deeply stacked worlds can exceed this. Manual updates return an
+error rather than silently truncating a hole. Simulation stops navigation on a
+cache error until the obstacle is corrected; a manual update reports the error. Cylinders are not exposed. Agents
+already enclosed by a hole stop rather than being ejected. Budget units count
+cache update calls (at most one layer each); edits touching no layers can still
+consume one unit. The simulation uses one unit per tick. Rebuilds allocate backend
+scratch and refresh polygon bounds across the mesh; the budget bounds tile count,
+not wall-clock duration. A carving bake keeps every tile's heightfield layers in
+memory. A carving mesh is built from those layers, so its polygons have no detail
+mesh heights; ordinary bakes keep the detail mesh. A carve obstacle that fully
+cuts a corridor leaves the two sides unconnected: `find_path` returns `None` and
+agents wait until the hole is removed.

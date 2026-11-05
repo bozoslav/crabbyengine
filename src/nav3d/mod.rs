@@ -7,15 +7,18 @@
 //! This wrapper keeps the established algorithm in one dependency.
 //!
 //! Dynamic AABBs conservatively disable overlapping polygon bounds (expanded by
-//! the baked agent clearance); they do not carve new edges or rebuild tiles.
+//! the baked agent clearance). Opt-in carving (`NavBakeSettings::carving`, then
+//! `NavObstacle3D::carve`) rebuilds cached heightfield layers.
 //! Register `step_navmesh3d` as a sim system, including on headless servers.
 //! Agents directly own their Transform3D: do not also attach a physics body or
 //! character controller. Crowd avoidance is opt-in. Bake for the largest
 //! agent radius/height; agents larger than that radius are stopped.
 
 use crate::{Ctx, Entity, MeshData, Transform3D, Vec3};
-use navmesh_rs::{Limits, Workspace, bake, crowd, detour};
+use navmesh_rs::{Limits, Workspace, bake, crowd, detour, recast, tilecache};
 use std::sync::atomic::{AtomicU64, Ordering};
+
+mod carve;
 
 static NEXT_REVISION: AtomicU64 = AtomicU64::new(1);
 
@@ -115,12 +118,29 @@ pub struct NavBakeSettings {
     /// assert_eq!(NavBakeSettings::default().cell_height, 0.1);
     /// ```
     pub cell_height: f32,
-    /// Tile width in cells (8..=1024); smaller tiles localize polygon blocking.
+    /// Tile width in cells (8..=255); smaller tiles localize carving. Defaults to
+    /// 32 (6.4 m at the default cell size). A navmesh holds at most 16,384 tiles,
+    /// so this is a minimum: the baker grows it, up to 255, for levels that would
+    /// need more (about 0.8 km square at the defaults, up to 6.5 km). Beyond that,
+    /// raise `cell_size`.
     /// ```
     /// # use crabbyengine::*;
     /// assert_eq!(NavBakeSettings::default().tile_size, 32);
     /// ```
     pub tile_size: u32,
+    /// Keep per-tile heightfield layers so `NavObstacle3D::carve` can cut real
+    /// holes at runtime; defaults to false.
+    ///
+    /// Layers cost extra bake time and memory, so they are built only when asked
+    /// for. Without them a `carve` obstacle falls back to the conservative
+    /// polygon-AABB blocking of ordinary obstacles. With them the whole mesh comes
+    /// from the layer pipeline (no separate polygon bake), so a carving bake costs
+    /// about one pass over the level, not two.
+    /// ```
+    /// # use crabbyengine::*;
+    /// assert!(!NavBakeSettings::default().carving);
+    /// ```
+    pub carving: bool,
 }
 impl Default for NavBakeSettings {
     fn default() -> Self {
@@ -132,6 +152,7 @@ impl Default for NavBakeSettings {
             cell_size: 0.2,
             cell_height: 0.1,
             tile_size: 32,
+            carving: false,
         }
     }
 }
@@ -152,6 +173,36 @@ impl std::fmt::Display for NavBakeError {
 impl std::error::Error for NavBakeError {}
 fn error(value: impl std::fmt::Display) -> NavBakeError {
     NavBakeError(value.to_string())
+}
+
+/// Most tiles one navmesh holds (the backend's tile reference layout).
+const MAX_TILES: usize = 1 << 14;
+/// Working memory one tile may use while baking.
+const TILE_WORKING_BYTES: usize = 64 << 20;
+/// Work units (span, cell and vertex visits) one tile may use.
+const TILE_WORK: u64 = 100_000_000;
+/// Headroom for input bucketing and bookkeeping, before the per-tile output.
+const SETUP_BYTES: usize = 2 << 30;
+
+/// Turns a backend bake failure into a message naming the limit and the setting.
+fn bake_error(e: &bake::BakeError, s: &NavBakeSettings) -> NavBakeError {
+    use navmesh_rs::Error;
+    let at = e.tile.map_or_else(String::new, |[x, z]| format!(" in tile ({x}, {z})"));
+    let advice = format!(
+        "lower NavBakeSettings::tile_size (now {}) or raise cell_size (now {})",
+        s.tile_size, s.cell_size
+    );
+    match &e.error {
+        Error::LimitExceeded => error(format!(
+            "navigation bake limit exceeded{at}: a tile needs more than {} MiB of working memory, \
+             {} million work units or its output size cap; {advice}",
+            TILE_WORKING_BYTES >> 20,
+            TILE_WORK / 1_000_000
+        )),
+        Error::FormatLimit(what) => error(format!("navigation bake format limit{at}: {what}; {advice}")),
+        Error::SizeOverflow => error(format!("navigation bake size overflow{at}; {advice}")),
+        other => error(format!("navigation bake failed{at}: {other}")),
+    }
 }
 
 struct PolygonBounds {
@@ -187,6 +238,12 @@ struct NavState {
     crowd_seen: Vec<bool>,
     crowd_owners: Vec<Option<Entity>>,
     crowd_workspace: Workspace,
+    /// Present only when baked with `NavBakeSettings::carving`.
+    cache: Option<tilecache::TileCache>,
+    carve_handles: Vec<tilecache::ObstacleRef>,
+    carved: Vec<NavObstacle3D>,
+    pending: bool,
+    carve_failed: bool,
 }
 impl NavMesh3D {
     /// Bakes ordered world triangles with bounded backend memory/work budgets.
@@ -226,7 +283,8 @@ impl NavMesh3D {
     }
     /// Replaces world-space blocking boxes, restoring polygons when boxes leave.
     /// Invalid boxes fail closed by blocking every polygon. Overlap tests use
-    /// polygon AABBs, so thin boxes can close a much larger area. No carving.
+    /// polygon AABBs, so thin boxes can close a much larger area. Carving boxes
+    /// instead queue cached-layer rebuilds; call `update_carving` to advance them.
     /// The sim system owns this list when registered: it gathers obstacle components.
     /// ```
     /// use crabbyengine::*;
@@ -240,6 +298,27 @@ impl NavMesh3D {
         if let Some(state) = &mut self.state {
             state.set_obstacles(obstacles);
         }
+    }
+    /// Rebuilds at most `budget` cached layers; returns the number of update steps.
+    /// Call once per frame for manually managed meshes. The sim system uses one.
+    /// ```
+    /// # use crabbyengine::*;
+    /// let source = NavSource::from_mesh(&MeshData::plane(10.0), Transform3D::default());
+    /// let mut nav = NavMesh3D::bake(&[source], NavBakeSettings::default()).unwrap();
+    /// assert_eq!(nav.update_carving(1).unwrap(), 0);
+    /// ```
+    pub fn update_carving(&mut self, budget: usize) -> Result<usize, NavBakeError> {
+        self.state.as_mut().map_or(Ok(0), |s| s.update_carving(budget))
+    }
+    /// Whether queued carving updates remain.
+    /// ```
+    /// # use crabbyengine::*;
+    /// let source = NavSource::from_mesh(&MeshData::plane(10.0), Transform3D::default());
+    /// let nav = NavMesh3D::bake(&[source], NavBakeSettings::default()).unwrap();
+    /// assert!(!nav.carving_pending());
+    /// ```
+    pub fn carving_pending(&self) -> bool {
+        self.state.as_ref().is_some_and(|s| s.pending || s.carving_changed())
     }
 }
 
@@ -262,7 +341,7 @@ impl NavState {
             || !(0.0..90.0).contains(&s.max_slope)
             || s.cell_size <= 0.0
             || s.cell_height <= 0.0
-            || !(8..=1024).contains(&s.tile_size)
+            || !(8..=255).contains(&s.tile_size)
         {
             return Err(error("invalid navigation bake settings"));
         }
@@ -285,7 +364,6 @@ impl NavState {
         let mut config = bake::BakeConfig::default();
         config.recast.cs = s.cell_size;
         config.recast.ch = s.cell_height;
-        config.recast.tile_size = s.tile_size as i32;
         config.recast.walkable_height = (s.agent_height / s.cell_height).ceil() as i32;
         config.recast.walkable_radius = (s.agent_radius / s.cell_size).ceil() as i32;
         config.recast.walkable_climb = (s.max_climb / s.cell_height).floor() as i32;
@@ -298,11 +376,25 @@ impl NavState {
         config.walkable_radius = s.agent_radius;
         config.walkable_climb = s.max_climb;
         config.strict_triangulation = true;
-        config.tile_limits.max_bytes = 64 << 20;
-        config.tile_limits.max_work = 100_000_000;
-        config.max_total_bytes = 2 << 30;
-        let baked = bake::tiles(&bake::Input::new(&verts, &tris), &config, &mut Workspace::new()).map_err(error)?;
-        let mesh = baked.into_navmesh(Limits::default()).map_err(error)?;
+        let grid = carve::TileGrid::new(&verts, &s)?;
+        config.recast.tile_size = grid.tile_size as i32;
+        config.tile_limits.max_bytes = TILE_WORKING_BYTES;
+        config.tile_limits.max_work = TILE_WORK;
+        config.tile_limits.max_tile_bytes = grid.max_tile_bytes();
+        // The backend charges every tile's byte cap up front, so the total grows
+        // with the tile count instead of capping the level size.
+        config.max_total_bytes = SETUP_BYTES + grid.count * config.tile_limits.max_tile_bytes;
+        let (mesh, cache) = if s.carving {
+            let (mesh, cache) = carve::bake_layers(&verts, &tris, &config, grid.layout())?;
+            (mesh, Some(cache))
+        } else {
+            let baked = bake::tiles(&bake::Input::new(&verts, &tris), &config, &mut Workspace::new())
+                .map_err(|e| bake_error(&e, &s))?;
+            (
+                baked.into_navmesh(Limits::default()).map_err(|e| bake_error(&e, &s))?,
+                None,
+            )
+        };
         let mut polygons = Vec::new();
         for i in 0..mesh.max_tiles() as usize {
             let Some(tile) = mesh.tile(i) else {
@@ -337,6 +429,11 @@ impl NavState {
             crowd_seen: Vec::new(),
             crowd_owners: Vec::new(),
             crowd_workspace: Workspace::new(),
+            cache,
+            carve_handles: Vec::new(),
+            carved: Vec::new(),
+            pending: false,
+            carve_failed: false,
         })
     }
 
@@ -437,13 +534,19 @@ impl NavState {
     fn apply_obstacles(&mut self) {
         let radius = Vec3::new(self.settings.agent_radius, 0.0, self.settings.agent_radius);
         for poly in &self.polygons {
-            let blocked = self.obstacles.iter().any(|o| {
-                !o.center.is_finite() || !o.half_extents.is_finite() || o.half_extents.min_element() < 0.0 || {
-                    let min = o.center - o.half_extents - radius;
-                    let max = o.center + o.half_extents + radius;
-                    poly.max.cmpge(min - Vec3::Y * self.settings.agent_height).all() && poly.min.cmple(max).all()
-                }
-            });
+            let blocked = self.carve_failed
+                || self.obstacles.iter().any(|o| {
+                    !(o.carve && self.cache.is_some())
+                        && (!o.center.is_finite()
+                            || !o.half_extents.is_finite()
+                            || o.half_extents.min_element() < 0.0
+                            || {
+                                let min = o.center - o.half_extents - radius;
+                                let max = o.center + o.half_extents + radius;
+                                poly.max.cmpge(min - Vec3::Y * self.settings.agent_height).all()
+                                    && poly.min.cmple(max).all()
+                            })
+                });
             self.mesh
                 .set_poly_flags(poly.reference, u16::from(!blocked))
                 .expect("cached polygon reference");
@@ -472,6 +575,14 @@ pub struct NavObstacle3D {
     /// assert_eq!(NavObstacle3D::new(Vec3::ZERO, Vec3::ONE).half_extents, Vec3::ONE);
     /// ```
     pub half_extents: Vec3,
+    /// Rebuild cached heightfield layers to cut a real hole. Default false. Needs a
+    /// mesh baked with `NavBakeSettings::carving`; otherwise this blocks like any
+    /// other obstacle.
+    /// ```
+    /// # use crabbyengine::*;
+    /// assert!(!NavObstacle3D::new(Vec3::ZERO, Vec3::ONE).carve);
+    /// ```
+    pub carve: bool,
 }
 impl NavObstacle3D {
     /// Creates an axis-aligned world box. Invalid values block the entire mesh.
@@ -482,7 +593,11 @@ impl NavObstacle3D {
     /// ```
     #[must_use]
     pub fn new(center: Vec3, half_extents: Vec3) -> Self {
-        Self { center, half_extents }
+        Self {
+            center,
+            half_extents,
+            carve: false,
+        }
     }
 }
 
@@ -599,7 +714,12 @@ pub fn step_navmesh3d(ctx: &mut Ctx) {
     nav.scratch.clear();
     ctx.world.query::<&NavObstacle3D>().for_each(|o| nav.scratch.push(*o));
     if nav.scratch != nav.obstacles {
-        std::mem::swap(&mut nav.scratch, &mut nav.obstacles);
+        let obstacles = std::mem::take(&mut nav.scratch);
+        nav.set_obstacles(&obstacles);
+        nav.scratch = obstacles;
+    }
+    if nav.update_carving(1).is_err() {
+        nav.carve_failed = true;
         nav.apply_obstacles();
     }
     step_crowd(ctx, &mut nav, dt);
