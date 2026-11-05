@@ -1,4 +1,5 @@
 #include "crabby.h"
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -290,9 +291,135 @@ static void morph_clip_api(void) {
     CHECK(crabby_mesh_data_add_morph_frame(mesh, 0, 0, 1) == CRABBY_INVALID_ARGUMENT);
     crabby_mesh_data_free(mesh);
 }
+/* Replication helpers: sequence numbers, authority, snapshots, interest. */
+static void replication(void) {
+    CHECK(crabby_seq_newer(1, 0) && crabby_seq_newer(0, 65535) && !crabby_seq_newer(7, 7));
+    CHECK(!crabby_seq_newer(65535, 0) && crabby_seq_diff(1, 65535) == 2 && crabby_seq_diff(65535, 1) == -2);
+    CrabbyUpdateStamp old = {0, 60000}, next = {1, 0};
+    CHECK(crabby_stamp_newer(next, old) && !crabby_stamp_newer(old, next) && !crabby_stamp_newer(old, old));
+
+    CrabbyAuthority a = crabby_authority_new(0);
+    uint16_t epoch = 99;
+    bool changed = false;
+    CrabbyAuthorityCheck check;
+    CHECK(crabby_authority_check(&a, 0, 0, &check) == CRABBY_OK && check == CRABBY_AUTHORITY_ACCEPT);
+    CHECK(crabby_authority_handoff(&a, 1, &epoch) == CRABBY_OK && epoch == 1 && a.owner == 1);
+    CHECK(crabby_authority_check(&a, 0, 0, &check) == CRABBY_OK && check == CRABBY_AUTHORITY_STALE);
+    CHECK(crabby_authority_check(&a, 0, 1, &check) == CRABBY_OK && check == CRABBY_AUTHORITY_WRONG_OWNER);
+    CHECK(crabby_authority_check(&a, 1, 2, &check) == CRABBY_OK && check == CRABBY_AUTHORITY_AHEAD);
+    CHECK(crabby_authority_adopt(&a, 2, 1, &changed) == CRABBY_OK && !changed && a.owner == 1); /* race: lower wins */
+    CHECK(crabby_authority_adopt(&a, 3, 2, &changed) == CRABBY_OK && changed && a.owner == 3 && a.epoch == 2);
+    CHECK(crabby_authority_adopt(NULL, 1, 1, &changed) == CRABBY_INVALID_ARGUMENT);
+    CHECK(crabby_authority_check(&a, 1, 1, NULL) == CRABBY_INVALID_ARGUMENT);
+
+    CrabbyLatestWins* filter = crabby_latest_wins_new();
+    bool ok = false;
+    CrabbyUpdateStamp s1 = {0, 1}, s3 = {0, 3};
+    CHECK(crabby_latest_wins_accept(filter, 9, s3, &ok) == CRABBY_OK && ok);
+    CHECK(crabby_latest_wins_accept(filter, 9, s1, &ok) == CRABBY_OK && !ok);
+    CHECK(crabby_latest_wins_accept(filter, 9, s3, &ok) == CRABBY_OK && !ok);
+    CHECK(crabby_latest_wins_accept(filter, 10, s1, &ok) == CRABBY_OK && ok && crabby_latest_wins_len(filter) == 2);
+    CHECK(crabby_latest_wins_forget(filter, 9) == CRABBY_OK);
+    CHECK(crabby_latest_wins_accept(filter, 9, s1, &ok) == CRABBY_OK && ok);
+    CHECK(crabby_latest_wins_clear(filter) == CRABBY_OK && crabby_latest_wins_len(filter) == 0);
+    CHECK(crabby_latest_wins_accept(NULL, 1, s1, &ok) == CRABBY_INVALID_ARGUMENT);
+    crabby_latest_wins_free(filter);
+    crabby_latest_wins_free(NULL);
+
+    /* A sender 5000 s ahead walks along x at 20 units/s, 20 snapshots a second. */
+    CrabbySnapshotStream* stream = NULL;
+    CHECK(crabby_snapshot_stream_new(NULL, &stream) == CRABBY_OK && stream);
+    CrabbyPose pose = {0}, shown = {0};
+    pose.rotation.w = 1;
+    pose.has_velocity = true;
+    pose.velocity.x = 20;
+    CrabbySnapshotState state;
+    CrabbySnapshotPush result;
+    bool found = true;
+    CHECK(crabby_snapshot_stream_sample(stream, 0, &shown, &state, &found) == CRABBY_OK && !found);
+    for (int n = 0; n < 20; n++) {
+        pose.position.x = (float)n;
+        CHECK(crabby_snapshot_stream_push(stream, 5000 + n * 0.05, n * 0.05 + 0.03, &pose, &result) == CRABBY_OK);
+        CHECK(result == CRABBY_SNAPSHOT_ADDED);
+    }
+    CHECK(crabby_snapshot_stream_push(stream, 5000, 1.0, &pose, &result) == CRABBY_OK && result == CRABBY_SNAPSHOT_DUPLICATE);
+    CHECK(crabby_snapshot_stream_push(stream, NAN, 1.0, &pose, &result) == CRABBY_OK && result == CRABBY_SNAPSHOT_INVALID);
+    CHECK(crabby_snapshot_stream_len(stream) == 20);
+    CHECK(crabby_snapshot_stream_sample(stream, 1.0, &shown, &state, &found) == CRABBY_OK && found);
+    CHECK(state == CRABBY_SNAPSHOT_INTERPOLATED && shown.position.x > 17.3f && shown.position.x < 17.5f && shown.has_velocity);
+    /* Packets stop: predicted for 250 ms, then held where the prediction ended. */
+    CHECK(crabby_snapshot_stream_sample(stream, 1.2, &shown, &state, &found) == CRABBY_OK && state == CRABBY_SNAPSHOT_EXTRAPOLATED);
+    CHECK(crabby_snapshot_stream_sample(stream, 5.0, &shown, &state, &found) == CRABBY_OK && state == CRABBY_SNAPSHOT_HELD);
+    CHECK(shown.position.x > 23.9f && shown.position.x < 24.1f); /* 19 + 0.25 s * 20 */
+    double offset = 0;
+    CHECK(crabby_snapshot_stream_clock_offset(stream, &offset, &found) == CRABBY_OK && found && offset < -4999.9 && offset > -5000.0);
+    CHECK(crabby_snapshot_stream_set_delay(stream, 0.0) == CRABBY_OK);
+    CHECK(crabby_snapshot_stream_set_delay(stream, -1.0) == CRABBY_INVALID_ARGUMENT);
+    CHECK(crabby_snapshot_stream_clear(stream) == CRABBY_OK && crabby_snapshot_stream_len(stream) == 0);
+    CHECK(crabby_snapshot_stream_sample(stream, 1.0, &shown, NULL, &found) == CRABBY_OK && !found);
+    CHECK(crabby_snapshot_stream_reset(stream) == CRABBY_OK);
+    CHECK(crabby_snapshot_stream_clock_offset(stream, &offset, &found) == CRABBY_OK && !found);
+    CHECK(crabby_snapshot_stream_push(stream, 1, 1, NULL, &result) == CRABBY_INVALID_ARGUMENT);
+    CHECK(crabby_snapshot_stream_sample(NULL, 1.0, &shown, &state, &found) == CRABBY_INVALID_ARGUMENT);
+    crabby_snapshot_stream_free(stream);
+    crabby_snapshot_stream_free(NULL);
+    CrabbySnapshotConfig bad = crabby_snapshot_config_default();
+    bad.capacity = 1;
+    CHECK(crabby_snapshot_stream_new(&bad, &stream) == CRABBY_INVALID_ARGUMENT);
+    bad = crabby_snapshot_config_default();
+    bad.delay = -1;
+    CHECK(crabby_snapshot_stream_new(&bad, &stream) == CRABBY_INVALID_ARGUMENT);
+
+    CrabbyInterest* interest = NULL;
+    CrabbyInterestConfig config = crabby_interest_config_default();
+    CHECK(config.tier_count == 2 && config.tiers[0].radius == 40 && config.tiers[1].every == 4);
+    CHECK(crabby_interest_new(&config, &interest) == CRABBY_OK);
+    CrabbyInterestViewer viewer = {1, {0, 0, 0}};
+    CrabbyInterestEntity world[3] = {{10, {10, 0, 0}}, {20, {100, 0, 0}}, {30, {900, 0, 0}}};
+    CHECK(crabby_interest_update(interest, 0, &viewer, 1, world, 3) == CRABBY_OK);
+    CrabbyInterestEntry entries[4];
+    size_t count = 0;
+    CHECK(crabby_interest_entries(interest, 1, entries, 4, &count) == CRABBY_OK && count == 2);
+    CHECK(entries[0].entity == 10 && entries[0].tier == 0 && entries[0].send);
+    CHECK(entries[1].entity == 20 && entries[1].tier == 1 && entries[1].send && entries[1].distance == 100);
+    CrabbyInterestChange changes[4];
+    CHECK(crabby_interest_changes(interest, changes, 4, &count) == CRABBY_OK && count == 2);
+    CHECK(changes[0].kind == CRABBY_INTEREST_ENTERED && changes[0].peer == 1 && changes[0].entity == 10);
+    /* The mid entity wobbles across the edge of the near ring (40): hysteresis keeps it in its ring. */
+    for (uint64_t tick = 1; tick < 20; tick++) {
+        world[1].position.x = 40 + (tick % 2 ? 3.0f : -3.0f);
+        CHECK(crabby_interest_update(interest, tick, &viewer, 1, world, 2) == CRABBY_OK);
+        CHECK(crabby_interest_entries(interest, 1, entries, 4, &count) == CRABBY_OK && count == 2 && entries[1].tier == 1);
+        CHECK(crabby_interest_changes(interest, changes, 4, &count) == CRABBY_OK && count == 0);
+    }
+    world[1].position.x = 500;
+    CHECK(crabby_interest_update(interest, 20, &viewer, 1, world, 2) == CRABBY_OK);
+    CHECK(crabby_interest_changes(interest, changes, 4, &count) == CRABBY_OK && count == 1);
+    CHECK(changes[0].kind == CRABBY_INTEREST_LEFT && changes[0].entity == 20);
+    CHECK(crabby_interest_entries(interest, 99, NULL, 0, &count) == CRABBY_OK && count == 0);
+    CHECK(crabby_interest_remove_peer(interest, 1) == CRABBY_OK);
+    CHECK(crabby_interest_update(interest, 21, NULL, 0, NULL, 0) == CRABBY_OK);
+    CHECK(crabby_interest_update(interest, 21, NULL, 1, NULL, 0) == CRABBY_INVALID_ARGUMENT);
+    CHECK(crabby_interest_entries(NULL, 1, NULL, 0, &count) == CRABBY_INVALID_ARGUMENT);
+    crabby_interest_free(interest);
+    interest = NULL;
+    crabby_interest_free(NULL);
+    config.tiers[1].radius = 10; /* not increasing */
+    CHECK(crabby_interest_new(&config, &interest) == CRABBY_INVALID_ARGUMENT && !interest);
+    config = crabby_interest_config_default();
+    config.tier_count = 0;
+    CHECK(crabby_interest_new(&config, &interest) == CRABBY_INVALID_ARGUMENT);
+    config.tier_count = 9;
+    CHECK(crabby_interest_new(&config, &interest) == CRABBY_INVALID_ARGUMENT);
+    config = crabby_interest_config_default();
+    config.hysteresis = 40;
+    CHECK(crabby_interest_new(&config, &interest) == CRABBY_INVALID_ARGUMENT);
+}
+
 int main(void) {
     steam_messages_validation();
     morph_clip_api();
+    replication();
     CHECK(crabby_abi_version() == 2);
     CrabbyWorld* w = crabby_world_new(); CHECK(w);
     uint32_t p; CHECK(crabby_component_register(w, "Pos", sizeof(Position), _Alignof(Position), &p) == CRABBY_OK);

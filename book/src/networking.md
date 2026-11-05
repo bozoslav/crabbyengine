@@ -225,7 +225,9 @@ Run the self-contained UDP example with
 `send_serde` encodes JSON and `MessageEvent::decode::<T>()` decodes it.
 `send_to_all` targets connected peers and can partially succeed if a later
 peer's queue is full. The application remains responsible for its packet
-schema, authority and version negotiation.
+schema, authority and version negotiation. The [replication
+helpers](#replicating-state-over-messages) below cover the common pieces
+without dictating a format.
 
 Drain `events()` after each poll, then apply any sends after dropping the
 iterator (it borrows the endpoint). Events include connections, complete
@@ -347,3 +349,186 @@ transport-independent channels provide retransmission, ordered delivery and
 fragmentation without Bevy or an async runtime. `renet_steam` was evaluated,
 but its Steamworks 0.12.2 dependency differs from this engine's 0.13.1, and
 the engine instead adapts the existing renet packet protocol directly.
+
+## Replicating state over messages
+
+Client/server and co-op games usually don't run lockstep: each player owns
+their own motion (and the vehicle they drive), the host owns the rest, and
+state travels as snapshots on an unreliable lane. The engine moves the bytes
+(`NetMessages`) and gives you small helpers for the parts every such game
+rewrites, **without imposing a wire format**: they take decoded values and
+return decisions. You keep your own packet codec. None of them touches the
+network, so they're plain data structures that work (and test) without a
+session, in Rust and from C and C++.
+
+### Showing remote things smoothly: snapshot interpolation
+
+Packets arrive unevenly, out of order, twice, or not at all; drawing each one
+as it comes makes remote entities jitter. Instead, buffer the snapshots and
+draw the entity a little in the past (**100 ms** by default), always between
+two snapshots you already have.
+
+A `SnapshotStream` is one remote entity's buffer plus an estimate of the
+sender's clock. For each decoded packet, `push` the sender's timestamp, your
+own clock and the state; every frame, `sample` your clock:
+
+<div class="lang-pair">
+<div>
+
+```rust
+{{#include ../../examples/net_replication.rs:snapshots}}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:snapshots}}
+```
+
+</div>
+</div>
+
+- **Pose:** a position, a rotation and an optional velocity. Position is
+  interpolated linearly, or along a cubic Hermite curve when both
+  neighbouring snapshots carry a velocity (smoother through turns, and at low
+  send rates). Rotation uses slerp. Rust's `SnapshotStream<T>` and
+  `SnapshotBuffer<T>` work for any state you implement `Interpolate` for
+  (`f32`, `Vec2`, `Vec3` and `Quat` already are); C and C++ have the pose.
+- **Late packets:** when the buffer runs dry, the entity is **extrapolated**
+  from the newest snapshot (by its velocity, or the speed between the last two
+  snapshots) for at most **250 ms**, then held where the prediction ended,
+  never snapped back. `sample` says which one you got (`Interpolated`,
+  `Extrapolated`, `Held`), which is handy for showing a "connection problem".
+  Rotation is held, not predicted.
+- **Out of order and duplicates:** snapshots are stored by timestamp, so a
+  late one still lands in the right place and a second copy is ignored
+  (`push` tells you which).
+- **The clock:** timestamps are on the sender's clock, which is none of
+  yours. `ClockSync` learns the offset from the packets alone, no round
+  trips: it follows the fastest of the recent packets (the 4th smallest of
+  the last 32, so jitter and late packets don't move it, and neither do a few
+  freakishly fast ones) and smooths that, so it also follows clock drift.
+  A clock that jumps (the sender restarted) is noticed after 8 packets and
+  the estimate starts over. Use any clock you like for yours (`ctx.time()`),
+  the same one for `push` and `sample`.
+- **Teleports:** `clear()` the stream when something respawns or teleports,
+  or it slides across the map. `reset()` on a new connection.
+- **Tuning:** `SnapshotConfig` has `delay` (make it more than the gap between
+  your packets plus their jitter), `max_extrapolation` and `capacity`
+  (snapshots kept; at least twice `delay` × your send rate).
+
+With the `3d` feature, the `NetPose` component holds a stream and the system
+`apply_net_poses` sets the `Transform3D` position and rotation of every entity
+that has one, from `ctx.time()`; add it with `Game::system` so entities move
+every frame:
+
+```rust,ignore
+game.system(apply_net_poses);
+// from the message handler:
+//   world.get_mut::<NetPose>(entity).unwrap().stream.push(sender_time, ctx.time(), pose);
+```
+
+### Who may update what: authority epochs and sequence numbers
+
+With mixed authority, a handoff (the guest takes the wheel of a car the host
+was driving) races with updates still in flight from the old owner. An
+`Authority` is an owner peer and an **epoch**; a handoff bumps the epoch, and
+updates carry the epoch they were sent under, so a late packet from the
+previous owner is recognised and dropped (`AuthorityCheck::Stale`) instead of
+yanking the car back:
+
+<div class="lang-pair">
+<div>
+
+```rust
+{{#include ../../examples/net_replication.rs:authority}}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:authority}}
+```
+
+</div>
+</div>
+
+Whoever decides (usually the host) calls `handoff` and announces
+`(owner, epoch)` on a **reliable** lane; the others `adopt` it. An update that
+overtakes its announcement is `Ahead`: drop it, or hold it until the
+announcement arrives. If two peers hand the same entity off at once, `adopt`
+breaks the tie in favour of the lower peer id, so everyone ends up with the
+same owner.
+
+For unreliable state updates, number them with a wrapping 16-bit sequence.
+`seq_newer(a, b)` compares with wrap-around (65535 is followed by 0), and
+`LatestWins` is the per-entity filter: it accepts an update only if its
+`UpdateStamp { epoch, seq }` is newer than everything accepted before for the
+same entity, which drops duplicates, reordered packets and updates from an old
+epoch in one call (see `newest.accept(...)` in the snapshot example above).
+Forget an entity with `forget` when it's gone, and after a long silence (half
+the sequence range, 32,768 updates, is the limit for an unambiguous
+comparison).
+
+### Who needs what: interest by distance
+
+Sending every entity to every peer doesn't scale. An `Interest` decides, per
+peer, which entities to send and how often, from the position of that
+peer's viewer(s) (the avatar, the camera) and the entities' positions. The
+rings are `InterestConfig::tiers`; by default entities within 40 units are
+sent every tick, within 120 units every 4th tick, and beyond that not at all.
+
+<div class="lang-pair">
+<div>
+
+```rust
+{{#include ../../examples/net_replication.rs:interest}}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:interest}}
+```
+
+</div>
+</div>
+
+Call `update` once per send tick with all viewers and entities. Then
+`entries` (Rust: `due` for just the ones to send now) lists what each peer is
+interested in, with the ring (`tier`), the distance and a `send` flag, and
+`changes` reports entities that **entered** (spawn them on that peer) or
+**left** (despawn them, also when the entity is gone from the world). An
+entity that has just entered always has `send` set.
+
+- **Hysteresis** (5 units by default): an entity moves to a closer ring only
+  once it is that far inside it, and to a farther ring (or out of interest)
+  only once it is that far outside. One standing on a boundary doesn't flicker
+  in and out, and doesn't cost a spawn and a despawn every other tick.
+- **Staggering:** the slow rings send on different ticks for different
+  entities (by id), so a ring of 1,000 entities every 4th tick is 250 sends
+  per tick, not 1,000 every 4th. Turn it off with `stagger: false`.
+- **Scale:** the entities go into a spatial grid first, so a peer only looks
+  at those near its viewers, and the buffers are reused. One `update` in a
+  release build on a laptop: 1,000 entities and 4 peers took 28 µs, 5,000
+  entities and 8 peers 65 µs, 20,000 entities and 8 peers 272 µs (about 350
+  entries in range in total); with everything in range of everyone (5,000
+  entities, 8 peers, 29,000 entries) 1.4 ms, about 50 ns per entry. A peer
+  may have several viewers
+  (split screen); an entity counts by its nearest. Positions are 3D; for a
+  flat world, use a constant height.
+- Peers that have no viewer in an `update` are forgotten, with their entities
+  reported as left; call `remove_peer` when one disconnects.
+
+### Testing it
+
+Everything above is pure data, so tests need no sockets: feed `push` with
+recorded or simulated packets and a made-up clock. The engine's own tests also
+run two `NetMessages::loopback_lossy` endpoints with extra delay and jitter,
+exchanging snapshots built with these helpers
+(`tests/net_replication.rs`), and every helper has tests for jitter,
+reordering, packet loss, the extrapolation cap, handoff races, sequence
+wrap-around and interest hysteresis.

@@ -1642,6 +1642,59 @@ static bool messages_round_trip() {
     return received;
 }
 
+static bool replication_snippets() {
+    // ANCHOR: snapshots
+    // One stream per remote entity: it holds the snapshots received and learns
+    // the sender's clock from their timestamps. The wire format is yours.
+    crabby::snapshot_stream car; // shown 100 ms in the past
+    crabby::latest_wins newest;  // drops duplicate and late packets
+    for (std::uint16_t n = 0; n < 20; n++) {
+        // In a game this is a decoded packet from net_messages::next_event():
+        std::uint64_t entity = 7;
+        double sender_time = 5000.0 + n * 0.05; // on the sender's clock
+        double arrived = n * 0.05 + 0.03;       // on yours, e.g. ctx.time()
+        auto pose = crabby::moving(crabby::pose_at({float(n), 0, 0}), {20, 0, 0});
+        if (newest.accept(entity, crabby::update_stamp{0, n})) car.push(sender_time, arrived, pose);
+    }
+    // Every frame: where to draw it. Between snapshots it is interpolated;
+    // when packets are late it is extrapolated for 250 ms, then held.
+    auto shown = car.sample(1.0);
+    std::printf("x = %.1f\n", shown->value.position.x);
+    // ANCHOR_END: snapshots
+    bool ok = shown && shown->state == crabby::snapshot_state::interpolated && std::fabs(shown->value.position.x - 17.4f) < 0.05f;
+
+    // ANCHOR: authority
+    const std::uint64_t host = 0, guest = 1;
+    crabby::authority vehicle(host);               // the host owns it...
+    std::uint16_t epoch = vehicle.handoff(guest);  // ...until the guest takes the wheel.
+    // Announce (guest, epoch) on a reliable lane; every other peer calls
+    // vehicle.adopt(guest, epoch) when it arrives. State updates carry the
+    // epoch they were sent under, and the receiver checks it:
+    bool late = vehicle.check(host, 0) == crabby::authority_check::stale; // from before the handoff
+    bool current = vehicle.check(guest, epoch) == crabby::authority_check::accept;
+    bool wraps = crabby::seq_newer(2, 65535); // sequence numbers wrap around
+    // ANCHOR_END: authority
+    ok = ok && late && current && wraps;
+
+    // ANCHOR: interest
+    // Near entities every tick, mid ones every 4th, far ones never.
+    crabby::interest interest;
+    const std::uint64_t peer = 0; // from CRABBY_MESSAGE_CONNECTED; the host is 0
+    std::vector<crabby::interest_viewer> viewers{{peer, {0, 0, 0}}};
+    std::vector<crabby::interest_entity> world{{1, {10, 0, 0}}, {2, {500, 0, 0}}};
+    int sent = 0;
+    for (std::uint64_t tick = 0; tick < 8; tick++) {
+        interest.update(tick, viewers, world);
+        for (auto& change : interest.changes())
+            std::printf("entity %llu %s\n", (unsigned long long)change.entity,
+                        change.kind == CRABBY_INTEREST_ENTERED ? "entered" : "left");
+        for (auto& entry : interest.entries(peer))
+            if (entry.send) sent++; // send entity entry.entity to this peer now
+    }
+    // ANCHOR_END: interest
+    return ok && sent == 8;
+}
+
 static void campfire(crabby::ctx& ctx) {
     // ANCHOR: particles
     auto fire = crabby::particle_settings()
@@ -1922,6 +1975,7 @@ int main() {
     crabby::game("particle guide", 1, 1).run_headless(0, campfire);
     crabby::game("ribbon guide", 1, 1).run_headless(0, ribbons);
     if (!messages_round_trip()) { std::fprintf(stderr, "no message\n"); std::abort(); }
+    if (!replication_snippets()) { std::fprintf(stderr, "replication snippets failed\n"); std::abort(); }
     crabby::game("sound guide", 1, 1).run_headless(0, [](crabby::ctx& ctx) {
         sound3d(ctx);
         float silence[16] = {};

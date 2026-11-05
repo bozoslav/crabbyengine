@@ -118,9 +118,16 @@ pub use flow::{FlowField, NavGrid};
 pub use game::{Game, SetupResult};
 pub use input::{Gamepad, GamepadAxis, GamepadButton, GamepadStick, Key, MAX_GAMEPADS, MouseButton};
 pub use net::{
+    Authority, AuthorityCheck, ClockSync, Interest, InterestChange, InterestChangeKind, InterestConfig, InterestEntity,
+    InterestEntry, InterestTier, InterestViewer, Interpolate, LatestWins, MAX_INTEREST_TIERS, Pose, SnapshotBuffer,
+    SnapshotConfig, SnapshotPush, SnapshotSample, SnapshotState, SnapshotStream, UpdateStamp, seq_diff, seq_newer,
+};
+pub use net::{
     Desync, Lane, MAX_INPUT_BYTES, MAX_MESSAGE_BYTES, MAX_PLAYERS, MessageEvent, MessageStats, Net, NetMessages,
     NetState, NetStats, PeerId,
 };
+#[cfg(feature = "3d")]
+pub use net::{NetPose, apply_net_poses};
 #[cfg(feature = "steam")]
 pub use net::{SteamLobby, SteamLobbyVisibility, steam_lobby_from_args, steam_wait_for_invite};
 #[cfg(feature = "physics")]
@@ -180,7 +187,10 @@ pub use crabby_ecs as ecs_core;
 
 /// 3D and 4D vectors, rotation and 4x4 matrix, for 3D (re-exported from `glam`).
 #[cfg(feature = "3d")]
-pub use glam::{Mat4, Quat, Vec3, Vec4, vec3, vec4};
+pub use glam::{Mat4, Vec4, vec4};
+/// Rotation and 3D vector (re-exported from `glam`); also used by the
+/// replication helpers ([`Pose`], [`Interest`]), which need no `3d` feature.
+pub use glam::{Quat, Vec3, vec3};
 /// Whole-number 2D vector, for tile coordinates (re-exported from `glam`).
 pub use glam::{UVec2, uvec2};
 /// 2D vector used for positions, sizes and velocities (re-exported from `glam`).

@@ -1355,6 +1355,191 @@ public:
     message_stats stats() const { message_stats s{}; detail::check(crabby_net_messages_stats(raw_, &s)); return s; }
 };
 
+// ---- Replication helpers (sit on top of net_messages; the packet format stays yours) ----
+
+/// Is `a` newer than `b` among 16-bit sequence numbers that wrap around
+/// (Rust `seq_newer`)? Equal numbers are not newer.
+inline bool seq_newer(std::uint16_t a, std::uint16_t b) { return crabby_seq_newer(a, b); }
+/// How far `a` is ahead of `b` among wrapping 16-bit sequence numbers;
+/// negative when behind.
+inline std::int16_t seq_diff(std::uint16_t a, std::uint16_t b) { return crabby_seq_diff(a, b); }
+/// A state update's authority epoch and wrapping sequence number (Rust `UpdateStamp`).
+using update_stamp = CrabbyUpdateStamp;
+/// Is stamp `a` newer than `b`: a newer epoch, or the same epoch and a newer sequence?
+inline bool stamp_newer(update_stamp a, update_stamp b) { return crabby_stamp_newer(a, b); }
+
+/// How an update compares with an authority record (Rust `AuthorityCheck`).
+enum class authority_check : std::uint32_t {
+    accept = CRABBY_AUTHORITY_ACCEPT,           ///< From the owner, current epoch: apply it.
+    stale = CRABBY_AUTHORITY_STALE,             ///< Older epoch, before a handoff: drop it.
+    wrong_owner = CRABBY_AUTHORITY_WRONG_OWNER, ///< Current epoch, not from the owner: drop it.
+    ahead = CRABBY_AUTHORITY_AHEAD,             ///< Newer epoch than we know: the handoff announcement is still on its way.
+};
+/// Who owns an entity: an owner peer and an epoch (Rust `Authority`). A
+/// handoff bumps the epoch, and updates stamped with an older one are
+/// rejected, so a late packet from the previous owner can't undo it. Peer 0 is the host.
+class authority {
+    CrabbyAuthority a_;
+public:
+    explicit authority(std::uint64_t owner) : a_(crabby_authority_new(owner)) {}
+    std::uint64_t owner() const noexcept { return a_.owner; }
+    std::uint16_t epoch() const noexcept { return a_.epoch; }
+    /// Gives the entity to `new_owner`; returns the new epoch to announce reliably.
+    std::uint16_t handoff(std::uint64_t new_owner) {
+        std::uint16_t epoch = 0; detail::check(crabby_authority_handoff(&a_, new_owner, &epoch)); return epoch;
+    }
+    /// Applies a handoff announced by another peer; true if it changed the
+    /// record. Older epochs are ignored; the same epoch with another owner is
+    /// a race that the lower owner id wins.
+    bool adopt(std::uint64_t new_owner, std::uint16_t epoch) {
+        bool changed = false; detail::check(crabby_authority_adopt(&a_, new_owner, epoch, &changed)); return changed;
+    }
+    /// Judges an update from peer `from` stamped with `epoch`.
+    authority_check check(std::uint64_t from, std::uint16_t epoch) const {
+        CrabbyAuthorityCheck c{}; detail::check(crabby_authority_check(&a_, from, epoch, &c)); return static_cast<authority_check>(c);
+    }
+};
+
+/// "Latest wins per entity" for unreliable state updates (Rust `LatestWins`):
+/// accepts an update only if it is newer than all accepted before for that key.
+class latest_wins {
+    CrabbyLatestWins* raw_ = crabby_latest_wins_new();
+public:
+    latest_wins() = default;
+    ~latest_wins() { crabby_latest_wins_free(raw_); }
+    latest_wins(latest_wins&& o) noexcept : raw_(o.raw_) { o.raw_ = nullptr; }
+    latest_wins& operator=(latest_wins&& o) noexcept { std::swap(raw_, o.raw_); return *this; }
+    latest_wins(const latest_wins&) = delete;
+    latest_wins& operator=(const latest_wins&) = delete;
+    /// True if the update should be applied, false if it should be dropped.
+    bool accept(std::uint64_t key, update_stamp stamp) {
+        bool ok = false; detail::check(crabby_latest_wins_accept(raw_, key, stamp, &ok)); return ok;
+    }
+    /// For streams without epochs.
+    bool accept(std::uint64_t key, std::uint16_t seq) { return accept(key, update_stamp{0, seq}); }
+    /// The entity is gone: its next update is accepted.
+    void forget(std::uint64_t key) { detail::check(crabby_latest_wins_forget(raw_, key)); }
+    void clear() { detail::check(crabby_latest_wins_clear(raw_)); }
+    std::size_t size() const { return crabby_latest_wins_len(raw_); }
+};
+
+/// A position, rotation and optional velocity (Rust `Pose`).
+using pose = CrabbyPose;
+/// A pose at `position`, not rotated, without a velocity.
+inline pose pose_at(vec3 position) { pose p{}; p.position = position; p.rotation = {0, 0, 0, 1}; return p; }
+/// The same pose moving at `velocity` (units per second). With a velocity
+/// on both sides of a gap, the path is a smooth curve instead of a line.
+inline pose moving(pose p, vec3 velocity) { p.velocity = velocity; p.has_velocity = true; return p; }
+/// Delay, extrapolation limit and capacity of a snapshot stream.
+using snapshot_config = CrabbySnapshotConfig;
+/// 0.1 s delay, 0.25 s extrapolation, 64 snapshots.
+inline snapshot_config snapshot_defaults() { return crabby_snapshot_config_default(); }
+/// What happened to a pushed snapshot (Rust `SnapshotPush`).
+enum class snapshot_push : std::uint32_t {
+    added = CRABBY_SNAPSHOT_ADDED, duplicate = CRABBY_SNAPSHOT_DUPLICATE,
+    too_old = CRABBY_SNAPSHOT_TOO_OLD, invalid = CRABBY_SNAPSHOT_INVALID,
+};
+/// How a sampled pose was made (Rust `SnapshotState`).
+enum class snapshot_state : std::uint32_t {
+    interpolated = CRABBY_SNAPSHOT_INTERPOLATED, ///< Between two snapshots.
+    extrapolated = CRABBY_SNAPSHOT_EXTRAPOLATED, ///< Predicted past the newest, for a bounded time.
+    held = CRABBY_SNAPSHOT_HELD,                 ///< Standing still: before the oldest or past the limit.
+};
+/// A pose read from a snapshot_stream and how it was made.
+struct snapshot_sample { pose value; snapshot_state state; };
+
+/// The snapshots of one remote entity plus an estimate of the sender's clock
+/// (Rust `SnapshotStream<Pose>`): push each decoded update with the sender's
+/// timestamp and your clock, sample once a frame with your clock. The
+/// entity is shown `delay` seconds in the past, interpolated between
+/// snapshots; late packets are extrapolated for a bounded time, then held.
+class snapshot_stream {
+    CrabbySnapshotStream* raw_ = nullptr;
+public:
+    explicit snapshot_stream(const snapshot_config& config = crabby_snapshot_config_default()) {
+        detail::check(crabby_snapshot_stream_new(&config, &raw_));
+    }
+    ~snapshot_stream() { crabby_snapshot_stream_free(raw_); }
+    snapshot_stream(snapshot_stream&& o) noexcept : raw_(o.raw_) { o.raw_ = nullptr; }
+    snapshot_stream& operator=(snapshot_stream&& o) noexcept { std::swap(raw_, o.raw_); return *this; }
+    snapshot_stream(const snapshot_stream&) = delete;
+    snapshot_stream& operator=(const snapshot_stream&) = delete;
+    /// Stores a snapshot stamped `remote_time` (sender's clock, seconds) that
+    /// arrived at `local_now` (your clock, seconds). Any order, duplicates fine.
+    snapshot_push push(double remote_time, double local_now, const pose& p) {
+        CrabbySnapshotPush r{}; detail::check(crabby_snapshot_stream_push(raw_, remote_time, local_now, &p, &r));
+        return static_cast<snapshot_push>(r);
+    }
+    /// The pose to show at your time `now`; std::nullopt until the first snapshot.
+    std::optional<snapshot_sample> sample(double now) const {
+        CrabbyPose p{}; CrabbySnapshotState st{}; bool found = false;
+        detail::check(crabby_snapshot_stream_sample(raw_, now, &p, &st, &found));
+        if (!found) return std::nullopt;
+        return snapshot_sample{p, static_cast<snapshot_state>(st)};
+    }
+    /// How far in the past to show the entity, in seconds.
+    void set_delay(double seconds) { detail::check(crabby_snapshot_stream_set_delay(raw_, seconds)); }
+    /// Forgets the snapshots, keeping the clock estimate: a teleport or respawn.
+    void clear() { detail::check(crabby_snapshot_stream_clear(raw_)); }
+    /// Forgets snapshots and clock estimate: a new connection.
+    void reset() { detail::check(crabby_snapshot_stream_reset(raw_)); }
+    std::size_t size() const { return crabby_snapshot_stream_len(raw_); }
+    /// Your time minus the sender's, once a snapshot arrived.
+    std::optional<double> clock_offset() const {
+        double o = 0; bool known = false; detail::check(crabby_snapshot_stream_clock_offset(raw_, &o, &known));
+        return known ? std::optional<double>(o) : std::nullopt;
+    }
+};
+
+using interest_tier = CrabbyInterestTier;
+/// Rings of interest around each viewer, and how sticky their edges are.
+using interest_config = CrabbyInterestConfig;
+using interest_viewer = CrabbyInterestViewer;
+using interest_entity = CrabbyInterestEntity;
+using interest_entry = CrabbyInterestEntry;
+using interest_change = CrabbyInterestChange;
+/// 40 units every tick, 120 units every 4th tick, hysteresis 5, staggered.
+inline interest_config interest_defaults() { return crabby_interest_config_default(); }
+/// Which entities each peer should be sent, and how often, by distance
+/// (Rust `Interest`): rings around each viewer, a hysteresis at their edges
+/// so boundary entities don't flicker, and a spatial grid so thousands of
+/// entities are cheap. Call update once per send tick, then read entries per
+/// peer for what to send and changes for who needs a spawn or despawn.
+class interest {
+    CrabbyInterest* raw_ = nullptr;
+public:
+    explicit interest(const interest_config& config = crabby_interest_config_default()) {
+        detail::check(crabby_interest_new(&config, &raw_));
+    }
+    ~interest() { crabby_interest_free(raw_); }
+    interest(interest&& o) noexcept : raw_(o.raw_) { o.raw_ = nullptr; }
+    interest& operator=(interest&& o) noexcept { std::swap(raw_, o.raw_); return *this; }
+    interest(const interest&) = delete;
+    interest& operator=(const interest&) = delete;
+    /// Recomputes every peer's interest for send tick `tick`. Peers without a
+    /// viewer are forgotten and their entities reported as left.
+    void update(std::uint64_t tick, const std::vector<interest_viewer>& viewers, const std::vector<interest_entity>& entities) {
+        detail::check(crabby_interest_update(raw_, tick, viewers.data(), viewers.size(), entities.data(), entities.size()));
+    }
+    /// Everything `peer` is interested in as of the last update; `send` marks
+    /// what to send on this tick.
+    std::vector<interest_entry> entries(std::uint64_t peer) const {
+        std::size_t n = 0; detail::check(crabby_interest_entries(raw_, peer, nullptr, 0, &n));
+        std::vector<interest_entry> out(n);
+        detail::check(crabby_interest_entries(raw_, peer, out.data(), out.size(), &n));
+        return out;
+    }
+    /// Entities that entered or left a peer's interest in the last update.
+    std::vector<interest_change> changes() const {
+        std::size_t n = 0; detail::check(crabby_interest_changes(raw_, nullptr, 0, &n));
+        std::vector<interest_change> out(n);
+        detail::check(crabby_interest_changes(raw_, out.data(), out.size(), &n));
+        return out;
+    }
+    /// A peer disconnected: forget it, without reporting its entities as left.
+    void remove_peer(std::uint64_t peer) { detail::check(crabby_interest_remove_peer(raw_, peer)); }
+};
+
 using nav_bake_settings = CrabbyNavBakeSettings;
 /// A 0.3 m wide, 1.8 m tall agent on 45 degree slopes.
 inline nav_bake_settings nav_bake_defaults() { return crabby_nav_bake_settings_default(); }
