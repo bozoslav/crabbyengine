@@ -29,6 +29,21 @@ Dvorak players too. In C++: `ctx.key_down(CRABBY_KEY_RIGHT)`.
   [inspector](inspector.md), so a click on a button doesn't also act in the
   world.
 
+### Mouse look
+
+For a first-person or orbit camera, lock the cursor and read raw motion:
+
+- `ctx.set_cursor_locked(true)` hides the cursor and holds it in the
+  window (where the platform can't hold it in place, it's kept inside the
+  window instead); `false` lets it go. It takes effect after the frame and
+  comes back when the window regains focus.
+- `ctx.mouse_motion()`: how far the mouse moved this frame in raw device
+  units (+y is down), even while the cursor is locked and can't move.
+  `mouse_delta()` stops at the window's edge; this doesn't.
+
+C++: `ctx.set_cursor_locked(true)`, `ctx.mouse_motion()`. See
+[3D physics](physics3d.md) for a walker that uses both.
+
 ## Gamepads
 
 Xbox, PlayStation, Switch and most other controllers work, plugged in or

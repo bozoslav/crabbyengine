@@ -1066,13 +1066,13 @@ mod imp {
             if out_mesh.is_null() {
                 return Err(invalid("output is null"));
             }
-            if index_count % 3 != 0 {
+            if !index_count.is_multiple_of(3) {
                 return Err(invalid("three indices per triangle"));
             }
             // SAFETY: forwarded caller contract.
             let (vertices, indices) = unsafe { (slice(vertices, vertex_count)?, slice(indices, index_count)?) };
             let vertices: Vec<Vec3> = vertices.iter().map(|&p| to_c(p)).collect();
-            let triangles: Vec<[u32; 3]> = indices.chunks_exact(3).map(|t| [t[0], t[1], t[2]]).collect();
+            let triangles: Vec<[u32; 3]> = indices.as_chunks::<3>().0.to_vec();
             // SAFETY: forwarded caller contract.
             let mesh = unsafe { ctx_access(ctx, |c| Ok(c.physics3d.trimesh(&vertices, &triangles)))? }
                 .ok_or_else(|| invalid("a triangle mesh needs triangles, indices in range and finite vertices"))?;

@@ -94,8 +94,9 @@ physics3d = ["3d", "dep:rapier3d"]
 # Ship the Steamworks redistributable (libsteam_api) next to the game.
 steam = ["dep:steamworks"]
 # Physics that gives bit-identical results on every platform (for lockstep
-# networking and replays), a little slower: rapier's enhanced-determinism.
-physics-determinism = ["physics", "rapier2d/enhanced-determinism"]
+# networking and replays), a little slower: rapier's enhanced-determinism
+# (for 3D physics too, when `physics3d` is on).
+physics-determinism = ["physics", "rapier2d/enhanced-determinism", "rapier3d?/enhanced-determinism"]
 
 # 3D: meshes, materials, glTF models, a perspective camera and sun light,
 # drawn under the 2D layer (`Transform3D`, `Model`, `ctx.camera3d`).
@@ -105,6 +106,10 @@ physics-determinism = ["physics", "rapier2d/enhanced-determinism"]
 [[example]]
 name = "physics"
 required-features = ["physics"]
+
+[[example]]
+name = "physics3d"
+required-features = ["physics3d"]
 
 [[example]]
 name = "3d"
