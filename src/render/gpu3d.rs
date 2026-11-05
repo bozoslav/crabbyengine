@@ -72,6 +72,8 @@ struct FrameUniform {
     fog_color: [f32; 4],
     /// Light at night.
     night: [f32; 4],
+    /// x: distance fog start, y: its end (0: none), z: sun glow, w: sun focus.
+    fog_far: [f32; 4],
 }
 
 /// One corner of a mesh on the GPU.
@@ -1434,6 +1436,16 @@ impl Renderer3D {
             ],
             fog_color: scaled(sky.fog_color, 1.0),
             night: scaled(sky.night_light, 1.0),
+            fog_far: [
+                sky.fog_start.max(0.0),
+                if sky.fog_end > sky.fog_start.max(0.0) {
+                    sky.fog_end
+                } else {
+                    0.0
+                },
+                sky.fog_sun_glow.max(0.0),
+                sky.fog_sun_focus.clamp(0.0, 0.99),
+            ],
         };
         queue.write_buffer(&self.frame_buffer, 0, bytemuck::bytes_of(&uniform));
         // Each target camera's frame: the same, seen from it.

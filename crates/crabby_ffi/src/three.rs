@@ -428,6 +428,14 @@ pub struct CrabbySky {
     pub fog_falloff: f32,
     /// The fog's color without an atmosphere.
     pub fog_color: CrabbyColor,
+    /// Distance fog: none closer than this, in world units.
+    pub fog_start: f32,
+    /// Distance fog: all fog past this; 0 (or not past the start) is none.
+    pub fog_end: f32,
+    /// How much sunlight the fog scatters toward the camera; 0 is none.
+    pub fog_sun_glow: f32,
+    /// How tight that glow is around the sun, 0 to under 1.
+    pub fog_sun_focus: f32,
 }
 
 /// Which way sunlight travels at `hour` o'clock, for a day and night cycle
@@ -2105,14 +2113,19 @@ pub unsafe extern "C" fn crabby_ctx_sky(ctx: *mut CrabbyCtx, out_sky: *mut Crabb
                     fog_height: s.fog_height,
                     fog_falloff: s.fog_falloff,
                     fog_color: to_c(s.fog_color),
+                    fog_start: s.fog_start,
+                    fog_end: s.fog_end,
+                    fog_sun_glow: s.fog_sun_glow,
+                    fog_sun_focus: s.fog_sun_focus,
                 },
             )
         })
     })
 }
 
-/// Changes the sky and fog. Haze, stars and fog density can't be negative;
-/// the sun's size and the fog falloff must be above 0.
+/// Changes the sky and fog. Haze, stars, fog density, the distance fog's
+/// distances and the sun glow can't be negative; the sun's size and the fog
+/// falloff must be above 0; the glow's focus is from 0 to under 1.
 /// # Safety
 /// `ctx` null or live; `sky` valid.
 /// ```
@@ -2126,11 +2139,30 @@ pub unsafe extern "C" fn crabby_ctx_set_sky(ctx: *mut CrabbyCtx, sky: *const Cra
             let Some(&s) = sky.as_ref() else {
                 return Err(invalid("sky is null"));
             };
-            let finite = [s.haze, s.sun_size, s.stars, s.fog_density, s.fog_height, s.fog_falloff]
+            let finite = [
+                s.haze,
+                s.sun_size,
+                s.stars,
+                s.fog_density,
+                s.fog_height,
+                s.fog_falloff,
+                s.fog_start,
+                s.fog_end,
+                s.fog_sun_glow,
+                s.fog_sun_focus,
+            ]
+            .iter()
+            .all(|v| v.is_finite());
+            let negative = [s.haze, s.stars, s.fog_density, s.fog_start, s.fog_end, s.fog_sun_glow]
                 .iter()
-                .all(|v| v.is_finite());
-            if !finite || s.haze < 0.0 || s.stars < 0.0 || s.fog_density < 0.0 {
-                return Err(invalid("haze, stars and fog density can't be negative"));
+                .any(|&v| v < 0.0);
+            if !finite || negative {
+                return Err(invalid(
+                    "haze, stars, fog density, distances and glow can't be negative",
+                ));
+            }
+            if !(0.0..1.0).contains(&s.fog_sun_focus) {
+                return Err(invalid("fog_sun_focus must be from 0 to under 1"));
             }
             if s.sun_size <= 0.0 || s.fog_falloff <= 0.0 {
                 return Err(invalid("sun_size and fog_falloff must be above 0"));
@@ -2145,6 +2177,10 @@ pub unsafe extern "C" fn crabby_ctx_set_sky(ctx: *mut CrabbyCtx, sky: *const Cra
                 fog_height: s.fog_height,
                 fog_falloff: s.fog_falloff,
                 fog_color: to_c(s.fog_color),
+                fog_start: s.fog_start,
+                fog_end: s.fog_end,
+                fog_sun_glow: s.fog_sun_glow,
+                fog_sun_focus: s.fog_sun_focus,
             };
             Ok(())
         })
