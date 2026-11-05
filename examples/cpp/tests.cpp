@@ -156,10 +156,11 @@ static void scenes_and_prefabs() {
 
 static void three_d() {
     crabby::world lights;
-    auto lamp = lights.spawn(crabby::transform3d_at({1, 2, 3}), crabby::point_light3d{crabby::colors::red, 20, 12});
-    auto beam = lights.spawn(crabby::transform3d_at({0, 3, 0}), crabby::spot_light3d{crabby::colors::white, 40, 25, .2f, .5f});
+    auto lamp = lights.spawn(crabby::transform3d_at({1, 2, 3}), crabby::point_light3d{crabby::colors::red, 20, 12, false});
+    auto beam = lights.spawn(crabby::transform3d_at({0, 3, 0}), crabby::spot_light3d{crabby::colors::white, 40, 25, .2f, .5f, true});
     CHECK(lights.get<crabby::point_light3d>(lamp).range == 12);
     CHECK(lights.get<crabby::spot_light3d>(beam).inner_angle == .2f);
+    CHECK(lights.get<crabby::spot_light3d>(beam).shadows);
     lights.each([](crabby::point_light3d& p) { p.intensity += 1; });
     CHECK(lights.get<crabby::point_light3d>(lamp).intensity == 21);
     std::vector<crabby::entity> cubes;

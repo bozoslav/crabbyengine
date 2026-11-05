@@ -111,8 +111,8 @@ int main(void) {
     uint32_t point_id, spot_id;
     CHECK(crabby_point_light3d_component(w, &point_id) == CRABBY_OK);
     CHECK(crabby_spot_light3d_component(w, &spot_id) == CRABBY_OK);
-    CrabbyPointLight3D point = {{1, .5f, .1f, 1}, 20, 12};
-    CrabbySpotLight3D spot = {{.1f, .5f, 1, 1}, 30, 18, .2f, .5f};
+    CrabbyPointLight3D point = {{1, .5f, .1f, 1}, 20, 12, false};
+    CrabbySpotLight3D spot = {{.1f, .5f, 1, 1}, 30, 18, .2f, .5f, true};
     CrabbyValue lights[] = {{point_id, &point, sizeof(point)}, {spot_id, &spot, sizeof(spot)}};
     CHECK(crabby_spawn(w, lights, 2, &e) == CRABBY_OK);
     CrabbyPointLight3D point_out;

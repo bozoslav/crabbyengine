@@ -20,7 +20,7 @@ mod ik;
 pub use ik::{look_at_joint, two_bone_ik};
 pub(crate) mod lights;
 mod mesh;
-pub use lights::{PointLight3D, SpotLight3D};
+pub use lights::{LIGHT_SHADOW_SIZE, MAX_LIGHT_SHADOW_VIEWS, PointLight3D, SpotLight3D};
 pub(crate) mod particles;
 pub use particles::{
     ParticleBlend3D, ParticleCurve, ParticleEmitter3D, ParticleGradient, ParticleSettings3D, ParticleShape3D,
@@ -43,7 +43,7 @@ pub(crate) use api::MaterialTextures;
 pub use clip::{AnimationClip, AnimationTrack, Interpolation, JointAnimation};
 pub(crate) use collect::Frame3D;
 #[cfg(feature = "window")]
-pub(crate) use collect::{Instance3D, MAX_CASCADES, SHADOW_MAP_SIZE};
+pub(crate) use collect::{Instance3D, MAX_CASCADES, MAX_SHADOW_VIEWS, SHADOW_MAP_SIZE, shadow_views};
 pub use compute::{Compute, ComputePass};
 pub use effect::{Effect, ScreenEffect};
 pub use mesh::MeshData;
@@ -595,7 +595,8 @@ pub struct Lighting {
     /// How bright the sky and ground light is: 1 is as bright as the sky
     /// makes it. Default 1.
     pub ambient_intensity: f32,
-    /// Whether the sun casts shadows. Default on.
+    /// Whether the sun casts shadows, and point and spot lights with
+    /// `shadows` set too (off turns every shadow off). Default on.
     pub shadows: bool,
     /// How far from the camera shadows reach, in world units. Default 60.
     pub shadow_distance: f32,

@@ -84,6 +84,8 @@ pub(crate) struct Screenshot {
 }
 
 #[cfg(all(test, feature = "window", feature = "3d"))]
+mod light_shadow_render_test;
+#[cfg(all(test, feature = "window", feature = "3d"))]
 mod lights_bench;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod skin_render_test;

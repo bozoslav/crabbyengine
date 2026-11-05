@@ -1034,6 +1034,7 @@ typedef struct CrabbyPointLight3D {
   struct CrabbyColor color;
   float intensity;
   float range;
+  bool shadows;
 } CrabbyPointLight3D;
 
 typedef struct CrabbySpotLight3D {
@@ -1042,6 +1043,7 @@ typedef struct CrabbySpotLight3D {
   float range;
   float inner_angle;
   float outer_angle;
+  bool shadows;
 } CrabbySpotLight3D;
 
 typedef struct CrabbyVelocity3D {

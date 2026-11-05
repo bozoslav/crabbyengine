@@ -1324,10 +1324,10 @@ static void the_trees_stand_on_the_ground() {
 // ANCHOR: punctual_lights
 static void punctual_lights(crabby::ctx& ctx) {
     ctx.world().spawn(crabby::transform3d_at({0, 3, 0}),
-        crabby::point_light3d{crabby::rgb(1, .3f, .1f), 30, 12});
+        crabby::point_light3d{crabby::rgb(1, .3f, .1f), 30, 12, false});
     auto aim = crabby::looking_at(crabby::transform3d_at({4, 3, 0}), {0, 0, 0});
     ctx.world().spawn(aim,
-        crabby::spot_light3d{crabby::colors::white, 60, 20, .2f, .5f});
+        crabby::spot_light3d{crabby::colors::white, 60, 20, .2f, .5f, true}); // casts shadows
 }
 // ANCHOR_END: punctual_lights
 

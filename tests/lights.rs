@@ -9,6 +9,7 @@ fn entity_lights_roundtrip_and_spots_follow_forward() {
             color: Color::rgb(1.0, 0.2, 0.1),
             intensity: 12.0,
             range: 8.0,
+            shadows: true,
         };
         let spot = SpotLight3D {
             inner_angle: 0.2,

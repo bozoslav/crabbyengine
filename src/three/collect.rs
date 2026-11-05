@@ -15,6 +15,9 @@ pub(crate) const SHADOW_MAP_SIZE: u32 = 2048;
 /// The most shadow cascades: shadow maps, each covering a stretch of the
 /// view further out than the one before.
 pub(crate) const MAX_CASCADES: usize = 4;
+/// Shadow views: the sun's cascades in `0..MAX_CASCADES`, then point and
+/// spot lights' views.
+pub(crate) const MAX_SHADOW_VIEWS: usize = MAX_CASCADES + super::lights::MAX_LIGHT_SHADOW_VIEWS;
 
 /// One drawn model, as the GPU reads it: the model matrix's columns, and the
 /// tint in linear color.
@@ -26,8 +29,8 @@ pub(crate) struct Instance3D {
 }
 
 /// An instance before sorting: its mesh, whether the camera sees it, and
-/// which cascades' shadow maps it casts into (one bit each).
-type Entry = (u32, Instance3D, bool, u8);
+/// which shadow views it casts into (one bit each).
+type Entry = (u32, Instance3D, bool, u32);
 
 /// This frame's 3D drawing. `instances` holds the camera's models sorted by
 /// mesh, then the shadow casters sorted by mesh; `runs` and `shadow_runs`
@@ -40,11 +43,15 @@ pub(crate) struct Frame3D {
     pub lights: super::lights::LightGrid,
     /// (mesh id, first instance, count) for the camera, in mesh order.
     pub runs: Vec<(u32, u32, u32)>,
-    /// The same for each cascade's shadow map; empty without shadows.
-    pub shadow_runs: [Vec<(u32, u32, u32)>; MAX_CASCADES],
+    /// The same for each shadow view (see [`MAX_SHADOW_VIEWS`]); empty
+    /// without shadows.
+    pub shadow_runs: [Vec<(u32, u32, u32)>; MAX_SHADOW_VIEWS],
     pub view_proj: Mat4,
     /// How many cascades are drawn: 0 without shadows.
     pub cascades: usize,
+    /// How many point and spot light shadow views are drawn (their matrices
+    /// are `lights.shadow_views`).
+    pub light_views: usize,
     /// Each cascade's view-projection, from the sun.
     pub sun_view_proj: [Mat4; MAX_CASCADES],
     /// Each cascade's size, in world units per shadow-map texel.
@@ -67,7 +74,7 @@ pub(crate) struct Frame3D {
     scratch: Vec<Entry>,
     counts: Vec<u32>,
     /// Per model, which passes see it (see `collect`), kept between frames.
-    flags: Vec<u8>,
+    flags: Vec<u32>,
 }
 
 /// What one target camera draws this frame.
@@ -96,7 +103,8 @@ impl Frame3D {
     ) {
         self.view_proj = camera.view_proj();
         self.particles.collect(world, camera);
-        self.lights.collect(world, camera);
+        self.lights.collect(world, camera, lighting.shadows);
+        self.light_views = self.lights.shadow_views.len();
         self.cascades = if lighting.shadows && lighting.shadow_distance > 0.0 {
             (lighting.shadow_cascades as usize).clamp(1, MAX_CASCADES)
         } else {
@@ -115,6 +123,11 @@ impl Frame3D {
             sun_planes[i] = [l, r, b, t, f];
         }
         let sun_planes = &sun_planes[..self.cascades];
+        let mut light_planes = [[Vec4::ZERO; 6]; super::lights::MAX_LIGHT_SHADOW_VIEWS];
+        for (planes, m) in light_planes.iter_mut().zip(&self.lights.shadow_views) {
+            *planes = frustum_planes(*m);
+        }
+        let light_planes = &light_planes[..self.light_views];
         self.instances.clear();
         self.runs.clear();
         for runs in &mut self.shadow_runs {
@@ -125,11 +138,12 @@ impl Frame3D {
         let scratch = &mut self.scratch;
         // `meshes`: what the camera draws, then what each cascade's shadow
         // map draws (the same for models; coarser for distant terrain).
-        // Which passes see a model: bit 0 the camera, bit 1 + i cascade i.
+        // Which passes see a model: bit 0 the camera, bit 1 + i shadow view
+        // i (cascades, then light views from MAX_CASCADES on).
         // `bounds`: the camera mesh's, and the shadow mesh's (`None`: no
         // shadow), as (center, radius) in model space.
-        let classify_at = |matrix: Mat4, scale: f32, bounds: (Vec3, f32), shadow_bounds: Option<(Vec3, f32)>| -> u8 {
-            let mut flags = u8::from(sphere_visible(
+        let classify_at = |matrix: Mat4, scale: f32, bounds: (Vec3, f32), shadow_bounds: Option<(Vec3, f32)>| -> u32 {
+            let mut flags = u32::from(sphere_visible(
                 &planes,
                 matrix.transform_point3(bounds.0),
                 bounds.1 * scale,
@@ -141,10 +155,15 @@ impl Frame3D {
                         flags |= 2 << i;
                     }
                 }
+                for (i, p) in light_planes.iter().enumerate() {
+                    if sphere_visible(p, world_center, world_radius) {
+                        flags |= 2 << (MAX_CASCADES + i);
+                    }
+                }
             }
             flags
         };
-        let classify = |t: &Transform3D, bounds: (Vec3, f32), shadow_bounds: Option<(Vec3, f32)>| -> u8 {
+        let classify = |t: &Transform3D, bounds: (Vec3, f32), shadow_bounds: Option<(Vec3, f32)>| -> u32 {
             classify_at(t.matrix(), t.scale.abs().max_element(), bounds, shadow_bounds)
         };
         // A model's meshes (camera, then each cascade's) and bounds.
@@ -166,14 +185,22 @@ impl Frame3D {
             Some((mesh.id, assets.live_bounds(mesh.id)?))
         };
         // The entries for a model the passes in `flags` see.
-        let mut add_instance = |meshes: [u32; 1 + MAX_CASCADES], instance: Instance3D, flags: u8| {
+        // Light views draw the first cascade's (finest) shadow mesh.
+        let view_mesh = |meshes: &[u32; 1 + MAX_CASCADES], view: usize| {
+            if view < MAX_CASCADES {
+                meshes[view + 1]
+            } else {
+                meshes[1]
+            }
+        };
+        let mut add_instance = |meshes: [u32; 1 + MAX_CASCADES], instance: Instance3D, flags: u32| {
             let (seen, casts) = (flags & 1 != 0, flags >> 1);
             // One entry per distinct mesh, with the passes that draw it.
-            let mut done = 0u8; // cascades already in an entry
+            let mut done = 0u32; // views already in an entry
             let camera_mesh = meshes[0];
             let in_cascades = |mesh: u32| {
-                (0..MAX_CASCADES).fold(0u8, |m, i| {
-                    if casts & (1 << i) != 0 && meshes[i + 1] == mesh {
+                (0..MAX_SHADOW_VIEWS).fold(0u32, |m, i| {
+                    if casts & (1 << i) != 0 && view_mesh(&meshes, i) == mesh {
                         m | 1 << i
                     } else {
                         m
@@ -187,7 +214,7 @@ impl Frame3D {
             }
             while casts & !done != 0 {
                 let first = (casts & !done).trailing_zeros() as usize;
-                let mesh = meshes[first + 1];
+                let mesh = view_mesh(&meshes, first);
                 let mask = in_cascades(mesh);
                 done |= mask;
                 scratch.push((mesh, instance, false, mask));
@@ -289,10 +316,16 @@ impl Frame3D {
         let meshes = assets.bounds.len() + skins.draws.len();
         let (counts, instances) = (&mut self.counts, &mut self.instances);
         self.visible = sort_runs(&self.scratch, |e| e.2, meshes, counts, instances, &mut self.runs);
-        for (i, runs) in self.shadow_runs[..self.cascades].iter_mut().enumerate() {
+        for i in shadow_views(self.cascades, self.light_views) {
+            let runs = &mut self.shadow_runs[i];
             sort_runs(&self.scratch, |e| e.3 & (1 << i) != 0, meshes, counts, instances, runs);
         }
     }
+}
+
+/// The shadow views drawn this frame: the sun's cascades, then the light views.
+pub(crate) fn shadow_views(cascades: usize, light_views: usize) -> impl Iterator<Item = usize> + Clone {
+    (0..cascades).chain(MAX_CASCADES..MAX_CASCADES + light_views)
 }
 
 /// Appends the entries of `scratch` that `keep` picks to `instances`, sorted
@@ -562,6 +595,7 @@ mod tests {
         let meshes: Vec<Vec<u32>> = frame
             .shadow_runs
             .iter()
+            .take(MAX_CASCADES)
             .map(|c| c.iter().map(|r| r.0).collect())
             .collect();
         assert_eq!(meshes, vec![vec![0], vec![1], vec![2], vec![3]]);
