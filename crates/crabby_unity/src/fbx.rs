@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::mesh::{MeshSkin, SkinNode, influences};
+use crate::mesh::{BlendShape, MeshSkin, SkinNode, influences};
 use crate::{Error, UnityMesh};
 
 /// A model file, loaded once for every mesh taken from it.
@@ -255,7 +255,48 @@ impl ModelFile {
             }
             out.skin = Some(data);
         }
-        let mut seen: HashMap<[u32; 20], u32> = HashMap::new();
+        // Blend shapes: one per channel, at its full-weight shape (Unity
+        // also keeps in-between frames; they're left out). Offsets turn
+        // and scale like positions, without moving.
+        let shift = |d: ufbx::Vec3| {
+            let d = to_unity(to_node.map_or(d, |m| transform(&m, d, 0.0)));
+            d.map(|c| c as f32 * self.scale)
+        };
+        let lean = |d: ufbx::Vec3| to_unity(to_node.map_or(d, |m| transform(&m, d, 0.0))).map(|c| c as f32);
+        let channels: Vec<_> = mesh
+            .blend_deformers
+            .iter()
+            .flat_map(|b| b.channels.iter())
+            .filter_map(|c| Some((c, c.target_shape.as_ref()?)))
+            .collect();
+        out.blend_shapes = channels
+            .iter()
+            .map(|(channel, _)| BlendShape {
+                name: channel.element.name.to_string(),
+                weight: channel.weight as f32,
+                ..Default::default()
+            })
+            .collect();
+        // Each shape's offsets by the file's vertex, and whether it moves
+        // normals too.
+        let offsets: Vec<(ShapeOffsets, bool)> = channels
+            .iter()
+            .map(|(_, shape)| {
+                let normals = shape.normal_offsets.len() >= shape.num_offsets && shape.num_offsets > 0;
+                let by_vertex = (0..shape.num_offsets)
+                    .map(|k| {
+                        let n = if normals {
+                            shape.normal_offsets[k]
+                        } else {
+                            ufbx::Vec3::default()
+                        };
+                        (shape.offset_vertices[k], (shape.position_offsets[k], n))
+                    })
+                    .collect();
+                (by_vertex, normals)
+            })
+            .collect();
+        let mut seen: HashMap<[u32; 21], u32> = HashMap::new();
         let mut corners = vec![0u32; mesh.max_face_triangles * 3];
         let groups: Vec<Vec<u32>> = if mesh.material_parts.is_empty() {
             vec![(0..mesh.faces.len() as u32).collect()]
@@ -302,7 +343,7 @@ impl ModelFile {
                                     .map(|w| (w.cluster_index as u16, w.weight as f32)),
                             )
                         });
-                        let mut key = [0; 20];
+                        let mut key = [0; 21];
                         key[..12].copy_from_slice(
                             &[
                                 p[0], p[1], p[2], nrm[0], nrm[1], nrm[2], uv[0], uv[1], color[0], color[1], color[2],
@@ -311,11 +352,23 @@ impl ModelFile {
                             .map(f32::to_bits),
                         );
                         key[12..16].copy_from_slice(&joints.map(u32::from));
-                        key[16..].copy_from_slice(&weights.map(f32::to_bits));
+                        key[16..20].copy_from_slice(&weights.map(f32::to_bits));
+                        // Corners of different vertices may move apart.
+                        if !offsets.is_empty() {
+                            key[20] = mesh.vertex_indices[i];
+                        }
                         let at = *seen.entry(key).or_insert_with(|| {
                             if let Some(skin) = &mut out.skin {
                                 skin.indices.push(joints);
                                 skin.weights.push(weights);
+                            }
+                            let vertex = mesh.vertex_indices[i];
+                            for (shape, (offsets, normals)) in out.blend_shapes.iter_mut().zip(&offsets) {
+                                let (d, n) = offsets.get(&vertex).copied().unwrap_or_default();
+                                shape.positions.push(shift(d));
+                                if *normals {
+                                    shape.normals.push(lean(n));
+                                }
                             }
                             out.positions.push(p);
                             out.normals.push(nrm);
@@ -338,6 +391,9 @@ impl ModelFile {
         Ok(out)
     }
 }
+
+/// A blend shape's position and normal offsets, by the file's vertex.
+type ShapeOffsets = HashMap<u32, (ufbx::Vec3, ufbx::Vec3)>;
 
 #[derive(Clone)]
 struct Clip {

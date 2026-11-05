@@ -655,6 +655,15 @@ impl<'p> Importer<'p> {
             }),
             ..Default::default()
         };
+        vertices.targets = mesh
+            .blend_shapes
+            .iter()
+            .map(|b| glb::Target {
+                name: b.name.clone(),
+                weight: b.weight,
+                ..Default::default()
+            })
+            .collect();
         let mut primitives = Vec::new();
         // Vertex colors, for meshes a custom shader draws (`custom_shader`),
         // made by that shader's function if it has one (`vertex_colors`).
@@ -684,6 +693,14 @@ impl<'p> Importer<'p> {
                             vertices.weights.push(skin.weights[v]);
                         }
                         vertices.positions.push([p[0], p[1], -p[2]]);
+                        for (target, shape) in vertices.targets.iter_mut().zip(&mesh.blend_shapes) {
+                            let d = shape.positions.get(v).copied().unwrap_or_default();
+                            target.positions.push([d[0], d[1], -d[2]]);
+                            if !shape.normals.is_empty() {
+                                let n = shape.normals.get(v).copied().unwrap_or_default();
+                                target.normals.push([n[0], n[1], -n[2]]);
+                            }
+                        }
                         if !mesh.normals.is_empty() {
                             let n = mesh.normals.get(v).copied().unwrap_or([0.0, 1.0, 0.0]);
                             vertices.normals.push([n[0], n[1], -n[2]]);
