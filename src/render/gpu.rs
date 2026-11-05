@@ -1125,11 +1125,16 @@ impl Renderer {
             panel_base += sprites.len() as u32;
         }
         if !panels.is_empty() && self.panel_pipeline.is_none() {
+            // Panels draw into render targets, which only 3D makes.
+            #[cfg(feature = "3d")]
+            let format = super::gpu3d::HDR_FORMAT;
+            #[cfg(not(feature = "3d"))]
+            let format = self.view_format;
             self.panel_pipeline = Some(sprite_pipeline(
                 &self.device,
                 &self.sprite_layout,
                 &self.sprite_shader,
-                super::gpu3d::HDR_FORMAT,
+                format,
             ));
         }
         self.queue.write_buffer(
