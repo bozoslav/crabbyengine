@@ -19,6 +19,7 @@
 
 #![warn(missing_docs)]
 
+mod actions;
 mod attach;
 mod ctx;
 mod flow;
@@ -39,6 +40,7 @@ mod three;
 mod tiles;
 mod types;
 mod vehicle3d;
+pub use actions::*;
 pub use attach::*;
 pub use ctx::*;
 pub use flow::*;

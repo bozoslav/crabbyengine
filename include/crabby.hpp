@@ -1213,6 +1213,73 @@ public:
     const CrabbyTerrainTileData* raw() const noexcept { return raw_.get(); }
 };
 
+/// One physical source for a named action. Configure once or when rebinding.
+struct action_binding {
+    CrabbyActionBinding raw{};
+    static action_binding key(crabby::key k) { return {{CRABBY_ACTION_KEY, 0, static_cast<std::uint32_t>(k), 0, 0, 0, 0}}; }
+    static action_binding mouse(crabby::mouse b) { return {{CRABBY_ACTION_MOUSE, 0, static_cast<std::uint32_t>(b), 0, 0, 0, 0}}; }
+    static action_binding button(gamepad p, gamepad_button b) { return {{CRABBY_ACTION_GAMEPAD_BUTTON, p.slot, static_cast<std::uint32_t>(b), 0, 0, 0, 0}}; }
+    static action_binding keys(crabby::key negative, crabby::key positive) { return {{CRABBY_ACTION_KEYS, 0, static_cast<std::uint32_t>(negative), static_cast<std::uint32_t>(positive), 0, 0, 0}}; }
+    static action_binding axis(gamepad p, gamepad_axis a, float deadzone = 0.15f) { return {{CRABBY_ACTION_GAMEPAD_AXIS, p.slot, static_cast<std::uint32_t>(a), 0, 0, 0, deadzone}}; }
+    static action_binding keys2(crabby::key left, crabby::key right, crabby::key up, crabby::key down) { return {{CRABBY_ACTION_KEYS2, 0, static_cast<std::uint32_t>(left), static_cast<std::uint32_t>(right), static_cast<std::uint32_t>(up), static_cast<std::uint32_t>(down), 0}}; }
+    static action_binding stick(gamepad p, crabby::stick s, float deadzone = 0.15f) { return {{CRABBY_ACTION_GAMEPAD_STICK, p.slot, s == crabby::stick::left ? 0u : 1u, 0, 0, 0, deadzone}}; }
+};
+
+/// A button, scalar axis, or vector axis with several alternative sources.
+struct action {
+    std::uint32_t kind;
+    std::vector<CrabbyActionBinding> bindings;
+    static action button(std::initializer_list<action_binding> sources) { return make(0, sources); }
+    static action axis(std::initializer_list<action_binding> sources) { return make(1, sources); }
+    static action axis2(std::initializer_list<action_binding> sources) { return make(2, sources); }
+private:
+    static action make(std::uint32_t kind, std::initializer_list<action_binding> sources) {
+        action a{kind, {}};
+        a.bindings.reserve(sources.size());
+        for (const auto& s : sources) a.bindings.push_back(s.raw);
+        return a;
+    }
+};
+
+/// Owned, serializable bindings. Install with ctx::set_actions; edit and reinstall to rebind.
+class action_map {
+    CrabbyActionMap* raw_ = nullptr;
+public:
+    action_map() : raw_(crabby_action_map_new()) { if (!raw_) throw std::runtime_error(crabby_last_error()); }
+    ~action_map() { crabby_action_map_free(raw_); }
+    action_map(const action_map&) = delete;
+    action_map& operator=(const action_map&) = delete;
+    action_map(action_map&& other) noexcept : raw_(std::exchange(other.raw_, nullptr)) {}
+    action_map& operator=(action_map&& other) noexcept { if (this != &other) { crabby_action_map_free(raw_); raw_ = std::exchange(other.raw_, nullptr); } return *this; }
+    void set(const char* name, const action& a) { detail::check(crabby_action_map_set(raw_, name, a.kind, a.bindings.data(), a.bindings.size())); }
+    void remove(const char* name) { detail::check(crabby_action_map_remove(raw_, name)); }
+    std::string to_json() const {
+        std::size_t len = 0;
+        detail::check(crabby_action_map_save(raw_, nullptr, 0, &len));
+        std::string json(len + 1, '\0');
+        detail::check(crabby_action_map_save(raw_, &json[0], json.size(), &len));
+        json.resize(len); return json;
+    }
+    static action_map from_json(const std::string& json) {
+        action_map result;
+        detail::check(crabby_action_map_load(result.raw_, json.c_str()));
+        return result;
+    }
+    CrabbyActionMap* raw() const noexcept { return raw_; }
+};
+
+/// Manual input for tests and replay (same state as live input).
+struct input_event {
+    std::uint32_t kind, slot, input;
+    float value;
+    static input_event key(crabby::key k, bool down) { return {0, 0, static_cast<std::uint32_t>(k), down ? 1.0f : 0.0f}; }
+    static input_event mouse(crabby::mouse b, bool down) { return {1, 0, static_cast<std::uint32_t>(b), down ? 1.0f : 0.0f}; }
+    static input_event button(gamepad p, gamepad_button b, bool down) { return {2, p.slot, static_cast<std::uint32_t>(b), down ? 1.0f : 0.0f}; }
+    static input_event axis(gamepad p, gamepad_axis a, float value) { return {3, p.slot, static_cast<std::uint32_t>(a), value}; }
+    static input_event focus_lost() { return {4, 0, 0, 0}; }
+    static input_event disconnected(gamepad p) { return {5, p.slot, 0, 0}; }
+};
+
 class ctx {
     CrabbyCtx* raw_;
     std::shared_ptr<detail::identity> owner_;
@@ -1296,6 +1363,15 @@ public:
     bool is_paused() const { bool p = false; detail::check(crabby_ctx_is_paused(raw_, &p)); return p; }
 
     // Input.
+    /// Install a copy of bindings. Rebinding itself generates no button edges.
+    void set_actions(const action_map& map) { detail::check(crabby_ctx_set_actions(raw_, map.raw())); }
+    action_map actions() const { action_map map; detail::check(crabby_ctx_actions(raw_, map.raw())); return map; }
+    void feed_input(input_event e) { detail::check(crabby_ctx_feed_input(raw_, e.kind, e.slot, e.input, e.value)); }
+    bool action_down(const char* name) const { bool value = false; detail::check(crabby_ctx_action_down(raw_, name, &value)); return value; }
+    bool action_pressed(const char* name) const { bool value = false; detail::check(crabby_ctx_action_pressed(raw_, name, &value)); return value; }
+    bool action_released(const char* name) const { bool value = false; detail::check(crabby_ctx_action_released(raw_, name, &value)); return value; }
+    float action_axis(const char* name) const { float value = 0; detail::check(crabby_ctx_action_axis(raw_, name, &value)); return value; }
+    vec2 action_axis2(const char* name) const { vec2 value{}; detail::check(crabby_ctx_action_axis2(raw_, name, &value)); return value; }
     bool key_down(key k) const { bool b = false; detail::check(crabby_ctx_key_down(raw_, k, &b)); return b; }
     bool key_pressed(key k) const { bool b = false; detail::check(crabby_ctx_key_pressed(raw_, k, &b)); return b; }
     bool key_released(key k) const { bool b = false; detail::check(crabby_ctx_key_released(raw_, k, &b)); return b; }
