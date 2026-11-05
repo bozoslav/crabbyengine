@@ -45,6 +45,33 @@ pub struct MeshData {
     /// How much each of `joints` moves the corner; they're scaled to add
     /// up to 1. One per corner when `joints` is given.
     pub weights: Vec<[f32; 4]>,
+    /// Shapes the mesh can blend toward (blend shapes: a smile, a blink, a
+    /// dent), each as offsets from these corners. A model's
+    /// [`MorphWeights`](crate::MorphWeights) say how much of each to add.
+    /// Empty for meshes that don't change shape.
+    pub morph_targets: Vec<MorphTarget>,
+}
+
+/// One shape a mesh can blend toward (see [`MeshData::morph_targets`]):
+/// per corner, how far it moves and how its normal changes at full weight.
+///
+/// ```
+/// # use crabbyengine::*;
+/// let mut quad = MeshData::plane(1.0);
+/// // "raise": lifts the first corner 0.5 up.
+/// let mut up = vec![Vec3::ZERO; quad.positions.len()];
+/// up[0] = vec3(0.0, 0.5, 0.0);
+/// quad.morph_targets.push(MorphTarget { name: "raise".into(), positions: up, normals: Vec::new() });
+/// assert!(quad.check().is_ok());
+/// ```
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct MorphTarget {
+    /// What it's called, to find it by name ([`Ctx::morph_target`](crate::Ctx::morph_target)).
+    pub name: String,
+    /// One offset per corner.
+    pub positions: Vec<Vec3>,
+    /// One normal offset per corner; empty when normals don't change.
+    pub normals: Vec<Vec3>,
 }
 
 impl MeshData {
@@ -301,6 +328,19 @@ impl MeshData {
         }
         if !self.positions.iter().all(|p| p.is_finite()) || !self.normals.iter().all(|n| n.is_finite()) {
             return Err("a position or normal isn't a finite number".into());
+        }
+        for t in &self.morph_targets {
+            if t.positions.len() != corners || !t.normals.is_empty() && t.normals.len() != corners {
+                return Err(format!(
+                    "morph target {:?}: {} offsets and {} normal offsets for {corners} corners",
+                    t.name,
+                    t.positions.len(),
+                    t.normals.len()
+                ));
+            }
+            if !t.positions.iter().chain(&t.normals).all(|v| v.is_finite()) {
+                return Err(format!("morph target {:?}: an offset isn't a finite number", t.name));
+            }
         }
         Ok(())
     }

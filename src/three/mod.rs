@@ -49,14 +49,14 @@ pub(crate) use collect::Frame3D;
 pub(crate) use collect::{Instance3D, MAX_CASCADES, MAX_SHADOW_VIEWS, SHADOW_MAP_SIZE, shadow_views};
 pub use compute::{Compute, ComputePass};
 pub use effect::{Effect, ScreenEffect};
-pub use mesh::MeshData;
+pub use mesh::{MeshData, MorphTarget};
 #[cfg(feature = "window")]
 pub(crate) use post::PostUniform;
 pub use post::{Post, Tonemap};
 #[cfg(feature = "window")]
 pub(crate) use skin::blend as blend_skin;
-pub use skin::{AttachToJoint, Joint, Skeleton, SkinOf};
-pub(crate) use skin::{MeshSkin, SkinFrame};
+pub use skin::{AttachToJoint, Joint, MorphWeights, Skeleton, SkinOf};
+pub(crate) use skin::{MeshMorph, MeshSkin, SkinFrame};
 #[cfg(all(test, feature = "window"))]
 pub(crate) use skin::{SkinDraw, normalized as normalized_weights};
 pub use sky::Sky;
@@ -648,6 +648,9 @@ pub(crate) struct Assets3D {
     /// How each skinned mesh binds to joints, by mesh id; shorter than
     /// `bounds` when the last ones aren't skinned.
     pub skins: Vec<Option<std::sync::Arc<MeshSkin>>>,
+    /// Each mesh's morph targets, by mesh id; shorter than `bounds` when
+    /// the last ones have none.
+    pub morphs: Vec<Option<std::sync::Arc<MeshMorph>>>,
     /// Shared animation clips of skinned glTF files, by resolved path.
     pub loaded_clips: std::collections::HashMap<std::path::PathBuf, Vec<AnimationClip>>,
     /// The joints of skinned glTF files, by resolved path.
@@ -694,6 +697,11 @@ impl Assets3D {
     /// How mesh `id` binds to joints, if it's skinned.
     pub(crate) fn skin(&self, id: u32) -> Option<&MeshSkin> {
         self.skins.get(id as usize)?.as_deref()
+    }
+
+    /// Mesh `id`'s morph targets, if it has any.
+    pub(crate) fn morph(&self, id: u32) -> Option<&MeshMorph> {
+        self.morphs.get(id as usize)?.as_deref()
     }
 
     /// Whether mesh `id` casts shadows (the default).

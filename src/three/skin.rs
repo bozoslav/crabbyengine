@@ -295,6 +295,83 @@ impl MeshSkin {
     }
 }
 
+/// How much of each of its mesh's [morph targets](crate::MeshData::morph_targets)
+/// a [`Model`] shows: 0 none, 1 all of it (more or less than that
+/// exaggerates or inverts). By target index; missing ones are 0. A model
+/// without this component shows its mesh's own weights (from its glTF
+/// file, else none). Animation clips with weight tracks set it.
+///
+/// ```
+/// # use crabbyengine::*;
+/// Game::new("t", 1, 1).run_headless(0, |ctx| {
+///     let mut quad = MeshData::plane(1.0);
+///     let mut up = vec![Vec3::ZERO; quad.positions.len()];
+///     up[0] = vec3(0.0, 0.5, 0.0);
+///     quad.morph_targets.push(MorphTarget { name: "raise".into(), positions: up, normals: Vec::new() });
+///     let material = ctx.default_material();
+///     let mesh = ctx.create_mesh(&quad, material);
+///     let raise = ctx.morph_target(mesh, "raise").unwrap();
+///     let mut weights = MorphWeights::default();
+///     weights.set(raise, 0.5); // halfway there
+///     ctx.world.spawn((Transform3D::default(), Model::new(mesh), weights));
+/// });
+/// ```
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct MorphWeights(pub Vec<f32>);
+
+impl MorphWeights {
+    /// Target `target`'s weight (0 when not set).
+    /// ```
+    /// # use crabbyengine::*;
+    /// assert_eq!(MorphWeights(vec![0.25]).get(0), 0.25);
+    /// assert_eq!(MorphWeights::default().get(3), 0.0);
+    /// ```
+    #[must_use]
+    pub fn get(&self, target: usize) -> f32 {
+        self.0.get(target).copied().unwrap_or(0.0)
+    }
+
+    /// Sets target `target`'s weight, growing the list as needed.
+    /// ```
+    /// # use crabbyengine::*;
+    /// let mut w = MorphWeights::default();
+    /// w.set(2, 1.0);
+    /// assert_eq!(w.0, [0.0, 0.0, 1.0]);
+    /// ```
+    pub fn set(&mut self, target: usize, weight: f32) {
+        if self.0.len() <= target {
+            self.0.resize(target + 1, 0.0);
+        }
+        self.0[target] = weight;
+    }
+}
+
+/// What the CPU keeps about a mesh's morph targets: their names, the
+/// weights it shows by default, and the farthest all of them together
+/// move a corner (for culling).
+#[derive(Debug)]
+pub(crate) struct MeshMorph {
+    pub names: Vec<String>,
+    pub defaults: Vec<f32>,
+    pub reach: f32,
+}
+
+impl MeshMorph {
+    pub fn new(data: &MeshData, defaults: Vec<f32>) -> Option<Self> {
+        if data.morph_targets.is_empty() {
+            return None;
+        }
+        let reach = (0..data.positions.len())
+            .map(|i| data.morph_targets.iter().map(|t| t.positions[i].length()).sum::<f32>())
+            .fold(0.0, f32::max);
+        Some(Self {
+            names: data.morph_targets.iter().map(|t| t.name.clone()).collect(),
+            defaults,
+            reach,
+        })
+    }
+}
+
 /// Calls `f(corner, slot)` for every joint a corner is weighted to.
 fn for_each_influence(data: &MeshData, mut f: impl FnMut(usize, usize)) {
     for (corner, (joints, weights)) in data.joints.iter().zip(&data.weights).enumerate() {
@@ -343,6 +420,10 @@ pub(crate) struct SkinDraw {
     pub bounds: (Vec3, f32),
     /// Its first skin matrix in `SkinFrame::matrices` (one per slot).
     pub first: u32,
+    /// Its first morph weight in `SkinFrame::weights`, and how many (its
+    /// mesh's morph targets; 0 for none).
+    pub morph_first: u32,
+    pub morph_count: u32,
 }
 
 /// This frame's skinned models and their skin matrices: the joints' matrices
@@ -351,9 +432,11 @@ pub(crate) struct SkinDraw {
 pub(crate) struct SkinFrame {
     pub draws: Vec<SkinDraw>,
     pub matrices: Vec<Mat4>,
+    /// This frame's morph weights, `morph_count` per draw.
+    pub weights: Vec<f32>,
     attached: Vec<(Entity, AttachToJoint)>,
     moved: Vec<(Entity, Transform3D)>,
-    shared: Vec<(Model, Entity)>,
+    shared: Vec<(Model, Entity, Entity)>,
 }
 
 impl SkinFrame {
@@ -362,6 +445,7 @@ impl SkinFrame {
     pub fn collect(&mut self, world: &mut World, assets: &Assets3D) {
         self.draws.clear();
         self.matrices.clear();
+        self.weights.clear();
         world.query::<&mut Skeleton>().par_for_each(Skeleton::update);
 
         // Attachments, in two steps: the query can't look at other entities.
@@ -393,63 +477,102 @@ impl SkinFrame {
             }
         }
 
-        let (draws, matrices) = (&mut self.draws, &mut self.matrices);
+        let out = &mut Out {
+            draws: &mut self.draws,
+            matrices: &mut self.matrices,
+            weights: &mut self.weights,
+        };
         world
-            .query::<(&Transform3D, &Model, &Skeleton)>()
-            .for_each(|(t, m, s)| add(draws, matrices, assets, t, m, s));
+            .query::<(&Transform3D, &Model, &Skeleton, Option<&MorphWeights>)>()
+            .for_each(|(t, m, s, w)| {
+                // Unskinned meshes go with the next query, skeleton or not.
+                if assets.skin(m.mesh.id).is_some() {
+                    add(out, assets, t, m, Some(s), w);
+                }
+            });
+        // Meshes that change shape but don't bend: one identity matrix.
+        world
+            .query::<(&Transform3D, &Model, Option<&MorphWeights>)>()
+            .without::<SkinOf>()
+            .for_each(|(t, m, w)| {
+                if assets.skin(m.mesh.id).is_none() && assets.morph(m.mesh.id).is_some() {
+                    add(out, assets, t, m, None, w);
+                }
+            });
         self.shared.clear();
         world
-            .query::<(&Model, &SkinOf)>()
-            .for_each(|(m, of)| self.shared.push((*m, of.0)));
-        for (m, of) in &self.shared {
+            .query::<(Entity, &Model, &SkinOf)>()
+            .for_each(|(e, m, of)| self.shared.push((*m, of.0, e)));
+        for (m, of, e) in &self.shared {
             if let (Some(t), Some(s)) = (world.get::<Transform3D>(*of), world.get::<Skeleton>(*of)) {
-                add(draws, matrices, assets, t, m, s);
+                add(out, assets, t, m, Some(s), world.get::<MorphWeights>(*e));
             }
         }
     }
 }
 
-/// Adds model `m` posed by `s`, if its mesh is skinned and live.
-fn add(
-    draws: &mut Vec<SkinDraw>,
-    matrices: &mut Vec<Mat4>,
-    assets: &Assets3D,
-    t: &Transform3D,
-    m: &Model,
-    s: &Skeleton,
-) {
-    let Some(skin) = assets.skin(m.mesh.id) else {
+/// Where [`add`] puts a model.
+struct Out<'a> {
+    draws: &'a mut Vec<SkinDraw>,
+    matrices: &'a mut Vec<Mat4>,
+    weights: &'a mut Vec<f32>,
+}
+
+/// Adds model `m`, posed by `s` if its mesh is skinned, shaped by `w` if
+/// it has morph targets, when its mesh is live.
+fn add(out: &mut Out, assets: &Assets3D, t: &Transform3D, m: &Model, s: Option<&Skeleton>, w: Option<&MorphWeights>) {
+    let Some(mesh_bounds) = assets.live_bounds(m.mesh.id) else {
         return;
     };
-    if assets.live_bounds(m.mesh.id).is_none() {
-        return;
-    }
-    let first = matrices.len() as u32;
-    let joints = s.matrices();
-    let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-    let mut spheres = 0;
-    for slot in 0..skin.slots.len() {
-        let skin_matrix = match skin.joint_in(s, slot).and_then(|j| joints.get(j)) {
-            Some(joint) => *joint * skin.inverse_binds[slot],
-            None => Mat4::IDENTITY, // no such joint: as modelled
-        };
-        matrices.push(skin_matrix);
-        let (center, radius) = skin.bounds[slot];
-        if radius >= 0.0 {
-            let c = skin_matrix.transform_point3(center);
-            let r = radius * max_scale(skin_matrix);
-            lo = lo.min(c - r);
-            hi = hi.max(c + r);
-            spheres += 1;
+    let first = out.matrices.len() as u32;
+    let morph = assets.morph(m.mesh.id);
+    // How far the shape can move corners this frame.
+    let (morph_first, morph_count, reach) = match morph {
+        Some(morph) => {
+            let at = out.weights.len();
+            let own = w.map_or(&morph.defaults[..], |w| &w.0[..]);
+            let n = morph.names.len();
+            out.weights
+                .extend((0..n).map(|k| own.get(k).copied().filter(|v| v.is_finite()).unwrap_or(0.0)));
+            let most = out.weights[at..].iter().fold(0.0f32, |a, v| a.max(v.abs()));
+            (at as u32, n as u32, morph.reach * most)
         }
-    }
-    let bounds = if spheres == 0 {
-        (Vec3::ZERO, -1.0)
-    } else {
-        ((lo + hi) / 2.0, (hi - lo).length() / 2.0)
+        None => (0, 0, 0.0),
+    };
+    let bounds = match (assets.skin(m.mesh.id), s) {
+        (Some(skin), Some(s)) => {
+            let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+            let mut spheres = 0;
+            let joints = s.matrices();
+            for slot in 0..skin.slots.len() {
+                let skin_matrix = match skin.joint_in(s, slot).and_then(|j| joints.get(j)) {
+                    Some(joint) => *joint * skin.inverse_binds[slot],
+                    None => Mat4::IDENTITY, // no such joint: as modelled
+                };
+                out.matrices.push(skin_matrix);
+                let (center, radius) = skin.bounds[slot];
+                if radius >= 0.0 {
+                    let c = skin_matrix.transform_point3(center);
+                    let r = (radius + reach) * max_scale(skin_matrix);
+                    lo = lo.min(c - r);
+                    hi = hi.max(c + r);
+                    spheres += 1;
+                }
+            }
+            if spheres == 0 {
+                (Vec3::ZERO, -1.0)
+            } else {
+                ((lo + hi) / 2.0, (hi - lo).length() / 2.0)
+            }
+        }
+        (None, _) if morph.is_some() => {
+            out.matrices.push(Mat4::IDENTITY);
+            (mesh_bounds.0, mesh_bounds.1 + reach)
+        }
+        _ => return,
     };
     let matrix = t.matrix();
-    draws.push(SkinDraw {
+    out.draws.push(SkinDraw {
         mesh: m.mesh.id,
         instance: Instance3D {
             model: matrix.to_cols_array_2d(),
@@ -459,6 +582,8 @@ fn add(
         scale: t.scale.abs().max_element(),
         bounds,
         first,
+        morph_first,
+        morph_count,
     });
 }
 
@@ -612,6 +737,77 @@ mod tests {
             [(0, 0, 1), (1, 1, 1)],
             "mesh 0 once, skinned model 0 as mesh 1"
         );
+    }
+
+    /// An assets table with mesh 0: an unskinned triangle with one morph
+    /// target that lifts its first corner by 2, shown at 0.25 by default.
+    fn lifting_triangle() -> Assets3D {
+        let mut data = MeshData {
+            positions: vec![Vec3::ZERO, Vec3::X, Vec3::Y],
+            indices: vec![0, 1, 2],
+            ..Default::default()
+        };
+        data.morph_targets.push(crate::MorphTarget {
+            name: "lift".into(),
+            positions: vec![vec3(0.0, 0.0, 2.0), Vec3::ZERO, Vec3::ZERO],
+            normals: Vec::new(),
+        });
+        Assets3D {
+            bounds: vec![data.bounds()],
+            morphs: vec![MeshMorph::new(&data, vec![0.25]).map(Arc::new)],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn morph_reach_is_the_farthest_a_corner_moves() {
+        assert_eq!(lifting_triangle().morph(0).unwrap().reach, 2.0);
+        assert!(MeshMorph::new(&MeshData::cube(1.0), Vec::new()).is_none());
+    }
+
+    #[test]
+    fn morphing_models_take_their_weights_or_their_meshes_defaults() {
+        let mut world = World::new();
+        let assets = lifting_triangle();
+        let mesh = super::super::Mesh { id: 0 };
+        world.spawn((Transform3D::default(), Model::new(mesh)));
+        world.spawn((Transform3D::default(), Model::new(mesh), MorphWeights(vec![1.0, 7.0])));
+        world.spawn((Transform3D::default(), Model::new(mesh), MorphWeights(vec![f32::NAN])));
+        let mut frame = SkinFrame::default();
+        frame.collect(&mut world, &assets);
+        assert_eq!(frame.draws.len(), 3);
+        assert_eq!(frame.matrices, [Mat4::IDENTITY; 3], "one still matrix each");
+        // One weight per target: extra weights are dropped, bad ones are 0.
+        assert_eq!(frame.weights, [0.25, 1.0, 0.0]);
+        for (k, d) in frame.draws.iter().enumerate() {
+            assert_eq!((d.first, d.morph_first, d.morph_count), (k as u32, k as u32, 1));
+        }
+        // Bounds grow by how far this model's weights can move a corner.
+        let (rest_center, rest_radius) = assets.live_bounds(0).unwrap();
+        let radius = |k: usize| {
+            let (c, r) = frame.draws[k].bounds;
+            assert!(c.abs_diff_eq(rest_center, 1e-6));
+            r
+        };
+        let lifted = Vec3::Z * 2.0;
+        assert!(
+            rest_center.distance(lifted) <= radius(1) + 1e-5,
+            "fully lifted corner inside"
+        );
+        assert!((radius(0) - (rest_radius + 0.5)).abs() < 1e-6);
+        assert!((radius(1) - (rest_radius + 2.0)).abs() < 1e-6);
+        assert!((radius(2) - rest_radius).abs() < 1e-6, "no weight, no growth");
+    }
+
+    #[test]
+    fn a_freed_morphing_mesh_draws_nothing() {
+        let mut world = World::new();
+        let mut assets = lifting_triangle();
+        assets.bounds[0] = (Vec3::ZERO, -1.0);
+        world.spawn((Transform3D::default(), Model::new(super::super::Mesh { id: 0 })));
+        let mut frame = SkinFrame::default();
+        frame.collect(&mut world, &assets);
+        assert!(frame.draws.is_empty() && frame.weights.is_empty());
     }
 
     #[test]

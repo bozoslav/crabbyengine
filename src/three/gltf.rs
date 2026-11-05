@@ -11,7 +11,7 @@ use std::ops::Range;
 
 use glam::{Mat3, Mat4, Quat, Vec2, Vec3};
 
-use super::{Blend, Joint, MeshData, Transform3D};
+use super::{Blend, Joint, MeshData, MorphTarget, Transform3D};
 use crate::Color;
 
 /// A loaded file, before it goes to the GPU.
@@ -30,6 +30,9 @@ pub(crate) struct Loaded {
     /// index (each slot's joint and inverse bind matrix).
     pub skin: Option<LoadedSkin>,
     pub clips: Vec<super::AnimationClip>,
+    /// The weights `data.morph_targets` show by default (glTF's mesh
+    /// weights), one per target.
+    pub morph_defaults: Vec<f32>,
 }
 
 pub(crate) struct LoadedSkin {
@@ -246,6 +249,8 @@ pub(crate) fn load(
         None
     };
     let mut by_material: Vec<(usize, MeshData)> = Vec::new();
+    // Morph targets' default weights, by name.
+    let mut defaults: Vec<(String, f32)> = Vec::new();
     let mut stack: Vec<(gltf::Node, Mat4)> = scene.nodes().map(|n| (n, Mat4::IDENTITY)).collect();
     while let Some((node, parent)) = stack.pop() {
         let mut matrix = parent * Mat4::from_cols_array_2d(&node.transform().matrix());
@@ -279,6 +284,13 @@ pub(crate) fn load(
                     Binding::Rigid(rig.slot(j, ib).map_err(|e| format!("{name}: {e}"))?)
                 }
             };
+            let targets = target_names(&mesh);
+            for (k, target) in targets.iter().enumerate() {
+                if !defaults.iter().any(|(n, _)| n == target) {
+                    let weight = mesh.weights().and_then(|w| w.get(k)).copied().unwrap_or(0.0);
+                    defaults.push((target.clone(), weight));
+                }
+            }
             for primitive in mesh.primitives() {
                 if primitive.mode() != gltf::mesh::Mode::Triangles {
                     continue; // lines and points aren't drawn
@@ -291,7 +303,12 @@ pub(crate) fn load(
                         by_material.len() - 1
                     }
                 };
-                append(&mut by_material[at].1, &primitive, &buffers, matrix, &binding, name)?;
+                let part = Part {
+                    matrix,
+                    binding: &binding,
+                    targets: &targets,
+                };
+                append(&mut by_material[at].1, &primitive, &buffers, &part, name)?;
             }
         }
         stack.extend(node.children().map(|c| (c, children)));
@@ -315,10 +332,21 @@ pub(crate) fn load(
         data.uvs1.extend(part.uvs1);
         data.joints.extend(part.joints);
         data.weights.extend(part.weights);
+        merge_targets(
+            &mut data.morph_targets,
+            base as usize,
+            part.morph_targets,
+            data.positions.len(),
+        );
         data.indices.extend(part.indices.iter().map(|i| i + base));
         parts.push((first..data.indices.len() as u32, material));
     }
     data.check().map_err(|e| format!("{name}: {e}"))?;
+    let morph_defaults = data
+        .morph_targets
+        .iter()
+        .map(|t| defaults.iter().find(|(n, _)| *n == t.name).map_or(0.0, |d| d.1))
+        .collect();
     let clips = match &rig {
         Some(rig) => read_clips(&gltf.document, &buffers, rig)?,
         None => Vec::new(),
@@ -338,7 +366,61 @@ pub(crate) fn load(
         image_sources,
         skin,
         clips,
+        morph_defaults,
     })
+}
+
+/// The names of `mesh`'s morph targets: from its extras' `targetNames`
+/// (the usual way exporters name them), else `<mesh>.<i>`.
+fn target_names(mesh: &gltf::Mesh) -> Vec<String> {
+    let count = mesh.primitives().map(|p| p.morph_targets().len()).max().unwrap_or(0);
+    let named: Vec<String> = mesh
+        .extras()
+        .as_ref()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw.get()).ok())
+        .and_then(|v| {
+            let names = v.get("targetNames")?.as_array()?;
+            names.iter().map(|n| n.as_str().map(str::to_string)).collect()
+        })
+        .unwrap_or_default();
+    let mesh_name = mesh
+        .name()
+        .map_or_else(|| format!("mesh {}", mesh.index()), str::to_string);
+    (0..count)
+        .map(|i| named.get(i).cloned().unwrap_or_else(|| format!("{mesh_name}.{i}")))
+        .collect()
+}
+
+/// Adds the morph targets of corners `before..` of a mesh (`new`, one
+/// position offset per such corner, normal offsets optional) to its
+/// targets `into` (each with `before` offsets), matched by name; then pads
+/// every target with zero offsets to `corners`, so corners without a
+/// target don't move.
+fn merge_targets(into: &mut Vec<MorphTarget>, before: usize, new: Vec<MorphTarget>, corners: usize) {
+    for target in new {
+        let at = match into.iter().position(|t| t.name == target.name) {
+            Some(at) => at,
+            None => {
+                into.push(MorphTarget {
+                    name: target.name.clone(),
+                    positions: vec![Vec3::ZERO; before],
+                    normals: vec![Vec3::ZERO; before],
+                });
+                into.len() - 1
+            }
+        };
+        let t = &mut into[at];
+        t.positions.extend(target.positions);
+        if target.normals.is_empty() {
+            t.normals.resize(t.positions.len(), Vec3::ZERO);
+        } else {
+            t.normals.extend(target.normals);
+        }
+    }
+    for t in into {
+        t.positions.resize(corners, Vec3::ZERO);
+        t.normals.resize(corners, Vec3::ZERO);
+    }
 }
 
 fn read_clips(document: &gltf::Document, buffers: &[Vec<u8>], rig: &Rig) -> Result<Vec<super::AnimationClip>, String> {
@@ -399,15 +481,36 @@ fn read_clips(document: &gltf::Document, buffers: &[Vec<u8>], rig: &Rig) -> Resu
         .collect()
 }
 
-/// Adds one primitive's triangles to `out`, moved by `matrix`.
+/// A morph target's offsets: none, or one per corner.
+fn offsets(v: Option<gltf::accessor::Iter<'_, [f32; 3]>>, corners: usize, name: &str) -> Result<Vec<Vec3>, String> {
+    let v: Vec<Vec3> = v.map(|v| v.map(Vec3::from).collect()).unwrap_or_default();
+    if !v.is_empty() && v.len() != corners {
+        return Err(format!(
+            "{name}: a morph target has {} offsets for {corners} corners",
+            v.len()
+        ));
+    }
+    Ok(v)
+}
+
+/// How one mesh of the file goes into the loaded mesh.
+struct Part<'a> {
+    /// Its node's matrix (identity when skinned).
+    matrix: Mat4,
+    binding: &'a Binding,
+    /// Its morph targets' names.
+    targets: &'a [String],
+}
+
+/// Adds one primitive's triangles to `out`, moved by its part's matrix.
 fn append(
     out: &mut MeshData,
     primitive: &gltf::Primitive,
     buffers: &[Vec<u8>],
-    matrix: Mat4,
-    binding: &Binding,
+    part_of: &Part,
     name: &str,
 ) -> Result<(), String> {
+    let (matrix, binding) = (part_of.matrix, part_of.binding);
     let reader = primitive.reader(|b| buffers.get(b.index()).map(Vec::as_slice));
     let positions: Vec<Vec3> = reader
         .read_positions()
@@ -493,6 +596,23 @@ fn append(
         .extend(part.positions.iter().map(|p| matrix.transform_point3(*p)));
     out.normals
         .extend(normals.iter().map(|n| (normal_matrix * *n).normalize_or(Vec3::Y)));
+    // Morph targets: offsets turn with the node (normals' by the normal
+    // matrix, unnormalized: they're differences).
+    let mut targets = Vec::new();
+    for (k, (positions, normals, _)) in reader.read_morph_targets().enumerate() {
+        let corners = count as usize;
+        let (positions, normals) = (offsets(positions, corners, name)?, offsets(normals, corners, name)?);
+        targets.push(MorphTarget {
+            name: part_of.targets.get(k).cloned().unwrap_or_else(|| format!("{name}.{k}")),
+            positions: if positions.is_empty() {
+                vec![Vec3::ZERO; corners]
+            } else {
+                positions.iter().map(|d| matrix.transform_vector3(*d)).collect()
+            },
+            normals: normals.iter().map(|d| normal_matrix * *d).collect(),
+        });
+    }
+    merge_targets(&mut out.morph_targets, base as usize, targets, out.positions.len());
     if part.uvs.is_empty() {
         out.uvs.extend(std::iter::repeat_n(Vec2::ZERO, count as usize));
     } else {
@@ -888,6 +1008,108 @@ mod tests {
         let m = &loaded.materials[0];
         assert!((m.color.r - 1.0).abs() < 1e-5 && m.color.g == 0.0);
         assert_eq!((m.roughness, m.metallic), (0.25, 1.0), "metallic defaults to 1 in glTF");
+    }
+
+    /// Two meshes on two nodes: "face" has targets "smile" and "blink"
+    /// (named in its extras, with default weights), "lid" (scaled 2x, its
+    /// own material) only "blink".
+    fn morph_gltf() -> String {
+        let mut bytes = Vec::new();
+        let floats = |bytes: &mut Vec<u8>, v: &[f32]| v.iter().for_each(|f| bytes.extend(f.to_le_bytes()));
+        floats(&mut bytes, &[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0]); // corners
+        floats(&mut bytes, &[0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0]); // all up 1
+        floats(&mut bytes, &[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]); // corner 0 +x
+        let accessor = |at: usize| {
+            format!(
+                r#"{{ "bufferView": 0, "byteOffset": {}, "componentType": 5126, "count": 3, "type": "VEC3",
+                      "min": [0, 0, 0], "max": [1, 1, 0] }}"#,
+                at * 36
+            )
+        };
+        format!(
+            r#"{{
+            "asset": {{ "version": "2.0" }},
+            "scene": 0,
+            "scenes": [{{ "nodes": [0, 1] }}],
+            "nodes": [{{ "mesh": 0 }}, {{ "mesh": 1, "scale": [2, 2, 2] }}],
+            "meshes": [
+                {{ "name": "face", "weights": [0.5, 0.0], "extras": {{ "targetNames": ["smile", "blink"] }},
+                   "primitives": [{{ "attributes": {{ "POSITION": 0 }}, "material": 0,
+                                    "targets": [{{ "POSITION": 1 }}, {{ "POSITION": 2 }}] }}] }},
+                {{ "name": "lid", "extras": {{ "targetNames": ["blink"] }},
+                   "primitives": [{{ "attributes": {{ "POSITION": 0 }}, "material": 1,
+                                    "targets": [{{ "POSITION": 2 }}] }}] }}
+            ],
+            "materials": [{{}}, {{}}],
+            "buffers": [{{ "byteLength": 108, "uri": "data:application/octet-stream;base64,{}" }}],
+            "bufferViews": [{{ "buffer": 0, "byteLength": 108 }}],
+            "accessors": [{}, {}, {}]
+        }}"#,
+            to_base64(&bytes),
+            accessor(0),
+            accessor(1),
+            accessor(2),
+        )
+    }
+
+    #[test]
+    fn morph_targets_merge_by_name_and_follow_their_node() {
+        let loaded = load(
+            "face.gltf",
+            morph_gltf().as_bytes(),
+            &mut |f| Err(f.to_string()),
+            &|_| false,
+        )
+        .unwrap();
+        let data = &loaded.data;
+        assert!(data.check().is_ok());
+        assert_eq!(data.positions.len(), 6);
+        let names: Vec<&str> = data.morph_targets.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names.len(), 2, "one \"blink\" for both meshes: {names:?}");
+        let target = |name: &str| data.morph_targets.iter().position(|t| t.name == name).unwrap();
+        let (smile, blink) = (target("smile"), target("blink"));
+        assert_eq!(loaded.morph_defaults[smile], 0.5);
+        assert_eq!(loaded.morph_defaults[blink], 0.0);
+        // The face's corners: those its material's part draws.
+        let (range, _) = loaded.parts.iter().find(|(_, m)| *m == 0).unwrap();
+        let face: Vec<usize> = data.indices[range.start as usize..range.end as usize]
+            .iter()
+            .map(|&i| i as usize)
+            .collect();
+        for &i in &face {
+            assert_eq!(
+                data.morph_targets[smile].positions[i],
+                Vec3::Y,
+                "the face's smile lifts it"
+            );
+        }
+        // Corner 0 of each mesh (at the origin) moves +x in "blink": by 2
+        // on the scaled lid.
+        let blinks: Vec<Vec3> = data.morph_targets[blink]
+            .positions
+            .iter()
+            .copied()
+            .filter(|d| *d != Vec3::ZERO)
+            .collect();
+        assert_eq!(blinks.len(), 2);
+        assert!(blinks.contains(&Vec3::X) && blinks.contains(&(2.0 * Vec3::X)));
+        // The lid has no smile.
+        let smiling = data.morph_targets[smile]
+            .positions
+            .iter()
+            .filter(|d| **d != Vec3::ZERO)
+            .count();
+        assert_eq!(smiling, 3);
+        assert_eq!(data.morph_targets[smile].normals.len(), 6, "normals padded with zeros");
+    }
+
+    #[test]
+    fn unnamed_morph_targets_are_named_after_their_mesh() {
+        let gltf = morph_gltf().replace(r#""extras": { "targetNames": ["smile", "blink"] },"#, "");
+        let loaded = load("face.gltf", gltf.as_bytes(), &mut |f| Err(f.to_string()), &|_| false).unwrap();
+        let mut names: Vec<&str> = loaded.data.morph_targets.iter().map(|t| t.name.as_str()).collect();
+        names.sort_unstable();
+        assert_eq!(names, ["blink", "face.0", "face.1"]);
     }
 
     #[test]

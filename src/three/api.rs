@@ -4,7 +4,9 @@ use std::ops::Range;
 
 use glam::Vec3;
 
-use super::{AnimationClip, Blend, Material, MaterialDesc, Mesh, MeshData, MeshSkin, Shader, Skeleton, gltf, linear};
+use super::{
+    AnimationClip, Blend, Material, MaterialDesc, Mesh, MeshData, MeshMorph, MeshSkin, Shader, Skeleton, gltf, linear,
+};
 use crate::{Ctx, assets};
 
 /// A material as the GPU reads it (one uniform block).
@@ -295,7 +297,7 @@ impl Ctx {
             material.id < self.assets3d.materials,
             "crabbyengine: create_mesh: that material wasn't made by this game"
         );
-        self.mesh_from_parts(data, &[(0..data.indices.len() as u32, material)], None)
+        self.mesh_from_parts(data, &[(0..data.indices.len() as u32, material)], None, Vec::new())
     }
 
     /// Makes a mesh that bends with `skeleton`: each corner of `data` has
@@ -355,7 +357,12 @@ impl Ctx {
             inverse_binds,
             &data,
         );
-        self.mesh_from_parts(&data, &[(0..data.indices.len() as u32, material)], Some(skin))
+        self.mesh_from_parts(
+            &data,
+            &[(0..data.indices.len() as u32, material)],
+            Some(skin),
+            Vec::new(),
+        )
     }
 
     /// The [`Skeleton`] of a glTF file with skins (loading its mesh with
@@ -548,7 +555,7 @@ impl Ctx {
             self.assets3d.loaded_skeletons.insert(file.clone(), skeleton);
             mesh_skin
         });
-        let mesh = self.mesh_from_parts(&loaded.data, &parts, skin);
+        let mesh = self.mesh_from_parts(&loaded.data, &parts, skin, loaded.morph_defaults);
         self.assets3d.loaded.insert(file, mesh);
         if let Some(names) = self.world.get_resource_mut::<crate::reflect::MeshNames>() {
             names.by_id.insert(mesh.id, path.to_string());
@@ -589,22 +596,54 @@ impl Ctx {
     }
 
     /// A mesh whose index ranges each have their own material.
-    /// With `skin`, it bends with a skeleton.
-    fn mesh_from_parts(&mut self, data: &MeshData, parts: &[(Range<u32>, Material)], skin: Option<MeshSkin>) -> Mesh {
+    /// With `skin`, it bends with a skeleton. Its morph targets, if any,
+    /// show `morph_defaults` on models without [`MorphWeights`](crate::MorphWeights).
+    fn mesh_from_parts(
+        &mut self,
+        data: &MeshData,
+        parts: &[(Range<u32>, Material)],
+        skin: Option<MeshSkin>,
+        morph_defaults: Vec<f32>,
+    ) -> Mesh {
         let id = self.assets3d.bounds.len() as u32;
         self.assets3d.bounds.push(data.bounds());
-        let skinned = skin.is_some();
+        let posed = skin.is_some() || !data.morph_targets.is_empty();
         if let Some(skin) = skin {
             self.assets3d.skins.resize(id as usize + 1, None);
             self.assets3d.skins[id as usize] = Some(std::sync::Arc::new(skin));
         }
+        if let Some(morph) = MeshMorph::new(data, morph_defaults) {
+            self.assets3d.morphs.resize_with(id as usize + 1, || None);
+            self.assets3d.morphs[id as usize] = Some(std::sync::Arc::new(morph));
+        }
         if let Some(renderer) = self.renderer.as_mut()
             && !self.headless
         {
-            let gpu_id = renderer.create_mesh(data, parts, skinned);
+            let gpu_id = renderer.create_mesh(data, parts, posed);
             debug_assert_eq!(gpu_id, id);
         }
         Mesh { id }
+    }
+
+    /// The index of `mesh`'s morph target called `name`, for
+    /// [`MorphWeights`](crate::MorphWeights); `None` if it has no such
+    /// target (or was freed).
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let mut quad = MeshData::plane(1.0);
+    ///     let up = vec![vec3(0.0, 0.1, 0.0); quad.positions.len()];
+    ///     quad.morph_targets.push(MorphTarget { name: "lift".into(), positions: up, normals: Vec::new() });
+    ///     let material = ctx.default_material();
+    ///     let mesh = ctx.create_mesh(&quad, material);
+    ///     assert_eq!(ctx.morph_target(mesh, "lift"), Some(0));
+    ///     assert_eq!(ctx.morph_target(mesh, "sag"), None);
+    /// });
+    /// ```
+    #[must_use]
+    pub fn morph_target(&self, mesh: Mesh, name: &str) -> Option<usize> {
+        self.assets3d.morph(mesh.id)?.names.iter().position(|n| n == name)
     }
 
     /// Every material loaded from glTF files so far that the files call
@@ -650,6 +689,9 @@ impl Ctx {
         *bounds = (Vec3::ZERO, -1.0);
         if let Some(skin) = self.assets3d.skins.get_mut(mesh.id as usize) {
             *skin = None;
+        }
+        if let Some(morph) = self.assets3d.morphs.get_mut(mesh.id as usize) {
+            *morph = None;
         }
         let freed: Vec<_> = self
             .assets3d

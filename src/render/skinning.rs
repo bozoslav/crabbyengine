@@ -1,8 +1,11 @@
 //! Skinning on the GPU: each skinned model drawn this frame gets a vertex
 //! buffer of its own (kept between frames), which a compute shader fills
 //! with its posed corners before any pass draws. Every pass then draws it
-//! like a plain mesh, so material shaders need nothing extra. Where the GPU
-//! can't run compute shaders (WebGL2), the CPU poses them instead.
+//! like a plain mesh, so material shaders need nothing extra. Morph targets
+//! (blend shapes) are added in the same pass, before skinning; meshes with
+//! morph targets but no joints go through it with one identity matrix.
+//! Where the GPU can't run compute shaders (WebGL2), the CPU poses them
+//! instead.
 
 use wgpu::util::DeviceExt;
 
@@ -17,9 +20,23 @@ const SHADER: &str = include_str!("skin.wgsl");
 pub(super) struct GpuSkin {
     /// Per corner: 4 joints as u16 pairs, then 4 weights.
     influences: wgpu::Buffer,
+    /// Its morph targets' offsets, target after target: per corner the
+    /// position's (3 floats), then the normal's (3). A dummy without any.
+    deltas: wgpu::Buffer,
     count: u32,
-    /// Without compute shaders: the rest pose and influences, on the CPU.
-    cpu: Option<(Vec<Vertex>, Vec<Influence>)>,
+    /// How many morph targets it has.
+    targets: u32,
+    /// Without compute shaders: the rest pose, influences and offsets, on
+    /// the CPU.
+    cpu: Option<(Vec<Vertex>, Vec<Influence>, Vec<Delta>)>,
+}
+
+/// One corner's offset in one morph target (6 words in skin.wgsl).
+#[repr(C)]
+#[derive(Clone, Copy, Default, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct Delta {
+    pub position: [f32; 3],
+    pub normal: [f32; 3],
 }
 
 #[repr(C)]
@@ -34,7 +51,8 @@ struct Slot {
     buffer: wgpu::Buffer,
     /// Corners it holds.
     capacity: u32,
-    /// Its bind group, with the mesh and `joints` generation it was made for.
+    /// Its bind group, with the mesh and the `joints`/`weights` generation
+    /// it was made for.
     group: Option<(u32, u64, wgpu::BindGroup)>,
 }
 
@@ -43,7 +61,8 @@ struct Slot {
 struct Params {
     first: u32,
     count: u32,
-    pad: [u32; 2],
+    morph_first: u32,
+    morph_count: u32,
 }
 
 pub(super) struct Skinning {
@@ -52,7 +71,11 @@ pub(super) struct Skinning {
     /// This frame's skin matrices, and how many fit.
     joints: wgpu::Buffer,
     joint_capacity: usize,
-    /// Bumped whenever `joints` is made anew (bind groups name it).
+    /// This frame's morph weights, and how many fit.
+    weights: wgpu::Buffer,
+    weight_capacity: usize,
+    /// Bumped whenever `joints` or `weights` is made anew (bind groups name
+    /// them).
     generation: u64,
     /// One `Params` per slot, `stride` bytes apart.
     params: wgpu::Buffer,
@@ -86,6 +109,8 @@ impl Skinning {
                     storage(1, true),
                     storage(2, true),
                     storage(3, false),
+                    storage(5, true),
+                    storage(6, true),
                     wgpu::BindGroupLayoutEntry {
                         binding: 4,
                         visibility: wgpu::ShaderStages::COMPUTE,
@@ -122,6 +147,8 @@ impl Skinning {
             pipeline,
             joints: joint_buffer(device, 64),
             joint_capacity: 64,
+            weights: weight_buffer(device, 64),
+            weight_capacity: 64,
             generation: 0,
             params: param_buffer(device, stride, 4),
             param_capacity: 4,
@@ -143,28 +170,48 @@ impl Skinning {
         }
     }
 
-    /// The GPU side of a skinned mesh of `vertices`.
+    /// The GPU side of a skinned mesh of `vertices`, or of one with morph
+    /// targets: `deltas` holds `vertices.len()` offsets per target, target
+    /// after target. Without `joints`, every corner follows matrix 0.
     pub fn create(
         &self,
         device: &wgpu::Device,
         vertices: &[Vertex],
         joints: &[[u16; 4]],
         weights: &[[f32; 4]],
+        deltas: Vec<Delta>,
     ) -> GpuSkin {
-        let influences: Vec<Influence> = joints
-            .iter()
-            .zip(weights)
-            .map(|(&joints, &weights)| Influence { joints, weights })
-            .collect();
+        let influences: Vec<Influence> = if joints.is_empty() {
+            let still = Influence {
+                joints: [0; 4],
+                weights: [1.0, 0.0, 0.0, 0.0],
+            };
+            vec![still; vertices.len()]
+        } else {
+            joints
+                .iter()
+                .zip(weights)
+                .map(|(&joints, &weights)| Influence { joints, weights })
+                .collect()
+        };
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("3d skin influences"),
             contents: bytemuck::cast_slice(&influences),
             usage: wgpu::BufferUsages::STORAGE,
         });
+        let targets = deltas.len().checked_div(vertices.len()).unwrap_or(0) as u32;
+        let dummy = [Delta::default()];
+        let delta_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("3d morph targets"),
+            contents: bytemuck::cast_slice(if deltas.is_empty() { &dummy[..] } else { &deltas[..] }),
+            usage: wgpu::BufferUsages::STORAGE,
+        });
         GpuSkin {
             influences: buffer,
+            deltas: delta_buffer,
             count: vertices.len() as u32,
-            cpu: self.pipeline.is_none().then(|| (vertices.to_vec(), influences)),
+            targets,
+            cpu: self.pipeline.is_none().then(|| (vertices.to_vec(), influences, deltas)),
         }
     }
 
@@ -191,11 +238,19 @@ impl Skinning {
             self.joints = joint_buffer(device, self.joint_capacity);
             self.generation += 1;
         }
+        if skins.weights.len() > self.weight_capacity {
+            self.weight_capacity = skins.weights.len().next_power_of_two();
+            self.weights = weight_buffer(device, self.weight_capacity);
+            self.generation += 1;
+        }
         if self.pipeline.is_some() && !skins.matrices.is_empty() {
             self.matrix_scratch.clear();
             self.matrix_scratch
                 .extend(skins.matrices.iter().map(glam::Mat4::to_cols_array));
             queue.write_buffer(&self.joints, 0, bytemuck::cast_slice(&self.matrix_scratch));
+        }
+        if self.pipeline.is_some() && !skins.weights.is_empty() {
+            queue.write_buffer(&self.weights, 0, bytemuck::cast_slice(&skins.weights));
         }
         if self.draws.len() > self.param_capacity {
             self.param_capacity = self.draws.len().next_power_of_two();
@@ -207,11 +262,12 @@ impl Skinning {
         self.params_scratch.clear();
         self.params_scratch.resize(self.stride as usize * self.draws.len(), 0);
         for (k, d) in skins.draws.iter().enumerate() {
-            let count = mesh(d.mesh).map_or(0, |(_, s)| s.count);
+            let (count, targets) = mesh(d.mesh).map_or((0, 0), |(_, s)| (s.count, s.targets));
             let p = Params {
                 first: d.first,
                 count,
-                pad: [0; 2],
+                morph_first: d.morph_first,
+                morph_count: d.morph_count.min(targets),
             };
             let at = k * self.stride as usize;
             self.params_scratch[at..at + size_of::<Params>()].copy_from_slice(bytemuck::bytes_of(&p));
@@ -247,6 +303,8 @@ impl Skinning {
                                 entry(1, &skin.influences),
                                 entry(2, &self.joints),
                                 entry(3, &slot.buffer),
+                                entry(5, &self.weights),
+                                entry(6, &skin.deltas),
                                 wgpu::BindGroupEntry {
                                     binding: 4,
                                     resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
@@ -260,21 +318,33 @@ impl Skinning {
                         slot.group = Some((d.mesh, self.generation, group));
                     }
                 }
-                (None, Some((vertices, influences))) => {
+                (None, Some((vertices, influences, deltas))) => {
                     let skin_matrices = &skins.matrices[d.first as usize..];
+                    let morph = skins
+                        .weights
+                        .get(d.morph_first as usize..(d.morph_first + p.morph_count) as usize)
+                        .unwrap_or(&[]);
+                    let corners = vertices.len();
                     self.scratch.clear();
-                    self.scratch.extend(vertices.iter().zip(influences).map(|(v, i)| {
-                        let m = crate::three::blend_skin(skin_matrices, i.joints, i.weights);
-                        let p = m.transform_point3(glam::Vec3::from(v.position));
-                        let n = m
-                            .transform_vector3(glam::Vec3::from(v.normal))
-                            .normalize_or(glam::Vec3::Y);
-                        Vertex {
-                            position: p.to_array(),
-                            normal: n.to_array(),
-                            ..*v
-                        }
-                    }));
+                    self.scratch
+                        .extend(vertices.iter().zip(influences).enumerate().map(|(c, (v, i))| {
+                            let (mut p, mut n) = (glam::Vec3::from(v.position), glam::Vec3::from(v.normal));
+                            for (t, &w) in morph.iter().enumerate() {
+                                if w != 0.0 {
+                                    let delta = &deltas[t * corners + c];
+                                    p += w * glam::Vec3::from(delta.position);
+                                    n += w * glam::Vec3::from(delta.normal);
+                                }
+                            }
+                            let m = crate::three::blend_skin(skin_matrices, i.joints, i.weights);
+                            let p = m.transform_point3(p);
+                            let n = m.transform_vector3(n).normalize_or(glam::Vec3::Y);
+                            Vertex {
+                                position: p.to_array(),
+                                normal: n.to_array(),
+                                ..*v
+                            }
+                        }));
                     queue.write_buffer(&slot.buffer, 0, bytemuck::cast_slice(&self.scratch));
                 }
                 (None, None) => {}
@@ -338,6 +408,15 @@ fn joint_buffer(device: &wgpu::Device, matrices: usize) -> wgpu::Buffer {
     })
 }
 
+fn weight_buffer(device: &wgpu::Device, weights: usize) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("3d morph weights"),
+        size: (weights.max(4) * 4) as u64,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
+}
+
 fn param_buffer(device: &wgpu::Device, stride: u64, slots: usize) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("3d skinning params"),
@@ -363,10 +442,16 @@ mod tests {
         super::super::check_shader("skin.wgsl", super::SHADER).unwrap();
     }
 
-    /// Poses three corners on the GPU (when there is one) and on the CPU:
-    /// both must agree.
+    /// Shapes (two morph targets) and poses three corners on the GPU (when
+    /// there is one), with the compute shader and with the CPU fallback:
+    /// both must agree with the CPU's math.
     #[test]
     fn gpu_skinning_matches_the_cpu() {
+        posed_corners_match(true);
+        posed_corners_match(false);
+    }
+
+    fn posed_corners_match(compute: bool) {
         use glam::{Mat4, Quat, Vec3};
         use wgpu::util::DeviceExt;
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
@@ -378,7 +463,11 @@ mod tests {
             eprintln!("no GPU device: skipped");
             return;
         };
-        let skinning = &mut super::Skinning::new(&device, super::super::can_compute(&device));
+        if compute && !super::super::can_compute(&device) {
+            eprintln!("no compute shaders: skipped");
+            return;
+        }
+        let skinning = &mut super::Skinning::new(&device, compute);
         let vertex = |p: [f32; 3]| super::Vertex {
             position: p,
             normal: [0.0, 0.0, 1.0],
@@ -393,7 +482,19 @@ mod tests {
         ];
         let joints = [[0u16, 0, 0, 0], [0, 1, 0, 0], [1, 0, 0, 0]];
         let weights = [[1.0f32, 0.0, 0.0, 0.0], [0.5, 0.5, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]];
-        let skin = skinning.create(&device, &rest, &joints, &weights);
+        // Target 0 lifts corner 1, target 1 pushes corner 2 along x and
+        // tilts its normal.
+        let delta = |p: [f32; 3], n: [f32; 3]| super::Delta { position: p, normal: n };
+        let none = delta([0.0; 3], [0.0; 3]);
+        let deltas = vec![
+            none,
+            delta([0.0, 2.0, 0.0], [0.0; 3]),
+            none,
+            none,
+            none,
+            delta([1.0, 0.0, 0.0], [1.0, 0.0, 0.0]),
+        ];
+        let skin = skinning.create(&device, &rest, &joints, &weights, deltas.clone());
         let rest_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
             contents: bytemuck::cast_slice(&rest),
@@ -413,7 +514,11 @@ mod tests {
             scale: 1.0,
             bounds: (Vec3::ZERO, 1.0),
             first: 1,
+            morph_first: 1,
+            morph_count: 2,
         });
+        // Another model's weight first, so `morph_first` matters.
+        frame.weights = vec![9.0, 0.5, 0.25];
         skinning.prepare(&device, &queue, &frame, |_| Some((&rest_buffer, &skin)), |_| true);
         let mut encoder = device.create_command_encoder(&Default::default());
         skinning.record(&mut encoder, None);
@@ -431,14 +536,19 @@ mod tests {
         let posed: Vec<super::Vertex> = bytemuck::cast_slice(&readback.slice(..).get_mapped_range().unwrap()).to_vec();
         for i in 0..3 {
             let m = crate::three::blend_skin(&frame.matrices[1..], joints[i], weights[i]);
-            let want = m.transform_point3(Vec3::from(rest[i].position));
+            let shaped = Vec3::from(rest[i].position)
+                + 0.5 * Vec3::from(deltas[i].position)
+                + 0.25 * Vec3::from(deltas[3 + i].position);
+            let want = m.transform_point3(shaped);
             assert!(
                 Vec3::from(posed[i].position).abs_diff_eq(want, 1e-5),
-                "corner {i}: {:?} vs {want}",
+                "compute {compute}, corner {i}: {:?} vs {want}",
                 posed[i].position
             );
             let n = Vec3::from(posed[i].normal);
-            assert!((n.length() - 1.0).abs() < 1e-5);
+            let shaped_n = Vec3::from(rest[i].normal) + 0.25 * Vec3::from(deltas[3 + i].normal);
+            let want_n = m.transform_vector3(shaped_n).normalize();
+            assert!(n.abs_diff_eq(want_n, 1e-5), "corner {i}'s normal: {n} vs {want_n}");
             assert_eq!(
                 (posed[i].uv, posed[i].color, posed[i].uv1),
                 (rest[i].uv, rest[i].color, rest[i].uv1)
@@ -449,6 +559,11 @@ mod tests {
     #[test]
     fn influences_are_six_words() {
         assert_eq!(size_of::<super::Influence>(), 24, "skin.wgsl reads 6 words per corner");
+        assert_eq!(
+            size_of::<super::Delta>(),
+            24,
+            "skin.wgsl reads 6 words per morph offset"
+        );
         assert_eq!(
             size_of::<super::super::Vertex>(),
             44,
