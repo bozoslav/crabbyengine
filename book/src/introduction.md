@@ -1,6 +1,6 @@
 # Crabby Engine
 
-Crabby Engine is a 2D game engine in Rust, built for games with huge numbers of
+Crabby Engine is a game engine in Rust, built for games with huge numbers of
 things in them: colonies, ecosystems, crowds, factories, swarms. The engine
 keeps two goals in view:
 
