@@ -435,6 +435,14 @@ int main(void) {
     CHECK(crabby_world_free(w) == CRABBY_OK);
 
     w = crabby_world_new();
+    uint32_t probe_id;
+    CHECK(crabby_reflection_probe3d_component(w, &probe_id) == CRABBY_OK);
+    CrabbyReflectionProbe3D probe = crabby_reflection_probe3d_default();
+    CHECK(probe.content == 0 && probe.box_projection && probe.size.x == 10);
+    CrabbyValue probe_value = {probe_id, &probe, sizeof(probe)};
+    CHECK(crabby_spawn(w, &probe_value, 1, &e) == CRABBY_OK);
+    CrabbyReflectionProbe3D probe_out;
+    CHECK(crabby_get(w, e, probe_id, &probe_out, sizeof(probe_out)) == CRABBY_OK && probe_out.blend_distance == 1);
     uint32_t point_id, spot_id;
     CHECK(crabby_point_light3d_component(w, &point_id) == CRABBY_OK);
     CHECK(crabby_spot_light3d_component(w, &spot_id) == CRABBY_OK);

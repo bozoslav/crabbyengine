@@ -7,6 +7,8 @@
 
 const PI: f32 = 3.14159265;
 
+struct ReflectionVolume { center: vec4<f32>, size: vec4<f32>, params: vec4<f32> };
+
 struct Frame {
     view_proj: mat4x4<f32>,
     // World to each shadow cascade's clip space (see `sunlight`).
@@ -34,6 +36,7 @@ struct Frame {
     // World to each point and spot light shadow view's clip space.
     light_view_proj: array<mat4x4<f32>, 12>,
     light_shadow: vec4<f32>, // views (0: none), texel size in uv, normal offset in texels
+    probes: array<ReflectionVolume, 4>,
 };
 
 struct MaterialData {
@@ -160,7 +163,7 @@ fn sky_dir(uv: vec2<f32>) -> vec3<f32> {
 // The sky's light from direction `dir` (towards the sky), without the sun
 // itself. Black without an atmosphere.
 fn sky_radiance(dir: vec3<f32>) -> vec3<f32> {
-    return textureSampleLevel(sky_texture, sky_sampler, sky_uv(dir), 0.0).rgb;
+    return textureSampleLevel(sky_texture, sky_sampler, sky_uv(dir) * vec2<f32>(0.25, 128.0 / 1536.0), 0.0).rgb;
 }
 
 // `color` seen through the fog between the camera and `world`: height fog,
@@ -340,4 +343,82 @@ fn punctual_shadow(first: i32, texel: f32, light: vec3<f32>, world: vec3<f32>, n
 
 fn cluster_word(i: u32) -> u32 {
     return textureLoad(punctual_clusters, vec2<i32>(i32(i % 1024u), i32(i / 1024u)), 0).x;
+}
+
+fn cube_uv(d: vec3<f32>) -> vec3<f32> {
+    let a = abs(d); var f = 0.0; var p = vec2<f32>(0.0);
+    if a.x >= a.y && a.x >= a.z {
+        if d.x > 0.0 { f = 0.0; p = vec2<f32>(-d.z, -d.y) / a.x; }
+        else { f = 1.0; p = vec2<f32>(d.z, -d.y) / a.x; }
+    } else if a.y >= a.z {
+        if d.y > 0.0 { f = 2.0; p = vec2<f32>(d.x, d.z) / a.y; }
+        else { f = 3.0; p = vec2<f32>(d.x, -d.z) / a.y; }
+    } else {
+        if d.z > 0.0 { f = 4.0; p = vec2<f32>(d.x, -d.y) / a.z; }
+        else { f = 5.0; p = vec2<f32>(-d.x, -d.y) / a.z; }
+    }
+    return vec3<f32>(p * 0.5 + 0.5, f);
+}
+
+fn environment_sample(slot: f32, direction: vec3<f32>, roughness: f32, diffuse: bool) -> vec3<f32> {
+    let uv = cube_uv(direction);
+    if diffuse {
+        let pixel = vec2<f32>(800.0 + uv.z * 16.0, 128.0 + slot * 256.0) + clamp(uv.xy * 16.0, vec2<f32>(0.5), vec2<f32>(15.5));
+        return textureSampleLevel(sky_texture, sky_sampler, pixel / vec2<f32>(1024.0, 1536.0), 0.0).rgb;
+    }
+    let level = clamp(roughness, 0.0, 1.0) * 7.0;
+    let low = floor(level); let high = min(low + 1.0, 7.0);
+    let lo_size = 128.0 / exp2(low); let hi_size = 128.0 / exp2(high);
+    let lo = vec2<f32>(uv.z * lo_size, 128.0 + slot * 256.0 + 256.0 - lo_size * 2.0) + clamp(uv.xy * lo_size, vec2<f32>(0.5), vec2<f32>(lo_size - 0.5));
+    let hi = vec2<f32>(uv.z * hi_size, 128.0 + slot * 256.0 + 256.0 - hi_size * 2.0) + clamp(uv.xy * hi_size, vec2<f32>(0.5), vec2<f32>(hi_size - 0.5));
+    return mix(textureSampleLevel(sky_texture, sky_sampler, lo / vec2<f32>(1024.0, 1536.0), 0.0).rgb,
+        textureSampleLevel(sky_texture, sky_sampler, hi / vec2<f32>(1024.0, 1536.0), 0.0).rgb, fract(level));
+}
+fn probe_weight(p: ReflectionVolume, world: vec3<f32>) -> f32 {
+    if p.center.w <= 0.0 { return 0.0; }
+    let edge = p.size.xyz - abs(world - p.center.xyz);
+    let distance = min(edge.x, min(edge.y, edge.z));
+    if distance <= 0.0 { return 0.0; }
+    return clamp(distance / max(p.size.w, 0.00001), 0.0, 1.0);
+}
+fn probe_direction(p: ReflectionVolume, world: vec3<f32>, ray: vec3<f32>) -> vec3<f32> {
+    if p.params.y == 0.0 { return ray; }
+    let local = world - p.center.xyz;
+    let safe_ray = select(vec3<f32>(0.000001), ray, abs(ray) > vec3<f32>(0.000001));
+    let times = (select(-p.size.xyz, p.size.xyz, safe_ray > vec3<f32>(0.0)) - local) / safe_ray;
+    let t = min(times.x, min(times.y, times.z));
+    return local + ray * t;
+}
+fn environment_light(s: Surface, f0: vec3<f32>) -> vec3<f32> {
+    let ray = reflect(-s.view, s.normal);
+    // The two smallest volumes around this pixel: a room inside a bigger one
+    // comes first. Each takes its fade's share of what is left; the sky gets the rest.
+    var first = 4u; var second = 4u; var size1 = 1.0e30; var size2 = 1.0e30;
+    for (var i = 0u; i < 4u; i++) {
+        let p = frame.probes[i];
+        if probe_weight(p, s.world) > 0.0 {
+            let size = p.size.x * p.size.y * p.size.z;
+            if size < size1 { second = first; size2 = size1; first = i; size1 = size; }
+            else if size < size2 { second = i; size2 = size; }
+        }
+    }
+    var remaining = 1.0;
+    var diffuse = vec3<f32>(0.0);
+    var specular = vec3<f32>(0.0);
+    for (var j = 0u; j < 2u; j++) {
+        let index = select(first, second, j == 1u);
+        if index < 4u {
+            let p = frame.probes[index];
+            let share = remaining * probe_weight(p, s.world) * p.params.x;
+            remaining *= 1.0 - probe_weight(p, s.world);
+            diffuse += environment_sample(p.center.w, s.normal, 0.0, true) * share;
+            specular += environment_sample(p.center.w, probe_direction(p, s.world, ray), s.roughness, false) * share;
+        }
+    }
+    diffuse += environment_sample(0.0, s.normal, 0.0, true) * remaining;
+    specular += environment_sample(0.0, ray, s.roughness, false) * remaining;
+    let nv = max(dot(s.normal, s.view), 0.0);
+    let uv = (vec2<f32>(800.0, 0.0) + clamp(vec2<f32>(nv, s.roughness) * 128.0, vec2<f32>(0.5), vec2<f32>(127.5))) / vec2<f32>(1024.0, 1536.0);
+    let brdf = textureSampleLevel(sky_texture, sky_sampler, uv, 0.0).rg;
+    return (diffuse * s.albedo * (1.0 - s.metallic) + specular * (f0 * brdf.x + brdf.y)) * s.occlusion;
 }

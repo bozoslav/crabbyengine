@@ -195,10 +195,7 @@ fn shade(s: Surface) -> vec3<f32> {
     if dot(n, frame.sun_dir.xyz) > 0.0 { sun = sunlight(s.world, n); }
     let direct = direct_light(s, frame.sun_dir.xyz, frame.sun_color.rgb * sun) + punctual_light(s);
 
-    // Sky from above, ground from below; metals reflect it in their color.
-    let ambient_light = mix(frame.ground.rgb, frame.sky.rgb, n.y * 0.5 + 0.5);
-    let reflectance = s.albedo * (1.0 - s.metallic) + f0 * mix(0.3, 1.0, s.metallic) * (1.0 - s.roughness * 0.7);
-    let ambient = ambient_light * reflectance * s.occlusion;
+    let ambient = environment_light(s, f0);
 
     // Linear HDR light; the post pass maps it to the screen.
     return direct + ambient + s.emissive;

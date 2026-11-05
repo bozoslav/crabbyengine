@@ -1195,6 +1195,14 @@ typedef struct CrabbyPost {
   struct CrabbyTexture lut;
 } CrabbyPost;
 
+typedef struct CrabbyReflectionProbe3D {
+  struct CrabbyVec3 size;
+  float blend_distance;
+  float intensity;
+  uint32_t content;
+  bool box_projection;
+} CrabbyReflectionProbe3D;
+
 typedef struct CrabbySpriteSheet {
   struct CrabbyTexture texture;
   struct CrabbyVec2 frame_size;
@@ -3217,6 +3225,16 @@ enum CrabbyStatus crabby_ctx_mesh_shadows(struct CrabbyCtx *ctx,
 enum CrabbyStatus crabby_point_light3d_component(struct CrabbyWorld *world, uint32_t *out_id);
 
 enum CrabbyStatus crabby_spot_light3d_component(struct CrabbyWorld *world, uint32_t *out_id);
+
+struct CrabbyReflectionProbe3D crabby_reflection_probe3d_default(void);
+
+enum CrabbyStatus crabby_reflection_probe3d_component(struct CrabbyWorld *world, uint32_t *out_id);
+
+enum CrabbyStatus crabby_ctx_bake_reflection_probe(struct CrabbyCtx *ctx, uint64_t entity);
+
+enum CrabbyStatus crabby_ctx_load_reflection_probe(struct CrabbyCtx *ctx,
+                                                   uint64_t entity,
+                                                   const char *name);
 
 enum CrabbyStatus crabby_sprite_sheet(struct CrabbyTexture texture,
                                       uint32_t frame_width,

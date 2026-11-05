@@ -5,9 +5,9 @@ use std::ffi::c_char;
 
 use crabbyengine::{
     AmbientOcclusion, AntiAliasing, Blend, Camera3D, Color, Compute, ComputePass, Effect, Lighting, Material,
-    MaterialDesc, Mesh, MeshData, Model, PointLight3D, Post, Quat, ScreenEffect, Shader, Sky, SpotLight3D,
-    TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera, TerrainMaterialDesc, TerrainTile, TextureArray, TextureKind, Tonemap,
-    Transform3D, Vec2, Vec3, Vec4,
+    MaterialDesc, Mesh, MeshData, Model, PointLight3D, Post, Quat, ReflectionProbe3D, ScreenEffect, Shader, Sky,
+    SpotLight3D, TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera, TerrainMaterialDesc, TerrainTile, TextureArray,
+    TextureKind, Tonemap, Transform3D, Vec2, Vec3, Vec4,
 };
 
 use crate::ctx::{ctx_access, out, text};
@@ -2591,4 +2591,107 @@ same_layout!(
 pub unsafe extern "C" fn crabby_spot_light3d_component(world: *mut CrabbyWorld, out_id: *mut u32) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
     unsafe { builtin::<SpotLight3D>(world, out_id) }
+}
+
+/// Axis-aligned local reflection volume. Zero content falls back to sky IBL.
+/// ```
+/// let p = crabby_ffi::crabby_reflection_probe3d_default();
+/// assert!(p.box_projection);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct CrabbyReflectionProbe3D {
+    /// Full size in world units (transform scale and rotation ignored).
+    pub size: CrabbyVec3,
+    /// Fade distance inside the boundary.
+    pub blend_distance: f32,
+    /// Linear radiance multiplier.
+    pub intensity: f32,
+    /// Context-owned baked content, initially zero.
+    pub content: u32,
+    /// Enable parallax correction against the volume's walls.
+    pub box_projection: bool,
+}
+same_layout!(
+    CrabbyReflectionProbe3D,
+    ReflectionProbe3D,
+    size = size,
+    blend_distance = blend_distance,
+    intensity = intensity,
+    content = content,
+    box_projection = box_projection
+);
+
+/// Default 10-unit box, 1-unit blend, intensity 1, box projection enabled.
+/// ```
+/// assert_eq!(crabby_ffi::crabby_reflection_probe3d_default().content, 0);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn crabby_reflection_probe3d_default() -> CrabbyReflectionProbe3D {
+    CrabbyReflectionProbe3D {
+        size: CrabbyVec3 {
+            x: 10.0,
+            y: 10.0,
+            z: 10.0,
+        },
+        blend_distance: 1.0,
+        intensity: 1.0,
+        content: 0,
+        box_projection: true,
+    }
+}
+
+/// Register the reflection probe component for insertion and queries.
+/// # Safety
+/// Live world and writable output.
+/// ```
+/// use crabby_ffi::*;
+/// let w = crabby_world_new();
+/// unsafe { let mut id = 0; assert_eq!(crabby_reflection_probe3d_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_reflection_probe3d_component(
+    world: *mut CrabbyWorld,
+    out_id: *mut u32,
+) -> CrabbyStatus {
+    // SAFETY: caller supplies the live world and writable output.
+    unsafe { builtin::<ReflectionProbe3D>(world, out_id) }
+}
+
+/// Queue six HDR views of the scene at the probe and prefilter them.
+/// # Safety
+/// Context is null or a live callback context.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_bake_reflection_probe(std::ptr::null_mut(), 0) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_bake_reflection_probe(ctx: *mut CrabbyCtx, entity: u64) -> CrabbyStatus {
+    // SAFETY: forwarded context contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            c.bake_reflection_probe(crabbyengine::Entity::from_bits(entity))
+                .map_err(invalid_owned)
+        })
+    })
+}
+
+/// Load a linear HDR/EXR 2:1 equirectangular environment for a probe.
+/// # Safety
+/// Context is null or live; name is a null-terminated UTF-8 string.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_load_reflection_probe(std::ptr::null_mut(), 0, std::ptr::null()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_load_reflection_probe(
+    ctx: *mut CrabbyCtx,
+    entity: u64,
+    name: *const c_char,
+) -> CrabbyStatus {
+    // SAFETY: forwarded context and string contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            c.load_reflection_probe(crabbyengine::Entity::from_bits(entity), text(name)?)
+                .map_err(invalid_owned)
+        })
+    })
 }

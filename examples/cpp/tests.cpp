@@ -155,6 +155,15 @@ static void scenes_and_prefabs() {
 }
 
 static void three_d() {
+    auto probes = crabby::game("probes", 1, 1).run_headless(0, [](crabby::ctx& ctx) {
+        auto e = ctx.world().spawn(crabby::transform3d_at({0, 0, 0}), crabby::reflection_probe3d_default());
+        ctx.bake_reflection_probe(e);
+        auto p = ctx.world().get<crabby::reflection_probe3d>(e);
+        CHECK(p.content == 1 && p.box_projection);
+        ctx.bake_reflection_probe(e);
+        CHECK(ctx.world().get<crabby::reflection_probe3d>(e).content == 1);
+    });
+    CHECK(probes.size() == 1);
     crabby::world lights;
     auto lamp = lights.spawn(crabby::transform3d_at({1, 2, 3}), crabby::point_light3d{crabby::colors::red, 20, 12, false});
     auto beam = lights.spawn(crabby::transform3d_at({0, 3, 0}), crabby::spot_light3d{crabby::colors::white, 40, 25, .2f, .5f, true});

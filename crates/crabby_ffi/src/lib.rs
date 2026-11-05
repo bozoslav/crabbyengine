@@ -377,6 +377,10 @@ pub(crate) fn component(world: &World, id: u32) -> Result<(ComponentId, Kind), F
         Some(t) if t == TypeId::of::<crabbyengine::Model>() => Kind::Plain,
         Some(t) if t == TypeId::of::<crabbyengine::PointLight3D>() => Kind::Plain,
         Some(t) if t == TypeId::of::<crabbyengine::SpotLight3D>() => Kind::Plain,
+        // repr(C), layout checked against CrabbyReflectionProbe3D; `content`
+        // is checked when a bake or the renderer uses it, and non-finite
+        // sizes or intensities give the probe no influence.
+        Some(t) if t == TypeId::of::<crabbyengine::ReflectionProbe3D>() => Kind::Plain,
         // repr(C), layout checked against CrabbyTerrainTile; unknown meshes
         // draw nothing and every level index is clamped.
         Some(t) if t == TypeId::of::<crabbyengine::TerrainTile>() => Kind::Plain,
