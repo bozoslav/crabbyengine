@@ -1005,6 +1005,12 @@ static void contacts3d() {
 
 // Two endpoints in memory: connect, then a reliable message and a broadcast.
 static void messages() {
+    throws([] { crabby::net_messages::steam_host(480, 0); });
+    throws([] { crabby::net_messages::steam_join(480, 0); });
+    throws([] { crabby::net_messages::steam_host(480, 2); }); // no Steam support/client in native test
+    throws([] { crabby::steam_lobby::create(480, crabby::steam_lobby_visibility::private_lobby, 0); });
+    throws([] { crabby::steam_lobby::create(480, crabby::steam_lobby_visibility::friends_only, 2); });
+    throws([] { crabby::steam_lobby::join(480, 0); });
     auto peers = crabby::net_messages::loopback(2);
     auto& host = peers[0];
     auto& client = peers[1];

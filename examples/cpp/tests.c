@@ -150,7 +150,23 @@ static void ribbons_and_decals(void) {
     CHECK(crabby_mesh_data_decal(floor, NULL, 0.002f) == NULL);
     crabby_mesh_data_free(floor);
 }
+static void steam_messages_validation(void) {
+    CrabbyNetMessages* endpoint = NULL;
+    CrabbySteamLobby* lobby = NULL;
+    CHECK(crabby_net_messages_steam_host(480, 0, &endpoint) == CRABBY_INVALID_ARGUMENT && !endpoint);
+    CHECK(crabby_net_messages_steam_join(480, 0, &endpoint) == CRABBY_INVALID_ARGUMENT && !endpoint);
+    CHECK(crabby_steam_lobby_create(480, 3, 2, &lobby) == CRABBY_INVALID_ARGUMENT && !lobby);
+    CHECK(crabby_steam_lobby_join(480, 0, &lobby) == CRABBY_INVALID_ARGUMENT && !lobby);
+    CHECK(crabby_net_messages_steam_host(480, 2, &endpoint) != CRABBY_OK && !endpoint);
+    CHECK(crabby_steam_lobby_create(480, 0, 2, &lobby) != CRABBY_OK && !lobby);
+    CHECK(crabby_steam_lobby_poll(NULL) != CRABBY_OK);
+    CHECK(crabby_steam_lobby_leave(NULL) != CRABBY_OK);
+    CHECK(crabby_steam_lobby_set_metadata(NULL, "version", "1") != CRABBY_OK);
+    crabby_steam_lobby_free(NULL);
+}
+
 int main(void) {
+    steam_messages_validation();
     CHECK(crabby_abi_version() == 2);
     CrabbyWorld* w = crabby_world_new(); CHECK(w);
     uint32_t p; CHECK(crabby_component_register(w, "Pos", sizeof(Position), _Alignof(Position), &p) == CRABBY_OK);

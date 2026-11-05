@@ -1219,6 +1219,46 @@ struct message_event {
 /// A message endpoint the game owns (Rust `NetMessages`): poll it every
 /// frame, send bytes on a reliable or unreliable lane, read events. The
 /// host is peer 0. Plain UDP: not authenticated or encrypted.
+/// Steam lobby visibility (feature steam in the library).
+enum class steam_lobby_visibility : std::uint32_t { friends_only = 0, public_lobby = 1, private_lobby = 2 };
+/// Owned asynchronous Steam lobby. Poll each frame; id is zero until ready.
+class steam_lobby {
+    CrabbySteamLobby* raw_ = nullptr;
+    explicit steam_lobby(CrabbySteamLobby* raw) : raw_(raw) {}
+public:
+    ~steam_lobby() { crabby_steam_lobby_free(raw_); }
+    steam_lobby(steam_lobby&& o) noexcept : raw_(o.raw_) { o.raw_ = nullptr; }
+    steam_lobby& operator=(steam_lobby&& o) noexcept { std::swap(raw_, o.raw_); return *this; }
+    steam_lobby(const steam_lobby&) = delete;
+    steam_lobby& operator=(const steam_lobby&) = delete;
+    static steam_lobby create(std::uint32_t app_id, steam_lobby_visibility visibility, std::uint32_t max_members) {
+        CrabbySteamLobby* p = nullptr;
+        detail::check(crabby_steam_lobby_create(app_id, static_cast<std::uint32_t>(visibility), max_members, &p));
+        return steam_lobby(p);
+    }
+    static steam_lobby join(std::uint32_t app_id, std::uint64_t id) {
+        CrabbySteamLobby* p = nullptr; detail::check(crabby_steam_lobby_join(app_id, id, &p)); return steam_lobby(p);
+    }
+
+    void poll() { detail::check(crabby_steam_lobby_poll(raw_)); }
+    void leave() { detail::check(crabby_steam_lobby_leave(raw_)); }
+
+    std::uint64_t id() const { std::uint64_t v = 0; detail::check(crabby_steam_lobby_id(raw_, &v)); return v; }
+    void invite() const { detail::check(crabby_steam_lobby_invite(raw_)); }
+    void set_metadata(const char* key, const char* value) { detail::check(crabby_steam_lobby_set_metadata(raw_, key, value)); }
+    std::optional<std::string> metadata(const char* key) const {
+        std::size_t n = 0; detail::check(crabby_steam_lobby_metadata(raw_, key, nullptr, 0, &n));
+        if (n == 0) return std::nullopt;
+        std::vector<char> b(n); detail::check(crabby_steam_lobby_metadata(raw_, key, b.data(), b.size(), &n));
+        return std::string(b.data());
+    }
+    std::vector<std::uint64_t> members() const {
+        std::size_t n = 0; detail::check(crabby_steam_lobby_members(raw_, nullptr, 0, &n));
+        std::vector<std::uint64_t> b(n); detail::check(crabby_steam_lobby_members(raw_, b.data(), b.size(), &n));
+        b.resize(n); return b;
+    }
+};
+
 class net_messages {
     CrabbyNetMessages* raw_ = nullptr;
     explicit net_messages(CrabbyNetMessages* raw) : raw_(raw) {}
@@ -1244,6 +1284,30 @@ public:
         for (auto* m : raw) out.push_back(net_messages(m));
         return out;
     }
+    std::uint64_t steam_peer(std::uint64_t peer) const { std::uint64_t id = 0; detail::check(crabby_net_messages_steam_peer(raw_, peer, &id)); return id; }
+    /// Steam relays plus a friends-only lobby, for 1..=249 clients.
+    static net_messages steam_host(std::uint32_t app_id, std::size_t max_clients) {
+        CrabbyNetMessages* p = nullptr; detail::check(crabby_net_messages_steam_host(app_id, max_clients, &p)); return net_messages(p);
+    }
+    static net_messages steam_join(std::uint32_t app_id, std::uint64_t lobby) {
+        CrabbyNetMessages* p = nullptr; detail::check(crabby_net_messages_steam_join(app_id, lobby, &p)); return net_messages(p);
+    }
+
+    std::uint64_t steam_lobby_id() const { std::uint64_t v = 0; detail::check(crabby_net_messages_steam_lobby_id(raw_, &v)); return v; }
+    void steam_invite() const { detail::check(crabby_net_messages_steam_lobby_invite(raw_)); }
+    void steam_set_metadata(const char* key, const char* value) { detail::check(crabby_net_messages_steam_lobby_set_metadata(raw_, key, value)); }
+    std::optional<std::string> steam_metadata(const char* key) const {
+        std::size_t n = 0; detail::check(crabby_net_messages_steam_lobby_metadata(raw_, key, nullptr, 0, &n));
+        if (n == 0) return std::nullopt;
+        std::vector<char> b(n); detail::check(crabby_net_messages_steam_lobby_metadata(raw_, key, b.data(), b.size(), &n));
+        return std::string(b.data());
+    }
+    std::vector<std::uint64_t> steam_members() const {
+        std::size_t n = 0; detail::check(crabby_net_messages_steam_lobby_members(raw_, nullptr, 0, &n));
+        std::vector<std::uint64_t> b(n); detail::check(crabby_net_messages_steam_lobby_members(raw_, b.data(), b.size(), &n));
+        b.resize(n); return b;
+    }
+
     /// How long a silent peer may stay connected.
     void set_timeout(std::uint64_t ms) { detail::check(crabby_net_messages_set_timeout(raw_, ms)); }
     std::uint16_t local_port() const { std::uint16_t p = 0; detail::check(crabby_net_messages_local_port(raw_, &p)); return p; }

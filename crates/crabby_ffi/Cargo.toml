@@ -32,7 +32,7 @@ physics = ["crabbyengine/physics"]
 # character controller, ray and shape queries). Off: those calls fail with an
 # error.
 physics3d = ["crabbyengine/physics3d"]
-# Lockstep over Steam (crabby_game_lockstep_steam_*). Off by default: it
+# Networking and lobbies over Steam. Off by default: it
 # links libsteam_api, which then ships next to the game. Off: those calls
 # fail with an error.
 steam = ["crabbyengine/steam"]

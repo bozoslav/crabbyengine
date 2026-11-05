@@ -1956,3 +1956,30 @@ int main() {
     action_map_snippet();
     std::puts("guide snippets ok");
 }
+
+// Compiled for the guide, called only by an application with Steam running.
+[[maybe_unused]] static void steam_messages_setup(std::uint64_t lobby_id) {
+    // ANCHOR: steam_messages
+    auto net = lobby_id ? crabby::net_messages::steam_join(480, lobby_id)
+                        : crabby::net_messages::steam_host(480, 3);
+    net.poll(); // every frame; drain net.next_event() afterwards
+    if (!lobby_id && net.steam_lobby_id()) {
+        net.steam_set_metadata("version", "1");
+        net.steam_invite(); // normally in response to the player's invite button
+    }
+    // ANCHOR_END: steam_messages
+}
+[[maybe_unused]] static void general_steam_lobby() {
+    // ANCHOR: general_steam_lobby
+    auto lobby = crabby::steam_lobby::create(480, crabby::steam_lobby_visibility::public_lobby, 4);
+    lobby.poll(); // each frame until lobby.id() != 0
+    if (lobby.id()) {
+        lobby.set_metadata("version", "1");
+        auto members = lobby.members(); // Steam ids
+        auto version = lobby.metadata("version");
+        (void)members; (void)version;
+        lobby.invite();
+        lobby.leave();
+    }
+    // ANCHOR_END: general_steam_lobby
+}

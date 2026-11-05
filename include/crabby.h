@@ -87,6 +87,7 @@ typedef enum CrabbyAudioRolloff {
 typedef enum CrabbyLane {
   CRABBY_LANE_RELIABLE = 0,
   CRABBY_LANE_UNRELIABLE = 1,
+  CRABBY_LANE_RELIABLE_UNORDERED = 2,
 } CrabbyLane;
 
 typedef enum CrabbyMessageEventKind {
@@ -450,6 +451,8 @@ typedef struct CrabbyNavGrid CrabbyNavGrid;
 typedef struct CrabbyNavSources CrabbyNavSources;
 
 typedef struct CrabbyNetMessages CrabbyNetMessages;
+
+typedef struct CrabbySteamLobby CrabbySteamLobby;
 
 typedef struct CrabbyTerrainTileData CrabbyTerrainTileData;
 
@@ -2051,6 +2054,18 @@ enum CrabbyStatus crabby_net_messages_disconnect(struct CrabbyNetMessages *endpo
 enum CrabbyStatus crabby_net_messages_stats(struct CrabbyNetMessages *endpoint,
                                             struct CrabbyMessageStats *out_stats);
 
+enum CrabbyStatus crabby_net_messages_steam_host(uint32_t app_id,
+                                                 size_t max_clients,
+                                                 struct CrabbyNetMessages **out_endpoint);
+
+enum CrabbyStatus crabby_net_messages_steam_join(uint32_t app_id,
+                                                 uint64_t lobby,
+                                                 struct CrabbyNetMessages **out_endpoint);
+
+enum CrabbyStatus crabby_net_messages_steam_peer(struct CrabbyNetMessages *endpoint,
+                                                 uint64_t peer,
+                                                 uint64_t *output);
+
 enum CrabbyStatus crabby_mesh_data_add_morph_target(struct CrabbyMeshData *data,
                                                     const char *name,
                                                     const struct CrabbyVec3 *positions,
@@ -2547,6 +2562,60 @@ enum CrabbyStatus crabby_steam_wait_for_invite(uint32_t app_id,
 enum CrabbyStatus crabby_ctx_steam_lobby(struct CrabbyCtx *ctx, uint64_t *out_lobby);
 
 enum CrabbyStatus crabby_ctx_steam_invite(struct CrabbyCtx *ctx);
+
+enum CrabbyStatus crabby_steam_lobby_create(uint32_t app_id,
+                                            uint32_t visibility,
+                                            uint32_t max_members,
+                                            struct CrabbySteamLobby **output);
+
+enum CrabbyStatus crabby_steam_lobby_join(uint32_t app_id,
+                                          uint64_t id,
+                                          struct CrabbySteamLobby **output);
+
+void crabby_steam_lobby_free(struct CrabbySteamLobby *lobby);
+
+enum CrabbyStatus crabby_steam_lobby_poll(struct CrabbySteamLobby *lobby);
+
+enum CrabbyStatus crabby_steam_lobby_leave(struct CrabbySteamLobby *lobby);
+
+enum CrabbyStatus crabby_steam_lobby_id(struct CrabbySteamLobby *lobby, uint64_t *output);
+
+enum CrabbyStatus crabby_steam_lobby_invite(struct CrabbySteamLobby *lobby);
+
+enum CrabbyStatus crabby_steam_lobby_set_metadata(struct CrabbySteamLobby *lobby,
+                                                  const char *key,
+                                                  const char *value);
+
+enum CrabbyStatus crabby_steam_lobby_metadata(struct CrabbySteamLobby *lobby,
+                                              const char *key,
+                                              char *buffer,
+                                              size_t capacity,
+                                              size_t *needed);
+
+enum CrabbyStatus crabby_steam_lobby_members(struct CrabbySteamLobby *lobby,
+                                             uint64_t *members,
+                                             size_t capacity,
+                                             size_t *needed);
+
+enum CrabbyStatus crabby_net_messages_steam_lobby_id(struct CrabbyNetMessages *endpoint,
+                                                     uint64_t *output);
+
+enum CrabbyStatus crabby_net_messages_steam_lobby_invite(struct CrabbyNetMessages *endpoint);
+
+enum CrabbyStatus crabby_net_messages_steam_lobby_set_metadata(struct CrabbyNetMessages *endpoint,
+                                                               const char *key,
+                                                               const char *value);
+
+enum CrabbyStatus crabby_net_messages_steam_lobby_metadata(struct CrabbyNetMessages *endpoint,
+                                                           const char *key,
+                                                           char *buffer,
+                                                           size_t capacity,
+                                                           size_t *needed);
+
+enum CrabbyStatus crabby_net_messages_steam_lobby_members(struct CrabbyNetMessages *endpoint,
+                                                          uint64_t *members,
+                                                          size_t capacity,
+                                                          size_t *needed);
 
 struct CrabbyCellStreamer *crabby_cells_new(float cell_size, float load_radius, float keep_radius);
 

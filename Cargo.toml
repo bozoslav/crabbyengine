@@ -94,7 +94,7 @@ physics = ["dep:rapier2d"]
 # Velocity3D / Character3D components, collision events, ray and shape
 # queries, a character controller. Off: no rapier3d in the build.
 physics3d = ["3d", "dep:rapier3d"]
-# Lockstep over Steam (`Net::steam_host` / `Net::steam_join`): Steam's relays
+# Networking over Steam (`Net` and `NetMessages`): Steam's relays
 # and lobbies, so friends join from the overlay. Re-exports `steamworks`.
 # Ship the Steamworks redistributable (libsteam_api) next to the game.
 steam = ["dep:steamworks"]

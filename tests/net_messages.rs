@@ -219,3 +219,26 @@ fn unreliable_fragments_and_empty_reliable_messages_round_trip() {
     assert!(messages.contains(&(Lane::Reliable, vec![])));
     assert!(messages.contains(&(Lane::Unreliable, payload)));
 }
+
+#[test]
+fn reliable_unordered_survives_loss_without_duplicates() {
+    let mut nets = NetMessages::loopback_lossy(2, 4);
+    let peer = connected(&mut nets);
+    for i in 0u32..200 {
+        nets[0].send(peer, Lane::ReliableUnordered, &i.to_le_bytes()).unwrap();
+    }
+    step(&mut nets, 300);
+    let mut got: Vec<_> = nets[1]
+        .events()
+        .filter_map(|e| match e {
+            MessageEvent::Message {
+                lane: Lane::ReliableUnordered,
+                bytes,
+                ..
+            } => Some(u32::from_le_bytes(bytes.try_into().unwrap())),
+            _ => None,
+        })
+        .collect();
+    got.sort_unstable();
+    assert_eq!(got, (0..200).collect::<Vec<_>>());
+}
