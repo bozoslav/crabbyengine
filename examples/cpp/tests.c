@@ -20,6 +20,17 @@ static void visit(const CrabbyChunk* chunk, void* user) {
 typedef struct { size_t ticks; float dt; CrabbyStatus busy_quit; } Run;
 static void setup(CrabbyCtx* ctx, void* user) {
     (void)user;
+    CrabbyPost post;
+    CHECK(crabby_ctx_post(ctx, &post) == CRABBY_OK);
+    CHECK(!post.ao_enabled && post.anti_aliasing == 0 && post.ao_radius == 1);
+    post.ao_enabled = true; post.ao_radius = 2; post.ao_intensity = 1.5f;
+    post.ao_slices = 4; post.ao_steps = 8; post.anti_aliasing = 1;
+    CHECK(crabby_ctx_set_post(ctx, &post) == CRABBY_OK);
+    CrabbyPost back;
+    CHECK(crabby_ctx_post(ctx, &back) == CRABBY_OK);
+    CHECK(back.ao_enabled && back.ao_radius == 2 && back.anti_aliasing == 1);
+    post.anti_aliasing = 3;
+    CHECK(crabby_ctx_set_post(ctx, &post) == CRABBY_INVALID_ARGUMENT);
     uint64_t e;
     CHECK(crabby_spawn(crabby_ctx_world(ctx), NULL, 0, &e) == CRABBY_OK);
     CHECK(crabby_world_free(crabby_ctx_world(ctx)) == CRABBY_BUSY);

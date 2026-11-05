@@ -54,7 +54,7 @@ pub use effect::{Effect, ScreenEffect};
 pub use mesh::{MeshData, MorphFrame, MorphTarget};
 #[cfg(feature = "window")]
 pub(crate) use post::PostUniform;
-pub use post::{Post, Tonemap};
+pub use post::{AmbientOcclusion, AntiAliasing, Post, Tonemap};
 #[cfg(feature = "window")]
 pub(crate) use skin::blend as blend_skin;
 pub use skin::{AttachToJoint, Joint, MorphWeights, Skeleton, SkinOf};

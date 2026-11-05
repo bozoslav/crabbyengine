@@ -20,6 +20,56 @@ pub enum Tonemap {
     None = 3,
 }
 
+/// Post antialiasing, after tone mapping and before sprites/UI.
+/// ```
+/// use crabbyengine::AntiAliasing;
+/// assert_eq!(AntiAliasing::default(), AntiAliasing::None);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(u32)]
+pub enum AntiAliasing {
+    /// Preserve the image (MSAA still operates on geometry).
+    #[default]
+    None = 0,
+    /// Fast approximate antialiasing, one full-screen pass.
+    Fxaa = 1,
+    /// SMAA 1x, three full-screen passes.
+    Smaa = 2,
+}
+
+/// Ground-truth ambient occlusion. Radius is in world units; quality controls
+/// angular slices and horizon steps. Disabled by default to preserve scenes.
+/// ```
+/// use crabbyengine::AmbientOcclusion;
+/// let ao = AmbientOcclusion { enabled: true, radius: 1.0, ..Default::default() };
+/// assert_eq!(ao.slices, 3);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AmbientOcclusion {
+    /// Enable screen-space occlusion of ambient light only. Ignored on
+    /// WebGL2/downlevel devices without compute capabilities.
+    pub enabled: bool,
+    /// Maximum occluder distance in world units, default 1.
+    pub radius: f32,
+    /// Occlusion strength, default 1. Zero preserves ambient light.
+    pub intensity: f32,
+    /// Angular slices, clamped to 1..=8; default 3.
+    pub slices: u32,
+    /// Horizon samples in each direction, clamped to 1..=16; default 6.
+    pub steps: u32,
+}
+impl Default for AmbientOcclusion {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            radius: 1.0,
+            intensity: 1.0,
+            slices: 3,
+            steps: 6,
+        }
+    }
+}
+
 /// What happens to the lit 3D frame before it reaches the screen. Sprites
 /// and UI drawn on top are not changed.
 ///
@@ -34,6 +84,10 @@ pub enum Tonemap {
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Post {
+    /// Ambient-only GTAO, before opaque lighting.
+    pub ambient_occlusion: AmbientOcclusion,
+    /// Post antialiasing. Default off to preserve existing scenes.
+    pub anti_aliasing: AntiAliasing,
     /// Brightness in stops: +1 doubles the light, -1 halves it. Default 0.
     pub exposure: f32,
     /// How light maps to the screen. Default [`Tonemap::Aces`].
@@ -64,6 +118,8 @@ pub struct Post {
 impl Default for Post {
     fn default() -> Self {
         Self {
+            ambient_occlusion: AmbientOcclusion::default(),
+            anti_aliasing: AntiAliasing::None,
             exposure: 0.0,
             tonemap: Tonemap::Aces,
             bloom: 0.05,

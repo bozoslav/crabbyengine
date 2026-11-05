@@ -122,6 +122,35 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
         post.tonemap = 1;
         post.bloom = 0.3;
         assert_eq!(crabby_ctx_set_post(ctx, &post), CRABBY_OK);
+        assert!(!post.ao_enabled);
+        assert_eq!(post.anti_aliasing, 0);
+        post.ao_enabled = true;
+        post.ao_radius = 2.0;
+        post.ao_slices = 4;
+        post.ao_steps = 8;
+        post.anti_aliasing = 2;
+        assert_eq!(crabby_ctx_set_post(ctx, &post), CRABBY_OK);
+        assert_ne!(
+            crabby_ctx_set_post(
+                ctx,
+                &CrabbyPost {
+                    anti_aliasing: 3,
+                    ..post
+                }
+            ),
+            CRABBY_OK
+        );
+        assert_ne!(
+            crabby_ctx_set_post(
+                ctx,
+                &CrabbyPost {
+                    ao_radius: f32::NAN,
+                    ..post
+                }
+            ),
+            CRABBY_OK
+        );
+        assert_ne!(crabby_ctx_set_post(ctx, &CrabbyPost { ao_steps: 0, ..post }), CRABBY_OK);
         let mut back = std::mem::zeroed::<CrabbyPost>();
         assert_eq!(crabby_ctx_post(ctx, &mut back), CRABBY_OK);
         assert_eq!(back, post);

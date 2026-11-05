@@ -1086,6 +1086,12 @@ typedef struct CrabbySky {
 } CrabbySky;
 
 typedef struct CrabbyPost {
+  uint32_t anti_aliasing;
+  bool ao_enabled;
+  float ao_radius;
+  float ao_intensity;
+  uint32_t ao_slices;
+  uint32_t ao_steps;
   float exposure;
   uint32_t tonemap;
   float bloom;

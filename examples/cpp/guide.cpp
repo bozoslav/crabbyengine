@@ -968,6 +968,14 @@ static void far_haze(crabby::ctx& ctx) {
 /// A warm, glowing evening look.
 static void golden_hour(crabby::ctx& ctx) {
     auto post = ctx.post();
+    // ANCHOR: ao_aa
+    post.ao_enabled = true;
+    post.ao_radius = 1.5f; // world units
+    post.ao_intensity = 1.0f;
+    post.ao_slices = 3;
+    post.ao_steps = 6;
+    post.anti_aliasing = uint32_t(crabby::anti_aliasing::smaa);
+    // ANCHOR_END: ao_aa
     post.exposure = 0.3f;      // a third of a stop brighter
     post.bloom = 0.2f;         // highlights glow
     post.temperature = 0.4f;   // warmer
