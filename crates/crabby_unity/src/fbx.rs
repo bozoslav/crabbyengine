@@ -20,6 +20,7 @@ pub(crate) struct ModelFile {
     /// Rows of the map from the file's space to Unity's (a signed axis
     /// permutation, the mirror included).
     to_unity: [[f64; 3]; 3],
+    clips: Vec<Clip>,
 }
 
 impl ModelFile {
@@ -27,7 +28,7 @@ impl ModelFile {
     pub(crate) fn open(path: &Path) -> Result<Self, Error> {
         let opts = ufbx::LoadOpts {
             generate_missing_normals: true,
-            ignore_animation: true,
+            ignore_animation: false,
             ignore_embedded: true,
             ..Default::default()
         };
@@ -66,6 +67,7 @@ impl ModelFile {
             names,
             scale,
             to_unity,
+            clips: clips(&meta),
         })
     }
 
@@ -146,6 +148,110 @@ impl ModelFile {
                 data.joints.push(bone.element.typed_id as usize);
                 data.inverse_binds
                     .push(convert(&cluster.mesh_node_to_bone).to_cols_array());
+            }
+            let fps = self.scene.settings.frames_per_second;
+            let fps = if fps.is_finite() && fps > 0.0 { fps } else { 30.0 };
+            for take in &self.scene.anim_stacks {
+                let ranges = if self.clips.is_empty() {
+                    vec![Clip {
+                        name: take.element.name.to_string(),
+                        take: None,
+                        first: take.time_begin * fps,
+                        last: take.time_end * fps,
+                        looping: false,
+                    }]
+                } else {
+                    self.clips
+                        .iter()
+                        .filter(|c| c.take.as_deref().is_none_or(|n| n == take.element.name.as_ref()))
+                        .cloned()
+                        .collect()
+                };
+                for clip in ranges {
+                    let begin = (clip.first / fps).max(take.time_begin);
+                    let end = (clip.last / fps).min(take.time_end);
+                    if end < begin {
+                        continue;
+                    }
+                    let count = ((end - begin) * fps).ceil() as usize;
+                    let mut times: Vec<f32> = (0..=count)
+                        .map(|i| ((i as f64 / fps).min(end - begin)) as f32)
+                        .collect();
+                    // Include source discontinuities as well as regular frame samples.
+                    for layer in &take.layers {
+                        for value in &layer.anim_values {
+                            for curve in value.curves.iter().flatten() {
+                                times.extend(
+                                    curve
+                                        .keyframes
+                                        .iter()
+                                        .filter(|k| k.time >= begin && k.time <= end)
+                                        .map(|k| (k.time - begin) as f32),
+                                );
+                            }
+                        }
+                    }
+                    times.sort_by(f32::total_cmp);
+                    times.dedup();
+                    let step = self
+                        .scene
+                        .nodes
+                        .iter()
+                        .map(|n| {
+                            ["Lcl Translation", "Lcl Rotation", "Lcl Scaling"].map(|property| {
+                                let props: Vec<_> = take
+                                    .layers
+                                    .iter()
+                                    .flat_map(|l| l.anim_props.iter())
+                                    .filter(|p| p.element.element_id == n.element.element_id && p.prop_name == property)
+                                    .collect();
+                                !props.is_empty()
+                                    && props.iter().all(|p| {
+                                        p.anim_value.curves.iter().flatten().all(|c| {
+                                            c.keyframes
+                                                .iter()
+                                                .all(|k| k.interpolation == ufbx::Interpolation::ConstantPrev)
+                                        })
+                                    })
+                            })
+                        })
+                        .collect();
+                    let nodes = self
+                        .scene
+                        .nodes
+                        .iter()
+                        .map(|n| {
+                            times
+                                .iter()
+                                .map(|&t| {
+                                    let local = ufbx::transform_to_matrix(&ufbx::evaluate_transform(
+                                        &take.anim,
+                                        n,
+                                        begin + t as f64,
+                                    ));
+                                    let matrix = convert(&local);
+                                    if n.parent.is_none() {
+                                        // The same renderer-relative root used by the rest pose.
+                                        let rest_local = convert(&n.node_to_parent);
+                                        glam::Mat4::from_cols_array(&data.nodes[n.element.typed_id as usize].matrix)
+                                            * rest_local.inverse()
+                                            * matrix
+                                    } else {
+                                        matrix
+                                    }
+                                })
+                                .map(|m| m.to_cols_array())
+                                .collect()
+                        })
+                        .collect();
+                    data.animations.push(crate::mesh::SkinAnimation {
+                        name: clip.name,
+                        looping: clip.looping,
+                        step,
+                        times,
+                        nodes,
+                    });
+                }
             }
             out.skin = Some(data);
         }
@@ -231,6 +337,39 @@ impl ModelFile {
         }
         Ok(out)
     }
+}
+
+#[derive(Clone)]
+struct Clip {
+    name: String,
+    take: Option<String>,
+    first: f64,
+    last: f64,
+    looping: bool,
+}
+
+fn clips(meta: &str) -> Vec<Clip> {
+    use yaml_rust2::YamlLoader;
+    let Ok(docs) = YamlLoader::load_from_str(meta) else {
+        return Vec::new();
+    };
+    let Some(doc) = docs.first() else {
+        return Vec::new();
+    };
+    let Some(list) = doc["ModelImporter"]["clipAnimations"].as_vec() else {
+        return Vec::new();
+    };
+    let number = |v: &yaml_rust2::Yaml| v.as_f64().or_else(|| v.as_i64().map(|n| n as f64)).unwrap_or(0.0);
+    list.iter()
+        .map(|c| Clip {
+            name: c["name"].as_str().unwrap_or("Clip").to_owned(),
+            take: c["takeName"].as_str().filter(|s| !s.is_empty()).map(str::to_owned),
+            first: number(&c["firstFrame"]),
+            last: number(&c["lastFrame"]),
+            looping: c["loopTime"].as_bool().unwrap_or_else(|| number(&c["loopTime"]) != 0.0)
+                || c["loop"].as_bool().unwrap_or_else(|| number(&c["loop"]) != 0.0),
+        })
+        .collect()
 }
 
 /// Unity's handedness change alone: X negated.
@@ -364,6 +503,38 @@ fn convert_matrix_relative(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fixture_take_samples_match_ufbx_and_rest_at_start() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/skinned.fbx");
+        let model = ModelFile::open(&path).unwrap();
+        let id = *model.names.keys().next().unwrap();
+        let mesh = model.mesh(id).unwrap();
+        let skin = mesh.skin.unwrap();
+        assert!(!skin.animations.is_empty(), "fixture must contain a take");
+        for clip in &skin.animations {
+            assert_eq!(clip.times[0], 0.0);
+            for (node, samples) in skin.nodes.iter().zip(&clip.nodes) {
+                let rest = glam::Mat4::from_cols_array(&node.matrix);
+                let start = glam::Mat4::from_cols_array(&samples[0]);
+                assert!(rest.abs_diff_eq(start, 1e-4), "{} starts away from rest", node.name);
+            }
+        }
+    }
+
+    #[test]
+    fn meta_clips_preserve_frame_ranges_names_and_loop_flags() {
+        let clips = clips(
+            "ModelImporter:\n  clipAnimations:\n  - name: Walk\n    takeName: Take 001\n    firstFrame: 12\n    lastFrame: 24\n    loopTime: 1\n  - name: Stop\n    firstFrame: 24.5\n    lastFrame: 30\n    loop: 0\n",
+        );
+        assert_eq!(clips.len(), 2);
+        assert_eq!(clips[0].name, "Walk");
+        assert_eq!(clips[0].take.as_deref(), Some("Take 001"));
+        assert_eq!((clips[0].first, clips[0].last), (12.0, 24.0));
+        assert!(clips[0].looping);
+        assert!(!clips[1].looping);
+        assert_eq!(clips[1].first, 24.5);
+    }
 
     #[test]
     fn hashed_ids_match_unitys() {

@@ -11,6 +11,8 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <thread>
+#include <chrono>
 
 using namespace crabby;
 
@@ -1329,7 +1331,234 @@ static void punctual_lights(crabby::ctx& ctx) {
 }
 // ANCHOR_END: punctual_lights
 
+// ANCHOR: skin_chain
+constexpr int chain_joints = 8;
+constexpr float chain_step = 0.5f;
+static std::vector<crabby::joint> chain() {
+    std::vector<crabby::joint> joints;
+    for (int i = 0; i < chain_joints; i++)
+        joints.push_back({"joint_" + std::to_string(i), i - 1, crabby::transform3d_at({0, i == 0 ? 0 : chain_step, 0})});
+    return joints;
+}
+// ANCHOR_END: skin_chain
+
+// ANCHOR: skin_geometry
+static crabby::mesh_data tube(float bottom, float top, float radius) {
+    const int slices = 12, rows = 28;
+    std::vector<crabby::vec3> positions;
+    std::vector<std::uint32_t> indices;
+    std::vector<std::array<std::uint16_t, 4>> joints;
+    std::vector<std::array<float, 4>> weights;
+    for (int row = 0; row <= rows; row++) {
+        float y = bottom + (top - bottom) * row / rows;
+        float along = std::clamp(y / chain_step, 0.0f, float(chain_joints - 1));
+        int lower = std::min(int(along), chain_joints - 2);
+        float blend = along - lower;
+        for (int slice = 0; slice < slices; slice++) {
+            float angle = 6.2831853f * slice / slices;
+            positions.push_back({radius * std::cos(angle), y, radius * std::sin(angle)});
+            joints.push_back({std::uint16_t(lower), std::uint16_t(lower + 1), 0, 0});
+            weights.push_back({1 - blend, blend, 0, 0});
+        }
+    }
+    for (std::uint32_t row = 0; row < rows; row++)
+        for (std::uint32_t slice = 0; slice < slices; slice++) {
+            std::uint32_t a = row * slices + slice, b = row * slices + (slice + 1) % slices;
+            indices.insert(indices.end(), {a, a + slices, b, b, a + slices, b + slices});
+        }
+    crabby::mesh_data data(positions, indices);
+    data.set_skin(joints, weights);
+    return data;
+}
+// ANCHOR_END: skin_geometry
+
+static void skinned_tentacle(crabby::ctx& ctx) {
+    auto green = ctx.default_material(), gold = ctx.default_material();
+    // ANCHOR: skin_create
+    auto tentacle = ctx.world().spawn(crabby::transform3d_at({0, 0, 0}));
+    ctx.set_skeleton(tentacle, chain());
+    auto mesh = ctx.create_skinned_mesh(tube(0, 3.5f, 0.22f), green, tentacle);
+    ctx.world().set(tentacle, crabby::model_of(mesh));
+    // ANCHOR_END: skin_create
+    auto ball = ctx.create_mesh(crabby::mesh_data::sphere(0.15f, 16), green);
+    // ANCHOR: skin_parts
+    // Clothes: a mesh bound to the same joint names, posed by the tentacle.
+    auto band = ctx.create_skinned_mesh(tube(2.2f, 2.5f, 0.25f), gold, tentacle);
+    ctx.set_skin_of(ctx.world().spawn(crabby::model_of(band)), tentacle);
+    // A ball riding the tip, a little above it.
+    auto tip = *ctx.find_joint(tentacle, "joint_7");
+    auto rider = ctx.world().spawn(crabby::transform3d_at({0, 0, 0}), crabby::model_of(ball));
+    ctx.attach_to_joint(rider, tentacle, tip, crabby::transform3d_at({0, 0.12f, 0}));
+    // ANCHOR_END: skin_parts
+    // ANCHOR: skin_pose
+    float time = float(ctx.time());
+    for (std::size_t i = 0; i < ctx.joint_count(tentacle); i++) {
+        auto pose = ctx.joint_pose(tentacle, i);
+        pose.rotation = crabby::quat_from_rotation_z(std::sin(time * 1.5f - i * 0.45f) * 0.16f);
+        ctx.set_joint_pose(tentacle, i, pose);
+    }
+    // ANCHOR_END: skin_pose
+}
+
+[[maybe_unused]] static void loaded_character(crabby::ctx& ctx) {
+    // ANCHOR: skin_load
+    auto mesh = ctx.load_mesh("models/character.glb");
+    auto character = ctx.world().spawn(crabby::transform3d_at({0, 0, 0}), crabby::model_of(mesh));
+    ctx.load_skeleton(character, "models/character.glb");
+    auto hand = ctx.find_joint(character, "hand_r").value();
+    auto pose = ctx.joint_pose(character, hand);
+    pose.rotation = crabby::quat_from_rotation_y(0.3f);
+    ctx.set_joint_pose(character, hand, pose);
+    auto m = ctx.joint_matrix(character, hand); // model space, column-major
+    std::printf("Hand at %g %g %g (model space)\n", m[12], m[13], m[14]);
+    // ANCHOR_END: skin_load
+    // ANCHOR: clip_play
+    auto walk = ctx.load_clip("models/character.glb", "walk");
+    auto run = ctx.load_clip("models/character.glb", "run");
+    float t = float(ctx.time());
+    ctx.reset_pose(character);
+    ctx.sample_clip(walk, character, std::fmod(t, walk.duration()));
+    ctx.sample_clip(run, character, std::fmod(t, run.duration()), 0.5f);
+    // ANCHOR_END: clip_play
+    // ANCHOR: animator_graph
+    crabby::animation_graph_builder b;
+    auto moving = b.add_bool();
+    auto idle = b.add_state(crabby::motion::of(ctx.load_clip("models/character.glb", "idle")));
+    auto walking = b.add_state(crabby::motion::of(walk));
+    b.add_condition(b.add_transition(idle, walking, 0.12f), CRABBY_CONDITION_BOOL, moving, 1);
+    b.add_condition(b.add_transition(walking, idle, 0.12f), CRABBY_CONDITION_BOOL, moving, 0);
+    auto graph = b.build(idle); // shared: give it to every character
+    ctx.set_animator(character, graph);
+    // ANCHOR_END: animator_graph
+    // ANCHOR: animator_update
+    ctx.animator_set_bool(character, moving, true);
+    // Or pose it yourself instead of every frame:
+    ctx.animator_set_manual(character, true);
+    ctx.animator_update(character, 0.016f);
+    ctx.animator_crossfade(character, idle, 0.12f);
+    while (auto name = ctx.animator_next_event(character)) std::printf("Animation event: %s\n", name->c_str());
+    // ANCHOR_END: animator_update
+}
+
+static void joints_and_dominance(crabby::ctx& ctx) {
+    auto world = ctx.world();
+    // ANCHOR: joints
+    auto a = world.spawn(crabby::transform3d_at({0, 0, 0}), crabby::fixed_body3d(), crabby::sphere_collider(0.1f));
+    auto b = world.spawn(crabby::transform3d_at({0, -1, 0}), crabby::dynamic_body3d(), crabby::sphere_collider(0.2f));
+    auto joint = crabby::spherical_joint3d(a, b);
+    joint = crabby::with_limits(joint, crabby::joint_axis::angular_x, -0.785f, 0.785f);
+    joint.swing_cone = 0.524f;
+    joint = crabby::with_drive(joint, crabby::joint_axis::angular_x, crabby::spring_drive(0, 100, 20));
+    joint.frame_b.position = {0, 1, 0};
+    joint.contacts_enabled = false;
+    auto connection = world.spawn(joint);
+    // Despawn `connection` to detach; either body's despawn also removes the joint.
+    // ANCHOR_END: joints
+    (void)connection;
+    // ANCHOR: dominance
+    auto pusher = crabby::with_dominance(crabby::dynamic_body3d(), 1);
+    auto pushed = crabby::dynamic_body3d(); // group 0
+    // Both remain dynamic: gravity, walls and equal-group bodies still affect them.
+    world.spawn(crabby::transform3d_at({3, 0, 0}), pusher, crabby::box_collider({1, 1, 1}));
+    world.spawn(crabby::transform3d_at({4, 0, 0}), pushed, crabby::box_collider({1, 1, 1}));
+    // ANCHOR_END: dominance
+}
+
+// ANCHOR: skin_ik
+// Register this with crabby::game(...).late_system(procedural_pose).
+[[maybe_unused]] static void procedural_pose(crabby::ctx& ctx, crabby::entity character) {
+    crabby::vec3 target{0.7f, 0.6f, 0.2f};
+    ctx.two_bone_ik(character, 0, 1, 2, target, {0, 0, 1});
+    // Apply parent first when distributing aim across spine/neck/head.
+    ctx.look_at_joint(character, 5, {0, 1, 0}, target, 0.3f, 0.2f);
+    ctx.look_at_joint(character, 6, {0, 1, 0}, target, 0.5f, 0.5f);
+    ctx.look_at_joint(character, 7, {0, 1, 0}, target, 0.8f, 1.0f);
+}
+
+[[maybe_unused]] static void debug_bones(crabby::ctx& ctx, crabby::entity character) {
+    ctx.draw_skeleton(character, crabby::colors::red);
+}
+// ANCHOR_END: skin_ik
+
+// ANCHOR: sound3d
+static void sound3d(crabby::ctx& ctx) {
+    float samples[4410];
+    for (int i = 0; i < 4410; i++) samples[i] = 0.1f * std::sin(i * 220.0f * 6.2831853f / 44100.0f);
+    auto hum = ctx.create_sound(44100, samples, 4410);
+    auto settings = crabby::audio_settings3d_defaults();
+    settings.sound.volume = 0.4f;
+    settings.sound.looping = true;
+    settings.min_distance = 2;
+    settings.max_distance = 60;
+    settings.rolloff = CRABBY_ROLLOFF_LINEAR;
+    auto e = ctx.world().spawn(crabby::transform3d_at({4, 0, 0}));
+    ctx.set_audio_source3d(e, hum, settings);
+    ctx.play_sound_at(hum, {-4, 0, 0});
+}
+// ANCHOR_END: sound3d
+
+// ANCHOR: audio_mixer
+static void buses_and_effects(crabby::ctx& ctx, crabby::sound sound) {
+    auto music = ctx.audio_bus("music"); // Save this handle; names are looked up once.
+    ctx.set_audio_bus_volume(music, 0.6f);
+    auto params = crabby::sound_defaults();
+    params.looping = true;
+    auto voice = ctx.play_sound_on(sound, music, params, {4000, 0.2f});
+    ctx.set_sound_effects(voice, {800, 0.5f});
+    ctx.mute_audio_bus(music, true);
+    ctx.mute_audio_bus(music, false); // Restores the configured gain.
+    auto settings = crabby::audio_settings3d_defaults();
+    settings.bus = music;
+    settings.effects = {2000, 0.3f};
+    ctx.play_sound_at(sound, {3, 0, 0}, settings);
+}
+// ANCHOR_END: audio_mixer
+
+// ANCHOR: audio_stream
+[[maybe_unused]] static void streaming_music(crabby::ctx& ctx) {
+    auto music = ctx.audio_bus("music");
+    auto song = ctx.load_stream("music.ogg");
+    auto params = crabby::sound_defaults();
+    params.looping = true;
+    ctx.play_sound_on(song, music, params);
+}
+// ANCHOR_END: audio_stream
+
+static bool messages_round_trip() {
+    // ANCHOR: messages
+    // The game owns the endpoint. In a game, poll it and read its events in
+    // a frame system, including frames where the simulation is paused.
+    auto host = crabby::net_messages::host("127.0.0.1:0", 8);
+    auto client = crabby::net_messages::join(("127.0.0.1:" + std::to_string(host.local_port())).c_str());
+    bool received = false;
+    for (int frame = 0; frame < 5000 && !received; frame++) {
+        client.poll();
+        while (auto e = client.next_event()) {
+            if (e->kind == CRABBY_MESSAGE_CONNECTED) client.send(0, CRABBY_LANE_RELIABLE, std::string("hello"));
+            if (e->kind == CRABBY_MESSAGE_DISCONNECTED) std::fprintf(stderr, "%s\n", e->reason.c_str());
+        }
+        host.poll();
+        while (auto e = host.next_event()) {
+            if (e->kind != CRABBY_MESSAGE) continue;
+            std::printf("received: %.*s\n", int(e->bytes.size()), reinterpret_cast<const char*>(e->bytes.data()));
+            host.send(e->peer, CRABBY_LANE_UNRELIABLE, std::string("42"));
+            received = true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    // ANCHOR_END: messages
+    return received;
+}
+
 int main() {
+    if (!messages_round_trip()) { std::fprintf(stderr, "no message\n"); std::abort(); }
+    crabby::game("sound guide", 1, 1).run_headless(0, [](crabby::ctx& ctx) {
+        sound3d(ctx);
+        float silence[16] = {};
+        buses_and_effects(ctx, ctx.create_sound(44100, silence, 16));
+    });
+    crabby::game("skinning guide", 1, 1).run_headless(0, skinned_tentacle);
+    crabby::game("joint guide", 1, 1).physics3d({0, 0, 0}).run_headless(5, joints_and_dominance);
     crabby::game("light guide", 64, 64).run_headless(0, punctual_lights);
     the_ripples_run_on_a_render_target();
     the_pond_mirrors_the_camera();

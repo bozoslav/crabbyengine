@@ -25,6 +25,7 @@
 #include <stdexcept>
 #include <string>
 #include <initializer_list>
+#include <limits>
 #include <tuple>
 #include <type_traits>
 #include <typeindex>
@@ -164,6 +165,10 @@ using ui_style = CrabbyUiStyle;
 using sound = CrabbySound;
 using playing = CrabbyPlaying;
 using sound_params = CrabbySoundParams;
+using audio_bus = CrabbyAudioBus;
+using audio_effects = CrabbyAudioEffects;
+using audio_settings3d = CrabbyAudioSettings3D;
+using audio_listener3d = CrabbyAudioListener3D;
 using sprite_sheet = CrabbySpriteSheet;
 using animation = CrabbyAnimation;
 using rigid_body = CrabbyRigidBody;
@@ -175,6 +180,8 @@ using rigid_body3d = CrabbyRigidBody3D;
 using collider3d = CrabbyCollider3D;
 using velocity3d = CrabbyVelocity3D;
 using character3d = CrabbyCharacter3D;
+using joint3d = CrabbyJoint3D;
+using joint_drive3d = CrabbyJointDrive3D;
 using collision_mesh = CrabbyCollisionMesh;
 using collision_groups = CrabbyCollisionGroups;
 using query_filter3d = CrabbyQueryFilter3D;
@@ -272,6 +279,36 @@ inline collider3d mesh_collider(collision_mesh m) { return crabby_collider3d_mes
 /// A walking capsule `height` tall and `radius` wide, its transform3d at
 /// its feet: set `velocity`, read `grounded`.
 inline character3d character(float height = 1.8f, float radius = 0.3f) { return crabby_character3d(height, radius); }
+/// Index of each joint3d axis in `axes` and `drives`: local X is the hinge, slider and twist axis.
+namespace joint_axis {
+constexpr std::size_t linear_x = 0, linear_y = 1, linear_z = 2, angular_x = 3, angular_y = 4, angular_z = 5;
+}
+/// Welds bodies `a` and `b` together.
+inline joint3d fixed_joint3d(entity a, entity b) { return crabby_joint3d_fixed(a, b); }
+/// A ball joint: the frames stay together, turning freely.
+inline joint3d spherical_joint3d(entity a, entity b) { return crabby_joint3d_spherical(a, b); }
+/// A hinge about the frames' X axis.
+inline joint3d revolute_joint3d(entity a, entity b) { return crabby_joint3d_revolute(a, b); }
+/// A slider along the frames' X axis.
+inline joint3d prismatic_joint3d(entity a, entity b) { return crabby_joint3d_prismatic(a, b); }
+/// Every axis free: set them yourself.
+inline joint3d generic_joint3d(entity a, entity b) { return crabby_joint3d_generic(a, b); }
+/// Limits one axis of `j` to [min, max] (meters, or radians for turning axes).
+inline joint3d with_limits(joint3d j, std::size_t axis, float min, float max) {
+    j.axes[axis] = {CRABBY_JOINT_LIMITED, min, max}; return j;
+}
+/// Puts a motor on one axis of `j`.
+inline joint3d with_drive(joint3d j, std::size_t axis, joint_drive3d d) { d.enabled = true; j.drives[axis] = d; return j; }
+/// A motor turning (or sliding) at `velocity`, with this much `damping` strength.
+inline joint_drive3d velocity_drive(float velocity, float damping) {
+    return {true, 0, velocity, 0, damping, std::numeric_limits<float>::infinity()};
+}
+/// A spring toward `position`.
+inline joint_drive3d spring_drive(float position, float stiffness, float damping) {
+    return {true, position, 0, stiffness, damping, std::numeric_limits<float>::infinity()};
+}
+/// Gives a 3D body contact dominance: it pushes bodies with lower values without being pushed back.
+inline rigid_body3d with_dominance(rigid_body3d b, std::int8_t dominance) { b.dominance = dominance; return b; }
 /// Gives a 3D body this mass in kg, whatever its collider's density.
 inline rigid_body3d with_mass(rigid_body3d b, float kg) { b.mass = kg; return b; }
 /// Moves a 3D body's center of mass to `center`, in its own frame (cars want it low).
@@ -328,6 +365,10 @@ inline target_camera target_camera_of(const camera3d& c, texture target) { retur
 inline text_params text_defaults() { return crabby_text_params_default(); }
 /// Full volume, normal speed, once.
 inline sound_params sound_defaults() { return crabby_sound_params_default(); }
+/// No low-pass, no reverb.
+inline audio_effects audio_effects_defaults() { return crabby_audio_effects_default(); }
+/// Full volume within 1 unit, silent at 100, natural fade, on the `sfx` bus.
+inline audio_settings3d audio_settings3d_defaults() { return crabby_audio_settings3d_default(); }
 inline ui_style ui_style_defaults() { return crabby_ui_style_default(); }
 /// A rectangle from its top-left corner and size.
 inline rect rect_at(vec2 min, vec2 size) { return {min, min + size}; }
@@ -596,6 +637,7 @@ protected:
         else if constexpr (std::is_same<T, collider3d>::value) status = crabby_collider3d_component(world, &id);
         else if constexpr (std::is_same<T, velocity3d>::value) status = crabby_velocity3d_component(world, &id);
         else if constexpr (std::is_same<T, character3d>::value) status = crabby_character3d_component(world, &id);
+        else if constexpr (std::is_same<T, joint3d>::value) status = crabby_joint3d_component(world, &id);
         else if constexpr (std::is_same<T, vehicle3d>::value) status = crabby_vehicle3d_component(world, &id);
         else if constexpr (std::is_same<T, transform3d>::value) status = crabby_transform3d_component(world, &id);
         else if constexpr (std::is_same<T, point_light3d>::value) status = crabby_point_light3d_component(world, &id);
@@ -643,8 +685,8 @@ protected:
         static_assert(!std::disjunction<std::is_same<Ts, rigid_body>..., std::is_same<Ts, collider>...>::value,
                       "rigid_body and collider are not query columns: use get/set (velocity is fine)");
         static_assert(!std::disjunction<std::is_same<Ts, rigid_body3d>..., std::is_same<Ts, collider3d>...,
-                                        std::is_same<Ts, character3d>...>::value,
-                      "rigid_body3d, collider3d and character3d are not query columns: use get/set (velocity3d is fine)");
+                                        std::is_same<Ts, character3d>..., std::is_same<Ts, joint3d>...>::value,
+                      "rigid_body3d, collider3d, character3d and joint3d are not query columns: use get/set (velocity3d is fine)");
         valid(); std::array<std::uint32_t, sizeof...(Ts)> ids{{id<Ts>()...}};
         struct context { F* fn; detail::first_error error; } c{&fn, {}};
         auto trampoline = [](const CrabbyChunk* raw, void* user) noexcept {
@@ -1080,6 +1122,171 @@ public:
     /// Its arrays, valid while it lives.
     CrabbyMeshView view() const { CrabbyMeshView v{}; detail::check(crabby_mesh_data_view(raw_, &v)); return v; }
     const CrabbyMeshData* raw() const noexcept { return raw_; }
+};
+
+/// An animation clip of a glTF file with skins (Rust `AnimationClip`),
+/// from ctx::load_clip; it owns its handle.
+using lane = CrabbyLane;
+using message_stats = CrabbyMessageStats;
+/// One event from net_messages::next_event (bytes and reason copied).
+struct message_event {
+    CrabbyMessageEventKind kind;
+    std::uint64_t peer;
+    lane on;
+    std::vector<std::uint8_t> bytes;
+    std::string reason;
+};
+
+/// A message endpoint the game owns (Rust `NetMessages`): poll it every
+/// frame, send bytes on a reliable or unreliable lane, read events. The
+/// host is peer 0. Plain UDP: not authenticated or encrypted.
+class net_messages {
+    CrabbyNetMessages* raw_ = nullptr;
+    explicit net_messages(CrabbyNetMessages* raw) : raw_(raw) {}
+public:
+    ~net_messages() { crabby_net_messages_free(raw_); }
+    net_messages(net_messages&& o) noexcept : raw_(o.raw_) { o.raw_ = nullptr; }
+    net_messages& operator=(net_messages&& o) noexcept { std::swap(raw_, o.raw_); return *this; }
+    net_messages(const net_messages&) = delete;
+    net_messages& operator=(const net_messages&) = delete;
+    /// Hosts at `addr` ("0.0.0.0:7777"; port 0 picks one) for up to `max_clients`.
+    static net_messages host(const char* addr, std::size_t max_clients) {
+        CrabbyNetMessages* m = nullptr; detail::check(crabby_net_messages_host(addr, max_clients, &m)); return net_messages(m);
+    }
+    /// Joins the host at `addr`.
+    static net_messages join(const char* addr) {
+        CrabbyNetMessages* m = nullptr; detail::check(crabby_net_messages_join(addr, &m)); return net_messages(m);
+    }
+    /// `players` endpoints joined in memory (the first hosts), for tests.
+    static std::vector<net_messages> loopback(std::size_t players) {
+        std::vector<CrabbyNetMessages*> raw(players);
+        detail::check(crabby_net_messages_loopback(players, raw.data()));
+        std::vector<net_messages> out;
+        for (auto* m : raw) out.push_back(net_messages(m));
+        return out;
+    }
+    /// How long a silent peer may stay connected.
+    void set_timeout(std::uint64_t ms) { detail::check(crabby_net_messages_set_timeout(raw_, ms)); }
+    std::uint16_t local_port() const { std::uint16_t p = 0; detail::check(crabby_net_messages_local_port(raw_, &p)); return p; }
+    /// Sends `len` bytes (at most 1 MiB) to `peer`.
+    void send(std::uint64_t peer, lane l, const void* bytes, std::size_t len) {
+        detail::check(crabby_net_messages_send(raw_, peer, l, static_cast<const std::uint8_t*>(bytes), len));
+    }
+    void send(std::uint64_t peer, lane l, const std::string& text) { send(peer, l, text.data(), text.size()); }
+    void send_to_all(lane l, const void* bytes, std::size_t len) {
+        detail::check(crabby_net_messages_send_to_all(raw_, l, static_cast<const std::uint8_t*>(bytes), len));
+    }
+    void send_to_all(lane l, const std::string& text) { send_to_all(l, text.data(), text.size()); }
+    /// Sends what's queued and receives what arrived; then read next_event until empty.
+    void poll() { detail::check(crabby_net_messages_poll(raw_)); }
+    /// The oldest event, or std::nullopt.
+    std::optional<message_event> next_event() {
+        CrabbyMessageEvent e{};
+        bool found = false;
+        detail::check(crabby_net_messages_next_event(raw_, &e, &found));
+        if (!found) return std::nullopt;
+        return message_event{e.kind, e.peer, e.lane, std::vector<std::uint8_t>(e.bytes, e.bytes + e.len), std::string(e.reason)};
+    }
+    void disconnect(std::uint64_t peer) { detail::check(crabby_net_messages_disconnect(raw_, peer)); }
+    message_stats stats() const { message_stats s{}; detail::check(crabby_net_messages_stats(raw_, &s)); return s; }
+};
+
+class clip {
+    CrabbyClip* raw_ = nullptr;
+public:
+    explicit clip(CrabbyClip* raw) : raw_(raw) {}
+    ~clip() { crabby_clip_free(raw_); }
+    clip(clip&& o) noexcept : raw_(o.raw_) { o.raw_ = nullptr; }
+    clip& operator=(clip&& o) noexcept { std::swap(raw_, o.raw_); return *this; }
+    clip(const clip&) = delete;
+    clip& operator=(const clip&) = delete;
+    /// Its length in seconds.
+    float duration() const noexcept { return crabby_clip_duration(raw_); }
+    const CrabbyClip* raw() const noexcept { return raw_; }
+};
+
+/// A motion for an animation state: a clip, or a 1D/2D blend tree of motions.
+/// Handing it to a tree or a state moves it.
+class motion {
+    CrabbyMotion* raw_ = nullptr;
+    explicit motion(CrabbyMotion* raw) : raw_(raw) {}
+public:
+    ~motion() { crabby_motion_free(raw_); }
+    motion(motion&& o) noexcept : raw_(o.raw_) { o.raw_ = nullptr; }
+    motion& operator=(motion&& o) noexcept { std::swap(raw_, o.raw_); return *this; }
+    motion(const motion&) = delete;
+    motion& operator=(const motion&) = delete;
+    /// Plays `c` (copied).
+    static motion of(const clip& c) { CrabbyMotion* m = nullptr; detail::check(crabby_motion_clip(c.raw(), &m)); return motion(m); }
+    /// A 1D blend tree on float parameter `parameter`.
+    static motion blend1d(std::size_t parameter) { CrabbyMotion* m = nullptr; detail::check(crabby_motion_blend1d(parameter, &m)); return motion(m); }
+    /// A 2D blend tree on float parameters `x` and `y`.
+    static motion blend2d(std::size_t x, std::size_t y) { CrabbyMotion* m = nullptr; detail::check(crabby_motion_blend2d(x, y, &m)); return motion(m); }
+    /// Adds `child` to a 1D tree at `threshold` (in increasing order).
+    motion& add(float threshold, motion child, float time_scale = 1) {
+        detail::check(crabby_motion_blend1d_add(raw_, threshold, child.release(), time_scale)); return *this;
+    }
+    /// Adds `child` to a 2D tree at point (x, y).
+    motion& add(float x, float y, motion child, float time_scale = 1) {
+        detail::check(crabby_motion_blend2d_add(raw_, x, y, child.release(), time_scale)); return *this;
+    }
+    CrabbyMotion* release() noexcept { auto r = raw_; raw_ = nullptr; return r; }
+};
+
+/// A finished, immutable animation graph, shared by the animators made from it.
+class animation_graph {
+    CrabbyAnimationGraph* raw_ = nullptr;
+public:
+    explicit animation_graph(CrabbyAnimationGraph* raw) : raw_(raw) {}
+    ~animation_graph() { crabby_animation_graph_free(raw_); }
+    animation_graph(animation_graph&& o) noexcept : raw_(o.raw_) { o.raw_ = nullptr; }
+    animation_graph& operator=(animation_graph&& o) noexcept { std::swap(raw_, o.raw_); return *this; }
+    animation_graph(const animation_graph&) = delete;
+    animation_graph& operator=(const animation_graph&) = delete;
+    const CrabbyAnimationGraph* raw() const noexcept { return raw_; }
+};
+
+/// Builds an animation_graph: parameters, then states, then transitions.
+/// Indices count from 0 in the order added.
+class animation_graph_builder {
+    CrabbyAnimationGraphBuilder* raw_ = crabby_animation_graph_builder_new();
+public:
+    animation_graph_builder() = default;
+    ~animation_graph_builder() { crabby_animation_graph_builder_free(raw_); }
+    animation_graph_builder(const animation_graph_builder&) = delete;
+    animation_graph_builder& operator=(const animation_graph_builder&) = delete;
+    std::size_t add_float(float value = 0) { std::size_t i = 0; detail::check(crabby_animation_graph_add_float(raw_, value, &i)); return i; }
+    std::size_t add_bool(bool value = false) { std::size_t i = 0; detail::check(crabby_animation_graph_add_bool(raw_, value, &i)); return i; }
+    std::size_t add_trigger() { std::size_t i = 0; detail::check(crabby_animation_graph_add_trigger(raw_, &i)); return i; }
+    /// A state playing `m`; its speed is also multiplied by `speed_parameter` if given.
+    std::size_t add_state(motion m, float speed = 1, std::optional<std::size_t> speed_parameter = std::nullopt, bool looping = true) {
+        std::size_t i = 0;
+        auto p = speed_parameter ? static_cast<std::int64_t>(*speed_parameter) : -1;
+        detail::check(crabby_animation_graph_add_state(raw_, m.release(), speed, p, looping, &i));
+        return i;
+    }
+    /// An event on `state` at normalized time `time` (0 to 1).
+    void add_event(std::size_t state, float time, const char* name) { detail::check(crabby_animation_graph_add_event(raw_, state, time, name)); }
+    /// A transition from `from` (std::nullopt: any state) to `to`, crossfading over `duration` seconds.
+    std::size_t add_transition(std::optional<std::size_t> from, std::size_t to, float duration,
+                               std::optional<float> exit_time = std::nullopt, float offset = 0) {
+        std::size_t i = 0;
+        auto f = from ? static_cast<std::int64_t>(*from) : -1;
+        detail::check(crabby_animation_graph_add_transition(raw_, f, to, exit_time ? *exit_time : -1.0f, duration, offset, &i));
+        return i;
+    }
+    /// A condition on `transition`; all must hold.
+    void add_condition(std::size_t transition, CrabbyAnimationCondition kind, std::size_t parameter, float value = 0) {
+        detail::check(crabby_animation_graph_add_condition(raw_, transition, kind, parameter, value));
+    }
+    /// Checks and finishes the graph, starting in `initial`; the builder is used up.
+    animation_graph build(std::size_t initial = 0) {
+        CrabbyAnimationGraph* g = nullptr;
+        auto b = raw_;
+        raw_ = nullptr;
+        detail::check(crabby_animation_graph_build(b, initial, &g));
+        return animation_graph(g);
+    }
 };
 
 /// Inline lookups into a flow field, from any thread (flow_field::view()).
@@ -1621,6 +1828,51 @@ public:
     std::array<float, 16> joint_matrix(entity e, std::size_t j) const {
         std::array<float, 16> m{}; detail::check(crabby_ctx_joint_matrix(raw_, e, j, m.data())); return m;
     }
+    /// The clip called `name` of a glTF file with skins (Rust `Ctx::load_clip`).
+    crabby::clip load_clip(const char* path, const char* name) {
+        CrabbyClip* c = nullptr; detail::check(crabby_ctx_load_clip(raw_, path, name, &c)); return crabby::clip(c);
+    }
+    /// Poses `e`'s skeleton with `c` at `time`, blending from its pose now
+    /// by `weight` (1: the clip's pose).
+    void sample_clip(const crabby::clip& c, entity e, float time, float weight = 1) {
+        detail::check(crabby_ctx_sample_clip(raw_, c.raw(), e, time, weight));
+    }
+    /// Bends `e`'s chain upper -> middle -> end so `end` reaches `target` (world), the middle
+    /// bending toward `pole`. Out of reach: a straight chain pointing at it. Use in a late system.
+    void two_bone_ik(entity e, std::size_t upper, std::size_t middle, std::size_t end, vec3 target, vec3 pole, float weight = 1) {
+        detail::check(crabby_ctx_two_bone_ik(raw_, e, upper, middle, end, target, pole, weight));
+    }
+    /// Turns joint `j` of `e` so its local `axis` points at `target` (world), at most `max_angle` radians.
+    void look_at_joint(entity e, std::size_t j, vec3 axis, vec3 target, float max_angle = 3.1415927f, float weight = 1) {
+        detail::check(crabby_ctx_look_at_joint(raw_, e, j, axis, target, max_angle, weight));
+    }
+    /// Draws `e`'s bones this frame, over the scene.
+    void draw_skeleton(entity e, color c) { detail::check(crabby_ctx_draw_skeleton(raw_, e, c)); }
+    /// Gives `e` (with a skeleton) an animator playing `g`; the engine advances it every frame.
+    void set_animator(entity e, const animation_graph& g) { detail::check(crabby_ctx_set_animator(raw_, e, g.raw())); }
+    void animator_set_float(entity e, std::size_t parameter, float value) { detail::check(crabby_ctx_animator_set_float(raw_, e, parameter, value)); }
+    void animator_set_bool(entity e, std::size_t parameter, bool value) { detail::check(crabby_ctx_animator_set_bool(raw_, e, parameter, value)); }
+    void animator_set_trigger(entity e, std::size_t parameter, bool value = true) { detail::check(crabby_ctx_animator_set_trigger(raw_, e, parameter, value)); }
+    /// The state `e`'s animator is in (or fading to).
+    std::size_t animator_state(entity e) { std::size_t s = 0; detail::check(crabby_ctx_animator_state(raw_, e, &s, nullptr)); return s; }
+    /// How far through its state it is: 1 is one full play.
+    float animator_normalized_time(entity e) { float t = 0; detail::check(crabby_ctx_animator_state(raw_, e, nullptr, &t)); return t; }
+    void animator_crossfade(entity e, std::size_t state, float duration, float offset = 0) {
+        detail::check(crabby_ctx_animator_crossfade(raw_, e, state, duration, offset));
+    }
+    /// Jumps to `state` at normalized time `time` on the next update.
+    void animator_play(entity e, std::size_t state, float time = 0) { animator_crossfade(e, state, 0, time); }
+    void animator_set_manual(entity e, bool manual) { detail::check(crabby_ctx_animator_set_manual(raw_, e, manual)); }
+    /// Advances `e`'s animator by `dt` and poses its skeleton now.
+    void animator_update(entity e, float dt) { detail::check(crabby_ctx_animator_update(raw_, e, dt)); }
+    /// The oldest unread event of `e`'s animator, or std::nullopt.
+    std::optional<std::string> animator_next_event(entity e) {
+        char name[128];
+        bool found = false;
+        detail::check(crabby_ctx_animator_next_event(raw_, e, name, sizeof name, &found));
+        if (!found) return std::nullopt;
+        return std::string(name);
+    }
     /// Poses `e`'s skinned model with `skeleton`'s skeleton and draws it
     /// there (Rust `SkinOf`), binding joints by name.
     void set_skin_of(entity e, entity skeleton) { detail::check(crabby_ctx_set_skin_of(raw_, e, skeleton)); }
@@ -1688,6 +1940,35 @@ public:
     playing play_sound(sound s) { playing p{}; detail::check(crabby_ctx_play_sound(raw_, s, nullptr, &p)); return p; }
     playing play_sound(sound s, const sound_params& params) { playing p{}; detail::check(crabby_ctx_play_sound(raw_, s, &params, &p)); return p; }
     void stop_sound(playing p) { detail::check(crabby_ctx_stop_sound(raw_, p)); }
+    /// A long sound (music) streamed from disk as it plays.
+    sound load_stream(const char* path) { sound s{}; detail::check(crabby_ctx_load_stream(raw_, path, &s)); return s; }
+    /// The bus named `name`, made the first time; keep the handle.
+    CrabbyAudioBus audio_bus(const char* name) { CrabbyAudioBus b{}; detail::check(crabby_ctx_audio_bus(raw_, name, &b)); return b; }
+    void set_audio_bus_volume(CrabbyAudioBus b, float volume) { detail::check(crabby_ctx_set_audio_bus_volume(raw_, b, volume)); }
+    void mute_audio_bus(CrabbyAudioBus b, bool muted) { detail::check(crabby_ctx_mute_audio_bus(raw_, b, muted)); }
+    playing play_sound_on(sound s, CrabbyAudioBus b, const sound_params& params = sound_defaults(),
+                          const audio_effects& effects = audio_effects_defaults()) {
+        playing p{}; detail::check(crabby_ctx_play_sound_on(raw_, s, &params, b, &effects, &p)); return p;
+    }
+    /// Changes a playing voice's low-pass and reverb, smoothly.
+    void set_sound_effects(playing p, const audio_effects& effects) {
+        detail::check(crabby_ctx_set_sound_effects(raw_, p, &effects));
+    }
+    /// Plays a sound from a point; it follows the listener every frame.
+    playing play_sound_at(sound s, vec3 position, const audio_settings3d& settings = audio_settings3d_defaults()) {
+        playing p{}; detail::check(crabby_ctx_play_sound_at(raw_, s, position, &settings, &p)); return p;
+    }
+    /// Makes `e` (with a 3D transform) play `s` from where it is, following it.
+    void set_audio_source3d(entity e, sound s, const audio_settings3d& settings = audio_settings3d_defaults()) {
+        detail::check(crabby_ctx_set_audio_source3d(raw_, e, s, &settings));
+    }
+    void remove_audio_source3d(entity e) { detail::check(crabby_ctx_remove_audio_source3d(raw_, e)); }
+    /// Puts the ears somewhere other than the camera; std::nullopt follows the camera again.
+    void set_audio_listener(std::optional<audio_listener3d> l) {
+        detail::check(crabby_ctx_set_audio_listener(raw_, l ? &*l : nullptr));
+    }
+    /// Where the ears are: the listener set above, or else the camera.
+    audio_listener3d audio_listener() { audio_listener3d l{}; detail::check(crabby_ctx_audio_listener(raw_, &l)); return l; }
 
     /// Spreads work over `every` ticks (safe from query_par callbacks).
     crabby::turns turns(std::uint32_t every) const { crabby::turns t; detail::check(crabby_ctx_turns(raw_, every, &t.raw)); return t; }
@@ -1822,6 +2103,8 @@ public:
     }
     /// Lets go of a collision mesh; colliders using it keep it until removed.
     void free_collision_mesh(collision_mesh m) { detail::check(crabby_ctx_physics3d_free_mesh(raw_, m)); }
+    /// How many joints the 3D physics world holds after its last step.
+    std::size_t joint_count() const { std::size_t n = 0; detail::check(crabby_ctx_physics3d_joint_count(raw_, &n)); return n; }
     /// The closest collider a ray hits within `max_distance`.
     std::optional<hit3d> cast_ray3d(vec3 origin, vec3 direction, float max_distance, filter3d filter = {}) {
         bool found = false; hit3d hit{};
@@ -2027,6 +2310,10 @@ public:
     /// A system once per frame (input, camera, UI). Not run headless.
     template<class F> game& system(F fn, const char* name = nullptr) {
         return check(crabby_game_system(raw_, name, trampoline, keep(std::move(fn))));
+    }
+    /// A system that runs every frame after animation posed the skeletons, before drawing (IK, look-at).
+    template<class F> game& late_system(F fn, const char* name = nullptr) {
+        return check(crabby_game_late_system(raw_, name, trampoline, keep(std::move(fn))));
     }
     /// Removes systems by name, e.g. "crabbyengine::ecs::draw_sprites".
     game& remove_system(const char* name) { return check(crabby_game_remove_system(raw_, name)); }

@@ -1,0 +1,461 @@
+//! Animation tracks and allocation-free steady-state pose sampling.
+use std::sync::{Arc, Mutex};
+
+use super::{Joint, Skeleton};
+use glam::{Quat, Vec4};
+
+/// Interpolation between keys. Cubic values are stored as incoming tangent,
+/// value, outgoing tangent for each key; tangents are derivatives per second.
+/// ```
+/// use crabbyengine::Interpolation;
+/// let interpolation = Interpolation::Linear;
+/// assert_ne!(interpolation, Interpolation::Step);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Interpolation {
+    /// Hold the earlier value until the next key.
+    Step,
+    /// Lerp vectors; slerp rotations along the shortest path.
+    Linear,
+    /// glTF cubic Hermite interpolation; normalize the resulting quaternion.
+    CubicSpline,
+}
+
+/// A vector track (translation or scale), or a quaternion track stored as xyzw.
+/// Use [`AnimationTrack::new`] to validate times and value counts.
+/// ```
+/// use crabbyengine::*;
+/// let track = AnimationTrack::new(vec![0.0], vec![Vec4::ZERO], Interpolation::Step);
+/// assert_eq!(track.times(), &[0.0]);
+/// ```
+#[derive(Debug, Clone)]
+pub struct AnimationTrack {
+    times: Vec<f32>,
+    values: Vec<Vec4>,
+    interpolation: Interpolation,
+}
+impl AnimationTrack {
+    /// Makes a track. Vector values use xyz (w is ignored); rotations use xyzw.
+    /// Panics unless times are finite, nonnegative, strictly increasing and
+    /// nonempty, and values are finite with one per key (three for cubic).
+    /// ```
+    /// use crabbyengine::*;
+    /// let t = AnimationTrack::new(vec![0.0, 1.0], vec![Vec4::ZERO, Vec4::ONE], Interpolation::Linear);
+    /// assert_eq!(t.values().len(), 2);
+    /// ```
+    pub fn new(times: Vec<f32>, values: Vec<Vec4>, interpolation: Interpolation) -> Self {
+        Self::try_new(times, values, interpolation).unwrap_or_else(|e| panic!("AnimationTrack::new: {e}"))
+    }
+    pub(crate) fn try_new(times: Vec<f32>, values: Vec<Vec4>, interpolation: Interpolation) -> Result<Self, String> {
+        if times.is_empty()
+            || times.iter().any(|t| !t.is_finite() || *t < 0.0)
+            || times.windows(2).any(|t| t[0] >= t[1])
+        {
+            return Err("key times must be nonempty, finite, nonnegative and strictly increasing".into());
+        }
+        let count = if interpolation == Interpolation::CubicSpline {
+            3
+        } else {
+            1
+        };
+        if values.len() != times.len() * count || values.iter().any(|v| !v.is_finite()) {
+            return Err("invalid animation value count or non-finite value".into());
+        }
+        Ok(Self {
+            times,
+            values,
+            interpolation,
+        })
+    }
+    /// Key times in seconds.
+    /// ```
+    /// # use crabbyengine::*;
+    /// let t = AnimationTrack::new(vec![0.0], vec![Vec4::ZERO], Interpolation::Step);
+    /// assert_eq!(t.times(), &[0.0]);
+    /// ```
+    pub fn times(&self) -> &[f32] {
+        &self.times
+    }
+    /// Values, including tangent triples for cubic tracks.
+    /// ```
+    /// # use crabbyengine::*;
+    /// let t = AnimationTrack::new(vec![0.0], vec![Vec4::ONE], Interpolation::Step);
+    /// assert_eq!(t.values(), &[Vec4::ONE]);
+    /// ```
+    pub fn values(&self) -> &[Vec4] {
+        &self.values
+    }
+    /// How keys are interpolated.
+    /// ```
+    /// # use crabbyengine::*;
+    /// let t = AnimationTrack::new(vec![0.0], vec![Vec4::ZERO], Interpolation::Step);
+    /// assert_eq!(t.interpolation(), Interpolation::Step);
+    /// ```
+    pub fn interpolation(&self) -> Interpolation {
+        self.interpolation
+    }
+    fn value(&self, i: usize) -> Vec4 {
+        self.values[if self.interpolation == Interpolation::CubicSpline {
+            i * 3 + 1
+        } else {
+            i
+        }]
+    }
+    fn sample(&self, time: f32, rotation: bool) -> Vec4 {
+        let end = self.times.partition_point(|t| *t <= time);
+        if end == 0 {
+            return self.value(0);
+        }
+        if end == self.times.len() {
+            return self.value(end - 1);
+        }
+        let i = end - 1;
+        let dt = self.times[end] - self.times[i];
+        let t = (time - self.times[i]) / dt;
+        let a = self.value(i);
+        let b = self.value(end);
+        match self.interpolation {
+            Interpolation::Step => a,
+            Interpolation::Linear if rotation => Vec4::from_array(quaternion(a).slerp(quaternion(b), t).to_array()),
+            Interpolation::Linear => a.lerp(b, t),
+            Interpolation::CubicSpline => {
+                let t2 = t * t;
+                let t3 = t2 * t;
+                let v = a * (2.0 * t3 - 3.0 * t2 + 1.0)
+                    + self.values[i * 3 + 2] * (dt * (t3 - 2.0 * t2 + t))
+                    + b * (-2.0 * t3 + 3.0 * t2)
+                    + self.values[end * 3] * (dt * (t3 - t2));
+                if rotation {
+                    Vec4::from_array(quaternion(v).to_array())
+                } else {
+                    v
+                }
+            }
+        }
+    }
+}
+fn quaternion(v: Vec4) -> Quat {
+    if v.length_squared() > 1e-20 {
+        Quat::from_array(v.normalize().to_array())
+    } else {
+        Quat::IDENTITY
+    }
+}
+
+/// Tracks for a joint, identified both by its source index and name.
+/// Missing tracks leave the corresponding pose property untouched.
+/// ```
+/// use crabbyengine::*;
+/// let joint = JointAnimation { joint: 0, name: "root".into(), translation: None, rotation: None, scale: None };
+/// assert_eq!(joint.name, "root");
+/// ```
+#[derive(Debug, Clone)]
+pub struct JointAnimation {
+    /// Index in the source skeleton.
+    pub joint: usize,
+    /// Name used for other skeletons (first matching joint wins).
+    pub name: String,
+    /// Local translation keys, xyz.
+    pub translation: Option<AnimationTrack>,
+    /// Local rotation keys, xyzw quaternions.
+    pub rotation: Option<AnimationTrack>,
+    /// Local scale keys, xyz.
+    pub scale: Option<AnimationTrack>,
+}
+#[derive(Debug)]
+struct ClipData {
+    name: String,
+    duration: f32,
+    tracks: Vec<JointAnimation>,
+    joints: Arc<[Joint]>,
+    bindings: Mutex<Vec<Binding>>,
+}
+#[derive(Debug)]
+struct Binding {
+    joints: Arc<[Joint]>,
+    indices: Vec<Option<usize>>,
+}
+
+/// Cheaply cloned, shared animation data. Sampling clamps time; for looping
+/// use `time.rem_euclid(clip.duration())` when duration is positive.
+/// The first sample on each distinct joint list allocates a name mapping;
+/// later samples (including skeleton clones) allocate nothing. Source skeletons
+/// use indices directly. Missing joints and shortened pose entries are skipped.
+/// ```
+/// use crabbyengine::*;
+/// let s = Skeleton::new(vec![]);
+/// let clip = AnimationClip::new("idle", &s, vec![]);
+/// assert_eq!(clip.name(), "idle");
+/// ```
+#[derive(Debug, Clone)]
+pub struct AnimationClip(Arc<ClipData>);
+impl AnimationClip {
+    pub(crate) fn source_joints(&self) -> &Arc<[Joint]> {
+        &self.0.joints
+    }
+    /// Makes a clip from tracks for `source`. Duration is the last key time.
+    /// Panics if a track's source index and name disagree with the skeleton.
+    /// ```
+    /// use crabbyengine::*;
+    /// let s = Skeleton::new(vec![]);
+    /// let clip = AnimationClip::new("idle", &s, vec![]);
+    /// assert_eq!(clip.duration(), 0.0);
+    /// ```
+    pub fn new(name: impl Into<String>, source: &Skeleton, tracks: Vec<JointAnimation>) -> Self {
+        for t in &tracks {
+            assert!(
+                source.joints().get(t.joint).is_some_and(|j| j.name == t.name),
+                "AnimationClip::new: joint index and name must match source skeleton"
+            );
+        }
+        let duration = tracks
+            .iter()
+            .flat_map(|t| [&t.translation, &t.rotation, &t.scale])
+            .flatten()
+            .map(|t| *t.times.last().unwrap())
+            .fold(0.0, f32::max);
+        Self(Arc::new(ClipData {
+            name: name.into(),
+            duration,
+            tracks,
+            joints: source.shared_joints().clone(),
+            bindings: Mutex::new(Vec::new()),
+        }))
+    }
+    /// Clip name (unnamed glTF clips use `animation N`, with zero-based N).
+    /// ```
+    /// # use crabbyengine::*;
+    /// assert_eq!(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![]).name(), "idle");
+    /// ```
+    pub fn name(&self) -> &str {
+        &self.0.name
+    }
+    /// Length in seconds; zero for an empty clip or a single key at zero.
+    /// ```
+    /// # use crabbyengine::*;
+    /// assert_eq!(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![]).duration(), 0.0);
+    /// ```
+    pub fn duration(&self) -> f32 {
+        self.0.duration
+    }
+    /// Animated joints and their tracks.
+    /// ```
+    /// # use crabbyengine::*;
+    /// assert!(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![]).tracks().is_empty());
+    /// ```
+    pub fn tracks(&self) -> &[JointAnimation] {
+        &self.0.tracks
+    }
+    /// Sets animated properties at clamped `time` (NaN means zero).
+    /// ```
+    /// # use crabbyengine::*;
+    /// let mut s = Skeleton::new(vec![]);
+    /// AnimationClip::new("idle", &s, vec![]).sample(0.5, &mut s);
+    /// ```
+    pub fn sample(&self, time: f32, skeleton: &mut Skeleton) {
+        self.sample_blended(time, 1.0, skeleton);
+    }
+    /// Blends from the current pose by `weight`, clamped to [0, 1] (NaN
+    /// means zero). For a crossfade, sample A then blend B by the fade amount.
+    /// ```
+    /// # use crabbyengine::*;
+    /// let mut s = Skeleton::new(vec![]);
+    /// let clip = AnimationClip::new("idle", &s, vec![]);
+    /// clip.sample_blended(0.5, 0.5, &mut s);
+    /// ```
+    pub fn sample_blended(&self, time: f32, weight: f32, skeleton: &mut Skeleton) {
+        let weight = if weight.is_nan() { 0.0 } else { weight.clamp(0.0, 1.0) };
+        if weight == 0.0 {
+            return;
+        }
+        let time = if time.is_nan() {
+            0.0
+        } else {
+            time.clamp(0.0, self.duration())
+        };
+        if skeleton.shares_joints(&self.0.joints) {
+            self.apply(time, weight, skeleton, None);
+        } else {
+            let mut bindings = self.0.bindings.lock().unwrap();
+            let at = bindings
+                .iter()
+                .position(|b| skeleton.shares_joints(&b.joints))
+                .unwrap_or_else(|| {
+                    let indices = self.0.tracks.iter().map(|t| skeleton.find(&t.name)).collect();
+                    bindings.push(Binding {
+                        joints: skeleton.shared_joints().clone(),
+                        indices,
+                    });
+                    bindings.len() - 1
+                });
+            self.apply(time, weight, skeleton, Some(&bindings[at].indices));
+        }
+    }
+    fn apply(&self, time: f32, weight: f32, skeleton: &mut Skeleton, mapping: Option<&[Option<usize>]>) {
+        for (i, track) in self.0.tracks.iter().enumerate() {
+            let Some(joint) = mapping.map_or(Some(track.joint), |m| m[i]) else {
+                continue;
+            };
+            let Some(pose) = skeleton.pose.get_mut(joint) else {
+                continue;
+            };
+            if let Some(t) = &track.translation {
+                pose.position = pose.position.lerp(t.sample(time, false).truncate(), weight);
+            }
+            if let Some(t) = &track.scale {
+                pose.scale = pose.scale.lerp(t.sample(time, false).truncate(), weight);
+            }
+            if let Some(t) = &track.rotation {
+                pose.rotation = pose.rotation.slerp(quaternion(t.sample(time, true)), weight);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Transform3D;
+    use glam::Vec3;
+    fn skeleton(names: &[&str]) -> Skeleton {
+        Skeleton::new(
+            names
+                .iter()
+                .map(|n| Joint {
+                    name: (*n).into(),
+                    parent: None,
+                    rest: Transform3D::default(),
+                })
+                .collect(),
+        )
+    }
+    fn track(interpolation: Interpolation, values: Vec<Vec4>) -> AnimationTrack {
+        AnimationTrack::new(vec![0.0, 2.0], values, interpolation)
+    }
+    fn clip(s: &Skeleton) -> AnimationClip {
+        AnimationClip::new(
+            "move",
+            s,
+            vec![JointAnimation {
+                joint: 0,
+                name: "root".into(),
+                translation: Some(track(Interpolation::Linear, vec![Vec4::ZERO, Vec4::splat(4.0)])),
+                rotation: None,
+                scale: None,
+            }],
+        )
+    }
+    #[test]
+    fn step_holds_and_linear_clamps() {
+        let step = track(Interpolation::Step, vec![Vec4::ZERO, Vec4::ONE]);
+        assert_eq!(step.sample(1.99, false), Vec4::ZERO);
+        assert_eq!(step.sample(2.0, false), Vec4::ONE);
+        let mut s = skeleton(&["root"]);
+        let c = clip(&s);
+        c.sample(-1.0, &mut s);
+        assert_eq!(s.pose[0].position, Vec3::ZERO);
+        c.sample(1.0, &mut s);
+        assert_eq!(s.pose[0].position, Vec3::splat(2.0));
+        c.sample(5.0, &mut s);
+        assert_eq!(s.pose[0].position, Vec3::splat(4.0));
+    }
+    #[test]
+    fn cubic_tangents_are_scaled_by_key_interval() {
+        let t = track(
+            Interpolation::CubicSpline,
+            vec![
+                Vec4::ZERO,
+                Vec4::ZERO,
+                Vec4::splat(4.0),
+                Vec4::ZERO,
+                Vec4::ZERO,
+                Vec4::ZERO,
+            ],
+        );
+        assert_eq!(t.sample(1.0, false), Vec4::ONE);
+        let q = track(
+            Interpolation::CubicSpline,
+            vec![Vec4::ZERO, Vec4::W, Vec4::ZERO, Vec4::ZERO, Vec4::Z, Vec4::ZERO],
+        );
+        assert!((q.sample(1.0, true).length() - 1.0).abs() < 1e-6);
+    }
+    #[test]
+    fn rotations_take_shortest_path() {
+        let q = Quat::from_rotation_y(0.4);
+        let t = track(
+            Interpolation::Linear,
+            vec![Vec4::from_array(q.to_array()), -Vec4::from_array(q.to_array())],
+        );
+        assert!(quaternion(t.sample(1.0, true)).abs_diff_eq(q, 1e-6));
+    }
+    #[test]
+    fn blending_and_name_binding_preserve_other_properties() {
+        let source = skeleton(&["root"]);
+        let c = clip(&source);
+        let mut target = skeleton(&["other", "root"]);
+        for weight in [0.0, 0.5, 1.0] {
+            target.reset_pose();
+            c.sample_blended(2.0, weight, &mut target);
+            assert_eq!(target.pose[0], Transform3D::default());
+            assert_eq!(target.pose[1].position, Vec3::splat(4.0 * weight));
+            assert_eq!(target.pose[1].scale, Vec3::ONE);
+        }
+        assert_eq!(c.0.bindings.lock().unwrap().len(), 1);
+        c.clone().sample(1.0, &mut target.clone());
+        assert_eq!(c.0.bindings.lock().unwrap().len(), 1);
+    }
+    #[test]
+    fn blended_scale_and_rotation_use_current_pose() {
+        let mut s = skeleton(&["root"]);
+        let q = Quat::from_rotation_z(1.0);
+        let c = AnimationClip::new(
+            "turn",
+            &s,
+            vec![JointAnimation {
+                joint: 0,
+                name: "root".into(),
+                translation: None,
+                rotation: Some(AnimationTrack::new(
+                    vec![0.0],
+                    vec![Vec4::from_array(q.to_array())],
+                    Interpolation::Linear,
+                )),
+                scale: Some(AnimationTrack::new(
+                    vec![0.0],
+                    vec![Vec4::splat(3.0)],
+                    Interpolation::Step,
+                )),
+            }],
+        );
+        for w in [0.0, 0.5, 1.0] {
+            s.reset_pose();
+            c.sample_blended(0.0, w, &mut s);
+            assert!(s.pose[0].rotation.abs_diff_eq(Quat::from_rotation_z(w), 1e-6));
+            assert_eq!(s.pose[0].scale, Vec3::splat(1.0 + 2.0 * w));
+        }
+        let mut missing = skeleton(&["other"]);
+        c.sample(0.0, &mut missing);
+        assert_eq!(missing.pose[0], Transform3D::default());
+    }
+
+    #[test]
+    #[should_panic(expected = "key times must")]
+    fn unordered_times_are_rejected() {
+        AnimationTrack::new(vec![1.0, 0.0], vec![Vec4::ZERO; 2], Interpolation::Step);
+    }
+    #[test]
+    #[should_panic(expected = "joint index and name")]
+    fn mismatched_source_joint_is_rejected() {
+        AnimationClip::new(
+            "bad",
+            &skeleton(&["root"]),
+            vec![JointAnimation {
+                joint: 0,
+                name: "missing".into(),
+                translation: None,
+                rotation: None,
+                scale: None,
+            }],
+        );
+    }
+}

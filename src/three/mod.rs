@@ -9,11 +9,15 @@
 //! Coordinates are right-handed with Y up (as in glTF): a camera with no
 //! rotation looks down -Z.
 
+mod animator;
 mod api;
+mod clip;
 mod collect;
 mod compute;
 mod effect;
 mod gltf;
+mod ik;
+pub use ik::{look_at_joint, two_bone_ik};
 pub(crate) mod lights;
 mod mesh;
 pub use lights::{PointLight3D, SpotLight3D};
@@ -24,9 +28,14 @@ mod target;
 mod terrain;
 mod texture_array;
 
+pub use animator::{
+    AnimationCondition, AnimationEvent, AnimationGraph, AnimationParameter, AnimationState, AnimationTransition,
+    Animator, Motion, MotionChild,
+};
 pub(crate) use api::GpuMaterialDesc;
 #[cfg(feature = "window")]
 pub(crate) use api::MaterialTextures;
+pub use clip::{AnimationClip, AnimationTrack, Interpolation, JointAnimation};
 pub(crate) use collect::Frame3D;
 #[cfg(feature = "window")]
 pub(crate) use collect::{Instance3D, MAX_CASCADES, SHADOW_MAP_SIZE};
@@ -630,6 +639,8 @@ pub(crate) struct Assets3D {
     /// How each skinned mesh binds to joints, by mesh id; shorter than
     /// `bounds` when the last ones aren't skinned.
     pub skins: Vec<Option<std::sync::Arc<MeshSkin>>>,
+    /// Shared animation clips of skinned glTF files, by resolved path.
+    pub loaded_clips: std::collections::HashMap<std::path::PathBuf, Vec<AnimationClip>>,
     /// The joints of skinned glTF files, by resolved path.
     pub loaded_skeletons: std::collections::HashMap<std::path::PathBuf, Skeleton>,
     /// Meshes set to cast no shadow (`Ctx::set_mesh_shadows`), by id;

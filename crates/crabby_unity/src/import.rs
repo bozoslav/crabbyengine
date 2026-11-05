@@ -97,6 +97,7 @@ enum Job {
 /// ```
 pub struct Importer<'p> {
     project: &'p Project,
+    animation_clips: Vec<crate::AnimationClip>,
     /// The output folder, and its asset name (`"town/"`).
     out: PathBuf,
     prefix: String,
@@ -123,6 +124,20 @@ pub struct Importer<'p> {
 type VertexColors = std::rc::Rc<dyn Fn(&UnityMesh, usize) -> [f32; 4]>;
 
 impl<'p> Importer<'p> {
+    /// Registers standalone clips for subsequently exported skinned meshes.
+    /// Paths are relative to each skin's root; unresolved paths enter the report.
+    /// Call before `scene`, since meshes are cached after export.
+    ///
+    /// ```no_run
+    /// # let project = crabby_unity::Project::open("Project")?;
+    /// let mut importer = crabby_unity::Importer::new(&project, "out", "");
+    /// importer.animation_clips([crabby_unity::AnimationClip::read("Assets/Walk.anim")?]);
+    /// # Ok::<(), crabby_unity::Error>(())
+    /// ```
+    pub fn animation_clips(&mut self, clips: impl IntoIterator<Item = crate::AnimationClip>) {
+        self.animation_clips.extend(clips);
+    }
+
     /// Writes into `out` (a folder under the game's `assets/`), whose asset
     /// name is `prefix` (`"town/"` for `assets/town`).
     pub fn new(project: &'p Project, out: impl Into<PathBuf>, prefix: &str) -> Self {
@@ -132,6 +147,7 @@ impl<'p> Importer<'p> {
         }
         Self {
             project,
+            animation_clips: Vec::new(),
             out: out.into(),
             prefix,
             models: HashMap::new(),
@@ -283,24 +299,22 @@ impl<'p> Importer<'p> {
                 self.report.skip("no mesh");
                 continue;
             };
-            if renderer.class_id == SKINNED_MESH_RENDERER
-                && mesh
-                    .guid
-                    .as_deref()
-                    .and_then(|g| self.project.path_of(g))
-                    .is_some_and(|p| p.extension().is_some_and(|e| e == "asset"))
-            {
-                self.report
-                    .skip("a skinned Unity mesh asset (bone decoding not supported)");
-                continue;
-            }
             let materials: Vec<ObjRef> = renderer.body["m_Materials"]
                 .as_seq()
                 .unwrap_or(&[])
                 .iter()
                 .filter_map(Value::obj_ref)
                 .collect();
-            let Some(name) = self.model(&mesh, &materials)? else {
+            let bones = renderer.body["m_Bones"].as_seq().unwrap_or_default();
+            let Some(name) = (if bones.is_empty() {
+                self.model(&mesh, &materials)?
+            } else {
+                self.write_model(
+                    &mesh,
+                    &materials,
+                    Some((scene, &world, i, bones, &renderer.body["m_RootBone"])),
+                )?
+            }) else {
                 continue;
             };
             let (scale, rotation, position) = mirror(world[i]).to_scale_rotation_translation();
@@ -427,17 +441,22 @@ impl<'p> Importer<'p> {
         if let Some(name) = self.models.get(&key) {
             return Ok(name.clone());
         }
-        let name = self.write_model(mesh, materials)?;
+        let name = self.write_model(mesh, materials, None)?;
         self.models.insert(key, name.clone());
         Ok(name)
     }
 
-    fn write_model(&mut self, mesh: &ObjRef, materials: &[ObjRef]) -> Result<Option<String>, Error> {
+    fn write_model(
+        &mut self,
+        mesh: &ObjRef,
+        materials: &[ObjRef],
+        skeleton: Option<SceneSkeleton<'_>>,
+    ) -> Result<Option<String>, Error> {
         let Some(guid) = mesh.guid.as_deref() else {
             self.report.skip("a mesh saved in the scene itself");
             return Ok(None);
         };
-        let unity = if guid == BUILTIN {
+        let mut unity = if guid == BUILTIN {
             match UnityMesh::builtin(mesh.file_id) {
                 Some(m) => m,
                 None => {
@@ -452,6 +471,12 @@ impl<'p> Importer<'p> {
                 None => return Ok(None),
             }
         };
+        if let Some((scene, world, renderer, bones, root)) = skeleton
+            && let Some(skin) = &mut unity.skin
+        {
+            apply_scene_bones(skin, scene, world, renderer, bones, root);
+            unity.name = format!("{}_renderer_{renderer}", unity.name);
+        }
         let mats: Vec<Option<UnityMaterial>> = materials.iter().map(|m| self.material(m)).collect();
         let glb = self.build_glb(&unity, &mats);
         let file_name = self.unique_name(&unity.name, mesh, materials);
@@ -604,8 +629,24 @@ impl<'p> Importer<'p> {
         let mut materials: Vec<Json> = Vec::new();
         let mut vertices = Vertices {
             skin: mesh.skin.clone().map(|mut skin| {
+                let root = skin
+                    .root
+                    .or_else(|| skin.nodes.iter().position(|n| n.parent.is_none()))
+                    .unwrap_or(0);
+                for clip in &self.animation_clips {
+                    for diagnostic in clip.append_to_skin(&mut skin, root) {
+                        self.report.skip(diagnostic);
+                    }
+                }
                 for node in &mut skin.nodes {
                     node.matrix = mirror(Mat4::from_cols_array(&node.matrix)).to_cols_array();
+                }
+                for clip in &mut skin.animations {
+                    for samples in &mut clip.nodes {
+                        for matrix in samples {
+                            *matrix = mirror(Mat4::from_cols_array(matrix)).to_cols_array();
+                        }
+                    }
                 }
                 for bind in &mut skin.inverse_binds {
                     *bind = mirror(Mat4::from_cols_array(bind)).to_cols_array();
@@ -1011,6 +1052,156 @@ fn fnv(bytes: &[u8]) -> u64 {
     bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, &b| {
         (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3)
     })
+}
+
+// Preserve joint order (the vertex indices and bind poses use it), while
+// taking the rest pose and names from the flattened, overridden scene.
+type SceneSkeleton<'a> = (&'a Hierarchy, &'a [Mat4], usize, &'a [Value], &'a Value);
+
+fn apply_scene_bones(
+    skin: &mut crate::mesh::MeshSkin,
+    scene: &Hierarchy,
+    world: &[Mat4],
+    renderer: usize,
+    bones: &[Value],
+    root: &Value,
+) {
+    let resolve = |bone: &Value| {
+        let reference = bone.obj_ref()?;
+        scene.objects.iter().position(|o| {
+            o.components
+                .iter()
+                .any(|c| matches!(c.class_id, 4 | 224) && c.file_id == reference.file_id)
+        })
+    };
+    let root = resolve(root);
+    let resolved: Vec<_> = bones.iter().map(resolve).collect();
+    let joints: Option<Vec<_>> = resolved.iter().copied().collect();
+    let Some(joints) = joints.filter(|j| j.len() == skin.joints.len()) else {
+        // Preserve unknown joints and influence indices, applying each known
+        // scene bone in the existing hierarchy instead of discarding them all.
+        let mut overrides = vec![None; skin.nodes.len()];
+        for (&joint, object) in skin.joints.iter().zip(&resolved) {
+            if let Some(object) = object {
+                overrides[joint] = Some(world[renderer].inverse() * world[*object]);
+                skin.nodes[joint].name = scene.objects[*object].name.clone();
+                if root == Some(*object) {
+                    skin.root = Some(joint);
+                }
+            }
+        }
+        fn posed(i: usize, nodes: &[crate::mesh::SkinNode], overrides: &[Option<Mat4>]) -> Mat4 {
+            overrides[i].unwrap_or_else(|| {
+                nodes[i].parent.map_or(Mat4::IDENTITY, |p| posed(p, nodes, overrides))
+                    * Mat4::from_cols_array(&nodes[i].matrix)
+            })
+        }
+        let locals: Vec<_> = skin
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(i, n)| {
+                n.parent
+                    .map_or(Mat4::IDENTITY, |p| posed(p, &skin.nodes, &overrides))
+                    .inverse()
+                    * posed(i, &skin.nodes, &overrides)
+            })
+            .collect();
+        if let Some(root) = skin.root {
+            let root_world = posed(root, &skin.nodes, &overrides);
+            let roots: Vec<_> = skin
+                .nodes
+                .iter()
+                .enumerate()
+                .filter(|(i, n)| *i != root && n.parent.is_none())
+                .map(|(i, _)| (i, root_world.inverse() * posed(i, &skin.nodes, &overrides)))
+                .collect();
+            let mut locals = locals;
+            for (i, local) in roots {
+                skin.nodes[i].parent = Some(root);
+                locals[i] = local;
+            }
+            for (node, local) in skin.nodes.iter_mut().zip(locals) {
+                node.matrix = local.to_cols_array();
+            }
+            return;
+        }
+        for (node, local) in skin.nodes.iter_mut().zip(locals) {
+            node.matrix = local.to_cols_array();
+        }
+        return;
+    };
+    let mut included = std::collections::BTreeSet::new();
+    for &joint in joints.iter().chain(root.iter()) {
+        let mut at = Some(joint);
+        while let Some(i) = at {
+            if i == renderer {
+                break;
+            }
+            included.insert(i);
+            at = scene.objects[i].parent;
+        }
+        included.insert(joint);
+    }
+    let included: Vec<_> = included.into_iter().collect();
+    skin.root = root.and_then(|r| included.iter().position(|&i| i == r));
+    let old_nodes = skin.nodes.clone();
+    skin.nodes = included
+        .iter()
+        .map(|&i| {
+            let parent = scene.objects[i]
+                .parent
+                .and_then(|p| included.iter().position(|&j| j == p));
+            let base = parent.map_or(world[renderer], |p| world[included[p]]);
+            crate::mesh::SkinNode {
+                name: scene.objects[i].name.clone(),
+                parent,
+                matrix: (base.inverse() * world[i]).to_cols_array(),
+            }
+        })
+        .collect();
+    let source_nodes: Vec<_> = included
+        .iter()
+        .zip(&skin.nodes)
+        .map(|(object, n)| {
+            joints
+                .iter()
+                .position(|j| j == object)
+                .map(|j| skin.joints[j])
+                .or_else(|| old_nodes.iter().position(|o| o.name == n.name))
+        })
+        .collect();
+    for clip in &mut skin.animations {
+        let old_step = std::mem::take(&mut clip.step);
+        clip.step = source_nodes
+            .iter()
+            .map(|i| i.and_then(|i| old_step.get(i)).copied().unwrap_or_default())
+            .collect();
+        let old = std::mem::take(&mut clip.nodes);
+        clip.nodes = source_nodes
+            .iter()
+            .zip(&skin.nodes)
+            .map(|(source, node)| {
+                let Some(i) = source else {
+                    return Vec::new();
+                };
+                let correction =
+                    Mat4::from_cols_array(&node.matrix) * Mat4::from_cols_array(&old_nodes[*i].matrix).inverse();
+                old.get(*i)
+                    .map(|samples| {
+                        samples
+                            .iter()
+                            .map(|m| (correction * Mat4::from_cols_array(m)).to_cols_array())
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            })
+            .collect();
+    }
+    skin.joints = joints
+        .iter()
+        .map(|i| included.iter().position(|j| j == i).expect("included joint"))
+        .collect();
 }
 
 #[cfg(test)]

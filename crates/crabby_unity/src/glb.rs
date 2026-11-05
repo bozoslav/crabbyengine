@@ -136,6 +136,72 @@ pub(crate) fn write(
             json!({ "attributes": attributes, "indices": indices, "material": p.material })
         })
         .collect();
+    let mut animations = Vec::new();
+    if let Some(skin) = &vertices.skin {
+        for clip in &skin.animations {
+            if clip.times.is_empty() {
+                continue;
+            }
+            let input = w.floats(
+                &clip.times.iter().map(|&t| [t]).collect::<Vec<_>>(),
+                "SCALAR",
+                json!({"min": [clip.times[0]], "max": [clip.times[clip.times.len()-1]]}),
+            );
+            w.views.last_mut().unwrap().as_object_mut().unwrap().remove("target");
+            let mut channels = Vec::new();
+            let mut samplers = Vec::new();
+            for (node, samples) in clip.nodes.iter().enumerate() {
+                if samples.len() != clip.times.len() {
+                    continue;
+                }
+                let poses: Vec<_> = samples
+                    .iter()
+                    .map(|m| glam::Mat4::from_cols_array(m).to_scale_rotation_translation())
+                    .collect();
+                let mut rotations = Vec::new();
+                let mut previous = glam::Quat::IDENTITY;
+                for &(_, mut q, _) in &poses {
+                    if previous.dot(q) < 0.0 {
+                        q = -q;
+                    }
+                    rotations.push(q.to_array());
+                    previous = q;
+                }
+                let translations: Vec<_> = poses.iter().map(|p| p.2.to_array()).collect();
+                let scales: Vec<_> = poses.iter().map(|p| p.0.to_array()).collect();
+                let step = clip.step.get(node).copied().unwrap_or_default();
+                for (component, (path, output, constant)) in [
+                    (
+                        "translation",
+                        w.floats(&translations, "VEC3", json!({})),
+                        translations.windows(2).all(|v| v[0] == v[1]),
+                    ),
+                    (
+                        "rotation",
+                        w.floats(&rotations, "VEC4", json!({})),
+                        rotations.windows(2).all(|v| v[0] == v[1]),
+                    ),
+                    (
+                        "scale",
+                        w.floats(&scales, "VEC3", json!({})),
+                        scales.windows(2).all(|v| v[0] == v[1]),
+                    ),
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    samplers.push(json!({"input": input, "output": output, "interpolation": if constant || step[component] {"STEP"} else {"LINEAR"}}));
+                    channels.push(json!({"sampler": samplers.len()-1, "target": {"node": node+1, "path": path}}));
+                }
+                for view in w.views.iter_mut().rev().take(3) {
+                    view.as_object_mut().unwrap().remove("target");
+                }
+            }
+            if !channels.is_empty() {
+                animations.push(json!({"name": clip.name, "extras": {"loop": clip.looping}, "channels": channels, "samplers": samplers}));
+            }
+        }
+    }
     while !w.bin.len().is_multiple_of(4) {
         w.bin.push(0);
     }
@@ -150,7 +216,10 @@ pub(crate) fn write(
         "bufferViews": w.views,
         "accessors": w.accessors,
     });
-    if let (Some(skin), Some(skin_json)) = (&vertices.skin, skin_json) {
+    if let (Some(skin), Some(mut skin_json)) = (&vertices.skin, skin_json) {
+        if let Some(root) = skin.root {
+            skin_json["skeleton"] = json!(root + 1);
+        }
         doc["nodes"][0]["skin"] = json!(0);
         for (i, node) in skin.nodes.iter().enumerate() {
             let children: Vec<_> = skin
@@ -160,7 +229,9 @@ pub(crate) fn write(
                 .filter(|(_, n)| n.parent == Some(i))
                 .map(|(j, _)| j + 1)
                 .collect();
-            let mut value = json!({"name": node.name, "matrix": node.matrix});
+            let (scale, rotation, translation) =
+                glam::Mat4::from_cols_array(&node.matrix).to_scale_rotation_translation();
+            let mut value = json!({"name": node.name, "scale": scale.to_array(), "rotation": rotation.to_array(), "translation": translation.to_array()});
             if !children.is_empty() {
                 value["children"] = json!(children);
             }
@@ -173,6 +244,9 @@ pub(crate) fn write(
             }
         }
         doc["skins"] = json!([skin_json]);
+    }
+    if !animations.is_empty() {
+        doc["animations"] = json!(animations);
     }
     if !textures.is_empty() {
         doc["images"] = textures
@@ -215,6 +289,63 @@ fn percent_encode(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn animation_targets_skin_nodes_and_round_trips_samples() {
+        let rest = glam::Mat4::from_translation(glam::vec3(1.0, 2.0, -3.0)).to_cols_array();
+        let end = glam::Mat4::from_translation(glam::vec3(2.0, 2.0, -3.0)).to_cols_array();
+        let vertices = Vertices {
+            positions: vec![[0.0; 3]; 3],
+            joints: vec![[0; 4]; 3],
+            weights: vec![[1.0, 0.0, 0.0, 0.0]; 3],
+            skin: Some(crate::mesh::MeshSkin {
+                nodes: vec![crate::mesh::SkinNode {
+                    name: "Bone".into(),
+                    parent: None,
+                    matrix: rest,
+                }],
+                joints: vec![0],
+                inverse_binds: vec![glam::Mat4::IDENTITY.to_cols_array()],
+                animations: vec![crate::mesh::SkinAnimation {
+                    name: "Move".into(),
+                    looping: true,
+                    step: vec![[true, false, false]],
+                    times: vec![0.0, 0.5],
+                    nodes: vec![vec![rest, end]],
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let bytes = write(
+            "mesh",
+            &vertices,
+            &[Primitive {
+                indices: vec![0, 1, 2],
+                material: 0,
+            }],
+            vec![json!({})],
+            &[],
+        );
+        let gltf = gltf::Gltf::from_slice(&bytes).unwrap();
+        let clip = gltf.animations().next().unwrap();
+        assert_eq!(clip.name(), Some("Move"));
+        assert_eq!(clip.channels().count(), 3);
+        let channel = clip.channels().next().unwrap();
+        assert_eq!(channel.sampler().interpolation(), gltf::animation::Interpolation::Step);
+        assert_eq!(
+            channel.target().node().index(),
+            gltf.skins().next().unwrap().joints().next().unwrap().index()
+        );
+        let reader = channel.reader(|_| gltf.blob.as_deref());
+        assert_eq!(reader.read_inputs().unwrap().collect::<Vec<_>>(), [0.0, 0.5]);
+        let gltf::animation::util::ReadOutputs::Translations(values) = reader.read_outputs().unwrap() else {
+            panic!("translation")
+        };
+        let values: Vec<_> = values.collect();
+        assert_eq!(values, [[1.0, 2.0, -3.0], [2.0, 2.0, -3.0]]);
+        assert_eq!(channel.target().node().transform().decomposed().0, values[0]);
+    }
 
     #[test]
     fn skin_round_trips_hierarchy_weights_and_inverse_binds() {

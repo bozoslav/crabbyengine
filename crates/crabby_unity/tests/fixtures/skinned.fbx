@@ -21,6 +21,30 @@ GlobalSettings:  {
 	}
 }
 Objects:  {
+    AnimationStack: 5000, "AnimStack::Move", "" {
+        Properties70: {
+            P: "LocalStart", "KTime", "Time", "",0
+            P: "LocalStop", "KTime", "Time", "",46186158000
+        }
+    }
+    AnimationLayer: 5001, "AnimLayer::Base", "" { }
+    AnimationCurveNode: 5002, "AnimCurveNode::T", "" {
+        Properties70: {
+            P: "d|X", "Number", "", "A",0
+            P: "d|Y", "Number", "", "A",0
+            P: "d|Z", "Number", "", "A",2
+        }
+    }
+    AnimationCurve: 5003, "AnimCurve::Z", "" {
+        Default: 2
+        KeyVer: 4008
+        KeyTime: *2 { a: 0,46186158000 }
+        KeyValueFloat: *2 { a: 2,3 }
+        KeyAttrFlags: *1 { a: 4 }
+        KeyAttrDataFloat: *4 { a: 0,0,0,0 }
+        KeyAttrRefCount: *1 { a: 2 }
+    }
+
     Model: 4000, "Model::RootBone", "LimbNode" {
         Version: 232
         Properties70: {
@@ -78,6 +102,11 @@ Objects:  {
 	}
 }
 Connections:  {
+    C: "OO",5001,5000
+    C: "OO",5002,5001
+    C: "OP",5002,4000,"Lcl Translation"
+    C: "OP",5003,5002,"d|Z"
+
     C: "OO",3000,1000
     C: "OO",3001,3000
     C: "OO",4000,3001

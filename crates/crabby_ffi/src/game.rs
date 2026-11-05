@@ -291,6 +291,36 @@ pub unsafe extern "C" fn crabby_game_sim_system(
     }
 }
 
+/// Adds a late system: runs once per frame after the engine posed animated
+/// skeletons and before drawing, for IK, look-at and other pose fixes. Not
+/// run by `crabby_game_run_headless`.
+/// # Safety
+/// Live game; `system` and `user` must stay valid while the game runs.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_game_late_system(std::ptr::null_mut(), std::ptr::null(), None, std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_game_late_system(
+    game: *mut CrabbyGame,
+    name: *const c_char,
+    system_fn: CrabbySystemFn,
+    user: *mut c_void,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe {
+        let checked = (|| {
+            Ok((
+                system_fn.ok_or_else(|| invalid("system is null"))?,
+                system_name(name, "C late system")?,
+            ))
+        })();
+        build(game, |g| match checked {
+            Ok((f, name)) => ok(g.named_late_system(name, system(f, user))),
+            Err(e) => (g, Err(e)),
+        })
+    }
+}
+
 /// Adds a frame system: runs once per frame before drawing (input, camera, UI).
 /// Not run by `crabby_game_run_headless`.
 /// # Safety

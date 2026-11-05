@@ -7,7 +7,10 @@ use std::ffi::{CStr, c_char};
 use crabbyengine::{AttachToJoint, Ctx, Entity, Joint, Skeleton, SkinOf, Transform3D};
 
 use crate::ctx::{ctx_access, out, text};
-use crate::three::{CrabbyMaterial, CrabbyMesh, CrabbyMeshData, CrabbyTransform3D, transform_from_c, transform_to_c};
+use crate::three::{
+    CrabbyMaterial, CrabbyMesh, CrabbyMeshData, CrabbyTransform3D, CrabbyVec3, transform_from_c, transform_to_c,
+};
+use crate::types::CrabbyColor;
 use crate::types::to_c;
 use crate::{CrabbyCtx, CrabbyStatus, Failure, boundary, error, invalid, invalid_owned};
 
@@ -441,6 +444,196 @@ pub unsafe extern "C" fn crabby_ctx_attach_to_joint(
                     offset: transform_from_c(*offset),
                 },
             );
+            Ok(())
+        })
+    })
+}
+
+/// An animation clip (Rust `AnimationClip`): made with
+/// `crabby_ctx_load_clip`, freed with `crabby_clip_free`.
+pub struct CrabbyClip(pub(crate) crabbyengine::AnimationClip);
+
+/// Loads the clip called `name` of a glTF file with skins (Rust
+/// `Ctx::load_clip`); free it with `crabby_clip_free`.
+/// `CRABBY_NOT_FOUND` when the file has no clip of that name.
+/// # Safety
+/// `ctx` null or live; `path` and `name` C strings; output writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_load_clip(std::ptr::null_mut(), c"a.glb".as_ptr(), c"walk".as_ptr(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_load_clip(
+    ctx: *mut CrabbyCtx,
+    path: *const c_char,
+    name: *const c_char,
+    out_clip: *mut *mut CrabbyClip,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let (path, name) = (text(path)?, text(name)?);
+            if out_clip.is_null() {
+                return Err(invalid("output is null"));
+            }
+            let clips = c.try_load_clips(path).map_err(invalid_owned)?;
+            let clip = clips
+                .into_iter()
+                .find(|clip| clip.name() == name)
+                .ok_or_else(|| error(CrabbyStatus::CRABBY_NOT_FOUND, "no clip of that name in the file"))?;
+            *out_clip = Box::into_raw(Box::new(CrabbyClip(clip)));
+            Ok(())
+        })
+    })
+}
+
+/// Frees a clip; null does nothing.
+/// # Safety
+/// `clip` null or from `crabby_ctx_load_clip`, freed once.
+/// ```
+/// unsafe { crabby_ffi::crabby_clip_free(std::ptr::null_mut()) };
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_clip_free(clip: *mut CrabbyClip) {
+    if !clip.is_null() {
+        // SAFETY: caller contract: from Box::into_raw, freed once.
+        drop(unsafe { Box::from_raw(clip) });
+    }
+}
+
+/// A clip's length in seconds (0 for null).
+/// # Safety
+/// `clip` null or live.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_clip_duration(std::ptr::null()) }, 0.0);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_clip_duration(clip: *const CrabbyClip) -> f32 {
+    // SAFETY: caller contract.
+    unsafe { clip.as_ref() }.map_or(0.0, |c| c.0.duration())
+}
+
+/// Poses `entity`'s skeleton with `clip` at `time` (clamped to the clip),
+/// blending from its current pose by `weight` (1: the clip's pose; Rust
+/// `AnimationClip::sample_blended`). Joints are matched by name when the
+/// skeleton isn't the clip's own.
+/// # Safety
+/// `ctx` null or live; `clip` null or live.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_sample_clip(std::ptr::null_mut(), std::ptr::null(), 0, 0.0, 1.0) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_sample_clip(
+    ctx: *mut CrabbyCtx,
+    clip: *const CrabbyClip,
+    entity_bits: u64,
+    time: f32,
+    weight: f32,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let Some(clip) = clip.as_ref() else {
+                return Err(invalid("clip is null"));
+            };
+            let s = skeleton_mut(c, entity_bits)?;
+            clip.0.sample_blended(time, weight, s);
+            Ok(())
+        })
+    })
+}
+
+/// Bends a two-bone chain of `entity`'s skeleton (`upper`, its child
+/// `middle`, and that one's child `end`, e.g. thigh, shin, foot) so `end`
+/// reaches `target` (world space), with the middle joint bending toward
+/// `pole` (a world direction). `weight` 0 to 1 blends with the current pose.
+/// Out-of-reach targets get a straight chain pointing at them (Rust
+/// `two_bone_ik`). Use it in a late system, after animation.
+/// ```
+/// let v = crabby_ffi::CrabbyVec3 { x: 0.0, y: 0.0, z: 0.0 };
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_two_bone_ik(std::ptr::null_mut(), 0, 0, 1, 2, v, v, 1.0) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` null or live.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn crabby_ctx_two_bone_ik(
+    ctx: *mut CrabbyCtx,
+    entity_bits: u64,
+    upper: usize,
+    middle: usize,
+    end: usize,
+    target: CrabbyVec3,
+    pole: CrabbyVec3,
+    weight: f32,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let e = entity(c, entity_bits)?;
+            let model = c.world.get::<Transform3D>(e).copied().unwrap_or_default();
+            let s = skeleton_mut(c, entity_bits)?;
+            for j in [upper, middle, end] {
+                joint_index(s, j)?;
+            }
+            crabbyengine::two_bone_ik(s, &model, [upper, middle, end], to_c(target), to_c(pole), weight);
+            Ok(())
+        })
+    })
+}
+
+/// Turns `joint` of `entity`'s skeleton so its local `axis` points at
+/// `target` (world space), by at most `max_angle` radians, blended by
+/// `weight` 0 to 1 (Rust `look_at_joint`). For a spine-neck-head chain, call
+/// it per joint from the root out with smaller weights.
+/// ```
+/// let v = crabby_ffi::CrabbyVec3 { x: 0.0, y: 0.0, z: 1.0 };
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_look_at_joint(std::ptr::null_mut(), 0, 0, v, v, 1.0, 1.0) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` null or live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_look_at_joint(
+    ctx: *mut CrabbyCtx,
+    entity_bits: u64,
+    joint: usize,
+    axis: CrabbyVec3,
+    target: CrabbyVec3,
+    max_angle: f32,
+    weight: f32,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let e = entity(c, entity_bits)?;
+            let model = c.world.get::<Transform3D>(e).copied().unwrap_or_default();
+            let s = skeleton_mut(c, entity_bits)?;
+            joint_index(s, joint)?;
+            crabbyengine::look_at_joint(s, &model, joint, to_c(axis), to_c(target), max_angle, weight);
+            Ok(())
+        })
+    })
+}
+
+/// Draws `entity`'s bones this frame as lines from each joint to its
+/// parent, over the scene (no depth test).
+/// ```
+/// let white = crabby_ffi::CrabbyColor { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_draw_skeleton(std::ptr::null_mut(), 0, white) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` null or live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_draw_skeleton(
+    ctx: *mut CrabbyCtx,
+    entity_bits: u64,
+    color: CrabbyColor,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let e = entity(c, entity_bits)?;
+            skeleton(c, entity_bits)?;
+            c.draw_skeleton(e, to_c(color));
             Ok(())
         })
     })

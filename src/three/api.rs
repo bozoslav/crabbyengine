@@ -4,7 +4,7 @@ use std::ops::Range;
 
 use glam::Vec3;
 
-use super::{Blend, Material, MaterialDesc, Mesh, MeshData, MeshSkin, Shader, Skeleton, gltf, linear};
+use super::{AnimationClip, Blend, Material, MaterialDesc, Mesh, MeshData, MeshSkin, Shader, Skeleton, gltf, linear};
 use crate::{Ctx, assets};
 
 /// A material as the GPU reads it (one uniform block).
@@ -392,6 +392,59 @@ impl Ctx {
             .ok_or_else(|| format!("{path} has no skins, so no skeleton"))
     }
 
+    /// Loads all animation clips from a skinned glTF file, cached per file.
+    /// Panics with the loading error if the file cannot be loaded.
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// let clips = ctx.load_clips("models/character.glb");
+    /// # }
+    /// ```
+    pub fn load_clips(&mut self, path: &str) -> Vec<AnimationClip> {
+        self.try_load_clips(path)
+            .unwrap_or_else(|e| panic!("crabbyengine: {e}"))
+    }
+
+    /// Fallible clip loading; an unskinned file returns an error.
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// let clips = ctx.try_load_clips("models/character.glb");
+    /// # }
+    /// ```
+    pub fn try_load_clips(&mut self, path: &str) -> Result<Vec<AnimationClip>, String> {
+        self.try_load_skeleton(path)?;
+        let file = assets::resolve(path)?;
+        Ok(self.assets3d.loaded_clips.get(&file).cloned().unwrap_or_default())
+    }
+
+    /// Loads a named clip. Panics with available names if it is missing.
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// let walk = ctx.load_clip("models/character.glb", "walk");
+    /// # }
+    /// ```
+    pub fn load_clip(&mut self, path: &str, name: &str) -> AnimationClip {
+        self.try_load_clip(path, name)
+            .unwrap_or_else(|e| panic!("crabbyengine: {e}"))
+    }
+
+    /// Fallible named clip loading; errors list available names.
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// let walk = ctx.try_load_clip("models/character.glb", "walk");
+    /// # }
+    /// ```
+    pub fn try_load_clip(&mut self, path: &str, name: &str) -> Result<AnimationClip, String> {
+        let clips = self.try_load_clips(path)?;
+        clips.iter().find(|c| c.name() == name).cloned().ok_or_else(|| {
+            let names: Vec<_> = clips.iter().map(AnimationClip::name).collect();
+            format!("{path}: no animation {name:?}; available animations: {names:?}")
+        })
+    }
+
     /// Loads a glTF model (`.glb`, or `.gltf` with its files next to it)
     /// from `assets/` as one [`Mesh`]: every mesh in the file's scene, where
     /// the file puts it, with its materials and their base color, normal,
@@ -483,8 +536,9 @@ impl Ctx {
             .iter()
             .map(|(range, m)| (range.clone(), materials[*m]))
             .collect();
+        self.assets3d.loaded_clips.insert(file.clone(), loaded.clips);
         let skin = loaded.skin.map(|skin| {
-            let skeleton = Skeleton::from_shared(skin.joints.into());
+            let skeleton = Skeleton::from_shared(skin.joints);
             let mesh_skin = MeshSkin::new(
                 skeleton.shared_joints().clone(),
                 skin.slots,
@@ -593,6 +647,7 @@ impl Ctx {
             .collect();
         for file in freed {
             self.assets3d.loaded_skeletons.remove(&file);
+            self.assets3d.loaded_clips.remove(&file);
         }
         self.assets3d.loaded.retain(|_, m| *m != mesh);
         if let Some(names) = self.world.get_resource_mut::<crate::reflect::MeshNames>()
@@ -752,11 +807,25 @@ impl Ctx {
         costs
     }
 
+    /// Advances every animator not in manual mode by this frame's time. The
+    /// game runs it after the frame systems, so draw systems (and the
+    /// renderer) see this frame's pose.
+    pub(crate) fn update_animators(&mut self) {
+        let dt = self.dt();
+        self.world
+            .query::<(&mut super::Animator, &mut Skeleton)>()
+            .for_each(|(animator, skeleton)| {
+                if !animator.manual {
+                    animator.update(dt, skeleton);
+                }
+            });
+    }
+
     pub(crate) fn prepare_3d(&mut self) {
-        let time = (self.time() as f32, self.dt());
         if self.renderer.is_none() || self.assets3d.bounds.is_empty() {
             return; // no meshes, no 3D pass
         }
+        let time = (self.time() as f32, self.dt());
         let fallback = if self.effects.iter().any(|e| e.material.is_none())
             || self.compute_passes.iter().any(|c| c.material.is_none())
         {
@@ -818,5 +887,47 @@ impl Ctx {
             time,
         };
         renderer.prepare_3d(&scene, collect_ms);
+    }
+}
+
+#[cfg(test)]
+mod clip_tests {
+    use super::*;
+
+    fn cached_clips() -> (Ctx, String) {
+        let mut ctx = Ctx::new(1.0 / 60.0, glam::Vec2::ONE);
+        // A real existing path, with its contents bypassed by the asset cache.
+        let path = format!("{}/Cargo.toml", env!("CARGO_MANIFEST_DIR"));
+        let file = assets::resolve(&path).unwrap();
+        let skeleton = Skeleton::new(vec![]);
+        let clips = vec![
+            AnimationClip::new("idle", &skeleton, vec![]),
+            AnimationClip::new("walk", &skeleton, vec![]),
+        ];
+        ctx.assets3d.loaded.insert(file.clone(), Mesh { id: 0 });
+        ctx.assets3d.loaded_skeletons.insert(file.clone(), skeleton);
+        ctx.assets3d.loaded_clips.insert(file, clips);
+        (ctx, path)
+    }
+
+    #[test]
+    fn cached_clips_load_by_name_and_missing_names_list_choices() {
+        let (mut ctx, path) = cached_clips();
+        let clips = ctx.load_clips(&path);
+        assert_eq!(clips.len(), 2);
+        assert_eq!(ctx.load_clip(&path, "walk").name(), "walk");
+        assert!(std::sync::Arc::ptr_eq(
+            clips[0].source_joints(),
+            ctx.load_clip(&path, "idle").source_joints()
+        ));
+        let error = ctx.try_load_clip(&path, "run").unwrap_err();
+        assert!(error.contains("idle") && error.contains("walk") && error.contains("run"));
+    }
+
+    #[test]
+    #[should_panic(expected = "available animations: [\"idle\", \"walk\"]")]
+    fn missing_named_clip_panics_with_available_names() {
+        let (mut ctx, path) = cached_clips();
+        ctx.load_clip(&path, "run");
     }
 }

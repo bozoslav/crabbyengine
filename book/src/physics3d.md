@@ -332,3 +332,105 @@ to find the ground). Level geometry as a triangle mesh is somewhat cheaper
 than a heightfield.
 
 Try it: `cargo run --release --example physics3d --features physics3d`.
+
+## Joints
+
+A `Joint3D` component on a separate entity connects two body entities. Both
+endpoints need `Transform3D`, `RigidBody3D` and `Collider3D`. Connections join
+at the next physics step; missing endpoints are retried. Despawning the
+connection, removing its component, or removing either endpoint's body removes
+the Rapier impulse joint on the next step. Several connections can share a body.
+Changing the component rebuilds the joint and wakes both bodies.
+
+<div class="lang-pair">
+<div>
+
+```rust
+{{#include ../../tests/physics3d_joint_guide.rs:joints}}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:joints}}
+```
+
+</div>
+</div>
+
+Both snippets are compiled and stepped headless (the Rust one by the
+`physics3d_joint_guide` test). In C++ the axes are `crabby::joint_axis::*`
+indices into `axes` and `drives`, and `swing_cone` is negative for none.
+
+`fixed(a, b)` locks all axes; `spherical(a, b)` locks translation;
+`revolute(a, b)` leaves only rotation around local X free;
+`prismatic(a, b)` leaves only translation along local X free.
+`generic(a, b)` starts with all six axes free. Use `.motion(axis, Free)`,
+`.motion(axis, Locked)` or `.motion(axis, Limited(min, max))` to configure
+each axis. Names are qualified by `JointMotion3D`; axes by `JointAxis3D`.
+Distances are meters and angles radians. Limits must be finite and ordered;
+angular ranges must span less than a full turn.
+
+`frame_a` and `frame_b` are anchor poses in each body's local space (scale
+ignored). Rotate these frames to orient a hinge or slider. The frames coincide
+at the joint's rest pose. For spherical joints, `.swing_cone(angle)` couples
+local Y/Z angular motion into a circular cone around X. Local X remains the
+independent twist axis. The cone overrides the Y/Z limits and drives; it is
+not two independent rectangular angular limits.
+
+`.drive(axis, JointDrive3D::velocity(speed, damping))` sets a velocity motor.
+`JointDrive3D::spring(target, stiffness, damping)` drives toward an angle or
+position. Set its `max_force` to cap force/torque. Drives use Rapier's default
+acceleration model; locked axes ignore drives. For an arbitrary target rotation,
+express the target in the joint's local angular coordinates and drive the
+unlocked angular axes, or rotate the rest anchor frame. These coordinates are
+Rapier's joint coordinates, not a general quaternion orientation servo.
+
+Joined bodies do not collide by default; set `contacts_enabled = true` to
+restore contact response. Contact dominance does not make joints one-way.
+There is no automatic break-force option: Rapier does not expose a simple
+break threshold on impulse joints. Despawn the connection to detach explicitly.
+`ctx.physics3d.joint_count()` reports live connections after the last step.
+
+## One-way pushing
+
+A higher `RigidBody3D::dominance` group pushes lower groups without receiving
+a contact impulse back. Equal groups react normally. Both bodies remain dynamic,
+so the higher body still responds to gravity, fixed walls and equal-group
+contacts. Groups default to zero and range from -128 to 127 (C++: `crabby::with_dominance`):
+
+<div class="lang-pair">
+<div>
+
+```rust
+{{#include ../../tests/physics3d_joint_guide.rs:dominance}}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:dominance}}
+```
+
+</div>
+</div>
+
+This combines Rapier's built-in dominance with a normal-velocity correction on
+the lower body. In Rapier 0.36.1, the dominance solver treats the higher side
+as stationary: it prevents pushback but does not transfer a moving pusher's
+velocity. After solving, the engine applies a normal impulse only to the lower
+body, using its effective mass and inertia at the manifold's average contact
+point. Contact hooks expose no normal target velocity or per-side inverse-mass
+control, so changing contact points alone does not solve this. A headless regression test compares equal-mass dynamic boxes:
+the faster higher-group box keeps its velocity while accelerating the other;
+equal groups exchange momentum. The setting is a body-wide ordering, not an
+arbitrary per-pair rule; it deliberately violates equal-and-opposite contact
+reaction. It does not suppress forces from joints, explicit impulses, or vehicle
+suspension code. The correction is a single post-solve normal impulse per
+manifold, not a full second constraint solve: complex stacks and simultaneous
+joint/contact constraints can need smaller steps. It does not transfer tangential
+surface velocity or reproduce full restitution against the moving surface.
+Fixed and kinematic bodies retain their usual dominance over
+dynamic bodies regardless of group.

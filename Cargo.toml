@@ -19,6 +19,7 @@ exclude = ["/book", "/.github", "/web", "/include", "/examples/cpp", "/docs", "/
 features = ["physics", "physics3d", "steam", "3d"]
 
 [dependencies]
+renet = "2.0.0"
 crabby_ecs = { path = "crates/crabby_ecs", version = "1.0.0", features = ["serde"] }
 bytemuck = { version = "1.25.2", features = ["derive"] }
 glam = { version = "0.34.2", features = ["serde"] }
@@ -164,3 +165,10 @@ required-features = ["3d"]
 [[example]]
 name = "skinning"
 required-features = ["3d"]
+
+[[example]]
+name = "audio3d"
+required-features = ["3d"]
+
+[[example]]
+name = "net_messages"

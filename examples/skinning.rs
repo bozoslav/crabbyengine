@@ -5,6 +5,7 @@ use crabbyengine::*;
 const JOINTS: usize = 8;
 const STEP: f32 = 0.5;
 struct Sway(f32);
+struct Bend(AnimationClip);
 
 // ANCHOR: skin_chain
 fn chain() -> Skeleton {
@@ -65,6 +66,12 @@ fn sway(ctx: &mut Ctx) {
             pose.rotation = Quat::from_rotation_z((time * 1.5 + phase.0 - i as f32 * 0.45).sin() * 0.16);
         }
     });
+    ctx.world.query::<(&mut Skeleton, &Bend)>().for_each(|(s, bend)| {
+        bend.0.sample_blended(time.rem_euclid(bend.0.duration()), 0.5, s);
+    });
+    ctx.world.query::<&mut Animator>().for_each(|a| {
+        a.set_bool(0, ((time / 3.0) as u32).is_multiple_of(2));
+    });
     if ctx.key_pressed(Key::Escape) {
         ctx.quit();
     }
@@ -88,6 +95,93 @@ fn load_character(ctx: &mut Ctx) {
     // ANCHOR_END: skin_load
 }
 
+// ANCHOR: clip_code
+fn bend_clip(skeleton: &Skeleton) -> AnimationClip {
+    let rotation = AnimationTrack::new(
+        vec![0.0, 1.0, 2.0],
+        [0.0, 0.3, 0.0]
+            .map(|angle| Vec4::from_array(Quat::from_rotation_z(angle).to_array()))
+            .to_vec(),
+        Interpolation::Linear,
+    );
+    AnimationClip::new(
+        "bend",
+        skeleton,
+        vec![JointAnimation {
+            joint: 1,
+            name: "joint_1".into(),
+            translation: None,
+            rotation: Some(rotation),
+            scale: None,
+        }],
+    )
+}
+// ANCHOR_END: clip_code
+
+#[allow(dead_code)]
+fn play_clips(ctx: &mut Ctx) {
+    // ANCHOR: clip_play
+    let mut skeleton = ctx.load_skeleton("models/character.glb");
+    let walk = ctx.load_clip("models/character.glb", "walk");
+    let run = ctx.load_clip("models/character.glb", "run");
+    let time = ctx.time() as f32;
+    let loop_time = |clip: &AnimationClip| {
+        if clip.duration() > 0.0 {
+            time.rem_euclid(clip.duration())
+        } else {
+            0.0
+        }
+    };
+    skeleton.reset_pose();
+    walk.sample(loop_time(&walk), &mut skeleton);
+    run.sample_blended(loop_time(&run), 0.5, &mut skeleton);
+    // Keep clips and the skeleton as components/resources for subsequent frames.
+    // ANCHOR_END: clip_play
+}
+
+// ANCHOR: animator_graph
+fn bend_animator(skeleton: &Skeleton) -> Animator {
+    let idle = AnimationClip::new("idle", skeleton, vec![]);
+    let bend = bend_clip(skeleton);
+    let states = vec![
+        AnimationState::new(Motion::Clip(idle)),
+        AnimationState::new(Motion::Clip(bend)),
+    ];
+    let transition = |from, to, active| AnimationTransition {
+        from: Some(from),
+        to,
+        conditions: vec![AnimationCondition::Bool(0, active)],
+        exit_time: None,
+        duration: 0.12,
+        offset: 0.0,
+    };
+    let graph = AnimationGraph::new(
+        vec![AnimationParameter::Bool(false)],
+        states,
+        vec![transition(0, 1, true), transition(1, 0, false)],
+        0,
+    );
+    Animator::new(graph)
+}
+// ANCHOR_END: animator_graph
+
+#[allow(dead_code)]
+fn animate_now() {
+    // ANCHOR: animator_update
+    let mut skeleton = chain();
+    let mut animator = bend_animator(&skeleton);
+    animator.manual = true;
+    animator.set_bool(0, true);
+    animator.update(0.016, &mut skeleton);
+    // Or spawn (Animator, Skeleton) together for automatic updates.
+    animator.crossfade(0, 0.12, 0.0);
+    animator.update(0.016, &mut skeleton);
+    for name in animator.drain_events() {
+        println!("Animation event: {name}");
+    }
+    // ANCHOR_END: animator_update
+}
+
 fn main() {
     Game::new("Crabby: skinned meshes", 1000, 700).system(sway).run(|ctx| {
         ctx.clear(Color::hex(0xABCBDD));
@@ -105,13 +199,18 @@ fn main() {
         let band = ctx.create_skinned_mesh(&tube(2.2, 2.5, 0.25), gold, &chain());
         // ANCHOR_END: skin_create
         let ball = ctx.create_mesh(&MeshData::sphere(0.18, 16), gold);
+        let bend = bend_clip(&skeleton);
         for i in 0..3 {
             let tentacle = ctx.world.spawn((
                 Transform3D::at(vec3((i as f32 - 1.0) * 2.5, 0.0, 0.0)),
                 Model::new(mesh),
                 skeleton.clone(),
                 Sway(i as f32 * 1.8),
+                Bend(bend.clone()),
             ));
+            if i == 2 {
+                ctx.world.insert(tentacle, bend_animator(&skeleton));
+            }
             if i == 0 {
                 // ANCHOR: skin_parts
                 ctx.world.spawn((Model::new(band), SkinOf(tentacle)));
@@ -130,3 +229,25 @@ fn main() {
         }
     });
 }
+
+// ANCHOR: skin_ik
+// Register this with Game::new(...).late_system(procedural_pose).
+#[allow(dead_code)]
+fn procedural_pose(ctx: &mut Ctx) {
+    let target = vec3(0.7, 0.6, 0.2);
+    ctx.world
+        .query::<(&Transform3D, &mut Skeleton)>()
+        .for_each(|(world, skeleton)| {
+            two_bone_ik(skeleton, world, [0, 1, 2], target, Vec3::Z, 1.0);
+            // Apply parent first when distributing aim across spine/neck/head.
+            look_at_joint(skeleton, world, 5, Vec3::Y, target, 0.3, 0.2);
+            look_at_joint(skeleton, world, 6, Vec3::Y, target, 0.5, 0.5);
+            look_at_joint(skeleton, world, 7, Vec3::Y, target, 0.8, 1.0);
+        });
+}
+
+#[allow(dead_code)]
+fn debug_bones(ctx: &mut Ctx, character: Entity) {
+    ctx.draw_skeleton(character, Color::RED);
+}
+// ANCHOR_END: skin_ik

@@ -10,6 +10,7 @@
 //! assert_eq!(file.objects[0].body["m_Name"].as_str(), Some("Lamp"));
 //! ```
 
+mod animation;
 mod binary;
 mod builtin;
 mod fbx;
@@ -23,10 +24,11 @@ mod terrain;
 mod texture;
 mod value;
 
+pub use animation::AnimationClip;
 pub use hierarchy::{GameObject, Hierarchy};
 pub use import::{Importer, Report};
 pub use material::{Surface, TextureProperty, UnityMaterial};
-pub use mesh::{Channel, MeshSkin, SkinNode, UnityMesh, VertexFormat};
+pub use mesh::{Channel, MeshSkin, SkinAnimation, SkinNode, UnityMesh, VertexFormat};
 pub use project::Project;
 pub use terrain::UnityTerrain;
 pub use texture::UnityTexture;
