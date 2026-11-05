@@ -888,3 +888,36 @@ fn scenes_make_mesh_colliders_from_mesh_files_and_save_them_by_file() {
         assert_eq!(shape, &entity["components"]["Collider3D"]["shape"], "saved by its file");
     }
 }
+
+/// A crowd big enough to plan its moves in parallel lands in exactly the same
+/// places on every run.
+#[test]
+fn a_crowd_of_characters_moves_the_same_way_every_run() {
+    let run = || {
+        query_after(
+            60,
+            GRAVITY,
+            |ctx| {
+                ctx.world.spawn(floor());
+                for i in 0..40 {
+                    let (x, z) = ((i % 8) as f32 * 0.7 - 2.5, (i / 8) as f32 * 0.7 - 1.5);
+                    let mut c = Character3D::new(1.8, 0.3);
+                    // Everyone walks toward the middle, so they bump into each other.
+                    c.velocity = vec3(-x, 0.0, -z);
+                    ctx.world.spawn((Transform3D::at(vec3(x, 0.05, z)), c));
+                }
+            },
+            |ctx| {
+                let mut out: Vec<[u32; 3]> = Vec::new();
+                ctx.world.query::<(&Transform3D, &Character3D)>().for_each(|(t, _)| {
+                    out.push(t.position.to_array().map(f32::to_bits));
+                });
+                out
+            },
+        )
+    };
+    let first = run();
+    assert_eq!(first.len(), 40);
+    assert_eq!(first, run());
+    assert_eq!(first, run());
+}

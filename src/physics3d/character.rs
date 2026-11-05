@@ -123,109 +123,183 @@ impl Capsule {
 /// Memory the controller reuses every step.
 #[derive(Default)]
 pub(super) struct Scratch {
+    plans: Vec<Option<Plan>>,
+    characters: Vec<(Entity, Character3D)>,
+}
+
+/// One character's move, worked out against the world as it stood at the
+/// start of the step.
+pub(super) struct Plan {
+    body: rp::RigidBodyHandle,
+    controller: KinematicCharacterController,
+    shape: rp::Capsule,
+    filter_groups: rp::InteractionGroups,
+    feet: Vec3,
+    velocity: Vec3,
+    desired: Vec3,
+    moved: rapier3d::control::EffectiveCharacterMovement,
+    /// The dynamic bodies it walked into, if it pushes.
     hits: Vec<CharacterCollision>,
 }
 
+/// Fewer characters than this move on one thread: splitting the work
+/// costs more than it saves.
+const PARALLEL_FROM: usize = 8;
+
+fn plan(physics: &Physics3D, e: Entity, c: &Character3D, dt: f32) -> Option<Plan> {
+    let gravity = physics.gravity;
+    let up = Vec3::Y;
+    let link = physics
+        .links
+        .get(e.index() as usize)
+        .and_then(Option::as_ref)
+        .filter(|l| l.entity == e)?;
+    let LinkKind::Character(capsule) = link.kind else {
+        return None;
+    };
+    let body = link.body;
+    let feet = physics.world.bodies.get(body).map(|b| from_rp(b.translation()))?;
+
+    let controller = KinematicCharacterController {
+        up: to_rp(up),
+        offset: CharacterLength::Absolute(SKIN),
+        slide: true,
+        autostep: (c.step_height > 0.0).then_some(CharacterAutostep {
+            max_height: CharacterLength::Absolute(c.step_height),
+            min_width: CharacterLength::Absolute(capsule.radius),
+            include_dynamic_bodies: false,
+        }),
+        max_slope_climb_angle: c.max_slope,
+        min_slope_slide_angle: c.max_slope,
+        snap_to_ground: (c.snap_distance > 0.0).then_some(CharacterLength::Absolute(c.snap_distance)),
+        ..KinematicCharacterController::default()
+    };
+
+    let mut velocity = c.velocity;
+    if !velocity.is_finite() {
+        velocity = Vec3::ZERO;
+    }
+    if c.grounded && velocity.dot(up) <= 0.0 {
+        // Standing: no fall to push into the ground (snapping keeps it
+        // on the ground going downhill); walking off an edge drops it.
+        velocity -= up * velocity.dot(up);
+    } else {
+        velocity += gravity * c.gravity_scale * dt;
+    }
+    let desired = velocity * dt;
+    let shape = capsule.shape();
+    let center = rp::Pose::from_translation(to_rp(feet + up * capsule.center()));
+    let filter_groups = capsule.groups.to_rp();
+    let filter = rp::QueryFilter::default()
+        .exclude_rigid_body(body)
+        .exclude_sensors()
+        .groups(filter_groups);
+    let mut hits = Vec::new();
+    let moved = {
+        let queries = physics.world.query_pipeline_with_filter(filter);
+        controller.move_shape(dt, &queries, &shape, &center, to_rp(desired), |hit| hits.push(hit))
+    };
+    if c.push_mass > 0.0 {
+        let bodies = &physics.world.bodies;
+        let colliders = &physics.world.colliders;
+        hits.retain(|h| {
+            colliders
+                .get(h.handle)
+                .and_then(|co| co.parent())
+                .and_then(|b| bodies.get(b))
+                .is_some_and(|b| b.is_dynamic())
+        });
+    } else {
+        hits.clear();
+    }
+    Some(Plan {
+        body,
+        controller,
+        shape,
+        filter_groups,
+        feet,
+        velocity,
+        desired,
+        moved,
+        hits,
+    })
+}
+
+/// Moves every character. The shape casts only read the world (a move
+/// takes effect at the next physics step, and pushes change speeds, not
+/// positions), so they run in parallel; the pushes and moves are then
+/// applied one by one in query order, which keeps runs deterministic.
 pub(super) fn move_characters(physics: &mut Physics3D, world: &mut World, dt: f32) {
     if dt <= 0.0 {
         return;
     }
-    let gravity = physics.gravity;
     let up = Vec3::Y;
-    world.query::<(Entity, &mut Character3D)>().for_each(|(e, c)| {
-        let Some(link) = physics
-            .links
-            .get(e.index() as usize)
-            .and_then(Option::as_ref)
-            .filter(|l| l.entity == e)
-        else {
-            return;
-        };
-        let LinkKind::Character(capsule) = link.kind else {
-            return;
-        };
-        let body = link.body;
-        let Some(feet) = physics.world.bodies.get(body).map(|b| from_rp(b.translation())) else {
-            return;
-        };
-
-        let controller = KinematicCharacterController {
-            up: to_rp(up),
-            offset: CharacterLength::Absolute(SKIN),
-            slide: true,
-            autostep: (c.step_height > 0.0).then_some(CharacterAutostep {
-                max_height: CharacterLength::Absolute(c.step_height),
-                min_width: CharacterLength::Absolute(capsule.radius),
-                include_dynamic_bodies: false,
-            }),
-            max_slope_climb_angle: c.max_slope,
-            min_slope_slide_angle: c.max_slope,
-            snap_to_ground: (c.snap_distance > 0.0).then_some(CharacterLength::Absolute(c.snap_distance)),
-            ..KinematicCharacterController::default()
-        };
-
-        let mut velocity = c.velocity;
-        if !velocity.is_finite() {
-            velocity = Vec3::ZERO;
-        }
-        if c.grounded && velocity.dot(up) <= 0.0 {
-            // Standing: no fall to push into the ground (snapping keeps it
-            // on the ground going downhill); walking off an edge drops it.
-            velocity -= up * velocity.dot(up);
+    let mut scratch = std::mem::take(&mut physics.character);
+    scratch.characters.clear();
+    world
+        .query::<(Entity, &Character3D)>()
+        .for_each(|(e, c)| scratch.characters.push((e, *c)));
+    scratch.plans.clear();
+    {
+        let physics = &*physics;
+        let characters = &scratch.characters;
+        if characters.len() >= PARALLEL_FROM {
+            use rayon::prelude::*;
+            characters
+                .par_iter()
+                .map(|(e, c)| plan(physics, *e, c, dt))
+                .collect_into_vec(&mut scratch.plans);
         } else {
-            velocity += gravity * c.gravity_scale * dt;
+            scratch
+                .plans
+                .extend(characters.iter().map(|(e, c)| plan(physics, *e, c, dt)));
         }
-        let desired = velocity * dt;
-        let shape = capsule.shape();
-        let center = rp::Pose::from_translation(to_rp(feet + up * capsule.center()));
-        let filter = rp::QueryFilter::default()
-            .exclude_rigid_body(body)
-            .exclude_sensors()
-            .groups(capsule.groups.to_rp());
-        let hits = &mut physics.character.hits;
-        hits.clear();
-        let moved = {
-            let queries = physics.world.query_pipeline_with_filter(filter);
-            controller.move_shape(dt, &queries, &shape, &center, to_rp(desired), |hit| hits.push(hit))
-        };
-        let moved_by = from_rp(moved.translation);
+    }
 
+    for (&(e, c), plan) in scratch.characters.iter().zip(scratch.plans.drain(..)) {
+        let Some(plan) = plan else {
+            continue;
+        };
         // Push the dynamic bodies it walked into (rapier's impulses only
         // allocate when there are some).
-        if c.push_mass > 0.0 {
-            let bodies = &physics.world.bodies;
-            let colliders = &physics.world.colliders;
-            hits.retain(|h| {
-                colliders
-                    .get(h.handle)
-                    .and_then(|co| co.parent())
-                    .and_then(|b| bodies.get(b))
-                    .is_some_and(|b| b.is_dynamic())
-            });
-            if !hits.is_empty() {
-                let w = &mut physics.world;
-                let mut queries = w.broad_phase.as_query_pipeline_mut(
-                    w.narrow_phase.query_dispatcher(),
-                    &mut w.bodies,
-                    &mut w.colliders,
-                    filter,
-                );
-                controller.solve_character_collision_impulses(dt, &mut queries, &shape, c.push_mass, hits.iter());
-            }
+        if !plan.hits.is_empty() {
+            let filter = rp::QueryFilter::default()
+                .exclude_rigid_body(plan.body)
+                .exclude_sensors()
+                .groups(plan.filter_groups);
+            let w = &mut physics.world;
+            let mut queries = w.broad_phase.as_query_pipeline_mut(
+                w.narrow_phase.query_dispatcher(),
+                &mut w.bodies,
+                &mut w.colliders,
+                filter,
+            );
+            plan.controller.solve_character_collision_impulses(
+                dt,
+                &mut queries,
+                &plan.shape,
+                c.push_mass,
+                plan.hits.iter(),
+            );
         }
 
+        let moved_by = from_rp(plan.moved.translation);
+        let mut velocity = plan.velocity;
         let vertical = velocity.dot(up);
-        if moved.grounded && vertical < 0.0 {
+        if plan.moved.grounded && vertical < 0.0 {
             // Landed: stop falling.
             velocity -= up * vertical;
-        } else if vertical > 0.0 && moved_by.dot(up) < desired.dot(up) * 0.5 {
+        } else if vertical > 0.0 && moved_by.dot(up) < plan.desired.dot(up) * 0.5 {
             // Hit a ceiling: stop rising.
             velocity -= up * vertical;
         }
-        c.velocity = velocity;
-        c.grounded = moved.grounded;
-        if let Some(b) = physics.world.bodies.get_mut(body) {
-            b.set_next_kinematic_translation(to_rp(feet + moved_by));
+        if let Some(character) = world.get_mut::<Character3D>(e) {
+            character.velocity = velocity;
+            character.grounded = plan.moved.grounded;
         }
-    });
+        if let Some(b) = physics.world.bodies.get_mut(plan.body) {
+            b.set_next_kinematic_translation(to_rp(plan.feet + moved_by));
+        }
+    }
+    physics.character = scratch;
 }
