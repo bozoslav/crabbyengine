@@ -63,10 +63,14 @@ none, and Shadows Only (often a simplified stand-in for the shadows of the
 pieces around it) becomes a `ShadowMesh` with no `Model`, drawn only into
 the shadow maps.
 
-Left out, and counted in the report: far levels of detail (only LOD 0 is
-kept), inactive objects and disabled renderers, skinned meshes, the
-built-in Sphere, Capsule and Cylinder, compressed meshes, and meshes or
-textures it can't find or read.
+FBX skinned renderers export their source skeleton, inverse bind matrices
+and up to four influences per vertex (weights below 0.001 are dropped,
+then the largest four are normalized). Scene overrides to bone transforms
+and skinned Unity `.asset` meshes are not supported yet. Left out, and
+counted in the report: skinned Unity mesh assets, far levels of detail
+(only LOD 0 is kept), inactive objects and disabled renderers, the built-in
+Sphere, Capsule and Cylinder, compressed meshes, and meshes or textures
+it can't find or read.
 
 ## Your own shaders for imported materials
 

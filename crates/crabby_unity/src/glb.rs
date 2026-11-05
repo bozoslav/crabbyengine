@@ -13,6 +13,9 @@ pub(crate) struct Primitive {
 /// down) and shared by every primitive.
 #[derive(Default)]
 pub(crate) struct Vertices {
+    pub skin: Option<crate::mesh::MeshSkin>,
+    pub joints: Vec<[u16; 4]>,
+    pub weights: Vec<[f32; 4]>,
     pub positions: Vec<[f32; 3]>,
     pub normals: Vec<[f32; 3]>,
     pub uvs: Vec<[f32; 2]>,
@@ -102,6 +105,28 @@ pub(crate) fn write(
     if !vertices.uvs1.is_empty() {
         attributes.insert("TEXCOORD_1".into(), json!(w.floats(&vertices.uvs1, "VEC2", json!({}))));
     }
+    let mut skin_json = None;
+    if let Some(skin) = &vertices.skin {
+        let bytes: Vec<u8> = vertices.joints.iter().flatten().flat_map(|v| v.to_le_bytes()).collect();
+        attributes.insert(
+            "JOINTS_0".into(),
+            json!(w.add(&bytes, vertices.joints.len(), "VEC4", 5123, json!({}))),
+        );
+        attributes.insert(
+            "WEIGHTS_0".into(),
+            json!(w.floats(&vertices.weights, "VEC4", json!({}))),
+        );
+        let binds = w.floats(&skin.inverse_binds, "MAT4", json!({}));
+        w.views
+            .last_mut()
+            .expect("bind view")
+            .as_object_mut()
+            .expect("object")
+            .remove("target");
+        skin_json = Some(
+            json!({"joints": skin.joints.iter().map(|j| j + 1).collect::<Vec<_>>(), "inverseBindMatrices": binds}),
+        );
+    }
     let primitives: Vec<Json> = primitives
         .iter()
         .filter(|p| !p.indices.is_empty())
@@ -125,6 +150,30 @@ pub(crate) fn write(
         "bufferViews": w.views,
         "accessors": w.accessors,
     });
+    if let (Some(skin), Some(skin_json)) = (&vertices.skin, skin_json) {
+        doc["nodes"][0]["skin"] = json!(0);
+        for (i, node) in skin.nodes.iter().enumerate() {
+            let children: Vec<_> = skin
+                .nodes
+                .iter()
+                .enumerate()
+                .filter(|(_, n)| n.parent == Some(i))
+                .map(|(j, _)| j + 1)
+                .collect();
+            let mut value = json!({"name": node.name, "matrix": node.matrix});
+            if !children.is_empty() {
+                value["children"] = json!(children);
+            }
+            doc["nodes"].as_array_mut().expect("nodes").push(value);
+            if node.parent.is_none() {
+                doc["scenes"][0]["nodes"]
+                    .as_array_mut()
+                    .expect("roots")
+                    .push(json!(i + 1));
+            }
+        }
+        doc["skins"] = json!([skin_json]);
+    }
     if !textures.is_empty() {
         doc["images"] = textures
             .iter()
@@ -166,6 +215,67 @@ fn percent_encode(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn skin_round_trips_hierarchy_weights_and_inverse_binds() {
+        use crate::mesh::{MeshSkin, SkinNode, influences};
+        let (joints, weights) = influences([(0, 0.1), (1, 0.4), (2, 0.2), (3, 0.15), (4, 0.1495), (5, 0.0005)]);
+        assert_eq!(joints, [1, 2, 3, 4]);
+        assert!((weights.iter().sum::<f32>() - 1.0).abs() < 1e-6);
+        let bind = glam::Mat4::from_translation(glam::Vec3::new(0.0, -2.0, 3.0)).to_cols_array();
+        let vertices = Vertices {
+            positions: vec![[0.0; 3]; 3],
+            joints: vec![joints; 3],
+            weights: vec![weights; 3],
+            skin: Some(MeshSkin {
+                nodes: (0..6)
+                    .map(|i| SkinNode {
+                        name: format!("bone{i}"),
+                        parent: (i > 0).then_some(0),
+                        matrix: glam::Mat4::IDENTITY.to_cols_array(),
+                    })
+                    .collect(),
+                joints: (0..6).collect(),
+                inverse_binds: vec![bind; 6],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let bytes = write(
+            "skin",
+            &vertices,
+            &[Primitive {
+                indices: vec![0, 1, 2],
+                material: 0,
+            }],
+            vec![json!({})],
+            &[],
+        );
+        let gltf = gltf::Gltf::from_slice(&bytes).unwrap();
+        let blob = gltf.blob.as_deref().unwrap();
+        let skin = gltf.skins().next().unwrap();
+        assert_eq!(
+            skin.joints().map(|n| n.index()).collect::<Vec<_>>(),
+            (1..7).collect::<Vec<_>>()
+        );
+        assert_eq!(gltf.nodes().nth(1).unwrap().children().count(), 5);
+        assert_eq!(
+            skin.reader(|_| Some(blob))
+                .read_inverse_bind_matrices()
+                .unwrap()
+                .next()
+                .unwrap()
+                .concat(),
+            bind
+        );
+        let primitive = gltf.meshes().next().unwrap().primitives().next().unwrap();
+        let reader = primitive.reader(|_| Some(blob));
+        assert_eq!(reader.read_joints(0).unwrap().into_u16().next().unwrap(), joints);
+        assert_eq!(reader.read_weights(0).unwrap().into_f32().next().unwrap(), weights);
+        assert!((weights[0] - 0.4 / 0.8995).abs() < 1e-6);
+        let (_, dropped) = influences([(0, 0.9995), (1, 0.0005)]);
+        assert_eq!(dropped, [1.0, 0.0, 0.0, 0.0]);
+    }
 
     #[test]
     fn a_glb_has_its_header_chunks_and_accessors() {

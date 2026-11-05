@@ -119,6 +119,8 @@ pub struct Channel {
 /// ```
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct UnityMesh {
+    /// Skeleton and vertex influences, when the mesh is skinned.
+    pub skin: Option<MeshSkin>,
     /// `m_Name`.
     pub name: String,
     /// Every vertex's position.
@@ -135,6 +137,52 @@ pub struct UnityMesh {
     /// Each submesh's triangle list, as vertex indices (its base vertex
     /// added). Submesh i uses the renderer's material i.
     pub submeshes: Vec<Vec<u32>>,
+}
+
+/// A skeleton in Unity space; matrices are column-major.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct MeshSkin {
+    /// Skeleton nodes, including non-bone ancestors.
+    pub nodes: Vec<SkinNode>,
+    /// Node indices in the order used by vertex influences.
+    pub joints: Vec<usize>,
+    /// Inverse bind matrices in joint order.
+    pub inverse_binds: Vec<[f32; 16]>,
+    /// Four joint indices per vertex.
+    pub indices: Vec<[u16; 4]>,
+    /// Four normalized weights per vertex.
+    pub weights: Vec<[f32; 4]>,
+}
+
+/// One skeleton node, relative to its parent (or the mesh for roots).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SkinNode {
+    /// Node name.
+    pub name: String,
+    /// Parent node index.
+    pub parent: Option<usize>,
+    /// Local column-major matrix.
+    pub matrix: [f32; 16],
+}
+
+/// Unity's four-influence import policy.
+pub(crate) fn influences(values: impl IntoIterator<Item = (u16, f32)>) -> ([u16; 4], [f32; 4]) {
+    let mut values: Vec<_> = values
+        .into_iter()
+        .filter(|(_, w)| w.is_finite() && *w >= 0.001)
+        .collect();
+    values.sort_by(|a, b| b.1.total_cmp(&a.1));
+    values.truncate(4);
+    let sum: f32 = values.iter().map(|v| v.1).sum();
+    let (mut indices, mut weights) = ([0; 4], [0.0; 4]);
+    for (i, (joint, weight)) in values.into_iter().enumerate() {
+        indices[i] = joint;
+        weights[i] = weight / sum;
+    }
+    if sum == 0.0 {
+        weights[0] = 1.0;
+    }
+    (indices, weights)
 }
 
 /// Unity's fixed channel order.
@@ -228,6 +276,7 @@ impl UnityMesh {
             uvs: Default::default(),
             submeshes: Vec::new(),
             name: name.clone(),
+            skin: None,
         };
         for (slot, uv) in mesh.uvs.iter_mut().zip(uvs) {
             *slot = uv?;

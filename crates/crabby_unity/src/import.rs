@@ -255,10 +255,11 @@ impl<'p> Importer<'p> {
             if o.model.is_some() {
                 self.report.skip("an instance of a model file (FBX, OBJ, ...)");
             }
-            if o.component(SKINNED_MESH_RENDERER).is_some() {
-                self.report.skip("a skinned mesh");
-            }
-            let (Some(filter), Some(renderer)) = (o.component(MESH_FILTER), o.component(MESH_RENDERER)) else {
+            let (filter, renderer) = if let Some(renderer) = o.component(SKINNED_MESH_RENDERER) {
+                (renderer, renderer)
+            } else if let (Some(filter), Some(renderer)) = (o.component(MESH_FILTER), o.component(MESH_RENDERER)) {
+                (filter, renderer)
+            } else {
                 continue;
             };
             if !active[i] {
@@ -282,6 +283,17 @@ impl<'p> Importer<'p> {
                 self.report.skip("no mesh");
                 continue;
             };
+            if renderer.class_id == SKINNED_MESH_RENDERER
+                && mesh
+                    .guid
+                    .as_deref()
+                    .and_then(|g| self.project.path_of(g))
+                    .is_some_and(|p| p.extension().is_some_and(|e| e == "asset"))
+            {
+                self.report
+                    .skip("a skinned Unity mesh asset (bone decoding not supported)");
+                continue;
+            }
             let materials: Vec<ObjRef> = renderer.body["m_Materials"]
                 .as_seq()
                 .unwrap_or(&[])
@@ -590,7 +602,18 @@ impl<'p> Importer<'p> {
     fn build_glb(&mut self, mesh: &UnityMesh, mats: &[Option<UnityMaterial>]) -> Vec<u8> {
         let mut textures: Vec<String> = Vec::new();
         let mut materials: Vec<Json> = Vec::new();
-        let mut vertices = Vertices::default();
+        let mut vertices = Vertices {
+            skin: mesh.skin.clone().map(|mut skin| {
+                for node in &mut skin.nodes {
+                    node.matrix = mirror(Mat4::from_cols_array(&node.matrix)).to_cols_array();
+                }
+                for bind in &mut skin.inverse_binds {
+                    *bind = mirror(Mat4::from_cols_array(bind)).to_cols_array();
+                }
+                skin
+            }),
+            ..Default::default()
+        };
         let mut primitives = Vec::new();
         // Vertex colors, for meshes a custom shader draws (`custom_shader`),
         // made by that shader's function if it has one (`vertex_colors`).
@@ -615,6 +638,10 @@ impl<'p> Importer<'p> {
                     let at = *remap.entry(v).or_insert_with(|| {
                         let v = v as usize;
                         let p = mesh.positions.get(v).copied().unwrap_or_default();
+                        if let Some(skin) = &mesh.skin {
+                            vertices.joints.push(skin.indices[v]);
+                            vertices.weights.push(skin.weights[v]);
+                        }
                         vertices.positions.push([p[0], p[1], -p[2]]);
                         if !mesh.normals.is_empty() {
                             let n = mesh.normals.get(v).copied().unwrap_or([0.0, 1.0, 0.0]);

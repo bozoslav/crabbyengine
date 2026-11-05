@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use crate::mesh::{MeshSkin, SkinNode, influences};
 use crate::{Error, UnityMesh};
 
 /// A model file, loaded once for every mesh taken from it.
@@ -108,7 +109,47 @@ impl ModelFile {
             name: name.clone(),
             ..Default::default()
         };
-        let mut seen: HashMap<[u32; 12], u32> = HashMap::new();
+        let skin = mesh.skin_deformers.first();
+        if let Some(skin) = skin {
+            if skin.clusters.len() > u16::MAX as usize {
+                return Err(Error::new("too many skin joints"));
+            }
+            let convert = |matrix: &ufbx::Matrix| {
+                let basis = glam::Mat4::from_cols(
+                    glam::Vec4::new(m[0][0] as f32, m[1][0] as f32, m[2][0] as f32, 0.0) * self.scale,
+                    glam::Vec4::new(m[0][1] as f32, m[1][1] as f32, m[2][1] as f32, 0.0) * self.scale,
+                    glam::Vec4::new(m[0][2] as f32, m[1][2] as f32, m[2][2] as f32, 0.0) * self.scale,
+                    glam::Vec4::W,
+                );
+                basis * matrix4(matrix) * basis.inverse()
+            };
+            let mesh_world = node.map_or(glam::Mat4::IDENTITY, |n| matrix4(&n.node_to_world));
+            let nodes: Vec<_> = self
+                .scene
+                .nodes
+                .iter()
+                .map(|n| SkinNode {
+                    name: n.element.name.to_string(),
+                    parent: n.parent.as_ref().map(|p| p.element.typed_id as usize),
+                    matrix: convert_matrix_relative(n, mesh_world, &convert),
+                })
+                .collect();
+            let mut data = MeshSkin {
+                nodes,
+                ..Default::default()
+            };
+            for cluster in &skin.clusters {
+                let bone = cluster
+                    .bone_node
+                    .as_ref()
+                    .ok_or_else(|| Error::new("skin cluster has no bone"))?;
+                data.joints.push(bone.element.typed_id as usize);
+                data.inverse_binds
+                    .push(convert(&cluster.mesh_node_to_bone).to_cols_array());
+            }
+            out.skin = Some(data);
+        }
+        let mut seen: HashMap<[u32; 20], u32> = HashMap::new();
         let mut corners = vec![0u32; mesh.max_face_triangles * 3];
         let groups: Vec<Vec<u32>> = if mesh.material_parts.is_empty() {
             vec![(0..mesh.faces.len() as u32).collect()]
@@ -144,12 +185,32 @@ impl ModelFile {
                         } else {
                             [1.0; 4]
                         };
-                        let key = [
-                            p[0], p[1], p[2], nrm[0], nrm[1], nrm[2], uv[0], uv[1], color[0], color[1], color[2],
-                            color[3],
-                        ]
-                        .map(f32::to_bits);
+                        let (joints, weights) = skin.map_or(([0; 4], [0.0; 4]), |skin| {
+                            let vertex = &skin.vertices[mesh.vertex_indices[i] as usize];
+                            let begin = vertex.weight_begin as usize;
+                            influences(
+                                skin.weights
+                                    .iter()
+                                    .skip(begin)
+                                    .take(vertex.num_weights as usize)
+                                    .map(|w| (w.cluster_index as u16, w.weight as f32)),
+                            )
+                        });
+                        let mut key = [0; 20];
+                        key[..12].copy_from_slice(
+                            &[
+                                p[0], p[1], p[2], nrm[0], nrm[1], nrm[2], uv[0], uv[1], color[0], color[1], color[2],
+                                color[3],
+                            ]
+                            .map(f32::to_bits),
+                        );
+                        key[12..16].copy_from_slice(&joints.map(u32::from));
+                        key[16..].copy_from_slice(&weights.map(f32::to_bits));
                         let at = *seen.entry(key).or_insert_with(|| {
+                            if let Some(skin) = &mut out.skin {
+                                skin.indices.push(joints);
+                                skin.weights.push(weights);
+                            }
                             out.positions.push(p);
                             out.normals.push(nrm);
                             out.uvs[0].push(uv);
@@ -248,6 +309,56 @@ fn mesh_names(meta: &str) -> HashMap<i64, String> {
         }
     }
     names
+}
+
+fn matrix4(m: &ufbx::Matrix) -> glam::Mat4 {
+    glam::Mat4::from_cols_array(&[
+        m.m00 as f32,
+        m.m10 as f32,
+        m.m20 as f32,
+        0.0,
+        m.m01 as f32,
+        m.m11 as f32,
+        m.m21 as f32,
+        0.0,
+        m.m02 as f32,
+        m.m12 as f32,
+        m.m22 as f32,
+        0.0,
+        m.m03 as f32,
+        m.m13 as f32,
+        m.m23 as f32,
+        1.0,
+    ])
+}
+
+fn convert_matrix_relative(
+    n: &ufbx::Node,
+    mesh_world: glam::Mat4,
+    convert: &impl Fn(&ufbx::Matrix) -> glam::Mat4,
+) -> [f32; 16] {
+    if n.parent.is_some() {
+        convert(&n.node_to_parent).to_cols_array()
+    } else {
+        // Root coordinates are relative to the renderer, whose transform is
+        // supplied by the imported scene entity.
+        let world = convert(&n.node_to_world);
+        let mesh = ufbx::Matrix {
+            m00: mesh_world.x_axis.x as f64,
+            m10: mesh_world.x_axis.y as f64,
+            m20: mesh_world.x_axis.z as f64,
+            m01: mesh_world.y_axis.x as f64,
+            m11: mesh_world.y_axis.y as f64,
+            m21: mesh_world.y_axis.z as f64,
+            m02: mesh_world.z_axis.x as f64,
+            m12: mesh_world.z_axis.y as f64,
+            m22: mesh_world.z_axis.z as f64,
+            m03: mesh_world.w_axis.x as f64,
+            m13: mesh_world.w_axis.y as f64,
+            m23: mesh_world.w_axis.z as f64,
+        };
+        (convert(&mesh).inverse() * world).to_cols_array()
+    }
 }
 
 #[cfg(test)]

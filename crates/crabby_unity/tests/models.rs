@@ -193,3 +193,55 @@ fn without_baked_axis_conversion_only_x_is_mirrored() {
         assert_winding_matches_normals(&mesh);
     }
 }
+
+#[test]
+fn skinned_renderers_export_fbx_bones_and_bind_space() {
+    let dir = std::env::temp_dir().join(format!("crabby_unity_skin_{}", std::process::id()));
+    let assets = dir.join("Assets");
+    std::fs::create_dir_all(&assets).unwrap();
+    std::fs::write(assets.join("Lid.fbx"), include_bytes!("fixtures/skinned.fbx")).unwrap();
+    std::fs::write(
+        assets.join("Lid.fbx.meta"),
+        "guid: lid00000\nModelImporter:\n  fileIDToRecycleName:\n    4300000: Lid\n",
+    )
+    .unwrap();
+    let prefab = PREFAB.replace(
+        "--- !u!23 &4\nMeshRenderer:",
+        "--- !u!137 &4\nSkinnedMeshRenderer:\n  m_Mesh: {fileID: 4300000, guid: lid00000, type: 3}",
+    );
+    let file = UnityFile::parse(&prefab).unwrap();
+    let project = Project::open(&dir).unwrap();
+    let hierarchy = Hierarchy::build(&file, &project).unwrap();
+    let out = dir.join("out");
+    let mut importer = Importer::new(&project, &out, "");
+    let scene = importer.scene(&hierarchy).unwrap();
+    let path = scene["entities"][0]["components"]["Model"]["mesh"].as_str().unwrap();
+    let bytes = std::fs::read(out.join(path)).unwrap();
+    let gltf = gltf::Gltf::from_slice(&bytes).unwrap();
+    let blob = gltf.blob.as_deref().unwrap();
+    let skin = gltf.skins().next().unwrap();
+    let root = skin.joints().next().unwrap();
+    assert_eq!(root.name(), Some("RootBone"));
+    assert_eq!(root.children().next().unwrap().name(), Some("ChildBone"));
+    assert_eq!(root.transform().matrix()[3][2], -2.0);
+    let bind = skin
+        .reader(|_| Some(blob))
+        .read_inverse_bind_matrices()
+        .unwrap()
+        .next()
+        .unwrap();
+    assert_eq!(bind[3][2], 2.0);
+    let primitive = gltf.meshes().next().unwrap().primitives().next().unwrap();
+    let reader = primitive.reader(|_| Some(blob));
+    assert!(reader.read_joints(0).unwrap().into_u16().all(|j| j == [0; 4]));
+    assert!(
+        reader
+            .read_weights(0)
+            .unwrap()
+            .into_f32()
+            .all(|w| w == [1.0, 0.0, 0.0, 0.0])
+    );
+    // Geometry's +1 Z offset is baked into the vertices, but not posed.
+    assert!(reader.read_positions().unwrap().all(|p| p[2] == -2.0));
+    std::fs::remove_dir_all(dir).unwrap();
+}

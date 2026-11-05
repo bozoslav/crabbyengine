@@ -43,6 +43,7 @@ impl UnityMesh {
     pub fn builtin(file_id: i64) -> Option<Self> {
         let mut mesh = Self {
             name: name(file_id)?.to_string(),
+            skin: None,
             positions: Vec::new(),
             normals: Vec::new(),
             tangents: Vec::new(),
