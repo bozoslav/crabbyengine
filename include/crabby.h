@@ -81,6 +81,17 @@ typedef enum CrabbyAudioRolloff {
   CRABBY_ROLLOFF_LINEAR = 1,
 } CrabbyAudioRolloff;
 
+typedef enum CrabbyLane {
+  CRABBY_LANE_RELIABLE = 0,
+  CRABBY_LANE_UNRELIABLE = 1,
+} CrabbyLane;
+
+typedef enum CrabbyMessageEventKind {
+  CRABBY_MESSAGE_CONNECTED = 0,
+  CRABBY_MESSAGE_DISCONNECTED = 1,
+  CRABBY_MESSAGE = 2,
+} CrabbyMessageEventKind;
+
 typedef enum CrabbyJointMotionKind {
   CRABBY_JOINT_FREE = 0,
   CRABBY_JOINT_LOCKED = 1,
@@ -319,6 +330,8 @@ typedef struct CrabbyMotion CrabbyMotion;
 
 typedef struct CrabbyNavGrid CrabbyNavGrid;
 
+typedef struct CrabbyNetMessages CrabbyNetMessages;
+
 typedef struct CrabbyTerrainTileData CrabbyTerrainTileData;
 
 typedef struct CrabbyWorld CrabbyWorld;
@@ -508,6 +521,22 @@ typedef struct CrabbyTurns {
   uint32_t now;
   float dt;
 } CrabbyTurns;
+
+typedef struct CrabbyMessageEvent {
+  enum CrabbyMessageEventKind kind;
+  uint64_t peer;
+  enum CrabbyLane lane;
+  const uint8_t *bytes;
+  size_t len;
+  const char *reason;
+} CrabbyMessageEvent;
+
+typedef struct CrabbyMessageStats {
+  uint64_t packets_sent;
+  uint64_t bytes_sent;
+  uint64_t packets_received;
+  uint64_t bytes_received;
+} CrabbyMessageStats;
 
 typedef struct CrabbyFrameStats {
   uint64_t frames;
@@ -1562,6 +1591,45 @@ enum CrabbyStatus crabby_ctx_reloaded_textures(const struct CrabbyCtx *ctx,
 enum CrabbyStatus crabby_ctx_turns(const struct CrabbyCtx *ctx,
                                    uint32_t every,
                                    struct CrabbyTurns *out_turns);
+
+enum CrabbyStatus crabby_net_messages_host(const char *addr,
+                                           size_t max_clients,
+                                           struct CrabbyNetMessages **out_endpoint);
+
+enum CrabbyStatus crabby_net_messages_join(const char *addr,
+                                           struct CrabbyNetMessages **out_endpoint);
+
+enum CrabbyStatus crabby_net_messages_loopback(size_t players,
+                                               struct CrabbyNetMessages **out_endpoints);
+
+void crabby_net_messages_free(struct CrabbyNetMessages *endpoint);
+
+enum CrabbyStatus crabby_net_messages_set_timeout(struct CrabbyNetMessages *endpoint, uint64_t ms);
+
+enum CrabbyStatus crabby_net_messages_local_port(struct CrabbyNetMessages *endpoint,
+                                                 uint16_t *out_port);
+
+enum CrabbyStatus crabby_net_messages_send(struct CrabbyNetMessages *endpoint,
+                                           uint64_t peer,
+                                           enum CrabbyLane lane_,
+                                           const uint8_t *bytes,
+                                           size_t len);
+
+enum CrabbyStatus crabby_net_messages_send_to_all(struct CrabbyNetMessages *endpoint,
+                                                  enum CrabbyLane lane_,
+                                                  const uint8_t *bytes,
+                                                  size_t len);
+
+enum CrabbyStatus crabby_net_messages_poll(struct CrabbyNetMessages *endpoint);
+
+enum CrabbyStatus crabby_net_messages_next_event(struct CrabbyNetMessages *endpoint,
+                                                 struct CrabbyMessageEvent *out_event,
+                                                 bool *out_found);
+
+enum CrabbyStatus crabby_net_messages_disconnect(struct CrabbyNetMessages *endpoint, uint64_t peer);
+
+enum CrabbyStatus crabby_net_messages_stats(struct CrabbyNetMessages *endpoint,
+                                            struct CrabbyMessageStats *out_stats);
 
 enum CrabbyStatus crabby_game_lockstep_host(struct CrabbyGame *game,
                                             const char *addr,

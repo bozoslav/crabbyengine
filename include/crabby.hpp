@@ -1126,6 +1126,71 @@ public:
 
 /// An animation clip of a glTF file with skins (Rust `AnimationClip`),
 /// from ctx::load_clip; it owns its handle.
+using lane = CrabbyLane;
+using message_stats = CrabbyMessageStats;
+/// One event from net_messages::next_event (bytes and reason copied).
+struct message_event {
+    CrabbyMessageEventKind kind;
+    std::uint64_t peer;
+    lane on;
+    std::vector<std::uint8_t> bytes;
+    std::string reason;
+};
+
+/// A message endpoint the game owns (Rust `NetMessages`): poll it every
+/// frame, send bytes on a reliable or unreliable lane, read events. The
+/// host is peer 0. Plain UDP: not authenticated or encrypted.
+class net_messages {
+    CrabbyNetMessages* raw_ = nullptr;
+    explicit net_messages(CrabbyNetMessages* raw) : raw_(raw) {}
+public:
+    ~net_messages() { crabby_net_messages_free(raw_); }
+    net_messages(net_messages&& o) noexcept : raw_(o.raw_) { o.raw_ = nullptr; }
+    net_messages& operator=(net_messages&& o) noexcept { std::swap(raw_, o.raw_); return *this; }
+    net_messages(const net_messages&) = delete;
+    net_messages& operator=(const net_messages&) = delete;
+    /// Hosts at `addr` ("0.0.0.0:7777"; port 0 picks one) for up to `max_clients`.
+    static net_messages host(const char* addr, std::size_t max_clients) {
+        CrabbyNetMessages* m = nullptr; detail::check(crabby_net_messages_host(addr, max_clients, &m)); return net_messages(m);
+    }
+    /// Joins the host at `addr`.
+    static net_messages join(const char* addr) {
+        CrabbyNetMessages* m = nullptr; detail::check(crabby_net_messages_join(addr, &m)); return net_messages(m);
+    }
+    /// `players` endpoints joined in memory (the first hosts), for tests.
+    static std::vector<net_messages> loopback(std::size_t players) {
+        std::vector<CrabbyNetMessages*> raw(players);
+        detail::check(crabby_net_messages_loopback(players, raw.data()));
+        std::vector<net_messages> out;
+        for (auto* m : raw) out.push_back(net_messages(m));
+        return out;
+    }
+    /// How long a silent peer may stay connected.
+    void set_timeout(std::uint64_t ms) { detail::check(crabby_net_messages_set_timeout(raw_, ms)); }
+    std::uint16_t local_port() const { std::uint16_t p = 0; detail::check(crabby_net_messages_local_port(raw_, &p)); return p; }
+    /// Sends `len` bytes (at most 1 MiB) to `peer`.
+    void send(std::uint64_t peer, lane l, const void* bytes, std::size_t len) {
+        detail::check(crabby_net_messages_send(raw_, peer, l, static_cast<const std::uint8_t*>(bytes), len));
+    }
+    void send(std::uint64_t peer, lane l, const std::string& text) { send(peer, l, text.data(), text.size()); }
+    void send_to_all(lane l, const void* bytes, std::size_t len) {
+        detail::check(crabby_net_messages_send_to_all(raw_, l, static_cast<const std::uint8_t*>(bytes), len));
+    }
+    void send_to_all(lane l, const std::string& text) { send_to_all(l, text.data(), text.size()); }
+    /// Sends what's queued and receives what arrived; then read next_event until empty.
+    void poll() { detail::check(crabby_net_messages_poll(raw_)); }
+    /// The oldest event, or std::nullopt.
+    std::optional<message_event> next_event() {
+        CrabbyMessageEvent e{};
+        bool found = false;
+        detail::check(crabby_net_messages_next_event(raw_, &e, &found));
+        if (!found) return std::nullopt;
+        return message_event{e.kind, e.peer, e.lane, std::vector<std::uint8_t>(e.bytes, e.bytes + e.len), std::string(e.reason)};
+    }
+    void disconnect(std::uint64_t peer) { detail::check(crabby_net_messages_disconnect(raw_, peer)); }
+    message_stats stats() const { message_stats s{}; detail::check(crabby_net_messages_stats(raw_, &s)); return s; }
+};
+
 class clip {
     CrabbyClip* raw_ = nullptr;
 public:

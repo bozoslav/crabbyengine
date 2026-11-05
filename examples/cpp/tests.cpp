@@ -1,5 +1,6 @@
 #include "crabby.hpp"
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <atomic>
 #include <cstdlib>
@@ -827,6 +828,38 @@ static void inverse_kinematics() {
     });
 }
 
+// Two endpoints in memory: connect, then a reliable message and a broadcast.
+static void messages() {
+    auto peers = crabby::net_messages::loopback(2);
+    auto& host = peers[0];
+    auto& client = peers[1];
+    std::vector<crabby::message_event> got;
+    for (int i = 0; i < 3000 && got.size() < 4; i++) { // the handshake takes real time
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        host.poll();
+        client.poll();
+        while (auto e = host.next_event()) got.push_back(*e);
+        while (auto e = client.next_event()) {
+            if (e->kind == CRABBY_MESSAGE_CONNECTED) {
+                client.send(0, CRABBY_LANE_RELIABLE, std::string("buy apple"));
+                host.send_to_all(CRABBY_LANE_UNRELIABLE, std::string("tick"));
+            }
+            got.push_back(*e);
+        }
+    }
+    auto has = [&](CrabbyMessageEventKind kind, const std::string& text) {
+        for (auto& e : got)
+            if (e.kind == kind && std::string(e.bytes.begin(), e.bytes.end()) == text) return true;
+        return false;
+    };
+    CHECK(has(CRABBY_MESSAGE_CONNECTED, ""));
+    CHECK(has(CRABBY_MESSAGE, "buy apple"));
+    CHECK(has(CRABBY_MESSAGE, "tick"));
+    CHECK(host.stats().packets_sent > 0);
+    throws([&] { client.send(0, CRABBY_LANE_RELIABLE, nullptr, 2 * 1024 * 1024); });
+    throws([] { crabby::net_messages::loopback(1); });
+}
+
 int main() {
     worlds();
     names_and_reflection();
@@ -846,6 +879,7 @@ int main() {
     joints3d();
     vehicles();
     lockstep();
+    messages();
     events();
     rng_matches_rust();
     grid_views_match_engine_queries();

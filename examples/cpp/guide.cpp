@@ -11,6 +11,8 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <thread>
+#include <chrono>
 
 using namespace crabby;
 
@@ -1522,7 +1524,34 @@ static void buses_and_effects(crabby::ctx& ctx, crabby::sound sound) {
 }
 // ANCHOR_END: audio_stream
 
+static bool messages_round_trip() {
+    // ANCHOR: messages
+    // The game owns the endpoint. In a game, poll it and read its events in
+    // a frame system, including frames where the simulation is paused.
+    auto host = crabby::net_messages::host("127.0.0.1:0", 8);
+    auto client = crabby::net_messages::join(("127.0.0.1:" + std::to_string(host.local_port())).c_str());
+    bool received = false;
+    for (int frame = 0; frame < 5000 && !received; frame++) {
+        client.poll();
+        while (auto e = client.next_event()) {
+            if (e->kind == CRABBY_MESSAGE_CONNECTED) client.send(0, CRABBY_LANE_RELIABLE, std::string("hello"));
+            if (e->kind == CRABBY_MESSAGE_DISCONNECTED) std::fprintf(stderr, "%s\n", e->reason.c_str());
+        }
+        host.poll();
+        while (auto e = host.next_event()) {
+            if (e->kind != CRABBY_MESSAGE) continue;
+            std::printf("received: %.*s\n", int(e->bytes.size()), reinterpret_cast<const char*>(e->bytes.data()));
+            host.send(e->peer, CRABBY_LANE_UNRELIABLE, std::string("42"));
+            received = true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    // ANCHOR_END: messages
+    return received;
+}
+
 int main() {
+    if (!messages_round_trip()) { std::fprintf(stderr, "no message\n"); std::abort(); }
     crabby::game("sound guide", 1, 1).run_headless(0, [](crabby::ctx& ctx) {
         sound3d(ctx);
         float silence[16] = {};

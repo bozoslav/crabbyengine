@@ -24,6 +24,9 @@ use serde::de::DeserializeOwned;
 
 use crate::{Instant, World, WorldReflect};
 
+mod messages;
+pub use messages::{Lane, MAX_MESSAGE_BYTES, MessageEvent, MessageStats, NetMessages, PeerId};
+
 #[cfg(feature = "steam")]
 mod steam;
 #[cfg(feature = "steam")]

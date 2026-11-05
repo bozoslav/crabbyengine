@@ -113,7 +113,10 @@ pub use flow::RawFlowView;
 pub use flow::{FlowField, NavGrid};
 pub use game::{Game, SetupResult};
 pub use input::{Gamepad, GamepadAxis, GamepadButton, GamepadStick, Key, MAX_GAMEPADS, MouseButton};
-pub use net::{Desync, MAX_INPUT_BYTES, MAX_PLAYERS, Net, NetState, NetStats};
+pub use net::{
+    Desync, Lane, MAX_INPUT_BYTES, MAX_MESSAGE_BYTES, MAX_PLAYERS, MessageEvent, MessageStats, Net, NetMessages,
+    NetState, NetStats, PeerId,
+};
 #[cfg(feature = "steam")]
 pub use net::{steam_lobby_from_args, steam_wait_for_invite};
 #[cfg(feature = "physics")]
