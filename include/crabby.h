@@ -746,6 +746,20 @@ typedef struct CrabbyVelocity {
   float angular;
 } CrabbyVelocity;
 
+typedef struct CrabbyPointLight3D {
+  struct CrabbyColor color;
+  float intensity;
+  float range;
+} CrabbyPointLight3D;
+
+typedef struct CrabbySpotLight3D {
+  struct CrabbyColor color;
+  float intensity;
+  float range;
+  float inner_angle;
+  float outer_angle;
+} CrabbySpotLight3D;
+
 typedef struct CrabbyVelocity3D {
   struct CrabbyVec3 linear;
   struct CrabbyVec3 angular;
@@ -1699,6 +1713,10 @@ enum CrabbyStatus crabby_ctx_set_mesh_shadows(struct CrabbyCtx *ctx,
 enum CrabbyStatus crabby_ctx_mesh_shadows(struct CrabbyCtx *ctx,
                                           struct CrabbyMesh mesh,
                                           bool *out_casts);
+
+enum CrabbyStatus crabby_point_light3d_component(struct CrabbyWorld *world, uint32_t *out_id);
+
+enum CrabbyStatus crabby_spot_light3d_component(struct CrabbyWorld *world, uint32_t *out_id);
 
 enum CrabbyStatus crabby_sprite_sheet(struct CrabbyTexture texture,
                                       uint32_t frame_width,

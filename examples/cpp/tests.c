@@ -45,6 +45,20 @@ int main(void) {
     CHECK(crabby_despawn(w, e) == CRABBY_NOT_FOUND);
     CHECK(crabby_world_free(w) == CRABBY_OK);
 
+    w = crabby_world_new();
+    uint32_t point_id, spot_id;
+    CHECK(crabby_point_light3d_component(w, &point_id) == CRABBY_OK);
+    CHECK(crabby_spot_light3d_component(w, &spot_id) == CRABBY_OK);
+    CrabbyPointLight3D point = {{1, .5f, .1f, 1}, 20, 12};
+    CrabbySpotLight3D spot = {{.1f, .5f, 1, 1}, 30, 18, .2f, .5f};
+    CrabbyValue lights[] = {{point_id, &point, sizeof(point)}, {spot_id, &spot, sizeof(spot)}};
+    CHECK(crabby_spawn(w, lights, 2, &e) == CRABBY_OK);
+    CrabbyPointLight3D point_out;
+    CrabbySpotLight3D spot_out;
+    CHECK(crabby_get(w, e, point_id, &point_out, sizeof(point_out)) == CRABBY_OK && point_out.intensity == 20);
+    CHECK(crabby_get(w, e, spot_id, &spot_out, sizeof(spot_out)) == CRABBY_OK && spot_out.outer_angle == .5f);
+    CHECK(crabby_world_free(w) == CRABBY_OK);
+
     Run r = {0, 0, CRABBY_OK};
     CrabbyGame* game = crabby_game_new("c tests", 1, 1); CHECK(game);
     CHECK(crabby_game_fixed_hz(game, 50) == CRABBY_OK);

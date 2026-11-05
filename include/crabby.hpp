@@ -81,6 +81,8 @@ using vec3 = CrabbyVec3;
 using quat = CrabbyQuat;
 using transform3d = CrabbyTransform3D;
 using model = CrabbyModel;
+using point_light3d = CrabbyPointLight3D;
+using spot_light3d = CrabbySpotLight3D;
 /// A square of heightfield terrain, drawn more coarsely further from the
 /// camera (Rust `TerrainTile`); made with ctx::create_terrain_tile.
 using terrain_tile = CrabbyTerrainTile;
@@ -559,6 +561,8 @@ protected:
         else if constexpr (std::is_same<T, velocity3d>::value) status = crabby_velocity3d_component(world, &id);
         else if constexpr (std::is_same<T, character3d>::value) status = crabby_character3d_component(world, &id);
         else if constexpr (std::is_same<T, transform3d>::value) status = crabby_transform3d_component(world, &id);
+        else if constexpr (std::is_same<T, point_light3d>::value) status = crabby_point_light3d_component(world, &id);
+        else if constexpr (std::is_same<T, spot_light3d>::value) status = crabby_spot_light3d_component(world, &id);
         else if constexpr (std::is_same<T, model>::value) status = crabby_model_component(world, &id);
         else if constexpr (std::is_same<T, terrain_tile>::value) status = crabby_terrain_tile_component(world, &id);
         else status = crabby_component_register(world, name ? name : detail::type_name<T>().c_str(), sizeof(T), alignof(T), &id);

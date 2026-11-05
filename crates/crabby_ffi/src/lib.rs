@@ -338,6 +338,8 @@ pub(crate) fn component(world: &World, id: u32) -> Result<(ComponentId, Kind), F
         // any bits are a valid value (unknown meshes draw nothing).
         Some(t) if t == TypeId::of::<crabbyengine::Transform3D>() => Kind::Plain,
         Some(t) if t == TypeId::of::<crabbyengine::Model>() => Kind::Plain,
+        Some(t) if t == TypeId::of::<crabbyengine::PointLight3D>() => Kind::Plain,
+        Some(t) if t == TypeId::of::<crabbyengine::SpotLight3D>() => Kind::Plain,
         // repr(C), layout checked against CrabbyTerrainTile; unknown meshes
         // draw nothing and every level index is clamped.
         Some(t) if t == TypeId::of::<crabbyengine::TerrainTile>() => Kind::Plain,

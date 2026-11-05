@@ -7,6 +7,8 @@ mod gpu;
 #[cfg(all(feature = "window", feature = "3d"))]
 mod gpu3d;
 #[cfg(all(feature = "window", feature = "3d"))]
+mod lights;
+#[cfg(all(feature = "window", feature = "3d"))]
 mod mips;
 #[cfg(not(feature = "window"))]
 mod none;
@@ -58,3 +60,6 @@ pub(crate) struct Screenshot {
     pub height: u32,
     pub rgba: Vec<u8>,
 }
+
+#[cfg(all(test, feature = "window", feature = "3d"))]
+mod lights_bench;

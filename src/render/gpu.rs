@@ -14,11 +14,11 @@ pub(super) struct GpuTexture {
     pub(super) bind_group: wgpu::BindGroup,
     pub(super) texture: wgpu::Texture,
     /// Sampled with hard edges (pixel art).
-    nearest: bool,
+    pub(super) nearest: bool,
     /// Whether it has mipmaps (made once a 3D material uses it), and
     /// whether they average data (normals, ORM) rather than colors.
     #[cfg(feature = "3d")]
-    mips: Option<bool>,
+    pub(super) mips: Option<bool>,
 }
 
 pub(crate) struct Renderer {

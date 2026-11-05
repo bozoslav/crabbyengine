@@ -29,6 +29,8 @@ struct Frame {
     fog_color: vec4<f32>,  // rgb: linear, without an atmosphere
     night: vec4<f32>,      // rgb: light at night
     fog_far: vec4<f32>,    // x: distance fog start, y: its end (0: none), z: sun glow, w: sun focus
+    cluster_depth: vec4<f32>,
+    cluster_view_proj: mat4x4<f32>,
 };
 
 struct MaterialData {
@@ -45,6 +47,8 @@ struct MaterialData {
 // The sky around the camera (see sky_radiance), made each frame.
 @group(0) @binding(3) var sky_texture: texture_2d<f32>;
 @group(0) @binding(4) var sky_sampler: sampler;
+@group(0) @binding(5) var punctual_records: texture_2d<f32>;
+@group(0) @binding(6) var punctual_clusters: texture_2d<u32>;
 @group(1) @binding(0) var<uniform> material: MaterialData;
 @group(1) @binding(1) var material_sampler: sampler;
 @group(1) @binding(2) var base_texture: texture_2d<f32>;
@@ -211,4 +215,63 @@ fn fbm2(p: vec2<f32>) -> f32 {
         amplitude *= 0.5;
     }
     return sum / 0.96875;
+}
+
+fn direct_light(s: Surface, l: vec3<f32>, radiance: vec3<f32>) -> vec3<f32> {
+    let n = s.normal;
+    let v = s.view;
+    let h = (l + v) / max(length(l + v), 1e-6);
+    let n_l = max(dot(n, l), 0.0);
+    let n_v = max(dot(n, v), 1e-4);
+    let n_h = max(dot(n, h), 0.0);
+    let v_h = max(dot(v, h), 0.0);
+
+    let a = s.roughness * s.roughness;
+    let a2 = a * a;
+    let d_denom = n_h * n_h * (a2 - 1.0) + 1.0;
+    let d = a2 / (PI * d_denom * d_denom);
+    let k = (s.roughness + 1.0) * (s.roughness + 1.0) / 8.0;
+    let g = n_v / (n_v * (1.0 - k) + k) * n_l / (n_l * (1.0 - k) + k);
+    let f0 = mix(vec3<f32>(0.04), s.albedo, s.metallic);
+    let f = f0 + (vec3<f32>(1.0) - f0) * pow(1.0 - v_h, 5.0);
+    let specular = d * g * f / max(4.0 * n_v * n_l, 1e-4);
+    let diffuse = (vec3<f32>(1.0) - f) * (1.0 - s.metallic) * s.albedo / PI;
+    return (diffuse + specular) * radiance * n_l;
+}
+
+// Evaluate only the lights in the world position's froxel, using the same
+// GGX BRDF as sunlight. Available to custom material shaders too.
+fn punctual_light(s: Surface) -> vec3<f32> {
+    let clip = frame.cluster_view_proj * vec4<f32>(s.world, 1.0);
+    if clip.w <= 0.0 || frame.cluster_depth.x <= 0.0 { return vec3<f32>(0.0); }
+    let xy = vec2<u32>(clamp(floor((clip.xy / clip.w * 0.5 + 0.5) * vec2<f32>(16.0, 9.0)), vec2<f32>(0.0), vec2<f32>(15.0, 8.0)));
+    let z = u32(clamp(floor(log(max(clip.w, frame.cluster_depth.x) / frame.cluster_depth.x) * frame.cluster_depth.y), 0.0, 23.0));
+    let cell = (z * 9u + xy.y) * 16u + xy.x;
+    let offset = cluster_word(cell * 2u);
+    let count = cluster_word(cell * 2u + 1u);
+    var sum = vec3<f32>(0.0);
+    for (var i = 0u; i < count; i++) {
+        let id = i32(cluster_word(offset + i));
+        let pr = textureLoad(punctual_records, vec2<i32>(0, id), 0);
+        let delta = pr.xyz - s.world;
+        let d2 = dot(delta, delta);
+        if d2 >= pr.w * pr.w { continue; }
+        let l = delta / max(sqrt(d2), 1e-6);
+        let cone = textureLoad(punctual_records, vec2<i32>(2, id), 0);
+        var attenuation = 1.0;
+        if cone.w > -1.0 {
+            let inner = textureLoad(punctual_records, vec2<i32>(3, id), 0).x;
+            let angle = dot(-l, cone.xyz);
+            // A zero-width transition is an explicit hard cone.
+            attenuation = select(smoothstep(cone.w, max(inner, cone.w + 1e-6), angle), select(0.0, 1.0, angle >= cone.w), inner == cone.w);
+        }
+        let window = max(1.0 - (d2 / (pr.w * pr.w)) * (d2 / (pr.w * pr.w)), 0.0);
+        attenuation *= window * window / max(d2, 1.0);
+        let radiance = textureLoad(punctual_records, vec2<i32>(1, id), 0).rgb * attenuation;
+        sum += direct_light(s, l, radiance);
+    }
+    return sum;
+}
+fn cluster_word(i: u32) -> u32 {
+    return textureLoad(punctual_clusters, vec2<i32>(i32(i % 1024u), i32(i / 1024u)), 0).x;
 }

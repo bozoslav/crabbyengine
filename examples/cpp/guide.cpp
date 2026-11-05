@@ -1196,7 +1196,18 @@ static void the_trees_stand_on_the_ground() {
     if (trees != 19) { std::fprintf(stderr, "%d trees\n", trees); std::abort(); }
 }
 
+// ANCHOR: punctual_lights
+static void punctual_lights(crabby::ctx& ctx) {
+    ctx.world().spawn(crabby::transform3d_at({0, 3, 0}),
+        crabby::point_light3d{crabby::rgb(1, .3f, .1f), 30, 12});
+    auto aim = crabby::looking_at(crabby::transform3d_at({4, 3, 0}), {0, 0, 0});
+    ctx.world().spawn(aim,
+        crabby::spot_light3d{crabby::colors::white, 60, 20, .2f, .5f});
+}
+// ANCHOR_END: punctual_lights
+
 int main() {
+    crabby::game("light guide", 64, 64).run_headless(0, punctual_lights);
     the_ripples_run_on_a_render_target();
     the_pond_mirrors_the_camera();
     the_hills_are_nine_tiles();
