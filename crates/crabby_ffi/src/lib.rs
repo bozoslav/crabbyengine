@@ -50,6 +50,7 @@ mod strips;
 mod three;
 mod tiles;
 mod types;
+mod ui_panel3d;
 mod ui_retained;
 mod vehicle3d;
 pub use actions::*;
@@ -83,6 +84,7 @@ pub use strips::*;
 pub use three::*;
 pub use tiles::*;
 pub use types::*;
+pub use ui_panel3d::*;
 pub use ui_retained::*;
 pub use vehicle3d::*;
 

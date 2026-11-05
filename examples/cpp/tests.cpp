@@ -1157,6 +1157,48 @@ static void ribbons_and_decals() {
     std::filesystem::remove(file);
 }
 
+static void ui_panels() {
+    crabby::game("ui panels", 1, 1).run_headless(0, [&](crabby::ctx& ctx) {
+        namespace u = crabby::ui;
+        auto e = ctx.world().spawn(crabby::transform3d_at({0, 1.5f, -2}));
+        auto texture = ctx.create_ui_panel(e, 600, 400, {1.2f, 0.8f});
+        CHECK(texture.width == 600 && texture.height == 400);
+        CHECK(ctx.world().has<crabby::model>(e));
+
+        // The panel's UI takes the same calls as the screen's, in the panel's pixels.
+        auto panel = ctx.panel_ui(e);
+        auto root = panel.add_panel(u::none, u::layout().column().size(u::percent(1), u::percent(1)).padding(20));
+        auto buy = panel.add_button(root, "Buy", u::layout().size(200, 60).shrink(0));
+        panel.push_screen(root);
+        panel.layout_for({600, 400});
+        CHECK(panel.top_screen() == root && panel.rect(buy).max.x == 220 && panel.rect(root).max.y == 400);
+        CHECK(!ctx.ui_retained().top_screen());  // the screen's own UI is a different tree
+
+        auto input = u::default_input();
+        input.pointer = {50, 50};
+        input.pressed = input.held = true;
+        panel.frame({600, 400}, input);
+        input.pressed = input.held = false;
+        input.released = true;
+        panel.frame({600, 400}, input);
+        auto events = panel.events();
+        CHECK(events.size() == 1 && events[0].kind == u::event_kind::clicked && events[0].node == buy);
+        CHECK(ctx.ui_retained().events().empty());
+
+        // Headless runs don't give panels the mouse; the calls still work.
+        ctx.set_ui_pointer_ray({0, 1.5f, 0}, {0, 0, -1});
+        CHECK(!ctx.ui_panel_pointer(e));
+        ctx.set_ui_panel_interactive(e, false);
+        ctx.clear_ui_pointer_ray();
+        throws([&] { ctx.set_ui_pointer_ray({0, 0, 0}, {0, 0, 0}); });
+        throws([&] { ctx.create_ui_panel(e, 0, 10, {1, 1}); });
+        throws([&] { ctx.create_ui_panel(e, 10, 10, {-1, 1}); });
+        ctx.remove_ui_panel(e);
+        throws([&] { panel.add_panel(u::none); });  // no panel on it now
+        throws([&] { ctx.ui_panel_pointer(e); });
+    });
+}
+
 static void retained_ui() {
     crabby::game("retained ui", 1, 1).run_headless(0, [&](crabby::ctx& ctx) {
         auto ui = ctx.ui_retained();
@@ -1298,6 +1340,7 @@ int main() {
     contacts3d();
     ribbons_and_decals();
     retained_ui();
+    ui_panels();
     events();
     rng_matches_rust();
     grid_views_match_engine_queries();

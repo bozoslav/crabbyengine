@@ -180,9 +180,25 @@ impl Ctx {
     ///
     /// # Panics
     ///
-    /// If a size is zero or the GPU can't make a texture that large.
+    /// If a pixel dimension is zero, the world size is not positive and finite,
+    /// or the GPU can't make a texture that large.
     pub fn create_ui_panel(&mut self, width: u32, height: u32, size: Vec2) -> (UiPanel3D, crate::Model) {
-        let texture = self.create_render_target(width, height);
+        self.try_create_ui_panel(width, height, size)
+            .unwrap_or_else(|message| panic!("{message}"))
+    }
+
+    /// [`Ctx::create_ui_panel`] that returns errors (for the C API).
+    #[doc(hidden)]
+    pub fn try_create_ui_panel(
+        &mut self,
+        width: u32,
+        height: u32,
+        size: Vec2,
+    ) -> Result<(UiPanel3D, crate::Model), String> {
+        if !size.is_finite() || size.x <= 0.0 || size.y <= 0.0 {
+            return Err("panel size must be positive and finite".into());
+        }
+        let texture = self.try_create_render_target(width, height)?;
         let panel = UiPanel3D::new(texture, size);
         let material = self.create_material(crate::MaterialDesc {
             color: crate::Color::BLACK,
@@ -193,7 +209,7 @@ impl Ctx {
             ..Default::default()
         });
         let mesh = self.create_mesh(&panel.mesh(), material);
-        (panel, crate::Model::new(mesh))
+        Ok((panel, crate::Model::new(mesh)))
     }
 
     /// Sets the ray the mouse uses on [`UiPanel3D`]s this frame and later

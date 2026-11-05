@@ -36,6 +36,10 @@ header = """
  * Callbacks must return normally: C++ exceptions and Rust panics must never
  * cross the C boundary (crabby.hpp catches them for you).
  *
+ * Retained UI tree operations take a target: CRABBY_UI_SCREEN for the
+ * screen's own UI, or an entity with a world-space panel (crabby_ctx_create_ui_panel)
+ * for that panel's UI.
+ *
  * Enums (CrabbyKey, CrabbyMouseButton, CrabbyGamepadButton, CrabbyGamepadAxis,
  * CrabbyBodyKind, CrabbyShapeKind, CrabbyShape3DKind, CrabbyNetState, and the
  * CrabbyUi* layout and paint enums) are passed as uint32_t.

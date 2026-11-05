@@ -190,4 +190,8 @@ name = "ribbons"
 required-features = ["3d"]
 
 [[example]]
+name = "ui_panel"
+required-features = ["3d"]
+
+[[example]]
 name = "ui_shop"

@@ -1821,9 +1821,49 @@ static void shop_guide(crabby::ctx& ctx) {
     if (tree.text(shop.title) != "Purchase complete!" || tree.top_screen() == shop.dialog) std::abort();
 }
 
+// ---- UI on a surface in the world ---------------------------------------------
+static void panel_guide(crabby::ctx& ctx) {
+    // ANCHOR: panel_create
+    // A 1.2 x 0.8 m terminal, 600 x 400 pixels, with a button.
+    auto terminal = ctx.world().spawn(crabby::transform3d_at({0, 1.5f, -2}));
+    ctx.create_ui_panel(terminal, 600, 400, {1.2f, 0.8f});
+    auto panel = ctx.panel_ui(terminal);
+    auto root = panel.add_panel(ui::none, ui::layout()
+        .column().size(ui::percent(1), ui::percent(1)).padding(20).gap(12));
+    auto buy = panel.add_button(root, "Buy", ui::layout().size(200, 60).shrink(0));
+    panel.push_screen(root);
+    // ANCHOR_END: panel_create
+
+    // Click it by hand, as a headless test would (a window's mouse does this itself).
+    panel.layout_for({600, 400});
+    auto input = ui::default_input();
+    input.pointer = {100, 50};
+    input.pressed = input.held = true;
+    panel.frame({600, 400}, input);
+    input.pressed = input.held = false;
+    input.released = true;
+    panel.frame({600, 400}, input);
+
+    // ANCHOR: panel_events
+    // Aim with the middle of the screen instead of the mouse (for a locked
+    // cursor, or a controller in VR).
+    auto eye = ctx.camera3d();
+    ctx.set_ui_pointer_ray(eye.position, crabby::forward(crabby::transform3d_at(eye.position, eye.rotation)));
+    for (const ui::event& e : panel.events())
+        if (e.kind == ui::event_kind::clicked && e.node == buy) panel.set_text(buy, "Bought!");
+    if (auto pixel = ctx.ui_panel_pointer(terminal)) {
+        // The aim is over the panel, at this pixel of its 600 x 400.
+        (void)pixel;
+    }
+    // ANCHOR_END: panel_events
+    if (panel.text(buy) != "Bought!") std::abort();
+    ctx.clear_ui_pointer_ray();
+}
+
 int main() {
     navigation_guide();
     crabby::game("shop guide", 900, 700).run_headless(0, shop_guide);
+    crabby::game("panel guide", 960, 640).run_headless(0, panel_guide);
     crabby::game("particle guide", 1, 1).run_headless(0, campfire);
     crabby::game("ribbon guide", 1, 1).run_headless(0, ribbons);
     if (!messages_round_trip()) { std::fprintf(stderr, "no message\n"); std::abort(); }

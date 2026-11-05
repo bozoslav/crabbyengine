@@ -1656,91 +1656,93 @@ inline input default_input() { return crabby_ui_input_default(); }
 /// It is a cheap handle: copy it freely while the system runs.
 class tree {
     CrabbyCtx* raw_;
+    entity target_;
     static std::optional<id> maybe(id n) { return n == none ? std::nullopt : std::optional<id>(n); }
 public:
-    explicit tree(CrabbyCtx* raw) : raw_(raw) {}
+    /// The screen's UI, or (with `target`) the UI of a world-space panel: `ctx::panel_ui(entity)`.
+    explicit tree(CrabbyCtx* raw, entity target = CRABBY_UI_SCREEN) : raw_(raw), target_(target) {}
 
     // Adding nodes. `parent` is `ui::none` for a detached root (a screen).
     id add_panel(id parent, const layout& l = {}) {
         id n = none; const CrabbyUiLayout c = l.raw();
-        detail::check(crabby_ctx_ui_add_panel(raw_, parent, &c, &n)); return n;
+        detail::check(crabby_ctx_ui_add_panel(raw_, target_, parent, &c, &n)); return n;
     }
     id add_label(id parent, const char* text, const layout& l = {}) {
         id n = none; const CrabbyUiLayout c = l.raw();
-        detail::check(crabby_ctx_ui_add_label(raw_, parent, text, &c, &n)); return n;
+        detail::check(crabby_ctx_ui_add_label(raw_, target_, parent, text, &c, &n)); return n;
     }
     /// A button; activating it makes a `clicked` event.
     id add_button(id parent, const char* text, const layout& l = {}) {
         id n = none; const CrabbyUiLayout c = l.raw();
-        detail::check(crabby_ctx_ui_add_button(raw_, parent, text, &c, &n)); return n;
+        detail::check(crabby_ctx_ui_add_button(raw_, target_, parent, text, &c, &n)); return n;
     }
     id add_image(id parent, crabby::texture t, const layout& l = {}) {
         id n = none; const CrabbyUiLayout c = l.raw();
-        detail::check(crabby_ctx_ui_add_image(raw_, parent, t, &c, &n)); return n;
+        detail::check(crabby_ctx_ui_add_image(raw_, target_, parent, t, &c, &n)); return n;
     }
     /// A clipped area scrolled by wheel, drag and a bar. Give it a bounded size.
     id add_scroll(id parent, const layout& l = {}) {
         id n = none; const CrabbyUiLayout c = l.raw();
-        detail::check(crabby_ctx_ui_add_scroll(raw_, parent, &c, &n)); return n;
+        detail::check(crabby_ctx_ui_add_scroll(raw_, target_, parent, &c, &n)); return n;
     }
     /// A single-line input; typing makes `changed` events, Enter `submitted`.
     id add_text_input(id parent, const char* text = "", const layout& l = {}) {
         id n = none; const CrabbyUiLayout c = l.raw();
-        detail::check(crabby_ctx_ui_add_text_input(raw_, parent, text, &c, &n)); return n;
+        detail::check(crabby_ctx_ui_add_text_input(raw_, target_, parent, text, &c, &n)); return n;
     }
     /// A checkbox; toggling it makes a `changed` event.
     id add_toggle(id parent, const char* text, bool on = false, const layout& l = {}) {
         id n = none; const CrabbyUiLayout c = l.raw();
-        detail::check(crabby_ctx_ui_add_toggle(raw_, parent, text, on, &c, &n)); return n;
+        detail::check(crabby_ctx_ui_add_toggle(raw_, target_, parent, text, on, &c, &n)); return n;
     }
     /// A slider from 0 to 1; moving it makes a `changed` event.
     id add_slider(id parent, float value = 0.0f, const layout& l = {}) {
         id n = none; const CrabbyUiLayout c = l.raw();
-        detail::check(crabby_ctx_ui_add_slider(raw_, parent, value, &c, &n)); return n;
+        detail::check(crabby_ctx_ui_add_slider(raw_, target_, parent, value, &c, &n)); return n;
     }
     /// Removes a node and everything under it; their ids stay invalid.
-    void remove(id node) { detail::check(crabby_ctx_ui_remove(raw_, node)); }
+    void remove(id node) { detail::check(crabby_ctx_ui_remove(raw_, target_, node)); }
 
     // Changing nodes. No setter makes an event.
-    void set_layout(id node, const layout& l) { const CrabbyUiLayout c = l.raw(); detail::check(crabby_ctx_ui_set_layout(raw_, node, &c)); }
-    void set_paint(id node, const paint& p) { const CrabbyUiPaint c = p.raw(); detail::check(crabby_ctx_ui_set_paint(raw_, node, &c)); }
-    void set_text(id node, const char* text) { detail::check(crabby_ctx_ui_set_text(raw_, node, text)); }
+    void set_layout(id node, const layout& l) { const CrabbyUiLayout c = l.raw(); detail::check(crabby_ctx_ui_set_layout(raw_, target_, node, &c)); }
+    void set_paint(id node, const paint& p) { const CrabbyUiPaint c = p.raw(); detail::check(crabby_ctx_ui_set_paint(raw_, target_, node, &c)); }
+    void set_text(id node, const char* text) { detail::check(crabby_ctx_ui_set_text(raw_, target_, node, text)); }
     std::string text(id node) const {
         std::size_t len = 0;
-        detail::check(crabby_ctx_ui_text(raw_, node, nullptr, 0, &len));
+        detail::check(crabby_ctx_ui_text(raw_, target_, node, nullptr, 0, &len));
         std::string out(len + 1, '\0');
-        detail::check(crabby_ctx_ui_text(raw_, node, &out[0], out.size(), &len));
+        detail::check(crabby_ctx_ui_text(raw_, target_, node, &out[0], out.size(), &len));
         out.resize(len);
         return out;
     }
     /// A disabled node and everything under it ignore input.
-    void set_enabled(id node, bool on) { detail::check(crabby_ctx_ui_set_enabled(raw_, node, on)); }
+    void set_enabled(id node, bool on) { detail::check(crabby_ctx_ui_set_enabled(raw_, target_, node, on)); }
     /// A slider's value (0 to 1) or a toggle's (0 off, 1 on).
-    void set_value(id node, float value) { detail::check(crabby_ctx_ui_set_value(raw_, node, value)); }
-    float value(id node) const { float v = 0; detail::check(crabby_ctx_ui_value(raw_, node, &v)); return v; }
-    void set_scroll(id node, vec2 offset) { detail::check(crabby_ctx_ui_set_scroll(raw_, node, offset)); }
-    vec2 scroll(id node) const { vec2 v{}; detail::check(crabby_ctx_ui_scroll(raw_, node, &v)); return v; }
+    void set_value(id node, float value) { detail::check(crabby_ctx_ui_set_value(raw_, target_, node, value)); }
+    float value(id node) const { float v = 0; detail::check(crabby_ctx_ui_value(raw_, target_, node, &v)); return v; }
+    void set_scroll(id node, vec2 offset) { detail::check(crabby_ctx_ui_set_scroll(raw_, target_, node, offset)); }
+    vec2 scroll(id node) const { vec2 v{}; detail::check(crabby_ctx_ui_scroll(raw_, target_, node, &v)); return v; }
     /// A node's rectangle in window points, as of the last layout.
-    crabby::rect rect(id node) const { crabby::rect r{}; detail::check(crabby_ctx_ui_rect(raw_, node, &r)); return r; }
+    crabby::rect rect(id node) const { crabby::rect r{}; detail::check(crabby_ctx_ui_rect(raw_, target_, node, &r)); return r; }
 
     // Screens and focus. Only the top screen takes input; a modal one also owns the pointer outside it.
-    void push_screen(id root, bool modal = false) { detail::check(crabby_ctx_ui_push_screen(raw_, root, modal)); }
+    void push_screen(id root, bool modal = false) { detail::check(crabby_ctx_ui_push_screen(raw_, target_, root, modal)); }
     /// Pops the top screen; the nodes stay and can be pushed again.
-    std::optional<id> pop_screen() { id n = none; detail::check(crabby_ctx_ui_pop_screen(raw_, &n)); return maybe(n); }
-    std::optional<id> top_screen() const { id n = none; detail::check(crabby_ctx_ui_top_screen(raw_, &n)); return maybe(n); }
-    std::optional<id> focus() const { id n = none; detail::check(crabby_ctx_ui_focus(raw_, &n)); return maybe(n); }
-    std::optional<id> hit_test(vec2 point) const { id n = none; detail::check(crabby_ctx_ui_hit_test(raw_, point, &n)); return maybe(n); }
+    std::optional<id> pop_screen() { id n = none; detail::check(crabby_ctx_ui_pop_screen(raw_, target_, &n)); return maybe(n); }
+    std::optional<id> top_screen() const { id n = none; detail::check(crabby_ctx_ui_top_screen(raw_, target_, &n)); return maybe(n); }
+    std::optional<id> focus() const { id n = none; detail::check(crabby_ctx_ui_focus(raw_, target_, &n)); return maybe(n); }
+    std::optional<id> hit_test(vec2 point) const { id n = none; detail::check(crabby_ctx_ui_hit_test(raw_, target_, point, &n)); return maybe(n); }
     /// A scale on top of the window's own, from 0.25 to 8.
-    void set_scale(float scale) { detail::check(crabby_ctx_ui_set_scale(raw_, scale)); }
+    void set_scale(float scale) { detail::check(crabby_ctx_ui_set_scale(raw_, target_, scale)); }
     /// The UI owns the pointer (it is over a control or a modal screen is open): skip clicks on the world.
-    bool wants_pointer() const { bool b = false; detail::check(crabby_ctx_ui_wants_pointer(raw_, &b)); return b; }
-    /// The UI owns the keyboard and gamepad (a screen is open): skip the game's keys.
+    bool wants_pointer() const { bool b = false; detail::check(crabby_ctx_ui_wants_pointer(raw_, target_, &b)); return b; }
+    /// The UI owns the keyboard and gamepad (a screen is open): skip the game's keys. The context's, not a panel's.
     bool wants_keyboard() const { bool b = false; detail::check(crabby_ctx_ui_wants_keyboard(raw_, &b)); return b; }
 
     // Events. Take them every frame; unread ones expire at the next UI frame.
     std::optional<event> next_event() {
         CrabbyUiEvent e{};
-        const CrabbyStatus status = crabby_ctx_ui_next_event(raw_, &e);
+        const CrabbyStatus status = crabby_ctx_ui_next_event(raw_, target_, &e);
         if (status == CRABBY_NOT_FOUND) return std::nullopt;
         detail::check(status);
         return event{static_cast<event_kind>(e.kind), e.id};
@@ -1753,10 +1755,10 @@ public:
     }
 
     // Driving the UI by hand (headless tests, custom hosts): the engine already does this every frame.
-    void layout_for(vec2 viewport) { detail::check(crabby_ctx_ui_layout(raw_, viewport)); }
+    void layout_for(vec2 viewport) { detail::check(crabby_ctx_ui_layout(raw_, target_, viewport)); }
     /// Lays out and handles one frame of `in`; this drops unread events.
-    void frame(vec2 viewport, const input& in = default_input()) { detail::check(crabby_ctx_ui_frame(raw_, viewport, &in)); }
-    /// Typed text for the engine's next UI frame.
+    void frame(vec2 viewport, const input& in = default_input()) { detail::check(crabby_ctx_ui_frame(raw_, target_, viewport, &in)); }
+    /// Typed text for the engine's next UI frame (the context's, not a panel's).
     void insert_text(const char* text) { detail::check(crabby_ctx_ui_insert_text(raw_, text)); }
 };
 }  // namespace ui
@@ -2705,6 +2707,30 @@ public:
     bool ui_button(rect r, const char* label) { bool b = false; detail::check(crabby_ctx_ui_button(raw_, r, label, &b)); return b; }
     /// The retained UI tree (Rust `ctx.ui_retained`): panels, buttons, text inputs and more, with real layout.
     ui::tree ui_retained() const { return ui::tree(raw_); }
+
+    // World-space UI panels (Rust `UiPanel3D`): retained UI drawn into a render target shown on a quad.
+    /// Gives `e` (which needs a `transform3d`) a UI panel `width` x `height` pixels and `size` meters
+    /// in the world, plus the model that shows it: a glowing, alpha-blended quad facing +Z. Build its
+    /// UI with `panel_ui(e)`. Replaces `e`'s model and any panel it had. Returns the panel's texture.
+    texture create_ui_panel(entity e, std::uint32_t width, std::uint32_t height, vec2 size) {
+        texture t{}; detail::check(crabby_ctx_create_ui_panel(raw_, e, width, height, size, &t)); return t;
+    }
+    /// The UI of `e`'s panel (Rust `UiPanel3D::ui`): the same calls as `ui_retained()`, in the panel's pixels.
+    ui::tree panel_ui(entity e) const { return ui::tree(raw_, e); }
+    /// Removes `e`'s panel; its model stays.
+    void remove_ui_panel(entity e) { detail::check(crabby_ctx_remove_ui_panel(raw_, e)); }
+    /// Whether the mouse and keyboard can use `e`'s panel (default true).
+    void set_ui_panel_interactive(entity e, bool on) { detail::check(crabby_ctx_set_ui_panel_interactive(raw_, e, on)); }
+    /// Where the mouse (or the pointer ray) is on `e`'s panel this frame, in its pixels; empty when it isn't over it.
+    std::optional<vec2> ui_panel_pointer(entity e) const {
+        bool over = false; vec2 at{};
+        detail::check(crabby_ctx_ui_panel_pointer(raw_, e, &over, &at));
+        return over ? std::optional<vec2>(at) : std::nullopt;
+    }
+    /// Panels use the ray from `origin` along `direction` instead of the camera's ray through the mouse:
+    /// for a locked cursor use the camera's forward ray, for VR a controller's. `clear_ui_pointer_ray` goes back to the mouse.
+    void set_ui_pointer_ray(vec3 origin, vec3 direction) { detail::check(crabby_ctx_set_ui_pointer_ray(raw_, origin, direction)); }
+    void clear_ui_pointer_ray() { detail::check(crabby_ctx_clear_ui_pointer_ray(raw_)); }
 
     // Sound (silent in headless runs).
     sound load_sound(const char* path) { sound s{}; detail::check(crabby_ctx_load_sound(raw_, path, &s)); return s; }

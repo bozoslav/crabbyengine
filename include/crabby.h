@@ -29,6 +29,10 @@
  * Callbacks must return normally: C++ exceptions and Rust panics must never
  * cross the C boundary (crabby.hpp catches them for you).
  *
+ * Retained UI tree operations take a target: CRABBY_UI_SCREEN for the
+ * screen's own UI, or an entity with a world-space panel (crabby_ctx_create_ui_panel)
+ * for that panel's UI.
+ *
  * Enums (CrabbyKey, CrabbyMouseButton, CrabbyGamepadButton, CrabbyGamepadAxis,
  * CrabbyBodyKind, CrabbyShapeKind, CrabbyShape3DKind, CrabbyNetState, and the
  * CrabbyUi* layout and paint enums) are passed as uint32_t.
@@ -63,6 +67,8 @@
 #define CRABBY_TILE_EMPTY 65535
 
 #define CRABBY_UI_NONE UINT64_MAX
+
+#define CRABBY_UI_SCREEN UINT64_MAX
 
 typedef enum CrabbyStatus {
   CRABBY_OK = 0,
@@ -2956,6 +2962,30 @@ uint64_t crabby_entity_bits(struct CrabbyEntity entity);
 
 struct CrabbyDrawParams crabby_draw_params_default(void);
 
+enum CrabbyStatus crabby_ctx_create_ui_panel(struct CrabbyCtx *ctx,
+                                             uint64_t entity_bits,
+                                             uint32_t width,
+                                             uint32_t height,
+                                             struct CrabbyVec2 size,
+                                             struct CrabbyTexture *out_texture);
+
+enum CrabbyStatus crabby_ctx_remove_ui_panel(struct CrabbyCtx *ctx, uint64_t entity_bits);
+
+enum CrabbyStatus crabby_ctx_set_ui_panel_interactive(struct CrabbyCtx *ctx,
+                                                      uint64_t entity_bits,
+                                                      bool interactive);
+
+enum CrabbyStatus crabby_ctx_ui_panel_pointer(struct CrabbyCtx *ctx,
+                                              uint64_t entity_bits,
+                                              bool *out_over,
+                                              struct CrabbyVec2 *out_pixel);
+
+enum CrabbyStatus crabby_ctx_set_ui_pointer_ray(struct CrabbyCtx *ctx,
+                                                struct CrabbyVec3 origin,
+                                                struct CrabbyVec3 direction);
+
+enum CrabbyStatus crabby_ctx_clear_ui_pointer_ray(struct CrabbyCtx *ctx);
+
 struct CrabbyUiLayout crabby_ui_layout_default(void);
 
 struct CrabbyUiPaint crabby_ui_paint_default(void);
@@ -2963,40 +2993,47 @@ struct CrabbyUiPaint crabby_ui_paint_default(void);
 struct CrabbyUiInput crabby_ui_input_default(void);
 
 enum CrabbyStatus crabby_ctx_ui_add_panel(struct CrabbyCtx *ctx,
+                                          uint64_t target,
                                           uint64_t parent,
                                           const struct CrabbyUiLayout *layout,
                                           uint64_t *out_id);
 
 enum CrabbyStatus crabby_ctx_ui_add_label(struct CrabbyCtx *ctx,
+                                          uint64_t target,
                                           uint64_t parent,
                                           const char *text,
                                           const struct CrabbyUiLayout *layout,
                                           uint64_t *out_id);
 
 enum CrabbyStatus crabby_ctx_ui_add_button(struct CrabbyCtx *ctx,
+                                           uint64_t target,
                                            uint64_t parent,
                                            const char *text,
                                            const struct CrabbyUiLayout *layout,
                                            uint64_t *out_id);
 
 enum CrabbyStatus crabby_ctx_ui_add_image(struct CrabbyCtx *ctx,
+                                          uint64_t target,
                                           uint64_t parent,
                                           struct CrabbyTexture texture,
                                           const struct CrabbyUiLayout *layout,
                                           uint64_t *out_id);
 
 enum CrabbyStatus crabby_ctx_ui_add_scroll(struct CrabbyCtx *ctx,
+                                           uint64_t target,
                                            uint64_t parent,
                                            const struct CrabbyUiLayout *layout,
                                            uint64_t *out_id);
 
 enum CrabbyStatus crabby_ctx_ui_add_text_input(struct CrabbyCtx *ctx,
+                                               uint64_t target,
                                                uint64_t parent,
                                                const char *text,
                                                const struct CrabbyUiLayout *layout,
                                                uint64_t *out_id);
 
 enum CrabbyStatus crabby_ctx_ui_add_toggle(struct CrabbyCtx *ctx,
+                                           uint64_t target,
                                            uint64_t parent,
                                            const char *text,
                                            bool on,
@@ -3004,70 +3041,104 @@ enum CrabbyStatus crabby_ctx_ui_add_toggle(struct CrabbyCtx *ctx,
                                            uint64_t *out_id);
 
 enum CrabbyStatus crabby_ctx_ui_add_slider(struct CrabbyCtx *ctx,
+                                           uint64_t target,
                                            uint64_t parent,
                                            float value,
                                            const struct CrabbyUiLayout *layout,
                                            uint64_t *out_id);
 
-enum CrabbyStatus crabby_ctx_ui_remove(struct CrabbyCtx *ctx, uint64_t id);
+enum CrabbyStatus crabby_ctx_ui_remove(struct CrabbyCtx *ctx, uint64_t target, uint64_t id);
 
 enum CrabbyStatus crabby_ctx_ui_set_layout(struct CrabbyCtx *ctx,
+                                           uint64_t target,
                                            uint64_t id,
                                            const struct CrabbyUiLayout *layout);
 
 enum CrabbyStatus crabby_ctx_ui_set_paint(struct CrabbyCtx *ctx,
+                                          uint64_t target,
                                           uint64_t id,
                                           const struct CrabbyUiPaint *paint);
 
-enum CrabbyStatus crabby_ctx_ui_set_text(struct CrabbyCtx *ctx, uint64_t id, const char *text);
+enum CrabbyStatus crabby_ctx_ui_set_text(struct CrabbyCtx *ctx,
+                                         uint64_t target,
+                                         uint64_t id,
+                                         const char *text);
 
 enum CrabbyStatus crabby_ctx_ui_text(struct CrabbyCtx *ctx,
+                                     uint64_t target,
                                      uint64_t id,
                                      char *buffer,
                                      size_t capacity,
                                      size_t *out_len);
 
-enum CrabbyStatus crabby_ctx_ui_set_enabled(struct CrabbyCtx *ctx, uint64_t id, bool enabled);
+enum CrabbyStatus crabby_ctx_ui_set_enabled(struct CrabbyCtx *ctx,
+                                            uint64_t target,
+                                            uint64_t id,
+                                            bool enabled);
 
-enum CrabbyStatus crabby_ctx_ui_set_value(struct CrabbyCtx *ctx, uint64_t id, float value);
+enum CrabbyStatus crabby_ctx_ui_set_value(struct CrabbyCtx *ctx,
+                                          uint64_t target,
+                                          uint64_t id,
+                                          float value);
 
-enum CrabbyStatus crabby_ctx_ui_value(struct CrabbyCtx *ctx, uint64_t id, float *out_value);
+enum CrabbyStatus crabby_ctx_ui_value(struct CrabbyCtx *ctx,
+                                      uint64_t target,
+                                      uint64_t id,
+                                      float *out_value);
 
 enum CrabbyStatus crabby_ctx_ui_set_scroll(struct CrabbyCtx *ctx,
+                                           uint64_t target,
                                            uint64_t id,
                                            struct CrabbyVec2 offset);
 
 enum CrabbyStatus crabby_ctx_ui_scroll(struct CrabbyCtx *ctx,
+                                       uint64_t target,
                                        uint64_t id,
                                        struct CrabbyVec2 *out_offset);
 
-enum CrabbyStatus crabby_ctx_ui_push_screen(struct CrabbyCtx *ctx, uint64_t root, bool modal);
+enum CrabbyStatus crabby_ctx_ui_push_screen(struct CrabbyCtx *ctx,
+                                            uint64_t target,
+                                            uint64_t root,
+                                            bool modal);
 
-enum CrabbyStatus crabby_ctx_ui_pop_screen(struct CrabbyCtx *ctx, uint64_t *out_root);
+enum CrabbyStatus crabby_ctx_ui_pop_screen(struct CrabbyCtx *ctx,
+                                           uint64_t target,
+                                           uint64_t *out_root);
 
-enum CrabbyStatus crabby_ctx_ui_top_screen(struct CrabbyCtx *ctx, uint64_t *out_root);
+enum CrabbyStatus crabby_ctx_ui_top_screen(struct CrabbyCtx *ctx,
+                                           uint64_t target,
+                                           uint64_t *out_root);
 
-enum CrabbyStatus crabby_ctx_ui_focus(struct CrabbyCtx *ctx, uint64_t *out_id);
+enum CrabbyStatus crabby_ctx_ui_focus(struct CrabbyCtx *ctx, uint64_t target, uint64_t *out_id);
 
-enum CrabbyStatus crabby_ctx_ui_set_scale(struct CrabbyCtx *ctx, float scale);
+enum CrabbyStatus crabby_ctx_ui_set_scale(struct CrabbyCtx *ctx, uint64_t target, float scale);
 
 enum CrabbyStatus crabby_ctx_ui_rect(struct CrabbyCtx *ctx,
+                                     uint64_t target,
                                      uint64_t id,
                                      struct CrabbyRect *out_rect);
 
 enum CrabbyStatus crabby_ctx_ui_hit_test(struct CrabbyCtx *ctx,
+                                         uint64_t target,
                                          struct CrabbyVec2 point,
                                          uint64_t *out_id);
 
-enum CrabbyStatus crabby_ctx_ui_wants_pointer(struct CrabbyCtx *ctx, bool *out_wanted);
+enum CrabbyStatus crabby_ctx_ui_wants_pointer(struct CrabbyCtx *ctx,
+                                              uint64_t target,
+                                              bool *out_wanted);
 
 enum CrabbyStatus crabby_ctx_ui_wants_keyboard(struct CrabbyCtx *ctx, bool *out_wanted);
 
-enum CrabbyStatus crabby_ctx_ui_next_event(struct CrabbyCtx *ctx, struct CrabbyUiEvent *out_event);
+enum CrabbyStatus crabby_ctx_ui_next_event(struct CrabbyCtx *ctx,
+                                           uint64_t target,
+                                           struct CrabbyUiEvent *out_event);
 
-enum CrabbyStatus crabby_ctx_ui_layout(struct CrabbyCtx *ctx, struct CrabbyVec2 viewport);
+enum CrabbyStatus crabby_ctx_ui_layout(struct CrabbyCtx *ctx,
+                                       uint64_t target,
+                                       struct CrabbyVec2 viewport);
 
 enum CrabbyStatus crabby_ctx_ui_frame(struct CrabbyCtx *ctx,
+                                      uint64_t target,
                                       struct CrabbyVec2 viewport,
                                       const struct CrabbyUiInput *input);
 
