@@ -1692,6 +1692,14 @@ enum CrabbyStatus crabby_heightfield_at(const struct CrabbyHeightfield *ground,
                                         float *out_height,
                                         struct CrabbyVec3 *out_normal);
 
+enum CrabbyStatus crabby_ctx_set_mesh_shadows(struct CrabbyCtx *ctx,
+                                              struct CrabbyMesh mesh,
+                                              bool casts);
+
+enum CrabbyStatus crabby_ctx_mesh_shadows(struct CrabbyCtx *ctx,
+                                          struct CrabbyMesh mesh,
+                                          bool *out_casts);
+
 enum CrabbyStatus crabby_sprite_sheet(struct CrabbyTexture texture,
                                       uint32_t frame_width,
                                       uint32_t frame_height,

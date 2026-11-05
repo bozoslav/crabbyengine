@@ -62,6 +62,30 @@ fn misty_morning(ctx: &mut Ctx) {
 }
 // ANCHOR_END: sky
 
+// ANCHOR: mesh_shadows
+/// A meadow: thousands of grass tufts, too small for their shadows to show.
+fn plant_meadow(ctx: &mut Ctx, tuft: Mesh) {
+    ctx.set_mesh_shadows(tuft, false); // no shadow map work for grass
+    for i in 0..1000 {
+        let at = vec3((i % 40) as f32 * 0.5, 0.0, (i / 40) as f32 * 0.5);
+        ctx.world.spawn((Transform3D::at(at), Model::new(tuft)));
+    }
+}
+// ANCHOR_END: mesh_shadows
+
+#[test]
+fn grass_can_cast_no_shadow() {
+    Game::new("t", 1, 1).run_headless(1, |ctx| {
+        let material = ctx.default_material();
+        let tuft = ctx.create_mesh(&MeshData::cube(0.1), material);
+        assert!(ctx.mesh_shadows(tuft), "meshes cast shadows at first");
+        plant_meadow(ctx, tuft);
+        assert!(!ctx.mesh_shadows(tuft));
+        ctx.set_mesh_shadows(tuft, true);
+        assert!(ctx.mesh_shadows(tuft));
+    });
+}
+
 // ANCHOR: distance_fog
 /// A big open world fading out far away, glowing toward the sun.
 fn far_haze(ctx: &mut Ctx) {

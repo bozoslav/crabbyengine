@@ -2387,3 +2387,43 @@ pub unsafe extern "C" fn crabby_heightfield_at(
         Ok(())
     })
 }
+
+/// Whether models showing `mesh` cast shadows (Rust
+/// `Ctx::set_mesh_shadows`): on for every mesh at first. Off suits small
+/// things crowding the ground, such as grass.
+/// # Safety
+/// `ctx` null or live.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_mesh_shadows(std::ptr::null_mut(), Default::default(), false) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_mesh_shadows(
+    ctx: *mut CrabbyCtx,
+    mesh: CrabbyMesh,
+    casts: bool,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            c.set_mesh_shadows(to_c(mesh), casts);
+            Ok(())
+        })
+    })
+}
+
+/// Whether models showing `mesh` cast shadows.
+/// # Safety
+/// `ctx` null or live; output writable.
+/// ```
+/// let mut casts = false;
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_mesh_shadows(std::ptr::null_mut(), Default::default(), &mut casts) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_mesh_shadows(
+    ctx: *mut CrabbyCtx,
+    mesh: CrabbyMesh,
+    out_casts: *mut bool,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_casts, c.mesh_shadows(to_c(mesh)))) })
+}

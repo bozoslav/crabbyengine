@@ -105,13 +105,18 @@ impl Frame3D {
         let scratch = &mut self.scratch;
         // `meshes`: what the camera draws, then what each cascade's shadow
         // map draws (the same for models; coarser for distant terrain).
-        let mut add = |meshes: [u32; 1 + MAX_CASCADES], t: &Transform3D, color: [f32; 4], center: Vec3, radius: f32| {
+        let mut add = |meshes: [u32; 1 + MAX_CASCADES],
+                       t: &Transform3D,
+                       color: [f32; 4],
+                       center: Vec3,
+                       radius: f32,
+                       shadows: bool| {
             let matrix = t.matrix();
             let world_center = matrix.transform_point3(center);
             let world_radius = radius * t.scale.abs().max_element();
             let seen = sphere_visible(&planes, world_center, world_radius);
             let mut casts = 0;
-            for (i, p) in sun_planes.iter().enumerate() {
+            for (i, p) in sun_planes.iter().enumerate().filter(|_| shadows) {
                 if sphere_visible(p, world_center, world_radius) {
                     casts |= 1 << i;
                 }
@@ -150,7 +155,15 @@ impl Frame3D {
         };
         world.query::<(&Transform3D, &Model)>().for_each(|(t, m)| {
             if let Some((center, radius)) = assets.live_bounds(m.mesh.id) {
-                add([m.mesh.id; 1 + MAX_CASCADES], t, linear(m.color), center, radius);
+                let shadows = assets.casts_shadows(m.mesh.id);
+                add(
+                    [m.mesh.id; 1 + MAX_CASCADES],
+                    t,
+                    linear(m.color),
+                    center,
+                    radius,
+                    shadows,
+                );
             }
         });
         // Terrain: the detail level for how far the camera is from the
@@ -173,7 +186,7 @@ impl Frame3D {
                 .id
             });
             if meshes.iter().all(|&m| assets.live_bounds(m).is_some()) {
-                add(meshes, t, [1.0; 4], center, radius);
+                add(meshes, t, [1.0; 4], center, radius, true);
             }
         });
         let meshes = assets.bounds.len();
@@ -399,6 +412,33 @@ mod tests {
         assert_eq!(frame.visible, 1);
         assert_eq!(frame.runs, vec![(0, 0, 1)]);
         assert_eq!(frame.shadow_runs[0], vec![(0, 1, 2)]);
+    }
+
+    #[test]
+    fn shadowless_meshes_cast_no_shadow() {
+        let mut world = World::new();
+        let assets = Assets3D {
+            bounds: vec![(Vec3::ZERO, 1.0); 2],
+            shadowless: vec![false, true],
+            ..Default::default()
+        };
+        let mut camera = camera();
+        camera.position = Vec3::new(0.0, 5.0, 10.0);
+        camera.look_at(Vec3::ZERO);
+        let lighting = Lighting {
+            sun_direction: Vec3::new(0.0, -1.0, -0.2),
+            shadow_distance: 30.0,
+            shadow_cascades: 1,
+            ..Default::default()
+        };
+        world.spawn((Transform3D::at(Vec3::ZERO), Model::new(Mesh { id: 0 })));
+        world.spawn((Transform3D::at(Vec3::X), Model::new(Mesh { id: 1 }))); // seen, casts nothing
+        world.spawn((Transform3D::at(Vec3::new(0.0, 40.0, 2.0)), Model::new(Mesh { id: 1 }))); // neither
+        let mut frame = Frame3D::default();
+        frame.collect(&mut world, &assets, &camera, &lighting);
+        assert_eq!(frame.visible, 2);
+        assert_eq!(frame.runs, vec![(0, 0, 1), (1, 1, 1)]);
+        assert_eq!(frame.shadow_runs[0], vec![(0, 2, 1)]);
     }
 
     #[test]

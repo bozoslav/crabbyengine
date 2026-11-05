@@ -1452,6 +1452,9 @@ public:
     void free_terrain_tile(terrain_tile t) { detail::check(crabby_ctx_free_terrain_tile(raw_, t)); }
     /// Frees a mesh's GPU memory; models still showing it draw nothing.
     void free_mesh(mesh m) { detail::check(crabby_ctx_free_mesh(raw_, m)); }
+    /// Whether models showing `m` cast shadows (on at first); off suits grass and pebbles.
+    void set_mesh_shadows(mesh m, bool casts) { detail::check(crabby_ctx_set_mesh_shadows(raw_, m, casts)); }
+    bool mesh_shadows(mesh m) const { bool casts = true; detail::check(crabby_ctx_mesh_shadows(raw_, m, &casts)); return casts; }
     /// Whether this game made `m` and hasn't freed it.
     bool is_mesh_live(mesh m) const { bool live = false; detail::check(crabby_ctx_is_mesh_live(raw_, m, &live)); return live; }
     /// How many 3D models were drawn last frame.

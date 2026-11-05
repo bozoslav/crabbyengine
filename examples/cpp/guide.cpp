@@ -819,6 +819,17 @@ static void misty_morning(crabby::ctx& ctx) {
 }
 // ANCHOR_END: sky
 
+// ANCHOR: mesh_shadows
+/// A meadow: thousands of grass tufts, too small for their shadows to show.
+static void plant_meadow(crabby::ctx& ctx, crabby::mesh tuft) {
+    ctx.set_mesh_shadows(tuft, false); // no shadow map work for grass
+    for (int i = 0; i < 1000; ++i) {
+        crabby::vec3 at{(i % 40) * 0.5f, 0, (i / 40) * 0.5f};
+        ctx.world().spawn(crabby::transform3d_at(at), crabby::model_of(tuft));
+    }
+}
+// ANCHOR_END: mesh_shadows
+
 // ANCHOR: distance_fog
 /// A big open world fading out far away, glowing toward the sun.
 static void far_haze(crabby::ctx& ctx) {
@@ -1095,6 +1106,9 @@ static void the_village_has_five_spinning_houses() {
         golden_hour(ctx);
         misty_morning(ctx);
         far_haze(ctx);
+        auto tuft = ctx.create_mesh(crabby::mesh_data::cube(0.1f), ctx.default_material());
+        plant_meadow(ctx, tuft);
+        if (ctx.mesh_shadows(tuft)) { std::fprintf(stderr, "mesh shadows\n"); std::abort(); }
         meadow(ctx);
         if (ctx.post().tonemap != uint32_t(crabby::tonemap::agx)) { std::fprintf(stderr, "post\n"); std::abort(); }
     });
