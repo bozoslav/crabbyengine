@@ -58,6 +58,8 @@ pub(crate) struct Frame3D {
     pub sky_light: Option<(Lighting, super::Sky, super::SkyLight)>,
     scratch: Vec<Entry>,
     counts: Vec<u32>,
+    /// Per model, which passes see it (see `collect`), kept between frames.
+    flags: Vec<u8>,
 }
 
 /// What one target camera draws this frame.
@@ -107,30 +109,41 @@ impl Frame3D {
         let scratch = &mut self.scratch;
         // `meshes`: what the camera draws, then what each cascade's shadow
         // map draws (the same for models; coarser for distant terrain).
-        // `bounds`: the camera mesh's, and the shadow meshes' (`None`: no
+        // Which passes see a model: bit 0 the camera, bit 1 + i cascade i.
+        // `bounds`: the camera mesh's, and the shadow mesh's (`None`: no
         // shadow), as (center, radius) in model space.
-        let mut add = |meshes: [u32; 1 + MAX_CASCADES],
-                       t: &Transform3D,
-                       color: [f32; 4],
-                       bounds: (Vec3, f32),
-                       shadow_bounds: Option<(Vec3, f32)>| {
+        let classify = |t: &Transform3D, bounds: (Vec3, f32), shadow_bounds: Option<(Vec3, f32)>| -> u8 {
             let matrix = t.matrix();
             let scale = t.scale.abs().max_element();
-            let seen = sphere_visible(&planes, matrix.transform_point3(bounds.0), bounds.1 * scale);
-            let mut casts = 0;
+            let mut flags = u8::from(sphere_visible(&planes, matrix.transform_point3(bounds.0), bounds.1 * scale));
             if let Some((center, radius)) = shadow_bounds {
                 let (world_center, world_radius) = (matrix.transform_point3(center), radius * scale);
                 for (i, p) in sun_planes.iter().enumerate() {
                     if sphere_visible(p, world_center, world_radius) {
-                        casts |= 1 << i;
+                        flags |= 2 << i;
                     }
                 }
             }
-            if !seen && casts == 0 {
-                return;
-            }
+            flags
+        };
+        // A model's meshes (camera, then each cascade's) and bounds.
+        let model_meshes = |m: &Model, shadow: Option<&ShadowMesh>| {
+            let bounds = assets.live_bounds(m.mesh.id)?;
+            let caster = match shadow {
+                Some(ShadowMesh(caster)) => *caster,
+                None => Some(m.mesh),
+            };
+            let caster = caster.filter(|c| assets.casts_shadows(c.id));
+            let shadow_bounds = caster.and_then(|c| assets.live_bounds(c.id));
+            let mut meshes = [caster.map_or(m.mesh.id, |c| c.id); 1 + MAX_CASCADES];
+            meshes[0] = m.mesh.id;
+            Some((meshes, bounds, shadow_bounds))
+        };
+        // The entries for a model the passes in `flags` see.
+        let mut add = |meshes: [u32; 1 + MAX_CASCADES], t: &Transform3D, color: [f32; 4], flags: u8| {
+            let (seen, casts) = (flags & 1 != 0, flags >> 1);
             let instance = Instance3D {
-                model: matrix.to_cols_array_2d(),
+                model: t.matrix().to_cols_array_2d(),
                 color,
             };
             // One entry per distinct mesh, with the passes that draw it.
@@ -158,21 +171,25 @@ impl Frame3D {
                 scratch.push((mesh, instance, false, mask));
             }
         };
+        // Models: culled on all cores (most of the work, and most models are
+        // culled), then the few that are seen are added in order.
+        let flags = &mut self.flags;
+        world
+            .query::<(&Transform3D, &Model, Option<&ShadowMesh>)>()
+            .par_collect_into(flags, |(t, m, shadow)| {
+                model_meshes(m, shadow).map_or(0, |(_, bounds, shadow_bounds)| classify(t, bounds, shadow_bounds))
+            });
+        let mut at = 0;
         world
             .query::<(&Transform3D, &Model, Option<&ShadowMesh>)>()
             .for_each(|(t, m, shadow)| {
-                let Some(bounds) = assets.live_bounds(m.mesh.id) else {
-                    return;
-                };
-                let caster = match shadow {
-                    Some(ShadowMesh(caster)) => *caster,
-                    None => Some(m.mesh),
-                };
-                let caster = caster.filter(|c| assets.casts_shadows(c.id));
-                let shadow_bounds = caster.and_then(|c| assets.live_bounds(c.id));
-                let mut meshes = [caster.map_or(m.mesh.id, |c| c.id); 1 + MAX_CASCADES];
-                meshes[0] = m.mesh.id;
-                add(meshes, t, linear(m.color), bounds, shadow_bounds);
+                let f = flags[at];
+                at += 1;
+                if f != 0
+                    && let Some((meshes, _, _)) = model_meshes(m, shadow)
+                {
+                    add(meshes, t, linear(m.color), f);
+                }
             });
         // Terrain: the detail level for how far the camera is from the
         // tile's bounds (the finest level's, which hold every coarser one).
@@ -194,7 +211,10 @@ impl Frame3D {
                 .id
             });
             if meshes.iter().all(|&m| assets.live_bounds(m).is_some()) {
-                add(meshes, t, [1.0; 4], (center, radius), Some((center, radius)));
+                let f = classify(t, (center, radius), Some((center, radius)));
+                if f != 0 {
+                    add(meshes, t, [1.0; 4], f);
+                }
             }
         });
         let meshes = assets.bounds.len();

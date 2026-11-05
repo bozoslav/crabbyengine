@@ -469,6 +469,11 @@ pub struct Physics3D {
     world: rp::PhysicsWorld,
     /// By entity index.
     links: Vec<Option<Link>>,
+    /// The indices in `links` of bodies and characters that move, so
+    /// stepping and drawing visit them without looking at every entity.
+    /// Rebuilt when a link comes or goes (`moving_dirty`).
+    moving: Vec<u32>,
+    moving_dirty: bool,
     gravity: Vec3,
     step: u64,
     collector: Collector,
@@ -515,6 +520,8 @@ impl Physics3D {
         Self {
             world: rp::PhysicsWorld::new(),
             links: Vec::new(),
+            moving: Vec::new(),
+            moving_dirty: false,
             gravity,
             step: 0,
             collector: Collector::default(),
@@ -798,7 +805,21 @@ impl Physics3D {
             .build()
     }
 
+    /// The indices of links that move, rebuilt if links changed.
+    fn moving(&mut self) -> &[u32] {
+        if self.moving_dirty {
+            self.moving_dirty = false;
+            self.moving.clear();
+            let links = &self.links;
+            self.moving.extend(
+                (0..links.len() as u32).filter(|&i| links[i as usize].is_some_and(|l| l.kind.moves())),
+            );
+        }
+        &self.moving
+    }
+
     fn insert_link(&mut self, e: Entity, t: &Transform3D, kind: LinkKind, velocity: Velocity3D) {
+        self.moving_dirty = true;
         let body = match kind {
             LinkKind::Body(rigid, shape) => {
                 let body = self.world.insert_body(body_of(t, rigid, velocity));
@@ -835,6 +856,7 @@ impl Physics3D {
     }
 
     fn remove(&mut self, i: usize) {
+        self.moving_dirty = true;
         if let Some(link) = self.links[i].take() {
             self.world.remove_body(link.body);
         }
@@ -953,24 +975,24 @@ pub fn interpolate_physics3d(ctx: &mut Ctx) {
     if physics.links.is_empty() {
         return;
     }
-    ctx.world.query::<(Entity, &mut Transform3D)>().for_each(|(e, t)| {
-        let Some(link) = physics
-            .links
-            .get_mut(e.index() as usize)
-            .and_then(Option::as_mut)
-            .filter(|l| l.entity == e && l.kind.moves())
-        else {
-            return;
+    let n = physics.moving().len();
+    for k in 0..n {
+        let i = physics.moving[k] as usize;
+        let Some(link) = physics.links[i].as_mut() else {
+            continue;
+        };
+        let Some(t) = ctx.world.get_mut::<Transform3D>(link.entity) else {
+            continue;
         };
         if !written_matches(link, t) {
-            return;
+            continue;
         }
         t.position = link.prev.position.lerp(link.curr.position, alpha);
         if let LinkKind::Body(..) = link.kind {
             t.rotation = link.prev.rotation.slerp(link.curr.rotation, alpha);
         }
         link.written = *t;
-    });
+    }
 }
 
 /// Whether `t` is what physics last wrote (or saw): characters only own
@@ -1026,6 +1048,7 @@ fn sync_one(
             // A recycled index: the old entity's body goes first.
             physics.world.remove_body(old.body);
             physics.links[i] = None;
+            physics.moving_dirty = true;
         }
         physics.insert_link(e, t, kind, velocity.unwrap_or_default());
         return;
@@ -1064,50 +1087,56 @@ fn sync_one(
 }
 
 fn write_back(physics: &mut Physics3D, world: &mut World) {
-    world
-        .query::<(Entity, &mut Transform3D, Option<&mut Velocity3D>)>()
-        .for_each(|(e, t, velocity)| {
-            let Some(link) = physics
-                .links
-                .get_mut(e.index() as usize)
-                .and_then(Option::as_mut)
-                .filter(|l| l.entity == e && l.kind.moves())
-            else {
-                return;
-            };
-            link.prev = link.curr;
-            let Some(body) = physics.world.bodies.get(link.body) else {
-                return;
-            };
-            // A sleeping body hasn't moved since it fell asleep: it only
-            // needs its speed cleared, once.
-            if body.is_sleeping() {
-                if let LinkKind::Body(..) = link.kind
-                    && link.velocity != Velocity3D::default()
-                {
-                    link.velocity = Velocity3D::default();
-                    if let Some(velocity) = velocity {
-                        *velocity = link.velocity;
-                    }
-                }
-                return;
-            }
-            link.curr.position = from_rp(body.translation());
-            t.position = link.curr.position;
-            if let LinkKind::Body(..) = link.kind {
-                link.curr.rotation = rot_from_rp(*body.rotation());
-                t.rotation = link.curr.rotation;
-                let v = Velocity3D {
-                    linear: from_rp(body.linvel()),
-                    angular: from_rp(body.angvel()),
-                };
-                link.velocity = v;
-                if let Some(velocity) = velocity {
-                    *velocity = v;
+    let n = physics.moving().len();
+    for k in 0..n {
+        let i = physics.moving[k] as usize;
+        let Some(link) = physics.links[i].as_mut() else {
+            continue;
+        };
+        let e = link.entity;
+        // Only entities that still have a transform (as the old query).
+        if world.get::<Transform3D>(e).is_none() {
+            continue;
+        }
+        link.prev = link.curr;
+        let Some(body) = physics.world.bodies.get(link.body) else {
+            continue;
+        };
+        // A sleeping body hasn't moved since it fell asleep: it only
+        // needs its speed cleared, once.
+        if body.is_sleeping() {
+            if let LinkKind::Body(..) = link.kind
+                && link.velocity != Velocity3D::default()
+            {
+                link.velocity = Velocity3D::default();
+                if let Some(velocity) = world.get_mut::<Velocity3D>(e) {
+                    *velocity = link.velocity;
                 }
             }
-            link.written = *t;
-        });
+            continue;
+        }
+        link.curr.position = from_rp(body.translation());
+        let moved_rotation = matches!(link.kind, LinkKind::Body(..)).then(|| rot_from_rp(*body.rotation()));
+        if let Some(rotation) = moved_rotation {
+            link.curr.rotation = rotation;
+            let v = Velocity3D {
+                linear: from_rp(body.linvel()),
+                angular: from_rp(body.angvel()),
+            };
+            link.velocity = v;
+            if let Some(velocity) = world.get_mut::<Velocity3D>(e) {
+                *velocity = v;
+            }
+        }
+        let Some(t) = world.get_mut::<Transform3D>(e) else {
+            continue;
+        };
+        t.position = link.curr.position;
+        if let Some(rotation) = moved_rotation {
+            t.rotation = rotation;
+        }
+        link.written = *t;
+    }
 }
 
 #[cfg(test)]

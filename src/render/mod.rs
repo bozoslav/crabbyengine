@@ -45,6 +45,11 @@ pub struct RenderStats {
     /// 3D: of `cpu_ms`, the time spent finding what the camera and the
     /// shadow maps see (culling every model), in ms.
     pub collect_ms: f32,
+    /// Of `cpu_ms`, the time turning the frame's draws into GPU command
+    /// buffers (recording, on all cores), in ms.
+    pub record_ms: f32,
+    /// Of `cpu_ms`, the time handing the command buffers to the GPU, in ms.
+    pub submit_ms: f32,
     /// 3D models the camera draws (one per drawn [`Model`](crate::Model)).
     pub instances: usize,
     /// Triangles the camera's passes draw (each once, though the depth

@@ -302,12 +302,14 @@ fn hud_text(out: &mut String, s: &FrameStats, systems: &[SystemTiming], passes: 
     if r.instances + r.shadow_instances > 0 {
         let _ = writeln!(
             out,
-            "3d: {} models, {:.2}M tris; shadows {} models, {:.2}M tris; collect {:.2} ms",
+            "3d: {} models, {:.2}M tris; shadows {} models, {:.2}M tris\nrender cpu: collect {:.2}  record {:.2}  submit {:.2}",
             r.instances,
             r.triangles as f32 / 1e6,
             r.shadow_instances,
             r.shadow_triangles as f32 / 1e6,
-            r.collect_ms
+            r.collect_ms,
+            r.record_ms,
+            r.submit_ms
         );
     }
     if !passes.is_empty() {
@@ -518,12 +520,14 @@ impl Bench {
         let _ = writeln!(report, "draw calls {}   sprites {}", render.draw_calls, render.sprites);
         let _ = writeln!(
             report,
-            "3d: camera {} models / {:.2}M tris   shadows {} models / {:.2}M tris   collect {:.2} ms",
+            "3d: camera {} models / {:.2}M tris   shadows {} models / {:.2}M tris\nrender cpu (last frame): collect {:.2} ms   record {:.2} ms   submit {:.2} ms",
             render.instances,
             render.triangles as f64 / 1e6,
             render.shadow_instances,
             render.shadow_triangles as f64 / 1e6,
-            render.collect_ms
+            render.collect_ms,
+            render.record_ms,
+            render.submit_ms
         );
         if self.skipped > 0 {
             let _ = writeln!(report, "({} frames weren't drawn and aren't counted)", self.skipped);
@@ -550,6 +554,8 @@ impl Bench {
                 "shadow_instances": render.shadow_instances,
                 "shadow_triangles": render.shadow_triangles,
                 "collect_ms": render.collect_ms,
+                "record_ms": render.record_ms,
+                "submit_ms": render.submit_ms,
                 "gpu_passes": passes.iter().map(|(n, t)| serde_json::json!({ "name": n, "ms": t / g })).collect::<Vec<_>>(),
                 "systems": self.systems.iter().map(|(name, t)| serde_json::json!({ "name": name, "ms": t / n })).collect::<Vec<_>>(),
             });

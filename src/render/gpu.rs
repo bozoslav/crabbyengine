@@ -52,6 +52,9 @@ pub(crate) struct Renderer {
     /// skipping them (benchmarks).
     draw_hidden: bool,
     hidden_target: Option<wgpu::Texture>,
+    /// Offscreen frames still on the GPU, oldest first: no more than a
+    /// window's swapchain would allow, so the CPU can't run ahead.
+    hidden_in_flight: std::collections::VecDeque<wgpu::SubmissionIndex>,
     stats: RenderStats,
     /// The 3D pass, made when the game first creates a mesh or material.
     #[cfg(feature = "3d")]
@@ -272,7 +275,7 @@ impl Renderer {
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("crabbyengine device"),
-                required_features: adapter.features() & wgpu::Features::TIMESTAMP_QUERY,
+                required_features: adapter.features() & (wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES),
                 // The defaults ask for more than WebGL2 has; we need little.
                 required_limits: if cfg!(target_arch = "wasm32") {
                     adapter.limits()
@@ -444,6 +447,7 @@ impl Renderer {
             timer,
             draw_hidden: false,
             hidden_target: None,
+            hidden_in_flight: std::collections::VecDeque::with_capacity(4),
             stats: RenderStats::default(),
             #[cfg(feature = "3d")]
             three: None,
@@ -969,6 +973,19 @@ impl Renderer {
         let hidden = frame.is_none() && self.draw_hidden;
         let status = if hidden { FrameStatus::Offscreen } else { status };
         let mut hidden_view = hidden.then(|| self.hidden_view());
+        if hidden {
+            // As a swapchain would: wait while two frames are on the GPU.
+            let wait = web_time::Instant::now();
+            while self.hidden_in_flight.len() >= 2 {
+                if let Some(oldest) = self.hidden_in_flight.pop_front() {
+                    let _ = self.device.poll(wgpu::PollType::Wait {
+                        submission_index: Some(oldest),
+                        timeout: Some(std::time::Duration::from_secs(1)),
+                    });
+                }
+            }
+            self.display_wait_ms += wait.elapsed().as_secs_f32() * 1000.0;
+        }
 
         let cpu_start = web_time::Instant::now();
         if let Some(timer) = &mut self.timer {
@@ -1035,9 +1052,13 @@ impl Renderer {
             })),
             None => hidden_view.take(),
         };
+        // The 3D passes come in command buffers of their own (recorded in
+        // parallel), submitted before `encoder`'s sprites go on top.
+        let mut buffers_3d = Vec::new();
+        let record_start = web_time::Instant::now();
         if let Some(view) = &view {
             let timer = self.timer.as_ref();
-            let sprite_clear = self.draw_3d(&mut encoder, view, clear, timer);
+            let sprite_clear = self.draw_3d(&mut buffers_3d, view, clear, timer);
             Self::sprite_pass(&mut encoder, view, sprite_clear, timer.and_then(|t| t.pass("sprites")), &pass);
         }
         // A screenshot draws the same sprites a second time, into a texture
@@ -1045,7 +1066,7 @@ impl Renderer {
         let capture = capture.then(|| {
             let target = Capture::new(&self.device, self.config.width, self.config.height, self.view_format);
             let target_view = target.texture.create_view(&wgpu::TextureViewDescriptor::default());
-            let sprite_clear = self.draw_3d(&mut encoder, &target_view, clear, None);
+            let sprite_clear = self.draw_3d(&mut buffers_3d, &target_view, clear, None);
             Self::sprite_pass(&mut encoder, &target_view, sprite_clear, None, &pass);
             target.copy(&mut encoder);
             target
@@ -1061,8 +1082,16 @@ impl Renderer {
         if let Some(timer) = &mut self.timer {
             timer.resolve(&mut encoder);
         }
-        self.queue
-            .submit(overlay_commands.into_iter().chain([encoder.finish()]));
+        let finished = encoder.finish();
+        self.stats.record_ms = record_start.elapsed().as_secs_f32() * 1000.0;
+        let submit_start = web_time::Instant::now();
+        let submitted = self
+            .queue
+            .submit(overlay_commands.into_iter().chain(buffers_3d).chain([finished]));
+        self.stats.submit_ms = submit_start.elapsed().as_secs_f32() * 1000.0;
+        if hidden {
+            self.hidden_in_flight.push_back(submitted);
+        }
         if let Some(timer) = &mut self.timer {
             timer.submitted();
             self.stats.gpu_ms = timer.smoothed_ms;
@@ -1153,19 +1182,21 @@ impl Renderer {
     /// any. Returns the color the sprite pass should clear to: `None` when
     /// it draws over the 3D models.
     #[cfg_attr(not(feature = "3d"), allow(clippy::unused_self))]
+    /// Adds the 3D frame's command buffers to `buffers`; the clear color
+    /// the sprite pass still needs (none if 3D drew the background).
     fn draw_3d(
         &self,
-        encoder: &mut wgpu::CommandEncoder,
+        buffers: &mut Vec<wgpu::CommandBuffer>,
         view: &wgpu::TextureView,
         clear: Color,
         timer: Option<&GpuTimer>,
     ) -> Option<Color> {
         #[cfg(feature = "3d")]
         if let Some(three) = self.three.as_ref().filter(|t| t.has_draws()) {
-            three.draw(encoder, view, clear.to_linear_wgpu(), &self.textures, timer);
+            buffers.extend(three.draw(&self.device, view, clear.to_linear_wgpu(), &self.textures, timer));
             return None;
         }
-        let _ = (encoder, view, timer);
+        let _ = (buffers, view, timer);
         Some(clear)
     }
 

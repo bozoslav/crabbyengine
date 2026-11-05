@@ -7,8 +7,7 @@
 //! them never waits for the GPU: a frame's time shows up one to three frames
 //! later. If every buffer is still in flight, that frame isn't timed.
 
-use std::cell::{Cell, RefCell};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use crate::profiler::{GpuPass, PassSpan};
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -41,10 +40,9 @@ pub(crate) struct GpuTimer {
     /// The slot this frame writes to, if one was free.
     current: Option<usize>,
     next: usize,
-    /// Timestamps written so far this frame.
-    used: Cell<u32>,
-    /// This frame's pass names so far.
-    names: RefCell<Vec<&'static str>>,
+    /// This frame's pass names so far; pass `i` writes timestamps `2i`
+    /// and `2i + 1`. Parts of a frame are recorded on several threads.
+    names: Mutex<Vec<&'static str>>,
     /// Smoothed GPU time of the frame's passes, in milliseconds.
     pub smoothed_ms: Option<f32>,
     /// Smoothed time of each pass, in the order of the latest frame.
@@ -55,6 +53,10 @@ pub(crate) struct GpuTimer {
     pub frames_read: u64,
     /// Reused by `smooth_passes`, so reading results allocates nothing.
     scratch: Vec<GpuPass>,
+    /// The last timestamp of the latest frame read.
+    last_end: u64,
+    /// Reused by `read_frame` to sort a frame's passes.
+    order: Vec<(u64, u64, &'static str)>,
 }
 
 impl GpuTimer {
@@ -92,20 +94,24 @@ impl GpuTimer {
             period: f64::from(queue.get_timestamp_period()),
             current: None,
             next: 0,
-            used: Cell::new(0),
-            names: RefCell::new(Vec::with_capacity(MAX_PASSES as usize)),
+            names: Mutex::new(Vec::with_capacity(MAX_PASSES as usize)),
             smoothed_ms: None,
             passes: Vec::new(),
             last_frame: Vec::with_capacity(MAX_PASSES as usize),
             frames_read: 0,
             scratch: Vec::with_capacity(MAX_PASSES as usize),
+            last_end: 0,
+            order: Vec::with_capacity(MAX_PASSES as usize),
         })
     }
 
     /// Picks up finished readbacks. Call once per frame, before `begin_frame`.
     pub fn collect(&mut self, device: &wgpu::Device) {
         let _ = device.poll(wgpu::PollType::Poll);
-        for i in 0..SLOTS {
+        // Oldest first (slots are used in turn from `next`), so each frame
+        // can start where the one before it ended.
+        for k in 0..SLOTS {
+            let i = (self.next + k) % SLOTS;
             if self.slots[i].state.load(Ordering::Acquire) != READY {
                 continue;
             }
@@ -113,14 +119,23 @@ impl GpuTimer {
                 Ok(view) => {
                     let t: &[u64] = bytemuck::cast_slice(&view);
                     let slot = &self.slots[i];
-                    read_frame(&t[..slot.written as usize], &slot.names, self.period, &mut self.last_frame)
+                    let not_before = self.last_end;
+                    read_frame(
+                        &t[..slot.written as usize],
+                        &slot.names,
+                        self.period,
+                        not_before,
+                        &mut self.last_frame,
+                        &mut self.order,
+                    )
                 }
                 Err(_) => None,
             };
             let slot = &mut self.slots[i];
             slot.buffer.unmap();
             slot.state.store(FREE, Ordering::Release);
-            let Some(ms) = ok else { continue };
+            let Some((ms, end)) = ok else { continue };
+            self.last_end = end;
             // A bogus sample (clock reset, overflow) would ruin the average.
             if !(ms.is_finite() && ms < 10_000.0) {
                 continue;
@@ -137,8 +152,7 @@ impl GpuTimer {
     /// Starts timing a frame, if a readback slot is free.
     pub fn begin_frame(&mut self) {
         let i = self.next;
-        self.used.set(0);
-        self.names.borrow_mut().clear();
+        self.names.get_mut().unwrap_or_else(PoisonError::into_inner).clear();
         self.current = (self.slots[i].state.load(Ordering::Acquire) == FREE).then_some(i);
         if self.current.is_some() {
             self.next = (i + 1) % SLOTS;
@@ -150,12 +164,15 @@ impl GpuTimer {
     /// `MAX_PASSES` passes.
     pub fn pass(&self, name: &'static str) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
         self.current?;
-        let at = self.used.get();
-        if at + 2 > QUERIES {
-            return None;
-        }
-        self.used.set(at + 2);
-        self.names.borrow_mut().push(name);
+        let at = {
+            let mut names = self.names.lock().unwrap_or_else(PoisonError::into_inner);
+            let at = names.len() as u32 * 2;
+            if at + 2 > QUERIES {
+                return None;
+            }
+            names.push(name);
+            at
+        };
         Some(wgpu::RenderPassTimestampWrites {
             query_set: &self.queries,
             beginning_of_pass_write_index: Some(at),
@@ -165,7 +182,8 @@ impl GpuTimer {
 
     /// Copies the timestamps out. Call after the pass, before submitting.
     pub fn resolve(&mut self, encoder: &mut wgpu::CommandEncoder) {
-        let used = self.used.get();
+        let names = self.names.get_mut().unwrap_or_else(PoisonError::into_inner);
+        let used = names.len() as u32 * 2;
         if let Some(i) = self.current {
             if used == 0 {
                 self.current = None;
@@ -176,7 +194,7 @@ impl GpuTimer {
             self.slots[i].written = used;
             let slot = &mut self.slots[i];
             slot.names.clear();
-            slot.names.extend_from_slice(&self.names.borrow());
+            slot.names.extend_from_slice(names);
         }
     }
 
@@ -194,27 +212,53 @@ impl GpuTimer {
 }
 
 /// Turns one frame's timestamps into `spans` (cleared first) and returns
-/// the frame's GPU time: from the earliest timestamp to the latest.
+/// the frame's GPU time, from its first pass's start to its last pass's
+/// end, and that end.
+///
+/// Every frame writes the same queries, and a pass the GPU skips or
+/// finishes oddly (one with nothing to draw) can leave timestamps from an
+/// earlier frame behind: a pass that ends before it begins, or begins before
+/// `not_before` (the previous frame's end), is left out, as are unwritten
+/// (zero) ones.
 ///
 /// Each pass is charged from when the pass before it ended (or its own
 /// start, if later) to its own end. Tile-based GPUs start a pass before the
 /// last one ends, and a pass that waits for the one before it would
 /// otherwise count that wait as its own, so the passes would add up to far
 /// more than the frame. This way they add up to the frame's time, less any
-/// idle gaps. Zero marks a timestamp the GPU didn't write.
-fn read_frame(t: &[u64], names: &[&'static str], period: f64, spans: &mut Vec<PassSpan>) -> Option<f32> {
-    let written = t.iter().copied().filter(|&x| x != 0);
-    let (first, last) = written.fold((u64::MAX, 0), |(lo, hi), x| (lo.min(x), hi.max(x)));
+/// idle gaps.
+fn read_frame(
+    t: &[u64],
+    names: &[&'static str],
+    period: f64,
+    not_before: u64,
+    spans: &mut Vec<PassSpan>,
+    order: &mut Vec<(u64, u64, &'static str)>,
+) -> Option<(f32, u64)> {
+    let valid = |&[begin, end]: &[u64; 2]| begin != 0 && begin >= not_before && end >= begin;
+    let pairs = t.as_chunks::<2>().0;
+    let (first, last) = pairs
+        .iter()
+        .filter(|p| valid(p))
+        .fold((u64::MAX, 0), |(lo, hi), &[b, e]| (lo.min(b), hi.max(e)));
     if last <= first {
         return None;
     }
     let ms = |ticks: u64| (ticks as f64 * period / 1e6) as f32;
     spans.clear();
+    // Passes recorded on several threads were given their queries in no
+    // particular order: put them in the order the GPU ran them.
+    order.clear();
+    order.extend(
+        pairs
+            .iter()
+            .zip(names)
+            .filter(|(p, _)| valid(p))
+            .map(|(&[begin, end], &name)| (begin, end, name)),
+    );
+    order.sort_unstable_by_key(|&(begin, _, _)| begin);
     let mut done = first;
-    for (&[begin, end], &name) in t.as_chunks::<2>().0.iter().zip(names) {
-        if begin == 0 || end < begin {
-            continue;
-        }
+    for &(begin, end, name) in order.iter() {
         let start = begin.max(done).min(end);
         done = done.max(end);
         spans.push(PassSpan {
@@ -223,7 +267,7 @@ fn read_frame(t: &[u64], names: &[&'static str], period: f64, spans: &mut Vec<Pa
             ms: ms(end - start),
         });
     }
-    Some(ms(last - first))
+    Some((ms(last - first), last))
 }
 
 /// Folds one frame's spans into the smoothed per-pass times. Passes with the
@@ -254,7 +298,7 @@ mod tests {
         let mut spans = Vec::new();
         // Two passes; the GPU skipped the third's timestamps.
         let t = [1_000_000, 3_000_000, 3_000_000, 4_000_000, 0, 0];
-        let total = read_frame(&t, &["a", "b", "c"], 1.0, &mut spans).unwrap();
+        let (total, _) = read_frame(&t, &["a", "b", "c"], 1.0, 0, &mut spans, &mut Vec::new()).unwrap();
         assert!((total - 3.0).abs() < 1e-6);
         assert_eq!(spans.len(), 2);
         assert_eq!(spans[1].name, "b");
@@ -267,10 +311,22 @@ mod tests {
         // b begins while a still runs, waiting for it: b is charged 4..6
         // (each timestamp is one past its time: zero means unwritten).
         let t = [1, 5, 2, 7];
-        let total = read_frame(&t, &["a", "b"], 1e6, &mut spans).unwrap();
+        let (total, end) = read_frame(&t, &["a", "b"], 1e6, 0, &mut spans, &mut Vec::new()).unwrap();
+        assert_eq!(end, 7);
         assert_eq!(total, 6.0);
         assert_eq!(spans.iter().map(|s| s.ms).sum::<f32>(), total);
         assert_eq!((spans[1].start_ms, spans[1].ms), (4.0, 2.0));
+    }
+
+    #[test]
+    fn stale_timestamps_from_skipped_passes_are_ignored() {
+        let mut spans = Vec::new();
+        // Pass "b" was skipped: its queries still hold the last frame's 1, 2;
+        // "c" ends before it begins (its end is an older frame's).
+        let t = [10, 14, 1, 2, 14, 16, 15, 4];
+        let (total, end) = read_frame(&t, &["a", "b", "c", "d"], 1e6, 3, &mut spans, &mut Vec::new()).unwrap();
+        assert_eq!((total, end), (6.0, 16));
+        assert_eq!(spans.iter().map(|s| s.name).collect::<Vec<_>>(), ["a", "c"]);
     }
 
     #[test]

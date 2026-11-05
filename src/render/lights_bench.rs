@@ -154,10 +154,11 @@ fn offscreen_light_benchmark() {
                     size: (1280, 720),
                 },
             );
+            let mut buffers = renderer.draw(&device, &target, wgpu::Color::BLACK, &textures, Some(&timer));
             let mut encoder = device.create_command_encoder(&Default::default());
-            renderer.draw(&mut encoder, &target, wgpu::Color::BLACK, &textures, Some(&timer));
             timer.resolve(&mut encoder);
-            queue.submit([encoder.finish()]);
+            buffers.push(encoder.finish());
+            queue.submit(buffers);
             timer.submitted();
             ctx.last_render_stats = RenderStats {
                 cpu_ms: start.elapsed().as_secs_f32() * 1000.0,

@@ -26,6 +26,55 @@ use super::gpu::GpuTexture;
 use super::lights::LightTextures;
 use super::timer::GpuTimer;
 
+/// A part of a frame, recorded into a command buffer of its own (see
+/// `Renderer3D::draw`).
+#[derive(Clone, Copy, Debug)]
+enum Part {
+    /// Compute passes and the sky texture.
+    Prelude,
+    /// A shadow cascade's runs `first..end`: big cascades are drawn in
+    /// several passes (the first clears the map), recorded on several cores.
+    Shadow { cascade: usize, first: u32, end: u32 },
+    /// Every target camera.
+    Views,
+    Prepass,
+    /// The opaque pass, with the transparent surfaces when none reads the scene.
+    Opaque,
+    /// A copy of the opaque scene, then the transparent surfaces.
+    Transparent,
+    /// Screen effects, bloom and tone mapping.
+    Post,
+}
+
+impl Part {
+    fn label(self) -> &'static str {
+        match self {
+            Part::Prelude => "3d prelude",
+            Part::Shadow { .. } => "3d shadows",
+            Part::Views => "3d target cameras",
+            Part::Prepass => "3d depth prepass",
+            Part::Opaque => "3d opaque",
+            Part::Transparent => "3d transparent",
+            Part::Post => "3d post",
+        }
+    }
+}
+
+/// What every part of a frame is recorded with.
+struct FrameParts<'a, 't> {
+    view: &'a wgpu::TextureView,
+    clear: wgpu::Color,
+    textures: &'a [GpuTexture],
+    targets: &'a Targets,
+    split: bool,
+    time: &'a (dyn Fn(&'static str) -> Option<wgpu::RenderPassTimestampWrites<'t>> + Sync),
+}
+
+/// Draws per shadow pass before a cascade is split into more passes, each
+/// recorded on its own core. A pass costs little GPU time on a depth-only
+/// map; recording a few hundred draws costs a fraction of a millisecond.
+const SHADOW_DRAWS_PER_PASS: usize = 300;
+
 /// GPU timer names of the shadow cascades' passes.
 const SHADOW_PASSES: [&str; 8] = [
     "shadows 0",
@@ -1743,305 +1792,388 @@ impl Renderer3D {
 
     /// Draws the frame's passes (see the module docs) and leaves the tone
     /// mapped result in `view`. `clear` is the background, in linear color.
+    ///
+    /// Each part of the frame (each shadow cascade, the depth prepass, the
+    /// opaque and transparent passes, ...) is recorded into its own command
+    /// buffer, all on different cores: turning draw calls into GPU commands
+    /// (wgpu's `finish`) is most of a busy frame's CPU time. The buffers come
+    /// back in the order they must be submitted.
     pub fn draw(
         &self,
-        encoder: &mut wgpu::CommandEncoder,
+        device: &wgpu::Device,
         view: &wgpu::TextureView,
         clear: wgpu::Color,
         textures: &[GpuTexture],
         timer: Option<&GpuTimer>,
-    ) {
-        let Some(targets) = &self.targets else { return };
-        let time = |name| timer.and_then(|t| t.pass(name));
-        // Compute passes first, so this frame's materials see their results.
-        for &(compute, state, material) in &self.computes {
-            let state = &self.compute_states[state].1;
-            {
-                let timestamps = time("compute").map(|t| wgpu::ComputePassTimestampWrites {
-                    query_set: t.query_set,
-                    beginning_of_pass_write_index: t.beginning_of_pass_write_index,
-                    end_of_pass_write_index: t.end_of_pass_write_index,
-                });
-                let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some("3d compute"),
-                    timestamp_writes: timestamps,
-                });
-                pass.set_pipeline(&self.compute_pipelines[compute as usize]);
-                pass.set_bind_group(0, &self.frame_bind_group, &[]);
-                pass.set_bind_group(1, &self.materials[material as usize].bind_group, &[]);
-                pass.set_bind_group(2, &self.no_scene, &[]);
-                pass.set_bind_group(3, &state.group, &[]);
-                let size = state.target.size();
-                pass.dispatch_workgroups(size.width.div_ceil(8), size.height.div_ceil(8), 1);
-            }
-            encoder.copy_texture_to_texture(
-                state.scratch.as_image_copy(),
-                state.target.as_image_copy(),
-                state.target.size(),
-            );
-        }
-        if self.atmosphere {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("3d sky texture"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.sky_view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: time("sky texture"),
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            pass.set_pipeline(&self.sky_lut);
-            pass.set_bind_group(0, &self.shadow_bind_group, &[0]);
-            pass.draw(0..3, 0..1);
-        }
-        for cascade in 0..self.cascades {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("3d shadows"),
-                color_attachments: &[],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.shadow_layers[cascade],
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
-                timestamp_writes: time(SHADOW_PASSES[cascade.min(SHADOW_PASSES.len() - 1)]),
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            let offset = (self.shadow_stride * cascade as u64) as u32;
-            pass.set_bind_group(0, &self.shadow_bind_group, &[offset]);
-            pass.set_bind_group(2, &self.no_scene, &[]);
-            self.draw_models(&mut pass, &self.shadow_runs[cascade], Kind::Shadow);
-        }
-        // Target cameras, before the main view, whose materials may read them.
-        for (target, runs) in &self.views {
-            let target = &self.view_targets[*target].1;
-            self.draw_view(encoder, target, runs, clear, &time);
-        }
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("3d depth prepass"),
-                color_attachments: &[],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &targets.depth,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
-                timestamp_writes: time("depth prepass"),
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            pass.set_bind_group(0, &self.frame_bind_group, &[]);
-            pass.set_bind_group(2, &self.no_scene, &[]);
-            self.draw_models(&mut pass, &self.runs, Kind::Prepass);
-        }
-        // Transparent shaders that read the scene behind them get a copy of
-        // the opaque scene: the frame is then drawn in two passes.
-        let split = self.needs_scene();
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("3d opaque"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &targets.color,
-                    depth_slice: None,
-                    resolve_target: Some(&targets.hdr),
-                    ops: wgpu::Operations {
-                        // Alpha 0 marks the background for the post pass.
-                        load: wgpu::LoadOp::Clear(wgpu::Color { a: 0.0, ..clear }),
-                        store: if split {
-                            wgpu::StoreOp::Store
-                        } else {
-                            wgpu::StoreOp::Discard
-                        },
-                    },
-                })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &targets.depth,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: if split {
-                            wgpu::StoreOp::Store
-                        } else {
-                            wgpu::StoreOp::Discard
-                        },
-                    }),
-                    stencil_ops: None,
-                }),
-                timestamp_writes: time("opaque"),
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            pass.set_bind_group(0, &self.frame_bind_group, &[]);
-            pass.set_bind_group(2, &self.no_scene, &[]);
-            self.draw_models(&mut pass, &self.runs, Kind::Opaque);
-            if self.atmosphere {
-                pass.set_pipeline(&self.sky);
-                pass.set_bind_group(0, &self.frame_bind_group, &[]);
-                pass.draw(0..3, 0..1);
-                pass.set_bind_group(2, &self.no_scene, &[]);
-            }
-            if !split {
-                self.draw_models(&mut pass, &self.runs, Kind::Transparent);
-            }
-        }
-        if split {
-            encoder.copy_texture_to_texture(
-                targets.hdr_texture.as_image_copy(),
-                targets.scene_texture.as_image_copy(),
-                targets.hdr_texture.size(),
-            );
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("3d transparent"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &targets.color,
-                    depth_slice: None,
-                    resolve_target: Some(&targets.hdr),
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Discard,
-                    },
-                })],
-                // Read-only depth: the shaders sample it at the same time.
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &targets.depth,
-                    depth_ops: None,
-                    stencil_ops: None,
-                }),
-                timestamp_writes: time("transparent"),
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            pass.set_bind_group(0, &self.frame_bind_group, &[]);
-            pass.set_bind_group(2, &targets.scene, &[]);
-            self.draw_models(&mut pass, &self.runs, Kind::Transparent);
-        }
-        // Screen effects, in order, swapping between `hdr` and the scene
-        // texture (free once the transparents are drawn): each reads the
-        // frame so far from one and writes the other, with no copies.
-        let mut in_hdr = true;
-        for &(effect, material) in &self.effects {
-            let (source, target) = if in_hdr {
-                (&targets.scene_of_hdr, &targets.scene_view)
-            } else {
-                (&targets.scene, &targets.hdr)
-            };
-            in_hdr = !in_hdr;
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("3d screen effect"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: target,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: time("screen effects"),
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            pass.set_pipeline(&self.effect_pipelines[effect as usize]);
-            pass.set_bind_group(0, &self.frame_bind_group, &[]);
-            pass.set_bind_group(1, &self.materials[material as usize].bind_group, &[]);
-            pass.set_bind_group(2, source, &[]);
-            pass.draw(0..3, 0..1);
-        }
-        let (post, bloom_prefilter) = if in_hdr {
-            (&targets.post, &targets.bloom_prefilter)
-        } else {
-            (&targets.post_of_scene, &targets.bloom_prefilter_of_scene)
+    ) -> Vec<wgpu::CommandBuffer> {
+        let Some(targets) = &self.targets else {
+            return Vec::new();
         };
-        if self.bloom {
-            let step = |encoder: &mut wgpu::CommandEncoder,
-                        label: &'static str,
-                        pipeline,
-                        group: &wgpu::BindGroup,
-                        target: &wgpu::TextureView,
-                        load| {
+        let time = |name| timer.and_then(|t| t.pass(name));
+        let split = self.needs_scene();
+        let mut parts = Vec::with_capacity(8 + self.cascades);
+        parts.push(Part::Prelude);
+        for (cascade, runs) in self.shadow_runs[..self.cascades].iter().enumerate() {
+            let mut first = 0;
+            let mut draws = 0;
+            for (i, &(mesh, _, _)) in runs.iter().enumerate() {
+                draws += self.meshes[mesh as usize].parts.len();
+                if draws >= SHADOW_DRAWS_PER_PASS {
+                    parts.push(Part::Shadow { cascade, first, end: i as u32 + 1 });
+                    (first, draws) = (i as u32 + 1, 0);
+                }
+            }
+            if first == 0 || (first as usize) < runs.len() {
+                parts.push(Part::Shadow { cascade, first, end: runs.len() as u32 });
+            }
+        }
+        if !self.views.is_empty() {
+            parts.push(Part::Views);
+        }
+        parts.extend([Part::Prepass, Part::Opaque]);
+        if split {
+            parts.push(Part::Transparent);
+        }
+        parts.push(Part::Post);
+        let frame = FrameParts {
+            view,
+            clear,
+            textures,
+            targets,
+            split,
+            time: &time,
+        };
+        let record = |part: &Part| {
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some(part.label()) });
+            self.record(*part, &mut encoder, &frame);
+            encoder.finish()
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            use rayon::prelude::*;
+            parts.par_iter().map(record).collect()
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            parts.iter().map(record).collect()
+        }
+    }
+
+    /// Records one part of the frame (see [`draw`](Self::draw)).
+    fn record(&self, part: Part, encoder: &mut wgpu::CommandEncoder, frame: &FrameParts<'_, '_>) {
+        let FrameParts {
+            view,
+            clear,
+            textures,
+            targets,
+            split,
+            time,
+        } = *frame;
+        match part {
+            Part::Prelude => {
+                // Compute passes first, so this frame's materials see their results.
+                for &(compute, state, material) in &self.computes {
+                    let state = &self.compute_states[state].1;
+                    {
+                        let timestamps = time("compute").map(|t| wgpu::ComputePassTimestampWrites {
+                            query_set: t.query_set,
+                            beginning_of_pass_write_index: t.beginning_of_pass_write_index,
+                            end_of_pass_write_index: t.end_of_pass_write_index,
+                        });
+                        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                            label: Some("3d compute"),
+                            timestamp_writes: timestamps,
+                        });
+                        pass.set_pipeline(&self.compute_pipelines[compute as usize]);
+                        pass.set_bind_group(0, &self.frame_bind_group, &[]);
+                        pass.set_bind_group(1, &self.materials[material as usize].bind_group, &[]);
+                        pass.set_bind_group(2, &self.no_scene, &[]);
+                        pass.set_bind_group(3, &state.group, &[]);
+                        let size = state.target.size();
+                        pass.dispatch_workgroups(size.width.div_ceil(8), size.height.div_ceil(8), 1);
+                    }
+                    encoder.copy_texture_to_texture(
+                        state.scratch.as_image_copy(),
+                        state.target.as_image_copy(),
+                        state.target.size(),
+                    );
+                }
+                if self.atmosphere {
+                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("3d sky texture"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &self.sky_view,
+                            depth_slice: None,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: time("sky texture"),
+                        occlusion_query_set: None,
+                        multiview_mask: None,
+                    });
+                    pass.set_pipeline(&self.sky_lut);
+                    pass.set_bind_group(0, &self.shadow_bind_group, &[0]);
+                    pass.draw(0..3, 0..1);
+                }
+            }
+            Part::Shadow { cascade, first, end } => {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some(label),
+                    label: Some("3d shadows"),
+                    color_attachments: &[],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &self.shadow_layers[cascade],
+                        depth_ops: Some(wgpu::Operations {
+                            load: if first == 0 {
+                                wgpu::LoadOp::Clear(1.0)
+                            } else {
+                                wgpu::LoadOp::Load
+                            },
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    timestamp_writes: time(SHADOW_PASSES[cascade.min(SHADOW_PASSES.len() - 1)]),
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                let offset = (self.shadow_stride * cascade as u64) as u32;
+                pass.set_bind_group(0, &self.shadow_bind_group, &[offset]);
+                pass.set_bind_group(2, &self.no_scene, &[]);
+                let runs = &self.shadow_runs[cascade][first as usize..end as usize];
+                self.draw_models(&mut pass, runs, Kind::Shadow);
+            }
+            Part::Views => {
+                // Target cameras, before the main view, whose materials may read them.
+                for (target, runs) in &self.views {
+                    let target = &self.view_targets[*target].1;
+                    self.draw_view(encoder, target, runs, clear, time);
+                }
+            }
+            Part::Prepass => {
+                {
+                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("3d depth prepass"),
+                        color_attachments: &[],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: &targets.depth,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(1.0),
+                                store: wgpu::StoreOp::Store,
+                            }),
+                            stencil_ops: None,
+                        }),
+                        timestamp_writes: time("depth prepass"),
+                        occlusion_query_set: None,
+                        multiview_mask: None,
+                    });
+                    pass.set_bind_group(0, &self.frame_bind_group, &[]);
+                    pass.set_bind_group(2, &self.no_scene, &[]);
+                    self.draw_models(&mut pass, &self.runs, Kind::Prepass);
+                }
+            }
+            Part::Opaque => {
+                {
+                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("3d opaque"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &targets.color,
+                            depth_slice: None,
+                            resolve_target: Some(&targets.hdr),
+                            ops: wgpu::Operations {
+                                // Alpha 0 marks the background for the post pass.
+                                load: wgpu::LoadOp::Clear(wgpu::Color { a: 0.0, ..clear }),
+                                store: if split {
+                                    wgpu::StoreOp::Store
+                                } else {
+                                    wgpu::StoreOp::Discard
+                                },
+                            },
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: &targets.depth,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: if split {
+                                    wgpu::StoreOp::Store
+                                } else {
+                                    wgpu::StoreOp::Discard
+                                },
+                            }),
+                            stencil_ops: None,
+                        }),
+                        timestamp_writes: time("opaque"),
+                        occlusion_query_set: None,
+                        multiview_mask: None,
+                    });
+                    pass.set_bind_group(0, &self.frame_bind_group, &[]);
+                    pass.set_bind_group(2, &self.no_scene, &[]);
+                    self.draw_models(&mut pass, &self.runs, Kind::Opaque);
+                    if self.atmosphere {
+                        pass.set_pipeline(&self.sky);
+                        pass.set_bind_group(0, &self.frame_bind_group, &[]);
+                        pass.draw(0..3, 0..1);
+                        pass.set_bind_group(2, &self.no_scene, &[]);
+                    }
+                    if !split {
+                        self.draw_models(&mut pass, &self.runs, Kind::Transparent);
+                    }
+                }
+            }
+            Part::Transparent => {
+                if split {
+                    encoder.copy_texture_to_texture(
+                        targets.hdr_texture.as_image_copy(),
+                        targets.scene_texture.as_image_copy(),
+                        targets.hdr_texture.size(),
+                    );
+                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("3d transparent"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &targets.color,
+                            depth_slice: None,
+                            resolve_target: Some(&targets.hdr),
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Discard,
+                            },
+                        })],
+                        // Read-only depth: the shaders sample it at the same time.
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: &targets.depth,
+                            depth_ops: None,
+                            stencil_ops: None,
+                        }),
+                        timestamp_writes: time("transparent"),
+                        occlusion_query_set: None,
+                        multiview_mask: None,
+                    });
+                    pass.set_bind_group(0, &self.frame_bind_group, &[]);
+                    pass.set_bind_group(2, &targets.scene, &[]);
+                    self.draw_models(&mut pass, &self.runs, Kind::Transparent);
+                }
+            }
+            Part::Post => {
+                // Screen effects, in order, swapping between `hdr` and the scene
+                // texture (free once the transparents are drawn): each reads the
+                // frame so far from one and writes the other, with no copies.
+                let mut in_hdr = true;
+                for &(effect, material) in &self.effects {
+                    let (source, target) = if in_hdr {
+                        (&targets.scene_of_hdr, &targets.scene_view)
+                    } else {
+                        (&targets.scene, &targets.hdr)
+                    };
+                    in_hdr = !in_hdr;
+                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("3d screen effect"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: target,
+                            depth_slice: None,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: time("screen effects"),
+                        occlusion_query_set: None,
+                        multiview_mask: None,
+                    });
+                    pass.set_pipeline(&self.effect_pipelines[effect as usize]);
+                    pass.set_bind_group(0, &self.frame_bind_group, &[]);
+                    pass.set_bind_group(1, &self.materials[material as usize].bind_group, &[]);
+                    pass.set_bind_group(2, source, &[]);
+                    pass.draw(0..3, 0..1);
+                }
+                let (post, bloom_prefilter) = if in_hdr {
+                    (&targets.post, &targets.bloom_prefilter)
+                } else {
+                    (&targets.post_of_scene, &targets.bloom_prefilter_of_scene)
+                };
+                if self.bloom {
+                    let step = |encoder: &mut wgpu::CommandEncoder,
+                                label: &'static str,
+                                pipeline,
+                                group: &wgpu::BindGroup,
+                                target: &wgpu::TextureView,
+                                load| {
+                        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                            label: Some(label),
+                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                view: target,
+                                depth_slice: None,
+                                resolve_target: None,
+                                ops: wgpu::Operations {
+                                    load,
+                                    store: wgpu::StoreOp::Store,
+                                },
+                            })],
+                            depth_stencil_attachment: None,
+                            timestamp_writes: time(label),
+                            occlusion_query_set: None,
+                            multiview_mask: None,
+                        });
+                        pass.set_pipeline(pipeline);
+                        pass.set_bind_group(0, group, &[]);
+                        pass.set_blend_constant(wgpu::Color {
+                            r: BLOOM_SCATTER,
+                            g: BLOOM_SCATTER,
+                            b: BLOOM_SCATTER,
+                            a: BLOOM_SCATTER,
+                        });
+                        pass.draw(0..3, 0..1);
+                    };
+                    let clear = wgpu::LoadOp::Clear(wgpu::Color::BLACK);
+                    let mips = &targets.bloom_mips;
+                    step(
+                        encoder,
+                        "bloom",
+                        &self.bloom_prefilter,
+                        bloom_prefilter,
+                        &mips[0],
+                        clear,
+                    );
+                    for (i, group) in targets.bloom_down.iter().enumerate() {
+                        step(encoder, "bloom", &self.bloom_down, group, &mips[i + 1], clear);
+                    }
+                    for (i, group) in targets.bloom_up.iter().enumerate().rev() {
+                        step(
+                            encoder,
+                            "bloom",
+                            &self.bloom_up,
+                            group,
+                            &mips[i],
+                            wgpu::LoadOp::Load,
+                        );
+                    }
+                }
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("3d post"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: target,
+                        view,
                         depth_slice: None,
                         resolve_target: None,
                         ops: wgpu::Operations {
-                            load,
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                             store: wgpu::StoreOp::Store,
                         },
                     })],
                     depth_stencil_attachment: None,
-                    timestamp_writes: time(label),
+                    timestamp_writes: time("post"),
                     occlusion_query_set: None,
                     multiview_mask: None,
                 });
-                pass.set_pipeline(pipeline);
-                pass.set_bind_group(0, group, &[]);
-                pass.set_blend_constant(wgpu::Color {
-                    r: BLOOM_SCATTER,
-                    g: BLOOM_SCATTER,
-                    b: BLOOM_SCATTER,
-                    a: BLOOM_SCATTER,
-                });
+                pass.set_pipeline(&self.post_pipeline);
+                pass.set_bind_group(0, post, &[]);
+                pass.set_bind_group(1, &textures[self.lut as usize].bind_group, &[]);
                 pass.draw(0..3, 0..1);
-            };
-            let clear = wgpu::LoadOp::Clear(wgpu::Color::BLACK);
-            let mips = &targets.bloom_mips;
-            step(
-                encoder,
-                "bloom",
-                &self.bloom_prefilter,
-                bloom_prefilter,
-                &mips[0],
-                clear,
-            );
-            for (i, group) in targets.bloom_down.iter().enumerate() {
-                step(encoder, "bloom", &self.bloom_down, group, &mips[i + 1], clear);
-            }
-            for (i, group) in targets.bloom_up.iter().enumerate().rev() {
-                step(
-                    encoder,
-                    "bloom",
-                    &self.bloom_up,
-                    group,
-                    &mips[i],
-                    wgpu::LoadOp::Load,
-                );
             }
         }
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("3d post"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view,
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: time("post"),
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
-        pass.set_pipeline(&self.post_pipeline);
-        pass.set_bind_group(0, post, &[]);
-        pass.set_bind_group(1, &textures[self.lut as usize].bind_group, &[]);
-        pass.draw(0..3, 0..1);
     }
 
     /// One target camera's view: depth prepass, then the lit solid models
@@ -2052,7 +2184,7 @@ impl Renderer3D {
         target: &ViewTarget,
         runs: &[(u32, u32, u32)],
         clear: wgpu::Color,
-        time: &dyn Fn(&'static str) -> Option<wgpu::RenderPassTimestampWrites<'t>>,
+        time: &(dyn Fn(&'static str) -> Option<wgpu::RenderPassTimestampWrites<'t>> + Sync),
     ) {
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -2121,7 +2253,10 @@ impl Renderer3D {
     /// and all its models at once.
     fn draw_models(&self, pass: &mut wgpu::RenderPass<'_>, runs: &[(u32, u32, u32)], kind: Kind) {
         pass.set_vertex_buffer(1, self.instances.slice(..));
+        // Only what changes is set again: each `set_*` costs wgpu
+        // validation and a Metal/Vulkan call per draw otherwise.
         let mut bound = None;
+        let mut bound_material = u32::MAX;
         for &(mesh, start, count) in runs {
             let mesh = &self.meshes[mesh as usize];
             let Some((vertices, indices)) = &mesh.buffers else {
@@ -2152,7 +2287,10 @@ impl Renderer3D {
                     pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
                     buffers_set = true;
                 }
-                pass.set_bind_group(1, &m.bind_group, &[]);
+                if bound_material != *material {
+                    pass.set_bind_group(1, &m.bind_group, &[]);
+                    bound_material = *material;
+                }
                 pass.draw_indexed(range.clone(), 0, start..start + count);
             }
         }
