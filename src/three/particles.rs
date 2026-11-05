@@ -1,0 +1,716 @@
+//! CPU particle pools and lifetime curves. Pools retain their storage between frames.
+use super::{Camera3D, Transform3D, linear};
+use crate::{Color, Rng, Texture, Vec3, World};
+
+/// A piecewise linear size multiplier over normalized lifetime. Keys must be finite,
+/// strictly increasing, and in 0..=1; sampling clamps to the endpoints.
+/// ```
+/// use crabbyengine::*;
+/// let curve = ParticleCurve::new(vec![(0.0, 1.0), (1.0, 0.0)]);
+/// assert_eq!(curve.sample(0.5), 0.5);
+/// ```
+#[derive(Debug, Clone)]
+pub struct ParticleCurve(Vec<(f32, f32)>);
+impl ParticleCurve {
+    /// Creates a curve; panics for empty, unordered or nonfinite keys/values.
+    /// ```
+    /// use crabbyengine::*;
+    /// let c = ParticleCurve::new(vec![(0.0, 2.0)]);
+    /// assert_eq!(c.sample(1.0), 2.0);
+    /// ```
+    pub fn new(keys: Vec<(f32, f32)>) -> Self {
+        check_keys(&keys);
+        assert!(
+            keys.iter().all(|k| k.1.is_finite()),
+            "particle curve values must be finite"
+        );
+        Self(keys)
+    }
+    /// Evaluates the curve; NaN samples the start.
+    /// ```
+    /// use crabbyengine::*;
+    /// assert_eq!(ParticleCurve::default().sample(0.5), 1.0);
+    /// ```
+    pub fn sample(&self, t: f32) -> f32 {
+        let (a, b, f) = segment(&self.0, t);
+        a + (b - a) * f
+    }
+}
+impl Default for ParticleCurve {
+    fn default() -> Self {
+        Self(vec![(0.0, 1.0)])
+    }
+}
+
+/// A piecewise linear RGBA gradient, interpolated in the supplied color space.
+/// ```
+/// use crabbyengine::*;
+/// let g = ParticleGradient::new(vec![(0.0, Color::WHITE), (1.0, Color::BLACK)]);
+/// assert_eq!(g.sample(0.5).r, 0.5);
+/// ```
+#[derive(Debug, Clone)]
+pub struct ParticleGradient(Vec<(f32, Color)>);
+impl ParticleGradient {
+    /// Creates a gradient; panics for empty, unordered or nonfinite keys/colors.
+    /// ```
+    /// use crabbyengine::*;
+    /// let g = ParticleGradient::new(vec![(0.0, Color::WHITE)]);
+    /// assert_eq!(g.sample(1.0), Color::WHITE);
+    /// ```
+    pub fn new(keys: Vec<(f32, Color)>) -> Self {
+        check_keys(&keys);
+        assert!(
+            keys.iter()
+                .all(|k| [k.1.r, k.1.g, k.1.b, k.1.a].iter().all(|v| v.is_finite())),
+            "particle colors must be finite"
+        );
+        Self(keys)
+    }
+    /// Evaluates RGBA at normalized age, clamping beyond the keys.
+    /// ```
+    /// use crabbyengine::*;
+    /// assert_eq!(ParticleGradient::default().sample(0.0), Color::WHITE);
+    /// ```
+    pub fn sample(&self, t: f32) -> Color {
+        let (a, b, f) = segment(&self.0, t);
+        Color::rgba(
+            a.r + (b.r - a.r) * f,
+            a.g + (b.g - a.g) * f,
+            a.b + (b.b - a.b) * f,
+            a.a + (b.a - a.a) * f,
+        )
+    }
+}
+impl Default for ParticleGradient {
+    fn default() -> Self {
+        Self(vec![(0.0, Color::WHITE), (1.0, Color::rgba(1.0, 1.0, 1.0, 0.0))])
+    }
+}
+fn check_keys<T>(keys: &[(f32, T)]) {
+    assert!(
+        !keys.is_empty()
+            && keys.iter().all(|k| k.0.is_finite() && (0.0..=1.0).contains(&k.0))
+            && keys.windows(2).all(|w| w[0].0 < w[1].0),
+        "particle keys must be nonempty, ordered and in 0..=1"
+    );
+}
+fn segment<T: Copy>(keys: &[(f32, T)], t: f32) -> (T, T, f32) {
+    let t = if t.is_nan() { 0.0 } else { t };
+    let i = keys.partition_point(|k| k.0 <= t);
+    if i == 0 {
+        return (keys[0].1, keys[0].1, 0.0);
+    }
+    if i == keys.len() {
+        return (keys[i - 1].1, keys[i - 1].1, 0.0);
+    }
+    let (a, b) = (keys[i - 1], keys[i]);
+    (a.1, b.1, (t - a.0) / (b.0 - a.0))
+}
+
+/// Emission volume in the entity's coordinates; cone directions point along +Y.
+/// ```
+/// use crabbyengine::*;
+/// let shape = ParticleShape3D::Cone { angle: 0.4 };
+/// # let _ = shape;
+/// ```
+#[derive(Debug, Clone, Copy, Default)]
+pub enum ParticleShape3D {
+    /// Origin, with velocity along +Y.
+    #[default]
+    Point,
+    /// Uniform volume, with outward velocity. Negative radii become zero.
+    Sphere {
+        /// Radius in local units.
+        radius: f32,
+    },
+    /// Origin, with directions uniformly distributed inside the cone.
+    Cone {
+        /// Half angle in radians, clamped to 0..=pi.
+        angle: f32,
+    },
+    /// Uniform box volume, with velocity along +Y.
+    Box {
+        /// Half extents in local units (absolute values are used).
+        half_extents: Vec3,
+    },
+}
+/// Particle compositing, always depth tested with depth writes disabled.
+/// ```
+/// use crabbyengine::*;
+/// let blend = ParticleBlend3D::Additive;
+/// # let _ = blend;
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ParticleBlend3D {
+    /// Ordinary alpha compositing (particles sorted back to front).
+    #[default]
+    Alpha,
+    /// Emitted light adds to the scene, weighted by alpha.
+    Additive,
+}
+/// Whether existing particles follow the emitter's transform.
+/// ```
+/// use crabbyengine::*;
+/// let space = ParticleSpace3D::Local;
+/// # let _ = space;
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ParticleSpace3D {
+    /// Spawn transform is applied once; gravity is in world coordinates.
+    #[default]
+    World,
+    /// Position and gravity stay in entity coordinates; scale affects billboard size.
+    Local,
+}
+
+/// Settings copied into an emitter. Change settings by creating a new emitter.
+/// All numeric inputs must be finite; ranges must be ordered and nonnegative
+/// (rotation may be negative). Invalid settings panic in `ParticleEmitter3D::new`.
+/// ```
+/// use crabbyengine::*;
+/// let settings = ParticleSettings3D { rate: 40.0, blend: ParticleBlend3D::Additive, ..Default::default() };
+/// let emitter = ParticleEmitter3D::new(settings);
+/// assert_eq!(emitter.live_count(), 0);
+/// ```
+#[derive(Debug, Clone)]
+pub struct ParticleSettings3D {
+    /// Continuous particles per second. Zero emits only bursts.
+    pub rate: f32,
+    /// Initial burst, emitted on the first frame (also for non-looping emitters).
+    pub burst: usize,
+    /// Seconds of continuous emission before stopping or looping.
+    pub duration: f32,
+    /// Repeat continuous emission after `duration`; initial burst does not repeat.
+    pub looping: bool,
+    /// Particle lifetime in seconds, minimum strictly positive.
+    pub lifetime: (f32, f32),
+    /// Initial speed in units per second.
+    pub speed: (f32, f32),
+    /// Spawn shape in emitter coordinates.
+    pub shape: ParticleShape3D,
+    /// Acceleration in simulation coordinates.
+    pub gravity: Vec3,
+    /// Exponential velocity damping per second.
+    pub drag: f32,
+    /// Initial billboard width and height in world units (before local scale).
+    pub size: (f32, f32),
+    /// Initial rotation around the billboard normal, in radians.
+    pub rotation: (f32, f32),
+    /// Size multiplier over normalized lifetime.
+    pub size_over_life: ParticleCurve,
+    /// RGBA tint over normalized lifetime.
+    pub color_over_life: ParticleGradient,
+    /// Optional image; absent uses white.
+    pub texture: Option<Texture>,
+    /// Sprite sheet (columns, rows); frames advance row-major over lifetime.
+    pub sheet: (u32, u32),
+    /// How billboards combine with the scene.
+    pub blend: ParticleBlend3D,
+    /// Hard live-particle limit. Storage is allocated when the emitter is made.
+    pub max_particles: usize,
+    /// World or entity coordinates.
+    pub space: ParticleSpace3D,
+    /// Independent RNG seed; equal seeds and frame steps give equal simulation.
+    pub seed: u64,
+}
+impl Default for ParticleSettings3D {
+    fn default() -> Self {
+        Self {
+            rate: 10.0,
+            burst: 0,
+            duration: 1.0,
+            looping: true,
+            lifetime: (1.0, 2.0),
+            speed: (1.0, 2.0),
+            shape: ParticleShape3D::Point,
+            gravity: Vec3::new(0.0, -9.81, 0.0),
+            drag: 0.0,
+            size: (0.1, 0.2),
+            rotation: (0.0, 0.0),
+            size_over_life: ParticleCurve::default(),
+            color_over_life: ParticleGradient::default(),
+            texture: None,
+            sheet: (1, 1),
+            blend: ParticleBlend3D::Alpha,
+            max_particles: 1024,
+            space: ParticleSpace3D::World,
+            seed: 1,
+        }
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Particle {
+    position: Vec3,
+    velocity: Vec3,
+    age: f32,
+    lifetime: f32,
+    size: f32,
+    rotation: f32,
+}
+
+/// A CPU particle pool component, paired with `Transform3D`. Simulation runs after
+/// frame systems; no meshes are required. `run_headless` skips this visual frame phase.
+/// Cloning copies the live particles and RNG state. Capped emission is discarded.
+/// ```
+/// use crabbyengine::*;
+/// let mut world = World::new();
+/// world.spawn((Transform3D::default(), ParticleEmitter3D::default()));
+/// ```
+#[derive(Debug)]
+pub struct ParticleEmitter3D {
+    settings: ParticleSettings3D,
+    particles: Vec<Particle>,
+    rng: Rng,
+    pending: usize,
+    elapsed: f64,
+    fraction: f64,
+}
+impl Clone for ParticleEmitter3D {
+    fn clone(&self) -> Self {
+        let mut particles = Vec::with_capacity(self.settings.max_particles);
+        particles.extend_from_slice(&self.particles);
+        Self {
+            settings: self.settings.clone(),
+            particles,
+            rng: self.rng.clone(),
+            pending: self.pending,
+            elapsed: self.elapsed,
+            fraction: self.fraction,
+        }
+    }
+}
+impl Default for ParticleEmitter3D {
+    fn default() -> Self {
+        Self::new(ParticleSettings3D::default())
+    }
+}
+impl ParticleEmitter3D {
+    /// Allocates the entire particle pool. Panics for invalid settings.
+    /// ```
+    /// use crabbyengine::*;
+    /// let e = ParticleEmitter3D::new(ParticleSettings3D { max_particles: 64, ..Default::default() });
+    /// assert_eq!(e.live_count(), 0);
+    /// ```
+    pub fn new(settings: ParticleSettings3D) -> Self {
+        let s = &settings;
+        for (a, b) in [s.lifetime, s.speed, s.size, s.rotation] {
+            assert!(
+                a.is_finite() && b.is_finite() && a <= b,
+                "particle ranges must be finite and ordered"
+            );
+        }
+        assert!(
+            s.lifetime.0 > 0.0
+                && s.speed.0 >= 0.0
+                && s.size.0 >= 0.0
+                && s.rate.is_finite()
+                && s.rate >= 0.0
+                && s.duration.is_finite()
+                && s.duration > 0.0
+                && s.drag.is_finite()
+                && s.drag >= 0.0
+                && s.gravity.is_finite(),
+            "invalid particle settings"
+        );
+        assert!(
+            s.sheet.0 > 0 && s.sheet.1 > 0 && s.sheet.0.checked_mul(s.sheet.1).is_some(),
+            "invalid particle sheet"
+        );
+        match s.shape {
+            ParticleShape3D::Sphere { radius } => assert!(radius.is_finite(), "invalid particle sphere"),
+            ParticleShape3D::Cone { angle } => assert!(angle.is_finite(), "invalid particle cone"),
+            ParticleShape3D::Box { half_extents } => assert!(half_extents.is_finite(), "invalid particle box"),
+            _ => {}
+        }
+        Self {
+            particles: Vec::with_capacity(s.max_particles),
+            rng: Rng::new(s.seed),
+            pending: s.burst.min(s.max_particles),
+            elapsed: 0.0,
+            fraction: 0.0,
+            settings,
+        }
+    }
+    /// Queues particles for the next frame, capped at the pool size; works after a one-shot ends.
+    /// ```
+    /// use crabbyengine::*;
+    /// let mut e = ParticleEmitter3D::default();
+    /// e.burst(20);
+    /// ```
+    pub fn burst(&mut self, count: usize) {
+        self.pending = self.pending.saturating_add(count).min(self.settings.max_particles);
+    }
+    /// Number of currently living particles.
+    /// ```
+    /// use crabbyengine::*;
+    /// assert_eq!(ParticleEmitter3D::default().live_count(), 0);
+    /// ```
+    pub fn live_count(&self) -> usize {
+        self.particles.len()
+    }
+
+    pub(crate) fn update(&mut self, dt: f32, transform: &Transform3D) {
+        if !dt.is_finite() || dt < 0.0 {
+            return;
+        }
+        let s = &self.settings;
+        for p in &mut self.particles {
+            p.age += dt;
+            p.velocity = (p.velocity + s.gravity * dt) * (-s.drag * dt).exp();
+            p.position += p.velocity * dt;
+        }
+        self.particles.retain(|p| p.age < p.lifetime);
+        let active = if s.looping {
+            f64::from(dt)
+        } else {
+            f64::from(dt).min((f64::from(s.duration) - self.elapsed).max(0.0))
+        };
+        self.elapsed += f64::from(dt);
+        self.fraction += active * f64::from(s.rate);
+        let rate_count = self.fraction.floor() as usize;
+        self.fraction -= self.fraction.floor();
+        let count = self
+            .pending
+            .saturating_add(rate_count)
+            .min(s.max_particles - self.particles.len());
+        self.pending = 0;
+        for _ in 0..count {
+            let (position, direction) = spawn_shape(s.shape, &mut self.rng);
+            let velocity = direction * self.rng.range(s.speed.0, s.speed.1);
+            let (position, velocity) = if s.space == ParticleSpace3D::World {
+                (
+                    transform.matrix().transform_point3(position),
+                    transform.rotation * velocity,
+                )
+            } else {
+                (position, velocity)
+            };
+            self.particles.push(Particle {
+                position,
+                velocity,
+                age: 0.0,
+                lifetime: self.rng.range(s.lifetime.0, s.lifetime.1),
+                size: self.rng.range(s.size.0, s.size.1),
+                rotation: self.rng.range(s.rotation.0, s.rotation.1),
+            });
+        }
+    }
+}
+fn spawn_shape(shape: ParticleShape3D, rng: &mut Rng) -> (Vec3, Vec3) {
+    let direction = |rng: &mut Rng, y: f32| {
+        let angle = rng.angle();
+        let r = (1.0 - y * y).max(0.0).sqrt();
+        Vec3::new(angle.cos() * r, y, angle.sin() * r)
+    };
+    match shape {
+        ParticleShape3D::Point => (Vec3::ZERO, Vec3::Y),
+        ParticleShape3D::Sphere { radius } => {
+            let y = rng.range(-1.0, 1.0);
+            let d = direction(rng, y);
+            (d * radius.max(0.0) * rng.f32().cbrt(), d)
+        }
+        ParticleShape3D::Cone { angle } => {
+            let y = rng.range(angle.clamp(0.0, std::f32::consts::PI).cos(), 1.0);
+            (Vec3::ZERO, direction(rng, y))
+        }
+        ParticleShape3D::Box { half_extents } => (
+            Vec3::new(rng.range(-1.0, 1.0), rng.range(-1.0, 1.0), rng.range(-1.0, 1.0)) * half_extents.abs(),
+            Vec3::Y,
+        ),
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub(crate) struct ParticleInstance {
+    pub position_size: [f32; 4],
+    pub color: [f32; 4],
+    pub rotation_sheet: [f32; 4],
+}
+#[derive(Clone, Copy)]
+pub(crate) struct ParticleRun {
+    pub first: u32,
+    pub count: u32,
+    pub texture: Option<u32>,
+    pub blend: ParticleBlend3D,
+    depth: f32,
+}
+#[derive(Default)]
+pub(crate) struct ParticleFrame {
+    pub instances: Vec<ParticleInstance>,
+    pub runs: Vec<ParticleRun>,
+    pub right: [f32; 4],
+    pub up: [f32; 4],
+}
+impl ParticleFrame {
+    pub fn collect(&mut self, world: &mut World, camera: &Camera3D) {
+        self.instances.clear();
+        self.runs.clear();
+        self.right = (camera.rotation * Vec3::X).extend(0.0).to_array();
+        self.up = (camera.rotation * Vec3::Y).extend(0.0).to_array();
+        world.query::<(&ParticleEmitter3D, &Transform3D)>().for_each(|(e, t)| {
+            if e.particles.is_empty() {
+                return;
+            }
+            let first = self.instances.len();
+            let s = &e.settings;
+            let matrix = t.matrix();
+            let mut center = Vec3::ZERO;
+            for p in &e.particles {
+                let age = p.age / p.lifetime;
+                let local = s.space == ParticleSpace3D::Local;
+                let position = if local {
+                    matrix.transform_point3(p.position)
+                } else {
+                    p.position
+                };
+                center += position;
+                let size =
+                    p.size * s.size_over_life.sample(age) * if local { t.scale.abs().max_element() } else { 1.0 };
+                self.instances.push(ParticleInstance {
+                    position_size: position.extend(size.max(0.0)).to_array(),
+                    color: linear(s.color_over_life.sample(age)),
+                    rotation_sheet: [
+                        p.rotation,
+                        (age * (s.sheet.0 * s.sheet.1) as f32)
+                            .floor()
+                            .min((s.sheet.0 * s.sheet.1 - 1) as f32),
+                        s.sheet.0 as f32,
+                        s.sheet.1 as f32,
+                    ],
+                });
+            }
+            if s.blend == ParticleBlend3D::Alpha {
+                self.instances[first..].sort_unstable_by(|a, b| {
+                    let depth = |p: &ParticleInstance| {
+                        (Vec3::new(p.position_size[0], p.position_size[1], p.position_size[2]) - camera.position)
+                            .dot(camera.forward())
+                    };
+                    depth(b).total_cmp(&depth(a))
+                });
+            }
+            center /= e.particles.len() as f32;
+            self.runs.push(ParticleRun {
+                first: first as u32,
+                count: e.particles.len() as u32,
+                texture: s.texture.map(|t| t.id),
+                blend: s.blend,
+                depth: (center - camera.position).dot(camera.forward()),
+            });
+        });
+        self.runs.sort_unstable_by(|a, b| b.depth.total_cmp(&a.depth));
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn emitter() -> ParticleEmitter3D {
+        ParticleEmitter3D::new(ParticleSettings3D {
+            rate: 10.0,
+            lifetime: (1.0, 1.0),
+            ..Default::default()
+        })
+    }
+
+    #[test]
+    fn particles_rate_bursts_and_cap() {
+        let mut e = emitter();
+        let t = Transform3D::default();
+        for _ in 0..5 {
+            e.update(0.1, &t);
+        }
+        assert_eq!(e.live_count(), 5);
+        e.burst(3);
+        e.update(0.0, &t);
+        assert_eq!(e.live_count(), 8);
+        e.burst(usize::MAX);
+        e.update(0.0, &t);
+        assert_eq!(e.live_count(), e.settings.max_particles);
+    }
+
+    #[test]
+    fn particles_expire_and_reuse_the_pool() {
+        let mut e = emitter();
+        e.settings.rate = 0.0;
+        let capacity = e.particles.capacity();
+        e.burst(4);
+        e.update(0.0, &Transform3D::default());
+        e.update(1.0, &Transform3D::default());
+        assert_eq!(e.live_count(), 0);
+        e.burst(4);
+        e.update(0.0, &Transform3D::default());
+        assert_eq!(e.live_count(), 4);
+        assert_eq!(e.particles.capacity(), capacity);
+    }
+
+    #[test]
+    fn particles_curves_interpolate_and_clamp() {
+        let c = ParticleCurve::new(vec![(0.0, 0.0), (0.5, 2.0), (1.0, 0.0)]);
+        assert_eq!(c.sample(0.25), 1.0);
+        assert_eq!(c.sample(-1.0), 0.0);
+        assert_eq!(c.sample(2.0), 0.0);
+        let g = ParticleGradient::new(vec![(0.0, Color::BLACK), (1.0, Color::WHITE)]);
+        assert_eq!(g.sample(0.5).r, 0.5);
+    }
+
+    #[test]
+    fn particles_seed_repeats() {
+        let mut a = emitter();
+        let mut b = emitter();
+        for _ in 0..9 {
+            a.update(0.1, &Transform3D::default());
+            b.update(0.1, &Transform3D::default());
+        }
+        assert_eq!(a.particles, b.particles);
+        let mut c = ParticleEmitter3D::new(ParticleSettings3D {
+            seed: 91,
+            ..a.settings.clone()
+        });
+        c.update(0.9, &Transform3D::default());
+        assert_ne!(a.particles[0].velocity, c.particles[0].velocity);
+    }
+    #[test]
+    fn particles_one_shot_stops_rate_but_accepts_new_bursts() {
+        let mut e = ParticleEmitter3D::new(ParticleSettings3D {
+            looping: false,
+            duration: 0.25,
+            rate: 20.0,
+            burst: 2,
+            lifetime: (10.0, 10.0),
+            ..Default::default()
+        });
+        e.update(0.5, &Transform3D::default());
+        assert_eq!(e.live_count(), 7);
+        e.update(0.5, &Transform3D::default());
+        assert_eq!(e.live_count(), 7);
+        e.burst(3);
+        e.update(0.0, &Transform3D::default());
+        assert_eq!(e.live_count(), 10);
+        assert!(e.clone().particles.capacity() >= e.settings.max_particles);
+    }
+
+    #[test]
+    fn particles_local_follows_transform_world_stays_put_and_runs_sort() {
+        let mut world = World::new();
+        let mut local = ParticleEmitter3D::new(ParticleSettings3D {
+            space: ParticleSpace3D::Local,
+            rate: 0.0,
+            burst: 1,
+            size: (1.0, 1.0),
+            ..Default::default()
+        });
+        let mut global = ParticleEmitter3D::new(ParticleSettings3D {
+            rate: 0.0,
+            burst: 1,
+            ..Default::default()
+        });
+        let at = Transform3D::at(Vec3::new(0.0, 0.0, -2.0));
+        local.update(0.0, &at);
+        global.update(0.0, &at);
+        world.spawn((
+            Transform3D {
+                position: Vec3::new(3.0, 0.0, -8.0),
+                scale: Vec3::splat(2.0),
+                ..Default::default()
+            },
+            local,
+        ));
+        world.spawn((Transform3D::at(Vec3::X * 100.0), global));
+        let mut camera = Camera3D::new(crate::Vec2::splat(64.0));
+        camera.position = Vec3::ZERO;
+        let mut frame = ParticleFrame::default();
+        frame.collect(&mut world, &camera);
+        assert_eq!(frame.runs.len(), 2);
+        let far = frame.instances[frame.runs[0].first as usize];
+        let near = frame.instances[frame.runs[1].first as usize];
+        assert_eq!(far.position_size, [3.0, 0.0, -8.0, 2.0]);
+        assert_eq!(&near.position_size[..3], &[0.0, 0.0, -2.0]);
+    }
+
+    #[test]
+    fn particles_shapes_obey_volume_and_direction() {
+        let mut rng = Rng::new(8);
+        for _ in 0..100 {
+            let (p, d) = spawn_shape(ParticleShape3D::Sphere { radius: 2.0 }, &mut rng);
+            assert!(p.length() <= 2.0 && (d.length() - 1.0).abs() < 1e-5);
+            let (p, d) = spawn_shape(ParticleShape3D::Cone { angle: 0.3 }, &mut rng);
+            assert_eq!(p, Vec3::ZERO);
+            assert!(d.y >= 0.3f32.cos() - 1e-6);
+            let (p, d) = spawn_shape(
+                ParticleShape3D::Box {
+                    half_extents: Vec3::new(1.0, 2.0, 3.0),
+                },
+                &mut rng,
+            );
+            assert!(p.abs().cmple(Vec3::new(1.0, 2.0, 3.0)).all());
+            assert_eq!(d, Vec3::Y);
+        }
+    }
+
+    #[test]
+    fn particles_headless_skips_visual_frame_simulation() {
+        let mut world = crate::Game::new("particles test", 1, 1).run_headless(2, |ctx| {
+            ctx.world.spawn((
+                Transform3D::default(),
+                ParticleEmitter3D::new(ParticleSettings3D {
+                    rate: 0.0,
+                    burst: 3,
+                    ..Default::default()
+                }),
+            ));
+        });
+        let mut count = 0;
+        world
+            .query::<&ParticleEmitter3D>()
+            .for_each(|e| count += e.live_count());
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "particle keys")]
+    fn particles_reject_unordered_curve_keys() {
+        ParticleCurve::new(vec![(1.0, 1.0), (0.0, 0.0)]);
+    }
+
+    #[test]
+    fn particles_zero_capacity_and_invalid_dt_are_harmless() {
+        let mut e = ParticleEmitter3D::new(ParticleSettings3D {
+            max_particles: 0,
+            burst: usize::MAX,
+            ..Default::default()
+        });
+        for dt in [0.0, 1.0, -1.0, f32::NAN, f32::INFINITY] {
+            e.update(dt, &Transform3D::default());
+        }
+        assert_eq!(e.live_count(), 0);
+    }
+    #[test]
+    fn particles_sort_by_view_depth_even_off_axis() {
+        let mut camera = Camera3D::new(crate::Vec2::splat(64.0));
+        camera.position = Vec3::ZERO;
+        camera.look_at(Vec3::NEG_Z);
+        let mut world = World::new();
+        let mut e = ParticleEmitter3D::new(ParticleSettings3D {
+            rate: 0.0,
+            burst: 2,
+            ..Default::default()
+        });
+        e.update(0.0, &Transform3D::default());
+        e.particles[0].position = Vec3::new(4.0, 0.0, -4.0);
+        e.particles[1].position = Vec3::new(0.0, 0.0, -5.0);
+        let mut first = e.clone();
+        first.particles.truncate(1);
+        let mut second = e.clone();
+        second.particles.remove(0);
+        let mut frame = ParticleFrame::default();
+        let id = world.spawn((Transform3D::default(), e));
+        frame.collect(&mut world, &camera);
+        assert_eq!(frame.instances[0].position_size[2], -5.0);
+        world.despawn(id);
+        world.spawn((Transform3D::default(), first));
+        world.spawn((Transform3D::default(), second));
+        frame.collect(&mut world, &camera);
+        assert_eq!(frame.instances[frame.runs[0].first as usize].position_size[2], -5.0);
+    }
+}

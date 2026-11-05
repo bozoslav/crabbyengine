@@ -809,6 +809,7 @@ dependencies = [
  "js-sys",
  "kira",
  "libc",
+ "navmesh-rs",
  "pollster",
  "puffin",
  "puffin_http",
@@ -2294,6 +2295,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "navmesh-rs"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "79b60a7d13695c117109b589977b2746867abfc10b0c5255dcc6cb8a271e9be2"
+dependencies = [
+ "libm",
+ "sha2",
+]
+
+[[package]]
 name = "ndk"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3563,6 +3574,17 @@ name = "sha1"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a978451301f4db1d02937a4ab3ccce137717b81826e79b7d49ffe3244a13c3b8"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest",
+]
+
+[[package]]
+name = "sha2"
+version = "0.10.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
 dependencies = [
  "cfg-if",
  "cpufeatures",

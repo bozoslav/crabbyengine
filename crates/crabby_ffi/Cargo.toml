@@ -38,7 +38,7 @@ physics3d = ["crabbyengine/physics3d"]
 steam = ["crabbyengine/steam"]
 
 [dependencies]
-crabbyengine = { path = "../..", version = "1.0.0", default-features = false, features = ["3d"] }
+crabbyengine = { path = "../..", version = "1.0.0", default-features = false, features = ["3d", "navmesh"] }
 crabby_ecs = { path = "../crabby_ecs", version = "1.0.0" }
 rayon = "1.12.0"
 serde_json = "1.0.154"

@@ -12,6 +12,8 @@ mod lights;
 mod mips;
 #[cfg(not(feature = "window"))]
 mod none;
+#[cfg(all(feature = "window", feature = "3d"))]
+mod particles;
 #[cfg(feature = "window")]
 mod timer;
 

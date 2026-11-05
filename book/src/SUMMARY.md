@@ -21,6 +21,7 @@
 - [Sprite sheets, animation, tilemaps](tiles.md)
 - [3D: meshes, materials and the sun](3d.md)
 - [3D physics: bodies, terrain, characters and vehicles](physics3d.md)
+- [3D navigation meshes](navigation3d.md)
 - [Sound](audio.md)
 - [Data files: tune without restarting](data-files.md)
 - [Scenes and prefabs](scenes.md)

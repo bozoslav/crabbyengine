@@ -1191,6 +1191,109 @@ public:
     message_stats stats() const { message_stats s{}; detail::check(crabby_net_messages_stats(raw_, &s)); return s; }
 };
 
+using nav_bake_settings = CrabbyNavBakeSettings;
+/// A 0.3 m wide, 1.8 m tall agent on 45 degree slopes.
+inline nav_bake_settings nav_bake_defaults() { return crabby_nav_bake_settings_default(); }
+
+/// Walkable geometry to bake into a navmesh (ctx::bake_navmesh).
+class nav_sources {
+    CrabbyNavSources* raw_ = crabby_nav_sources_new();
+public:
+    nav_sources() = default;
+    ~nav_sources() { crabby_nav_sources_free(raw_); }
+    nav_sources(nav_sources&& o) noexcept : raw_(o.raw_) { o.raw_ = nullptr; }
+    nav_sources& operator=(nav_sources&& o) noexcept { std::swap(raw_, o.raw_); return *this; }
+    nav_sources(const nav_sources&) = delete;
+    nav_sources& operator=(const nav_sources&) = delete;
+    /// World-space triangles: three corners each, counter-clockwise seen from above.
+    nav_sources& add_triangles(const std::vector<vec3>& corners) {
+        if (corners.size() % 3) throw std::invalid_argument("nav_sources::add_triangles: three corners per triangle");
+        detail::check(crabby_nav_sources_add_triangles(raw_, corners.data(), corners.size() / 3));
+        return *this;
+    }
+    /// A mesh's triangles placed by `t`.
+    nav_sources& add_mesh(const mesh_data& data, const transform3d& t) {
+        detail::check(crabby_nav_sources_add_mesh(raw_, data.raw(), t));
+        return *this;
+    }
+    const CrabbyNavSources* raw() const noexcept { return raw_; }
+};
+
+enum class particle_blend : std::uint32_t { alpha = 0, additive = 1 };
+enum class particle_space : std::uint32_t { world = 0, local = 1 };
+struct particle_key { float t; float value; };
+struct particle_color_key { float t; color value; };
+
+/// A particle emitter's settings (Rust `ParticleSettings3D`), built by
+/// chaining: `particle_settings().rate(40).cone(0.3f).blend(particle_blend::additive)`.
+class particle_settings {
+    CrabbyParticleSettings3D c_ = crabby_particle_settings3d_default();
+    std::vector<CrabbyParticleKey> size_keys_;
+    std::vector<CrabbyParticleColorKey> color_keys_;
+    particle_settings& shape(CrabbyParticleShape3D kind, vec3 size) {
+        c_.shape = static_cast<std::uint32_t>(kind);
+        c_.shape_size = size;
+        return *this;
+    }
+public:
+    /// Particles per second; 0 emits only bursts.
+    particle_settings& rate(float per_second) { c_.rate = per_second; return *this; }
+    /// Particles emitted at once on the first frame.
+    particle_settings& burst(std::uint32_t count) { c_.burst = count; return *this; }
+    /// Seconds of emission, and whether it starts again after.
+    particle_settings& duration(float seconds, bool looping = true) { c_.duration = seconds; c_.looping = looping; return *this; }
+    particle_settings& lifetime(float min, float max) { c_.lifetime_min = min; c_.lifetime_max = max; return *this; }
+    particle_settings& speed(float min, float max) { c_.speed_min = min; c_.speed_max = max; return *this; }
+    particle_settings& size(float min, float max) { c_.size_min = min; c_.size_max = max; return *this; }
+    particle_settings& rotation(float min, float max) { c_.rotation_min = min; c_.rotation_max = max; return *this; }
+    /// From the origin, along +Y (the default).
+    particle_settings& point() { return shape(CRABBY_PARTICLES_POINT, {0, 0, 0}); }
+    /// Inside a ball, moving outward.
+    particle_settings& sphere(float radius) { return shape(CRABBY_PARTICLES_SPHERE, {radius, 0, 0}); }
+    /// From the origin, inside a cone around +Y with this half angle (radians).
+    particle_settings& cone(float angle) { return shape(CRABBY_PARTICLES_CONE, {angle, 0, 0}); }
+    /// Inside a box, moving along +Y.
+    particle_settings& box(vec3 half_extents) { return shape(CRABBY_PARTICLES_BOX, half_extents); }
+    particle_settings& gravity(vec3 acceleration) { c_.gravity = acceleration; return *this; }
+    /// Velocity damping per second.
+    particle_settings& drag(float per_second) { c_.drag = per_second; return *this; }
+    /// Size multiplier over normalized lifetime (0 birth, 1 death).
+    particle_settings& size_over_life(std::initializer_list<particle_key> keys) {
+        size_keys_.clear();
+        for (auto k : keys) size_keys_.push_back({k.t, k.value});
+        return *this;
+    }
+    /// Tint over normalized lifetime (0 birth, 1 death).
+    particle_settings& color_over_life(std::initializer_list<particle_color_key> keys) {
+        color_keys_.clear();
+        for (auto k : keys) color_keys_.push_back({k.t, k.value});
+        return *this;
+    }
+    /// The particle image; with `columns` x `rows` sprite sheet frames played over lifetime.
+    particle_settings& image(texture t, std::uint32_t columns = 1, std::uint32_t rows = 1) {
+        c_.has_texture = true;
+        c_.texture = t;
+        c_.sheet_columns = columns;
+        c_.sheet_rows = rows;
+        return *this;
+    }
+    particle_settings& blend(particle_blend b) { c_.blend = static_cast<std::uint32_t>(b); return *this; }
+    /// Most living particles; storage is made up front.
+    particle_settings& max_particles(std::uint32_t n) { c_.max_particles = n; return *this; }
+    particle_settings& space(particle_space s) { c_.space = static_cast<std::uint32_t>(s); return *this; }
+    /// Equal seeds give equal particles.
+    particle_settings& seed(std::uint64_t s) { c_.seed = s; return *this; }
+    /// The C settings; its key pointers live as long as this object.
+    CrabbyParticleSettings3D raw() const {
+        CrabbyParticleSettings3D c = c_;
+        c.size_keys = size_keys_.data();
+        c.size_key_count = size_keys_.size();
+        c.color_keys = color_keys_.data();
+        c.color_key_count = color_keys_.size();
+        return c;
+    }
+};
+
 class clip {
     CrabbyClip* raw_ = nullptr;
 public:
@@ -1848,6 +1951,57 @@ public:
     }
     /// Draws `e`'s bones this frame, over the scene.
     void draw_skeleton(entity e, color c) { detail::check(crabby_ctx_draw_skeleton(raw_, e, c)); }
+    /// Bakes `sources` into this context's navmesh (agents replan). Throws with the reason on bad geometry.
+    void bake_navmesh(const nav_sources& sources, const nav_bake_settings& settings = nav_bake_defaults()) {
+        detail::check(crabby_ctx_bake_navmesh(raw_, sources.raw(), &settings));
+    }
+    /// The nearest walkable point within `max_distance`, or std::nullopt.
+    std::optional<vec3> navmesh_sample_position(vec3 point, float max_distance) {
+        vec3 p{}; bool found = false;
+        detail::check(crabby_ctx_navmesh_sample_position(raw_, point, max_distance, &p, &found));
+        if (!found) return std::nullopt;
+        return p;
+    }
+    /// A path's corners from `from` to `to`, start and end included; empty when there is none.
+    std::vector<vec3> navmesh_find_path(vec3 from, vec3 to) {
+        std::vector<vec3> corners(32);
+        std::size_t len = 0;
+        detail::check(crabby_ctx_navmesh_find_path(raw_, from, to, corners.data(), corners.size(), &len));
+        if (len > corners.size()) {
+            corners.resize(len);
+            detail::check(crabby_ctx_navmesh_find_path(raw_, from, to, corners.data(), corners.size(), &len));
+        }
+        corners.resize(len);
+        return corners;
+    }
+    /// Makes `e` (with a transform3d) an agent; moves only with game::navmesh3d().
+    void set_nav_agent(entity e, float speed = 3, float radius = 0.3f, float acceleration = 10) {
+        detail::check(crabby_ctx_set_nav_agent(raw_, e, speed, radius, acceleration));
+    }
+    /// Sends `e`'s agent to `destination`; std::nullopt stops it.
+    void set_nav_destination(entity e, std::optional<vec3> destination) {
+        detail::check(crabby_ctx_set_nav_destination(raw_, e, destination ? &*destination : nullptr));
+    }
+    /// Makes `e` a box obstacle agents path around.
+    void set_nav_obstacle(entity e, vec3 center, vec3 half_extents) {
+        detail::check(crabby_ctx_set_nav_obstacle(raw_, e, center, half_extents));
+    }
+    void remove_nav(entity e) { detail::check(crabby_ctx_remove_nav(raw_, e)); }
+    /// Gives `e` (which needs a 3D transform) a new particle emitter, replacing any old one.
+    void set_particle_emitter3d(entity e, const particle_settings& settings) {
+        CrabbyParticleSettings3D c = settings.raw();
+        detail::check(crabby_ctx_set_particle_emitter3d(raw_, e, &c));
+    }
+    /// Emits `count` particles from `e`'s emitter on the next frame.
+    void particle_burst(entity e, std::uint32_t count) { detail::check(crabby_ctx_particle_burst(raw_, e, count)); }
+    /// How many of `e`'s particles are alive.
+    std::uint32_t particle_live_count(entity e) {
+        std::uint32_t n = 0;
+        detail::check(crabby_ctx_particle_live_count(raw_, e, &n));
+        return n;
+    }
+    /// Removes `e`'s emitter and its particles.
+    void remove_particle_emitter3d(entity e) { detail::check(crabby_ctx_remove_particle_emitter3d(raw_, e)); }
     /// Gives `e` (with a skeleton) an animator playing `g`; the engine advances it every frame.
     void set_animator(entity e, const animation_graph& g) { detail::check(crabby_ctx_set_animator(raw_, e, g.raw())); }
     void animator_set_float(entity e, std::size_t parameter, float value) { detail::check(crabby_ctx_animator_set_float(raw_, e, parameter, value)); }
@@ -2303,6 +2457,8 @@ public:
     game& lockstep_steam_join(std::uint32_t app_id, std::uint64_t lobby) {
         return check(crabby_game_lockstep_steam_join(raw_, app_id, lobby));
     }
+    /// Moves navmesh agents every simulation tick, at this point in the order.
+    game& navmesh3d() { return check(crabby_game_navmesh3d(raw_)); }
     /// A system on the fixed simulation tick; `every` > 1 runs it every n ticks.
     template<class F> game& sim_system(F fn, const char* name = nullptr, std::uint32_t every = 1) {
         return check(crabby_game_sim_system(raw_, name, every, trampoline, keep(std::move(fn))));

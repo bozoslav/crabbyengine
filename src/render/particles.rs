@@ -1,0 +1,423 @@
+//! Instanced camera-facing particles. GPU storage grows only at high-water marks.
+use super::gpu::GpuTexture;
+use crate::ParticleBlend3D;
+use crate::three::particles::{ParticleFrame, ParticleInstance, ParticleRun};
+
+const SHADER: &str = include_str!("particles.wgsl");
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct Camera {
+    view_proj: [[f32; 4]; 4],
+    right: [f32; 4],
+    up: [f32; 4],
+}
+pub(super) struct Particles {
+    alpha: wgpu::RenderPipeline,
+    additive: wgpu::RenderPipeline,
+    camera: wgpu::Buffer,
+    group: wgpu::BindGroup,
+    instances: wgpu::Buffer,
+    capacity: usize,
+    pub runs: Vec<ParticleRun>,
+}
+impl Particles {
+    pub fn new(device: &wgpu::Device, texture_layout: &wgpu::BindGroupLayout, samples: u32) -> Self {
+        let camera = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("particle camera"),
+            size: size_of::<Camera>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("particle camera"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("particle camera"),
+            layout: &layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: camera.as_entire_binding(),
+            }],
+        });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("particles"),
+            bind_group_layouts: &[Some(&layout), Some(texture_layout)],
+            immediate_size: 0,
+        });
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("particles"),
+            source: wgpu::ShaderSource::Wgsl(SHADER.into()),
+        });
+        let pipeline = |blend| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("particles"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &module,
+                    entry_point: Some("vs"),
+                    compilation_options: Default::default(),
+                    buffers: &[Some(wgpu::VertexBufferLayout {
+                        array_stride: size_of::<ParticleInstance>() as u64,
+                        step_mode: wgpu::VertexStepMode::Instance,
+                        attributes: &wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4],
+                    })],
+                },
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(wgpu::CompareFunction::LessEqual),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: wgpu::MultisampleState {
+                    count: samples,
+                    ..Default::default()
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &module,
+                    entry_point: Some("fs"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: super::gpu3d::HDR_FORMAT,
+                        blend: Some(blend),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let add = wgpu::BlendComponent {
+            src_factor: wgpu::BlendFactor::One,
+            dst_factor: wgpu::BlendFactor::One,
+            operation: wgpu::BlendOperation::Add,
+        };
+        Self {
+            alpha: pipeline(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+            additive: pipeline(wgpu::BlendState {
+                color: add,
+                alpha: wgpu::BlendComponent::OVER,
+            }),
+            camera,
+            group,
+            instances: buffer(device, 1),
+            capacity: 1,
+            runs: Vec::new(),
+        }
+    }
+    pub fn prepare(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        frame: &ParticleFrame,
+        view_proj: glam::Mat4,
+    ) {
+        self.runs.clear();
+        self.runs.extend_from_slice(&frame.runs);
+        if frame.instances.is_empty() {
+            return;
+        }
+        if frame.instances.len() > self.capacity {
+            self.capacity = frame.instances.len().next_power_of_two();
+            self.instances = buffer(device, self.capacity);
+        }
+        queue.write_buffer(&self.instances, 0, bytemuck::cast_slice(&frame.instances));
+        queue.write_buffer(
+            &self.camera,
+            0,
+            bytemuck::bytes_of(&Camera {
+                view_proj: view_proj.to_cols_array_2d(),
+                right: frame.right,
+                up: frame.up,
+            }),
+        );
+    }
+    pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, textures: &[GpuTexture], white: u32) {
+        if self.runs.is_empty() {
+            return;
+        }
+        pass.set_bind_group(0, &self.group, &[]);
+        pass.set_vertex_buffer(0, self.instances.slice(..));
+        for run in &self.runs {
+            let Some(texture) = textures
+                .get(run.texture.unwrap_or(white) as usize)
+                .or_else(|| textures.get(white as usize))
+            else {
+                continue;
+            };
+            pass.set_pipeline(if run.blend == ParticleBlend3D::Alpha {
+                &self.alpha
+            } else {
+                &self.additive
+            });
+            pass.set_bind_group(1, &texture.bind_group, &[]);
+            pass.draw(0..6, run.first..run.first + run.count);
+        }
+    }
+}
+fn buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("particle instances"),
+        size: (capacity * size_of::<ParticleInstance>()) as u64,
+        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::gpu::GpuTexture;
+    use super::super::gpu3d::*;
+    use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight};
+    use crate::*;
+    const SIZE: u32 = 64;
+
+    #[test]
+    fn particles_shader_is_valid() {
+        super::super::gpu3d::check_shader("particles", super::SHADER).unwrap();
+    }
+
+    #[test]
+    fn particles_additive_brightens_pixels_offscreen() {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
+            eprintln!("no GPU adapter: skipped");
+            return;
+        };
+        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) else {
+            eprintln!("no GPU device: skipped");
+            return;
+        };
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let white = device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
+        });
+        queue.write_texture(
+            white.as_image_copy(),
+            &[255; 4],
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4),
+                rows_per_image: None,
+            },
+            white.size(),
+        );
+        let sampler = device.create_sampler(&Default::default());
+        let view = white.create_view(&Default::default());
+        let textures = [GpuTexture {
+            texture: white.clone(),
+            nearest: false,
+            mips: None,
+            bind_group: device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                ],
+            }),
+        }];
+        let output = device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: SIZE,
+                height: SIZE,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let target = output.create_view(&Default::default());
+
+        let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
+        ctx.camera3d.position = vec3(0.0, 0.0, 4.0);
+        ctx.camera3d.look_at(Vec3::ZERO);
+        ctx.lighting.shadows = false;
+        ctx.sky.atmosphere = false;
+        ctx.post.bloom = 0.0;
+        let mut renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
+        let draw = |ctx: &mut Ctx, renderer: &mut Renderer3D| -> Vec<u8> {
+            let mut skins = SkinFrame::default();
+            skins.collect(&mut ctx.world, &ctx.assets3d);
+            let mut frame = Frame3D::default();
+            frame.collect(&mut ctx.world, &ctx.assets3d, &skins, &ctx.camera3d, &ctx.lighting);
+            frame.skins = skins;
+            let scene = Scene3D {
+                frame: &frame,
+                lighting: &ctx.lighting,
+                sky: &ctx.sky,
+                light: SkyLight {
+                    sun: Vec3::ZERO,
+                    sky: Vec3::ZERO,
+                    ground: Vec3::ZERO,
+                },
+                camera: ctx.camera3d.position,
+                post: &ctx.post,
+                time: (0.0, 1.0 / 60.0),
+            };
+            renderer.prepare(
+                &device,
+                &queue,
+                &Prepare3D {
+                    scene: &scene,
+                    lut: None,
+                    size: (SIZE, SIZE),
+                },
+            );
+            let buffers = renderer.draw(&device, &target, wgpu::Color::BLACK, &textures, None);
+            queue.submit(buffers);
+            let readback = device.create_buffer(&wgpu::BufferDescriptor {
+                label: None,
+                size: u64::from(SIZE * SIZE * 4),
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
+            let mut encoder = device.create_command_encoder(&Default::default());
+            encoder.copy_texture_to_buffer(
+                output.as_image_copy(),
+                wgpu::TexelCopyBufferInfo {
+                    buffer: &readback,
+                    layout: wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(SIZE * 4),
+                        rows_per_image: None,
+                    },
+                },
+                output.size(),
+            );
+            queue.submit([encoder.finish()]);
+            readback.map_async(wgpu::MapMode::Read, .., |r| r.unwrap());
+            device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+            readback.get_mapped_range(..).unwrap().to_vec()
+        };
+
+        let before = draw(&mut ctx, &mut renderer);
+        let e = ctx.world.spawn((
+            Transform3D::default(),
+            ParticleEmitter3D::new(ParticleSettings3D {
+                rate: 0.0,
+                burst: 1,
+                speed: (0.0, 0.0),
+                gravity: Vec3::ZERO,
+                size: (1.0, 1.0),
+                blend: ParticleBlend3D::Additive,
+                color_over_life: ParticleGradient::new(vec![(0.0, Color::rgba(1.0, 0.2, 0.0, 0.5))]),
+                ..Default::default()
+            }),
+        ));
+        ctx.update_particles();
+        let after = draw(&mut ctx, &mut renderer);
+        let center = ((SIZE / 2 * SIZE + SIZE / 2) * 4) as usize;
+        assert!(
+            after[center] > before[center] + 40,
+            "additive particles must brighten their location"
+        );
+        assert_eq!(
+            &after[0..3],
+            &before[0..3],
+            "background outside particles stays unchanged"
+        );
+
+        // A second overlapping particle contributes light: particles do not write depth.
+        ctx.world.get_mut::<ParticleEmitter3D>(e).unwrap().burst(1);
+        ctx.update_particles();
+        let twice = draw(&mut ctx, &mut renderer);
+        assert!(twice[center] > after[center] + 10);
+
+        // Removing the last emitter clears cached GPU draws; a later emitter can reuse storage.
+        let saved = ctx.world.get::<ParticleEmitter3D>(e).unwrap().clone();
+        ctx.world.despawn(e);
+        assert_eq!(draw(&mut ctx, &mut renderer)[center], before[center]);
+        assert!(!renderer.has_draws());
+        let e = ctx.world.spawn((Transform3D::default(), saved));
+
+        // A scene-reading transparent model exercises the separate transparent pass.
+        let source = "fn surface(s: Surface) -> Surface { var o = s; o.emissive = scene_color(s.screen); o.alpha = 0.0; return o; }";
+        let shader = ctx.create_shader("particle test glass", source);
+        renderer.create_shader(&device, "particle test glass", source).unwrap();
+        let desc = MaterialDesc {
+            shader: Some(shader),
+            blend: Blend::Transparent,
+            ..Default::default()
+        };
+        let mat = ctx.create_material(desc);
+        renderer.create_material(&device, &GpuMaterialDesc::new(&desc), &textures);
+        let cube = MeshData::cube(0.5);
+        let mesh = ctx.create_mesh(&cube, mat);
+        renderer.create_mesh(&device, &cube, &[(0..cube.indices.len() as u32, mat)], false);
+        ctx.world
+            .spawn((Transform3D::at(vec3(1.2, 0.0, 0.0)), Model::new(mesh)));
+        assert_eq!(draw(&mut ctx, &mut renderer)[center], twice[center]);
+
+        // Moving the emitter does not move existing world-space particles.
+        ctx.world.get_mut::<Transform3D>(e).unwrap().position = vec3(0.0, 0.0, 6.0);
+        // World-space particles stay at the original position.
+        assert_eq!(draw(&mut ctx, &mut renderer)[center], twice[center]);
+
+        // Opaque geometry in front occludes the particles in the split pass too.
+        let desc = MaterialDesc {
+            color: Color::BLACK,
+            ..Default::default()
+        };
+        let mat = ctx.create_material(desc);
+        renderer.create_material(&device, &GpuMaterialDesc::new(&desc), &textures);
+        let cube = MeshData::cube(1.0);
+        let mesh = ctx.create_mesh(&cube, mat);
+        renderer.create_mesh(&device, &cube, &[(0..cube.indices.len() as u32, mat)], false);
+        ctx.world
+            .spawn((Transform3D::at(vec3(0.0, 0.0, 1.0)), Model::new(mesh)));
+        assert!(draw(&mut ctx, &mut renderer)[center] < twice[center] - 40);
+    }
+}

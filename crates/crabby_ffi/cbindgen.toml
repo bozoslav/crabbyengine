@@ -46,4 +46,4 @@ header = """
 parse_deps = false
 [export]
 exclude = ["Failure"]
-include = ["CrabbyActionSource", "CrabbyKey", "CrabbyMouseButton", "CrabbyGamepadButton", "CrabbyGamepadAxis", "CrabbyTransform2D", "CrabbySprite", "CrabbyFieldType", "CrabbyAnimation", "CrabbyAttached", "CrabbyBodyKind", "CrabbyShapeKind", "CrabbyVelocity", "CrabbyNetState", "CrabbyTransform3D", "CrabbyModel", "CrabbyPointLight3D", "CrabbySpotLight3D", "CrabbyShape3DKind", "CrabbyVelocity3D"]
+include = ["CrabbyActionSource", "CrabbyKey", "CrabbyMouseButton", "CrabbyGamepadButton", "CrabbyGamepadAxis", "CrabbyTransform2D", "CrabbySprite", "CrabbyFieldType", "CrabbyAnimation", "CrabbyAttached", "CrabbyBodyKind", "CrabbyShapeKind", "CrabbyVelocity", "CrabbyNetState", "CrabbyTransform3D", "CrabbyModel", "CrabbyPointLight3D", "CrabbySpotLight3D", "CrabbyShape3DKind", "CrabbyVelocity3D", "CrabbyParticleShape3D", "CrabbyParticleBlend3D", "CrabbyParticleSpace3D"]

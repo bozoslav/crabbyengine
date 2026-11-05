@@ -506,6 +506,7 @@ pub(crate) struct Renderer3D {
     meshes: Vec<GpuMesh>,
     /// This frame's skinned models, drawn as mesh ids past `meshes`.
     skinning: skinning::Skinning,
+    particles: super::particles::Particles,
     materials: Vec<GpuMaterial>,
     instances: wgpu::Buffer,
     /// Capacity of `instances`, in instances.
@@ -1097,6 +1098,7 @@ impl Renderer3D {
                 device,
                 compute && device.limits().max_storage_buffers_per_shader_stage >= 4,
             ),
+            particles: super::particles::Particles::new(device, texture_layout, samples),
             compute_states: Vec::new(),
             computes: Vec::new(),
             views: Vec::new(),
@@ -1474,6 +1476,7 @@ impl Renderer3D {
             0,
             bytemuck::bytes_of(&PostUniform::new(post, lut.map(|(_, n)| n))),
         );
+        self.particles.prepare(device, queue, &frame.particles, frame.view_proj);
         self.lut = lut.map_or(self.white, |(id, _)| id);
         self.bloom = post.bloom > 0.0;
         self.atmosphere = sky.atmosphere;
@@ -1554,7 +1557,7 @@ impl Renderer3D {
             |k| drawn[k],
         );
         self.skin_drawn = drawn;
-        if total == 0 {
+        if total == 0 && frame.particles.instances.is_empty() {
             return;
         }
         if total > self.capacity {
@@ -1818,6 +1821,7 @@ impl Renderer3D {
         self.computes.len()
             + (parts + view_parts) * 2
             + self.views.len() * usize::from(self.atmosphere)
+            + self.particles.runs.len()
             + self.effects.len()
             + if self.atmosphere { 2 } else { 0 }
             + self.shadow_runs[..self.cascades].iter().map(Vec::len).sum::<usize>()
@@ -1889,7 +1893,7 @@ impl Renderer3D {
 
     /// Whether this frame has anything to draw.
     pub fn has_draws(&self) -> bool {
-        !self.runs.is_empty()
+        !self.runs.is_empty() || !self.particles.runs.is_empty()
     }
 
     /// Draws the frame's passes (see the module docs) and leaves the tone
@@ -2141,6 +2145,7 @@ impl Renderer3D {
                     }
                     if !split {
                         self.draw_models(&mut pass, &self.runs, Kind::Transparent);
+                        self.particles.draw(&mut pass, textures, self.white);
                     }
                 }
             }
@@ -2175,6 +2180,7 @@ impl Renderer3D {
                     pass.set_bind_group(0, &self.frame_bind_group, &[]);
                     pass.set_bind_group(2, &targets.scene, &[]);
                     self.draw_models(&mut pass, &self.runs, Kind::Transparent);
+                    self.particles.draw(&mut pass, textures, self.white);
                 }
             }
             Part::Post => {

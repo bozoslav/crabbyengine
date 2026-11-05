@@ -72,7 +72,11 @@ pub use actions::{Action, ActionMap, Axis2Binding, AxisBinding, ButtonBinding, I
 #[cfg(feature = "inspector")]
 mod inspector;
 mod logs;
+#[cfg(feature = "navmesh")]
+mod nav3d;
 mod net;
+#[cfg(feature = "navmesh")]
+pub use nav3d::{NavAgent3D, NavBakeError, NavBakeSettings, NavMesh3D, NavObstacle3D, NavSource, step_navmesh3d};
 #[cfg(feature = "physics")]
 mod physics;
 #[cfg(feature = "physics3d")]
@@ -150,9 +154,10 @@ pub use three::{
     AnimationClip, AnimationCondition, AnimationEvent, AnimationGraph, AnimationParameter, AnimationState,
     AnimationTrack, AnimationTransition, Animator, AttachToJoint, Blend, Camera3D, Compute, ComputePass, Effect,
     Heightfield, Interpolation, Joint, JointAnimation, Lighting, Material, MaterialDesc, Mesh, MeshCost, MeshData,
-    Model, Motion, MotionChild, PointLight3D, Post, ScreenEffect, Shader, ShadowMesh, Skeleton, SkinOf, Sky,
-    SpotLight3D, TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera, TerrainMaterialDesc, TerrainTile, TerrainTileData,
-    TextureArray, TextureKind, Tonemap, Transform3D, look_at_joint, two_bone_ik,
+    Model, Motion, MotionChild, ParticleBlend3D, ParticleCurve, ParticleEmitter3D, ParticleGradient,
+    ParticleSettings3D, ParticleShape3D, ParticleSpace3D, PointLight3D, Post, ScreenEffect, Shader, ShadowMesh,
+    Skeleton, SkinOf, Sky, SpotLight3D, TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera, TerrainMaterialDesc, TerrainTile,
+    TerrainTileData, TextureArray, TextureKind, Tonemap, Transform3D, look_at_joint, two_bone_ik,
 };
 pub use tilemap::{TileMap, draw_tilemaps};
 pub use ui::UiStyle;

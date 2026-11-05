@@ -860,6 +860,58 @@ static void messages() {
     throws([] { crabby::net_messages::loopback(1); });
 }
 
+// A 20 m floor with a wall across the middle, open at one end: the agent walks around.
+static void navigation() {
+    crabby::entity walker = 0;
+    std::size_t corners = 0;
+    auto w = crabby::game("nav", 1, 1).navmesh3d().run_headless(600, [&](crabby::ctx& ctx) {
+        crabby::nav_sources sources;
+        sources.add_mesh(crabby::mesh_data::plane(20), crabby::transform3d_at({0, 0, 0}));
+        auto wall = crabby::mesh_data::cube(1);
+        auto t = crabby::transform3d_at({0, 1, -2});
+        t.scale = {1, 2, 16}; // x = -0.5..0.5, z = -10..6: open beyond z = 6
+        sources.add_mesh(wall, t);
+        ctx.bake_navmesh(sources);
+        auto snapped = ctx.navmesh_sample_position({-5, 3, 0}, 5);
+        CHECK(snapped && std::fabs(snapped->y) < 0.3f);
+        auto path = ctx.navmesh_find_path({-5, 0, 0}, {5, 0, 0});
+        corners = path.size();
+        CHECK(path.size() >= 3); // around the wall's end
+        walker = ctx.world().spawn(crabby::transform3d_at({-5, 0, 0}));
+        ctx.set_nav_agent(walker, 4);
+        ctx.set_nav_destination(walker, crabby::vec3{5, 0, 0});
+        throws([&] { ctx.set_nav_agent(walker, -1); });
+        crabby::nav_sources empty;
+        throws([&] { ctx.bake_navmesh(empty); });
+    });
+    auto end = w.get<crabby::transform3d>(walker).position;
+    CHECK(corners >= 3);
+    CHECK(std::fabs(end.x - 5) < 0.3f && std::fabs(end.z) < 0.3f);
+}
+
+static void particles3d() {
+    crabby::game("particles", 1, 1).run_headless(0, [&](crabby::ctx& ctx) {
+        auto e = ctx.world().spawn(crabby::transform3d_at({0, 1, 0}));
+        auto fire = crabby::particle_settings()
+                        .rate(40)
+                        .cone(0.3f)
+                        .lifetime(0.5f, 1)
+                        .size_over_life({{0, 1}, {1, 0}})
+                        .color_over_life({{0, {1, 0.6f, 0.1f, 1}}, {1, {1, 0, 0, 0}}})
+                        .blend(crabby::particle_blend::additive)
+                        .max_particles(256);
+        ctx.set_particle_emitter3d(e, fire);
+        ctx.particle_burst(e, 20);
+        // Particles simulate in the visual frame phase, which headless runs skip.
+        CHECK(ctx.particle_live_count(e) == 0);
+        throws([&] { ctx.set_particle_emitter3d(e, crabby::particle_settings().lifetime(0, 1)); });
+        throws([&] { ctx.set_particle_emitter3d(e, crabby::particle_settings().lifetime(2, 1)); });
+        throws([&] { ctx.set_particle_emitter3d(e, crabby::particle_settings().max_particles(0)); });
+        ctx.remove_particle_emitter3d(e);
+        throws([&] { ctx.particle_burst(e, 1); });
+    });
+}
+
 int main() {
     worlds();
     names_and_reflection();
@@ -880,6 +932,8 @@ int main() {
     vehicles();
     lockstep();
     messages();
+    navigation();
+    particles3d();
     events();
     rng_matches_rust();
     grid_views_match_engine_queries();

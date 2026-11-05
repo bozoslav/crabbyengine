@@ -36,6 +36,7 @@ type Entry = (u32, Instance3D, bool, u8);
 #[derive(Default)]
 pub(crate) struct Frame3D {
     pub instances: Vec<Instance3D>,
+    pub particles: super::particles::ParticleFrame,
     pub lights: super::lights::LightGrid,
     /// (mesh id, first instance, count) for the camera, in mesh order.
     pub runs: Vec<(u32, u32, u32)>,
@@ -94,6 +95,7 @@ impl Frame3D {
         lighting: &Lighting,
     ) {
         self.view_proj = camera.view_proj();
+        self.particles.collect(world, camera);
         self.lights.collect(world, camera);
         self.cascades = if lighting.shadows && lighting.shadow_distance > 0.0 {
             (lighting.shadow_cascades as usize).clamp(1, MAX_CASCADES)

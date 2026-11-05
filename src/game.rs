@@ -736,6 +736,8 @@ impl Game {
         }
         #[cfg(feature = "3d")]
         ctx.update_animators();
+        #[cfg(feature = "3d")]
+        ctx.update_particles();
         for (i, s) in self.late_systems.iter_mut().enumerate() {
             run_one(s, ctx, n_sim + n_frame + i);
         }

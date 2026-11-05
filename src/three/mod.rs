@@ -21,6 +21,11 @@ pub use ik::{look_at_joint, two_bone_ik};
 pub(crate) mod lights;
 mod mesh;
 pub use lights::{PointLight3D, SpotLight3D};
+pub(crate) mod particles;
+pub use particles::{
+    ParticleBlend3D, ParticleCurve, ParticleEmitter3D, ParticleGradient, ParticleSettings3D, ParticleShape3D,
+    ParticleSpace3D,
+};
 mod post;
 mod skin;
 mod sky;
