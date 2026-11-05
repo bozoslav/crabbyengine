@@ -463,6 +463,12 @@ typedef struct CrabbyQueryFilter3D {
   bool sensors;
 } CrabbyQueryFilter3D;
 
+typedef struct CrabbyVec3 {
+  float x;
+  float y;
+  float z;
+} CrabbyVec3;
+
 typedef struct CrabbyRigidBody3D {
   uint32_t kind;
   float gravity_scale;
@@ -470,13 +476,10 @@ typedef struct CrabbyRigidBody3D {
   float angular_damping;
   bool lock_rotation;
   bool ccd;
+  float mass;
+  bool has_center_of_mass;
+  struct CrabbyVec3 center_of_mass;
 } CrabbyRigidBody3D;
-
-typedef struct CrabbyVec3 {
-  float x;
-  float y;
-  float z;
-} CrabbyVec3;
 
 typedef struct CrabbyCollisionMesh {
   uint64_t id;
@@ -710,6 +713,51 @@ typedef struct CrabbyTileMap {
   struct CrabbyColor color;
   uint16_t *tiles;
 } CrabbyTileMap;
+
+typedef struct CrabbyFrictionCurve {
+  float extremum_slip;
+  float extremum_value;
+  float asymptote_slip;
+  float asymptote_value;
+  float stiffness;
+} CrabbyFrictionCurve;
+
+typedef struct CrabbyWheel3D {
+  struct CrabbyVec3 position;
+  float radius;
+  float mass;
+  float suspension_distance;
+  float spring;
+  float damper;
+  float target_position;
+  float force_app_point_distance;
+  float damping_rate;
+  struct CrabbyFrictionCurve forward_friction;
+  struct CrabbyFrictionCurve sideways_friction;
+  float motor_torque;
+  float brake_torque;
+  float steer_angle;
+  struct CrabbyQuat local_rotation;
+  bool grounded;
+  struct CrabbyVec3 contact_point;
+  struct CrabbyVec3 contact_normal;
+  float compression;
+  float suspension_force;
+  float sprung_mass;
+  float angular_velocity;
+  float forward_slip;
+  float sideways_slip;
+  float spin;
+  struct CrabbyVec3 local_position;
+  float reserved[3];
+} CrabbyWheel3D;
+
+typedef struct CrabbyVehicle3D {
+  struct CrabbyWheel3D wheels[8];
+  uint32_t wheel_count;
+  struct CrabbyCollisionGroups groups;
+  uint32_t reserved;
+} CrabbyVehicle3D;
 
 typedef struct CrabbyTransform2D {
   struct CrabbyVec2 position;
@@ -1386,6 +1434,10 @@ enum CrabbyStatus crabby_ctx_apply_impulse3d(struct CrabbyCtx *ctx,
 
 enum CrabbyStatus crabby_ctx_body_mass3d(struct CrabbyCtx *ctx, uint64_t entity, float *out_mass);
 
+enum CrabbyStatus crabby_ctx_body_center_of_mass3d(struct CrabbyCtx *ctx,
+                                                   uint64_t entity,
+                                                   struct CrabbyVec3 *out_center);
+
 enum CrabbyStatus crabby_component_reflect(struct CrabbyWorld *world,
                                            uint32_t component_id,
                                            const struct CrabbyField *fields,
@@ -1748,6 +1800,24 @@ enum CrabbyStatus crabby_tilemap_update(struct CrabbyWorld *world,
 uint64_t crabby_entity_bits(struct CrabbyEntity entity);
 
 struct CrabbyDrawParams crabby_draw_params_default(void);
+
+struct CrabbyFrictionCurve crabby_friction_curve_forward(void);
+
+struct CrabbyFrictionCurve crabby_friction_curve_sideways(void);
+
+float crabby_friction_curve_evaluate(struct CrabbyFrictionCurve curve, float slip);
+
+struct CrabbyWheel3D crabby_wheel3d(struct CrabbyVec3 position, float radius);
+
+struct CrabbyVehicle3D crabby_vehicle3d(void);
+
+enum CrabbyStatus crabby_vehicle3d_add_wheel(struct CrabbyVehicle3D *vehicle,
+                                             struct CrabbyWheel3D wheel);
+
+struct CrabbyTransform3D crabby_wheel3d_pose(const struct CrabbyWheel3D *wheel,
+                                             struct CrabbyTransform3D chassis);
+
+enum CrabbyStatus crabby_vehicle3d_component(struct CrabbyWorld *world, uint32_t *out_id);
 
 #ifdef __cplusplus
 }  // extern "C"

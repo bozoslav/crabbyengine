@@ -468,6 +468,61 @@ static bool physics3d_snippets() {
     return saw_ground && world.get<crabby::character3d>(me).grounded;
 }
 
+// ---- Vehicles -------------------------------------------------------------------------
+struct Driven { crabby::entity car; };   // a resource: the car the player drives
+
+// ANCHOR: vehicle3d_car
+/// A 1200 kg box car facing -Z, its center of mass low between the axles,
+/// front wheels first.
+static crabby::entity spawn_car(crabby::ctx& ctx, crabby::vec3 at) {
+    std::vector<crabby::wheel3d> wheels;
+    for (float z : {-1.3f, 1.3f})
+        for (float x : {-0.8f, 0.8f}) {
+            auto w = crabby::wheel({x, -0.3f, z}, 0.35f);
+            w.sideways_friction.stiffness = 1.3f;
+            wheels.push_back(w);
+        }
+    auto body = crabby::with_center_of_mass(crabby::with_mass(crabby::dynamic_body3d(), 1200), {0, -0.35f, 0});
+    return ctx.world().spawn(crabby::transform3d_at(at), body, crabby::box_collider({1.8f, 0.6f, 4.2f}),
+                             crabby::velocity3d{}, crabby::vehicle({wheels[0], wheels[1], wheels[2], wheels[3]}));
+}
+// ANCHOR_END: vehicle3d_car
+
+// ANCHOR: vehicle3d_drive
+/// Before each physics step: W drives the rear wheels, S brakes all four,
+/// A and D steer the front ones.
+static void drive(crabby::ctx& ctx) {
+    auto world = ctx.world();
+    const crabby::entity car = world.resource<Driven>().car;
+    auto v = world.get<crabby::vehicle3d>(car);
+    const float throttle = float(ctx.key_down(CRABBY_KEY_W));
+    const bool brake = ctx.key_down(CRABBY_KEY_S);
+    const float steer = 0.5f * (float(ctx.key_down(CRABBY_KEY_D)) - float(ctx.key_down(CRABBY_KEY_A)));
+    for (std::uint32_t i = 0; i < v.wheel_count; ++i) {
+        const bool front = i < 2;
+        v.wheels[i].steer_angle = front ? steer : 0;   // radians, positive right
+        v.wheels[i].motor_torque = front ? 0 : throttle * 900;   // N·m
+        v.wheels[i].brake_torque = brake ? 3000 : 0;
+    }
+    world.set(car, v);
+}
+// ANCHOR_END: vehicle3d_drive
+
+static bool vehicle3d_snippets() {
+    auto world = crabby::game("vehicles", 1280, 720)
+        .sim_system(drive, "drive")
+        .physics3d({0, -9.81f, 0})
+        .run_headless(100, [](crabby::ctx& ctx) {
+            ctx.world().spawn(crabby::transform3d_at({0, -0.5f, 0}), crabby::fixed_body3d(),
+                              crabby::box_collider({100, 1, 100}));
+            ctx.world().set_resource(Driven{spawn_car(ctx, {0, 1, 0})});
+        });
+    const auto car = world.get<crabby::vehicle3d>(world.resource<Driven>().car);
+    bool grounded = true;
+    for (std::uint32_t i = 0; i < car.wheel_count; ++i) grounded = grounded && car.wheels[i].grounded;
+    return car.wheel_count == 4 && grounded;
+}
+
 // ---- Lockstep networking ----------------------------------------------------------
 // ANCHOR: lockstep_input
 struct Order { float x, y; bool go; };   // what one player did this tick
@@ -1313,6 +1368,10 @@ int main() {
     }
     if (!physics3d_snippets()) {
         std::fprintf(stderr, "3D physics snippets failed\n");
+        return 1;
+    }
+    if (!vehicle3d_snippets()) {
+        std::fprintf(stderr, "vehicle snippets failed\n");
         return 1;
     }
     (void)&multiplayer;

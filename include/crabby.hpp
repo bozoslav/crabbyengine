@@ -169,6 +169,9 @@ using collision_mesh = CrabbyCollisionMesh;
 using collision_groups = CrabbyCollisionGroups;
 using query_filter3d = CrabbyQueryFilter3D;
 using hit3d = CrabbyHit3D;
+using vehicle3d = CrabbyVehicle3D;
+using wheel3d = CrabbyWheel3D;
+using friction_curve = CrabbyFrictionCurve;
 enum class texture_filter { linear, nearest };
 
 inline float length(vec2 v) { return std::sqrt(v.x * v.x + v.y * v.y); }
@@ -259,6 +262,29 @@ inline collider3d mesh_collider(collision_mesh m) { return crabby_collider3d_mes
 /// A walking capsule `height` tall and `radius` wide, its transform3d at
 /// its feet: set `velocity`, read `grounded`.
 inline character3d character(float height = 1.8f, float radius = 0.3f) { return crabby_character3d(height, radius); }
+/// Gives a 3D body this mass in kg, whatever its collider's density.
+inline rigid_body3d with_mass(rigid_body3d b, float kg) { b.mass = kg; return b; }
+/// Moves a 3D body's center of mass to `center`, in its own frame (cars want it low).
+inline rigid_body3d with_center_of_mass(rigid_body3d b, vec3 center) {
+    b.has_center_of_mass = true; b.center_of_mass = center; return b;
+}
+/// A raycast wheel of `radius` mounted at `position` (its center at full
+/// compression, in the chassis's frame) with the usual suspension and tyres.
+inline wheel3d wheel(vec3 position, float radius) { return crabby_wheel3d(position, radius); }
+/// A vehicle on these wheels (at most 8), for an entity with a dynamic
+/// rigid_body3d, a collider3d and a transform3d facing -Z.
+inline vehicle3d vehicle(std::initializer_list<wheel3d> wheels) {
+    vehicle3d v = crabby_vehicle3d();
+    for (const wheel3d& w : wheels)
+        if (crabby_vehicle3d_add_wheel(&v, w) != CRABBY_OK) throw std::invalid_argument("a vehicle has at most 8 wheels");
+    return v;
+}
+/// Where to draw `w` for a chassis at `chassis`: steer, spin and suspension travel included.
+inline transform3d wheel_pose(const wheel3d& w, const transform3d& chassis) { return crabby_wheel3d_pose(&w, chassis); }
+/// How fast a wheel spins, in revolutions per minute.
+inline float rpm(const wheel3d& w) { return w.angular_velocity * 60.0f / 6.2831853f; }
+/// The grip of a tyre curve at `slip` (either sign), stiffness included.
+inline float evaluate(const friction_curve& c, float slip) { return crabby_friction_curve_evaluate(c, slip); }
 /// In groups `memberships`, touching colliders in groups `filter`.
 inline collision_groups groups(std::uint32_t memberships, std::uint32_t filter) { return {memberships, filter}; }
 /// What a 3D query sees: every solid collider (no sensors) by default.
@@ -560,6 +586,7 @@ protected:
         else if constexpr (std::is_same<T, collider3d>::value) status = crabby_collider3d_component(world, &id);
         else if constexpr (std::is_same<T, velocity3d>::value) status = crabby_velocity3d_component(world, &id);
         else if constexpr (std::is_same<T, character3d>::value) status = crabby_character3d_component(world, &id);
+        else if constexpr (std::is_same<T, vehicle3d>::value) status = crabby_vehicle3d_component(world, &id);
         else if constexpr (std::is_same<T, transform3d>::value) status = crabby_transform3d_component(world, &id);
         else if constexpr (std::is_same<T, point_light3d>::value) status = crabby_point_light3d_component(world, &id);
         else if constexpr (std::is_same<T, spot_light3d>::value) status = crabby_spot_light3d_component(world, &id);
@@ -1716,6 +1743,14 @@ public:
         if (status == CRABBY_NOT_FOUND) return std::nullopt;
         detail::check(status);
         return m;
+    }
+    /// A 3D body's center of mass in the world, if `e` is one.
+    std::optional<vec3> center_of_mass3d(entity e) {
+        vec3 c{};
+        auto status = crabby_ctx_body_center_of_mass3d(raw_, e, &c);
+        if (status == CRABBY_NOT_FOUND) return std::nullopt;
+        detail::check(status);
+        return c;
     }
 private:
     template<class F> static void overlap3d(std::vector<CrabbyEntity>& out, F call) {

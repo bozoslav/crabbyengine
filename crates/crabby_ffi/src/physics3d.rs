@@ -79,6 +79,14 @@ pub struct CrabbyRigidBody3D {
     pub lock_rotation: bool,
     /// Continuous collision detection, so fast bodies don't pass through thin walls.
     pub ccd: bool,
+    /// Its mass in kg, instead of its collider's density × volume; 0 (the
+    /// default): from the density.
+    pub mass: f32,
+    /// Use `center_of_mass` instead of the collider's center.
+    pub has_center_of_mass: bool,
+    /// Its center of mass in its own frame, when `has_center_of_mass` (cars
+    /// want it low).
+    pub center_of_mass: CrabbyVec3,
 }
 
 /// The built-in `Collider3D` component: a body's shape in meters, centered
@@ -240,6 +248,9 @@ pub extern "C" fn crabby_rigid_body3d(kind: u32) -> CrabbyRigidBody3D {
         angular_damping: 0.0,
         lock_rotation: false,
         ccd: false,
+        mass: 0.0,
+        has_center_of_mass: false,
+        center_of_mass: CrabbyVec3 { x: 0.0, y: 0.0, z: 0.0 },
     }
 }
 
@@ -766,6 +777,23 @@ pub unsafe extern "C" fn crabby_ctx_body_mass3d(
     unsafe { imp::mass(ctx, entity, out_mass) }
 }
 
+/// A 3D body's center of mass in the world, as of the last physics step.
+/// `CRABBY_NOT_FOUND` if `entity` isn't a 3D body.
+/// # Safety
+/// Live ctx, outside query callbacks; writable output.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_body_center_of_mass3d(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_body_center_of_mass3d(
+    ctx: *mut crate::CrabbyCtx,
+    entity: u64,
+    out_center: *mut CrabbyVec3,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe { imp::center_of_mass(ctx, entity, out_center) }
+}
+
 #[cfg(feature = "physics3d")]
 mod imp {
     use std::cell::RefCell;
@@ -838,6 +866,11 @@ mod imp {
             b.angular_damping = non_negative(c.angular_damping, "damping must not be negative")?;
             b.lock_rotation = c.lock_rotation;
             b.ccd = c.ccd;
+            let mass = non_negative(c.mass, "mass must not be negative")?;
+            b.mass = (mass > 0.0).then_some(mass);
+            if c.has_center_of_mass {
+                b.center_of_mass = Some(finite(c.center_of_mass, "center of mass must be finite")?);
+            }
             Ok(b)
         }
         fn to_c(&self) -> CrabbyRigidBody3D {
@@ -853,6 +886,9 @@ mod imp {
                 angular_damping: self.angular_damping,
                 lock_rotation: self.lock_rotation,
                 ccd: self.ccd,
+                mass: self.mass.unwrap_or(0.0),
+                has_center_of_mass: self.center_of_mass.is_some(),
+                center_of_mass: to_c(self.center_of_mass.unwrap_or(Vec3::ZERO)),
             }
         }
     }
@@ -952,6 +988,10 @@ mod imp {
             Some(Kind::Mirror(&CHARACTER))
         } else if t == TypeId::of::<Velocity3D>() {
             // repr(C), layout checked against CrabbyVelocity3D; any bits are valid.
+            Some(Kind::Plain)
+        } else if t == TypeId::of::<crabbyengine::Vehicle3D>() {
+            // repr(C), layout checked against CrabbyVehicle3D; floats, counts
+            // (clamped to 8) and bools a C `bool` keeps 0 or 1.
             Some(Kind::Plain)
         } else {
             None
@@ -1253,6 +1293,16 @@ mod imp {
         })
     }
 
+    pub(super) unsafe fn center_of_mass(ctx: *mut CrabbyCtx, entity: u64, out_center: *mut CrabbyVec3) -> CrabbyStatus {
+        boundary(|| {
+            // SAFETY: forwarded caller contract.
+            let c = unsafe { ctx_access(ctx, |c| Ok(c.physics3d.center_of_mass(Entity::from_bits(entity))))? }
+                .ok_or_else(|| error(CrabbyStatus::CRABBY_NOT_FOUND, "entity is not a 3D physics body"))?;
+            // SAFETY: forwarded caller contract.
+            unsafe { out(out_center, to_c(c)) }
+        })
+    }
+
     pub(super) unsafe fn mass(ctx: *mut CrabbyCtx, entity: u64, out_mass: *mut f32) -> CrabbyStatus {
         boundary(|| {
             // SAFETY: forwarded caller contract.
@@ -1368,6 +1418,9 @@ mod imp {
         boundary(off)
     }
     pub(super) unsafe fn mass(_: *mut CrabbyCtx, _: u64, _: *mut f32) -> CrabbyStatus {
+        boundary(off)
+    }
+    pub(super) unsafe fn center_of_mass(_: *mut CrabbyCtx, _: u64, _: *mut CrabbyVec3) -> CrabbyStatus {
         boundary(off)
     }
 }

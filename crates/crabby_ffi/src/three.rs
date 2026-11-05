@@ -577,7 +577,7 @@ fn quat_to_c(q: Quat) -> CrabbyQuat {
 fn quat_from_c(q: CrabbyQuat) -> Quat {
     Quat::from_xyzw(q.x, q.y, q.z, q.w)
 }
-fn transform_to_c(t: Transform3D) -> CrabbyTransform3D {
+pub(crate) fn transform_to_c(t: Transform3D) -> CrabbyTransform3D {
     CrabbyTransform3D {
         rotation: quat_to_c(t.rotation),
         position: to_c(t.position),
@@ -585,7 +585,7 @@ fn transform_to_c(t: Transform3D) -> CrabbyTransform3D {
         reserved: [0.0; 2],
     }
 }
-fn transform_from_c(t: CrabbyTransform3D) -> Transform3D {
+pub(crate) fn transform_from_c(t: CrabbyTransform3D) -> Transform3D {
     Transform3D {
         rotation: quat_from_c(t.rotation),
         position: to_c(t.position),

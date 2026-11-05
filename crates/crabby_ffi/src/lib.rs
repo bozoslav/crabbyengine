@@ -37,6 +37,7 @@ mod stream;
 mod three;
 mod tiles;
 mod types;
+mod vehicle3d;
 pub use attach::*;
 pub use ctx::*;
 pub use flow::*;
@@ -55,6 +56,7 @@ pub use stream::*;
 pub use three::*;
 pub use tiles::*;
 pub use types::*;
+pub use vehicle3d::*;
 
 use crabby_ecs::{ComponentId, Entity, World};
 use crabbyengine::{Sprite, Transform2D, spatial_key};

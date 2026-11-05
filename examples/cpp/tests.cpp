@@ -534,6 +534,45 @@ static void physics() {
     throws([&] { w.set(floor, flat); });
 }
 
+static void vehicles() {
+    // A box car on raycast wheels settles on its suspension, then drives
+    // off; the vehicle is a query column (as tests/vehicle3d.rs).
+    crabby::entity car = 0;
+    std::optional<crabby::vec3> center;
+    auto w = crabby::game("t", 1, 1)
+        .sim_system([](crabby::ctx& ctx) {
+            if (ctx.sim_tick() < 100) return;
+            ctx.world().each([](crabby::vehicle3d& v) {
+                v.wheels[2].motor_torque = v.wheels[3].motor_torque = 500;
+                v.wheels[0].steer_angle = v.wheels[1].steer_angle = 0.2f;
+            });
+        }, "drive")
+        .physics3d({0, -9.81f, 0})
+        .sim_system([&](crabby::ctx& ctx) {
+            if (ctx.sim_tick() == 99) center = ctx.center_of_mass3d(car);
+        }, "probe")
+        .run_headless(200, [&](crabby::ctx& ctx) {
+            auto world = ctx.world();
+            world.spawn(crabby::transform3d_at({0, -0.5f, 0}), crabby::fixed_body3d(), crabby::box_collider({200, 1, 200}));
+            const float x = 0.8f, y = -0.3f, z = 1.3f, r = 0.35f;
+            car = world.spawn(crabby::transform3d_at({0, 1, 0}),
+                              crabby::with_center_of_mass(crabby::with_mass(crabby::dynamic_body3d(), 1200), {0, -0.3f, 0}),
+                              crabby::box_collider({1.8f, 0.6f, 4.2f}),
+                              crabby::vehicle({crabby::wheel({-x, y, -z}, r), crabby::wheel({x, y, -z}, r),
+                                               crabby::wheel({-x, y, z}, r), crabby::wheel({x, y, z}, r)}));
+        });
+    CHECK(center && std::fabs(center->y - 0.5f) < 0.02f);
+    const auto v = w.get<crabby::vehicle3d>(car);
+    const auto t = w.get<crabby::transform3d>(car);
+    CHECK(v.wheel_count == 4 && v.wheels[0].grounded && crabby::rpm(v.wheels[3]) > 50);
+    CHECK(t.position.z < -3 && t.position.x > 0.2f && t.position.y > 0.7f && t.position.y < 0.9f);
+    CHECK(std::fabs(crabby::wheel_pose(v.wheels[0], t).position.y - 0.35f) < 0.05f);
+    CHECK(crabby::evaluate(v.wheels[0].forward_friction, 0.4f) == 1);
+    throws([] { crabby::vehicle({crabby::wheel({}, 1), crabby::wheel({}, 1), crabby::wheel({}, 1), crabby::wheel({}, 1),
+                                 crabby::wheel({}, 1), crabby::wheel({}, 1), crabby::wheel({}, 1), crabby::wheel({}, 1),
+                                 crabby::wheel({}, 1)}); });
+}
+
 static void lockstep() {
     // Two games over UDP on localhost see the same inputs, tick for tick.
     struct Order { std::uint32_t tick; float x; };
@@ -615,6 +654,7 @@ int main() {
     games();
     attachments();
     physics();
+    vehicles();
     lockstep();
     events();
     rng_matches_rust();
