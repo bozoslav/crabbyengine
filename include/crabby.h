@@ -813,6 +813,32 @@ typedef struct CrabbyTerrainTile {
   float lod_distance;
 } CrabbyTerrainTile;
 
+typedef struct CrabbyTrail3D {
+  float lifetime;
+  float width;
+  const struct CrabbyParticleKey *width_keys;
+  size_t width_key_count;
+  const struct CrabbyParticleColorKey *color_keys;
+  size_t color_key_count;
+  bool has_texture;
+  struct CrabbyTexture texture;
+  uint32_t blend;
+  float min_distance;
+  uint32_t max_points;
+  bool emitting;
+} CrabbyTrail3D;
+
+typedef struct CrabbyLine3D {
+  const struct CrabbyVec3 *points;
+  size_t point_count;
+  float width;
+  struct CrabbyColor color;
+  bool has_texture;
+  struct CrabbyTexture texture;
+  uint32_t blend;
+  float texture_length;
+} CrabbyLine3D;
+
 typedef struct CrabbyModel {
   struct CrabbyMesh mesh;
   struct CrabbyColor color;
@@ -2342,6 +2368,40 @@ enum CrabbyStatus crabby_ctx_is_mesh_live(struct CrabbyCtx *ctx,
 
 enum CrabbyStatus crabby_ctx_free_terrain_tile(struct CrabbyCtx *ctx,
                                                struct CrabbyTerrainTile tile);
+
+struct CrabbyTrail3D crabby_trail3d_new(float lifetime, float width);
+
+enum CrabbyStatus crabby_ctx_set_trail3d(struct CrabbyCtx *ctx,
+                                         uint64_t entity_bits,
+                                         const struct CrabbyTrail3D *trail);
+
+enum CrabbyStatus crabby_ctx_trail3d_point_count(struct CrabbyCtx *ctx,
+                                                 uint64_t entity_bits,
+                                                 uint32_t *out_count);
+
+enum CrabbyStatus crabby_ctx_clear_trail3d(struct CrabbyCtx *ctx, uint64_t entity_bits);
+
+enum CrabbyStatus crabby_ctx_set_trail3d_emitting(struct CrabbyCtx *ctx,
+                                                  uint64_t entity_bits,
+                                                  bool emitting);
+
+enum CrabbyStatus crabby_ctx_remove_trail3d(struct CrabbyCtx *ctx, uint64_t entity_bits);
+
+struct CrabbyLine3D crabby_line3d_new(float width, struct CrabbyColor color);
+
+enum CrabbyStatus crabby_ctx_set_line3d(struct CrabbyCtx *ctx,
+                                        uint64_t entity_bits,
+                                        const struct CrabbyLine3D *line);
+
+enum CrabbyStatus crabby_ctx_remove_line3d(struct CrabbyCtx *ctx, uint64_t entity_bits);
+
+struct CrabbyMeshData *crabby_mesh_data_decal(const struct CrabbyMeshData *data,
+                                              const float *projector,
+                                              float lift);
+
+enum CrabbyStatus crabby_ctx_load_mesh_data(struct CrabbyCtx *ctx,
+                                            const char *path,
+                                            struct CrabbyMeshData **out_data);
 
 struct CrabbyVec3 crabby_sun_direction_at(float hour);
 

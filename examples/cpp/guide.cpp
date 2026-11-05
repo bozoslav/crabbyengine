@@ -1629,6 +1629,48 @@ static void campfire(crabby::ctx& ctx) {
     // ANCHOR_END: particles
 }
 
+static void ribbons(crabby::ctx& ctx) {
+    auto white = ctx.default_material();
+    auto floor_data = crabby::mesh_data::plane(12);
+    ctx.world().spawn(crabby::transform3d_at({0, 0, 0}), crabby::model_of(ctx.create_mesh(floor_data, white)));
+
+    // ANCHOR: trail
+    // A glowing tracer behind a flying ball: a quarter second long, thin at
+    // the end and fading out.
+    auto tracer = crabby::trail3d(0.25f, 0.12f)
+                      .color_over_age({{0, {1, 0.8f, 0.3f, 1}}, {1, {1, 0.3f, 0, 0}}})
+                      .blend(crabby::particle_blend::additive);
+    auto ball = ctx.create_mesh(crabby::mesh_data::sphere(0.15f, 16), white);
+    auto flyer = ctx.world().spawn(crabby::transform3d_at({0, 0, 0}), crabby::model_of(ball));
+    ctx.set_trail3d(flyer, tracer);
+    // After a teleport: ctx.clear_trail3d(flyer);
+    // ANCHOR_END: trail
+
+    // ANCHOR: line
+    // A laser beam 5 m long, from the entity forward.
+    auto beam = crabby::line3d({{0, 0, 0}, {0, 0, -5}}, 0.03f, crabby::colors::red)
+                    .blend(crabby::particle_blend::additive);
+    auto emitter = ctx.world().spawn(crabby::transform3d_at({-4, 1.5f, 3}));
+    ctx.set_line3d(emitter, beam);
+    // ANCHOR_END: line
+
+    // ANCHOR: decal
+    // A 1 m scorch mark on the floor at (1, 0, -1): the box is 1 x 1 m wide
+    // and 0.4 m deep, its +Z turned up, so the image is projected down.
+    // The projector's 16 floats go column after column.
+    std::array<float, 16> projector = {1, 0, 0, 0,   0, 0, -1, 0,   0, 0.4f, 0, 0,   1, 0, -1, 1};
+    auto mark = floor_data.decal(projector, 0.003f);
+    if (mark.view().index_count > 0) {
+        auto look = crabby::material_of({0.05f, 0.04f, 0.03f, 0.8f});
+        look.blend = 1; // transparent
+        auto scorch = ctx.create_mesh(mark, ctx.create_material(look));
+        // Drawn where the floor is.
+        ctx.world().spawn(crabby::transform3d_at({0, 0, 0}), crabby::model_of(scorch));
+    }
+    // A mesh from a glTF file works the same: ctx.load_mesh_data("models/wall.glb").decal(..)
+    // ANCHOR_END: decal
+}
+
 static void navigation_guide() {
     crabby::vec3 destination{8, 0, 0}, start{};
     auto world = crabby::game("Navigation server", 1, 1)
@@ -1662,6 +1704,7 @@ static void navigation_guide() {
 int main() {
     navigation_guide();
     crabby::game("particle guide", 1, 1).run_headless(0, campfire);
+    crabby::game("ribbon guide", 1, 1).run_headless(0, ribbons);
     if (!messages_round_trip()) { std::fprintf(stderr, "no message\n"); std::abort(); }
     crabby::game("sound guide", 1, 1).run_headless(0, [](crabby::ctx& ctx) {
         sound3d(ctx);

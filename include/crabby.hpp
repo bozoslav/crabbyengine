@@ -1113,7 +1113,9 @@ public:
 
 /// Triangles on the CPU (Rust `MeshData`), before ctx::create_mesh puts
 /// them on the GPU.
+class ctx;
 class mesh_data {
+    friend class ctx;
     CrabbyMeshData* raw_;
     explicit mesh_data(CrabbyMeshData* raw) : raw_(raw) { if (!raw_) detail::check(CRABBY_INVALID_ARGUMENT); }
 public:
@@ -1162,6 +1164,19 @@ public:
     }
     /// Its arrays, valid while it lives.
     CrabbyMeshView view() const { CrabbyMeshView v{}; detail::check(crabby_mesh_data_view(raw_, &v)); return v; }
+    /// A decal (Rust `MeshData::decal`): the part of this mesh inside a box,
+    /// as mesh data of its own with an image projected straight onto it.
+    /// `projector` (16 floats, column after column) maps the unit cube
+    /// (-0.5 to 0.5 on each axis) onto the box in this mesh's space, so its
+    /// scale is the decal's size and depth; the image is projected along the
+    /// box's -Z, its top along +Y, and only faces turned toward +Z get it.
+    /// Corners are lifted `lift` meters along their normals (a few
+    /// millimeters is typical). It has no triangles (`view().index_count ==
+    /// 0`) when the box misses the mesh; don't make a mesh from an empty
+    /// one. Throws if the projector isn't finite.
+    mesh_data decal(const std::array<float, 16>& projector, float lift) const {
+        return mesh_data(crabby_mesh_data_decal(raw_, projector.data(), lift));
+    }
     const CrabbyMeshData* raw() const noexcept { return raw_; }
 };
 
@@ -1331,6 +1346,71 @@ public:
         c.size_key_count = size_keys_.size();
         c.color_keys = color_keys_.data();
         c.color_key_count = color_keys_.size();
+        return c;
+    }
+};
+
+/// A ribbon left behind its entity as it moves (Rust `Trail3D`), built by
+/// chaining: `trail3d(0.25f, 0.05f).blend(particle_blend::additive)`. Give it
+/// to an entity with ctx::set_trail3d.
+class trail3d {
+    CrabbyTrail3D c_;
+    std::vector<CrabbyParticleKey> width_keys_;
+    std::vector<CrabbyParticleColorKey> color_keys_;
+public:
+    /// A ribbon `width` meters wide (narrowing to 0 at its end) whose points last `lifetime` seconds.
+    trail3d(float lifetime, float width) : c_(crabby_trail3d_new(lifetime, width)) {}
+    /// Width in meters over age (0 the newest end, 1 the oldest).
+    trail3d& width_over_age(std::initializer_list<particle_key> keys) {
+        width_keys_.clear();
+        for (auto k : keys) width_keys_.push_back({k.t, k.value});
+        return *this;
+    }
+    /// Color over age (0 the newest end, 1 the oldest).
+    trail3d& color_over_age(std::initializer_list<particle_color_key> keys) {
+        color_keys_.clear();
+        for (auto k : keys) color_keys_.push_back({k.t, k.value});
+        return *this;
+    }
+    /// The ribbon image: u is each point's age over the lifetime, v across.
+    trail3d& image(texture t) { c_.has_texture = true; c_.texture = t; return *this; }
+    trail3d& blend(particle_blend b) { c_.blend = static_cast<std::uint32_t>(b); return *this; }
+    /// A new point is kept only after the entity moved this far (meters) from the last one.
+    trail3d& min_distance(float meters) { c_.min_distance = meters; return *this; }
+    /// At most this many points (at least 2); the oldest go first.
+    trail3d& max_points(std::uint32_t n) { c_.max_points = n; return *this; }
+    /// While false, no new points are added and the ribbon fades out.
+    trail3d& emitting(bool on) { c_.emitting = on; return *this; }
+    /// The C trail; its key pointers live as long as this object.
+    CrabbyTrail3D raw() const {
+        CrabbyTrail3D c = c_;
+        c.width_keys = width_keys_.data();
+        c.width_key_count = width_keys_.size();
+        c.color_keys = color_keys_.data();
+        c.color_key_count = color_keys_.size();
+        return c;
+    }
+};
+
+/// A line through points in its entity's space, drawn as a camera-facing
+/// strip (Rust `Line3D`): beams, cables, ropes. Give it to an entity with
+/// ctx::set_line3d, again any time to change it.
+class line3d {
+    CrabbyLine3D c_;
+    std::vector<vec3> points_;
+public:
+    /// A `c` colored line `width` meters wide through `points` (at least two to draw anything).
+    line3d(std::vector<vec3> points, float width, color c) : c_(crabby_line3d_new(width, c)), points_(std::move(points)) {}
+    /// The line image: u along it, v across.
+    line3d& image(texture t) { c_.has_texture = true; c_.texture = t; return *this; }
+    line3d& blend(particle_blend b) { c_.blend = static_cast<std::uint32_t>(b); return *this; }
+    /// Meters of line per repeat of the image; 0 stretches it once over the whole line.
+    line3d& texture_length(float meters) { c_.texture_length = meters; return *this; }
+    /// The C line; its points live as long as this object.
+    CrabbyLine3D raw() const {
+        CrabbyLine3D c = c_;
+        c.points = points_.data();
+        c.point_count = points_.size();
         return c;
     }
 };
@@ -2101,6 +2181,36 @@ public:
     }
     /// Removes `e`'s emitter and its particles.
     void remove_particle_emitter3d(entity e) { detail::check(crabby_ctx_remove_particle_emitter3d(raw_, e)); }
+    /// Gives `e` (which needs a 3D transform) a new ribbon trail, replacing any old one.
+    void set_trail3d(entity e, const trail3d& trail) {
+        CrabbyTrail3D c = trail.raw();
+        detail::check(crabby_ctx_set_trail3d(raw_, e, &c));
+    }
+    /// How many points `e`'s trail keeps now (trails only record in visual frames).
+    std::uint32_t trail3d_point_count(entity e) {
+        std::uint32_t n = 0;
+        detail::check(crabby_ctx_trail3d_point_count(raw_, e, &n));
+        return n;
+    }
+    /// Forgets every point of `e`'s trail: after a teleport, so no ribbon spans the jump.
+    void clear_trail3d(entity e) { detail::check(crabby_ctx_clear_trail3d(raw_, e)); }
+    /// Starts or stops `e`'s trail adding points; while off, the ribbon fades out.
+    void set_trail3d_emitting(entity e, bool emitting) { detail::check(crabby_ctx_set_trail3d_emitting(raw_, e, emitting)); }
+    void remove_trail3d(entity e) { detail::check(crabby_ctx_remove_trail3d(raw_, e)); }
+    /// Gives `e` (which needs a 3D transform) a line, replacing any old one.
+    void set_line3d(entity e, const line3d& line) {
+        CrabbyLine3D c = line.raw();
+        detail::check(crabby_ctx_set_line3d(raw_, e, &c));
+    }
+    void remove_line3d(entity e) { detail::check(crabby_ctx_remove_line3d(raw_, e)); }
+    /// A glTF file's mesh on the CPU (Rust `Ctx::load_mesh_data`), all its
+    /// parts in one, without making anything on the GPU: to cut decals from.
+    /// Loads the file each call; keep the result.
+    mesh_data load_mesh_data(const char* path) {
+        CrabbyMeshData* d = nullptr;
+        detail::check(crabby_ctx_load_mesh_data(raw_, path, &d));
+        return mesh_data(d);
+    }
     /// Gives `e` (with a skeleton) an animator playing `g`; the engine advances it every frame.
     void set_animator(entity e, const animation_graph& g) { detail::check(crabby_ctx_set_animator(raw_, e, g.raw())); }
     void animator_set_float(entity e, std::size_t parameter, float value) { detail::check(crabby_ctx_animator_set_float(raw_, e, parameter, value)); }

@@ -92,6 +92,22 @@ static void vehicles(void) {
     CHECK(crabby_friction_curve_evaluate(crabby_friction_curve_sideways(), 0.2f) == 1);
     CHECK(crabby_world_free(w) == CRABBY_OK);
 }
+/* Ribbon and line defaults, and a decal cut from a floor. */
+static void ribbons_and_decals(void) {
+    CrabbyTrail3D trail = crabby_trail3d_new(0.25f, 0.05f);
+    CHECK(trail.lifetime == 0.25f && trail.width == 0.05f && trail.max_points == 64 && trail.emitting && !trail.has_texture);
+    CrabbyLine3D line = crabby_line3d_new(0.1f, (CrabbyColor){1, 0, 0, 1});
+    CHECK(line.width == 0.1f && line.point_count == 0 && line.points == NULL && line.texture_length == 0);
+    CrabbyMeshData* floor = crabby_mesh_data_plane(4);
+    float down[16] = {0.5f, 0, 0, 0, 0, 0, -0.2f, 0, 0, 0.5f, 0, 0, 1, 0, 0, 1};
+    CrabbyMeshData* mark = crabby_mesh_data_decal(floor, down, 0.002f);
+    CHECK(mark);
+    CrabbyMeshView view;
+    CHECK(crabby_mesh_data_view(mark, &view) == CRABBY_OK && view.index_count >= 3);
+    crabby_mesh_data_free(mark);
+    CHECK(crabby_mesh_data_decal(floor, NULL, 0.002f) == NULL);
+    crabby_mesh_data_free(floor);
+}
 int main(void) {
     CHECK(crabby_abi_version() == 2);
     CrabbyWorld* w = crabby_world_new(); CHECK(w);
@@ -133,5 +149,6 @@ int main(void) {
     CrabbyDrawParams params = crabby_draw_params_default();
     CHECK(params.scale.x == 1 && params.pivot.x == .5f && !params.screen);
     vehicles();
+    ribbons_and_decals();
     return 0;
 }
