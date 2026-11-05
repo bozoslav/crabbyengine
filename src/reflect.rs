@@ -1346,8 +1346,39 @@ fn model_from_json(world: &World, value: Value) -> Result<crate::Model, String> 
     })
 }
 
-/// Reflects [`Model`](crate::Model) as `"Model"`, its mesh saved by file
-/// name (see [`MeshNames`]).
+#[cfg(feature = "3d")]
+#[derive(Serialize, serde::Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct ShadowMeshJson {
+    mesh: Option<String>,
+}
+
+#[cfg(feature = "3d")]
+fn shadow_mesh_json(world: &World, s: &crate::ShadowMesh) -> Option<Result<Value, String>> {
+    let mesh = match s.0 {
+        Some(mesh) => Some(world.get_resource::<MeshNames>()?.by_id.get(&mesh.id)?.clone()),
+        None => None,
+    };
+    Some(serde_json::to_value(ShadowMeshJson { mesh }).map_err(|err| err.to_string()))
+}
+
+#[cfg(feature = "3d")]
+fn shadow_mesh_from_json(world: &World, value: Value) -> Result<crate::ShadowMesh, String> {
+    let json: ShadowMeshJson = serde_json::from_value(value).map_err(|err| err.to_string())?;
+    let Some(name) = json.mesh else {
+        return Ok(crate::ShadowMesh(None));
+    };
+    let mesh = world
+        .get_resource::<MeshNames>()
+        .and_then(|t| t.by_name.get(&name))
+        .copied()
+        .ok_or_else(|| format!("mesh \"{name}\" isn't loaded: ctx.load_mesh(\"{name}\") first"))?;
+    Ok(crate::ShadowMesh(Some(mesh)))
+}
+
+/// Reflects [`Model`](crate::Model) as `"Model"`, and
+/// [`ShadowMesh`](crate::ShadowMesh) as `"ShadowMesh"`, their meshes saved
+/// by file name (see [`MeshNames`]).
 #[cfg(feature = "3d")]
 pub(crate) fn reflect_model(world: &mut World) {
     if world.get_resource::<MeshNames>().is_none() {
@@ -1380,6 +1411,27 @@ pub(crate) fn reflect_model(world: &mut World) {
         }),
         check: Arc::new(check::<ModelJson>),
         remove: Arc::new(remove::<crate::Model>),
+    });
+    reg.by_name.insert("ShadowMesh".into(), reg.list.len());
+    reg.list.push(Reflected {
+        name: "ShadowMesh".into(),
+        type_name: std::any::type_name::<crate::ShadowMesh>().into(),
+        get: Arc::new(|w: &World, e| w.get::<crate::ShadowMesh>(e).and_then(|s| shadow_mesh_json(w, s))),
+        set: Arc::new(|w: &mut World, e, v| {
+            let shadow = shadow_mesh_from_json(w, v)?;
+            w.insert(e, shadow);
+            Ok(())
+        }),
+        spawn: Arc::new(|w: &mut World, v| {
+            let shadow = shadow_mesh_from_json(w, v)?;
+            Ok(w.spawn((shadow,)))
+        }),
+        spawn_at: Arc::new(|w: &mut World, e, v| {
+            let shadow = shadow_mesh_from_json(w, v)?;
+            Ok(w.spawn_at(e, (shadow,)))
+        }),
+        check: Arc::new(check::<ShadowMeshJson>),
+        remove: Arc::new(remove::<crate::ShadowMesh>),
     });
 }
 

@@ -178,7 +178,7 @@ fn games_reflect_the_builtin_components_by_default() {
     let mut expected = vec!["Attached", "Sprite", "Transform2D"];
     if cfg!(feature = "3d") {
         expected.push("Transform3D");
-        expected.extend(["Model", "PointLight3D", "SpotLight3D"]);
+        expected.extend(["Model", "PointLight3D", "ShadowMesh", "SpotLight3D"]);
         expected.sort();
     }
     assert_eq!(names, expected);

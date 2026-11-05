@@ -233,14 +233,20 @@ fn drawn_meshes_become_models_placed_in_crabbys_space() {
     let (_f, scene, report) = import("place");
     assert_eq!(scene["format"], "crabby-world");
     let entities = scene["entities"].as_array().unwrap();
-    assert_eq!(
-        entities.len(),
-        1,
-        "the far LOD, the inactive child and the shadow-only one are left out"
-    );
+    assert_eq!(entities.len(), 2, "the far LOD and the inactive child are left out");
     assert_eq!(report.skipped["a far level of detail (LOD 1+)"], 1);
     assert_eq!(report.skipped["inactive"], 1);
-    assert_eq!(report.skipped["shadows only"], 1);
+    // Shadows Only: a shadow with no model.
+    let shadow = &entities[1]["components"];
+    assert!(shadow["Model"].is_null(), "{shadow}");
+    assert!(
+        shadow["ShadowMesh"]["mesh"].as_str().unwrap().ends_with(".glb"),
+        "{shadow}"
+    );
+    assert!(
+        entities[0]["components"]["ShadowMesh"].is_null(),
+        "it casts its own shadow"
+    );
     let t = &entities[0]["components"]["Transform3D"];
     // In Unity the child is at (1, 2, 3) + the root's turn applied to
     // (0, 0, 1) = (2, 2, 3); mirrored along Z that's (2, 2, -3).
@@ -331,7 +337,7 @@ fn shared_meshes_and_materials_are_written_once() {
         b["entities"][0]["components"]["Model"]
     );
     let report = importer.finish().unwrap();
-    assert_eq!((report.entities, report.meshes, report.textures), (2, 1, 2));
+    assert_eq!((report.entities, report.meshes, report.textures), (4, 1, 2));
 }
 
 /// A prefab drawing Unity's built-in Cube and Sphere.

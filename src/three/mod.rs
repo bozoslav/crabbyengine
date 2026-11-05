@@ -388,6 +388,13 @@ pub struct Model {
 /// mesh with a tenth of the triangles casts the same shadow for a tenth of
 /// the cost. Swap it by distance, as you would the model's own detail.
 ///
+/// An entity with a `ShadowMesh` and no [`Model`] casts only the shadow: a
+/// stand-in for the shadow of several models around it that cast none. On
+/// a [`TerrainTile`], `ShadowMesh(None)` turns the ground's shadow off.
+///
+/// In scene files it's `"ShadowMesh": { "mesh": "tree_shadow.glb" }`, or
+/// `{ "mesh": null }` for no shadow.
+///
 /// ```no_run
 /// # use crabbyengine::*;
 /// # fn f(ctx: &mut Ctx) {

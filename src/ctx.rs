@@ -1053,6 +1053,7 @@ impl Ctx {
         #[cfg(feature = "3d")]
         {
             crate::reflect::asset_names(json, "Model", "mesh", &mut names);
+            crate::reflect::asset_names(json, "ShadowMesh", "mesh", &mut names);
             names.sort_unstable();
             names.dedup();
             for name in names {
@@ -1483,8 +1484,13 @@ impl Ctx {
     /// run is done and the game should quit.
     pub(crate) fn record_frame(&mut self, sample: crate::profiler::FrameSample) -> bool {
         let gpu_frame = self.renderer.as_ref().and_then(Renderer::gpu_frame);
-        self.profiler
-            .record(sample, &self.timings, &self.gpu_passes, gpu_frame, self.last_render_stats)
+        self.profiler.record(
+            sample,
+            &self.timings,
+            &self.gpu_passes,
+            gpu_frame,
+            self.last_render_stats,
+        )
     }
 
     /// Queues the HUD's drawing for this frame (the game loop calls it

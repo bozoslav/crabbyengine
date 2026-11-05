@@ -86,6 +86,46 @@ fn grass_can_cast_no_shadow() {
     });
 }
 
+// ANCHOR: shadow_mesh
+/// A detailed tree with a cheap shadow, a flat sign with none, and a stand-in
+/// shadow for a row of fence pieces that cast none themselves.
+fn yard(ctx: &mut Ctx, tree: Mesh, blob: Mesh, sign: Mesh, fence: Mesh, fence_shadow: Mesh) {
+    ctx.world.spawn((Transform3D::default(), Model::new(tree), ShadowMesh(Some(blob))));
+    ctx.world.spawn((Transform3D::at(vec3(4.0, 0.0, 0.0)), Model::new(sign), ShadowMesh(None)));
+    for i in 0..10 {
+        let at = vec3(i as f32, 0.0, 6.0);
+        ctx.world.spawn((Transform3D::at(at), Model::new(fence), ShadowMesh(None)));
+    }
+    // Only a shadow: no Model.
+    ctx.world.spawn((Transform3D::at(vec3(0.0, 0.0, 6.0)), ShadowMesh(Some(fence_shadow))));
+}
+// ANCHOR_END: shadow_mesh
+
+#[test]
+fn shadow_meshes_round_trip_through_scenes() {
+    Game::new("t", 1, 1).run_headless(1, |ctx| {
+        let material = ctx.default_material();
+        let mesh = ctx.create_mesh(&MeshData::cube(1.0), material);
+        yard(ctx, mesh, mesh, mesh, mesh, mesh);
+        let only_shadows = ctx.world.query::<&ShadowMesh>().without::<Model>().iter().count();
+        assert_eq!(only_shadows, 1);
+        let none = ctx.world.query::<&ShadowMesh>().iter().filter(|s| s.0.is_none()).count();
+        assert_eq!(none, 11);
+        // No shadow, as JSON and back.
+        let sign = ctx.world.spawn((Transform3D::default(), ShadowMesh(None)));
+        let json = ctx.world.entity_json(sign).unwrap();
+        assert_eq!(json["ShadowMesh"], serde_json::json!({ "mesh": null }), "{json}");
+        let other = ctx.world.spawn((Transform3D::default(),));
+        ctx.world.set_json(other, "ShadowMesh", json["ShadowMesh"].clone()).unwrap();
+        assert_eq!(ctx.world.get::<ShadowMesh>(other), Some(&ShadowMesh(None)));
+        let unloaded = ctx
+            .world
+            .set_json(other, "ShadowMesh", serde_json::json!({ "mesh": "nope.glb" }))
+            .unwrap_err();
+        assert!(unloaded.to_string().contains("isn't loaded"), "{unloaded}");
+    });
+}
+
 // ANCHOR: distance_fog
 /// A big open world fading out far away, glowing toward the sun.
 fn far_haze(ctx: &mut Ctx) {

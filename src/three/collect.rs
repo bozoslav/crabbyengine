@@ -115,7 +115,11 @@ impl Frame3D {
         let classify = |t: &Transform3D, bounds: (Vec3, f32), shadow_bounds: Option<(Vec3, f32)>| -> u8 {
             let matrix = t.matrix();
             let scale = t.scale.abs().max_element();
-            let mut flags = u8::from(sphere_visible(&planes, matrix.transform_point3(bounds.0), bounds.1 * scale));
+            let mut flags = u8::from(sphere_visible(
+                &planes,
+                matrix.transform_point3(bounds.0),
+                bounds.1 * scale,
+            ));
             if let Some((center, radius)) = shadow_bounds {
                 let (world_center, world_radius) = (matrix.transform_point3(center), radius * scale);
                 for (i, p) in sun_planes.iter().enumerate() {
@@ -138,6 +142,11 @@ impl Frame3D {
             let mut meshes = [caster.map_or(m.mesh.id, |c| c.id); 1 + MAX_CASCADES];
             meshes[0] = m.mesh.id;
             Some((meshes, bounds, shadow_bounds))
+        };
+        // A shadow-only caster's mesh and bounds.
+        let shadow_only = |shadow: &ShadowMesh| {
+            let mesh = shadow.0.filter(|c| assets.casts_shadows(c.id))?;
+            Some((mesh.id, assets.live_bounds(mesh.id)?))
         };
         // The entries for a model the passes in `flags` see.
         let mut add = |meshes: [u32; 1 + MAX_CASCADES], t: &Transform3D, color: [f32; 4], flags: u8| {
@@ -191,32 +200,56 @@ impl Frame3D {
                     add(meshes, t, linear(m.color), f);
                 }
             });
+        // Shadows with no model: only the cascades that see them.
+        world
+            .query::<(&Transform3D, &ShadowMesh)>()
+            .without::<Model>()
+            .par_collect_into(flags, |(t, shadow)| {
+                shadow_only(shadow).map_or(0, |(_, bounds)| classify(t, bounds, Some(bounds)) & !1)
+            });
+        let mut at = 0;
+        world
+            .query::<(&Transform3D, &ShadowMesh)>()
+            .without::<Model>()
+            .for_each(|(t, shadow)| {
+                let f = flags[at];
+                at += 1;
+                if f != 0
+                    && let Some((mesh, _)) = shadow_only(shadow)
+                {
+                    add([mesh; 1 + MAX_CASCADES], t, [1.0; 4], f);
+                }
+            });
         // Terrain: the detail level for how far the camera is from the
         // tile's bounds (the finest level's, which hold every coarser one).
         // Shadow cascade i draws at least level i: its texels are too big
         // for finer detail to show.
-        world.query::<(&Transform3D, &TerrainTile)>().for_each(|(t, tile)| {
-            let Some((center, radius)) = assets.live_bounds(tile.lods[0].id) else {
-                return;
-            };
-            let scale = t.scale.abs().max_element();
-            let away = t.matrix().transform_point3(center).distance(camera.position) - radius * scale;
-            let level = tile.lod(away.max(0.0));
-            let meshes: [u32; 1 + MAX_CASCADES] = std::array::from_fn(|i| {
-                tile.lods[if i == 0 {
-                    level
-                } else {
-                    level.max(i - 1).min(TERRAIN_LODS - 1)
-                }]
-                .id
-            });
-            if meshes.iter().all(|&m| assets.live_bounds(m).is_some()) {
-                let f = classify(t, (center, radius), Some((center, radius)));
-                if f != 0 {
-                    add(meshes, t, [1.0; 4], f);
+        // A `ShadowMesh(None)` on the tile turns its shadow off.
+        world
+            .query::<(&Transform3D, &TerrainTile, Option<&ShadowMesh>)>()
+            .for_each(|(t, tile, shadow)| {
+                let Some((center, radius)) = assets.live_bounds(tile.lods[0].id) else {
+                    return;
+                };
+                let scale = t.scale.abs().max_element();
+                let away = t.matrix().transform_point3(center).distance(camera.position) - radius * scale;
+                let level = tile.lod(away.max(0.0));
+                let meshes: [u32; 1 + MAX_CASCADES] = std::array::from_fn(|i| {
+                    tile.lods[if i == 0 {
+                        level
+                    } else {
+                        level.max(i - 1).min(TERRAIN_LODS - 1)
+                    }]
+                    .id
+                });
+                if meshes.iter().all(|&m| assets.live_bounds(m).is_some()) {
+                    let casts = !matches!(shadow, Some(ShadowMesh(None)));
+                    let f = classify(t, (center, radius), casts.then_some((center, radius)));
+                    if f != 0 {
+                        add(meshes, t, [1.0; 4], f);
+                    }
                 }
-            }
-        });
+            });
         let meshes = assets.bounds.len();
         let (counts, instances) = (&mut self.counts, &mut self.instances);
         self.visible = sort_runs(&self.scratch, |e| e.2, meshes, counts, instances, &mut self.runs);

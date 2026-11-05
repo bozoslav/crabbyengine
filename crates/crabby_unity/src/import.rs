@@ -269,13 +269,11 @@ impl<'p> Importer<'p> {
                 self.report.skip("renderer off");
                 continue;
             }
-            // Cast Shadows: Shadows Only (3). Unity draws it only into the
-            // shadow map, often a simplified stand-in for the shadows of
-            // the pieces around it; drawn, it would cover them.
-            if renderer.body["m_CastShadows"].as_i64() == Some(3) {
-                self.report.skip("shadows only");
-                continue;
-            }
+            // Cast Shadows: Off (0), On (1), Two Sided (2) or Shadows Only
+            // (3). Shadows Only is drawn only into the shadow map, often a
+            // simplified stand-in for the shadows of the pieces around it
+            // (which are Off): a ShadowMesh with no Model.
+            let cast_shadows = renderer.body["m_CastShadows"].as_i64().unwrap_or(1);
             if far.contains(&renderer.file_id) {
                 self.report.skip("a far level of detail (LOD 1+)");
                 continue;
@@ -294,17 +292,24 @@ impl<'p> Importer<'p> {
                 continue;
             };
             let (scale, rotation, position) = mirror(world[i]).to_scale_rotation_translation();
-            entities.push(json!({
-                "entity": entities.len(),
-                "components": {
-                    "Transform3D": {
-                        "position": position.to_array(),
-                        "rotation": rotation.to_array(),
-                        "scale": scale.to_array(),
-                    },
-                    "Model": { "mesh": name },
+            let mut components = json!({
+                "Transform3D": {
+                    "position": position.to_array(),
+                    "rotation": rotation.to_array(),
+                    "scale": scale.to_array(),
                 },
-            }));
+            });
+            match cast_shadows {
+                3 => {
+                    components["ShadowMesh"] = json!({ "mesh": name });
+                }
+                0 => {
+                    components["Model"] = json!({ "mesh": name });
+                    components["ShadowMesh"] = json!({ "mesh": null });
+                }
+                _ => components["Model"] = json!({ "mesh": name }),
+            }
+            entities.push(json!({ "entity": entities.len(), "components": components }));
         }
         if self.colliders {
             for (i, o) in objects.iter().enumerate() {
