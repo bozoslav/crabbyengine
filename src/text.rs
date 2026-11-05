@@ -146,6 +146,10 @@ impl Text {
 
     pub const ATLAS_SIZE: u32 = ATLAS;
 
+    pub fn has_font(&self, font: Font) -> bool {
+        (font.0 as usize) < self.fonts.len()
+    }
+
     pub fn add_font(&mut self, bytes: &[u8]) -> Result<Font, String> {
         let font = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default())
             .map_err(|e| format!("not a font file this engine can read: {e}"))?;

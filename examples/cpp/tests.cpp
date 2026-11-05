@@ -1313,12 +1313,36 @@ static void retained_ui() {
     });
 }
 
+static void world_text() {
+    crabby::game("text", 1, 1).run_headless(0, [](crabby::ctx& c) {
+        auto e = c.world().spawn();
+        CHECK(!c.text3d(e));
+        crabby::text3d t("Hello\nworld");
+        t.size = .5f; t.align = crabby::text_align3d::left;
+        t.billboard = true; t.outline_width = .06f;
+        c.set_text3d(e, t);
+        auto got = c.text3d(e);
+        CHECK(got && got->text == t.text && got->size == .5f && got->billboard);
+        CHECK(got->align == t.align && got->outline_width == .06f);
+        t.text = "Changed"; c.set_text3d(e, t);
+        CHECK(c.text3d(e)->text == "Changed");
+        t.font.id = UINT32_MAX;
+        throws([&] { c.set_text3d(e, t); });
+        CHECK(c.text3d(e)->text == "Changed");
+        t.font.id = 0; t.align = static_cast<crabby::text_align3d>(99);
+        throws([&] { c.set_text3d(e, t); });
+        c.remove_text3d(e); CHECK(!c.text3d(e));
+        c.world().despawn(e);
+        throws([&] { (void)c.text3d(e); });
+    });
+}
 int main() {
     worlds();
     names_and_reflection();
     resources();
     data_files();
     scenes_and_prefabs();
+    world_text();
     three_d();
     skeletons();
     morph_targets();

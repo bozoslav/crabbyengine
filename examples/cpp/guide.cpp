@@ -1860,6 +1860,20 @@ static void panel_guide(crabby::ctx& ctx) {
     ctx.clear_ui_pointer_ray();
 }
 
+// ANCHOR: text3d
+static void world_text_snippet() {
+    crabby::game("World text", 1, 1).run_headless(0, [](crabby::ctx& ctx) {
+        auto e = ctx.world().spawn(crabby::transform3d_at({0, 2.5f, 0}));
+        crabby::text3d label("OPEN");
+        label.size = .3f;
+        label.outline = {0, 0, 0, 1};
+        label.outline_width = .06f;
+        label.billboard = true;
+        ctx.set_text3d(e, label);
+    });
+}
+// ANCHOR_END: text3d
+
 int main() {
     navigation_guide();
     crabby::game("shop guide", 900, 700).run_headless(0, shop_guide);
@@ -1993,6 +2007,7 @@ int main() {
     (void)&score_point;
     (void)&my_game;
     (void)&controls;
+    world_text_snippet();
     action_map_snippet();
     std::puts("guide snippets ok");
 }

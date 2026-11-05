@@ -1,6 +1,7 @@
 #include "crabby.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "failed: %s\n", #x); abort(); } } while (0)
 typedef struct { int x; } Position;
 typedef struct { CrabbyWorld* world; size_t seen; uint64_t entity; } Context;
@@ -22,6 +23,18 @@ static void setup(CrabbyCtx* ctx, void* user) {
     uint64_t e;
     CHECK(crabby_spawn(crabby_ctx_world(ctx), NULL, 0, &e) == CRABBY_OK);
     CHECK(crabby_world_free(crabby_ctx_world(ctx)) == CRABBY_BUSY);
+    CrabbyText3D t = crabby_text3d_default(), got;
+    t.billboard = true; t.align = 2;
+    CHECK(crabby_ctx_set_text3d(ctx, e, "Hello\nworld", &t) == CRABBY_OK);
+    CHECK(crabby_ctx_text3d(ctx, e, &got) == CRABBY_OK && got.billboard && got.align == 2);
+    char text[32]; size_t len;
+    CHECK(crabby_ctx_text3d_text(ctx, e, text, sizeof(text), &len) == CRABBY_OK);
+    CHECK(len == 11 && strcmp(text, "Hello\nworld") == 0);
+    t.font.id = UINT32_MAX;
+    CHECK(crabby_ctx_set_text3d(ctx, e, "bad", &t) == CRABBY_INVALID_ARGUMENT);
+    CHECK(crabby_ctx_remove_text3d(ctx, e) == CRABBY_OK);
+    CHECK(crabby_ctx_text3d(ctx, e, &got) == CRABBY_NOT_FOUND);
+
 }
 static void tick(CrabbyCtx* ctx, void* user) {
     Run* r = user;

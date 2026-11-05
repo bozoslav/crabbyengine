@@ -160,6 +160,21 @@ struct gamepad_list {
 enum class stick { left, right };
 using rect = CrabbyRect;
 using font = CrabbyFont;
+/// Alignment within a world text block.
+enum class text_align3d : uint32_t { left = 0, center = 1, right = 2 };
+/// Owned world text, in meters. Settings follow Rust Text3D defaults.
+struct text3d {
+    std::string text;
+    crabby::font font{};
+    float size = 0.25f;
+    CrabbyColor color{1, 1, 1, 1};
+    CrabbyColor outline{0, 0, 0, 0};
+    float outline_width = 0, softness = 0;
+    text_align3d align = text_align3d::center;
+    bool billboard = false;
+    explicit text3d(std::string value = "") : text(std::move(value)) {}
+};
+
 using text_params = CrabbyTextParams;
 using ui_style = CrabbyUiStyle;
 using sound = CrabbySound;
@@ -2692,6 +2707,32 @@ public:
     void draw_rect(rect r, color c) { detail::check(crabby_ctx_draw_rect(raw_, r, c)); }
     void draw_line(vec2 a, vec2 b, float width, color c) { detail::check(crabby_ctx_draw_line(raw_, a, b, width, c)); }
     void draw_circle(vec2 center, float radius, color c) { detail::check(crabby_ctx_draw_circle(raw_, center, radius, c)); }
+
+
+    /// Adds or replaces owned SDF text on an entity with a Transform3D.
+    void set_text3d(entity e, const crabby::text3d& t) {
+        CrabbyText3D v{t.font, t.size, t.color, t.outline, t.outline_width,
+                       t.softness, static_cast<uint32_t>(t.align), t.billboard};
+        detail::check(crabby_ctx_set_text3d(raw_, e, t.text.c_str(), &v));
+    }
+    /// No value when the live entity has no text.
+    std::optional<crabby::text3d> text3d(entity e) const {
+        CrabbyText3D v{};
+        auto status = crabby_ctx_text3d(raw_, e, &v);
+        if (status == CRABBY_NOT_FOUND) return std::nullopt;
+        detail::check(status);
+        std::size_t len = 0;
+        detail::check(crabby_ctx_text3d_text(raw_, e, nullptr, 0, &len));
+        std::string text(len + 1, '\0');
+        detail::check(crabby_ctx_text3d_text(raw_, e, &text[0], text.size(), &len));
+        text.resize(len);
+        crabby::text3d t(std::move(text));
+        t.font = v.font; t.size = v.size; t.color = v.color; t.outline = v.outline;
+        t.outline_width = v.outline_width; t.softness = v.softness;
+        t.align = static_cast<text_align3d>(v.align); t.billboard = v.billboard;
+        return t;
+    }
+    void remove_text3d(entity e) { detail::check(crabby_ctx_remove_text3d(raw_, e)); }
 
     // Fonts and text (screen space).
     font load_font(const char* path) { font f{}; detail::check(crabby_ctx_load_font(raw_, path, &f)); return f; }

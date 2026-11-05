@@ -34,7 +34,7 @@
  * for that panel's UI.
  *
  * Enums (CrabbyKey, CrabbyMouseButton, CrabbyGamepadButton, CrabbyGamepadAxis,
- * CrabbyBodyKind, CrabbyShapeKind, CrabbyShape3DKind, CrabbyNetState, and the
+ * CrabbyTextAlign3D, CrabbyBodyKind, CrabbyShapeKind, CrabbyShape3DKind, CrabbyNetState, and the
  * CrabbyUi* layout and paint enums) are passed as uint32_t.
  * Last-error text is thread-local, borrowed until the next failed call;
  * successful calls leave it unchanged.
@@ -114,6 +114,19 @@ typedef enum CrabbyUiEventKind {
   CRABBY_UI_EVENT_SUBMITTED,
   CRABBY_UI_EVENT_SCREEN_POPPED,
 } CrabbyUiEventKind;
+
+enum CrabbyTextAlign3D
+#ifdef __cplusplus
+  : uint32_t
+#endif // __cplusplus
+ {
+  CRABBY_TEXT_ALIGN3D_LEFT = 0,
+  CRABBY_TEXT_ALIGN3D_CENTER = 1,
+  CRABBY_TEXT_ALIGN3D_RIGHT = 2,
+};
+#ifndef __cplusplus
+typedef uint32_t CrabbyTextAlign3D;
+#endif // __cplusplus
 
 enum CrabbyActionSource
 #ifdef __cplusplus
@@ -934,6 +947,17 @@ typedef struct CrabbyLine3D {
   uint32_t blend;
   float texture_length;
 } CrabbyLine3D;
+
+typedef struct CrabbyText3D {
+  struct CrabbyFont font;
+  float size;
+  struct CrabbyColor color;
+  struct CrabbyColor outline;
+  float outline_width;
+  float softness;
+  uint32_t align;
+  bool billboard;
+} CrabbyText3D;
 
 typedef struct CrabbyModel {
   struct CrabbyMesh mesh;
@@ -2699,6 +2723,25 @@ struct CrabbyMeshData *crabby_mesh_data_decal(const struct CrabbyMeshData *data,
 enum CrabbyStatus crabby_ctx_load_mesh_data(struct CrabbyCtx *ctx,
                                             const char *path,
                                             struct CrabbyMeshData **out_data);
+
+struct CrabbyText3D crabby_text3d_default(void);
+
+enum CrabbyStatus crabby_ctx_set_text3d(struct CrabbyCtx *ctx,
+                                        uint64_t entity,
+                                        const char *string,
+                                        const struct CrabbyText3D *value);
+
+enum CrabbyStatus crabby_ctx_text3d(struct CrabbyCtx *ctx,
+                                    uint64_t entity,
+                                    struct CrabbyText3D *output);
+
+enum CrabbyStatus crabby_ctx_text3d_text(struct CrabbyCtx *ctx,
+                                         uint64_t entity,
+                                         char *buffer,
+                                         size_t capacity,
+                                         size_t *length);
+
+enum CrabbyStatus crabby_ctx_remove_text3d(struct CrabbyCtx *ctx, uint64_t entity);
 
 struct CrabbyVec3 crabby_sun_direction_at(float hour);
 

@@ -1117,6 +1117,21 @@ impl Ctx {
         font
     }
 
+    /// Whether `font` is the built-in font or one this context loaded. Only
+    /// foreign callers can hold a handle that isn't (C code passing a made-up
+    /// id); [`Text3D`](crate::Text3D) would panic when drawn with one.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     assert!(ctx.has_font(Font::DEFAULT));
+    /// });
+    /// ```
+    #[must_use]
+    pub fn has_font(&self, font: Font) -> bool {
+        self.text.has_font(font)
+    }
+
     /// Loads an image from the `assets/` folder (PNG for now).
     ///
     /// Do this once in setup and keep the [`Texture`]; it's a cheap handle.
