@@ -51,6 +51,16 @@ where
     }
     ctx.net.begin(ctx.seed);
     let control = game.start_control(&mut ctx, false);
+    ctx.profiler = crate::profiler::Profiler::from_env();
+    // A benchmark measures how fast the game can run, not the display.
+    if ctx.profiler.benchmarking() {
+        game.vsync = false;
+    }
+    match std::env::var("CRABBY_VSYNC").as_deref() {
+        Ok("0") => game.vsync = false,
+        Ok("1") => game.vsync = true,
+        _ => {}
+    }
     let mut app = App {
         #[cfg(target_arch = "wasm32")]
         proxy: Some(event_loop.create_proxy()),
@@ -87,6 +97,43 @@ fn start_profiler() -> Option<puffin_http::Server> {
         Err(e) => {
             eprintln!("crabbyengine: could not start the profiler on {ADDR}: {e}");
             None
+        }
+    }
+}
+
+/// The end of a benchmark report: the meshes that cost the most triangles.
+#[cfg(feature = "3d")]
+fn print_mesh_costs(ctx: &Ctx) {
+    let costs = ctx.mesh_costs();
+    if costs.is_empty() {
+        return;
+    }
+    eprintln!("-- heaviest meshes (camera models / triangles, shadow models / triangles) --");
+    for c in costs.iter().take(15) {
+        eprintln!(
+            "{:>7} {:>7.2}M  {:>7} {:>7.2}M  {}",
+            c.models,
+            c.triangles as f64 / 1e6,
+            c.shadow_models,
+            c.shadow_triangles as f64 / 1e6,
+            c.name.as_deref().unwrap_or("(made in code)")
+        );
+    }
+    // Every mesh, for sorting and grouping elsewhere.
+    if let Some(path) = std::env::var_os("CRABBY_BENCH_MESHES") {
+        let mut csv = String::from("models,triangles,shadow_models,shadow_triangles,name\n");
+        for c in &costs {
+            csv.push_str(&format!(
+                "{},{},{},{},{}\n",
+                c.models,
+                c.triangles,
+                c.shadow_models,
+                c.shadow_triangles,
+                c.name.as_deref().unwrap_or("")
+            ));
+        }
+        if let Err(e) = std::fs::write(&path, csv) {
+            eprintln!("crabbyengine: could not write {}: {e}", path.to_string_lossy());
         }
     }
 }
@@ -146,6 +193,7 @@ where
         let now = Instant::now();
         let frame_dt = now.duration_since(self.last_frame).as_secs_f64();
         self.last_frame = now;
+        let since_start = |t: Instant| t.duration_since(now).as_secs_f32() * 1000.0;
 
         #[cfg(feature = "profiling")]
         puffin::GlobalProfiler::lock().new_frame();
@@ -156,7 +204,9 @@ where
             pads.poll(&mut self.ctx.input);
         }
         self.ctx.reload_changed_assets();
+        let systems_start = Instant::now();
         self.config.run_systems(&mut self.ctx, timing.fixed_steps);
+        let systems_ms = systems_start.elapsed().as_secs_f32() * 1000.0;
         self.ctx.input.end_frame();
         #[cfg(feature = "inspector")]
         if let (Some(inspector), Some(window)) = (&mut self.inspector, &self.window) {
@@ -176,9 +226,29 @@ where
 
         // With vsync, presenting blocks until the display is ready, which
         // paces the loop. So we can ask for the next frame right away.
-        match self.ctx.render_frame() {
-            FrameStatus::Presented | FrameStatus::Skipped => self.occluded = false,
+        self.ctx.draw_perf_hud();
+        let render_start = Instant::now();
+        let status = self.ctx.render_frame();
+        let render_ms = render_start.elapsed().as_secs_f32() * 1000.0;
+        match status {
+            FrameStatus::Presented | FrameStatus::Skipped | FrameStatus::Offscreen => self.occluded = false,
             FrameStatus::Occluded => self.occluded = true,
+        }
+        let sample = crate::profiler::FrameSample {
+            frame_ms: frame_dt as f32 * 1000.0,
+            systems_start_ms: since_start(systems_start),
+            systems_ms,
+            render_start_ms: since_start(render_start),
+            render_ms,
+            wait_ms: self.ctx.display_wait_ms(),
+            gpu_ms: self.ctx.last_render_stats.gpu_ms,
+            presented: matches!(status, FrameStatus::Presented | FrameStatus::Offscreen),
+        };
+        if self.ctx.record_frame(sample) {
+            #[cfg(feature = "3d")]
+            print_mesh_costs(&self.ctx);
+            event_loop.exit();
+            return;
         }
         if !self.occluded
             && !self.unpaced()
@@ -199,6 +269,13 @@ where
         let Some(window) = self.window.clone() else {
             return;
         };
+        let mut renderer = renderer;
+        // Benchmarks draw offscreen: a window is shown at most once per display
+        // refresh, so above that rate presenting stalls now and then.
+        // CRABBY_BENCH_PRESENT=1 draws to the window when it can take a frame.
+        let present = std::env::var("CRABBY_BENCH_PRESENT").is_ok_and(|v| v == "1");
+        let benchmarking = self.ctx.profiler.benchmarking();
+        renderer.set_draw_hidden(benchmarking, benchmarking && !present);
         self.ctx.renderer = Some(renderer);
         self.ctx.set_window_size(Self::logical_window_size(&window));
         self.ctx.set_scale_factor(window.scale_factor() as f32);
@@ -264,10 +341,11 @@ where
         self.window = Some(window.clone());
         let display = event_loop.owned_display_handle();
         let vsync = self.config.vsync;
+        let msaa = self.config.msaa;
 
         // Desktop: open the GPU and start right away.
         #[cfg(not(target_arch = "wasm32"))]
-        self.start(Renderer::new(window, display, vsync));
+        self.start(Renderer::new(window, display, vsync, msaa));
 
         // Web: the browser can't block, so fetch the assets and open the GPU
         // in a task, which sends `Ready` when done.
@@ -275,7 +353,7 @@ where
         if let Some(proxy) = self.proxy.take() {
             wasm_bindgen_futures::spawn_local(async move {
                 crate::web::fetch_assets().await;
-                let renderer = Renderer::new_async(window, display, vsync).await;
+                let renderer = Renderer::new_async(window, display, vsync, msaa).await;
                 let _ = proxy.send_event(Ready(renderer));
             });
         }
@@ -322,7 +400,8 @@ where
             }
 
             WindowEvent::Occluded(occluded) => {
-                self.occluded = occluded;
+                // A benchmark draws offscreen while hidden and keeps going.
+                self.occluded = occluded && !self.ctx.profiler.benchmarking();
                 if !occluded {
                     window.request_redraw();
                 }

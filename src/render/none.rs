@@ -16,6 +16,19 @@ impl Renderer {
     pub fn take_screenshot(&mut self) -> Option<Screenshot> {
         match *self {}
     }
+    #[cfg(feature = "3d")]
+    pub fn mesh_costs(&self) -> Vec<(u32, usize, usize, usize, usize)> {
+        match *self {}
+    }
+    pub fn set_draw_hidden(&mut self, _on: bool, _always: bool) {
+        match *self {}
+    }
+    pub fn gpu_passes(&self) -> &[crate::profiler::GpuPass] {
+        match *self {}
+    }
+    pub fn gpu_frame(&self) -> Option<(&[crate::profiler::PassSpan], u64)> {
+        match *self {}
+    }
     pub fn display_wait_ms(&self) -> f32 {
         match *self {}
     }

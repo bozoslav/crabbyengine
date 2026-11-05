@@ -584,6 +584,49 @@ impl Ctx {
         }
     }
 
+    /// What each mesh cost to draw in the last frame: the models and
+    /// triangles the camera drew with it, and the same for the shadow maps,
+    /// most triangles first. For finding what makes a frame slow; it
+    /// allocates, so call it now and then, not every frame. Empty headless.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// fn heaviest(ctx: &mut Ctx) {
+    ///     for c in ctx.mesh_costs().iter().take(5) {
+    ///         let name = c.name.as_deref().unwrap_or("(made in code)");
+    ///         println!("{name}: {} models, {} + {} shadow triangles", c.models, c.triangles, c.shadow_triangles);
+    ///     }
+    /// }
+    /// # Game::new("t", 1, 1).system(heaviest).run_headless(1, |_| {});
+    /// ```
+    pub fn mesh_costs(&self) -> Vec<super::MeshCost> {
+        let Some(renderer) = self.renderer.as_ref() else {
+            return Vec::new();
+        };
+        let names: std::collections::HashMap<u32, &std::path::Path> = self
+            .assets3d
+            .loaded
+            .iter()
+            .map(|(path, mesh)| (mesh.id, path.as_path()))
+            .collect();
+        let mut costs: Vec<super::MeshCost> = renderer
+            .mesh_costs()
+            .into_iter()
+            .map(
+                |(id, models, triangles, shadow_models, shadow_triangles)| super::MeshCost {
+                    mesh: super::Mesh { id },
+                    name: names.get(&id).map(|p| p.display().to_string()),
+                    models,
+                    triangles,
+                    shadow_models,
+                    shadow_triangles,
+                },
+            )
+            .collect();
+        costs.sort_by_key(|c| std::cmp::Reverse(c.triangles + c.shadow_triangles));
+        costs
+    }
+
     pub(crate) fn prepare_3d(&mut self) {
         let time = (self.time() as f32, self.dt());
         if self.renderer.is_none() || self.assets3d.bounds.is_empty() {

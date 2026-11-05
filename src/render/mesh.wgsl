@@ -13,7 +13,7 @@ struct Frame {
     sun_view_proj: array<mat4x4<f32>, 4>,
     // In the shadow pass: the cascade being drawn.
     caster_view_proj: mat4x4<f32>,
-    camera: vec4<f32>,     // xyz: camera position
+    camera: vec4<f32>,     // xyz: camera position; w: 0 in shadow maps, else 1
     sun_dir: vec4<f32>,    // xyz: unit vector towards the sun
     sun_color: vec4<f32>,  // rgb: linear color times intensity
     sky: vec4<f32>,        // rgb: linear, times ambient intensity
@@ -93,6 +93,21 @@ struct Surface {
     uv1: vec2<f32>,      // the mesh's second texture coordinates (zero without)
     origin: vec3<f32>,   // where the model is (its transform's position)
 };
+
+// Whether this draw is into a shadow map (seen from the sun), not for a camera.
+fn drawing_shadows() -> bool {
+    return frame.camera.w == 0.0;
+}
+
+// The unit direction from `p` towards whoever is looking: the camera, or
+// the sun when drawing shadow maps. Billboards face it in their `vertex`
+// function, so their shadows are cast by the side the sun sees.
+fn toward_viewer(p: vec3<f32>) -> vec3<f32> {
+    if drawing_shadows() {
+        return frame.sun_dir.xyz;
+    }
+    return normalize(frame.camera.xyz - p);
+}
 
 // The opaque scene's light at a pixel, before tone mapping (in screen
 // effects: the frame so far). Only transparent materials and screen effects

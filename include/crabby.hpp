@@ -99,6 +99,8 @@ inline terrain_material_desc terrain_material_of(texture_array layers, texture_a
     return crabby_terrain_material_desc(layers, weights, corner, size);
 }
 using mesh = CrabbyMesh;
+/// Frame timing over the last few seconds, in ms (`gpu_ms` -1 where the GPU can't time itself).
+using frame_stats = CrabbyFrameStats;
 using material = CrabbyMaterial;
 using material_desc = CrabbyMaterialDesc;
 /// A material shader in WGSL (ctx::load_shader, ctx::create_shader).
@@ -1243,6 +1245,12 @@ public:
     double time() const noexcept { return crabby_ctx_time(raw_); }
     std::uint64_t frame() const noexcept { return crabby_ctx_frame(raw_); }
     float fps() const noexcept { return crabby_ctx_fps(raw_); }
+    /// fps, frame-time percentiles, CPU and GPU time over the last few seconds.
+    crabby::frame_stats frame_stats() const { crabby::frame_stats s{}; detail::check(crabby_ctx_frame_stats(raw_, &s)); return s; }
+    /// Shows or hides the on-screen performance overlay.
+    void set_perf_hud(bool on) { detail::check(crabby_ctx_set_perf_hud(raw_, on)); }
+    /// Records the next `frames` frames as a Chrome/Perfetto trace at `path`.
+    void record_trace(const char* path, std::uint32_t frames) { detail::check(crabby_ctx_record_trace(raw_, path, frames)); }
     vec2 window_size() const noexcept { return crabby_ctx_window_size(raw_); }
     crabby::random random() const noexcept { return crabby::random(crabby_ctx_random_bits(raw_)); }
 
@@ -1485,6 +1493,11 @@ public:
     void free_mesh(mesh m) { detail::check(crabby_ctx_free_mesh(raw_, m)); }
     /// Whether models showing `m` cast shadows (on at first); off suits grass and pebbles.
     void set_mesh_shadows(mesh m, bool casts) { detail::check(crabby_ctx_set_mesh_shadows(raw_, m, casts)); }
+    /// Draws `m` into the shadow maps for `e` instead of its model (Rust `ShadowMesh`);
+    /// without a model, `e` casts only that shadow.
+    void set_shadow_mesh(entity e, mesh m) { detail::check(crabby_ctx_set_shadow_mesh(raw_, e, m, true)); }
+    /// `e` casts no shadow (a model, or a terrain tile's ground).
+    void set_no_shadow(entity e) { detail::check(crabby_ctx_set_shadow_mesh(raw_, e, mesh{}, false)); }
     bool mesh_shadows(mesh m) const { bool casts = true; detail::check(crabby_ctx_mesh_shadows(raw_, m, &casts)); return casts; }
     /// Whether this game made `m` and hasn't freed it.
     bool is_mesh_live(mesh m) const { bool live = false; detail::check(crabby_ctx_is_mesh_live(raw_, m, &live)); return live; }
@@ -1828,6 +1841,8 @@ public:
     game& fixed_hz(std::uint32_t hz) { return check(crabby_game_fixed_hz(raw_, hz)); }
     game& seed(std::uint64_t seed) { return check(crabby_game_seed(raw_, seed)); }
     game& vsync(bool on) { return check(crabby_game_vsync(raw_, on)); }
+    /// Samples per pixel of the 3D frame: 4 (default) or 2.
+    game& msaa(std::uint32_t samples) { return check(crabby_game_msaa(raw_, samples)); }
     /// Fill the screen instead of opening a window.
     game& fullscreen(bool on) { return check(crabby_game_fullscreen(raw_, on)); }
     game& spatial_grid(float cell_size) { return check(crabby_game_spatial_grid(raw_, cell_size)); }

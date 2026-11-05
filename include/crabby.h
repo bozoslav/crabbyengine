@@ -417,6 +417,20 @@ typedef struct CrabbyTurns {
   float dt;
 } CrabbyTurns;
 
+typedef struct CrabbyFrameStats {
+  uint64_t frames;
+  float fps;
+  float avg_ms;
+  float p50_ms;
+  float p95_ms;
+  float p99_ms;
+  float max_ms;
+  float systems_ms;
+  float render_cpu_ms;
+  float display_wait_ms;
+  float gpu_ms;
+} CrabbyFrameStats;
+
 typedef struct CrabbyRigidBody {
   uint32_t kind;
   float gravity_scale;
@@ -1097,6 +1111,8 @@ enum CrabbyStatus crabby_game_seed(struct CrabbyGame *game, uint64_t seed);
 
 enum CrabbyStatus crabby_game_vsync(struct CrabbyGame *game, bool on);
 
+enum CrabbyStatus crabby_game_msaa(struct CrabbyGame *game, uint32_t samples);
+
 enum CrabbyStatus crabby_game_fullscreen(struct CrabbyGame *game, bool on);
 
 enum CrabbyStatus crabby_game_spatial_grid(struct CrabbyGame *game, float cell_size);
@@ -1256,6 +1272,13 @@ enum CrabbyStatus crabby_ctx_net_desync(struct CrabbyCtx *ctx,
                                         bool *out_found,
                                         uint64_t *out_tick,
                                         uint32_t *out_player);
+
+enum CrabbyStatus crabby_ctx_frame_stats(const struct CrabbyCtx *ctx,
+                                         struct CrabbyFrameStats *out_stats);
+
+enum CrabbyStatus crabby_ctx_set_perf_hud(struct CrabbyCtx *ctx, bool on);
+
+enum CrabbyStatus crabby_ctx_record_trace(struct CrabbyCtx *ctx, const char *path, uint32_t frames);
 
 struct CrabbyRigidBody crabby_rigid_body(uint32_t kind);
 
@@ -1757,6 +1780,11 @@ enum CrabbyStatus crabby_heightfield_at(const struct CrabbyHeightfield *ground,
                                         bool *out_found,
                                         float *out_height,
                                         struct CrabbyVec3 *out_normal);
+
+enum CrabbyStatus crabby_ctx_set_shadow_mesh(struct CrabbyCtx *ctx,
+                                             uint64_t entity,
+                                             struct CrabbyMesh mesh,
+                                             bool casts);
 
 enum CrabbyStatus crabby_ctx_set_mesh_shadows(struct CrabbyCtx *ctx,
                                               struct CrabbyMesh mesh,

@@ -285,6 +285,32 @@ fn tools() -> Vec<Tool> {
             required: &[],
         },
         Tool {
+            name: "perf_report",
+            description: "Where a windowed game's frame time goes, over the last few seconds: fps and frame-time percentiles; CPU time in systems, rendering and waiting on the display; GPU time per pass (shadows, opaque, bloom, ...); draw calls and the 3D models and triangles drawn for the camera and the shadows; the slowest systems; optionally the meshes drawing the most triangles. Start here for any performance question: a large display wait means the GPU is the limit. For exact numbers, run the game with CRABBY_BENCH=<frames> instead (a fixed-length, vsync-off run that prints a report and quits).",
+            writes: false,
+            params: || json!({ "meshes": { "type": "integer", "minimum": 0, "description": "Also list this many meshes drawing the most triangles (3D games; default 0)" } }),
+            required: &[],
+        },
+        Tool {
+            name: "record_trace",
+            description: "Record the next frames of a windowed game as a Chrome/Perfetto trace JSON (each frame's systems, render, display wait and GPU passes on a timeline), to find hitches: slow frames and what was in them. Returns the path; the file is written once the frames are done (about frames / fps seconds). Each event has name, ts and dur in microseconds.",
+            writes: false,
+            params: || {
+                json!({
+                    "frames": { "type": "integer", "minimum": 1, "description": "How many frames (default 120, max 10000)" },
+                    "path": { "type": "string", "description": "Where to write it (default: a temp file)" }
+                })
+            },
+            required: &[],
+        },
+        Tool {
+            name: "perf_hud",
+            description: "Show or hide a windowed game's on-screen performance overlay (fps, frame-time percentiles, CPU and GPU ms, the slowest GPU passes), e.g. before a screenshot.",
+            writes: false,
+            params: || json!({ "on": { "type": "boolean", "description": "true shows it, false hides it" } }),
+            required: &["on"],
+        },
+        Tool {
             name: "list_events",
             description: "Event types the game lets tools see (ctx.events.reflect, or C events whose type is a reflected component) and how many of each are in flight now.",
             writes: false,
@@ -704,6 +730,9 @@ impl Server {
                 .call("entities.stats", pass(&["fields", "with", "where"])),
             "get_entity" => self.instance(args)?.call("entity.get", pass(&["entity"])),
             "system_timings" => self.instance(args)?.call("systems.timings", json!({})),
+            "perf_report" => self.instance(args)?.call("perf.get", pass(&["meshes"])),
+            "record_trace" => self.instance(args)?.call("perf.trace", pass(&["frames", "path"])),
+            "perf_hud" => self.instance(args)?.call("perf.hud", pass(&["on"])),
             "list_resources" => self.instance(args)?.call("resources.list", json!({})),
             "get_resource" => self.instance(args)?.call("resource.get", pass(&["resource"])),
             "set_resource" => self.instance(args)?.call("resource.set", pass(&["resource", "value"])),

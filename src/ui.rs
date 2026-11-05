@@ -313,7 +313,7 @@ impl Ctx {
     }
 
     /// A filled screen-space rectangle (UI building block).
-    fn ui_fill(&mut self, rect: Rect, color: Color, z: f32) {
+    pub(crate) fn ui_fill(&mut self, rect: Rect, color: Color, z: f32) {
         let white = self.white_texture().id;
         self.shape(Layer::Screen, white, rect.min, rect.size(), 0.0, Vec2::ZERO, color, z);
     }

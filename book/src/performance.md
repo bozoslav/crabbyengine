@@ -142,6 +142,86 @@ or smaller sprites. If `cpu_ms` plus your systems' time
 (`ctx.system_timings()`) is close to it, the CPU is. Agents
 get the same numbers from the control endpoint's `info` method.
 
+## Profiling a frame
+
+A frame takes about as long as the slower of the CPU (systems, then
+recording draws) and the GPU. The profiler shows which, and where the time
+goes, in a running game:
+
+- **The overlay** (`ctx.set_perf_hud(true)`, or `CRABBY_HUD=1`): fps,
+  frame-time percentiles, CPU and GPU time, and the slowest GPU passes.
+- **`ctx.frame_stats()`**: the same numbers over the last few seconds:
+  fps, average, p50, p95, p99 and worst frame time, CPU time in systems,
+  in rendering and waiting on the display, and GPU time. A large display
+  wait means the GPU (or vsync) is the limit.
+- **`ctx.gpu_passes()`**: GPU time per pass (each shadow cascade, depth
+  prepass, opaque, transparent, screen effects, bloom, post), measured
+  with timestamp queries. On GPUs that draw in tiles, passes overlap, so
+  each is counted from the end of the one before.
+- **`ctx.render_stats()`**: draw calls; 3D models and triangles drawn for
+  the camera and, separately, for the shadow maps; and the render CPU
+  time split into culling (`collect_ms`), recording (`record_ms`, all
+  cores) and submitting.
+- **`ctx.mesh_costs()`**: per mesh, how many models and triangles it drew
+  for the camera and the shadows last frame, heaviest first.
+- **Traces**: `ctx.record_trace(path, frames)` (or `CRABBY_TRACE=path`)
+  writes the next frames as a Chrome trace: every system, rendering,
+  display waits and the GPU passes on a timeline. Open it in
+  [Perfetto](https://ui.perfetto.dev) to see what's in a hitch.
+
+<div class="lang-pair">
+<div>
+
+```rust
+{{#include ../../tests/profiling.rs:profiling}}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:profiling}}
+```
+
+</div>
+</div>
+
+### Benchmark runs
+
+`CRABBY_BENCH=<frames>` turns any windowed game into a benchmark: after
+`CRABBY_BENCH_WARMUP` frames (240), it measures that many with vsync off,
+prints a report and quits. The report has the frame-time percentiles, the
+CPU split, the GPU passes, the slowest systems and the meshes drawing the
+most triangles; `CRABBY_BENCH_OUT=file.json` also writes it as JSON, and
+`CRABBY_BENCH_MESHES=file.csv` writes every mesh's counts. Frames are
+drawn offscreen, so the display's refresh rate neither caps nor stalls
+them (`CRABBY_BENCH_PRESENT=1` shows them instead).
+
+```sh
+CRABBY_BENCH=600 CRABBY_BENCH_OUT=before.json cargo run --release
+```
+
+Run it at a fixed camera before and after a change, and compare.
+
+### From an agent
+
+The [control endpoint](control.md) has the same numbers (`perf.get`,
+`perf.trace`, `perf.hud`), and the [MCP server](agents.md) offers them as
+`perf_report`, `record_trace` and `perf_hud`: an agent can ask a running
+game why it's slow, change something, and ask again.
+
+### What usually helps in 3D
+
+- **Shadows**: every caster is drawn again for each shadow cascade it
+  falls in, also behind the camera. Compare the camera's triangles with
+  the shadows' in `render_stats`. Turn shadows off for small things
+  (`set_mesh_shadows`), and give detailed models a simpler
+  [`ShadowMesh`](3d.md), especially far away.
+- **Distant detail**: swap far models for simpler meshes or billboards.
+  `mesh_costs` shows which meshes cost the most.
+- **Pixels**: on a large Retina screen, `Game::msaa(2)` costs about a
+  third less GPU time for the 3D passes than the default 4x.
+
 ## 3D: Crabby vs Unity
 
 The same 3D scene in Crabby and in Unity 6, built the way a normal Unity

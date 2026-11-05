@@ -97,6 +97,9 @@ headless game waits for requests and runs only the ticks you step.
 | `events.take` | | `{events: [{tick, type, data}], dropped}` since the last take |
 | `events.unsubscribe` | | `true` if there was a subscription |
 | `logs.get` | `lines?` (100), `since?` | `{lines, next, missed}`: the game's recent stdout and stderr (see below) |
+| `perf.get` | `meshes?` (0) | where frame time goes, over the last few seconds: fps; avg, p50, p95, p99 and max ms; CPU in systems, render and display wait; GPU ms in total and per pass; draw calls and 3D models and triangles (camera and shadows); the slowest systems; with `meshes`, the meshes drawing the most triangles (see [Profiling a frame](performance.md#profiling-a-frame)) |
+| `perf.trace` | `path?` (a temp file), `frames?` (120) | records the next frames as a Chrome/Perfetto trace; returns the path, written once the frames are done |
+| `perf.hud` | `on` | shows or hides the performance overlay |
 | `camera.get` | | position, zoom, center, visible rect |
 | `camera.set` | `position`?, `zoom`?, `look_at`? | move the camera; returns `camera.get` |
 | `screenshot` | `path`?, `max_size`? | save the next frame as a PNG (windowed games only); returns `path`, `width`, `height` |

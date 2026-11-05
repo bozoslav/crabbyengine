@@ -71,6 +71,8 @@ pub struct Game {
     fixed_hz_set: bool,
     seed: u64,
     vsync: bool,
+    /// Samples per pixel of the 3D frame (see `msaa`).
+    msaa: u32,
     fullscreen: bool,
     sim_systems: Vec<System>,
     systems: Vec<System>,
@@ -228,6 +230,7 @@ impl Game {
             fixed_hz_set: false,
             seed: crate::random::DEFAULT_SEED,
             vsync: true,
+            msaa: 4,
             fullscreen: false,
             sim_systems: Vec::new(),
             systems: Vec::new(),
@@ -648,6 +651,28 @@ impl Game {
     /// ```
     pub fn vsync(mut self, on: bool) -> Self {
         self.vsync = on;
+        self
+    }
+
+    /// How many samples per pixel the 3D frame takes to smooth its edges:
+    /// 4 (default) or 2. 2 costs about a third less GPU time on a large
+    /// screen, with a little more stair-stepping on thin edges. GPUs that
+    /// can't take 2 everywhere (WebGL2, some mobile ones) keep 4.
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// Game::new("Open world", 1280, 720).msaa(2).run(|_| |_: &mut Ctx| {});
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// If `samples` is not 2 or 4.
+    pub fn msaa(mut self, samples: u32) -> Self {
+        assert!(
+            matches!(samples, 2 | 4),
+            "the 3D frame takes 2 or 4 samples per pixel, not {samples}"
+        );
+        self.msaa = samples;
         self
     }
 

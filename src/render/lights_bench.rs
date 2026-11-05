@@ -107,7 +107,7 @@ fn offscreen_light_benchmark() {
     for count in [0, 100, 1000] {
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(1280.0, 720.0));
         scene::setup(&mut ctx, count);
-        let mut renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white);
+        let mut renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
         let desc = GpuMaterialDesc::new(&crate::MaterialDesc {
             roughness: 0.5,
             ..Default::default()
@@ -154,16 +154,17 @@ fn offscreen_light_benchmark() {
                     size: (1280, 720),
                 },
             );
+            let mut buffers = renderer.draw(&device, &target, wgpu::Color::BLACK, &textures, Some(&timer));
             let mut encoder = device.create_command_encoder(&Default::default());
-            renderer.draw(&mut encoder, &target, wgpu::Color::BLACK, &textures, Some(&timer));
             timer.resolve(&mut encoder);
-            queue.submit([encoder.finish()]);
+            buffers.push(encoder.finish());
+            queue.submit(buffers);
             timer.submitted();
             ctx.last_render_stats = RenderStats {
                 cpu_ms: start.elapsed().as_secs_f32() * 1000.0,
                 gpu_ms: timer.smoothed_ms,
                 draw_calls: renderer.draw_calls(),
-                sprites: 0,
+                ..RenderStats::default()
             };
             // Completion is outside CPU timing, as display/GPU waits are in normal stats.
             device.poll(wgpu::PollType::wait_indefinitely()).unwrap();

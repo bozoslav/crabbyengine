@@ -885,6 +885,41 @@ static void plant_meadow(crabby::ctx& ctx, crabby::mesh tuft) {
 }
 // ANCHOR_END: mesh_shadows
 
+// ANCHOR: shadow_mesh
+/// A detailed tree with a cheap shadow, a flat sign with none, and a stand-in
+/// shadow for a row of fence pieces that cast none themselves.
+static void yard(crabby::ctx& ctx, crabby::mesh tree, crabby::mesh blob, crabby::mesh sign,
+                 crabby::mesh fence, crabby::mesh fence_shadow) {
+    auto t = ctx.world().spawn(crabby::transform3d_at({0, 0, 0}), crabby::model_of(tree));
+    ctx.set_shadow_mesh(t, blob);
+    auto s = ctx.world().spawn(crabby::transform3d_at({4, 0, 0}), crabby::model_of(sign));
+    ctx.set_no_shadow(s);
+    for (int i = 0; i < 10; ++i) {
+        auto f = ctx.world().spawn(crabby::transform3d_at({float(i), 0, 6}), crabby::model_of(fence));
+        ctx.set_no_shadow(f);
+    }
+    // Only a shadow: no model.
+    auto only = ctx.world().spawn(crabby::transform3d_at({0, 0, 6}));
+    ctx.set_shadow_mesh(only, fence_shadow);
+}
+// ANCHOR_END: shadow_mesh
+
+// ANCHOR: profiling
+/// F3 shows the performance overlay; F4 records the next 300 frames as a
+/// trace to open in Perfetto. Slow stretches are logged with their cause.
+static void perf_keys(crabby::ctx& ctx) {
+    static bool hud = false;
+    if (ctx.key_pressed(CRABBY_KEY_F3)) ctx.set_perf_hud(hud = !hud);
+    if (ctx.key_pressed(CRABBY_KEY_F4)) ctx.record_trace("trace.json", 300);
+    auto stats = ctx.frame_stats();
+    if (stats.frames > 0 && stats.p99_ms > 20 && ctx.frame() % 600 == 0) {
+        // Waiting on the display means the GPU (or vsync) is the limit.
+        bool gpu_bound = stats.display_wait_ms > stats.systems_ms;
+        std::printf("slow: p99 %.1f ms, gpu %.2f ms, gpu bound: %d\n", stats.p99_ms, stats.gpu_ms, gpu_bound);
+    }
+}
+// ANCHOR_END: profiling
+
 // ANCHOR: distance_fog
 /// A big open world fading out far away, glowing toward the sun.
 static void far_haze(crabby::ctx& ctx) {
@@ -1163,6 +1198,9 @@ static void the_village_has_five_spinning_houses() {
         far_haze(ctx);
         auto tuft = ctx.create_mesh(crabby::mesh_data::cube(0.1f), ctx.default_material());
         plant_meadow(ctx, tuft);
+        yard(ctx, tuft, tuft, tuft, tuft, tuft);
+        perf_keys(ctx);
+        if (ctx.frame_stats().frames != 0) { std::fprintf(stderr, "frame stats\n"); std::abort(); }
         if (ctx.mesh_shadows(tuft)) { std::fprintf(stderr, "mesh shadows\n"); std::abort(); }
         meadow(ctx);
         if (ctx.post().tonemap != uint32_t(crabby::tonemap::agx)) { std::fprintf(stderr, "post\n"); std::abort(); }

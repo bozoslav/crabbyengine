@@ -128,6 +128,23 @@ pub unsafe extern "C" fn crabby_game_vsync(game: *mut CrabbyGame, on: bool) -> C
     // SAFETY: forwarded caller contract.
     unsafe { build(game, |g| ok(g.vsync(on))) }
 }
+/// Samples per pixel of the 3D frame: 4 (default) or 2, which costs about a
+/// third less GPU time on a large screen. GPUs that can't take 2 keep 4.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_game_msaa(std::ptr::null_mut(), 2) } as u32, 1);
+/// ```
+/// # Safety
+/// `game` must be null or a live game.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_game_msaa(game: *mut CrabbyGame, samples: u32) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe {
+        build(game, |g| match samples {
+            2 | 4 => ok(g.msaa(samples)),
+            _ => reject(g, "msaa takes 2 or 4 samples"),
+        })
+    }
+}
 /// Fill the screen instead of opening a window (default off). On macOS,
 /// windowed games are shown at most once per display refresh even with vsync
 /// off; fullscreen ones aren't.
