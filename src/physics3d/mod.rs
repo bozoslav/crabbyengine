@@ -17,6 +17,8 @@ use crate::collision::{BodyKind, CollisionStarted, CollisionStopped};
 use crate::{Ctx, Entity, Quat, Transform3D, Vec3, World};
 
 mod character;
+mod contacts;
+pub use contacts::{ContactModifier3D, ContactPair3D};
 mod dominance;
 mod files;
 mod joints;
@@ -510,6 +512,12 @@ pub struct Physics3D {
     character: character::Scratch,
     /// Reused when posing ragdolls.
     pub(crate) ragdolls: Vec<Entity>,
+    /// Contact modifiers by entity index, this step's list of them, and the
+    /// list from the step before (kept to reuse its memory).
+    contact_table: Vec<Option<(Entity, ContactModifier3D)>>,
+    contact_hooked: Vec<(Entity, ContactModifier3D)>,
+    contact_spare: Vec<(Entity, ContactModifier3D)>,
+    contact_hook: Option<contacts::ContactHook>,
 }
 
 impl Default for Physics3D {
@@ -558,7 +566,33 @@ impl Physics3D {
             free_meshes: Vec::new(),
             character: character::Scratch::default(),
             ragdolls: Vec::new(),
+            contact_table: Vec::new(),
+            contact_hooked: Vec::new(),
+            contact_spare: Vec::new(),
+            contact_hook: None,
         }
+    }
+
+    /// Calls `hook` for the contacts of every body whose
+    /// [`ContactModifier3D`] has `hook` set, each step, before the solver
+    /// uses them: it can drop contacts or points, change friction and
+    /// bounciness, or make a surface carry things along. It runs inside the
+    /// physics step, so it sees only the [`ContactPair3D`]: capture what
+    /// else it needs. Replaces an earlier hook.
+    /// ```
+    /// use crabbyengine::*;
+    /// let mut physics = Physics3D::new(Vec3::ZERO);
+    /// // Ice: anything touching a hooked body slides.
+    /// physics.set_contact_hook(|pair| pair.set_friction(0.0));
+    /// physics.clear_contact_hook();
+    /// ```
+    pub fn set_contact_hook(&mut self, hook: impl Fn(&mut ContactPair3D) + Send + Sync + 'static) {
+        self.contact_hook = Some(Box::new(hook));
+    }
+
+    /// Removes the custom contact hook.
+    pub fn clear_contact_hook(&mut self) {
+        self.contact_hook = None;
     }
 
     /// The pull on every dynamic body and character.
@@ -957,11 +991,16 @@ pub fn step_physics3d(ctx: &mut Ctx) {
     physics.step += 1;
     sync_into(physics, &mut ctx.world);
     joints::sync(physics, &mut ctx.world);
+    contacts::sync(physics, &mut ctx.world);
     physics.world.gravity = to_rp(physics.gravity);
     physics.world.integration_parameters.dt = dt;
     character::move_characters(physics, &mut ctx.world, dt);
     vehicle::step_vehicles(physics, &mut ctx.world, dt);
-    physics.world.step_with_events(&(), &physics.collector);
+    let hooks = contacts::Hooks {
+        table: &physics.contact_table,
+        custom: physics.contact_hook.as_deref(),
+    };
+    physics.world.step_with_events(&hooks, &physics.collector);
     dominance::transfer_velocity(physics, dt);
     write_back(physics, &mut ctx.world);
     pose_ragdolls(&mut ctx.world, &mut physics.ragdolls);

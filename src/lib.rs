@@ -127,9 +127,9 @@ pub use net::{steam_lobby_from_args, steam_wait_for_invite};
 pub use physics::{Collider, MAX_POLYGON_POINTS, Physics, RayHit, RigidBody, Shape, Velocity, step_physics};
 #[cfg(feature = "physics3d")]
 pub use physics3d::{
-    Character3D, Collider3D, CollisionGroups, CollisionMesh, FrictionCurve, Hit3D, Joint3D, JointAxis3D, JointDrive3D,
-    JointMotion3D, PHYSICS3D_HZ, Physics3D, QueryFilter3D, Ragdoll3D, RagdollBone, RigidBody3D, Shape3D, Vehicle3D,
-    Velocity3D, Wheel3D, interpolate_physics3d, step_physics3d,
+    Character3D, Collider3D, CollisionGroups, CollisionMesh, ContactModifier3D, ContactPair3D, FrictionCurve, Hit3D,
+    Joint3D, JointAxis3D, JointDrive3D, JointMotion3D, PHYSICS3D_HZ, Physics3D, QueryFilter3D, Ragdoll3D, RagdollBone,
+    RigidBody3D, Shape3D, Vehicle3D, Velocity3D, Wheel3D, interpolate_physics3d, step_physics3d,
 };
 pub use profiler::{FrameStats, GpuPass};
 pub use random::{DEFAULT_SEED, Random, Rng};
