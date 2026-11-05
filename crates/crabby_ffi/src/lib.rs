@@ -23,6 +23,7 @@ mod actions;
 mod animator;
 mod attach;
 mod audio3d;
+mod contacts3d;
 mod ctx;
 mod flow;
 mod game;
@@ -51,6 +52,7 @@ pub use actions::*;
 pub use animator::*;
 pub use attach::*;
 pub use audio3d::*;
+pub use contacts3d::*;
 pub use ctx::*;
 pub use flow::*;
 pub use game::*;
@@ -364,7 +366,10 @@ pub(crate) fn component(world: &World, id: u32) -> Result<(ComponentId, Kind), F
         // repr(C), layout checked against CrabbyTerrainTile; unknown meshes
         // draw nothing and every level index is clamped.
         Some(t) if t == TypeId::of::<crabbyengine::TerrainTile>() => Kind::Plain,
-        Some(t) => match crate::physics::kind(t).or_else(|| crate::physics3d::kind3d(t)) {
+        Some(t) => match crate::physics::kind(t)
+            .or_else(|| crate::physics3d::kind3d(t))
+            .or_else(|| crate::contacts3d::contact_kind(t))
+        {
             Some(kind) => kind,
             None => {
                 return Err(invalid(

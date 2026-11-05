@@ -151,3 +151,42 @@ fn removing_the_modifier_makes_the_body_plain_again() {
     assert!(world.get::<ContactModifier3D>(floor.unwrap()).is_none());
     assert!(y(&mut world, falling.unwrap()) > 0.3, "the plain floor holds it");
 }
+
+#[test]
+fn guide_contacts_snippet_compiles_and_steps() {
+    Game::new("contacts", 1, 1).physics3d(GRAVITY).run_headless(5, |ctx| {
+        // ANCHOR: contacts
+        // A platform to jump up through: solid only from above.
+        ctx.world.spawn((
+            Transform3D::at(vec3(0.0, 3.0, 0.0)),
+            RigidBody3D::fixed(),
+            Collider3D::cuboid(vec3(4.0, 0.2, 4.0)),
+            ContactModifier3D::one_way(Vec3::Y),
+        ));
+        // A belt carrying whatever stands on it along +X at 2 m/s.
+        ctx.world.spawn((
+            Transform3D::at(vec3(10.0, 0.0, 0.0)),
+            RigidBody3D::fixed(),
+            Collider3D::cuboid(vec3(8.0, 0.2, 1.0)),
+            ContactModifier3D::conveyor(vec3(2.0, 0.0, 0.0)),
+        ));
+        // A hook for the rest: the ghost walks through the hooked wall.
+        let ghost = ctx.world.spawn((
+            Transform3D::at(vec3(-10.0, 1.0, 0.0)),
+            RigidBody3D::dynamic(),
+            Collider3D::sphere(0.5),
+        ));
+        ctx.world.spawn((
+            Transform3D::at(vec3(-10.0, 1.0, 3.0)),
+            RigidBody3D::fixed(),
+            Collider3D::cuboid(vec3(4.0, 2.0, 0.2)),
+            ContactModifier3D::hook(),
+        ));
+        ctx.physics3d.set_contact_hook(move |pair| {
+            if pair.a == ghost || pair.b == ghost {
+                pair.ignore();
+            }
+        });
+        // ANCHOR_END: contacts
+    });
+}

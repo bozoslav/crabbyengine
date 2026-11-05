@@ -437,6 +437,61 @@ positive) returns an error and leaves the running one alone. Bodies of
 one ragdoll don't collide with the bones they're jointed to, but do with
 the rest of the world and the rest of the body.
 
+## Contact modification
+
+`ContactModifier3D` changes how one body's contacts behave. It is a component:
+put it on an entity that has a collider.
+
+- **One-way surfaces.** `ContactModifier3D::one_way(up)` makes a body solid
+  only from the side `up` points to. A ball thrown up from below passes
+  through the platform and lands on top of it. `up` is in the body's own
+  frame, so a tilted platform turns it with it. `one_way_angle` (radians,
+  default 1.2, about 70 degrees) is how far a contact's direction may lean
+  from `up` and still count as "from above", so a steep slope of the
+  surface still holds; narrow it to make only the flat top solid. Something already partly inside the platform
+  keeps passing until it is out, so it is never pushed up from within.
+- **Conveyors.** `ContactModifier3D::conveyor(velocity)` makes the surface
+  carry whatever touches it at `velocity`, in metres per second. The
+  velocity is in the body's frame, so a belt on a turning body turns its
+  direction too. Only the part along the surface counts; the part into it is
+  ignored. It works whether the belt or the thing on it comes first in the
+  pair.
+- **A custom hook.** `ContactModifier3D::hook()` sends the body's contacts
+  to the function you set with `ctx.physics3d.set_contact_hook(...)`
+  (`ctx.set_contact_hook3d(...)` in C++; a null function clears it). The hook
+  gets a `ContactPair3D`: the two entities (`a` and `b`), the contact
+  `normal()` and its points, and it can `ignore()` the whole pair, drop one
+  `remove_point(i)`, change `set_friction` and `set_restitution`, or
+  `set_surface_velocity` in world space.
+
+<div class="lang-pair">
+<div>
+
+```rust
+{{#include ../../tests/contacts3d.rs:contacts}}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:contacts}}
+```
+
+</div>
+</div>
+
+The hook runs during the physics step and sees only the pair, so capture
+whatever else it needs (an entity, a flag) when you set it; it can't reach
+the world. Its changes last for one step: the next step builds the contacts
+again and calls the hook again. Keep it short, since it runs for every
+contact of every hooked body, every step. In C++ an exception thrown by the
+hook ends the run after that step and comes out of `run` or `run_headless`.
+
+Modified bodies cost a little: their contacts are rebuilt every step instead
+of being kept while the bodies rest. Bodies without a `ContactModifier3D`
+are not affected, and removing the component makes a body plain again.
+
 ## One-way pushing
 
 A higher `RigidBody3D::dominance` group pushes lower groups without receiving

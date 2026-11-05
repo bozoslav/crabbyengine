@@ -879,6 +879,101 @@ static void ragdolls() {
     CHECK(hips_y < rest_y - 0.3f); // it fell
 }
 
+// One-way platforms pass things up through, belts carry them, and a hook can ignore a pair.
+static void contacts3d() {
+    auto floor = [](crabby::world_view world, crabby::vec3 at, crabby::contact_modifier3d m) {
+        return world.spawn(crabby::transform3d_at(at), crabby::fixed_body3d(), crabby::box_collider({20, 0.4f, 20}), m);
+    };
+    auto ball = [](crabby::world_view world, crabby::vec3 at, crabby::vec3 linear) {
+        return world.spawn(crabby::transform3d_at(at), crabby::dynamic_body3d(), crabby::sphere_collider(0.25f),
+                           crabby::velocity3d{linear, {0, 0, 0}});
+    };
+    crabby::entity from_below = 0, blocked = 0, carried = 0, ghost = 0, standing = 0;
+    std::size_t hook_calls = 0;
+    bool pair_ok = true;
+    auto world = crabby::game("contacts", 1, 1).physics3d({0, -9.81f, 0}).run_headless(150, [&](crabby::ctx& ctx) {
+        auto w = ctx.world();
+        // A one-way platform: a ball thrown up from below comes up through it.
+        auto up = crabby::one_way_modifier3d({0, 1, 0});
+        CHECK(up.has_one_way && up.one_way_angle == 1.2f);
+        floor(w, {0, 0, 0}, up);
+        from_below = ball(w, {0, -1, 0}, {0, 8, 0});
+        // An ordinary one blocks the same throw.
+        floor(w, {30, 0, 0}, crabby::default_contact_modifier3d());
+        blocked = ball(w, {30, -1, 0}, {0, 8, 0});
+        // A belt carrying things along +X at 2 m/s.
+        auto belt = crabby::conveyor_modifier3d({2, 0, 0});
+        CHECK(belt.surface_velocity.x == 2);
+        floor(w, {60, 0, 0}, belt);
+        carried = ball(w, {60, 0.5f, 0}, {0, 0, 0});
+        // A hook: only `ghost` is let through the hooked floor.
+        auto hooked = floor(w, {90, 0, 0}, crabby::hook_modifier3d());
+        ghost = ball(w, {90, 1, 0}, {0, 0, 0});
+        standing = ball(w, {93, 1, 0}, {0, 0, 0});
+        ctx.set_contact_hook3d([&, hooked](crabby::contact_pair3d& pair) {
+            ++hook_calls;
+            pair_ok = pair_ok && (pair.a() == hooked || pair.b() == hooked);
+            auto count = pair.point_count();
+            pair_ok = pair_ok && !pair.point(count + 5);
+            pair.set_friction(0.5f);
+            pair.set_restitution(0.25f);
+            pair_ok = pair_ok && pair.friction() == 0.5f && pair.restitution() == 0.25f;
+            if (count > 0) {
+                pair_ok = pair_ok && std::abs(pair.normal().y) > 0.99f;
+                auto p = pair.point(0);
+                pair_ok = pair_ok && p.has_value();
+                if (p && p->position.x < 91.5f) {
+                    pair.ignore();
+                    pair_ok = pair_ok && pair.point_count() == 0;
+                }
+            }
+            pair.remove_point(count + 5);
+            pair.set_surface_velocity({0, 0, 0});
+            throws([&] { pair.set_friction(std::nanf("")); });
+        });
+    });
+    float rest = 0.2f + 0.25f;
+    CHECK(std::abs(world.get<crabby::transform3d>(from_below).position.y - rest) < 0.05f);
+    CHECK(world.get<crabby::transform3d>(blocked).position.y < -0.3f);
+    CHECK(world.get<crabby::transform3d>(carried).position.x > 61);
+    CHECK(hook_calls > 0 && pair_ok);
+    CHECK(world.get<crabby::transform3d>(ghost).position.y < -1);
+    CHECK(world.get<crabby::transform3d>(standing).position.y > 0.3f);
+
+    // A cleared hook leaves the hooked floor ordinary.
+    std::size_t calls_after_clear = 0;
+    crabby::entity ball_on_floor = 0;
+    auto cleared = crabby::game("contacts cleared", 1, 1).physics3d({0, -9.81f, 0}).run_headless(100, [&](crabby::ctx& ctx) {
+        auto w = ctx.world();
+        floor(w, {0, 0, 0}, crabby::hook_modifier3d());
+        ball_on_floor = ball(w, {0, 1, 0}, {0, 0, 0});
+        ctx.set_contact_hook3d([&](crabby::contact_pair3d& pair) { ++calls_after_clear; pair.ignore(); });
+        ctx.clear_contact_hook3d();
+    });
+    CHECK(calls_after_clear == 0 && cleared.get<crabby::transform3d>(ball_on_floor).position.y > 0.3f);
+
+    // An exception in the hook never unwinds into the engine: the run ends and rethrows it.
+    bool caught = false;
+    try {
+        crabby::game("contacts throwing", 1, 1).physics3d({0, -9.81f, 0}).run_headless(100, [&](crabby::ctx& ctx) {
+            auto w = ctx.world();
+            floor(w, {0, 0, 0}, crabby::hook_modifier3d());
+            ball(w, {0, 1, 0}, {0, 0, 0});
+            ctx.set_contact_hook3d([](crabby::contact_pair3d&) { throw std::runtime_error("boom"); });
+        });
+    } catch (const std::runtime_error& e) { caught = std::string(e.what()) == "boom"; }
+    CHECK(caught);
+
+    // The modifier is an ordinary component: read it back, and it is no query column.
+    crabby::world plain;
+    auto m = crabby::one_way_modifier3d({0, 1, 0});
+    m.hook = true;
+    auto e = plain.spawn(m);
+    CHECK(plain.get<crabby::contact_modifier3d>(e).hook);
+    m.one_way_angle = -1;
+    throws([&] { plain.set(e, m); });
+}
+
 // Two endpoints in memory: connect, then a reliable message and a broadcast.
 static void messages() {
     auto peers = crabby::net_messages::loopback(2);
@@ -986,6 +1081,7 @@ int main() {
     navigation();
     particles3d();
     ragdolls();
+    contacts3d();
     events();
     rng_matches_rust();
     grid_views_match_engine_queries();

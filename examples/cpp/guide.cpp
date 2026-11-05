@@ -1500,6 +1500,26 @@ static void ragdoll(crabby::ctx& ctx) {
     // ANCHOR_END: ragdoll
 }
 
+// Platforms you pass up through, a belt, and a pair the physics step ignores.
+static void contacts(crabby::ctx& ctx) {
+    auto world = ctx.world();
+    // ANCHOR: contacts
+    // A platform to jump up through: solid only from above.
+    world.spawn(crabby::transform3d_at({0, 3, 0}), crabby::fixed_body3d(), crabby::box_collider({4, 0.2f, 4}),
+                crabby::one_way_modifier3d({0, 1, 0}));
+    // A belt carrying whatever stands on it along +X at 2 m/s.
+    world.spawn(crabby::transform3d_at({10, 0, 0}), crabby::fixed_body3d(), crabby::box_collider({8, 0.2f, 1}),
+                crabby::conveyor_modifier3d({2, 0, 0}));
+    // A hook for the rest: the ghost walks through the hooked wall.
+    auto ghost = world.spawn(crabby::transform3d_at({-10, 1, 0}), crabby::dynamic_body3d(), crabby::sphere_collider(0.5f));
+    world.spawn(crabby::transform3d_at({-10, 1, 3}), crabby::fixed_body3d(), crabby::box_collider({4, 2, 0.2f}),
+                crabby::hook_modifier3d());
+    ctx.set_contact_hook3d([ghost](crabby::contact_pair3d& pair) {
+        if (pair.a() == ghost || pair.b() == ghost) pair.ignore();
+    });
+    // ANCHOR_END: contacts
+}
+
 // ANCHOR: skin_ik
 // Register this with crabby::game(...).late_system(procedural_pose).
 [[maybe_unused]] static void procedural_pose(crabby::ctx& ctx, crabby::entity character) {
@@ -1651,6 +1671,7 @@ int main() {
     crabby::game("skinning guide", 1, 1).run_headless(0, skinned_tentacle);
     crabby::game("joint guide", 1, 1).physics3d({0, 0, 0}).run_headless(5, joints_and_dominance);
     crabby::game("ragdoll guide", 1, 1).physics3d({0, -9.81f, 0}).run_headless(5, ragdoll);
+    crabby::game("contacts guide", 1, 1).physics3d({0, -9.81f, 0}).run_headless(5, contacts);
     crabby::game("light guide", 64, 64).run_headless(0, punctual_lights);
     the_ripples_run_on_a_render_target();
     the_pond_mirrors_the_camera();
