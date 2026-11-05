@@ -94,6 +94,8 @@ pub(crate) struct Renderer {
 
 /// What one sprite pass draws with.
 struct SpritePass<'a> {
+    viewport: [u32; 2],
+    scale: f32,
     pipeline: &'a wgpu::RenderPipeline,
     instances: &'a wgpu::Buffer,
     textures: &'a [GpuTexture],
@@ -1082,6 +1084,8 @@ impl Renderer {
         );
         // World sprites first, then the UI on top.
         let pass = SpritePass {
+            viewport: [self.config.width, self.config.height],
+            scale: self.window.scale_factor() as f32,
             pipeline: &self.pipeline,
             instances: &self.instance_buffer,
             textures: &self.textures,
@@ -1286,6 +1290,18 @@ impl Renderer {
         for (camera, batches, base) in &p.layers {
             pass.set_bind_group(0, *camera, &[]);
             for batch in *batches {
+                let [width, height] = p.viewport;
+                let (x, y, w, h) = batch.clip.map_or((0, 0, width, height), |r| {
+                    let x = (r.min.x * p.scale).floor().clamp(0.0, width as f32) as u32;
+                    let y = (r.min.y * p.scale).floor().clamp(0.0, height as f32) as u32;
+                    let right = (r.max.x * p.scale).ceil().clamp(x as f32, width as f32) as u32;
+                    let bottom = (r.max.y * p.scale).ceil().clamp(y as f32, height as f32) as u32;
+                    (x, y, right - x, bottom - y)
+                });
+                if w == 0 || h == 0 {
+                    continue;
+                }
+                pass.set_scissor_rect(x, y, w, h);
                 pass.set_bind_group(1, &p.textures[batch.texture as usize].bind_group, &[]);
                 pass.draw(0..6, base + batch.start..base + batch.end);
             }

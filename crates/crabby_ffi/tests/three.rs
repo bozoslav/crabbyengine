@@ -615,6 +615,7 @@ fn punctual_light_components_have_rust_layout_and_roundtrip() {
             color: WHITE,
             intensity: 42.0,
             range: 17.0,
+            shadows: false,
         };
         let spot = CrabbySpotLight3D {
             color: WHITE,
@@ -622,6 +623,7 @@ fn punctual_light_components_have_rust_layout_and_roundtrip() {
             range: 11.0,
             inner_angle: 0.2,
             outer_angle: 0.6,
+            shadows: true,
         };
         let parts = [value(point_id, &point), value(spot_id, &spot)];
         let mut e = 0;

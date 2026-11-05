@@ -1,0 +1,1259 @@
+//! Retained, game-styled UI. Taffy owns only layout; this module owns nodes,
+//! focus, screens and events, and Crabby draws the results with sprites/text.
+//! Taffy's flex/grid algorithms embed without a renderer or event loop.
+//! Egui embeds well but is immediate-mode (and remains the inspector); the
+//! standard Xilem/Masonry stack couples widgets to Vello and winit. Keeping
+//! our tree makes game-owned textures, stable IDs and queued events natural.
+//! Layout uses logical window units; the window handles DPI and `Ui::set_scale`
+//! adds an accessibility/user scale. Nodes persist until explicitly removed.
+
+use crate::{Color, Font, Rect, Texture, Vec2, vec2};
+use taffy::prelude::*;
+
+/// Stable node identity, never reused within a UI.
+/// ```
+/// use crabbyengine::*;
+/// let mut ui = Ui::default();
+/// let id: UiId = ui.add(UiWidget::Panel, ui_layout::Style::default());
+/// assert!(ui.rect(id).is_some());
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct UiId(usize);
+
+/// Built-in behavior; text, images and decoration are configured separately.
+/// ```
+/// use crabbyengine::*;
+/// let mut ui = Ui::default();
+/// let button = ui.add(UiWidget::Button, ui_layout::Style::default());
+/// ui.set_text(button, "Buy");
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum UiWidget {
+    /// Non-focusable container.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiWidget::Panel;
+    /// ```
+    Panel,
+    /// Non-focusable text.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiWidget::Label;
+    /// ```
+    Label,
+    /// Press/release or confirm emits `Clicked`.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiWidget::Button;
+    /// ```
+    Button,
+    /// Non-focusable texture.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiWidget::Image;
+    /// ```
+    Image,
+    /// Clipped container with two-axis wheel scrolling and vertical drag/bar.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiWidget::Scroll;
+    /// ```
+    Scroll,
+    /// Single-line Unicode input, with basic selection (no IME/clipboard).
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiWidget::TextInput;
+    /// ```
+    TextInput,
+    /// Checkbox; confirm or clicking toggles its value.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiWidget::Toggle;
+    /// ```
+    Toggle,
+    /// Normalized 0..1 value, changed by pointer or left/right.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiWidget::Slider;
+    /// ```
+    Slider,
+}
+
+/// Text alignment within a node's content box.
+/// ```
+/// use crabbyengine::*;
+/// let paint = UiPaint { align: UiTextAlign::Center, ..Default::default() };
+/// assert_eq!(paint.align, UiTextAlign::Center);
+/// ```
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum UiTextAlign {
+    /// Start of each line.
+    #[default]
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiTextAlign::Start;
+    /// ```
+    Start,
+    /// Center each line.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiTextAlign::Center;
+    /// ```
+    Center,
+    /// End of each line.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiTextAlign::End;
+    /// ```
+    End,
+}
+
+/// Visual style, independent of Taffy's layout style. A texture with
+/// `slice > 0` is drawn as nine patches; `slice` is the source border in pixels.
+/// ```
+/// use crabbyengine::*;
+/// let paint = UiPaint { background: Color::BLUE, font_size: 20.0, ..Default::default() };
+/// assert_eq!(paint.font_size, 20.0);
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub struct UiPaint {
+    /// Normal background.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiPaint::default().background;
+    /// ```
+    pub background: Color,
+    /// Hovered/focused background.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiPaint::default().hover;
+    /// ```
+    pub hover: Color,
+    /// Pointer-held background.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiPaint::default().pressed;
+    /// ```
+    pub pressed: Color,
+    /// Disabled background.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiPaint::default().disabled;
+    /// ```
+    pub disabled: Color,
+    /// Border and focus-ring color.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiPaint::default().border;
+    /// ```
+    pub border: Color,
+    /// Border thickness in logical units.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiPaint::default().border_width;
+    /// ```
+    pub border_width: f32,
+    /// Text and image tint.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiPaint::default().color;
+    /// ```
+    pub color: Color,
+    /// Font handle, from `Ctx::load_font`.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiPaint::default().font;
+    /// ```
+    pub font: Font,
+    /// Text line height in logical units.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiPaint::default().font_size;
+    /// ```
+    pub font_size: f32,
+    /// Break text at word boundaries, splitting oversized words.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiPaint::default().wrap;
+    /// ```
+    pub wrap: bool,
+    /// Horizontal text alignment.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiPaint::default().align;
+    /// ```
+    pub align: UiTextAlign,
+    /// Image or background texture; `None` draws only color.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiPaint::default().texture;
+    /// ```
+    pub texture: Option<Texture>,
+    /// Source border size for nine-slice drawing; zero stretches the image.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiPaint::default().slice;
+    /// ```
+    pub slice: f32,
+}
+impl Default for UiPaint {
+    fn default() -> Self {
+        Self {
+            background: Color::rgba(0.12, 0.14, 0.18, 1.0),
+            hover: Color::rgba(0.25, 0.3, 0.4, 1.0),
+            pressed: Color::rgba(0.08, 0.1, 0.15, 1.0),
+            disabled: Color::rgba(0.15, 0.15, 0.15, 0.5),
+            border: Color::hex(0xf28c28),
+            border_width: 0.0,
+            color: Color::WHITE,
+            font: Font::DEFAULT,
+            font_size: 18.0,
+            wrap: false,
+            align: UiTextAlign::Start,
+            texture: None,
+            slice: 0.0,
+        }
+    }
+}
+
+/// One semantic event; values are read from the node after `Changed`.
+/// ```
+/// use crabbyengine::*;
+/// let mut ui = Ui::default();
+/// assert_eq!(ui.events().count(), 0);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UiEvent {
+    /// A button was activated.
+    /// ```
+    /// use crabbyengine::*;
+    /// let mut ui = Ui::default();
+    /// let id = ui.add(UiWidget::Button, ui_layout::Style::default());
+    /// let _ = UiEvent::Clicked(id);
+    /// ```
+    Clicked(UiId),
+    /// Text, checkbox or slider value changed.
+    /// ```
+    /// use crabbyengine::*;
+    /// let mut ui = Ui::default();
+    /// let id = ui.add(UiWidget::Button, ui_layout::Style::default());
+    /// let _ = UiEvent::Changed(id);
+    /// ```
+    Changed(UiId),
+    /// Enter/confirm in a text field.
+    /// ```
+    /// use crabbyengine::*;
+    /// let mut ui = Ui::default();
+    /// let id = ui.add(UiWidget::Button, ui_layout::Style::default());
+    /// let _ = UiEvent::Submitted(id);
+    /// ```
+    Submitted(UiId),
+    /// Cancel popped this screen; the input is consumed for this frame.
+    /// ```
+    /// use crabbyengine::*;
+    /// let mut ui = Ui::default();
+    /// let id = ui.add(UiWidget::Button, ui_layout::Style::default());
+    /// let _ = UiEvent::ScreenPopped(id);
+    /// ```
+    ScreenPopped(UiId),
+}
+
+/// Input snapshot in logical window coordinates. `Ctx` supplies this each
+/// frame; tests and custom hosts can call `Ui::frame` directly.
+/// ```
+/// use crabbyengine::*;
+/// let mut ui = Ui::default();
+/// ui.frame(vec2(800.0,600.0), &UiInput::default());
+/// ```
+#[derive(Debug, Default, Clone)]
+pub struct UiInput {
+    /// Pointer position in logical window units (before user scaling).
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiInput::default().pointer;
+    /// ```
+    pub pointer: Vec2,
+    /// Primary pointer pressed this frame.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiInput::default().pressed;
+    /// ```
+    pub pressed: bool,
+    /// Primary pointer held.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiInput::default().held;
+    /// ```
+    pub held: bool,
+    /// Primary pointer released this frame.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiInput::default().released;
+    /// ```
+    pub released: bool,
+    /// Wheel displacement in logical units (positive scrolls down/right).
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiInput::default().wheel;
+    /// ```
+    pub wheel: Vec2,
+    /// Tab/next focus.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiInput::default().next;
+    /// ```
+    pub next: bool,
+    /// Shift-tab/previous focus.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiInput::default().previous;
+    /// ```
+    pub previous: bool,
+    /// Directional focus, caret or slider movement (-1..1 per axis).
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiInput::default().direction;
+    /// ```
+    pub direction: Vec2,
+    /// Enter/space/gamepad south.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiInput::default().confirm;
+    /// ```
+    pub confirm: bool,
+    /// Escape/gamepad east, pops a screen.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiInput::default().cancel;
+    /// ```
+    pub cancel: bool,
+    /// Shift extends text selection.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiInput::default().shift;
+    /// ```
+    pub shift: bool,
+    /// Select all text.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiInput::default().select_all;
+    /// ```
+    pub select_all: bool,
+    /// Delete before caret.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiInput::default().backspace;
+    /// ```
+    pub backspace: bool,
+    /// Delete after caret.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiInput::default().delete;
+    /// ```
+    pub delete: bool,
+    /// Move caret to start.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiInput::default().home;
+    /// ```
+    pub home: bool,
+    /// Move caret to end.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiInput::default().end;
+    /// ```
+    pub end: bool,
+    /// Committed text; control characters are ignored.
+    /// ```
+    /// use crabbyengine::*;
+    /// let _ = UiInput::default().text;
+    /// ```
+    pub text: String,
+}
+
+pub(super) struct Node {
+    pub widget: UiWidget,
+    pub layout: NodeId,
+    pub parent: Option<UiId>,
+    pub children: Vec<UiId>,
+    pub text: String,
+    pub paint: UiPaint,
+    pub enabled: bool,
+    pub rect: Rect,
+    pub clip: Rect,
+    pub scroll: Vec2,
+    pub max_scroll: Vec2,
+    pub value: f32,
+    pub caret: usize,
+    pub anchor: usize,
+}
+struct Screen {
+    root: UiId,
+    modal: bool,
+    saved_focus: Option<UiId>,
+}
+#[derive(Clone, Copy)]
+enum Drag {
+    Scroll(UiId, Vec2, Vec2),
+    Bar(UiId, f32, f32),
+    Text(UiId),
+}
+
+/// Owned UI tree and screen stack. Build once, then mutate node properties.
+/// Draining events avoids callbacks borrowing the game and UI together.
+/// ```
+/// use crabbyengine::*;
+/// let mut ui = Ui::default();
+/// let root = ui.add(UiWidget::Panel, ui_layout::Style::default());
+/// ui.push_screen(root, false);
+/// ui.frame(vec2(800.0,600.0), &UiInput::default());
+/// ```
+pub struct Ui {
+    pub(super) tree: TaffyTree<usize>,
+    pub(super) nodes: Vec<Option<Node>>,
+    screens: Vec<Screen>,
+    pub(super) visible: Vec<UiId>,
+    events: Vec<UiEvent>,
+    pub(super) focus: Option<UiId>,
+    pub(super) hovered: Option<UiId>,
+    pub(super) pressed: Option<UiId>,
+    drag: Option<Drag>,
+    scale: f32,
+    viewport: Vec2,
+    pointer: Vec2,
+    measure: crate::text::Text,
+    external_fonts: bool,
+    consumed: bool,
+}
+impl Default for Ui {
+    fn default() -> Self {
+        Self {
+            tree: TaffyTree::new(),
+            nodes: Vec::new(),
+            screens: Vec::new(),
+            visible: Vec::new(),
+            events: Vec::new(),
+            focus: None,
+            hovered: None,
+            pressed: None,
+            drag: None,
+            scale: 1.0,
+            viewport: Vec2::ZERO,
+            pointer: Vec2::ZERO,
+            measure: crate::text::Text::new(),
+            external_fonts: false,
+            consumed: false,
+        }
+    }
+}
+impl Ui {
+    pub(super) fn node(&self, id: UiId) -> Option<&Node> {
+        self.nodes.get(id.0)?.as_ref()
+    }
+    fn node_mut(&mut self, id: UiId) -> Option<&mut Node> {
+        self.nodes.get_mut(id.0)?.as_mut()
+    }
+
+    /// Add a detached node. Push it as a screen or use `add_child` instead.
+    /// ```
+    /// use crabbyengine::*;
+    /// let mut ui = Ui::default();
+    /// let root = ui.add(UiWidget::Panel, ui_layout::Style::default());
+    /// ```
+    pub fn add(&mut self, widget: UiWidget, style: Style) -> UiId {
+        let id = UiId(self.nodes.len());
+        let layout = self.tree.new_leaf_with_context(style, id.0).expect("valid UI layout");
+        let mut paint = UiPaint::default();
+        if matches!(widget, UiWidget::Label | UiWidget::Image) {
+            paint.background = Color::rgba(0.0, 0.0, 0.0, 0.0);
+        }
+        self.nodes.push(Some(Node {
+            widget,
+            layout,
+            parent: None,
+            children: Vec::new(),
+            text: String::new(),
+            paint,
+            enabled: true,
+            rect: Rect::default(),
+            clip: Rect::default(),
+            scroll: Vec2::ZERO,
+            max_scroll: Vec2::ZERO,
+            value: 0.0,
+            caret: 0,
+            anchor: 0,
+        }));
+        id
+    }
+    /// Add a child. Panics if the parent was removed or belongs to another UI.
+    /// ```
+    /// use crabbyengine::*;
+    /// let mut ui = Ui::default();
+    /// let root = ui.add(UiWidget::Panel, ui_layout::Style::default());
+    /// let child = ui.add_child(root, UiWidget::Label, ui_layout::Style::default());
+    /// ```
+    pub fn add_child(&mut self, parent: UiId, widget: UiWidget, style: Style) -> UiId {
+        let p = self.node(parent).expect("UI parent must exist").layout;
+        let id = self.add(widget, style);
+        let node = self.node_mut(id).unwrap();
+        node.parent = Some(parent);
+        let layout = node.layout;
+        self.tree.add_child(p, layout).expect("valid UI child");
+        self.node_mut(parent).unwrap().children.push(id);
+        id
+    }
+    /// Remove a subtree. Stale IDs stay invalid; removing a screen drops it.
+    /// ```
+    /// use crabbyengine::*;
+    /// let mut ui = Ui::default();
+    /// let id = ui.add(UiWidget::Panel, ui_layout::Style::default());
+    /// ui.remove(id);
+    /// assert!(ui.rect(id).is_none());
+    /// ```
+    pub fn remove(&mut self, id: UiId) {
+        while let Some(child) = self.node(id).and_then(|n| n.children.last().copied()) {
+            self.remove(child);
+        }
+        if let Some(n) = self.nodes.get_mut(id.0).and_then(Option::take) {
+            if let Some(parent) = n.parent.and_then(|p| self.node_mut(p)) {
+                parent.children.retain(|&c| c != id);
+            }
+            let _ = self.tree.remove(n.layout);
+        }
+        self.screens.retain(|s| s.root != id);
+        self.visible.retain(|&n| n != id);
+        if self.drag.is_some_and(|d| match d {
+            Drag::Scroll(n, _, _) | Drag::Bar(n, _, _) | Drag::Text(n) => n == id,
+        }) {
+            self.drag = None;
+        }
+        if self.focus == Some(id) {
+            self.focus = None;
+        }
+        if self.pressed == Some(id) {
+            self.pressed = None;
+            self.drag = None;
+        }
+        self.events.retain(|e| match e {
+            UiEvent::Clicked(n) | UiEvent::Changed(n) | UiEvent::Submitted(n) | UiEvent::ScreenPopped(n) => *n != id,
+        });
+    }
+    /// Replace layout style (flex, grid, absolute positioning and constraints).
+    /// ```
+    /// use crabbyengine::*;
+    /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Panel, ui_layout::Style::default());
+    /// ui.set_layout(id, ui_layout::Style::default());
+    /// ```
+    pub fn set_layout(&mut self, id: UiId, style: Style) {
+        if let Some(n) = self.node(id) {
+            let _ = self.tree.set_style(n.layout, style);
+        }
+    }
+    /// Replace visual style.
+    /// ```
+    /// use crabbyengine::*;
+    /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Panel, ui_layout::Style::default());
+    /// ui.set_paint(id, UiPaint::default());
+    /// ```
+    pub fn set_paint(&mut self, id: UiId, paint: UiPaint) {
+        if let Some(n) = self.node_mut(id) {
+            n.paint = paint;
+        }
+    }
+    /// Set label or input text. Input control characters are discarded.
+    /// ```
+    /// use crabbyengine::*;
+    /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Label, ui_layout::Style::default());
+    /// ui.set_text(id, "Shop"); assert_eq!(ui.text(id), Some("Shop"));
+    /// ```
+    pub fn set_text(&mut self, id: UiId, text: impl AsRef<str>) {
+        if let Some(n) = self.node_mut(id) {
+            n.text.clear();
+            if n.widget == UiWidget::TextInput {
+                n.text.extend(text.as_ref().chars().filter(|c| !c.is_control()));
+            } else {
+                n.text.push_str(text.as_ref());
+            }
+            n.caret = n.text.len();
+            n.anchor = n.caret;
+        }
+    }
+    /// Read text, or `None` for a stale ID.
+    /// ```
+    /// use crabbyengine::*;
+    /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Label, ui_layout::Style::default());
+    /// assert_eq!(ui.text(id), Some(""));
+    /// ```
+    pub fn text(&self, id: UiId) -> Option<&str> {
+        Some(&self.node(id)?.text)
+    }
+    /// Enable/disable a node and all descendant interaction.
+    /// ```
+    /// use crabbyengine::*;
+    /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Button, ui_layout::Style::default());
+    /// ui.set_enabled(id, false);
+    /// ```
+    pub fn set_enabled(&mut self, id: UiId, enabled: bool) {
+        if let Some(n) = self.node_mut(id) {
+            n.enabled = enabled;
+        }
+    }
+    /// Slider value (0..1), or toggle value (zero/off, one/on).
+    /// ```
+    /// use crabbyengine::*;
+    /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Slider, ui_layout::Style::default());
+    /// ui.set_value(id, 0.5); assert_eq!(ui.value(id), Some(0.5));
+    /// ```
+    pub fn set_value(&mut self, id: UiId, value: f32) {
+        if let Some(n) = self.node_mut(id) {
+            n.value = if value.is_finite() { value.clamp(0.0, 1.0) } else { 0.0 };
+        }
+    }
+    /// Read the current slider/toggle value.
+    /// ```
+    /// use crabbyengine::*;
+    /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Toggle, ui_layout::Style::default());
+    /// assert_eq!(ui.value(id), Some(0.0));
+    /// ```
+    pub fn value(&self, id: UiId) -> Option<f32> {
+        Some(self.node(id)?.value)
+    }
+    /// Set scroll offset in unscaled layout units; clamped during layout.
+    /// ```
+    /// use crabbyengine::*;
+    /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Scroll, ui_layout::Style::default());
+    /// ui.set_scroll(id, vec2(0.0,40.0));
+    /// ```
+    pub fn set_scroll(&mut self, id: UiId, offset: Vec2) {
+        if let Some(n) = self.node_mut(id) {
+            n.scroll = offset.max(Vec2::ZERO);
+        }
+    }
+    /// Current clamped offset, after layout.
+    /// ```
+    /// use crabbyengine::*;
+    /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Scroll, ui_layout::Style::default());
+    /// assert_eq!(ui.scroll(id), Some(Vec2::ZERO));
+    /// ```
+    pub fn scroll(&self, id: UiId) -> Option<Vec2> {
+        Some(self.node(id)?.scroll)
+    }
+    /// Push a detached root; only the top screen is interactive. `modal`
+    /// draws a dim overlay below this screen. Duplicate/parented roots panic.
+    /// ```
+    /// use crabbyengine::*;
+    /// let mut ui = Ui::default(); let root = ui.add(UiWidget::Panel, ui_layout::Style::default());
+    /// ui.push_screen(root, true);
+    /// ```
+    pub fn push_screen(&mut self, root: UiId, modal: bool) {
+        assert!(
+            self.node(root).is_some_and(|n| n.parent.is_none()),
+            "UI screen must be a detached root"
+        );
+        assert!(
+            !self.screens.iter().any(|s| s.root == root),
+            "UI screen already on stack"
+        );
+        self.screens.push(Screen {
+            root,
+            modal,
+            saved_focus: self.focus.take(),
+        });
+        self.pressed = None;
+        self.drag = None;
+        self.hovered = None;
+    }
+    /// Pop a screen, restoring the previous focus. Nodes remain reusable.
+    /// ```
+    /// use crabbyengine::*;
+    /// let mut ui = Ui::default(); let root = ui.add(UiWidget::Panel, ui_layout::Style::default());
+    /// ui.push_screen(root, true); assert_eq!(ui.pop_screen(), Some(root));
+    /// ```
+    pub fn pop_screen(&mut self) -> Option<UiId> {
+        let screen = self.screens.pop()?;
+        self.consumed = true;
+        self.focus = screen.saved_focus.filter(|&id| self.interactive(id));
+        self.pressed = None;
+        self.drag = None;
+        self.hovered = None;
+        Some(screen.root)
+    }
+    /// Top screen root.
+    /// ```
+    /// use crabbyengine::*;
+    /// assert_eq!(Ui::default().top_screen(), None);
+    /// ```
+    pub fn top_screen(&self) -> Option<UiId> {
+        self.screens.last().map(|s| s.root)
+    }
+    /// User scale, multiplied with the window's existing DPI handling.
+    /// ```
+    /// use crabbyengine::*;
+    /// let mut ui = Ui::default(); ui.set_scale(1.5);
+    /// ```
+    pub fn set_scale(&mut self, scale: f32) {
+        self.scale = if scale.is_finite() { scale.clamp(0.25, 8.0) } else { 1.0 };
+    }
+    /// Resolved rectangle in logical window coordinates (including user scale).
+    /// ```
+    /// use crabbyengine::*;
+    /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Panel, ui_layout::Style::default());
+    /// assert!(ui.rect(id).is_some());
+    /// ```
+    pub fn rect(&self, id: UiId) -> Option<Rect> {
+        Some(self.node(id)?.rect)
+    }
+    /// Current keyboard/gamepad focus.
+    /// ```
+    /// use crabbyengine::*;
+    /// assert_eq!(Ui::default().focus(), None);
+    /// ```
+    pub fn focus(&self) -> Option<UiId> {
+        self.focus
+    }
+    /// Drain semantic events once. Unread events are cleared next frame.
+    /// ```
+    /// use crabbyengine::*;
+    /// assert_eq!(Ui::default().events().count(), 0);
+    /// ```
+    pub fn events(&mut self) -> impl Iterator<Item = UiEvent> + '_ {
+        self.events.drain(..)
+    }
+    /// Pointer or a captured drag belongs to UI; modal screens capture outside.
+    /// ```
+    /// use crabbyengine::*;
+    /// assert!(!Ui::default().wants_pointer());
+    /// ```
+    pub fn wants_pointer(&self) -> bool {
+        self.consumed
+            || self.pressed.is_some()
+            || self.drag.is_some()
+            || self.hit_test(self.pointer).is_some()
+            || self.screens.last().is_some_and(|s| s.modal)
+    }
+    /// Keyboard/gamepad belongs to UI while a screen is open (including text
+    /// focus). The game should suppress its own actions while this is true.
+    /// ```
+    /// use crabbyengine::*;
+    /// assert!(!Ui::default().wants_keyboard());
+    /// ```
+    pub fn wants_keyboard(&self) -> bool {
+        self.consumed || !self.screens.is_empty()
+    }
+    fn interactive(&self, id: UiId) -> bool {
+        let mut at = Some(id);
+        while let Some(id) = at {
+            let Some(n) = self.node(id) else { return false };
+            if !n.enabled {
+                return false;
+            }
+            if Some(id) == self.top_screen() {
+                return true;
+            }
+            at = n.parent;
+        }
+        false
+    }
+    fn focusable(&self, id: UiId) -> bool {
+        self.interactive(id)
+            && self.node(id).is_some_and(|n| {
+                matches!(
+                    n.widget,
+                    UiWidget::Button | UiWidget::TextInput | UiWidget::Toggle | UiWidget::Slider
+                ) && n.rect.size().cmpgt(Vec2::ZERO).all()
+            })
+    }
+    /// Hit test the top screen, respecting ancestor clips and disabled nodes.
+    /// ```
+    /// use crabbyengine::*;
+    /// assert_eq!(Ui::default().hit_test(Vec2::ZERO), None);
+    /// ```
+    pub fn hit_test(&self, point: Vec2) -> Option<UiId> {
+        self.visible.iter().rev().copied().find(|&id| {
+            self.interactive(id)
+                && self.node(id).is_some_and(|n| {
+                    n.rect.size().cmpgt(Vec2::ZERO).all()
+                        && n.rect.contains(point)
+                        && n.clip.contains(point)
+                        && n.clip.size().cmpgt(Vec2::ZERO).all()
+                })
+        })
+    }
+    /// Resolve all screens against the logical window size. Percent sizes,
+    /// min/max, flex/grid and absolute offsets are Taffy styles.
+    /// ```
+    /// use crabbyengine::*;
+    /// let mut ui = Ui::default(); ui.layout(vec2(800.0,600.0));
+    /// ```
+    pub fn layout(&mut self, viewport: Vec2) {
+        self.viewport = viewport.max(Vec2::ZERO);
+        self.visible.clear();
+        // Intrinsic text measurement uses the engine's font layout, headlessly.
+        for n in self.nodes.iter().flatten() {
+            let _ = self.tree.mark_dirty(n.layout);
+        }
+        let nodes = &self.nodes;
+        let text = &mut self.measure;
+        let external_fonts = self.external_fonts;
+        for screen in &self.screens {
+            let layout = nodes[screen.root.0].as_ref().unwrap().layout;
+            let _ = self.tree.compute_layout_with_measure(
+                layout,
+                Size {
+                    width: AvailableSpace::Definite(viewport.x / self.scale),
+                    height: AvailableSpace::Definite(viewport.y / self.scale),
+                },
+                |inputs, _, context, style| {
+                    let Some(n) = context.and_then(|index| nodes[*index].as_ref()) else {
+                        return taffy::tree::LayoutOutput::HIDDEN;
+                    };
+                    taffy::compute_leaf_layout(
+                        inputs,
+                        style,
+                        |_, _| 0.0,
+                        |known, available| {
+                            let size = text.layout(
+                                &n.text,
+                                if external_fonts { n.paint.font } else { Font::DEFAULT },
+                                n.paint.font_size,
+                                false,
+                            );
+                            let font = if external_fonts { n.paint.font } else { Font::DEFAULT };
+                            let width = known.width.unwrap_or_else(|| match available.width {
+                                AvailableSpace::Definite(w) if n.paint.wrap => size.x.min(w.max(0.0)),
+                                AvailableSpace::MinContent if n.paint.wrap => n
+                                    .text
+                                    .split_whitespace()
+                                    .map(|word| text.layout(word, font, n.paint.font_size, false).x)
+                                    .fold(0.0, f32::max),
+                                _ => size.x,
+                            });
+                            let mut height = 0.0;
+                            for paragraph in n.text.split('\n') {
+                                let mut rest = paragraph;
+                                loop {
+                                    let end = if n.paint.wrap {
+                                        wrap_end(text, rest, font, n.paint.font_size, width)
+                                    } else {
+                                        rest.len()
+                                    };
+                                    height += text.layout(&rest[..end], font, n.paint.font_size, false).y;
+                                    if end == rest.len() {
+                                        break;
+                                    }
+                                    rest = rest[end..].trim_start();
+                                }
+                            }
+                            if n.text.is_empty()
+                                && !matches!(n.widget, UiWidget::TextInput | UiWidget::Button | UiWidget::Toggle)
+                            {
+                                height = 0.0;
+                            }
+                            Size {
+                                width,
+                                height: known.height.unwrap_or(height),
+                            }
+                        },
+                    )
+                },
+            );
+        }
+        for i in 0..self.screens.len() {
+            self.place(
+                self.screens[i].root,
+                Vec2::ZERO,
+                Rect::new(0.0, 0.0, viewport.x, viewport.y),
+            );
+        }
+        if self.focus.is_some_and(|id| !self.focusable(id)) {
+            self.focus = None;
+        }
+    }
+    fn place(&mut self, id: UiId, origin: Vec2, clip: Rect) {
+        let layout = *self.tree.layout(self.node(id).unwrap().layout).unwrap();
+        let scale = self.scale;
+        let pos = origin + vec2(layout.location.x, layout.location.y) * scale;
+        let size = vec2(layout.size.width, layout.size.height) * scale;
+        let rect = Rect {
+            min: pos,
+            max: pos + size,
+        };
+        let n = self.node_mut(id).unwrap();
+        n.rect = rect;
+        n.clip = clip;
+        let scrollable = n.widget == UiWidget::Scroll;
+        n.max_scroll = if scrollable {
+            vec2(layout.scroll_width(), layout.scroll_height())
+        } else {
+            Vec2::ZERO
+        };
+        n.scroll = n.scroll.clamp(Vec2::ZERO, n.max_scroll);
+        let scroll = n.scroll * scale;
+        self.visible.push(id);
+        let child_clip = if scrollable {
+            let mut inner = rect;
+            if self.node(id).unwrap().max_scroll.y > 0.0 {
+                inner.max.x = (inner.max.x - 12.0 * scale).max(inner.min.x);
+            }
+            intersect(clip, inner)
+        } else {
+            clip
+        };
+        let count = self.node(id).unwrap().children.len();
+        for i in 0..count {
+            let child = self.node(id).unwrap().children[i];
+            self.place(child, pos - scroll, child_clip);
+        }
+    }
+    /// Layout and process one input snapshot. Call once per frame, before game
+    /// logic reads events. Cancel consumes the frame, preventing click-through.
+    /// ```
+    /// use crabbyengine::*;
+    /// let mut ui = Ui::default(); ui.frame(vec2(800.0,600.0), &UiInput::default());
+    /// ```
+    pub fn frame(&mut self, viewport: Vec2, input: &UiInput) {
+        self.events.clear();
+        self.consumed = false;
+        self.pointer = input.pointer;
+        self.layout(viewport);
+        if input.cancel {
+            if let Some(root) = self.pop_screen() {
+                self.events.push(UiEvent::ScreenPopped(root));
+            }
+            self.layout(viewport);
+            return;
+        }
+        self.hovered = self.hit_test(input.pointer);
+        if input.next || input.previous {
+            self.tab(input.previous);
+        }
+        if self.focus.is_some_and(|id| !self.focusable(id)) {
+            self.focus = None;
+        }
+        if input.pressed {
+            self.pressed = self.hovered;
+            self.drag = None;
+            if let Some(id) = self.hovered {
+                self.focus = self.focusable(id).then_some(id);
+                let n = self.node(id).unwrap();
+                if n.widget == UiWidget::TextInput {
+                    let caret = self.caret_at(id, input.pointer);
+                    let n = self.node_mut(id).unwrap();
+                    n.caret = caret;
+                    if !input.shift {
+                        n.anchor = caret;
+                    }
+                    self.drag = Some(Drag::Text(id));
+                } else if n.widget != UiWidget::Slider {
+                    let mut at = Some(id);
+                    while let Some(id) = at {
+                        let n = self.node(id).unwrap();
+                        if n.widget == UiWidget::Scroll {
+                            self.drag = Some(if input.pointer.x >= n.rect.max.x - 12.0 * self.scale {
+                                Drag::Bar(id, input.pointer.y, n.scroll.y)
+                            } else {
+                                Drag::Scroll(id, input.pointer, n.scroll)
+                            });
+                            break;
+                        }
+                        at = n.parent;
+                    }
+                }
+            } else {
+                self.focus = None;
+            }
+        }
+        let mut at = self.hovered;
+        while let Some(id) = at {
+            let n = self.node(id).unwrap();
+            if n.widget == UiWidget::Scroll {
+                let next = n.scroll + input.wheel / self.scale;
+                self.node_mut(id).unwrap().scroll = next;
+                break;
+            }
+            at = n.parent;
+        }
+        if input.held {
+            if let Some(drag) = self.drag {
+                match drag {
+                    Drag::Scroll(id, start, offset) => {
+                        let scale = self.scale;
+                        if let Some(n) = self.node_mut(id) {
+                            n.scroll = offset - (input.pointer - start) / scale;
+                        }
+                        if (input.pointer - start).length() > 4.0 {
+                            self.pressed = None;
+                        }
+                    }
+                    Drag::Bar(id, start, offset) => {
+                        let n = self.node(id).unwrap();
+                        let h = n.rect.size().y;
+                        let thumb = (h * h / (h + n.max_scroll.y * self.scale))
+                            .max(20.0 * self.scale)
+                            .min(h);
+                        let track = (h - thumb).max(1.0);
+                        let value = offset + (input.pointer.y - start) / track * n.max_scroll.y;
+                        self.node_mut(id).unwrap().scroll.y = value;
+                        self.pressed = None;
+                    }
+                    Drag::Text(id) => {
+                        let caret = self.caret_at(id, input.pointer);
+                        self.node_mut(id).unwrap().caret = caret;
+                    }
+                }
+            }
+            if let Some(id) = self
+                .pressed
+                .filter(|&id| self.node(id).is_some_and(|n| n.widget == UiWidget::Slider))
+            {
+                let n = self.node(id).unwrap();
+                let value = ((input.pointer.x - n.rect.min.x) / n.rect.size().x.max(1.0)).clamp(0.0, 1.0);
+                self.change_value(id, value);
+            }
+        }
+        if input.released {
+            if let Some(id) = self.pressed.take().filter(|id| Some(*id) == self.hovered)
+                && self
+                    .node(id)
+                    .is_some_and(|n| matches!(n.widget, UiWidget::Button | UiWidget::Toggle))
+            {
+                self.activate(id);
+            }
+            self.drag = None;
+        }
+        let editing = self
+            .focus
+            .is_some_and(|id| self.node(id).unwrap().widget == UiWidget::TextInput);
+        if editing && input.direction.y == 0.0 {
+            self.edit(input);
+        } else if let Some(id) = self
+            .focus
+            .filter(|&id| self.node(id).unwrap().widget == UiWidget::Slider)
+            && input.direction.x != 0.0
+        {
+            let value = self.value(id).unwrap() + input.direction.x * 0.05;
+            self.change_value(id, value.clamp(0.0, 1.0));
+        } else if input.direction != Vec2::ZERO {
+            self.navigate(input.direction);
+        }
+        if input.confirm
+            && let Some(id) = self.focus
+        {
+            self.activate(id);
+        }
+        self.layout(viewport);
+        if input.next || input.previous || input.direction != Vec2::ZERO {
+            self.reveal_focus();
+            self.layout(viewport);
+        }
+    }
+    fn reveal_focus(&mut self) {
+        let Some(id) = self.focus else { return };
+        let mut rect = self.node(id).unwrap().rect;
+        let mut at = self.node(id).unwrap().parent;
+        let scale = self.scale;
+        while let Some(id) = at {
+            let n = self.node_mut(id).unwrap();
+            if n.widget == UiWidget::Scroll {
+                let delta = (rect.max - n.rect.max).max(Vec2::ZERO) + (rect.min - n.rect.min).min(Vec2::ZERO);
+                let old = n.scroll;
+                n.scroll = (n.scroll + delta / scale).clamp(Vec2::ZERO, n.max_scroll);
+                let moved = (n.scroll - old) * scale;
+                rect.min -= moved;
+                rect.max -= moved;
+            }
+            at = n.parent;
+        }
+    }
+    fn tab(&mut self, back: bool) {
+        let current = self.focus.and_then(|id| self.visible.iter().position(|&n| n == id));
+        let len = self.visible.len();
+        for step in 1..=len {
+            let index = if back {
+                (current.unwrap_or(0) + len - step % len) % len
+            } else {
+                current.map_or(step - 1, |i| (i + step) % len)
+            };
+            let id = self.visible[index];
+            if self.focusable(id) {
+                self.focus = Some(id);
+                break;
+            }
+        }
+    }
+    fn navigate(&mut self, direction: Vec2) {
+        let Some(from) = self.focus.and_then(|id| self.rect(id)) else {
+            self.tab(false);
+            return;
+        };
+        let mut best = None;
+        let mut score = f32::INFINITY;
+        for &id in &self.visible {
+            if !self.focusable(id) || Some(id) == self.focus {
+                continue;
+            }
+            let delta = self.rect(id).unwrap().center() - from.center();
+            let along = delta.dot(direction);
+            if along <= 0.0 {
+                continue;
+            }
+            let cross = delta.perp_dot(direction).abs();
+            let cost = along + cross * 4.0;
+            if cost < score {
+                best = Some(id);
+                score = cost;
+            }
+        }
+        if best.is_some() {
+            self.focus = best;
+        }
+    }
+    fn activate(&mut self, id: UiId) {
+        if !self.interactive(id) {
+            return;
+        }
+        match self.node(id).unwrap().widget {
+            UiWidget::Button => self.events.push(UiEvent::Clicked(id)),
+            UiWidget::Toggle => {
+                let v = 1.0 - self.value(id).unwrap();
+                self.change_value(id, v);
+            }
+            UiWidget::TextInput => self.events.push(UiEvent::Submitted(id)),
+            _ => {}
+        }
+    }
+    fn change_value(&mut self, id: UiId, value: f32) {
+        if self.value(id) != Some(value) {
+            self.set_value(id, value);
+            self.events.push(UiEvent::Changed(id));
+        }
+    }
+    fn caret_at(&mut self, id: UiId, p: Vec2) -> usize {
+        let n = self.nodes[id.0].as_ref().unwrap();
+        let layout = self.tree.layout(n.layout).unwrap();
+        let font = if self.external_fonts {
+            n.paint.font
+        } else {
+            Font::DEFAULT
+        };
+        let x = (p.x - n.rect.min.x) / self.scale - layout.padding.left - layout.border.left;
+        let caret_x = self
+            .measure
+            .layout(&n.text[..n.caret], font, n.paint.font_size, false)
+            .x;
+        let available = n.rect.size().x / self.scale - layout.padding.left - layout.padding.right;
+        let target = x + (caret_x - available + 3.0).max(0.0);
+        let mut prev = 0.0;
+        for (i, ch) in n.text.char_indices() {
+            let next = i + ch.len_utf8();
+            let width = self.measure.layout(&n.text[..next], font, n.paint.font_size, false).x;
+            if target < (prev + width) * 0.5 {
+                return i;
+            }
+            prev = width;
+        }
+        n.text.len()
+    }
+    fn edit(&mut self, input: &UiInput) {
+        let id = self.focus.unwrap();
+        let n = self.node_mut(id).unwrap();
+        let mut changed = false;
+        if input.select_all {
+            n.anchor = 0;
+            n.caret = n.text.len();
+        }
+        if input.home {
+            n.caret = 0;
+            if !input.shift {
+                n.anchor = n.caret;
+            }
+        }
+        if input.end {
+            n.caret = n.text.len();
+            if !input.shift {
+                n.anchor = n.caret;
+            }
+        }
+        if input.direction.x != 0.0 {
+            n.caret = if input.direction.x < 0.0 {
+                n.text[..n.caret].char_indices().next_back().map_or(0, |(i, _)| i)
+            } else {
+                n.text[n.caret..]
+                    .chars()
+                    .next()
+                    .map_or(n.caret, |c| n.caret + c.len_utf8())
+            };
+            if !input.shift {
+                n.anchor = n.caret;
+            }
+        }
+        if input.backspace || input.delete || input.text.chars().any(|c| !c.is_control()) {
+            let lo = n.caret.min(n.anchor);
+            let hi = n.caret.max(n.anchor);
+            if lo != hi {
+                n.text.replace_range(lo..hi, "");
+                n.caret = lo;
+                changed = true;
+            } else if input.backspace && n.caret > 0 {
+                let prev = n.text[..n.caret].char_indices().next_back().unwrap().0;
+                n.text.replace_range(prev..n.caret, "");
+                n.caret = prev;
+                changed = true;
+            } else if input.delete && n.caret < n.text.len() {
+                let end = n.caret + n.text[n.caret..].chars().next().unwrap().len_utf8();
+                n.text.replace_range(n.caret..end, "");
+                changed = true;
+            }
+            for ch in input.text.chars().filter(|c| !c.is_control()) {
+                n.text.insert(n.caret, ch);
+                n.caret += ch.len_utf8();
+                changed = true;
+            }
+            n.anchor = n.caret;
+        }
+        if changed {
+            self.events.push(UiEvent::Changed(id));
+        }
+    }
+    pub(super) fn layout_with_text(&mut self, viewport: Vec2, text: &mut crate::text::Text) {
+        std::mem::swap(&mut self.measure, text);
+        self.external_fonts = true;
+        self.layout(viewport);
+        self.external_fonts = false;
+        std::mem::swap(&mut self.measure, text);
+    }
+    pub(super) fn frame_with_text(&mut self, viewport: Vec2, input: &UiInput, text: &mut crate::text::Text) {
+        std::mem::swap(&mut self.measure, text);
+        self.external_fonts = true;
+        self.frame(viewport, input);
+        self.external_fonts = false;
+        std::mem::swap(&mut self.measure, text);
+    }
+    pub(super) fn scale(&self) -> f32 {
+        self.scale
+    }
+    pub(super) fn modal_root(&self, id: UiId) -> bool {
+        self.screens.iter().any(|s| s.root == id && s.modal)
+    }
+}
+pub(super) fn intersect(a: Rect, b: Rect) -> Rect {
+    let min = a.min.max(b.min);
+    Rect {
+        min,
+        max: a.max.min(b.max).max(min),
+    }
+}
+
+pub(super) fn wrap_end(text: &mut crate::text::Text, line: &str, font: Font, size: f32, width: f32) -> usize {
+    let mut space = None;
+    for (i, ch) in line.char_indices() {
+        if ch.is_whitespace() {
+            space = Some(i);
+        }
+        let next = i + ch.len_utf8();
+        if text.layout(&line[..next], font, size, false).x > width {
+            return space.filter(|&s| s > 0).unwrap_or(if i == 0 { next } else { i });
+        }
+    }
+    line.len()
+}

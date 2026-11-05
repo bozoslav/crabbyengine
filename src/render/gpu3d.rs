@@ -93,7 +93,8 @@ const SHADOW_PASSES: [&str; 8] = [
 use crate::Material;
 use crate::three::Scene3D;
 use crate::three::{
-    GpuMaterialDesc, Instance3D, MAX_CASCADES, MaterialTextures, MeshData, PostUniform, SHADOW_MAP_SIZE, linear,
+    GpuMaterialDesc, Instance3D, LIGHT_SHADOW_SIZE, MAX_CASCADES, MAX_LIGHT_SHADOW_VIEWS, MAX_SHADOW_VIEWS,
+    MaterialTextures, MeshData, PostUniform, SHADOW_MAP_SIZE, linear, shadow_views,
 };
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
@@ -151,6 +152,11 @@ struct FrameUniform {
     fog_far: [f32; 4],
     cluster_depth: [f32; 4],
     cluster_view_proj: [[f32; 4]; 4],
+    /// World to each point and spot light shadow view's clip space.
+    light_view_proj: [[[f32; 4]; 4]; MAX_LIGHT_SHADOW_VIEWS],
+    /// x: how many light shadow views, y: one texel in uv, z: how far the
+    /// lookup moves along the normal (in texels).
+    light_shadow: [f32; 4],
 }
 
 #[path = "skinning.rs"]
@@ -361,6 +367,9 @@ type Run = (u32, u32, u32);
 struct FrameSources {
     layout: wgpu::BindGroupLayout,
     shadow_view: wgpu::TextureView,
+    /// Point and spot lights' shadow views (a 1x1 stand-in until a light
+    /// first casts shadows).
+    light_shadow_view: wgpu::TextureView,
     shadow_sampler: wgpu::Sampler,
     sky_view: wgpu::TextureView,
     sky_sampler: wgpu::Sampler,
@@ -399,6 +408,10 @@ impl FrameSources {
                 wgpu::BindGroupEntry {
                     binding: 6,
                     resource: wgpu::BindingResource::TextureView(&lights.indices_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: wgpu::BindingResource::TextureView(&self.light_shadow_view),
                 },
             ],
         })
@@ -502,10 +515,15 @@ pub(crate) struct Renderer3D {
     /// Each cascade's layer of the shadow map, drawn into.
     shadow_layers: Vec<wgpu::TextureView>,
     cascades: usize,
+    /// Each point and spot light shadow view's layer, drawn into; empty
+    /// until a light first casts shadows.
+    light_shadow_layers: Vec<wgpu::TextureView>,
+    light_views: usize,
     material_layout: wgpu::BindGroupLayout,
     meshes: Vec<GpuMesh>,
     /// This frame's skinned models, drawn as mesh ids past `meshes`.
     skinning: skinning::Skinning,
+    particles: super::particles::Particles,
     materials: Vec<GpuMaterial>,
     instances: wgpu::Buffer,
     /// Capacity of `instances`, in instances.
@@ -523,7 +541,7 @@ pub(crate) struct Renderer3D {
     white_array: wgpu::TextureView,
     /// This frame's runs: (mesh, first instance, count).
     runs: Vec<(u32, u32, u32)>,
-    shadow_runs: [Vec<(u32, u32, u32)>; MAX_CASCADES],
+    shadow_runs: [Vec<(u32, u32, u32)>; MAX_SHADOW_VIEWS],
     /// Per skinned model this frame, whether any pass draws it.
     skin_drawn: Vec<bool>,
 }
@@ -852,7 +870,7 @@ impl Renderer3D {
         let shadow_stride = (size_of::<FrameUniform>() as u64).div_ceil(align) * align;
         let shadow_frames = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("3d shadow frames"),
-            size: shadow_stride * MAX_CASCADES as u64,
+            size: shadow_stride * MAX_SHADOW_VIEWS as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -946,9 +964,31 @@ impl Renderer3D {
                 bias: Default::default(),
             }),
         );
+        let stand_in = |label, format, layers| {
+            device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some(label),
+                    size: wgpu::Extent3d {
+                        width: 1,
+                        height: 1,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                })
+                .create_view(&wgpu::TextureViewDescriptor {
+                    dimension: Some(layers),
+                    ..Default::default()
+                })
+        };
         let frame_sources = FrameSources {
             layout: frame_layout,
             shadow_view,
+            light_shadow_view: stand_in("3d no light shadows", DEPTH_FORMAT, wgpu::TextureViewDimension::D2Array),
             shadow_sampler,
             sky_view: sky_view.clone(),
             sky_sampler,
@@ -994,27 +1034,6 @@ impl Renderer3D {
             });
             (compute_layout, compute_pipeline_layout)
         });
-        let stand_in = |label, format, layers| {
-            device
-                .create_texture(&wgpu::TextureDescriptor {
-                    label: Some(label),
-                    size: wgpu::Extent3d {
-                        width: 1,
-                        height: 1,
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format,
-                    usage: wgpu::TextureUsages::TEXTURE_BINDING,
-                    view_formats: &[],
-                })
-                .create_view(&wgpu::TextureViewDescriptor {
-                    dimension: Some(layers),
-                    ..Default::default()
-                })
-        };
         let no_shadow = stand_in("3d no shadow", DEPTH_FORMAT, wgpu::TextureViewDimension::D2Array);
         let no_sky = stand_in("3d no sky", HDR_FORMAT, wgpu::TextureViewDimension::D2);
         let no_sky_sampler = device.create_sampler(&Default::default());
@@ -1059,6 +1078,10 @@ impl Renderer3D {
                     binding: 6,
                     resource: wgpu::BindingResource::TextureView(&no_lights.indices_view),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: wgpu::BindingResource::TextureView(&no_shadow),
+                },
             ],
         });
         let capacity = 1024;
@@ -1097,6 +1120,7 @@ impl Renderer3D {
                 device,
                 compute && device.limits().max_storage_buffers_per_shader_stage >= 4,
             ),
+            particles: super::particles::Particles::new(device, texture_layout, samples),
             compute_states: Vec::new(),
             computes: Vec::new(),
             views: Vec::new(),
@@ -1105,6 +1129,8 @@ impl Renderer3D {
             shadow_bind_group,
             shadow_layers,
             cascades: 0,
+            light_shadow_layers: Vec::new(),
+            light_views: 0,
             material_layout,
             meshes: Vec::new(),
             materials: Vec::new(),
@@ -1474,6 +1500,7 @@ impl Renderer3D {
             0,
             bytemuck::bytes_of(&PostUniform::new(post, lut.map(|(_, n)| n))),
         );
+        self.particles.prepare(device, queue, &frame.particles, frame.view_proj);
         self.lut = lut.map_or(self.white, |(id, _)| id);
         self.bloom = post.bloom > 0.0;
         self.atmosphere = sky.atmosphere;
@@ -1488,6 +1515,7 @@ impl Renderer3D {
                 .filter(|&&(e, m)| (e as usize) < effects && (m as usize) < materials),
         );
         self.cascades = frame.cascades;
+        self.light_views = frame.light_views;
         for (mine, theirs) in self.shadow_runs.iter_mut().zip(&frame.shadow_runs) {
             mine.clear();
             mine.extend_from_slice(theirs);
@@ -1535,7 +1563,7 @@ impl Renderer3D {
         let runs = self
             .runs
             .iter()
-            .chain(self.shadow_runs[..self.cascades].iter().flatten())
+            .chain(shadow_views(self.cascades, self.light_views).flat_map(|v| &self.shadow_runs[v]))
             .chain(self.views.iter().flat_map(|(_, r)| r));
         for &(mesh, _, _) in runs {
             if let Some(d) = mesh.checked_sub(real).and_then(|k| drawn.get_mut(k as usize)) {
@@ -1554,7 +1582,7 @@ impl Renderer3D {
             |k| drawn[k],
         );
         self.skin_drawn = drawn;
-        if total == 0 {
+        if total == 0 && frame.particles.instances.is_empty() {
             return;
         }
         if total > self.capacity {
@@ -1576,10 +1604,20 @@ impl Renderer3D {
         };
         let ambient = |light: Vec3| (light * lighting.ambient_intensity).extend(0.0).to_array();
         let sun = (-lighting.sun_direction).try_normalize().unwrap_or(Vec3::Y);
+        if frame.light_views > 0 && self.light_shadow_layers.is_empty() {
+            self.allocate_light_shadows(device);
+        }
         if self.lights.upload(device, queue, &frame.lights) {
             self.frame_bind_group = self.frame_sources.bind_group(device, &self.frame_buffer, &self.lights);
         }
+        let mut light_view_proj = [Mat4::IDENTITY.to_cols_array_2d(); MAX_LIGHT_SHADOW_VIEWS];
+        for (mine, theirs) in light_view_proj.iter_mut().zip(&frame.lights.shadow_views) {
+            *mine = theirs.to_cols_array_2d();
+        }
         let mut uniform = FrameUniform {
+            light_view_proj,
+            // Light shadows move out along the normal by 1.5 texels too.
+            light_shadow: [frame.light_views as f32, 1.0 / LIGHT_SHADOW_SIZE as f32, 1.5, 0.0],
             cluster_depth: frame.lights.depth,
             cluster_view_proj: frame.view_proj.to_cols_array_2d(),
             view_proj: frame.view_proj.to_cols_array_2d(),
@@ -1675,6 +1713,14 @@ impl Renderer3D {
             queue.write_buffer(
                 &self.shadow_frames,
                 self.shadow_stride * i as u64,
+                bytemuck::bytes_of(&uniform),
+            );
+        }
+        for i in 0..frame.light_views {
+            uniform.caster_view_proj = uniform.light_view_proj[i];
+            queue.write_buffer(
+                &self.shadow_frames,
+                self.shadow_stride * (MAX_CASCADES + i) as u64,
                 bytemuck::bytes_of(&uniform),
             );
         }
@@ -1800,6 +1846,46 @@ impl Renderer3D {
         }
     }
 
+    /// Makes the point and spot lights' shadow views (the first time a light
+    /// casts shadows) and binds them to every frame.
+    fn allocate_light_shadows(&mut self, device: &wgpu::Device) {
+        let map = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("3d light shadow maps"),
+            size: wgpu::Extent3d {
+                width: LIGHT_SHADOW_SIZE,
+                height: LIGHT_SHADOW_SIZE,
+                depth_or_array_layers: MAX_LIGHT_SHADOW_VIEWS as u32,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: DEPTH_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        self.frame_sources.light_shadow_view = map.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
+        self.light_shadow_layers = (0..MAX_LIGHT_SHADOW_VIEWS as u32)
+            .map(|layer| {
+                map.create_view(&wgpu::TextureViewDescriptor {
+                    label: Some("3d light shadow view"),
+                    dimension: Some(wgpu::TextureViewDimension::D2),
+                    base_array_layer: layer,
+                    array_layer_count: Some(1),
+                    ..Default::default()
+                })
+            })
+            .collect();
+        self.frame_bind_group = self.frame_sources.bind_group(device, &self.frame_buffer, &self.lights);
+        for (_, target) in &mut self.view_targets {
+            target.frame_bind_group = self
+                .frame_sources
+                .bind_group(device, &target.frame_buffer, &target.lights);
+        }
+    }
+
     /// Draw calls the frame's models take: two per mesh part (depth
     /// prepass and lit), one per mesh part in each shadow cascade, one per
     /// screen effect, the bloom steps and the post pass.
@@ -1818,9 +1904,12 @@ impl Renderer3D {
         self.computes.len()
             + (parts + view_parts) * 2
             + self.views.len() * usize::from(self.atmosphere)
+            + self.particles.runs.len()
             + self.effects.len()
             + if self.atmosphere { 2 } else { 0 }
-            + self.shadow_runs[..self.cascades].iter().map(Vec::len).sum::<usize>()
+            + shadow_views(self.cascades, self.light_views)
+                .map(|v| self.shadow_runs[v].len())
+                .sum::<usize>()
             + 1
             + if self.bloom {
                 self.targets.as_ref().map_or(0, |t| t.bloom_mips.len() * 2 - 1)
@@ -1841,9 +1930,8 @@ impl Renderer3D {
                 (n + k as usize, tris + per as usize * k as usize)
             })
         };
-        let shadows = self.shadow_runs[..self.cascades]
-            .iter()
-            .map(|r| count(r))
+        let shadows = shadow_views(self.cascades, self.light_views)
+            .map(|v| count(&self.shadow_runs[v]))
             .fold((0, 0), |a, b| (a.0 + b.0, a.1 + b.1));
         [count(&self.runs), shadows]
     }
@@ -1879,8 +1967,8 @@ impl Renderer3D {
         for &(mesh, _, count) in &self.runs {
             add(mesh, count, false);
         }
-        for runs in &self.shadow_runs[..self.cascades] {
-            for &(mesh, _, count) in runs {
+        for view in shadow_views(self.cascades, self.light_views) {
+            for &(mesh, _, count) in &self.shadow_runs[view] {
                 add(mesh, count, true);
             }
         }
@@ -1889,7 +1977,7 @@ impl Renderer3D {
 
     /// Whether this frame has anything to draw.
     pub fn has_draws(&self) -> bool {
-        !self.runs.is_empty()
+        !self.runs.is_empty() || !self.particles.runs.is_empty()
     }
 
     /// Draws the frame's passes (see the module docs) and leaves the tone
@@ -1913,9 +2001,10 @@ impl Renderer3D {
         };
         let time = |name| timer.and_then(|t| t.pass(name));
         let split = self.needs_scene();
-        let mut parts = Vec::with_capacity(8 + self.cascades);
+        let mut parts = Vec::with_capacity(8 + self.cascades + self.light_views);
         parts.push(Part::Prelude);
-        for (cascade, runs) in self.shadow_runs[..self.cascades].iter().enumerate() {
+        for cascade in shadow_views(self.cascades, self.light_views) {
+            let runs = &self.shadow_runs[cascade];
             let mut first = 0;
             let mut draws = 0;
             for (i, &(mesh, _, _)) in runs.iter().enumerate() {
@@ -2046,7 +2135,11 @@ impl Renderer3D {
                     label: Some("3d shadows"),
                     color_attachments: &[],
                     depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: &self.shadow_layers[cascade],
+                        view: if cascade < MAX_CASCADES {
+                            &self.shadow_layers[cascade]
+                        } else {
+                            &self.light_shadow_layers[cascade - MAX_CASCADES]
+                        },
                         depth_ops: Some(wgpu::Operations {
                             load: if first == 0 {
                                 wgpu::LoadOp::Clear(1.0)
@@ -2057,7 +2150,11 @@ impl Renderer3D {
                         }),
                         stencil_ops: None,
                     }),
-                    timestamp_writes: time(SHADOW_PASSES[cascade.min(SHADOW_PASSES.len() - 1)]),
+                    timestamp_writes: time(if cascade < MAX_CASCADES {
+                        SHADOW_PASSES[cascade.min(SHADOW_PASSES.len() - 1)]
+                    } else {
+                        "light shadows"
+                    }),
                     occlusion_query_set: None,
                     multiview_mask: None,
                 });
@@ -2141,6 +2238,7 @@ impl Renderer3D {
                     }
                     if !split {
                         self.draw_models(&mut pass, &self.runs, Kind::Transparent);
+                        self.particles.draw(&mut pass, textures, self.white);
                     }
                 }
             }
@@ -2175,6 +2273,7 @@ impl Renderer3D {
                     pass.set_bind_group(0, &self.frame_bind_group, &[]);
                     pass.set_bind_group(2, &targets.scene, &[]);
                     self.draw_models(&mut pass, &self.runs, Kind::Transparent);
+                    self.particles.draw(&mut pass, textures, self.white);
                 }
             }
             Part::Post => {
@@ -2563,6 +2662,18 @@ fn frame_entries(stages: wgpu::ShaderStages, per_cascade: bool) -> Vec<wgpu::Bin
             ty: wgpu::BindingType::Texture {
                 sample_type: wgpu::TextureSampleType::Uint,
                 view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        },
+        // Not in compute passes, which would go over WebGPU's 16 sampled
+        // textures per stage; they light nothing.
+        wgpu::BindGroupLayoutEntry {
+            binding: 7,
+            visibility: stages - wgpu::ShaderStages::COMPUTE,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Depth,
+                view_dimension: wgpu::TextureViewDimension::D2Array,
                 multisampled: false,
             },
             count: None,

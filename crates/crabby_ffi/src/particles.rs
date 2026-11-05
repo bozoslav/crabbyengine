@@ -1,0 +1,416 @@
+//! 3D particles from C (Rust `ParticleEmitter3D`, `ParticleSettings3D`).
+//! Fill a `CrabbyParticleSettings3D` (start from
+//! `crabby_particle_settings3d_default()`), then give an entity with a 3D
+//! transform an emitter with `crabby_ctx_set_particle_emitter3d`.
+
+use crabbyengine::{
+    Color, Ctx, Entity, ParticleBlend3D, ParticleCurve, ParticleEmitter3D, ParticleGradient, ParticleSettings3D,
+    ParticleShape3D, ParticleSpace3D, Vec3,
+};
+
+use crate::ctx::{ctx_access, out};
+use crate::three::CrabbyVec3;
+use crate::types::{CrabbyColor, CrabbyTexture, texture_from_c, to_c};
+use crate::{CrabbyCtx, CrabbyStatus, Failure, boundary, invalid, invalid_owned};
+
+/// Where particles start (`CrabbyParticleSettings3D::shape`).
+/// ```
+/// assert_eq!(crabby_ffi::CrabbyParticleShape3D::CRABBY_PARTICLES_CONE as u32, 2);
+/// ```
+#[repr(C)]
+#[allow(non_camel_case_types)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CrabbyParticleShape3D {
+    /// The emitter's origin, moving along +Y.
+    CRABBY_PARTICLES_POINT,
+    /// Inside a ball of `shape_size.x` radius, moving outward.
+    CRABBY_PARTICLES_SPHERE,
+    /// The origin, moving inside a cone around +Y with half angle `shape_size.x` (radians).
+    CRABBY_PARTICLES_CONE,
+    /// Inside a box with half extents `shape_size`, moving along +Y.
+    CRABBY_PARTICLES_BOX,
+}
+
+/// How particles combine with the scene (`CrabbyParticleSettings3D::blend`).
+/// ```
+/// assert_eq!(crabby_ffi::CrabbyParticleBlend3D::CRABBY_PARTICLES_ADDITIVE as u32, 1);
+/// ```
+#[repr(C)]
+#[allow(non_camel_case_types)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CrabbyParticleBlend3D {
+    /// Ordinary transparency, sorted back to front.
+    CRABBY_PARTICLES_ALPHA,
+    /// Adds light to the scene (fire, sparks, magic).
+    CRABBY_PARTICLES_ADDITIVE,
+}
+
+/// Whether living particles follow the emitter (`CrabbyParticleSettings3D::space`).
+/// ```
+/// assert_eq!(crabby_ffi::CrabbyParticleSpace3D::CRABBY_PARTICLES_LOCAL as u32, 1);
+/// ```
+#[repr(C)]
+#[allow(non_camel_case_types)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CrabbyParticleSpace3D {
+    /// Particles stay where they were born; gravity is world down.
+    CRABBY_PARTICLES_WORLD,
+    /// Particles move with the entity.
+    CRABBY_PARTICLES_LOCAL,
+}
+
+/// One key of a size curve: `value` at normalized lifetime `t` (0..1).
+/// ```
+/// let k = crabby_ffi::CrabbyParticleKey { t: 1.0, value: 0.0 };
+/// assert_eq!(k.t, 1.0);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct CrabbyParticleKey {
+    /// Normalized lifetime, 0 at birth and 1 at death.
+    pub t: f32,
+    /// Size multiplier at `t`.
+    pub value: f32,
+}
+
+/// One key of a color gradient: `color` at normalized lifetime `t` (0..1).
+/// ```
+/// let k = crabby_ffi::CrabbyParticleColorKey { t: 0.0, color: crabby_ffi::CrabbyColor { r: 1.0, g: 0.5, b: 0.0, a: 1.0 } };
+/// assert_eq!(k.color.g, 0.5);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CrabbyParticleColorKey {
+    /// Normalized lifetime, 0 at birth and 1 at death.
+    pub t: f32,
+    /// Tint at `t`.
+    pub color: CrabbyColor,
+}
+
+/// An emitter's settings (Rust `ParticleSettings3D`). Ranges are `_min`/`_max`
+/// pairs. The key pointers are only read during the call that takes the
+/// settings; null with a count of 0 keeps the default curve.
+/// ```
+/// let s = crabby_ffi::crabby_particle_settings3d_default();
+/// assert_eq!(s.max_particles, 1024);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct CrabbyParticleSettings3D {
+    /// Particles per second. 0 emits only bursts. Default 10.
+    pub rate: f32,
+    /// Particles emitted at once on the first frame. Default 0.
+    pub burst: u32,
+    /// Seconds of emission before stopping or looping. Default 1.
+    pub duration: f32,
+    /// Emit again after `duration`. Default true.
+    pub looping: bool,
+    /// Lifetime range in seconds; the minimum must be positive. Default 1..2.
+    pub lifetime_min: f32,
+    /// See `lifetime_min`.
+    pub lifetime_max: f32,
+    /// Start speed range, units per second. Default 1..2.
+    pub speed_min: f32,
+    /// See `speed_min`.
+    pub speed_max: f32,
+    /// A `CrabbyParticleShape3D`. Default point.
+    pub shape: u32,
+    /// Sphere radius (x), cone half angle (x) or box half extents.
+    pub shape_size: CrabbyVec3,
+    /// Acceleration. Default (0, -9.81, 0).
+    pub gravity: CrabbyVec3,
+    /// Velocity damping per second. Default 0.
+    pub drag: f32,
+    /// Start size range in world units. Default 0.1..0.2.
+    pub size_min: f32,
+    /// See `size_min`.
+    pub size_max: f32,
+    /// Start rotation range in radians. Default 0..0.
+    pub rotation_min: f32,
+    /// See `rotation_min`.
+    pub rotation_max: f32,
+    /// Size multiplier over lifetime; null for a constant 1.
+    pub size_keys: *const CrabbyParticleKey,
+    /// Number of `size_keys`.
+    pub size_key_count: usize,
+    /// Tint over lifetime; null for white.
+    pub color_keys: *const CrabbyParticleColorKey,
+    /// Number of `color_keys`.
+    pub color_key_count: usize,
+    /// Use `texture`; otherwise particles are plain squares. Default false.
+    pub has_texture: bool,
+    /// The particle image (or a sprite sheet).
+    pub texture: CrabbyTexture,
+    /// Sprite sheet columns and rows; frames play over lifetime. Default 1, 1.
+    pub sheet_columns: u32,
+    /// See `sheet_columns`.
+    pub sheet_rows: u32,
+    /// A `CrabbyParticleBlend3D`. Default alpha.
+    pub blend: u32,
+    /// Most living particles; storage is made up front. Default 1024.
+    pub max_particles: u32,
+    /// A `CrabbyParticleSpace3D`. Default world.
+    pub space: u32,
+    /// Random seed: equal seeds give equal particles. Default 1.
+    pub seed: u64,
+}
+
+/// Default particle settings (same as Rust's `ParticleSettings3D::default()`).
+/// ```
+/// let s = crabby_ffi::crabby_particle_settings3d_default();
+/// assert_eq!(s.gravity.y, -9.81);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn crabby_particle_settings3d_default() -> CrabbyParticleSettings3D {
+    let d = ParticleSettings3D::default();
+    CrabbyParticleSettings3D {
+        rate: d.rate,
+        burst: d.burst as u32,
+        duration: d.duration,
+        looping: d.looping,
+        lifetime_min: d.lifetime.0,
+        lifetime_max: d.lifetime.1,
+        speed_min: d.speed.0,
+        speed_max: d.speed.1,
+        shape: CrabbyParticleShape3D::CRABBY_PARTICLES_POINT as u32,
+        shape_size: CrabbyVec3 { x: 0.0, y: 0.0, z: 0.0 },
+        gravity: to_c(d.gravity),
+        drag: d.drag,
+        size_min: d.size.0,
+        size_max: d.size.1,
+        rotation_min: d.rotation.0,
+        rotation_max: d.rotation.1,
+        size_keys: std::ptr::null(),
+        size_key_count: 0,
+        color_keys: std::ptr::null(),
+        color_key_count: 0,
+        has_texture: false,
+        texture: CrabbyTexture {
+            id: 0,
+            width: 0,
+            height: 0,
+        },
+        sheet_columns: d.sheet.0,
+        sheet_rows: d.sheet.1,
+        blend: CrabbyParticleBlend3D::CRABBY_PARTICLES_ALPHA as u32,
+        max_particles: d.max_particles as u32,
+        space: CrabbyParticleSpace3D::CRABBY_PARTICLES_WORLD as u32,
+        seed: d.seed,
+    }
+}
+
+fn finite(values: &[f32]) -> bool {
+    values.iter().all(|v| v.is_finite())
+}
+
+/// Checks C settings, so bad values are errors rather than panics.
+///
+/// # Safety
+/// The key pointers are null or point to their counts of keys.
+unsafe fn settings_from_c(s: &CrabbyParticleSettings3D) -> Result<ParticleSettings3D, Failure> {
+    let ranges = [
+        ("lifetime", s.lifetime_min, s.lifetime_max),
+        ("speed", s.speed_min, s.speed_max),
+        ("size", s.size_min, s.size_max),
+        ("rotation", s.rotation_min, s.rotation_max),
+    ];
+    for (name, lo, hi) in ranges {
+        if !(lo.is_finite() && hi.is_finite() && lo <= hi) {
+            return Err(invalid_owned(format!(
+                "particle {name} range must be finite with min <= max"
+            )));
+        }
+        if name != "rotation" && lo < 0.0 {
+            return Err(invalid_owned(format!("particle {name} must not be negative")));
+        }
+    }
+    if s.lifetime_min <= 0.0 {
+        return Err(invalid("particle lifetime must be positive"));
+    }
+    let (size, gravity) = (s.shape_size, s.gravity);
+    if !finite(&[
+        s.rate, s.duration, s.drag, size.x, size.y, size.z, gravity.x, gravity.y, gravity.z,
+    ]) || s.rate < 0.0
+        || s.duration < 0.0
+        || s.drag < 0.0
+    {
+        return Err(invalid(
+            "particle rate, duration and drag must be finite and not negative",
+        ));
+    }
+    if s.max_particles == 0 || s.sheet_columns == 0 || s.sheet_rows == 0 {
+        return Err(invalid("max_particles and sheet size must be at least 1"));
+    }
+    let shape = match s.shape {
+        0 => ParticleShape3D::Point,
+        1 => ParticleShape3D::Sphere { radius: size.x },
+        2 => ParticleShape3D::Cone { angle: size.x },
+        3 => ParticleShape3D::Box {
+            half_extents: to_c(size),
+        },
+        _ => return Err(invalid("unknown particle shape")),
+    };
+    let blend = match s.blend {
+        0 => ParticleBlend3D::Alpha,
+        1 => ParticleBlend3D::Additive,
+        _ => return Err(invalid("unknown particle blend")),
+    };
+    let space = match s.space {
+        0 => ParticleSpace3D::World,
+        1 => ParticleSpace3D::Local,
+        _ => return Err(invalid("unknown particle space")),
+    };
+    // SAFETY: caller contract.
+    let size_keys = unsafe { keys(s.size_keys, s.size_key_count, "size_keys")? };
+    let color_keys = unsafe { keys(s.color_keys, s.color_key_count, "color_keys")? };
+    if !size_keys.iter().all(|k| finite(&[k.t, k.value]))
+        || !color_keys
+            .iter()
+            .all(|k| finite(&[k.t, k.color.r, k.color.g, k.color.b, k.color.a]))
+    {
+        return Err(invalid("particle curve keys must be finite"));
+    }
+    let defaults = ParticleSettings3D::default();
+    Ok(ParticleSettings3D {
+        rate: s.rate,
+        burst: s.burst as usize,
+        duration: s.duration,
+        looping: s.looping,
+        lifetime: (s.lifetime_min, s.lifetime_max),
+        speed: (s.speed_min, s.speed_max),
+        shape,
+        gravity: to_c::<_, Vec3>(gravity),
+        drag: s.drag,
+        size: (s.size_min, s.size_max),
+        rotation: (s.rotation_min, s.rotation_max),
+        size_over_life: if size_keys.is_empty() {
+            defaults.size_over_life
+        } else {
+            ParticleCurve::new(size_keys.iter().map(|k| (k.t, k.value)).collect())
+        },
+        color_over_life: if color_keys.is_empty() {
+            defaults.color_over_life
+        } else {
+            ParticleGradient::new(color_keys.iter().map(|k| (k.t, to_c::<_, Color>(k.color))).collect())
+        },
+        texture: s.has_texture.then(|| texture_from_c(s.texture)),
+        sheet: (s.sheet_columns, s.sheet_rows),
+        blend,
+        max_particles: s.max_particles as usize,
+        space,
+        seed: s.seed,
+    })
+}
+
+/// # Safety
+/// `ptr` is null or points to `count` values.
+unsafe fn keys<'a, T>(ptr: *const T, count: usize, name: &str) -> Result<&'a [T], Failure> {
+    if count == 0 {
+        return Ok(&[]);
+    }
+    if ptr.is_null() {
+        return Err(invalid_owned(format!("{name} is null with a nonzero count")));
+    }
+    // SAFETY: caller contract.
+    Ok(unsafe { std::slice::from_raw_parts(ptr, count) })
+}
+
+fn entity(c: &Ctx, bits: u64) -> Result<Entity, Failure> {
+    let e = Entity::from_bits(bits);
+    if c.world.is_alive(e) {
+        Ok(e)
+    } else {
+        Err(invalid("no such entity"))
+    }
+}
+
+fn emitter(c: &mut Ctx, bits: u64) -> Result<&mut ParticleEmitter3D, Failure> {
+    let e = entity(c, bits)?;
+    c.world
+        .get_mut::<ParticleEmitter3D>(e)
+        .ok_or_else(|| invalid("entity has no particle emitter"))
+}
+
+/// Gives `entity` (which needs a 3D transform to draw) a new particle
+/// emitter, replacing any it had along with its living particles.
+/// ```
+/// let s = crabby_ffi::crabby_particle_settings3d_default();
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_particle_emitter3d(std::ptr::null_mut(), 0, &s) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` null or live; `settings` null or valid, its key pointers as documented.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_particle_emitter3d(
+    ctx: *mut CrabbyCtx,
+    entity_bits: u64,
+    settings: *const CrabbyParticleSettings3D,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let e = entity(c, entity_bits)?;
+            let s = settings.as_ref().ok_or_else(|| invalid("settings is null"))?;
+            let emitter = ParticleEmitter3D::new(settings_from_c(s)?);
+            c.world.insert(e, emitter);
+            Ok(())
+        })
+    })
+}
+
+/// Emits `count` particles from `entity`'s emitter on the next frame (capped
+/// by its `max_particles`).
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_particle_burst(std::ptr::null_mut(), 0, 10) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` null or live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_particle_burst(ctx: *mut CrabbyCtx, entity_bits: u64, count: u32) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            emitter(c, entity_bits)?.burst(count as usize);
+            Ok(())
+        })
+    })
+}
+
+/// How many of `entity`'s particles are alive.
+/// ```
+/// let mut n = 0;
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_particle_live_count(std::ptr::null_mut(), 0, &mut n) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` null or live; `out_count` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_particle_live_count(
+    ctx: *mut CrabbyCtx,
+    entity_bits: u64,
+    out_count: *mut u32,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let n = emitter(c, entity_bits)?.live_count();
+            out(out_count, n as u32)
+        })
+    })
+}
+
+/// Removes `entity`'s particle emitter and its particles.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_remove_particle_emitter3d(std::ptr::null_mut(), 0) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` null or live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_remove_particle_emitter3d(ctx: *mut CrabbyCtx, entity_bits: u64) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let e = entity(c, entity_bits)?;
+            c.world.remove::<ParticleEmitter3D>(e);
+            Ok(())
+        })
+    })
+}

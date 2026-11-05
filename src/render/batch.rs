@@ -101,8 +101,9 @@ pub(crate) fn f16_bits(x: f32) -> u16 {
 }
 
 /// A run of instances that share one texture.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Batch {
+    pub clip: Option<crate::Rect>,
     pub texture: u32,
     pub start: u32,
     pub end: u32,
@@ -115,6 +116,8 @@ pub(crate) struct DrawList {
     instances: Vec<SpriteInstance>,
     textures: Vec<u32>,
     zs: Vec<f32>,
+    clips: Vec<Option<crate::Rect>>,
+    clip: Option<crate::Rect>,
     /// True once two different `z` values have been pushed this frame.
     needs_sort: bool,
 
@@ -163,6 +166,9 @@ fn z_key(z: f32) -> u32 {
 }
 
 impl DrawList {
+    pub fn set_clip(&mut self, clip: Option<crate::Rect>) {
+        self.clip = clip;
+    }
     #[inline]
     pub fn push(&mut self, texture: u32, z: f32, instance: SpriteInstance) {
         if let Some(&first_z) = self.zs.first()
@@ -170,6 +176,7 @@ impl DrawList {
         {
             self.needs_sort = true;
         }
+        self.clips.push(self.clip);
         self.instances.push(instance);
         self.textures.push(texture);
         self.zs.push(z);
@@ -183,6 +190,7 @@ impl DrawList {
     /// returns (unwritten slots would be read as uninitialized memory).
     pub unsafe fn extend(&mut self, n: usize, fill: impl FnOnce(&Slots)) {
         let start = self.instances.len();
+        self.clips.resize(start + n, None);
         self.instances.reserve(n);
         self.textures.reserve(n);
         self.zs.reserve(n);
@@ -215,6 +223,8 @@ impl DrawList {
         self.instances.clear();
         self.textures.clear();
         self.zs.clear();
+        self.clips.clear();
+        self.clip = None;
         self.needs_sort = false;
         self.batches.clear();
     }
@@ -227,7 +237,7 @@ impl DrawList {
         if !self.needs_sort {
             // Fast path (the common case): everything shares one z, so
             // submission order is already the draw order.
-            Self::build_batches(&mut self.batches, &self.textures);
+            Self::build_batches(&mut self.batches, &self.textures, &self.clips);
             return (&self.instances, &self.batches);
         }
 
@@ -252,12 +262,14 @@ impl DrawList {
         let mut run: Option<Batch> = None;
         for (i, &(_, src)) in self.order.iter().enumerate() {
             let texture = textures[src as usize];
+            let clip = self.clips[src as usize];
             let i = i as u32;
             match &mut run {
-                Some(b) if b.texture == texture => b.end = i + 1,
+                Some(b) if b.texture == texture && b.clip == clip => b.end = i + 1,
                 _ => {
                     batches.extend(run);
                     run = Some(Batch {
+                        clip,
                         texture,
                         start: i,
                         end: i + 1,
@@ -269,15 +281,18 @@ impl DrawList {
     }
 
     /// One batch per run of equal textures, in order.
-    fn build_batches(batches: &mut Vec<Batch>, textures: &[u32]) {
+    fn build_batches(batches: &mut Vec<Batch>, textures: &[u32], clips: &[Option<crate::Rect>]) {
         let mut start = 0;
         while start < textures.len() {
             let texture = textures[start];
+            let clip = clips[start];
             let len = textures[start..]
                 .iter()
-                .position(|&t| t != texture)
+                .enumerate()
+                .position(|(i, &t)| t != texture || clips[start + i] != clip)
                 .unwrap_or(textures.len() - start);
             batches.push(Batch {
+                clip,
                 texture,
                 start: start as u32,
                 end: (start + len) as u32,
@@ -293,6 +308,29 @@ mod tests {
 
     fn inst(tag: f32) -> SpriteInstance {
         SpriteInstance::new([tag, 0.0], [1.0, 1.0], [0.5, 0.5], 0.0, [255; 4])
+    }
+
+    #[test]
+    fn clip_changes_split_batches_and_follow_sorted_instances() {
+        let mut list = DrawList::default();
+        let clip = crate::Rect::new(10.0, 20.0, 30.0, 40.0);
+        list.set_clip(Some(clip));
+        list.push(1, 5.0, inst(1.0));
+        list.set_clip(None);
+        list.push(1, 0.0, inst(2.0));
+        list.set_clip(Some(clip));
+        list.push(1, 5.0, inst(3.0));
+        let (instances, batches) = list.finish();
+        assert_eq!(tags(instances), [2.0, 1.0, 3.0]);
+        assert_eq!(batches.len(), 2);
+        assert_eq!(batches[0].clip, None);
+        assert_eq!(batches[1].clip, Some(clip));
+        list.clear();
+        list.push(1, 0.0, inst(0.0));
+        assert_eq!(list.finish().1[0].clip, None);
+        list.set_clip(Some(clip));
+        list.push(1, 0.0, inst(1.0));
+        assert_eq!(list.finish().1.len(), 2);
     }
 
     #[test]
@@ -318,11 +356,13 @@ mod tests {
             batches,
             &[
                 Batch {
+                    clip: None,
                     texture: 1,
                     start: 0,
                     end: 101
                 },
                 Batch {
+                    clip: None,
                     texture: 2,
                     start: 101,
                     end: n as u32 + 1
@@ -402,11 +442,13 @@ mod tests {
             batches,
             &[
                 Batch {
+                    clip: None,
                     texture: 1,
                     start: 0,
                     end: 2
                 },
                 Batch {
+                    clip: None,
                     texture: 2,
                     start: 2,
                     end: 4
@@ -430,6 +472,7 @@ mod tests {
         assert_eq!(
             batches,
             &[Batch {
+                clip: None,
                 texture: 7,
                 start: 0,
                 end: 1000
@@ -450,16 +493,19 @@ mod tests {
             batches,
             &[
                 Batch {
+                    clip: None,
                     texture: 1,
                     start: 0,
                     end: 2
                 },
                 Batch {
+                    clip: None,
                     texture: 2,
                     start: 2,
                     end: 3
                 },
                 Batch {
+                    clip: None,
                     texture: 1,
                     start: 3,
                     end: 4
@@ -482,11 +528,13 @@ mod tests {
             batches,
             &[
                 Batch {
+                    clip: None,
                     texture: 1,
                     start: 0,
                     end: 4
                 },
                 Batch {
+                    clip: None,
                     texture: 2,
                     start: 4,
                     end: 5
@@ -508,6 +556,7 @@ mod tests {
         assert_eq!(
             batches,
             &[Batch {
+                clip: None,
                 texture: 3,
                 start: 0,
                 end: 1

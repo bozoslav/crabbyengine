@@ -719,6 +719,7 @@ impl Game {
     /// One frame of game logic: simulation systems `fixed_steps` times, then
     /// frame systems, then built-in drawing. Commands are applied after every system.
     fn run_systems(&mut self, ctx: &mut Ctx, fixed_steps: u32) {
+        ctx.update_retained_ui();
         self.begin_timings(ctx);
         ctx.set_in_sim(true);
         for _ in 0..fixed_steps {
@@ -736,6 +737,8 @@ impl Game {
         }
         #[cfg(feature = "3d")]
         ctx.update_animators();
+        #[cfg(feature = "3d")]
+        ctx.update_particles();
         for (i, s) in self.late_systems.iter_mut().enumerate() {
             run_one(s, ctx, n_sim + n_frame + i);
         }

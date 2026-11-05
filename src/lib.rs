@@ -72,7 +72,11 @@ pub use actions::{Action, ActionMap, Axis2Binding, AxisBinding, ButtonBinding, I
 #[cfg(feature = "inspector")]
 mod inspector;
 mod logs;
+#[cfg(feature = "navmesh")]
+mod nav3d;
 mod net;
+#[cfg(feature = "navmesh")]
+pub use nav3d::{NavAgent3D, NavBakeError, NavBakeSettings, NavMesh3D, NavObstacle3D, NavSource, step_navmesh3d};
 #[cfg(feature = "physics")]
 mod physics;
 #[cfg(feature = "physics3d")]
@@ -143,19 +147,27 @@ pub use steamworks;
 #[cfg(feature = "3d")]
 pub use stream::CellStreamer;
 pub use stream::Job;
+/// Flex/grid/absolute layout types used by retained UI.
+/// ```
+/// use crabbyengine::ui_layout::Style;
+/// let style: Style = Style::default();
+/// ```
+pub use taffy as ui_layout;
 pub use text::{Font, TextParams};
 pub use texture::{DrawParams, Texture, TextureFilter};
 #[cfg(feature = "3d")]
 pub use three::{
-    AnimationClip, AnimationCondition, AnimationEvent, AnimationGraph, AnimationParameter, AnimationState,
-    AnimationTrack, AnimationTransition, Animator, AttachToJoint, Blend, Camera3D, Compute, ComputePass, Effect,
-    Heightfield, Interpolation, Joint, JointAnimation, Lighting, Material, MaterialDesc, Mesh, MeshCost, MeshData,
-    Model, Motion, MotionChild, PointLight3D, Post, ScreenEffect, Shader, ShadowMesh, Skeleton, SkinOf, Sky,
+    AnimationClip, AnimationCondition, AnimationEvent, AnimationGraph, AnimationLayer, AnimationParameter,
+    AnimationState, AnimationTrack, AnimationTransition, Animator, AttachToJoint, Blend, Camera3D, Compute,
+    ComputePass, Effect, Heightfield, Interpolation, Joint, JointAnimation, JointMask, LIGHT_SHADOW_SIZE, LayerBlend,
+    Lighting, MAX_LIGHT_SHADOW_VIEWS, Material, MaterialDesc, Mesh, MeshCost, MeshData, Model, Motion, MotionChild,
+    ParticleBlend3D, ParticleCurve, ParticleEmitter3D, ParticleGradient, ParticleSettings3D, ParticleShape3D,
+    ParticleSpace3D, PointLight3D, Post, RootMotion, ScreenEffect, Shader, ShadowMesh, Skeleton, SkinOf, Sky,
     SpotLight3D, TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera, TerrainMaterialDesc, TerrainTile, TerrainTileData,
     TextureArray, TextureKind, Tonemap, Transform3D, look_at_joint, two_bone_ik,
 };
 pub use tilemap::{TileMap, draw_tilemaps};
-pub use ui::UiStyle;
+pub use ui::{Ui, UiEvent, UiId, UiInput, UiPaint, UiStyle, UiTextAlign, UiWidget};
 
 /// The ECS: entities, components, queries, resources, commands.
 pub use crabby_ecs::{Commands, Component, ComponentId, Entity, Query, World};

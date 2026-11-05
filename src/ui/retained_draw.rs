@@ -1,0 +1,317 @@
+use super::retained::*;
+use crate::render::batch::{SpriteInstance, uv_region};
+use crate::{Color, Ctx, GamepadButton, Key, MouseButton, Rect, TextParams, Vec2};
+
+impl Ctx {
+    /// True while retained UI owns keyboard/gamepad input. Check before game
+    /// movement/actions, just as `mouse_over_ui` guards pointer input.
+    /// ```
+    /// use crabbyengine::*;
+    /// # fn update(ctx: &mut Ctx) {
+    /// if !ctx.ui_wants_keyboard() && ctx.key_pressed(Key::Space) { /* jump */ }
+    /// # }
+    /// ```
+    pub fn ui_wants_keyboard(&self) -> bool {
+        self.ui_retained.wants_keyboard()
+    }
+
+    /// Feed committed Unicode text from a custom host or headless test. Native
+    /// hosts should forward character events, rather than mapping physical keys.
+    /// ```
+    /// use crabbyengine::*;
+    /// # fn update(ctx: &mut Ctx) {
+    /// ctx.ui_insert_text("Hello");
+    /// # }
+    /// ```
+    pub fn ui_insert_text(&mut self, text: &str) {
+        self.input.add_text(text);
+    }
+
+    /// Committed Unicode typed this frame, also readable when UI has focus.
+    /// Cleared with other input after frame systems. Does not include IME
+    /// composition/preedit. Physical keys remain separate.
+    /// ```
+    /// use crabbyengine::*;
+    /// # fn update(ctx: &mut Ctx) {
+    /// let text = ctx.typed_text();
+    /// # let _ = text;
+    /// # }
+    /// ```
+    pub fn typed_text(&self) -> &str {
+        self.input.typed_text()
+    }
+
+    pub(crate) fn update_retained_ui(&mut self) {
+        let mut text = std::mem::take(&mut self.ui.retained_input_text);
+        text.clear();
+        text.push_str(self.typed_text());
+        let pressed = |key| self.key_pressed(key);
+        let pad = |b| self.gamepads().iter().any(|&p| self.gamepad_pressed(p, b));
+        let shift = self.key_down(Key::LeftShift) || self.key_down(Key::RightShift);
+        let ctrl = self.key_down(Key::LeftCtrl)
+            || self.key_down(Key::RightCtrl)
+            || self.key_down(Key::LeftSuper)
+            || self.key_down(Key::RightSuper);
+        let input = crate::UiInput {
+            pointer: self.mouse_pos(),
+            pressed: self.mouse_pressed(MouseButton::Left),
+            held: self.mouse_down(MouseButton::Left),
+            released: self.mouse_released(MouseButton::Left),
+            wheel: -self.mouse_wheel() * 40.0,
+            next: pressed(Key::Tab) && !shift,
+            previous: pressed(Key::Tab) && shift,
+            direction: Vec2::new(
+                (pressed(Key::Right) || pad(GamepadButton::DPadRight)) as u8 as f32
+                    - (pressed(Key::Left) || pad(GamepadButton::DPadLeft)) as u8 as f32,
+                (pressed(Key::Down) || pad(GamepadButton::DPadDown)) as u8 as f32
+                    - (pressed(Key::Up) || pad(GamepadButton::DPadUp)) as u8 as f32,
+            ),
+            confirm: pressed(Key::Enter)
+                || pad(GamepadButton::South)
+                || (pressed(Key::Space)
+                    && !self.ui_retained.focus().is_some_and(|id| {
+                        self.ui_retained
+                            .node(id)
+                            .is_some_and(|n| n.widget == crate::UiWidget::TextInput)
+                    })),
+            cancel: pressed(Key::Escape) || pad(GamepadButton::East),
+            shift,
+            select_all: ctrl && pressed(Key::A),
+            backspace: pressed(Key::Backspace),
+            delete: pressed(Key::Delete),
+            home: pressed(Key::Home),
+            end: pressed(Key::End),
+            text,
+        };
+        self.ui_retained
+            .frame_with_text(self.window_size(), &input, &mut self.text);
+        self.ui.retained_input_text = input.text;
+    }
+
+    pub(crate) fn draw_retained_ui(&mut self) {
+        // Move the tree out while issuing draw calls; no callback borrowing the
+        // game, context and node tree simultaneously is required.
+        let spare = self.ui.retained_spare.take().unwrap_or_default();
+        let mut ui = std::mem::replace(&mut self.ui_retained, spare);
+        // Mutations made by game systems (including screen pushes) show now.
+        ui.layout_with_text(self.window_size(), &mut self.text);
+        let scale = ui.scale();
+        for (order, &id) in ui.visible.iter().enumerate() {
+            let n = ui.node(id).unwrap();
+            let z = 100.0 + order as f32 * 4.0;
+            if ui.modal_root(id) {
+                self.ui_list.set_clip(None);
+                let size = self.window_size();
+                self.ui_fill(
+                    Rect::new(0.0, 0.0, size.x, size.y),
+                    Color::rgba(0.0, 0.0, 0.0, 0.55),
+                    z - 1.0,
+                );
+            }
+            self.ui_list.set_clip(Some(n.clip));
+            let fill = if !n.enabled {
+                n.paint.disabled
+            } else if ui.pressed == Some(id) {
+                n.paint.pressed
+            } else if ui.hovered == Some(id) || ui.focus == Some(id) {
+                n.paint.hover
+            } else {
+                n.paint.background
+            };
+            let width = if ui.focus == Some(id) {
+                n.paint.border_width.max(2.0)
+            } else {
+                n.paint.border_width
+            } * scale;
+            if width > 0.0 {
+                self.ui_fill(n.rect, n.paint.border, z);
+            }
+            let rect = n.rect.expand(-width);
+            self.ui_fill(rect, fill, z + 0.1);
+            if let Some(texture) = n.paint.texture {
+                self.retained_image(
+                    texture,
+                    rect,
+                    n.paint.slice * scale,
+                    n.paint.slice,
+                    n.paint.color,
+                    z + 0.2,
+                );
+            }
+            self.ui_list.set_clip(Some(intersect(n.clip, n.rect)));
+            let layout = ui.tree.layout(n.layout).unwrap();
+            let inset = Vec2::new(
+                layout.padding.left + layout.border.left,
+                layout.padding.top + layout.border.top,
+            ) * scale;
+            let content = Rect {
+                min: n.rect.min + inset,
+                max: n.rect.max
+                    - Vec2::new(
+                        layout.padding.right + layout.border.right,
+                        layout.padding.bottom + layout.border.bottom,
+                    ) * scale,
+            };
+            let mut text_rect = content;
+            if n.widget == crate::UiWidget::Toggle {
+                let side = content.size().y.min(20.0 * scale);
+                self.ui_fill(
+                    Rect::new(content.min.x, content.min.y, side, side),
+                    n.paint.border,
+                    z + 0.4,
+                );
+                if n.value > 0.5 {
+                    self.ui_fill(
+                        Rect::new(
+                            content.min.x + 4.0 * scale,
+                            content.min.y + 4.0 * scale,
+                            (side - 8.0 * scale).max(0.0),
+                            (side - 8.0 * scale).max(0.0),
+                        ),
+                        n.paint.color,
+                        z + 0.5,
+                    );
+                }
+                text_rect.min.x += side + 6.0 * scale;
+            }
+            if n.widget == crate::UiWidget::Slider {
+                self.ui_fill(
+                    Rect::new(
+                        content.min.x,
+                        content.center().y - 2.0 * scale,
+                        content.size().x,
+                        4.0 * scale,
+                    ),
+                    n.paint.border,
+                    z + 0.4,
+                );
+                self.ui_fill(
+                    Rect::new(
+                        content.min.x + n.value * (content.size().x - 8.0 * scale),
+                        content.min.y,
+                        8.0 * scale,
+                        content.size().y,
+                    ),
+                    n.paint.color,
+                    z + 0.5,
+                );
+            }
+            let font_size = n.paint.font_size * scale;
+            let mut origin = text_rect.min;
+            if n.widget == crate::UiWidget::TextInput && ui.focus == Some(id) {
+                let caret = self.measure_text_ex(&n.text[..n.caret], n.paint.font, font_size).x;
+                origin.x -= (caret - text_rect.size().x + 3.0 * scale).max(0.0);
+                let a = self
+                    .measure_text_ex(&n.text[..n.anchor.min(n.caret)], n.paint.font, font_size)
+                    .x;
+                let b = self
+                    .measure_text_ex(&n.text[..n.anchor.max(n.caret)], n.paint.font, font_size)
+                    .x;
+                if a != b {
+                    self.ui_fill(
+                        Rect::new(origin.x + a, origin.y, b - a, font_size),
+                        n.paint.hover,
+                        z + 0.6,
+                    );
+                }
+                self.ui_fill(
+                    Rect::new(origin.x + caret, origin.y, scale, font_size),
+                    n.paint.color,
+                    z + 0.8,
+                );
+            }
+            let params = TextParams {
+                font: n.paint.font,
+                size: font_size,
+                color: n.paint.color,
+                z: z + 0.7,
+            };
+            self.retained_text(&n.text, origin, text_rect.size().x, params, n.paint.wrap, n.paint.align);
+            if n.widget == crate::UiWidget::Scroll && n.max_scroll.y > 0.0 {
+                let h = n.rect.size().y;
+                let thumb = (h * h / (h + n.max_scroll.y * scale)).max(20.0 * scale).min(h);
+                let y = n.rect.min.y + (h - thumb) * n.scroll.y / n.max_scroll.y;
+                self.ui_fill(
+                    Rect::new(n.rect.max.x - 8.0 * scale, y, 6.0 * scale, thumb),
+                    n.paint.border,
+                    z + 0.9,
+                );
+            }
+        }
+        self.ui_list.set_clip(None);
+        std::mem::swap(&mut self.ui_retained, &mut ui);
+        self.ui.retained_spare = Some(ui);
+    }
+    fn retained_text(
+        &mut self,
+        text: &str,
+        origin: Vec2,
+        width: f32,
+        params: TextParams,
+        wrap: bool,
+        align: crate::UiTextAlign,
+    ) {
+        let mut y = origin.y;
+        for paragraph in text.split('\n') {
+            let mut rest = paragraph;
+            loop {
+                let end = if wrap {
+                    wrap_end(&mut self.text, rest, params.font, params.size, width)
+                } else {
+                    rest.len()
+                };
+                let line = &rest[..end];
+                let w = self.measure_text_ex(line, params.font, params.size).x;
+                let x = origin.x
+                    + match align {
+                        crate::UiTextAlign::Start => 0.0,
+                        crate::UiTextAlign::Center => (width - w) * 0.5,
+                        crate::UiTextAlign::End => width - w,
+                    };
+                self.draw_text_ex(line, Vec2::new(x, y), params);
+                y += self.measure_text_ex(line, params.font, params.size).y;
+                if end == rest.len() {
+                    break;
+                }
+                rest = rest[end..].trim_start();
+            }
+        }
+    }
+    fn retained_image(
+        &mut self,
+        texture: crate::Texture,
+        rect: Rect,
+        border: f32,
+        source_border: f32,
+        color: Color,
+        z: f32,
+    ) {
+        let source = texture.size();
+        let src = source_border.min(source.x * 0.5).min(source.y * 0.5).max(0.0);
+        let bx = border.min(rect.size().x * 0.5).max(0.0);
+        let by = border.min(rect.size().y * 0.5).max(0.0);
+        let xs = [0.0, bx, rect.size().x - bx, rect.size().x];
+        let ys = [0.0, by, rect.size().y - by, rect.size().y];
+        let us = [0.0, src / source.x, 1.0 - src / source.x, 1.0];
+        let vs = [0.0, src / source.y, 1.0 - src / source.y, 1.0];
+        for y in 0..3 {
+            for x in 0..3 {
+                let size = Vec2::new(xs[x + 1] - xs[x], ys[y + 1] - ys[y]);
+                if size.cmpgt(Vec2::ZERO).all() {
+                    self.ui_list.push(
+                        texture.id,
+                        z,
+                        SpriteInstance::new(
+                            (rect.min + Vec2::new(xs[x], ys[y])).into(),
+                            size.into(),
+                            [0.0, 0.0],
+                            0.0,
+                            color.to_rgba8(),
+                        )
+                        .with_uv(uv_region([us[x], vs[y]], [us[x + 1] - us[x], vs[y + 1] - vs[y]])),
+                    );
+                }
+            }
+        }
+    }
+}

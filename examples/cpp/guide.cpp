@@ -1324,10 +1324,10 @@ static void the_trees_stand_on_the_ground() {
 // ANCHOR: punctual_lights
 static void punctual_lights(crabby::ctx& ctx) {
     ctx.world().spawn(crabby::transform3d_at({0, 3, 0}),
-        crabby::point_light3d{crabby::rgb(1, .3f, .1f), 30, 12});
+        crabby::point_light3d{crabby::rgb(1, .3f, .1f), 30, 12, false});
     auto aim = crabby::looking_at(crabby::transform3d_at({4, 3, 0}), {0, 0, 0});
     ctx.world().spawn(aim,
-        crabby::spot_light3d{crabby::colors::white, 60, 20, .2f, .5f});
+        crabby::spot_light3d{crabby::colors::white, 60, 20, .2f, .5f, true}); // casts shadows
 }
 // ANCHOR_END: punctual_lights
 
@@ -1438,6 +1438,16 @@ static void skinned_tentacle(crabby::ctx& ctx) {
     ctx.animator_crossfade(character, idle, 0.12f);
     while (auto name = ctx.animator_next_event(character)) std::printf("Animation event: %s\n", name->c_str());
     // ANCHOR_END: animator_update
+    // ANCHOR: animator_layers
+    crabby::animation_graph_builder upper;
+    upper.add_state(crabby::motion::of(ctx.load_clip("models/character.glb", "wave")));
+    auto waving = upper.build(0);
+    // The wave plays on the spine and everything under it, over the walk.
+    auto wave = ctx.animator_add_layer(character, waving, crabby::layer_blend::override_pose, "spine");
+    ctx.animator_set_layer_weight(character, wave, 0.8f);
+    // The walk's own steps move the character, instead of sliding in place.
+    ctx.animator_set_root_motion(character, crabby::root_motion::apply, *ctx.find_joint(character, "hips"));
+    // ANCHOR_END: animator_layers
 }
 
 static void joints_and_dominance(crabby::ctx& ctx) {
@@ -1550,7 +1560,62 @@ static bool messages_round_trip() {
     return received;
 }
 
+static void campfire(crabby::ctx& ctx) {
+    // ANCHOR: particles
+    auto fire = crabby::particle_settings()
+                    .rate(120)
+                    .burst(40)
+                    .lifetime(0.7f, 1.4f)
+                    .speed(2, 4)
+                    .cone(0.45f)
+                    .gravity({0, -3, 0})
+                    .drag(0.2f)
+                    .size(0.05f, 0.13f)
+                    .rotation(0, 6.2831853f)
+                    .size_over_life({{0, 0.5f}, {0.2f, 1}, {1, 0}})
+                    .color_over_life({{0, {1, 0.7f, 0.2f, 1}}, {1, {1, 0.1f, 0, 0}}})
+                    .blend(crabby::particle_blend::additive)
+                    .max_particles(512)
+                    .seed(42);
+    auto e = ctx.world().spawn(crabby::transform3d_at({0, 0, 0}));
+    ctx.set_particle_emitter3d(e, fire);
+    ctx.particle_burst(e, 20); // more at any time
+    // ANCHOR_END: particles
+}
+
+static void navigation_guide() {
+    crabby::vec3 destination{8, 0, 0}, start{};
+    auto world = crabby::game("Navigation server", 1, 1)
+        .fixed_hz(60)
+        // ANCHOR: nav_agents
+        .navmesh3d() // moves agents every simulation tick
+        .run_headless(600, [&](crabby::ctx& ctx) {
+            // ANCHOR_END: nav_agents
+            // ANCHOR: nav_bake
+            crabby::nav_sources sources;
+            sources.add_mesh(crabby::mesh_data::plane(30), crabby::transform3d_at({0, 0, 0}));
+            sources.add_mesh(crabby::mesh_data::cube(4), crabby::transform3d_at({0, 2, 0}));
+            ctx.bake_navmesh(sources); // or pass a nav_bake_settings
+            // ANCHOR_END: nav_bake
+            // ANCHOR: nav_query
+            start = ctx.navmesh_sample_position({-8, 1, 0}, 2).value();
+            auto corners = ctx.navmesh_find_path(start, destination);
+            if (corners.size() < 3) std::abort();
+            // ANCHOR_END: nav_query
+            // ANCHOR: nav_agent_spawn
+            auto agent = ctx.world().spawn(crabby::transform3d_at(start));
+            ctx.set_nav_agent(agent, 3);
+            ctx.set_nav_destination(agent, destination);
+            // A world-space box; move it or remove it to reopen polygons.
+            ctx.set_nav_obstacle(ctx.world().spawn(), {0, 1, 8}, {1, 1, 1});
+            // ANCHOR_END: nav_agent_spawn
+        });
+    (void)world;
+}
+
 int main() {
+    navigation_guide();
+    crabby::game("particle guide", 1, 1).run_headless(0, campfire);
     if (!messages_round_trip()) { std::fprintf(stderr, "no message\n"); std::abort(); }
     crabby::game("sound guide", 1, 1).run_headless(0, [](crabby::ctx& ctx) {
         sound3d(ctx);

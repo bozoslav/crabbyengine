@@ -807,23 +807,46 @@ impl Ctx {
         costs
     }
 
+    /// Advances visual particle pools after frame systems.
+    pub(crate) fn update_particles(&mut self) {
+        let dt = self.dt();
+        let mut emitters = self
+            .world
+            .query::<(&mut super::ParticleEmitter3D, &super::Transform3D)>();
+        let any = emitters.count() > 0;
+        emitters.par_for_each(|(emitter, transform)| emitter.update(dt, transform));
+        if any && !self.headless && self.renderer.is_some() {
+            self.default_material(); // also initializes a particle-only 3D renderer
+        }
+    }
+
     /// Advances every animator not in manual mode by this frame's time. The
     /// game runs it after the frame systems, so draw systems (and the
     /// renderer) see this frame's pose.
     pub(crate) fn update_animators(&mut self) {
         let dt = self.dt();
         self.world
-            .query::<(&mut super::Animator, &mut Skeleton)>()
-            .for_each(|(animator, skeleton)| {
-                if !animator.manual {
-                    animator.update(dt, skeleton);
+            .query::<(&mut super::Animator, &mut Skeleton, Option<&mut super::Transform3D>)>()
+            .for_each(|(animator, skeleton, transform)| {
+                if animator.manual {
+                    return;
+                }
+                animator.update(dt, skeleton);
+                if let (true, Some(t)) = (animator.apply_root_motion, transform) {
+                    let motion = animator.root_motion();
+                    t.position += t.rotation * (motion.position * t.scale);
+                    t.rotation = (t.rotation * motion.rotation).normalize();
                 }
             });
     }
 
     pub(crate) fn prepare_3d(&mut self) {
-        if self.renderer.is_none() || self.assets3d.bounds.is_empty() {
-            return; // no meshes, no 3D pass
+        if self.renderer.is_none()
+            || (self.assets3d.bounds.is_empty()
+                && self.frame3d.particles.runs.is_empty()
+                && self.world.query::<&super::ParticleEmitter3D>().count() == 0)
+        {
+            return; // no drawable 3D scene
         }
         let time = (self.time() as f32, self.dt());
         let fallback = if self.effects.iter().any(|e| e.material.is_none())

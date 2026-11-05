@@ -83,6 +83,9 @@ pub struct CrabbyPointLight3D {
     pub intensity: f32,
     /// Same as Rust `PointLight3D::range`.
     pub range: f32,
+    /// Cast shadows (Rust `PointLight3D::shadows`): six of the frame's
+    /// `MAX_LIGHT_SHADOW_VIEWS` shadow views, nearest lights first.
+    pub shadows: bool,
 }
 
 /// Entity SpotLight3D: position from its transform; spots point along local -Z.
@@ -104,6 +107,8 @@ pub struct CrabbySpotLight3D {
     pub inner_angle: f32,
     /// Same as Rust `SpotLight3D::outer_angle`.
     pub outer_angle: f32,
+    /// Cast shadows (Rust `SpotLight3D::shadows`): one shadow view.
+    pub shadows: bool,
 }
 
 /// A mesh on the GPU (`crabby_ctx_create_mesh`, `crabby_ctx_load_mesh`).
@@ -2501,7 +2506,8 @@ same_layout!(
     PointLight3D,
     color = color,
     intensity = intensity,
-    range = range
+    range = range,
+    shadows = shadows
 );
 
 /// Registers the built-in `PointLight3D` for entity insertion and query columns.
@@ -2525,7 +2531,8 @@ same_layout!(
     intensity = intensity,
     range = range,
     inner_angle = inner_angle,
-    outer_angle = outer_angle
+    outer_angle = outer_angle,
+    shadows = shadows
 );
 
 /// Registers the built-in `SpotLight3D` for entity insertion and query columns.

@@ -182,6 +182,23 @@ fn animate_now() {
     // ANCHOR_END: animator_update
 }
 
+#[allow(dead_code)]
+fn layers_and_root_motion(skeleton: &Skeleton, wave: AnimationClip) -> Animator {
+    // ANCHOR: animator_layers
+    let mut animator = bend_animator(skeleton);
+    let waving = AnimationGraph::new(vec![], vec![AnimationState::new(Motion::Clip(wave))], vec![], 0);
+    let mut layer = AnimationLayer::new(waving);
+    layer.mask = JointMask::descendants(skeleton, "joint_3"); // that joint and its children
+    layer.weight = 0.8;
+    let wave = animator.add_layer(layer);
+    animator.layer_mut(wave).weight = 0.5; // fade it any time; its graph has its own parameters
+    // The clip's own steps move the entity, instead of sliding in place.
+    animator.root_joint = 0;
+    animator.apply_root_motion = true;
+    // ANCHOR_END: animator_layers
+    animator
+}
+
 fn main() {
     Game::new("Crabby: skinned meshes", 1000, 700).system(sway).run(|ctx| {
         ctx.clear(Color::hex(0xABCBDD));

@@ -12,6 +12,8 @@ mod lights;
 mod mips;
 #[cfg(not(feature = "window"))]
 mod none;
+#[cfg(all(feature = "window", feature = "3d"))]
+mod particles;
 #[cfg(feature = "window")]
 mod timer;
 
@@ -81,6 +83,8 @@ pub(crate) struct Screenshot {
     pub rgba: Vec<u8>,
 }
 
+#[cfg(all(test, feature = "window", feature = "3d"))]
+mod light_shadow_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod lights_bench;
 #[cfg(all(test, feature = "window", feature = "3d"))]

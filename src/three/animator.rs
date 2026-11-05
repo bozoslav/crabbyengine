@@ -1,6 +1,6 @@
 //! Shared animation graphs and per-entity playback.
 use super::{AnimationClip, Skeleton, Transform3D};
-use glam::Vec2;
+use glam::{Quat, Vec2, Vec3};
 use std::sync::Arc;
 
 /// Parameter defaults; indices in the graph identify parameters.
@@ -361,6 +361,104 @@ impl Motion {
         }
     }
 }
+impl Motion {
+    /// Horizontal root translation and yaw between two unwrapped clock times,
+    /// counting whole loops, blended with the same weights as the pose.
+    pub(crate) fn root_delta(
+        &self,
+        from: f32,
+        to: f32,
+        looping: bool,
+        p: &[AnimationParameter],
+        skeleton: &Skeleton,
+        root: usize,
+    ) -> (Vec3, f32) {
+        let mut sum = (Vec3::ZERO, 0.);
+        self.add_root_delta(from, to, looping, 1., p, skeleton, root, &mut sum);
+        sum
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn add_root_delta(
+        &self,
+        from: f32,
+        to: f32,
+        looping: bool,
+        weight: f32,
+        p: &[AnimationParameter],
+        skeleton: &Skeleton,
+        root: usize,
+        sum: &mut (Vec3, f32),
+    ) {
+        if weight <= 0. {
+            return;
+        }
+        let child = |c: &MotionChild, w: f32, sum: &mut (Vec3, f32)| {
+            c.motion.add_root_delta(
+                from * c.time_scale,
+                to * c.time_scale,
+                looping,
+                w,
+                p,
+                skeleton,
+                root,
+                sum,
+            );
+        };
+        match self {
+            Self::Clip(c) => {
+                let at = |t: f32| {
+                    let pose = c.sample_joint(t, skeleton, root);
+                    (pose.position * Vec3::new(1., 0., 1.), yaw(pose.rotation))
+                };
+                let d = c.duration();
+                let between = |a: f32, b: f32| {
+                    let (pa, ya) = at(a);
+                    let (pb, yb) = at(b);
+                    (pb - pa, angle_delta(ya, yb))
+                };
+                let (position, angle) = if looping && d > 0. {
+                    let loops = (to / d).floor() - (from / d).floor();
+                    let (lp, ly) = between(0., d);
+                    let (pp, py) = between(from.rem_euclid(d), to.rem_euclid(d));
+                    (pp + lp * loops, py + ly * loops)
+                } else {
+                    between(from, to)
+                };
+                sum.0 += position * weight;
+                sum.1 += angle * weight;
+            }
+            Self::Blend1D { parameter, children } => {
+                let v = float_parameter(p, *parameter);
+                let hi = children.partition_point(|(t, _)| *t <= v);
+                if hi == 0 {
+                    child(&children[0].1, weight, sum);
+                } else if hi == children.len() {
+                    child(&children[hi - 1].1, weight, sum);
+                } else {
+                    let f = (v - children[hi - 1].0) / (children[hi].0 - children[hi - 1].0);
+                    child(&children[hi - 1].1, weight * (1. - f), sum);
+                    child(&children[hi].1, weight * f, sum);
+                }
+            }
+            Self::Blend2D { x, y, children } => {
+                let v = Vec2::new(float_parameter(p, *x), float_parameter(p, *y));
+                if let Some((_, c)) = children.iter().find(|(point, _)| *point == v) {
+                    child(c, weight, sum);
+                } else {
+                    let distance = |point: Vec2| {
+                        let dx = f64::from(point.x) - f64::from(v.x);
+                        let dy = f64::from(point.y) - f64::from(v.y);
+                        dx * dx + dy * dy
+                    };
+                    let total: f64 = children.iter().map(|(point, _)| 1. / distance(*point)).sum();
+                    for (point, c) in children {
+                        child(c, weight * ((1. / distance(*point)) / total) as f32, sum);
+                    }
+                }
+            }
+        }
+    }
+}
 impl MotionChild {
     fn validate(&self, p: &[AnimationParameter]) {
         assert!(
@@ -398,6 +496,197 @@ struct Fade {
     duration: f32,
 }
 
+/// How a layer combines with the lower pose.
+/// ```
+/// use crabbyengine::LayerBlend;
+/// let mode = LayerBlend::Additive;
+/// assert_ne!(mode, LayerBlend::Override);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LayerBlend {
+    /// Interpolate toward the layer pose.
+    Override,
+    /// Add translation/scale differences and postmultiply the reference-relative rotation.
+    Additive,
+}
+
+/// Joint indices selected for one skeleton layout. Build once, reuse each frame.
+/// ```
+/// use crabbyengine::*;
+/// let mask = JointMask::new(vec![0, 2]);
+/// assert!(mask.contains(2));
+/// ```
+#[derive(Debug, Clone)]
+pub struct JointMask(Vec<usize>);
+impl JointMask {
+    /// Select explicit joint indices (duplicates are removed).
+    /// ```
+    /// use crabbyengine::JointMask;
+    /// assert!(JointMask::new(vec![3, 3]).contains(3));
+    /// ```
+    pub fn new(mut joints: Vec<usize>) -> Self {
+        joints.sort_unstable();
+        joints.dedup();
+        Self(joints)
+    }
+    /// Select the named joint and every descendant; None if the name is absent.
+    /// ```
+    /// use crabbyengine::*;
+    /// assert!(JointMask::descendants(&Skeleton::new(vec![]), "arm").is_none());
+    /// ```
+    pub fn descendants(skeleton: &Skeleton, name: &str) -> Option<Self> {
+        let root = skeleton.find(name)?;
+        let mut joints = vec![root];
+        for (i, joint) in skeleton.joints().iter().enumerate().skip(root + 1) {
+            if joint.parent.is_some_and(|p| joints.binary_search(&p).is_ok()) {
+                joints.push(i);
+            }
+        }
+        Some(Self(joints))
+    }
+    /// Whether the joint index is selected.
+    /// ```
+    /// use crabbyengine::JointMask;
+    /// assert!(!JointMask::new(vec![1]).contains(0));
+    /// ```
+    pub fn contains(&self, joint: usize) -> bool {
+        self.0.binary_search(&joint).is_ok()
+    }
+}
+
+/// An overlay with its own graph, parameters, events and clock. Layers run even
+/// at weight zero. Configure parameters/commands through `animator`; base-layer
+/// commands remain on the parent Animator. Nested layers are supported.
+/// ```
+/// use crabbyengine::*;
+/// let s = Skeleton::new(vec![]);
+/// let state = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &s, vec![])));
+/// let mut layer = AnimationLayer::new(AnimationGraph::new(vec![], vec![state], vec![], 0));
+/// layer.weight = 0.5;
+/// layer.mode = LayerBlend::Additive;
+/// ```
+#[derive(Debug, Clone)]
+pub struct AnimationLayer {
+    /// Independent playback; its root-motion settings do not move the parent entity.
+    pub animator: Box<Animator>,
+    /// Runtime weight, clamped to [0, 1]; NaN means zero.
+    pub weight: f32,
+    /// Override or reference-relative additive blending.
+    pub mode: LayerBlend,
+    /// None selects every joint. Rebuild index masks when changing skeleton layouts.
+    pub mask: Option<JointMask>,
+    /// Chosen additive reference; None samples the destination motion at time zero
+    /// with current parameters. Missing reference joints use the skeleton rest pose.
+    pub reference_pose: Option<Vec<Transform3D>>,
+    buffers: Option<(Skeleton, Skeleton, Skeleton)>,
+}
+impl AnimationLayer {
+    /// Make a full-weight override layer, without a mask or explicit reference.
+    /// ```
+    /// use crabbyengine::*;
+    /// let s = Skeleton::new(vec![]);
+    /// let state = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &s, vec![])));
+    /// let layer = AnimationLayer::new(AnimationGraph::new(vec![], vec![state], vec![], 0));
+    /// assert_eq!(layer.weight, 1.0);
+    /// ```
+    pub fn new(graph: Arc<AnimationGraph>) -> Self {
+        Self {
+            animator: Box::new(Animator::new(graph)),
+            weight: 1.,
+            mode: LayerBlend::Override,
+            mask: None,
+            reference_pose: None,
+            buffers: None,
+        }
+    }
+    fn apply(&mut self, dt: f32, skeleton: &mut Skeleton) {
+        if self
+            .buffers
+            .as_ref()
+            .is_none_or(|(s, _, _)| !s.shares_joints(skeleton.shared_joints()))
+        {
+            self.buffers = Some((skeleton.clone(), skeleton.clone(), skeleton.clone()));
+        }
+        let (pose, reference, scratch) = self.buffers.as_mut().unwrap();
+        self.animator.update(dt, pose);
+        let w = if self.weight.is_nan() {
+            0.
+        } else {
+            self.weight.clamp(0., 1.)
+        };
+        if w == 0. {
+            return;
+        }
+        if self.mode == LayerBlend::Additive && self.reference_pose.is_none() {
+            reference.reset_pose();
+            self.animator.graph.states[self.animator.state].motion.sample(
+                0.,
+                false,
+                1.,
+                &self.animator.parameters,
+                reference,
+                scratch,
+                &mut 0.,
+            );
+        }
+        let joints = skeleton.shared_joints().clone();
+        for (i, (a, b)) in skeleton.pose.iter_mut().zip(&pose.pose).enumerate() {
+            if self.mask.as_ref().is_some_and(|m| !m.contains(i)) {
+                continue;
+            }
+            match self.mode {
+                LayerBlend::Override => {
+                    a.position = a.position.lerp(b.position, w);
+                    a.rotation = a.rotation.slerp(b.rotation, w);
+                    a.scale = a.scale.lerp(b.scale, w);
+                }
+                LayerBlend::Additive => {
+                    let r = self
+                        .reference_pose
+                        .as_ref()
+                        .map_or_else(|| reference.pose.get(i), |p| p.get(i))
+                        .unwrap_or(&joints[i].rest);
+                    a.position += (b.position - r.position) * w;
+                    a.scale += (b.scale - r.scale) * w;
+                    a.rotation = (a.rotation * Quat::IDENTITY.slerp(r.rotation.inverse() * b.rotation, w)).normalize();
+                }
+            }
+        }
+    }
+}
+
+/// Horizontal translation in skeleton-local axes and yaw for the latest update.
+/// Vertical motion and pitch/roll stay in the pose. Apply translation using the
+/// entity's pre-update orientation, then postmultiply its rotation.
+/// ```
+/// use crabbyengine::*;
+/// let delta = RootMotion::default();
+/// assert_eq!(delta.position, Vec3::ZERO);
+/// assert_eq!(delta.rotation, Quat::IDENTITY);
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub struct RootMotion {
+    /// Local horizontal displacement, before entity scale.
+    pub position: Vec3,
+    /// Yaw quaternion delta.
+    pub rotation: Quat,
+}
+impl Default for RootMotion {
+    fn default() -> Self {
+        Self {
+            position: Vec3::ZERO,
+            rotation: Quat::IDENTITY,
+        }
+    }
+}
+fn yaw(q: Quat) -> f32 {
+    let forward = q * Vec3::Z;
+    forward.x.atan2(forward.z)
+}
+fn angle_delta(a: f32, b: f32) -> f32 {
+    (b - a + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI
+}
+
 /// Animation component. The engine updates it every frame after the frame
 /// systems and before the draw systems: frame systems see the previous
 /// frame's pose, draw systems and the renderer this frame's. `run_headless`
@@ -426,6 +715,16 @@ pub struct Animator {
     pending: Option<(usize, f32, f32)>,
     buffers: Option<(Skeleton, Skeleton, Skeleton)>,
     events: Vec<Arc<str>>,
+    layers: Vec<AnimationLayer>,
+    root_delta: RootMotion,
+    /// Extract base-layer horizontal translation and yaw instead of posing them.
+    pub extract_root_motion: bool,
+    /// Root joint index, default zero; invalid indices produce an identity delta.
+    /// Extraction uses this joint's local axes, so normally choose a hierarchy root.
+    pub root_joint: usize,
+    /// Apply extracted motion to the entity Transform3D during automatic updates.
+    /// Implies extraction, even when extract_root_motion is false.
+    pub apply_root_motion: bool,
     /// Skip automatic engine updates; manual calls still work.
     pub manual: bool,
 }
@@ -447,8 +746,66 @@ impl Animator {
             pending: None,
             buffers: None,
             events: Vec::with_capacity(64),
+            layers: Vec::new(),
+            root_delta: RootMotion::default(),
+            extract_root_motion: false,
+            root_joint: 0,
+            apply_root_motion: false,
             manual: false,
         }
+    }
+    /// Append an overlay, returning its zero-based overlay index (base excluded).
+    /// ```
+    /// use crabbyengine::*;
+    /// let s = Skeleton::new(vec![]);
+    /// let state = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &s, vec![])));
+    /// let g = AnimationGraph::new(vec![], vec![state], vec![], 0);
+    /// let mut a = Animator::new(g.clone());
+    /// assert_eq!(a.add_layer(AnimationLayer::new(g)), 0);
+    /// ```
+    pub fn add_layer(&mut self, layer: AnimationLayer) -> usize {
+        let index = self.layers.len();
+        self.layers.push(layer);
+        index
+    }
+    /// Edit an overlay by index; panics for an invalid index.
+    /// ```
+    /// use crabbyengine::*;
+    /// # let s = Skeleton::new(vec![]);
+    /// # let state = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &s, vec![])));
+    /// # let g = AnimationGraph::new(vec![], vec![state], vec![], 0);
+    /// # let mut a = Animator::new(g.clone());
+    /// let index = a.add_layer(AnimationLayer::new(g));
+    /// a.layer_mut(index).weight = 0.25;
+    /// ```
+    pub fn layer_mut(&mut self, index: usize) -> &mut AnimationLayer {
+        &mut self.layers[index]
+    }
+    /// Number of overlays added with [`add_layer`](Self::add_layer).
+    /// ```
+    /// use crabbyengine::*;
+    /// # let s = Skeleton::new(vec![]);
+    /// # let state = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &s, vec![])));
+    /// let a = Animator::new(AnimationGraph::new(vec![], vec![state], vec![], 0));
+    /// assert_eq!(a.layer_count(), 0);
+    /// ```
+    pub fn layer_count(&self) -> usize {
+        self.layers.len()
+    }
+    /// Latest update's base-layer motion; identity when extraction is disabled.
+    /// Reading does not consume it. play/offset changes never add displacement.
+    /// Ordinary crossfades blend deltas using the end-of-update fade weight;
+    /// interrupted fades blend from zero velocity (their pose source is frozen).
+    /// ```
+    /// use crabbyengine::*;
+    /// # let s = Skeleton::new(vec![]);
+    /// # let state = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &s, vec![])));
+    /// # let mut a = Animator::new(AnimationGraph::new(vec![], vec![state], vec![], 0));
+    /// a.extract_root_motion = true;
+    /// assert_eq!(a.root_motion().position, Vec3::ZERO);
+    /// ```
+    pub fn root_motion(&self) -> RootMotion {
+        self.root_delta
     }
     /// Set a float by index. Panics on a wrong type/index or non-finite value.
     /// ```
@@ -600,6 +957,20 @@ impl Animator {
     /// a.update(0.016, &mut skeleton);
     /// ```
     pub fn update(&mut self, dt: f32, skeleton: &mut Skeleton) {
+        self.update_base(dt, skeleton);
+        for layer in &mut self.layers {
+            layer.apply(dt, skeleton);
+        }
+        if self.extract_root_motion || self.apply_root_motion {
+            let rest = skeleton.joints().get(self.root_joint).map(|j| j.rest);
+            if let (Some(rest), Some(pose)) = (rest, skeleton.pose.get_mut(self.root_joint)) {
+                pose.position.x = rest.position.x;
+                pose.position.z = rest.position.z;
+                pose.rotation = Quat::from_rotation_y(yaw(rest.rotation) - yaw(pose.rotation)) * pose.rotation;
+            }
+        }
+    }
+    fn update_base(&mut self, dt: f32, skeleton: &mut Skeleton) {
         assert!(
             dt.is_finite() && dt >= 0.,
             "Animator: dt must be finite and nonnegative"
@@ -663,6 +1034,37 @@ impl Animator {
         let old = self.time;
         self.time = self.advance(self.state, self.time, dt);
         self.collect_events(old, self.time);
+        self.root_delta = RootMotion::default();
+        if (self.extract_root_motion || self.apply_root_motion) && self.root_joint < skeleton.joints().len() {
+            let state = &self.graph.states[self.state];
+            let mut delta = state.motion.root_delta(
+                old,
+                self.time,
+                state.looping,
+                &self.parameters,
+                skeleton,
+                self.root_joint,
+            );
+            if let Some(fade) = &self.fade {
+                let w = ((fade.elapsed + dt) / fade.duration).min(1.);
+                let source = fade.source.map_or((Vec3::ZERO, 0.), |(i, time)| {
+                    let s = &self.graph.states[i];
+                    s.motion.root_delta(
+                        time,
+                        self.advance(i, time, dt),
+                        s.looping,
+                        &self.parameters,
+                        skeleton,
+                        self.root_joint,
+                    )
+                });
+                delta = (source.0.lerp(delta.0, w), source.1 + (delta.1 - source.1) * w);
+            }
+            self.root_delta = RootMotion {
+                position: delta.0,
+                rotation: Quat::from_rotation_y(delta.1),
+            };
+        }
         if let Some(mut fade) = self.fade.take() {
             fade.elapsed = (fade.elapsed + dt).min(fade.duration);
             if let Some((state, time)) = fade.source {
@@ -746,6 +1148,107 @@ mod tests {
     }
     fn near(a: f32, b: f32) {
         assert!((a - b).abs() < 1e-5, "{a} != {b}");
+    }
+    #[test]
+    fn layers_weight_mask_and_additive_rotation() {
+        let mut s = Skeleton::new(vec![
+            Joint {
+                name: "root".into(),
+                parent: None,
+                rest: Transform3D::default(),
+            },
+            Joint {
+                name: "arm".into(),
+                parent: Some(0),
+                rest: Transform3D::default(),
+            },
+        ]);
+        let mut a = animator(&s, Motion::Clip(clip(&s, 2.)), vec![]);
+        let overlay = animator(&s, Motion::Clip(clip(&s, 10.)), vec![]);
+        let mut layer = AnimationLayer::new(overlay.graph.clone());
+        layer.mask = Some(JointMask::descendants(&s, "arm").unwrap());
+        let i = a.add_layer(layer);
+        a.update(0., &mut s);
+        near(s.pose[0].position.x, 2.);
+        a.layer_mut(i).mask = None;
+        a.layer_mut(i).weight = 0.;
+        a.update(0., &mut s);
+        near(s.pose[0].position.x, 2.);
+        a.layer_mut(i).weight = 1.;
+        a.update(0., &mut s);
+        near(s.pose[0].position.x, 10.);
+        let rotation = AnimationClip::new(
+            "add",
+            &s,
+            vec![JointAnimation {
+                joint: 0,
+                name: "root".into(),
+                translation: None,
+                scale: None,
+                rotation: Some(AnimationTrack::new(
+                    vec![0., 1.],
+                    vec![Vec4::W, Vec4::from_array(glam::Quat::from_rotation_z(0.2).to_array())],
+                    Interpolation::Linear,
+                )),
+            }],
+        );
+        let mut layer = AnimationLayer::new(animator(&s, Motion::Clip(rotation), vec![]).graph);
+        layer.mode = LayerBlend::Additive;
+        layer.animator.graph = AnimationGraph::new(
+            vec![],
+            vec![{
+                let mut state = layer.animator.graph.states[0].clone();
+                state.looping = false;
+                state
+            }],
+            vec![],
+            0,
+        );
+        a.add_layer(layer);
+        a.update(1., &mut s);
+        assert!(s.pose[0].rotation.abs_diff_eq(glam::Quat::from_rotation_z(0.2), 1e-5));
+    }
+    fn walk(s: &Skeleton, distance: f32) -> AnimationClip {
+        AnimationClip::new(
+            "walk",
+            s,
+            vec![JointAnimation {
+                joint: 0,
+                name: "root".into(),
+                translation: Some(AnimationTrack::new(
+                    vec![0., 1.],
+                    vec![Vec4::ZERO, Vec4::new(distance, 0., 0., 0.)],
+                    Interpolation::Linear,
+                )),
+                rotation: None,
+                scale: None,
+            }],
+        )
+    }
+    #[test]
+    fn root_motion_wrap_speed_and_crossfade() {
+        let mut s = skeleton();
+        let mut fast = AnimationState::new(Motion::Clip(walk(&s, 2.)));
+        fast.speed = 2.;
+        let mut a = Animator::new(AnimationGraph::new(
+            vec![],
+            vec![AnimationState::new(Motion::Clip(walk(&s, 1.))), fast],
+            vec![],
+            0,
+        ));
+        a.extract_root_motion = true;
+        let mut total = 0.;
+        for _ in 0..10 {
+            a.update(0.3, &mut s);
+            total += a.root_motion().position.x;
+            near(s.pose[0].position.x, 0.);
+        }
+        near(total, 3.);
+        a.crossfade(1, 1., 0.);
+        a.update(0.5, &mut s);
+        near(a.root_motion().position.x, 1.25);
+        a.update(2., &mut s);
+        near(a.root_motion().position.x, 8.);
     }
     #[test]
     fn idle_walk_run_use_ordered_transitions_and_fixed_time_weights() {

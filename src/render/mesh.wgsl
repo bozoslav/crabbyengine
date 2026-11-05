@@ -31,6 +31,9 @@ struct Frame {
     fog_far: vec4<f32>,    // x: distance fog start, y: its end (0: none), z: sun glow, w: sun focus
     cluster_depth: vec4<f32>,
     cluster_view_proj: mat4x4<f32>,
+    // World to each point and spot light shadow view's clip space.
+    light_view_proj: array<mat4x4<f32>, 12>,
+    light_shadow: vec4<f32>, // views (0: none), texel size in uv, normal offset in texels
 };
 
 struct MaterialData {
@@ -49,6 +52,8 @@ struct MaterialData {
 @group(0) @binding(4) var sky_sampler: sampler;
 @group(0) @binding(5) var punctual_records: texture_2d<f32>;
 @group(0) @binding(6) var punctual_clusters: texture_2d<u32>;
+// Point and spot lights' shadow views, one layer each (see punctual_shadow).
+@group(0) @binding(7) var light_shadow_map: texture_depth_2d_array;
 @group(1) @binding(0) var<uniform> material: MaterialData;
 @group(1) @binding(1) var material_sampler: sampler;
 @group(1) @binding(2) var base_texture: texture_2d<f32>;
@@ -282,11 +287,57 @@ fn punctual_light(s: Surface) -> vec3<f32> {
         }
         let window = max(1.0 - (d2 / (pr.w * pr.w)) * (d2 / (pr.w * pr.w)), 0.0);
         attenuation *= window * window / max(d2, 1.0);
+        let shadow_info = textureLoad(punctual_records, vec2<i32>(3, id), 0);
+        if shadow_info.y >= 0.0 && attenuation > 0.0 {
+            attenuation *= punctual_shadow(i32(shadow_info.y), shadow_info.z, pr.xyz, s.world, s.normal, cone.w <= -1.0);
+        }
         let radiance = textureLoad(punctual_records, vec2<i32>(1, id), 0).rgb * attenuation;
         sum += direct_light(s, l, radiance);
     }
     return sum;
 }
+// How much of a point or spot light at `light` reaches `world` (0 in its
+// shadow, 1 lit), from its shadow views starting at `first`: a spot light's
+// one, or a point light's six cube faces (+X, -X, +Y, -Y, +Z, -Z). `texel`
+// is a texel's world size per unit of distance from the light.
+fn punctual_shadow(first: i32, texel: f32, light: vec3<f32>, world: vec3<f32>, n: vec3<f32>, point: bool) -> f32 {
+    if f32(first) >= frame.light_shadow.x {
+        return 1.0;
+    }
+    // Looking up a little off the surface keeps it from shadowing itself;
+    // texels grow with distance from the light.
+    let p = world + n * (frame.light_shadow.z * texel * distance(world, light));
+    var view = first;
+    if point {
+        let v = p - light;
+        let a = abs(v);
+        if a.x >= a.y && a.x >= a.z {
+            view += select(1, 0, v.x > 0.0);
+        } else if a.y >= a.z {
+            view += select(3, 2, v.y > 0.0);
+        } else {
+            view += select(5, 4, v.z > 0.0);
+        }
+    }
+    let clip = frame.light_view_proj[view] * vec4<f32>(p, 1.0);
+    if clip.w <= 0.0 {
+        return 1.0;
+    }
+    let ndc = clip.xyz / clip.w;
+    if abs(ndc.x) > 1.0 || abs(ndc.y) > 1.0 || ndc.z > 1.0 {
+        return 1.0;
+    }
+    let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+    var lit = 0.0;
+    for (var y = -1; y <= 1; y++) {
+        for (var x = -1; x <= 1; x++) {
+            let at = uv + vec2<f32>(f32(x), f32(y)) * frame.light_shadow.y;
+            lit += textureSampleCompareLevel(light_shadow_map, shadow_sampler, at, view, ndc.z);
+        }
+    }
+    return lit / 9.0;
+}
+
 fn cluster_word(i: u32) -> u32 {
     return textureLoad(punctual_clusters, vec2<i32>(i32(i % 1024u), i32(i / 1024u)), 0).x;
 }
