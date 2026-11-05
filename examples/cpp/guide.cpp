@@ -1719,8 +1719,111 @@ static void navigation_guide() {
     (void)world;
 }
 
+// ---- Retained UI --------------------------------------------------------------
+struct Shop {
+    ui::id title = ui::none, buy = ui::none, dialog = ui::none, message = ui::none;
+    ui::id confirm = ui::none, cancel = ui::none;
+    std::vector<ui::id> items;
+    int selected = -1;
+};
+
+static Shop build_shop(crabby::ctx& ctx) {
+    Shop shop;
+    // ANCHOR: shop_tree
+    auto tree = ctx.ui_retained();
+    auto fixed = [](float width, float height) { return ui::layout().size(width, height).shrink(0); };
+    auto root = tree.add_panel(ui::none, ui::layout()
+        .column().size(ui::percent(1), ui::percent(1)).padding(24).gap(12));
+    shop.title = tree.add_label(root, "General store — choose an item", fixed(400, 32));
+    tree.add_text_input(root, "Your order note", fixed(360, 36));
+    auto scroll = tree.add_scroll(root, ui::layout()
+        .size(ui::percent(1), ui::points(360)).min_size(ui::points(0), ui::points(0)));
+    auto grid = tree.add_panel(scroll, ui::layout()
+        .grid({ui::fr(1), ui::fr(1), ui::fr(1)}).auto_rows({ui::track_points(76)})
+        .size(ui::percent(0.95f), ui::automatic()).gap(8).shrink(0));
+    for (int i = 0; i < 36; ++i) {
+        auto label = "Item " + std::to_string(i + 1) + "\n" + std::to_string((i + 1) * 3) + " coins";
+        auto item = tree.add_button(grid, label.c_str(),
+                                    ui::layout().min_size(ui::points(0), ui::points(0)).padding(8));
+        tree.set_paint(item, ui::paint().wrap().border_width(1));
+        shop.items.push_back(item);
+    }
+    tree.add_toggle(root, "Gift wrap", false, fixed(220, 28));
+    shop.buy = tree.add_button(root, "Buy selected item", fixed(220, 40));
+    tree.set_enabled(shop.buy, false);
+    tree.push_screen(root);
+    // ANCHOR_END: shop_tree
+
+    // ANCHOR: shop_dialog
+    // A detached screen can be reused after it is popped.
+    shop.dialog = tree.add_panel(ui::none, ui::layout()
+        .size(360, 180).column().padding(20).gap(12)
+        .margin(ui::points(180), ui::automatic(), ui::automatic(), ui::automatic()));
+    shop.message = tree.add_label(shop.dialog, "", fixed(320, 40));
+    shop.confirm = tree.add_button(shop.dialog, "Confirm purchase", fixed(240, 36));
+    shop.cancel = tree.add_button(shop.dialog, "Back", fixed(240, 30));
+    // ANCHOR_END: shop_dialog
+    return shop;
+}
+
+// ANCHOR: shop_events
+static void shop_events(crabby::ctx& ctx, Shop& shop) {
+    auto tree = ctx.ui_retained();
+    // The UI ran before this system. Take the events first, then change the tree.
+    for (const ui::event& e : tree.events()) {
+        if (e.kind != ui::event_kind::clicked) continue;
+        auto item = std::find(shop.items.begin(), shop.items.end(), e.node);
+        if (item != shop.items.end()) {
+            shop.selected = int(item - shop.items.begin());
+            tree.set_enabled(shop.buy, true);
+            tree.set_text(shop.buy, ("Buy item " + std::to_string(shop.selected + 1)).c_str());
+        } else if (e.node == shop.buy) {
+            tree.set_text(shop.message, ("Buy item " + std::to_string(shop.selected + 1) + "?").c_str());
+            tree.push_screen(shop.dialog, true);
+        } else if (e.node == shop.confirm || e.node == shop.cancel) {
+            tree.pop_screen();
+            if (e.node == shop.confirm) tree.set_text(shop.title, "Purchase complete!");
+        }
+    }
+    // Tab/arrows or d-pad navigate; Enter/South confirms; Escape/East pops the
+    // top screen. A modal screen also owns the pointer outside it.
+    if (!tree.wants_pointer()) { /* world pointer actions */ }
+    if (!tree.wants_keyboard()) { /* world keyboard/gamepad actions */ }
+}
+// ANCHOR_END: shop_events
+
+/// Clicks the middle of a node, the way a mouse would.
+static void click_node(crabby::ctx& ctx, ui::id node) {
+    auto tree = ctx.ui_retained();
+    const crabby::vec2 window{900, 700};
+    tree.layout_for(window);
+    const auto r = tree.rect(node);
+    const crabby::vec2 at = (r.min + r.max) * 0.5f;
+    auto input = ui::default_input();
+    input.pointer = at;
+    input.pressed = input.held = true;
+    tree.frame(window, input);
+    input.pressed = input.held = false;
+    input.released = true;
+    tree.frame(window, input);
+}
+
+static void shop_guide(crabby::ctx& ctx) {
+    auto shop = build_shop(ctx);
+    auto tree = ctx.ui_retained();
+    click_node(ctx, shop.items[2]);
+    shop_events(ctx, shop);
+    click_node(ctx, shop.buy);
+    shop_events(ctx, shop);
+    if (shop.selected != 2 || tree.top_screen() != shop.dialog || tree.text(shop.message) != "Buy item 3?") std::abort();
+    click_node(ctx, shop.confirm);
+    shop_events(ctx, shop);
+    if (tree.text(shop.title) != "Purchase complete!" || tree.top_screen() == shop.dialog) std::abort();
+}
+
 int main() {
     navigation_guide();
+    crabby::game("shop guide", 900, 700).run_headless(0, shop_guide);
     crabby::game("particle guide", 1, 1).run_headless(0, campfire);
     crabby::game("ribbon guide", 1, 1).run_headless(0, ribbons);
     if (!messages_round_trip()) { std::fprintf(stderr, "no message\n"); std::abort(); }

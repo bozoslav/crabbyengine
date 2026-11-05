@@ -1438,6 +1438,265 @@ public:
     }
 };
 
+/// The retained UI (Rust `Ui`, reached with `ctx.ui_retained()`): a tree of
+/// panels, labels, buttons, images, scroll areas, text inputs, toggles and
+/// sliders, laid out by flexbox, grid and absolute positions.
+namespace ui {
+/// A node's id, never reused: the id of a removed node fails.
+using id = std::uint64_t;
+/// "No node": a detached root's parent.
+constexpr id none = CRABBY_UI_NONE;
+/// A flex or grid length: automatic, in points, or a fraction of the parent.
+using length = CrabbyUiLength;
+inline length automatic() { return {static_cast<std::uint32_t>(CRABBY_UI_LENGTH_AUTO), 0.0f}; }
+inline length points(float v) { return {static_cast<std::uint32_t>(CRABBY_UI_LENGTH_POINTS), v}; }
+/// A fraction of the parent: `percent(0.5f)` is half.
+inline length percent(float fraction) { return {static_cast<std::uint32_t>(CRABBY_UI_LENGTH_PERCENT), fraction}; }
+/// One grid row or column.
+using track = CrabbyUiTrack;
+inline track track_auto() { return {static_cast<std::uint32_t>(CRABBY_UI_TRACK_AUTO), 0.0f}; }
+inline track track_points(float v) { return {static_cast<std::uint32_t>(CRABBY_UI_TRACK_POINTS), v}; }
+inline track track_percent(float fraction) { return {static_cast<std::uint32_t>(CRABBY_UI_TRACK_PERCENT), fraction}; }
+/// A share of the free space, like CSS `fr`.
+inline track fr(float share) { return {static_cast<std::uint32_t>(CRABBY_UI_TRACK_FR), share}; }
+inline track min_content() { return {static_cast<std::uint32_t>(CRABBY_UI_TRACK_MIN_CONTENT), 0.0f}; }
+inline track max_content() { return {static_cast<std::uint32_t>(CRABBY_UI_TRACK_MAX_CONTENT), 0.0f}; }
+/// Where a grid item starts or ends: placed automatically, at a numbered line (from 1; negative counts from the end), or across `n` tracks.
+using grid_line = CrabbyUiGridLine;
+inline grid_line grid_auto() { return {static_cast<std::uint32_t>(CRABBY_UI_GRID_AUTO), 0}; }
+inline grid_line line(int number) { return {static_cast<std::uint32_t>(CRABBY_UI_GRID_LINE), number}; }
+inline grid_line span(int tracks) { return {static_cast<std::uint32_t>(CRABBY_UI_GRID_SPAN), tracks}; }
+
+enum class display : std::uint32_t { flex = 0, grid = 1, none = 2 };
+/// `flow` keeps a node in normal flow; `relative` also nudges it by its inset and anchors absolute children.
+enum class position : std::uint32_t { flow = 0, relative = 1, absolute = 2, fixed = 3 };
+enum class direction : std::uint32_t { row = 0, column = 1, row_reverse = 2, column_reverse = 3 };
+enum class wrap : std::uint32_t { no_wrap = 0, wrap = 1, wrap_reverse = 2 };
+/// Alignment of items on one axis. For `align_self` and `justify_self`, `normal` follows the parent.
+enum class align : std::uint32_t { normal = 0, start = 1, end = 2, flex_start = 3, flex_end = 4, center = 5, baseline = 6, stretch = 7 };
+/// How lines or items share the free space.
+enum class content : std::uint32_t { normal = 0, start = 1, end = 2, flex_start = 3, flex_end = 4, center = 5, stretch = 6, space_between = 7, space_evenly = 8, space_around = 9 };
+enum class text_align : std::uint32_t { start = 0, center = 1, end = 2 };
+
+/// A node's layout (Rust `ui_layout::Style`), built by chaining:
+/// `ui::layout().column().size(ui::percent(1), ui::points(40)).padding(8).gap(4)`.
+class layout {
+    CrabbyUiLayout c_ = crabby_ui_layout_default();
+    std::vector<CrabbyUiTrack> columns_, rows_, auto_columns_, auto_rows_;
+    static CrabbyUiSides sides(length top, length right, length bottom, length left) { return {top, right, bottom, left}; }
+public:
+    layout& display(ui::display d) { c_.display = static_cast<std::uint32_t>(d); return *this; }
+    layout& position(ui::position p) { c_.position = static_cast<std::uint32_t>(p); return *this; }
+    /// Out of flow, placed by `inset` inside the closest relative ancestor.
+    layout& absolute() { return position(ui::position::absolute); }
+    layout& hidden() { return display(ui::display::none); }
+    layout& direction(ui::direction d) { c_.flex_direction = static_cast<std::uint32_t>(d); return *this; }
+    layout& row() { return direction(ui::direction::row); }
+    layout& column() { return direction(ui::direction::column); }
+    layout& wrap(ui::wrap w) { c_.flex_wrap = static_cast<std::uint32_t>(w); return *this; }
+    /// Share of the free main-axis space this node takes.
+    layout& grow(float g) { c_.flex_grow = g; return *this; }
+    /// How much this node shrinks when space is short (default 1; 0 keeps its size).
+    layout& shrink(float s) { c_.flex_shrink = s; return *this; }
+    layout& basis(length l) { c_.flex_basis = l; return *this; }
+    layout& size(length width, length height) { c_.width = width; c_.height = height; return *this; }
+    layout& size(float width, float height) { return size(points(width), points(height)); }
+    layout& width(length l) { c_.width = l; return *this; }
+    layout& height(length l) { c_.height = l; return *this; }
+    layout& min_size(length width, length height) { c_.min_width = width; c_.min_height = height; return *this; }
+    layout& max_size(length width, length height) { c_.max_width = width; c_.max_height = height; return *this; }
+    layout& aspect_ratio(float width_over_height) { c_.aspect_ratio = width_over_height; return *this; }
+    /// Outside space; `automatic()` margins absorb free space (to center a node).
+    layout& margin(length all) { c_.margin = sides(all, all, all, all); return *this; }
+    layout& margin(length top, length right, length bottom, length left) { c_.margin = sides(top, right, bottom, left); return *this; }
+    layout& margin(float all) { return margin(points(all)); }
+    layout& padding(length all) { c_.padding = sides(all, all, all, all); return *this; }
+    layout& padding(length top, length right, length bottom, length left) { c_.padding = sides(top, right, bottom, left); return *this; }
+    layout& padding(float all) { return padding(points(all)); }
+    /// Offsets from the parent's edges for relative, absolute and fixed nodes.
+    layout& inset(length top, length right, length bottom, length left) { c_.inset = sides(top, right, bottom, left); return *this; }
+    layout& gap(length columns, length rows) { c_.gap = {columns, rows}; return *this; }
+    layout& gap(float both) { return gap(points(both), points(both)); }
+    layout& align_items(align a) { c_.align_items = static_cast<std::uint32_t>(a); return *this; }
+    layout& align_self(align a) { c_.align_self = static_cast<std::uint32_t>(a); return *this; }
+    layout& justify_items(align a) { c_.justify_items = static_cast<std::uint32_t>(a); return *this; }
+    layout& justify_self(align a) { c_.justify_self = static_cast<std::uint32_t>(a); return *this; }
+    layout& align_content(content c) { c_.align_content = static_cast<std::uint32_t>(c); return *this; }
+    layout& justify_content(content c) { c_.justify_content = static_cast<std::uint32_t>(c); return *this; }
+    /// A grid with these columns (rows are added as needed, see `auto_rows`).
+    layout& grid(std::initializer_list<track> columns) { display(ui::display::grid); columns_.assign(columns); return *this; }
+    layout& grid_rows(std::initializer_list<track> rows) { rows_.assign(rows); return *this; }
+    /// Size of columns beyond the explicit ones; they repeat.
+    layout& auto_columns(std::initializer_list<track> columns) { auto_columns_.assign(columns); return *this; }
+    /// Size of rows beyond the explicit ones; they repeat.
+    layout& auto_rows(std::initializer_list<track> rows) { auto_rows_.assign(rows); return *this; }
+    /// For a grid item: where it starts and ends along the columns.
+    layout& grid_column(grid_line start, grid_line end = grid_auto()) { c_.grid_column_start = start; c_.grid_column_end = end; return *this; }
+    /// For a grid item: where it starts and ends along the rows.
+    layout& grid_row(grid_line start, grid_line end = grid_auto()) { c_.grid_row_start = start; c_.grid_row_end = end; return *this; }
+    /// The C layout; its track pointers live as long as this object.
+    CrabbyUiLayout raw() const {
+        CrabbyUiLayout c = c_;
+        c.grid_columns = columns_.data();
+        c.grid_column_count = columns_.size();
+        c.grid_rows = rows_.data();
+        c.grid_row_count = rows_.size();
+        c.grid_auto_columns = auto_columns_.data();
+        c.grid_auto_column_count = auto_columns_.size();
+        c.grid_auto_rows = auto_rows_.data();
+        c.grid_auto_row_count = auto_rows_.size();
+        return c;
+    }
+};
+
+/// A node's looks (Rust `UiPaint`), built by chaining:
+/// `ui::paint().background(c).border(c2, 2).font_size(24).align(ui::text_align::center)`.
+class paint {
+    CrabbyUiPaint c_ = crabby_ui_paint_default();
+public:
+    paint& background(crabby::color c) { c_.background = c; return *this; }
+    /// Background while hovered or focused.
+    paint& hover(crabby::color c) { c_.hover = c; return *this; }
+    /// Background while the pointer is held on it.
+    paint& pressed(crabby::color c) { c_.pressed = c; return *this; }
+    paint& disabled(crabby::color c) { c_.disabled = c; return *this; }
+    /// Border and focus-ring color, and thickness in points.
+    paint& border(crabby::color c, float width) { c_.border = c; c_.border_width = width; return *this; }
+    /// Border thickness in points, in the default border color.
+    paint& border_width(float width) { c_.border_width = width; return *this; }
+    /// Text and image tint.
+    paint& color(crabby::color c) { c_.color = c; return *this; }
+    /// Text font (from `ctx::load_font`) and line height in points.
+    paint& font(crabby::font f, float size) { c_.font = f; c_.font_size = size; return *this; }
+    paint& font_size(float size) { c_.font_size = size; return *this; }
+    /// Break text at word boundaries.
+    paint& wrap(bool on = true) { c_.wrap = on; return *this; }
+    paint& align(text_align a) { c_.align = static_cast<std::uint32_t>(a); return *this; }
+    /// An image or background texture; with `slice` > 0 it is drawn as nine patches with this many pixels of border.
+    paint& image(crabby::texture t, float slice = 0.0f) { c_.has_texture = true; c_.texture = t; c_.slice = slice; return *this; }
+    CrabbyUiPaint raw() const { return c_; }
+};
+
+enum class event_kind : std::uint32_t { clicked = 0, changed = 1, submitted = 2, screen_popped = 3 };
+/// Something that happened: a button was clicked, a value changed, Enter was
+/// pressed in an input (`submitted`), or Cancel popped a screen (`node` is its root).
+struct event {
+    event_kind kind;
+    id node;
+};
+/// One frame of input for `tree::frame`: `ui::default_input()`, then set what happened.
+using input = CrabbyUiInput;
+inline input default_input() { return crabby_ui_input_default(); }
+
+/// The UI of a context (Rust `Ctx::ui_retained`); get it with `ctx::ui_retained()`.
+/// It is a cheap handle: copy it freely while the system runs.
+class tree {
+    CrabbyCtx* raw_;
+    static std::optional<id> maybe(id n) { return n == none ? std::nullopt : std::optional<id>(n); }
+public:
+    explicit tree(CrabbyCtx* raw) : raw_(raw) {}
+
+    // Adding nodes. `parent` is `ui::none` for a detached root (a screen).
+    id add_panel(id parent, const layout& l = {}) {
+        id n = none; const CrabbyUiLayout c = l.raw();
+        detail::check(crabby_ctx_ui_add_panel(raw_, parent, &c, &n)); return n;
+    }
+    id add_label(id parent, const char* text, const layout& l = {}) {
+        id n = none; const CrabbyUiLayout c = l.raw();
+        detail::check(crabby_ctx_ui_add_label(raw_, parent, text, &c, &n)); return n;
+    }
+    /// A button; activating it makes a `clicked` event.
+    id add_button(id parent, const char* text, const layout& l = {}) {
+        id n = none; const CrabbyUiLayout c = l.raw();
+        detail::check(crabby_ctx_ui_add_button(raw_, parent, text, &c, &n)); return n;
+    }
+    id add_image(id parent, crabby::texture t, const layout& l = {}) {
+        id n = none; const CrabbyUiLayout c = l.raw();
+        detail::check(crabby_ctx_ui_add_image(raw_, parent, t, &c, &n)); return n;
+    }
+    /// A clipped area scrolled by wheel, drag and a bar. Give it a bounded size.
+    id add_scroll(id parent, const layout& l = {}) {
+        id n = none; const CrabbyUiLayout c = l.raw();
+        detail::check(crabby_ctx_ui_add_scroll(raw_, parent, &c, &n)); return n;
+    }
+    /// A single-line input; typing makes `changed` events, Enter `submitted`.
+    id add_text_input(id parent, const char* text = "", const layout& l = {}) {
+        id n = none; const CrabbyUiLayout c = l.raw();
+        detail::check(crabby_ctx_ui_add_text_input(raw_, parent, text, &c, &n)); return n;
+    }
+    /// A checkbox; toggling it makes a `changed` event.
+    id add_toggle(id parent, const char* text, bool on = false, const layout& l = {}) {
+        id n = none; const CrabbyUiLayout c = l.raw();
+        detail::check(crabby_ctx_ui_add_toggle(raw_, parent, text, on, &c, &n)); return n;
+    }
+    /// A slider from 0 to 1; moving it makes a `changed` event.
+    id add_slider(id parent, float value = 0.0f, const layout& l = {}) {
+        id n = none; const CrabbyUiLayout c = l.raw();
+        detail::check(crabby_ctx_ui_add_slider(raw_, parent, value, &c, &n)); return n;
+    }
+    /// Removes a node and everything under it; their ids stay invalid.
+    void remove(id node) { detail::check(crabby_ctx_ui_remove(raw_, node)); }
+
+    // Changing nodes. No setter makes an event.
+    void set_layout(id node, const layout& l) { const CrabbyUiLayout c = l.raw(); detail::check(crabby_ctx_ui_set_layout(raw_, node, &c)); }
+    void set_paint(id node, const paint& p) { const CrabbyUiPaint c = p.raw(); detail::check(crabby_ctx_ui_set_paint(raw_, node, &c)); }
+    void set_text(id node, const char* text) { detail::check(crabby_ctx_ui_set_text(raw_, node, text)); }
+    std::string text(id node) const {
+        std::size_t len = 0;
+        detail::check(crabby_ctx_ui_text(raw_, node, nullptr, 0, &len));
+        std::string out(len + 1, '\0');
+        detail::check(crabby_ctx_ui_text(raw_, node, &out[0], out.size(), &len));
+        out.resize(len);
+        return out;
+    }
+    /// A disabled node and everything under it ignore input.
+    void set_enabled(id node, bool on) { detail::check(crabby_ctx_ui_set_enabled(raw_, node, on)); }
+    /// A slider's value (0 to 1) or a toggle's (0 off, 1 on).
+    void set_value(id node, float value) { detail::check(crabby_ctx_ui_set_value(raw_, node, value)); }
+    float value(id node) const { float v = 0; detail::check(crabby_ctx_ui_value(raw_, node, &v)); return v; }
+    void set_scroll(id node, vec2 offset) { detail::check(crabby_ctx_ui_set_scroll(raw_, node, offset)); }
+    vec2 scroll(id node) const { vec2 v{}; detail::check(crabby_ctx_ui_scroll(raw_, node, &v)); return v; }
+    /// A node's rectangle in window points, as of the last layout.
+    crabby::rect rect(id node) const { crabby::rect r{}; detail::check(crabby_ctx_ui_rect(raw_, node, &r)); return r; }
+
+    // Screens and focus. Only the top screen takes input; a modal one also owns the pointer outside it.
+    void push_screen(id root, bool modal = false) { detail::check(crabby_ctx_ui_push_screen(raw_, root, modal)); }
+    /// Pops the top screen; the nodes stay and can be pushed again.
+    std::optional<id> pop_screen() { id n = none; detail::check(crabby_ctx_ui_pop_screen(raw_, &n)); return maybe(n); }
+    std::optional<id> top_screen() const { id n = none; detail::check(crabby_ctx_ui_top_screen(raw_, &n)); return maybe(n); }
+    std::optional<id> focus() const { id n = none; detail::check(crabby_ctx_ui_focus(raw_, &n)); return maybe(n); }
+    std::optional<id> hit_test(vec2 point) const { id n = none; detail::check(crabby_ctx_ui_hit_test(raw_, point, &n)); return maybe(n); }
+    /// A scale on top of the window's own, from 0.25 to 8.
+    void set_scale(float scale) { detail::check(crabby_ctx_ui_set_scale(raw_, scale)); }
+    /// The UI owns the pointer (it is over a control or a modal screen is open): skip clicks on the world.
+    bool wants_pointer() const { bool b = false; detail::check(crabby_ctx_ui_wants_pointer(raw_, &b)); return b; }
+    /// The UI owns the keyboard and gamepad (a screen is open): skip the game's keys.
+    bool wants_keyboard() const { bool b = false; detail::check(crabby_ctx_ui_wants_keyboard(raw_, &b)); return b; }
+
+    // Events. Take them every frame; unread ones expire at the next UI frame.
+    std::optional<event> next_event() {
+        CrabbyUiEvent e{};
+        const CrabbyStatus status = crabby_ctx_ui_next_event(raw_, &e);
+        if (status == CRABBY_NOT_FOUND) return std::nullopt;
+        detail::check(status);
+        return event{static_cast<event_kind>(e.kind), e.id};
+    }
+    /// Takes every queued event.
+    std::vector<event> events() {
+        std::vector<event> all;
+        while (auto e = next_event()) all.push_back(*e);
+        return all;
+    }
+
+    // Driving the UI by hand (headless tests, custom hosts): the engine already does this every frame.
+    void layout_for(vec2 viewport) { detail::check(crabby_ctx_ui_layout(raw_, viewport)); }
+    /// Lays out and handles one frame of `in`; this drops unread events.
+    void frame(vec2 viewport, const input& in = default_input()) { detail::check(crabby_ctx_ui_frame(raw_, viewport, &in)); }
+    /// Typed text for the engine's next UI frame.
+    void insert_text(const char* text) { detail::check(crabby_ctx_ui_insert_text(raw_, text)); }
+};
+}  // namespace ui
+
 class clip {
     CrabbyClip* raw_ = nullptr;
 public:
@@ -2380,6 +2639,8 @@ public:
     void ui_panel(rect r) { detail::check(crabby_ctx_ui_panel(raw_, r)); }
     vec2 ui_label(vec2 pos, const char* text) { vec2 v{}; detail::check(crabby_ctx_ui_label(raw_, pos, text, &v)); return v; }
     bool ui_button(rect r, const char* label) { bool b = false; detail::check(crabby_ctx_ui_button(raw_, r, label, &b)); return b; }
+    /// The retained UI tree (Rust `ctx.ui_retained`): panels, buttons, text inputs and more, with real layout.
+    ui::tree ui_retained() const { return ui::tree(raw_); }
 
     // Sound (silent in headless runs).
     sound load_sound(const char* path) { sound s{}; detail::check(crabby_ctx_load_sound(raw_, path, &s)); return s; }
