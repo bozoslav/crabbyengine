@@ -357,6 +357,62 @@ pub unsafe extern "C" fn crabby_ctx_set_nav_obstacle(
     })
 }
 
+/// Sets an axis-aligned carving obstacle. Tile updates run during simulation or
+/// through `crabby_ctx_navmesh_update_carving`.
+/// ```
+/// let v = crabby_ffi::CrabbyVec3::default();
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_nav_carve_obstacle(std::ptr::null_mut(), 0, v, v) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` null or live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_nav_carve_obstacle(
+    ctx: *mut CrabbyCtx,
+    entity_bits: u64,
+    center: CrabbyVec3,
+    half_extents: CrabbyVec3,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let e = entity(c, entity_bits)?;
+            let mut obstacle = NavObstacle3D::new(to_c(center), to_c(half_extents));
+            obstacle.carve = true;
+            c.world.insert(e, obstacle);
+            Ok(())
+        })
+    })
+}
+
+/// Runs at most `budget` tile-cache updates, reporting steps and pending work.
+/// Call after a simulation tick has gathered obstacle components.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_navmesh_update_carving(std::ptr::null_mut(), 1, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` null or live; outputs null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_navmesh_update_carving(
+    ctx: *mut CrabbyCtx,
+    budget: usize,
+    steps: *mut usize,
+    pending: *mut bool,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let nav = c
+                .world
+                .get_resource_mut::<NavMesh3D>()
+                .ok_or_else(|| invalid("no navmesh"))?;
+            let n = nav.update_carving(budget).map_err(|e| invalid_owned(e.to_string()))?;
+            out(steps, n)?;
+            out(pending, nav.carving_pending())?;
+            Ok(())
+        })
+    })
+}
+
 /// Takes `entity`'s agent and obstacle off (whichever it has).
 /// ```
 /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_remove_nav(std::ptr::null_mut(), 0) } as u32, 1);

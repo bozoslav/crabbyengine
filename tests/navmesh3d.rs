@@ -419,3 +419,87 @@ fn crowd_slots_survive_changes_without_reusing_another_agents_state() {
         }
     });
 }
+
+fn drain_carving(nav: &mut NavMesh3D, budget: usize) -> usize {
+    let mut steps = 0;
+    for _ in 0..200 {
+        if !nav.carving_pending() {
+            return steps;
+        }
+        let n = nav.update_carving(budget).unwrap();
+        assert!(n <= budget);
+        steps += n;
+    }
+    panic!("carving did not drain");
+}
+#[test]
+fn carving_cuts_edges_and_removal_restores_straight_path() {
+    let mut nav = bake(&[floor()]);
+    let from = vec3(-7.0, 0.0, 0.0);
+    let to = vec3(7.0, 0.0, 0.0);
+    let mut o = NavObstacle3D::new(vec3(0.0, 1.0, 0.0), vec3(0.5, 1.0, 2.0));
+    o.carve = true;
+    nav.set_obstacles(&[o]);
+    assert!(nav.carving_pending());
+    assert_eq!(nav.update_carving(0).unwrap(), 0);
+    let rebuilt = drain_carving(&mut nav, 1);
+    assert!(rebuilt > 0 && rebuilt <= 8, "{rebuilt}");
+    let path = nav.find_path(from, to).unwrap();
+    assert!(path.iter().any(|p| p.z.abs() > 2.0), "{path:?}");
+    assert!(nav.sample_position(Vec3::ZERO, 0.2).is_none());
+    o.center.x += 0.01;
+    nav.set_obstacles(&[o]);
+    assert!(!nav.carving_pending());
+    assert_eq!(nav.update_carving(1).unwrap(), 0);
+    o.center.x += 1.0;
+    nav.set_obstacles(&[o]);
+    assert!(drain_carving(&mut nav, 1) <= 16);
+    nav.set_obstacles(&[]);
+    drain_carving(&mut nav, 1);
+    let path = nav.find_path(from, to).unwrap();
+    assert!(path.iter().all(|p| p.z.abs() < 0.3), "{path:?}");
+}
+#[test]
+fn carving_updates_received_while_pending_are_not_lost() {
+    let mut nav = bake(&[floor()]);
+    let mut o = NavObstacle3D::new(vec3(0.0, 1.0, 0.0), Vec3::ONE);
+    o.carve = true;
+    nav.set_obstacles(&[o]);
+    nav.update_carving(1).unwrap();
+    nav.set_obstacles(&[]);
+    drain_carving(&mut nav, 1);
+    assert!(nav.sample_position(Vec3::ZERO, 0.3).is_some());
+}
+
+#[test]
+fn crowd_reroutes_when_a_hole_is_carved_across_its_path() {
+    struct Tick(u32);
+    fn drop_box(ctx: &mut Ctx) {
+        let t = ctx.world.resource_mut::<Tick>();
+        t.0 += 1;
+        if t.0 == 30 {
+            let mut o = NavObstacle3D::new(vec3(0.0, 1.0, 0.0), vec3(0.5, 1.0, 2.0));
+            o.carve = true;
+            ctx.world.spawn((o,));
+        }
+    }
+    fn run() -> Vec3 {
+        let mut w = Game::new("carving", 1, 1)
+            .fixed_hz(60)
+            .sim_system(drop_box)
+            .sim_system(step_navmesh3d)
+            .sim_system(check_crowd)
+            .run_headless(600, |ctx| {
+                ctx.world.insert_resource(Tick(0));
+                ctx.world.insert_resource(bake(&[floor()]));
+                ctx.world.spawn((
+                    Transform3D::at(vec3(-7.0, 0.0, 0.0)),
+                    crowd_agent(Some(vec3(7.0, 0.0, 0.0))),
+                ));
+            });
+        w.query::<&Transform3D>().iter().next().unwrap().position
+    }
+    let a = run();
+    assert!(a.distance(vec3(7.0, 0.1, 0.0)) < 0.3, "{a:?}");
+    assert_eq!(a, run());
+}

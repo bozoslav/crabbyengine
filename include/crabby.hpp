@@ -2618,6 +2618,18 @@ public:
     void set_nav_destination(entity e, std::optional<vec3> destination) {
         detail::check(crabby_ctx_set_nav_destination(raw_, e, destination ? &*destination : nullptr));
     }
+    /// Makes `e` a carving box obstacle: cached tile layers are rebuilt to cut a real hole.
+    /// Simulation consumes at most one layer per tick.
+    void set_nav_carve_obstacle(entity e, vec3 center, vec3 half_extents) {
+        detail::check(crabby_ctx_set_nav_carve_obstacle(raw_, e, center, half_extents));
+    }
+    /// Runs up to `budget` extra tile updates after simulation has gathered obstacle
+    /// components; returns the steps taken and whether updates are still pending.
+    std::pair<std::size_t, bool> navmesh_update_carving(std::size_t budget = 1) {
+        std::size_t steps = 0; bool pending = false;
+        detail::check(crabby_ctx_navmesh_update_carving(raw_, budget, &steps, &pending));
+        return {steps, pending};
+    }
     /// Makes `e` a box obstacle agents path around.
     void set_nav_obstacle(entity e, vec3 center, vec3 half_extents) {
         detail::check(crabby_ctx_set_nav_obstacle(raw_, e, center, half_extents));
