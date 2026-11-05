@@ -587,6 +587,9 @@ static void streaming() {
         ctx.free_terrain_tile(tile);
         CHECK(!ctx.is_mesh_live(tile.lods[0]) && !ctx.is_mesh_live(tile.lods[3]));
         auto cube = ctx.create_mesh(crabby::mesh_data::cube(1), ground);
+        CHECK(ctx.mesh_shadows(cube));
+        ctx.set_mesh_shadows(cube, false);
+        CHECK(!ctx.mesh_shadows(cube));
         ctx.free_mesh(cube);
         ctx.free_mesh(cube);
         CHECK(!ctx.is_mesh_live(cube));

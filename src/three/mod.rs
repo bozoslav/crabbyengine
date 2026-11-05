@@ -570,6 +570,9 @@ pub(crate) struct Scene3D<'a> {
 pub(crate) struct Assets3D {
     /// Bounding sphere of each mesh, in its own space: center and radius.
     pub bounds: Vec<(Vec3, f32)>,
+    /// Meshes set to cast no shadow (`Ctx::set_mesh_shadows`), by id;
+    /// shorter than `bounds` when the last ones cast.
+    pub shadowless: Vec<bool>,
     pub materials: u32,
     /// Texture arrays made so far, by id.
     pub arrays: Vec<TextureArray>,
@@ -604,6 +607,11 @@ impl Assets3D {
     /// Mesh `id`'s bounds, unless there's no such mesh or it was freed.
     pub(crate) fn live_bounds(&self, id: u32) -> Option<(Vec3, f32)> {
         self.bounds.get(id as usize).copied().filter(|&(_, r)| r >= 0.0)
+    }
+
+    /// Whether mesh `id` casts shadows (the default).
+    pub(crate) fn casts_shadows(&self, id: u32) -> bool {
+        !self.shadowless.get(id as usize).copied().unwrap_or(false)
     }
 }
 

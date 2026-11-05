@@ -465,6 +465,51 @@ impl Ctx {
         }
     }
 
+    /// Whether models showing `mesh` cast shadows: on for every mesh at
+    /// first. Turn it off for small things that crowd the ground, such as
+    /// grass and pebbles: their shadows are too small to see but drawing
+    /// them into the shadow map costs as much as drawing them.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let material = ctx.default_material();
+    ///     let tuft = ctx.create_mesh(&MeshData::cube(0.2), material);
+    ///     ctx.set_mesh_shadows(tuft, false);
+    ///     assert!(!ctx.mesh_shadows(tuft));
+    /// });
+    /// ```
+    pub fn set_mesh_shadows(&mut self, mesh: Mesh, casts: bool) {
+        let id = mesh.id as usize;
+        if id >= self.assets3d.bounds.len() {
+            return;
+        }
+        let shadowless = &mut self.assets3d.shadowless;
+        if shadowless.len() <= id {
+            if casts {
+                return;
+            }
+            shadowless.resize(id + 1, false);
+        }
+        shadowless[id] = !casts;
+    }
+
+    /// Whether models showing `mesh` cast shadows (see
+    /// [`set_mesh_shadows`](Self::set_mesh_shadows)).
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let material = ctx.default_material();
+    ///     let house = ctx.create_mesh(&MeshData::cube(4.0), material);
+    ///     assert!(ctx.mesh_shadows(house));
+    /// });
+    /// ```
+    #[must_use]
+    pub fn mesh_shadows(&self, mesh: Mesh) -> bool {
+        self.assets3d.casts_shadows(mesh.id)
+    }
+
     /// Whether `mesh` was made by this game and not freed.
     ///
     /// ```

@@ -86,6 +86,12 @@ unsafe extern "C" fn stream(ctx: *mut CrabbyCtx, user: *mut c_void) {
         let mut live = false;
         assert_eq!(crabby_ctx_is_mesh_live(ctx, tile.lods[2], &mut live), CRABBY_OK);
         assert!(live);
+        let mut casts = false;
+        assert_eq!(crabby_ctx_mesh_shadows(ctx, tile.lods[2], &mut casts), CRABBY_OK);
+        assert!(casts, "meshes cast shadows at first");
+        assert_eq!(crabby_ctx_set_mesh_shadows(ctx, tile.lods[2], false), CRABBY_OK);
+        assert_eq!(crabby_ctx_mesh_shadows(ctx, tile.lods[2], &mut casts), CRABBY_OK);
+        assert!(!casts);
         assert_eq!(crabby_ctx_free_terrain_tile(ctx, tile), CRABBY_OK);
         for mesh in tile.lods {
             assert_eq!(crabby_ctx_is_mesh_live(ctx, mesh, &mut live), CRABBY_OK);
