@@ -174,11 +174,11 @@ const _: () = {
     assert!(size_of::<CrabbySound>() == size_of::<Sound>() && align_of::<CrabbySound>() == align_of::<Sound>());
     assert!(size_of::<CrabbyPlaying>() == size_of::<Playing>() && align_of::<CrabbyPlaying>() == align_of::<Playing>());
 };
-fn font_to_c(f: Font) -> CrabbyFont {
+pub(crate) fn font_to_c(f: Font) -> CrabbyFont {
     // SAFETY: Font is repr(transparent) over u32 (size checked above).
     unsafe { std::mem::transmute(f) }
 }
-fn font_from_c(f: CrabbyFont) -> Font {
+pub(crate) fn font_from_c(f: CrabbyFont) -> Font {
     // SAFETY: as above. Unknown ids make the call fail, they are not UB.
     unsafe { std::mem::transmute(f) }
 }

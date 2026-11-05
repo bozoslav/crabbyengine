@@ -1151,6 +1151,120 @@ static void ribbons_and_decals() {
     std::filesystem::remove(file);
 }
 
+static void retained_ui() {
+    crabby::game("retained ui", 1, 1).run_headless(0, [&](crabby::ctx& ctx) {
+        auto ui = ctx.ui_retained();
+        const crabby::vec2 window{800, 600};
+        namespace u = crabby::ui;
+        auto root = ui.add_panel(u::none, u::layout().column().size(400, 300).padding(10).gap(5));
+        auto label = ui.add_label(root, "Title", u::layout().size(100, 20).shrink(0));
+        auto go = ui.add_button(root, "Go", u::layout().size(200, 40).shrink(0));
+        auto gift = ui.add_toggle(root, "Gift", false, u::layout().size(100, 20).shrink(0));
+        auto volume = ui.add_slider(root, 0.25f, u::layout().size(200, 20).shrink(0));
+        auto note = ui.add_text_input(root, "hi", u::layout().size(200, 30).shrink(0));
+        CHECK(!ui.top_screen() && !ui.wants_keyboard());
+        ui.push_screen(root);
+        CHECK(ui.top_screen() == root && ui.wants_keyboard());
+        ui.layout_for(window);
+        CHECK(ui.rect(go).min.y == 35 && ui.rect(go).max.x == 210);
+        CHECK(ui.text(label) == "Title" && ui.value(volume) == 0.25f);
+        CHECK(ui.hit_test({50, 50}) == go && !ui.hit_test({700, 500}));
+
+        // A click is a press, then a release over the same button.
+        auto input = u::default_input();
+        input.pointer = {50, 50};
+        input.pressed = input.held = true;
+        ui.frame(window, input);
+        input.pressed = input.held = false;
+        input.released = true;
+        ui.frame(window, input);
+        auto events = ui.events();
+        CHECK(events.size() == 1 && events[0].kind == u::event_kind::clicked && events[0].node == go);
+        CHECK(!ui.next_event() && ui.focus() == go);
+
+        // Text, values and enabled state.
+        ui.set_text(go, "Buy");
+        CHECK(ui.text(go) == "Buy");
+        ui.set_value(gift, 1);
+        ui.set_value(volume, 9);
+        CHECK(ui.value(gift) == 1 && ui.value(volume) == 1);
+        ui.set_enabled(go, false);
+        input.pointer = {50, 50};
+        input.pressed = input.held = true; input.released = false;
+        ui.frame(window, input);
+        input.pressed = input.held = false; input.released = true;
+        ui.frame(window, input);
+        CHECK(ui.events().empty());
+
+        // Typing into the input after focusing it.
+        input = u::default_input();
+        input.pointer = {205, 145};
+        input.pressed = input.held = true;
+        ui.frame(window, input);
+        input = u::default_input();
+        input.pointer = {205, 145};
+        input.released = true;
+        ui.frame(window, input);
+        input = u::default_input();
+        input.text = "!?";
+        ui.frame(window, input);
+        CHECK(ui.text(note) == "hi!?");
+        events = ui.events();
+        CHECK(events.size() == 1 && events[0].kind == u::event_kind::changed && events[0].node == note);
+
+        // Modal screens stack, and Cancel pops the top one.
+        auto dialog = ui.add_panel(u::none, u::layout().size(100, 100));
+        ui.push_screen(dialog, true);
+        CHECK(ui.top_screen() == dialog && ui.wants_pointer());
+        input = u::default_input();
+        input.cancel = true;
+        ui.frame(window, input);
+        events = ui.events();
+        CHECK(events.size() == 1 && events[0].kind == u::event_kind::screen_popped && events[0].node == dialog);
+        CHECK(ui.top_screen() == root);
+        ui.push_screen(dialog);
+        CHECK(ui.pop_screen() == dialog);
+        throws([&] { ui.push_screen(go); });    // it has a parent
+        throws([&] { ui.push_screen(root); });  // already a screen
+
+        // Grid tracks, spans and absolute positions.
+        auto grid = ui.add_panel(u::none, u::layout().grid({u::fr(1), u::fr(1), u::fr(1)}).auto_rows({u::track_points(40)}).size(300, 200));
+        auto cell = ui.add_panel(grid);
+        auto wide = ui.add_panel(grid, u::layout().grid_column(u::grid_auto(), u::span(2)));
+        auto corner = ui.add_panel(u::none, u::layout().position(u::position::relative).size(200, 100));
+        auto pinned = ui.add_panel(corner, u::layout().absolute().size(u::percent(0.5f), u::points(30))
+                                               .inset(u::points(20), u::automatic(), u::automatic(), u::points(10)));
+        for (auto screen : {grid, corner}) ui.push_screen(screen);
+        ui.layout_for(window);
+        CHECK(ui.rect(cell).max.x == 100);
+        CHECK(ui.rect(wide).min.x == 100 && ui.rect(wide).max.x == 300);  // the next two columns
+        CHECK(ui.rect(pinned).min.x == 10 && ui.rect(pinned).min.y == 20 && ui.rect(pinned).max.x == 110);
+
+        // Paint, scrolling and scale.
+        ui.set_paint(go, u::paint().background({1, 0, 0, 1}).border({1, 1, 1, 1}, 2).font_size(24).wrap().align(u::text_align::center));
+        auto scroll = ui.add_scroll(u::none, u::layout().size(100, 100));
+        ui.add_panel(scroll, u::layout().size(100, 400).shrink(0));
+        ui.push_screen(scroll);
+        ui.layout_for(window);
+        ui.set_scroll(scroll, {0, 9999});
+        ui.layout_for(window);
+        CHECK(ui.scroll(scroll).y == 300);
+        ui.set_scale(2);
+        ui.layout_for(window);
+        CHECK(ui.rect(scroll).max.x == 200);
+        throws([&] { ui.set_paint(go, u::paint().font({99}, 16)); });
+
+        // Removing a node takes its children, and its ids stay invalid.
+        ui.remove(root);
+        for (auto gone : {root, go, note}) {
+            throws([&] { (void)ui.rect(gone); });
+            throws([&] { ui.set_text(gone, "x"); });
+        }
+        throws([&] { ui.add_panel(root); });
+        throws([&] { ui.add_panel(u::none, u::layout().display(static_cast<u::display>(99))); });
+    });
+}
+
 int main() {
     worlds();
     names_and_reflection();
@@ -1177,6 +1291,7 @@ int main() {
     ragdolls();
     contacts3d();
     ribbons_and_decals();
+    retained_ui();
     events();
     rng_matches_rust();
     grid_views_match_engine_queries();

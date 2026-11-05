@@ -20,6 +20,34 @@ use taffy::prelude::*;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct UiId(usize);
 
+impl UiId {
+    /// The id as an integer, for hosts that store ids outside the UI (the C
+    /// API does).
+    /// ```
+    /// use crabbyengine::*;
+    /// let mut ui = Ui::default();
+    /// let id = ui.add(UiWidget::Panel, ui_layout::Style::default());
+    /// assert_eq!(UiId::from_bits(id.bits()), id);
+    /// ```
+    pub const fn bits(self) -> u64 {
+        self.0 as u64
+    }
+    /// Rebuild an id from [`UiId::bits`]. Unknown values are stale: every call
+    /// ignores or rejects them instead of panicking.
+    /// ```
+    /// use crabbyengine::*;
+    /// assert!(Ui::default().rect(UiId::from_bits(7)).is_none());
+    /// ```
+    pub const fn from_bits(bits: u64) -> Self {
+        // Out-of-range values (32-bit targets) become an id no node has.
+        Self(if bits > usize::MAX as u64 {
+            usize::MAX
+        } else {
+            bits as usize
+        })
+    }
+}
+
 /// Built-in behavior; text, images and decoration are configured separately.
 /// ```
 /// use crabbyengine::*;
@@ -678,6 +706,30 @@ impl Ui {
         self.hovered = None;
         Some(screen.root)
     }
+    /// The node's parent, or `None` for a detached root and for stale IDs.
+    /// ```
+    /// use crabbyengine::*;
+    /// let mut ui = Ui::default();
+    /// let root = ui.add(UiWidget::Panel, ui_layout::Style::default());
+    /// let child = ui.add_child(root, UiWidget::Label, ui_layout::Style::default());
+    /// assert_eq!(ui.parent(child), Some(root));
+    /// assert_eq!(ui.parent(root), None);
+    /// ```
+    pub fn parent(&self, id: UiId) -> Option<UiId> {
+        self.node(id)?.parent
+    }
+    /// Whether `id` is on the screen stack right now.
+    /// ```
+    /// use crabbyengine::*;
+    /// let mut ui = Ui::default();
+    /// let root = ui.add(UiWidget::Panel, ui_layout::Style::default());
+    /// assert!(!ui.is_screen(root));
+    /// ui.push_screen(root, false);
+    /// assert!(ui.is_screen(root));
+    /// ```
+    pub fn is_screen(&self, id: UiId) -> bool {
+        self.screens.iter().any(|s| s.root == id)
+    }
     /// Top screen root.
     /// ```
     /// use crabbyengine::*;
@@ -718,6 +770,16 @@ impl Ui {
     /// ```
     pub fn events(&mut self) -> impl Iterator<Item = UiEvent> + '_ {
         self.events.drain(..)
+    }
+    /// Take the oldest queued event, or `None` when none are left. Unlike
+    /// [`Ui::events`], dropping the result keeps the other events queued, so
+    /// calls that read one event at a time (the C API does) lose none.
+    /// ```
+    /// use crabbyengine::*;
+    /// assert_eq!(Ui::default().next_event(), None);
+    /// ```
+    pub fn next_event(&mut self) -> Option<UiEvent> {
+        (!self.events.is_empty()).then(|| self.events.remove(0))
     }
     /// Pointer or a captured drag belongs to UI; modal screens capture outside.
     /// ```

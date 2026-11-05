@@ -49,6 +49,7 @@ mod strips;
 mod three;
 mod tiles;
 mod types;
+mod ui_retained;
 mod vehicle3d;
 pub use actions::*;
 pub use animator::*;
@@ -80,6 +81,7 @@ pub use strips::*;
 pub use three::*;
 pub use tiles::*;
 pub use types::*;
+pub use ui_retained::*;
 pub use vehicle3d::*;
 
 use crabby_ecs::{ComponentId, Entity, World};

@@ -92,6 +92,48 @@ static void vehicles(void) {
     CHECK(crabby_friction_curve_evaluate(crabby_friction_curve_sideways(), 0.2f) == 1);
     CHECK(crabby_world_free(w) == CRABBY_OK);
 }
+/* The retained UI: a column with a button, laid out and clicked from C. */
+static void ui_setup(CrabbyCtx* ctx, void* user) {
+    (void)user;
+    CrabbyUiLayout column = crabby_ui_layout_default();
+    column.flex_direction = CRABBY_UI_FLEX_COLUMN;
+    column.width.kind = CRABBY_UI_LENGTH_POINTS; column.width.value = 300;
+    column.height.kind = CRABBY_UI_LENGTH_POINTS; column.height.value = 200;
+    uint64_t root, button, label;
+    CHECK(crabby_ctx_ui_add_panel(ctx, CRABBY_UI_NONE, &column, &root) == CRABBY_OK);
+    CrabbyUiLayout fixed = crabby_ui_layout_default();
+    fixed.width.kind = CRABBY_UI_LENGTH_POINTS; fixed.width.value = 120;
+    fixed.height.kind = CRABBY_UI_LENGTH_POINTS; fixed.height.value = 40;
+    CHECK(crabby_ctx_ui_add_label(ctx, root, "Shop", &fixed, &label) == CRABBY_OK);
+    CHECK(crabby_ctx_ui_add_button(ctx, root, "Buy", &fixed, &button) == CRABBY_OK);
+    CHECK(crabby_ctx_ui_push_screen(ctx, root, false) == CRABBY_OK);
+    CrabbyVec2 window = {800, 600};
+    CHECK(crabby_ctx_ui_frame(ctx, window, NULL) == CRABBY_OK);
+    CrabbyRect r;
+    CHECK(crabby_ctx_ui_rect(ctx, button, &r) == CRABBY_OK && r.min.y == 40 && r.max.x == 120);
+    char text[8]; size_t len;
+    CHECK(crabby_ctx_ui_text(ctx, button, text, sizeof text, &len) == CRABBY_OK && len == 3 && text[0] == 'B');
+    CrabbyUiInput in = crabby_ui_input_default();
+    in.pointer.x = 10; in.pointer.y = 50; in.pressed = true; in.held = true;
+    CHECK(crabby_ctx_ui_frame(ctx, window, &in) == CRABBY_OK);
+    in.pressed = false; in.held = false; in.released = true;
+    CHECK(crabby_ctx_ui_frame(ctx, window, &in) == CRABBY_OK);
+    CrabbyUiEvent event;
+    CHECK(crabby_ctx_ui_next_event(ctx, &event) == CRABBY_OK);
+    CHECK(event.kind == CRABBY_UI_EVENT_CLICKED && event.id == button);
+    CHECK(crabby_ctx_ui_next_event(ctx, &event) == CRABBY_NOT_FOUND);
+    column.display = 99; /* not a CrabbyUiDisplay */
+    uint64_t bad;
+    CHECK(crabby_ctx_ui_add_panel(ctx, root, &column, &bad) == CRABBY_INVALID_ARGUMENT);
+    CHECK(crabby_ctx_ui_remove(ctx, root) == CRABBY_OK);
+    CHECK(crabby_ctx_ui_remove(ctx, button) == CRABBY_NOT_FOUND);
+}
+static void retained_ui(void) {
+    CrabbyGame* game = crabby_game_new("c ui", 1, 1); CHECK(game);
+    CrabbyWorld* w = NULL;
+    CHECK(crabby_game_run_headless(game, 0, ui_setup, NULL, &w) == CRABBY_OK);
+    CHECK(crabby_world_free(w) == CRABBY_OK);
+}
 /* Ribbon and line defaults, and a decal cut from a floor. */
 static void ribbons_and_decals(void) {
     CrabbyTrail3D trail = crabby_trail3d_new(0.25f, 0.05f);
@@ -149,6 +191,7 @@ int main(void) {
     CrabbyDrawParams params = crabby_draw_params_default();
     CHECK(params.scale.x == 1 && params.pivot.x == .5f && !params.screen);
     vehicles();
+    retained_ui();
     ribbons_and_decals();
     return 0;
 }
