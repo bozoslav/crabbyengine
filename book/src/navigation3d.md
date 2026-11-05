@@ -86,7 +86,7 @@ the simulation clock. Put destination/obstacle systems before the navigation ste
 
 The follower accelerates up to its speed and follows a surface-sampled path.
 Its transform represents its feet. It has no gravity, physical collision response,
-turning inertia or crowd avoidance. Do not also attach a physics body or character
+turning inertia. Crowd avoidance is opt-in (see below). Do not also attach a physics body or character
 controller that writes the same transform. Use a separate presentation offset if
 your model origin is above its feet. Bake for the largest agent radius and height;
 components with radius larger than the bake radius stop.
@@ -105,7 +105,7 @@ index is maintained. Use geometry in the bake for permanent walls and holes.
 For manual queries without the sim system, call `set_obstacles`; when registered,
 the system owns the obstacle list and replaces it from ECS components.
 
-No path queries or heap allocations occur in steady agent movement; replans build
+With avoidance disabled, no path queries or heap allocations occur in steady agent movement; replans build
 paths and sample their heights. Baking and obstacle scans are synchronous, so
 schedule large bakes outside latency-sensitive ticks. Ordered source geometry,
 settings and updates are deterministic; the backend enables `libm` for consistent
@@ -114,4 +114,66 @@ math. This does not establish cross-platform determinism for the rest of a game.
 The backend is `navmesh-rs`, a Rust port of Recast/Detour. It avoids a native C++
 build and keeps generation and 3D queries together. Landmass would still require
 a baker, Polyanya requires extra 3D surface handling, and oxidized_navigation is
-a Bevy plugin. C and C++ navigation bindings are not available yet.
+a Bevy plugin. The C API and C++ wrapper expose baking, queries, agents, avoidance and obstacles.
+
+
+## Crowd avoidance
+
+Set `NavAgent3D::avoidance` to opt into the backend's DetourCrowd manager.
+The default is false so existing path following and arrival behaviour stay intact.
+Only opted-in agents participate, including agents whose destination is `None`.
+Do not mix opted-out followers into a crowd and expect them to collide.
+
+<div class="lang-pair">
+<div>
+
+```rust
+# use crabbyengine::*;
+let mut agent = NavAgent3D::default();
+agent.avoidance = true;
+agent.avoidance_weight = 2.0;
+agent.neighbour_distance = 3.6;
+agent.destination = Some(Vec3::X * 5.0);
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:nav_avoidance}}
+```
+
+</div>
+</div>
+
+Crowd agents retain radius, maximum speed and acceleration. The nonnegative
+`avoidance_weight` controls separation steering, rather than right of way.
+`neighbour_distance` must be positive; choose it to cover approaching traffic.
+The C equivalent is `crabby_ctx_set_nav_avoidance(ctx, entity, enabled, weight,
+neighbour_distance)`. Invalid C parameters return an error; invalid Rust agent
+parameters stop that agent and remove it from the crowd. Crowd radii must be
+positive and no larger than the bake radius.
+
+The backend uses a proximity grid, keeps the six nearest neighbours and samples
+velocities against their predicted motion and local navmesh walls, with a 2.5 s
+time horizon. Nearest-neighbour and sampling fixes are enabled. An internal 30%
+radius margin reduces penetration from its iterative overlap correction. Movement
+uses connected surface corridors, including height, rather than projecting onto a
+globally nearest floor. Ticks are subdivided toward 60 Hz, up to 64 substeps.
+
+This is approximate local avoidance, not a collision solver or a guarantee of
+progress in arbitrarily dense traffic. Large time steps, excessive speeds, initial
+overlaps, narrow passages and opposing bottlenecks can cause penetration or
+stalling. Stopped agents can be displaced by overlap correction. Several agents
+sharing one destination settle in a region around it: nonzero discs cannot all
+arrive at one exact point. Give agents distinct reachable targets when precise
+arrival is required. Moving boxes still use conservative polygon blocking and
+invalidate crowd corridors; there is no predictive box velocity or tile-cache
+carving.
+
+Slots and corridors persist across ticks. Capacity grows in powers of two up to
+16383 agents; excess agents wait. Mesh or obstacle changes rebuild the crowd,
+and teleports recreate the affected slot. The backend currently allocates query
+scratch during updates; avoid assuming allocation-free crowd simulation. The
+original follower retains its allocation-free steady path. Baking, full-route
+validation on a new target, and crowd updates are synchronous and headless.
