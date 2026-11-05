@@ -61,6 +61,9 @@ fn position(p: vec2<i32>) -> vec3<f32> {
         var horizons = vec2<f32>(-1.0);
         for (var side = 0u; side < 2u; side++) {
             let sign_side = select(-1.0, 1.0, side == 1u);
+            // A local max, not horizons[side]: FXC (D3D) can't write a vector
+            // through a dynamic index without unrolling the dynamic loop below.
+            var best = -1.0;
             for (var step = 1u; step <= u32(settings.params.w); step++) {
                 let offset = direction * sign_side * max(1.0, pixel_radius * pow(f32(step) / settings.params.w, 2.0));
                 let at = p + vec2<i32>(round(offset));
@@ -71,8 +74,9 @@ fn position(p: vec2<i32>) -> vec3<f32> {
                 // Fade distant occluders back to the open hemisphere.
                 let horizon = dot(delta / dist, view) - 0.02 * radius / max(dist, 0.01);
                 let falloff = 1.0 - smoothstep(radius * 0.5, radius, dist);
-                horizons[side] = max(horizons[side], mix(-1.0, horizon, falloff));
+                best = max(best, mix(-1.0, horizon, falloff));
             }
+            if side == 0u { horizons.x = best; } else { horizons.y = best; }
         }
         let h1 = angle_n + clamp(-acos(clamp(horizons.x, -1.0, 1.0)) - angle_n, -1.5707963, 1.5707963);
         let h2 = angle_n + clamp(acos(clamp(horizons.y, -1.0, 1.0)) - angle_n, -1.5707963, 1.5707963);
