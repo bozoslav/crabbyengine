@@ -11,21 +11,8 @@ use std::sync::mpsc;
 use rapier2d::prelude as rp;
 use serde::{Deserialize, Serialize};
 
+use crate::collision::{BodyKind, CollisionStarted, CollisionStopped};
 use crate::{Ctx, Entity, Transform2D, Vec2, World};
-
-/// How a body moves.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[non_exhaustive]
-pub enum BodyKind {
-    /// Moved by gravity, forces and collisions.
-    #[default]
-    Dynamic,
-    /// Never moves (walls, ground).
-    Fixed,
-    /// Moved only by you (through its Transform2D or Velocity); pushes
-    /// dynamic bodies but isn't pushed back (platforms, doors).
-    Kinematic,
-}
 
 /// Makes an entity a physics body. It also needs a [`Collider`] and a
 /// [`Transform2D`].
@@ -294,31 +281,6 @@ impl Velocity {
     pub const fn linear(linear: Vec2) -> Self {
         Self { linear, angular: 0.0 }
     }
-}
-
-/// Event: two colliders started touching (or overlapping, for sensors).
-/// Read with `ctx.events.read::<CollisionStarted>()`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[repr(C)] // C reads these in place as CrabbyCollision.
-pub struct CollisionStarted {
-    /// One of the two entities.
-    pub a: Entity,
-    /// The other one.
-    pub b: Entity,
-    /// One of them is a sensor.
-    pub sensor: bool,
-}
-
-/// Event: two colliders stopped touching.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[repr(C)]
-pub struct CollisionStopped {
-    /// One of the two entities.
-    pub a: Entity,
-    /// The other one.
-    pub b: Entity,
-    /// One of them is a sensor.
-    pub sensor: bool,
 }
 
 /// What a ray hit.

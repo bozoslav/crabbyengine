@@ -1,0 +1,198 @@
+//! What 3D physics allocates per tick once a scene is running. rapier's own
+//! solver (and its character controller) allocate a few small buffers per
+//! step, which the engine can't avoid; the engine's part (syncing
+//! components, events, queries) must add nothing. Its own test binary, for
+//! the counting allocator.
+#![cfg(feature = "physics3d")]
+
+use std::alloc::{GlobalAlloc, Layout, System};
+use std::cell::Cell;
+use std::rc::Rc;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+use crabbyengine::*;
+use rapier3d::prelude as rp;
+
+struct Counting;
+
+static COUNTING: AtomicBool = AtomicBool::new(false);
+static ALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
+/// The tests share the counter, so they take turns.
+static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+
+// SAFETY: forwards to the system allocator unchanged.
+unsafe impl GlobalAlloc for Counting {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        if COUNTING.load(Ordering::Relaxed) {
+            ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
+        }
+        // SAFETY: the caller's contract, passed on.
+        unsafe { System.alloc(layout) }
+    }
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        if COUNTING.load(Ordering::Relaxed) {
+            ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
+        }
+        // SAFETY: the caller's contract, passed on.
+        unsafe { System.realloc(ptr, layout, new_size) }
+    }
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        // SAFETY: the caller's contract, passed on.
+        unsafe { System.dealloc(ptr, layout) }
+    }
+}
+
+#[global_allocator]
+static ALLOCATOR: Counting = Counting;
+
+fn start_counting() {
+    ALLOCATIONS.store(0, Ordering::Relaxed);
+    COUNTING.store(true, Ordering::Relaxed);
+}
+fn stop_counting() -> usize {
+    COUNTING.store(false, Ordering::Relaxed);
+    ALLOCATIONS.load(Ordering::Relaxed)
+}
+
+const WARMUP: u64 = 60;
+const MEASURED: u64 = 60;
+const BOXES: usize = 200;
+
+fn box_at(i: usize) -> Vec3 {
+    vec3(
+        (i % 10) as f32 * 1.2 - 6.0,
+        1.0 + (i / 100) as f32 * 1.5,
+        (i / 10 % 10) as f32 * 1.2 - 6.0,
+    )
+}
+
+/// Collects events into a reused buffer, as the engine does.
+struct Collector(Mutex<Vec<rp::CollisionEvent>>);
+impl rp::EventHandler for Collector {
+    fn handle_collision_event(
+        &self,
+        _: &rp::RigidBodySet,
+        _: &rp::ColliderSet,
+        e: rp::CollisionEvent,
+        _: Option<&rp::ContactPair>,
+    ) {
+        self.0.lock().unwrap().push(e);
+    }
+    fn handle_contact_force_event(
+        &self,
+        _: f32,
+        _: &rp::RigidBodySet,
+        _: &rp::ColliderSet,
+        _: &rp::ContactPair,
+        _: f32,
+    ) {
+    }
+    fn handle_soft_body_tear_event(&self, _: &rp::SoftBodySet, _: &rp::SoftBodyTearEvent) {}
+}
+
+/// The same scene stepped by rapier alone.
+fn rapier_alone() -> usize {
+    let mut w = rp::PhysicsWorld::new();
+    w.integration_parameters.dt = 1.0 / PHYSICS3D_HZ as f32;
+    w.gravity = rp::Vector::new(0.0, -9.81, 0.0);
+    let ground = w.insert_body(rp::RigidBodyBuilder::fixed().translation(rp::Vector::new(0.0, -0.5, 0.0)));
+    w.insert_collider(
+        rp::ColliderBuilder::cuboid(20.0, 0.5, 20.0).active_events(rp::ActiveEvents::COLLISION_EVENTS),
+        Some(ground),
+    );
+    for i in 0..BOXES {
+        let p = box_at(i);
+        let body = w.insert_body(rp::RigidBodyBuilder::dynamic().translation(rp::Vector::new(p.x, p.y, p.z)));
+        w.insert_collider(
+            rp::ColliderBuilder::cuboid(0.4, 0.4, 0.4)
+                .density(1000.0)
+                .active_events(rp::ActiveEvents::COLLISION_EVENTS),
+            Some(body),
+        );
+    }
+    let collector = Collector(Mutex::new(Vec::new()));
+    let mut count = 0;
+    for tick in 0..WARMUP + MEASURED {
+        if tick == WARMUP {
+            start_counting();
+        }
+        w.step_with_events(&(), &collector);
+        collector.0.lock().unwrap().clear();
+        if tick == WARMUP + MEASURED - 1 {
+            count = stop_counting();
+        }
+    }
+    count
+}
+
+/// The same scene through the engine's components.
+fn through_the_engine(queries: bool) -> usize {
+    let counted = Rc::new(Cell::new(usize::MAX));
+    let result = counted.clone();
+    let mut hits = Vec::with_capacity(64);
+    let mut near = Vec::with_capacity(BOXES);
+    Game::new("t", 1, 1)
+        .sim_system(|ctx: &mut Ctx| {
+            if ctx.sim_tick() == WARMUP {
+                start_counting();
+            }
+        })
+        .physics3d(vec3(0.0, -9.81, 0.0))
+        .sim_system(move |ctx: &mut Ctx| {
+            if queries {
+                let f = QueryFilter3D::default();
+                let _ = ctx.physics3d.cast_ray(vec3(0.0, 20.0, 0.0), Vec3::NEG_Y, 100.0, f);
+                ctx.physics3d
+                    .cast_ray_all(vec3(-20.0, 0.5, 0.0), Vec3::X, 100.0, f, &mut hits);
+                let _ = ctx
+                    .physics3d
+                    .cast_sphere(vec3(0.0, 20.0, 0.0), 0.5, Vec3::NEG_Y, 100.0, f);
+                let _ = ctx
+                    .physics3d
+                    .cast_capsule(vec3(0.0, 20.0, 0.0), 1.0, 0.3, Vec3::NEG_Y, 100.0, f);
+                ctx.physics3d.overlap_sphere(Vec3::ZERO, 3.0, f, &mut near);
+                ctx.physics3d
+                    .overlap_box(Vec3::ZERO, Vec3::splat(4.0), Quat::IDENTITY, f, &mut near);
+            }
+            let _ = ctx.events.read::<CollisionStarted>();
+            if ctx.sim_tick() == WARMUP + MEASURED - 1 {
+                result.set(stop_counting());
+            }
+        })
+        .run_headless(WARMUP + MEASURED, |ctx| {
+            ctx.world.spawn((
+                Transform3D::at(vec3(0.0, -0.5, 0.0)),
+                RigidBody3D::fixed(),
+                Collider3D::cuboid(vec3(40.0, 1.0, 40.0)),
+            ));
+            for i in 0..BOXES {
+                ctx.world.spawn((
+                    Transform3D::at(box_at(i)),
+                    RigidBody3D::dynamic(),
+                    Collider3D::cuboid(Vec3::splat(0.8)),
+                ));
+            }
+        });
+    counted.get()
+}
+
+#[test]
+fn the_engine_adds_no_allocations_to_rapiers_own() {
+    let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let rapier = rapier_alone();
+    let engine = through_the_engine(false);
+    println!("{MEASURED} ticks: {rapier} allocations in rapier alone, {engine} through the engine");
+    assert!(
+        engine <= rapier,
+        "{engine} allocations through the engine, {rapier} in rapier alone"
+    );
+}
+
+#[test]
+fn queries_do_not_allocate() {
+    let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let without = through_the_engine(false);
+    let with = through_the_engine(true);
+    assert_eq!(with, without, "ray casts, shape casts and overlaps added allocations");
+}

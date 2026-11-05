@@ -16,7 +16,7 @@ documentation = "https://bozoslav.github.io/crabbyengine/api/crabbyengine/"
 exclude = ["/book", "/.github", "/web", "/include", "/examples/cpp", "/docs", "/rustfmt.toml", "/CLAUDE.md", "/AGENTS.md", "/.mcp.json"]
 
 [package.metadata.docs.rs]
-features = ["physics", "steam", "3d"]
+features = ["physics", "physics3d", "steam", "3d"]
 
 [dependencies]
 crabby_ecs = { path = "crates/crabby_ecs", version = "1.0.0", features = ["serde"] }
@@ -32,6 +32,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 rayon = "1.12.0"
 rapier2d = { version = "0.36.1", optional = true }
+rapier3d = { version = "0.36.1", optional = true }
 fontdue = "0.9.5"
 epaint_default_fonts = "0.37.0"
 kira = { version = "0.12.6", default-features = false, features = ["cpal", "ogg", "vorbis", "wav", "pcm", "mp3", "flac"], optional = true }
@@ -84,13 +85,18 @@ hotpatch = ["dep:subsecond", "dep:dioxus-devtools"]
 # 2D physics with rapier: `Game::physics`, the RigidBody / Collider /
 # Velocity components, collision events and ray casts. Off: no rapier in the build.
 physics = ["dep:rapier2d"]
+# 3D physics with rapier: `Game::physics3d`, the RigidBody3D / Collider3D /
+# Velocity3D / Character3D components, collision events, ray and shape
+# queries, a character controller. Off: no rapier3d in the build.
+physics3d = ["3d", "dep:rapier3d"]
 # Lockstep over Steam (`Net::steam_host` / `Net::steam_join`): Steam's relays
 # and lobbies, so friends join from the overlay. Re-exports `steamworks`.
 # Ship the Steamworks redistributable (libsteam_api) next to the game.
 steam = ["dep:steamworks"]
 # Physics that gives bit-identical results on every platform (for lockstep
-# networking and replays), a little slower: rapier's enhanced-determinism.
-physics-determinism = ["physics", "rapier2d/enhanced-determinism"]
+# networking and replays), a little slower: rapier's enhanced-determinism
+# (for 3D physics too, when `physics3d` is on).
+physics-determinism = ["physics", "rapier2d/enhanced-determinism", "rapier3d?/enhanced-determinism"]
 
 # 3D: meshes, materials, glTF models, a perspective camera and sun light,
 # drawn under the 2D layer (`Transform3D`, `Model`, `ctx.camera3d`).
@@ -100,6 +106,10 @@ physics-determinism = ["physics", "rapier2d/enhanced-determinism"]
 [[example]]
 name = "physics"
 required-features = ["physics"]
+
+[[example]]
+name = "physics3d"
+required-features = ["physics3d"]
 
 [[example]]
 name = "3d"

@@ -25,7 +25,9 @@ header = """
  * Sprite (CrabbySprite in spawn/get/set, never a query column); with physics,
  * RigidBody and Collider (CrabbyRigidBody, CrabbyCollider: like sprites) and
  * Velocity (CrabbyVelocity, a plain value). 3D: Transform3D and Model
- * (CrabbyTransform3D, CrabbyModel: plain values).
+ * (CrabbyTransform3D, CrabbyModel: plain values); with physics3d,
+ * RigidBody3D, Collider3D and Character3D (like sprites) and Velocity3D
+ * (CrabbyVelocity3D, a plain value).
  *
  * Queries take up to 32 distinct component ids; zero ids match every entity.
  * Columns follow query order with registered-size stride; chunk memory expires
@@ -35,7 +37,7 @@ header = """
  * cross the C boundary (crabby.hpp catches them for you).
  *
  * Enums (CrabbyKey, CrabbyMouseButton, CrabbyGamepadButton, CrabbyGamepadAxis,
- * CrabbyBodyKind, CrabbyShapeKind, CrabbyNetState) are passed as uint32_t.
+ * CrabbyBodyKind, CrabbyShapeKind, CrabbyShape3DKind, CrabbyNetState) are passed as uint32_t.
  * Last-error text is thread-local, borrowed until the next failed call;
  * successful calls leave it unchanged.
  */
@@ -44,4 +46,4 @@ header = """
 parse_deps = false
 [export]
 exclude = ["Failure"]
-include = ["CrabbyKey", "CrabbyMouseButton", "CrabbyGamepadButton", "CrabbyGamepadAxis", "CrabbyTransform2D", "CrabbySprite", "CrabbyFieldType", "CrabbyAnimation", "CrabbyAttached", "CrabbyBodyKind", "CrabbyShapeKind", "CrabbyVelocity", "CrabbyNetState", "CrabbyTransform3D", "CrabbyModel"]
+include = ["CrabbyKey", "CrabbyMouseButton", "CrabbyGamepadButton", "CrabbyGamepadAxis", "CrabbyTransform2D", "CrabbySprite", "CrabbyFieldType", "CrabbyAnimation", "CrabbyAttached", "CrabbyBodyKind", "CrabbyShapeKind", "CrabbyVelocity", "CrabbyNetState", "CrabbyTransform3D", "CrabbyModel", "CrabbyShape3DKind", "CrabbyVelocity3D"]

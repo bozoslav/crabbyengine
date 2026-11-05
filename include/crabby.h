@@ -18,7 +18,9 @@
  * Sprite (CrabbySprite in spawn/get/set, never a query column); with physics,
  * RigidBody and Collider (CrabbyRigidBody, CrabbyCollider: like sprites) and
  * Velocity (CrabbyVelocity, a plain value). 3D: Transform3D and Model
- * (CrabbyTransform3D, CrabbyModel: plain values).
+ * (CrabbyTransform3D, CrabbyModel: plain values); with physics3d,
+ * RigidBody3D, Collider3D and Character3D (like sprites) and Velocity3D
+ * (CrabbyVelocity3D, a plain value).
  *
  * Queries take up to 32 distinct component ids; zero ids match every entity.
  * Columns follow query order with registered-size stride; chunk memory expires
@@ -28,7 +30,7 @@
  * cross the C boundary (crabby.hpp catches them for you).
  *
  * Enums (CrabbyKey, CrabbyMouseButton, CrabbyGamepadButton, CrabbyGamepadAxis,
- * CrabbyBodyKind, CrabbyShapeKind, CrabbyNetState) are passed as uint32_t.
+ * CrabbyBodyKind, CrabbyShapeKind, CrabbyShape3DKind, CrabbyNetState) are passed as uint32_t.
  * Last-error text is thread-local, borrowed until the next failed call;
  * successful calls leave it unchanged.
  */
@@ -249,6 +251,13 @@ typedef enum CrabbyNetState {
   CRABBY_NET_LOST,
 } CrabbyNetState;
 
+typedef enum CrabbyShape3DKind {
+  CRABBY_SHAPE3D_SPHERE,
+  CRABBY_SHAPE3D_BOX,
+  CRABBY_SHAPE3D_CAPSULE,
+  CRABBY_SHAPE3D_MESH,
+} CrabbyShape3DKind;
+
 typedef struct CrabbyCellStreamer CrabbyCellStreamer;
 
 typedef struct CrabbyCtx CrabbyCtx;
@@ -442,17 +451,83 @@ typedef struct CrabbyCollision {
   bool sensor;
 } CrabbyCollision;
 
-typedef struct CrabbyField {
-  const char *name;
+typedef struct CrabbyCollisionGroups {
+  uint32_t memberships;
+  uint32_t filter;
+} CrabbyCollisionGroups;
+
+typedef struct CrabbyQueryFilter3D {
+  bool exclude;
+  uint64_t exclude_entity;
+  struct CrabbyCollisionGroups groups;
+  bool sensors;
+} CrabbyQueryFilter3D;
+
+typedef struct CrabbyRigidBody3D {
   uint32_t kind;
-  size_t offset;
-} CrabbyField;
+  float gravity_scale;
+  float linear_damping;
+  float angular_damping;
+  bool lock_rotation;
+  bool ccd;
+} CrabbyRigidBody3D;
 
 typedef struct CrabbyVec3 {
   float x;
   float y;
   float z;
 } CrabbyVec3;
+
+typedef struct CrabbyCollisionMesh {
+  uint64_t id;
+} CrabbyCollisionMesh;
+
+typedef struct CrabbyCollider3D {
+  uint32_t shape;
+  float radius;
+  float height;
+  struct CrabbyVec3 size;
+  struct CrabbyCollisionMesh mesh;
+  struct CrabbyVec3 offset;
+  float density;
+  float friction;
+  float restitution;
+  bool sensor;
+  struct CrabbyCollisionGroups groups;
+} CrabbyCollider3D;
+
+typedef struct CrabbyCharacter3D {
+  float height;
+  float radius;
+  float max_slope;
+  float step_height;
+  float snap_distance;
+  float push_mass;
+  float gravity_scale;
+  struct CrabbyCollisionGroups groups;
+  struct CrabbyVec3 velocity;
+  bool grounded;
+} CrabbyCharacter3D;
+
+typedef struct CrabbyHit3D {
+  struct CrabbyEntity entity;
+  struct CrabbyVec3 point;
+  struct CrabbyVec3 normal;
+  float distance;
+} CrabbyHit3D;
+
+typedef struct CrabbyQuat {
+  float x;
+  float y;
+  float z;
+  float w;
+} CrabbyQuat;
+
+typedef struct CrabbyField {
+  const char *name;
+  uint32_t kind;
+  size_t offset;
+} CrabbyField;
 
 typedef struct CrabbyCell {
   int32_t x;
@@ -471,13 +546,6 @@ typedef struct CrabbyTerrainTile {
   struct CrabbyMesh lods[CRABBY_TERRAIN_LODS];
   float lod_distance;
 } CrabbyTerrainTile;
-
-typedef struct CrabbyQuat {
-  float x;
-  float y;
-  float z;
-  float w;
-} CrabbyQuat;
 
 typedef struct CrabbyTransform3D {
   struct CrabbyQuat rotation;
@@ -678,6 +746,11 @@ typedef struct CrabbyVelocity {
   float angular;
 } CrabbyVelocity;
 
+typedef struct CrabbyVelocity3D {
+  struct CrabbyVec3 linear;
+  struct CrabbyVec3 angular;
+} CrabbyVelocity3D;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -816,6 +889,12 @@ enum CrabbyStatus crabby_ctx_mouse_pos(struct CrabbyCtx *ctx, struct CrabbyVec2 
 enum CrabbyStatus crabby_ctx_mouse_world(struct CrabbyCtx *ctx, struct CrabbyVec2 *out_pos);
 
 enum CrabbyStatus crabby_ctx_mouse_wheel(struct CrabbyCtx *ctx, struct CrabbyVec2 *out_wheel);
+
+enum CrabbyStatus crabby_ctx_mouse_motion(struct CrabbyCtx *ctx, struct CrabbyVec2 *out_motion);
+
+enum CrabbyStatus crabby_ctx_set_cursor_locked(struct CrabbyCtx *ctx, bool locked);
+
+enum CrabbyStatus crabby_ctx_cursor_locked(struct CrabbyCtx *ctx, bool *out_locked);
 
 enum CrabbyStatus crabby_ctx_load_texture(struct CrabbyCtx *ctx,
                                           const char *path,
@@ -1175,6 +1254,123 @@ enum CrabbyStatus crabby_ctx_collisions(struct CrabbyCtx *ctx,
                                         bool started,
                                         const struct CrabbyCollision **out_data,
                                         size_t *out_count);
+
+struct CrabbyCollisionGroups crabby_collision_groups_all(void);
+
+struct CrabbyQueryFilter3D crabby_query_filter3d(void);
+
+struct CrabbyRigidBody3D crabby_rigid_body3d(uint32_t kind);
+
+struct CrabbyCollider3D crabby_collider3d_sphere(float radius);
+
+struct CrabbyCollider3D crabby_collider3d_box(struct CrabbyVec3 size);
+
+struct CrabbyCollider3D crabby_collider3d_capsule(float height, float radius);
+
+struct CrabbyCollider3D crabby_collider3d_mesh(struct CrabbyCollisionMesh mesh);
+
+struct CrabbyCharacter3D crabby_character3d(float height, float radius);
+
+enum CrabbyStatus crabby_rigid_body3d_component(struct CrabbyWorld *world, uint32_t *out_id);
+
+enum CrabbyStatus crabby_collider3d_component(struct CrabbyWorld *world, uint32_t *out_id);
+
+enum CrabbyStatus crabby_velocity3d_component(struct CrabbyWorld *world, uint32_t *out_id);
+
+enum CrabbyStatus crabby_character3d_component(struct CrabbyWorld *world, uint32_t *out_id);
+
+enum CrabbyStatus crabby_game_physics3d(struct CrabbyGame *game, struct CrabbyVec3 gravity);
+
+enum CrabbyStatus crabby_ctx_set_gravity3d(struct CrabbyCtx *ctx, struct CrabbyVec3 gravity);
+
+enum CrabbyStatus crabby_ctx_physics3d_heightfield(struct CrabbyCtx *ctx,
+                                                   const float *heights,
+                                                   size_t count,
+                                                   float size,
+                                                   struct CrabbyCollisionMesh *out_mesh);
+
+enum CrabbyStatus crabby_ctx_physics3d_convex_hull(struct CrabbyCtx *ctx,
+                                                   const struct CrabbyVec3 *points,
+                                                   size_t count,
+                                                   struct CrabbyCollisionMesh *out_mesh);
+
+enum CrabbyStatus crabby_ctx_physics3d_trimesh(struct CrabbyCtx *ctx,
+                                               const struct CrabbyVec3 *vertices,
+                                               size_t vertex_count,
+                                               const uint32_t *indices,
+                                               size_t index_count,
+                                               struct CrabbyCollisionMesh *out_mesh);
+
+enum CrabbyStatus crabby_ctx_physics3d_free_mesh(struct CrabbyCtx *ctx,
+                                                 struct CrabbyCollisionMesh mesh);
+
+enum CrabbyStatus crabby_ctx_cast_ray3d(struct CrabbyCtx *ctx,
+                                        struct CrabbyVec3 origin,
+                                        struct CrabbyVec3 direction,
+                                        float max_distance,
+                                        struct CrabbyQueryFilter3D filter,
+                                        bool *out_found,
+                                        struct CrabbyHit3D *out_hit);
+
+enum CrabbyStatus crabby_ctx_cast_ray3d_all(struct CrabbyCtx *ctx,
+                                            struct CrabbyVec3 origin,
+                                            struct CrabbyVec3 direction,
+                                            float max_distance,
+                                            struct CrabbyQueryFilter3D filter,
+                                            struct CrabbyHit3D *out_hits,
+                                            size_t capacity,
+                                            size_t *out_count);
+
+enum CrabbyStatus crabby_ctx_cast_sphere3d(struct CrabbyCtx *ctx,
+                                           struct CrabbyVec3 origin,
+                                           float radius,
+                                           struct CrabbyVec3 direction,
+                                           float max_distance,
+                                           struct CrabbyQueryFilter3D filter,
+                                           bool *out_found,
+                                           struct CrabbyHit3D *out_hit);
+
+enum CrabbyStatus crabby_ctx_cast_capsule3d(struct CrabbyCtx *ctx,
+                                            struct CrabbyVec3 origin,
+                                            float height,
+                                            float radius,
+                                            struct CrabbyVec3 direction,
+                                            float max_distance,
+                                            struct CrabbyQueryFilter3D filter,
+                                            bool *out_found,
+                                            struct CrabbyHit3D *out_hit);
+
+enum CrabbyStatus crabby_ctx_overlap_sphere3d(struct CrabbyCtx *ctx,
+                                              struct CrabbyVec3 center,
+                                              float radius,
+                                              struct CrabbyQueryFilter3D filter,
+                                              struct CrabbyEntity *out_entities,
+                                              size_t capacity,
+                                              size_t *out_count);
+
+enum CrabbyStatus crabby_ctx_overlap_box3d(struct CrabbyCtx *ctx,
+                                           struct CrabbyVec3 center,
+                                           struct CrabbyVec3 size,
+                                           struct CrabbyQuat rotation,
+                                           struct CrabbyQueryFilter3D filter,
+                                           struct CrabbyEntity *out_entities,
+                                           size_t capacity,
+                                           size_t *out_count);
+
+enum CrabbyStatus crabby_ctx_overlap_capsule3d(struct CrabbyCtx *ctx,
+                                               struct CrabbyVec3 center,
+                                               float height,
+                                               float radius,
+                                               struct CrabbyQueryFilter3D filter,
+                                               struct CrabbyEntity *out_entities,
+                                               size_t capacity,
+                                               size_t *out_count);
+
+enum CrabbyStatus crabby_ctx_apply_impulse3d(struct CrabbyCtx *ctx,
+                                             uint64_t entity,
+                                             struct CrabbyVec3 impulse);
+
+enum CrabbyStatus crabby_ctx_body_mass3d(struct CrabbyCtx *ctx, uint64_t entity, float *out_mass);
 
 enum CrabbyStatus crabby_component_reflect(struct CrabbyWorld *world,
                                            uint32_t component_id,

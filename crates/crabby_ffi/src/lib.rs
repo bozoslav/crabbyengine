@@ -28,6 +28,7 @@ mod keys;
 mod media;
 mod net;
 mod physics;
+mod physics3d;
 mod reflect;
 mod resources;
 mod scene;
@@ -45,6 +46,7 @@ pub use keys::*;
 pub use media::*;
 pub use net::*;
 pub use physics::*;
+pub use physics3d::*;
 pub use reflect::*;
 pub use resources::*;
 pub use scene::*;
@@ -339,7 +341,7 @@ pub(crate) fn component(world: &World, id: u32) -> Result<(ComponentId, Kind), F
         // repr(C), layout checked against CrabbyTerrainTile; unknown meshes
         // draw nothing and every level index is clamped.
         Some(t) if t == TypeId::of::<crabbyengine::TerrainTile>() => Kind::Plain,
-        Some(t) => match crate::physics::kind(t) {
+        Some(t) => match crate::physics::kind(t).or_else(|| crate::physics3d::kind3d(t)) {
             Some(kind) => kind,
             None => {
                 return Err(invalid(

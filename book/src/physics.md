@@ -8,7 +8,8 @@ notice who walked in: 2D rigid-body physics, built on
 crabbyengine = { version = "1", features = ["physics"] }
 ```
 
-(The C library, `crabby_ffi`, has it on by default.)
+(The C library, `crabby_ffi`, has it on by default.) For 3D bodies, terrain
+and a walking character, see [3D physics](physics3d.md).
 
 Turn it on with gravity in pixels per second² (y is down) and add the
 systems that react to it:

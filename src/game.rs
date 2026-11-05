@@ -67,6 +67,8 @@ pub struct Game {
     width: u32,
     height: u32,
     fixed_hz: u32,
+    /// `fixed_hz` was called: `physics3d` keeps that rate.
+    fixed_hz_set: bool,
     seed: u64,
     vsync: bool,
     fullscreen: bool,
@@ -79,6 +81,9 @@ pub struct Game {
     /// Gravity from `physics`, applied to `ctx.physics` when the game starts.
     #[cfg(feature = "physics")]
     gravity: Option<Vec2>,
+    /// Gravity from `physics3d`, applied to `ctx.physics3d` when the game starts.
+    #[cfg(feature = "physics3d")]
+    gravity3d: Option<crate::Vec3>,
     /// The lockstep session from `lockstep`, moved into `ctx.net` at start.
     net: Option<crate::Net>,
     /// Open the control endpoint (also on with `CRABBY_CONTROL=1`).
@@ -220,6 +225,7 @@ impl Game {
             width,
             height,
             fixed_hz: DEFAULT_FIXED_HZ,
+            fixed_hz_set: false,
             seed: crate::random::DEFAULT_SEED,
             vsync: true,
             fullscreen: false,
@@ -233,6 +239,8 @@ impl Game {
             spatial_cell: None,
             #[cfg(feature = "physics")]
             gravity: None,
+            #[cfg(feature = "physics3d")]
+            gravity3d: None,
             net: None,
             control: control::env_flag(control::ENV_CONTROL),
             hot_reload: cfg!(debug_assertions),
@@ -395,6 +403,51 @@ impl Game {
         let name = std::any::type_name_of_val(&crate::step_physics);
         if !self.sim_systems.iter().any(|s| s.name == name) {
             self.sim_systems.push(System::new(crate::step_physics));
+        }
+        self
+    }
+
+    /// Turns on 3D physics (feature `physics3d`): every entity with a
+    /// [`RigidBody3D`](crate::RigidBody3D), a [`Collider3D`](crate::Collider3D)
+    /// and a [`Transform3D`](crate::Transform3D) is simulated each tick, and
+    /// every [`Character3D`](crate::Character3D) walks, pulled by `gravity`
+    /// (m/s²; +Y is up, so `vec3(0.0, -9.81, 0.0)`). Collisions arrive as
+    /// [`CollisionStarted`](crate::CollisionStarted) events; `ctx.physics3d`
+    /// casts rays and shapes and finds overlaps.
+    ///
+    /// The simulation runs at [`PHYSICS3D_HZ`](crate::PHYSICS3D_HZ) (50)
+    /// ticks per second unless [`fixed_hz`](Self::fixed_hz) chose a rate;
+    /// in a window, moving bodies are drawn blended between ticks
+    /// ([`interpolate_physics3d`](crate::interpolate_physics3d), the first
+    /// frame system). The step is the built-in
+    /// [`step_physics3d`](crate::step_physics3d) sim system, removable or
+    /// reorderable like any other. It runs after the systems added before
+    /// this call.
+    ///
+    /// ```
+    /// use crabbyengine::*;
+    /// let mut world = Game::new("Drop", 800, 600)
+    ///     .physics3d(vec3(0.0, -9.81, 0.0))
+    ///     .run_headless(50, |ctx| {
+    ///         ctx.world.spawn((Transform3D::at(vec3(0.0, 10.0, 0.0)), RigidBody3D::dynamic(), Collider3D::sphere(0.5)));
+    ///     });
+    /// // One second of free fall: about 4.9 m down.
+    /// let y = world.query::<&Transform3D>().iter().next().unwrap().position.y;
+    /// assert!((y - 5.1).abs() < 0.2, "{y}");
+    /// ```
+    #[cfg(feature = "physics3d")]
+    pub fn physics3d(mut self, gravity: crate::Vec3) -> Self {
+        self.gravity3d = Some(gravity);
+        if !self.fixed_hz_set {
+            self.fixed_hz = crate::PHYSICS3D_HZ;
+        }
+        let name = std::any::type_name_of_val(&crate::step_physics3d);
+        if !self.sim_systems.iter().any(|s| s.name == name) {
+            self.sim_systems.push(System::new(crate::step_physics3d));
+        }
+        let name = std::any::type_name_of_val(&crate::interpolate_physics3d);
+        if !self.systems.iter().any(|s| s.name == name) {
+            self.systems.insert(0, System::new(crate::interpolate_physics3d));
         }
         self
     }
@@ -581,6 +634,7 @@ impl Game {
     pub fn fixed_hz(mut self, hz: u32) -> Self {
         assert!(hz > 0, "Game::fixed_hz: the rate must be at least 1 Hz");
         self.fixed_hz = hz;
+        self.fixed_hz_set = true;
         self
     }
 
@@ -718,6 +772,10 @@ impl Game {
         #[cfg(feature = "physics")]
         if let Some(gravity) = self.gravity {
             crate::physics::start(&mut ctx, gravity);
+        }
+        #[cfg(feature = "physics3d")]
+        if let Some(gravity) = self.gravity3d {
+            crate::physics3d::start(&mut ctx, gravity);
         }
         let control = self.start_control(&mut ctx, true);
         if let Some(net) = self.net.take() {

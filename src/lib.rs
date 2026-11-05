@@ -38,6 +38,8 @@
 //!   `dx serve --hot-patch --features hotpatch`.
 //! - `physics`: 2D physics with rapier (`Game::physics`); `physics-determinism`
 //!   for bit-identical results across platforms.
+//! - `physics3d`: 3D physics with rapier (`Game::physics3d`): bodies,
+//!   colliders (heightfield terrain too), queries and a character controller.
 //! - `steam`: lockstep multiplayer over Steam's relays and lobbies
 //!   (`Net::steam_host`), with the `steamworks` crate re-exported.
 
@@ -49,6 +51,8 @@ mod assets;
 mod attach;
 mod audio;
 mod camera;
+#[cfg(any(feature = "physics", feature = "physics3d"))]
+mod collision;
 mod color;
 mod control;
 mod ctx;
@@ -68,6 +72,8 @@ mod logs;
 mod net;
 #[cfg(feature = "physics")]
 mod physics;
+#[cfg(feature = "physics3d")]
+mod physics3d;
 #[cfg(any(all(target_arch = "wasm32", feature = "window"), test))]
 mod query;
 mod random;
@@ -90,6 +96,8 @@ mod web;
 pub use attach::{Attached, follow_attachments};
 pub use audio::{Playing, Sound, SoundParams};
 pub use camera::{Camera2D, Rect, camera_controls};
+#[cfg(any(feature = "physics", feature = "physics3d"))]
+pub use collision::{BodyKind, CollisionStarted, CollisionStopped};
 pub use color::Color;
 pub use ctx::{Ctx, SystemTiming, Turns};
 pub use ecs::{Sprite, Transform2D, draw_sprites};
@@ -103,9 +111,11 @@ pub use net::{Desync, MAX_INPUT_BYTES, MAX_PLAYERS, Net, NetState, NetStats};
 #[cfg(feature = "steam")]
 pub use net::{steam_lobby_from_args, steam_wait_for_invite};
 #[cfg(feature = "physics")]
-pub use physics::{
-    BodyKind, Collider, CollisionStarted, CollisionStopped, MAX_POLYGON_POINTS, Physics, RayHit, RigidBody, Shape,
-    Velocity, step_physics,
+pub use physics::{Collider, MAX_POLYGON_POINTS, Physics, RayHit, RigidBody, Shape, Velocity, step_physics};
+#[cfg(feature = "physics3d")]
+pub use physics3d::{
+    Character3D, Collider3D, CollisionGroups, CollisionMesh, Hit3D, PHYSICS3D_HZ, Physics3D, QueryFilter3D,
+    RigidBody3D, Shape3D, Velocity3D, interpolate_physics3d, step_physics3d,
 };
 pub use random::{DEFAULT_SEED, Random, Rng};
 pub use reflect::{Field, FieldType, ReflectError, WorldReflect};
