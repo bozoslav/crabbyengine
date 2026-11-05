@@ -63,11 +63,13 @@ none, and Shadows Only (often a simplified stand-in for the shadows of the
 pieces around it) becomes a `ShadowMesh` with no `Model`, drawn only into
 the shadow maps.
 
-FBX skinned renderers export their source skeleton, inverse bind matrices
-and up to four influences per vertex (weights below 0.001 are dropped,
-then the largest four are normalized). Scene overrides to bone transforms
-and skinned Unity `.asset` meshes are not supported yet. Left out, and
-counted in the report: skinned Unity mesh assets, far levels of detail
+FBX and uncompressed Unity `.asset` skinned meshes export inverse bind
+matrices and up to four influences per vertex (weights below 0.001 are
+dropped, then the largest four are normalized). Mesh assets support legacy
+bone weights and VertexData blend channels. Renderer bone references use
+the flattened scene's names, hierarchy and overridden rest transforms when
+all joints resolve; otherwise the source skeleton is retained (mesh assets
+use unnamed bind-pose joints). Left out, and counted in the report: far levels of detail
 (only LOD 0 is kept), inactive objects and disabled renderers, the built-in
 Sphere, Capsule and Cylinder, compressed meshes, and meshes or textures
 it can't find or read.
@@ -125,6 +127,46 @@ import.vertex_colors("Assets/Shaders/River.shader", |mesh, v| {
 
 Each channel keeps 8 bits, from 0 to 1, so scale values into that range
 and back in the shader.
+
+## Model animation
+
+Skinned FBX models export their takes as glTF animations targeting the same
+nodes as the skin. Local translation, quaternion rotation and scale are
+sampled at the file's frame rate, including clip endpoints and source key
+times. Constant tracks use STEP interpolation; other sampled tracks use
+LINEAR. The axis conversion, import scale and Z mirror match the rest pose.
+
+The model's `.fbx.meta` `clipAnimations` entries select a take (`takeName`)
+and slice `firstFrame` through `lastFrame` into named clips. Each clip starts
+at zero seconds. Without entries, every take exports under its take name.
+Loop flags are preserved as animation `extras.loop`; the player chooses
+whether to repeat playback. Renderer bone references preserve joint order,
+and `m_RootBone` supplies the glTF skeleton root. Missing bone references
+retain the unresolved model bones while applying the resolved scene bones.
+
+Standalone plain YAML `.anim` transform clips also import:
+
+```rust
+let clips = [crabby_unity::AnimationClip::read("Assets/Walk.anim")?];
+import.animation_clips(clips); // before importing scenes / exporting cached meshes
+```
+
+Clips target each exported skin's root (empty path) and child names along
+slash-separated Transform paths. Unresolved or ambiguous paths are reported.
+`AnimationClip::append_to_skin` also attaches clips directly to a `MeshSkin`
+in Unity space. The importer uses the same glTF writer and Z mirror as FBX.
+Quaternion, position, scale and Euler curves use cubic Hermite sampling at
+`m_SampleRate`, including keys and endpoints; Euler rotations use Unity's
+Z-X-Y order. Clip settings select start/stop times (output starts at zero)
+and preserve the loop flag. Infinite tangents evaluate as steps; fully step
+tracks use glTF STEP. Mixed step/smooth tracks use sampled LINEAR, so jumps
+between samples are approximated. Weighted tangents are approximated as
+unweighted Hermite and reported.
+
+Binary/compressed clips (including streamed/dense data) return a clear error.
+Float curves, object reference curves and generic bindings are skipped and
+reported. Humanoid retargeting, animation events and Animator controllers
+are not imported yet.
 
 ## Terrain
 

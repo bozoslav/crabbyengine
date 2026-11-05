@@ -570,11 +570,11 @@ unsafe impl SameLayout<Material> for CrabbyMaterial {}
 // SAFETY: as above.
 unsafe impl SameLayout<CrabbyMaterial> for Material {}
 
-fn quat_to_c(q: Quat) -> CrabbyQuat {
+pub(crate) fn quat_to_c(q: Quat) -> CrabbyQuat {
     let [x, y, z, w] = q.to_array();
     CrabbyQuat { x, y, z, w }
 }
-fn quat_from_c(q: CrabbyQuat) -> Quat {
+pub(crate) fn quat_from_c(q: CrabbyQuat) -> Quat {
     Quat::from_xyzw(q.x, q.y, q.z, q.w)
 }
 pub(crate) fn transform_to_c(t: Transform3D) -> CrabbyTransform3D {

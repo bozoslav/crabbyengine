@@ -684,6 +684,146 @@ static void skeletons() {
         throws([&] { ctx.create_skinned_mesh(post, material, arm); });
         throws([&] { post.set_skin({{0, 0, 0, 0}}, {{1, 0, 0, 0}}); });
         throws([&] { ctx.create_skinned_mesh(post, material, cup); });
+        throws([&] { ctx.load_clip("no/such.glb", "walk"); });
+    });
+}
+
+static void sound3d() {
+    crabby::game("sound3d", 1, 1).run_headless(0, [&](crabby::ctx& ctx) {
+        float samples[64] = {};
+        auto hum = ctx.create_sound(44100, samples, 64);
+        auto music = ctx.audio_bus("music");
+        CHECK(music.index == ctx.audio_bus("music").index);
+        CHECK(music.index != crabby::audio_bus{}.index);
+        ctx.set_audio_bus_volume(music, 0.5f);
+        ctx.mute_audio_bus(music, true);
+        auto settings = crabby::audio_settings3d_defaults();
+        CHECK(settings.max_distance == 100.0f && settings.doppler == 1.0f);
+        settings.rolloff = CRABBY_ROLLOFF_LINEAR;
+        settings.bus = music;
+        auto e = ctx.world().spawn(crabby::transform3d_at({4, 0, 0}));
+        ctx.set_audio_source3d(e, hum, settings);
+        ctx.remove_audio_source3d(e);
+        auto voice = ctx.play_sound_at(hum, {-4, 0, 0}, settings);
+        ctx.set_sound_effects(voice, {800.0f, 0.3f});
+        ctx.set_audio_listener(crabby::audio_listener3d{{7, 2, 3}, {0, 0, 0, 1}});
+        CHECK(ctx.audio_listener().position.x == 7.0f);
+        ctx.set_audio_listener(std::nullopt);
+        CHECK(ctx.audio_listener().position.x != 7.0f);
+        throws([&] { ctx.load_stream("missing.ogg"); });
+    });
+}
+
+// A two-joint skin with one clip, "rise": the arm goes up 2 over 1 second.
+static void animators() {
+    const auto file = std::filesystem::temp_directory_path() / "crabby-cpp-rise.gltf";
+    std::ofstream(file) << R"({"asset": {"version": "2.0"}, "scene": 0, "scenes": [{"nodes": [0]}],
+        "nodes": [{"name": "root", "children": [1]}, {"name": "arm", "mesh": 0}],
+        "meshes": [{"primitives": [{"attributes": {"POSITION": 2}}]}],
+        "skins": [{"joints": [0, 1]}],
+        "animations": [{"name": "rise", "samplers": [{"input": 0, "output": 1}],
+            "channels": [{"sampler": 0, "target": {"node": 1, "path": "translation"}}]}],
+        "buffers": [{"byteLength": 68, "uri": "data:application/octet-stream;base64,AAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAACAPwAAAAA="}],
+        "bufferViews": [{"buffer": 0, "byteLength": 8}, {"buffer": 0, "byteOffset": 8, "byteLength": 24},
+            {"buffer": 0, "byteOffset": 32, "byteLength": 36}],
+        "accessors": [{"bufferView": 0, "componentType": 5126, "count": 2, "type": "SCALAR", "min": [0], "max": [1]},
+            {"bufferView": 1, "componentType": 5126, "count": 2, "type": "VEC3"},
+            {"bufferView": 2, "componentType": 5126, "count": 3, "type": "VEC3", "min": [0, 0, 0], "max": [1, 1, 0]}]})";
+    const std::string path = file.string();
+    crabby::game("animators", 1, 1).run_headless(0, [&](crabby::ctx& ctx) {
+        auto rise = ctx.load_clip(path.c_str(), "rise");
+        CHECK(rise.duration() == 1.0f);
+        crabby::animation_graph_builder b;
+        auto speed = b.add_float();
+        auto still = b.add_state(crabby::motion::of(rise), 0);
+        auto up = b.add_state(crabby::motion::of(rise), 1, std::nullopt, false);
+        b.add_event(up, 0.5f, "half");
+        auto go = b.add_transition(still, up, 0);
+        b.add_condition(go, CRABBY_CONDITION_GREATER, speed, 0.5f);
+        auto tree = crabby::motion::blend1d(speed);
+        tree.add(0, crabby::motion::of(rise)).add(1, crabby::motion::of(rise), 2);
+        b.add_state(std::move(tree));
+        auto graph = b.build(still);
+        throws([&] { crabby::animation_graph_builder bad; bad.build(3); });
+
+        auto e = ctx.world().spawn(crabby::transform3d_at({0, 0, 0}));
+        throws([&] { ctx.set_animator(e, graph); }); // no skeleton yet
+        ctx.load_skeleton(e, path.c_str());
+        ctx.set_animator(e, graph);
+        ctx.animator_set_manual(e, true);
+        auto arm = *ctx.find_joint(e, "arm");
+        ctx.animator_update(e, 0.1f);
+        CHECK(ctx.animator_state(e) == still);
+        ctx.animator_set_float(e, speed, 1);
+        ctx.animator_update(e, 0.0f); // takes the transition
+        CHECK(ctx.animator_state(e) == up);
+        ctx.animator_update(e, 0.75f);
+        CHECK(std::fabs(ctx.joint_pose(e, arm).position.y - 1.5f) < 1e-4f);
+        CHECK(ctx.animator_normalized_time(e) == 0.75f);
+        CHECK(ctx.animator_next_event(e) == std::optional<std::string>("half"));
+        CHECK(!ctx.animator_next_event(e));
+        throws([&] { ctx.animator_set_bool(e, speed, true); }); // speed is a float
+        ctx.animator_play(e, still);
+        ctx.animator_update(e, 0.0f);
+        CHECK(ctx.animator_state(e) == still);
+    });
+    std::filesystem::remove(file);
+}
+
+// A ball on a 1 m ball joint below a fixed anchor swings but stays 1 m away.
+static void joints3d() {
+    crabby::entity ball = 0, joint = 0;
+    std::size_t joints_seen = 0;
+    float reach = 0, lowest = 5;
+    crabby::game("joints", 1, 1)
+        .physics3d({0, -9.81f, 0})
+        .sim_system([&](crabby::ctx& ctx) {
+            if (ctx.sim_tick() == 10) joints_seen = ctx.joint_count();
+            if (ctx.sim_tick() < 60) lowest = std::min(lowest, ctx.world().get<crabby::transform3d>(ball).position.y);
+            if (ctx.sim_tick() == 60) {
+                auto p = ctx.world().get<crabby::transform3d>(ball).position;
+                reach = std::sqrt(p.x * p.x + (p.y - 5) * (p.y - 5) + p.z * p.z);
+                ctx.world().despawn(joint);
+            }
+        }, "probe")
+        .run_headless(70, [&](crabby::ctx& ctx) {
+            auto world = ctx.world();
+            auto anchor = world.spawn(crabby::transform3d_at({0, 5, 0}), crabby::fixed_body3d(), crabby::sphere_collider(0.1f));
+            ball = world.spawn(crabby::transform3d_at({1, 5, 0}), crabby::with_dominance(crabby::dynamic_body3d(), 3),
+                               crabby::sphere_collider(0.2f));
+            auto j = crabby::spherical_joint3d(anchor, ball);
+            j.frame_b = crabby::transform3d_at({-1, 0, 0}); // the anchor, seen from the ball
+            joint = world.spawn(j);
+            CHECK(world.get<crabby::joint3d>(joint).axes[crabby::joint_axis::linear_x].kind == CRABBY_JOINT_LOCKED);
+            CHECK(world.get<crabby::rigid_body3d>(ball).dominance == 3);
+            auto bad = crabby::with_limits(crabby::revolute_joint3d(anchor, ball), crabby::joint_axis::angular_x, 1, -1);
+            throws([&] { world.spawn(bad); });
+            auto motor = crabby::with_drive(crabby::revolute_joint3d(anchor, ball), crabby::joint_axis::angular_x, crabby::velocity_drive(2, 10));
+            CHECK(motor.drives[crabby::joint_axis::angular_x].enabled && motor.drives[3].target_velocity == 2);
+        });
+    CHECK(joints_seen == 1);
+    CHECK(std::fabs(reach - 1) < 0.05f);
+    CHECK(lowest < 4.1f); // it swung down to about 1 m below the anchor
+}
+
+// A leg of two 1 m bones bends so its foot lands on a reachable target.
+static void inverse_kinematics() {
+    auto g = crabby::game("ik", 1, 1);
+    g.late_system([](crabby::ctx&) {}, "after animation");
+    g.run_headless(0, [&](crabby::ctx& ctx) {
+        auto leg = ctx.world().spawn(crabby::transform3d_at({5, 0, 0}));
+        ctx.set_skeleton(leg, {crabby::joint{"hip"}, crabby::joint{"knee", 0, crabby::transform3d_at({0, -1, 0})},
+                               crabby::joint{"foot", 1, crabby::transform3d_at({0, -1, 0})}});
+        ctx.two_bone_ik(leg, 0, 1, 2, {5.5f, -1.5f, 0}, {0, 0, 1});
+        auto foot = ctx.joint_matrix(leg, 2); // model space: the leg stands at x = 5
+        CHECK(std::fabs(foot[12] - 0.5f) < 1e-3f && std::fabs(foot[13] + 1.5f) < 1e-3f);
+        // The hip's -Y axis (down the leg) aims at a point in front.
+        ctx.reset_pose(leg);
+        ctx.look_at_joint(leg, 0, {0, -1, 0}, {5, 0, 3});
+        auto knee = ctx.joint_matrix(leg, 1);
+        CHECK(std::fabs(knee[14] - 1) < 1e-3f && std::fabs(knee[13]) < 1e-3f);
+        ctx.draw_skeleton(leg, crabby::colors::white);
+        throws([&] { ctx.two_bone_ik(leg, 0, 1, 9, {0, 0, 0}, {0, 0, 1}); });
     });
 }
 
@@ -695,11 +835,15 @@ int main() {
     scenes_and_prefabs();
     three_d();
     skeletons();
+    sound3d();
+    animators();
+    inverse_kinematics();
     streaming();
     parallel_queries();
     games();
     attachments();
     physics();
+    joints3d();
     vehicles();
     lockstep();
     events();

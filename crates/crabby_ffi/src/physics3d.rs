@@ -5,10 +5,10 @@
 //! call here fails with an error naming it.
 #![cfg_attr(not(feature = "physics3d"), allow(unused_variables))]
 
-use crate::three::CrabbyQuat;
 use crate::three::CrabbyVec3;
+use crate::three::{CrabbyQuat, CrabbyTransform3D};
 use crate::types::CrabbyEntity;
-use crate::{CrabbyGame, CrabbyStatus, CrabbyWorld};
+use crate::{CrabbyCtx, CrabbyGame, CrabbyStatus, CrabbyWorld};
 
 /// A 3D collider's shape (`CrabbyCollider3D::shape`).
 /// ```
@@ -87,6 +87,9 @@ pub struct CrabbyRigidBody3D {
     /// Its center of mass in its own frame, when `has_center_of_mass` (cars
     /// want it low).
     pub center_of_mass: CrabbyVec3,
+    /// Contact dominance, -128 to 127 (default 0): in a contact, the body
+    /// with the higher value pushes the other without being pushed back.
+    pub dominance: i8,
 }
 
 /// The built-in `Collider3D` component: a body's shape in meters, centered
@@ -137,6 +140,180 @@ pub struct CrabbyVelocity3D {
     pub linear: CrabbyVec3,
     /// Radians per second around X, Y and Z.
     pub angular: CrabbyVec3,
+}
+
+/// How one axis of a `CrabbyJoint3D` may move.
+/// ```
+/// let _ = crabby_ffi::CrabbyJointMotionKind::CRABBY_JOINT_LIMITED;
+/// ```
+#[repr(C)]
+#[allow(non_camel_case_types)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CrabbyJointMotionKind {
+    /// Moves freely.
+    CRABBY_JOINT_FREE = 0,
+    /// Doesn't move.
+    CRABBY_JOINT_LOCKED = 1,
+    /// Moves between `min` and `max` (meters, or radians for turning axes).
+    CRABBY_JOINT_LIMITED = 2,
+}
+
+/// One axis of a joint (Rust `JointMotion3D`).
+/// ```
+/// let m = crabby_ffi::crabby_joint3d_fixed(0, 0).axes[0];
+/// assert_eq!(m.kind, crabby_ffi::CrabbyJointMotionKind::CRABBY_JOINT_LOCKED);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CrabbyJointMotion3D {
+    /// Free, locked or limited.
+    pub kind: CrabbyJointMotionKind,
+    /// The lower limit, when limited.
+    pub min: f32,
+    /// The upper limit, when limited.
+    pub max: f32,
+}
+
+/// A motor on one axis of a joint (Rust `JointDrive3D`): a spring toward
+/// `target_position` (`stiffness`), and toward `target_velocity` (`damping`).
+/// ```
+/// assert!(!crabby_ffi::crabby_joint3d_fixed(0, 0).drives[0].enabled);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CrabbyJointDrive3D {
+    /// Whether this axis has a motor.
+    pub enabled: bool,
+    /// Where the spring pulls to (meters or radians).
+    pub target_position: f32,
+    /// The speed the motor aims for.
+    pub target_velocity: f32,
+    /// Spring strength toward the target position.
+    pub stiffness: f32,
+    /// Strength toward the target velocity.
+    pub damping: f32,
+    /// The most force (or torque) it uses; infinity for no cap.
+    pub max_force: f32,
+}
+
+/// The built-in `Joint3D` component: put it on its own entity (or either
+/// body's) to join two bodies. Axes and drives are in the order linear X,
+/// Y, Z, then angular X, Y, Z of the joint frame; local X is the hinge,
+/// slider and twist axis. Start from `crabby_joint3d_fixed`, `_spherical`,
+/// `_revolute`, `_prismatic` or `_generic`. Despawning it or either body
+/// removes the joint. Not a query column.
+/// ```
+/// let j = crabby_ffi::crabby_joint3d_revolute(1, 2);
+/// assert_eq!(j.axes[3].kind, crabby_ffi::CrabbyJointMotionKind::CRABBY_JOINT_FREE);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CrabbyJoint3D {
+    /// The first body's entity.
+    pub body_a: u64,
+    /// The second body's entity.
+    pub body_b: u64,
+    /// The joint's frame in body A's space.
+    pub frame_a: CrabbyTransform3D,
+    /// The joint's frame in body B's space.
+    pub frame_b: CrabbyTransform3D,
+    /// How each axis may move.
+    pub axes: [CrabbyJointMotion3D; 6],
+    /// Motors, per axis.
+    pub drives: [CrabbyJointDrive3D; 6],
+    /// Whether the two joined bodies still collide with each other. Default false.
+    pub contacts_enabled: bool,
+    /// A cone limit on swinging (angular Y and Z together), in radians;
+    /// negative for none (the default).
+    pub swing_cone: f32,
+}
+
+fn joint3d(a: u64, b: u64, locked: [bool; 6]) -> CrabbyJoint3D {
+    let identity = CrabbyTransform3D {
+        rotation: CrabbyQuat {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+            w: 1.0,
+        },
+        position: CrabbyVec3::default(),
+        scale: CrabbyVec3 { x: 1.0, y: 1.0, z: 1.0 },
+        reserved: [0.0; 2],
+    };
+    CrabbyJoint3D {
+        body_a: a,
+        body_b: b,
+        frame_a: identity,
+        frame_b: identity,
+        axes: locked.map(|l| CrabbyJointMotion3D {
+            kind: if l {
+                CrabbyJointMotionKind::CRABBY_JOINT_LOCKED
+            } else {
+                CrabbyJointMotionKind::CRABBY_JOINT_FREE
+            },
+            min: 0.0,
+            max: 0.0,
+        }),
+        drives: [CrabbyJointDrive3D {
+            enabled: false,
+            target_position: 0.0,
+            target_velocity: 0.0,
+            stiffness: 0.0,
+            damping: 0.0,
+            max_force: f32::INFINITY,
+        }; 6],
+        contacts_enabled: false,
+        swing_cone: -1.0,
+    }
+}
+
+/// A joint that leaves every axis free: set the axes yourself.
+/// ```
+/// assert_eq!(crabby_ffi::crabby_joint3d_generic(1, 2).swing_cone, -1.0);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn crabby_joint3d_generic(body_a: u64, body_b: u64) -> CrabbyJoint3D {
+    joint3d(body_a, body_b, [false; 6])
+}
+
+/// A joint that welds two bodies together.
+/// ```
+/// let j = crabby_ffi::crabby_joint3d_fixed(1, 2);
+/// assert_eq!(j.body_b, 2);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn crabby_joint3d_fixed(body_a: u64, body_b: u64) -> CrabbyJoint3D {
+    joint3d(body_a, body_b, [true; 6])
+}
+
+/// A ball joint: the frames stay together, turning freely (shoulders, ragdolls).
+/// ```
+/// let j = crabby_ffi::crabby_joint3d_spherical(1, 2);
+/// assert_eq!(j.axes[5].kind, crabby_ffi::CrabbyJointMotionKind::CRABBY_JOINT_FREE);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn crabby_joint3d_spherical(body_a: u64, body_b: u64) -> CrabbyJoint3D {
+    joint3d(body_a, body_b, [true, true, true, false, false, false])
+}
+
+/// A hinge turning about the frames' X axis (doors, wheels, elbows).
+/// ```
+/// let j = crabby_ffi::crabby_joint3d_revolute(1, 2);
+/// assert_eq!(j.axes[4].kind, crabby_ffi::CrabbyJointMotionKind::CRABBY_JOINT_LOCKED);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn crabby_joint3d_revolute(body_a: u64, body_b: u64) -> CrabbyJoint3D {
+    joint3d(body_a, body_b, [true, true, true, false, true, true])
+}
+
+/// A slider along the frames' X axis (pistons, drawers).
+/// ```
+/// let j = crabby_ffi::crabby_joint3d_prismatic(1, 2);
+/// assert_eq!(j.axes[0].kind, crabby_ffi::CrabbyJointMotionKind::CRABBY_JOINT_FREE);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn crabby_joint3d_prismatic(body_a: u64, body_b: u64) -> CrabbyJoint3D {
+    joint3d(body_a, body_b, [false, true, true, true, true, true])
 }
 
 /// The built-in `Character3D` component: a walking capsule whose
@@ -251,6 +428,7 @@ pub extern "C" fn crabby_rigid_body3d(kind: u32) -> CrabbyRigidBody3D {
         mass: 0.0,
         has_center_of_mass: false,
         center_of_mass: CrabbyVec3 { x: 0.0, y: 0.0, z: 0.0 },
+        dominance: 0,
     }
 }
 
@@ -402,6 +580,33 @@ pub unsafe extern "C" fn crabby_velocity3d_component(world: *mut CrabbyWorld, ou
 pub unsafe extern "C" fn crabby_character3d_component(world: *mut CrabbyWorld, out_id: *mut u32) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::component(world, out_id, 3) }
+}
+
+/// The id of the built-in `Joint3D` component (`CrabbyJoint3D`),
+/// registering it if needed.
+/// # Safety
+/// Live handle and writable output.
+/// ```
+/// use crabby_ffi::*;
+/// let w = crabby_world_new();
+/// unsafe { let mut id = 99; assert_eq!(crabby_joint3d_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_joint3d_component(world: *mut CrabbyWorld, out_id: *mut u32) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe { imp::component(world, out_id, 4) }
+}
+
+/// How many joints the 3D physics world holds after its last step.
+/// # Safety
+/// `ctx` null or live; `out_count` writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_physics3d_joint_count(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_physics3d_joint_count(ctx: *mut CrabbyCtx, out_count: *mut usize) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe { imp::joint_count(ctx, out_count) }
 }
 
 /// Turns on 3D physics, pulling dynamic bodies and characters by `gravity`
@@ -800,8 +1005,8 @@ mod imp {
 
     use crabby_ecs::Entity;
     use crabbyengine::{
-        BodyKind, Character3D, Collider3D, CollisionGroups, CollisionMesh, Hit3D, Quat, QueryFilter3D, RigidBody3D,
-        Shape3D, Vec3, Velocity3D,
+        BodyKind, Character3D, Collider3D, CollisionGroups, CollisionMesh, Hit3D, Joint3D, JointDrive3D, JointMotion3D,
+        Quat, QueryFilter3D, RigidBody3D, Shape3D, Vec3, Velocity3D,
     };
 
     use super::*;
@@ -871,6 +1076,7 @@ mod imp {
             if c.has_center_of_mass {
                 b.center_of_mass = Some(finite(c.center_of_mass, "center of mass must be finite")?);
             }
+            b.dominance = c.dominance;
             Ok(b)
         }
         fn to_c(&self) -> CrabbyRigidBody3D {
@@ -889,6 +1095,7 @@ mod imp {
                 mass: self.mass.unwrap_or(0.0),
                 has_center_of_mass: self.center_of_mass.is_some(),
                 center_of_mass: to_c(self.center_of_mass.unwrap_or(Vec3::ZERO)),
+                dominance: self.dominance,
             }
         }
     }
@@ -974,9 +1181,89 @@ mod imp {
         }
     }
 
+    impl CMirror for Joint3D {
+        type C = CrabbyJoint3D;
+        fn from_c(c: &CrabbyJoint3D) -> Result<Self, Failure> {
+            let mut j = Joint3D::generic(Entity::from_bits(c.body_a), Entity::from_bits(c.body_b));
+            j.frame_a = crate::three::transform_from_c(c.frame_a);
+            j.frame_b = crate::three::transform_from_c(c.frame_b);
+            for i in 0..6 {
+                let m = c.axes[i];
+                j.axes[i] = match m.kind {
+                    CrabbyJointMotionKind::CRABBY_JOINT_FREE => JointMotion3D::Free,
+                    CrabbyJointMotionKind::CRABBY_JOINT_LOCKED => JointMotion3D::Locked,
+                    CrabbyJointMotionKind::CRABBY_JOINT_LIMITED => {
+                        if !(m.min.is_finite() && m.max.is_finite() && m.min <= m.max) {
+                            return Err(invalid("joint limits must be finite, min <= max"));
+                        }
+                        JointMotion3D::Limited(m.min, m.max)
+                    }
+                };
+                let d = c.drives[i];
+                j.drives[i] = if d.enabled {
+                    const DRIVE: &str = "joint drive strengths must not be negative";
+                    Some(JointDrive3D {
+                        target_position: d.target_position,
+                        target_velocity: d.target_velocity,
+                        stiffness: non_negative(d.stiffness, DRIVE)?,
+                        damping: non_negative(d.damping, DRIVE)?,
+                        max_force: if d.max_force >= 0.0 {
+                            d.max_force
+                        } else {
+                            return Err(invalid(DRIVE));
+                        },
+                    })
+                } else {
+                    None
+                };
+            }
+            j.contacts_enabled = c.contacts_enabled;
+            j.swing_cone = (c.swing_cone >= 0.0).then_some(c.swing_cone);
+            Ok(j)
+        }
+        fn to_c(&self) -> CrabbyJoint3D {
+            let mut c = crabby_joint3d_generic(self.body_a.to_bits(), self.body_b.to_bits());
+            c.frame_a = crate::three::transform_to_c(self.frame_a);
+            c.frame_b = crate::three::transform_to_c(self.frame_b);
+            for i in 0..6 {
+                c.axes[i] = match self.axes[i] {
+                    JointMotion3D::Free => CrabbyJointMotion3D {
+                        kind: CrabbyJointMotionKind::CRABBY_JOINT_FREE,
+                        min: 0.0,
+                        max: 0.0,
+                    },
+                    JointMotion3D::Locked => CrabbyJointMotion3D {
+                        kind: CrabbyJointMotionKind::CRABBY_JOINT_LOCKED,
+                        min: 0.0,
+                        max: 0.0,
+                    },
+                    JointMotion3D::Limited(min, max) => CrabbyJointMotion3D {
+                        kind: CrabbyJointMotionKind::CRABBY_JOINT_LIMITED,
+                        min,
+                        max,
+                    },
+                };
+                if let Some(d) = self.drives[i] {
+                    c.drives[i] = CrabbyJointDrive3D {
+                        enabled: true,
+                        target_position: d.target_position,
+                        target_velocity: d.target_velocity,
+                        stiffness: d.stiffness,
+                        damping: d.damping,
+                        max_force: d.max_force,
+                    };
+                }
+            }
+            c.contacts_enabled = self.contacts_enabled;
+            c.swing_cone = self.swing_cone.unwrap_or(-1.0);
+            c
+        }
+    }
+
     static RIGID_BODY: Mirror = mirror::<RigidBody3D>();
     static COLLIDER: Mirror = mirror::<Collider3D>();
     static CHARACTER: Mirror = mirror::<Character3D>();
+    static JOINT: Mirror = mirror::<Joint3D>();
 
     pub(crate) fn kind(t: std::any::TypeId) -> Option<Kind> {
         use std::any::TypeId;
@@ -986,6 +1273,8 @@ mod imp {
             Some(Kind::Mirror(&COLLIDER))
         } else if t == TypeId::of::<Character3D>() {
             Some(Kind::Mirror(&CHARACTER))
+        } else if t == TypeId::of::<Joint3D>() {
+            Some(Kind::Mirror(&JOINT))
         } else if t == TypeId::of::<Velocity3D>() {
             // repr(C), layout checked against CrabbyVelocity3D; any bits are valid.
             Some(Kind::Plain)
@@ -1005,9 +1294,15 @@ mod imp {
                 0 => builtin::<RigidBody3D>(world, out_id),
                 1 => builtin::<Collider3D>(world, out_id),
                 2 => builtin::<Velocity3D>(world, out_id),
-                _ => builtin::<Character3D>(world, out_id),
+                3 => builtin::<Character3D>(world, out_id),
+                _ => builtin::<Joint3D>(world, out_id),
             }
         }
+    }
+
+    pub(super) unsafe fn joint_count(ctx: *mut CrabbyCtx, out_count: *mut usize) -> CrabbyStatus {
+        // SAFETY: forwarded caller contract.
+        boundary(|| unsafe { ctx_access(ctx, |c| out(out_count, c.physics3d.joint_count())) })
     }
 
     pub(super) unsafe fn game_physics3d(game: *mut CrabbyGame, gravity: CrabbyVec3) -> CrabbyStatus {
@@ -1339,6 +1634,9 @@ mod imp {
         Capsule(f32, f32),
     }
     pub(super) unsafe fn component(_: *mut CrabbyWorld, _: *mut u32, _: u8) -> CrabbyStatus {
+        boundary(off)
+    }
+    pub(super) unsafe fn joint_count(_: *mut CrabbyCtx, _: *mut usize) -> CrabbyStatus {
         boundary(off)
     }
     pub(super) unsafe fn game_physics3d(_: *mut CrabbyGame, _: CrabbyVec3) -> CrabbyStatus {

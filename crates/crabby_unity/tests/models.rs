@@ -205,6 +205,10 @@ fn skinned_renderers_export_fbx_bones_and_bind_space() {
         "guid: lid00000\nModelImporter:\n  fileIDToRecycleName:\n    4300000: Lid\n",
     )
     .unwrap();
+    let meta_path = assets.join("Lid.fbx.meta");
+    let mut meta = std::fs::read_to_string(&meta_path).unwrap();
+    meta.push_str("  clipAnimations:\n  - name: Half\n    takeName: Move\n    firstFrame: 0\n    lastFrame: 12\n    loopTime: 1\n  - name: End\n    takeName: Move\n    firstFrame: 12\n    lastFrame: 24\n");
+    std::fs::write(meta_path, meta).unwrap();
     let prefab = PREFAB.replace(
         "--- !u!23 &4\nMeshRenderer:",
         "--- !u!137 &4\nSkinnedMeshRenderer:\n  m_Mesh: {fileID: 4300000, guid: lid00000, type: 3}",
@@ -219,6 +223,37 @@ fn skinned_renderers_export_fbx_bones_and_bind_space() {
     let bytes = std::fs::read(out.join(path)).unwrap();
     let gltf = gltf::Gltf::from_slice(&bytes).unwrap();
     let blob = gltf.blob.as_deref().unwrap();
+    let json_length = u32::from_le_bytes(bytes[12..16].try_into().unwrap()) as usize;
+    let doc: serde_json::Value = serde_json::from_slice(&bytes[20..20 + json_length]).unwrap();
+    assert_eq!(doc["animations"][0]["extras"]["loop"], true);
+    assert_eq!(doc["animations"][1]["extras"]["loop"], false);
+    let clips: Vec<_> = gltf.animations().collect();
+    assert_eq!(
+        clips.iter().map(|c| c.name().unwrap()).collect::<Vec<_>>(),
+        ["Half", "End"]
+    );
+    for clip in &clips {
+        let channel = clip
+            .channels()
+            .find(|c| {
+                c.target().node().name() == Some("RootBone")
+                    && c.target().property() == gltf::animation::Property::Translation
+            })
+            .unwrap();
+        let reader = channel.reader(|_| Some(blob));
+        let times: Vec<_> = reader.read_inputs().unwrap().collect();
+        assert_eq!(times.first(), Some(&0.0));
+        assert!(times.windows(2).all(|w| w[1] > w[0]));
+        assert_eq!(times.len(), 13);
+        assert_eq!(times.last(), Some(&0.5));
+        let gltf::animation::util::ReadOutputs::Translations(values) = reader.read_outputs().unwrap() else {
+            panic!("translation")
+        };
+        let values: Vec<_> = values.collect();
+        let start = if clip.name() == Some("Half") { -2.0 } else { -2.5 };
+        assert!((values[0][2] - start).abs() < 1e-5);
+        assert!((values.last().unwrap()[2] - (start - 0.5)).abs() < 1e-5);
+    }
     let skin = gltf.skins().next().unwrap();
     let root = skin.joints().next().unwrap();
     assert_eq!(root.name(), Some("RootBone"));
@@ -244,4 +279,115 @@ fn skinned_renderers_export_fbx_bones_and_bind_space() {
     // Geometry's +1 Z offset is baked into the vertices, but not posed.
     assert!(reader.read_positions().unwrap().all(|p| p[2] == -2.0));
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn asset_and_fbx_skins_use_renderer_bones() {
+    for (asset, partial) in [(false, false), (true, false), (true, true)] {
+        let dir = std::env::temp_dir().join(format!("crabby_scene_skin_{asset}_{partial}_{}", std::process::id()));
+        let assets = dir.join("Assets");
+        std::fs::create_dir_all(&assets).unwrap();
+        let extension = if asset { "asset" } else { "fbx" };
+        if asset {
+            let mut text = include_str!("fixtures/quad.asset").to_owned();
+            text.push_str("\n  m_BindPose:\n");
+            for z in [-2, -3] {
+                text.push_str(&format!("  - {{e00: 1, e11: 1, e22: 1, e33: 1, e23: {z}}}\n"));
+            }
+            text.push_str("  m_Skin:\n");
+            for _ in 0..5 {
+                text.push_str("  - {weight0: 0.25, weight1: 0.75, weight2: 0.0001, boneIndex0: 0, boneIndex1: 1, boneIndex2: 0}\n");
+            }
+            std::fs::write(assets.join("Lid.asset"), text).unwrap();
+        } else {
+            std::fs::write(assets.join("Lid.fbx"), include_bytes!("fixtures/skinned.fbx")).unwrap();
+        }
+        std::fs::write(
+            assets.join(format!("Lid.{extension}.meta")),
+            "guid: lid00000\nModelImporter:\n  fileIDToRecycleName:\n    4300000: Lid\n",
+        )
+        .unwrap();
+        let mut prefab = PREFAB.replace("--- !u!23 &4\nMeshRenderer:", "--- !u!137 &4\nSkinnedMeshRenderer:\n  m_Mesh: {fileID: 4300000, guid: lid00000, type: 3}\n  m_Bones: [{fileID: 12}, {fileID: 22}]\n  m_RootBone: {fileID: 12}");
+        if !asset {
+            prefab = prefab.replace("m_Bones: [{fileID: 12}, {fileID: 22}]", "m_Bones: [{fileID: 22}]");
+        }
+        if partial {
+            prefab = prefab.replace(
+                "m_Bones: [{fileID: 12}, {fileID: 22}]",
+                "m_Bones: [{fileID: 12}, {fileID: 999}]",
+            );
+        }
+        for (id, name, parent, z) in [(11, "SceneRoot", 2, 7), (21, "SceneChild", 12, 3)] {
+            prefab.push_str(&format!("--- !u!1 &{id}\nGameObject:\n  m_Name: {name}\n  m_IsActive: 1\n--- !u!4 &{}\nTransform:\n  m_GameObject: {{fileID: {id}}}\n  m_Father: {{fileID: {parent}}}\n  m_LocalPosition: {{x: 0, y: 0, z: {z}}}\n", id + 1));
+        }
+        let project = Project::open(&dir).unwrap();
+        let hierarchy = Hierarchy::build(&UnityFile::parse(&prefab).unwrap(), &project).unwrap();
+        let out = dir.join("out");
+        let mut importer = Importer::new(&project, &out, "");
+        let scene = importer.scene(&hierarchy).unwrap();
+        let path = scene["entities"][0]["components"]["Model"]["mesh"].as_str().unwrap();
+        let bytes = std::fs::read(out.join(path)).unwrap();
+        let gltf = gltf::Gltf::from_slice(&bytes).unwrap();
+        let blob = gltf.blob.as_deref().unwrap();
+        let skin = gltf.skins().next().unwrap();
+        let joints: Vec<_> = skin.joints().collect();
+        assert_eq!(joints.len(), if asset { 2 } else { 1 });
+        let root = gltf.nodes().find(|n| n.name() == Some("SceneRoot")).unwrap();
+        assert_eq!(skin.skeleton().unwrap().index(), root.index());
+        let child = root.children().next().unwrap();
+        if !partial {
+            assert_eq!(child.name(), Some("SceneChild"));
+        }
+        assert_eq!(root.transform().matrix()[3][2], -7.0);
+        if !partial {
+            assert_eq!(child.transform().matrix()[3][2], -3.0);
+        }
+        assert_eq!(joints[0].name(), Some(if asset { "SceneRoot" } else { "SceneChild" }));
+        if !asset {
+            assert!(
+                gltf.animations()
+                    .next()
+                    .unwrap()
+                    .channels()
+                    .any(|c| c.target().node().index() == joints[0].index())
+            );
+        }
+        if !asset {
+            let channel = gltf
+                .animations()
+                .next()
+                .unwrap()
+                .channels()
+                .find(|c| {
+                    c.target().node().index() == joints[0].index()
+                        && c.target().property() == gltf::animation::Property::Translation
+                })
+                .unwrap();
+            let gltf::animation::util::ReadOutputs::Translations(mut values) =
+                channel.reader(|_| Some(blob)).read_outputs().unwrap()
+            else {
+                panic!("translation")
+            };
+            assert_eq!(values.next().unwrap(), joints[0].transform().decomposed().0);
+        }
+        let binds: Vec<_> = skin
+            .reader(|_| Some(blob))
+            .read_inverse_bind_matrices()
+            .unwrap()
+            .collect();
+        assert_eq!(binds[0][3][2], 2.0);
+        if asset {
+            let primitive = gltf.meshes().next().unwrap().primitives().next().unwrap();
+            let reader = primitive.reader(|_| Some(blob));
+            assert!(reader.read_joints(0).unwrap().into_u16().all(|j| j == [1, 0, 0, 0]));
+            assert!(
+                reader
+                    .read_weights(0)
+                    .unwrap()
+                    .into_f32()
+                    .all(|w| w == [0.75, 0.25, 0.0, 0.0])
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

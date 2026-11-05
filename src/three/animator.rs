@@ -1,0 +1,1081 @@
+//! Shared animation graphs and per-entity playback.
+use super::{AnimationClip, Skeleton, Transform3D};
+use glam::Vec2;
+use std::sync::Arc;
+
+/// Parameter defaults; indices in the graph identify parameters.
+/// ```
+/// use crabbyengine::AnimationParameter;
+/// let speed = AnimationParameter::Float(0.0);
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub enum AnimationParameter {
+    /// Floating point value.
+    Float(f32),
+    /// Persistent boolean value.
+    Bool(bool),
+    /// One-shot flag, consumed only by a selected transition.
+    Trigger(bool),
+}
+
+/// A recursive motion. Trees use seconds, with each child scaling its clock.
+/// Tree duration is the longest child duration divided by its time scale.
+/// 2D uses normalized inverse squared distance; an exact point selects only
+/// that child (the first if points coincide). Quaternion blends use ordered
+/// incremental slerp, so child order matters for more than two rotations.
+/// ```
+/// use crabbyengine::*;
+/// let clip = AnimationClip::new("idle", &Skeleton::new(vec![]), vec![]);
+/// let motion = Motion::Clip(clip);
+/// ```
+#[derive(Debug, Clone)]
+pub enum Motion {
+    /// A single clip.
+    Clip(AnimationClip),
+    /// Sorted, distinct thresholds on a float parameter. Ends clamp.
+    Blend1D {
+        /// Float parameter index.
+        parameter: usize,
+        /// Threshold and child pairs, in increasing order.
+        children: Vec<(f32, MotionChild)>,
+    },
+    /// Freeform points on two float parameters.
+    Blend2D {
+        /// X parameter index.
+        x: usize,
+        /// Y parameter index.
+        y: usize,
+        /// Point and child pairs.
+        children: Vec<(Vec2, MotionChild)>,
+    },
+}
+
+/// A motion inside a tree; positive time scale multiplies seconds.
+/// ```
+/// use crabbyengine::*;
+/// let child = MotionChild { motion: Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])), time_scale: 1.0 };
+/// ```
+#[derive(Debug, Clone)]
+pub struct MotionChild {
+    /// Nested clip or tree.
+    pub motion: Motion,
+    /// Positive, finite clock multiplier.
+    pub time_scale: f32,
+}
+
+/// A named event on a state's normalized clock.
+/// ```
+/// use crabbyengine::AnimationEvent;
+/// let step = AnimationEvent { time: 0.5, name: "step".into() };
+/// ```
+#[derive(Debug, Clone)]
+pub struct AnimationEvent {
+    /// Normalized time in [0, 1); zero fires on loop wrap, not initial entry.
+    pub time: f32,
+    /// Shared event name; reporting clones the Arc without allocating.
+    pub name: Arc<str>,
+}
+
+/// State playback settings. Use [`AnimationState::new`] for looping defaults.
+/// ```
+/// use crabbyengine::*;
+/// let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
+/// assert!(s.looping);
+/// ```
+#[derive(Debug, Clone)]
+pub struct AnimationState {
+    /// Motion to sample.
+    pub motion: Motion,
+    /// Nonnegative playback multiplier.
+    pub speed: f32,
+    /// Optional float parameter multiplying speed; negative values stop time.
+    pub speed_parameter: Option<usize>,
+    /// Wrap time when true, otherwise clamp at the motion's end.
+    pub looping: bool,
+    /// Events, reported in time order (ties retain definition order).
+    pub events: Vec<AnimationEvent>,
+}
+impl AnimationState {
+    /// Loop a motion at normal speed, without events.
+    /// ```
+    /// use crabbyengine::*;
+    /// let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
+    /// assert_eq!(s.speed, 1.0);
+    /// ```
+    pub fn new(motion: Motion) -> Self {
+        Self {
+            motion,
+            speed: 1.,
+            speed_parameter: None,
+            looping: true,
+            events: Vec::new(),
+        }
+    }
+}
+
+/// Transition predicates, all of which must hold.
+/// ```
+/// use crabbyengine::AnimationCondition;
+/// let moving = AnimationCondition::Greater(0, 0.05);
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub enum AnimationCondition {
+    /// Float parameter strictly greater than threshold.
+    Greater(usize, f32),
+    /// Float parameter strictly less than threshold.
+    Less(usize, f32),
+    /// Boolean parameter equals the given value.
+    Bool(usize, bool),
+    /// Trigger parameter is set.
+    Trigger(usize),
+}
+
+/// An ordered transition. The graph's first matching transition wins, with at
+/// most one taken per update; any-state transitions ignore exit time and do
+/// not reenter their current target. Exit time is a minimum on the state's
+/// unwrapped normalized clock, checked against the end of this update.
+/// ```
+/// use crabbyengine::*;
+/// let t = AnimationTransition { from: Some(0), to: 1, conditions: vec![], exit_time: Some(1.0), duration: 0.12, offset: 0.0 };
+/// ```
+#[derive(Debug, Clone)]
+pub struct AnimationTransition {
+    /// Source state, or None for any state.
+    pub from: Option<usize>,
+    /// Target state index.
+    pub to: usize,
+    /// Required predicates; an empty list always matches.
+    pub conditions: Vec<AnimationCondition>,
+    /// Optional minimum normalized time, ignored for any-state transitions.
+    pub exit_time: Option<f32>,
+    /// Crossfade duration in seconds, independent of playback speed.
+    pub duration: f32,
+    /// Target normalized starting time.
+    pub offset: f32,
+}
+
+/// Immutable graph shared by animators with independent parameters and clocks.
+/// ```
+/// use crabbyengine::*;
+/// let state = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
+/// let graph = AnimationGraph::new(vec![], vec![state], vec![], 0);
+/// let animator = Animator::new(graph.clone());
+/// ```
+#[derive(Debug)]
+pub struct AnimationGraph {
+    parameters: Vec<AnimationParameter>,
+    states: Vec<AnimationState>,
+    transitions: Vec<AnimationTransition>,
+    initial: usize,
+}
+impl AnimationGraph {
+    /// Validate indices, parameter types, finite clocks and nonempty trees.
+    /// Panics with `AnimationGraph` in the message for invalid definitions.
+    /// ```
+    /// use crabbyengine::*;
+    /// let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
+    /// let graph = AnimationGraph::new(vec![], vec![s], vec![], 0);
+    /// ```
+    pub fn new(
+        parameters: Vec<AnimationParameter>,
+        mut states: Vec<AnimationState>,
+        transitions: Vec<AnimationTransition>,
+        initial: usize,
+    ) -> Arc<Self> {
+        assert!(initial < states.len(), "AnimationGraph: invalid initial state");
+        for p in &parameters {
+            if let AnimationParameter::Float(v) = p {
+                assert!(v.is_finite(), "AnimationGraph: non-finite parameter");
+            }
+        }
+        for s in &mut states {
+            s.motion.validate(&parameters);
+            assert!(s.speed.is_finite() && s.speed >= 0., "AnimationGraph: invalid speed");
+            if let Some(p) = s.speed_parameter {
+                float_parameter(&parameters, p);
+            }
+            for e in &s.events {
+                assert!(
+                    e.time.is_finite() && (0. ..1.).contains(&e.time),
+                    "AnimationGraph: invalid event time"
+                );
+            }
+            s.events.sort_by(|a, b| a.time.total_cmp(&b.time));
+        }
+        for t in &transitions {
+            assert!(
+                t.to < states.len() && t.from.is_none_or(|i| i < states.len()),
+                "AnimationGraph: invalid transition state"
+            );
+            assert!(
+                t.duration.is_finite()
+                    && t.duration >= 0.
+                    && t.offset.is_finite()
+                    && t.offset >= 0.
+                    && t.exit_time.is_none_or(|v| v.is_finite() && v >= 0.),
+                "AnimationGraph: invalid transition clock"
+            );
+            for c in &t.conditions {
+                match *c {
+                    AnimationCondition::Greater(i, v) | AnimationCondition::Less(i, v) => {
+                        float_parameter(&parameters, i);
+                        assert!(v.is_finite(), "AnimationGraph: invalid threshold");
+                    }
+                    AnimationCondition::Bool(i, _) => assert!(
+                        matches!(parameters.get(i), Some(AnimationParameter::Bool(_))),
+                        "AnimationGraph: expected bool"
+                    ),
+                    AnimationCondition::Trigger(i) => assert!(
+                        matches!(parameters.get(i), Some(AnimationParameter::Trigger(_))),
+                        "AnimationGraph: expected trigger"
+                    ),
+                }
+            }
+        }
+        Arc::new(Self {
+            parameters,
+            states,
+            transitions,
+            initial,
+        })
+    }
+}
+fn float_parameter(p: &[AnimationParameter], i: usize) -> f32 {
+    match p.get(i) {
+        Some(AnimationParameter::Float(v)) => *v,
+        _ => panic!("AnimationGraph: expected float parameter"),
+    }
+}
+impl Motion {
+    fn validate(&self, p: &[AnimationParameter]) {
+        match self {
+            Self::Clip(_) => (),
+            Self::Blend1D { parameter, children } => {
+                float_parameter(p, *parameter);
+                assert!(
+                    !children.is_empty()
+                        && children.iter().all(|(v, _)| v.is_finite())
+                        && children.windows(2).all(|c| c[0].0 < c[1].0),
+                    "AnimationGraph: invalid 1D thresholds"
+                );
+                for (_, c) in children {
+                    c.validate(p);
+                }
+            }
+            Self::Blend2D { x, y, children } => {
+                float_parameter(p, *x);
+                float_parameter(p, *y);
+                assert!(
+                    !children.is_empty() && children.iter().all(|(v, _)| v.is_finite()),
+                    "AnimationGraph: invalid 2D points"
+                );
+                for (_, c) in children {
+                    c.validate(p);
+                }
+            }
+        }
+    }
+    fn duration(&self) -> f32 {
+        match self {
+            Self::Clip(c) => c.duration(),
+            Self::Blend1D { children, .. } => children
+                .iter()
+                .map(|(_, c)| c.motion.duration() / c.time_scale)
+                .fold(0., f32::max),
+            Self::Blend2D { children, .. } => children
+                .iter()
+                .map(|(_, c)| c.motion.duration() / c.time_scale)
+                .fold(0., f32::max),
+        }
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn sample(
+        &self,
+        time: f32,
+        looping: bool,
+        weight: f32,
+        p: &[AnimationParameter],
+        output: &mut Skeleton,
+        scratch: &mut Skeleton,
+        total: &mut f32,
+    ) {
+        if weight <= 0. {
+            return;
+        }
+        match self {
+            Self::Clip(c) => {
+                scratch.reset_pose();
+                let t = if looping && c.duration() > 0. {
+                    time.rem_euclid(c.duration())
+                } else {
+                    time
+                };
+                c.sample(t, scratch);
+                *total += weight;
+                mix(&mut output.pose, &scratch.pose, weight / *total);
+            }
+            Self::Blend1D { parameter, children } => {
+                let v = float_parameter(p, *parameter);
+                let hi = children.partition_point(|(t, _)| *t <= v);
+                if hi == 0 {
+                    children[0].1.sample(time, looping, weight, p, output, scratch, total);
+                } else if hi == children.len() {
+                    children[hi - 1]
+                        .1
+                        .sample(time, looping, weight, p, output, scratch, total);
+                } else {
+                    let f = (v - children[hi - 1].0) / (children[hi].0 - children[hi - 1].0);
+                    children[hi - 1]
+                        .1
+                        .sample(time, looping, weight * (1. - f), p, output, scratch, total);
+                    children[hi]
+                        .1
+                        .sample(time, looping, weight * f, p, output, scratch, total);
+                }
+            }
+            Self::Blend2D { x, y, children } => {
+                let v = Vec2::new(float_parameter(p, *x), float_parameter(p, *y));
+                if let Some((_, c)) = children.iter().find(|(point, _)| *point == v) {
+                    c.sample(time, looping, weight, p, output, scratch, total);
+                } else {
+                    // f64 avoids overflow near points and at large finite parameters.
+                    let distance = |point: Vec2| {
+                        let dx = f64::from(point.x) - f64::from(v.x);
+                        let dy = f64::from(point.y) - f64::from(v.y);
+                        dx * dx + dy * dy
+                    };
+                    let sum: f64 = children.iter().map(|(point, _)| 1. / distance(*point)).sum();
+                    for (point, c) in children {
+                        c.sample(
+                            time,
+                            looping,
+                            weight * ((1. / distance(*point)) / sum) as f32,
+                            p,
+                            output,
+                            scratch,
+                            total,
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+impl MotionChild {
+    fn validate(&self, p: &[AnimationParameter]) {
+        assert!(
+            self.time_scale.is_finite() && self.time_scale > 0.,
+            "AnimationGraph: invalid child time scale"
+        );
+        self.motion.validate(p);
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn sample(
+        &self,
+        time: f32,
+        looping: bool,
+        weight: f32,
+        p: &[AnimationParameter],
+        output: &mut Skeleton,
+        scratch: &mut Skeleton,
+        total: &mut f32,
+    ) {
+        self.motion
+            .sample(time * self.time_scale, looping, weight, p, output, scratch, total);
+    }
+}
+fn mix(output: &mut [Transform3D], source: &[Transform3D], weight: f32) {
+    for (a, b) in output.iter_mut().zip(source) {
+        a.position = a.position.lerp(b.position, weight);
+        a.scale = a.scale.lerp(b.scale, weight);
+        a.rotation = a.rotation.slerp(b.rotation, weight);
+    }
+}
+#[derive(Debug, Clone)]
+struct Fade {
+    source: Option<(usize, f32)>,
+    elapsed: f32,
+    duration: f32,
+}
+
+/// Animation component. The engine updates it every frame after the frame
+/// systems and before the draw systems: frame systems see the previous
+/// frame's pose, draw systems and the renderer this frame's. `run_headless`
+/// has no frames, so there (or to pose it at another point) set `manual` and
+/// call [`update`](Self::update) yourself, e.g. from a sim system.
+/// Buffers allocate on first use or skeleton changes, never in steady state.
+/// Interruptions freeze the last displayed mixed pose as the new fade source;
+/// ordinary fades continue advancing the outgoing state. Only the destination
+/// emits events and tests transitions. Events accumulate until drained, up to
+/// 64 entries; excess events are dropped, retaining the earliest events.
+/// ```
+/// use crabbyengine::*;
+/// let mut s = Skeleton::new(vec![]);
+/// let state = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &s, vec![])));
+/// let mut a = Animator::new(AnimationGraph::new(vec![], vec![state], vec![], 0));
+/// a.manual = true;
+/// a.update(0.016, &mut s);
+/// ```
+#[derive(Debug, Clone)]
+pub struct Animator {
+    graph: Arc<AnimationGraph>,
+    parameters: Vec<AnimationParameter>,
+    state: usize,
+    time: f32,
+    fade: Option<Fade>,
+    pending: Option<(usize, f32, f32)>,
+    buffers: Option<(Skeleton, Skeleton, Skeleton)>,
+    events: Vec<Arc<str>>,
+    /// Skip automatic engine updates; manual calls still work.
+    pub manual: bool,
+}
+impl Animator {
+    /// Start at the graph's initial state with its default parameters.
+    /// ```
+    /// # use crabbyengine::*;
+    /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
+    /// let a = Animator::new(AnimationGraph::new(vec![], vec![s], vec![], 0));
+    /// assert_eq!(a.state(), 0);
+    /// ```
+    pub fn new(graph: Arc<AnimationGraph>) -> Self {
+        Self {
+            parameters: graph.parameters.clone(),
+            state: graph.initial,
+            graph,
+            time: 0.,
+            fade: None,
+            pending: None,
+            buffers: None,
+            events: Vec::with_capacity(64),
+            manual: false,
+        }
+    }
+    /// Set a float by index. Panics on a wrong type/index or non-finite value.
+    /// ```
+    /// # use crabbyengine::*;
+    /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
+    /// # let mut a = Animator::new(AnimationGraph::new(vec![AnimationParameter::Float(0.)],vec![s],vec![],0));
+    /// a.set_float(0, 1.5);
+    /// ```
+    pub fn set_float(&mut self, parameter: usize, value: f32) {
+        assert!(value.is_finite(), "Animator: non-finite float");
+        match self.parameters.get_mut(parameter) {
+            Some(AnimationParameter::Float(v)) => *v = value,
+            _ => panic!("Animator: expected float parameter"),
+        }
+    }
+    /// Set a persistent bool by index; panics on a wrong type/index.
+    /// ```
+    /// # use crabbyengine::*;
+    /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
+    /// # let mut a = Animator::new(AnimationGraph::new(vec![AnimationParameter::Bool(false)],vec![s],vec![],0));
+    /// a.set_bool(0, true);
+    /// ```
+    pub fn set_bool(&mut self, parameter: usize, value: bool) {
+        match self.parameters.get_mut(parameter) {
+            Some(AnimationParameter::Bool(v)) => *v = value,
+            _ => panic!("Animator: expected bool parameter"),
+        }
+    }
+    /// Set or reset a trigger by index; panics on a wrong type/index.
+    /// ```
+    /// # use crabbyengine::*;
+    /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
+    /// # let mut a = Animator::new(AnimationGraph::new(vec![AnimationParameter::Trigger(false)],vec![s],vec![],0));
+    /// a.set_trigger(0, true);
+    /// ```
+    pub fn set_trigger(&mut self, parameter: usize, value: bool) {
+        match self.parameters.get_mut(parameter) {
+            Some(AnimationParameter::Trigger(v)) => *v = value,
+            _ => panic!("Animator: expected trigger parameter"),
+        }
+    }
+    /// Destination state index, including while crossfading.
+    /// ```
+    /// # use crabbyengine::*;
+    /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
+    /// # let a = Animator::new(AnimationGraph::new(vec![],vec![s],vec![],0));
+    /// assert_eq!(a.state(), 0);
+    /// ```
+    pub fn state(&self) -> usize {
+        self.state
+    }
+    /// Unwrapped normalized destination clock (clamped for non-looping states).
+    /// ```
+    /// # use crabbyengine::*;
+    /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
+    /// # let a = Animator::new(AnimationGraph::new(vec![],vec![s],vec![],0));
+    /// assert_eq!(a.normalized_time(), 0.0);
+    /// ```
+    pub fn normalized_time(&self) -> f32 {
+        let d = self.graph.states[self.state].motion.duration();
+        if d > 0. { self.time / d } else { 0. }
+    }
+    /// Destination weight; one when no crossfade is active.
+    /// ```
+    /// # use crabbyengine::*;
+    /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
+    /// # let a = Animator::new(AnimationGraph::new(vec![],vec![s],vec![],0));
+    /// assert_eq!(a.fade_weight(), 1.0);
+    /// ```
+    pub fn fade_weight(&self) -> f32 {
+        self.fade.as_ref().map_or(1., |f| (f.elapsed / f.duration).min(1.))
+    }
+    /// Queue a fixed-time fade; applied on the next update, before advancing.
+    /// Multiple commands before an update use the last command. Panics for
+    /// invalid state, negative/non-finite duration or normalized offset.
+    /// ```
+    /// # use crabbyengine::*;
+    /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
+    /// # let mut a = Animator::new(AnimationGraph::new(vec![],vec![s],vec![],0));
+    /// a.crossfade(0, 0.12, 0.0);
+    /// ```
+    pub fn crossfade(&mut self, state: usize, duration: f32, normalized_offset: f32) {
+        assert!(
+            state < self.graph.states.len()
+                && duration.is_finite()
+                && duration >= 0.
+                && normalized_offset.is_finite()
+                && normalized_offset >= 0.,
+            "Animator: invalid playback command"
+        );
+        self.pending = Some((state, duration, normalized_offset));
+    }
+    /// Queue an immediate state change at a normalized time; applied on update.
+    /// ```
+    /// # use crabbyengine::*;
+    /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
+    /// # let mut a = Animator::new(AnimationGraph::new(vec![],vec![s],vec![],0));
+    /// a.play(0, 0.5);
+    /// ```
+    pub fn play(&mut self, state: usize, normalized_time: f32) {
+        self.crossfade(state, 0., normalized_time);
+    }
+    /// Takes the oldest unread event, if any (for reading events one at a
+    /// time, as the C API does; [`drain_events`](Self::drain_events) takes all).
+    /// ```
+    /// # use crabbyengine::*;
+    /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
+    /// # let mut a = Animator::new(AnimationGraph::new(vec![],vec![s],vec![],0));
+    /// while let Some(name) = a.next_event() { println!("{name}"); }
+    /// ```
+    pub fn next_event(&mut self) -> Option<Arc<str>> {
+        (!self.events.is_empty()).then(|| self.events.remove(0))
+    }
+    /// Drain retained event names, preserving the buffer's allocation.
+    /// ```
+    /// # use crabbyengine::*;
+    /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
+    /// # let mut a = Animator::new(AnimationGraph::new(vec![],vec![s],vec![],0));
+    /// for name in a.drain_events() { println!("{name}"); }
+    /// ```
+    pub fn drain_events(&mut self) -> impl Iterator<Item = Arc<str>> + '_ {
+        self.events.drain(..)
+    }
+    fn advance(&self, state: usize, time: f32, dt: f32) -> f32 {
+        let s = &self.graph.states[state];
+        let speed = s.speed
+            * s.speed_parameter
+                .map_or(1., |p| float_parameter(&self.parameters, p).max(0.));
+        let next = (time + dt * speed).min(f32::MAX);
+        if s.looping { next } else { next.min(s.motion.duration()) }
+    }
+    fn matches(&self, c: &AnimationCondition) -> bool {
+        match *c {
+            AnimationCondition::Greater(i, v) => float_parameter(&self.parameters, i) > v,
+            AnimationCondition::Less(i, v) => float_parameter(&self.parameters, i) < v,
+            AnimationCondition::Bool(i, v) => matches!(self.parameters[i],AnimationParameter::Bool(b) if b==v),
+            AnimationCondition::Trigger(i) => matches!(self.parameters[i], AnimationParameter::Trigger(true)),
+        }
+    }
+    /// Advance by nonnegative finite seconds and sample into the skeleton.
+    /// Panics on invalid dt. Calls with zero dt apply queued commands and
+    /// transitions but emit no events. Warm up once with each skeleton layout
+    /// before allocation-sensitive gameplay (clip name binding also warms up).
+    /// ```
+    /// # use crabbyengine::*;
+    /// let mut skeleton = Skeleton::new(vec![]);
+    /// let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &skeleton, vec![])));
+    /// let mut a = Animator::new(AnimationGraph::new(vec![],vec![s],vec![],0));
+    /// a.update(0.016, &mut skeleton);
+    /// ```
+    pub fn update(&mut self, dt: f32, skeleton: &mut Skeleton) {
+        assert!(
+            dt.is_finite() && dt >= 0.,
+            "Animator: dt must be finite and nonnegative"
+        );
+        if self
+            .buffers
+            .as_ref()
+            .is_none_or(|(s, _, _)| !s.shares_joints(skeleton.shared_joints()))
+        {
+            self.buffers = Some((skeleton.clone(), skeleton.clone(), skeleton.clone()));
+        }
+        let command = self.pending.take();
+        let selected = if command.is_none() {
+            self.graph.transitions.iter().position(|t| {
+                t.from.map_or(t.to != self.state, |s| s == self.state)
+                    && (t.from.is_none()
+                        || t.exit_time.is_none_or(|exit| {
+                            let d = self.graph.states[self.state].motion.duration();
+                            d > 0. && self.advance(self.state, self.time, dt) / d >= exit
+                        }))
+                    && t.conditions.iter().all(|c| self.matches(c))
+            })
+        } else {
+            None
+        };
+        let command = command.or_else(|| {
+            selected.map(|i| {
+                let t = &self.graph.transitions[i];
+                for c in &t.conditions {
+                    if let AnimationCondition::Trigger(p) = *c {
+                        self.parameters[p] = AnimationParameter::Trigger(false);
+                    }
+                }
+                (t.to, t.duration, t.offset)
+            })
+        });
+        if let Some((state, duration, offset)) = command {
+            let source = if self.fade.is_some() {
+                None
+            } else {
+                Some((self.state, self.time))
+            };
+            let (_, _, snapshot) = self.buffers.as_mut().unwrap();
+            snapshot.pose.clone_from(&skeleton.pose);
+            self.fade = if duration > 0. {
+                Some(Fade {
+                    source,
+                    elapsed: 0.,
+                    duration,
+                })
+            } else {
+                None
+            };
+            self.state = state;
+            let s = &self.graph.states[state];
+            self.time = offset * s.motion.duration();
+            if !s.looping {
+                self.time = self.time.min(s.motion.duration());
+            }
+        }
+        let old = self.time;
+        self.time = self.advance(self.state, self.time, dt);
+        self.collect_events(old, self.time);
+        if let Some(mut fade) = self.fade.take() {
+            fade.elapsed = (fade.elapsed + dt).min(fade.duration);
+            if let Some((state, time)) = fade.source {
+                fade.source = Some((state, self.advance(state, time, dt)));
+            }
+            if fade.elapsed < fade.duration {
+                self.fade = Some(fade);
+            }
+        }
+        let (output, scratch, snapshot) = self.buffers.as_mut().unwrap();
+        let state = &self.graph.states[self.state];
+        output.reset_pose();
+        state
+            .motion
+            .sample(self.time, state.looping, 1., &self.parameters, output, scratch, &mut 0.);
+        if let Some(f) = &self.fade {
+            if let Some((i, time)) = f.source {
+                let s = &self.graph.states[i];
+                snapshot.reset_pose();
+                s.motion
+                    .sample(time, s.looping, 1., &self.parameters, snapshot, scratch, &mut 0.);
+            }
+            mix(&mut output.pose, &snapshot.pose, 1. - f.elapsed / f.duration);
+        }
+        skeleton.pose.clone_from(&output.pose);
+    }
+    fn collect_events(&mut self, old: f32, new: f32) {
+        let state = &self.graph.states[self.state];
+        let d = state.motion.duration();
+        if d <= 0. || new <= old || state.events.is_empty() {
+            return;
+        }
+        let start = f64::from(old) / f64::from(d);
+        let end = f64::from(new) / f64::from(d);
+        let mut cycle = if state.looping { start.floor() } else { 0. };
+        while cycle <= end.floor() && self.events.len() < 64 {
+            for e in &state.events {
+                let at = cycle + f64::from(e.time);
+                if at > start && at <= end && self.events.len() < 64 {
+                    self.events.push(e.name.clone());
+                }
+            }
+            if !state.looping {
+                break;
+            }
+            let next = cycle + 1.;
+            if next == cycle {
+                break;
+            }
+            cycle = next;
+        }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{AnimationTrack, Interpolation, Joint, JointAnimation, Transform3D, Vec4};
+    fn skeleton() -> Skeleton {
+        Skeleton::new(vec![Joint {
+            name: "root".into(),
+            parent: None,
+            rest: Transform3D::default(),
+        }])
+    }
+    fn clip(s: &Skeleton, x: f32) -> AnimationClip {
+        AnimationClip::new(
+            "pose",
+            s,
+            vec![JointAnimation {
+                joint: 0,
+                name: "root".into(),
+                translation: Some(AnimationTrack::new(
+                    vec![0., 1.],
+                    vec![Vec4::new(x, 0., 0., 0.); 2],
+                    Interpolation::Linear,
+                )),
+                rotation: None,
+                scale: None,
+            }],
+        )
+    }
+    fn near(a: f32, b: f32) {
+        assert!((a - b).abs() < 1e-5, "{a} != {b}");
+    }
+    #[test]
+    fn idle_walk_run_use_ordered_transitions_and_fixed_time_weights() {
+        let mut s = skeleton();
+        let states = [0., 1., 2.]
+            .map(|x| AnimationState::new(Motion::Clip(clip(&s, x))))
+            .to_vec();
+        let transition = |from, to, condition| AnimationTransition {
+            from: Some(from),
+            to,
+            conditions: vec![condition],
+            duration: 0.12,
+            exit_time: None,
+            offset: 0.,
+        };
+        let g = AnimationGraph::new(
+            vec![AnimationParameter::Float(0.)],
+            states,
+            vec![
+                transition(0, 1, AnimationCondition::Greater(0, 0.05)),
+                transition(1, 2, AnimationCondition::Greater(0, 1.4)),
+            ],
+            0,
+        );
+        let mut a = Animator::new(g);
+        a.update(0., &mut s);
+        a.set_float(0, 1.);
+        a.update(0.03, &mut s);
+        assert_eq!(a.state(), 1);
+        near(a.fade_weight(), 0.25);
+        near(s.pose[0].position.x, 0.25);
+        a.update(0.09, &mut s);
+        near(a.fade_weight(), 1.);
+        a.set_float(0, 2.);
+        a.update(0.06, &mut s);
+        assert_eq!(a.state(), 2);
+        near(s.pose[0].position.x, 1.5);
+    }
+    fn animator(_s: &Skeleton, motion: Motion, parameters: Vec<AnimationParameter>) -> Animator {
+        Animator::new(AnimationGraph::new(
+            parameters,
+            vec![AnimationState::new(motion)],
+            vec![],
+            0,
+        ))
+    }
+    fn child(s: &Skeleton, x: f32) -> MotionChild {
+        MotionChild {
+            motion: Motion::Clip(clip(s, x)),
+            time_scale: 1.,
+        }
+    }
+    #[test]
+    fn one_dimensional_blends_match_thresholds_and_interpolate_neighbours() {
+        let mut s = skeleton();
+        let tree = Motion::Blend1D {
+            parameter: 0,
+            children: vec![(0., child(&s, 0.)), (1., child(&s, 10.)), (2., child(&s, 30.))],
+        };
+        let mut a = animator(&s, tree, vec![AnimationParameter::Float(0.)]);
+        for (v, want) in [
+            (-1., 0.),
+            (0., 0.),
+            (0.5, 5.),
+            (1., 10.),
+            (1.5, 20.),
+            (2., 30.),
+            (3., 30.),
+        ] {
+            a.set_float(0, v);
+            a.update(0., &mut s);
+            near(s.pose[0].position.x, want);
+        }
+    }
+    #[test]
+    fn two_dimensional_blends_select_cardinals_exactly_and_support_nested_trees() {
+        let mut s = skeleton();
+        let points = [Vec2::X, Vec2::Y, Vec2::NEG_X, Vec2::NEG_Y];
+        let children = points
+            .into_iter()
+            .enumerate()
+            .map(|(i, p)| (p, child(&s, i as f32)))
+            .collect();
+        let tree = Motion::Blend2D { x: 0, y: 1, children };
+        let nested = Motion::Blend1D {
+            parameter: 0,
+            children: vec![(
+                0.,
+                MotionChild {
+                    motion: tree,
+                    time_scale: 1.,
+                },
+            )],
+        };
+        let mut a = animator(&s, nested, vec![AnimationParameter::Float(0.); 2]);
+        for (i, p) in points.into_iter().enumerate() {
+            a.set_float(0, p.x);
+            a.set_float(1, p.y);
+            a.update(0., &mut s);
+            near(s.pose[0].position.x, i as f32);
+        }
+        a.set_float(0, 0.);
+        a.set_float(1, 0.);
+        a.update(0., &mut s);
+        near(s.pose[0].position.x, 1.5);
+    }
+    fn transition(from: Option<usize>, to: usize, conditions: Vec<AnimationCondition>) -> AnimationTransition {
+        AnimationTransition {
+            from,
+            to,
+            conditions,
+            exit_time: None,
+            duration: 0.,
+            offset: 0.,
+        }
+    }
+    #[test]
+    fn selected_transition_consumes_triggers_but_failed_conditions_do_not() {
+        let mut s = skeleton();
+        let states = vec![AnimationState::new(Motion::Clip(clip(&s, 0.))); 2];
+        let transitions = vec![
+            transition(
+                Some(0),
+                1,
+                vec![AnimationCondition::Trigger(0), AnimationCondition::Bool(1, true)],
+            ),
+            transition(Some(1), 0, vec![AnimationCondition::Trigger(0)]),
+        ];
+        let mut a = Animator::new(AnimationGraph::new(
+            vec![AnimationParameter::Trigger(false), AnimationParameter::Bool(false)],
+            states,
+            transitions,
+            0,
+        ));
+        a.set_trigger(0, true);
+        a.update(0., &mut s);
+        assert_eq!(a.state(), 0);
+        a.set_bool(1, true);
+        a.update(0., &mut s);
+        assert_eq!(a.state(), 1);
+        a.update(0., &mut s);
+        assert_eq!(a.state(), 1);
+        a.set_trigger(0, true);
+        a.update(0., &mut s);
+        assert_eq!(a.state(), 0);
+    }
+    #[test]
+    fn exit_time_waits_until_normalized_threshold_and_any_state_ignores_it() {
+        let mut s = skeleton();
+        let states = vec![AnimationState::new(Motion::Clip(clip(&s, 0.))); 2];
+        let mut t = transition(Some(0), 1, vec![]);
+        t.exit_time = Some(0.75);
+        let mut a = Animator::new(AnimationGraph::new(vec![], states.clone(), vec![t.clone()], 0));
+        a.update(0.5, &mut s);
+        assert_eq!(a.state(), 0);
+        a.update(0.25, &mut s);
+        assert_eq!(a.state(), 1);
+        t.from = None;
+        t.exit_time = Some(100.);
+        let mut a = Animator::new(AnimationGraph::new(vec![], states, vec![t], 0));
+        a.update(0., &mut s);
+        assert_eq!(a.state(), 1);
+    }
+    #[test]
+    fn interrupted_crossfade_starts_at_the_last_mixed_pose() {
+        let mut s = skeleton();
+        let states = [0., 10., 20.]
+            .map(|x| AnimationState::new(Motion::Clip(clip(&s, x))))
+            .to_vec();
+        let mut a = Animator::new(AnimationGraph::new(vec![], states, vec![], 0));
+        a.update(0., &mut s);
+        a.crossfade(1, 1., 0.);
+        a.update(0.5, &mut s);
+        near(s.pose[0].position.x, 5.);
+        a.crossfade(2, 1., 0.);
+        a.update(0., &mut s);
+        near(s.pose[0].position.x, 5.);
+        a.update(0.5, &mut s);
+        near(s.pose[0].position.x, 12.5);
+        a.play(0, 0.);
+        a.update(0., &mut s);
+        near(s.pose[0].position.x, 0.);
+    }
+    #[test]
+    fn events_cross_loop_wrap_in_time_order_and_reuse_buffer() {
+        let mut s = skeleton();
+        let mut state = AnimationState::new(Motion::Clip(clip(&s, 0.)));
+        state.events = vec![
+            AnimationEvent {
+                time: 0.9,
+                name: "end".into(),
+            },
+            AnimationEvent {
+                time: 0.1,
+                name: "start".into(),
+            },
+        ];
+        let mut a = Animator::new(AnimationGraph::new(vec![], vec![state], vec![], 0));
+        a.play(0, 0.8);
+        a.update(0.4, &mut s);
+        assert_eq!(
+            a.drain_events().map(|s| s.to_string()).collect::<Vec<_>>(),
+            ["end", "start"]
+        );
+        a.update(0., &mut s);
+        assert_eq!(a.drain_events().count(), 0);
+        a.update(100., &mut s);
+        assert_eq!(a.drain_events().count(), 64);
+    }
+    #[test]
+    fn child_time_scale_and_parameter_speed_multiply_and_clamping_holds_end() {
+        let mut s = skeleton();
+        let c = AnimationClip::new(
+            "ramp",
+            &s,
+            vec![JointAnimation {
+                joint: 0,
+                name: "root".into(),
+                translation: Some(AnimationTrack::new(
+                    vec![0., 1.],
+                    vec![Vec4::ZERO, Vec4::X],
+                    Interpolation::Linear,
+                )),
+                rotation: None,
+                scale: None,
+            }],
+        );
+        let mut state = AnimationState::new(Motion::Blend1D {
+            parameter: 0,
+            children: vec![(
+                0.,
+                MotionChild {
+                    motion: Motion::Clip(c),
+                    time_scale: 2.,
+                },
+            )],
+        });
+        state.speed = 2.;
+        state.speed_parameter = Some(0);
+        state.looping = false;
+        let mut a = Animator::new(AnimationGraph::new(
+            vec![AnimationParameter::Float(0.5)],
+            vec![state],
+            vec![],
+            0,
+        ));
+        a.update(0.125, &mut s);
+        near(s.pose[0].position.x, 0.25);
+        near(a.normalized_time(), 0.25);
+        a.update(2., &mut s);
+        near(s.pose[0].position.x, 1.);
+        near(a.normalized_time(), 1.);
+        a.set_float(0, -1.);
+        a.play(0, 0.);
+        a.update(1., &mut s);
+        near(s.pose[0].position.x, 0.);
+    }
+    #[test]
+    #[should_panic(expected = "AnimationGraph: invalid 1D thresholds")]
+    fn duplicate_thresholds_are_rejected() {
+        let s = skeleton();
+        animator(
+            &s,
+            Motion::Blend1D {
+                parameter: 0,
+                children: vec![(0., child(&s, 0.)), (0., child(&s, 1.))],
+            },
+            vec![AnimationParameter::Float(0.)],
+        );
+    }
+    #[test]
+    fn automatic_updates_run_without_a_renderer_and_manual_animators_are_skipped() {
+        let mut ctx = crate::Ctx::new(0.25, Vec2::ONE);
+        let s = skeleton();
+        let c = clip(&s, 3.);
+        let graph = AnimationGraph::new(vec![], vec![AnimationState::new(Motion::Clip(c))], vec![], 0);
+        let automatic = ctx.world.spawn((Animator::new(graph.clone()), s.clone()));
+        let mut manual = Animator::new(graph);
+        manual.manual = true;
+        let manual = ctx.world.spawn((manual, s));
+        ctx.update_animators();
+        near(ctx.world.get::<Skeleton>(automatic).unwrap().pose[0].position.x, 3.);
+        near(ctx.world.get::<Skeleton>(manual).unwrap().pose[0].position.x, 0.);
+    }
+    #[test]
+    fn first_matching_transition_wins_and_target_offset_is_applied() {
+        let mut s = skeleton();
+        let states = vec![AnimationState::new(Motion::Clip(clip(&s, 0.))); 3];
+        let mut t = transition(Some(0), 1, vec![AnimationCondition::Less(0, 1.)]);
+        t.offset = 0.5;
+        let mut a = Animator::new(AnimationGraph::new(
+            vec![AnimationParameter::Float(0.)],
+            states,
+            vec![t, transition(None, 2, vec![])],
+            0,
+        ));
+        a.update(0.1, &mut s);
+        assert_eq!(a.state(), 1);
+        near(a.normalized_time(), 0.6);
+    }
+    #[test]
+    fn ordinary_fades_keep_advancing_the_outgoing_clip() {
+        let mut s = skeleton();
+        let ramp = AnimationClip::new(
+            "ramp",
+            &s,
+            vec![JointAnimation {
+                joint: 0,
+                name: "root".into(),
+                translation: Some(AnimationTrack::new(
+                    vec![0., 1.],
+                    vec![Vec4::ZERO, Vec4::X],
+                    Interpolation::Linear,
+                )),
+                rotation: None,
+                scale: None,
+            }],
+        );
+        let mut a = Animator::new(AnimationGraph::new(
+            vec![],
+            vec![
+                AnimationState::new(Motion::Clip(ramp)),
+                AnimationState::new(Motion::Clip(clip(&s, 2.))),
+            ],
+            vec![],
+            0,
+        ));
+        a.update(0.25, &mut s);
+        a.crossfade(1, 1., 0.);
+        a.update(0.25, &mut s);
+        near(s.pose[0].position.x, 0.875);
+    }
+}

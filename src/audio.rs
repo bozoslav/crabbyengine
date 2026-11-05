@@ -7,6 +7,11 @@
 
 use crate::ctx::Ctx;
 
+#[cfg(feature = "3d")]
+mod spatial;
+#[cfg(feature = "3d")]
+pub use spatial::*;
+
 /// A loaded sound. Cheap to copy. Get one from
 /// [`Ctx::load_sound`](crate::Ctx::load_sound) or
 /// [`Ctx::create_sound`](crate::Ctx::create_sound).
@@ -68,49 +73,111 @@ impl Default for SoundParams {
     }
 }
 
+mod mixer;
+use mixer::BusRegistry;
+pub use mixer::{AudioBus, AudioEffects};
+
 #[cfg(feature = "audio")]
 mod backend {
-    use std::collections::HashMap;
-    use std::sync::Arc;
+    use super::mixer::{finite, volume_db};
+    use super::{AudioBus, AudioEffects, BusRegistry, SoundParams};
+    use kira::effect::{
+        filter::{FilterBuilder, FilterHandle},
+        reverb::ReverbBuilder,
+    };
+    use kira::sound::{
+        FromFileError, PlaybackState,
+        static_sound::{StaticSoundData, StaticSoundHandle},
+        streaming::{StreamingSoundData, StreamingSoundHandle},
+    };
+    use kira::track::{SendTrackBuilder, SendTrackHandle, TrackBuilder, TrackHandle};
+    use kira::{AudioManager, AudioManagerSettings, DefaultBackend, Frame, Tween};
+    use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
-    use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle};
-    use kira::sound::{FromFileError, PlaybackState};
-    use kira::{AudioManager, AudioManagerSettings, Decibels, DefaultBackend, Frame, Tween};
-
-    use super::SoundParams;
-
+    enum Clip {
+        Static(Box<StaticSoundData>),
+        Stream(PathBuf),
+    }
+    enum Handle {
+        Static(StaticSoundHandle),
+        Stream(StreamingSoundHandle<FromFileError>),
+    }
+    struct Voice {
+        handle: Handle,
+        track: TrackHandle,
+        filter: FilterHandle,
+        bus: AudioBus,
+        effects: AudioEffects,
+    }
+    impl Handle {
+        fn state(&self) -> PlaybackState {
+            match self {
+                Self::Static(h) => h.state(),
+                Self::Stream(h) => h.state(),
+            }
+        }
+        fn stop(&mut self) {
+            match self {
+                Self::Static(h) => h.stop(Tween::default()),
+                Self::Stream(h) => h.stop(Tween::default()),
+            }
+        }
+        #[cfg(feature = "3d")]
+        fn spatialize(&mut self, volume: f32, pan: f32, speed: f32) {
+            macro_rules! apply {
+                ($h:expr) => {{
+                    $h.set_volume(volume_db(volume), Tween::default());
+                    $h.set_panning(pan, Tween::default());
+                    $h.set_playback_rate(f64::from(finite(speed, 1.0).max(0.01)), Tween::default());
+                }};
+            }
+            match self {
+                Self::Static(h) => apply!(h),
+                Self::Stream(h) => apply!(h),
+            }
+        }
+    }
     #[derive(Default)]
     pub struct Audio {
-        /// `None` until first use; `Some(None)` if there's no device.
         manager: Option<Option<AudioManager<DefaultBackend>>>,
-        sounds: Vec<StaticSoundData>,
-        playing: HashMap<u64, StaticSoundHandle>,
+        sounds: Vec<Clip>,
+        playing: HashMap<u64, Voice>,
         next: u64,
+        pub(super) buses: BusRegistry,
+        reverb: Option<SendTrackHandle>,
+        #[cfg(feature = "3d")]
+        pub(super) spatial: super::spatial::SpatialState,
     }
-
     impl Audio {
         fn manager(&mut self) -> Option<&mut AudioManager<DefaultBackend>> {
             self.manager
-                .get_or_insert_with(|| match AudioManager::new(AudioManagerSettings::default()) {
-                    Ok(m) => Some(m),
-                    Err(e) => {
-                        eprintln!("crabbyengine: no audio ({e}); sounds will be silent");
-                        None
-                    }
-                })
+                .get_or_insert_with(|| AudioManager::new(AudioManagerSettings::default()).ok())
                 .as_mut()
         }
-
         pub fn load(&mut self, bytes: Vec<u8>) -> Result<(u32, f32), String> {
             Ok(self.add(decode(bytes)?))
         }
-
-        /// Replaces sound `id`'s data (hot reload); playing copies go on.
         pub fn replace(&mut self, id: u32, bytes: Vec<u8>) -> Result<(), String> {
-            self.sounds[id as usize] = decode(bytes)?;
+            self.sounds[id as usize] = Clip::Static(Box::new(decode(bytes)?));
             Ok(())
         }
-
+        pub fn stream(&mut self, path: PathBuf) -> Result<(u32, f32), String> {
+            if let Some(index) = self
+                .sounds
+                .iter()
+                .position(|clip| matches!(clip, Clip::Stream(p) if *p == path))
+            {
+                let seconds = StreamingSoundData::from_file(&path)
+                    .map_err(|e| e.to_string())?
+                    .duration()
+                    .as_secs_f32();
+                return Ok((index as u32, seconds));
+            }
+            let data = StreamingSoundData::from_file(&path).map_err(|e| e.to_string())?;
+            let seconds = data.duration().as_secs_f32();
+            self.sounds.push(Clip::Stream(path));
+            Ok(((self.sounds.len() - 1) as u32, seconds))
+        }
         pub fn create(&mut self, sample_rate: u32, samples: &[f32]) -> (u32, f32) {
             let frames: Arc<[Frame]> = samples.iter().map(|&s| Frame::from_mono(s)).collect();
             self.add(StaticSoundData {
@@ -120,87 +187,225 @@ mod backend {
                 slice: None,
             })
         }
-
         fn add(&mut self, data: StaticSoundData) -> (u32, f32) {
             let seconds = data.duration().as_secs_f32();
-            self.sounds.push(data);
+            self.sounds.push(Clip::Static(Box::new(data)));
             ((self.sounds.len() - 1) as u32, seconds)
         }
-
-        pub fn play(&mut self, sound: u32, p: SoundParams) -> u64 {
-            // Forget sounds that finished, so the map stays small.
-            self.playing.retain(|_, h| h.state() != PlaybackState::Stopped);
-            let mut data = self.sounds[sound as usize]
-                .volume(volume_db(p.volume))
-                .playback_rate(f64::from(p.speed.max(0.01)));
-            if p.looping {
-                data = data.loop_region(..);
+        fn prepare(&mut self, bus: AudioBus) -> Option<()> {
+            self.buses.ensure_default();
+            self.buses.entries.get(bus.0)?;
+            if self.reverb.is_none() {
+                self.reverb = Some(
+                    self.manager()?
+                        .add_send_track(SendTrackBuilder::new().with_effect(ReverbBuilder::new().mix(1.0)))
+                        .ok()?,
+                );
             }
-            let id = self.next;
+            if self.buses.entries[bus.0].track.is_none() {
+                let gain = self.buses.entries[bus.0].gain();
+                let track = self
+                    .manager()?
+                    .add_sub_track(TrackBuilder::new().volume(volume_db(gain)))
+                    .ok()?;
+                self.buses.entries[bus.0].track = Some(track);
+            }
+            Some(())
+        }
+        pub fn play(&mut self, sound: u32, p: SoundParams) -> u64 {
+            self.play_on(sound, p, AudioBus::default(), AudioEffects::default())
+        }
+        pub fn play_on(&mut self, sound: u32, p: SoundParams, bus: AudioBus, effects: AudioEffects) -> u64 {
+            self.playing
+                .retain(|_, voice| voice.handle.state() != PlaybackState::Stopped);
             self.next += 1;
-            if let Some(m) = self.manager()
-                && let Ok(handle) = m.play(data)
-            {
-                self.playing.insert(id, handle);
+            let id = self.next;
+            if self.prepare(bus).is_none() {
+                return id;
+            }
+            let effects = effects.validated();
+            let send = self.reverb.as_ref().unwrap().id();
+            let gain = self.buses.entries[bus.0].gain();
+            let mut builder = TrackBuilder::new().with_send(send, volume_db(effects.reverb * gain));
+            let filter = builder.add_effect(FilterBuilder::new().cutoff(f64::from(effects.low_pass_hz)));
+            let Ok(mut track) = self.buses.entries[bus.0].track.as_mut().unwrap().add_sub_track(builder) else {
+                return id;
+            };
+            let volume = volume_db(p.volume);
+            let speed = f64::from(finite(p.speed, 1.0).max(0.01));
+            let handle = match &self.sounds[sound as usize] {
+                Clip::Static(data) => {
+                    let mut data = (**data).clone().volume(volume).playback_rate(speed);
+                    if p.looping {
+                        data = data.loop_region(..);
+                    }
+                    track.play(data).ok().map(Handle::Static)
+                }
+                Clip::Stream(path) => {
+                    let Ok(data) = StreamingSoundData::from_file(path) else {
+                        return id;
+                    };
+                    let mut data = data.volume(volume).playback_rate(speed);
+                    if p.looping {
+                        data = data.loop_region(..);
+                    }
+                    track.play(data).ok().map(Handle::Stream)
+                }
+            };
+            if let Some(handle) = handle {
+                self.playing.insert(
+                    id,
+                    Voice {
+                        handle,
+                        track,
+                        filter,
+                        bus,
+                        effects,
+                    },
+                );
             }
             id
         }
-
+        pub fn bus_changed(&mut self, bus: AudioBus) {
+            let Some(state) = self.buses.entries.get_mut(bus.0) else {
+                return;
+            };
+            let gain = state.gain();
+            if let Some(track) = state.track.as_mut() {
+                track.set_volume(volume_db(gain), Tween::default());
+            }
+            if let Some(send) = &self.reverb {
+                for voice in self.playing.values_mut().filter(|v| v.bus == bus) {
+                    let _ = voice
+                        .track
+                        .set_send(send.id(), volume_db(voice.effects.reverb * gain), Tween::default());
+                }
+            }
+        }
+        pub fn effects(&mut self, id: u64, effects: AudioEffects) {
+            if let Some(voice) = self.playing.get_mut(&id) {
+                let effects = effects.validated();
+                voice
+                    .filter
+                    .set_cutoff(f64::from(effects.low_pass_hz), Tween::default());
+                if let Some(send) = &self.reverb {
+                    let gain = self.buses.entries[voice.bus.0].gain();
+                    let _ = voice
+                        .track
+                        .set_send(send.id(), volume_db(effects.reverb * gain), Tween::default());
+                }
+                voice.effects = effects;
+            }
+        }
+        #[cfg(feature = "3d")]
+        pub fn spatialize(&mut self, id: u64, volume: f32, pan: f32, speed: f32) {
+            if let Some(v) = self.playing.get_mut(&id) {
+                v.handle.spatialize(volume, pan, speed);
+            }
+        }
         pub fn stop(&mut self, id: u64) {
-            if let Some(mut h) = self.playing.remove(&id) {
-                h.stop(Tween::default());
+            if let Some(mut v) = self.playing.remove(&id) {
+                v.handle.stop();
             }
         }
     }
-
     fn decode(bytes: Vec<u8>) -> Result<StaticSoundData, String> {
-        StaticSoundData::from_cursor(std::io::Cursor::new(bytes)).map_err(|e| match e {
-            FromFileError::UnsupportedChannelConfiguration => "only mono and stereo sounds are supported".into(),
-            other => format!("could not decode the sound: {other}"),
-        })
+        StaticSoundData::from_cursor(std::io::Cursor::new(bytes))
+            .map_err(|e| format!("could not decode the sound: {e}"))
     }
 
-    /// Linear volume (0..1) to decibels.
-    fn volume_db(v: f32) -> Decibels {
-        if v <= 0.001 {
-            Decibels::SILENCE
-        } else {
-            Decibels(20.0 * v.log10())
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn audio_stream_loads_headers_reuses_handle_and_never_opens_device() {
+            let path = std::env::temp_dir().join(format!(
+                "crabby-audio-{}-{}.wav",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            let mut wav = Vec::from(&b"RIFF"[..]);
+            wav.extend_from_slice(&236u32.to_le_bytes());
+            wav.extend_from_slice(b"WAVEfmt ");
+            wav.extend_from_slice(&16u32.to_le_bytes());
+            wav.extend_from_slice(&1u16.to_le_bytes()); // PCM
+            wav.extend_from_slice(&1u16.to_le_bytes()); // mono
+            wav.extend_from_slice(&100u32.to_le_bytes());
+            wav.extend_from_slice(&200u32.to_le_bytes());
+            wav.extend_from_slice(&2u16.to_le_bytes());
+            wav.extend_from_slice(&16u16.to_le_bytes());
+            wav.extend_from_slice(b"data");
+            wav.extend_from_slice(&200u32.to_le_bytes());
+            wav.resize(244, 0);
+            std::fs::write(&path, wav).unwrap();
+            let mut audio = Audio::default();
+            let first = audio.stream(path.clone());
+            let second = audio.stream(path.clone());
+            std::fs::remove_file(path).unwrap();
+            assert_eq!(first.unwrap(), second.unwrap());
+            assert_eq!(audio.sounds.len(), 1);
+            assert!(audio.manager.is_none());
+            assert!(matches!(&audio.sounds[0], Clip::Stream(_)));
+        }
+
+        #[test]
+        fn audio_headless_routing_never_initializes_manager() {
+            crate::Game::new("audio", 1, 1).run_headless(0, |ctx| {
+                let bus = ctx.audio_bus("music");
+                let sound = ctx.create_sound(100, &[0.0; 100]);
+                let voice = ctx.play_sound_on(&sound, SoundParams::default(), bus, AudioEffects::default());
+                ctx.set_sound_effects(voice, AudioEffects::default());
+                ctx.set_audio_bus_volume(bus, 0.5);
+                ctx.mute_audio_bus(bus, true);
+                assert!(ctx.audio.manager.is_none());
+                assert!(ctx.audio.playing.is_empty());
+                assert!(ctx.audio.reverb.is_none());
+            });
         }
     }
 }
 
 #[cfg(not(feature = "audio"))]
 mod backend {
-    use super::SoundParams;
-
-    /// The `audio` feature is off: sounds have a length but make no noise.
+    use super::{AudioBus, AudioEffects, BusRegistry, SoundParams};
     #[derive(Default)]
     pub struct Audio {
         count: u32,
         next: u64,
+        pub(super) buses: BusRegistry,
+        #[cfg(feature = "3d")]
+        pub(super) spatial: super::spatial::SpatialState,
     }
-
     impl Audio {
         pub fn load(&mut self, _bytes: Vec<u8>) -> Result<(u32, f32), String> {
             self.count += 1;
             Ok((self.count - 1, 0.0))
         }
-
+        pub fn stream(&mut self, _path: std::path::PathBuf) -> Result<(u32, f32), String> {
+            self.load(Vec::new())
+        }
         pub fn replace(&mut self, _id: u32, _bytes: Vec<u8>) -> Result<(), String> {
             Ok(())
         }
-
         pub fn create(&mut self, sample_rate: u32, samples: &[f32]) -> (u32, f32) {
             self.count += 1;
             (self.count - 1, samples.len() as f32 / sample_rate.max(1) as f32)
         }
-
         pub fn play(&mut self, _sound: u32, _p: SoundParams) -> u64 {
             self.next += 1;
             self.next
         }
-
+        pub fn play_on(&mut self, sound: u32, p: SoundParams, _bus: AudioBus, _effects: AudioEffects) -> u64 {
+            self.play(sound, p)
+        }
+        pub fn bus_changed(&mut self, _bus: AudioBus) {}
+        pub fn effects(&mut self, _id: u64, _effects: AudioEffects) {}
+        #[cfg(feature = "3d")]
+        pub fn spatialize(&mut self, _id: u64, _volume: f32, _pan: f32, _speed: f32) {}
         pub fn stop(&mut self, _id: u64) {}
     }
 }
@@ -311,6 +516,8 @@ impl Ctx {
     /// # }
     /// ```
     pub fn stop_sound(&mut self, playing: Playing) {
+        #[cfg(feature = "3d")]
+        self.audio.spatial.remove(playing);
         self.audio.stop(playing.0);
     }
 }

@@ -17,7 +17,10 @@ use crate::collision::{BodyKind, CollisionStarted, CollisionStopped};
 use crate::{Ctx, Entity, Quat, Transform3D, Vec3, World};
 
 mod character;
+mod dominance;
 mod files;
+mod joints;
+pub use joints::{Joint3D, JointAxis3D, JointDrive3D, JointMotion3D};
 mod query;
 mod vehicle;
 
@@ -45,6 +48,12 @@ pub const PHYSICS3D_HZ: u32 = 50;
 pub struct RigidBody3D {
     /// Dynamic, fixed or kinematic.
     pub kind: BodyKind,
+    /// Higher groups push lower groups without contact reaction; equal groups react normally.
+    /// ```
+    /// use crabbyengine::*;
+    /// assert_eq!(RigidBody3D::dynamic().dominance(1).dominance, 1);
+    /// ```
+    pub dominance: i8,
     /// 1 normal, 0 floats, negative falls up.
     pub gravity_scale: f32,
     /// Slows movement down over time (air drag); 0 none.
@@ -73,11 +82,23 @@ impl Default for RigidBody3D {
 }
 
 impl RigidBody3D {
+    /// Sets contact dominance (default zero). Does not change joint reactions.
+    /// ```
+    /// use crabbyengine::*;
+    /// let body = RigidBody3D::dynamic().dominance(10);
+    /// assert_eq!(body.dominance, 10);
+    /// ```
+    #[must_use]
+    pub const fn dominance(self, dominance: i8) -> Self {
+        Self { dominance, ..self }
+    }
+
     /// A body moved by gravity and collisions.
     #[must_use]
     pub const fn dynamic() -> Self {
         Self {
             kind: BodyKind::Dynamic,
+            dominance: 0,
             gravity_scale: 1.0,
             linear_damping: 0.0,
             angular_damping: 0.0,
@@ -467,6 +488,7 @@ impl rp::EventHandler for Collector {
 /// entities with [`Character3D`] and [`Transform3D`] walk.
 pub struct Physics3D {
     world: rp::PhysicsWorld,
+    joints: Vec<joints::Link>,
     /// By entity index.
     links: Vec<Option<Link>>,
     /// The indices in `links` of bodies and characters that move, so
@@ -519,6 +541,7 @@ impl Physics3D {
     pub fn new(gravity: Vec3) -> Self {
         Self {
             world: rp::PhysicsWorld::new(),
+            joints: Vec::new(),
             links: Vec::new(),
             moving: Vec::new(),
             moving_dirty: false,
@@ -894,6 +917,7 @@ fn body_of(t: &Transform3D, rigid: RigidBody3D, velocity: Velocity3D) -> rp::Rig
         .pose(pose_to_rp(t.position, t.rotation))
         .linvel(to_rp(velocity.linear))
         .angvel(to_rp(velocity.angular))
+        .dominance_group(rigid.dominance)
         .gravity_scale(rigid.gravity_scale)
         .linear_damping(rigid.linear_damping)
         .angular_damping(rigid.angular_damping)
@@ -926,11 +950,13 @@ pub fn step_physics3d(ctx: &mut Ctx) {
     let physics = &mut ctx.physics3d;
     physics.step += 1;
     sync_into(physics, &mut ctx.world);
+    joints::sync(physics, &mut ctx.world);
     physics.world.gravity = to_rp(physics.gravity);
     physics.world.integration_parameters.dt = dt;
     character::move_characters(physics, &mut ctx.world, dt);
     vehicle::step_vehicles(physics, &mut ctx.world, dt);
     physics.world.step_with_events(&(), &physics.collector);
+    dominance::transfer_velocity(physics, dt);
     write_back(physics, &mut ctx.world);
     std::mem::swap(
         &mut physics.events,

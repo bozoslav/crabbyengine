@@ -5,7 +5,7 @@
 //! and merged, so a file is one [`Mesh`](crate::Mesh): a tree, a house, a
 //! car. A file with skins keeps its nodes as the joints of a skeleton:
 //! skinned meshes stay in the space they were bound in, and other meshes
-//! follow their node rigidly. Animation isn't loaded (yet).
+//! follow their node rigidly. Animation clips retain local joint tracks.
 
 use std::ops::Range;
 
@@ -29,10 +29,11 @@ pub(crate) struct Loaded {
     /// With skins: the file's nodes as joints, and what `data.joints`
     /// index (each slot's joint and inverse bind matrix).
     pub skin: Option<LoadedSkin>,
+    pub clips: Vec<super::AnimationClip>,
 }
 
 pub(crate) struct LoadedSkin {
-    pub joints: Vec<Joint>,
+    pub joints: std::sync::Arc<[Joint]>,
     pub slots: Vec<u16>,
     pub inverse_binds: Vec<Mat4>,
 }
@@ -318,8 +319,14 @@ pub(crate) fn load(
         parts.push((first..data.indices.len() as u32, material));
     }
     data.check().map_err(|e| format!("{name}: {e}"))?;
+    let clips = match &rig {
+        Some(rig) => read_clips(&gltf.document, &buffers, rig)?,
+        None => Vec::new(),
+    };
     let skin = rig.map(|rig| LoadedSkin {
-        joints: rig.joints,
+        joints: clips
+            .first()
+            .map_or_else(|| rig.joints.into(), |c| c.source_joints().clone()),
         slots: rig.slots.iter().map(|s| s.0).collect(),
         inverse_binds: rig.slots.iter().map(|s| s.1).collect(),
     });
@@ -330,7 +337,66 @@ pub(crate) fn load(
         images,
         image_sources,
         skin,
+        clips,
     })
+}
+
+fn read_clips(document: &gltf::Document, buffers: &[Vec<u8>], rig: &Rig) -> Result<Vec<super::AnimationClip>, String> {
+    use super::{AnimationClip, AnimationTrack, Interpolation, JointAnimation, Skeleton};
+    use gltf::animation::util::ReadOutputs;
+    let source = Skeleton::new(rig.joints.clone());
+    document
+        .animations()
+        .map(|animation| {
+            let mut tracks: Vec<JointAnimation> = Vec::new();
+            for channel in animation.channels() {
+                if channel.target().property() == gltf::animation::Property::MorphTargetWeights {
+                    continue;
+                }
+                let joint = rig.of_node[channel.target().node().index()];
+                if joint == u16::MAX {
+                    continue;
+                }
+                let joint = usize::from(joint);
+                let reader = channel.reader(|b| buffers.get(b.index()).map(Vec::as_slice));
+                let times = reader.read_inputs().ok_or("animation has no key times")?.collect();
+                let interpolation = match channel.sampler().interpolation() {
+                    gltf::animation::Interpolation::Step => Interpolation::Step,
+                    gltf::animation::Interpolation::Linear => Interpolation::Linear,
+                    gltf::animation::Interpolation::CubicSpline => Interpolation::CubicSpline,
+                };
+                let (property, values) = match reader.read_outputs().ok_or("animation has no values")? {
+                    ReadOutputs::Translations(v) => (0, v.map(|v| Vec3::from(v).extend(0.0)).collect()),
+                    ReadOutputs::Rotations(v) => (1, v.into_f32().map(glam::Vec4::from).collect()),
+                    ReadOutputs::Scales(v) => (2, v.map(|v| Vec3::from(v).extend(0.0)).collect()),
+                    ReadOutputs::MorphTargetWeights(_) => continue,
+                };
+                let track = AnimationTrack::try_new(times, values, interpolation)?;
+                let at = tracks.iter().position(|t| t.joint == joint).unwrap_or_else(|| {
+                    tracks.push(JointAnimation {
+                        joint,
+                        name: rig.joints[joint].name.clone(),
+                        translation: None,
+                        rotation: None,
+                        scale: None,
+                    });
+                    tracks.len() - 1
+                });
+                match property {
+                    0 => tracks[at].translation = Some(track),
+                    1 => tracks[at].rotation = Some(track),
+                    _ => tracks[at].scale = Some(track),
+                }
+            }
+            Ok(AnimationClip::new(
+                animation
+                    .name()
+                    .map_or_else(|| format!("animation {}", animation.index()), str::to_string),
+                &source,
+                tracks,
+            ))
+        })
+        .collect()
 }
 
 /// Adds one primitive's triangles to `out`, moved by `matrix`.
@@ -917,6 +983,34 @@ mod tests {
             ]
         }}"#
         )
+    }
+
+    #[test]
+    fn animations_map_node_indices_to_preorder_joints() {
+        // Separate inline buffer for two times and two translation values.
+        let bytes: Vec<u8> = [0.0f32, 2.0, 0.0, 1.0, 0.0, 0.0, 3.0, 0.0]
+            .into_iter()
+            .flat_map(f32::to_le_bytes)
+            .collect();
+        let mut text = skinned_gltf();
+        text = text.replace("\"buffers\": [", &format!(r#""animations": [{{ "name": "rise", "samplers": [{{ "input": 4, "output": 5, "interpolation": "LINEAR" }}], "channels": [{{ "sampler": 0, "target": {{ "node": 4, "path": "translation" }} }}] }}],
+            "buffers": [{{ "byteLength": 32, "uri": "data:application/octet-stream;base64,{}" }},"#, to_base64(&bytes)));
+        // Existing views refer to the old buffer, now index 1.
+        text = text.replace("\"buffer\": 0", "\"buffer\": 1");
+        // Append views and accessors so existing mesh indices stay unchanged.
+        text = text.replace(r#"{ "buffer": 1, "byteOffset": 96, "byteLength": 128 }"#, r#"{ "buffer": 1, "byteOffset": 96, "byteLength": 128 }, { "buffer": 0, "byteLength": 8 }, { "buffer": 0, "byteOffset": 8, "byteLength": 24 }"#);
+        text = text.replace(r#"{ "bufferView": 3, "componentType": 5126, "count": 2, "type": "MAT4" }"#, r#"{ "bufferView": 3, "componentType": 5126, "count": 2, "type": "MAT4" }, { "bufferView": 4, "componentType": 5126, "count": 2, "type": "SCALAR", "min": [0], "max": [2] }, { "bufferView": 5, "componentType": 5126, "count": 2, "type": "VEC3" }"#);
+        let loaded = load("animated.gltf", text.as_bytes(), &mut |f| Err(f.into()), &|_| false).unwrap();
+        let clip = &loaded.clips[0];
+        assert_eq!(clip.name(), "rise");
+        assert_eq!(clip.duration(), 2.0);
+        assert_eq!((clip.tracks()[0].joint, clip.tracks()[0].name.as_str()), (3, "cup"));
+        assert_eq!(clip.tracks()[0].translation.as_ref().unwrap().times(), &[0.0, 2.0]);
+        let mut skeleton = super::super::Skeleton::from_shared(loaded.skin.unwrap().joints);
+        assert!(skeleton.shares_joints(clip.source_joints()));
+        clip.sample(1.0, &mut skeleton);
+        assert_eq!(skeleton.pose[3].position, Vec3::Y * 2.0);
+        assert_eq!(skeleton.pose[0].scale, Vec3::splat(2.0));
     }
 
     #[test]

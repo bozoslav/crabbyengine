@@ -76,6 +76,7 @@ pub struct Game {
     fullscreen: bool,
     sim_systems: Vec<System>,
     systems: Vec<System>,
+    late_systems: Vec<System>,
     /// Built-in drawing; runs after every other system so it sees final positions.
     draw_systems: Vec<System>,
     /// Cell size from `spatial_grid`, applied to `ctx.spatial` when the game starts.
@@ -234,6 +235,7 @@ impl Game {
             fullscreen: false,
             sim_systems: Vec::new(),
             systems: Vec::new(),
+            late_systems: Vec::new(),
             draw_systems: vec![
                 System::new(animate_sprites),
                 System::new(draw_tilemaps),
@@ -276,6 +278,19 @@ impl Game {
     /// ```
     pub fn lockstep(mut self, net: crate::Net) -> Self {
         self.net = Some(net);
+        self
+    }
+
+    /// Adds a per-frame system after automatic animation and before drawing.
+    /// Runs in registration order, with frame dt and ordinary system timings.
+    /// Like frame systems, it does not run in `run_headless`.
+    ///
+    /// ```no_run
+    /// use crabbyengine::*;
+    /// Game::new("Pose", 800, 600).late_system(|ctx| { let _ = ctx.dt(); }).run(|_| {});
+    /// ```
+    pub fn late_system<F: FnMut(&mut Ctx) + 'static>(mut self, system: F) -> Self {
+        self.late_systems.push(System::new(system));
         self
     }
 
@@ -357,6 +372,15 @@ impl Game {
         self.push_sim_system(s, ticks)
     }
 
+    /// For language bindings (the C API): `late_system` with a name.
+    #[doc(hidden)]
+    pub fn named_late_system(mut self, name: &'static str, system: impl FnMut(&mut Ctx) + 'static) -> Self {
+        let mut s = System::new(system);
+        s.name = name;
+        self.late_systems.push(s);
+        self
+    }
+
     /// For language bindings (the C API): `system` with a name.
     #[doc(hidden)]
     pub fn named_system(mut self, name: &'static str, system: impl FnMut(&mut Ctx) + 'static) -> Self {
@@ -371,11 +395,12 @@ impl Game {
     /// Returns how many were removed.
     #[doc(hidden)]
     pub fn remove_named_system(&mut self, name: &str) -> usize {
-        let before = self.sim_systems.len() + self.systems.len() + self.draw_systems.len();
+        let before = self.sim_systems.len() + self.systems.len() + self.late_systems.len() + self.draw_systems.len();
         self.sim_systems.retain(|s| s.name != name);
         self.systems.retain(|s| s.name != name);
+        self.late_systems.retain(|s| s.name != name);
         self.draw_systems.retain(|s| s.name != name);
-        before - (self.sim_systems.len() + self.systems.len() + self.draw_systems.len())
+        before - (self.sim_systems.len() + self.systems.len() + self.late_systems.len() + self.draw_systems.len())
     }
 
     /// Turns on 2D physics (feature `physics`): every entity with a
@@ -506,10 +531,11 @@ impl Game {
     pub fn remove_system<F: FnMut(&mut Ctx) + 'static>(mut self, system: F) -> Self {
         drop(system);
         let name = std::any::type_name::<F>();
-        let count = |g: &Game| g.sim_systems.len() + g.systems.len() + g.draw_systems.len();
+        let count = |g: &Game| g.sim_systems.len() + g.systems.len() + g.late_systems.len() + g.draw_systems.len();
         let before = count(&self);
         self.sim_systems.retain(|s| s.name != name);
         self.systems.retain(|s| s.name != name);
+        self.late_systems.retain(|s| s.name != name);
         self.draw_systems.retain(|s| s.name != name);
         assert_ne!(
             before,
@@ -708,9 +734,17 @@ impl Game {
         for (i, s) in self.systems.iter_mut().enumerate() {
             run_one(s, ctx, n_sim + i);
         }
-        for (i, s) in self.draw_systems.iter_mut().enumerate() {
+        #[cfg(feature = "3d")]
+        ctx.update_animators();
+        for (i, s) in self.late_systems.iter_mut().enumerate() {
             run_one(s, ctx, n_sim + n_frame + i);
         }
+        for (i, s) in self.draw_systems.iter_mut().enumerate() {
+            run_one(s, ctx, n_sim + n_frame + self.late_systems.len() + i);
+        }
+        // Positional sound follows where everything ended up this frame.
+        #[cfg(feature = "3d")]
+        crate::audio::update_audio3d(ctx);
         end_timings(ctx);
     }
 
@@ -731,9 +765,17 @@ impl Game {
 
     /// Makes sure there's one timing slot per system, and zeroes this frame's times.
     fn begin_timings(&self, ctx: &mut Ctx) {
-        if ctx.timings.len() != self.sim_systems.len() + self.systems.len() + self.draw_systems.len() {
+        if ctx.timings.len()
+            != self.sim_systems.len() + self.systems.len() + self.late_systems.len() + self.draw_systems.len()
+        {
             ctx.timings = (self.sim_systems.iter().map(|s| (s, true)))
-                .chain(self.systems.iter().chain(&self.draw_systems).map(|s| (s, false)))
+                .chain(
+                    self.systems
+                        .iter()
+                        .chain(&self.late_systems)
+                        .chain(&self.draw_systems)
+                        .map(|s| (s, false)),
+                )
                 .map(|(s, sim)| SystemTiming {
                     name: s.name,
                     sim,
@@ -925,6 +967,57 @@ mod tests {
     }
     fn frame_b(ctx: &mut Ctx) {
         log(ctx, "frame_b");
+    }
+
+    #[cfg(feature = "3d")]
+    #[test]
+    fn late_system_sees_automatic_animation_pose() {
+        use crate::{AnimationClip, AnimationGraph, AnimationState, Animator, Joint, Motion, Skeleton, Transform3D};
+        let skeleton = Skeleton::new(vec![Joint {
+            name: "root".into(),
+            parent: None,
+            rest: Transform3D::default(),
+        }]);
+        let clip = AnimationClip::new("rest", &skeleton, vec![]);
+        let animator = Animator::new(AnimationGraph::new(
+            vec![],
+            vec![AnimationState::new(Motion::Clip(clip))],
+            vec![],
+            0,
+        ));
+        let mut ctx = ctx();
+        let entity = ctx.world.spawn((skeleton, animator));
+        let mut game = bare(Game::new("t", 1, 1))
+            .system(move |ctx| ctx.world.get_mut::<Skeleton>(entity).unwrap().pose[0].position.x = 7.0)
+            .late_system(move |ctx| {
+                let s = ctx.world.get_mut::<Skeleton>(entity).unwrap();
+                assert_eq!(s.pose[0].position.x, 0.0);
+                s.pose[0].position.x = 2.0;
+            });
+        game.run_systems(&mut ctx, 0);
+        assert_eq!(ctx.world.get::<Skeleton>(entity).unwrap().pose[0].position.x, 2.0);
+    }
+
+    #[test]
+    fn late_system_runs_after_frame_before_draw_and_is_timed() {
+        fn late(ctx: &mut Ctx) {
+            log(ctx, "late");
+        }
+        fn draw(ctx: &mut Ctx) {
+            log(ctx, "draw");
+        }
+        let mut game = bare(Game::new("t", 1, 1)).system(frame_b).late_system(late);
+        game.draw_systems.push(System::new(draw));
+        let mut ctx = ctx();
+        game.run_systems(&mut ctx, 0);
+        assert_eq!(
+            ctx.world.resource::<Log>().0,
+            ["frame_b dt=0.0000", "late dt=0.0000", "draw dt=0.0000"]
+        );
+        assert_eq!(ctx.system_timings().len(), 3);
+        assert!(ctx.system_timings()[1].name.ends_with("::late"));
+        let game = game.remove_system(late);
+        assert!(game.late_systems.is_empty());
     }
 
     #[test]

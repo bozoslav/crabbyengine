@@ -98,7 +98,9 @@ mod ui;
 mod web;
 
 pub use attach::{Attached, follow_attachments};
-pub use audio::{Playing, Sound, SoundParams};
+pub use audio::{AudioBus, AudioEffects, Playing, Sound, SoundParams};
+#[cfg(feature = "3d")]
+pub use audio::{AudioListener3D, AudioRolloff, AudioSettings3D, AudioSource3D};
 pub use camera::{Camera2D, Rect, camera_controls};
 #[cfg(any(feature = "physics", feature = "physics3d"))]
 pub use collision::{BodyKind, CollisionStarted, CollisionStopped};
@@ -118,8 +120,9 @@ pub use net::{steam_lobby_from_args, steam_wait_for_invite};
 pub use physics::{Collider, MAX_POLYGON_POINTS, Physics, RayHit, RigidBody, Shape, Velocity, step_physics};
 #[cfg(feature = "physics3d")]
 pub use physics3d::{
-    Character3D, Collider3D, CollisionGroups, CollisionMesh, FrictionCurve, Hit3D, PHYSICS3D_HZ, Physics3D,
-    QueryFilter3D, RigidBody3D, Shape3D, Vehicle3D, Velocity3D, Wheel3D, interpolate_physics3d, step_physics3d,
+    Character3D, Collider3D, CollisionGroups, CollisionMesh, FrictionCurve, Hit3D, Joint3D, JointAxis3D, JointDrive3D,
+    JointMotion3D, PHYSICS3D_HZ, Physics3D, QueryFilter3D, RigidBody3D, Shape3D, Vehicle3D, Velocity3D, Wheel3D,
+    interpolate_physics3d, step_physics3d,
 };
 pub use profiler::{FrameStats, GpuPass};
 pub use random::{DEFAULT_SEED, Random, Rng};
@@ -141,10 +144,12 @@ pub use text::{Font, TextParams};
 pub use texture::{DrawParams, Texture, TextureFilter};
 #[cfg(feature = "3d")]
 pub use three::{
-    AttachToJoint, Blend, Camera3D, Compute, ComputePass, Effect, Heightfield, Joint, Lighting, Material, MaterialDesc,
-    Mesh, MeshCost, MeshData, Model, PointLight3D, Post, ScreenEffect, Shader, ShadowMesh, Skeleton, SkinOf, Sky,
+    AnimationClip, AnimationCondition, AnimationEvent, AnimationGraph, AnimationParameter, AnimationState,
+    AnimationTrack, AnimationTransition, Animator, AttachToJoint, Blend, Camera3D, Compute, ComputePass, Effect,
+    Heightfield, Interpolation, Joint, JointAnimation, Lighting, Material, MaterialDesc, Mesh, MeshCost, MeshData,
+    Model, Motion, MotionChild, PointLight3D, Post, ScreenEffect, Shader, ShadowMesh, Skeleton, SkinOf, Sky,
     SpotLight3D, TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera, TerrainMaterialDesc, TerrainTile, TerrainTileData,
-    TextureArray, TextureKind, Tonemap, Transform3D,
+    TextureArray, TextureKind, Tonemap, Transform3D, look_at_joint, two_bone_ik,
 };
 pub use tilemap::{TileMap, draw_tilemaps};
 pub use ui::UiStyle;

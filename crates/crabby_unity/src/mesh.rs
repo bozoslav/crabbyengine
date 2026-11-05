@@ -142,6 +142,10 @@ pub struct UnityMesh {
 /// A skeleton in Unity space; matrices are column-major.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct MeshSkin {
+    /// Explicit skeleton root, when supplied by a renderer.
+    pub root: Option<usize>,
+    /// Sampled animation clips targeting skeleton node indices.
+    pub animations: Vec<SkinAnimation>,
     /// Skeleton nodes, including non-bone ancestors.
     pub nodes: Vec<SkinNode>,
     /// Node indices in the order used by vertex influences.
@@ -152,6 +156,21 @@ pub struct MeshSkin {
     pub indices: Vec<[u16; 4]>,
     /// Four normalized weights per vertex.
     pub weights: Vec<[f32; 4]>,
+}
+
+/// A sampled local-pose clip in Unity coordinates.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct SkinAnimation {
+    /// Clip name.
+    pub name: String,
+    /// Unity's loop setting (preserved as glTF extras).
+    pub looping: bool,
+    /// Seconds from the start of the clip.
+    pub times: Vec<f32>,
+    /// STEP interpolation for translation, rotation and scale, per node.
+    pub step: Vec<[bool; 3]>,
+    /// One local matrix per sample for each skeleton node.
+    pub nodes: Vec<Vec<[f32; 16]>>,
 }
 
 /// One skeleton node, relative to its parent (or the mesh for roots).
@@ -254,7 +273,7 @@ impl UnityMesh {
             (0..count)
                 .map(|v| {
                     let base = starts[c.stream] + v * strides[c.stream] + c.offset;
-                    let mut out = [0.0, 0.0, 0.0, 1.0];
+                    let mut out = [0.0, 0.0, 0.0, if ch == 12 || ch == 13 { 0.0 } else { 1.0 }];
                     for (k, slot) in out.iter_mut().enumerate().take(c.dimension.min(n)) {
                         let b = data
                             .get(base + k * size..base + (k + 1) * size)
@@ -280,6 +299,60 @@ impl UnityMesh {
         };
         for (slot, uv) in mesh.uvs.iter_mut().zip(uvs) {
             *slot = uv?;
+        }
+        let binds = m["m_BindPose"].as_seq().unwrap_or_default();
+        if !binds.is_empty() {
+            if binds.len() > u16::MAX as usize {
+                return Err(fail("too many skin joints"));
+            }
+            let inverse_binds: Vec<[f32; 16]> = binds
+                .iter()
+                .map(|b| std::array::from_fn(|i| b[&format!("e{}{}", i % 4, i / 4)[..]].as_f32().unwrap_or(0.0)))
+                .collect();
+            let nodes = inverse_binds
+                .iter()
+                .enumerate()
+                .map(|(i, bind)| SkinNode {
+                    name: format!("Bone{i}"),
+                    parent: None,
+                    matrix: glam::Mat4::from_cols_array(bind).inverse().to_cols_array(),
+                })
+                .collect();
+            let legacy = m["m_Skin"]
+                .as_seq()
+                .filter(|s| !s.is_empty())
+                .or_else(|| m["m_BoneWeights"].as_seq().filter(|s| !s.is_empty()));
+            let (channel_weights, channel_indices) = (read(12, 4)?, read(13, 4)?);
+            let mut skin = MeshSkin {
+                nodes,
+                joints: (0..binds.len()).collect(),
+                inverse_binds,
+                ..Default::default()
+            };
+            for v in 0..count {
+                let values: Vec<_> = if let Some(legacy) = legacy {
+                    let b = legacy.get(v).ok_or_else(|| fail("bone weights too short"))?;
+                    (0..4)
+                        .map(|k| {
+                            (
+                                b[&format!("boneIndex{k}")[..]].as_i64().unwrap_or(0) as u16,
+                                b[&format!("weight{k}")[..]].as_f32().unwrap_or(0.0),
+                            )
+                        })
+                        .collect()
+                } else {
+                    let weights = channel_weights.get(v).ok_or_else(|| fail("missing blend weights"))?;
+                    let indices = channel_indices.get(v).ok_or_else(|| fail("missing blend indices"))?;
+                    (0..4).map(|k| (indices[k] as u16, weights[k])).collect()
+                };
+                if values.iter().any(|&(j, w)| w >= 0.001 && j as usize >= binds.len()) {
+                    return Err(fail("bone index out of range"));
+                }
+                let (indices, weights) = influences(values);
+                skin.indices.push(indices);
+                skin.weights.push(weights);
+            }
+            mesh.skin = Some(skin);
         }
         // Indices: 16 or 32 bits each.
         let wide = m["m_IndexFormat"].as_i64().unwrap_or(0) == 1;
@@ -334,6 +407,29 @@ pub(crate) fn hex(text: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vertex_data_skin_channels_decode_and_normalize() {
+        let mut bytes = Vec::new();
+        for n in [0.0f32, 0.0, 0.0, 0.2, 0.6, 0.0001, 0.0] {
+            bytes.extend(n.to_le_bytes());
+        }
+        bytes.extend([0, 1, 0, 0]);
+        let data: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+        let mut channels = String::from("    - {stream: 0, offset: 0, format: 0, dimension: 3}\n");
+        for _ in 1..12 {
+            channels.push_str("    - {dimension: 0}\n");
+        }
+        channels.push_str("    - {stream: 0, offset: 12, format: 0, dimension: 4}\n    - {stream: 0, offset: 28, format: 6, dimension: 4}\n");
+        let text = format!(
+            "--- !u!43 &1\nMesh:\n  m_VertexData:\n    m_VertexCount: 1\n    m_Channels:\n{channels}    _typelessdata: {data}\n  m_BindPose:\n  - {{e00: 1, e11: 1, e22: 1, e33: 1}}\n  - {{e00: 1, e11: 1, e22: 1, e33: 1}}\n"
+        );
+        let file = crate::UnityFile::parse(&text).unwrap();
+        let mesh = UnityMesh::from_object(&file.objects[0]).unwrap();
+        let skin = mesh.skin.unwrap();
+        assert_eq!(skin.indices, [[1, 0, 0, 0]]);
+        assert_eq!(skin.weights, [[0.75, 0.25, 0.0, 0.0]]);
+    }
 
     #[test]
     fn halves_decode() {

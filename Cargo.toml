@@ -164,3 +164,8 @@ required-features = ["3d"]
 [[example]]
 name = "skinning"
 required-features = ["3d"]
+
+[[example]]
+name = "audio3d"
+required-features = ["3d"]
+

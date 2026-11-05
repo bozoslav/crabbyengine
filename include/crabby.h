@@ -69,6 +69,24 @@ typedef enum CrabbyStatus {
   CRABBY_PANIC = 4,
 } CrabbyStatus;
 
+typedef enum CrabbyAnimationCondition {
+  CRABBY_CONDITION_GREATER = 0,
+  CRABBY_CONDITION_LESS = 1,
+  CRABBY_CONDITION_BOOL = 2,
+  CRABBY_CONDITION_TRIGGER = 3,
+} CrabbyAnimationCondition;
+
+typedef enum CrabbyAudioRolloff {
+  CRABBY_ROLLOFF_LOGARITHMIC = 0,
+  CRABBY_ROLLOFF_LINEAR = 1,
+} CrabbyAudioRolloff;
+
+typedef enum CrabbyJointMotionKind {
+  CRABBY_JOINT_FREE = 0,
+  CRABBY_JOINT_LOCKED = 1,
+  CRABBY_JOINT_LIMITED = 2,
+} CrabbyJointMotionKind;
+
 enum CrabbyActionSource
 #ifdef __cplusplus
   : uint32_t
@@ -277,7 +295,13 @@ typedef enum CrabbyShape3DKind {
 
 typedef struct CrabbyActionMap CrabbyActionMap;
 
+typedef struct CrabbyAnimationGraph CrabbyAnimationGraph;
+
+typedef struct CrabbyAnimationGraphBuilder CrabbyAnimationGraphBuilder;
+
 typedef struct CrabbyCellStreamer CrabbyCellStreamer;
+
+typedef struct CrabbyClip CrabbyClip;
 
 typedef struct CrabbyCtx CrabbyCtx;
 
@@ -290,6 +314,8 @@ typedef struct CrabbyGrid CrabbyGrid;
 typedef struct CrabbyHeightfield CrabbyHeightfield;
 
 typedef struct CrabbyMeshData CrabbyMeshData;
+
+typedef struct CrabbyMotion CrabbyMotion;
 
 typedef struct CrabbyNavGrid CrabbyNavGrid;
 
@@ -332,6 +358,58 @@ typedef struct CrabbyVec2 {
   float x;
   float y;
 } CrabbyVec2;
+
+typedef struct CrabbyAudioEffects {
+  float low_pass_hz;
+  float reverb;
+} CrabbyAudioEffects;
+
+typedef struct CrabbySoundParams {
+  float volume;
+  float speed;
+  bool looping;
+} CrabbySoundParams;
+
+typedef struct CrabbyAudioBus {
+  size_t index;
+} CrabbyAudioBus;
+
+typedef struct CrabbyAudioSettings3D {
+  struct CrabbySoundParams sound;
+  struct CrabbyAudioBus bus;
+  struct CrabbyAudioEffects effects;
+  float min_distance;
+  float max_distance;
+  enum CrabbyAudioRolloff rolloff;
+  float doppler;
+} CrabbyAudioSettings3D;
+
+typedef struct CrabbySound {
+  uint32_t id;
+  float seconds;
+} CrabbySound;
+
+typedef struct CrabbyPlaying {
+  uint64_t id;
+} CrabbyPlaying;
+
+typedef struct CrabbyVec3 {
+  float x;
+  float y;
+  float z;
+} CrabbyVec3;
+
+typedef struct CrabbyQuat {
+  float x;
+  float y;
+  float z;
+  float w;
+} CrabbyQuat;
+
+typedef struct CrabbyAudioListener3D {
+  struct CrabbyVec3 position;
+  struct CrabbyQuat rotation;
+} CrabbyAudioListener3D;
 
 typedef struct CrabbyTexture {
   uint32_t id;
@@ -425,21 +503,6 @@ typedef struct CrabbyUiStyle {
   float padding;
 } CrabbyUiStyle;
 
-typedef struct CrabbySoundParams {
-  float volume;
-  float speed;
-  bool looping;
-} CrabbySoundParams;
-
-typedef struct CrabbySound {
-  uint32_t id;
-  float seconds;
-} CrabbySound;
-
-typedef struct CrabbyPlaying {
-  uint64_t id;
-} CrabbyPlaying;
-
 typedef struct CrabbyTurns {
   uint32_t every;
   uint32_t now;
@@ -494,6 +557,39 @@ typedef struct CrabbyCollision {
   bool sensor;
 } CrabbyCollision;
 
+typedef struct CrabbyTransform3D {
+  struct CrabbyQuat rotation;
+  struct CrabbyVec3 position;
+  struct CrabbyVec3 scale;
+  float reserved[2];
+} CrabbyTransform3D;
+
+typedef struct CrabbyJointMotion3D {
+  enum CrabbyJointMotionKind kind;
+  float min;
+  float max;
+} CrabbyJointMotion3D;
+
+typedef struct CrabbyJointDrive3D {
+  bool enabled;
+  float target_position;
+  float target_velocity;
+  float stiffness;
+  float damping;
+  float max_force;
+} CrabbyJointDrive3D;
+
+typedef struct CrabbyJoint3D {
+  uint64_t body_a;
+  uint64_t body_b;
+  struct CrabbyTransform3D frame_a;
+  struct CrabbyTransform3D frame_b;
+  struct CrabbyJointMotion3D axes[6];
+  struct CrabbyJointDrive3D drives[6];
+  bool contacts_enabled;
+  float swing_cone;
+} CrabbyJoint3D;
+
 typedef struct CrabbyCollisionGroups {
   uint32_t memberships;
   uint32_t filter;
@@ -506,12 +602,6 @@ typedef struct CrabbyQueryFilter3D {
   bool sensors;
 } CrabbyQueryFilter3D;
 
-typedef struct CrabbyVec3 {
-  float x;
-  float y;
-  float z;
-} CrabbyVec3;
-
 typedef struct CrabbyRigidBody3D {
   uint32_t kind;
   float gravity_scale;
@@ -522,6 +612,7 @@ typedef struct CrabbyRigidBody3D {
   float mass;
   bool has_center_of_mass;
   struct CrabbyVec3 center_of_mass;
+  int8_t dominance;
 } CrabbyRigidBody3D;
 
 typedef struct CrabbyCollisionMesh {
@@ -562,25 +653,11 @@ typedef struct CrabbyHit3D {
   float distance;
 } CrabbyHit3D;
 
-typedef struct CrabbyQuat {
-  float x;
-  float y;
-  float z;
-  float w;
-} CrabbyQuat;
-
 typedef struct CrabbyField {
   const char *name;
   uint32_t kind;
   size_t offset;
 } CrabbyField;
-
-typedef struct CrabbyTransform3D {
-  struct CrabbyQuat rotation;
-  struct CrabbyVec3 position;
-  struct CrabbyVec3 scale;
-  float reserved[2];
-} CrabbyTransform3D;
 
 typedef struct CrabbyJoint {
   const char *name;
@@ -964,9 +1041,168 @@ enum CrabbyStatus crabby_ctx_action_axis2(struct CrabbyCtx *ctx,
                                           const char *name,
                                           struct CrabbyVec2 *value);
 
+enum CrabbyStatus crabby_motion_clip(const struct CrabbyClip *clip,
+                                     struct CrabbyMotion **out_motion);
+
+enum CrabbyStatus crabby_motion_blend1d(size_t parameter, struct CrabbyMotion **out_motion);
+
+enum CrabbyStatus crabby_motion_blend2d(size_t x, size_t y, struct CrabbyMotion **out_motion);
+
+enum CrabbyStatus crabby_motion_blend1d_add(struct CrabbyMotion *tree,
+                                            float threshold,
+                                            struct CrabbyMotion *child,
+                                            float time_scale);
+
+enum CrabbyStatus crabby_motion_blend2d_add(struct CrabbyMotion *tree,
+                                            float x,
+                                            float y,
+                                            struct CrabbyMotion *child,
+                                            float time_scale);
+
+void crabby_motion_free(struct CrabbyMotion *motion);
+
+struct CrabbyAnimationGraphBuilder *crabby_animation_graph_builder_new(void);
+
+void crabby_animation_graph_builder_free(struct CrabbyAnimationGraphBuilder *builder);
+
+enum CrabbyStatus crabby_animation_graph_add_float(struct CrabbyAnimationGraphBuilder *builder,
+                                                   float value,
+                                                   size_t *out_index);
+
+enum CrabbyStatus crabby_animation_graph_add_bool(struct CrabbyAnimationGraphBuilder *builder,
+                                                  bool value,
+                                                  size_t *out_index);
+
+enum CrabbyStatus crabby_animation_graph_add_trigger(struct CrabbyAnimationGraphBuilder *builder,
+                                                     size_t *out_index);
+
+enum CrabbyStatus crabby_animation_graph_add_state(struct CrabbyAnimationGraphBuilder *builder_ptr,
+                                                   struct CrabbyMotion *motion,
+                                                   float speed,
+                                                   int64_t speed_parameter,
+                                                   bool looping,
+                                                   size_t *out_index);
+
+enum CrabbyStatus crabby_animation_graph_add_event(struct CrabbyAnimationGraphBuilder *builder_ptr,
+                                                   size_t state,
+                                                   float time,
+                                                   const char *name);
+
+enum CrabbyStatus crabby_animation_graph_add_transition(struct CrabbyAnimationGraphBuilder *builder_ptr,
+                                                        int64_t from,
+                                                        size_t to,
+                                                        float exit_time,
+                                                        float duration,
+                                                        float offset,
+                                                        size_t *out_index);
+
+enum CrabbyStatus crabby_animation_graph_add_condition(struct CrabbyAnimationGraphBuilder *builder_ptr,
+                                                       size_t transition,
+                                                       enum CrabbyAnimationCondition kind,
+                                                       size_t parameter,
+                                                       float value);
+
+enum CrabbyStatus crabby_animation_graph_build(struct CrabbyAnimationGraphBuilder *builder_ptr,
+                                               size_t initial,
+                                               struct CrabbyAnimationGraph **out_graph);
+
+void crabby_animation_graph_free(struct CrabbyAnimationGraph *graph);
+
+enum CrabbyStatus crabby_ctx_set_animator(struct CrabbyCtx *ctx,
+                                          uint64_t entity_bits,
+                                          const struct CrabbyAnimationGraph *graph);
+
+enum CrabbyStatus crabby_ctx_animator_set_float(struct CrabbyCtx *ctx,
+                                                uint64_t entity_bits,
+                                                size_t parameter,
+                                                float value);
+
+enum CrabbyStatus crabby_ctx_animator_set_bool(struct CrabbyCtx *ctx,
+                                               uint64_t entity_bits,
+                                               size_t parameter,
+                                               bool value);
+
+enum CrabbyStatus crabby_ctx_animator_set_trigger(struct CrabbyCtx *ctx,
+                                                  uint64_t entity_bits,
+                                                  size_t parameter,
+                                                  bool value);
+
+enum CrabbyStatus crabby_ctx_animator_state(struct CrabbyCtx *ctx,
+                                            uint64_t entity_bits,
+                                            size_t *out_state,
+                                            float *out_normalized_time);
+
+enum CrabbyStatus crabby_ctx_animator_crossfade(struct CrabbyCtx *ctx,
+                                                uint64_t entity_bits,
+                                                size_t state,
+                                                float duration,
+                                                float offset);
+
+enum CrabbyStatus crabby_ctx_animator_set_manual(struct CrabbyCtx *ctx,
+                                                 uint64_t entity_bits,
+                                                 bool manual);
+
+enum CrabbyStatus crabby_ctx_animator_update(struct CrabbyCtx *ctx, uint64_t entity_bits, float dt);
+
+enum CrabbyStatus crabby_ctx_animator_next_event(struct CrabbyCtx *ctx,
+                                                 uint64_t entity_bits,
+                                                 char *buffer,
+                                                 size_t capacity,
+                                                 bool *out_found);
+
 enum CrabbyStatus crabby_attached_component(struct CrabbyWorld *world, uint32_t *out_id);
 
 enum CrabbyStatus crabby_game_follow_attachments(struct CrabbyGame *game);
+
+struct CrabbyAudioEffects crabby_audio_effects_default(void);
+
+struct CrabbyAudioSettings3D crabby_audio_settings3d_default(void);
+
+enum CrabbyStatus crabby_ctx_audio_bus(struct CrabbyCtx *ctx,
+                                       const char *name,
+                                       struct CrabbyAudioBus *out_bus);
+
+enum CrabbyStatus crabby_ctx_set_audio_bus_volume(struct CrabbyCtx *ctx,
+                                                  struct CrabbyAudioBus bus,
+                                                  float volume);
+
+enum CrabbyStatus crabby_ctx_mute_audio_bus(struct CrabbyCtx *ctx,
+                                            struct CrabbyAudioBus bus,
+                                            bool muted);
+
+enum CrabbyStatus crabby_ctx_play_sound_on(struct CrabbyCtx *ctx,
+                                           struct CrabbySound sound,
+                                           const struct CrabbySoundParams *params,
+                                           struct CrabbyAudioBus bus,
+                                           const struct CrabbyAudioEffects *effects,
+                                           struct CrabbyPlaying *out_playing);
+
+enum CrabbyStatus crabby_ctx_set_sound_effects(struct CrabbyCtx *ctx,
+                                               struct CrabbyPlaying playing,
+                                               const struct CrabbyAudioEffects *effects);
+
+enum CrabbyStatus crabby_ctx_load_stream(struct CrabbyCtx *ctx,
+                                         const char *path,
+                                         struct CrabbySound *out_sound);
+
+enum CrabbyStatus crabby_ctx_play_sound_at(struct CrabbyCtx *ctx,
+                                           struct CrabbySound sound,
+                                           struct CrabbyVec3 position,
+                                           const struct CrabbyAudioSettings3D *settings,
+                                           struct CrabbyPlaying *out_playing);
+
+enum CrabbyStatus crabby_ctx_set_audio_source3d(struct CrabbyCtx *ctx,
+                                                uint64_t entity_bits,
+                                                struct CrabbySound sound,
+                                                const struct CrabbyAudioSettings3D *settings);
+
+enum CrabbyStatus crabby_ctx_remove_audio_source3d(struct CrabbyCtx *ctx, uint64_t entity_bits);
+
+enum CrabbyStatus crabby_ctx_set_audio_listener(struct CrabbyCtx *ctx,
+                                                const struct CrabbyAudioListener3D *listener);
+
+enum CrabbyStatus crabby_ctx_audio_listener(struct CrabbyCtx *ctx,
+                                            struct CrabbyAudioListener3D *out_listener);
 
 float crabby_ctx_dt(const struct CrabbyCtx *ctx);
 
@@ -1207,6 +1443,11 @@ enum CrabbyStatus crabby_game_sim_system(struct CrabbyGame *game,
                                          CrabbySystemFn system_fn,
                                          void *user);
 
+enum CrabbyStatus crabby_game_late_system(struct CrabbyGame *game,
+                                          const char *name,
+                                          CrabbySystemFn system_fn,
+                                          void *user);
+
 enum CrabbyStatus crabby_game_system(struct CrabbyGame *game,
                                      const char *name,
                                      CrabbySystemFn system_fn,
@@ -1416,6 +1657,16 @@ enum CrabbyStatus crabby_ctx_collisions(struct CrabbyCtx *ctx,
                                         const struct CrabbyCollision **out_data,
                                         size_t *out_count);
 
+struct CrabbyJoint3D crabby_joint3d_generic(uint64_t body_a, uint64_t body_b);
+
+struct CrabbyJoint3D crabby_joint3d_fixed(uint64_t body_a, uint64_t body_b);
+
+struct CrabbyJoint3D crabby_joint3d_spherical(uint64_t body_a, uint64_t body_b);
+
+struct CrabbyJoint3D crabby_joint3d_revolute(uint64_t body_a, uint64_t body_b);
+
+struct CrabbyJoint3D crabby_joint3d_prismatic(uint64_t body_a, uint64_t body_b);
+
 struct CrabbyCollisionGroups crabby_collision_groups_all(void);
 
 struct CrabbyQueryFilter3D crabby_query_filter3d(void);
@@ -1439,6 +1690,10 @@ enum CrabbyStatus crabby_collider3d_component(struct CrabbyWorld *world, uint32_
 enum CrabbyStatus crabby_velocity3d_component(struct CrabbyWorld *world, uint32_t *out_id);
 
 enum CrabbyStatus crabby_character3d_component(struct CrabbyWorld *world, uint32_t *out_id);
+
+enum CrabbyStatus crabby_joint3d_component(struct CrabbyWorld *world, uint32_t *out_id);
+
+enum CrabbyStatus crabby_ctx_physics3d_joint_count(struct CrabbyCtx *ctx, size_t *out_count);
 
 enum CrabbyStatus crabby_game_physics3d(struct CrabbyGame *game, struct CrabbyVec3 gravity);
 
@@ -1636,6 +1891,42 @@ enum CrabbyStatus crabby_ctx_attach_to_joint(struct CrabbyCtx *ctx,
                                              uint64_t skeleton_entity,
                                              size_t joint,
                                              const struct CrabbyTransform3D *offset);
+
+enum CrabbyStatus crabby_ctx_load_clip(struct CrabbyCtx *ctx,
+                                       const char *path,
+                                       const char *name,
+                                       struct CrabbyClip **out_clip);
+
+void crabby_clip_free(struct CrabbyClip *clip);
+
+float crabby_clip_duration(const struct CrabbyClip *clip);
+
+enum CrabbyStatus crabby_ctx_sample_clip(struct CrabbyCtx *ctx,
+                                         const struct CrabbyClip *clip,
+                                         uint64_t entity_bits,
+                                         float time,
+                                         float weight);
+
+enum CrabbyStatus crabby_ctx_two_bone_ik(struct CrabbyCtx *ctx,
+                                         uint64_t entity_bits,
+                                         size_t upper,
+                                         size_t middle,
+                                         size_t end,
+                                         struct CrabbyVec3 target,
+                                         struct CrabbyVec3 pole,
+                                         float weight);
+
+enum CrabbyStatus crabby_ctx_look_at_joint(struct CrabbyCtx *ctx,
+                                           uint64_t entity_bits,
+                                           size_t joint,
+                                           struct CrabbyVec3 axis,
+                                           struct CrabbyVec3 target,
+                                           float max_angle,
+                                           float weight);
+
+enum CrabbyStatus crabby_ctx_draw_skeleton(struct CrabbyCtx *ctx,
+                                           uint64_t entity_bits,
+                                           struct CrabbyColor color);
 
 enum CrabbyStatus crabby_game_lockstep_steam_host(struct CrabbyGame *game,
                                                   uint32_t app_id,

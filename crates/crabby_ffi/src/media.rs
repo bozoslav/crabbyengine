@@ -182,19 +182,19 @@ fn font_from_c(f: CrabbyFont) -> Font {
     // SAFETY: as above. Unknown ids make the call fail, they are not UB.
     unsafe { std::mem::transmute(f) }
 }
-fn sound_to_c(s: Sound) -> CrabbySound {
+pub(crate) fn sound_to_c(s: Sound) -> CrabbySound {
     // SAFETY: Sound is repr(C) { u32 id, f32 seconds }.
     unsafe { std::mem::transmute(s) }
 }
-fn sound_from_c(s: CrabbySound) -> Sound {
+pub(crate) fn sound_from_c(s: CrabbySound) -> Sound {
     // SAFETY: as above. Unknown ids make the call fail, they are not UB.
     unsafe { std::mem::transmute(s) }
 }
-fn playing_to_c(p: Playing) -> CrabbyPlaying {
+pub(crate) fn playing_to_c(p: Playing) -> CrabbyPlaying {
     // SAFETY: Playing is repr(transparent) over u64.
     unsafe { std::mem::transmute(p) }
 }
-fn playing_from_c(p: CrabbyPlaying) -> Playing {
+pub(crate) fn playing_from_c(p: CrabbyPlaying) -> Playing {
     // SAFETY: as above; stopping an unknown id does nothing.
     unsafe { std::mem::transmute(p) }
 }

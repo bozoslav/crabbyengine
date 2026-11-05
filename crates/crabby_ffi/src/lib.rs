@@ -20,7 +20,9 @@
 #![warn(missing_docs)]
 
 mod actions;
+mod animator;
 mod attach;
+mod audio3d;
 mod ctx;
 mod flow;
 mod game;
@@ -42,7 +44,9 @@ mod tiles;
 mod types;
 mod vehicle3d;
 pub use actions::*;
+pub use animator::*;
 pub use attach::*;
+pub use audio3d::*;
 pub use ctx::*;
 pub use flow::*;
 pub use game::*;
@@ -281,9 +285,10 @@ pub(crate) struct Mirror {
     to_c: unsafe fn(*const u8, *mut c_void),
 }
 
-/// Room for one converted Rust value, without a heap allocation per value.
+/// Room for one converted Rust value, without a heap allocation per value
+/// (the largest is `Joint3D`, about 320 bytes).
 #[repr(C, align(16))]
-pub(crate) struct Slot(std::mem::MaybeUninit<[u8; 128]>);
+pub(crate) struct Slot(std::mem::MaybeUninit<[u8; 512]>);
 impl Slot {
     pub(crate) const fn new() -> Self {
         Self(std::mem::MaybeUninit::uninit())

@@ -61,3 +61,115 @@ crabbyengine = { version = "1", default-features = false }
 The sound API stays; it just makes no noise. The C library has the same
 switch: build `crabby_ffi` with `--no-default-features`. Linux builds with audio need
 the ALSA headers (`libasound2-dev` on Debian and Ubuntu).
+
+## Sound in 3D
+
+With the `3d` feature, pair `AudioSource3D` with `Transform3D`, or play a
+one-off sound at a point with `ctx.play_sound_at`. Every frame, after your
+systems, the engine moves each sound to its entity and sets its volume,
+panning and doppler from where the listener is. The listener follows
+`ctx.camera3d`; to hear from somewhere else, such as the player in a
+third-person game, call `ctx.set_audio_listener(Some(..))`.
+Positions use world units; doppler assumes metres and takes velocities
+from frame to frame. Set `doppler: 0.0` to turn it off, for example for
+something that teleports.
+
+<div class="lang-pair">
+<div>
+
+```rust
+{{#include ../../examples/audio3d.rs:sound3d}}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:sound3d}}
+```
+
+</div>
+</div>
+
+Build this example with `cargo build --example audio3d --features 3d`.
+Only running it opens a window and plays audio. Procedural clips already use
+`create_sound`; file-backed clips use `load_sound`.
+
+`AudioSettings3D` controls volume, pitch (`sound.speed`), looping, minimum and
+maximum distance, and logarithmic, linear or keyed rolloff. Keyed curves use
+sorted `(normalized_distance, gain)` pairs in a static slice. All curves are
+silent at the maximum distance and full volume inside the minimum distance.
+Stereo panning follows the listener's right axis. Kira applies gain, panning
+and playback-rate changes with smoothing; this is stereo positional audio,
+not an HRTF simulation. Prefer mono source clips for localized effects.
+
+`ctx.play_sound_at` starts a voice at a fixed world position. Save its handle
+to stop it; removing an entity source stops its voice on the next audio update.
+Headless execution never opens an audio device, and disabling `audio` keeps
+the same APIs silent. No allocation occurs during updates unless a new voice
+starts. `load_sound` decodes clips into memory; `load_stream` keeps long files streamed.
+
+### Buses, low-pass and reverb
+
+Ordinary playback uses the `sfx` bus. Create other named buses once with
+`audio_bus`, save their handles, and pass one to `play_sound_on` or to
+`AudioSettings3D::bus`. Handles belong to the context that created them.
+Volume is a linear gain; muting preserves the configured gain. Bus changes
+apply to active voices as well as future playback.
+
+<div class="lang-pair">
+<div>
+
+```rust
+{{#include ../../examples/audio3d.rs:audio_mixer}}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:audio_mixer}}
+```
+
+</div>
+</div>
+
+Each voice uses a Kira low-pass filter on its own child track. The cutoff
+is clamped to 20–20,000 Hz. `set_sound_effects` changes cutoff and reverb
+send while a voice is playing, including positional voices. Reverb is a
+single shared, fully wet Kira send track; the send amount is linear 0–1.
+The send follows voice attenuation, filtering and bus gain. Muting a bus
+stops its new reverb input; existing shared reverb tails decay naturally.
+Nonfinite cutoff/send values use defaults. No custom DSP is used. Starting
+a voice allocates its track and decoder; changing parameters and updating
+existing spatial voices does not allocate engine-side buffers each frame.
+
+### Streaming music and ambience
+
+<div class="lang-pair">
+<div>
+
+```rust
+{{#include ../../examples/audio3d.rs:audio_stream}}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:audio_stream}}
+```
+
+</div>
+</div>
+
+`load_stream` reads the header and keeps the native filesystem path rather
+than decoding the entire clip. Each playback opens a separate decoder;
+Kira performs buffered decoding on its worker thread. The returned `Sound`
+works with 2D playback, positional playback, buses, effects and looping.
+The file must remain available until playback ends. Streaming files are
+not hot reloaded and currently require native filesystem assets (web builds
+should use `load_sound` for prefetched assets). With audio disabled, stream
+handles are silent and report zero duration. Headless playback never creates
+tracks, decoder workers or an audio device. These additions currently have
+Rust APIs only; C and C++ bindings are deferred.
