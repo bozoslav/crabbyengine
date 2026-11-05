@@ -412,7 +412,13 @@ where
             // The system lets go of the cursor while the window is away.
             WindowEvent::Focused(true) if self.ctx.cursor_locked() => apply_cursor_lock(&window, true),
 
+            WindowEvent::Ime(winit::event::Ime::Commit(text)) => self.ctx.input.add_text(&text),
             WindowEvent::KeyboardInput { event, .. } => {
+                if event.state == ElementState::Pressed
+                    && let Some(text) = &event.text
+                {
+                    self.ctx.input.add_text(text);
+                }
                 if event.repeat {
                     return;
                 }

@@ -147,6 +147,12 @@ pub use steamworks;
 #[cfg(feature = "3d")]
 pub use stream::CellStreamer;
 pub use stream::Job;
+/// Flex/grid/absolute layout types used by retained UI.
+/// ```
+/// use crabbyengine::ui_layout::Style;
+/// let style: Style = Style::default();
+/// ```
+pub use taffy as ui_layout;
 pub use text::{Font, TextParams};
 pub use texture::{DrawParams, Texture, TextureFilter};
 #[cfg(feature = "3d")]
@@ -161,7 +167,7 @@ pub use three::{
     look_at_joint, two_bone_ik,
 };
 pub use tilemap::{TileMap, draw_tilemaps};
-pub use ui::UiStyle;
+pub use ui::{Ui, UiEvent, UiId, UiInput, UiPaint, UiStyle, UiTextAlign, UiWidget};
 
 /// The ECS: entities, components, queries, resources, commands.
 pub use crabby_ecs::{Commands, Component, ComponentId, Entity, Query, World};

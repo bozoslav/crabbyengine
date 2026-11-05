@@ -302,12 +302,21 @@ pub struct Ctx {
     pub(crate) assets3d: crate::three::Assets3D,
     #[cfg(feature = "3d")]
     pub(crate) frame3d: crate::three::Frame3D,
-    text: Text,
+    pub(crate) text: Text,
     /// The glyph atlas, created on the first `draw_text`.
     font_atlas: Option<Texture>,
     /// Physical pixels per window pixel (2 on most Retina screens).
     scale_factor: f32,
     pub(crate) ui: UiState,
+    /// Retained widget tree and screen stack. Processed before frame systems.
+    /// ```
+    /// use crabbyengine::*;
+    /// # fn setup(ctx: &mut Ctx) {
+    /// let root = ctx.ui_retained.add(UiWidget::Panel, ui_layout::Style::default());
+    /// ctx.ui_retained.push_screen(root, false);
+    /// # }
+    /// ```
+    pub ui_retained: crate::Ui,
     /// Where the left mouse button last went down, for button clicks.
     pub(crate) ui_press_at: Vec2,
     /// Colors and sizes of [`ui_button`](Self::ui_button) and friends.
@@ -417,6 +426,7 @@ impl Ctx {
             font_atlas: None,
             scale_factor: 1.0,
             ui: UiState::default(),
+            ui_retained: crate::Ui::default(),
             ui_press_at: Vec2::splat(f32::NAN),
             ui_style: UiStyle::default(),
             audio: Audio::default(),
@@ -429,6 +439,7 @@ impl Ctx {
 
     /// Engine side: draw everything queued this frame, then reset the queue.
     pub(crate) fn render_frame(&mut self) -> FrameStatus {
+        self.draw_retained_ui();
         let capture = !self.screenshots.is_empty();
         #[cfg(feature = "3d")]
         self.prepare_3d();

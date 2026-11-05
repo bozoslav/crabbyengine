@@ -301,6 +301,7 @@ pub(crate) struct Input {
     mouse_pos: Vec2,
     mouse_pos_at_frame_start: Vec2,
     mouse_wheel: Vec2,
+    typed_text: String,
     /// Raw mouse movement this frame (also while the cursor is locked).
     mouse_motion: Vec2,
     pub(super) pads: [PadState; MAX_GAMEPADS],
@@ -317,6 +318,7 @@ impl Input {
             mouse_pos: Vec2::ZERO,
             mouse_pos_at_frame_start: Vec2::ZERO,
             mouse_wheel: Vec2::ZERO,
+            typed_text: String::new(),
             mouse_motion: Vec2::ZERO,
             pads: [const { PadState::new() }; MAX_GAMEPADS],
             connected: Vec::with_capacity(MAX_GAMEPADS),
@@ -338,6 +340,14 @@ impl Input {
 
     pub fn set_mouse_pos(&mut self, pos: Vec2) {
         self.mouse_pos = pos;
+    }
+
+    pub fn add_text(&mut self, text: &str) {
+        self.typed_text.push_str(text);
+    }
+
+    pub fn typed_text(&self) -> &str {
+        &self.typed_text
     }
 
     pub fn add_mouse_wheel(&mut self, delta: Vec2) {
@@ -395,6 +405,7 @@ impl Input {
         for pad in &mut self.pads {
             pad.buttons.end_frame();
         }
+        self.typed_text.clear();
         self.mouse_wheel = Vec2::ZERO;
         self.mouse_motion = Vec2::ZERO;
         self.mouse_pos_at_frame_start = self.mouse_pos;

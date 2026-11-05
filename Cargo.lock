@@ -821,6 +821,7 @@ dependencies = [
  "serde_json",
  "steamworks",
  "subsecond",
+ "taffy",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -3935,6 +3936,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "taffy"
+version = "0.15.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "31f7bd2d97198df05186f93a3a3c306845f40e8b3c22bf9279cdd7e5cf5fea7d"
+dependencies = [
+ "serde",
+ "slotmap",
+ "smallvec",
 ]
 
 [[package]]

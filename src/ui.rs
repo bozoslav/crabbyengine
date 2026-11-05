@@ -1,4 +1,14 @@
-//! Shapes and a small immediate-mode UI: panels, labels, buttons.
+//! Retained game UI, shapes and immediate-mode panels, labels and buttons.
+//!
+//! [`Ui`] owns a persistent node tree and queued events. Layout is delegated
+//! to [Taffy](https://docs.rs/taffy/0.15.1/taffy/), which provides flexbox/grid
+//! without owning rendering or an event loop. The engine's sprites and text
+//! render the widgets. [Egui](https://github.com/emilk/egui) is easy to embed
+//! but immediate-mode; it remains the inspector rather than the game UI.
+//! [Xilem/Masonry](https://docs.rs/xilem/latest/xilem/) is retained but its
+//! standard integration brings Vello rendering and winit window handling.
+//! An owned tree plus Taffy keeps game textures, styling and input ownership
+//! in one place while using a proven layout implementation.
 //!
 //! Shapes are drawn in world units like sprites. UI is drawn in window
 //! pixels on top of everything. Both are built from sprites, so they batch
@@ -58,7 +68,7 @@ impl Default for UiStyle {
 }
 
 /// UI state that lives across frames.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub(crate) struct UiState {
     /// Every UI rectangle drawn this frame and the previous one, so
     /// `mouse_over_ui` can answer before this frame's UI is drawn.
@@ -69,6 +79,8 @@ pub(crate) struct UiState {
     circle: Option<crate::Texture>,
     /// The mouse is over the inspector overlay.
     pub overlay_has_pointer: bool,
+    retained_spare: Option<Ui>,
+    retained_input_text: String,
 }
 
 impl UiState {
@@ -213,7 +225,8 @@ impl Ctx {
     /// ```
     pub fn mouse_over_ui(&self) -> bool {
         let m = self.mouse_pos();
-        self.ui.overlay_has_pointer
+        self.ui_retained.wants_pointer()
+            || self.ui.overlay_has_pointer
             || self
                 .ui
                 .this_frame
@@ -318,3 +331,7 @@ impl Ctx {
         self.shape(Layer::Screen, white, rect.min, rect.size(), 0.0, Vec2::ZERO, color, z);
     }
 }
+
+mod retained;
+mod retained_draw;
+pub use retained::{Ui, UiEvent, UiId, UiInput, UiPaint, UiTextAlign, UiWidget};
