@@ -167,6 +167,8 @@ pub use three::{
     TerrainTile, TerrainTileData, TextureArray, TextureKind, Tonemap, Trail3D, Transform3D, look_at_joint, two_bone_ik,
 };
 pub use tilemap::{TileMap, draw_tilemaps};
+#[cfg(feature = "3d")]
+pub use ui::UiPanel3D;
 pub use ui::{Ui, UiEvent, UiId, UiInput, UiPaint, UiStyle, UiTextAlign, UiWidget};
 
 /// The ECS: entities, components, queries, resources, commands.

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use glam::Mat4;
 use winit::window::Window;
 
-use super::batch::{self, DrawList, SpriteInstance};
+use super::batch::{self, DrawList, PanelDraw, SpriteInstance};
 use super::timer::GpuTimer;
 use super::{FrameStatus, RenderStats, Screenshot};
 use crate::color::Color;
@@ -38,6 +38,14 @@ pub(crate) struct Renderer {
     /// Window-pixel projection for screen-space drawing (UI, text).
     ui_camera_buffer: wgpu::Buffer,
     ui_camera_bind_group: wgpu::BindGroup,
+    /// For world-space UI panels: the sprite shader, its layout and the
+    /// cameras' layout, a pipeline drawing into render targets (made on
+    /// first use), and one camera per panel.
+    sprite_shader: wgpu::ShaderModule,
+    sprite_layout: wgpu::PipelineLayout,
+    camera_layout: wgpu::BindGroupLayout,
+    panel_pipeline: Option<wgpu::RenderPipeline>,
+    panel_cameras: Vec<(wgpu::Buffer, wgpu::BindGroup)>,
     texture_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     nearest_sampler: wgpu::Sampler,
@@ -92,6 +100,52 @@ pub(crate) struct Renderer {
     egui_free: Vec<egui::TextureId>,
 }
 
+/// The sprite pipeline, drawing into `format`.
+fn sprite_pipeline(
+    device: &wgpu::Device,
+    layout: &wgpu::PipelineLayout,
+    shader: &wgpu::ShaderModule,
+    format: wgpu::TextureFormat,
+) -> wgpu::RenderPipeline {
+    let instance_attributes = wgpu::vertex_attr_array![
+        0 => Float32x2, // pos
+        1 => Float32x2, // size
+        2 => Float16x2, // pivot
+        3 => Float32,   // rotation
+        4 => Unorm8x4,  // color
+        5 => Unorm16x4, // uv: u0, v0, width, height
+    ];
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("sprite pipeline"),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module: shader,
+            entry_point: Some("vs_main"),
+            compilation_options: Default::default(),
+            buffers: &[Some(wgpu::VertexBufferLayout {
+                array_stride: size_of::<SpriteInstance>() as u64,
+                step_mode: wgpu::VertexStepMode::Instance,
+                attributes: &instance_attributes,
+            })],
+        },
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        fragment: Some(wgpu::FragmentState {
+            module: shader,
+            entry_point: Some("fs_main"),
+            compilation_options: Default::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        multiview_mask: None,
+        cache: None,
+    })
+}
+
 /// What one sprite pass draws with.
 struct SpritePass<'a> {
     viewport: [u32; 2],
@@ -100,7 +154,7 @@ struct SpritePass<'a> {
     instances: &'a wgpu::Buffer,
     textures: &'a [GpuTexture],
     /// Camera, batches, and where the layer's instances start in `instances`.
-    layers: [(&'a wgpu::BindGroup, &'a [batch::Batch], u32); 2],
+    layers: &'a [(&'a wgpu::BindGroup, &'a [batch::Batch], u32)],
 }
 
 /// An offscreen copy of one frame on its way back to the CPU.
@@ -388,43 +442,7 @@ impl Renderer {
             immediate_size: 0,
         });
 
-        let instance_attributes = wgpu::vertex_attr_array![
-            0 => Float32x2, // pos
-            1 => Float32x2, // size
-            2 => Float16x2, // pivot
-            3 => Float32,   // rotation
-            4 => Unorm8x4,  // color
-            5 => Unorm16x4, // uv: u0, v0, width, height
-        ];
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("sprite pipeline"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout {
-                    array_stride: size_of::<SpriteInstance>() as u64,
-                    step_mode: wgpu::VertexStepMode::Instance,
-                    attributes: &instance_attributes,
-                })],
-            },
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: view_format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+        let pipeline = sprite_pipeline(&device, &layout, &shader, view_format);
 
         let camera = |label| {
             let buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -473,6 +491,11 @@ impl Renderer {
             camera_bind_group,
             ui_camera_buffer,
             ui_camera_bind_group,
+            sprite_shader: shader,
+            sprite_layout: layout,
+            camera_layout,
+            panel_pipeline: None,
+            panel_cameras: Vec::new(),
             texture_layout,
             sampler,
             nearest_sampler,
@@ -975,10 +998,12 @@ impl Renderer {
     ///
     /// With `capture`, the frame is also read back into `self.screenshot`
     /// (this waits for the GPU, so only do it when asked).
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
         world: &mut DrawList,
         ui: &mut DrawList,
+        panels: &mut [PanelDraw],
         clear: Color,
         world_view: Mat4,
         ui_view: Mat4,
@@ -1045,9 +1070,17 @@ impl Renderer {
         }
         let (world, world_batches) = world.finish();
         let (ui, ui_batches) = ui.finish();
-        let total = world.len() + ui.len();
+        let panels: Vec<_> = panels
+            .iter_mut()
+            .filter(|p| (p.texture as usize) < self.textures.len())
+            .map(|p| (p.texture, p.size, p.list.finish()))
+            .collect();
+        let panel_sprites: usize = panels.iter().map(|(_, _, (sprites, _))| sprites.len()).sum();
+        let total = world.len() + ui.len() + panel_sprites;
         self.stats.sprites = total;
-        self.stats.draw_calls = world_batches.len() + ui_batches.len();
+        self.stats.draw_calls = world_batches.len()
+            + ui_batches.len()
+            + panels.iter().map(|(_, _, (_, batches))| batches.len()).sum::<usize>();
         #[cfg(feature = "3d")]
         if let Some(three) = &self.three {
             self.stats.draw_calls += three.draw_calls();
@@ -1072,6 +1105,33 @@ impl Renderer {
             self.queue
                 .write_buffer(&self.instance_buffer, offset, bytemuck::cast_slice(ui));
         }
+        // World-space UI panels' sprites go after the screen's, each panel
+        // with a camera of its own pixels.
+        let mut panel_base = (world.len() + ui.len()) as u32;
+        let mut panel_starts = Vec::with_capacity(panels.len());
+        for (i, (_, size, (sprites, _))) in panels.iter().enumerate() {
+            if !sprites.is_empty() {
+                let offset = u64::from(panel_base) * size_of::<SpriteInstance>() as u64;
+                self.queue
+                    .write_buffer(&self.instance_buffer, offset, bytemuck::cast_slice(sprites));
+            }
+            if i == self.panel_cameras.len() {
+                self.panel_cameras.push(self.make_camera("ui panel camera"));
+            }
+            let view = crate::ctx::screen_projection(glam::Vec2::new(size[0] as f32, size[1] as f32));
+            self.queue
+                .write_buffer(&self.panel_cameras[i].0, 0, bytemuck::cast_slice(&view.to_cols_array()));
+            panel_starts.push(panel_base);
+            panel_base += sprites.len() as u32;
+        }
+        if !panels.is_empty() && self.panel_pipeline.is_none() {
+            self.panel_pipeline = Some(sprite_pipeline(
+                &self.device,
+                &self.sprite_layout,
+                &self.sprite_shader,
+                super::gpu3d::HDR_FORMAT,
+            ));
+        }
         self.queue.write_buffer(
             &self.camera_buffer,
             0,
@@ -1083,17 +1143,45 @@ impl Renderer {
             bytemuck::cast_slice(&ui_view.to_cols_array()),
         );
         // World sprites first, then the UI on top.
+        let layers = [
+            (&self.camera_bind_group, world_batches, 0),
+            (&self.ui_camera_bind_group, ui_batches, world.len() as u32),
+        ];
         let pass = SpritePass {
             viewport: [self.config.width, self.config.height],
             scale: self.window.scale_factor() as f32,
             pipeline: &self.pipeline,
             instances: &self.instance_buffer,
             textures: &self.textures,
-            layers: [
-                (&self.camera_bind_group, world_batches, 0),
-                (&self.ui_camera_bind_group, ui_batches, world.len() as u32),
-            ],
+            layers: &layers,
         };
+        // Panels are drawn first, in buffers of their own: the 3D frame
+        // samples them.
+        let panel_commands = self
+            .panel_pipeline
+            .as_ref()
+            .filter(|_| !panels.is_empty())
+            .map(|pipeline| {
+                let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("ui panels"),
+                });
+                for (i, (texture, size, (_, batches))) in panels.iter().enumerate() {
+                    let view = self.textures[*texture as usize]
+                        .texture
+                        .create_view(&wgpu::TextureViewDescriptor::default());
+                    let layers = [(&self.panel_cameras[i].1, *batches, panel_starts[i])];
+                    let pass = SpritePass {
+                        viewport: *size,
+                        scale: 1.0,
+                        pipeline,
+                        instances: &self.instance_buffer,
+                        textures: &self.textures,
+                        layers: &layers,
+                    };
+                    Self::sprite_pass(&mut encoder, &view, Some(Color::TRANSPARENT), None, &pass);
+                }
+                encoder.finish()
+            });
 
         let mut encoder = self
             .device
@@ -1144,9 +1232,13 @@ impl Renderer {
         let finished = encoder.finish();
         self.stats.record_ms = record_start.elapsed().as_secs_f32() * 1000.0;
         let submit_start = web_time::Instant::now();
-        let submitted = self
-            .queue
-            .submit(overlay_commands.into_iter().chain(buffers_3d).chain([finished]));
+        let submitted = self.queue.submit(
+            panel_commands
+                .into_iter()
+                .chain(overlay_commands)
+                .chain(buffers_3d)
+                .chain([finished]),
+        );
         self.stats.submit_ms = submit_start.elapsed().as_secs_f32() * 1000.0;
         if hidden {
             self.hidden_in_flight.push_back(submitted);
@@ -1259,6 +1351,25 @@ impl Renderer {
         Some(clear)
     }
 
+    /// A camera uniform and its bind group for the sprite pipeline.
+    fn make_camera(&self, label: &str) -> (wgpu::Buffer, wgpu::BindGroup) {
+        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(label),
+            size: size_of::<Mat4>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some(label),
+            layout: &self.camera_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: buffer.as_entire_binding(),
+            }],
+        });
+        (buffer, bind_group)
+    }
+
     fn sprite_pass(
         encoder: &mut wgpu::CommandEncoder,
         view: &wgpu::TextureView,
@@ -1287,7 +1398,7 @@ impl Renderer {
         }
         pass.set_pipeline(p.pipeline);
         pass.set_vertex_buffer(0, p.instances.slice(..));
-        for (camera, batches, base) in &p.layers {
+        for (camera, batches, base) in p.layers {
             pass.set_bind_group(0, *camera, &[]);
             for batch in *batches {
                 let [width, height] = p.viewport;

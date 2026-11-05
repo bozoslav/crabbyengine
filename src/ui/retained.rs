@@ -453,6 +453,13 @@ pub struct Ui {
     external_fonts: bool,
     consumed: bool,
 }
+// SAFETY: the only part that isn't `Send`/`Sync` is taffy's `CompactLength`,
+// which may hold an opaque `calc()` handle as a raw pointer. The engine
+// never turns on taffy's `calc` feature or makes such values, so every
+// length is plain numbers; the rest of `Ui` is owned data with no interior
+// mutability. That lets a `Ui` live in a component (`UiPanel3D`).
+unsafe impl Send for Ui {}
+unsafe impl Sync for Ui {}
 impl Default for Ui {
     fn default() -> Self {
         Self {
