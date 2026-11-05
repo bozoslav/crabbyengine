@@ -431,6 +431,8 @@ pub(crate) struct SkinDraw {
     /// The skinned mesh.
     pub mesh: u32,
     pub instance: Instance3D,
+    /// The model's entity (bits), to find its motion from last frame.
+    pub entity: u64,
     /// The model matrix, and its largest scale.
     pub matrix: Mat4,
     pub scale: f32,
@@ -503,30 +505,32 @@ impl SkinFrame {
         };
         world
             .query::<(
+                Entity,
                 &Transform3D,
                 &Model,
                 &Skeleton,
                 Option<&MorphWeights>,
                 Option<&super::ReceivesDecals>,
             )>()
-            .for_each(|(t, m, s, w, r)| {
+            .for_each(|(e, t, m, s, w, r)| {
                 // Unskinned meshes go with the next query, skeleton or not.
                 if assets.skin(m.mesh.id).is_some() {
-                    add(out, assets, t, m, Some(s), w, r);
+                    add(out, assets, e, t, m, Some(s), w, r);
                 }
             });
         // Meshes that change shape but don't bend: one identity matrix.
         world
             .query::<(
+                Entity,
                 &Transform3D,
                 &Model,
                 Option<&MorphWeights>,
                 Option<&super::ReceivesDecals>,
             )>()
             .without::<SkinOf>()
-            .for_each(|(t, m, w, r)| {
+            .for_each(|(e, t, m, w, r)| {
                 if assets.skin(m.mesh.id).is_none() && assets.morph(m.mesh.id).is_some() {
-                    add(out, assets, t, m, None, w, r);
+                    add(out, assets, e, t, m, None, w, r);
                 }
             });
         self.shared.clear();
@@ -538,6 +542,7 @@ impl SkinFrame {
                 add(
                     out,
                     assets,
+                    *e,
                     t,
                     m,
                     Some(s),
@@ -558,9 +563,11 @@ struct Out<'a> {
 
 /// Adds model `m`, posed by `s` if its mesh is skinned, shaped by `w` if
 /// it has morph targets, when its mesh is live.
+#[allow(clippy::too_many_arguments)]
 fn add(
     out: &mut Out,
     assets: &Assets3D,
+    entity: Entity,
     t: &Transform3D,
     m: &Model,
     s: Option<&Skeleton>,
@@ -627,6 +634,7 @@ fn add(
             model,
             color: linear(m.color),
         },
+        entity: entity.to_bits(),
         matrix,
         scale: t.scale.abs().max_element(),
         bounds,

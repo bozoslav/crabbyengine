@@ -510,6 +510,7 @@ mod tests {
         frame.draws.push(crate::three::SkinDraw {
             mesh: 0,
             instance: Default::default(),
+            entity: 0,
             matrix: Mat4::IDENTITY,
             scale: 1.0,
             bounds: (Vec3::ZERO, 1.0),

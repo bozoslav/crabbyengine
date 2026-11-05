@@ -18,6 +18,8 @@ mod particles;
 mod screen;
 #[cfg(all(feature = "window", feature = "3d"))]
 mod smaa;
+#[cfg(all(feature = "window", feature = "3d"))]
+mod taa;
 #[cfg(feature = "window")]
 mod timer;
 
@@ -100,6 +102,8 @@ mod text3d_render_test;
 
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod ao_aa_render_test;
+#[cfg(all(test, feature = "window", feature = "3d"))]
+mod taa_render_test;
 
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod environment_render_test;

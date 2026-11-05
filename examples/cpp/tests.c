@@ -30,7 +30,7 @@ static void setup(CrabbyCtx* ctx, void* user) {
     CrabbyPost back;
     CHECK(crabby_ctx_post(ctx, &back) == CRABBY_OK);
     CHECK(back.ao_enabled && back.ao_radius == 2 && back.anti_aliasing == 1);
-    post.anti_aliasing = 3;
+    post.anti_aliasing = 4;
     CHECK(crabby_ctx_set_post(ctx, &post) == CRABBY_INVALID_ARGUMENT);
     CHECK(back.render_scale == 1 && back.sharpen == 0);
     post.anti_aliasing = 1;
@@ -53,6 +53,13 @@ static void setup(CrabbyCtx* ctx, void* user) {
     CHECK(crabby_graphics_quality_preset(3, &quality) == CRABBY_OK);
     CHECK(crabby_ctx_set_graphics_quality(ctx, &quality) == CRABBY_OK);
     CHECK(crabby_ctx_graphics_quality(ctx, &now) == CRABBY_OK && now.shadow_resolution == 4096 && now.ao_steps == 8);
+    post.anti_aliasing = 3; /* temporal */
+    post.taa_sharpness = 2;
+    CHECK(crabby_ctx_set_post(ctx, &post) == CRABBY_INVALID_ARGUMENT);
+    post.taa_sharpness = 0.5f;
+    CHECK(crabby_ctx_set_post(ctx, &post) == CRABBY_OK);
+    CHECK(crabby_ctx_reset_temporal_history(ctx) == CRABBY_OK);
+    CHECK(crabby_ctx_post(ctx, &back) == CRABBY_OK && back.anti_aliasing == 3 && back.taa_sharpness == 0.5f);
     uint64_t e;
     CHECK(crabby_spawn(crabby_ctx_world(ctx), NULL, 0, &e) == CRABBY_OK);
     CHECK(crabby_world_free(crabby_ctx_world(ctx)) == CRABBY_BUSY);

@@ -1015,6 +1015,18 @@ static void options_menu(crabby::ctx& ctx) {
 }
 // ANCHOR_END: quality
 
+// ANCHOR: taa
+/// Temporal antialiasing, and a camera cut.
+static void temporal_antialiasing(crabby::ctx& ctx) {
+    auto post = ctx.post();
+    post.anti_aliasing = uint32_t(crabby::anti_aliasing::taa);
+    post.taa_sharpness = 0.3f; // it softens the image a little
+    ctx.set_post(post);
+    // After teleporting the camera, forget the old view:
+    ctx.reset_temporal_history();
+}
+// ANCHOR_END: taa
+
 // ANCHOR: shader
 /// Grass that sways in the wind: the higher a vertex, the more it moves.
 static const char* wind_shader = R"(
@@ -1264,6 +1276,7 @@ static void the_village_has_five_spinning_houses() {
         village(ctx);
         golden_hour(ctx);
         options_menu(ctx);
+        temporal_antialiasing(ctx);
         misty_morning(ctx);
         far_haze(ctx);
         auto tuft = ctx.create_mesh(crabby::mesh_data::cube(0.1f), ctx.default_material());

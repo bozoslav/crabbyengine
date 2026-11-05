@@ -307,3 +307,72 @@ fn transparent_color(in: VertexOut, front: bool) -> vec4<f32> {
     let s = surface_at(in, front);
     return vec4<f32>(fog(shade(s), s.world) * s.alpha, s.alpha);
 }
+
+// ---- Motion vectors (temporal antialiasing) ----
+// Models that moved since last frame are drawn again, over the depth the
+// opaque pass left, to say where each pixel was: the same vertices through
+// last frame's model matrix (the `vertex` function still sees this frame's
+// time, so animation inside it is not part of the motion).
+struct VelocityIn {
+    @location(0) position: vec3<f32>,
+    @location(1) normal: vec3<f32>,
+    @location(2) uv: vec2<f32>,
+    @location(3) m0: vec4<f32>,
+    @location(4) m1: vec4<f32>,
+    @location(5) m2: vec4<f32>,
+    @location(6) m3: vec4<f32>,
+    @location(7) color: vec4<f32>,
+    @location(8) vertex_color: vec4<f32>,
+    @location(9) uv1: vec2<f32>,
+    @location(10) p0: vec4<f32>,
+    @location(11) p1: vec4<f32>,
+    @location(12) p2: vec4<f32>,
+    @location(13) p3: vec4<f32>,
+};
+
+struct VelocityOut {
+    // The same position as `vs_main`, so depth matches exactly.
+    @builtin(position) @invariant clip: vec4<f32>,
+    // Now and before, without the jitter.
+    @location(0) now: vec4<f32>,
+    @location(1) before: vec4<f32>,
+};
+
+@vertex
+fn vs_velocity(in: VelocityIn) -> VelocityOut {
+    var a: VertexIn;
+    a.position = in.position;
+    a.normal = in.normal;
+    a.uv = in.uv;
+    a.m0 = in.m0;
+    a.m1 = in.m1;
+    a.m2 = in.m2;
+    a.m3 = in.m3;
+    a.color = in.color;
+    a.vertex_color = in.vertex_color;
+    a.uv1 = in.uv1;
+    var b = a;
+    b.m0 = in.p0;
+    b.m1 = in.p1;
+    b.m2 = in.p2;
+    b.m3 = in.p3;
+    let now = world_vertex(a);
+    let before = world_vertex(b);
+    var out: VelocityOut;
+    out.clip = frame.view_proj * vec4<f32>(now.position, 1.0);
+    out.now = frame.unjittered_view_proj * vec4<f32>(now.position, 1.0);
+    out.before = frame.previous_view_proj * vec4<f32>(before.position, 1.0);
+    return out;
+}
+
+// Where the pixel was last frame, minus where it is, in texture coordinates;
+// alpha 1 marks the pixel as covered by a moved model.
+@fragment
+fn fs_velocity(in: VelocityOut) -> @location(0) vec4<f32> {
+    if in.before.w <= 1e-5 {
+        return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    }
+    let a = in.now.xy / in.now.w;
+    let b = in.before.xy / in.before.w;
+    return vec4<f32>((b.x - a.x) * 0.5, (a.y - b.y) * 0.5, 0.0, 1.0);
+}

@@ -37,6 +37,11 @@ struct Frame {
     light_view_proj: array<mat4x4<f32>, 12>,
     light_shadow: vec4<f32>, // views (0: none), texel size in uv, normal offset in texels
     probes: array<ReflectionVolume, 4>,
+    // Temporal antialiasing: `view_proj` carries the sub-pixel jitter; these
+    // are the camera without it, and last frame's, to tell motion from jitter.
+    unjittered_view_proj: mat4x4<f32>,
+    previous_view_proj: mat4x4<f32>,
+    jitter: vec4<f32>,     // xy: this frame's jitter in pixels (0 without TAA)
 };
 
 struct MaterialData {

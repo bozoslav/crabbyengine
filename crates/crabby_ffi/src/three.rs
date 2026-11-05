@@ -520,7 +520,8 @@ pub struct CrabbyPost {
     pub render_scale: f32,
     /// Sharpening of the scaled image, 0 to 1.
     pub sharpen: f32,
-    /// Post AA: 0 none, 1 FXAA, 2 SMAA 1x.
+    /// Post AA: 0 none, 1 FXAA, 2 SMAA 1x, 3 temporal (TAA; WebGL2 falls
+    /// back to FXAA).
     pub anti_aliasing: u32,
     /// Enable GTAO on ambient light only (unsupported backends ignore it).
     pub ao_enabled: bool,
@@ -554,6 +555,8 @@ pub struct CrabbyPost {
     pub has_lut: bool,
     /// A color lookup table: n squares of n x n pixels in a row.
     pub lut: CrabbyTexture,
+    /// How much TAA sharpens its result, 0 to 1 (default 0.25).
+    pub taa_sharpness: f32,
 }
 
 /// Triangles on the CPU (Rust `MeshData`), before `crabby_ctx_create_mesh`
@@ -2314,6 +2317,7 @@ pub unsafe extern "C" fn crabby_ctx_post(ctx: *mut CrabbyCtx, out_post: *mut Cra
                         width: 0,
                         height: 0,
                     }),
+                    taa_sharpness: p.taa_sharpness,
                 },
             )
         })
@@ -2340,8 +2344,12 @@ pub unsafe extern "C" fn crabby_ctx_set_post(ctx: *mut CrabbyCtx, post: *const C
                 0 => AntiAliasing::None,
                 1 => AntiAliasing::Fxaa,
                 2 => AntiAliasing::Smaa,
-                _ => return Err(invalid("anti_aliasing must be 0 to 2")),
+                3 => AntiAliasing::Taa,
+                _ => return Err(invalid("anti_aliasing must be 0 to 3")),
             };
+            if !(0.0..=1.0).contains(&p.taa_sharpness) {
+                return Err(invalid("taa_sharpness must be 0 to 1"));
+            }
             if !p.ao_radius.is_finite()
                 || p.ao_radius <= 0.0
                 || !p.ao_intensity.is_finite()
@@ -2382,6 +2390,7 @@ pub unsafe extern "C" fn crabby_ctx_set_post(ctx: *mut CrabbyCtx, post: *const C
                 render_scale: p.render_scale,
                 sharpen: p.sharpen,
                 anti_aliasing,
+                taa_sharpness: p.taa_sharpness,
                 ambient_occlusion: AmbientOcclusion {
                     enabled: p.ao_enabled,
                     radius: p.ao_radius,
@@ -2438,7 +2447,7 @@ pub struct CrabbyGraphicsQuality {
     pub ao_slices: u32,
     /// AO horizon steps per side, 1 to 16.
     pub ao_steps: u32,
-    /// Post AA: 0 none, 1 FXAA, 2 SMAA 1x.
+    /// Post AA: 0 none, 1 FXAA, 2 SMAA 1x, 3 temporal.
     pub anti_aliasing: u32,
 }
 
@@ -2466,7 +2475,8 @@ fn quality_from_c(q: &CrabbyGraphicsQuality) -> Result<GraphicsQuality, crate::F
         0 => AntiAliasing::None,
         1 => AntiAliasing::Fxaa,
         2 => AntiAliasing::Smaa,
-        _ => return Err(invalid("anti_aliasing must be 0 to 2")),
+        3 => AntiAliasing::Taa,
+        _ => return Err(invalid("anti_aliasing must be 0 to 3")),
     };
     if !(MIN_RENDER_SCALE..=MAX_RENDER_SCALE).contains(&q.render_scale) || !(0.0..=1.0).contains(&q.sharpen) {
         return Err(invalid("render_scale must be 0.25 to 2 and sharpen 0 to 1"));
@@ -2591,6 +2601,25 @@ pub unsafe extern "C" fn crabby_ctx_set_graphics_quality(
                 return Err(invalid("quality is null"));
             };
             c.set_graphics_quality(quality_from_c(q)?);
+            Ok(())
+        })
+    })
+}
+
+/// Makes temporal antialiasing (post `anti_aliasing` 3) forget the frames
+/// before this one: call it when the camera cuts somewhere else. The engine
+/// also resets on resize and when the camera jumps or turns sharply.
+/// # Safety
+/// `ctx` null or live.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_reset_temporal_history(std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_reset_temporal_history(ctx: *mut CrabbyCtx) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            c.reset_temporal_history();
             Ok(())
         })
     })

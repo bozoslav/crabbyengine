@@ -169,7 +169,8 @@ inline vec3 sun_direction_at(float hour) { return crabby_sun_direction_at(hour);
 /// ctx::post / ctx::set_post. tonemap: see crabby::tonemap.
 using post = CrabbyPost;
 /// Post AA mode (`post::anti_aliasing`).
-enum class anti_aliasing : uint32_t { none = 0, fxaa = 1, smaa = 2 };
+/// `taa` is temporal: sub-pixel jitter and a reprojected history (WebGL2 draws FXAA).
+enum class anti_aliasing : uint32_t { none = 0, fxaa = 1, smaa = 2, taa = 3 };
 /// Quality settings that trade looks for speed, switched at run time (Rust
 /// `GraphicsQuality`): the 3D resolution scale, shadows, AO and antialiasing.
 /// Get a preset with graphics_quality_preset(); apply it with
@@ -3053,6 +3054,9 @@ public:
     /// resolution scale and shadow map sizes. Throws, changing nothing, for a field
     /// outside its range.
     void set_graphics_quality(const crabby::graphics_quality& q) { detail::check(crabby_ctx_set_graphics_quality(raw_, &q)); }
+    /// Makes temporal antialiasing forget earlier frames: call it when the camera cuts
+    /// somewhere else. (Resizes and big camera jumps reset by themselves.)
+    void reset_temporal_history() { detail::check(crabby_ctx_reset_temporal_history(raw_)); }
     void save_screenshot(const char* path) { detail::check(crabby_ctx_save_screenshot(raw_, path)); }
     /// texture_filter::nearest keeps pixel art square.
     void set_texture_filter(texture t, texture_filter f) {

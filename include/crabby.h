@@ -1201,6 +1201,7 @@ typedef struct CrabbyPost {
   float vignette;
   bool has_lut;
   struct CrabbyTexture lut;
+  float taa_sharpness;
 } CrabbyPost;
 
 typedef struct CrabbyGraphicsQuality {
@@ -3283,6 +3284,8 @@ enum CrabbyStatus crabby_ctx_graphics_quality(struct CrabbyCtx *ctx,
 
 enum CrabbyStatus crabby_ctx_set_graphics_quality(struct CrabbyCtx *ctx,
                                                   const struct CrabbyGraphicsQuality *quality);
+
+enum CrabbyStatus crabby_ctx_reset_temporal_history(struct CrabbyCtx *ctx);
 
 struct CrabbyHeightfield *crabby_heightfield_new(const float *heights, size_t count, float size);
 
