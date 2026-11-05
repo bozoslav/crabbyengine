@@ -575,10 +575,18 @@ typedef struct CrabbyField {
   size_t offset;
 } CrabbyField;
 
-typedef struct CrabbyCell {
-  int32_t x;
-  int32_t z;
-} CrabbyCell;
+typedef struct CrabbyTransform3D {
+  struct CrabbyQuat rotation;
+  struct CrabbyVec3 position;
+  struct CrabbyVec3 scale;
+  float reserved[2];
+} CrabbyTransform3D;
+
+typedef struct CrabbyJoint {
+  const char *name;
+  int32_t parent;
+  struct CrabbyTransform3D rest;
+} CrabbyJoint;
 
 typedef struct CrabbyMaterial {
   uint32_t id;
@@ -588,17 +596,15 @@ typedef struct CrabbyMesh {
   uint32_t id;
 } CrabbyMesh;
 
+typedef struct CrabbyCell {
+  int32_t x;
+  int32_t z;
+} CrabbyCell;
+
 typedef struct CrabbyTerrainTile {
   struct CrabbyMesh lods[CRABBY_TERRAIN_LODS];
   float lod_distance;
 } CrabbyTerrainTile;
-
-typedef struct CrabbyTransform3D {
-  struct CrabbyQuat rotation;
-  struct CrabbyVec3 position;
-  struct CrabbyVec3 scale;
-  float reserved[2];
-} CrabbyTransform3D;
 
 typedef struct CrabbyModel {
   struct CrabbyMesh mesh;
@@ -1573,6 +1579,63 @@ enum CrabbyStatus crabby_ctx_spawn_prefab(struct CrabbyCtx *ctx,
                                           uint64_t *out_entity);
 
 enum CrabbyStatus crabby_ctx_save_prefab(struct CrabbyCtx *ctx, uint64_t entity, const char *path);
+
+enum CrabbyStatus crabby_mesh_data_set_skin(struct CrabbyMeshData *data,
+                                            const uint16_t *joints,
+                                            const float *weights,
+                                            size_t count);
+
+enum CrabbyStatus crabby_ctx_set_skeleton(struct CrabbyCtx *ctx,
+                                          uint64_t entity_bits,
+                                          const struct CrabbyJoint *joints,
+                                          size_t count);
+
+enum CrabbyStatus crabby_ctx_load_skeleton(struct CrabbyCtx *ctx,
+                                           uint64_t entity_bits,
+                                           const char *path);
+
+enum CrabbyStatus crabby_ctx_create_skinned_mesh(struct CrabbyCtx *ctx,
+                                                 const struct CrabbyMeshData *data,
+                                                 struct CrabbyMaterial material,
+                                                 uint64_t skeleton_entity,
+                                                 struct CrabbyMesh *out_mesh);
+
+enum CrabbyStatus crabby_ctx_joint_count(struct CrabbyCtx *ctx,
+                                         uint64_t entity_bits,
+                                         size_t *out_count);
+
+enum CrabbyStatus crabby_ctx_find_joint(struct CrabbyCtx *ctx,
+                                        uint64_t entity_bits,
+                                        const char *name,
+                                        bool *out_found,
+                                        size_t *out_joint);
+
+enum CrabbyStatus crabby_ctx_joint_pose(struct CrabbyCtx *ctx,
+                                        uint64_t entity_bits,
+                                        size_t joint,
+                                        struct CrabbyTransform3D *out_pose);
+
+enum CrabbyStatus crabby_ctx_set_joint_pose(struct CrabbyCtx *ctx,
+                                            uint64_t entity_bits,
+                                            size_t joint,
+                                            const struct CrabbyTransform3D *pose);
+
+enum CrabbyStatus crabby_ctx_reset_pose(struct CrabbyCtx *ctx, uint64_t entity_bits);
+
+enum CrabbyStatus crabby_ctx_joint_matrix(struct CrabbyCtx *ctx,
+                                          uint64_t entity_bits,
+                                          size_t joint,
+                                          float *out_matrix);
+
+enum CrabbyStatus crabby_ctx_set_skin_of(struct CrabbyCtx *ctx,
+                                         uint64_t entity_bits,
+                                         uint64_t skeleton_entity);
+
+enum CrabbyStatus crabby_ctx_attach_to_joint(struct CrabbyCtx *ctx,
+                                             uint64_t entity_bits,
+                                             uint64_t skeleton_entity,
+                                             size_t joint,
+                                             const struct CrabbyTransform3D *offset);
 
 enum CrabbyStatus crabby_game_lockstep_steam_host(struct CrabbyGame *game,
                                                   uint32_t app_id,

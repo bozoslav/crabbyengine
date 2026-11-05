@@ -153,6 +153,9 @@ struct FrameUniform {
     cluster_view_proj: [[f32; 4]; 4],
 }
 
+#[path = "skinning.rs"]
+mod skinning;
+
 /// One corner of a mesh on the GPU.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -178,6 +181,8 @@ struct GpuMesh {
     buffers: Option<(wgpu::Buffer, wgpu::Buffer)>,
     /// Index range and material of each part.
     parts: Vec<(Range<u32>, u32)>,
+    /// What skinning it needs, if it's skinned.
+    skin: Option<skinning::GpuSkin>,
 }
 
 struct GpuMaterial {
@@ -499,6 +504,8 @@ pub(crate) struct Renderer3D {
     cascades: usize,
     material_layout: wgpu::BindGroupLayout,
     meshes: Vec<GpuMesh>,
+    /// This frame's skinned models, drawn as mesh ids past `meshes`.
+    skinning: skinning::Skinning,
     materials: Vec<GpuMaterial>,
     instances: wgpu::Buffer,
     /// Capacity of `instances`, in instances.
@@ -517,6 +524,8 @@ pub(crate) struct Renderer3D {
     /// This frame's runs: (mesh, first instance, count).
     runs: Vec<(u32, u32, u32)>,
     shadow_runs: [Vec<(u32, u32, u32)>; MAX_CASCADES],
+    /// Per skinned model this frame, whether any pass draws it.
+    skin_drawn: Vec<bool>,
 }
 
 impl Renderer3D {
@@ -1084,6 +1093,10 @@ impl Renderer3D {
             view_targets: Vec::new(),
             compute_pipelines: Vec::new(),
             compute_layouts,
+            skinning: skinning::Skinning::new(
+                device,
+                compute && device.limits().max_storage_buffers_per_shader_stage >= 4,
+            ),
             compute_states: Vec::new(),
             computes: Vec::new(),
             views: Vec::new(),
@@ -1105,6 +1118,7 @@ impl Renderer3D {
             white_array: array_view(white_array),
             runs: Vec::new(),
             shadow_runs: Default::default(),
+            skin_drawn: Vec::new(),
         }
     }
 
@@ -1390,7 +1404,13 @@ impl Renderer3D {
         material.double_sided = desc.double_sided;
     }
 
-    pub fn create_mesh(&mut self, device: &wgpu::Device, data: &MeshData, parts: &[(Range<u32>, Material)]) -> u32 {
+    pub fn create_mesh(
+        &mut self,
+        device: &wgpu::Device,
+        data: &MeshData,
+        parts: &[(Range<u32>, Material)],
+        skinned: bool,
+    ) -> u32 {
         let normals = data.normals_or_computed();
         let vertices: Vec<Vertex> = (0..data.positions.len())
             .map(|i| Vertex {
@@ -1403,10 +1423,17 @@ impl Renderer3D {
                 uv1: data.uvs1.get(i).map_or([0.0; 2], |uv| uv.to_array()),
             })
             .collect();
+        let skin = (skinned && !data.joints.is_empty())
+            .then(|| self.skinning.create(device, &vertices, &data.joints, &data.weights));
         let vertices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("3d vertices"),
             contents: bytemuck::cast_slice(&vertices),
-            usage: wgpu::BufferUsages::VERTEX,
+            usage: wgpu::BufferUsages::VERTEX
+                | if skin.is_some() {
+                    self.skinning.rest_usage()
+                } else {
+                    wgpu::BufferUsages::empty()
+                },
         });
         let indices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("3d indices"),
@@ -1416,6 +1443,7 @@ impl Renderer3D {
         self.meshes.push(GpuMesh {
             buffers: Some((vertices, indices)),
             parts: parts.iter().map(|(r, m)| (r.clone(), m.id)).collect(),
+            skin,
         });
         self.meshes.len() as u32 - 1
     }
@@ -1425,6 +1453,7 @@ impl Renderer3D {
         if let Some(mesh) = self.meshes.get_mut(id as usize) {
             mesh.buffers = None;
             mesh.parts = Vec::new();
+            mesh.skin = None;
         }
     }
 
@@ -1498,6 +1527,33 @@ impl Renderer3D {
         }
         views.truncate(used);
         self.views = views;
+        // Skinned models: only those some pass draws are posed.
+        let real = self.meshes.len() as u32;
+        let mut drawn = std::mem::take(&mut self.skin_drawn);
+        drawn.clear();
+        drawn.resize(frame.skins.draws.len(), false);
+        let runs = self
+            .runs
+            .iter()
+            .chain(self.shadow_runs[..self.cascades].iter().flatten())
+            .chain(self.views.iter().flat_map(|(_, r)| r));
+        for &(mesh, _, _) in runs {
+            if let Some(d) = mesh.checked_sub(real).and_then(|k| drawn.get_mut(k as usize)) {
+                *d = true;
+            }
+        }
+        let meshes = &self.meshes;
+        self.skinning.prepare(
+            device,
+            queue,
+            &frame.skins,
+            |id| {
+                let m = meshes.get(id as usize)?;
+                Some((&m.buffers.as_ref()?.0, m.skin.as_ref()?))
+            },
+            |k| drawn[k],
+        );
+        self.skin_drawn = drawn;
         if total == 0 {
             return;
         }
@@ -1751,13 +1807,13 @@ impl Renderer3D {
         let parts: usize = self
             .runs
             .iter()
-            .map(|&(mesh, _, _)| self.meshes[mesh as usize].parts.len())
+            .map(|&(mesh, _, _)| self.meshes[self.base(mesh) as usize].parts.len())
             .sum();
         let view_parts: usize = self
             .views
             .iter()
             .flat_map(|(_, runs)| runs)
-            .map(|&(mesh, _, _)| self.meshes[mesh as usize].parts.len())
+            .map(|&(mesh, _, _)| self.meshes[self.base(mesh) as usize].parts.len())
             .sum();
         self.computes.len()
             + (parts + view_parts) * 2
@@ -1777,7 +1833,7 @@ impl Renderer3D {
     pub fn counts(&self) -> [(usize, usize); 2] {
         let count = |runs: &[(u32, u32, u32)]| {
             runs.iter().fold((0, 0), |(n, tris), &(mesh, _, k)| {
-                let per: u32 = self.meshes[mesh as usize]
+                let per: u32 = self.meshes[self.base(mesh) as usize]
                     .parts
                     .iter()
                     .map(|(range, _)| range.len() as u32 / 3)
@@ -1797,7 +1853,7 @@ impl Renderer3D {
     pub fn mesh_costs(&self) -> Vec<(u32, usize, usize, usize, usize)> {
         let mut out: Vec<(u32, usize, usize, usize, usize)> = Vec::new();
         let tris = |mesh: u32| -> usize {
-            self.meshes[mesh as usize]
+            self.meshes[self.base(mesh) as usize]
                 .parts
                 .iter()
                 .map(|(range, _)| range.len() / 3)
@@ -1863,7 +1919,7 @@ impl Renderer3D {
             let mut first = 0;
             let mut draws = 0;
             for (i, &(mesh, _, _)) in runs.iter().enumerate() {
-                draws += self.meshes[mesh as usize].parts.len();
+                draws += self.meshes[self.base(mesh) as usize].parts.len();
                 if draws >= SHADOW_DRAWS_PER_PASS {
                     parts.push(Part::Shadow {
                         cascade,
@@ -1927,6 +1983,15 @@ impl Renderer3D {
         } = *frame;
         match part {
             Part::Prelude => {
+                // Skinned models first: every pass draws them posed.
+                if self.skinning.has_work() {
+                    let timestamps = time("skinning").map(|t| wgpu::ComputePassTimestampWrites {
+                        query_set: t.query_set,
+                        beginning_of_pass_write_index: t.beginning_of_pass_write_index,
+                        end_of_pass_write_index: t.end_of_pass_write_index,
+                    });
+                    self.skinning.record(encoder, timestamps);
+                }
                 // Compute passes first, so this frame's materials see their results.
                 for &(compute, state, material) in &self.computes {
                     let state = &self.compute_states[state].1;
@@ -2291,11 +2356,20 @@ impl Renderer3D {
     /// Whether a transparent surface this frame reads the scene behind it.
     fn needs_scene(&self) -> bool {
         self.runs.iter().any(|&(mesh, _, _)| {
-            self.meshes[mesh as usize].parts.iter().any(|&(_, m)| {
+            self.meshes[self.base(mesh) as usize].parts.iter().any(|&(_, m)| {
                 let m = &self.materials[m as usize];
                 m.transparent && self.shaders[m.shader as usize].reads_scene
             })
         })
+    }
+
+    /// The mesh a run's mesh id draws: itself, or for a skinned model (ids
+    /// past the meshes), the skinned mesh.
+    fn base(&self, mesh: u32) -> u32 {
+        match (mesh as usize).checked_sub(self.meshes.len()) {
+            None => mesh,
+            Some(k) => self.skinning.draws.get(k).map_or(0, |d| d.0),
+        }
     }
 
     /// The mesh parts of `runs` that `kind` draws, each with its material
@@ -2307,9 +2381,17 @@ impl Renderer3D {
         let mut bound = None;
         let mut bound_material = u32::MAX;
         for &(mesh, start, count) in runs {
-            let mesh = &self.meshes[mesh as usize];
-            let Some((vertices, indices)) = &mesh.buffers else {
+            let posed = (mesh as usize).checked_sub(self.meshes.len());
+            let mesh = &self.meshes[self.base(mesh) as usize];
+            let Some((rest, indices)) = &mesh.buffers else {
                 continue;
+            };
+            let vertices = match posed {
+                None => rest,
+                Some(k) => match self.skinning.vertices(k) {
+                    Some(v) => v,
+                    None => continue,
+                },
             };
             let mut buffers_set = false;
             for (range, material) in &mesh.parts {

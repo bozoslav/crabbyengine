@@ -523,7 +523,7 @@ pub struct CrabbyPost {
 
 /// Triangles on the CPU (Rust `MeshData`), before `crabby_ctx_create_mesh`
 /// puts them on the GPU. An owned handle: free it with `crabby_mesh_data_free`.
-pub struct CrabbyMeshData(MeshData);
+pub struct CrabbyMeshData(pub(crate) MeshData);
 
 /// A read-only look at a `CrabbyMeshData`'s arrays, valid until it's freed.
 /// `normals` and `uvs` are null when it has none.
@@ -1072,8 +1072,7 @@ pub unsafe extern "C" fn crabby_mesh_data_new(
                     std::slice::from_raw_parts(indices, index_count).to_vec()
                 }
             },
-            colors: Vec::new(),
-            uvs1: Vec::new(),
+            ..Default::default()
         };
         data.check().map_err(invalid_owned)?;
         result = boxed(data);

@@ -3,7 +3,10 @@
 
 use glam::{Mat4, Vec3, Vec4};
 
-use super::{Assets3D, Camera3D, Lighting, Model, ShadowMesh, TERRAIN_LODS, TerrainTile, Transform3D, linear};
+use super::{
+    Assets3D, Camera3D, Lighting, Model, ShadowMesh, Skeleton, SkinFrame, SkinOf, TERRAIN_LODS, TerrainTile,
+    Transform3D, linear,
+};
 use crate::World;
 
 /// Width and height of each of the sun's shadow maps, in texels.
@@ -56,6 +59,10 @@ pub(crate) struct Frame3D {
     pub views: Vec<ViewFrame>,
     /// The light the sky gave last, and what it was worked out from.
     pub sky_light: Option<(Lighting, super::Sky, super::SkyLight)>,
+    /// This frame's skinned models (only the main frame has these; target
+    /// cameras draw the same). In `runs`, skinned model `k` is mesh id
+    /// `assets.bounds.len() + k`.
+    pub skins: SkinFrame,
     scratch: Vec<Entry>,
     counts: Vec<u32>,
     /// Per model, which passes see it (see `collect`), kept between frames.
@@ -78,7 +85,14 @@ pub(crate) struct ViewFrame {
 impl Frame3D {
     /// Fills the frame with what the camera sees and, with shadows on,
     /// what's inside the sun's shadow box.
-    pub fn collect(&mut self, world: &mut World, assets: &Assets3D, camera: &Camera3D, lighting: &Lighting) {
+    pub fn collect(
+        &mut self,
+        world: &mut World,
+        assets: &Assets3D,
+        skins: &SkinFrame,
+        camera: &Camera3D,
+        lighting: &Lighting,
+    ) {
         self.view_proj = camera.view_proj();
         self.lights.collect(world, camera);
         self.cascades = if lighting.shadows && lighting.shadow_distance > 0.0 {
@@ -112,9 +126,7 @@ impl Frame3D {
         // Which passes see a model: bit 0 the camera, bit 1 + i cascade i.
         // `bounds`: the camera mesh's, and the shadow mesh's (`None`: no
         // shadow), as (center, radius) in model space.
-        let classify = |t: &Transform3D, bounds: (Vec3, f32), shadow_bounds: Option<(Vec3, f32)>| -> u8 {
-            let matrix = t.matrix();
-            let scale = t.scale.abs().max_element();
+        let classify_at = |matrix: Mat4, scale: f32, bounds: (Vec3, f32), shadow_bounds: Option<(Vec3, f32)>| -> u8 {
             let mut flags = u8::from(sphere_visible(
                 &planes,
                 matrix.transform_point3(bounds.0),
@@ -129,6 +141,9 @@ impl Frame3D {
                 }
             }
             flags
+        };
+        let classify = |t: &Transform3D, bounds: (Vec3, f32), shadow_bounds: Option<(Vec3, f32)>| -> u8 {
+            classify_at(t.matrix(), t.scale.abs().max_element(), bounds, shadow_bounds)
         };
         // A model's meshes (camera, then each cascade's) and bounds.
         let model_meshes = |m: &Model, shadow: Option<&ShadowMesh>| {
@@ -149,12 +164,8 @@ impl Frame3D {
             Some((mesh.id, assets.live_bounds(mesh.id)?))
         };
         // The entries for a model the passes in `flags` see.
-        let mut add = |meshes: [u32; 1 + MAX_CASCADES], t: &Transform3D, color: [f32; 4], flags: u8| {
+        let mut add_instance = |meshes: [u32; 1 + MAX_CASCADES], instance: Instance3D, flags: u8| {
             let (seen, casts) = (flags & 1 != 0, flags >> 1);
-            let instance = Instance3D {
-                model: t.matrix().to_cols_array_2d(),
-                color,
-            };
             // One entry per distinct mesh, with the passes that draw it.
             let mut done = 0u8; // cascades already in an entry
             let camera_mesh = meshes[0];
@@ -180,24 +191,35 @@ impl Frame3D {
                 scratch.push((mesh, instance, false, mask));
             }
         };
+        let instance = |t: &Transform3D, color: [f32; 4]| Instance3D {
+            model: t.matrix().to_cols_array_2d(),
+            color,
+        };
+        // Skinned models posed by a skeleton are drawn from `skins` instead.
+        let posed = |m: &Model, s: Option<&Skeleton>| s.is_some() && assets.skin(m.mesh.id).is_some();
         // Models: culled on all cores (most of the work, and most models are
         // culled), then the few that are seen are added in order.
         let flags = &mut self.flags;
         world
-            .query::<(&Transform3D, &Model, Option<&ShadowMesh>)>()
-            .par_collect_into(flags, |(t, m, shadow)| {
+            .query::<(&Transform3D, &Model, Option<&ShadowMesh>, Option<&Skeleton>)>()
+            .without::<SkinOf>()
+            .par_collect_into(flags, |(t, m, shadow, skeleton)| {
+                if posed(m, skeleton) {
+                    return 0;
+                }
                 model_meshes(m, shadow).map_or(0, |(_, bounds, shadow_bounds)| classify(t, bounds, shadow_bounds))
             });
         let mut at = 0;
         world
-            .query::<(&Transform3D, &Model, Option<&ShadowMesh>)>()
-            .for_each(|(t, m, shadow)| {
+            .query::<(&Transform3D, &Model, Option<&ShadowMesh>, Option<&Skeleton>)>()
+            .without::<SkinOf>()
+            .for_each(|(t, m, shadow, _)| {
                 let f = flags[at];
                 at += 1;
                 if f != 0
                     && let Some((meshes, _, _)) = model_meshes(m, shadow)
                 {
-                    add(meshes, t, linear(m.color), f);
+                    add_instance(meshes, instance(t, linear(m.color)), f);
                 }
             });
         // Shadows with no model: only the cascades that see them.
@@ -217,9 +239,21 @@ impl Frame3D {
                 if f != 0
                     && let Some((mesh, _)) = shadow_only(shadow)
                 {
-                    add([mesh; 1 + MAX_CASCADES], t, [1.0; 4], f);
+                    add_instance([mesh; 1 + MAX_CASCADES], instance(t, [1.0; 4]), f);
                 }
             });
+        // Skinned models: each its own mesh, skinned on the GPU this frame.
+        let real_meshes = assets.bounds.len() as u32;
+        for (k, d) in skins.draws.iter().enumerate() {
+            if d.bounds.1 < 0.0 {
+                continue;
+            }
+            let caster = assets.casts_shadows(d.mesh).then_some(d.bounds);
+            let f = classify_at(d.matrix, d.scale, d.bounds, caster);
+            if f != 0 {
+                add_instance([real_meshes + k as u32; 1 + MAX_CASCADES], d.instance, f);
+            }
+        }
         // Terrain: the detail level for how far the camera is from the
         // tile's bounds (the finest level's, which hold every coarser one).
         // Shadow cascade i draws at least level i: its texels are too big
@@ -246,11 +280,11 @@ impl Frame3D {
                     let casts = !matches!(shadow, Some(ShadowMesh(None)));
                     let f = classify(t, (center, radius), casts.then_some((center, radius)));
                     if f != 0 {
-                        add(meshes, t, [1.0; 4], f);
+                        add_instance(meshes, instance(t, [1.0; 4]), f);
                     }
                 }
             });
-        let meshes = assets.bounds.len();
+        let meshes = assets.bounds.len() + skins.draws.len();
         let (counts, instances) = (&mut self.counts, &mut self.instances);
         self.visible = sort_runs(&self.scratch, |e| e.2, meshes, counts, instances, &mut self.runs);
         for (i, runs) in self.shadow_runs[..self.cascades].iter_mut().enumerate() {
@@ -416,7 +450,7 @@ mod tests {
             shadows: false,
             ..Default::default()
         };
-        frame.collect(&mut world, &assets, &camera(), &lighting);
+        frame.collect(&mut world, &assets, &SkinFrame::default(), &camera(), &lighting);
         assert_eq!(frame.runs, vec![(0, 0, 2), (2, 2, 3)]);
         assert_eq!(frame.cascades, 0);
         assert!(frame.shadow_runs.iter().all(Vec::is_empty));
@@ -444,7 +478,7 @@ mod tests {
             ..Default::default()
         };
         let mut frame = Frame3D::default();
-        frame.collect(&mut world, &assets, &camera(), &lighting);
+        frame.collect(&mut world, &assets, &SkinFrame::default(), &camera(), &lighting);
         assert_eq!(frame.runs, vec![(0, 0, 1), (1, 1, 1), (3, 2, 1)]);
     }
 
@@ -469,7 +503,7 @@ mod tests {
         world.spawn((Transform3D::at(Vec3::new(0.0, 40.0, 2.0)), model)); // high above: casts, unseen
         world.spawn((Transform3D::at(Vec3::new(500.0, 0.0, 0.0)), model)); // far away: neither
         let mut frame = Frame3D::default();
-        frame.collect(&mut world, &assets, &camera, &lighting);
+        frame.collect(&mut world, &assets, &SkinFrame::default(), &camera, &lighting);
         assert_eq!(frame.visible, 1);
         assert_eq!(frame.runs, vec![(0, 0, 1)]);
         assert_eq!(frame.shadow_runs[0], vec![(0, 1, 2)]);
@@ -496,7 +530,7 @@ mod tests {
         world.spawn((Transform3D::at(Vec3::X), Model::new(Mesh { id: 1 }))); // seen, casts nothing
         world.spawn((Transform3D::at(Vec3::new(0.0, 40.0, 2.0)), Model::new(Mesh { id: 1 }))); // neither
         let mut frame = Frame3D::default();
-        frame.collect(&mut world, &assets, &camera, &lighting);
+        frame.collect(&mut world, &assets, &SkinFrame::default(), &camera, &lighting);
         assert_eq!(frame.visible, 2);
         assert_eq!(frame.runs, vec![(0, 0, 1), (1, 1, 1)]);
         assert_eq!(frame.shadow_runs[0], vec![(0, 2, 1)]);
@@ -521,7 +555,7 @@ mod tests {
             ..Default::default()
         };
         let mut frame = Frame3D::default();
-        frame.collect(&mut world, &assets, &camera(), &lighting);
+        frame.collect(&mut world, &assets, &SkinFrame::default(), &camera(), &lighting);
         assert_eq!(frame.runs.iter().map(|r| r.0).collect::<Vec<_>>(), vec![0]);
         let meshes: Vec<Vec<u32>> = frame
             .shadow_runs
@@ -586,7 +620,7 @@ mod tests {
         world.spawn((Transform3D::at(Vec3::new(0.0, 0.0, -3.0)), model)); // near
         world.spawn((Transform3D::at(Vec3::new(0.0, 0.0, -350.0)), model)); // far
         let mut frame = Frame3D::default();
-        frame.collect(&mut world, &assets, &camera, &lighting);
+        frame.collect(&mut world, &assets, &SkinFrame::default(), &camera, &lighting);
         assert_eq!(frame.cascades, 4);
         let counts = frame.shadow_runs.map(|r| r.iter().map(|r| r.2).sum::<u32>());
         assert_eq!(counts[0], 1, "only the near model is in the first cascade");

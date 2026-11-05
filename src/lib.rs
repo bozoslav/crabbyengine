@@ -141,10 +141,10 @@ pub use text::{Font, TextParams};
 pub use texture::{DrawParams, Texture, TextureFilter};
 #[cfg(feature = "3d")]
 pub use three::{
-    Blend, Camera3D, Compute, ComputePass, Effect, Heightfield, Lighting, Material, MaterialDesc, Mesh, MeshCost,
-    MeshData, Model, PointLight3D, Post, ScreenEffect, Shader, ShadowMesh, Sky, SpotLight3D, TERRAIN_LAYERS,
-    TERRAIN_LODS, TargetCamera, TerrainMaterialDesc, TerrainTile, TerrainTileData, TextureArray, TextureKind, Tonemap,
-    Transform3D,
+    AttachToJoint, Blend, Camera3D, Compute, ComputePass, Effect, Heightfield, Joint, Lighting, Material, MaterialDesc,
+    Mesh, MeshCost, MeshData, Model, PointLight3D, Post, ScreenEffect, Shader, ShadowMesh, Skeleton, SkinOf, Sky,
+    SpotLight3D, TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera, TerrainMaterialDesc, TerrainTile, TerrainTileData,
+    TextureArray, TextureKind, Tonemap, Transform3D,
 };
 pub use tilemap::{TileMap, draw_tilemaps};
 pub use ui::UiStyle;

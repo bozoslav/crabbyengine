@@ -18,6 +18,7 @@ pub(crate) mod lights;
 mod mesh;
 pub use lights::{PointLight3D, SpotLight3D};
 mod post;
+mod skin;
 mod sky;
 mod target;
 mod terrain;
@@ -35,6 +36,12 @@ pub use mesh::MeshData;
 #[cfg(feature = "window")]
 pub(crate) use post::PostUniform;
 pub use post::{Post, Tonemap};
+#[cfg(feature = "window")]
+pub(crate) use skin::blend as blend_skin;
+pub use skin::{AttachToJoint, Joint, Skeleton, SkinOf};
+pub(crate) use skin::{MeshSkin, SkinFrame};
+#[cfg(all(test, feature = "window"))]
+pub(crate) use skin::{SkinDraw, normalized as normalized_weights};
 pub use sky::Sky;
 pub(crate) use sky::SkyLight;
 pub use target::TargetCamera;
@@ -620,6 +627,11 @@ pub(crate) struct Scene3D<'a> {
 pub(crate) struct Assets3D {
     /// Bounding sphere of each mesh, in its own space: center and radius.
     pub bounds: Vec<(Vec3, f32)>,
+    /// How each skinned mesh binds to joints, by mesh id; shorter than
+    /// `bounds` when the last ones aren't skinned.
+    pub skins: Vec<Option<std::sync::Arc<MeshSkin>>>,
+    /// The joints of skinned glTF files, by resolved path.
+    pub loaded_skeletons: std::collections::HashMap<std::path::PathBuf, Skeleton>,
     /// Meshes set to cast no shadow (`Ctx::set_mesh_shadows`), by id;
     /// shorter than `bounds` when the last ones cast.
     pub shadowless: Vec<bool>,
@@ -657,6 +669,11 @@ impl Assets3D {
     /// Mesh `id`'s bounds, unless there's no such mesh or it was freed.
     pub(crate) fn live_bounds(&self, id: u32) -> Option<(Vec3, f32)> {
         self.bounds.get(id as usize).copied().filter(|&(_, r)| r >= 0.0)
+    }
+
+    /// How mesh `id` binds to joints, if it's skinned.
+    pub(crate) fn skin(&self, id: u32) -> Option<&MeshSkin> {
+        self.skins.get(id as usize)?.as_deref()
     }
 
     /// Whether mesh `id` casts shadows (the default).

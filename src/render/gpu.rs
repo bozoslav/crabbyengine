@@ -676,9 +676,14 @@ impl Renderer {
     }
 
     #[cfg(feature = "3d")]
-    pub fn create_mesh(&mut self, data: &crate::MeshData, parts: &[(std::ops::Range<u32>, crate::Material)]) -> u32 {
+    pub fn create_mesh(
+        &mut self,
+        data: &crate::MeshData,
+        parts: &[(std::ops::Range<u32>, crate::Material)],
+        skinned: bool,
+    ) -> u32 {
         let device = self.device.clone();
-        self.three().create_mesh(&device, data, parts)
+        self.three().create_mesh(&device, data, parts, skinned)
     }
 
     /// Frees 3D mesh `id`'s GPU memory.

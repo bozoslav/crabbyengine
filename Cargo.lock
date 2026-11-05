@@ -780,6 +780,7 @@ name = "crabby_unity"
 version = "0.1.0"
 dependencies = [
  "glam 0.34.2",
+ "gltf",
  "image",
  "rayon",
  "serde_json",

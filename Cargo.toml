@@ -160,3 +160,7 @@ opt-level = 1
 [[example]]
 name = "lights"
 required-features = ["3d"]
+
+[[example]]
+name = "skinning"
+required-features = ["3d"]

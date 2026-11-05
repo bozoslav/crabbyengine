@@ -4,7 +4,7 @@ use std::ops::Range;
 
 use glam::Vec3;
 
-use super::{Blend, Material, MaterialDesc, Mesh, MeshData, Shader, gltf, linear};
+use super::{Blend, Material, MaterialDesc, Mesh, MeshData, MeshSkin, Shader, Skeleton, gltf, linear};
 use crate::{Ctx, assets};
 
 /// A material as the GPU reads it (one uniform block).
@@ -295,7 +295,101 @@ impl Ctx {
             material.id < self.assets3d.materials,
             "crabbyengine: create_mesh: that material wasn't made by this game"
         );
-        self.mesh_from_parts(data, &[(0..data.indices.len() as u32, material)])
+        self.mesh_from_parts(data, &[(0..data.indices.len() as u32, material)], None)
+    }
+
+    /// Makes a mesh that bends with `skeleton`: each corner of `data` has
+    /// up to four [`joints`](MeshData::joints) (indices into the
+    /// skeleton's joints) and how much each moves it. `data` is modelled
+    /// with the skeleton at rest. Draw it with a [`Model`](crate::Model)
+    /// and a [`Skeleton`] (this one, or any made from the same joints, or
+    /// with joints of the same names) on the entity.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let skeleton = Skeleton::new(vec![
+    ///         Joint { name: "base".into(), parent: None, rest: Transform3D::default() },
+    ///         Joint { name: "top".into(), parent: Some(0), rest: Transform3D::at(vec3(0.0, 1.0, 0.0)) },
+    ///     ]);
+    ///     let mut post = MeshData::cube(0.2);
+    ///     // Corners above the middle follow the top joint.
+    ///     post.joints = post.positions.iter().map(|p| [if p.y > 0.0 { 1 } else { 0 }, 0, 0, 0]).collect();
+    ///     post.weights = vec![[1.0, 0.0, 0.0, 0.0]; post.positions.len()];
+    ///     let material = ctx.default_material();
+    ///     let mesh = ctx.create_skinned_mesh(&post, material, &skeleton);
+    ///     ctx.world.spawn((Transform3D::default(), Model::new(mesh), skeleton));
+    /// });
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// If the data doesn't fit together (see [`MeshData::check`]), has no
+    /// joints, names a joint the skeleton doesn't have, or the material
+    /// comes from another game.
+    pub fn create_skinned_mesh(&mut self, data: &MeshData, material: Material, skeleton: &Skeleton) -> Mesh {
+        if let Err(e) = data.check() {
+            panic!("crabbyengine: create_skinned_mesh: {e}");
+        }
+        assert!(
+            !data.joints.is_empty(),
+            "crabbyengine: create_skinned_mesh: the mesh data has no joints (use create_mesh)"
+        );
+        let n = skeleton.joints().len();
+        if let Some(bad) = data.joints.iter().flatten().find(|&&j| usize::from(j) >= n) {
+            panic!("crabbyengine: create_skinned_mesh: joint {bad} is past the skeleton's {n} joints");
+        }
+        assert!(
+            material.id < self.assets3d.materials,
+            "crabbyengine: create_skinned_mesh: that material wasn't made by this game"
+        );
+        let rest = Skeleton::from_shared(skeleton.shared_joints().clone());
+        let inverse_binds = (0..n).map(|j| rest.joint_matrix(j).inverse()).collect();
+        let mut data = data.clone();
+        for w in &mut data.weights {
+            *w = super::skin::normalized(*w);
+        }
+        let skin = MeshSkin::new(
+            skeleton.shared_joints().clone(),
+            (0..n as u16).collect(),
+            inverse_binds,
+            &data,
+        );
+        self.mesh_from_parts(&data, &[(0..data.indices.len() as u32, material)], Some(skin))
+    }
+
+    /// The [`Skeleton`] of a glTF file with skins (loading its mesh with
+    /// [`load_mesh`](Self::load_mesh) if that hasn't happened), at rest:
+    /// every node of the file's scene is a joint, named as in the file.
+    /// Put it on the entity with the file's [`Model`](crate::Model) and
+    /// change its `pose` to bend the model.
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// let fox = ctx.load_mesh("models/fox.glb");
+    /// let skeleton = ctx.load_skeleton("models/fox.glb");
+    /// ctx.world.spawn((Transform3D::default(), Model::new(fox), skeleton));
+    /// # }
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// With a clear message if the file is missing, can't be read or has
+    /// no skins.
+    pub fn load_skeleton(&mut self, path: &str) -> Skeleton {
+        self.try_load_skeleton(path)
+            .unwrap_or_else(|e| panic!("crabbyengine: {e}"))
+    }
+
+    pub(crate) fn try_load_skeleton(&mut self, path: &str) -> Result<Skeleton, String> {
+        self.try_load_mesh(path)?;
+        let file = assets::resolve(path)?;
+        self.assets3d
+            .loaded_skeletons
+            .get(&file)
+            .cloned()
+            .ok_or_else(|| format!("{path} has no skins, so no skeleton"))
     }
 
     /// Loads a glTF model (`.glb`, or `.gltf` with its files next to it)
@@ -389,7 +483,18 @@ impl Ctx {
             .iter()
             .map(|(range, m)| (range.clone(), materials[*m]))
             .collect();
-        let mesh = self.mesh_from_parts(&loaded.data, &parts);
+        let skin = loaded.skin.map(|skin| {
+            let skeleton = Skeleton::from_shared(skin.joints.into());
+            let mesh_skin = MeshSkin::new(
+                skeleton.shared_joints().clone(),
+                skin.slots,
+                skin.inverse_binds,
+                &loaded.data,
+            );
+            self.assets3d.loaded_skeletons.insert(file.clone(), skeleton);
+            mesh_skin
+        });
+        let mesh = self.mesh_from_parts(&loaded.data, &parts, skin);
         self.assets3d.loaded.insert(file, mesh);
         if let Some(names) = self.world.get_resource_mut::<crate::reflect::MeshNames>() {
             names.by_id.insert(mesh.id, path.to_string());
@@ -417,13 +522,19 @@ impl Ctx {
     }
 
     /// A mesh whose index ranges each have their own material.
-    fn mesh_from_parts(&mut self, data: &MeshData, parts: &[(Range<u32>, Material)]) -> Mesh {
+    /// With `skin`, it bends with a skeleton.
+    fn mesh_from_parts(&mut self, data: &MeshData, parts: &[(Range<u32>, Material)], skin: Option<MeshSkin>) -> Mesh {
         let id = self.assets3d.bounds.len() as u32;
         self.assets3d.bounds.push(data.bounds());
+        let skinned = skin.is_some();
+        if let Some(skin) = skin {
+            self.assets3d.skins.resize(id as usize + 1, None);
+            self.assets3d.skins[id as usize] = Some(std::sync::Arc::new(skin));
+        }
         if let Some(renderer) = self.renderer.as_mut()
             && !self.headless
         {
-            let gpu_id = renderer.create_mesh(data, parts);
+            let gpu_id = renderer.create_mesh(data, parts, skinned);
             debug_assert_eq!(gpu_id, id);
         }
         Mesh { id }
@@ -470,6 +581,19 @@ impl Ctx {
             return;
         }
         *bounds = (Vec3::ZERO, -1.0);
+        if let Some(skin) = self.assets3d.skins.get_mut(mesh.id as usize) {
+            *skin = None;
+        }
+        let freed: Vec<_> = self
+            .assets3d
+            .loaded
+            .iter()
+            .filter(|(_, m)| **m == mesh)
+            .map(|(f, _)| f.clone())
+            .collect();
+        for file in freed {
+            self.assets3d.loaded_skeletons.remove(&file);
+        }
         self.assets3d.loaded.retain(|_, m| *m != mesh);
         if let Some(names) = self.world.get_resource_mut::<crate::reflect::MeshNames>()
             && let Some(name) = names.by_id.remove(&mesh.id)
@@ -559,7 +683,7 @@ impl Ctx {
     /// Engine side, before drawing: collect the visible models and hand
     /// them, the camera and the light to the renderer.
     /// What each target camera into a real render target sees.
-    fn collect_views(&mut self) {
+    fn collect_views(&mut self, skins: &super::SkinFrame) {
         let targets = &self.assets3d.render_targets;
         let cameras = self.target_cameras.iter().filter(|c| targets.contains(&c.target));
         let count = cameras.clone().count();
@@ -573,7 +697,8 @@ impl Ctx {
             let size = (camera.target.width(), camera.target.height());
             let mut eye = camera.camera;
             eye.set_viewport(glam::Vec2::new(size.0 as f32, size.1 as f32));
-            view.frame.collect(&mut self.world, &self.assets3d, &eye, &lighting);
+            view.frame
+                .collect(&mut self.world, &self.assets3d, skins, &eye, &lighting);
             view.target = camera.target.id;
             view.size = size;
             view.camera = eye.position;
@@ -645,7 +770,9 @@ impl Ctx {
             Some((e.effect.id, material.id))
         }));
         let start = web_time::Instant::now();
-        self.collect_views();
+        let mut skins = std::mem::take(&mut self.frame3d.skins);
+        skins.collect(&mut self.world, &self.assets3d);
+        self.collect_views(&skins);
         let targets = &self.assets3d.render_targets;
         self.frame3d.computes.clear();
         self.frame3d.computes.extend(self.compute_passes.iter().filter_map(|c| {
@@ -658,7 +785,8 @@ impl Ctx {
             return;
         };
         self.frame3d
-            .collect(&mut self.world, &self.assets3d, &self.camera3d, &self.lighting);
+            .collect(&mut self.world, &self.assets3d, &skins, &self.camera3d, &self.lighting);
+        self.frame3d.skins = skins;
         let light = if self.sky.atmosphere {
             match self.frame3d.sky_light {
                 Some((lighting, sky, light)) if lighting == self.lighting && sky == self.sky => light,

@@ -118,6 +118,7 @@ fn offscreen_light_benchmark() {
                 &device,
                 &data,
                 &[(0..data.indices.len() as u32, crate::Material { id: 0 })],
+                false,
             );
         }
         let mut timer =
@@ -131,7 +132,13 @@ fn offscreen_light_benchmark() {
             timer.collect(&device);
             timer.begin_frame();
             let start = std::time::Instant::now();
-            frame.collect(&mut ctx.world, &ctx.assets3d, &ctx.camera3d, &ctx.lighting);
+            frame.collect(
+                &mut ctx.world,
+                &ctx.assets3d,
+                &crate::three::SkinFrame::default(),
+                &ctx.camera3d,
+                &ctx.lighting,
+            );
             let scene = Scene3D {
                 frame: &frame,
                 lighting: &ctx.lighting,
