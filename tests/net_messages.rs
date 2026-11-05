@@ -8,6 +8,14 @@ fn step(nets: &mut [NetMessages], rounds: usize) {
         }
     }
 }
+/// Like [`step`], for real sockets: waits a little each round so packets
+/// arrive even on a busy machine.
+fn step_udp(nets: &mut [NetMessages], rounds: usize) {
+    for _ in 0..rounds {
+        std::thread::sleep(Duration::from_millis(2));
+        step(nets, 1);
+    }
+}
 fn connected(nets: &mut [NetMessages]) -> PeerId {
     step(nets, 40);
     let peer = nets[0]
@@ -112,10 +120,11 @@ fn udp_connects_and_moves_bytes_both_ways() {
     let host = NetMessages::host("127.0.0.1:0", 1).unwrap();
     let client = NetMessages::join(host.local_addr().unwrap()).unwrap();
     let mut nets = vec![host, client];
+    step_udp(&mut nets, 100);
     let peer = connected(&mut nets);
     nets[0].send(peer, Lane::Reliable, b"hello").unwrap();
     nets[1].send(PeerId::HOST, Lane::Unreliable, b"reply").unwrap();
-    step(&mut nets, 20);
+    step_udp(&mut nets, 50);
     assert!(
         nets[1]
             .events()
@@ -148,9 +157,10 @@ fn full_host_refuses_extra_clients_and_broadcast_reaches_every_client() {
     let host = NetMessages::host("127.0.0.1:0", 1).unwrap();
     let addr = host.local_addr().unwrap();
     let mut nets = vec![host, NetMessages::join(addr).unwrap()];
+    step_udp(&mut nets, 100);
     connected(&mut nets);
     nets.push(NetMessages::join(addr).unwrap());
-    step(&mut nets, 20);
+    step_udp(&mut nets, 100);
     assert!(
         nets[2]
             .events()
