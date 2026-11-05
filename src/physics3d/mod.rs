@@ -16,6 +16,7 @@ use crate::collision::{BodyKind, CollisionStarted, CollisionStopped};
 use crate::{Ctx, Entity, Quat, Transform3D, Vec3, World};
 
 mod character;
+mod files;
 mod query;
 
 pub use character::Character3D;
@@ -825,7 +826,7 @@ pub(crate) fn start(ctx: &mut Ctx, gravity: Vec3) {
     use crate::WorldReflect;
     ctx.physics3d = Physics3D::new(gravity);
     ctx.world.reflect::<RigidBody3D>();
-    ctx.world.reflect::<Collider3D>();
+    crate::reflect::reflect_collider(&mut ctx.world);
     ctx.world.reflect::<Velocity3D>();
     ctx.world.reflect::<Character3D>();
 }

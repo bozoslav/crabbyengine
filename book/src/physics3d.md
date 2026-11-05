@@ -89,6 +89,14 @@ Collision meshes are made once and shared by any number of colliders:
 - `ctx.physics3d.free_mesh(m)` lets go of one; colliders still using it
   keep it until they're removed.
 
+In a scene file, a mesh collider can name a mesh file instead, and
+`ctx.load_scene` makes the mesh (the [Unity importer](unity.md) writes
+them this way):
+
+```json
+"Collider3D": { "shape": { "Mesh": { "file": "town/meshes/wall.glb", "scale": [1, 1, 1], "convex": false } } }
+```
+
 **`Transform3D` stays the source of truth**, as in 2D: after each step,
 dynamic bodies write their pose into it; set a transform yourself and the
 body teleports there. A `Velocity3D` component reads and sets a body's

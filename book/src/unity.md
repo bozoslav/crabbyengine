@@ -44,6 +44,13 @@ space.
   allow, and from texture assets saved uncompressed.
 - **Prefabs** inside prefabs, with their overrides, baked into one flat
   list of entities placed in the world.
+- **Colliders**, if you ask (`importer.colliders(true)`): box, sphere,
+  capsule and mesh colliders become entities with a fixed `RigidBody3D`
+  and a `Collider3D` ([3D physics](physics3d.md)), the object's scale
+  worked into the shape. A mesh collider's mesh is written as a `.glb` and
+  named in the scene by file; `ctx.load_scene` makes a triangle mesh of
+  it (a convex hull for a convex one), once per mesh and scale, and saving
+  the scene names the file again. Triggers are left out.
 
 Vertex colors are kept only for shaders you name (see below): URP's
 shaders ignore them, so most meshes are drawn as Unity draws them without.

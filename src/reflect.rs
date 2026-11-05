@@ -1383,6 +1383,101 @@ pub(crate) fn reflect_model(world: &mut World) {
     });
 }
 
+// ---- Colliders ---------------------------------------------------------------
+
+/// Collision meshes made from mesh files by loading scenes, with the
+/// description they were made from (`{"file": "rock.glb", "scale": [1, 1,
+/// 1], "convex": false}`), so their colliders are saved the same way. A
+/// resource of the game's world.
+#[cfg(feature = "physics3d")]
+#[derive(Default)]
+pub(crate) struct ColliderFiles {
+    pub(crate) by_mesh: HashMap<crate::CollisionMesh, Value>,
+    pub(crate) by_file: HashMap<String, crate::CollisionMesh>,
+}
+
+/// A collider's mesh description as a lookup key.
+#[cfg(feature = "physics3d")]
+pub(crate) fn collider_file_key(file: &Value) -> String {
+    file.to_string()
+}
+
+/// A collider described by a mesh file, as JSON: its mesh's description.
+#[cfg(feature = "physics3d")]
+pub(crate) fn collider_file(value: &Value) -> Option<&Value> {
+    value.pointer("/shape/Mesh").filter(|m| m.get("file").is_some())
+}
+
+#[cfg(feature = "physics3d")]
+fn collider_json(world: &World, c: &crate::Collider3D) -> Option<Result<Value, String>> {
+    let mut value = match serde_json::to_value(c) {
+        Ok(v) => v,
+        Err(err) => return Some(Err(err.to_string())),
+    };
+    if let crate::Shape3D::Mesh(mesh) = c.shape
+        && let Some(file) = world.get_resource::<ColliderFiles>().and_then(|f| f.by_mesh.get(&mesh))
+    {
+        value["shape"] = serde_json::json!({ "Mesh": file });
+    }
+    Some(Ok(value))
+}
+
+#[cfg(feature = "physics3d")]
+fn collider_from_json(world: &World, mut value: Value) -> Result<crate::Collider3D, String> {
+    if let Some(file) = collider_file(&value) {
+        let mesh = world
+            .get_resource::<ColliderFiles>()
+            .and_then(|f| f.by_file.get(&collider_file_key(file)))
+            .copied()
+            .ok_or_else(|| format!("collision mesh {file} isn't loaded: load the scene with ctx.load_scene"))?;
+        value["shape"] = serde_json::json!({ "Mesh": mesh });
+    }
+    serde_json::from_value(value).map_err(|err| err.to_string())
+}
+
+/// Reflects [`Collider3D`](crate::Collider3D) as `"Collider3D"`; a mesh
+/// made from a file (by loading a scene) is saved by that file.
+#[cfg(feature = "physics3d")]
+pub(crate) fn reflect_collider(world: &mut World) {
+    if world.get_resource::<ColliderFiles>().is_none() {
+        world.insert_resource(ColliderFiles::default());
+    }
+    if world.get_resource::<Registry>().is_none() {
+        world.insert_resource(Registry::default());
+    }
+    let reg = world.resource_mut::<Registry>();
+    if reg.by_name.contains_key("Collider3D") {
+        return;
+    }
+    reg.by_name.insert("Collider3D".into(), reg.list.len());
+    reg.list.push(Reflected {
+        name: "Collider3D".into(),
+        type_name: std::any::type_name::<crate::Collider3D>().into(),
+        get: Arc::new(|w: &World, e| w.get::<crate::Collider3D>(e).and_then(|c| collider_json(w, c))),
+        set: Arc::new(|w: &mut World, e, v| {
+            let c = collider_from_json(w, v)?;
+            w.insert(e, c);
+            Ok(())
+        }),
+        spawn: Arc::new(|w: &mut World, v| {
+            let c = collider_from_json(w, v)?;
+            Ok(w.spawn((c,)))
+        }),
+        spawn_at: Arc::new(|w: &mut World, e, v| {
+            let c = collider_from_json(w, v)?;
+            Ok(w.spawn_at(e, (c,)))
+        }),
+        check: Arc::new(|v: &Value| {
+            let mut v = v.clone();
+            if collider_file(&v).is_some() {
+                v["shape"] = serde_json::json!({ "Mesh": crate::CollisionMesh::default() });
+            }
+            check::<crate::Collider3D>(&v)
+        }),
+        remove: Arc::new(remove::<crate::Collider3D>),
+    });
+}
+
 /// The asset names under `key` objects' `field` anywhere in `json` (a
 /// scene, a prefab, or an entity's components): the textures of `"Sprite"`s
 /// and meshes of `"Model"`s, for loading them first.

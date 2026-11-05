@@ -799,3 +799,92 @@ fn turning_a_character_is_not_a_teleport() {
     // It turned every tick and still walked: one second at 1 m/s.
     assert!((p.x - 1.0).abs() < 0.05, "{p}");
 }
+
+/// A scene file under `assets/` that is deleted when the test ends.
+struct TempScene(&'static str);
+impl Drop for TempScene {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("assets")
+                .join(self.0),
+        );
+    }
+}
+
+#[test]
+fn scenes_make_mesh_colliders_from_mesh_files_and_save_them_by_file() {
+    let file = TempScene("test-mesh-collider.json");
+    let saved = TempScene("test-mesh-collider-saved.json");
+    let collider = |convex: bool, x: f32| {
+        serde_json::json!({
+            "Transform3D": { "position": [x, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
+            "RigidBody3D": { "kind": "Fixed" },
+            "Collider3D": { "shape": { "Mesh": { "file": "models/house.glb", "scale": [1.0, 3.0, 1.0], "convex": convex } } },
+        })
+    };
+    let scene = serde_json::json!({
+        "format": "crabby-world",
+        "version": 1,
+        "entities": [
+            { "entity": 0, "components": collider(false, 0.0) },
+            { "entity": 1, "components": collider(true, 10.0) },
+            { "entity": 2, "components": collider(false, 20.0) },
+        ],
+        "resources": {},
+    });
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("assets")
+        .join(file.0);
+    std::fs::write(&path, serde_json::to_string(&scene).unwrap()).unwrap();
+    let (tops, meshes) = query_after(
+        1,
+        Vec3::ZERO,
+        |ctx| {
+            ctx.load_scene(file.0).unwrap();
+            ctx.save_scene(saved.0).unwrap();
+        },
+        |ctx| {
+            let top = |x: f32| {
+                ctx.physics3d
+                    .cast_ray(vec3(x, 50.0, 0.0), -Vec3::Y, 100.0, QueryFilter3D::default())
+                    .map(|hit| hit.point.y)
+            };
+            let tops = [top(0.0), top(10.0), top(20.0), top(30.0)];
+            let meshes: std::collections::HashSet<_> = ctx
+                .world
+                .query::<&Collider3D>()
+                .iter()
+                .map(|c| format!("{:?}", c.shape))
+                .collect();
+            (tops, meshes)
+        },
+    );
+    // The house's walls are 1.6 m and its roof 2.7 m high, made 3 times taller.
+    for top in &tops[..3] {
+        let y = top.expect("the ray hits the house");
+        assert!((4.7..=8.2).contains(&y), "{tops:?}");
+    }
+    assert_eq!(tops[3], None, "nothing beside the houses");
+    assert_eq!(
+        meshes.len(),
+        2,
+        "the triangle mesh is made once and shared, the hull is another: {meshes:?}"
+    );
+    let text = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("assets")
+            .join(saved.0),
+    )
+    .unwrap();
+    let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let shapes: Vec<_> = json["entities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["components"]["Collider3D"]["shape"].clone())
+        .collect();
+    for (shape, entity) in shapes.iter().zip(scene["entities"].as_array().unwrap()) {
+        assert_eq!(shape, &entity["components"]["Collider3D"]["shape"], "saved by its file");
+    }
+}

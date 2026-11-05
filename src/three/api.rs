@@ -398,6 +398,24 @@ impl Ctx {
         Ok(mesh)
     }
 
+    /// A glTF file's mesh on the CPU (all its parts in one), without
+    /// making anything on the GPU: for collision shapes.
+    #[cfg(feature = "physics3d")]
+    pub(crate) fn mesh_file_data(&self, path: &str) -> Result<MeshData, String> {
+        let file = assets::resolve(path)?;
+        let bytes = assets::read(&file).map_err(|e| format!("could not read {}: {e}", file.display()))?;
+        let loaded = gltf::load(
+            path,
+            &bytes,
+            &mut |name| {
+                let file = assets::resolve(name)?;
+                assets::read(&file).map_err(|e| format!("could not read {}: {e}", file.display()))
+            },
+            &|_| true,
+        )?;
+        Ok(loaded.data)
+    }
+
     /// A mesh whose index ranges each have their own material.
     fn mesh_from_parts(&mut self, data: &MeshData, parts: &[(Range<u32>, Material)]) -> Mesh {
         let id = self.assets3d.bounds.len() as u32;
