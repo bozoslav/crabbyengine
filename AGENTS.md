@@ -68,3 +68,22 @@ MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-ignore-leaks" cargo +nightly miri test --t
 - Guide examples come in Rust and C++, side by side: wrap the pair in `<div class="lang-pair">` (see `book/theme/lang-pair.css`), with the C++ snippet pulled from `examples/cpp/guide.cpp` (compiled and run by the native CI job). If C++ can't do it yet, the chapter says so.
 - New engine features get a C API (`crates/crabby_ffi`) and a C++ wrapper (`include/crabby.hpp`) in the same PR, written to match the Rust API, when they're part of writing games, unless that's much bigger than the feature; then say so in the PR.
 - Docs ship with the feature: a PR that adds or changes how games are written updates the guide in `book/src/` in the same PR (check with `mdbook build book`). Code that the guide shows from examples is pulled in with `{{#include}}` anchors, so it can't go stale.
+
+## Performance work
+
+Measure first, in release builds; the book's "Profiling a frame"
+(`book/src/performance.md`) has the details.
+- Benchmark a game at a fixed camera: `CRABBY_BENCH=600 CRABBY_BENCH_OUT=x.json
+  CRABBY_BENCH_MESHES=x.csv cargo run --release`. It prints fps and
+  percentiles, CPU vs GPU, GPU time per pass, triangles for the camera and
+  the shadows, the slowest systems and the heaviest meshes, then quits.
+  Frames are drawn offscreen, so the display's refresh rate doesn't cap them.
+- Hitches: `CRABBY_TRACE=trace.json` (a Perfetto trace of every system,
+  render, display wait and GPU pass); look for the slow frames in it.
+- A running game (`CRABBY_CONTROL=1`): the MCP tools `perf_report`,
+  `record_trace` and `perf_hud`.
+- CPU hot spots: `sample <pid> 5` on macOS, or `--features profiling` with
+  puffin_viewer.
+- Read the numbers before changing anything: a large display wait means the
+  GPU is the limit; then the pass list says which pass, and `render_stats`
+  whether it's triangles (camera or shadows) or pixels.

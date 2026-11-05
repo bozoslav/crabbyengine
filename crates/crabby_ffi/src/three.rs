@@ -2426,6 +2426,36 @@ pub unsafe extern "C" fn crabby_heightfield_at(
     })
 }
 
+/// Gives `entity` a different shadow than its model's (Rust `ShadowMesh`):
+/// `mesh` is drawn into the shadow maps instead, or with `casts` false, the
+/// entity casts none. An entity with a shadow mesh and no `CrabbyModel`
+/// casts only that shadow; on a terrain tile, `casts` false turns the
+/// ground's shadow off. Stale entities are an error.
+/// # Safety
+/// `ctx` null or live.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_shadow_mesh(std::ptr::null_mut(), 0, Default::default(), false) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_shadow_mesh(
+    ctx: *mut CrabbyCtx,
+    entity: u64,
+    mesh: CrabbyMesh,
+    casts: bool,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let entity = crabbyengine::Entity::from_bits(entity);
+            if !c.world.is_alive(entity) {
+                return Err(invalid("no such entity"));
+            }
+            c.world.insert(entity, crabbyengine::ShadowMesh(casts.then(|| to_c(mesh))));
+            Ok(())
+        })
+    })
+}
+
 /// Whether models showing `mesh` cast shadows (Rust
 /// `Ctx::set_mesh_shadows`): on for every mesh at first. Off suits small
 /// things crowding the ground, such as grass.

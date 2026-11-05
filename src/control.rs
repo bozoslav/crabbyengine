@@ -489,8 +489,84 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
         "screenshot",
         "save the next frame as a PNG (windowed games only); params: path? (default: a temp file), max_size? (scale down to fit, 0 = full size). Returns path, width, height",
     ),
+    (
+        "perf.get",
+        "frame timing over the last few seconds (fps; avg, p50, p95, p99, max ms; CPU split into systems, render and waiting on the display; GPU ms), GPU ms per pass, what was drawn (draw calls; 3D models and triangles for the camera and the shadows; render CPU split into collect, record, submit), the slowest systems; params: meshes? (list the n meshes drawing the most triangles, default 0)",
+    ),
+    (
+        "perf.trace",
+        "record the next frames as a Chrome/Perfetto trace (systems, render, display wait, GPU passes; windowed games only); params: path? (default: a temp file), frames? (120). Returns the path; it's written when the frames are done",
+    ),
+    ("perf.hud", "show or hide the on-screen performance overlay; params: on (bool)"),
     ("game.quit", "ask the game to exit"),
 ];
+
+/// `perf.get`: the profiler's numbers as JSON.
+fn perf_json(ctx: &Ctx, meshes: usize) -> Value {
+    if ctx.headless {
+        let slowest = slowest_systems(ctx);
+        return json!({ "headless": true, "systems": slowest });
+    }
+    let f = ctx.frame_stats();
+    let r = ctx.render_stats();
+    let passes: Vec<Value> = {
+        let mut p: Vec<_> = ctx.gpu_passes().to_vec();
+        p.sort_by(|a, b| b.ms.total_cmp(&a.ms));
+        p.iter().map(|p| json!({ "name": p.name, "ms": p.ms })).collect()
+    };
+    #[allow(unused_mut)]
+    let mut out = json!({
+        "frames": f.frames,
+        "fps": f.fps,
+        "frame_ms": { "avg": f.avg_ms, "p50": f.p50_ms, "p95": f.p95_ms, "p99": f.p99_ms, "max": f.max_ms },
+        "cpu_ms": { "systems": f.systems_ms, "render": f.render_cpu_ms, "display_wait": f.display_wait_ms },
+        "gpu_ms": f.gpu_ms,
+        "gpu_passes": passes,
+        "render": {
+            "draw_calls": r.draw_calls,
+            "sprites": r.sprites,
+            "collect_ms": r.collect_ms,
+            "record_ms": r.record_ms,
+            "submit_ms": r.submit_ms,
+            "models": r.instances,
+            "triangles": r.triangles,
+            "shadow_models": r.shadow_instances,
+            "shadow_triangles": r.shadow_triangles,
+        },
+        "systems": slowest_systems(ctx),
+        "hint": "frame time is about max(CPU, GPU): when display_wait is large the GPU (or vsync) is the limit; gpu_passes says which pass",
+    });
+    #[cfg(feature = "3d")]
+    if meshes > 0 {
+        out["meshes"] = ctx
+            .mesh_costs()
+            .iter()
+            .take(meshes)
+            .map(|c| {
+                json!({
+                    "name": c.name,
+                    "models": c.models,
+                    "triangles": c.triangles,
+                    "shadow_models": c.shadow_models,
+                    "shadow_triangles": c.shadow_triangles,
+                })
+            })
+            .collect();
+    }
+    #[cfg(not(feature = "3d"))]
+    let _ = meshes;
+    out
+}
+
+/// The 10 systems with the most average time.
+fn slowest_systems(ctx: &Ctx) -> Value {
+    let mut t: Vec<_> = ctx.system_timings().iter().filter(|t| t.sim || !ctx.headless).collect();
+    t.sort_by(|a, b| b.avg_ms.total_cmp(&a.avg_ms));
+    t.iter()
+        .take(10)
+        .map(|t| json!({ "name": t.name, "avg_ms": t.avg_ms }))
+        .collect()
+}
 
 fn param<'a>(params: &'a Value, name: &str) -> Result<&'a Value, String> {
     params.get(name).ok_or_else(|| format!("missing param `{name}`"))
@@ -734,6 +810,24 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
                 .map(|t| json!({ "name": t.name, "sim": t.sim, "last_ms": t.last_ms, "avg_ms": t.avg_ms }))
                 .collect(),
         ),
+        "perf.get" => perf_json(ctx, usize_param(params, "meshes", 0)?),
+        "perf.trace" => {
+            if ctx.headless {
+                return Err("headless games have no frames to trace".into());
+            }
+            let frames = usize_param(params, "frames", 120)?.clamp(1, 10_000);
+            let path = match params.get("path").and_then(Value::as_str) {
+                Some(p) => PathBuf::from(p),
+                None => std::env::temp_dir().join(format!("crabby-trace-{}-{}.json", std::process::id(), ctx.frame())),
+            };
+            ctx.record_trace(path.clone(), frames);
+            json!({ "path": path, "frames": frames, "written_after_frame": ctx.frame() + frames as u64 })
+        }
+        "perf.hud" => {
+            let on = param(params, "on")?.as_bool().ok_or("`on` must be true or false")?;
+            ctx.set_perf_hud(on);
+            json!(on)
+        }
         "game.quit" => {
             ctx.quit();
             json!(true)
@@ -890,6 +984,39 @@ mod tests {
         handle(&mut ctx, "sim.speed", &json!({ "speed": 4.0 })).unwrap();
         assert_eq!(ctx.sim_speed(), 4.0);
         assert!(handle(&mut ctx, "sim.speed", &json!({ "speed": -1.0 })).is_err());
+    }
+
+    #[test]
+    fn perf_reports_put_the_slowest_systems_first() {
+        let mut ctx = ctx();
+        ctx.timings = ["fast", "slow", "middle"]
+            .iter()
+            .zip([0.1, 3.0, 1.0])
+            .map(|(&name, avg_ms)| crate::SystemTiming {
+                name,
+                sim: false,
+                last_ms: avg_ms,
+                avg_ms,
+            })
+            .collect();
+        let perf = handle(&mut ctx, "perf.get", &json!({})).unwrap();
+        let names: Vec<_> = perf["systems"].as_array().unwrap().iter().map(|s| s["name"].clone()).collect();
+        assert_eq!(names, [json!("slow"), json!("middle"), json!("fast")]);
+        for key in ["fps", "frame_ms", "cpu_ms", "gpu_passes", "render"] {
+            assert!(perf.get(key).is_some(), "{key} missing from {perf}");
+        }
+        assert!(handle(&mut ctx, "perf.hud", &json!({ "on": true })).unwrap() == json!(true));
+        assert!(ctx.perf_hud());
+        assert!(handle(&mut ctx, "perf.hud", &json!({})).is_err(), "`on` is required");
+    }
+
+    #[test]
+    fn headless_games_cant_trace_frames() {
+        let mut ctx = ctx();
+        ctx.headless = true;
+        let err = handle(&mut ctx, "perf.trace", &json!({})).unwrap_err();
+        assert!(err.contains("headless"), "{err}");
+        assert_eq!(handle(&mut ctx, "perf.get", &json!({})).unwrap()["headless"], true);
     }
 
     #[test]
