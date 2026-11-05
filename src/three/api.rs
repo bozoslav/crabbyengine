@@ -557,10 +557,23 @@ impl Ctx {
         Ok(mesh)
     }
 
-    /// A glTF file's mesh on the CPU (all its parts in one), without
-    /// making anything on the GPU: for collision shapes.
-    #[cfg(feature = "physics3d")]
-    pub(crate) fn mesh_file_data(&self, path: &str) -> Result<MeshData, String> {
+    /// A glTF file's mesh on the CPU (all its parts in one, placed as in
+    /// the file), without making anything on the GPU: to cut
+    /// [decals](MeshData::decal) from, build collision shapes, or read its
+    /// corners. Loads the file each call; keep the result.
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) -> Result<(), String> {
+    /// let wall = ctx.load_mesh_data("models/wall.glb")?;
+    /// let hole = wall.decal(Mat4::from_scale(Vec3::splat(0.1)), 0.002);
+    /// # Ok(()) }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// If the file is missing or isn't a glTF file with triangles.
+    pub fn load_mesh_data(&self, path: &str) -> Result<MeshData, String> {
         let file = assets::resolve(path)?;
         let bytes = assets::read(&file).map_err(|e| format!("could not read {}: {e}", file.display()))?;
         let loaded = gltf::load(

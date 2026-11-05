@@ -26,6 +26,7 @@ pub use particles::{
     ParticleBlend3D, ParticleCurve, ParticleEmitter3D, ParticleGradient, ParticleSettings3D, ParticleShape3D,
     ParticleSpace3D,
 };
+mod decal;
 mod post;
 mod skin;
 pub(crate) mod strips;

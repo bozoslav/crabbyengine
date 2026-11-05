@@ -17,21 +17,18 @@ use crate::{Color, Texture};
 /// streaks behind cars or projectiles. It faces the camera, is widest where
 /// `width` says (over age, 0 at the entity, 1 at the end) and fades by
 /// `color`. Points are recorded in the world, so the ribbon stays where the
-/// entity went.
+/// entity went. Like particles, trails are only for show: headless runs
+/// don't record them.
 ///
 /// ```
 /// # use crabbyengine::*;
-/// fn fly(ctx: &mut Ctx) {
-///     ctx.world
-///         .query::<(&mut Transform3D, &Trail3D)>()
-///         .for_each(|(t, _)| t.position.z -= 1.0);
-/// }
-/// let mut world = Game::new("t", 64, 64).system(fly).run_headless(10, |ctx| {
-///     // A tracer: a thin ribbon a quarter second long.
-///     ctx.world.spawn((Transform3D::default(), Trail3D::new(0.25, 0.05)));
+/// Game::new("t", 64, 64).run_headless(0, |ctx| {
+///     // A tracer: a thin, glowing ribbon a quarter second long.
+///     let mut tracer = Trail3D::new(0.25, 0.05);
+///     tracer.blend = ParticleBlend3D::Additive;
+///     tracer.color = ParticleGradient::new(vec![(0.0, Color::rgb(1.0, 0.8, 0.3)), (1.0, Color::rgba(1.0, 0.3, 0.0, 0.0))]);
+///     ctx.world.spawn((Transform3D::default(), tracer));
 /// });
-/// let trail = world.query::<&Trail3D>().iter().next().unwrap().point_count();
-/// assert!(trail > 1);
 /// ```
 #[derive(Debug, Clone)]
 pub struct Trail3D {
