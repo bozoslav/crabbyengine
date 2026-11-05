@@ -1,8 +1,14 @@
-//! Plain Unity AnimationClip transform curves.
+//! Unity AnimationClip transform and blend-shape curves: the editor's
+//! plain curves, or the runtime data Unity bakes into a clip.
+use crate::baked::{self, SKey};
 use crate::{Error, MeshSkin, SkinAnimation, UnityFile, Value};
-use glam::{Mat4, Quat, Vec3};
+use glam::{EulerRot, Mat4, Quat};
+use std::collections::HashMap;
 
-/// A plain-curve Unity `.anim` clip. Compressed and binary clips are unsupported.
+/// A Unity `.anim` clip (text or binary serialized) with transform and
+/// blend-shape curves. Editor curves are used when present; a clip with only
+/// baked runtime data (streamed, dense, constant or compressed curves) is
+/// decoded from that. Humanoid-only clips are rejected.
 #[derive(Debug, Clone)]
 pub struct AnimationClip {
     name: String,
@@ -12,13 +18,29 @@ pub struct AnimationClip {
     looping: bool,
     curves: Vec<Curve>,
     skipped: Vec<String>,
-    morphs: Vec<(String, Curve)>,
+    morphs: Vec<Morph>,
+}
+/// What a curve targets: a transform path by name, or by Unity's CRC-32.
+#[derive(Debug, Clone, PartialEq)]
+enum PathRef {
+    Name(String),
+    Hash(u32),
 }
 #[derive(Debug, Clone)]
 struct Curve {
-    path: String,
+    path: PathRef,
     kind: usize,
+    /// Which of the four components the clip animates; the rest keep the
+    /// rest pose.
+    mask: [bool; 4],
     keys: Vec<Key>,
+}
+/// A blend-shape weight curve, named, or only by the hash of its property.
+#[derive(Debug, Clone)]
+struct Morph {
+    name: String,
+    hash: Option<u32>,
+    curve: Curve,
 }
 #[derive(Debug, Clone)]
 struct Key {
@@ -37,120 +59,157 @@ fn number(v: &Value) -> f32 {
 fn vector(v: &Value) -> [f32; 4] {
     ["x", "y", "z", "w"].map(|k| number(&v[k]))
 }
+const HUMANOID_ONLY: &str = "animation clip holds only humanoid muscle curves; humanoid retargeting is not supported";
+
 impl AnimationClip {
-    /// Parses text YAML; weighted tangents are approximated as unweighted Hermite.
+    /// Parses a text YAML `.anim`; weighted tangents are approximated as
+    /// unweighted Hermite.
+    ///
+    /// Editor curves (`m_PositionCurves`, `m_EditorCurves`, ...) are used when
+    /// the clip has any, and the baked runtime data next to them is ignored.
+    /// Without editor curves the baked streamed, dense and constant curves
+    /// (and compressed rotation curves) are decoded.
     ///
     /// ```
     /// let clip = crabby_unity::AnimationClip::parse("--- !u!74 &1\nAnimationClip:\n  m_Name: Idle\n  m_SampleRate: 30\n").unwrap();
     /// ```
     /// # Errors
-    /// Returns an error for binary/compressed clips, malformed YAML or invalid timing.
+    /// Returns an error for binary text, malformed YAML or data, invalid timing,
+    /// or a clip that holds only humanoid muscle curves.
     pub fn parse(text: &str) -> Result<Self, Error> {
         if !text.trim_start().starts_with(['%', '-']) || text.contains('\0') {
             return Err(Error::new(
-                "animation clip is compressed or binary; plain YAML curves required",
+                "animation clip is not Unity text YAML; binary clips go through parse_binary or read",
             ));
         }
-        let file = UnityFile::parse(text)?;
+        Self::from_file(&UnityFile::parse(text)?)
+    }
+
+    /// Parses a binary serialized `.anim` (Unity 2022 or later, saved by the
+    /// editor with type trees) into the same fields as the text format.
+    ///
+    /// ```
+    /// assert!(crabby_unity::AnimationClip::parse_binary(b"not a Unity file").is_err());
+    /// ```
+    /// # Errors
+    /// As [`AnimationClip::parse`], and for data that is not a binary serialized file.
+    pub fn parse_binary(data: &[u8]) -> Result<Self, Error> {
+        Self::from_file(&UnityFile::parse_binary(data)?)
+    }
+
+    fn from_file(file: &UnityFile) -> Result<Self, Error> {
         let m = &file
             .of_class(74)
             .next()
             .ok_or_else(|| Error::new("expected AnimationClip"))?
             .body;
-        if number(&m["m_Compressed"]) != 0.0
-            || has_data(&m["m_StreamedClip"])
-            || has_data(&m["m_DenseClip"])
-            || has_data(&m["m_MuscleClip"]["m_Clip"]["m_StreamedClip"]["data"])
-            || has_data(&m["m_MuscleClip"]["m_Clip"]["m_DenseClip"]["m_SampleArray"])
-            || has_data(&m["m_CompressedRotationCurves"])
-        {
-            return Err(Error::new("animation clip is compressed; plain YAML curves required"));
-        }
         let mut curves = Vec::new();
+        let mut morphs: Vec<Morph> = Vec::new();
         let mut skipped = Vec::new();
-        for field in ["m_PPtrCurves", "m_ClipBindingConstant"] {
-            if has_data(&m[field]) {
-                skipped.push(format!("skipped {field}"));
-            }
+        if has_data(&m["m_PPtrCurves"]) {
+            skipped.push("skipped m_PPtrCurves".into());
         }
         for (kind, field) in ["m_PositionCurves", "m_RotationCurves", "m_ScaleCurves", "m_EulerCurves"]
             .iter()
             .enumerate()
         {
             for entry in m[*field].as_seq().unwrap_or_default() {
-                let mut keys = Vec::new();
-                for k in entry["curve"]["m_Curve"].as_seq().unwrap_or_default() {
-                    if number(&k["weightedMode"]) != 0.0 {
-                        skipped.push("weighted tangents approximated as unweighted Hermite".into());
-                    }
-                    let key = Key {
-                        time: number(&k["time"]),
-                        value: vector(&k["value"]),
-                        incoming: vector(&k["inSlope"]),
-                        outgoing: vector(&k["outSlope"]),
-                    };
-                    if !key.time.is_finite() || key.value.iter().any(|v| !v.is_finite()) {
-                        return Err(Error::new("non-finite animation key"));
-                    }
-                    keys.push(key);
-                }
-                keys.sort_by(|a, b| a.time.total_cmp(&b.time));
-                if keys.windows(2).any(|w| w[0].time == w[1].time) {
-                    return Err(Error::new("duplicate animation key time"));
-                }
+                let keys = vector_keys(&entry["curve"], &mut skipped)?;
                 if !keys.is_empty() {
                     curves.push(Curve {
-                        path: entry["path"].as_str().unwrap_or("").into(),
+                        path: PathRef::Name(entry["path"].as_str().unwrap_or("").into()),
                         kind,
+                        mask: [true, true, true, kind == 1],
                         keys,
                     });
                 }
             }
         }
-        let mut morphs = Vec::new();
+        for entry in m["m_CompressedRotationCurves"].as_seq().unwrap_or_default() {
+            let keys: Vec<Key> = baked::compressed_rotation(entry)?
+                .into_iter()
+                .map(|k| Key {
+                    time: k.time,
+                    value: k.value,
+                    incoming: k.incoming,
+                    outgoing: k.outgoing,
+                })
+                .collect();
+            if keys.iter().any(|k| k.value.iter().any(|v| !v.is_finite())) {
+                return Err(Error::new("non-finite animation key"));
+            }
+            if !keys.is_empty() {
+                curves.push(Curve {
+                    path: PathRef::Name(entry["m_Path"].as_str().unwrap_or("").into()),
+                    kind: 1,
+                    mask: [true; 4],
+                    keys,
+                });
+            }
+        }
         for entry in m["m_FloatCurves"].as_seq().unwrap_or_default() {
-            let name = entry["attribute"].as_str().unwrap_or("").strip_prefix("blendShape.");
-            if let Some(name) = name.filter(|_| entry["classID"].as_i64() == Some(137)) {
-                let mut keys = Vec::new();
-                for k in entry["curve"]["m_Curve"].as_seq().unwrap_or_default() {
-                    let time = number(&k["time"]);
-                    let value = number(&k["value"]) / 100.;
-                    let incoming = number(&k["inSlope"]) / 100.;
-                    let outgoing = number(&k["outSlope"]) / 100.;
-                    if !time.is_finite() || !value.is_finite() || incoming.is_nan() || outgoing.is_nan() {
-                        return Err(Error::new("non-finite morph key"));
-                    }
-                    keys.push(Key {
-                        time,
-                        value: [value; 4],
-                        incoming: [incoming; 4],
-                        outgoing: [outgoing; 4],
-                    });
-                }
-                keys.sort_by(|a, b| a.time.total_cmp(&b.time));
-                if keys.windows(2).any(|w| w[0].time == w[1].time) {
-                    return Err(Error::new("duplicate morph key time"));
-                }
-                if !keys.is_empty() {
-                    morphs.push((
-                        name.into(),
-                        Curve {
-                            path: entry["path"].as_str().unwrap_or("").into(),
-                            kind: 0,
-                            keys,
-                        },
-                    ));
-                }
-            } else {
+            if !blend_shape_curve(entry, &mut morphs, &mut skipped)? {
                 skipped.push("skipped m_FloatCurves property".into());
             }
         }
-        let settings = &m["m_AnimationClipSettings"];
+        // The editor's own per-property curves: `m_LocalPosition.x`, ...
+        let mut groups: Vec<Group> = Vec::new();
+        for field in ["m_EditorCurves", "m_EulerEditorCurves"] {
+            for entry in m[field].as_seq().unwrap_or_default() {
+                if blend_shape_curve(entry, &mut morphs, &mut skipped)? {
+                    continue;
+                }
+                let attribute = entry["attribute"].as_str().unwrap_or("");
+                let Some((kind, part)) = transform_property(entry["classID"].as_i64(), attribute) else {
+                    skipped.push(format!("skipped {field} property"));
+                    continue;
+                };
+                let keys = scalar_keys(&entry["curve"], &mut skipped)?;
+                let path = entry["path"].as_str().unwrap_or("");
+                let at = groups.iter().position(|g| g.path == path && g.kind == kind);
+                let group = match at {
+                    Some(i) => &mut groups[i],
+                    None => {
+                        groups.push(Group {
+                            path: path.into(),
+                            kind,
+                            parts: Default::default(),
+                        });
+                        groups.last_mut().expect("just pushed")
+                    }
+                };
+                group.parts[part] = keys;
+            }
+        }
+        for g in groups {
+            // The plain transform curves win over the editor's for the same target.
+            let named = PathRef::Name(g.path);
+            if curves.iter().any(|c| c.path == named && c.kind == g.kind) {
+                continue;
+            }
+            if let Some((mask, keys)) = combine(&g.parts) {
+                curves.push(Curve {
+                    path: named,
+                    kind: g.kind,
+                    mask,
+                    keys,
+                });
+            }
+        }
+        // Only a clip without any curve of its own falls back to the baked
+        // runtime data; with them, Unity's baked copy is redundant.
+        if curves.is_empty() && morphs.is_empty() {
+            baked_curves(m, &mut curves, &mut morphs, &mut skipped)?;
+        }
+        let settings = [&m["m_AnimationClipSettings"], &m["m_MuscleClip"]]
+            .into_iter()
+            .find(|s| !s["m_StopTime"].is_null())
+            .unwrap_or(&m["m_AnimationClipSettings"]);
         let start = number(&settings["m_StartTime"]);
         let stop = settings["m_StopTime"].as_f32().unwrap_or_else(|| {
             curves
                 .iter()
-                .chain(morphs.iter().map(|(_, c)| c))
+                .chain(morphs.iter().map(|m| &m.curve))
                 .flat_map(|c| c.keys.iter().map(|k| k.time))
                 .fold(start, f32::max)
         });
@@ -176,23 +235,54 @@ impl AnimationClip {
         })
     }
 
-    /// Reads a plain YAML `.anim` asset.
+    /// Reads a `.anim` asset, text or binary serialized.
     ///
     /// ```no_run
     /// let clip = crabby_unity::AnimationClip::read("Assets/Walk.anim")?;
     /// # Ok::<(), crabby_unity::Error>(())
     /// ```
     /// # Errors
-    /// Reports file errors and unsupported compressed/binary clips.
+    /// Reports file errors and what [`AnimationClip::parse`] does.
     pub fn read(path: impl AsRef<std::path::Path>) -> Result<Self, Error> {
         let bytes = std::fs::read(path.as_ref()).map_err(|e| Error::new(e.to_string()))?;
+        if crate::binary::is_binary(&bytes) {
+            return Self::parse_binary(&bytes);
+        }
         let text = std::str::from_utf8(&bytes)
-            .map_err(|_| Error::new("animation clip is compressed or binary; plain YAML curves required"))?;
+            .map_err(|_| Error::new("animation clip is neither Unity text YAML nor a binary serialized file"))?;
         Self::parse(text)
     }
 
+    /// Names the clip's blend-shape curves that Unity's runtime data only
+    /// identifies by hash, using the mesh's blend-shape names. Curves whose
+    /// hash matches none of the names stay unresolved and are reported by
+    /// `append_to_skin`.
+    ///
+    /// ```
+    /// # use crabby_unity::AnimationClip;
+    /// let clip = AnimationClip::parse("--- !u!74 &1\nAnimationClip: {}\n").unwrap();
+    /// let named = clip.with_blend_shape_names(["Smile", "Blink"]);
+    /// ```
+    #[must_use]
+    pub fn with_blend_shape_names<'a>(&self, names: impl IntoIterator<Item = &'a str>) -> Self {
+        let hashes: Vec<(u32, &str)> = names
+            .into_iter()
+            .map(|n| (baked::crc32(&format!("blendShape.{n}")), n))
+            .collect();
+        let mut clip = self.clone();
+        for morph in &mut clip.morphs {
+            if let (true, Some(hash)) = (morph.name.is_empty(), morph.hash)
+                && let Some((_, name)) = hashes.iter().find(|(h, _)| *h == hash)
+            {
+                morph.name = (*name).into();
+            }
+        }
+        clip
+    }
+
     /// Appends sampled local poses in Unity space, returning skipped/unresolved diagnostics.
-    /// `root` is the node animated by an empty path. Other paths walk child names.
+    /// `root` is the node animated by an empty path. Other paths walk child names
+    /// (or match the CRC-32 of the path, for runtime data).
     /// Export through `Importer::animation_clips` to apply the normal Z mirror.
     ///
     /// ```
@@ -211,43 +301,33 @@ impl AnimationClip {
         times.extend(
             self.curves
                 .iter()
+                .chain(self.morphs.iter().map(|m| &m.curve))
                 .flat_map(|c| c.keys.iter())
-                .filter(|k| k.time >= self.start && k.time <= self.stop)
-                .map(|k| k.time - self.start),
-        );
-        times.extend(
-            self.morphs
-                .iter()
-                .flat_map(|(_, c)| c.keys.iter())
                 .filter(|k| k.time >= self.start && k.time <= self.stop)
                 .map(|k| k.time - self.start),
         );
         times.sort_by(f32::total_cmp);
         times.dedup();
+        let by_hash = self.path_hashes(skin, root);
         let mut morphs = Vec::new();
-        for (name, c) in &self.morphs {
-            let mut node = (root < skin.nodes.len()).then_some(root);
-            for part in c.path.split('/').filter(|s| !s.is_empty()) {
-                node = node.and_then(|parent| {
-                    let mut found = skin
-                        .nodes
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, n)| n.parent == Some(parent) && n.name == part);
-                    let first = found.next().map(|(i, _)| i);
-                    if found.next().is_some() { None } else { first }
-                });
-            }
-            if node.is_some() {
+        for m in &self.morphs {
+            let c = &m.curve;
+            if m.name.is_empty() {
+                diagnostics.push(format!(
+                    "{}: unresolved blend shape hash {:#010x}",
+                    self.name,
+                    m.hash.unwrap_or(0)
+                ));
+            } else if resolve(skin, root, &c.path, &by_hash).is_some() {
                 morphs.push((
-                    name.clone(),
+                    m.name.clone(),
                     times.iter().map(|t| c.sample(*t + self.start)[0]).collect(),
                     c.keys
                         .windows(2)
                         .all(|w| w[0].outgoing[0].is_infinite() || w[1].incoming[0].is_infinite()),
                 ));
             } else {
-                diagnostics.push(format!("{}: unresolved morph path {:?}", self.name, c.path));
+                diagnostics.push(format!("{}: unresolved morph path {}", self.name, c.path.describe()));
             }
         }
         let mut animation = SkinAnimation {
@@ -260,22 +340,14 @@ impl AnimationClip {
         };
         let mut resolved = Vec::new();
         for curve in &self.curves {
-            let mut node = (root < skin.nodes.len()).then_some(root);
-            for part in curve.path.split('/').filter(|s| !s.is_empty()) {
-                node = node.and_then(|parent| {
-                    let mut matches = skin
-                        .nodes
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, n)| n.parent == Some(parent) && n.name == part);
-                    let first = matches.next().map(|(i, _)| i);
-                    if matches.next().is_some() { None } else { first }
-                });
-            }
-            if let Some(node) = node {
+            if let Some(node) = resolve(skin, root, &curve.path, &by_hash) {
                 resolved.push((node, curve));
             } else {
-                diagnostics.push(format!("{}: unresolved transform path {:?}", self.name, curve.path));
+                diagnostics.push(format!(
+                    "{}: unresolved transform path {}",
+                    self.name,
+                    curve.path.describe()
+                ));
             }
         }
         for (node, rest) in skin.nodes.iter().enumerate() {
@@ -286,28 +358,49 @@ impl AnimationClip {
             for c in &tracks {
                 animation.step[node][if c.kind == 3 { 1 } else { c.kind }] = c.keys.windows(2).all(|w| {
                     (0..if c.kind == 1 { 4 } else { 3 })
+                        .filter(|i| c.mask[*i])
                         .all(|i| w[0].outgoing[i].is_infinite() || w[1].incoming[i].is_infinite())
                 });
             }
+            let (rest_scale, rest_rotation, rest_position) =
+                Mat4::from_cols_array(&rest.matrix).to_scale_rotation_translation();
+            let (ey, ex, ez) = rest_rotation.to_euler(EulerRot::YXZ);
+            let rest_euler = [ex.to_degrees(), ey.to_degrees(), ez.to_degrees()];
             for &time in &animation.times {
-                let (mut s, mut r, mut t) = Mat4::from_cols_array(&rest.matrix).to_scale_rotation_translation();
+                let (mut s, mut r, mut t) = (rest_scale, rest_rotation, rest_position);
                 for c in &tracks {
                     let v = c.sample(time + self.start);
                     match c.kind {
-                        0 => t = Vec3::from_array([v[0], v[1], v[2]]),
+                        0 => {
+                            for i in (0..3).filter(|i| c.mask[*i]) {
+                                t[i] = v[i];
+                            }
+                        }
                         1 => {
-                            let q = Quat::from_array(v);
+                            let mut q = rest_rotation.to_array();
+                            for i in (0..4).filter(|i| c.mask[*i]) {
+                                q[i] = v[i];
+                            }
+                            let q = Quat::from_array(q);
                             r = if q.length_squared() > 0.0 {
                                 q.normalize()
                             } else {
                                 Quat::IDENTITY
                             };
                         }
-                        2 => s = Vec3::from_array([v[0], v[1], v[2]]),
+                        2 => {
+                            for i in (0..3).filter(|i| c.mask[*i]) {
+                                s[i] = v[i];
+                            }
+                        }
                         _ => {
-                            r = Quat::from_rotation_y(v[1].to_radians())
-                                * Quat::from_rotation_x(v[0].to_radians())
-                                * Quat::from_rotation_z(v[2].to_radians())
+                            let mut e = rest_euler;
+                            for i in (0..3).filter(|i| c.mask[*i]) {
+                                e[i] = v[i];
+                            }
+                            r = Quat::from_rotation_y(e[1].to_radians())
+                                * Quat::from_rotation_x(e[0].to_radians())
+                                * Quat::from_rotation_z(e[2].to_radians())
                         }
                     }
                 }
@@ -321,6 +414,317 @@ impl AnimationClip {
         diagnostics.dedup();
         diagnostics
     }
+
+    /// Nodes under `root` by the CRC-32 of their slash-separated path, when
+    /// some curve is addressed that way.
+    fn path_hashes(&self, skin: &MeshSkin, root: usize) -> HashMap<u32, Vec<usize>> {
+        let hashed = |c: &Curve| matches!(c.path, PathRef::Hash(_));
+        let mut map: HashMap<u32, Vec<usize>> = HashMap::new();
+        if root >= skin.nodes.len() || !(self.curves.iter().any(hashed) || self.morphs.iter().any(|m| hashed(&m.curve)))
+        {
+            return map;
+        }
+        for node in 0..skin.nodes.len() {
+            let mut names = Vec::new();
+            let mut at = node;
+            let mut under_root = true;
+            while at != root {
+                names.push(skin.nodes[at].name.as_str());
+                match skin.nodes[at].parent {
+                    Some(p) if names.len() <= skin.nodes.len() => at = p,
+                    _ => {
+                        under_root = false;
+                        break;
+                    }
+                }
+            }
+            if under_root {
+                names.reverse();
+                map.entry(baked::crc32(&names.join("/"))).or_default().push(node);
+            }
+        }
+        map
+    }
+}
+impl PathRef {
+    fn describe(&self) -> String {
+        match self {
+            PathRef::Name(n) => format!("{n:?}"),
+            PathRef::Hash(h) => format!("hash {h:#010x}"),
+        }
+    }
+}
+/// The one node a path leads to from `root`, if it's unambiguous.
+fn resolve(skin: &MeshSkin, root: usize, path: &PathRef, by_hash: &HashMap<u32, Vec<usize>>) -> Option<usize> {
+    match path {
+        PathRef::Hash(h) => match by_hash.get(h).map(Vec::as_slice) {
+            Some([only]) => Some(*only),
+            _ => None,
+        },
+        PathRef::Name(path) => {
+            let mut node = (root < skin.nodes.len()).then_some(root);
+            for part in path.split('/').filter(|s| !s.is_empty()) {
+                node = node.and_then(|parent| {
+                    let mut found = skin
+                        .nodes
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, n)| n.parent == Some(parent) && n.name == part);
+                    let first = found.next().map(|(i, _)| i);
+                    if found.next().is_some() { None } else { first }
+                });
+            }
+            node
+        }
+    }
+}
+
+/// Keys of an `AnimationCurve` of vectors or quaternions.
+fn vector_keys(curve: &Value, skipped: &mut Vec<String>) -> Result<Vec<Key>, Error> {
+    let mut keys = Vec::new();
+    for k in curve["m_Curve"].as_seq().unwrap_or_default() {
+        if number(&k["weightedMode"]) != 0.0 {
+            skipped.push("weighted tangents approximated as unweighted Hermite".into());
+        }
+        let key = Key {
+            time: number(&k["time"]),
+            value: vector(&k["value"]),
+            incoming: vector(&k["inSlope"]),
+            outgoing: vector(&k["outSlope"]),
+        };
+        if !key.time.is_finite() || key.value.iter().any(|v| !v.is_finite()) {
+            return Err(Error::new("non-finite animation key"));
+        }
+        keys.push(key);
+    }
+    keys.sort_by(|a, b| a.time.total_cmp(&b.time));
+    if keys.windows(2).any(|w| w[0].time == w[1].time) {
+        return Err(Error::new("duplicate animation key time"));
+    }
+    Ok(keys)
+}
+/// Keys of an `AnimationCurve` of floats.
+fn scalar_keys(curve: &Value, skipped: &mut Vec<String>) -> Result<Vec<SKey>, Error> {
+    let mut keys = Vec::new();
+    for k in curve["m_Curve"].as_seq().unwrap_or_default() {
+        if number(&k["weightedMode"]) != 0.0 {
+            skipped.push("weighted tangents approximated as unweighted Hermite".into());
+        }
+        let key = SKey {
+            time: number(&k["time"]),
+            value: number(&k["value"]),
+            incoming: number(&k["inSlope"]),
+            outgoing: number(&k["outSlope"]),
+        };
+        if !key.time.is_finite() || !key.value.is_finite() || key.incoming.is_nan() || key.outgoing.is_nan() {
+            return Err(Error::new("non-finite animation key"));
+        }
+        keys.push(key);
+    }
+    keys.sort_by(|a, b| a.time.total_cmp(&b.time));
+    if keys.windows(2).any(|w| w[0].time == w[1].time) {
+        return Err(Error::new("duplicate animation key time"));
+    }
+    Ok(keys)
+}
+/// Takes a `blendShape.<name>` float curve into `morphs` (weights are
+/// percentages in Unity). Returns whether the entry was one.
+fn blend_shape_curve(entry: &Value, morphs: &mut Vec<Morph>, skipped: &mut Vec<String>) -> Result<bool, Error> {
+    let Some(name) = entry["attribute"]
+        .as_str()
+        .and_then(|a| a.strip_prefix("blendShape."))
+        .filter(|_| entry["classID"].as_i64() == Some(137))
+    else {
+        return Ok(false);
+    };
+    let path = entry["path"].as_str().unwrap_or("");
+    let keys = scalar_keys(&entry["curve"], skipped)?;
+    // The same curve can be listed as an editor curve and a float curve.
+    if !keys.is_empty()
+        && !morphs
+            .iter()
+            .any(|m| m.name == name && m.curve.path == PathRef::Name(path.into()))
+    {
+        morphs.push(Morph {
+            name: name.into(),
+            hash: None,
+            curve: percent_curve(PathRef::Name(path.into()), &keys),
+        });
+    }
+    Ok(true)
+}
+fn percent_curve(path: PathRef, keys: &[SKey]) -> Curve {
+    Curve {
+        path,
+        kind: 0,
+        mask: [true, false, false, false],
+        keys: keys
+            .iter()
+            .map(|k| Key {
+                time: k.time,
+                value: [k.value / 100.; 4],
+                incoming: [k.incoming / 100.; 4],
+                outgoing: [k.outgoing / 100.; 4],
+            })
+            .collect(),
+    }
+}
+/// The curve kind (0 position, 1 rotation, 2 scale, 3 Euler) and component
+/// an editor curve's property animates.
+fn transform_property(class_id: Option<i64>, attribute: &str) -> Option<(usize, usize)> {
+    if class_id != Some(4) {
+        return None;
+    }
+    let (base, part) = attribute.rsplit_once('.')?;
+    let part = ["x", "y", "z", "w"].iter().position(|p| *p == part)?;
+    let kind = match base {
+        "m_LocalPosition" => 0,
+        "m_LocalRotation" => 1,
+        "m_LocalScale" => 2,
+        "m_LocalEulerAngles" | "localEulerAnglesRaw" | "localEulerAngles" | "localEulerAnglesBaked" => 3,
+        _ => return None,
+    };
+    (part < 3 || kind == 1).then_some((kind, part))
+}
+/// The editor's per-component curves of one transform property.
+struct Group {
+    path: String,
+    kind: usize,
+    parts: [Vec<SKey>; 4],
+}
+
+/// A float curve's value and tangent at a time that carries no key of its
+/// own; a step segment gives an infinite tangent.
+fn scalar_at(keys: &[SKey], time: f32) -> (f32, f32) {
+    let right = keys.partition_point(|k| k.time <= time);
+    if right == 0 {
+        return (keys[0].value, 0.0);
+    }
+    let a = &keys[right - 1];
+    let Some(b) = keys.get(right) else {
+        return (a.value, 0.0);
+    };
+    if a.outgoing.is_infinite() || b.incoming.is_infinite() {
+        return (a.value, f32::INFINITY);
+    }
+    let dt = b.time - a.time;
+    let u = (time - a.time) / dt;
+    let value = (2.0 * u.powi(3) - 3.0 * u * u + 1.0) * a.value
+        + (u.powi(3) - 2.0 * u * u + u) * dt * a.outgoing
+        + (-2.0 * u.powi(3) + 3.0 * u * u) * b.value
+        + (u.powi(3) - u * u) * dt * b.incoming;
+    let slope = ((6.0 * u * u - 6.0 * u) * a.value
+        + (3.0 * u * u - 4.0 * u + 1.0) * dt * a.outgoing
+        + (-6.0 * u * u + 6.0 * u) * b.value
+        + (3.0 * u * u - 2.0 * u) * dt * b.incoming)
+        / dt;
+    (value, slope)
+}
+/// Joins per-component float curves into one vector curve over the union of
+/// their key times, with the components that have curves.
+fn combine(parts: &[Vec<SKey>; 4]) -> Option<([bool; 4], Vec<Key>)> {
+    let mask = parts.each_ref().map(|p| !p.is_empty());
+    if !mask.iter().any(|m| *m) {
+        return None;
+    }
+    let mut times: Vec<f32> = parts.iter().flatten().map(|k| k.time).collect();
+    times.sort_by(f32::total_cmp);
+    times.dedup();
+    let keys = times
+        .into_iter()
+        .map(|time| {
+            let mut key = Key {
+                time,
+                value: [0.0; 4],
+                incoming: [0.0; 4],
+                outgoing: [0.0; 4],
+            };
+            for (i, keys) in parts.iter().enumerate().filter(|(i, _)| mask[*i]) {
+                match keys.binary_search_by(|k| k.time.total_cmp(&time)) {
+                    Ok(at) => {
+                        key.value[i] = keys[at].value;
+                        key.incoming[i] = keys[at].incoming;
+                        key.outgoing[i] = keys[at].outgoing;
+                    }
+                    Err(_) => {
+                        let (value, slope) = scalar_at(keys, time);
+                        key.value[i] = value;
+                        key.incoming[i] = slope;
+                        key.outgoing[i] = slope;
+                    }
+                }
+            }
+            key
+        })
+        .collect();
+    Some((mask, keys))
+}
+
+/// Decodes the clip's baked runtime data (`m_MuscleClip`), mapped to targets
+/// through `m_ClipBindingConstant`.
+fn baked_curves(
+    m: &Value,
+    curves: &mut Vec<Curve>,
+    morphs: &mut Vec<Morph>,
+    skipped: &mut Vec<String>,
+) -> Result<(), Error> {
+    // Unity wraps the clip in an `OffsetPtr`: a single `data` field.
+    let node = &m["m_MuscleClip"]["m_Clip"];
+    let clip = node.get("data").unwrap_or(node);
+    if !(has_data(&clip["m_StreamedClip"]["data"])
+        || has_data(&clip["m_DenseClip"]["m_SampleArray"])
+        || has_data(&clip["m_ConstantClip"]["data"]))
+    {
+        return Ok(());
+    }
+    let channels = baked::channels(clip)?;
+    let bindings = baked::bindings(&m["m_ClipBindingConstant"]);
+    let needed: usize = bindings.iter().map(|b| b.width).sum();
+    if needed > channels.len() {
+        return Err(Error::new(format!(
+            "animation clip bindings read {needed} curves but its baked data holds {}",
+            channels.len()
+        )));
+    }
+    let mut humanoid = 0;
+    for b in &bindings {
+        let parts = &channels[b.first..b.first + b.width];
+        match b.target {
+            baked::Target::Transform { path, attribute } if b.width > 1 => {
+                let mut split: [Vec<SKey>; 4] = Default::default();
+                for (slot, keys) in split.iter_mut().zip(parts) {
+                    slot.clone_from(keys);
+                }
+                if let Some((mask, keys)) = combine(&split) {
+                    curves.push(Curve {
+                        path: PathRef::Hash(path),
+                        kind: attribute as usize - 1,
+                        mask,
+                        keys,
+                    });
+                }
+            }
+            baked::Target::BlendShape { path, hash } if !parts[0].is_empty() => {
+                morphs.push(Morph {
+                    name: String::new(),
+                    hash: Some(hash),
+                    curve: percent_curve(PathRef::Hash(path), &parts[0]),
+                });
+            }
+            baked::Target::BlendShape { .. } => {}
+            baked::Target::Humanoid => humanoid += 1,
+            baked::Target::Other(-1) => skipped.push("skipped m_PPtrCurves".into()),
+            baked::Target::Other(class) => skipped.push(format!("skipped baked curves of class {class}")),
+            baked::Target::Transform { .. } => skipped.push("skipped baked transform property".into()),
+        }
+    }
+    if humanoid > 0 || bindings.is_empty() {
+        if curves.is_empty() && morphs.is_empty() {
+            return Err(Error::new(HUMANOID_ONLY));
+        }
+        skipped.push("skipped humanoid muscle curves (retargeting is not supported)".into());
+    }
+    Ok(())
 }
 fn has_data(v: &Value) -> bool {
     match v {
@@ -359,6 +763,7 @@ impl Curve {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use glam::Vec3;
     #[test]
     fn yaml_curves_round_trip_sampled_hermite_and_zxy() {
         let mut text = String::from(
@@ -546,13 +951,18 @@ mod tests {
         );
     }
     #[test]
-    fn compressed_and_binary_clips_report_the_limitation() {
-        for text in [
-            "binary",
-            "--- !u!74 &1\nAnimationClip:\n  m_Compressed: 1\n",
-            "--- !u!74 &1\nAnimationClip:\n  m_StreamedClip: {data: [1]}\n",
-        ] {
-            assert!(AnimationClip::parse(text).unwrap_err().message.contains("compressed"));
-        }
+    fn text_parse_rejects_binary_and_empty_baked_flags_are_not_data() {
+        assert!(
+            AnimationClip::parse("binary")
+                .unwrap_err()
+                .message
+                .contains("parse_binary")
+        );
+        // A zero `m_Compressed` and empty baked containers are an empty clip.
+        let clip = AnimationClip::parse(
+            "--- !u!74 &1\nAnimationClip:\n  m_Compressed: 0\n  m_MuscleClip:\n    m_Clip:\n      data:\n        m_StreamedClip: {data: [], curveCount: 0}\n",
+        )
+        .unwrap();
+        assert!(clip.curves.is_empty());
     }
 }
