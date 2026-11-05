@@ -844,6 +844,7 @@ impl Game {
             ctx.set_in_sim(false);
             end_timings(&mut ctx);
             ctx.discard_draws();
+            ctx.input.end_frame();
         }
         std::mem::take(&mut ctx.world)
     }

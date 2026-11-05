@@ -483,6 +483,107 @@ impl Ctx {
             .expect("crabbyengine: textures can only be created once the game is running (in setup or update)")
     }
 
+    /// Current binding configuration.
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn example(ctx: &Ctx) {
+    /// let value = ctx.actions();
+    /// # }
+    /// ```
+    pub fn actions(&self) -> &crate::ActionMap {
+        &self.input.actions
+    }
+
+    /// Whether a named button is held.
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn example(ctx: &Ctx) {
+    /// let value = ctx.action_down("move");
+    /// # }
+    /// ```
+    pub fn action_down(&self, name: &str) -> bool {
+        self.input.actions.down(name)
+    }
+
+    /// Whether a named button became held this frame.
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn example(ctx: &Ctx) {
+    /// let value = ctx.action_pressed("move");
+    /// # }
+    /// ```
+    pub fn action_pressed(&self, name: &str) -> bool {
+        self.input.actions.pressed(name)
+    }
+
+    /// Whether all sources of a named button were released this frame.
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn example(ctx: &Ctx) {
+    /// let value = ctx.action_released("move");
+    /// # }
+    /// ```
+    pub fn action_released(&self, name: &str) -> bool {
+        self.input.actions.released(name)
+    }
+
+    /// A named scalar axis, or zero.
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn example(ctx: &Ctx) {
+    /// let value = ctx.action_axis("move");
+    /// # }
+    /// ```
+    pub fn action_axis(&self, name: &str) -> f32 {
+        self.input.actions.axis(name)
+    }
+
+    /// A named vector axis, or zero.
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn example(ctx: &Ctx) {
+    /// let value = ctx.action_axis2("move");
+    /// # }
+    /// ```
+    pub fn action_axis2(&self, name: &str) -> Vec2 {
+        self.input.actions.axis2(name)
+    }
+
+    /// Replace bindings at runtime. Held sources establish a baseline;
+    /// rebinding itself generates no pressed/released edges.
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn example(ctx: &mut Ctx) {
+    /// ctx.set_actions(ActionMap::default());
+    /// # }
+    /// ```
+    pub fn set_actions(&mut self, mut actions: crate::ActionMap) {
+        actions.prepare();
+        self.input.actions = actions;
+        self.input.refresh_actions();
+        self.input.actions.end_frame();
+    }
+
+    /// Feed input by hand for tests/replay; live input uses the same state.
+    /// Edges clear after each headless or windowed frame.
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn example(ctx: &mut Ctx) {
+    /// ctx.feed_input(InputEvent::Key(Key::Space, true));
+    /// # }
+    /// ```
+    pub fn feed_input(&mut self, event: crate::InputEvent) {
+        use crate::InputEvent;
+        match event {
+            InputEvent::Key(k, down) => self.input.set_key(k, down),
+            InputEvent::Mouse(b, down) => self.input.set_mouse_button(b, down),
+            InputEvent::GamepadButton(p, b, down) => self.input.set_gamepad_button(p, b, down),
+            InputEvent::GamepadAxis(p, a, value) => self.input.set_gamepad_axis(p, a, value),
+            InputEvent::FocusLost => self.input.release_all(),
+            InputEvent::GamepadDisconnected(p) => self.input.disconnect_gamepad(p),
+        }
+    }
+
     /// Engine side: start a new frame with fresh timing.
     pub(crate) fn begin_frame(&mut self, timing: FrameTiming) {
         self.timing = timing;

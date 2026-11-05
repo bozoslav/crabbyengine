@@ -48,6 +48,7 @@
 // Without a window, the code that only the window loop calls is unused.
 #![cfg_attr(not(feature = "window"), allow(dead_code))]
 
+mod actions;
 mod assets;
 mod attach;
 mod audio;
@@ -67,6 +68,7 @@ mod game;
 mod gamepad;
 mod hot_reload;
 mod input;
+pub use actions::{Action, ActionMap, Axis2Binding, AxisBinding, ButtonBinding, InputEvent};
 #[cfg(feature = "inspector")]
 mod inspector;
 mod logs;

@@ -30,6 +30,36 @@ static void my_game() {
 }
 // ANCHOR_END: first_game_full
 
+// ANCHOR: action_map
+static void action_map_snippet() {
+    crabby::action_map bindings;
+    bindings.set("jump", crabby::action::button({
+        crabby::action_binding::key(CRABBY_KEY_SPACE),
+        crabby::action_binding::button({0}, CRABBY_GAMEPAD_SOUTH)}));
+    bindings.set("move", crabby::action::axis2({
+        crabby::action_binding::keys2(CRABBY_KEY_A, CRABBY_KEY_D, CRABBY_KEY_W, CRABBY_KEY_S),
+        crabby::action_binding::stick({0}, crabby::stick::left, 0.2f)}));
+    bindings.set("throttle", crabby::action::axis({
+        crabby::action_binding::axis({0}, CRABBY_GAMEPAD_RIGHT_TRIGGER_AXIS, 0.1f)}));
+    const std::string saved = bindings.to_json();
+    auto restored = crabby::action_map::from_json(saved);
+    crabby::game("actions", 1, 1).run_headless(0, [&](crabby::ctx& ctx) {
+        ctx.set_actions(restored);
+        ctx.feed_input(crabby::input_event::key(CRABBY_KEY_SPACE, true));
+        if (!ctx.action_pressed("jump") || !ctx.action_down("jump")) throw std::runtime_error("missing action press");
+        const crabby::vec2 move = ctx.action_axis2("move");
+        const float throttle = ctx.action_axis("throttle");
+        if (move.x != 0 || move.y != 0 || throttle != 0) throw std::runtime_error("unexpected axis input");
+        ctx.feed_input(crabby::input_event::key(CRABBY_KEY_SPACE, false));
+        if (!ctx.action_released("jump")) throw std::runtime_error("missing action release");
+        auto changed = ctx.actions();
+        changed.set("jump", crabby::action::button({crabby::action_binding::key(CRABBY_KEY_ENTER)}));
+        ctx.set_actions(changed);
+        if (ctx.action_pressed("jump")) throw std::runtime_error("rebinding generated a press");
+    });
+}
+// ANCHOR_END: action_map
+
 // ---- Entities, components, queries -----------------------------------------
 // ANCHOR: ecs_components
 struct Health { float value; };
@@ -1416,5 +1446,6 @@ int main() {
     (void)&score_point;
     (void)&my_game;
     (void)&controls;
+    action_map_snippet();
     std::puts("guide snippets ok");
 }

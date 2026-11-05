@@ -69,6 +69,23 @@ typedef enum CrabbyStatus {
   CRABBY_PANIC = 4,
 } CrabbyStatus;
 
+enum CrabbyActionSource
+#ifdef __cplusplus
+  : uint32_t
+#endif // __cplusplus
+ {
+  CRABBY_ACTION_KEY = 0,
+  CRABBY_ACTION_MOUSE = 1,
+  CRABBY_ACTION_GAMEPAD_BUTTON = 2,
+  CRABBY_ACTION_KEYS = 3,
+  CRABBY_ACTION_GAMEPAD_AXIS = 4,
+  CRABBY_ACTION_KEYS2 = 5,
+  CRABBY_ACTION_GAMEPAD_STICK = 6,
+};
+#ifndef __cplusplus
+typedef uint32_t CrabbyActionSource;
+#endif // __cplusplus
+
 typedef enum CrabbyKey {
   CRABBY_KEY_A,
   CRABBY_KEY_B,
@@ -258,6 +275,8 @@ typedef enum CrabbyShape3DKind {
   CRABBY_SHAPE3D_MESH,
 } CrabbyShape3DKind;
 
+typedef struct CrabbyActionMap CrabbyActionMap;
+
 typedef struct CrabbyCellStreamer CrabbyCellStreamer;
 
 typedef struct CrabbyCtx CrabbyCtx;
@@ -298,6 +317,16 @@ typedef struct CrabbyChunk {
 } CrabbyChunk;
 
 typedef void (*CrabbyQueryFn)(const struct CrabbyChunk*, void*);
+
+typedef struct CrabbyActionBinding {
+  uint32_t kind;
+  uint32_t pad;
+  uint32_t first;
+  uint32_t second;
+  uint32_t third;
+  uint32_t fourth;
+  float deadzone;
+} CrabbyActionBinding;
 
 typedef struct CrabbyVec2 {
   float x;
@@ -887,6 +916,47 @@ enum CrabbyStatus crabby_query_par(struct CrabbyWorld *world,
                                    size_t count,
                                    CrabbyQueryFn callback,
                                    void *user);
+
+struct CrabbyActionMap *crabby_action_map_new(void);
+
+void crabby_action_map_free(struct CrabbyActionMap *map);
+
+enum CrabbyStatus crabby_action_map_set(struct CrabbyActionMap *map,
+                                        const char *name,
+                                        uint32_t kind,
+                                        const struct CrabbyActionBinding *bindings,
+                                        size_t count);
+
+enum CrabbyStatus crabby_action_map_remove(struct CrabbyActionMap *map, const char *name);
+
+enum CrabbyStatus crabby_action_map_load(struct CrabbyActionMap *map, const char *json);
+
+enum CrabbyStatus crabby_action_map_save(struct CrabbyActionMap *map,
+                                         char *buffer,
+                                         size_t capacity,
+                                         size_t *out_len);
+
+enum CrabbyStatus crabby_ctx_set_actions(struct CrabbyCtx *ctx, struct CrabbyActionMap *map);
+
+enum CrabbyStatus crabby_ctx_actions(struct CrabbyCtx *ctx, struct CrabbyActionMap *map);
+
+enum CrabbyStatus crabby_ctx_feed_input(struct CrabbyCtx *ctx,
+                                        uint32_t kind,
+                                        uint32_t slot,
+                                        uint32_t input,
+                                        float value);
+
+enum CrabbyStatus crabby_ctx_action_down(struct CrabbyCtx *ctx, const char *name, bool *value);
+
+enum CrabbyStatus crabby_ctx_action_pressed(struct CrabbyCtx *ctx, const char *name, bool *value);
+
+enum CrabbyStatus crabby_ctx_action_released(struct CrabbyCtx *ctx, const char *name, bool *value);
+
+enum CrabbyStatus crabby_ctx_action_axis(struct CrabbyCtx *ctx, const char *name, float *value);
+
+enum CrabbyStatus crabby_ctx_action_axis2(struct CrabbyCtx *ctx,
+                                          const char *name,
+                                          struct CrabbyVec2 *value);
 
 enum CrabbyStatus crabby_attached_component(struct CrabbyWorld *world, uint32_t *out_id);
 
