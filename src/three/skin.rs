@@ -213,7 +213,8 @@ impl Skeleton {
 /// # fn f(ctx: &mut Ctx) {
 /// let body = ctx.load_mesh("people/body.glb");
 /// let hat = ctx.load_mesh("people/hat.glb");
-/// let person = ctx.world.spawn((Transform3D::default(), Model::new(body), ctx.load_skeleton("people/body.glb")));
+/// let skeleton = ctx.load_skeleton("people/body.glb");
+/// let person = ctx.world.spawn((Transform3D::default(), Model::new(body), skeleton));
 /// ctx.world.spawn((Model::new(hat), SkinOf(person)));
 /// # }
 /// ```
