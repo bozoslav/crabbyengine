@@ -1,7 +1,8 @@
-# 3D physics: bodies, terrain and a walking character
+# 3D physics: bodies, terrain, characters and vehicles
 
 Crates that tumble down a hill, a first-person character that walks up
-slopes and stairs, rays that find what the player is looking at: 3D
+slopes and stairs, a car that drives over the terrain, rays that find what
+the player is looking at: 3D
 rigid-body physics on [rapier](https://rapier.rs), designed like the
 [2D physics](physics.md). It's behind the `physics3d` feature (which turns
 on `3d`):
@@ -74,6 +75,8 @@ is what you see:
 | `.density(d)`, `.friction(f)`, `.restitution(r)` | fields of the same name | kg/m³ (default 1000), 0 ice..1 rubber, bounciness |
 | `.sensor()` | `.sensor = true` | reports overlaps, doesn't push |
 | `.offset(v)`, `.groups(g)` | `.offset`, `.groups` | shape moved from the entity; who it touches |
+| `RigidBody3D::dynamic().mass(kg)` | `crabby::with_mass(body, kg)` | a mass of its own instead of density × volume |
+| `.center_of_mass(v)` | `crabby::with_center_of_mass(body, v)` | center of mass in the body's frame (low for cars) |
 
 Collision meshes are made once and shared by any number of colliders:
 
@@ -160,6 +163,112 @@ For mouse look, lock the cursor and turn the head by the raw mouse motion
 ```rust
 {{#include ../../examples/physics3d.rs:look}}
 ```
+
+## Vehicles
+
+`Vehicle3D` turns a dynamic body into a car (or a truck, a buggy, anything
+on up to 8 wheels) with **raycast wheels**, the classic wheel-collider
+model: each physics step, every wheel casts a ray down from its mount,
+pushes the chassis up with a spring and a damper, spins by the torques you
+give it and the road's grip, and pushes the chassis along through its
+tyre's friction curves. A car tuned for that model elsewhere keeps its
+numbers here. The chassis faces -Z; give it a mass and a low center of
+mass, or it rolls over in turns:
+
+<div class="lang-pair">
+<div>
+
+```rust
+{{#include ../../examples/vehicle.rs:car}}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:vehicle3d_car}}
+```
+
+</div>
+</div>
+
+Everything that makes a car a particular car is **the game's**: the
+engine and its gears, which wheels drive and steer, the brakes and assists.
+Set each wheel's `motor_torque` (N·m, positive forward), `brake_torque`
+and `steer_angle` (radians, positive steers right) in a simulation system
+that runs before the physics step:
+
+<div class="lang-pair">
+<div>
+
+```rust
+{{#include ../../examples/vehicle.rs:drive}}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:vehicle3d_drive}}
+```
+
+</div>
+</div>
+
+| `Wheel3D` field | Default | |
+|---|---|---|
+| `position` | | the wheel's center at full compression, in the chassis's frame |
+| `radius`, `mass` | 0.5 m, 20 kg | the mass sets how fast torque spins it up |
+| `suspension_distance` | 0.3 m | how far the suspension travels, straight down the chassis's -Y |
+| `spring`, `damper` | 35 000 N/m, 4 500 N·s/m | |
+| `target_position` | 0.5 | where it rests under the car's weight: 0 compressed, 1 extended |
+| `force_app_point_distance` | 0 | forces act this far up from the resting wheel's bottom; higher rolls less |
+| `damping_rate` | 0.25 | slows the spin, N·m per rad/s |
+| `forward_friction`, `sideways_friction` | `FrictionCurve::FORWARD`, `::SIDEWAYS` | grip for slip (below) |
+
+The suspension holds each wheel's share of the weight (its `sprung_mass`,
+from where the wheels are around the center of mass) at `target_position`,
+whatever the spring rate, so a car at rest sits at its designed height;
+the spring and damper act on what's beyond that: bumps, braking, turns.
+
+A tyre's grip follows a **friction curve** of its slip: it rises to a peak
+(`extremum_slip`, `extremum_value`), falls to a lower sliding grip
+(`asymptote_slip`, `asymptote_value`) and stays there, scaled by
+`stiffness` (lower it for wet or icy ground) and by the load on the wheel.
+Forward slip compares the tyre's speed with the road's (0 rolling, +
+spinning, -1 locked); sideways slip is the angle between where the wheel
+points and where it goes, in radians.
+
+After each step, every wheel says what happened: `grounded`,
+`contact_point` and `contact_normal`, `compression` and
+`suspension_force`, `angular_velocity` (and `rpm()`), `forward_slip` and
+`sideways_slip` (for skid marks and tyre sounds). To draw a wheel, its
+`pose(chassis)` (C++ `crabby::wheel_pose`) is its center and turn: steer,
+spin and suspension travel. Pass the chassis's `Transform3D` from a frame
+system and the wheels move as smoothly as the chassis:
+
+```rust
+{{#include ../../examples/vehicle.rs:wheels}}
+```
+
+The wheels are rays, so a car can't tunnel through the ground however
+fast it goes (a test drives one over a heightfield at 30 m/s), and they
+see only what `Vehicle3D::groups` touches. The road is pushed back too:
+a car on a dynamic raft pushes the raft. C++ sees the component as
+`crabby::vehicle3d`, a plain struct (and a query column): the wheels are
+`wheels[0..wheel_count]`.
+
+Cost: a car on heightfield terrain adds about 2 µs to a physics step,
+its chassis body included (`cargo run --release -p crabby_bench --
+vehicles`, M4 Max):
+
+| Cars driving, 250 steps | Total | Per step, over the terrain alone |
+|---|---|---|
+| 1 | 1.9 ms | 5 µs |
+| 10 | 5.9 ms | 22 µs |
+| 100 | 46.7 ms | 185 µs |
+
+Try it: `cargo run --release --example vehicle --features physics3d`.
 
 ## Rays, shape casts and overlaps
 

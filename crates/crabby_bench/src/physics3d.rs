@@ -1,7 +1,8 @@
 //! 3D physics: the same pile of boxes stepped through Crabby
 //! (`Game::physics3d`, components synced every tick) and through rapier3d
-//! directly, plus characters walking over heightfield terrain.
-use crabbyengine::{Character3D, Collider3D, Game, RigidBody3D, Transform3D, Vec3, vec3};
+//! directly, plus characters walking and cars driving over heightfield
+//! terrain.
+use crabbyengine::{Character3D, Collider3D, Game, RigidBody3D, Transform3D, Vec3, Vehicle3D, Wheel3D, vec3};
 use rapier3d::prelude as rp;
 
 use crate::Bench;
@@ -142,6 +143,59 @@ pub fn run(b: &mut Bench) {
                             c.push_mass = 0.0;
                             ctx.world
                                 .spawn((Transform3D::at(vec3(x * 1.5 - 24.0, 4.0, z * 1.5 - 24.0)), c));
+                        }
+                    });
+                std::hint::black_box(world);
+            },
+        );
+    }
+    // Cars on four raycast wheels driving in circles over rolling terrain
+    // (512 x 512 m); 0 cars is the terrain alone.
+    for n in [0, 1, 10, 100] {
+        b.run(
+            &format!("physics3d/vehicles-{n}"),
+            5,
+            || (),
+            |_| {
+                let world = Game::new("bench", 1, 1)
+                    .sim_system(|ctx: &mut crabbyengine::Ctx| {
+                        ctx.world.query::<&mut Vehicle3D>().for_each(|v| {
+                            for (i, w) in v.wheels_mut().iter_mut().enumerate() {
+                                if i < 2 {
+                                    w.steer_angle = 0.25;
+                                } else {
+                                    w.motor_torque = 400.0;
+                                }
+                            }
+                        });
+                    })
+                    .physics3d(vec3(0.0, -9.81, 0.0))
+                    .run_headless(TICKS, |ctx| {
+                        let cells = 129;
+                        let heights: Vec<f32> = (0..cells * cells)
+                            .map(|i| {
+                                let (x, z) = ((i % cells) as f32 * 4.0, (i / cells) as f32 * 4.0);
+                                (x * 0.03).sin() * 3.0 + (z * 0.025).cos() * 4.0
+                            })
+                            .collect();
+                        let ground = ctx.physics3d.heightfield(&heights, 512.0);
+                        ctx.world.spawn((
+                            Transform3D::at(vec3(-256.0, 0.0, -256.0)),
+                            RigidBody3D::fixed(),
+                            Collider3D::mesh(ground),
+                        ));
+                        for i in 0..n {
+                            let (x, z) = ((i % 10) as f32 * 40.0 - 180.0, (i / 10) as f32 * 40.0 - 180.0);
+                            let mut car = Vehicle3D::new();
+                            for (wx, wz) in [(-0.8, -1.3), (0.8, -1.3), (-0.8, 1.3), (0.8, 1.3)] {
+                                car = car.with_wheel(Wheel3D::new(vec3(wx, -0.3, wz), 0.35));
+                            }
+                            ctx.world.spawn((
+                                Transform3D::at(vec3(x, 9.0, z)),
+                                RigidBody3D::dynamic().mass(1200.0).center_of_mass(vec3(0.0, -0.3, 0.0)),
+                                Collider3D::cuboid(vec3(1.8, 0.6, 4.2)),
+                                car,
+                            ));
                         }
                     });
                 std::hint::black_box(world);

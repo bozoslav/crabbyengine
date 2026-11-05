@@ -8,6 +8,17 @@ says what that covers.
 ## [Unreleased]
 
 ### Added
+- Vehicles (`physics3d` feature): `Vehicle3D` puts a dynamic body on up
+  to 8 raycast `Wheel3D`s with spring-damper suspension, slip-based tyre
+  grip through `FrictionCurve`s and wheel spin from motor and brake
+  torque; the game sets each wheel's torques and steer angle per tick and
+  reads back contact, compression, slip, rpm and the wheel's pose for
+  drawing. `RigidBody3D::mass` and `::center_of_mass` override a body's
+  mass and center of mass; `Physics3D::center_of_mass` reads it. In C
+  (`CrabbyVehicle3D`, `crabby_wheel3d`, `crabby_vehicle3d_add_wheel`,
+  `crabby_wheel3d_pose`, `crabby_friction_curve_*`,
+  `crabby_ctx_body_center_of_mass3d`) and C++ (`crabby::vehicle`,
+  `crabby::wheel`, `crabby::wheel_pose`). New `vehicle` example.
 - `Heightfield`: the ground's height and facing under a point on the CPU
   (`height_at`, `normal_at`), following the drawn triangles exactly, for
   standing things on terrain; `TerrainTileData::heightfield` keeps one. In
@@ -153,6 +164,8 @@ says what that covers.
   the sun. Distant cascades draw terrain tiles at a coarser detail level.
 
 ### Fixed
+- A 3D body that falls asleep reports a zero `Velocity3D` instead of the
+  speed it had just before.
 - `vsync(false)` no longer waits for the window's redraw events, which
   macOS sends only once per display refresh.
 - Control endpoint `scene.save`, `scene.load`, `prefab.spawn`,

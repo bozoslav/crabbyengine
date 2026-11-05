@@ -1,6 +1,7 @@
 //! 3D physics with rapier (feature `physics3d`): rigid bodies, colliders
-//! (heightfield terrain and triangle meshes too) and a character controller
-//! as components, stepped inside the simulation clock.
+//! (heightfield terrain and triangle meshes too), a character controller
+//! and raycast-wheel vehicles as components, stepped inside the simulation
+//! clock.
 //!
 //! [`Transform3D`] stays the source of truth: set it and the body teleports;
 //! moving bodies write their new pose back after every step, and between
@@ -18,9 +19,11 @@ use crate::{Ctx, Entity, Quat, Transform3D, Vec3, World};
 mod character;
 mod files;
 mod query;
+mod vehicle;
 
 pub use character::Character3D;
 pub use query::{Hit3D, QueryFilter3D};
+pub use vehicle::{FrictionCurve, Vehicle3D, Wheel3D};
 
 /// The simulation rate [`Game::physics3d`](crate::Game::physics3d) sets,
 /// unless the game picked its own with
@@ -53,6 +56,14 @@ pub struct RigidBody3D {
     /// Continuous collision detection: fast bodies (bullets) don't pass
     /// through thin walls. Costs a little more.
     pub ccd: bool,
+    /// Its mass in kg, instead of its collider's density × volume (its
+    /// inertia scales along). `None` (the default): from the density.
+    pub mass: Option<f32>,
+    /// Its center of mass in its own frame (relative to its
+    /// [`Transform3D`] position), instead of its collider's center. A car
+    /// wants it low, so it doesn't tip over in turns. `None` (the
+    /// default): the collider's.
+    pub center_of_mass: Option<Vec3>,
 }
 
 impl Default for RigidBody3D {
@@ -72,6 +83,8 @@ impl RigidBody3D {
             angular_damping: 0.0,
             lock_rotation: false,
             ccd: false,
+            mass: None,
+            center_of_mass: None,
         }
     }
     /// A body that never moves (ground, walls, terrain).
@@ -89,6 +102,25 @@ impl RigidBody3D {
         Self {
             kind: BodyKind::Kinematic,
             ..Self::dynamic()
+        }
+    }
+    /// Weighing `kg`, whatever its collider's density.
+    ///
+    /// ```
+    /// use crabbyengine::*;
+    /// let chassis = RigidBody3D::dynamic().mass(1200.0).center_of_mass(vec3(0.0, -0.4, 0.0));
+    /// assert_eq!(chassis.mass, Some(1200.0));
+    /// ```
+    #[must_use]
+    pub const fn mass(self, kg: f32) -> Self {
+        Self { mass: Some(kg), ..self }
+    }
+    /// With its center of mass at `center`, in its own frame.
+    #[must_use]
+    pub const fn center_of_mass(self, center: Vec3) -> Self {
+        Self {
+            center_of_mass: Some(center),
+            ..self
         }
     }
 }
@@ -547,10 +579,18 @@ impl Physics3D {
         }
     }
 
-    /// The mass of a body in kg (from its collider's density and volume).
+    /// The mass of a body in kg (from its collider's density and volume,
+    /// or [`RigidBody3D::mass`]).
     pub fn mass(&self, e: Entity) -> Option<f32> {
         let link = self.link(e)?;
         self.world.bodies.get(link.body).map(|b| b.mass())
+    }
+
+    /// A body's center of mass in the world, as of the last physics step
+    /// (see [`RigidBody3D::center_of_mass`]).
+    pub fn center_of_mass(&self, e: Entity) -> Option<Vec3> {
+        let link = self.link(e)?;
+        self.world.bodies.get(link.body).map(|b| from_rp(b.center_of_mass()))
     }
 
     /// Where a body is as of the last physics step: what [`Transform3D`]
@@ -762,7 +802,8 @@ impl Physics3D {
         let body = match kind {
             LinkKind::Body(rigid, shape) => {
                 let body = self.world.insert_body(body_of(t, rigid, velocity));
-                let collider = self.collider_of(&shape, e);
+                let mut collider = self.collider_of(&shape, e);
+                set_mass(&mut collider, rigid);
                 self.world.insert_collider(collider, Some(body));
                 body
             }
@@ -800,6 +841,28 @@ impl Physics3D {
     }
 }
 
+/// The body's own mass and center of mass, if it has them, on its collider
+/// (a collider's mass properties are in its own frame, shifted by its offset).
+fn set_mass(collider: &mut rp::Collider, rigid: RigidBody3D) {
+    let mass = rigid.mass.filter(|m| *m > 0.0 && m.is_finite());
+    let center = rigid.center_of_mass.filter(|c| c.is_finite());
+    if mass.is_none() && center.is_none() {
+        return;
+    }
+    let mut props = collider.mass_properties();
+    if let Some(mass) = mass {
+        if props.mass() > 0.0 {
+            props.set_mass(mass, true);
+        } else {
+            props = rp::MassProperties::new(props.local_com, mass, rp::Vector::splat(mass * 0.1));
+        }
+    }
+    if let Some(center) = center {
+        props.local_com = to_rp(center) - collider.position().translation;
+    }
+    collider.set_mass_properties(props);
+}
+
 fn body_of(t: &Transform3D, rigid: RigidBody3D, velocity: Velocity3D) -> rp::RigidBody {
     let builder = match rigid.kind {
         BodyKind::Fixed => rp::RigidBodyBuilder::fixed(),
@@ -829,6 +892,7 @@ pub(crate) fn start(ctx: &mut Ctx, gravity: Vec3) {
     crate::reflect::reflect_collider(&mut ctx.world);
     ctx.world.reflect::<Velocity3D>();
     ctx.world.reflect::<Character3D>();
+    ctx.world.reflect::<Vehicle3D>();
 }
 
 /// Steps the 3D physics world one simulation tick: picks up new, changed
@@ -844,6 +908,7 @@ pub fn step_physics3d(ctx: &mut Ctx) {
     physics.world.gravity = to_rp(physics.gravity);
     physics.world.integration_parameters.dt = dt;
     character::move_characters(physics, &mut ctx.world, dt);
+    vehicle::step_vehicles(physics, &mut ctx.world, dt);
     physics.world.step_with_events(&(), &physics.collector);
     write_back(physics, &mut ctx.world);
     std::mem::swap(
@@ -1011,10 +1076,22 @@ fn write_back(physics: &mut Physics3D, world: &mut World) {
                 return;
             };
             link.prev = link.curr;
-            // A sleeping body hasn't moved since it fell asleep.
-            let Some(body) = physics.world.bodies.get(link.body).filter(|b| !b.is_sleeping()) else {
+            let Some(body) = physics.world.bodies.get(link.body) else {
                 return;
             };
+            // A sleeping body hasn't moved since it fell asleep: it only
+            // needs its speed cleared, once.
+            if body.is_sleeping() {
+                if let LinkKind::Body(..) = link.kind
+                    && link.velocity != Velocity3D::default()
+                {
+                    link.velocity = Velocity3D::default();
+                    if let Some(velocity) = velocity {
+                        *velocity = link.velocity;
+                    }
+                }
+                return;
+            }
             link.curr.position = from_rp(body.translation());
             t.position = link.curr.position;
             if let LinkKind::Body(..) = link.kind {

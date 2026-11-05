@@ -39,7 +39,8 @@
 //! - `physics`: 2D physics with rapier (`Game::physics`); `physics-determinism`
 //!   for bit-identical results across platforms.
 //! - `physics3d`: 3D physics with rapier (`Game::physics3d`): bodies,
-//!   colliders (heightfield terrain too), queries and a character controller.
+//!   colliders (heightfield terrain too), queries, a character controller and
+//!   raycast-wheel vehicles.
 //! - `steam`: lockstep multiplayer over Steam's relays and lobbies
 //!   (`Net::steam_host`), with the `steamworks` crate re-exported.
 
@@ -114,8 +115,8 @@ pub use net::{steam_lobby_from_args, steam_wait_for_invite};
 pub use physics::{Collider, MAX_POLYGON_POINTS, Physics, RayHit, RigidBody, Shape, Velocity, step_physics};
 #[cfg(feature = "physics3d")]
 pub use physics3d::{
-    Character3D, Collider3D, CollisionGroups, CollisionMesh, Hit3D, PHYSICS3D_HZ, Physics3D, QueryFilter3D,
-    RigidBody3D, Shape3D, Velocity3D, interpolate_physics3d, step_physics3d,
+    Character3D, Collider3D, CollisionGroups, CollisionMesh, FrictionCurve, Hit3D, PHYSICS3D_HZ, Physics3D,
+    QueryFilter3D, RigidBody3D, Shape3D, Vehicle3D, Velocity3D, Wheel3D, interpolate_physics3d, step_physics3d,
 };
 pub use random::{DEFAULT_SEED, Random, Rng};
 pub use reflect::{Field, FieldType, ReflectError, WorldReflect};

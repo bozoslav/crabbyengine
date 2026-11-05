@@ -1,7 +1,7 @@
 //! What 3D physics allocates per tick once a scene is running. rapier's own
 //! solver (and its character controller) allocate a few small buffers per
 //! step, which the engine can't avoid; the engine's part (syncing
-//! components, events, queries) must add nothing. Its own test binary, for
+//! components, events, queries, vehicles) must add nothing. Its own test binary, for
 //! the counting allocator.
 #![cfg(feature = "physics3d")]
 
@@ -195,4 +195,107 @@ fn queries_do_not_allocate() {
     let without = through_the_engine(false);
     let with = through_the_engine(true);
     assert_eq!(with, without, "ray casts, shape casts and overlaps added allocations");
+}
+
+const CARS: usize = 20;
+
+fn car_at(i: usize) -> Vec3 {
+    vec3((i % 5) as f32 * 30.0 - 60.0, 0.8, (i / 5) as f32 * 30.0 - 60.0)
+}
+
+/// Rapier alone with the cars' chassis held up and pushed by forces set
+/// every step, as the wheels do: what rapier allocates for bodies whose
+/// forces change.
+fn chassis_pushed_in_rapier() -> usize {
+    let mut w = rp::PhysicsWorld::new();
+    w.integration_parameters.dt = 1.0 / PHYSICS3D_HZ as f32;
+    w.gravity = rp::Vector::new(0.0, -9.81, 0.0);
+    let ground = w.insert_body(rp::RigidBodyBuilder::fixed().translation(rp::Vector::new(0.0, -0.5, 0.0)));
+    w.insert_collider(rp::ColliderBuilder::cuboid(200.0, 0.5, 200.0), Some(ground));
+    let mut cars = Vec::new();
+    for i in 0..CARS {
+        let p = car_at(i);
+        let body = w.insert_body(rp::RigidBodyBuilder::dynamic().translation(rp::Vector::new(p.x, p.y, p.z)));
+        w.insert_collider(rp::ColliderBuilder::cuboid(0.9, 0.3, 2.1).mass(1200.0), Some(body));
+        cars.push(body);
+    }
+    let collector = Collector(Mutex::new(Vec::new()));
+    let mut count = 0;
+    for tick in 0..WARMUP + MEASURED {
+        if tick == WARMUP {
+            start_counting();
+        }
+        for &car in &cars {
+            let b = w.bodies.get_mut(car).unwrap();
+            b.reset_forces(false);
+            b.reset_torques(false);
+            let (m, at) = (b.mass(), b.center_of_mass() + rp::Vector::new(0.0, 0.0, -1.0));
+            b.add_force_at_point(rp::Vector::new(0.0, m * 9.81, -m), at, false);
+        }
+        w.step_with_events(&(), &collector);
+        collector.0.lock().unwrap().clear();
+        if tick == WARMUP + MEASURED - 1 {
+            count = stop_counting();
+        }
+    }
+    count
+}
+
+/// The same cars on wheels, driving in circles through the engine.
+fn cars_driving() -> usize {
+    let counted = Rc::new(Cell::new(usize::MAX));
+    let result = counted.clone();
+    Game::new("t", 1, 1)
+        .sim_system(|ctx: &mut Ctx| {
+            if ctx.sim_tick() == WARMUP {
+                start_counting();
+            }
+            ctx.world.query::<&mut Vehicle3D>().for_each(|v| {
+                for (i, w) in v.wheels_mut().iter_mut().enumerate() {
+                    if i < 2 {
+                        w.steer_angle = 0.3;
+                    } else {
+                        w.motor_torque = 200.0;
+                    }
+                }
+            });
+        })
+        .physics3d(vec3(0.0, -9.81, 0.0))
+        .sim_system(move |ctx: &mut Ctx| {
+            if ctx.sim_tick() == WARMUP + MEASURED - 1 {
+                result.set(stop_counting());
+            }
+        })
+        .run_headless(WARMUP + MEASURED, |ctx| {
+            ctx.world.spawn((
+                Transform3D::at(vec3(0.0, -0.5, 0.0)),
+                RigidBody3D::fixed(),
+                Collider3D::cuboid(vec3(400.0, 1.0, 400.0)),
+            ));
+            for i in 0..CARS {
+                let mut car = Vehicle3D::new();
+                for (x, z) in [(-0.8, -1.3), (0.8, -1.3), (-0.8, 1.3), (0.8, 1.3)] {
+                    car = car.with_wheel(Wheel3D::new(vec3(x, -0.3, z), 0.35));
+                }
+                ctx.world.spawn((
+                    Transform3D::at(car_at(i)),
+                    RigidBody3D::dynamic().mass(1200.0),
+                    Collider3D::cuboid(vec3(1.8, 0.6, 4.2)),
+                    car,
+                ));
+            }
+        });
+    counted.get()
+}
+
+#[test]
+fn vehicles_add_no_allocations_to_rapiers_own() {
+    let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let rapier = chassis_pushed_in_rapier();
+    let engine = cars_driving();
+    println!("{MEASURED} ticks of {CARS} cars: {rapier} allocations in rapier alone, {engine} through the engine");
+    assert!(
+        engine <= rapier,
+        "{engine} allocations driving, {rapier} in rapier alone"
+    );
 }
