@@ -229,6 +229,14 @@ static void three_d() {
         sky.fog_density = 0.01f;
         ctx.set_sky(sky);
         CHECK(ctx.sky().fog_density == 0.01f);
+        CHECK(sky.fog_end == 0 && sky.fog_sun_focus == 0.7f);
+        sky.fog_start = 500;
+        sky.fog_end = 1200;
+        ctx.set_sky(sky);
+        CHECK(ctx.sky().fog_end == 1200);
+        sky.fog_sun_focus = 1;
+        throws([&] { ctx.set_sky(sky); });
+        sky.fog_sun_focus = 0.7f;
         sky.sun_size = 0;
         throws([&] { ctx.set_sky(sky); });
         CHECK(crabby::sun_direction_at(12).y < -0.8f);

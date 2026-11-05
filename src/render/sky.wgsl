@@ -145,6 +145,7 @@ fn fs_sky(in: FullScreen) -> @location(0) vec4<f32> {
     let edge = 1.0 - frame.atmosphere.z;
     let disk = smoothstep(frame.atmosphere.z - edge * 0.2, frame.atmosphere.z + edge * 0.2, sun);
     light += frame.sun_color.rgb * disk * 40.0 * step(-0.02, dir.y);
-    // Fog reaches the sky too: all the way to the horizon, and below it.
-    return vec4<f32>(fog(light, frame.camera.xyz + dir * 20000.0), 1.0);
+    // Height fog reaches the sky too: all the way to the horizon, and below
+    // it. Distance fog doesn't: the sky has no distance.
+    return vec4<f32>(fog_along(light, frame.camera.xyz + dir * 20000.0, false), 1.0);
 }

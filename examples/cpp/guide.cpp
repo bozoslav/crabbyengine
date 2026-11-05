@@ -756,6 +756,18 @@ static void misty_morning(crabby::ctx& ctx) {
 }
 // ANCHOR_END: sky
 
+// ANCHOR: distance_fog
+/// A big open world fading out far away, glowing toward the sun.
+static void far_haze(crabby::ctx& ctx) {
+    auto sky = ctx.sky();
+    sky.fog_start = 500;        // clear up to half a kilometre
+    sky.fog_end = 1200;         // and gone in the haze past 1.2 km
+    sky.fog_sun_glow = 0.06f;   // the haze glows toward the sun
+    sky.fog_sun_focus = 0.7f;   // most of all close around it
+    ctx.set_sky(sky);
+}
+// ANCHOR_END: distance_fog
+
 // ANCHOR: post
 /// A warm, glowing evening look.
 static void golden_hour(crabby::ctx& ctx) {
@@ -1019,6 +1031,7 @@ static void the_village_has_five_spinning_houses() {
         village(ctx);
         golden_hour(ctx);
         misty_morning(ctx);
+        far_haze(ctx);
         meadow(ctx);
         if (ctx.post().tonemap != uint32_t(crabby::tonemap::agx)) { std::fprintf(stderr, "post\n"); std::abort(); }
     });

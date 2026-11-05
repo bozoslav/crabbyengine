@@ -57,6 +57,19 @@ pub struct Sky {
     /// The fog's color without an atmosphere; with one, the fog takes the
     /// sky's color behind it. Default a pale grey-blue.
     pub fog_color: Color,
+    /// Distance fog: none closer than `fog_start` world units, all fog
+    /// past `fog_end`, and a straight blend between. It hides the far end
+    /// of a big world whatever the height. Off while `fog_end` is not
+    /// past `fog_start` (default 0 and 0). The sky itself takes none.
+    pub fog_start: f32,
+    /// Where the distance fog hides everything. Default 0 (off).
+    pub fog_end: f32,
+    /// How much sunlight the fog scatters toward the camera, so it glows
+    /// when looking toward the sun: 0 (the default) none, 0.1 a soft glow.
+    pub fog_sun_glow: f32,
+    /// How tight that glow is around the sun, 0 (all around) to just
+    /// under 1 (a small bright halo). Default 0.7.
+    pub fog_sun_focus: f32,
 }
 
 impl Default for Sky {
@@ -71,6 +84,10 @@ impl Default for Sky {
             fog_height: 0.0,
             fog_falloff: 50.0,
             fog_color: Color::hex(0xB8C4D0),
+            fog_start: 0.0,
+            fog_end: 0.0,
+            fog_sun_glow: 0.0,
+            fog_sun_focus: 0.7,
         }
     }
 }

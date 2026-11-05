@@ -96,6 +96,24 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
             ..sky
         };
         ids.errors.push(crabby_ctx_set_sky(ctx, &flat));
+        assert!(sky.fog_end == 0.0 && sky.fog_sun_focus == 0.7);
+        let far = CrabbySky {
+            fog_start: 500.0,
+            fog_end: 1200.0,
+            fog_sun_glow: 0.06,
+            ..sky
+        };
+        assert_eq!(crabby_ctx_set_sky(ctx, &far), CRABBY_OK);
+        let mut back = std::mem::zeroed::<CrabbySky>();
+        assert_eq!(crabby_ctx_sky(ctx, &mut back), CRABBY_OK);
+        assert_eq!(back, far);
+        let ring = CrabbySky {
+            fog_sun_focus: 1.0,
+            ..sky
+        };
+        ids.errors.push(crabby_ctx_set_sky(ctx, &ring));
+        let behind = CrabbySky { fog_start: -1.0, ..sky };
+        ids.errors.push(crabby_ctx_set_sky(ctx, &behind));
         assert!(crabby_sun_direction_at(12.0).y < -0.8);
 
         let mut post = std::mem::zeroed::<CrabbyPost>();
@@ -174,8 +192,8 @@ fn games_build_and_move_3d_worlds_from_c() {
         let mut world = null_mut();
         assert_eq!(crabby_game_run_headless(g, 5, Some(setup), user, &mut world), CRABBY_OK);
         assert_eq!(
-            ids.errors, [CRABBY_INVALID_ARGUMENT; 9],
-            "bad material, bad metallic, bad camera, negative light, bad tone map, broken shader, unknown shader"
+            ids.errors, [CRABBY_INVALID_ARGUMENT; 11],
+            "bad material, bad metallic, bad camera, negative light, bad fog, bad tone map, broken shader, unknown shader"
         );
 
         // Five ticks of 0.1 radians, as Rust sees it through the same bytes.

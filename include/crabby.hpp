@@ -1422,7 +1422,8 @@ public:
     void set_lighting(const crabby::lighting& l) { detail::check(crabby_ctx_set_lighting(raw_, &l)); }
     /// The sky behind the 3D world and the fog in front of it.
     crabby::sky sky() const { crabby::sky s{}; detail::check(crabby_ctx_sky(raw_, &s)); return s; }
-    /// Haze, stars and fog density can't be negative; sun_size and fog_falloff must be above 0.
+    /// Haze, stars, fog density, fog_start, fog_end and fog_sun_glow can't be negative;
+    /// sun_size and fog_falloff must be above 0; fog_sun_focus is 0 to under 1.
     void set_sky(const crabby::sky& s) { detail::check(crabby_ctx_set_sky(raw_, &s)); }
     /// Exposure, bloom, color grading and tone mapping of the 3D frame.
     crabby::post post() const { crabby::post p{}; detail::check(crabby_ctx_post(raw_, &p)); return p; }

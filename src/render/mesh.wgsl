@@ -28,6 +28,7 @@ struct Frame {
     fog: vec4<f32>,        // x: density per unit, y: fog height, z: 1 / falloff
     fog_color: vec4<f32>,  // rgb: linear, without an atmosphere
     night: vec4<f32>,      // rgb: light at night
+    fog_far: vec4<f32>,    // x: distance fog start, y: its end (0: none), z: sun glow, w: sun focus
 };
 
 struct MaterialData {
@@ -139,11 +140,14 @@ fn sky_radiance(dir: vec3<f32>) -> vec3<f32> {
 }
 
 // `color` seen through the fog between the camera and `world`: height fog,
-// thickest at the fog height and thinning out above it, colored by the sky
-// behind it (or the fog color, without an atmosphere).
-fn fog(color: vec3<f32>, world: vec3<f32>) -> vec3<f32> {
+// thickest at the fog height and thinning out above it, and distance fog,
+// none before its start and all fog past its end. Both take the sky's color
+// behind them (or the fog color, without an atmosphere), and glow toward the
+// sun. The sky itself takes only the height fog (`distance` false).
+fn fog_along(color: vec3<f32>, world: vec3<f32>, distance: bool) -> vec3<f32> {
     let density = frame.fog.x;
-    if density <= 0.0 {
+    let far = select(0.0, frame.fog_far.y, distance);
+    if density <= 0.0 && far <= 0.0 {
         return color;
     }
     let ray = world - frame.camera.xyz;
@@ -154,13 +158,27 @@ fn fog(color: vec3<f32>, world: vec3<f32>) -> vec3<f32> {
     let start = density * exp(-(frame.camera.y - frame.fog.y) * k);
     let rise = ray.y * k;
     let along = select((1.0 - exp(-rise)) / rise, 1.0, abs(rise) < 1e-4);
-    let seen = exp(-start * span * along);
+    var seen = exp(-start * span * along);
+    if far > 0.0 {
+        let near = min(frame.fog_far.x, far - 1e-3);
+        seen *= clamp((far - span) / (far - near), 0.0, 1.0);
+    }
     let dir = ray / max(span, 1e-6);
     var fog_color = frame.fog_color.rgb;
     if frame.atmosphere.x > 0.0 {
         fog_color = sky_radiance(normalize(vec3<f32>(dir.x, max(dir.y, 0.03), dir.z)));
     }
+    // Light scattered forward out of the sun (Henyey-Greenstein, 1 at focus 0).
+    let g = frame.fog_far.w;
+    let mu = dot(dir, frame.sun_dir.xyz);
+    let phase = (1.0 - g * g) / pow(max(1.0 + g * g - 2.0 * g * mu, 1e-4), 1.5);
+    fog_color += frame.sun_color.rgb * phase * frame.fog_far.z;
     return mix(fog_color, color, seen);
+}
+
+// `color` seen through all the fog between the camera and `world`.
+fn fog(color: vec3<f32>, world: vec3<f32>) -> vec3<f32> {
+    return fog_along(color, world, true);
 }
 
 // A pseudo-random number in 0..1 for a 2D point.

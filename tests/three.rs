@@ -62,6 +62,16 @@ fn misty_morning(ctx: &mut Ctx) {
 }
 // ANCHOR_END: sky
 
+// ANCHOR: distance_fog
+/// A big open world fading out far away, glowing toward the sun.
+fn far_haze(ctx: &mut Ctx) {
+    ctx.sky.fog_start = 500.0; // clear up to half a kilometre
+    ctx.sky.fog_end = 1200.0; // and gone in the haze past 1.2 km
+    ctx.sky.fog_sun_glow = 0.06; // the haze glows toward the sun
+    ctx.sky.fog_sun_focus = 0.7; // most of all close around it
+}
+// ANCHOR_END: distance_fog
+
 #[test]
 fn sky_settings_stay_as_set() {
     Game::new("t", 1, 1).run_headless(1, |ctx| {
@@ -69,6 +79,14 @@ fn sky_settings_stay_as_set() {
         assert!(ctx.sky.atmosphere);
         misty_morning(ctx);
         assert_eq!(ctx.sky.fog_density, 0.03);
+        assert_eq!(
+            (ctx.sky.fog_start, ctx.sky.fog_end),
+            (0.0, 0.0),
+            "no distance fog by default"
+        );
+        far_haze(ctx);
+        assert_eq!(ctx.sky.fog_end, 1200.0);
+        assert_eq!(ctx.sky.fog_density, 0.03, "both kinds of fog at once");
         let to_sun = -ctx.lighting.sun_direction;
         assert!(to_sun.x > 0.0 && to_sun.y > 0.0, "morning: low in the east");
     });
