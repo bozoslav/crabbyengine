@@ -1,0 +1,599 @@
+//! Sky IBL and reflection probes, drawn offscreen on a real adapter (the
+//! scene collection, bake passes and shading together). Skips without a GPU.
+use super::gpu::GpuTexture;
+use super::gpu3d::*;
+use crate::three::{GpuMaterialDesc, Scene3D, SkinFrame, SkyLight};
+use crate::*;
+
+const SIZE: u32 = 128;
+
+/// A device, a renderer and a headless context to fill it from.
+struct Rig {
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    output: wgpu::Texture,
+    textures: Vec<GpuTexture>,
+    renderer: Renderer3D,
+    ctx: Ctx,
+    registered: usize,
+}
+
+impl Rig {
+    fn new() -> Option<Rig> {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
+            eprintln!("no GPU adapter: skipped");
+            return None;
+        };
+        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) else {
+            eprintln!("no GPU device: skipped");
+            return None;
+        };
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let white = device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
+        });
+        queue.write_texture(
+            white.as_image_copy(),
+            &[255; 4],
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4),
+                rows_per_image: None,
+            },
+            white.size(),
+        );
+        let sampler = device.create_sampler(&Default::default());
+        let view = white.create_view(&Default::default());
+        let textures = vec![GpuTexture {
+            texture: white.clone(),
+            nearest: false,
+            mips: None,
+            bind_group: device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                ],
+            }),
+        }];
+        let output = device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: SIZE,
+                height: SIZE,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
+        let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
+        // Probe captures get size-only handles; `Rig::draw` backs them.
+        ctx.headless = true;
+        ctx.lighting.sun_intensity = 0.0;
+        ctx.lighting.shadows = false;
+        ctx.sky.atmosphere = false;
+        ctx.post.bloom = 0.0;
+        ctx.post.ambient_occlusion.enabled = false;
+        Some(Rig {
+            device,
+            queue,
+            output,
+            textures,
+            renderer,
+            ctx,
+            registered: 0,
+        })
+    }
+
+    /// A mesh with its material, uploaded to the renderer.
+    fn mesh(&mut self, data: &MeshData, desc: MaterialDesc) -> Mesh {
+        let material = self.ctx.create_material(desc);
+        let mesh = self.ctx.create_mesh(data, material);
+        self.renderer
+            .create_material(&self.device, &GpuMaterialDesc::new(&desc), &self.textures);
+        self.renderer
+            .create_mesh(&self.device, data, &[(0..data.indices.len() as u32, material)], true);
+        mesh
+    }
+
+    /// Backs the context's probe capture handles with real targets.
+    fn register_captures(&mut self) {
+        let captures = self.ctx.assets3d.probes.captures.clone();
+        for faces in &captures[self.registered.min(captures.len())..] {
+            for face in faces {
+                let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("test capture"),
+                    size: wgpu::Extent3d {
+                        width: 128,
+                        height: 128,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: HDR_FORMAT,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::COPY_DST
+                        | wgpu::TextureUsages::COPY_SRC,
+                    view_formats: &[],
+                });
+                self.renderer.add_render_target(face.id, &texture);
+            }
+        }
+        self.registered = captures.len();
+    }
+
+    /// One frame, read back as RGBA8.
+    fn draw(&mut self) -> Vec<u8> {
+        self.register_captures();
+        let ctx = &mut self.ctx;
+        let skins = SkinFrame::default();
+        ctx.collect_views(&skins);
+        ctx.frame3d
+            .collect(&mut ctx.world, &ctx.assets3d, &skins, &ctx.camera3d, &ctx.lighting);
+        let rgb = |c| {
+            let [r, g, b, _] = crate::three::linear(c);
+            Vec3::new(r, g, b)
+        };
+        let scene = Scene3D {
+            frame: &ctx.frame3d,
+            lighting: &ctx.lighting,
+            sky: &ctx.sky,
+            light: if ctx.sky.atmosphere {
+                SkyLight::new(&ctx.lighting, &ctx.sky)
+            } else {
+                SkyLight {
+                    sun: Vec3::ZERO,
+                    sky: rgb(ctx.lighting.sky_color),
+                    ground: rgb(ctx.lighting.ground_color),
+                }
+            },
+            camera: ctx.camera3d.position,
+            post: &ctx.post,
+            time: (0.0, 1.0 / 60.0),
+        };
+        self.renderer.prepare(
+            &self.device,
+            &self.queue,
+            &Prepare3D {
+                scene: &scene,
+                lut: None,
+                size: (SIZE, SIZE),
+            },
+        );
+        let target = self.output.create_view(&Default::default());
+        let buffers = self
+            .renderer
+            .draw(&self.device, &target, wgpu::Color::BLACK, &self.textures, None);
+        self.queue.submit(buffers);
+        let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: u64::from(SIZE * SIZE * 4),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        encoder.copy_texture_to_buffer(
+            self.output.as_image_copy(),
+            wgpu::TexelCopyBufferInfo {
+                buffer: &readback,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(SIZE * 4),
+                    rows_per_image: None,
+                },
+            },
+            self.output.size(),
+        );
+        self.queue.submit([encoder.finish()]);
+        readback.map_async(wgpu::MapMode::Read, .., |r| r.unwrap());
+        self.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+        readback.get_mapped_range(..).unwrap().to_vec()
+    }
+}
+
+fn screen(view_proj: Mat4, p: Vec3) -> Vec2 {
+    let ndc = view_proj.project_point3(p);
+    Vec2::new((ndc.x * 0.5 + 0.5) * SIZE as f32, (0.5 - ndc.y * 0.5) * SIZE as f32)
+}
+
+fn rgb(pixels: &[u8], x: u32, y: u32) -> Vec3 {
+    let i = ((y * SIZE + x) * 4) as usize;
+    Vec3::new(f32::from(pixels[i]), f32::from(pixels[i + 1]), f32::from(pixels[i + 2]))
+}
+
+fn matte(color: Color) -> MaterialDesc {
+    MaterialDesc {
+        color,
+        roughness: 1.0,
+        ..Default::default()
+    }
+}
+
+fn mirror(color: Color) -> MaterialDesc {
+    MaterialDesc {
+        color,
+        metallic: 1.0,
+        roughness: 0.04,
+        ..Default::default()
+    }
+}
+
+fn glowing(r: f32) -> MaterialDesc {
+    glowing_colour(Color::rgb(r, 0.0, 0.0))
+}
+
+fn glowing_colour(emissive: Color) -> MaterialDesc {
+    MaterialDesc {
+        color: Color::BLACK,
+        emissive,
+        roughness: 1.0,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn a_rough_spheres_ambient_follows_the_sky_colour() {
+    let Some(mut rig) = Rig::new() else { return };
+    let sphere = MeshData::sphere(1.5, 32);
+    let mesh = rig.mesh(&sphere, matte(Color::WHITE));
+    rig.ctx.world.spawn((Transform3D::default(), Model::new(mesh)));
+    rig.ctx.camera3d.position = vec3(0.0, 0.0, -6.0);
+    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    rig.ctx.lighting.ground_color = Color::BLACK;
+    let top = |rig: &mut Rig| {
+        let view_proj = rig.ctx.camera3d.view_proj();
+        let p = screen(view_proj, vec3(0.0, 1.0, -1.0));
+        let pixels = rig.draw();
+        rgb(&pixels, p.x as u32, p.y as u32)
+    };
+    rig.ctx.lighting.sky_color = Color::rgb(1.0, 0.1, 0.1);
+    let red = top(&mut rig);
+    rig.ctx.lighting.sky_color = Color::rgb(0.1, 0.1, 1.0);
+    let blue = top(&mut rig);
+    assert!(red.x > 4.0 * red.z.max(1.0), "a red sky lights the sphere red: {red}");
+    assert!(
+        blue.z > 4.0 * blue.x.max(1.0),
+        "a blue sky lights the sphere blue: {blue}"
+    );
+    rig.ctx.lighting.ambient_intensity = 0.0;
+    let dark = top(&mut rig);
+    assert!(dark.max_element() < 3.0, "no ambient, no light: {dark}");
+}
+
+/// How many red pixels the sphere's disc has on each side of its middle, as
+/// (screen left, screen right), plus how many are blue.
+fn sphere_redness(rig: &mut Rig) -> (f32, f32, f32) {
+    let view_proj = rig.ctx.camera3d.view_proj();
+    let center = screen(view_proj, Vec3::ZERO);
+    let radius = (screen(view_proj, vec3(1.5, 0.0, 0.0)) - center).length() * 0.8;
+    let pixels = rig.draw();
+    let (mut left, mut right, mut blue) = (0.0, 0.0, 0.0);
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            let at = Vec2::new(x as f32 + 0.5, y as f32 + 0.5);
+            if (at - center).length() > radius {
+                continue;
+            }
+            let c = rgb(&pixels, x, y);
+            if c.x > c.z + 60.0 {
+                if at.x < center.x {
+                    left += 1.0;
+                } else {
+                    right += 1.0;
+                }
+            }
+            if c.z > c.x + 60.0 {
+                blue += 1.0;
+            }
+        }
+    }
+    (left, right, blue)
+}
+
+#[test]
+fn a_probe_reflects_a_bright_wall_inside_its_box_and_the_sky_outside() {
+    let Some(mut rig) = Rig::new() else { return };
+    // The camera looks along +Z, so +X is on the screen's left.
+    rig.ctx.camera3d.position = vec3(0.0, 0.0, -6.0);
+    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    rig.ctx.lighting.sky_color = Color::rgb(0.3, 0.4, 0.8);
+    rig.ctx.lighting.ground_color = Color::rgb(0.3, 0.4, 0.8);
+    let wall = rig.mesh(&MeshData::cube(1.0), glowing(6.0));
+    let wall_transform = Transform3D {
+        scale: vec3(0.2, 8.0, 8.0),
+        ..Transform3D::at(vec3(4.0, 0.0, 0.0))
+    };
+    rig.ctx.world.spawn((wall_transform, Model::new(wall)));
+    let probe = rig.ctx.world.spawn((
+        Transform3D::default(),
+        ReflectionProbe3D {
+            size: Vec3::splat(10.0),
+            blend_distance: 0.0,
+            ..Default::default()
+        },
+    ));
+    rig.ctx.bake_reflection_probe(probe).unwrap();
+    rig.draw();
+    // The ball goes in after the capture, so it doesn't hide the room.
+    let ball = rig.mesh(&MeshData::sphere(1.5, 32), mirror(Color::WHITE));
+    rig.ctx.world.spawn((Transform3D::default(), Model::new(ball)));
+    let (left, right, _) = sphere_redness(&mut rig);
+    assert!(
+        left > 100.0 && right < 5.0,
+        "the wall at +X shows on the ball's +X side: left {left}, right {right}"
+    );
+    // Shrink the box so the ball is outside it: the sky is all there is.
+    rig.ctx.world.get_mut::<ReflectionProbe3D>(probe).unwrap().size = Vec3::splat(0.5);
+    let (left, right, blue) = sphere_redness(&mut rig);
+    assert!(
+        left < 5.0 && right < 5.0,
+        "outside the box the wall is gone: left {left}, right {right}"
+    );
+    assert!(blue > 1000.0, "outside the box the ball reflects the blue sky: {blue}");
+}
+
+/// The red weight centre of the floor's reflection, ignoring the patch seen directly.
+fn reflection_centre(rig: &mut Rig, patch: &[Vec3]) -> Option<Vec2> {
+    let view_proj = rig.ctx.camera3d.view_proj();
+    let corners: Vec<Vec2> = patch.iter().map(|&p| screen(view_proj, p)).collect();
+    let low = corners.iter().fold(Vec2::splat(f32::MAX), |a, &c| a.min(c)) - 3.0;
+    let high = corners.iter().fold(Vec2::splat(f32::MIN), |a, &c| a.max(c)) + 3.0;
+    let pixels = rig.draw();
+    let (mut sum, mut total) = (Vec2::ZERO, 0.0);
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            let at = Vec2::new(x as f32 + 0.5, y as f32 + 0.5);
+            if at.cmpge(low).all() && at.cmple(high).all() {
+                continue;
+            }
+            let c = rgb(&pixels, x, y);
+            let red = (c.x - c.y.max(c.z)).max(0.0);
+            sum += at * red;
+            total += red;
+        }
+    }
+    (total > 200.0).then(|| sum / total)
+}
+
+#[test]
+fn box_projection_moves_the_reflection_where_infinite_projection_puts_it_elsewhere() {
+    let Some(mut rig) = Rig::new() else { return };
+    // A mirror floor at y = 0 in a 16 x 10 x 16 room whose middle is at y = 3,
+    // and a glowing patch high on the +X wall. The camera looks across the
+    // floor towards that wall.
+    rig.ctx.camera3d.position = vec3(-4.0, 3.0, 0.0);
+    rig.ctx.camera3d.look_at(vec3(2.5, 0.0, 1.0));
+    rig.ctx.lighting.sky_color = Color::rgb(0.05, 0.05, 0.05);
+    rig.ctx.lighting.ground_color = Color::rgb(0.05, 0.05, 0.05);
+    let at = vec3(7.8, 5.5, 1.5);
+    let patch = rig.mesh(&MeshData::cube(1.0), glowing(8.0));
+    let patch_transform = Transform3D {
+        scale: vec3(0.2, 1.0, 1.0),
+        ..Transform3D::at(at)
+    };
+    rig.ctx.world.spawn((patch_transform, Model::new(patch)));
+    let probe = rig.ctx.world.spawn((
+        Transform3D::at(vec3(0.0, 3.0, 0.0)),
+        ReflectionProbe3D {
+            size: vec3(16.0, 10.0, 16.0),
+            blend_distance: 0.0,
+            ..Default::default()
+        },
+    ));
+    rig.ctx.bake_reflection_probe(probe).unwrap();
+    rig.draw();
+    // The floor goes in after the capture, so the capture is of the room alone.
+    let floor = rig.mesh(&MeshData::plane(30.0), mirror(Color::WHITE));
+    rig.ctx.world.spawn((Transform3D::default(), Model::new(floor)));
+    // The patch's eight corners, for masking it where the camera sees it.
+    let corners: Vec<Vec3> = (0..8u32)
+        .map(|i| {
+            let sign = |bit: u32| if i & bit == 0 { -0.5 } else { 0.5 };
+            at + vec3(0.2 * sign(1), sign(2), sign(4))
+        })
+        .collect();
+    let boxed = reflection_centre(&mut rig, &corners).expect("the floor reflects the patch");
+    rig.ctx
+        .world
+        .get_mut::<ReflectionProbe3D>(probe)
+        .unwrap()
+        .box_projection = false;
+    let infinite = reflection_centre(&mut rig, &corners).expect("the floor reflects the patch");
+    // A mirror shows a point where its mirror image through the floor is.
+    let image = screen(rig.ctx.camera3d.view_proj(), vec3(at.x, -at.y, at.z));
+    assert!(
+        boxed.distance(infinite) > 10.0,
+        "box projection shifts the reflection: {boxed} vs {infinite}"
+    );
+    assert!(
+        boxed.distance(image) < 6.0 && boxed.distance(image) * 3.0 < infinite.distance(image),
+        "box projection puts it at the true mirror image {image}: {boxed} vs {infinite}"
+    );
+}
+
+#[test]
+fn a_loaded_equirect_image_lights_the_ball_from_the_right_direction() {
+    let Some(mut rig) = Rig::new() else { return };
+    rig.ctx.camera3d.position = vec3(0.0, 0.0, -6.0);
+    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    rig.ctx.lighting.sky_color = Color::rgb(0.05, 0.05, 0.05);
+    rig.ctx.lighting.ground_color = Color::rgb(0.05, 0.05, 0.05);
+    // A bright patch from +X (the image's middle) a tenth of the way back
+    // towards -Z, around the horizon: it lies off to one side of the middle.
+    let mut image = image::Rgb32FImage::from_pixel(128, 64, image::Rgb([0.0, 0.0, 0.5]));
+    for y in 0..64u32 {
+        for x in 0..128u32 {
+            let (u, v) = (x as f32 / 128.0 - 0.5, y as f32 / 64.0 - 0.5);
+            if (-0.1..0.0).contains(&u) && v.abs() < 0.2 {
+                image.put_pixel(x, y, image::Rgb([8.0, 0.0, 0.0]));
+            }
+        }
+    }
+    let path = std::env::temp_dir().join(format!("crabby-probe-{}.exr", std::process::id()));
+    image.save(&path).unwrap();
+    let probe = rig.ctx.world.spawn((
+        Transform3D::default(),
+        ReflectionProbe3D {
+            blend_distance: 0.0,
+            box_projection: false,
+            ..Default::default()
+        },
+    ));
+    rig.ctx.load_reflection_probe(probe, path.to_str().unwrap()).unwrap();
+    std::fs::remove_file(&path).ok();
+    let ball = rig.mesh(&MeshData::sphere(1.5, 32), mirror(Color::WHITE));
+    rig.ctx.world.spawn((Transform3D::default(), Model::new(ball)));
+    let (left, right, blue) = sphere_redness(&mut rig);
+    assert!(
+        left > 100.0 && right < 5.0,
+        "the patch shows on the ball's +X side: left {left}, right {right}"
+    );
+    assert!(blue > 500.0, "the rest of the image is blue: {blue}");
+    // Its direction matters, not only its side: from the camera at -Z the
+    // patch reflects between the ball's middle and 45 degrees round it.
+    let view_proj = rig.ctx.camera3d.view_proj();
+    let (centre, edge) = (screen(view_proj, Vec3::ZERO), screen(view_proj, vec3(1.5, 0.0, 0.0)));
+    let pixels = rig.draw();
+    let radius = (edge - centre).length();
+    let ring = |from: f32, to: f32| -> usize {
+        (0..SIZE)
+            .flat_map(|y| (0..SIZE).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                let d = (Vec2::new(x as f32 + 0.5, y as f32 + 0.5) - centre).length() / radius;
+                let c = rgb(&pixels, x, y);
+                (from..to).contains(&d) && c.x > c.z + 60.0
+            })
+            .count()
+    };
+    assert!(
+        ring(0.45, 0.7) > 3 * ring(0.75, 0.9),
+        "the patch is where its direction puts it: {} inside vs {} outside",
+        ring(0.45, 0.7),
+        ring(0.75, 0.9)
+    );
+}
+
+#[test]
+fn a_probe_inside_a_bigger_one_wins_and_the_bigger_one_shows_around_it() {
+    let Some(mut rig) = Rig::new() else { return };
+    rig.ctx.camera3d.position = vec3(0.0, 0.0, -6.0);
+    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    rig.ctx.lighting.sky_color = Color::rgb(0.02, 0.02, 0.02);
+    rig.ctx.lighting.ground_color = Color::rgb(0.02, 0.02, 0.02);
+    let wall = Transform3D {
+        scale: vec3(0.2, 8.0, 8.0),
+        ..Transform3D::at(vec3(4.0, 0.0, 0.0))
+    };
+    let probe = |size: f32| {
+        (
+            Transform3D::default(),
+            ReflectionProbe3D {
+                size: Vec3::splat(size),
+                blend_distance: 0.0,
+                ..Default::default()
+            },
+        )
+    };
+    // The big room's wall glows red; then the wall changes, and the small
+    // room inside it is captured with a blue one.
+    let red = rig.mesh(&MeshData::cube(1.0), glowing(6.0));
+    let wall_entity = rig.ctx.world.spawn((wall, Model::new(red)));
+    let big = rig.ctx.world.spawn(probe(12.0));
+    rig.ctx.bake_reflection_probe(big).unwrap();
+    rig.draw();
+    rig.ctx.world.despawn(wall_entity);
+    let blue = rig.mesh(&MeshData::cube(1.0), glowing_colour(Color::rgb(0.0, 0.0, 6.0)));
+    rig.ctx.world.spawn((wall, Model::new(blue)));
+    let small = rig.ctx.world.spawn(probe(9.0));
+    rig.ctx.bake_reflection_probe(small).unwrap();
+    rig.draw();
+    let ball = rig.mesh(&MeshData::sphere(1.5, 32), mirror(Color::WHITE));
+    rig.ctx.world.spawn((Transform3D::default(), Model::new(ball)));
+    let (red_left, _, blue_pixels) = sphere_redness(&mut rig);
+    assert!(
+        blue_pixels > 100.0 && red_left < 5.0,
+        "inside both, the smaller probe wins: red {red_left}, blue {blue_pixels}"
+    );
+    rig.ctx.world.get_mut::<ReflectionProbe3D>(small).unwrap().size = Vec3::splat(0.5);
+    let (red_left, _, blue_pixels) = sphere_redness(&mut rig);
+    assert!(
+        red_left > 100.0 && blue_pixels < 5.0,
+        "outside the smaller one, the bigger probe shows: red {red_left}, blue {blue_pixels}"
+    );
+}
+
+#[test]
+fn the_atmosphere_lights_a_rough_sphere_and_follows_the_sun_down() {
+    let Some(mut rig) = Rig::new() else { return };
+    let ball = rig.mesh(&MeshData::sphere(1.5, 32), matte(Color::WHITE));
+    rig.ctx.world.spawn((Transform3D::default(), Model::new(ball)));
+    // The camera is on the -X side, where the low sun (in +X) doesn't light
+    // the ball directly: what's seen is the sky's light alone.
+    rig.ctx.camera3d.position = vec3(-6.0, 0.0, 0.0);
+    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    rig.ctx.sky.atmosphere = true;
+    rig.ctx.sky.night_light = Color::BLACK;
+    rig.ctx.lighting.sun_intensity = 3.0;
+    let centre = |rig: &mut Rig| {
+        let pixels = rig.draw();
+        rgb(&pixels, SIZE / 2, SIZE / 2)
+    };
+    rig.ctx.lighting.sun_direction = vec3(-1.0, -0.3, 0.0);
+    let day = centre(&mut rig);
+    assert!(
+        day.z > 30.0 && day.z >= day.x,
+        "the daytime sky lights the ball blue-ish: {day}"
+    );
+    rig.ctx.lighting.sun_direction = vec3(-1.0, 0.5, 0.0);
+    let night = centre(&mut rig);
+    assert!(
+        night.max_element() * 3.0 < day.max_element(),
+        "the baked sky follows the sun below the horizon: {day} then {night}"
+    );
+}

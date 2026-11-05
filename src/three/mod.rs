@@ -28,6 +28,8 @@ pub use particles::{
 };
 mod decal;
 mod post;
+pub(crate) mod probe;
+pub use probe::ReflectionProbe3D;
 mod skin;
 pub(crate) mod strips;
 pub use strips::{Line3D, Trail3D};
@@ -649,6 +651,7 @@ pub(crate) struct Assets3D {
     pub morph_bases: std::collections::HashMap<crate::Entity, (u32, MorphWeights, MorphWeights)>,
     /// Bounding sphere of each mesh, in its own space: center and radius.
     pub bounds: Vec<(Vec3, f32)>,
+    pub probes: probe::ProbeAssets,
     /// How each skinned mesh binds to joints, by mesh id; shorter than
     /// `bounds` when the last ones aren't skinned.
     pub skins: Vec<Option<std::sync::Arc<MeshSkin>>>,

@@ -461,6 +461,11 @@ impl Ctx {
             ),
             None => FrameStatus::Skipped,
         };
+        #[cfg(feature = "3d")]
+        // A frame that wasn't drawn hands its probe captures to the next one.
+        self.assets3d
+            .probes
+            .settle(!matches!(status, FrameStatus::Occluded | FrameStatus::Skipped));
         self.last_render_stats = self.renderer.as_ref().map(Renderer::stats).unwrap_or_default();
         if let Some(renderer) = &self.renderer {
             self.gpu_passes.clear();

@@ -23,6 +23,7 @@ taffy = { version = "0.15.1", default-features = false, features = ["std", "taff
 navmesh-rs = { version = "0.2.1", optional = true, default-features = false, features = ["std", "libm", "recast", "detour", "crowd", "tilecache", "polyref64"] }
 renet = "2.0.0"
 crabby_ecs = { path = "crates/crabby_ecs", version = "1.0.0", features = ["serde"] }
+half = "2.7.1"
 bytemuck = { version = "1.25.2", features = ["derive"] }
 glam = { version = "0.34.2", features = ["serde"] }
 image = { version = "0.25.10", default-features = false, features = ["png"] }
@@ -106,7 +107,7 @@ physics-determinism = ["physics", "rapier2d/enhanced-determinism", "rapier3d?/en
 # 3D: meshes, materials, glTF models, a perspective camera and sun light,
 # drawn under the 2D layer (`Transform3D`, `Model`, `ctx.camera3d`).
 # Off: no 3D pass, no glTF loader in the build.
-3d = ["dep:gltf", "image/jpeg"]
+3d = ["dep:gltf", "image/jpeg", "image/hdr", "image/exr"]
 
 [[example]]
 name = "physics"

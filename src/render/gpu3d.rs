@@ -163,6 +163,7 @@ struct FrameUniform {
     /// x: how many light shadow views, y: one texel in uv, z: how far the
     /// lookup moves along the normal (in texels).
     light_shadow: [f32; 4],
+    probes: [crate::three::probe::ProbeUniform; 4],
 }
 
 #[path = "skinning.rs"]
@@ -496,6 +497,8 @@ pub(crate) struct Renderer3D {
     /// The physical sky: made into `sky_view` each frame, then drawn behind
     /// everything. Only with an atmosphere.
     sky_view: wgpu::TextureView,
+    sky_texture: wgpu::Texture,
+    environment: super::environment::Environment,
     sky_lut: wgpu::RenderPipeline,
     sky: wgpu::RenderPipeline,
     atmosphere: bool,
@@ -898,22 +901,24 @@ impl Renderer3D {
             compare: Some(wgpu::CompareFunction::LessEqual),
             ..Default::default()
         });
-        let sky_view = device
-            .create_texture(&wgpu::TextureDescriptor {
-                label: Some("3d sky"),
-                size: wgpu::Extent3d {
-                    width: SKY_SIZE.0,
-                    height: SKY_SIZE.1,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: HDR_FORMAT,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            })
-            .create_view(&Default::default());
+        let sky_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("3d sky"),
+            size: wgpu::Extent3d {
+                width: SKY_SIZE.0,
+                height: SKY_SIZE.1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: HDR_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let sky_view = sky_texture.create_view(&Default::default());
+        let environment = super::environment::Environment::new(device, &sky_view);
         let sky_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("3d sky"),
             // Around the horizon it wraps; up and down it stops.
@@ -1007,7 +1012,7 @@ impl Renderer3D {
             shadow_view,
             light_shadow_view: stand_in("3d no light shadows", DEPTH_FORMAT, wgpu::TextureViewDimension::D2Array),
             shadow_sampler,
-            sky_view: sky_view.clone(),
+            sky_view: environment.atlas.create_view(&Default::default()),
             sky_sampler,
         };
         let lights = LightTextures::new(device);
@@ -1130,6 +1135,8 @@ impl Renderer3D {
             bloom: false,
             frame_buffer,
             sky_view,
+            sky_texture,
+            environment,
             sky_lut,
             sky,
             atmosphere: false,
@@ -1679,6 +1686,7 @@ impl Renderer3D {
         }
         let mut uniform = FrameUniform {
             light_view_proj,
+            probes: frame.probes,
             // Light shadows move out along the normal by 1.5 texels too.
             light_shadow: [frame.light_views as f32, 1.0 / LIGHT_SHADOW_SIZE as f32, 1.5, 0.0],
             cluster_depth: frame.lights.depth,
@@ -1737,6 +1745,37 @@ impl Renderer3D {
                 sky.fog_sun_focus.clamp(0.0, 0.99),
             ],
         };
+        self.environment.prepare(
+            queue,
+            [
+                sun.x,
+                sun.y,
+                sun.z,
+                sky.haze,
+                camera.y,
+                lighting.ambient_intensity,
+                light.sky.x,
+                light.sky.y,
+                light.sky.z,
+                light.ground.x,
+                light.ground.y,
+                light.ground.z,
+                uniform.sky_light[0],
+                uniform.sky_light[1],
+                uniform.sky_light[2],
+                uniform.night[0],
+                uniform.night[1],
+                uniform.night[2],
+            ],
+            sky.atmosphere,
+            lighting.ambient_intensity,
+            uniform.sky,
+            uniform.ground,
+        );
+        self.environment.upload(device, queue, &frame.probe_uploads);
+        self.environment.bakes.clear();
+        self.environment.bakes.extend_from_slice(&frame.probe_bakes);
+        self.environment.prepare_bakes(device, &self.render_targets);
         queue.write_buffer(&self.frame_buffer, 0, bytemuck::bytes_of(&uniform));
         // Each target camera's frame: the same, seen from it.
         for view in &frame.views {
@@ -1750,6 +1789,10 @@ impl Renderer3D {
                         .bind_group(device, &target_lights.frame_buffer, &target_lights.lights);
             }
             let mut theirs = uniform;
+            // Captures use sky IBL only, preventing recursive probe feedback.
+            if frame.probe_bakes.iter().any(|(_, faces)| faces.contains(&view.target)) {
+                theirs.probes.fill(Default::default());
+            }
             theirs.cluster_depth = view.frame.lights.depth;
             theirs.cluster_view_proj = view.frame.view_proj.to_cols_array_2d();
             theirs.view_proj = view.view_proj.to_cols_array_2d();
@@ -2116,7 +2159,7 @@ impl Renderer3D {
                 });
             }
         }
-        if !self.views.is_empty() {
+        if !self.views.is_empty() || self.environment.has_probes() {
             parts.push(Part::Views);
         }
         parts.extend([Part::Prepass, Part::Opaque]);
@@ -2198,7 +2241,7 @@ impl Renderer3D {
                         state.target.size(),
                     );
                 }
-                if self.atmosphere {
+                if self.atmosphere && self.environment.needs_sky() {
                     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("3d sky texture"),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -2219,6 +2262,7 @@ impl Renderer3D {
                     pass.set_bind_group(0, &self.shadow_bind_group, &[0]);
                     pass.draw(0..3, 0..1);
                 }
+                self.environment.sky(encoder, &self.sky_texture);
             }
             Part::Shadow { cascade, first, end } => {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -2257,9 +2301,13 @@ impl Renderer3D {
             Part::Views => {
                 // Target cameras, before the main view, whose materials may read them.
                 for (target, runs) in &self.views {
-                    let target = &self.view_targets[*target].1;
+                    let (id, target) = &self.view_targets[*target];
+                    // Probe captures start empty (alpha 0): the sky fills in behind them.
+                    let capture = self.environment.is_capture(*id);
+                    let clear = if capture { wgpu::Color::TRANSPARENT } else { clear };
                     self.draw_view(encoder, target, runs, clear, time);
                 }
+                self.environment.probes(encoder);
             }
             Part::Prepass => {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -3024,6 +3072,7 @@ mod tests {
         assert_eq!(*span as usize, size_of::<FrameUniform>());
         for (name, offset) in [
             ("fog_far", std::mem::offset_of!(FrameUniform, fog_far)),
+            ("probes", std::mem::offset_of!(FrameUniform, probes)),
             ("cluster_depth", std::mem::offset_of!(FrameUniform, cluster_depth)),
             (
                 "cluster_view_proj",
@@ -3090,6 +3139,11 @@ mod tests {
     #[test]
     fn the_sky_shader_is_valid() {
         check_shader("sky", &format!("{MESH_PRELUDE}\n{SKY}")).unwrap();
+    }
+
+    #[test]
+    fn the_environment_shader_is_valid() {
+        check_shader("environment", include_str!("environment.wgsl")).unwrap();
     }
 
     #[test]

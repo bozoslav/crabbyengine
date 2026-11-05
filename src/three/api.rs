@@ -793,9 +793,54 @@ impl Ctx {
     /// Engine side, before drawing: collect the visible models and hand
     /// them, the camera and the light to the renderer.
     /// What each target camera into a real render target sees.
-    fn collect_views(&mut self, skins: &super::SkinFrame) {
+    pub(crate) fn collect_views(&mut self, skins: &super::SkinFrame) {
         let targets = &self.assets3d.render_targets;
-        let cameras = self.target_cameras.iter().filter(|c| targets.contains(&c.target));
+        let mut capture_cameras = Vec::new();
+        self.frame3d.probe_bakes.clear();
+        self.frame3d.probe_uploads.clear();
+        self.assets3d.probes.take_requests();
+        self.frame3d
+            .probe_uploads
+            .extend(self.assets3d.probes.in_flight_uploads.iter().cloned());
+        for &(slot, center) in &self.assets3d.probes.in_flight {
+            let faces = self.assets3d.probes.captures[slot as usize - 1];
+            self.frame3d.probe_bakes.push((slot, faces.map(|t| t.id)));
+            for (face, target) in faces.into_iter().enumerate() {
+                let (direction, up) = match face {
+                    0 => (Vec3::X, Vec3::Y),
+                    1 => (-Vec3::X, Vec3::Y),
+                    2 => (Vec3::Y, -Vec3::Z),
+                    3 => (-Vec3::Y, Vec3::Z),
+                    4 => (Vec3::Z, Vec3::Y),
+                    _ => (-Vec3::Z, Vec3::Y),
+                };
+                let mut camera = self.camera3d;
+                camera.position = center;
+                camera.rotation = glam::Quat::from_mat3(&glam::Mat3::from_cols(direction.cross(up), up, -direction));
+                camera.fov_y = std::f32::consts::FRAC_PI_2;
+                camera.near = 0.05;
+                capture_cameras.push(super::TargetCamera::new(camera, target));
+            }
+        }
+        self.frame3d.probes.fill(Default::default());
+        for (t, p) in self
+            .world
+            .query::<(&super::Transform3D, &super::ReflectionProbe3D)>()
+            .iter()
+        {
+            if (1..=4).contains(&p.content) && p.weight(t.position, t.position) > 0.0 {
+                self.frame3d.probes[p.content as usize - 1] = super::probe::ProbeUniform {
+                    center: t.position.extend(p.content as f32).to_array(),
+                    size: (p.size * 0.5).extend(p.blend_distance.max(0.0)).to_array(),
+                    params: [p.intensity, f32::from(p.box_projection), 0.0, 0.0],
+                };
+            }
+        }
+        let cameras = self
+            .target_cameras
+            .iter()
+            .chain(capture_cameras.iter())
+            .filter(|c| targets.contains(&c.target));
         let count = cameras.clone().count();
         let views = &mut self.frame3d.views;
         views.resize_with(count, Default::default);

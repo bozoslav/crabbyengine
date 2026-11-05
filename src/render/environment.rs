@@ -1,0 +1,340 @@
+//! Render-pass IBL baking using the existing sky texture binding.
+use super::gpu3d::HDR_FORMAT;
+use std::sync::atomic::{AtomicBool, Ordering};
+use wgpu::util::DeviceExt;
+
+pub(super) struct Environment {
+    pub atlas: wgpu::Texture,
+    source: wgpu::Texture,
+    source_group: wgpu::BindGroup,
+    sky_group: wgpu::BindGroup,
+    buffers: Vec<wgpu::Buffer>,
+    groups: Vec<wgpu::BindGroup>,
+    cube: wgpu::RenderPipeline,
+    filter: wgpu::RenderPipeline,
+    diffuse: wgpu::RenderPipeline,
+    brdf: wgpu::RenderPipeline,
+    capture: wgpu::RenderPipeline,
+    layout: wgpu::BindGroupLayout,
+    sampler: wgpu::Sampler,
+    capture_groups: Vec<(u32, Vec<wgpu::BindGroup>)>,
+    /// Set until the frame that records the sky bake is drawn: a frame that
+    /// is prepared but then skipped (hidden window) must not lose the bake.
+    brdf_pending: AtomicBool,
+    dirty: AtomicBool,
+    pub bakes: Vec<(u32, [u32; 6])>,
+    uploads: Vec<(u32, wgpu::Texture)>,
+    key: Option<[f32; 18]>,
+}
+impl Environment {
+    pub fn new(device: &wgpu::Device, sky: &wgpu::TextureView) -> Self {
+        let texture = |label, width, height| {
+            device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: HDR_FORMAT,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            })
+        };
+        let atlas = texture("IBL atlas", 1024, 1536);
+        let source = texture("IBL cube source", 768, 128);
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("IBL bake"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let buffers: Vec<_> = (0..5)
+            .map(|slot| {
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("IBL config"),
+                    contents: bytemuck::cast_slice(&[[slot as f32, 0.0, 1.0, 0.0], [0.0; 4], [0.0; 4]]),
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                })
+            })
+            .collect();
+        let group = |view: &wgpu::TextureView, buffer: &wgpu::Buffer| {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("IBL source"),
+                layout: &layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: buffer.as_entire_binding(),
+                    },
+                ],
+            })
+        };
+        let source_view = source.create_view(&Default::default());
+        let source_group = group(&source_view, &buffers[0]);
+        let sky_group = group(sky, &buffers[0]);
+        let groups = buffers.iter().map(|b| group(&source_view, b)).collect();
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("IBL bake"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("environment.wgsl").into()),
+        });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("IBL bake"),
+            bind_group_layouts: &[Some(&layout)],
+            immediate_size: 0,
+        });
+        let pipeline = |entry| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(entry),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &module,
+                    entry_point: Some("vertex"),
+                    compilation_options: Default::default(),
+                    buffers: &[],
+                },
+                primitive: Default::default(),
+                depth_stencil: None,
+                multisample: Default::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &module,
+                    entry_point: Some(entry),
+                    compilation_options: Default::default(),
+                    targets: &[Some(HDR_FORMAT.into())],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        Self {
+            cube: pipeline("cube"),
+            filter: pipeline("prefilter"),
+            diffuse: pipeline("diffuse"),
+            brdf: pipeline("brdf"),
+            capture: pipeline("capture"),
+            layout,
+            sampler,
+            capture_groups: Vec::new(),
+            atlas,
+            source,
+            source_group,
+            sky_group,
+            buffers,
+            groups,
+            brdf_pending: AtomicBool::new(true),
+            dirty: AtomicBool::new(true),
+            bakes: Vec::new(),
+            key: None,
+            uploads: Vec::new(),
+        }
+    }
+    pub fn prepare(
+        &mut self,
+        queue: &wgpu::Queue,
+        key: [f32; 18],
+        atmosphere: bool,
+        intensity: f32,
+        sky: [f32; 4],
+        ground: [f32; 4],
+    ) {
+        if self.key != Some(key) {
+            self.dirty.store(true, Ordering::Relaxed);
+        }
+        self.key = Some(key);
+        queue.write_buffer(
+            &self.buffers[0],
+            0,
+            bytemuck::cast_slice(&[[0.0, f32::from(atmosphere), intensity, 0.0], sky, ground]),
+        );
+    }
+    fn draw(
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::Texture,
+        pipeline: &wgpu::RenderPipeline,
+        group: &wgpu::BindGroup,
+        rect: [u32; 4],
+    ) {
+        let view = target.create_view(&Default::default());
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("IBL bake"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_viewport(rect[0] as f32, rect[1] as f32, rect[2] as f32, rect[3] as f32, 0.0, 1.0);
+        pass.set_scissor_rect(rect[0], rect[1], rect[2], rect[3]);
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, group, &[]);
+        pass.draw(0..3, 0..1);
+    }
+    fn filter(&self, encoder: &mut wgpu::CommandEncoder, slot: u32) {
+        let y = 128 + slot * 256;
+        Self::draw(
+            encoder,
+            &self.atlas,
+            &self.filter,
+            &self.groups[slot as usize],
+            [0, y, 768, 255],
+        );
+        Self::draw(
+            encoder,
+            &self.atlas,
+            &self.diffuse,
+            &self.groups[slot as usize],
+            [800, y, 96, 16],
+        );
+    }
+    pub fn sky(&self, encoder: &mut wgpu::CommandEncoder, sky: &wgpu::Texture) {
+        if self.brdf_pending.swap(false, Ordering::Relaxed) {
+            Self::draw(encoder, &self.atlas, &self.brdf, &self.source_group, [800, 0, 128, 128]);
+        }
+        if self.dirty.swap(false, Ordering::Relaxed) {
+            encoder.copy_texture_to_texture(sky.as_image_copy(), self.atlas.as_image_copy(), sky.size());
+            Self::draw(encoder, &self.source, &self.cube, &self.sky_group, [0, 0, 768, 128]);
+            self.filter(encoder, 0);
+        }
+    }
+    pub fn upload(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, uploads: &[(u32, std::sync::Arc<Vec<u16>>)]) {
+        self.uploads.clear();
+        for (slot, data) in uploads {
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("loaded probe"),
+                size: self.source.size(),
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: HDR_FORMAT,
+                usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[],
+            });
+            queue.write_texture(
+                texture.as_image_copy(),
+                bytemuck::cast_slice(data),
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(768 * 8),
+                    rows_per_image: Some(128),
+                },
+                texture.size(),
+            );
+            self.uploads.push((*slot, texture));
+        }
+    }
+    /// Whether this frame re-renders the sky environment.
+    pub fn needs_sky(&self) -> bool {
+        self.dirty.load(Ordering::Relaxed)
+    }
+    pub fn is_capture(&self, target: u32) -> bool {
+        self.bakes.iter().any(|(_, faces)| faces.contains(&target))
+    }
+    pub fn has_probes(&self) -> bool {
+        !self.bakes.is_empty() || !self.uploads.is_empty()
+    }
+    /// Binds each captured face of this frame's bakes, for `probes`.
+    pub fn prepare_bakes(&mut self, device: &wgpu::Device, targets: &[(u32, wgpu::Texture)]) {
+        self.capture_groups.clear();
+        for &(slot, faces) in &self.bakes {
+            let groups: Vec<_> = faces
+                .iter()
+                .filter_map(|id| targets.iter().find(|(t, _)| t == id))
+                .map(|(_, texture)| {
+                    let view = texture.create_view(&Default::default());
+                    device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("IBL capture"),
+                        layout: &self.layout,
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: wgpu::BindingResource::TextureView(&view),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: wgpu::BindingResource::Sampler(&self.sampler),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 2,
+                                resource: self.buffers[0].as_entire_binding(),
+                            },
+                        ],
+                    })
+                })
+                .collect();
+            if groups.len() == 6 {
+                self.capture_groups.push((slot, groups));
+            }
+        }
+    }
+    pub fn probes(&self, encoder: &mut wgpu::CommandEncoder) {
+        for (slot, texture) in &self.uploads {
+            encoder.copy_texture_to_texture(texture.as_image_copy(), self.source.as_image_copy(), texture.size());
+            self.filter(encoder, *slot);
+        }
+        for (slot, groups) in &self.capture_groups {
+            // Each face lands in the cube strip, with the sky behind what the
+            // capture didn't cover.
+            for (face, group) in groups.iter().enumerate() {
+                Self::draw(
+                    encoder,
+                    &self.source,
+                    &self.capture,
+                    group,
+                    [face as u32 * 128, 0, 128, 128],
+                );
+            }
+            self.filter(encoder, *slot);
+        }
+    }
+}

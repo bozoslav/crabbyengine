@@ -39,6 +39,9 @@ type Entry = (u32, Instance3D, bool, u32);
 #[derive(Default)]
 pub(crate) struct Frame3D {
     pub instances: Vec<Instance3D>,
+    pub probes: [super::probe::ProbeUniform; 4],
+    pub probe_uploads: Vec<(u32, std::sync::Arc<Vec<u16>>)>,
+    pub probe_bakes: Vec<(u32, [u32; 6])>,
     pub particles: super::particles::ParticleFrame,
     pub lights: super::lights::LightGrid,
     /// (mesh id, first instance, count) for the camera, in mesh order.
