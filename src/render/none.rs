@@ -108,10 +108,12 @@ impl Renderer {
     pub fn prepare_3d(&mut self, _scene: &crate::three::Scene3D<'_>, _collect_ms: f32) {
         match *self {}
     }
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
         _world: &mut DrawList,
         _ui: &mut DrawList,
+        _panels: &mut [super::batch::PanelDraw],
         _clear: Color,
         _world_view: Mat4,
         _ui_view: Mat4,

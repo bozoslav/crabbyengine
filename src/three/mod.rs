@@ -31,6 +31,8 @@ mod post;
 mod skin;
 pub(crate) mod strips;
 pub use strips::{Line3D, Trail3D};
+pub(crate) mod text3d;
+pub use text3d::{Text3D, TextAlign3D};
 mod sky;
 mod target;
 mod terrain;

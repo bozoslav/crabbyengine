@@ -42,7 +42,18 @@ impl Ctx {
     }
 
     pub(crate) fn update_retained_ui(&mut self) {
-        let mut text = std::mem::take(&mut self.ui.retained_input_text);
+        let text = std::mem::take(&mut self.ui.retained_input_text);
+        let input = self.retained_input(&self.ui_retained, text);
+        self.ui_retained
+            .frame_with_text(self.window_size(), &input, &mut self.text);
+        self.ui.retained_input_text = input.text;
+        #[cfg(feature = "3d")]
+        self.update_ui_panels();
+    }
+
+    /// This frame's input for `ui`, as the window's mouse, keyboard and
+    /// gamepads give it; `text` (emptied) receives the typed text.
+    pub(super) fn retained_input(&self, ui: &crate::Ui, mut text: String) -> crate::UiInput {
         text.clear();
         text.push_str(self.typed_text());
         let pressed = |key| self.key_pressed(key);
@@ -52,7 +63,7 @@ impl Ctx {
             || self.key_down(Key::RightCtrl)
             || self.key_down(Key::LeftSuper)
             || self.key_down(Key::RightSuper);
-        let input = crate::UiInput {
+        crate::UiInput {
             pointer: self.mouse_pos(),
             pressed: self.mouse_pressed(MouseButton::Left),
             held: self.mouse_down(MouseButton::Left),
@@ -69,11 +80,9 @@ impl Ctx {
             confirm: pressed(Key::Enter)
                 || pad(GamepadButton::South)
                 || (pressed(Key::Space)
-                    && !self.ui_retained.focus().is_some_and(|id| {
-                        self.ui_retained
-                            .node(id)
-                            .is_some_and(|n| n.widget == crate::UiWidget::TextInput)
-                    })),
+                    && !ui
+                        .focus()
+                        .is_some_and(|id| ui.node(id).is_some_and(|n| n.widget == crate::UiWidget::TextInput))),
             cancel: pressed(Key::Escape) || pad(GamepadButton::East),
             shift,
             select_all: ctrl && pressed(Key::A),
@@ -82,10 +91,7 @@ impl Ctx {
             home: pressed(Key::Home),
             end: pressed(Key::End),
             text,
-        };
-        self.ui_retained
-            .frame_with_text(self.window_size(), &input, &mut self.text);
-        self.ui.retained_input_text = input.text;
+        }
     }
 
     pub(crate) fn draw_retained_ui(&mut self) {
@@ -93,17 +99,23 @@ impl Ctx {
         // game, context and node tree simultaneously is required.
         let spare = self.ui.retained_spare.take().unwrap_or_default();
         let mut ui = std::mem::replace(&mut self.ui_retained, spare);
+        self.draw_ui_tree(&mut ui, self.window_size());
+        std::mem::swap(&mut self.ui_retained, &mut ui);
+        self.ui.retained_spare = Some(ui);
+    }
+
+    /// Draws `ui`, laid out in `viewport`, into `ui_list`.
+    pub(super) fn draw_ui_tree(&mut self, ui: &mut crate::Ui, viewport: Vec2) {
         // Mutations made by game systems (including screen pushes) show now.
-        ui.layout_with_text(self.window_size(), &mut self.text);
+        ui.layout_with_text(viewport, &mut self.text);
         let scale = ui.scale();
         for (order, &id) in ui.visible.iter().enumerate() {
             let n = ui.node(id).unwrap();
             let z = 100.0 + order as f32 * 4.0;
             if ui.modal_root(id) {
                 self.ui_list.set_clip(None);
-                let size = self.window_size();
                 self.ui_fill(
-                    Rect::new(0.0, 0.0, size.x, size.y),
+                    Rect::new(0.0, 0.0, viewport.x, viewport.y),
                     Color::rgba(0.0, 0.0, 0.0, 0.55),
                     z - 1.0,
                 );
@@ -239,8 +251,6 @@ impl Ctx {
             }
         }
         self.ui_list.set_clip(None);
-        std::mem::swap(&mut self.ui_retained, &mut ui);
-        self.ui.retained_spare = Some(ui);
     }
     fn retained_text(
         &mut self,

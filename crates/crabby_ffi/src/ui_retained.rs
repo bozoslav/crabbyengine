@@ -11,6 +11,11 @@
 //! positioning); start from `crabby_ui_layout_default()`. Looks are a
 //! `CrabbyUiPaint`. Enum-valued fields are `uint32_t` holding the constants of
 //! the matching `CrabbyUi*` enum, so a bad value is an error, not undefined.
+//!
+//! Tree operations take a `target`: `CRABBY_UI_SCREEN` for the screen's own UI, or an
+//! entity with a world-space panel (`crabby_ctx_create_ui_panel`) to work on
+//! that panel's UI with the same calls. Node ids belong to the UI that made them.
+//! Text insertion and keyboard capture are context-wide input operations.
 use std::ffi::c_char;
 
 use crabbyengine::ui_layout::{
@@ -18,7 +23,7 @@ use crabbyengine::ui_layout::{
     LengthPercentage, LengthPercentageAuto, Line, Position, Rect as Edges, Size, Style, TrackSizingFunction,
     style_helpers::{TaffyGridLine, TaffyGridSpan},
 };
-use crabbyengine::{Color, UiEvent, UiId, UiPaint, UiTextAlign, UiWidget};
+use crabbyengine::{Color, Entity, Ui, UiEvent, UiId, UiPaint, UiPanel3D, UiTextAlign, UiWidget};
 
 use crate::ctx::{ctx_access, out, text};
 use crate::media::{font_from_c, font_to_c};
@@ -31,6 +36,15 @@ use crate::{CrabbyCtx, CrabbyFont, CrabbyStatus, Failure, boundary, error, inval
 /// assert_eq!(crabby_ffi::CRABBY_UI_NONE, u64::MAX);
 /// ```
 pub const CRABBY_UI_NONE: u64 = u64::MAX;
+
+/// The `target` of the UI calls that means the screen's own UI. Any other
+/// target is an entity with a world-space panel (`crabby_ctx_create_ui_panel`),
+/// whose UI the call works on instead. Node ids are local to a UI: always use
+/// the target that created them. The same numeric id can exist in several UIs.
+/// ```
+/// assert_eq!(crabby_ffi::CRABBY_UI_SCREEN, u64::MAX);
+/// ```
+pub const CRABBY_UI_SCREEN: u64 = u64::MAX;
 
 /// Which layout algorithm a node uses (`CrabbyUiLayout::display`).
 /// ```
@@ -915,9 +929,9 @@ unsafe fn optional_text<'a>(ptr: *const c_char) -> Result<&'a str, Failure> {
     }
 }
 
-fn existing(c: &crabbyengine::Ctx, id: u64) -> Result<UiId, Failure> {
+fn existing(ui: &Ui, id: u64) -> Result<UiId, Failure> {
     let id = UiId::from_bits(id);
-    if c.ui_retained.rect(id).is_some() {
+    if ui.rect(id).is_some() {
         Ok(id)
     } else {
         Err(error(CrabbyStatus::CRABBY_NOT_FOUND, "UI node not found"))
@@ -939,6 +953,35 @@ fn id_to_c(id: Option<UiId>) -> u64 {
     id.map_or(CRABBY_UI_NONE, UiId::bits)
 }
 
+/// The UI a `target` names: the screen's, or the one of the world-space panel
+/// on an entity.
+pub(crate) fn ui_of(c: &mut crabbyengine::Ctx, target: u64) -> Result<&mut Ui, Failure> {
+    if target == CRABBY_UI_SCREEN {
+        return Ok(&mut c.ui_retained);
+    }
+    let e = Entity::from_bits(target);
+    if !c.world.is_alive(e) {
+        return Err(invalid("no such entity"));
+    }
+    c.world
+        .get_mut::<UiPanel3D>(e)
+        .map(|panel| &mut panel.ui)
+        .ok_or_else(|| error(CrabbyStatus::CRABBY_NOT_FOUND, "entity has no UI panel"))
+}
+
+/// Runs `f` on the UI of `target`.
+///
+/// # Safety
+/// Forwards the caller's contract for `ctx`.
+unsafe fn with_ui<R>(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    f: impl FnOnce(&mut Ui) -> Result<R, Failure>,
+) -> Result<R, Failure> {
+    // SAFETY: forwarded caller contract.
+    unsafe { ctx_access(ctx, |c| f(ui_of(c, target)?)) }
+}
+
 // ---- building the tree -------------------------------------------------------
 
 /// What a new node starts with besides its layout.
@@ -955,6 +998,7 @@ struct Start<'a> {
 /// Forwards the caller's contract for `ctx`, `layout` and `out_id`.
 unsafe fn add(
     ctx: *mut CrabbyCtx,
+    target: u64,
     parent: u64,
     widget: UiWidget,
     layout: *const CrabbyUiLayout,
@@ -968,9 +1012,8 @@ unsafe fn add(
     let style = unsafe { style_or_default(layout)? };
     // SAFETY: as above.
     unsafe {
-        ctx_access(ctx, |c| {
-            let parent = (parent != CRABBY_UI_NONE).then(|| existing(c, parent)).transpose()?;
-            let ui = &mut c.ui_retained;
+        with_ui(ctx, target, |ui| {
+            let parent = (parent != CRABBY_UI_NONE).then(|| existing(ui, parent)).transpose()?;
             let id = match parent {
                 Some(parent) => ui.add_child(parent, widget, style),
                 None => ui.add(widget, style),
@@ -999,7 +1042,7 @@ fn plain(text: &str) -> Start<'_> {
 /// under, or `CRABBY_UI_NONE` for a detached root (to push as a screen). A null
 /// `layout` is the default. Writes the new id to `out_id`.
 /// ```
-/// let status = unsafe { crabby_ffi::crabby_ctx_ui_add_panel(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_NONE, std::ptr::null(), std::ptr::null_mut()) };
+/// let status = unsafe { crabby_ffi::crabby_ctx_ui_add_panel(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, crabby_ffi::CRABBY_UI_NONE, std::ptr::null(), std::ptr::null_mut()) };
 /// assert_eq!(status as u32, 1);
 /// ```
 /// # Safety
@@ -1007,18 +1050,19 @@ fn plain(text: &str) -> Start<'_> {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_ui_add_panel(
     ctx: *mut CrabbyCtx,
+    target: u64,
     parent: u64,
     layout: *const CrabbyUiLayout,
     out_id: *mut u64,
 ) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    boundary(|| unsafe { add(ctx, parent, UiWidget::Panel, layout, out_id, plain("")) })
+    boundary(|| unsafe { add(ctx, target, parent, UiWidget::Panel, layout, out_id, plain("")) })
 }
 
 /// Adds a label showing `text` (null for none). See `crabby_ctx_ui_add_panel`
 /// for `parent`, `layout` and `out_id`.
 /// ```
-/// let status = unsafe { crabby_ffi::crabby_ctx_ui_add_label(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_NONE, c"Hi".as_ptr(), std::ptr::null(), std::ptr::null_mut()) };
+/// let status = unsafe { crabby_ffi::crabby_ctx_ui_add_label(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, crabby_ffi::CRABBY_UI_NONE, c"Hi".as_ptr(), std::ptr::null(), std::ptr::null_mut()) };
 /// assert_eq!(status as u32, 1);
 /// ```
 /// # Safety
@@ -1026,6 +1070,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_add_panel(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_ui_add_label(
     ctx: *mut CrabbyCtx,
+    target: u64,
     parent: u64,
     text: *const c_char,
     layout: *const CrabbyUiLayout,
@@ -1035,6 +1080,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_add_label(
     boundary(|| unsafe {
         add(
             ctx,
+            target,
             parent,
             UiWidget::Label,
             layout,
@@ -1047,7 +1093,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_add_label(
 /// Adds a button labelled `text` (null for none). Activating it queues
 /// `CRABBY_UI_EVENT_CLICKED`. See `crabby_ctx_ui_add_panel` for the rest.
 /// ```
-/// let status = unsafe { crabby_ffi::crabby_ctx_ui_add_button(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_NONE, c"Buy".as_ptr(), std::ptr::null(), std::ptr::null_mut()) };
+/// let status = unsafe { crabby_ffi::crabby_ctx_ui_add_button(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, crabby_ffi::CRABBY_UI_NONE, c"Buy".as_ptr(), std::ptr::null(), std::ptr::null_mut()) };
 /// assert_eq!(status as u32, 1);
 /// ```
 /// # Safety
@@ -1055,6 +1101,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_add_label(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_ui_add_button(
     ctx: *mut CrabbyCtx,
+    target: u64,
     parent: u64,
     text: *const c_char,
     layout: *const CrabbyUiLayout,
@@ -1064,6 +1111,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_add_button(
     boundary(|| unsafe {
         add(
             ctx,
+            target,
             parent,
             UiWidget::Button,
             layout,
@@ -1078,7 +1126,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_add_button(
 /// for the rest.
 /// ```
 /// let t = crabby_ffi::CrabbyTexture { id: 0, width: 1, height: 1 };
-/// let status = unsafe { crabby_ffi::crabby_ctx_ui_add_image(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_NONE, t, std::ptr::null(), std::ptr::null_mut()) };
+/// let status = unsafe { crabby_ffi::crabby_ctx_ui_add_image(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, crabby_ffi::CRABBY_UI_NONE, t, std::ptr::null(), std::ptr::null_mut()) };
 /// assert_eq!(status as u32, 1);
 /// ```
 /// # Safety
@@ -1086,6 +1134,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_add_button(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_ui_add_image(
     ctx: *mut CrabbyCtx,
+    target: u64,
     parent: u64,
     texture: CrabbyTexture,
     layout: *const CrabbyUiLayout,
@@ -1101,6 +1150,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_add_image(
     boundary(|| unsafe {
         add(
             ctx,
+            target,
             parent,
             UiWidget::Image,
             layout,
@@ -1118,7 +1168,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_add_image(
 /// by dragging, and with a bar on the right. Give it a bounded size. See
 /// `crabby_ctx_ui_add_panel` for the rest.
 /// ```
-/// let status = unsafe { crabby_ffi::crabby_ctx_ui_add_scroll(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_NONE, std::ptr::null(), std::ptr::null_mut()) };
+/// let status = unsafe { crabby_ffi::crabby_ctx_ui_add_scroll(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, crabby_ffi::CRABBY_UI_NONE, std::ptr::null(), std::ptr::null_mut()) };
 /// assert_eq!(status as u32, 1);
 /// ```
 /// # Safety
@@ -1126,19 +1176,20 @@ pub unsafe extern "C" fn crabby_ctx_ui_add_image(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_ui_add_scroll(
     ctx: *mut CrabbyCtx,
+    target: u64,
     parent: u64,
     layout: *const CrabbyUiLayout,
     out_id: *mut u64,
 ) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    boundary(|| unsafe { add(ctx, parent, UiWidget::Scroll, layout, out_id, plain("")) })
+    boundary(|| unsafe { add(ctx, target, parent, UiWidget::Scroll, layout, out_id, plain("")) })
 }
 
 /// Adds a single-line text input holding `text` (null for empty). Typing
 /// queues `CRABBY_UI_EVENT_CHANGED`, Enter `CRABBY_UI_EVENT_SUBMITTED`. See
 /// `crabby_ctx_ui_add_panel` for the rest.
 /// ```
-/// let status = unsafe { crabby_ffi::crabby_ctx_ui_add_text_input(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_NONE, std::ptr::null(), std::ptr::null(), std::ptr::null_mut()) };
+/// let status = unsafe { crabby_ffi::crabby_ctx_ui_add_text_input(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, crabby_ffi::CRABBY_UI_NONE, std::ptr::null(), std::ptr::null(), std::ptr::null_mut()) };
 /// assert_eq!(status as u32, 1);
 /// ```
 /// # Safety
@@ -1146,6 +1197,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_add_scroll(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_ui_add_text_input(
     ctx: *mut CrabbyCtx,
+    target: u64,
     parent: u64,
     text: *const c_char,
     layout: *const CrabbyUiLayout,
@@ -1155,6 +1207,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_add_text_input(
     boundary(|| unsafe {
         add(
             ctx,
+            target,
             parent,
             UiWidget::TextInput,
             layout,
@@ -1168,7 +1221,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_add_text_input(
 /// Toggling it queues `CRABBY_UI_EVENT_CHANGED`. See `crabby_ctx_ui_add_panel`
 /// for the rest.
 /// ```
-/// let status = unsafe { crabby_ffi::crabby_ctx_ui_add_toggle(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_NONE, std::ptr::null(), true, std::ptr::null(), std::ptr::null_mut()) };
+/// let status = unsafe { crabby_ffi::crabby_ctx_ui_add_toggle(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, crabby_ffi::CRABBY_UI_NONE, std::ptr::null(), true, std::ptr::null(), std::ptr::null_mut()) };
 /// assert_eq!(status as u32, 1);
 /// ```
 /// # Safety
@@ -1176,6 +1229,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_add_text_input(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_ui_add_toggle(
     ctx: *mut CrabbyCtx,
+    target: u64,
     parent: u64,
     text: *const c_char,
     on: bool,
@@ -1189,7 +1243,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_add_toggle(
             paint: None,
             value: Some(if on { 1.0 } else { 0.0 }),
         };
-        add(ctx, parent, UiWidget::Toggle, layout, out_id, start)
+        add(ctx, target, parent, UiWidget::Toggle, layout, out_id, start)
     })
 }
 
@@ -1197,7 +1251,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_add_toggle(
 /// left and right keys, queues `CRABBY_UI_EVENT_CHANGED`. See
 /// `crabby_ctx_ui_add_panel` for the rest.
 /// ```
-/// let status = unsafe { crabby_ffi::crabby_ctx_ui_add_slider(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_NONE, 0.5, std::ptr::null(), std::ptr::null_mut()) };
+/// let status = unsafe { crabby_ffi::crabby_ctx_ui_add_slider(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, crabby_ffi::CRABBY_UI_NONE, 0.5, std::ptr::null(), std::ptr::null_mut()) };
 /// assert_eq!(status as u32, 1);
 /// ```
 /// # Safety
@@ -1205,6 +1259,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_add_toggle(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_ui_add_slider(
     ctx: *mut CrabbyCtx,
+    target: u64,
     parent: u64,
     value: f32,
     layout: *const CrabbyUiLayout,
@@ -1217,24 +1272,24 @@ pub unsafe extern "C" fn crabby_ctx_ui_add_slider(
             paint: None,
             value: Some(value),
         };
-        add(ctx, parent, UiWidget::Slider, layout, out_id, start)
+        add(ctx, target, parent, UiWidget::Slider, layout, out_id, start)
     })
 }
 
 /// Removes a node and everything under it, and drops it from the screen stack.
 /// Its ids stay invalid: later calls with them fail with `CRABBY_NOT_FOUND`.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_remove(std::ptr::null_mut(), 0) } as u32, 1);
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_remove(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_ui_remove(ctx: *mut CrabbyCtx, id: u64) -> CrabbyStatus {
+pub unsafe extern "C" fn crabby_ctx_ui_remove(ctx: *mut CrabbyCtx, target: u64, id: u64) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
-        ctx_access(ctx, |c| {
-            let id = existing(c, id)?;
-            c.ui_retained.remove(id);
+        with_ui(ctx, target, |ui| {
+            let id = existing(ui, id)?;
+            ui.remove(id);
             Ok(())
         })
     })
@@ -1244,22 +1299,23 @@ pub unsafe extern "C" fn crabby_ctx_ui_remove(ctx: *mut CrabbyCtx, id: u64) -> C
 
 /// Replaces a node's layout. A null `layout` restores the default.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_set_layout(std::ptr::null_mut(), 0, std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_set_layout(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, std::ptr::null()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `layout` null or readable, with valid track pointers.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_ui_set_layout(
     ctx: *mut CrabbyCtx,
+    target: u64,
     id: u64,
     layout: *const CrabbyUiLayout,
 ) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         let style = style_or_default(layout)?;
-        ctx_access(ctx, |c| {
-            let id = existing(c, id)?;
-            c.ui_retained.set_layout(id, style);
+        with_ui(ctx, target, |ui| {
+            let id = existing(ui, id)?;
+            ui.set_layout(id, style);
             Ok(())
         })
     })
@@ -1268,13 +1324,14 @@ pub unsafe extern "C" fn crabby_ctx_ui_set_layout(
 /// Replaces a node's paint. A null `paint` restores the default. Fonts must
 /// come from `crabby_ctx_load_font`; an unknown one is an error.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_set_paint(std::ptr::null_mut(), 0, std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_set_paint(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, std::ptr::null()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `paint` null or readable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_ui_set_paint(
     ctx: *mut CrabbyCtx,
+    target: u64,
     id: u64,
     paint: *const CrabbyUiPaint,
 ) -> CrabbyStatus {
@@ -1285,9 +1342,10 @@ pub unsafe extern "C" fn crabby_ctx_ui_set_paint(
             None => UiPaint::default(),
         };
         ctx_access(ctx, |c| {
-            let id = existing(c, id)?;
             check_font(c, paint.font)?;
-            c.ui_retained.set_paint(id, paint);
+            let ui = ui_of(c, target)?;
+            let id = existing(ui, id)?;
+            ui.set_paint(id, paint);
             Ok(())
         })
     })
@@ -1296,18 +1354,23 @@ pub unsafe extern "C" fn crabby_ctx_ui_set_paint(
 /// Sets the text of a label, button, toggle or text input (null for empty).
 /// Text inputs drop control characters. No event is queued.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_set_text(std::ptr::null_mut(), 0, c"x".as_ptr()) } as u32, 1);
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_set_text(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, c"x".as_ptr()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `text` null or NUL-terminated.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_ui_set_text(ctx: *mut CrabbyCtx, id: u64, text: *const c_char) -> CrabbyStatus {
+pub unsafe extern "C" fn crabby_ctx_ui_set_text(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    id: u64,
+    text: *const c_char,
+) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         let value = optional_text(text)?;
-        ctx_access(ctx, |c| {
-            let id = existing(c, id)?;
-            c.ui_retained.set_text(id, value);
+        with_ui(ctx, target, |ui| {
+            let id = existing(ui, id)?;
+            ui.set_text(id, value);
             Ok(())
         })
     })
@@ -1318,7 +1381,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_set_text(ctx: *mut CrabbyCtx, id: u64, te
 /// writes an empty string (if capacity > 0): allocate length + 1 and call
 /// again. A null buffer is accepted only with capacity 0.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_text(std::ptr::null_mut(), 0, std::ptr::null_mut(), 0, &mut 0) } as u32, 1);
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_text(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, std::ptr::null_mut(), 0, &mut 0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `buffer` writable for `capacity` bytes (or null with
@@ -1326,6 +1389,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_set_text(ctx: *mut CrabbyCtx, id: u64, te
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_ui_text(
     ctx: *mut CrabbyCtx,
+    target: u64,
     id: u64,
     buffer: *mut c_char,
     capacity: usize,
@@ -1336,9 +1400,9 @@ pub unsafe extern "C" fn crabby_ctx_ui_text(
         if out_len.is_null() || (buffer.is_null() && capacity != 0) {
             return Err(invalid("output is null"));
         }
-        ctx_access(ctx, |c| {
-            let id = existing(c, id)?;
-            let value = c.ui_retained.text(id).unwrap_or("");
+        with_ui(ctx, target, |ui| {
+            let id = existing(ui, id)?;
+            let value = ui.text(id).unwrap_or("");
             // SAFETY: validated non-null outputs; the caller supplies the stated capacity.
             out_len.write(value.len());
             if value.len() < capacity {
@@ -1355,17 +1419,22 @@ pub unsafe extern "C" fn crabby_ctx_ui_text(
 /// Enables or disables a node and everything under it. Disabled controls take
 /// no input and draw with the paint's `disabled` color.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_set_enabled(std::ptr::null_mut(), 0, false) } as u32, 1);
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_set_enabled(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, false) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_ui_set_enabled(ctx: *mut CrabbyCtx, id: u64, enabled: bool) -> CrabbyStatus {
+pub unsafe extern "C" fn crabby_ctx_ui_set_enabled(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    id: u64,
+    enabled: bool,
+) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
-        ctx_access(ctx, |c| {
-            let id = existing(c, id)?;
-            c.ui_retained.set_enabled(id, enabled);
+        with_ui(ctx, target, |ui| {
+            let id = existing(ui, id)?;
+            ui.set_enabled(id, enabled);
             Ok(())
         })
     })
@@ -1374,17 +1443,22 @@ pub unsafe extern "C" fn crabby_ctx_ui_set_enabled(ctx: *mut CrabbyCtx, id: u64,
 /// Sets a slider's value (0 to 1, clamped) or a toggle's (0 off, 1 on). No
 /// event is queued.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_set_value(std::ptr::null_mut(), 0, 0.5) } as u32, 1);
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_set_value(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, 0.5) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_ui_set_value(ctx: *mut CrabbyCtx, id: u64, value: f32) -> CrabbyStatus {
+pub unsafe extern "C" fn crabby_ctx_ui_set_value(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    id: u64,
+    value: f32,
+) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
-        ctx_access(ctx, |c| {
-            let id = existing(c, id)?;
-            c.ui_retained.set_value(id, value);
+        with_ui(ctx, target, |ui| {
+            let id = existing(ui, id)?;
+            ui.set_value(id, value);
             Ok(())
         })
     })
@@ -1393,17 +1467,22 @@ pub unsafe extern "C" fn crabby_ctx_ui_set_value(ctx: *mut CrabbyCtx, id: u64, v
 /// Reads a slider's or toggle's value; read it after a
 /// `CRABBY_UI_EVENT_CHANGED` event.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_value(std::ptr::null_mut(), 0, &mut 0.0) } as u32, 1);
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_value(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, &mut 0.0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `out_value` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_ui_value(ctx: *mut CrabbyCtx, id: u64, out_value: *mut f32) -> CrabbyStatus {
+pub unsafe extern "C" fn crabby_ctx_ui_value(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    id: u64,
+    out_value: *mut f32,
+) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
-        ctx_access(ctx, |c| {
-            let id = existing(c, id)?;
-            out(out_value, c.ui_retained.value(id).unwrap_or(0.0))
+        with_ui(ctx, target, |ui| {
+            let id = existing(ui, id)?;
+            out(out_value, ui.value(id).unwrap_or(0.0))
         })
     })
 }
@@ -1411,17 +1490,22 @@ pub unsafe extern "C" fn crabby_ctx_ui_value(ctx: *mut CrabbyCtx, id: u64, out_v
 /// Scrolls a scroll area to `offset` (logical units, unscaled); layout clamps
 /// it to the content.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_set_scroll(std::ptr::null_mut(), 0, crabby_ffi::CrabbyVec2 { x: 0.0, y: 40.0 }) } as u32, 1);
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_set_scroll(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, crabby_ffi::CrabbyVec2 { x: 0.0, y: 40.0 }) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_ui_set_scroll(ctx: *mut CrabbyCtx, id: u64, offset: CrabbyVec2) -> CrabbyStatus {
+pub unsafe extern "C" fn crabby_ctx_ui_set_scroll(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    id: u64,
+    offset: CrabbyVec2,
+) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
-        ctx_access(ctx, |c| {
-            let id = existing(c, id)?;
-            c.ui_retained.set_scroll(id, to_c(offset));
+        with_ui(ctx, target, |ui| {
+            let id = existing(ui, id)?;
+            ui.set_scroll(id, to_c(offset));
             Ok(())
         })
     })
@@ -1429,21 +1513,22 @@ pub unsafe extern "C" fn crabby_ctx_ui_set_scroll(ctx: *mut CrabbyCtx, id: u64, 
 
 /// Reads a scroll area's offset as of the last layout.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_scroll(std::ptr::null_mut(), 0, &mut Default::default()) } as u32, 1);
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_scroll(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, &mut Default::default()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `out_offset` writable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_ui_scroll(
     ctx: *mut CrabbyCtx,
+    target: u64,
     id: u64,
     out_offset: *mut CrabbyVec2,
 ) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
-        ctx_access(ctx, |c| {
-            let id = existing(c, id)?;
-            out(out_offset, to_c(c.ui_retained.scroll(id).unwrap_or_default()))
+        with_ui(ctx, target, |ui| {
+            let id = existing(ui, id)?;
+            out(out_offset, to_c(ui.scroll(id).unwrap_or_default()))
         })
     })
 }
@@ -1455,23 +1540,28 @@ pub unsafe extern "C" fn crabby_ctx_ui_scroll(
 /// its rectangle. Fails with `CRABBY_INVALID_ARGUMENT` if the node has a parent
 /// or is already a screen.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_push_screen(std::ptr::null_mut(), 0, true) } as u32, 1);
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_push_screen(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, true) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_ui_push_screen(ctx: *mut CrabbyCtx, root: u64, modal: bool) -> CrabbyStatus {
+pub unsafe extern "C" fn crabby_ctx_ui_push_screen(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    root: u64,
+    modal: bool,
+) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
-        ctx_access(ctx, |c| {
-            let root = existing(c, root)?;
-            if c.ui_retained.parent(root).is_some() {
+        with_ui(ctx, target, |ui| {
+            let root = existing(ui, root)?;
+            if ui.parent(root).is_some() {
                 return Err(invalid("UI screen must be a detached root"));
             }
-            if c.ui_retained.is_screen(root) {
+            if ui.is_screen(root) {
                 return Err(invalid("UI screen already on stack"));
             }
-            c.ui_retained.push_screen(root, modal);
+            ui.push_screen(root, modal);
             Ok(())
         })
     })
@@ -1481,54 +1571,67 @@ pub unsafe extern "C" fn crabby_ctx_ui_push_screen(ctx: *mut CrabbyCtx, root: u6
 /// when the stack was empty). The nodes stay, so it can be pushed again. The
 /// previous screen's focus comes back.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_pop_screen(std::ptr::null_mut(), &mut 0) } as u32, 1);
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_pop_screen(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, &mut 0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `out_root` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_ui_pop_screen(ctx: *mut CrabbyCtx, out_root: *mut u64) -> CrabbyStatus {
+pub unsafe extern "C" fn crabby_ctx_ui_pop_screen(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    out_root: *mut u64,
+) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    boundary(|| unsafe { ctx_access(ctx, |c| out(out_root, id_to_c(c.ui_retained.pop_screen()))) })
+    boundary(|| unsafe {
+        if out_root.is_null() {
+            return Err(invalid("output is null"));
+        }
+        with_ui(ctx, target, |ui| out(out_root, id_to_c(ui.pop_screen())))
+    })
 }
 
 /// Writes the top screen's root to `out_root` (`CRABBY_UI_NONE` for none).
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_top_screen(std::ptr::null_mut(), &mut 0) } as u32, 1);
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_top_screen(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, &mut 0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `out_root` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_ui_top_screen(ctx: *mut CrabbyCtx, out_root: *mut u64) -> CrabbyStatus {
+pub unsafe extern "C" fn crabby_ctx_ui_top_screen(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    out_root: *mut u64,
+) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    boundary(|| unsafe { ctx_access(ctx, |c| out(out_root, id_to_c(c.ui_retained.top_screen()))) })
+    boundary(|| unsafe { with_ui(ctx, target, |ui| out(out_root, id_to_c(ui.top_screen()))) })
 }
 
 /// Writes the focused node (keyboard and gamepad) to `out_id`
 /// (`CRABBY_UI_NONE` for none).
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_focus(std::ptr::null_mut(), &mut 0) } as u32, 1);
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_focus(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, &mut 0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `out_id` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_ui_focus(ctx: *mut CrabbyCtx, out_id: *mut u64) -> CrabbyStatus {
+pub unsafe extern "C" fn crabby_ctx_ui_focus(ctx: *mut CrabbyCtx, target: u64, out_id: *mut u64) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    boundary(|| unsafe { ctx_access(ctx, |c| out(out_id, id_to_c(c.ui_retained.focus()))) })
+    boundary(|| unsafe { with_ui(ctx, target, |ui| out(out_id, id_to_c(ui.focus()))) })
 }
 
 /// Sets a user scale on top of the window's DPI scale (clamped to 0.25..8).
 /// Geometry, text and hit testing all use it.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_set_scale(std::ptr::null_mut(), 1.25) } as u32, 1);
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_set_scale(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 1.25) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_ui_set_scale(ctx: *mut CrabbyCtx, scale: f32) -> CrabbyStatus {
+pub unsafe extern "C" fn crabby_ctx_ui_set_scale(ctx: *mut CrabbyCtx, target: u64, scale: f32) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
-        ctx_access(ctx, |c| {
-            c.ui_retained.set_scale(scale);
+        with_ui(ctx, target, |ui| {
+            ui.set_scale(scale);
             Ok(())
         })
     })
@@ -1536,17 +1639,22 @@ pub unsafe extern "C" fn crabby_ctx_ui_set_scale(ctx: *mut CrabbyCtx, scale: f32
 
 /// Reads a node's rectangle in logical window coordinates, as of the last layout.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_rect(std::ptr::null_mut(), 0, &mut Default::default()) } as u32, 1);
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_rect(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, &mut Default::default()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `out_rect` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_ui_rect(ctx: *mut CrabbyCtx, id: u64, out_rect: *mut CrabbyRect) -> CrabbyStatus {
+pub unsafe extern "C" fn crabby_ctx_ui_rect(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    id: u64,
+    out_rect: *mut CrabbyRect,
+) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
-        ctx_access(ctx, |c| {
-            let id = existing(c, id)?;
-            out(out_rect, to_c(c.ui_retained.rect(id).unwrap_or_default()))
+        with_ui(ctx, target, |ui| {
+            let id = existing(ui, id)?;
+            out(out_rect, to_c(ui.rect(id).unwrap_or_default()))
         })
     })
 }
@@ -1554,31 +1662,36 @@ pub unsafe extern "C" fn crabby_ctx_ui_rect(ctx: *mut CrabbyCtx, id: u64, out_re
 /// Writes the topmost enabled node at `point` on the top screen to `out_id`
 /// (`CRABBY_UI_NONE` for none), as of the last layout.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_hit_test(std::ptr::null_mut(), Default::default(), &mut 0) } as u32, 1);
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_hit_test(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, Default::default(), &mut 0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `out_id` writable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_ui_hit_test(
     ctx: *mut CrabbyCtx,
+    target: u64,
     point: CrabbyVec2,
     out_id: *mut u64,
 ) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    boundary(|| unsafe { ctx_access(ctx, |c| out(out_id, id_to_c(c.ui_retained.hit_test(to_c(point))))) })
+    boundary(|| unsafe { with_ui(ctx, target, |ui| out(out_id, id_to_c(ui.hit_test(to_c(point))))) })
 }
 
 /// Whether the pointer belongs to the UI (over a control, dragging, or a modal
 /// screen is open). Check it before acting on clicks in the world.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_wants_pointer(std::ptr::null_mut(), &mut false) } as u32, 1);
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_wants_pointer(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, &mut false) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `out_wanted` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_ui_wants_pointer(ctx: *mut CrabbyCtx, out_wanted: *mut bool) -> CrabbyStatus {
+pub unsafe extern "C" fn crabby_ctx_ui_wants_pointer(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    out_wanted: *mut bool,
+) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    boundary(|| unsafe { ctx_access(ctx, |c| out(out_wanted, c.ui_retained.wants_pointer())) })
+    boundary(|| unsafe { with_ui(ctx, target, |ui| out(out_wanted, ui.wants_pointer())) })
 }
 
 /// Whether the keyboard and gamepad belong to the UI (a screen is open).
@@ -1600,19 +1713,23 @@ pub unsafe extern "C" fn crabby_ctx_ui_wants_keyboard(ctx: *mut CrabbyCtx, out_w
 /// `CRABBY_NOT_FOUND` when none are left. Unread events expire at the next UI
 /// frame, so drain them every frame. Removing a node drops its events.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_next_event(std::ptr::null_mut(), &mut crabby_ffi::CrabbyUiEvent { kind: Default::default(), id: 0 }) } as u32, 1);
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_next_event(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, &mut crabby_ffi::CrabbyUiEvent { kind: Default::default(), id: 0 }) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `out_event` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_ui_next_event(ctx: *mut CrabbyCtx, out_event: *mut CrabbyUiEvent) -> CrabbyStatus {
+pub unsafe extern "C" fn crabby_ctx_ui_next_event(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    out_event: *mut CrabbyUiEvent,
+) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         if out_event.is_null() {
             return Err(invalid("output is null"));
         }
-        ctx_access(ctx, |c| {
-            let Some(event) = c.ui_retained.next_event() else {
+        with_ui(ctx, target, |ui| {
+            let Some(event) = ui.next_event() else {
                 return Err(error(CrabbyStatus::CRABBY_NOT_FOUND, "no UI events left"));
             };
             let (kind, id) = match event {
@@ -1630,16 +1747,16 @@ pub unsafe extern "C" fn crabby_ctx_ui_next_event(ctx: *mut CrabbyCtx, out_event
 /// processing input. The engine does this every frame; call it to read fresh
 /// rectangles right after changing the tree.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_layout(std::ptr::null_mut(), Default::default()) } as u32, 1);
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_layout(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, Default::default()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_ui_layout(ctx: *mut CrabbyCtx, viewport: CrabbyVec2) -> CrabbyStatus {
+pub unsafe extern "C" fn crabby_ctx_ui_layout(ctx: *mut CrabbyCtx, target: u64, viewport: CrabbyVec2) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
-        ctx_access(ctx, |c| {
-            c.ui_retained.layout(to_c(viewport));
+        with_ui(ctx, target, |ui| {
+            ui.layout(to_c(viewport));
             Ok(())
         })
     })
@@ -1651,13 +1768,14 @@ pub unsafe extern "C" fn crabby_ctx_ui_layout(ctx: *mut CrabbyCtx, viewport: Cra
 /// by dropping unread events. Call it yourself to drive the UI in headless
 /// tests or from a custom host.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_frame(std::ptr::null_mut(), Default::default(), std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_frame(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, Default::default(), std::ptr::null()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `input` null or readable, its `text` null or NUL-terminated.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_ui_frame(
     ctx: *mut CrabbyCtx,
+    target: u64,
     viewport: CrabbyVec2,
     input: *const CrabbyUiInput,
 ) -> CrabbyStatus {
@@ -1685,8 +1803,8 @@ pub unsafe extern "C" fn crabby_ctx_ui_frame(
             },
             None => crabbyengine::UiInput::default(),
         };
-        ctx_access(ctx, |c| {
-            c.ui_retained.frame(to_c(viewport), &input);
+        with_ui(ctx, target, |ui| {
+            ui.frame(to_c(viewport), &input);
             Ok(())
         })
     })

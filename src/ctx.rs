@@ -52,7 +52,7 @@ pub struct SystemTiming {
 
 /// Maps window pixels ((0, 0) top-left, y down) to wgpu clip space
 /// (x right, y up, both -1..1).
-fn screen_projection(size: Vec2) -> Mat4 {
+pub(crate) fn screen_projection(size: Vec2) -> Mat4 {
     let size = size.max(Vec2::ONE);
     Mat4::from_cols(
         glam::vec4(2.0 / size.x, 0.0, 0.0, 0.0),
@@ -306,7 +306,7 @@ pub struct Ctx {
     /// The glyph atlas, created on the first `draw_text`.
     font_atlas: Option<Texture>,
     /// Physical pixels per window pixel (2 on most Retina screens).
-    scale_factor: f32,
+    pub(crate) scale_factor: f32,
     pub(crate) ui: UiState,
     /// Retained widget tree and screen stack. Processed before frame systems.
     /// ```
@@ -442,11 +442,18 @@ impl Ctx {
         self.draw_retained_ui();
         let capture = !self.screenshots.is_empty();
         #[cfg(feature = "3d")]
+        self.draw_ui_panels();
+        #[cfg(feature = "3d")]
         self.prepare_3d();
+        #[cfg(feature = "3d")]
+        let panels = self.ui.panels.frame_draws();
+        #[cfg(not(feature = "3d"))]
+        let panels: &mut [crate::render::batch::PanelDraw] = &mut [];
         let status = match self.renderer.as_mut() {
             Some(renderer) => renderer.render(
                 &mut self.draw_list,
                 &mut self.ui_list,
+                panels,
                 self.clear_color,
                 self.camera.view_proj(),
                 screen_projection(self.window_size),
@@ -1108,6 +1115,21 @@ impl Ctx {
         self.loaded.insert((file.clone(), AssetKind::Font), u64::from(font.0));
         self.watcher.watch(path, file, Asset::Font(font.0));
         font
+    }
+
+    /// Whether `font` is the built-in font or one this context loaded. Only
+    /// foreign callers can hold a handle that isn't (C code passing a made-up
+    /// id); [`Text3D`](crate::Text3D) would panic when drawn with one.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     assert!(ctx.has_font(Font::DEFAULT));
+    /// });
+    /// ```
+    #[must_use]
+    pub fn has_font(&self, font: Font) -> bool {
+        self.text.has_font(font)
     }
 
     /// Loads an image from the `assets/` folder (PNG for now).

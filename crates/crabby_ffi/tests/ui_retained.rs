@@ -98,19 +98,22 @@ fn last_error() -> String {
         .into_owned()
 }
 unsafe fn panel(ctx: Ctx, parent: u64, layout: &CrabbyUiLayout) -> u64 {
-    unsafe { id_of(|out| crabby_ctx_ui_add_panel(ctx, parent, layout, out)) }
+    unsafe { id_of(|out| crabby_ctx_ui_add_panel(ctx, CRABBY_UI_SCREEN, parent, layout, out)) }
 }
 unsafe fn button(ctx: Ctx, parent: u64, text: &CStr, layout: &CrabbyUiLayout) -> u64 {
-    unsafe { id_of(|out| crabby_ctx_ui_add_button(ctx, parent, text.as_ptr(), layout, out)) }
+    unsafe { id_of(|out| crabby_ctx_ui_add_button(ctx, CRABBY_UI_SCREEN, parent, text.as_ptr(), layout, out)) }
 }
 unsafe fn rect(ctx: Ctx, id: u64) -> CrabbyRect {
     let mut r = CrabbyRect::default();
-    assert_eq!(unsafe { crabby_ctx_ui_rect(ctx, id, &mut r) }, CRABBY_OK);
+    assert_eq!(
+        unsafe { crabby_ctx_ui_rect(ctx, CRABBY_UI_SCREEN, id, &mut r) },
+        CRABBY_OK
+    );
     r
 }
 unsafe fn frame(ctx: Ctx, input: CrabbyUiInput) {
     assert_eq!(
-        unsafe { crabby_ctx_ui_frame(ctx, SCREEN, &input) },
+        unsafe { crabby_ctx_ui_frame(ctx, CRABBY_UI_SCREEN, SCREEN, &input) },
         CRABBY_OK,
         "{}",
         last_error()
@@ -136,7 +139,7 @@ unsafe fn events(ctx: Ctx) -> Vec<(CrabbyUiEventKind, u64)> {
             kind: CrabbyUiEventKind::CRABBY_UI_EVENT_CLICKED,
             id: 0,
         };
-        match unsafe { crabby_ctx_ui_next_event(ctx, &mut event) } {
+        match unsafe { crabby_ctx_ui_next_event(ctx, CRABBY_UI_SCREEN, &mut event) } {
             CRABBY_OK => all.push((event.kind, event.id)),
             CRABBY_NOT_FOUND => return all,
             other => panic!("{other:?}: {}", last_error()),
@@ -146,12 +149,21 @@ unsafe fn events(ctx: Ctx) -> Vec<(CrabbyUiEventKind, u64)> {
 unsafe fn text_of(ctx: Ctx, id: u64) -> String {
     let mut len = 0;
     assert_eq!(
-        unsafe { crabby_ctx_ui_text(ctx, id, null_mut(), 0, &mut len) },
+        unsafe { crabby_ctx_ui_text(ctx, CRABBY_UI_SCREEN, id, null_mut(), 0, &mut len) },
         CRABBY_OK
     );
     let mut buffer = vec![0u8; len + 1];
     assert_eq!(
-        unsafe { crabby_ctx_ui_text(ctx, id, buffer.as_mut_ptr().cast::<c_char>(), buffer.len(), &mut len) },
+        unsafe {
+            crabby_ctx_ui_text(
+                ctx,
+                CRABBY_UI_SCREEN,
+                id,
+                buffer.as_mut_ptr().cast::<c_char>(),
+                buffer.len(),
+                &mut len,
+            )
+        },
         CRABBY_OK
     );
     assert_eq!(buffer[len], 0);
@@ -159,7 +171,10 @@ unsafe fn text_of(ctx: Ctx, id: u64) -> String {
 }
 unsafe fn value_of(ctx: Ctx, id: u64) -> f32 {
     let mut value = -1.0;
-    assert_eq!(unsafe { crabby_ctx_ui_value(ctx, id, &mut value) }, CRABBY_OK);
+    assert_eq!(
+        unsafe { crabby_ctx_ui_value(ctx, CRABBY_UI_SCREEN, id, &mut value) },
+        CRABBY_OK
+    );
     value
 }
 
@@ -180,12 +195,26 @@ unsafe fn widgets_lay_out_and_react(ctx: Ctx) {
                 ..size(400.0, 300.0)
             },
         );
-        let label = id_of(|out| crabby_ctx_ui_add_label(ctx, root, c"Title".as_ptr(), &size(100.0, 20.0), out));
+        let label = id_of(|out| {
+            crabby_ctx_ui_add_label(ctx, CRABBY_UI_SCREEN, root, c"Title".as_ptr(), &size(100.0, 20.0), out)
+        });
         let go = button(ctx, root, c"Go", &size(200.0, 40.0));
-        let toggle = id_of(|out| crabby_ctx_ui_add_toggle(ctx, root, c"Gift".as_ptr(), false, &size(100.0, 20.0), out));
-        let slider = id_of(|out| crabby_ctx_ui_add_slider(ctx, root, 0.25, &size(200.0, 20.0), out));
-        let input = id_of(|out| crabby_ctx_ui_add_text_input(ctx, root, c"hi".as_ptr(), &size(200.0, 30.0), out));
-        assert_eq!(crabby_ctx_ui_push_screen(ctx, root, false), CRABBY_OK);
+        let toggle = id_of(|out| {
+            crabby_ctx_ui_add_toggle(
+                ctx,
+                CRABBY_UI_SCREEN,
+                root,
+                c"Gift".as_ptr(),
+                false,
+                &size(100.0, 20.0),
+                out,
+            )
+        });
+        let slider = id_of(|out| crabby_ctx_ui_add_slider(ctx, CRABBY_UI_SCREEN, root, 0.25, &size(200.0, 20.0), out));
+        let input = id_of(|out| {
+            crabby_ctx_ui_add_text_input(ctx, CRABBY_UI_SCREEN, root, c"hi".as_ptr(), &size(200.0, 30.0), out)
+        });
+        assert_eq!(crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, root, false), CRABBY_OK);
         frame(ctx, crabby_ui_input_default());
 
         // A padded column with gaps: each child sits below the last.
@@ -203,9 +232,15 @@ unsafe fn widgets_lay_out_and_react(ctx: Ctx) {
         assert_eq!(value_of(ctx, slider), 0.25);
 
         let mut hit = 0;
-        assert_eq!(crabby_ctx_ui_hit_test(ctx, v2(50.0, 50.0), &mut hit), CRABBY_OK);
+        assert_eq!(
+            crabby_ctx_ui_hit_test(ctx, CRABBY_UI_SCREEN, v2(50.0, 50.0), &mut hit),
+            CRABBY_OK
+        );
         assert_eq!(hit, go);
-        assert_eq!(crabby_ctx_ui_hit_test(ctx, v2(700.0, 500.0), &mut hit), CRABBY_OK);
+        assert_eq!(
+            crabby_ctx_ui_hit_test(ctx, CRABBY_UI_SCREEN, v2(700.0, 500.0), &mut hit),
+            CRABBY_OK
+        );
         assert_eq!(hit, CRABBY_UI_NONE);
 
         // A button click: press, then release over it.
@@ -213,14 +248,14 @@ unsafe fn widgets_lay_out_and_react(ctx: Ctx) {
         assert_eq!(events(ctx), [(CrabbyUiEventKind::CRABBY_UI_EVENT_CLICKED, go)]);
         assert!(events(ctx).is_empty(), "events are taken once");
         let mut focus = 0;
-        assert_eq!(crabby_ctx_ui_focus(ctx, &mut focus), CRABBY_OK);
+        assert_eq!(crabby_ctx_ui_focus(ctx, CRABBY_UI_SCREEN, &mut focus), CRABBY_OK);
         assert_eq!(focus, go);
 
         // Disabled controls ignore clicks, and come back when enabled.
-        assert_eq!(crabby_ctx_ui_set_enabled(ctx, go, false), CRABBY_OK);
+        assert_eq!(crabby_ctx_ui_set_enabled(ctx, CRABBY_UI_SCREEN, go, false), CRABBY_OK);
         click(ctx, v2(50.0, 50.0));
         assert!(events(ctx).is_empty());
-        assert_eq!(crabby_ctx_ui_set_enabled(ctx, go, true), CRABBY_OK);
+        assert_eq!(crabby_ctx_ui_set_enabled(ctx, CRABBY_UI_SCREEN, go, true), CRABBY_OK);
 
         // A toggle flips; a slider follows the pointer.
         click(ctx, v2(20.0, 90.0));
@@ -243,7 +278,7 @@ unsafe fn widgets_lay_out_and_react(ctx: Ctx) {
                 ..crabby_ui_input_default()
             },
         );
-        assert_eq!(crabby_ctx_ui_set_value(ctx, slider, 7.0), CRABBY_OK);
+        assert_eq!(crabby_ctx_ui_set_value(ctx, CRABBY_UI_SCREEN, slider, 7.0), CRABBY_OK);
         assert_eq!(value_of(ctx, slider), 1.0, "values are clamped");
         assert!(events(ctx).is_empty(), "setters queue no events");
 
@@ -277,23 +312,26 @@ unsafe fn widgets_lay_out_and_react(ctx: Ctx) {
             },
         );
         assert_eq!(events(ctx), [(CrabbyUiEventKind::CRABBY_UI_EVENT_SUBMITTED, input)]);
-        assert_eq!(crabby_ctx_ui_set_text(ctx, input, c"a\tb".as_ptr()), CRABBY_OK);
+        assert_eq!(
+            crabby_ctx_ui_set_text(ctx, CRABBY_UI_SCREEN, input, c"a\tb".as_ptr()),
+            CRABBY_OK
+        );
         assert_eq!(text_of(ctx, input), "ab", "inputs drop control characters");
 
         // Reading text: a short buffer gets the length and an empty string.
         let mut small = [7 as c_char; 2];
         let mut len = 0;
         assert_eq!(
-            crabby_ctx_ui_text(ctx, label, small.as_mut_ptr(), small.len(), &mut len),
+            crabby_ctx_ui_text(ctx, CRABBY_UI_SCREEN, label, small.as_mut_ptr(), small.len(), &mut len),
             CRABBY_OK
         );
         assert_eq!((len, small[0]), (5, 0));
         assert_eq!(
-            crabby_ctx_ui_text(ctx, label, small.as_mut_ptr(), 0, &mut len),
+            crabby_ctx_ui_text(ctx, CRABBY_UI_SCREEN, label, small.as_mut_ptr(), 0, &mut len),
             CRABBY_OK
         );
         assert_eq!(
-            crabby_ctx_ui_text(ctx, label, null_mut(), 1, &mut len),
+            crabby_ctx_ui_text(ctx, CRABBY_UI_SCREEN, label, null_mut(), 1, &mut len),
             CRABBY_INVALID_ARGUMENT
         );
 
@@ -305,7 +343,7 @@ unsafe fn widgets_lay_out_and_react(ctx: Ctx) {
                 ..crabby_ui_input_default()
             },
         );
-        assert_eq!(crabby_ctx_ui_focus(ctx, &mut focus), CRABBY_OK);
+        assert_eq!(crabby_ctx_ui_focus(ctx, CRABBY_UI_SCREEN, &mut focus), CRABBY_OK);
         assert_ne!(focus, CRABBY_UI_NONE);
     }
 }
@@ -323,33 +361,42 @@ unsafe fn screens_stack_and_pop(ctx: Ctx) {
         let dialog = panel(ctx, CRABBY_UI_NONE, &size(300.0, 200.0));
         let child = button(ctx, dialog, c"Ok", &size(80.0, 30.0));
         let mut top = 0;
-        assert_eq!(crabby_ctx_ui_top_screen(ctx, &mut top), CRABBY_OK);
+        assert_eq!(crabby_ctx_ui_top_screen(ctx, CRABBY_UI_SCREEN, &mut top), CRABBY_OK);
         assert_eq!(top, CRABBY_UI_NONE);
         let (mut keyboard, mut pointer) = (true, true);
         assert_eq!(crabby_ctx_ui_wants_keyboard(ctx, &mut keyboard), CRABBY_OK);
         assert!(!keyboard);
 
-        assert_eq!(crabby_ctx_ui_push_screen(ctx, base, false), CRABBY_OK);
+        assert_eq!(crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, base, false), CRABBY_OK);
         assert_eq!(
-            crabby_ctx_ui_push_screen(ctx, base, false),
+            crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, base, false),
             CRABBY_INVALID_ARGUMENT,
             "twice"
         );
         assert_eq!(
-            crabby_ctx_ui_push_screen(ctx, base_button, false),
+            crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, base_button, false),
             CRABBY_INVALID_ARGUMENT,
             "has a parent"
         );
-        assert_eq!(crabby_ctx_ui_push_screen(ctx, 4242, false), CRABBY_NOT_FOUND);
+        assert_eq!(
+            crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, 4242, false),
+            CRABBY_NOT_FOUND
+        );
         frame(ctx, crabby_ui_input_default());
         assert_eq!(crabby_ctx_ui_wants_keyboard(ctx, &mut keyboard), CRABBY_OK);
         assert!(keyboard);
-        assert_eq!(crabby_ctx_ui_wants_pointer(ctx, &mut pointer), CRABBY_OK);
+        assert_eq!(
+            crabby_ctx_ui_wants_pointer(ctx, CRABBY_UI_SCREEN, &mut pointer),
+            CRABBY_OK
+        );
         assert!(pointer, "the pointer rests over the base screen");
 
         // A modal dialog owns input: the button under it is out of reach.
-        assert_eq!(crabby_ctx_ui_push_screen(ctx, dialog, true), CRABBY_OK);
-        assert_eq!(crabby_ctx_ui_top_screen(ctx, &mut top), CRABBY_OK);
+        assert_eq!(
+            crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, dialog, true),
+            CRABBY_OK
+        );
+        assert_eq!(crabby_ctx_ui_top_screen(ctx, CRABBY_UI_SCREEN, &mut top), CRABBY_OK);
         assert_eq!(top, dialog);
         click(ctx, v2(10.0, 10.0));
         assert_eq!(events(ctx), [(CrabbyUiEventKind::CRABBY_UI_EVENT_CLICKED, child)]);
@@ -368,23 +415,26 @@ unsafe fn screens_stack_and_pop(ctx: Ctx) {
             events(ctx),
             [(CrabbyUiEventKind::CRABBY_UI_EVENT_SCREEN_POPPED, dialog)]
         );
-        assert_eq!(crabby_ctx_ui_top_screen(ctx, &mut top), CRABBY_OK);
+        assert_eq!(crabby_ctx_ui_top_screen(ctx, CRABBY_UI_SCREEN, &mut top), CRABBY_OK);
         assert_eq!(top, base);
 
         // Popped screens stay usable.
-        assert_eq!(crabby_ctx_ui_push_screen(ctx, dialog, false), CRABBY_OK);
+        assert_eq!(
+            crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, dialog, false),
+            CRABBY_OK
+        );
         let mut popped = 0;
-        assert_eq!(crabby_ctx_ui_pop_screen(ctx, &mut popped), CRABBY_OK);
+        assert_eq!(crabby_ctx_ui_pop_screen(ctx, CRABBY_UI_SCREEN, &mut popped), CRABBY_OK);
         assert_eq!(popped, dialog);
-        assert_eq!(crabby_ctx_ui_pop_screen(ctx, &mut popped), CRABBY_OK);
+        assert_eq!(crabby_ctx_ui_pop_screen(ctx, CRABBY_UI_SCREEN, &mut popped), CRABBY_OK);
         assert_eq!(popped, base);
-        assert_eq!(crabby_ctx_ui_pop_screen(ctx, &mut popped), CRABBY_OK);
+        assert_eq!(crabby_ctx_ui_pop_screen(ctx, CRABBY_UI_SCREEN, &mut popped), CRABBY_OK);
         assert_eq!(popped, CRABBY_UI_NONE, "nothing left to pop");
 
         // Removing a screen's root drops it from the stack.
-        assert_eq!(crabby_ctx_ui_push_screen(ctx, base, false), CRABBY_OK);
-        assert_eq!(crabby_ctx_ui_remove(ctx, base), CRABBY_OK);
-        assert_eq!(crabby_ctx_ui_top_screen(ctx, &mut top), CRABBY_OK);
+        assert_eq!(crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, base, false), CRABBY_OK);
+        assert_eq!(crabby_ctx_ui_remove(ctx, CRABBY_UI_SCREEN, base), CRABBY_OK);
+        assert_eq!(crabby_ctx_ui_top_screen(ctx, CRABBY_UI_SCREEN, &mut top), CRABBY_OK);
         assert_eq!(top, CRABBY_UI_NONE);
     }
 }
@@ -458,12 +508,13 @@ unsafe fn grid_absolute_and_scroll(ctx: Ctx) {
         );
         // Scrolling: tall content in a short area.
         let scroll_area = {
-            let id = id_of(|out| crabby_ctx_ui_add_scroll(ctx, CRABBY_UI_NONE, &size(100.0, 100.0), out));
+            let id =
+                id_of(|out| crabby_ctx_ui_add_scroll(ctx, CRABBY_UI_SCREEN, CRABBY_UI_NONE, &size(100.0, 100.0), out));
             panel(ctx, id, &size(100.0, 400.0));
             id
         };
         for root in [grid, corner, scroll_area] {
-            assert_eq!(crabby_ctx_ui_push_screen(ctx, root, false), CRABBY_OK);
+            assert_eq!(crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, root, false), CRABBY_OK);
         }
         frame(ctx, crabby_ui_input_default());
 
@@ -484,14 +535,26 @@ unsafe fn grid_absolute_and_scroll(ctx: Ctx) {
             "half of the parent wide, inset from its corner"
         );
 
-        assert_eq!(crabby_ctx_ui_set_scroll(ctx, scroll_area, v2(0.0, 50.0)), CRABBY_OK);
+        assert_eq!(
+            crabby_ctx_ui_set_scroll(ctx, CRABBY_UI_SCREEN, scroll_area, v2(0.0, 50.0)),
+            CRABBY_OK
+        );
         frame(ctx, crabby_ui_input_default());
         let mut offset = CrabbyVec2::default();
-        assert_eq!(crabby_ctx_ui_scroll(ctx, scroll_area, &mut offset), CRABBY_OK);
+        assert_eq!(
+            crabby_ctx_ui_scroll(ctx, CRABBY_UI_SCREEN, scroll_area, &mut offset),
+            CRABBY_OK
+        );
         assert_eq!(offset, v2(0.0, 50.0));
-        assert_eq!(crabby_ctx_ui_set_scroll(ctx, scroll_area, v2(0.0, 9999.0)), CRABBY_OK);
+        assert_eq!(
+            crabby_ctx_ui_set_scroll(ctx, CRABBY_UI_SCREEN, scroll_area, v2(0.0, 9999.0)),
+            CRABBY_OK
+        );
         frame(ctx, crabby_ui_input_default());
-        assert_eq!(crabby_ctx_ui_scroll(ctx, scroll_area, &mut offset), CRABBY_OK);
+        assert_eq!(
+            crabby_ctx_ui_scroll(ctx, CRABBY_UI_SCREEN, scroll_area, &mut offset),
+            CRABBY_OK
+        );
         assert_eq!(offset, v2(0.0, 300.0), "clamped to the content");
 
         // Changing a layout later moves things on the next layout.
@@ -502,16 +565,19 @@ unsafe fn grid_absolute_and_scroll(ctx: Ctx) {
             },
             ..size(100.0, 40.0)
         };
-        assert_eq!(crabby_ctx_ui_set_layout(ctx, cells[0], &moved), CRABBY_OK);
-        assert_eq!(crabby_ctx_ui_layout(ctx, SCREEN), CRABBY_OK);
+        assert_eq!(
+            crabby_ctx_ui_set_layout(ctx, CRABBY_UI_SCREEN, cells[0], &moved),
+            CRABBY_OK
+        );
+        assert_eq!(crabby_ctx_ui_layout(ctx, CRABBY_UI_SCREEN, SCREEN), CRABBY_OK);
         assert_eq!(rect(ctx, cells[0]).min.x, 25.0);
         assert_eq!(
-            crabby_ctx_ui_set_layout(ctx, cells[0], null()),
+            crabby_ctx_ui_set_layout(ctx, CRABBY_UI_SCREEN, cells[0], null()),
             CRABBY_OK,
             "null is the default"
         );
-        assert_eq!(crabby_ctx_ui_set_scale(ctx, 2.0), CRABBY_OK);
-        assert_eq!(crabby_ctx_ui_layout(ctx, SCREEN), CRABBY_OK);
+        assert_eq!(crabby_ctx_ui_set_scale(ctx, CRABBY_UI_SCREEN, 2.0), CRABBY_OK);
+        assert_eq!(crabby_ctx_ui_layout(ctx, CRABBY_UI_SCREEN, SCREEN), CRABBY_OK);
         assert_eq!(rect(ctx, grid).max.x, 600.0, "the user scale applies to geometry");
     }
 }
@@ -531,25 +597,34 @@ unsafe fn paint_and_images(ctx: Ctx) {
         paint.wrap = true;
         paint.border_width = 2.0;
         paint.font_size = 24.0;
-        assert_eq!(crabby_ctx_ui_set_paint(ctx, node, &paint), CRABBY_OK);
+        assert_eq!(crabby_ctx_ui_set_paint(ctx, CRABBY_UI_SCREEN, node, &paint), CRABBY_OK);
         assert_eq!(
-            crabby_ctx_ui_set_paint(ctx, node, null()),
+            crabby_ctx_ui_set_paint(ctx, CRABBY_UI_SCREEN, node, null()),
             CRABBY_OK,
             "null is the default"
         );
 
         paint.align = 9;
-        assert_eq!(crabby_ctx_ui_set_paint(ctx, node, &paint), CRABBY_INVALID_ARGUMENT);
+        assert_eq!(
+            crabby_ctx_ui_set_paint(ctx, CRABBY_UI_SCREEN, node, &paint),
+            CRABBY_INVALID_ARGUMENT
+        );
         paint = crabby_ui_paint_default();
         paint.font_size = f32::NAN;
-        assert_eq!(crabby_ctx_ui_set_paint(ctx, node, &paint), CRABBY_INVALID_ARGUMENT);
+        assert_eq!(
+            crabby_ctx_ui_set_paint(ctx, CRABBY_UI_SCREEN, node, &paint),
+            CRABBY_INVALID_ARGUMENT
+        );
         paint = crabby_ui_paint_default();
         paint.border_width = -1.0;
-        assert_eq!(crabby_ctx_ui_set_paint(ctx, node, &paint), CRABBY_INVALID_ARGUMENT);
+        assert_eq!(
+            crabby_ctx_ui_set_paint(ctx, CRABBY_UI_SCREEN, node, &paint),
+            CRABBY_INVALID_ARGUMENT
+        );
         paint = crabby_ui_paint_default();
         paint.font = CrabbyFont { id: 99 };
         assert_eq!(
-            crabby_ctx_ui_set_paint(ctx, node, &paint),
+            crabby_ctx_ui_set_paint(ctx, CRABBY_UI_SCREEN, node, &paint),
             CRABBY_INVALID_ARGUMENT,
             "{}",
             last_error()
@@ -564,12 +639,17 @@ unsafe fn paint_and_images(ctx: Ctx) {
             crabby_ctx_create_texture(ctx, 2, 2, [255u8; 16].as_ptr(), 16, &mut texture),
             CRABBY_OK
         );
-        let image = id_of(|out| crabby_ctx_ui_add_image(ctx, CRABBY_UI_NONE, texture, &size(64.0, 64.0), out));
+        let image = id_of(|out| {
+            crabby_ctx_ui_add_image(ctx, CRABBY_UI_SCREEN, CRABBY_UI_NONE, texture, &size(64.0, 64.0), out)
+        });
         let mut textured = crabby_ui_paint_default();
         textured.has_texture = true;
         textured.texture = texture;
         textured.slice = 1.0;
-        assert_eq!(crabby_ctx_ui_set_paint(ctx, image, &textured), CRABBY_OK);
+        assert_eq!(
+            crabby_ctx_ui_set_paint(ctx, CRABBY_UI_SCREEN, image, &textured),
+            CRABBY_OK
+        );
     }
 }
 #[test]
@@ -583,7 +663,7 @@ unsafe fn stale_ids_and_bad_arguments(ctx: Ctx) {
     unsafe {
         let root = panel(ctx, CRABBY_UI_NONE, &crabby_ui_layout_default());
         let child = button(ctx, root, c"x", &crabby_ui_layout_default());
-        let grandchild = id_of(|out| crabby_ctx_ui_add_label(ctx, child, c"y".as_ptr(), null(), out));
+        let grandchild = id_of(|out| crabby_ctx_ui_add_label(ctx, CRABBY_UI_SCREEN, child, c"y".as_ptr(), null(), out));
         let mut sink;
 
         // A failed add leaves no node behind: the next id follows the last one.
@@ -597,44 +677,85 @@ unsafe fn stale_ids_and_bad_arguments(ctx: Ctx) {
         };
         sink = 123;
         assert_eq!(
-            crabby_ctx_ui_add_panel(ctx, root, &bad, &mut sink),
+            crabby_ctx_ui_add_panel(ctx, CRABBY_UI_SCREEN, root, &bad, &mut sink),
             CRABBY_INVALID_ARGUMENT
         );
         assert_eq!(sink, 123, "the output stays untouched on failure");
-        assert_eq!(crabby_ctx_ui_add_panel(ctx, 9999, null(), &mut sink), CRABBY_NOT_FOUND);
+        assert_eq!(
+            crabby_ctx_ui_add_panel(ctx, CRABBY_UI_SCREEN, 9999, null(), &mut sink),
+            CRABBY_NOT_FOUND
+        );
         assert_eq!(panel(ctx, root, &crabby_ui_layout_default()), next);
         assert_eq!(
-            crabby_ctx_ui_add_panel(ctx, root, null(), null_mut()),
+            crabby_ctx_ui_add_panel(ctx, CRABBY_UI_SCREEN, root, null(), null_mut()),
             CRABBY_INVALID_ARGUMENT
         );
         assert_eq!(
-            crabby_ctx_ui_add_label(ctx, root, [0xffu8, 0].as_ptr().cast(), null(), &mut sink),
+            crabby_ctx_ui_add_label(
+                ctx,
+                CRABBY_UI_SCREEN,
+                root,
+                [0xffu8, 0].as_ptr().cast(),
+                null(),
+                &mut sink
+            ),
             CRABBY_INVALID_ARGUMENT,
             "text must be UTF-8"
         );
 
         // Removing a node takes its whole subtree and its events with it.
-        assert_eq!(crabby_ctx_ui_remove(ctx, child), CRABBY_OK);
+        assert_eq!(crabby_ctx_ui_remove(ctx, CRABBY_UI_SCREEN, child), CRABBY_OK);
         let mut r = CrabbyRect::default();
         for gone in [child, grandchild] {
-            assert_eq!(crabby_ctx_ui_rect(ctx, gone, &mut r), CRABBY_NOT_FOUND);
-            assert_eq!(crabby_ctx_ui_set_text(ctx, gone, c"z".as_ptr()), CRABBY_NOT_FOUND);
-            assert_eq!(crabby_ctx_ui_set_layout(ctx, gone, null()), CRABBY_NOT_FOUND);
-            assert_eq!(crabby_ctx_ui_set_enabled(ctx, gone, true), CRABBY_NOT_FOUND);
-            assert_eq!(crabby_ctx_ui_remove(ctx, gone), CRABBY_NOT_FOUND);
+            assert_eq!(
+                crabby_ctx_ui_rect(ctx, CRABBY_UI_SCREEN, gone, &mut r),
+                CRABBY_NOT_FOUND
+            );
+            assert_eq!(
+                crabby_ctx_ui_set_text(ctx, CRABBY_UI_SCREEN, gone, c"z".as_ptr()),
+                CRABBY_NOT_FOUND
+            );
+            assert_eq!(
+                crabby_ctx_ui_set_layout(ctx, CRABBY_UI_SCREEN, gone, null()),
+                CRABBY_NOT_FOUND
+            );
+            assert_eq!(
+                crabby_ctx_ui_set_enabled(ctx, CRABBY_UI_SCREEN, gone, true),
+                CRABBY_NOT_FOUND
+            );
+            assert_eq!(crabby_ctx_ui_remove(ctx, CRABBY_UI_SCREEN, gone), CRABBY_NOT_FOUND);
         }
-        assert_eq!(crabby_ctx_ui_add_panel(ctx, child, null(), &mut sink), CRABBY_NOT_FOUND);
-        assert_eq!(crabby_ctx_ui_rect(ctx, CRABBY_UI_NONE, &mut r), CRABBY_NOT_FOUND);
+        assert_eq!(
+            crabby_ctx_ui_add_panel(ctx, CRABBY_UI_SCREEN, child, null(), &mut sink),
+            CRABBY_NOT_FOUND
+        );
+        assert_eq!(
+            crabby_ctx_ui_rect(ctx, CRABBY_UI_SCREEN, CRABBY_UI_NONE, &mut r),
+            CRABBY_NOT_FOUND
+        );
 
         // Null pointers are errors, never crashes.
-        assert_eq!(crabby_ctx_ui_value(ctx, root, null_mut()), CRABBY_INVALID_ARGUMENT);
-        assert_eq!(crabby_ctx_ui_rect(ctx, root, null_mut()), CRABBY_INVALID_ARGUMENT);
-        assert_eq!(crabby_ctx_ui_next_event(ctx, null_mut()), CRABBY_INVALID_ARGUMENT);
-        assert_eq!(crabby_ctx_ui_top_screen(ctx, null_mut()), CRABBY_INVALID_ARGUMENT);
+        assert_eq!(
+            crabby_ctx_ui_value(ctx, CRABBY_UI_SCREEN, root, null_mut()),
+            CRABBY_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            crabby_ctx_ui_rect(ctx, CRABBY_UI_SCREEN, root, null_mut()),
+            CRABBY_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            crabby_ctx_ui_next_event(ctx, CRABBY_UI_SCREEN, null_mut()),
+            CRABBY_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            crabby_ctx_ui_top_screen(ctx, CRABBY_UI_SCREEN, null_mut()),
+            CRABBY_INVALID_ARGUMENT
+        );
         assert_eq!(crabby_ctx_ui_insert_text(ctx, null()), CRABBY_INVALID_ARGUMENT);
         assert_eq!(
             crabby_ctx_ui_next_event(
                 ctx,
+                CRABBY_UI_SCREEN,
                 &mut CrabbyUiEvent {
                     kind: CrabbyUiEventKind::CRABBY_UI_EVENT_CLICKED,
                     id: 0,
@@ -650,12 +771,12 @@ unsafe fn stale_ids_and_bad_arguments(ctx: Ctx) {
             ..crabby_ui_layout_default()
         };
         assert_eq!(
-            crabby_ctx_ui_add_panel(ctx, root, &tracks, &mut sink),
+            crabby_ctx_ui_add_panel(ctx, CRABBY_UI_SCREEN, root, &tracks, &mut sink),
             CRABBY_INVALID_ARGUMENT
         );
     }
     assert_eq!(
-        unsafe { crabby_ctx_ui_set_scale(null_mut(), 1.0) },
+        unsafe { crabby_ctx_ui_set_scale(null_mut(), CRABBY_UI_SCREEN, 1.0) },
         CRABBY_INVALID_ARGUMENT
     );
 }
@@ -666,8 +787,13 @@ fn stale_ids_and_bad_arguments_fail_cleanly() {
 
 unsafe fn text_typed_through_the_context(ctx: Ctx) {
     unsafe {
-        let input = id_of(|out| crabby_ctx_ui_add_text_input(ctx, CRABBY_UI_NONE, null(), &size(200.0, 30.0), out));
-        assert_eq!(crabby_ctx_ui_push_screen(ctx, input, false), CRABBY_OK);
+        let input = id_of(|out| {
+            crabby_ctx_ui_add_text_input(ctx, CRABBY_UI_SCREEN, CRABBY_UI_NONE, null(), &size(200.0, 30.0), out)
+        });
+        assert_eq!(
+            crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, input, false),
+            CRABBY_OK
+        );
         // Frames without input text read none; the context's own typed text
         // feeds the engine's frame, not this explicit one.
         assert_eq!(crabby_ctx_ui_insert_text(ctx, c"abc".as_ptr()), CRABBY_OK);

@@ -5,9 +5,11 @@ use super::gpu::GpuTexture;
 use crate::ParticleBlend3D;
 use crate::three::particles::{ParticleFrame, ParticleInstance, ParticleRun};
 use crate::three::strips::{StripRun, StripVertex};
+use crate::three::text3d::TextVertex;
 
 const SHADER: &str = include_str!("particles.wgsl");
 const STRIP_SHADER: &str = include_str!("strips.wgsl");
+const TEXT_SHADER: &str = include_str!("text3d.wgsl");
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct Camera {
@@ -28,6 +30,12 @@ pub(super) struct Particles {
     strip_vertices: wgpu::Buffer,
     strip_capacity: usize,
     strip_runs: Vec<StripRun>,
+    text: wgpu::RenderPipeline,
+    text_vertices: wgpu::Buffer,
+    text_capacity: usize,
+    /// How many text vertices to draw this frame, and their atlas.
+    text_count: u32,
+    text_atlas: Option<u32>,
 }
 impl Particles {
     pub fn new(device: &wgpu::Device, texture_layout: &wgpu::BindGroupLayout, samples: u32) -> Self {
@@ -71,6 +79,17 @@ impl Particles {
             label: Some("strips"),
             source: wgpu::ShaderSource::Wgsl(STRIP_SHADER.into()),
         });
+        let text_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("3d text"),
+            source: wgpu::ShaderSource::Wgsl(TEXT_SHADER.into()),
+        });
+        let text_layout = wgpu::VertexBufferLayout {
+            array_stride: size_of::<TextVertex>() as u64,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &wgpu::vertex_attr_array![
+                0 => Float32x3, 1 => Float32x2, 2 => Float32x4, 3 => Float32x4, 4 => Float32x2
+            ],
+        };
         let particle_layout = wgpu::VertexBufferLayout {
             array_stride: size_of::<ParticleInstance>() as u64,
             step_mode: wgpu::VertexStepMode::Instance,
@@ -140,6 +159,11 @@ impl Particles {
             strip_vertices: strip_buffer(device, 6),
             strip_capacity: 6,
             strip_runs: Vec::new(),
+            text: pipeline(&text_module, &text_layout, alpha),
+            text_vertices: vertex_buffer(device, "3d text vertices", 6 * size_of::<TextVertex>()),
+            text_capacity: 6,
+            text_count: 0,
+            text_atlas: None,
         }
     }
     pub fn prepare(
@@ -153,6 +177,9 @@ impl Particles {
         self.runs.extend_from_slice(&frame.runs);
         self.strip_runs.clear();
         self.strip_runs.extend_from_slice(&frame.strips.runs);
+        let texts = &frame.texts.vertices;
+        self.text_count = texts.len() as u32;
+        self.text_atlas = frame.texts.atlas.map(|t| t.id);
         if !self.has_draws() {
             return;
         }
@@ -171,6 +198,14 @@ impl Particles {
         if !strips.is_empty() {
             queue.write_buffer(&self.strip_vertices, 0, bytemuck::cast_slice(strips));
         }
+        if texts.len() > self.text_capacity {
+            self.text_capacity = texts.len().next_power_of_two();
+            self.text_vertices =
+                vertex_buffer(device, "3d text vertices", self.text_capacity * size_of::<TextVertex>());
+        }
+        if !texts.is_empty() {
+            queue.write_buffer(&self.text_vertices, 0, bytemuck::cast_slice(texts));
+        }
         queue.write_buffer(
             &self.camera,
             0,
@@ -181,18 +216,18 @@ impl Particles {
             }),
         );
     }
-    /// Whether there are particles, ribbons or lines to draw.
+    /// Whether there are particles, ribbons, lines or text to draw.
     pub fn has_draws(&self) -> bool {
-        !self.runs.is_empty() || !self.strip_runs.is_empty()
+        !self.runs.is_empty() || !self.strip_runs.is_empty() || self.text_count > 0
     }
 
     /// How many draw calls `draw` makes.
     pub fn draw_count(&self) -> usize {
-        self.runs.len() + self.strip_runs.len()
+        self.runs.len() + self.strip_runs.len() + usize::from(self.text_count > 0)
     }
 
-    /// Draws the ribbons and lines, then the particles (each set farthest
-    /// first).
+    /// Draws the ribbons and lines, then the particles, then the text
+    /// (each set farthest first).
     pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, textures: &[GpuTexture], white: u32) {
         if !self.has_draws() {
             return;
@@ -218,9 +253,20 @@ impl Particles {
                 pass.draw(run.first..run.first + run.count, 0..1);
             }
         }
-        if self.runs.is_empty() {
-            return;
+        if !self.runs.is_empty() {
+            self.draw_particles(pass, textures, white);
         }
+        if self.text_count > 0
+            && let Some(atlas) = self.text_atlas.and_then(|id| textures.get(id as usize))
+        {
+            pass.set_pipeline(&self.text);
+            pass.set_bind_group(1, &atlas.bind_group, &[]);
+            pass.set_vertex_buffer(0, self.text_vertices.slice(..));
+            pass.draw(0..self.text_count, 0..1);
+        }
+    }
+
+    fn draw_particles(&self, pass: &mut wgpu::RenderPass<'_>, textures: &[GpuTexture], white: u32) {
         pass.set_vertex_buffer(0, self.instances.slice(..));
         for run in &self.runs {
             let Some(texture) = textures
@@ -239,6 +285,15 @@ impl Particles {
         }
     }
 }
+fn vertex_buffer(device: &wgpu::Device, label: &str, bytes: usize) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some(label),
+        size: bytes as u64,
+        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
+}
+
 fn strip_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("strip vertices"),
@@ -269,6 +324,7 @@ mod tests {
     fn particles_shader_is_valid() {
         super::super::gpu3d::check_shader("particles", super::SHADER).unwrap();
         super::super::gpu3d::check_shader("strips", super::STRIP_SHADER).unwrap();
+        super::super::gpu3d::check_shader("3d text", super::TEXT_SHADER).unwrap();
     }
 
     #[test]

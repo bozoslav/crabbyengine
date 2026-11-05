@@ -443,6 +443,8 @@ pub(crate) struct ParticleFrame {
     pub up: [f32; 4],
     /// Ribbons and lines, drawn with the particles.
     pub strips: super::strips::StripFrame,
+    /// 3D text, drawn after them (collected by `Ctx::collect_text3d`).
+    pub texts: super::text3d::TextFrame,
 }
 impl ParticleFrame {
     pub fn collect(&mut self, world: &mut World, camera: &Camera3D) {

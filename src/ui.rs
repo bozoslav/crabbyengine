@@ -81,6 +81,9 @@ pub(crate) struct UiState {
     pub overlay_has_pointer: bool,
     retained_spare: Option<Ui>,
     retained_input_text: String,
+    /// World-space panels' input and drawing.
+    #[cfg(feature = "3d")]
+    pub panels: panel3d::Panels,
 }
 
 impl UiState {
@@ -332,6 +335,10 @@ impl Ctx {
     }
 }
 
+#[cfg(feature = "3d")]
+mod panel3d;
 mod retained;
 mod retained_draw;
+#[cfg(feature = "3d")]
+pub use panel3d::UiPanel3D;
 pub use retained::{Ui, UiEvent, UiId, UiInput, UiPaint, UiTextAlign, UiWidget};

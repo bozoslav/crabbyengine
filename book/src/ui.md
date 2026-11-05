@@ -132,6 +132,74 @@ input. Standalone `Ui` measurements use the built-in font; context-owned UI also
 measures loaded custom fonts. The engine keeps existing sprite batching and adds
 per-batch scissor rectangles; world sprites and immediate UI remain unclipped.
 
+## UI on surfaces in the world
+
+A computer screen, a shop terminal or a sign with buttons is a `UiPanel3D`: a
+component with its own `Ui` that the engine draws every frame into a render
+target, which a glowing, alpha-blended quad shows. Build `panel.ui` just like the
+screen's tree; its widgets are laid out in the target's pixels, so a 600 x 400
+panel has a 600 x 400 viewport. `ctx.create_ui_panel(width, height, size)` makes
+the render target, the material and the quad (`size` is in meters, in the
+entity's XY plane, facing +Z) and returns the panel and the `Model` to spawn
+with it, next to a `Transform3D`. The quad is an ordinary model: move and
+rotate the entity as usual.
+
+In C++ the entity comes first: `ctx.create_ui_panel(entity, width, height, size)`
+gives it the panel and the model, and `ctx.panel_ui(entity)` is the panel's
+`ui::tree`, with every call of the screen's tree.
+
+<div class="lang-pair">
+<div>
+
+```rust
+{{#include ../../examples/ui_panel.rs:panel_create}}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:panel_create}}
+```
+
+</div>
+</div>
+
+The mouse uses the nearest panel the camera ray through it hits, at the pixel
+it hits, unless the screen's own UI wants the pointer. Clicking a panel also
+gives it the keyboard (typing, Tab, Enter) until another is clicked; the others
+only see the pointer. `panel.pointer()` is where the aim is on it this frame, in
+its pixels (`None` when it is off the panel), and `panel.interactive = false`
+turns its input off. Events, focus and the screen stack belong to each panel's
+own `Ui`: read them from it.
+
+When the cursor is locked (a first-person game) or the aim isn't the mouse (a
+controller in VR), give panels a ray yourself with `ctx.set_ui_pointer_ray`,
+for example from the camera along its forward direction. `None` goes back to the
+mouse.
+
+<div class="lang-pair">
+<div>
+
+```rust
+{{#include ../../examples/ui_panel.rs:panel_events}}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:panel_events}}
+```
+
+</div>
+</div>
+
+Panels are drawn in a pass of their own before the 3D frame that shows them, so
+the quad is never a frame behind its contents. Headless runs build and lay out
+panels (and `Ui::frame` drives them by hand, like the screen's tree) but draw
+nothing and give them no mouse.
+
 ## From C
 
 The C API mirrors the Rust one function by function. Nodes are `uint64_t` ids
@@ -146,13 +214,32 @@ column.padding.top = column.padding.right = column.padding.bottom = column.paddi
     (CrabbyUiLength){CRABBY_UI_LENGTH_POINTS, 24.0f};
 
 uint64_t root, buy;
-crabby_ctx_ui_add_panel(ctx, CRABBY_UI_NONE, &column, &root);
-crabby_ctx_ui_add_button(ctx, root, "Buy", NULL, &buy); /* NULL layout: default */
-crabby_ctx_ui_push_screen(ctx, root, false);
+crabby_ctx_ui_add_panel(ctx, CRABBY_UI_SCREEN, CRABBY_UI_NONE, &column, &root);
+crabby_ctx_ui_add_button(ctx, CRABBY_UI_SCREEN, root, "Buy", NULL, &buy); /* NULL layout: default */
+crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, root, false);
 
 CrabbyUiEvent event;
-while (crabby_ctx_ui_next_event(ctx, &event) == CRABBY_OK)
+while (crabby_ctx_ui_next_event(ctx, CRABBY_UI_SCREEN, &event) == CRABBY_OK)
     if (event.kind == CRABBY_UI_EVENT_CLICKED && event.id == buy) { /* ... */ }
+```
+
+Retained tree operations take a `target` after the context: `CRABBY_UI_SCREEN`
+for the screen's own UI, or the entity of a world-space panel to build and read
+that panel's UI with the same calls. Node ids are local to the UI that made them;
+the same numeric id can exist in several trees. `crabby_ctx_ui_insert_text` and
+`crabby_ctx_ui_wants_keyboard` operate on context-wide input and have no target.
+Panels are made with `crabby_ctx_create_ui_panel(ctx, entity, width, height, size, &texture)`,
+which gives the entity (it needs a `CrabbyTransform3D`) the panel and its model;
+`crabby_ctx_ui_panel_pointer`, `crabby_ctx_set_ui_panel_interactive`,
+`crabby_ctx_remove_ui_panel`, `crabby_ctx_set_ui_pointer_ray` and
+`crabby_ctx_clear_ui_pointer_ray` do the rest.
+
+```c
+CrabbyTexture texture;
+crabby_ctx_create_ui_panel(ctx, terminal, 600, 400, (CrabbyVec2){1.2f, 0.8f}, &texture);
+uint64_t buy;
+crabby_ctx_ui_add_button(ctx, terminal, CRABBY_UI_NONE, "Buy", NULL, &buy);
+crabby_ctx_ui_push_screen(ctx, terminal, buy, false);
 ```
 
 `CrabbyUiLayout` is the Taffy `Style` flattened: display, position, flex

@@ -109,6 +109,17 @@ pub(crate) struct Batch {
     pub end: u32,
 }
 
+/// One world-space UI panel's drawing this frame: drawn into a render
+/// target before the 3D frame that shows it.
+#[derive(Default)]
+pub(crate) struct PanelDraw {
+    /// The render target's texture id.
+    pub texture: u32,
+    /// Its size in pixels.
+    pub size: [u32; 2],
+    pub list: DrawList,
+}
+
 /// Draw commands for one frame. All buffers are reused between frames,
 /// so steady-state frames don't allocate.
 #[derive(Debug, Default)]

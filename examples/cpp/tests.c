@@ -1,6 +1,7 @@
 #include "crabby.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "failed: %s\n", #x); abort(); } } while (0)
 typedef struct { int x; } Position;
 typedef struct { CrabbyWorld* world; size_t seen; uint64_t entity; } Context;
@@ -22,6 +23,18 @@ static void setup(CrabbyCtx* ctx, void* user) {
     uint64_t e;
     CHECK(crabby_spawn(crabby_ctx_world(ctx), NULL, 0, &e) == CRABBY_OK);
     CHECK(crabby_world_free(crabby_ctx_world(ctx)) == CRABBY_BUSY);
+    CrabbyText3D t = crabby_text3d_default(), got;
+    t.billboard = true; t.align = 2;
+    CHECK(crabby_ctx_set_text3d(ctx, e, "Hello\nworld", &t) == CRABBY_OK);
+    CHECK(crabby_ctx_text3d(ctx, e, &got) == CRABBY_OK && got.billboard && got.align == 2);
+    char text[32]; size_t len;
+    CHECK(crabby_ctx_text3d_text(ctx, e, text, sizeof(text), &len) == CRABBY_OK);
+    CHECK(len == 11 && strcmp(text, "Hello\nworld") == 0);
+    t.font.id = UINT32_MAX;
+    CHECK(crabby_ctx_set_text3d(ctx, e, "bad", &t) == CRABBY_INVALID_ARGUMENT);
+    CHECK(crabby_ctx_remove_text3d(ctx, e) == CRABBY_OK);
+    CHECK(crabby_ctx_text3d(ctx, e, &got) == CRABBY_NOT_FOUND);
+
 }
 static void tick(CrabbyCtx* ctx, void* user) {
     Run* r = user;
@@ -100,33 +113,72 @@ static void ui_setup(CrabbyCtx* ctx, void* user) {
     column.width.kind = CRABBY_UI_LENGTH_POINTS; column.width.value = 300;
     column.height.kind = CRABBY_UI_LENGTH_POINTS; column.height.value = 200;
     uint64_t root, button, label;
-    CHECK(crabby_ctx_ui_add_panel(ctx, CRABBY_UI_NONE, &column, &root) == CRABBY_OK);
+    CHECK(crabby_ctx_ui_add_panel(ctx, CRABBY_UI_SCREEN, CRABBY_UI_NONE, &column, &root) == CRABBY_OK);
     CrabbyUiLayout fixed = crabby_ui_layout_default();
     fixed.width.kind = CRABBY_UI_LENGTH_POINTS; fixed.width.value = 120;
     fixed.height.kind = CRABBY_UI_LENGTH_POINTS; fixed.height.value = 40;
-    CHECK(crabby_ctx_ui_add_label(ctx, root, "Shop", &fixed, &label) == CRABBY_OK);
-    CHECK(crabby_ctx_ui_add_button(ctx, root, "Buy", &fixed, &button) == CRABBY_OK);
-    CHECK(crabby_ctx_ui_push_screen(ctx, root, false) == CRABBY_OK);
+    CHECK(crabby_ctx_ui_add_label(ctx, CRABBY_UI_SCREEN, root, "Shop", &fixed, &label) == CRABBY_OK);
+    CHECK(crabby_ctx_ui_add_button(ctx, CRABBY_UI_SCREEN, root, "Buy", &fixed, &button) == CRABBY_OK);
+    CHECK(crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, root, false) == CRABBY_OK);
     CrabbyVec2 window = {800, 600};
-    CHECK(crabby_ctx_ui_frame(ctx, window, NULL) == CRABBY_OK);
+    CHECK(crabby_ctx_ui_frame(ctx, CRABBY_UI_SCREEN, window, NULL) == CRABBY_OK);
     CrabbyRect r;
-    CHECK(crabby_ctx_ui_rect(ctx, button, &r) == CRABBY_OK && r.min.y == 40 && r.max.x == 120);
+    CHECK(crabby_ctx_ui_rect(ctx, CRABBY_UI_SCREEN, button, &r) == CRABBY_OK && r.min.y == 40 && r.max.x == 120);
     char text[8]; size_t len;
-    CHECK(crabby_ctx_ui_text(ctx, button, text, sizeof text, &len) == CRABBY_OK && len == 3 && text[0] == 'B');
+    CHECK(crabby_ctx_ui_text(ctx, CRABBY_UI_SCREEN, button, text, sizeof text, &len) == CRABBY_OK && len == 3 && text[0] == 'B');
     CrabbyUiInput in = crabby_ui_input_default();
     in.pointer.x = 10; in.pointer.y = 50; in.pressed = true; in.held = true;
-    CHECK(crabby_ctx_ui_frame(ctx, window, &in) == CRABBY_OK);
+    CHECK(crabby_ctx_ui_frame(ctx, CRABBY_UI_SCREEN, window, &in) == CRABBY_OK);
     in.pressed = false; in.held = false; in.released = true;
-    CHECK(crabby_ctx_ui_frame(ctx, window, &in) == CRABBY_OK);
+    CHECK(crabby_ctx_ui_frame(ctx, CRABBY_UI_SCREEN, window, &in) == CRABBY_OK);
     CrabbyUiEvent event;
-    CHECK(crabby_ctx_ui_next_event(ctx, &event) == CRABBY_OK);
+    CHECK(crabby_ctx_ui_next_event(ctx, CRABBY_UI_SCREEN, &event) == CRABBY_OK);
     CHECK(event.kind == CRABBY_UI_EVENT_CLICKED && event.id == button);
-    CHECK(crabby_ctx_ui_next_event(ctx, &event) == CRABBY_NOT_FOUND);
+    CHECK(crabby_ctx_ui_next_event(ctx, CRABBY_UI_SCREEN, &event) == CRABBY_NOT_FOUND);
     column.display = 99; /* not a CrabbyUiDisplay */
     uint64_t bad;
-    CHECK(crabby_ctx_ui_add_panel(ctx, root, &column, &bad) == CRABBY_INVALID_ARGUMENT);
-    CHECK(crabby_ctx_ui_remove(ctx, root) == CRABBY_OK);
-    CHECK(crabby_ctx_ui_remove(ctx, button) == CRABBY_NOT_FOUND);
+    CHECK(crabby_ctx_ui_add_panel(ctx, CRABBY_UI_SCREEN, root, &column, &bad) == CRABBY_INVALID_ARGUMENT);
+    CHECK(crabby_ctx_ui_remove(ctx, CRABBY_UI_SCREEN, root) == CRABBY_OK);
+    CHECK(crabby_ctx_ui_remove(ctx, CRABBY_UI_SCREEN, button) == CRABBY_NOT_FOUND);
+}
+/* A world-space UI panel: its UI takes the same calls, with the entity as the target. */
+static void panel_setup(CrabbyCtx* ctx, void* user) {
+    (void)user;
+    CrabbyWorld* w = crabby_ctx_world(ctx);
+    uint32_t transform; uint64_t entity;
+    CHECK(crabby_transform3d_component(w, &transform) == CRABBY_OK);
+    CrabbyTransform3D at = crabby_transform3d_at((CrabbyVec3){0, 1.5f, -2});
+    CrabbyValue value = {transform, &at, sizeof at};
+    CHECK(crabby_spawn(w, &value, 1, &entity) == CRABBY_OK);
+    CrabbyTexture texture;
+    CHECK(crabby_ctx_create_ui_panel(ctx, entity, 600, 400, (CrabbyVec2){1.2f, 0.8f}, &texture) == CRABBY_OK);
+    CHECK(texture.width == 600 && texture.height == 400);
+    CrabbyUiLayout fixed = crabby_ui_layout_default();
+    fixed.width.kind = CRABBY_UI_LENGTH_POINTS; fixed.width.value = 200;
+    fixed.height.kind = CRABBY_UI_LENGTH_POINTS; fixed.height.value = 60;
+    uint64_t button, top;
+    CHECK(crabby_ctx_ui_add_button(ctx, entity, CRABBY_UI_NONE, "Buy", &fixed, &button) == CRABBY_OK);
+    CHECK(crabby_ctx_ui_push_screen(ctx, entity, button, false) == CRABBY_OK);
+    CHECK(crabby_ctx_ui_top_screen(ctx, CRABBY_UI_SCREEN, &top) == CRABBY_OK && top == CRABBY_UI_NONE);
+    CHECK(crabby_ctx_ui_top_screen(ctx, entity, &top) == CRABBY_OK && top == button);
+    CrabbyVec2 pixels = {600, 400};
+    CHECK(crabby_ctx_ui_layout(ctx, entity, pixels) == CRABBY_OK);
+    CrabbyRect r;
+    CHECK(crabby_ctx_ui_rect(ctx, entity, button, &r) == CRABBY_OK && r.max.x == 200 && r.max.y == 60);
+    bool over; CrabbyVec2 pixel;
+    CHECK(crabby_ctx_ui_panel_pointer(ctx, entity, &over, &pixel) == CRABBY_OK && !over);
+    CHECK(crabby_ctx_set_ui_panel_interactive(ctx, entity, false) == CRABBY_OK);
+    CHECK(crabby_ctx_set_ui_pointer_ray(ctx, (CrabbyVec3){0, 1.5f, 0}, (CrabbyVec3){0, 0, -1}) == CRABBY_OK);
+    CHECK(crabby_ctx_set_ui_pointer_ray(ctx, (CrabbyVec3){0, 0, 0}, (CrabbyVec3){0, 0, 0}) == CRABBY_INVALID_ARGUMENT);
+    CHECK(crabby_ctx_clear_ui_pointer_ray(ctx) == CRABBY_OK);
+    CHECK(crabby_ctx_remove_ui_panel(ctx, entity) == CRABBY_OK);
+    CHECK(crabby_ctx_ui_top_screen(ctx, entity, &top) == CRABBY_NOT_FOUND);
+}
+static void ui_panels(void) {
+    CrabbyGame* game = crabby_game_new("c panels", 1, 1); CHECK(game);
+    CrabbyWorld* w = NULL;
+    CHECK(crabby_game_run_headless(game, 0, panel_setup, NULL, &w) == CRABBY_OK);
+    CHECK(crabby_world_free(w) == CRABBY_OK);
 }
 static void retained_ui(void) {
     CrabbyGame* game = crabby_game_new("c ui", 1, 1); CHECK(game);
@@ -208,6 +260,7 @@ int main(void) {
     CHECK(params.scale.x == 1 && params.pivot.x == .5f && !params.screen);
     vehicles();
     retained_ui();
+    ui_panels();
     ribbons_and_decals();
     return 0;
 }
