@@ -40,8 +40,8 @@ Material:
 ";
 
 /// A prefab: a root at (1, 2, 3) turned 90° around Y, with a child at
-/// (0, 0, 1) drawing the quad; a LOD 1 child and an inactive one that
-/// draw it too, and a model instance.
+/// (0, 0, 1) drawing the quad; a LOD 1 child, an inactive one and one
+/// that only casts shadows that draw it too, and a model instance.
 const PREFAB: &str = "%YAML 1.1
 --- !u!1 &1
 GameObject:
@@ -60,6 +60,7 @@ Transform:
   - {fileID: 4}
   - {fileID: 14}
   - {fileID: 24}
+  - {fileID: 34}
   m_Father: {fileID: 0}
 --- !u!205 &9
 LODGroup:
@@ -147,6 +148,33 @@ MeshRenderer:
   m_Enabled: 1
   m_Materials:
   - {fileID: 2100000, guid: bark0mat, type: 2}
+--- !u!1 &33
+GameObject:
+  m_Component:
+  - component: {fileID: 34}
+  - component: {fileID: 35}
+  - component: {fileID: 36}
+  m_Name: Shadow
+  m_IsActive: 1
+--- !u!4 &34
+Transform:
+  m_GameObject: {fileID: 33}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_Children: []
+  m_Father: {fileID: 2}
+--- !u!33 &35
+MeshFilter:
+  m_GameObject: {fileID: 33}
+  m_Mesh: {fileID: 4300000, guid: quad0000, type: 2}
+--- !u!23 &36
+MeshRenderer:
+  m_GameObject: {fileID: 33}
+  m_Enabled: 1
+  m_CastShadows: 3
+  m_Materials:
+  - {fileID: 2100000, guid: bark0mat, type: 2}
 ";
 
 fn fixture(name: &str) -> (Fixture, Project) {
@@ -205,9 +233,14 @@ fn drawn_meshes_become_models_placed_in_crabbys_space() {
     let (_f, scene, report) = import("place");
     assert_eq!(scene["format"], "crabby-world");
     let entities = scene["entities"].as_array().unwrap();
-    assert_eq!(entities.len(), 1, "the far LOD and the inactive child are left out");
+    assert_eq!(
+        entities.len(),
+        1,
+        "the far LOD, the inactive child and the shadow-only one are left out"
+    );
     assert_eq!(report.skipped["a far level of detail (LOD 1+)"], 1);
     assert_eq!(report.skipped["inactive"], 1);
+    assert_eq!(report.skipped["shadows only"], 1);
     let t = &entities[0]["components"]["Transform3D"];
     // In Unity the child is at (1, 2, 3) + the root's turn applied to
     // (0, 0, 1) = (2, 2, 3); mirrored along Z that's (2, 2, -3).
