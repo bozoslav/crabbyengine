@@ -80,6 +80,14 @@ using camera = CrabbyCamera;
 using vec3 = CrabbyVec3;
 using quat = CrabbyQuat;
 using transform3d = CrabbyTransform3D;
+/// One joint of a skeleton (Rust `Joint`): its name, the joint it hangs
+/// from (an earlier index; -1 for a root) and where it sits relative to it
+/// at rest.
+struct joint {
+    std::string name;
+    int parent = -1;
+    transform3d rest{{0, 0, 0, 1}, {0, 0, 0}, {1, 1, 1}, {0, 0}};
+};
 using model = CrabbyModel;
 using point_light3d = CrabbyPointLight3D;
 using spot_light3d = CrabbySpotLight3D;
@@ -1060,6 +1068,15 @@ public:
     void set_colors(const std::vector<color>& colors) {
         detail::check(crabby_mesh_data_set_colors(raw_, colors.empty() ? nullptr : colors.data(), colors.size()));
     }
+    /// Up to four joints per corner and how much each moves it, for
+    /// ctx::create_skinned_mesh; empty removes them. Throws unless there's
+    /// one of each per corner.
+    void set_skin(const std::vector<std::array<std::uint16_t, 4>>& joints,
+                  const std::vector<std::array<float, 4>>& weights) {
+        if (joints.size() != weights.size()) throw std::invalid_argument("mesh_data::set_skin: one weight set per joint set");
+        detail::check(crabby_mesh_data_set_skin(raw_, joints.empty() ? nullptr : joints.front().data(),
+                                                weights.empty() ? nullptr : weights.front().data(), joints.size()));
+    }
     /// Its arrays, valid while it lives.
     CrabbyMeshView view() const { CrabbyMeshView v{}; detail::check(crabby_mesh_data_view(raw_, &v)); return v; }
     const CrabbyMeshData* raw() const noexcept { return raw_; }
@@ -1574,6 +1591,44 @@ public:
     void set_shadow_mesh(entity e, mesh m) { detail::check(crabby_ctx_set_shadow_mesh(raw_, e, m, true)); }
     /// `e` casts no shadow (a model, or a terrain tile's ground).
     void set_no_shadow(entity e) { detail::check(crabby_ctx_set_shadow_mesh(raw_, e, mesh{}, false)); }
+    /// Puts a skeleton of `joints`, at rest, on `e` (Rust `Skeleton::new`).
+    void set_skeleton(entity e, const std::vector<joint>& joints) {
+        std::vector<CrabbyJoint> raw;
+        raw.reserve(joints.size());
+        for (const joint& j : joints) raw.push_back(CrabbyJoint{j.name.c_str(), j.parent, j.rest});
+        detail::check(crabby_ctx_set_skeleton(raw_, e, raw.data(), raw.size()));
+    }
+    /// Puts the skeleton of a glTF file with skins on `e`, at rest (Rust `Ctx::load_skeleton`).
+    void load_skeleton(entity e, const char* path) { detail::check(crabby_ctx_load_skeleton(raw_, e, path)); }
+    /// A mesh that bends with the skeleton on `skeleton`: `data`'s joints
+    /// (mesh_data::set_skin) index its joints; modelled with it at rest.
+    mesh create_skinned_mesh(const mesh_data& data, material m, entity skeleton) {
+        mesh x{}; detail::check(crabby_ctx_create_skinned_mesh(raw_, data.raw(), m, skeleton, &x)); return x;
+    }
+    std::size_t joint_count(entity e) const { std::size_t n = 0; detail::check(crabby_ctx_joint_count(raw_, e, &n)); return n; }
+    /// The first joint of `e`'s skeleton called `name`.
+    std::optional<std::size_t> find_joint(entity e, const char* name) const {
+        bool found = false; std::size_t j = 0;
+        detail::check(crabby_ctx_find_joint(raw_, e, name, &found, &j));
+        return found ? std::optional<std::size_t>(j) : std::nullopt;
+    }
+    /// Where joint `j` of `e`'s skeleton sits relative to its parent this frame.
+    transform3d joint_pose(entity e, std::size_t j) const { transform3d t{}; detail::check(crabby_ctx_joint_pose(raw_, e, j, &t)); return t; }
+    void set_joint_pose(entity e, std::size_t j, const transform3d& pose) { detail::check(crabby_ctx_set_joint_pose(raw_, e, j, &pose)); }
+    /// Puts every joint of `e`'s skeleton back at rest.
+    void reset_pose(entity e) { detail::check(crabby_ctx_reset_pose(raw_, e)); }
+    /// Joint `j`'s matrix in `e`'s own space (column after column), from its pose now.
+    std::array<float, 16> joint_matrix(entity e, std::size_t j) const {
+        std::array<float, 16> m{}; detail::check(crabby_ctx_joint_matrix(raw_, e, j, m.data())); return m;
+    }
+    /// Poses `e`'s skinned model with `skeleton`'s skeleton and draws it
+    /// there (Rust `SkinOf`), binding joints by name.
+    void set_skin_of(entity e, entity skeleton) { detail::check(crabby_ctx_set_skin_of(raw_, e, skeleton)); }
+    /// Keeps `e`'s transform on joint `j` of `skeleton`, moved by `offset`
+    /// in the joint's space (Rust `AttachToJoint`).
+    void attach_to_joint(entity e, entity skeleton, std::size_t j, const transform3d& offset) {
+        detail::check(crabby_ctx_attach_to_joint(raw_, e, skeleton, j, &offset));
+    }
     bool mesh_shadows(mesh m) const { bool casts = true; detail::check(crabby_ctx_mesh_shadows(raw_, m, &casts)); return casts; }
     /// Whether this game made `m` and hasn't freed it.
     bool is_mesh_live(mesh m) const { bool live = false; detail::check(crabby_ctx_is_mesh_live(raw_, m, &live)); return live; }

@@ -642,6 +642,51 @@ static void streaming() {
     });
 }
 
+static void skeletons() {
+    crabby::game("skeletons", 1, 1).run_headless(0, [&](crabby::ctx& ctx) {
+        auto arm = ctx.world().spawn(crabby::transform3d_at({0, 0, 0}));
+        crabby::joint base{"base"}, tip{"tip", 0, crabby::transform3d_at({0, 1, 0})};
+        ctx.set_skeleton(arm, {base, tip});
+        CHECK(ctx.joint_count(arm) == 2);
+        CHECK(ctx.find_joint(arm, "tip") == std::optional<std::size_t>(1));
+        CHECK(!ctx.find_joint(arm, "tail"));
+        // Bend the base a quarter turn: the tip swings from +Y to -X.
+        auto pose = ctx.joint_pose(arm, 0);
+        pose.rotation = crabby::quat_from_rotation_z(1.5707963f);
+        ctx.set_joint_pose(arm, 0, pose);
+        auto m = ctx.joint_matrix(arm, 1);
+        CHECK(std::fabs(m[12] + 1) < 1e-5f && std::fabs(m[13]) < 1e-5f);
+        ctx.reset_pose(arm);
+        CHECK(std::fabs(ctx.joint_matrix(arm, 1)[13] - 1) < 1e-6f);
+        throws([&] { ctx.joint_pose(arm, 2); });
+        throws([&] { ctx.set_skeleton(arm, {crabby::joint{"loop", 0}}); });
+
+        // A post: corners above the middle follow the tip.
+        auto post = crabby::mesh_data::cube(0.2f);
+        std::vector<std::array<std::uint16_t, 4>> joints;
+        std::vector<std::array<float, 4>> weights;
+        auto view = post.view();
+        for (std::size_t i = 0; i < view.vertex_count; ++i) {
+            joints.push_back({std::uint16_t(view.positions[i].y > 0 ? 1 : 0), 0, 0, 0});
+            weights.push_back({1, 0, 0, 0});
+        }
+        post.set_skin(joints, weights);
+        auto material = ctx.default_material();
+        auto mesh = ctx.create_skinned_mesh(post, material, arm);
+        ctx.world().spawn(crabby::model_of(mesh));
+        auto hat = ctx.world().spawn(crabby::model_of(mesh));
+        ctx.set_skin_of(hat, arm);
+        auto cup = ctx.world().spawn(crabby::transform3d_at({0, 0, 0}));
+        ctx.attach_to_joint(cup, arm, 1, crabby::transform3d_at({0, 0.1f, 0}));
+        throws([&] { ctx.create_skinned_mesh(crabby::mesh_data::cube(1), material, arm); });
+        joints.assign(joints.size(), {7, 0, 0, 0});
+        post.set_skin(joints, weights);
+        throws([&] { ctx.create_skinned_mesh(post, material, arm); });
+        throws([&] { post.set_skin({{0, 0, 0, 0}}, {{1, 0, 0, 0}}); });
+        throws([&] { ctx.create_skinned_mesh(post, material, cup); });
+    });
+}
+
 int main() {
     worlds();
     names_and_reflection();
@@ -649,6 +694,7 @@ int main() {
     data_files();
     scenes_and_prefabs();
     three_d();
+    skeletons();
     streaming();
     parallel_queries();
     games();

@@ -1,0 +1,432 @@
+//! Skinned meshes from C: skeletons on entities, posed joint by joint
+//! (Rust `Skeleton`, `SkinOf`, `AttachToJoint`, `Ctx::create_skinned_mesh`,
+//! `Ctx::load_skeleton`).
+
+use std::ffi::{CStr, c_char};
+
+use crabbyengine::{AttachToJoint, Ctx, Entity, Joint, Skeleton, SkinOf, Transform3D};
+
+use crate::ctx::{ctx_access, out, text};
+use crate::three::{CrabbyMaterial, CrabbyMesh, CrabbyMeshData, CrabbyTransform3D, transform_from_c, transform_to_c};
+use crate::types::to_c;
+use crate::{CrabbyCtx, CrabbyStatus, Failure, boundary, error, invalid, invalid_owned};
+
+/// One joint of a skeleton (Rust `Joint`): its name, the index of the
+/// joint it hangs from (earlier in the list; -1 for a root) and where it
+/// sits relative to that joint at rest.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct CrabbyJoint {
+    /// Its name (UTF-8, copied).
+    pub name: *const c_char,
+    /// The joint it hangs from, or -1.
+    pub parent: i32,
+    /// Where it sits relative to its parent at rest.
+    pub rest: CrabbyTransform3D,
+}
+
+fn entity(c: &Ctx, bits: u64) -> Result<Entity, Failure> {
+    let e = Entity::from_bits(bits);
+    if c.world.is_alive(e) {
+        Ok(e)
+    } else {
+        Err(invalid("no such entity"))
+    }
+}
+
+fn skeleton(c: &Ctx, bits: u64) -> Result<&Skeleton, Failure> {
+    c.world
+        .get::<Skeleton>(entity(c, bits)?)
+        .ok_or_else(|| error(CrabbyStatus::CRABBY_NOT_FOUND, "that entity has no skeleton"))
+}
+
+fn skeleton_mut(c: &mut Ctx, bits: u64) -> Result<&mut Skeleton, Failure> {
+    let e = entity(c, bits)?;
+    c.world
+        .get_mut::<Skeleton>(e)
+        .ok_or_else(|| error(CrabbyStatus::CRABBY_NOT_FOUND, "that entity has no skeleton"))
+}
+
+fn joint_index(s: &Skeleton, joint: usize) -> Result<usize, Failure> {
+    if joint < s.joints().len() {
+        Ok(joint)
+    } else {
+        Err(invalid_owned(format!("joint {joint} is past the skeleton's {}", s.joints().len())))
+    }
+}
+
+/// Gives mesh data up to four joints per corner and how much each moves it
+/// (Rust `MeshData::joints` and `weights`): `joints` and `weights` hold 4
+/// each per corner; `count` is the number of corners, or 0 to remove them.
+/// # Safety
+/// `data` null or live; `joints` and `weights` hold `4 * count` values (null when 0).
+/// ```
+/// use crabby_ffi::{CrabbyStatus::*, *};
+/// let d = crabby_mesh_data_plane(1.0);
+/// let (j, w) = ([0u16; 16], [1.0f32, 0.0, 0.0, 0.0].repeat(4));
+/// assert_eq!(unsafe { crabby_mesh_data_set_skin(d, j.as_ptr(), w.as_ptr(), 4) }, CRABBY_OK);
+/// assert_eq!(unsafe { crabby_mesh_data_set_skin(d, j.as_ptr(), w.as_ptr(), 3) }, CRABBY_INVALID_ARGUMENT);
+/// unsafe { crabby_mesh_data_free(d) };
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_mesh_data_set_skin(
+    data: *mut CrabbyMeshData,
+    joints: *const u16,
+    weights: *const f32,
+    count: usize,
+) -> CrabbyStatus {
+    boundary(|| {
+        // SAFETY: caller contract: null or live.
+        let Some(data) = (unsafe { data.as_mut() }) else {
+            return Err(invalid("mesh data is null"));
+        };
+        if count > 0 && (joints.is_null() || weights.is_null()) {
+            return Err(invalid("joints or weights is null"));
+        }
+        let corners = data.0.positions.len();
+        if count != 0 && count != corners {
+            return Err(invalid_owned(format!("{count} skinned corners for {corners} corners")));
+        }
+        if count == 0 {
+            data.0.joints = Vec::new();
+            data.0.weights = Vec::new();
+            return Ok(());
+        }
+        // SAFETY: caller passes 4 * count of each.
+        let (j, w) = unsafe {
+            (
+                std::slice::from_raw_parts(joints, count * 4),
+                std::slice::from_raw_parts(weights, count * 4),
+            )
+        };
+        data.0.joints = j.as_chunks::<4>().0.to_vec();
+        data.0.weights = w.as_chunks::<4>().0.to_vec();
+        Ok(())
+    })
+}
+
+/// Puts a skeleton of `count` joints, at rest, on `entity` (Rust
+/// `Skeleton::new`), replacing any it had. Each joint's parent must come
+/// before it.
+/// # Safety
+/// `ctx` null or live; `joints` holds `count` joints with valid names.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_skeleton(std::ptr::null_mut(), 0, std::ptr::null(), 0) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_skeleton(
+    ctx: *mut CrabbyCtx,
+    entity_bits: u64,
+    joints: *const CrabbyJoint,
+    count: usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let e = entity(c, entity_bits)?;
+            if joints.is_null() && count > 0 {
+                return Err(invalid("joints is null"));
+            }
+            if count > 1 << 16 {
+                return Err(invalid("more than 65536 joints"));
+            }
+            let raw = if count == 0 {
+                &[][..]
+            } else {
+                std::slice::from_raw_parts(joints, count)
+            };
+            let mut list = Vec::with_capacity(count);
+            for (i, j) in raw.iter().enumerate() {
+                if j.name.is_null() {
+                    return Err(invalid("a joint's name is null"));
+                }
+                let name = CStr::from_ptr(j.name)
+                    .to_str()
+                    .map_err(|_| invalid("a joint's name isn't UTF-8"))?;
+                let parent = match j.parent {
+                    -1 => None,
+                    p if p >= 0 && (p as usize) < i => Some(p as usize),
+                    p => return Err(invalid_owned(format!("joint {i} hangs from {p}, which doesn't come before it"))),
+                };
+                list.push(Joint {
+                    name: name.to_string(),
+                    parent,
+                    rest: transform_from_c(j.rest),
+                });
+            }
+            c.world.insert(e, Skeleton::new(list));
+            Ok(())
+        })
+    })
+}
+
+/// Puts the skeleton of a glTF file with skins on `entity`, at rest (Rust
+/// `Ctx::load_skeleton`), loading the file's mesh if it isn't yet.
+/// # Safety
+/// `ctx` null or live; `path` a C string.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_load_skeleton(std::ptr::null_mut(), 0, c"a.glb".as_ptr()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_load_skeleton(
+    ctx: *mut CrabbyCtx,
+    entity_bits: u64,
+    path: *const c_char,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let e = entity(c, entity_bits)?;
+            let path = text(path)?;
+            let s = c.load_skeleton(path);
+            c.world.insert(e, s);
+            Ok(())
+        })
+    })
+}
+
+/// Makes a mesh that bends with the skeleton on `skeleton_entity` (Rust
+/// `Ctx::create_skinned_mesh`): `data`'s joints index that skeleton's
+/// joints, and it's modelled with the skeleton at rest.
+/// # Safety
+/// `ctx` null or live; `data` null or live; output writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_create_skinned_mesh(std::ptr::null_mut(), std::ptr::null(), Default::default(), 0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_create_skinned_mesh(
+    ctx: *mut CrabbyCtx,
+    data: *const CrabbyMeshData,
+    material: CrabbyMaterial,
+    skeleton_entity: u64,
+    out_mesh: *mut CrabbyMesh,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let Some(data) = data.as_ref() else {
+                return Err(invalid("mesh data is null"));
+            };
+            if out_mesh.is_null() {
+                return Err(invalid("output is null"));
+            }
+            // Checked here so bad input is an error, not a panic.
+            data.0.check().map_err(invalid_owned)?;
+            if data.0.joints.is_empty() {
+                return Err(invalid("the mesh data has no joints (use crabby_ctx_create_mesh)"));
+            }
+            if !c.has_material(to_c(material)) {
+                return Err(invalid("that material wasn't made by this game"));
+            }
+            let s = skeleton(c, skeleton_entity)?.clone();
+            let n = s.joints().len();
+            if let Some(bad) = data.0.joints.iter().flatten().find(|&&j| usize::from(j) >= n) {
+                return Err(invalid_owned(format!("joint {bad} is past the skeleton's {n} joints")));
+            }
+            out(out_mesh, to_c(c.create_skinned_mesh(&data.0, to_c(material), &s)))
+        })
+    })
+}
+
+/// How many joints the skeleton on `entity` has.
+/// # Safety
+/// `ctx` null or live; output writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_joint_count(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_joint_count(ctx: *mut CrabbyCtx, entity_bits: u64, out_count: *mut usize) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_count, skeleton(c, entity_bits)?.joints().len())) })
+}
+
+/// The first joint called `name` on `entity`'s skeleton (Rust
+/// `Skeleton::find`): `out_found` says whether there is one, and
+/// `out_joint` gets its index if so.
+/// # Safety
+/// `ctx` null or live; `name` a C string; outputs writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_find_joint(std::ptr::null_mut(), 0, c"hip".as_ptr(), std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_find_joint(
+    ctx: *mut CrabbyCtx,
+    entity_bits: u64,
+    name: *const c_char,
+    out_found: *mut bool,
+    out_joint: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let name = text(name)?;
+            if out_joint.is_null() {
+                return Err(invalid("output is null"));
+            }
+            let found = skeleton(c, entity_bits)?.find(name);
+            out(out_found, found.is_some())?;
+            if let Some(j) = found {
+                *out_joint = j;
+            }
+            Ok(())
+        })
+    })
+}
+
+/// Where `joint` of `entity`'s skeleton sits relative to its parent this
+/// frame (Rust `skeleton.pose[joint]`).
+/// # Safety
+/// `ctx` null or live; output writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_joint_pose(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_joint_pose(
+    ctx: *mut CrabbyCtx,
+    entity_bits: u64,
+    joint: usize,
+    out_pose: *mut CrabbyTransform3D,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let s = skeleton(c, entity_bits)?;
+            let j = joint_index(s, joint)?;
+            let pose = s.pose.get(j).copied().unwrap_or(s.joints()[j].rest);
+            out(out_pose, transform_to_c(pose))
+        })
+    })
+}
+
+/// Moves `joint` of `entity`'s skeleton: where it sits relative to its
+/// parent from now on (Rust `skeleton.pose[joint] = pose`).
+/// # Safety
+/// `ctx` null or live; `pose` null or readable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_joint_pose(std::ptr::null_mut(), 0, 0, std::ptr::null()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_joint_pose(
+    ctx: *mut CrabbyCtx,
+    entity_bits: u64,
+    joint: usize,
+    pose: *const CrabbyTransform3D,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let Some(pose) = pose.as_ref() else {
+                return Err(invalid("pose is null"));
+            };
+            let s = skeleton_mut(c, entity_bits)?;
+            let j = joint_index(s, joint)?;
+            if s.pose.len() <= j {
+                let rest: Vec<Transform3D> = s.joints()[s.pose.len()..=j].iter().map(|x| x.rest).collect();
+                s.pose.extend(rest);
+            }
+            s.pose[j] = transform_from_c(*pose);
+            Ok(())
+        })
+    })
+}
+
+/// Puts every joint of `entity`'s skeleton back at rest (Rust
+/// `Skeleton::reset_pose`).
+/// # Safety
+/// `ctx` null or live.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_reset_pose(std::ptr::null_mut(), 0) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_reset_pose(ctx: *mut CrabbyCtx, entity_bits: u64) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            skeleton_mut(c, entity_bits)?.reset_pose();
+            Ok(())
+        })
+    })
+}
+
+/// `joint`'s matrix in `entity`'s own space from its pose now (Rust
+/// `Skeleton::joint_matrix`), as 16 floats, column after column.
+/// # Safety
+/// `ctx` null or live; `out_matrix` holds 16 floats.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_joint_matrix(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_joint_matrix(
+    ctx: *mut CrabbyCtx,
+    entity_bits: u64,
+    joint: usize,
+    out_matrix: *mut f32,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            if out_matrix.is_null() {
+                return Err(invalid("output is null"));
+            }
+            let s = skeleton(c, entity_bits)?;
+            let m = s.joint_matrix(joint_index(s, joint)?).to_cols_array();
+            std::ptr::copy_nonoverlapping(m.as_ptr(), out_matrix, 16);
+            Ok(())
+        })
+    })
+}
+
+/// Poses `entity`'s skinned model with `skeleton_entity`'s skeleton and
+/// draws it there (Rust `SkinOf`): clothes and parts, bound by joint name.
+/// # Safety
+/// `ctx` null or live.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_skin_of(std::ptr::null_mut(), 0, 0) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_skin_of(ctx: *mut CrabbyCtx, entity_bits: u64, skeleton_entity: u64) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let (e, of) = (entity(c, entity_bits)?, entity(c, skeleton_entity)?);
+            c.world.insert(e, SkinOf(of));
+            Ok(())
+        })
+    })
+}
+
+/// Keeps `entity`'s transform on `joint` of `skeleton_entity`'s skeleton,
+/// moved by `offset` in the joint's space (Rust `AttachToJoint`); set just
+/// before drawing.
+/// # Safety
+/// `ctx` null or live; `offset` null or readable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_attach_to_joint(std::ptr::null_mut(), 0, 0, 0, std::ptr::null()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_attach_to_joint(
+    ctx: *mut CrabbyCtx,
+    entity_bits: u64,
+    skeleton_entity: u64,
+    joint: usize,
+    offset: *const CrabbyTransform3D,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let Some(offset) = offset.as_ref() else {
+                return Err(invalid("offset is null"));
+            };
+            let (e, of) = (entity(c, entity_bits)?, entity(c, skeleton_entity)?);
+            c.world.insert(
+                e,
+                AttachToJoint {
+                    skeleton: of,
+                    joint,
+                    offset: transform_from_c(*offset),
+                },
+            );
+            Ok(())
+        })
+    })
+}

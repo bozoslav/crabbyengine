@@ -196,8 +196,7 @@ fn posing_a_skeleton_moves_the_drawn_pixels() {
         queue.submit([encoder.finish()]);
         readback.map_async(wgpu::MapMode::Read, .., |r| r.unwrap());
         device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-        let pixels = readback.get_mapped_range(..).unwrap().to_vec();
-        pixels
+        readback.get_mapped_range(..).unwrap().to_vec()
     };
     // Brightness of the pixel where the camera sees `at`.
     let lit = |pixels: &[u8], ctx: &Ctx, at: Vec3| {
