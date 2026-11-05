@@ -655,6 +655,8 @@ impl<'p> Importer<'p> {
                         .or_else(|| skin.nodes.iter().position(|n| n.parent.is_none()))
                         .unwrap_or(0);
                     for clip in &self.animation_clips {
+                        // Baked runtime curves name blend shapes by hash only.
+                        let clip = clip.with_blend_shape_names(mesh.blend_shapes.iter().map(|b| b.name.as_str()));
                         for diagnostic in clip.append_to_skin(&mut skin, root) {
                             self.report.skip(diagnostic);
                         }

@@ -144,7 +144,7 @@ whether to repeat playback. Renderer bone references preserve joint order,
 and `m_RootBone` supplies the glTF skeleton root. Missing bone references
 retain the unresolved model bones while applying the resolved scene bones.
 
-Standalone plain YAML `.anim` transform clips also import:
+Standalone `.anim` clips (text or binary serialized) also import:
 
 ```rust
 let clips = [crabby_unity::AnimationClip::read("Assets/Walk.anim")?];
@@ -163,10 +163,47 @@ tracks use glTF STEP. Mixed step/smooth tracks use sampled LINEAR, so jumps
 between samples are approximated. Weighted tangents are approximated as
 unweighted Hermite and reported.
 
-Binary/compressed clips (including streamed/dense data) return a clear error.
-Float curves, object reference curves and generic bindings are skipped and
-reported. Humanoid retargeting, animation events and Animator controllers
-are not imported yet.
+### Which curves a clip uses
+
+A clip saved by the editor usually carries two copies of its animation: the
+curves you authored (`m_PositionCurves`, `m_RotationCurves`, `m_ScaleCurves`,
+`m_EulerCurves`, the editor's per-property `m_EditorCurves` such as
+`m_LocalPosition.x` and `m_EulerEditorCurves`, and blend-shape float curves)
+and the runtime data Unity bakes from them (`m_MuscleClip` with
+`m_ClipBindingConstant`). When there are authored curves, the importer uses
+them and ignores the baked copy. Properties that a per-property curve leaves
+out keep their rest pose: a clip that only animates `m_LocalPosition.x`
+leaves y and z alone. Where plain transform curves and per-property curves
+describe the same target, the plain ones win.
+
+A clip without authored curves is decoded from the baked data:
+
+- **Streamed**, **dense** and **constant** curves: cubic keys per time,
+  samples at a fixed rate (linear between frames), and single values. Their
+  channels are bound to targets through the clip's `genericBindings`: the
+  CRC-32 of a transform's slash-separated path (below the node the clip is
+  applied to) and an attribute (position, rotation, scale or Euler angles).
+  Hash and node must match exactly; unmatched or ambiguous paths are
+  reported.
+- **Compressed** rotation curves (`m_Compressed`, bit-packed keys).
+- **Blend shapes** in baked data are only identified by a hash of their
+  name. The importer matches it against the blend shapes of the mesh being
+  exported (`AnimationClip::with_blend_shape_names` does the same for
+  your own use); unmatched ones are reported.
+
+Binary serialized clips (Unity's *Mixed* or *Binary* asset serialization,
+2022 or newer, saved by the editor with type trees) read into the same
+fields, so they behave like their text twins. `AnimationClip::read` picks
+the format; `parse` takes text and `parse_binary` bytes.
+
+What does not import: **humanoid** clips whose curves are muscles and root
+motion need retargeting, so a clip with only those is an error, and one that
+mixes them with transform curves imports the transform curves and reports the
+rest. Float curves on anything but blend shapes, object reference curves,
+weighted tangents (approximated), animation events and Animator controllers
+are skipped and reported or not imported yet. The compressed-curve tangent
+layout and the baked decoders are checked against synthetic data built from
+the formats' public descriptions, not against every Unity version's output.
 
 ## Terrain
 

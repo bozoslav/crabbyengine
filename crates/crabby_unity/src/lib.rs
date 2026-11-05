@@ -11,6 +11,7 @@
 //! ```
 
 mod animation;
+mod baked;
 mod binary;
 mod builtin;
 mod fbx;

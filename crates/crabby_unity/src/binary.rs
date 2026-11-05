@@ -96,7 +96,10 @@ impl<'a> Reader<'a> {
 
 /// Whether `data` looks like a binary serialized file.
 pub(crate) fn is_binary(data: &[u8]) -> bool {
-    data.len() >= 48 && u32::from_be_bytes([data[8], data[9], data[10], data[11]]) >= 9 && data[..4] != *b"%YAM"
+    data.len() >= 48
+        && u32::from_be_bytes([data[8], data[9], data[10], data[11]]) >= 9
+        && data[..4] != *b"%YAM"
+        && data[..3] != *b"---"
 }
 
 /// Parses a binary serialized file (format 22 or later, with type trees).
