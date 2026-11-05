@@ -393,6 +393,105 @@ There is no automatic break-force option: Rapier does not expose a simple
 break threshold on impulse joints. Despawn the connection to detach explicitly.
 `ctx.physics3d.joint_count()` reports live connections after the last step.
 
+## Ragdolls
+
+`ctx.start_ragdoll(entity, &bones)` hands a skinned character's skeleton
+over to physics: each `RagdollBone` names a joint and gets a dynamic capsule
+running to the joint's first child (a sphere for a joint without children).
+Each capsule is held to the nearest chosen bone above it by a spherical
+joint, limited to a cone of `.swing(radians)` (default 0.7) and a
+`.twist(radians)` either way (default 0.3). Pick the bones that matter
+(hips, spine, head, upper and lower limbs). Joints you leave out keep their
+pose relative to the bone above them, so hands and fingers ride along.
+
+The bodies start where the skeleton is posed now and are linked to physics
+at once, so you can push them in the same frame: a hit, an explosion. From
+then on the bodies pose the skeleton after every step (`Ragdoll3D` on the
+entity holds them; `body(joint)` finds one) and its `Animator` waits.
+
+<div class="lang-pair">
+<div>
+
+```rust
+{{#include ../../tests/ragdoll3d.rs:ragdoll}}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:ragdoll}}
+```
+
+</div>
+</div>
+
+`ctx.stop_ragdoll(entity, seconds)` removes the bodies and joints and blends
+the skeleton from where it lies back to what the animator plays, over
+`seconds` (0 snaps). The entity's `Transform3D` doesn't move by itself: set
+it to where the ragdoll lies (its root bone's body) first if the animation
+should start from there. The bodies are entities of their own, so stop the
+ragdoll before despawning the character. Starting again replaces a running
+ragdoll; a bad call (an unknown or repeated joint, a radius that isn't
+positive) returns an error and leaves the running one alone. Bodies of
+one ragdoll don't collide with the bones they're jointed to, but do with
+the rest of the world and the rest of the body.
+
+## Contact modification
+
+`ContactModifier3D` changes how one body's contacts behave. It is a component:
+put it on an entity that has a collider.
+
+- **One-way surfaces.** `ContactModifier3D::one_way(up)` makes a body solid
+  only from the side `up` points to. A ball thrown up from below passes
+  through the platform and lands on top of it. `up` is in the body's own
+  frame, so a tilted platform turns it with it. `one_way_angle` (radians,
+  default 1.2, about 70 degrees) is how far a contact's direction may lean
+  from `up` and still count as "from above", so a steep slope of the
+  surface still holds; narrow it to make only the flat top solid. Something already partly inside the platform
+  keeps passing until it is out, so it is never pushed up from within.
+- **Conveyors.** `ContactModifier3D::conveyor(velocity)` makes the surface
+  carry whatever touches it at `velocity`, in metres per second. The
+  velocity is in the body's frame, so a belt on a turning body turns its
+  direction too. Only the part along the surface counts; the part into it is
+  ignored. It works whether the belt or the thing on it comes first in the
+  pair.
+- **A custom hook.** `ContactModifier3D::hook()` sends the body's contacts
+  to the function you set with `ctx.physics3d.set_contact_hook(...)`
+  (`ctx.set_contact_hook3d(...)` in C++; a null function clears it). The hook
+  gets a `ContactPair3D`: the two entities (`a` and `b`), the contact
+  `normal()` and its points, and it can `ignore()` the whole pair, drop one
+  `remove_point(i)`, change `set_friction` and `set_restitution`, or
+  `set_surface_velocity` in world space.
+
+<div class="lang-pair">
+<div>
+
+```rust
+{{#include ../../tests/contacts3d.rs:contacts}}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:contacts}}
+```
+
+</div>
+</div>
+
+The hook runs during the physics step and sees only the pair, so capture
+whatever else it needs (an entity, a flag) when you set it; it can't reach
+the world. Its changes last for one step: the next step builds the contacts
+again and calls the hook again. Keep it short, since it runs for every
+contact of every hooked body, every step. In C++ an exception thrown by the
+hook ends the run after that step and comes out of `run` or `run_headless`.
+
+Modified bodies cost a little: their contacts are rebuilt every step instead
+of being kept while the bodies rest. Bodies without a `ContactModifier3D`
+are not affected, and removing the component makes a body plain again.
+
 ## One-way pushing
 
 A higher `RigidBody3D::dominance` group pushes lower groups without receiving

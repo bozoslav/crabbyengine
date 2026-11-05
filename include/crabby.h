@@ -342,6 +342,8 @@ typedef struct CrabbyCellStreamer CrabbyCellStreamer;
 
 typedef struct CrabbyClip CrabbyClip;
 
+typedef struct CrabbyContactPair3D CrabbyContactPair3D;
+
 typedef struct CrabbyCtx CrabbyCtx;
 
 typedef struct CrabbyFlowField CrabbyFlowField;
@@ -453,6 +455,16 @@ typedef struct CrabbyAudioListener3D {
   struct CrabbyVec3 position;
   struct CrabbyQuat rotation;
 } CrabbyAudioListener3D;
+
+typedef struct CrabbyContactModifier3D {
+  bool has_one_way;
+  struct CrabbyVec3 one_way;
+  float one_way_angle;
+  struct CrabbyVec3 surface_velocity;
+  bool hook;
+} CrabbyContactModifier3D;
+
+typedef void (*CrabbyContactHook3D)(struct CrabbyContactPair3D *pair, void *user);
 
 typedef struct CrabbyTexture {
   uint32_t id;
@@ -762,6 +774,14 @@ typedef struct CrabbyHit3D {
   struct CrabbyVec3 normal;
   float distance;
 } CrabbyHit3D;
+
+typedef struct CrabbyRagdollBone {
+  const char *joint;
+  float radius;
+  float swing;
+  float twist;
+  float density;
+} CrabbyRagdollBone;
 
 typedef struct CrabbyField {
   const char *name;
@@ -1362,6 +1382,55 @@ enum CrabbyStatus crabby_ctx_set_audio_listener(struct CrabbyCtx *ctx,
 
 enum CrabbyStatus crabby_ctx_audio_listener(struct CrabbyCtx *ctx,
                                             struct CrabbyAudioListener3D *out_listener);
+
+struct CrabbyContactModifier3D crabby_contact_modifier3d_default(void);
+
+struct CrabbyContactModifier3D crabby_contact_modifier3d_one_way(struct CrabbyVec3 up);
+
+struct CrabbyContactModifier3D crabby_contact_modifier3d_conveyor(struct CrabbyVec3 velocity);
+
+struct CrabbyContactModifier3D crabby_contact_modifier3d_hook(void);
+
+enum CrabbyStatus crabby_contact_modifier3d_component(struct CrabbyWorld *world, uint32_t *out_id);
+
+enum CrabbyStatus crabby_ctx_set_contact_hook3d(struct CrabbyCtx *ctx,
+                                                CrabbyContactHook3D hook,
+                                                void *user);
+
+enum CrabbyStatus crabby_contact_pair3d_entities(struct CrabbyContactPair3D *pair,
+                                                 uint64_t *out_a,
+                                                 uint64_t *out_b);
+
+enum CrabbyStatus crabby_contact_pair3d_normal(struct CrabbyContactPair3D *pair,
+                                               struct CrabbyVec3 *out_normal);
+
+enum CrabbyStatus crabby_contact_pair3d_point_count(struct CrabbyContactPair3D *pair,
+                                                    size_t *out_count);
+
+enum CrabbyStatus crabby_contact_pair3d_point(struct CrabbyContactPair3D *pair,
+                                              size_t index,
+                                              struct CrabbyVec3 *out_point,
+                                              float *out_distance);
+
+enum CrabbyStatus crabby_contact_pair3d_ignore(struct CrabbyContactPair3D *pair);
+
+enum CrabbyStatus crabby_contact_pair3d_remove_point(struct CrabbyContactPair3D *pair,
+                                                     size_t index);
+
+enum CrabbyStatus crabby_contact_pair3d_friction(struct CrabbyContactPair3D *pair,
+                                                 float *out_friction);
+
+enum CrabbyStatus crabby_contact_pair3d_set_friction(struct CrabbyContactPair3D *pair,
+                                                     float friction);
+
+enum CrabbyStatus crabby_contact_pair3d_restitution(struct CrabbyContactPair3D *pair,
+                                                    float *out_restitution);
+
+enum CrabbyStatus crabby_contact_pair3d_set_restitution(struct CrabbyContactPair3D *pair,
+                                                        float restitution);
+
+enum CrabbyStatus crabby_contact_pair3d_set_surface_velocity(struct CrabbyContactPair3D *pair,
+                                                             struct CrabbyVec3 velocity);
 
 float crabby_ctx_dt(const struct CrabbyCtx *ctx);
 
@@ -2055,6 +2124,25 @@ enum CrabbyStatus crabby_ctx_body_mass3d(struct CrabbyCtx *ctx, uint64_t entity,
 enum CrabbyStatus crabby_ctx_body_center_of_mass3d(struct CrabbyCtx *ctx,
                                                    uint64_t entity,
                                                    struct CrabbyVec3 *out_center);
+
+struct CrabbyRagdollBone crabby_ragdoll_bone(const char *joint, float radius);
+
+enum CrabbyStatus crabby_ctx_start_ragdoll(struct CrabbyCtx *ctx,
+                                           uint64_t entity,
+                                           const struct CrabbyRagdollBone *bones,
+                                           size_t count);
+
+enum CrabbyStatus crabby_ctx_stop_ragdoll(struct CrabbyCtx *ctx, uint64_t entity, float seconds);
+
+enum CrabbyStatus crabby_ctx_ragdoll_body(struct CrabbyCtx *ctx,
+                                          uint64_t entity,
+                                          size_t joint,
+                                          uint64_t *out_body);
+
+enum CrabbyStatus crabby_ctx_ragdoll_state(struct CrabbyCtx *ctx,
+                                           uint64_t entity,
+                                           bool *out_ragdolled,
+                                           bool *out_blending);
 
 enum CrabbyStatus crabby_component_reflect(struct CrabbyWorld *world,
                                            uint32_t component_id,

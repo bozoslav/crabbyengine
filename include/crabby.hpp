@@ -181,6 +181,7 @@ using collider3d = CrabbyCollider3D;
 using velocity3d = CrabbyVelocity3D;
 using character3d = CrabbyCharacter3D;
 using joint3d = CrabbyJoint3D;
+using contact_modifier3d = CrabbyContactModifier3D;
 using joint_drive3d = CrabbyJointDrive3D;
 using collision_mesh = CrabbyCollisionMesh;
 using collision_groups = CrabbyCollisionGroups;
@@ -328,6 +329,38 @@ inline vehicle3d vehicle(std::initializer_list<wheel3d> wheels) {
 }
 /// Where to draw `w` for a chassis at `chassis`: steer, spin and suspension travel included.
 inline transform3d wheel_pose(const wheel3d& w, const transform3d& chassis) { return crabby_wheel3d_pose(&w, chassis); }
+/// One bone of a ragdoll (Rust `RagdollBone`): the joint it starts at and
+/// the capsule standing in for it, which runs to the joint's first child.
+/// `ragdoll_bone("spine", 0.1f).swing(0.5f)`.
+class ragdoll_bone {
+public:
+    ragdoll_bone(std::string joint, float radius) : joint_(std::move(joint)), raw_(crabby_ragdoll_bone(nullptr, radius)) {}
+    /// How far it may swing away from its parent, in radians (default 0.7).
+    ragdoll_bone swing(float radians) const { auto b = *this; b.raw_.swing = radians; return b; }
+    /// How far it may twist around itself, either way, in radians (default 0.3).
+    ragdoll_bone twist(float radians) const { auto b = *this; b.raw_.twist = radians; return b; }
+    /// kg per cubic meter (default 1000).
+    ragdoll_bone density(float kg_per_m3) const { auto b = *this; b.raw_.density = kg_per_m3; return b; }
+    /// The C struct, pointing at this bone's joint name.
+    CrabbyRagdollBone raw() const { auto r = raw_; r.joint = joint_.c_str(); return r; }
+private:
+    std::string joint_;
+    CrabbyRagdollBone raw_;
+};
+/// A contact modifier that does nothing (Rust `ContactModifier3D::default()`).
+/// Set its fields to combine effects, e.g. `.hook = true`.
+inline contact_modifier3d default_contact_modifier3d() { return crabby_contact_modifier3d_default(); }
+/// Solid only from the side `up` (a local direction) points to: things pass
+/// up through it and land on top (Rust `ContactModifier3D::one_way`). Set
+/// `.one_way_angle` (radians, default 1.2) to change how far a contact may
+/// lean from `up` and still count.
+inline contact_modifier3d one_way_modifier3d(vec3 up) { return crabby_contact_modifier3d_one_way(up); }
+/// A surface carrying what touches it at `velocity` (local to the body, m/s),
+/// like a conveyor belt (Rust `ContactModifier3D::conveyor`).
+inline contact_modifier3d conveyor_modifier3d(vec3 velocity) { return crabby_contact_modifier3d_conveyor(velocity); }
+/// A modifier whose contacts go to the hook set with `ctx::set_contact_hook3d`
+/// (Rust `ContactModifier3D::hook`).
+inline contact_modifier3d hook_modifier3d() { return crabby_contact_modifier3d_hook(); }
 /// How fast a wheel spins, in revolutions per minute.
 inline float rpm(const wheel3d& w) { return w.angular_velocity * 60.0f / 6.2831853f; }
 /// The grip of a tyre curve at `slip` (either sign), stiffness included.
@@ -447,6 +480,7 @@ public:
 };
 
 class ctx;
+class contact_pair3d;
 namespace detail {
 inline void check(CrabbyStatus status) {
     if (status != CRABBY_OK) throw std::runtime_error(crabby_last_error());
@@ -481,17 +515,6 @@ template<class T> const std::string& type_name() {
     return name;
 }
 
-/// Component ids of one world, by C++ type. Shared by a game, its ctx and
-/// the world run_headless returns.
-struct identity {
-    std::vector<std::uint32_t> ids;  // type_slot -> id + 1 (0: not registered yet)
-    std::unordered_map<std::uint32_t, std::type_index> types;  // id -> the C++ type using it
-    // Commands and events whose type was first used inside a query, when the
-    // world can't register it: replayed right after the system returns.
-    std::mutex later_lock;
-    std::vector<std::function<void(ctx&)>> later;
-};
-
 /// The first exception thrown by a callback, kept until the C call returns.
 struct first_error {
     std::mutex lock;
@@ -503,6 +526,22 @@ struct first_error {
         set.store(true);
     }
     void rethrow() { if (error) std::rethrow_exception(error); }
+};
+
+/// Component ids of one world, by C++ type. Shared by a game, its ctx and
+/// the world run_headless returns.
+struct identity {
+    std::vector<std::uint32_t> ids;  // type_slot -> id + 1 (0: not registered yet)
+    std::unordered_map<std::uint32_t, std::type_index> types;  // id -> the C++ type using it
+    // Commands and events whose type was first used inside a query, when the
+    // world can't register it: replayed right after the system returns.
+    std::mutex later_lock;
+    std::vector<std::function<void(ctx&)>> later;
+    // The contact hook (ctx::set_contact_hook3d) lives here, not in a ctx:
+    // a ctx only lasts one system call, the hook as long as the game. An
+    // exception it throws is kept in hook_error and rethrown by the game.
+    std::function<void(contact_pair3d&)> contact_hook;
+    first_error hook_error;
 };
 
 /// The parameter types of a function, lambda or function object, and
@@ -638,6 +677,7 @@ protected:
         else if constexpr (std::is_same<T, velocity3d>::value) status = crabby_velocity3d_component(world, &id);
         else if constexpr (std::is_same<T, character3d>::value) status = crabby_character3d_component(world, &id);
         else if constexpr (std::is_same<T, joint3d>::value) status = crabby_joint3d_component(world, &id);
+        else if constexpr (std::is_same<T, contact_modifier3d>::value) status = crabby_contact_modifier3d_component(world, &id);
         else if constexpr (std::is_same<T, vehicle3d>::value) status = crabby_vehicle3d_component(world, &id);
         else if constexpr (std::is_same<T, transform3d>::value) status = crabby_transform3d_component(world, &id);
         else if constexpr (std::is_same<T, point_light3d>::value) status = crabby_point_light3d_component(world, &id);
@@ -685,8 +725,9 @@ protected:
         static_assert(!std::disjunction<std::is_same<Ts, rigid_body>..., std::is_same<Ts, collider>...>::value,
                       "rigid_body and collider are not query columns: use get/set (velocity is fine)");
         static_assert(!std::disjunction<std::is_same<Ts, rigid_body3d>..., std::is_same<Ts, collider3d>...,
-                                        std::is_same<Ts, character3d>..., std::is_same<Ts, joint3d>...>::value,
-                      "rigid_body3d, collider3d, character3d and joint3d are not query columns: use get/set (velocity3d is fine)");
+                                        std::is_same<Ts, character3d>..., std::is_same<Ts, joint3d>...,
+                                        std::is_same<Ts, contact_modifier3d>...>::value,
+                      "rigid_body3d, collider3d, character3d, joint3d and contact_modifier3d are not query columns: use get/set (velocity3d is fine)");
         valid(); std::array<std::uint32_t, sizeof...(Ts)> ids{{id<Ts>()...}};
         struct context { F* fn; detail::first_error error; } c{&fn, {}};
         auto trampoline = [](const CrabbyChunk* raw, void* user) noexcept {
@@ -1610,6 +1651,53 @@ struct input_event {
     static input_event disconnected(gamepad p) { return {5, p.slot, 0, 0}; }
 };
 
+/// One contact point of a pair: where, and how far apart the bodies are there.
+struct contact_point3d {
+    vec3 position;
+    float distance;
+};
+/// The contacts between two bodies in one step, as a contact hook sees them
+/// (Rust `ContactPair3D`). Only valid inside the hook call; changes last for
+/// this step. Calls throw on bad arguments (a non-finite value).
+class contact_pair3d {
+public:
+    explicit contact_pair3d(CrabbyContactPair3D* raw) noexcept : raw_(raw) {}
+    contact_pair3d(const contact_pair3d&) = delete;
+    contact_pair3d& operator=(const contact_pair3d&) = delete;
+    /// The two bodies (Rust `a` and `b`).
+    entity a() const { return both().first; }
+    entity b() const { return both().second; }
+    /// The contact direction in the world, from `a` toward `b`.
+    vec3 normal() const { vec3 n{}; detail::check(crabby_contact_pair3d_normal(raw_, &n)); return n; }
+    /// How many contact points there are (0 once ignored).
+    std::size_t point_count() const { std::size_t n = 0; detail::check(crabby_contact_pair3d_point_count(raw_, &n)); return n; }
+    /// Point `i`, or nothing if there is no such point.
+    std::optional<contact_point3d> point(std::size_t i) const {
+        contact_point3d p{};
+        auto status = crabby_contact_pair3d_point(raw_, i, &p.position, &p.distance);
+        if (status == CRABBY_NOT_FOUND) return std::nullopt;
+        detail::check(status);
+        return p;
+    }
+    /// Drops every contact: the bodies pass through each other this step.
+    void ignore() { detail::check(crabby_contact_pair3d_ignore(raw_)); }
+    /// Drops point `i` (later points may change places); past the end does nothing.
+    void remove_point(std::size_t i) { detail::check(crabby_contact_pair3d_remove_point(raw_, i)); }
+    float friction() const { float f = 0; detail::check(crabby_contact_pair3d_friction(raw_, &f)); return f; }
+    void set_friction(float friction) { detail::check(crabby_contact_pair3d_set_friction(raw_, friction)); }
+    float restitution() const { float r = 0; detail::check(crabby_contact_pair3d_restitution(raw_, &r)); return r; }
+    void set_restitution(float restitution) { detail::check(crabby_contact_pair3d_set_restitution(raw_, restitution)); }
+    /// Makes `b` slide along `a`'s surface at `velocity` (world, m/s).
+    void set_surface_velocity(vec3 velocity) { detail::check(crabby_contact_pair3d_set_surface_velocity(raw_, velocity)); }
+    CrabbyContactPair3D* raw() const noexcept { return raw_; }
+private:
+    std::pair<entity, entity> both() const {
+        entity a = 0, b = 0;
+        detail::check(crabby_contact_pair3d_entities(raw_, &a, &b));
+        return {a, b};
+    }
+    CrabbyContactPair3D* raw_;
+};
 class ctx {
     CrabbyCtx* raw_;
     std::shared_ptr<detail::identity> owner_;
@@ -1619,6 +1707,14 @@ class ctx {
     void after_system(std::function<void(ctx&)> fn) {
         std::lock_guard<std::mutex> guard(owner_->later_lock);
         owner_->later.push_back(std::move(fn));
+    }
+    /// Calls the hook from ctx::set_contact_hook3d. Nothing may unwind into
+    /// the engine: an exception is kept for the game to rethrow.
+    static void contact_trampoline(CrabbyContactPair3D* raw, void* user) noexcept {
+        auto& owner = *static_cast<detail::identity*>(user);
+        if (owner.hook_error.set.load() || !owner.contact_hook) return;
+        try { contact_pair3d pair(raw); owner.contact_hook(pair); }
+        catch (...) { owner.hook_error.capture(); }
     }
     friend class game;
     /// Replays what after_system queued, now that no query holds the world.
@@ -2297,6 +2393,25 @@ public:
     void free_collision_mesh(collision_mesh m) { detail::check(crabby_ctx_physics3d_free_mesh(raw_, m)); }
     /// How many joints the 3D physics world holds after its last step.
     std::size_t joint_count() const { std::size_t n = 0; detail::check(crabby_ctx_physics3d_joint_count(raw_, &n)); return n; }
+    /// Sets the contact hook (Rust `Physics3D::set_contact_hook`): each step,
+    /// before the solver uses them, `hook` is called for the contacts of every
+    /// body with `hook_modifier3d()` (or a modifier with `.hook = true`). It
+    /// can ignore the pair or remove points, change friction and bounciness,
+    /// or set a surface velocity; changes last for that step. It runs inside
+    /// the physics step: it sees only the pair (capture the rest), must not
+    /// use this ctx or its world, and the `contact_pair3d&` is valid only
+    /// during the call. An exception it throws stops the game after the step
+    /// and comes out of `run`/`run_headless`. Replaces an earlier hook.
+    void set_contact_hook3d(std::function<void(contact_pair3d&)> hook) {
+        if (!hook) { clear_contact_hook3d(); return; }
+        owner_->contact_hook = std::move(hook);
+        detail::check(crabby_ctx_set_contact_hook3d(raw_, contact_trampoline, owner_.get()));
+    }
+    /// Removes the contact hook.
+    void clear_contact_hook3d() {
+        detail::check(crabby_ctx_set_contact_hook3d(raw_, nullptr, nullptr));
+        owner_->contact_hook = nullptr;
+    }
     /// The closest collider a ray hits within `max_distance`.
     std::optional<hit3d> cast_ray3d(vec3 origin, vec3 direction, float max_distance, filter3d filter = {}) {
         bool found = false; hit3d hit{};
@@ -2371,6 +2486,31 @@ public:
         detail::check(status);
         return c;
     }
+    /// Hands `e`'s skeleton over to physics (Rust `Ctx::start_ragdoll`): a
+    /// body per bone, jointed to the nearest chosen ancestor. The bodies are
+    /// linked at once, so you can push them straight away. Throws on an
+    /// unknown or repeated joint, a radius that isn't positive, or no skeleton.
+    void start_ragdoll(entity e, const std::vector<ragdoll_bone>& bones) {
+        std::vector<CrabbyRagdollBone> raw;
+        raw.reserve(bones.size());
+        for (const ragdoll_bone& b : bones) raw.push_back(b.raw());
+        detail::check(crabby_ctx_start_ragdoll(raw_, e, raw.data(), raw.size()));
+    }
+    /// Removes `e`'s ragdoll bodies and blends its skeleton back to the
+    /// animated pose over `seconds` (0 snaps). Call it before despawning `e`.
+    void stop_ragdoll(entity e, float seconds = 0.0f) { detail::check(crabby_ctx_stop_ragdoll(raw_, e, seconds)); }
+    /// The body standing in for joint `joint` (see find_joint) of a ragdolled `e`.
+    std::optional<entity> ragdoll_body(entity e, std::size_t joint) const {
+        entity body = 0;
+        auto status = crabby_ctx_ragdoll_body(raw_, e, joint, &body);
+        if (status == CRABBY_NOT_FOUND) return std::nullopt;
+        detail::check(status);
+        return body;
+    }
+    /// Whether `e` is ragdolled (or still blending back from it).
+    bool ragdolled(entity e) const { bool r = false, b = false; detail::check(crabby_ctx_ragdoll_state(raw_, e, &r, &b)); return r; }
+    /// Whether `e` is blending back to its animation after stop_ragdoll.
+    bool ragdoll_blending(entity e) const { bool r = false, b = false; detail::check(crabby_ctx_ragdoll_state(raw_, e, &r, &b)); return b; }
 private:
     template<class F> static void overlap3d(std::vector<CrabbyEntity>& out, F call) {
         std::size_t n = 0;
@@ -2424,7 +2564,10 @@ class game {
     static void trampoline(CrabbyCtx* raw, void* user) noexcept {
         auto& h = *static_cast<holder*>(user);
         if (h.st->error.set.load()) return;
-        try { ctx c(raw, h.st->owner); h.fn(c); c.run_after_system(); }
+        try {
+            ctx c(raw, h.st->owner); h.fn(c); c.run_after_system();
+            if (h.st->owner->hook_error.set.load()) std::rethrow_exception(h.st->owner->hook_error.error);
+        }
         catch (...) { h.st->error.capture(); (void)crabby_ctx_quit(raw); }
     }
     holder* keep(std::function<void(ctx&)> fn) {
@@ -2517,6 +2660,7 @@ public:
         holder* h = keep(std::move(setup));
         auto status = crabby_game_run(take(), trampoline, h);
         state_->error.rethrow();
+        state_->owner->hook_error.rethrow();
         detail::check(status);
     }
     void run() { run([](ctx&) {}); }
@@ -2527,6 +2671,7 @@ public:
         auto status = crabby_game_run_headless(take(), ticks, trampoline, h, &result);
         crabby::world owned(result, state_->owner);
         state_->error.rethrow();
+        state_->owner->hook_error.rethrow();
         detail::check(status);
         return owned;
     }
