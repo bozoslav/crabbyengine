@@ -686,6 +686,46 @@ pub unsafe extern "C" fn crabby_ctx_mouse_wheel(ctx: *mut CrabbyCtx, out_wheel: 
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe { ctx_access(ctx, |c| out(out_wheel, to_c(c.mouse_wheel()))) })
 }
+/// How far the mouse moved this frame, in raw device units (+y = down),
+/// even while the cursor is locked: for mouse look.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_mouse_motion(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; pointer arguments must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_mouse_motion(ctx: *mut CrabbyCtx, out_motion: *mut CrabbyVec2) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_motion, to_c(c.mouse_motion()))) })
+}
+/// Locks (hides and holds) the cursor in the window, or lets it go. Takes
+/// effect after this frame.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_cursor_locked(std::ptr::null_mut(), true) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_cursor_locked(ctx: *mut CrabbyCtx, locked: bool) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            c.set_cursor_locked(locked);
+            Ok(())
+        })
+    })
+}
+/// Whether the game asked for the cursor to be locked.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_cursor_locked(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; pointer arguments must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_cursor_locked(ctx: *mut CrabbyCtx, out_locked: *mut bool) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_locked, c.cursor_locked())) })
+}
 
 /// Loads a PNG/JPEG texture (cached by path). Headless runs return a
 /// size-only handle. Errors (missing file) come back as a failed status.
