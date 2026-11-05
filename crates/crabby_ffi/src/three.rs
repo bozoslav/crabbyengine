@@ -4,10 +4,11 @@
 use std::ffi::c_char;
 
 use crabbyengine::{
-    AmbientOcclusion, AntiAliasing, Blend, Camera3D, Color, Compute, ComputePass, Effect, Lighting, Material,
-    MaterialDesc, Mesh, MeshData, Model, PointLight3D, Post, Quat, ReflectionProbe3D, ScreenEffect, Shader, Sky,
-    SpotLight3D, TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera, TerrainMaterialDesc, TerrainTile, TextureArray,
-    TextureKind, Tonemap, Transform3D, Vec2, Vec3, Vec4,
+    AmbientOcclusion, AntiAliasing, Blend, Camera3D, Color, Compute, ComputePass, Effect, GraphicsQuality, Lighting,
+    MAX_LIGHT_SHADOW_VIEWS, MAX_RENDER_SCALE, MIN_RENDER_SCALE, Material, MaterialDesc, Mesh, MeshData, Model,
+    PointLight3D, Post, QualityLevel, Quat, ReflectionProbe3D, ScreenEffect, Shader, Sky, SpotLight3D, TERRAIN_LAYERS,
+    TERRAIN_LODS, TargetCamera, TerrainMaterialDesc, TerrainTile, TextureArray, TextureKind, Tonemap, Transform3D,
+    Vec2, Vec3, Vec4,
 };
 
 use crate::ctx::{ctx_access, out, text};
@@ -443,6 +444,13 @@ pub struct CrabbyLighting {
     /// How many shadow maps share that distance, 1 to 4: more keep near
     /// shadows sharp, fewer are cheaper.
     pub shadow_cascades: u32,
+    /// Width and height of each of the sun's shadow maps, 256 to 4096.
+    pub shadow_resolution: u32,
+    /// How many shadow views point and spot lights share, 0 (no shadows
+    /// from them) to 12.
+    pub light_shadow_views: u32,
+    /// Width and height of each point or spot light shadow view, 128 to 2048.
+    pub light_shadow_resolution: u32,
 }
 
 /// The sky behind the 3D world and the fog in front of it (Rust
@@ -503,6 +511,11 @@ pub extern "C" fn crabby_sun_direction_at(hour: f32) -> CrabbyVec3 {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CrabbyPost {
+    /// The 3D scene's resolution relative to the window, 0.25 to 2: it is
+    /// drawn at that scale, then scaled to the window under the sprites and UI.
+    pub render_scale: f32,
+    /// Sharpening of the scaled image, 0 to 1.
+    pub sharpen: f32,
     /// Post AA: 0 none, 1 FXAA, 2 SMAA 1x.
     pub anti_aliasing: u32,
     /// Enable GTAO on ambient light only (unsupported backends ignore it).
@@ -2103,6 +2116,9 @@ pub unsafe extern "C" fn crabby_ctx_lighting(ctx: *mut CrabbyCtx, out_lighting: 
                     shadows: l.shadows,
                     shadow_distance: l.shadow_distance,
                     shadow_cascades: l.shadow_cascades,
+                    shadow_resolution: l.shadow_resolution,
+                    light_shadow_views: l.light_shadow_views,
+                    light_shadow_resolution: l.light_shadow_resolution,
                 },
             )
         })
@@ -2110,7 +2126,8 @@ pub unsafe extern "C" fn crabby_ctx_lighting(ctx: *mut CrabbyCtx, out_lighting: 
 }
 
 /// Changes the sun and sky light. Intensities and the shadow distance
-/// can't be negative; `shadow_cascades` is 1 to 4.
+/// can't be negative; `shadow_cascades` is 1 to 4; the shadow resolutions
+/// and `light_shadow_views` must be in their ranges (see `CrabbyLighting`).
 /// # Safety
 /// `ctx` null or live; `lighting` valid.
 /// ```
@@ -2130,6 +2147,14 @@ pub unsafe extern "C" fn crabby_ctx_set_lighting(ctx: *mut CrabbyCtx, lighting: 
             if !(1..=4).contains(&l.shadow_cascades) {
                 return Err(invalid("shadow_cascades must be 1 to 4"));
             }
+            if !(256..=4096).contains(&l.shadow_resolution)
+                || !(128..=2048).contains(&l.light_shadow_resolution)
+                || l.light_shadow_views > MAX_LIGHT_SHADOW_VIEWS as u32
+            {
+                return Err(invalid(
+                    "shadow_resolution must be 256 to 4096, light_shadow_resolution 128 to 2048 and light_shadow_views 0 to 12",
+                ));
+            }
             let color = |c: CrabbyColor| -> Color { to_c(c) };
             c.lighting = Lighting {
                 sun_direction: to_c(l.sun_direction),
@@ -2141,6 +2166,9 @@ pub unsafe extern "C" fn crabby_ctx_set_lighting(ctx: *mut CrabbyCtx, lighting: 
                 shadows: l.shadows,
                 shadow_distance: l.shadow_distance,
                 shadow_cascades: l.shadow_cascades,
+                shadow_resolution: l.shadow_resolution,
+                light_shadow_views: l.light_shadow_views,
+                light_shadow_resolution: l.light_shadow_resolution,
             };
             Ok(())
         })
@@ -2254,6 +2282,8 @@ pub unsafe extern "C" fn crabby_ctx_post(ctx: *mut CrabbyCtx, out_post: *mut Cra
             out(
                 out_post,
                 CrabbyPost {
+                    render_scale: p.render_scale,
+                    sharpen: p.sharpen,
                     anti_aliasing: p.anti_aliasing as u32,
                     ao_enabled: p.ambient_occlusion.enabled,
                     ao_radius: p.ambient_occlusion.radius,
@@ -2282,7 +2312,8 @@ pub unsafe extern "C" fn crabby_ctx_post(ctx: *mut CrabbyCtx, out_post: *mut Cra
 }
 
 /// Changes the 3D post-processing settings. `tonemap` must be 0 to 3;
-/// bloom, its threshold, contrast and saturation can't be negative.
+/// bloom, its threshold, contrast and saturation can't be negative;
+/// `render_scale` is 0.25 to 2 and `sharpen` 0 to 1.
 /// # Safety
 /// `ctx` null or live; `post` valid.
 /// ```
@@ -2313,6 +2344,9 @@ pub unsafe extern "C" fn crabby_ctx_set_post(ctx: *mut CrabbyCtx, post: *const C
                     "AO requires positive finite radius, nonnegative finite intensity, 1..8 slices and 1..16 steps",
                 ));
             }
+            if !(MIN_RENDER_SCALE..=MAX_RENDER_SCALE).contains(&p.render_scale) || !(0.0..=1.0).contains(&p.sharpen) {
+                return Err(invalid("render_scale must be 0.25 to 2 and sharpen 0 to 1"));
+            }
             let tonemap = match p.tonemap {
                 0 => Tonemap::Aces,
                 1 => Tonemap::AgX,
@@ -2336,6 +2370,8 @@ pub unsafe extern "C" fn crabby_ctx_set_post(ctx: *mut CrabbyCtx, post: *const C
                 return Err(invalid("bloom, threshold, contrast and saturation can't be negative"));
             }
             c.post = Post {
+                render_scale: p.render_scale,
+                sharpen: p.sharpen,
                 anti_aliasing,
                 ambient_occlusion: AmbientOcclusion {
                     enabled: p.ao_enabled,
@@ -2355,6 +2391,197 @@ pub unsafe extern "C" fn crabby_ctx_set_post(ctx: *mut CrabbyCtx, post: *const C
                 vignette: p.vignette,
                 lut: p.has_lut.then(|| texture_from_c(p.lut)),
             };
+            Ok(())
+        })
+    })
+}
+
+/// The settings that decide how heavy the 3D picture is, in one struct
+/// (Rust `GraphicsQuality`). Presets: `crabby_graphics_quality_preset`.
+/// Every field is also a field of `CrabbyPost` or `CrabbyLighting`; applying
+/// this writes those and leaves their other fields alone.
+/// ```
+/// let mut q = std::mem::MaybeUninit::<crabby_ffi::CrabbyGraphicsQuality>::uninit();
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_graphics_quality(std::ptr::null_mut(), q.as_mut_ptr()) } as u32, 1);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CrabbyGraphicsQuality {
+    /// The 3D scene's resolution relative to the window, 0.25 to 2.
+    pub render_scale: f32,
+    /// Sharpening of the scaled image, 0 to 1.
+    pub sharpen: f32,
+    /// Whether anything casts shadows.
+    pub shadows: bool,
+    /// How far from the camera shadows reach.
+    pub shadow_distance: f32,
+    /// Sun shadow cascades, 1 to 4.
+    pub shadow_cascades: u32,
+    /// Width of each sun shadow map, 256 to 4096.
+    pub shadow_resolution: u32,
+    /// Shadow views point and spot lights share, 0 to 12.
+    pub light_shadow_views: u32,
+    /// Width of each point or spot light shadow view, 128 to 2048.
+    pub light_shadow_resolution: u32,
+    /// Ambient occlusion on or off.
+    pub ambient_occlusion: bool,
+    /// AO angular slices, 1 to 8.
+    pub ao_slices: u32,
+    /// AO horizon steps per side, 1 to 16.
+    pub ao_steps: u32,
+    /// Post AA: 0 none, 1 FXAA, 2 SMAA 1x.
+    pub anti_aliasing: u32,
+}
+
+fn quality_to_c(q: GraphicsQuality) -> CrabbyGraphicsQuality {
+    CrabbyGraphicsQuality {
+        render_scale: q.render_scale,
+        sharpen: q.sharpen,
+        shadows: q.shadows,
+        shadow_distance: q.shadow_distance,
+        shadow_cascades: q.shadow_cascades,
+        shadow_resolution: q.shadow_resolution,
+        light_shadow_views: q.light_shadow_views,
+        light_shadow_resolution: q.light_shadow_resolution,
+        ambient_occlusion: q.ambient_occlusion,
+        ao_slices: q.ao_slices,
+        ao_steps: q.ao_steps,
+        anti_aliasing: q.anti_aliasing as u32,
+    }
+}
+
+/// Checks every field of a C quality struct against its range, and makes
+/// the Rust one.
+fn quality_from_c(q: &CrabbyGraphicsQuality) -> Result<GraphicsQuality, crate::Failure> {
+    let anti_aliasing = match q.anti_aliasing {
+        0 => AntiAliasing::None,
+        1 => AntiAliasing::Fxaa,
+        2 => AntiAliasing::Smaa,
+        _ => return Err(invalid("anti_aliasing must be 0 to 2")),
+    };
+    if !(MIN_RENDER_SCALE..=MAX_RENDER_SCALE).contains(&q.render_scale) || !(0.0..=1.0).contains(&q.sharpen) {
+        return Err(invalid("render_scale must be 0.25 to 2 and sharpen 0 to 1"));
+    }
+    if !q.shadow_distance.is_finite() || q.shadow_distance < 0.0 || !(1..=4).contains(&q.shadow_cascades) {
+        return Err(invalid(
+            "shadow_distance can't be negative and shadow_cascades is 1 to 4",
+        ));
+    }
+    if !(256..=4096).contains(&q.shadow_resolution)
+        || !(128..=2048).contains(&q.light_shadow_resolution)
+        || q.light_shadow_views > MAX_LIGHT_SHADOW_VIEWS as u32
+    {
+        return Err(invalid(
+            "shadow_resolution must be 256 to 4096, light_shadow_resolution 128 to 2048 and light_shadow_views 0 to 12",
+        ));
+    }
+    if !(1..=8).contains(&q.ao_slices) || !(1..=16).contains(&q.ao_steps) {
+        return Err(invalid("ao_slices must be 1 to 8 and ao_steps 1 to 16"));
+    }
+    Ok(GraphicsQuality {
+        render_scale: q.render_scale,
+        sharpen: q.sharpen,
+        shadows: q.shadows,
+        shadow_distance: q.shadow_distance,
+        shadow_cascades: q.shadow_cascades,
+        shadow_resolution: q.shadow_resolution,
+        light_shadow_views: q.light_shadow_views,
+        light_shadow_resolution: q.light_shadow_resolution,
+        ambient_occlusion: q.ambient_occlusion,
+        ao_slices: q.ao_slices,
+        ao_steps: q.ao_steps,
+        anti_aliasing,
+    })
+}
+
+/// Writes preset `level` into `out_quality`: 0 low, 1 medium, 2 high, 3
+/// ultra (Rust `GraphicsQuality::low` and so on). Any other level is
+/// `CRABBY_INVALID_ARGUMENT`.
+/// # Safety
+/// `out_quality` writable.
+/// ```
+/// let mut q = std::mem::MaybeUninit::<crabby_ffi::CrabbyGraphicsQuality>::uninit();
+/// assert_eq!(unsafe { crabby_ffi::crabby_graphics_quality_preset(0, q.as_mut_ptr()) } as u32, 0);
+/// assert_eq!(unsafe { q.assume_init() }.shadow_cascades, 2);
+/// assert_eq!(unsafe { crabby_ffi::crabby_graphics_quality_preset(4, q.as_mut_ptr()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_graphics_quality_preset(
+    level: u32,
+    out_quality: *mut CrabbyGraphicsQuality,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        let quality = match level {
+            0 => QualityLevel::Low,
+            1 => QualityLevel::Medium,
+            2 => QualityLevel::High,
+            3 => QualityLevel::Ultra,
+            _ => return Err(invalid("level must be 0 (low), 1 (medium), 2 (high) or 3 (ultra)")),
+        }
+        .quality()
+        .expect("a preset");
+        out(out_quality, quality_to_c(quality))
+    })
+}
+
+/// Which preset `quality` is: 0 low, 1 medium, 2 high, 3 ultra, or 4 when
+/// it is none of them (Rust `GraphicsQuality::level`). `quality` must be
+/// valid (see `crabby_ctx_set_graphics_quality`).
+/// # Safety
+/// `quality` valid; `out_level` writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_graphics_quality_level(std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_graphics_quality_level(
+    quality: *const CrabbyGraphicsQuality,
+    out_level: *mut u32,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        let Some(q) = quality.as_ref() else {
+            return Err(invalid("quality is null"));
+        };
+        out(out_level, quality_from_c(q)?.level() as u32)
+    })
+}
+
+/// Reads the current graphics quality (Rust `ctx.graphics_quality()`),
+/// gathered from the post and lighting settings.
+/// # Safety
+/// `ctx` null or live; output writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_graphics_quality(
+    ctx: *mut CrabbyCtx,
+    out_quality: *mut CrabbyGraphicsQuality,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_quality, quality_to_c(c.graphics_quality()))) })
+}
+
+/// Switches the 3D picture to `quality` without a restart (Rust
+/// `ctx.set_graphics_quality`): writes the matching post and lighting
+/// settings; the next frame draws at the new resolution and shadow map
+/// sizes. Fields outside their ranges (see `CrabbyGraphicsQuality`) are
+/// `CRABBY_INVALID_ARGUMENT` and change nothing.
+/// # Safety
+/// `ctx` null or live; `quality` valid.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_graphics_quality(std::ptr::null_mut(), std::ptr::null()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_graphics_quality(
+    ctx: *mut CrabbyCtx,
+    quality: *const CrabbyGraphicsQuality,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let Some(q) = quality.as_ref() else {
+                return Err(invalid("quality is null"));
+            };
+            c.set_graphics_quality(quality_from_c(q)?);
             Ok(())
         })
     })

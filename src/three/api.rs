@@ -1084,6 +1084,7 @@ impl Ctx {
         let Some(renderer) = self.renderer.as_mut() else {
             return;
         };
+        self.frame3d.size_limit = renderer.max_texture_size();
         self.frame3d
             .collect(&mut self.world, &self.assets3d, &skins, &self.camera3d, &self.lighting);
         self.frame3d.skins = skins;

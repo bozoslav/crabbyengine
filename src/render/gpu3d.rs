@@ -97,10 +97,10 @@ const SHADOW_PASSES: [&str; 8] = [
     "shadows 7",
 ];
 use crate::Material;
-use crate::three::Scene3D;
+use crate::three::{Frame3D, Scene3D};
 use crate::three::{
-    GpuMaterialDesc, Instance3D, LIGHT_SHADOW_SIZE, MAX_CASCADES, MAX_LIGHT_SHADOW_VIEWS, MAX_SHADOW_VIEWS,
-    MaterialTextures, MeshData, PostUniform, SHADOW_MAP_SIZE, linear, shadow_views,
+    GpuMaterialDesc, Instance3D, MAX_CASCADES, MAX_LIGHT_SHADOW_VIEWS, MAX_SHADOW_VIEWS, MaterialTextures, MeshData,
+    PostUniform, linear, scaled_size, shadow_views,
 };
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
@@ -334,11 +334,16 @@ const BLOOM_MIPS: u32 = 7;
 /// How much each bloom step keeps of the wider glow below it.
 const BLOOM_SCATTER: f64 = 0.7;
 
-/// Window-sized targets.
+/// Scene-sized targets: the window's size times `Post::render_scale`.
 struct Targets {
     ao: Option<super::screen::AoTargets>,
     ldr: Option<wgpu::TextureView>,
     aa_group: Option<wgpu::BindGroup>,
+    /// With a render scale other than 1: the tone mapped (and antialiased)
+    /// frame at the scene's size, and the bind group the scaling pass reads
+    /// it by. The scaling pass then draws it into the window-sized output.
+    upscale: Option<wgpu::TextureView>,
+    upscale_group: Option<wgpu::BindGroup>,
     /// Multisampled HDR color, resolved into `hdr`.
     color: wgpu::TextureView,
     hdr: wgpu::TextureView,
@@ -476,6 +481,10 @@ pub(crate) struct Renderer3D {
     no_scene: wgpu::BindGroup,
     post_pipeline: wgpu::RenderPipeline,
     fxaa_pipeline: wgpu::RenderPipeline,
+    /// Scales the scene-sized LDR frame to the window (see `Targets::upscale`).
+    upscale_pipeline: wgpu::RenderPipeline,
+    /// The 1x1 light shadow map frame bind groups use without light shadows.
+    no_light_shadow: wgpu::TextureView,
     output_format: wgpu::TextureFormat,
     aa: crate::AntiAliasing,
     smaa: Option<super::smaa::Smaa>,
@@ -534,6 +543,11 @@ pub(crate) struct Renderer3D {
     /// Each cascade's layer of the shadow map, drawn into.
     shadow_layers: Vec<wgpu::TextureView>,
     cascades: usize,
+    /// The sun's shadow map as made: its width and its layers (a 1x1 one
+    /// without shadows).
+    shadow_dims: (u32, u32),
+    /// The same for the point and spot lights' shadow map, once made.
+    light_shadow_dims: Option<(u32, u32)>,
     /// Each point and spot light shadow view's layer, drawn into; empty
     /// until a light first casts shadows.
     light_shadow_layers: Vec<wgpu::TextureView>,
@@ -792,6 +806,7 @@ impl Renderer3D {
         };
         let post_pipeline = full_screen("3d post pipeline", &post_pipeline_layout, "fs_tonemap", format, None);
         let fxaa_pipeline = full_screen("FXAA", &bloom_pipeline_layout, "fs_fxaa", format, None);
+        let upscale_pipeline = full_screen("3d upscale", &bloom_pipeline_layout, "fs_upscale", format, None);
         let bloom_prefilter = full_screen(
             "3d bloom prefilter",
             &bloom_pipeline_layout,
@@ -859,10 +874,11 @@ impl Renderer3D {
         });
         let shadow_map = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("3d shadow map"),
+            // A stand-in until a frame casts shadows (see `set_shadow_map`).
             size: wgpu::Extent3d {
-                width: SHADOW_MAP_SIZE,
-                height: SHADOW_MAP_SIZE,
-                depth_or_array_layers: MAX_CASCADES as u32,
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
             },
             mip_level_count: 1,
             sample_count: 1,
@@ -875,7 +891,7 @@ impl Renderer3D {
             dimension: Some(wgpu::TextureViewDimension::D2Array),
             ..Default::default()
         });
-        let shadow_layers = (0..MAX_CASCADES as u32)
+        let shadow_layers = (0..1)
             .map(|layer| {
                 shadow_map.create_view(&wgpu::TextureViewDescriptor {
                     label: Some("3d shadow cascade"),
@@ -1007,10 +1023,11 @@ impl Renderer3D {
                     ..Default::default()
                 })
         };
+        let no_light_shadow = stand_in("3d no light shadows", DEPTH_FORMAT, wgpu::TextureViewDimension::D2Array);
         let frame_sources = FrameSources {
             layout: frame_layout,
             shadow_view,
-            light_shadow_view: stand_in("3d no light shadows", DEPTH_FORMAT, wgpu::TextureViewDimension::D2Array),
+            light_shadow_view: no_light_shadow.clone(),
             shadow_sampler,
             sky_view: environment.atlas.create_view(&Default::default()),
             sky_sampler,
@@ -1118,6 +1135,8 @@ impl Renderer3D {
             no_scene,
             post_pipeline,
             fxaa_pipeline,
+            upscale_pipeline,
+            no_light_shadow,
             output_format: format,
             aa: crate::AntiAliasing::None,
             smaa: None,
@@ -1160,6 +1179,8 @@ impl Renderer3D {
             shadow_bind_group,
             shadow_layers,
             cascades: 0,
+            shadow_dims: (1, 1),
+            light_shadow_dims: None,
             light_shadow_layers: Vec::new(),
             light_views: 0,
             material_layout,
@@ -1528,7 +1549,11 @@ impl Renderer3D {
 
     /// Uploads this frame's instances, camera, light and post settings.
     pub fn prepare(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, input: &Prepare3D<'_>) {
-        let &Prepare3D { scene, lut, size } = input;
+        let &Prepare3D {
+            scene,
+            lut,
+            size: window,
+        } = input;
         let &Scene3D {
             frame,
             lighting,
@@ -1538,10 +1563,13 @@ impl Renderer3D {
             post,
             time,
         } = scene;
+        // The scene is drawn at `size` and scaled to the window's `window`.
+        let size = scaled_size(window, post.render_scale, device.limits().max_texture_dimension_2d);
+        let upscaled = size != window;
         queue.write_buffer(
             &self.post_buffer,
             0,
-            bytemuck::bytes_of(&PostUniform::new(post, lut.map(|(_, n)| n))),
+            bytemuck::bytes_of(&PostUniform::new(post, lut.map(|(_, n)| n)).scaled(post, size, window)),
         );
         self.particles.prepare(device, queue, &frame.particles, frame.view_proj);
         self.lut = lut.map_or(self.white, |(id, _)| id);
@@ -1559,7 +1587,7 @@ impl Renderer3D {
         if let Some(ao) = &self.ao {
             ao.prepare(queue, frame.view_proj, camera, &post.ambient_occlusion);
         }
-        if self.targets.as_ref().is_some_and(|t| t.size != size) {
+        if self.targets.as_ref().is_some_and(|t| t.size != size) || self.aa != crate::AntiAliasing::Smaa {
             self.smaa = None;
         }
         if self.aa == crate::AntiAliasing::Smaa
@@ -1674,9 +1702,8 @@ impl Renderer3D {
         };
         let ambient = |light: Vec3| (light * lighting.ambient_intensity).extend(0.0).to_array();
         let sun = (-lighting.sun_direction).try_normalize().unwrap_or(Vec3::Y);
-        if frame.light_views > 0 && self.light_shadow_layers.is_empty() {
-            self.allocate_light_shadows(device);
-        }
+        self.set_shadow_map(device, frame);
+        self.set_light_shadow_map(device, frame);
         if self.lights.upload(device, queue, &frame.lights) {
             self.frame_bind_group = self.frame_sources.bind_group(device, &self.frame_buffer, &self.lights);
         }
@@ -1688,7 +1715,12 @@ impl Renderer3D {
             light_view_proj,
             probes: frame.probes,
             // Light shadows move out along the normal by 1.5 texels too.
-            light_shadow: [frame.light_views as f32, 1.0 / LIGHT_SHADOW_SIZE as f32, 1.5, 0.0],
+            light_shadow: [
+                frame.light_views as f32,
+                1.0 / frame.light_shadow_size.max(1) as f32,
+                1.5,
+                0.0,
+            ],
             cluster_depth: frame.lights.depth,
             cluster_view_proj: frame.view_proj.to_cols_array_2d(),
             view_proj: frame.view_proj.to_cols_array_2d(),
@@ -1703,7 +1735,7 @@ impl Renderer3D {
             // against acne on surfaces facing away from the sun.
             shadow: [
                 frame.cascades as f32,
-                1.0 / SHADOW_MAP_SIZE as f32,
+                1.0 / frame.shadow_size.max(1) as f32,
                 1.5,
                 lighting.shadow_distance,
             ],
@@ -1830,10 +1862,14 @@ impl Renderer3D {
                 bytemuck::bytes_of(&uniform),
             );
         }
+        // Targets made for settings that have since changed (a different
+        // size, or an effect turned on or off) are replaced; the old ones
+        // are freed once the commands that used them have run.
         if self.targets.as_ref().is_none_or(|t| {
             t.size != size
-                || (self.ao_enabled && t.ao.is_none())
-                || (self.aa == crate::AntiAliasing::Fxaa && t.ldr.is_none())
+                || t.ao.is_some() != self.ao_enabled
+                || t.ldr.is_some() != (self.aa == crate::AntiAliasing::Fxaa)
+                || t.upscale.is_some() != upscaled
         }) {
             let texture = |label, format, samples, usage| {
                 device.create_texture(&wgpu::TextureDescriptor {
@@ -1943,6 +1979,15 @@ impl Renderer3D {
                 )
             });
             let aa_group = ldr.as_ref().map(|ldr| group(ldr, &self.black));
+            let upscale = upscaled.then(|| {
+                target(
+                    "3d scaled frame",
+                    self.output_format,
+                    1,
+                    wgpu::TextureUsages::TEXTURE_BINDING,
+                )
+            });
+            let upscale_group = upscale.as_ref().map(|u| group(u, &self.black));
             let ao = self
                 .ao
                 .as_ref()
@@ -1953,6 +1998,8 @@ impl Renderer3D {
                 ao,
                 ldr,
                 aa_group,
+                upscale,
+                upscale_group,
                 color: target("3d color", HDR_FORMAT, self.samples, none),
                 depth,
                 hdr_texture,
@@ -1973,15 +2020,81 @@ impl Renderer3D {
         }
     }
 
+    /// Makes the sun's shadow map for this frame's size and cascades, if it
+    /// isn't the one made already. Without shadows it shrinks to a 1x1
+    /// stand-in, freeing the memory. The shadow passes redraw every layer
+    /// each frame, so a new map never shows what the old one held.
+    fn set_shadow_map(&mut self, device: &wgpu::Device, frame: &Frame3D) {
+        let wanted = if frame.cascades > 0 {
+            (frame.shadow_size.max(1), frame.cascades as u32)
+        } else {
+            (1, 1)
+        };
+        if self.shadow_dims == wanted {
+            return;
+        }
+        let map = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("3d shadow map"),
+            size: wgpu::Extent3d {
+                width: wanted.0,
+                height: wanted.0,
+                depth_or_array_layers: wanted.1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: DEPTH_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        self.frame_sources.shadow_view = map.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
+        self.shadow_layers = (0..wanted.1)
+            .map(|layer| {
+                map.create_view(&wgpu::TextureViewDescriptor {
+                    label: Some("3d shadow cascade"),
+                    dimension: Some(wgpu::TextureViewDimension::D2),
+                    base_array_layer: layer,
+                    array_layer_count: Some(1),
+                    ..Default::default()
+                })
+            })
+            .collect();
+        self.shadow_dims = wanted;
+        self.rebind_frames(device);
+    }
+
     /// Makes the point and spot lights' shadow views (the first time a light
-    /// casts shadows) and binds them to every frame.
-    fn allocate_light_shadows(&mut self, device: &wgpu::Device) {
+    /// casts shadows) and binds them to every frame. Made again when the
+    /// view size or the number of views changes, and freed when point and
+    /// spot light shadows are turned off.
+    fn set_light_shadow_map(&mut self, device: &wgpu::Device, frame: &Frame3D) {
+        let wanted = if frame.light_budget == 0 {
+            None
+        } else if frame.light_views > 0 || self.light_shadow_dims.is_some() {
+            Some((frame.light_shadow_size.max(1), frame.light_budget as u32))
+        } else {
+            return; // not needed yet
+        };
+        if self.light_shadow_dims == wanted {
+            return;
+        }
+        self.light_shadow_dims = wanted;
+        let Some((size, layers)) = wanted else {
+            // Back to the 1x1 stand-in the frame bind groups start with.
+            self.light_shadow_layers = Vec::new();
+            self.frame_sources.light_shadow_view = self.no_light_shadow.clone();
+            self.rebind_frames(device);
+            return;
+        };
         let map = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("3d light shadow maps"),
             size: wgpu::Extent3d {
-                width: LIGHT_SHADOW_SIZE,
-                height: LIGHT_SHADOW_SIZE,
-                depth_or_array_layers: MAX_LIGHT_SHADOW_VIEWS as u32,
+                width: size,
+                height: size,
+                depth_or_array_layers: layers,
             },
             mip_level_count: 1,
             sample_count: 1,
@@ -1994,7 +2107,7 @@ impl Renderer3D {
             dimension: Some(wgpu::TextureViewDimension::D2Array),
             ..Default::default()
         });
-        self.light_shadow_layers = (0..MAX_LIGHT_SHADOW_VIEWS as u32)
+        self.light_shadow_layers = (0..layers)
             .map(|layer| {
                 map.create_view(&wgpu::TextureViewDescriptor {
                     label: Some("3d light shadow view"),
@@ -2005,12 +2118,43 @@ impl Renderer3D {
                 })
             })
             .collect();
+        self.rebind_frames(device);
+    }
+
+    /// Makes every frame bind group again (the main view's and each target
+    /// camera's) from `frame_sources`, after a shadow map changed.
+    fn rebind_frames(&mut self, device: &wgpu::Device) {
         self.frame_bind_group = self.frame_sources.bind_group(device, &self.frame_buffer, &self.lights);
         for (_, target) in &mut self.view_targets {
             target.frame_bind_group = self
                 .frame_sources
                 .bind_group(device, &target.frame_buffer, &target.lights);
         }
+    }
+
+    /// The size the scene is drawn at (test hook).
+    #[cfg(test)]
+    pub(super) fn scene_size(&self) -> Option<(u32, u32)> {
+        self.targets.as_ref().map(|t| t.size)
+    }
+
+    /// The sun's shadow map: width and layers (test hook).
+    #[cfg(test)]
+    pub(super) fn shadow_map(&self) -> (u32, u32) {
+        self.shadow_dims
+    }
+
+    /// The point and spot lights' shadow map: width and layers, once made
+    /// (test hook).
+    #[cfg(test)]
+    pub(super) fn light_shadow_map(&self) -> Option<(u32, u32)> {
+        self.light_shadow_dims
+    }
+
+    /// Whether the scaling pass has its target (test hook).
+    #[cfg(test)]
+    pub(super) fn scales_output(&self) -> bool {
+        self.targets.as_ref().is_some_and(|t| t.upscale.is_some())
     }
 
     /// Draw calls the frame's models take: two per mesh part (depth
@@ -2523,11 +2667,14 @@ impl Renderer3D {
                         step(encoder, "bloom", &self.bloom_up, group, &mips[i], wgpu::LoadOp::Load);
                     }
                 }
+                // With a render scale, everything up to antialiasing is drawn
+                // at the scene's size, then scaled onto the window.
+                let output = targets.upscale.as_ref().unwrap_or(view);
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("3d post"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: match self.aa {
-                            crate::AntiAliasing::None => view,
+                            crate::AntiAliasing::None => output,
                             crate::AntiAliasing::Fxaa => targets.ldr.as_ref().unwrap(),
                             crate::AntiAliasing::Smaa => self.smaa.as_ref().unwrap().input(),
                         },
@@ -2550,12 +2697,12 @@ impl Renderer3D {
                 drop(pass);
                 match self.aa {
                     crate::AntiAliasing::None => {}
-                    crate::AntiAliasing::Smaa => self.smaa.as_ref().unwrap().draw(encoder, view),
+                    crate::AntiAliasing::Smaa => self.smaa.as_ref().unwrap().draw(encoder, output),
                     crate::AntiAliasing::Fxaa => {
                         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                             label: Some("FXAA"),
                             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                view,
+                                view: output,
                                 depth_slice: None,
                                 resolve_target: None,
                                 ops: wgpu::Operations {
@@ -2569,6 +2716,27 @@ impl Renderer3D {
                         pass.set_bind_group(0, targets.aa_group.as_ref().unwrap(), &[]);
                         pass.draw(0..3, 0..1);
                     }
+                }
+                if let Some(group) = &targets.upscale_group {
+                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("3d upscale"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view,
+                            depth_slice: None,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: time("upscale"),
+                        occlusion_query_set: None,
+                        multiview_mask: None,
+                    });
+                    pass.set_pipeline(&self.upscale_pipeline);
+                    pass.set_bind_group(0, group, &[]);
+                    pass.draw(0..3, 0..1);
                 }
             }
         }

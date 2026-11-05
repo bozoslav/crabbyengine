@@ -108,31 +108,6 @@ typedef enum CrabbyJointMotionKind {
   CRABBY_JOINT_LIMITED = 2,
 } CrabbyJointMotionKind;
 
-typedef enum CrabbyAuthorityCheck {
-  CRABBY_AUTHORITY_ACCEPT = 0,
-  CRABBY_AUTHORITY_STALE = 1,
-  CRABBY_AUTHORITY_WRONG_OWNER = 2,
-  CRABBY_AUTHORITY_AHEAD = 3,
-} CrabbyAuthorityCheck;
-
-typedef enum CrabbySnapshotPush {
-  CRABBY_SNAPSHOT_ADDED = 0,
-  CRABBY_SNAPSHOT_DUPLICATE = 1,
-  CRABBY_SNAPSHOT_TOO_OLD = 2,
-  CRABBY_SNAPSHOT_INVALID = 3,
-} CrabbySnapshotPush;
-
-typedef enum CrabbySnapshotState {
-  CRABBY_SNAPSHOT_INTERPOLATED = 0,
-  CRABBY_SNAPSHOT_EXTRAPOLATED = 1,
-  CRABBY_SNAPSHOT_HELD = 2,
-} CrabbySnapshotState;
-
-typedef enum CrabbyInterestChangeKind {
-  CRABBY_INTEREST_ENTERED = 0,
-  CRABBY_INTEREST_LEFT = 1,
-} CrabbyInterestChangeKind;
-
 typedef enum CrabbyUiEventKind {
   CRABBY_UI_EVENT_CLICKED,
   CRABBY_UI_EVENT_CHANGED,
@@ -486,10 +461,6 @@ typedef struct CrabbyGrid CrabbyGrid;
 
 typedef struct CrabbyHeightfield CrabbyHeightfield;
 
-typedef struct CrabbyInterest CrabbyInterest;
-
-typedef struct CrabbyLatestWins CrabbyLatestWins;
-
 typedef struct CrabbyMeshData CrabbyMeshData;
 
 typedef struct CrabbyMotion CrabbyMotion;
@@ -499,8 +470,6 @@ typedef struct CrabbyNavGrid CrabbyNavGrid;
 typedef struct CrabbyNavSources CrabbyNavSources;
 
 typedef struct CrabbyNetMessages CrabbyNetMessages;
-
-typedef struct CrabbySnapshotStream CrabbySnapshotStream;
 
 typedef struct CrabbySteamLobby CrabbySteamLobby;
 
@@ -732,7 +701,6 @@ typedef struct CrabbyNavBakeSettings {
   float cell_size;
   float cell_height;
   uint32_t tile_size;
-  bool carving;
 } CrabbyNavBakeSettings;
 
 typedef struct CrabbyTransform3D {
@@ -934,64 +902,6 @@ typedef struct CrabbyField {
   size_t offset;
 } CrabbyField;
 
-typedef struct CrabbyUpdateStamp {
-  uint16_t epoch;
-  uint16_t seq;
-} CrabbyUpdateStamp;
-
-typedef struct CrabbyAuthority {
-  uint64_t owner;
-  uint16_t epoch;
-} CrabbyAuthority;
-
-typedef struct CrabbySnapshotConfig {
-  double delay;
-  double max_extrapolation;
-  uint32_t capacity;
-} CrabbySnapshotConfig;
-
-typedef struct CrabbyPose {
-  struct CrabbyVec3 position;
-  struct CrabbyQuat rotation;
-  struct CrabbyVec3 velocity;
-  bool has_velocity;
-} CrabbyPose;
-
-typedef struct CrabbyInterestTier {
-  float radius;
-  uint32_t every;
-} CrabbyInterestTier;
-
-typedef struct CrabbyInterestConfig {
-  struct CrabbyInterestTier tiers[8];
-  uint32_t tier_count;
-  float hysteresis;
-  bool stagger;
-} CrabbyInterestConfig;
-
-typedef struct CrabbyInterestViewer {
-  uint64_t peer;
-  struct CrabbyVec3 position;
-} CrabbyInterestViewer;
-
-typedef struct CrabbyInterestEntity {
-  uint64_t id;
-  struct CrabbyVec3 position;
-} CrabbyInterestEntity;
-
-typedef struct CrabbyInterestEntry {
-  uint64_t entity;
-  float distance;
-  uint32_t tier;
-  bool send;
-} CrabbyInterestEntry;
-
-typedef struct CrabbyInterestChange {
-  uint64_t peer;
-  uint64_t entity;
-  enum CrabbyInterestChangeKind kind;
-} CrabbyInterestChange;
-
 typedef struct CrabbyJoint {
   const char *name;
   int32_t parent;
@@ -1157,6 +1067,9 @@ typedef struct CrabbyLighting {
   bool shadows;
   float shadow_distance;
   uint32_t shadow_cascades;
+  uint32_t shadow_resolution;
+  uint32_t light_shadow_views;
+  uint32_t light_shadow_resolution;
 } CrabbyLighting;
 
 typedef struct CrabbySky {
@@ -1176,6 +1089,8 @@ typedef struct CrabbySky {
 } CrabbySky;
 
 typedef struct CrabbyPost {
+  float render_scale;
+  float sharpen;
   uint32_t anti_aliasing;
   bool ao_enabled;
   float ao_radius;
@@ -1195,13 +1110,20 @@ typedef struct CrabbyPost {
   struct CrabbyTexture lut;
 } CrabbyPost;
 
-typedef struct CrabbyReflectionProbe3D {
-  struct CrabbyVec3 size;
-  float blend_distance;
-  float intensity;
-  uint32_t content;
-  bool box_projection;
-} CrabbyReflectionProbe3D;
+typedef struct CrabbyGraphicsQuality {
+  float render_scale;
+  float sharpen;
+  bool shadows;
+  float shadow_distance;
+  uint32_t shadow_cascades;
+  uint32_t shadow_resolution;
+  uint32_t light_shadow_views;
+  uint32_t light_shadow_resolution;
+  bool ambient_occlusion;
+  uint32_t ao_slices;
+  uint32_t ao_steps;
+  uint32_t anti_aliasing;
+} CrabbyGraphicsQuality;
 
 typedef struct CrabbySpriteSheet {
   struct CrabbyTexture texture;
@@ -2310,16 +2232,6 @@ enum CrabbyStatus crabby_ctx_set_nav_obstacle(struct CrabbyCtx *ctx,
                                               struct CrabbyVec3 center,
                                               struct CrabbyVec3 half_extents);
 
-enum CrabbyStatus crabby_ctx_set_nav_carve_obstacle(struct CrabbyCtx *ctx,
-                                                    uint64_t entity_bits,
-                                                    struct CrabbyVec3 center,
-                                                    struct CrabbyVec3 half_extents);
-
-enum CrabbyStatus crabby_ctx_navmesh_update_carving(struct CrabbyCtx *ctx,
-                                                    size_t budget,
-                                                    size_t *steps,
-                                                    bool *pending);
-
 enum CrabbyStatus crabby_ctx_remove_nav(struct CrabbyCtx *ctx, uint64_t entity_bits);
 
 enum CrabbyStatus crabby_game_navmesh3d(struct CrabbyGame *game);
@@ -2605,101 +2517,6 @@ enum CrabbyStatus crabby_world_save(struct CrabbyWorld *world,
                                     size_t *out_len);
 
 enum CrabbyStatus crabby_world_load(struct CrabbyWorld *world, const char *json);
-
-bool crabby_seq_newer(uint16_t a, uint16_t b);
-
-int16_t crabby_seq_diff(uint16_t a, uint16_t b);
-
-bool crabby_stamp_newer(struct CrabbyUpdateStamp a, struct CrabbyUpdateStamp b);
-
-struct CrabbyAuthority crabby_authority_new(uint64_t owner);
-
-enum CrabbyStatus crabby_authority_handoff(struct CrabbyAuthority *authority,
-                                           uint64_t new_owner,
-                                           uint16_t *out_epoch);
-
-enum CrabbyStatus crabby_authority_adopt(struct CrabbyAuthority *authority,
-                                         uint64_t owner,
-                                         uint16_t epoch,
-                                         bool *out_changed);
-
-enum CrabbyStatus crabby_authority_check(const struct CrabbyAuthority *authority,
-                                         uint64_t from,
-                                         uint16_t epoch,
-                                         enum CrabbyAuthorityCheck *out_check);
-
-struct CrabbyLatestWins *crabby_latest_wins_new(void);
-
-void crabby_latest_wins_free(struct CrabbyLatestWins *filter);
-
-enum CrabbyStatus crabby_latest_wins_accept(struct CrabbyLatestWins *f,
-                                            uint64_t key,
-                                            struct CrabbyUpdateStamp stamp,
-                                            bool *out_accepted);
-
-enum CrabbyStatus crabby_latest_wins_forget(struct CrabbyLatestWins *f, uint64_t key);
-
-enum CrabbyStatus crabby_latest_wins_clear(struct CrabbyLatestWins *f);
-
-size_t crabby_latest_wins_len(const struct CrabbyLatestWins *f);
-
-struct CrabbySnapshotConfig crabby_snapshot_config_default(void);
-
-enum CrabbyStatus crabby_snapshot_stream_new(const struct CrabbySnapshotConfig *config,
-                                             struct CrabbySnapshotStream **out_stream);
-
-void crabby_snapshot_stream_free(struct CrabbySnapshotStream *s);
-
-enum CrabbyStatus crabby_snapshot_stream_push(struct CrabbySnapshotStream *s,
-                                              double remote_time,
-                                              double local_now,
-                                              const struct CrabbyPose *pose,
-                                              enum CrabbySnapshotPush *out_result);
-
-enum CrabbyStatus crabby_snapshot_stream_sample(const struct CrabbySnapshotStream *s,
-                                                double now,
-                                                struct CrabbyPose *out_pose,
-                                                enum CrabbySnapshotState *out_state,
-                                                bool *out_found);
-
-enum CrabbyStatus crabby_snapshot_stream_set_delay(struct CrabbySnapshotStream *s, double delay);
-
-enum CrabbyStatus crabby_snapshot_stream_clear(struct CrabbySnapshotStream *s);
-
-enum CrabbyStatus crabby_snapshot_stream_reset(struct CrabbySnapshotStream *s);
-
-size_t crabby_snapshot_stream_len(const struct CrabbySnapshotStream *s);
-
-enum CrabbyStatus crabby_snapshot_stream_clock_offset(const struct CrabbySnapshotStream *s,
-                                                      double *out_offset,
-                                                      bool *out_known);
-
-struct CrabbyInterestConfig crabby_interest_config_default(void);
-
-enum CrabbyStatus crabby_interest_new(const struct CrabbyInterestConfig *config,
-                                      struct CrabbyInterest **out_interest);
-
-void crabby_interest_free(struct CrabbyInterest *i);
-
-enum CrabbyStatus crabby_interest_update(struct CrabbyInterest *i,
-                                         uint64_t tick,
-                                         const struct CrabbyInterestViewer *viewers,
-                                         size_t viewer_count,
-                                         const struct CrabbyInterestEntity *entities,
-                                         size_t entity_count);
-
-enum CrabbyStatus crabby_interest_entries(const struct CrabbyInterest *i,
-                                          uint64_t peer,
-                                          struct CrabbyInterestEntry *out_entries,
-                                          size_t capacity,
-                                          size_t *out_count);
-
-enum CrabbyStatus crabby_interest_changes(const struct CrabbyInterest *i,
-                                          struct CrabbyInterestChange *out_changes,
-                                          size_t capacity,
-                                          size_t *out_count);
-
-enum CrabbyStatus crabby_interest_remove_peer(struct CrabbyInterest *i, uint64_t peer);
 
 enum CrabbyStatus crabby_resource_set(struct CrabbyWorld *world,
                                       const char *name,
@@ -3198,6 +3015,18 @@ enum CrabbyStatus crabby_ctx_post(struct CrabbyCtx *ctx, struct CrabbyPost *out_
 
 enum CrabbyStatus crabby_ctx_set_post(struct CrabbyCtx *ctx, const struct CrabbyPost *post);
 
+enum CrabbyStatus crabby_graphics_quality_preset(uint32_t level,
+                                                 struct CrabbyGraphicsQuality *out_quality);
+
+enum CrabbyStatus crabby_graphics_quality_level(const struct CrabbyGraphicsQuality *quality,
+                                                uint32_t *out_level);
+
+enum CrabbyStatus crabby_ctx_graphics_quality(struct CrabbyCtx *ctx,
+                                              struct CrabbyGraphicsQuality *out_quality);
+
+enum CrabbyStatus crabby_ctx_set_graphics_quality(struct CrabbyCtx *ctx,
+                                                  const struct CrabbyGraphicsQuality *quality);
+
 struct CrabbyHeightfield *crabby_heightfield_new(const float *heights, size_t count, float size);
 
 void crabby_heightfield_free(struct CrabbyHeightfield *ground);
@@ -3225,16 +3054,6 @@ enum CrabbyStatus crabby_ctx_mesh_shadows(struct CrabbyCtx *ctx,
 enum CrabbyStatus crabby_point_light3d_component(struct CrabbyWorld *world, uint32_t *out_id);
 
 enum CrabbyStatus crabby_spot_light3d_component(struct CrabbyWorld *world, uint32_t *out_id);
-
-struct CrabbyReflectionProbe3D crabby_reflection_probe3d_default(void);
-
-enum CrabbyStatus crabby_reflection_probe3d_component(struct CrabbyWorld *world, uint32_t *out_id);
-
-enum CrabbyStatus crabby_ctx_bake_reflection_probe(struct CrabbyCtx *ctx, uint64_t entity);
-
-enum CrabbyStatus crabby_ctx_load_reflection_probe(struct CrabbyCtx *ctx,
-                                                   uint64_t entity,
-                                                   const char *name);
 
 enum CrabbyStatus crabby_sprite_sheet(struct CrabbyTexture texture,
                                       uint32_t frame_width,

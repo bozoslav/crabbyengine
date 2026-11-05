@@ -8,6 +8,7 @@ struct Post {
     balance: vec4<f32>, // white balance in LMS; w: vignette
     mode: vec4<u32>,    // tone map, lookup table size (0 none), bloom on
     bloom: vec4<f32>,   // threshold, soft knee
+    output: vec4<f32>,  // scaling: one output pixel in uv, sharpness, scene size / output size
 };
 
 @group(0) @binding(0) var source: texture_2d<f32>;
@@ -244,4 +245,44 @@ fn fs_fxaa(in: Full) -> @location(0) vec4<f32> {
     let a = 0.5 * (textureSampleLevel(source, linear_clamp, uv + dir * (-1.0/6.0), 0.0).rgb + textureSampleLevel(source, linear_clamp, uv + dir * (1.0/6.0), 0.0).rgb);
     let b = a * 0.5 + 0.25 * (textureSampleLevel(source, linear_clamp, uv - dir * 0.5, 0.0).rgb + textureSampleLevel(source, linear_clamp, uv + dir * 0.5, 0.0).rgb);
     return vec4<f32>(select(b, a, luma(b) < lo || luma(b) > hi), 1.0);
+}
+
+// ---- Scaling ----
+// Draws the scene-sized frame onto the window: bilinear when it is smaller
+// (render scale below 1); a small box filter when it is larger (above 1).
+// The adaptive sharpening is AMD's contrast adaptive sharpening idea (a
+// cross of neighbours, weighted by how much room the local contrast has
+// before clipping), applied to the scaled image.
+
+fn scaled_tap(uv: vec2<f32>) -> vec3<f32> {
+    return textureSampleLevel(source, linear_clamp, uv, 0.0).rgb;
+}
+
+@fragment
+fn fs_upscale(in: Full) -> @location(0) vec4<f32> {
+    let px = post.output.xy;
+    let uv = in.uv;
+    var e: vec3<f32>;
+    if post.output.w > 1.0 {
+        // Several source texels per output pixel: four taps cover them.
+        let o = px * 0.25;
+        e = 0.25 * (scaled_tap(uv + vec2<f32>(-o.x, -o.y)) + scaled_tap(uv + vec2<f32>(o.x, -o.y))
+            + scaled_tap(uv + vec2<f32>(-o.x, o.y)) + scaled_tap(uv + vec2<f32>(o.x, o.y)));
+    } else {
+        e = scaled_tap(uv);
+    }
+    let sharpness = post.output.z;
+    if sharpness <= 0.0 {
+        return vec4<f32>(e, 1.0);
+    }
+    let b = scaled_tap(uv + vec2<f32>(0.0, -px.y));
+    let d = scaled_tap(uv + vec2<f32>(-px.x, 0.0));
+    let f = scaled_tap(uv + vec2<f32>(px.x, 0.0));
+    let h = scaled_tap(uv + vec2<f32>(0.0, px.y));
+    let mn = min(min(min(d, e), min(f, b)), h);
+    let mx = max(max(max(d, e), max(f, b)), h);
+    let amp = sqrt(clamp(min(mn, vec3<f32>(1.0) - mx) / max(mx, vec3<f32>(1e-4)), vec3<f32>(0.0), vec3<f32>(1.0)));
+    let w = amp * (-1.0 / mix(8.0, 5.0, sharpness));
+    let c = clamp(((b + d + f + h) * w + e) / (vec3<f32>(1.0) + 4.0 * w), vec3<f32>(0.0), vec3<f32>(1.0));
+    return vec4<f32>(c, 1.0);
 }
