@@ -135,6 +135,38 @@ static void ui_setup(CrabbyCtx* ctx, void* user) {
     CHECK(crabby_ctx_ui_next_event(ctx, CRABBY_UI_SCREEN, &event) == CRABBY_OK);
     CHECK(event.kind == CRABBY_UI_EVENT_CLICKED && event.id == button);
     CHECK(crabby_ctx_ui_next_event(ctx, CRABBY_UI_SCREEN, &event) == CRABBY_NOT_FOUND);
+    /* The original flat track arrays remain valid; templates add repeat fragments. */
+    CrabbyUiTrack repeated_track = {CRABBY_UI_TRACK_FR, 1};
+    CrabbyUiTemplateTrack repeated = {0};
+    repeated.repetition = 1; repeated.count = 2;
+    repeated.tracks = &repeated_track; repeated.track_count = 1;
+    CrabbyUiTrack rows[] = {{CRABBY_UI_TRACK_POINTS, 40}, {CRABBY_UI_TRACK_POINTS, 160}};
+    CrabbyUiLayout named = crabby_ui_layout_default();
+    named.display = CRABBY_UI_DISPLAY_GRID;
+    named.width = (CrabbyUiLength){CRABBY_UI_LENGTH_POINTS, 300};
+    named.height = (CrabbyUiLength){CRABBY_UI_LENGTH_POINTS, 200};
+    named.grid_template_columns = &repeated; named.grid_template_column_count = 1;
+    named.grid_rows = rows; named.grid_row_count = 2;
+    uint64_t grid, main;
+    CHECK(crabby_ctx_ui_add_panel(ctx, CRABBY_UI_SCREEN, CRABBY_UI_NONE, &named, &grid) == CRABBY_OK);
+    const char* areas[] = {"header header", "side main"};
+    CHECK(crabby_ctx_ui_set_grid_template_areas(ctx, CRABBY_UI_SCREEN, grid, areas, 2) == CRABBY_OK);
+    CHECK(crabby_ctx_ui_add_panel(ctx, CRABBY_UI_SCREEN, grid, NULL, &main) == CRABBY_OK);
+    CHECK(crabby_ctx_ui_set_grid_area(ctx, CRABBY_UI_SCREEN, main, "main") == CRABBY_OK);
+    CHECK(crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, grid, false) == CRABBY_OK);
+    CHECK(crabby_ctx_ui_layout(ctx, CRABBY_UI_SCREEN, (CrabbyVec2){800, 600}) == CRABBY_OK);
+    CrabbyRect main_rect;
+    CHECK(crabby_ctx_ui_rect(ctx, CRABBY_UI_SCREEN, main, &main_rect) == CRABBY_OK);
+    CHECK(main_rect.min.x == 150 && main_rect.min.y == 40 && main_rect.max.x == 300 && main_rect.max.y == 200);
+    const char* invalid_areas[] = {"x x", "x y"};
+    CHECK(crabby_ctx_ui_set_grid_template_areas(ctx, CRABBY_UI_SCREEN, grid, invalid_areas, 2) == CRABBY_INVALID_ARGUMENT);
+    const char* names[] = {"start", "finish"};
+    CHECK(crabby_ctx_ui_set_grid_line_names(ctx, CRABBY_UI_SCREEN, grid, 0, names, 2) == CRABBY_OK);
+    CHECK(crabby_ctx_ui_set_grid_named_line(ctx, CRABBY_UI_SCREEN, main, 0, false, "start", 1) == CRABBY_OK);
+    CHECK(crabby_ctx_ui_set_grid_named_line(ctx, CRABBY_UI_SCREEN, main, 0, true, "finish", 1) == CRABBY_OK);
+    CHECK(crabby_ctx_ui_layout(ctx, CRABBY_UI_SCREEN, (CrabbyVec2){800, 600}) == CRABBY_OK);
+    CHECK(crabby_ctx_ui_rect(ctx, CRABBY_UI_SCREEN, main, &main_rect) == CRABBY_OK);
+    CHECK(main_rect.min.x == 0 && main_rect.max.x == 300);
     column.display = 99; /* not a CrabbyUiDisplay */
     uint64_t bad;
     CHECK(crabby_ctx_ui_add_panel(ctx, CRABBY_UI_SCREEN, root, &column, &bad) == CRABBY_INVALID_ARGUMENT);

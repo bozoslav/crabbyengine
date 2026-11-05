@@ -1754,6 +1754,17 @@ static Shop build_shop(crabby::ctx& ctx) {
     tree.push_screen(root);
     // ANCHOR_END: shop_tree
 
+    // ANCHOR: ui_grid_areas
+    auto dashboard = tree.add_panel(ui::none, ui::layout()
+        .grid({ui::repeat(2, ui::fr(1))})
+        .grid_rows({ui::track_points(40), ui::fr(1)})
+        .areas({"header header", "side main"}).size(600, 400));
+    tree.add_label(dashboard, "Dashboard", ui::layout().area("header"));
+    tree.add_label(dashboard, "Navigation", ui::layout().area("side"));
+    tree.add_label(dashboard, "Content", ui::layout().area("main"));
+    // ANCHOR_END: ui_grid_areas
+    tree.remove(dashboard);
+
     // ANCHOR: shop_dialog
     // A detached screen can be reused after it is popped.
     shop.dialog = tree.add_panel(ui::none, ui::layout()
