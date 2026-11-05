@@ -1189,6 +1189,10 @@ public:
         detail::check(crabby_mesh_data_set_skin(raw_, joints.empty() ? nullptr : joints.front().data(),
                                                 weights.empty() ? nullptr : weights.front().data(), joints.size()));
     }
+    /// Links existing target deltas as a frame of a piecewise linear channel.
+    void add_morph_frame(std::size_t channel, std::size_t target, float weight) {
+        detail::check(crabby_mesh_data_add_morph_frame(raw_, channel, target, weight));
+    }
     /// Adds a morph target (Rust `MeshData::morph_targets`): a shape the
     /// mesh can blend toward. Targets are numbered in the order they're
     /// added. Throws unless `positions` (and `normals`, when given) have one
@@ -1782,6 +1786,15 @@ class clip {
     CrabbyClip* raw_ = nullptr;
 public:
     explicit clip(CrabbyClip* raw) : raw_(raw) {}
+    /// Empty clip for procedural morph animation.
+    explicit clip(const char* name) { detail::check(crabby_clip_new(name, &raw_)); }
+    /// Scalar keys: interpolation 0 STEP, 1 LINEAR, 2 cubic in/value/out triples.
+    void set_morph_track(const char* name, const std::vector<float>& times,
+                         const std::vector<float>& values, unsigned interpolation = 1) {
+        if (interpolation > 2 || values.size() != times.size() * (interpolation == 2 ? 3 : 1))
+            throw std::invalid_argument("clip::set_morph_track: invalid key count or interpolation");
+        detail::check(crabby_clip_set_morph_track(raw_, name, times.data(), values.data(), times.size(), interpolation));
+    }
     ~clip() { crabby_clip_free(raw_); }
     clip(clip&& o) noexcept : raw_(o.raw_) { o.raw_ = nullptr; }
     clip& operator=(clip&& o) noexcept { std::swap(raw_, o.raw_); return *this; }
@@ -2473,6 +2486,8 @@ public:
     std::array<float, 16> joint_matrix(entity e, std::size_t j) const {
         std::array<float, 16> m{}; detail::check(crabby_ctx_joint_matrix(raw_, e, j, m.data())); return m;
     }
+    /// Writes manually sampled skeleton morph channels to models.
+    void write_animated_morphs() { detail::check(crabby_ctx_write_animated_morphs(raw_)); }
     /// The index of mesh `m`'s morph target called `name` (Rust
     /// `Ctx::morph_target`), for set_morph_weight and morph_weight.
     std::optional<std::size_t> morph_target(mesh m, const char* name) const {

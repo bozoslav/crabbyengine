@@ -396,10 +396,10 @@ impl Ctx {
             .loaded_skeletons
             .get(&file)
             .cloned()
-            .ok_or_else(|| format!("{path} has no skins, so no skeleton"))
+            .ok_or_else(|| format!("{path} has no skins or animations, so no skeleton"))
     }
 
-    /// Loads all animation clips from a skinned glTF file, cached per file.
+    /// Loads all animation clips from a glTF file, cached per file.
     /// Panics with the loading error if the file cannot be loaded.
     /// ```no_run
     /// # use crabbyengine::*;
@@ -412,7 +412,7 @@ impl Ctx {
             .unwrap_or_else(|e| panic!("crabbyengine: {e}"))
     }
 
-    /// Fallible clip loading; an unskinned file returns an error.
+    /// Fallible clip loading; a file without skins or animations returns an error.
     /// ```no_run
     /// # use crabbyengine::*;
     /// # fn f(ctx: &mut Ctx) {
@@ -937,6 +937,64 @@ impl Ctx {
                 t.rotation = (t.rotation * motion.rotation).normalize();
             }
         });
+        self.write_animated_morphs();
+    }
+
+    /// Writes sampled skeleton morph channels to models, including SkinOf
+    /// attachments. Automatic animators call this each frame; call it after
+    /// manual sampling. Unanimated weights retain their current values.
+    /// ```
+    /// use crabbyengine::*;
+    /// Game::new("morph", 1, 1).run_headless(0, |ctx| ctx.write_animated_morphs());
+    /// ```
+    pub fn write_animated_morphs(&mut self) {
+        let mut entities = std::mem::take(&mut self.assets3d.morph_entities);
+        entities.clear();
+        self.world
+            .query::<(crate::Entity, &super::Model)>()
+            .for_each(|(e, _)| entities.push(e));
+        for e in entities.iter().copied() {
+            let mesh_id = self.world.get::<super::Model>(e).unwrap().mesh.id;
+            let Some(morph) = self.assets3d.morphs.get(mesh_id as usize).and_then(|m| m.clone()) else {
+                continue;
+            };
+            let owner = self.world.get::<super::SkinOf>(e).map_or(e, |s| s.0);
+            if self.world.get::<Skeleton>(owner).is_none_or(|s| s.morphs.is_empty()) {
+                continue;
+            }
+            let mut weights = self
+                .world
+                .get_mut::<super::MorphWeights>(e)
+                .map(|w| std::mem::take(&mut *w))
+                .unwrap_or_else(|| super::MorphWeights(morph.defaults.clone()));
+            let base = self
+                .assets3d
+                .morph_bases
+                .entry(e)
+                .or_insert_with(|| (mesh_id, weights.clone(), weights.clone()));
+            if base.0 != mesh_id {
+                base.0 = mesh_id;
+                base.1.clone_from(&weights);
+            }
+            for i in 0..weights.0.len().max(base.2.0.len()) {
+                if weights.get(i) != base.2.get(i) {
+                    base.1.set(i, weights.get(i));
+                }
+            }
+            self.world
+                .get::<Skeleton>(owner)
+                .unwrap()
+                .morphs
+                .write_base(&morph.names, &base.1, &mut weights);
+            base.2.clone_from(&weights);
+            if self.world.get::<super::MorphWeights>(e).is_some() {
+                *self.world.get_mut::<super::MorphWeights>(e).unwrap() = weights;
+            } else {
+                self.world.insert(e, weights);
+            }
+        }
+        self.assets3d.morph_bases.retain(|e, _| self.world.is_alive(*e));
+        self.assets3d.morph_entities = entities;
     }
 
     pub(crate) fn prepare_3d(&mut self) {

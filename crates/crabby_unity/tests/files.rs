@@ -124,7 +124,7 @@ fn meshes_decode_streams_and_submeshes() {
 }
 
 #[test]
-fn mesh_blend_shapes_keep_their_full_weight_frame() {
+fn mesh_blend_shapes_keep_all_authored_frames() {
     // "Lift" moves vertex 3 up; "Dent" has an in-between frame (vertex 0
     // down by 0.5) and its full frame (vertex 1 down by 1, normal tilted).
     let shapes = "  m_Shapes:
@@ -174,7 +174,7 @@ fn mesh_blend_shapes_keep_their_full_weight_frame() {
         .replace("  m_MeshCompression: 0\n", &format!("{shapes}  m_MeshCompression: 0\n"));
     let file = UnityFile::parse(&text).unwrap();
     let mesh = UnityMesh::from_object(&file.objects[0]).unwrap();
-    let [lift, dent] = &mesh.blend_shapes[..] else {
+    let [lift, half, dent] = &mesh.blend_shapes[..] else {
         panic!("{:?}", mesh.blend_shapes);
     };
     assert_eq!(lift.name, "Lift");
@@ -184,7 +184,14 @@ fn mesh_blend_shapes_keep_their_full_weight_frame() {
     );
     assert!(lift.normals.is_empty());
     assert_eq!(dent.name, "Dent");
-    assert_eq!(dent.positions[0], [0.0; 3], "the in-between frame is left out");
+    assert_eq!(half.channel, "Dent");
+    assert_eq!(half.frame_weight, 0.5);
+    assert_eq!(half.positions[0], [0., -0.5, 0.]);
+    assert_eq!(dent.frame_weight, 1.0);
+    assert_eq!(
+        dent.positions[0], [0.0; 3],
+        "full frame is independent of the in-between"
+    );
     assert_eq!(dent.positions[1], [0.0, -1.0, 0.0]);
     assert_eq!(dent.normals[1], [0.5, 0.0, 0.0]);
     assert_eq!(dent.normals.len(), 5);

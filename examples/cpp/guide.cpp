@@ -1546,11 +1546,21 @@ static void morphed_sheet(crabby::ctx& ctx) {
     dent.positions[2] = {0, 0, -0.4f};
     auto sheet = crabby::mesh_data::plane(1.0);
     sheet.add_morph_target(dent);
+    auto halfway = dent;
+    halfway.name = "dent_half";
+    halfway.positions[2] = {0.1f, 0, -0.15f};
+    sheet.add_morph_target(halfway);
+    sheet.add_morph_frame(0, 1, 0.5f);
+    sheet.add_morph_frame(0, 0, 1.0f);
 
     auto mesh = ctx.create_mesh(sheet, ctx.default_material());
     auto at = ctx.morph_target(mesh, "dent").value();
     auto panel = ctx.world().spawn(crabby::transform3d_at({0, 0, 0}), crabby::model_of(mesh));
-    ctx.set_morph_weight(panel, at, 0.5f); // halfway dented
+    ctx.set_morph_weight(panel, at, 0.5f); // authored halfway frame
+    ctx.set_skeleton(panel, {}); // morph-only clips need no joints
+    crabby::clip expression("expression");
+    expression.set_morph_track("dent", {0, 1}, {0, 1});
+    ctx.sample_clip(expression, panel, 0.5f);
 }
 // ANCHOR_END: morph
 

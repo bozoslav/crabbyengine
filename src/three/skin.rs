@@ -56,6 +56,7 @@ pub struct Joint {
 #[derive(Debug, Clone)]
 pub struct Skeleton {
     joints: Arc<[Joint]>,
+    pub(crate) morphs: MorphPose,
     /// Where each joint sits relative to its parent, as the next frame
     /// draws it; starts at the rest pose. Joints past its end stay at rest.
     pub pose: Vec<Transform3D>,
@@ -97,6 +98,7 @@ impl Skeleton {
         let pose = joints.iter().map(|j| j.rest).collect();
         let mut s = Self {
             joints,
+            morphs: MorphPose::default(),
             pose,
             matrices: Vec::new(),
         };
@@ -139,8 +141,23 @@ impl Skeleton {
     /// assert_eq!(s.pose[0], Transform3D::default());
     /// ```
     pub fn reset_pose(&mut self) {
+        self.morphs.clear();
         self.pose.clear();
         self.pose.extend(self.joints.iter().map(|j| j.rest));
+    }
+
+    /// Writes sampled morph channels by name, preserving all unrelated weights.
+    /// Call after manual clip sampling or Animator::update. Automatic animators
+    /// write the model's component themselves, including SkinOf attachments.
+    /// ```
+    /// use crabbyengine::*;
+    /// let s = Skeleton::new(vec![]);
+    /// let mut weights = MorphWeights(vec![0.5]);
+    /// s.write_morph_weights(&["smile".into()], &mut weights);
+    /// assert_eq!(weights.get(0), 0.5);
+    /// ```
+    pub fn write_morph_weights(&self, names: &[String], weights: &mut MorphWeights) {
+        self.morphs.write(names, weights);
     }
 
     /// Joint `joint`'s matrix in the entity's own space, from `pose` as it
@@ -354,6 +371,7 @@ pub(crate) struct MeshMorph {
     pub names: Vec<String>,
     pub defaults: Vec<f32>,
     pub reach: f32,
+    pub frames: Vec<super::MorphFrame>,
 }
 
 impl MeshMorph {
@@ -368,6 +386,7 @@ impl MeshMorph {
             names: data.morph_targets.iter().map(|t| t.name.clone()).collect(),
             defaults,
             reach,
+            frames: data.morph_frames.clone(),
         })
     }
 }
@@ -534,6 +553,7 @@ fn add(out: &mut Out, assets: &Assets3D, t: &Transform3D, m: &Model, s: Option<&
             let n = morph.names.len();
             out.weights
                 .extend((0..n).map(|k| own.get(k).copied().filter(|v| v.is_finite()).unwrap_or(0.0)));
+            expand_frames(&morph.frames, &mut out.weights[at..]);
             let most = out.weights[at..].iter().fold(0.0f32, |a, v| a.max(v.abs()));
             (at as u32, n as u32, morph.reach * most)
         }
@@ -818,5 +838,162 @@ mod tests {
             parent: Some(0),
             rest: Transform3D::default(),
         }]);
+    }
+}
+
+/// Sparse affine pose: value + (1 - coverage) * current entity weight.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct MorphPose(Vec<(Arc<str>, f32, f32, bool)>);
+impl MorphPose {
+    pub fn clear(&mut self) {
+        for (_, v, coverage, active) in &mut self.0 {
+            *v = 0.;
+            *coverage = 0.;
+            *active = false;
+        }
+    }
+    pub fn set(&mut self, name: &str, value: f32, weight: f32) {
+        if let Some((_, v, c, active)) = self.0.iter_mut().find(|(n, _, _, _)| &**n == name) {
+            *v += (value - *v) * weight;
+            *c += (1. - *c) * weight;
+            *active = true;
+        } else {
+            self.0.push((Arc::from(name), value * weight, weight, true));
+        }
+    }
+    pub fn mix(&mut self, source: &Self, weight: f32) {
+        for (_, v, c, active) in &mut self.0 {
+            if *active {
+                *v *= 1. - weight;
+                *c *= 1. - weight;
+            }
+        }
+        for (name, value, coverage, active) in &source.0 {
+            if !active {
+                continue;
+            }
+            if let Some((_, v, c, a)) = self.0.iter_mut().find(|(n, _, _, _)| n == name) {
+                *v += value * weight;
+                *c += coverage * weight;
+                *a = true;
+            } else {
+                self.0.push((name.clone(), value * weight, coverage * weight, true));
+            }
+        }
+    }
+    pub fn layer(&mut self, source: &Self, weight: f32, additive: bool) {
+        for (name, value, coverage, active) in &source.0 {
+            if !active {
+                continue;
+            }
+            if let Some((_, v, c, a)) = self.0.iter_mut().find(|(n, _, _, _)| n == name) {
+                if additive {
+                    *v += value * weight;
+                } else {
+                    *v = *v * (1. - coverage * weight) + value * weight;
+                    *c += (1. - *c) * coverage * weight;
+                }
+                *a = true;
+            } else {
+                self.0.push((
+                    name.clone(),
+                    value * weight,
+                    if additive { 0. } else { coverage * weight },
+                    true,
+                ));
+            }
+        }
+    }
+    pub fn is_empty(&self) -> bool {
+        !self.0.iter().any(|(_, _, _, active)| *active)
+    }
+    pub fn write_base(&self, names: &[String], base: &MorphWeights, weights: &mut MorphWeights) {
+        for (name, value, coverage, active) in &self.0 {
+            if *active && let Some(i) = names.iter().position(|n| n == &**name) {
+                weights.set(i, value + base.get(i) * (1. - coverage));
+            }
+        }
+    }
+    pub fn write(&self, names: &[String], weights: &mut MorphWeights) {
+        for (name, value, coverage, active) in &self.0 {
+            if *active && let Some(i) = names.iter().position(|n| n == &**name) {
+                weights.set(i, value + weights.get(i) * (1. - coverage));
+            }
+        }
+    }
+}
+
+/// Expand a channel to at most two active frame targets; extrapolate outside
+/// the authored range, including negative weights, using the end segment.
+fn expand_frames(frames: &[super::MorphFrame], weights: &mut [f32]) {
+    for (i, frame) in frames.iter().enumerate() {
+        if frames[..i].iter().any(|f| f.channel == frame.channel) {
+            continue;
+        }
+        let value = weights[frame.channel];
+        let first = frames
+            .iter()
+            .filter(|f| f.channel == frame.channel)
+            .min_by(|a, b| a.weight.total_cmp(&b.weight))
+            .unwrap();
+        let last = frames
+            .iter()
+            .filter(|f| f.channel == frame.channel)
+            .max_by(|a, b| a.weight.total_cmp(&b.weight))
+            .unwrap();
+        let hi = frames
+            .iter()
+            .filter(|f| f.channel == frame.channel && f.weight >= value)
+            .min_by(|a, b| a.weight.total_cmp(&b.weight))
+            .unwrap_or(last);
+        let lo = frames
+            .iter()
+            .filter(|f| f.channel == frame.channel && f.weight < hi.weight)
+            .max_by(|a, b| a.weight.total_cmp(&b.weight));
+        weights[frame.channel] = 0.;
+        for f in frames.iter().filter(|f| f.channel == frame.channel) {
+            weights[f.target] = 0.;
+        }
+        if let Some(lo) = lo.filter(|_| value > first.weight) {
+            let t = (value - lo.weight) / (hi.weight - lo.weight);
+            weights[lo.target] = 1. - t;
+            weights[hi.target] = t;
+        } else {
+            weights[first.target] = value / first.weight;
+        }
+    }
+}
+
+#[cfg(test)]
+mod morph_frame_tests {
+    use super::*;
+    use crate::MorphFrame;
+    #[test]
+    fn frames_interpolate_from_zero_and_between_authored_shapes() {
+        let frames = [
+            MorphFrame {
+                channel: 0,
+                target: 1,
+                weight: 0.5,
+            },
+            MorphFrame {
+                channel: 0,
+                target: 0,
+                weight: 1.,
+            },
+        ];
+        for (weight, expected) in [
+            (0., [0., 0.]),
+            (0.25, [0., 0.5]),
+            (0.5, [0., 1.]),
+            (0.75, [0.5, 0.5]),
+            (1., [1., 0.]),
+            (1.5, [2., -1.]),
+            (-0.5, [0., -1.]),
+        ] {
+            let mut weights = [weight, 99., 0.3];
+            expand_frames(&frames, &mut weights);
+            assert_eq!(weights, [expected[0], expected[1], 0.3]);
+        }
     }
 }

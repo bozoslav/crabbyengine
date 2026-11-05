@@ -628,31 +628,52 @@ impl<'p> Importer<'p> {
         let mut textures: Vec<String> = Vec::new();
         let mut materials: Vec<Json> = Vec::new();
         let mut vertices = Vertices {
-            skin: mesh.skin.clone().map(|mut skin| {
-                let root = skin
-                    .root
-                    .or_else(|| skin.nodes.iter().position(|n| n.parent.is_none()))
-                    .unwrap_or(0);
-                for clip in &self.animation_clips {
-                    for diagnostic in clip.append_to_skin(&mut skin, root) {
-                        self.report.skip(diagnostic);
+            skin: mesh
+                .skin
+                .clone()
+                .or_else(|| {
+                    if self.animation_clips.is_empty() || mesh.blend_shapes.is_empty() {
+                        return None;
                     }
-                }
-                for node in &mut skin.nodes {
-                    node.matrix = mirror(Mat4::from_cols_array(&node.matrix)).to_cols_array();
-                }
-                for clip in &mut skin.animations {
-                    for samples in &mut clip.nodes {
-                        for matrix in samples {
-                            *matrix = mirror(Mat4::from_cols_array(matrix)).to_cols_array();
+                    Some(crate::MeshSkin {
+                        nodes: vec![crate::SkinNode {
+                            name: "Root".into(),
+                            parent: None,
+                            matrix: Mat4::IDENTITY.to_cols_array(),
+                        }],
+                        root: Some(0),
+                        joints: vec![0],
+                        inverse_binds: vec![Mat4::IDENTITY.to_cols_array()],
+                        indices: vec![[0; 4]; mesh.positions.len()],
+                        weights: vec![[1., 0., 0., 0.]; mesh.positions.len()],
+                        ..Default::default()
+                    })
+                })
+                .map(|mut skin| {
+                    let root = skin
+                        .root
+                        .or_else(|| skin.nodes.iter().position(|n| n.parent.is_none()))
+                        .unwrap_or(0);
+                    for clip in &self.animation_clips {
+                        for diagnostic in clip.append_to_skin(&mut skin, root) {
+                            self.report.skip(diagnostic);
                         }
                     }
-                }
-                for bind in &mut skin.inverse_binds {
-                    *bind = mirror(Mat4::from_cols_array(bind)).to_cols_array();
-                }
-                skin
-            }),
+                    for node in &mut skin.nodes {
+                        node.matrix = mirror(Mat4::from_cols_array(&node.matrix)).to_cols_array();
+                    }
+                    for clip in &mut skin.animations {
+                        for samples in &mut clip.nodes {
+                            for matrix in samples {
+                                *matrix = mirror(Mat4::from_cols_array(matrix)).to_cols_array();
+                            }
+                        }
+                    }
+                    for bind in &mut skin.inverse_binds {
+                        *bind = mirror(Mat4::from_cols_array(bind)).to_cols_array();
+                    }
+                    skin
+                }),
             ..Default::default()
         };
         vertices.targets = mesh
@@ -661,6 +682,8 @@ impl<'p> Importer<'p> {
             .map(|b| glb::Target {
                 name: b.name.clone(),
                 weight: b.weight,
+                channel: b.channel.clone(),
+                frame_weight: b.frame_weight,
                 ..Default::default()
             })
             .collect();
@@ -688,7 +711,7 @@ impl<'p> Importer<'p> {
                     let at = *remap.entry(v).or_insert_with(|| {
                         let v = v as usize;
                         let p = mesh.positions.get(v).copied().unwrap_or_default();
-                        if let Some(skin) = &mesh.skin {
+                        if let Some(skin) = &vertices.skin {
                             vertices.joints.push(skin.indices[v]);
                             vertices.weights.push(skin.weights[v]);
                         }

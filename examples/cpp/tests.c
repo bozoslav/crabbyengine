@@ -217,8 +217,28 @@ static void steam_messages_validation(void) {
     crabby_steam_lobby_free(NULL);
 }
 
+static void morph_clip_api(void) {
+    CrabbyClip* clip = NULL;
+    CHECK(crabby_clip_new("face", &clip) == CRABBY_OK);
+    float times[] = {0, 2}, values[] = {0, 1};
+    CHECK(crabby_clip_set_morph_track(clip, "smile", times, values, 2, 1) == CRABBY_OK);
+    CHECK(crabby_clip_duration(clip) == 2);
+    float cubic[] = {0, 0, 1, 1, 1, 0};
+    CHECK(crabby_clip_set_morph_track(clip, "smile", times, cubic, 2, 2) == CRABBY_OK);
+    CHECK(crabby_clip_set_morph_track(clip, "smile", times, values, 2, 9) == CRABBY_INVALID_ARGUMENT);
+    crabby_clip_free(clip);
+    CrabbyMeshData* mesh = crabby_mesh_data_plane(1);
+    CrabbyVec3 deltas[4] = {{0, 1, 0}, {0, 1, 0}, {0, 1, 0}, {0, 1, 0}};
+    CHECK(crabby_mesh_data_add_morph_target(mesh, "full", deltas, NULL, 4) == CRABBY_OK);
+    CHECK(crabby_mesh_data_add_morph_target(mesh, "half", deltas, NULL, 4) == CRABBY_OK);
+    CHECK(crabby_mesh_data_add_morph_frame(mesh, 0, 1, 0.5f) == CRABBY_OK);
+    CHECK(crabby_mesh_data_add_morph_frame(mesh, 0, 0, 1) == CRABBY_OK);
+    CHECK(crabby_mesh_data_add_morph_frame(mesh, 0, 0, 1) == CRABBY_INVALID_ARGUMENT);
+    crabby_mesh_data_free(mesh);
+}
 int main(void) {
     steam_messages_validation();
+    morph_clip_api();
     CHECK(crabby_abi_version() == 2);
     CrabbyWorld* w = crabby_world_new(); CHECK(w);
     uint32_t p; CHECK(crabby_component_register(w, "Pos", sizeof(Position), _Alignof(Position), &p) == CRABBY_OK);

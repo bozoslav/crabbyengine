@@ -313,6 +313,7 @@ impl Motion {
                 c.sample(t, scratch);
                 *total += weight;
                 mix(&mut output.pose, &scratch.pose, weight / *total);
+                output.morphs.mix(&scratch.morphs, weight / *total);
             }
             Self::Blend1D { parameter, children } => {
                 let v = float_parameter(p, *parameter);
@@ -629,6 +630,9 @@ impl AnimationLayer {
                 &mut 0.,
             );
         }
+        skeleton
+            .morphs
+            .layer(&pose.morphs, w, self.mode == LayerBlend::Additive);
         let joints = skeleton.shared_joints().clone();
         for (i, (a, b)) in skeleton.pose.iter_mut().zip(&pose.pose).enumerate() {
             if self.mask.as_ref().is_some_and(|m| !m.contains(i)) {
@@ -1015,6 +1019,7 @@ impl Animator {
             };
             let (_, _, snapshot) = self.buffers.as_mut().unwrap();
             snapshot.pose.clone_from(&skeleton.pose);
+            snapshot.morphs.clone_from(&skeleton.morphs);
             self.fade = if duration > 0. {
                 Some(Fade {
                     source,
@@ -1088,8 +1093,10 @@ impl Animator {
                     .sample(time, s.looping, 1., &self.parameters, snapshot, scratch, &mut 0.);
             }
             mix(&mut output.pose, &snapshot.pose, 1. - f.elapsed / f.duration);
+            output.morphs.mix(&snapshot.morphs, 1. - f.elapsed / f.duration);
         }
         skeleton.pose.clone_from(&output.pose);
+        skeleton.morphs.clone_from(&output.morphs);
     }
     fn collect_events(&mut self, old: f32, new: f32) {
         let state = &self.graph.states[self.state];
