@@ -393,6 +393,50 @@ There is no automatic break-force option: Rapier does not expose a simple
 break threshold on impulse joints. Despawn the connection to detach explicitly.
 `ctx.physics3d.joint_count()` reports live connections after the last step.
 
+## Ragdolls
+
+`ctx.start_ragdoll(entity, &bones)` hands a skinned character's skeleton
+over to physics: each `RagdollBone` names a joint and gets a dynamic capsule
+running to the joint's first child (a sphere for a joint without children).
+Each capsule is held to the nearest chosen bone above it by a spherical
+joint, limited to a cone of `.swing(radians)` (default 0.7) and a
+`.twist(radians)` either way (default 0.3). Pick the bones that matter
+(hips, spine, head, upper and lower limbs). Joints you leave out keep their
+pose relative to the bone above them, so hands and fingers ride along.
+
+The bodies start where the skeleton is posed now and are linked to physics
+at once, so you can push them in the same frame: a hit, an explosion. From
+then on the bodies pose the skeleton after every step (`Ragdoll3D` on the
+entity holds them; `body(joint)` finds one) and its `Animator` waits.
+
+<div class="lang-pair">
+<div>
+
+```rust
+{{#include ../../tests/ragdoll3d.rs:ragdoll}}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:ragdoll}}
+```
+
+</div>
+</div>
+
+`ctx.stop_ragdoll(entity, seconds)` removes the bodies and joints and blends
+the skeleton from where it lies back to what the animator plays, over
+`seconds` (0 snaps). The entity's `Transform3D` doesn't move by itself: set
+it to where the ragdoll lies (its root bone's body) first if the animation
+should start from there. The bodies are entities of their own, so stop the
+ragdoll before despawning the character. Starting again replaces a running
+ragdoll; a bad call (an unknown or repeated joint, a radius that isn't
+positive) returns an error and leaves the running one alone. Bodies of
+one ragdoll don't collide with the bones they're jointed to, but do with
+the rest of the world and the rest of the body.
+
 ## One-way pushing
 
 A higher `RigidBody3D::dominance` group pushes lower groups without receiving

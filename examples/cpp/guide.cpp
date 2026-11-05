@@ -1474,6 +1474,32 @@ static void joints_and_dominance(crabby::ctx& ctx) {
     // ANCHOR_END: dominance
 }
 
+// A stick figure on a floor, knocked over and later stood back up.
+static void ragdoll(crabby::ctx& ctx) {
+    auto world = ctx.world();
+    world.spawn(crabby::transform3d_at({0, -0.5f, 0}), crabby::fixed_body3d(), crabby::box_collider({20, 1, 20}));
+    auto enemy = world.spawn(crabby::transform3d_at({0, 0, 0}));
+    ctx.set_skeleton(enemy, {crabby::joint{"hips", -1, crabby::transform3d_at({0, 1, 0})},
+                             crabby::joint{"spine", 0, crabby::transform3d_at({0, 0.6f, 0})},
+                             crabby::joint{"head", 1, crabby::transform3d_at({0, 0.4f, 0})},
+                             crabby::joint{"arm", 1, crabby::transform3d_at({0.5f, 0.2f, 0})},
+                             crabby::joint{"hand", 3, crabby::transform3d_at({0.5f, 0, 0})}});
+    crabby::vec3 hit{1, 0, 0};
+    // ANCHOR: ragdoll
+    // A hit knocks `enemy` over: physics takes over its skeleton.
+    ctx.start_ragdoll(enemy, {
+        crabby::ragdoll_bone("hips", 0.12f),
+        crabby::ragdoll_bone("spine", 0.1f).swing(0.5f),
+        crabby::ragdoll_bone("head", 0.1f),
+        crabby::ragdoll_bone("arm", 0.05f).swing(1.2f),
+    });
+    auto spine = ctx.ragdoll_body(enemy, *ctx.find_joint(enemy, "spine"));
+    ctx.apply_impulse3d(*spine, {hit.x * 40, hit.y * 40, hit.z * 40});
+    // When it gets up: bodies gone, half a second back to the animation.
+    ctx.stop_ragdoll(enemy, 0.5f);
+    // ANCHOR_END: ragdoll
+}
+
 // ANCHOR: skin_ik
 // Register this with crabby::game(...).late_system(procedural_pose).
 [[maybe_unused]] static void procedural_pose(crabby::ctx& ctx, crabby::entity character) {
@@ -1624,6 +1650,7 @@ int main() {
     });
     crabby::game("skinning guide", 1, 1).run_headless(0, skinned_tentacle);
     crabby::game("joint guide", 1, 1).physics3d({0, 0, 0}).run_headless(5, joints_and_dominance);
+    crabby::game("ragdoll guide", 1, 1).physics3d({0, -9.81f, 0}).run_headless(5, ragdoll);
     crabby::game("light guide", 64, 64).run_headless(0, punctual_lights);
     the_ripples_run_on_a_render_target();
     the_pond_mirrors_the_camera();

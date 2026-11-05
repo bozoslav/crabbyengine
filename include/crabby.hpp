@@ -328,6 +328,24 @@ inline vehicle3d vehicle(std::initializer_list<wheel3d> wheels) {
 }
 /// Where to draw `w` for a chassis at `chassis`: steer, spin and suspension travel included.
 inline transform3d wheel_pose(const wheel3d& w, const transform3d& chassis) { return crabby_wheel3d_pose(&w, chassis); }
+/// One bone of a ragdoll (Rust `RagdollBone`): the joint it starts at and
+/// the capsule standing in for it, which runs to the joint's first child.
+/// `ragdoll_bone("spine", 0.1f).swing(0.5f)`.
+class ragdoll_bone {
+public:
+    ragdoll_bone(std::string joint, float radius) : joint_(std::move(joint)), raw_(crabby_ragdoll_bone(nullptr, radius)) {}
+    /// How far it may swing away from its parent, in radians (default 0.7).
+    ragdoll_bone swing(float radians) const { auto b = *this; b.raw_.swing = radians; return b; }
+    /// How far it may twist around itself, either way, in radians (default 0.3).
+    ragdoll_bone twist(float radians) const { auto b = *this; b.raw_.twist = radians; return b; }
+    /// kg per cubic meter (default 1000).
+    ragdoll_bone density(float kg_per_m3) const { auto b = *this; b.raw_.density = kg_per_m3; return b; }
+    /// The C struct, pointing at this bone's joint name.
+    CrabbyRagdollBone raw() const { auto r = raw_; r.joint = joint_.c_str(); return r; }
+private:
+    std::string joint_;
+    CrabbyRagdollBone raw_;
+};
 /// How fast a wheel spins, in revolutions per minute.
 inline float rpm(const wheel3d& w) { return w.angular_velocity * 60.0f / 6.2831853f; }
 /// The grip of a tyre curve at `slip` (either sign), stiffness included.
@@ -2371,6 +2389,31 @@ public:
         detail::check(status);
         return c;
     }
+    /// Hands `e`'s skeleton over to physics (Rust `Ctx::start_ragdoll`): a
+    /// body per bone, jointed to the nearest chosen ancestor. The bodies are
+    /// linked at once, so you can push them straight away. Throws on an
+    /// unknown or repeated joint, a radius that isn't positive, or no skeleton.
+    void start_ragdoll(entity e, const std::vector<ragdoll_bone>& bones) {
+        std::vector<CrabbyRagdollBone> raw;
+        raw.reserve(bones.size());
+        for (const ragdoll_bone& b : bones) raw.push_back(b.raw());
+        detail::check(crabby_ctx_start_ragdoll(raw_, e, raw.data(), raw.size()));
+    }
+    /// Removes `e`'s ragdoll bodies and blends its skeleton back to the
+    /// animated pose over `seconds` (0 snaps). Call it before despawning `e`.
+    void stop_ragdoll(entity e, float seconds = 0.0f) { detail::check(crabby_ctx_stop_ragdoll(raw_, e, seconds)); }
+    /// The body standing in for joint `joint` (see find_joint) of a ragdolled `e`.
+    std::optional<entity> ragdoll_body(entity e, std::size_t joint) const {
+        entity body = 0;
+        auto status = crabby_ctx_ragdoll_body(raw_, e, joint, &body);
+        if (status == CRABBY_NOT_FOUND) return std::nullopt;
+        detail::check(status);
+        return body;
+    }
+    /// Whether `e` is ragdolled (or still blending back from it).
+    bool ragdolled(entity e) const { bool r = false, b = false; detail::check(crabby_ctx_ragdoll_state(raw_, e, &r, &b)); return r; }
+    /// Whether `e` is blending back to its animation after stop_ragdoll.
+    bool ragdoll_blending(entity e) const { bool r = false, b = false; detail::check(crabby_ctx_ragdoll_state(raw_, e, &r, &b)); return b; }
 private:
     template<class F> static void overlap3d(std::vector<CrabbyEntity>& out, F call) {
         std::size_t n = 0;

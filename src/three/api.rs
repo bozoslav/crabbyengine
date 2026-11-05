@@ -825,19 +825,59 @@ impl Ctx {
     /// renderer) see this frame's pose.
     pub(crate) fn update_animators(&mut self) {
         let dt = self.dt();
-        self.world
-            .query::<(&mut super::Animator, &mut Skeleton, Option<&mut super::Transform3D>)>()
-            .for_each(|(animator, skeleton, transform)| {
-                if animator.manual {
-                    return;
-                }
-                animator.update(dt, skeleton);
-                if let (true, Some(t)) = (animator.apply_root_motion, transform) {
-                    let motion = animator.root_motion();
-                    t.position += t.rotation * (motion.position * t.scale);
-                    t.rotation = (t.rotation * motion.rotation).normalize();
-                }
-            });
+        #[cfg(feature = "physics3d")]
+        let mut finished: Vec<crate::Entity> = Vec::new();
+        #[cfg(feature = "physics3d")]
+        {
+            // Ragdolls pose their skeletons (after this frame's interpolation);
+            // their animators wait, except while blending back.
+            crate::physics3d::pose_ragdolls(&mut self.world, &mut self.physics3d.ragdolls);
+            self.world
+                .query::<(
+                    crate::Entity,
+                    &mut super::Animator,
+                    &mut Skeleton,
+                    &mut crate::Ragdoll3D,
+                )>()
+                .for_each(|(e, animator, skeleton, ragdoll)| {
+                    if ragdoll.is_blending() {
+                        if !animator.manual {
+                            animator.update(dt, skeleton);
+                        }
+                        if crate::physics3d::blend_back(ragdoll, skeleton, dt) {
+                            finished.push(e);
+                        }
+                    }
+                });
+            self.world
+                .query::<(crate::Entity, &mut Skeleton, &mut crate::Ragdoll3D)>()
+                .without::<super::Animator>()
+                .for_each(|(e, skeleton, ragdoll)| {
+                    if ragdoll.is_blending() && crate::physics3d::blend_back(ragdoll, skeleton, dt) {
+                        finished.push(e);
+                    }
+                });
+            for e in finished.drain(..) {
+                self.world.remove::<crate::Ragdoll3D>(e);
+            }
+        }
+        #[allow(unused_mut)]
+        let mut animated = self
+            .world
+            .query::<(&mut super::Animator, &mut Skeleton, Option<&mut super::Transform3D>)>();
+        #[cfg(feature = "physics3d")]
+        let mut animated = animated.without::<crate::Ragdoll3D>();
+        animated.for_each(|(animator, skeleton, transform)| {
+            if animator.manual {
+                return;
+            }
+            animator.update(dt, skeleton);
+            if let (true, Some(t)) = (animator.apply_root_motion, transform) {
+                let motion = animator.root_motion();
+                t.position += t.rotation * (motion.position * t.scale);
+                t.rotation = (t.rotation * motion.rotation).normalize();
+            }
+        });
     }
 
     pub(crate) fn prepare_3d(&mut self) {

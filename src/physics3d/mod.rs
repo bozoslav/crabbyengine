@@ -22,7 +22,10 @@ mod files;
 mod joints;
 pub use joints::{Joint3D, JointAxis3D, JointDrive3D, JointMotion3D};
 mod query;
+mod ragdoll;
 mod vehicle;
+pub use ragdoll::{Ragdoll3D, RagdollBone};
+pub(crate) use ragdoll::{blend_back, pose_ragdolls};
 
 pub use character::Character3D;
 pub use query::{Hit3D, QueryFilter3D};
@@ -505,6 +508,8 @@ pub struct Physics3D {
     free_meshes: Vec<u32>,
     /// Reused by the character controller.
     character: character::Scratch,
+    /// Reused when posing ragdolls.
+    pub(crate) ragdolls: Vec<Entity>,
 }
 
 impl Default for Physics3D {
@@ -552,6 +557,7 @@ impl Physics3D {
             meshes: Vec::new(),
             free_meshes: Vec::new(),
             character: character::Scratch::default(),
+            ragdolls: Vec::new(),
         }
     }
 
@@ -958,6 +964,7 @@ pub fn step_physics3d(ctx: &mut Ctx) {
     physics.world.step_with_events(&(), &physics.collector);
     dominance::transfer_velocity(physics, dt);
     write_back(physics, &mut ctx.world);
+    pose_ragdolls(&mut ctx.world, &mut physics.ragdolls);
     std::mem::swap(
         &mut physics.events,
         &mut *physics

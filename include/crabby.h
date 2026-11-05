@@ -763,6 +763,14 @@ typedef struct CrabbyHit3D {
   float distance;
 } CrabbyHit3D;
 
+typedef struct CrabbyRagdollBone {
+  const char *joint;
+  float radius;
+  float swing;
+  float twist;
+  float density;
+} CrabbyRagdollBone;
+
 typedef struct CrabbyField {
   const char *name;
   uint32_t kind;
@@ -2055,6 +2063,25 @@ enum CrabbyStatus crabby_ctx_body_mass3d(struct CrabbyCtx *ctx, uint64_t entity,
 enum CrabbyStatus crabby_ctx_body_center_of_mass3d(struct CrabbyCtx *ctx,
                                                    uint64_t entity,
                                                    struct CrabbyVec3 *out_center);
+
+struct CrabbyRagdollBone crabby_ragdoll_bone(const char *joint, float radius);
+
+enum CrabbyStatus crabby_ctx_start_ragdoll(struct CrabbyCtx *ctx,
+                                           uint64_t entity,
+                                           const struct CrabbyRagdollBone *bones,
+                                           size_t count);
+
+enum CrabbyStatus crabby_ctx_stop_ragdoll(struct CrabbyCtx *ctx, uint64_t entity, float seconds);
+
+enum CrabbyStatus crabby_ctx_ragdoll_body(struct CrabbyCtx *ctx,
+                                          uint64_t entity,
+                                          size_t joint,
+                                          uint64_t *out_body);
+
+enum CrabbyStatus crabby_ctx_ragdoll_state(struct CrabbyCtx *ctx,
+                                           uint64_t entity,
+                                           bool *out_ragdolled,
+                                           bool *out_blending);
 
 enum CrabbyStatus crabby_component_reflect(struct CrabbyWorld *world,
                                            uint32_t component_id,

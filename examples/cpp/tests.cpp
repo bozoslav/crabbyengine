@@ -845,6 +845,40 @@ static void inverse_kinematics() {
     });
 }
 
+// A stick figure ragdolled 1 m up falls and is posed by its bodies; stopping removes them.
+static void ragdolls() {
+    crabby::entity figure = 0;
+    float hips_y = 0, rest_y = 0;
+    crabby::game("ragdolls", 1, 1)
+        .physics3d({0, -9.81f, 0})
+        .sim_system([&](crabby::ctx& ctx) {
+            if (ctx.sim_tick() == 60) {
+                hips_y = ctx.joint_pose(figure, 0).position.y;
+                ctx.stop_ragdoll(figure, 0.5f);
+                CHECK(ctx.ragdolled(figure) && ctx.ragdoll_blending(figure));
+                CHECK(!ctx.ragdoll_body(figure, 0));
+            }
+        }, "probe")
+        .run_headless(62, [&](crabby::ctx& ctx) {
+            auto world = ctx.world();
+            world.spawn(crabby::transform3d_at({0, -0.5f, 0}), crabby::fixed_body3d(), crabby::box_collider({20, 1, 20}));
+            figure = world.spawn(crabby::transform3d_at({0, 1, 0}));
+            ctx.set_skeleton(figure, {crabby::joint{"hips"}, crabby::joint{"spine", 0, crabby::transform3d_at({0, 0.6f, 0})},
+                                      crabby::joint{"head", 1, crabby::transform3d_at({0, 0.4f, 0})}});
+            rest_y = ctx.joint_pose(figure, 0).position.y;
+            std::size_t before = world.size();
+            ctx.start_ragdoll(figure, {crabby::ragdoll_bone("hips", 0.12f), crabby::ragdoll_bone("spine", 0.1f).swing(0.5f).twist(0.2f)});
+            CHECK(world.size() == before + 3); // two bodies and a joint
+            auto spine = ctx.find_joint(figure, "spine");
+            auto body = ctx.ragdoll_body(figure, *spine);
+            CHECK(body && ctx.apply_impulse3d(*body, {1, 0, 0}));
+            CHECK(!ctx.ragdoll_body(figure, 2)); // the head has no body of its own
+            CHECK(ctx.ragdolled(figure) && !ctx.ragdoll_blending(figure));
+            throws([&] { ctx.start_ragdoll(figure, {crabby::ragdoll_bone("tail", 0.1f)}); });
+        });
+    CHECK(hips_y < rest_y - 0.3f); // it fell
+}
+
 // Two endpoints in memory: connect, then a reliable message and a broadcast.
 static void messages() {
     auto peers = crabby::net_messages::loopback(2);
@@ -951,6 +985,7 @@ int main() {
     messages();
     navigation();
     particles3d();
+    ragdolls();
     events();
     rng_matches_rust();
     grid_views_match_engine_queries();
