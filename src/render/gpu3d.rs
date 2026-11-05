@@ -26,6 +26,12 @@ use super::gpu::GpuTexture;
 use super::lights::LightTextures;
 use super::timer::GpuTimer;
 
+// Native command recording uses rayon; browser GPU handles stay on one thread.
+#[cfg(not(target_arch = "wasm32"))]
+type PassTimer<'a, 't> = dyn Fn(&'static str) -> Option<wgpu::RenderPassTimestampWrites<'t>> + Sync + 'a;
+#[cfg(target_arch = "wasm32")]
+type PassTimer<'a, 't> = dyn Fn(&'static str) -> Option<wgpu::RenderPassTimestampWrites<'t>> + 'a;
+
 /// A part of a frame, recorded into a command buffer of its own (see
 /// `Renderer3D::draw`).
 #[derive(Clone, Copy, Debug)]
@@ -71,7 +77,7 @@ struct FrameParts<'a, 't> {
     textures: &'a [GpuTexture],
     targets: &'a Targets,
     split: bool,
-    time: &'a (dyn Fn(&'static str) -> Option<wgpu::RenderPassTimestampWrites<'t>> + Sync),
+    time: &'a PassTimer<'a, 't>,
 }
 
 /// Draws per shadow pass before a cascade is split into more passes, each
@@ -329,6 +335,9 @@ const BLOOM_SCATTER: f64 = 0.7;
 
 /// Window-sized targets.
 struct Targets {
+    ao: Option<super::screen::AoTargets>,
+    ldr: Option<wgpu::TextureView>,
+    aa_group: Option<wgpu::BindGroup>,
     /// Multisampled HDR color, resolved into `hdr`.
     color: wgpu::TextureView,
     hdr: wgpu::TextureView,
@@ -465,6 +474,13 @@ pub(crate) struct Renderer3D {
     /// The scene bind group of passes that can't see the scene.
     no_scene: wgpu::BindGroup,
     post_pipeline: wgpu::RenderPipeline,
+    fxaa_pipeline: wgpu::RenderPipeline,
+    output_format: wgpu::TextureFormat,
+    aa: crate::AntiAliasing,
+    smaa: Option<super::smaa::Smaa>,
+    ao: Option<super::screen::Ao>,
+    ao_enabled: bool,
+    dummy_depth: wgpu::TextureView,
     post_layout: wgpu::BindGroupLayout,
     bloom_prefilter: wgpu::RenderPipeline,
     bloom_down: wgpu::RenderPipeline,
@@ -660,7 +676,7 @@ impl Renderer3D {
             immediate_size: 0,
         });
         // Passes that can't see the scene bind a 1x1 stand-in (black, far).
-        let no_scene = {
+        let (no_scene, dummy_depth) = {
             let tiny = |label, format, samples, usage| {
                 device
                     .create_texture(&wgpu::TextureDescriptor {
@@ -686,7 +702,7 @@ impl Renderer3D {
                 samples,
                 wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
             );
-            scene_bind_group(device, &scene_layout, &color, &depth)
+            (scene_bind_group(device, &scene_layout, &color, &depth), depth)
         };
         let material_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("3d material sampler"),
@@ -772,6 +788,7 @@ impl Renderer3D {
             })
         };
         let post_pipeline = full_screen("3d post pipeline", &post_pipeline_layout, "fs_tonemap", format, None);
+        let fxaa_pipeline = full_screen("FXAA", &bloom_pipeline_layout, "fs_fxaa", format, None);
         let bloom_prefilter = full_screen(
             "3d bloom prefilter",
             &bloom_pipeline_layout,
@@ -1095,6 +1112,13 @@ impl Renderer3D {
             scene_layout,
             no_scene,
             post_pipeline,
+            fxaa_pipeline,
+            output_format: format,
+            aa: crate::AntiAliasing::None,
+            smaa: None,
+            ao: None,
+            ao_enabled: false,
+            dummy_depth,
             post_layout,
             bloom_prefilter,
             bloom_down,
@@ -1515,6 +1539,33 @@ impl Renderer3D {
         self.particles.prepare(device, queue, &frame.particles, frame.view_proj);
         self.lut = lut.map_or(self.white, |(id, _)| id);
         self.bloom = post.bloom > 0.0;
+        self.aa = post.anti_aliasing;
+        self.ao_enabled = post.ambient_occlusion.enabled
+            && post.ambient_occlusion.radius.is_finite()
+            && post.ambient_occlusion.intensity.is_finite()
+            && post.ambient_occlusion.radius > 0.0
+            && post.ambient_occlusion.intensity > 0.0
+            && can_compute(device);
+        if self.ao_enabled && self.ao.is_none() {
+            self.ao = Some(super::screen::Ao::new(device));
+        }
+        if let Some(ao) = &self.ao {
+            ao.prepare(queue, frame.view_proj, camera, &post.ambient_occlusion);
+        }
+        if self.targets.as_ref().is_some_and(|t| t.size != size) {
+            self.smaa = None;
+        }
+        if self.aa == crate::AntiAliasing::Smaa
+            && (self.smaa.is_none() || self.targets.as_ref().is_none_or(|t| t.size != size))
+        {
+            self.smaa = Some(super::smaa::Smaa::new(
+                device,
+                queue,
+                size.0,
+                size.1,
+                self.output_format,
+            ));
+        }
         self.atmosphere = sky.atmosphere;
         self.runs.clear();
         self.runs.extend_from_slice(&frame.runs);
@@ -1736,7 +1787,11 @@ impl Renderer3D {
                 bytemuck::bytes_of(&uniform),
             );
         }
-        if self.targets.as_ref().is_none_or(|t| t.size != size) {
+        if self.targets.as_ref().is_none_or(|t| {
+            t.size != size
+                || (self.ao_enabled && t.ao.is_none())
+                || (self.aa == crate::AntiAliasing::Fxaa && t.ldr.is_none())
+        }) {
             let texture = |label, format, samples, usage| {
                 device.create_texture(&wgpu::TextureDescriptor {
                     label: Some(label),
@@ -1836,8 +1891,25 @@ impl Renderer3D {
                     ],
                 })
             };
+            let ldr = (self.aa == crate::AntiAliasing::Fxaa).then(|| {
+                target(
+                    "3d LDR before AA",
+                    self.output_format,
+                    1,
+                    wgpu::TextureUsages::TEXTURE_BINDING,
+                )
+            });
+            let aa_group = ldr.as_ref().map(|ldr| group(ldr, &self.black));
+            let ao = self
+                .ao
+                .as_ref()
+                .filter(|_| self.ao_enabled)
+                .map(|ao| ao.targets(device, size, &depth, &self.scene_layout, &self.black, &self.dummy_depth));
             let n = bloom_mips.len();
             self.targets = Some(Targets {
+                ao,
+                ldr,
+                aa_group,
                 color: target("3d color", HDR_FORMAT, self.samples, none),
                 depth,
                 hdr_texture,
@@ -1918,6 +1990,12 @@ impl Renderer3D {
             + self.views.len() * usize::from(self.atmosphere)
             + self.particles.draw_count()
             + self.effects.len()
+            + usize::from(self.ao_enabled) * 2
+            + match self.aa {
+                crate::AntiAliasing::None => 0,
+                crate::AntiAliasing::Fxaa => 1,
+                crate::AntiAliasing::Smaa => 3,
+            }
             + if self.atmosphere { 2 } else { 0 }
             + shadow_views(self.cascades, self.light_views)
                 .map(|v| self.shadow_runs[v].len())
@@ -2202,6 +2280,10 @@ impl Renderer3D {
                 pass.set_bind_group(0, &self.frame_bind_group, &[]);
                 pass.set_bind_group(2, &self.no_scene, &[]);
                 self.draw_models(&mut pass, &self.runs, Kind::Prepass);
+                drop(pass);
+                if self.ao_enabled {
+                    self.ao.as_ref().unwrap().draw(encoder, targets.ao.as_ref().unwrap());
+                }
             }
             Part::Opaque => {
                 {
@@ -2227,7 +2309,7 @@ impl Renderer3D {
                                 load: wgpu::LoadOp::Load,
                                 // Later passes read it; without a solid
                                 // prepass, it's only complete here.
-                                store: if split || !self.solid_prepass {
+                                store: if split || !(self.solid_prepass || self.ao_enabled) {
                                     wgpu::StoreOp::Store
                                 } else {
                                     wgpu::StoreOp::Discard
@@ -2240,13 +2322,29 @@ impl Renderer3D {
                         multiview_mask: None,
                     });
                     pass.set_bind_group(0, &self.frame_bind_group, &[]);
-                    pass.set_bind_group(2, &self.no_scene, &[]);
+                    pass.set_bind_group(
+                        2,
+                        if self.ao_enabled {
+                            &targets.ao.as_ref().unwrap().scene
+                        } else {
+                            &self.no_scene
+                        },
+                        &[],
+                    );
                     self.draw_models(&mut pass, &self.runs, Kind::Opaque);
                     if self.atmosphere {
                         pass.set_pipeline(&self.sky);
                         pass.set_bind_group(0, &self.frame_bind_group, &[]);
                         pass.draw(0..3, 0..1);
-                        pass.set_bind_group(2, &self.no_scene, &[]);
+                        pass.set_bind_group(
+                            2,
+                            if self.ao_enabled {
+                                &targets.ao.as_ref().unwrap().scene
+                            } else {
+                                &self.no_scene
+                            },
+                            &[],
+                        );
                     }
                     if !split {
                         self.draw_models(&mut pass, &self.runs, Kind::Transparent);
@@ -2380,7 +2478,11 @@ impl Renderer3D {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("3d post"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view,
+                        view: match self.aa {
+                            crate::AntiAliasing::None => view,
+                            crate::AntiAliasing::Fxaa => targets.ldr.as_ref().unwrap(),
+                            crate::AntiAliasing::Smaa => self.smaa.as_ref().unwrap().input(),
+                        },
                         depth_slice: None,
                         resolve_target: None,
                         ops: wgpu::Operations {
@@ -2397,6 +2499,29 @@ impl Renderer3D {
                 pass.set_bind_group(0, post, &[]);
                 pass.set_bind_group(1, &textures[self.lut as usize].bind_group, &[]);
                 pass.draw(0..3, 0..1);
+                drop(pass);
+                match self.aa {
+                    crate::AntiAliasing::None => {}
+                    crate::AntiAliasing::Smaa => self.smaa.as_ref().unwrap().draw(encoder, view),
+                    crate::AntiAliasing::Fxaa => {
+                        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                            label: Some("FXAA"),
+                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                view,
+                                depth_slice: None,
+                                resolve_target: None,
+                                ops: wgpu::Operations {
+                                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                    store: wgpu::StoreOp::Store,
+                                },
+                            })],
+                            ..Default::default()
+                        });
+                        pass.set_pipeline(&self.fxaa_pipeline);
+                        pass.set_bind_group(0, targets.aa_group.as_ref().unwrap(), &[]);
+                        pass.draw(0..3, 0..1);
+                    }
+                }
             }
         }
     }
@@ -2409,7 +2534,7 @@ impl Renderer3D {
         target: &ViewTarget,
         runs: &[(u32, u32, u32)],
         clear: wgpu::Color,
-        time: &(dyn Fn(&'static str) -> Option<wgpu::RenderPassTimestampWrites<'t>> + Sync),
+        time: &PassTimer<'_, 't>,
     ) {
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -2516,9 +2641,9 @@ impl Renderer3D {
                     Kind::Shadow if m.cutout => &pipelines.shadow_cutout,
                     Kind::Shadow => &pipelines.shadow,
                     Kind::Prepass if m.cutout => &pipelines.prepass_cutout,
-                    Kind::Prepass if !self.solid_prepass => continue,
+                    Kind::Prepass if !(self.solid_prepass || self.ao_enabled) => continue,
                     Kind::Prepass => &pipelines.prepass,
-                    Kind::Opaque if !m.cutout && !self.solid_prepass => &pipelines.opaque_solid,
+                    Kind::Opaque if !m.cutout && !(self.solid_prepass || self.ao_enabled) => &pipelines.opaque_solid,
                     Kind::Opaque => &pipelines.opaque,
                     Kind::Transparent => &pipelines.transparent,
                 };
@@ -2850,7 +2975,7 @@ fn build_pipelines(
 }
 
 /// What transparent shaders read of the scene behind them.
-fn scene_bind_group(
+pub(super) fn scene_bind_group(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
     color: &wgpu::TextureView,

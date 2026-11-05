@@ -223,3 +223,25 @@ fn fs_tonemap(in: Full) -> @location(0) vec4<f32> {
     c *= 1.0 - post.balance.w * smoothstep(0.4, 1.4, dot(from_center, from_center));
     return vec4<f32>(mix(texel.rgb, c, texel.a), 1.0);
 }
+
+// FXAA directional luma filter. Reads the tone-mapped LDR intermediate.
+@fragment
+fn fs_fxaa(in: Full) -> @location(0) vec4<f32> {
+    let t = 1.0 / vec2<f32>(textureDimensions(source));
+    let uv = in.uv;
+    let nw = textureSampleLevel(source, linear_clamp, uv + t * vec2<f32>(-1.0, -1.0), 0.0).rgb;
+    let ne = textureSampleLevel(source, linear_clamp, uv + t * vec2<f32>(1.0, -1.0), 0.0).rgb;
+    let sw = textureSampleLevel(source, linear_clamp, uv + t * vec2<f32>(-1.0, 1.0), 0.0).rgb;
+    let se = textureSampleLevel(source, linear_clamp, uv + t * vec2<f32>(1.0, 1.0), 0.0).rgb;
+    let c = textureSampleLevel(source, linear_clamp, uv, 0.0).rgb;
+    let lnw = luma(nw); let lne = luma(ne); let lsw = luma(sw); let lse = luma(se); let lc = luma(c);
+    let lo = min(lc, min(min(lnw, lne), min(lsw, lse)));
+    let hi = max(lc, max(max(lnw, lne), max(lsw, lse)));
+    if hi - lo < max(0.0312, hi * 0.125) { return vec4<f32>(c, 1.0); }
+    var dir = vec2<f32>(-((lnw + lne) - (lsw + lse)), (lnw + lsw) - (lne + lse));
+    let reduce = max((lnw + lne + lsw + lse) * (0.25 * 0.125), 1.0 / 128.0);
+    dir = clamp(dir / (min(abs(dir.x), abs(dir.y)) + reduce), vec2<f32>(-8.0), vec2<f32>(8.0)) * t;
+    let a = 0.5 * (textureSampleLevel(source, linear_clamp, uv + dir * (-1.0/6.0), 0.0).rgb + textureSampleLevel(source, linear_clamp, uv + dir * (1.0/6.0), 0.0).rgb);
+    let b = a * 0.5 + 0.25 * (textureSampleLevel(source, linear_clamp, uv - dir * 0.5, 0.0).rgb + textureSampleLevel(source, linear_clamp, uv + dir * 0.5, 0.0).rgb);
+    return vec4<f32>(select(b, a, luma(b) < lo || luma(b) > hi), 1.0);
+}

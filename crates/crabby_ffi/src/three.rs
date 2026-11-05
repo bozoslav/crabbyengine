@@ -4,9 +4,10 @@
 use std::ffi::c_char;
 
 use crabbyengine::{
-    Blend, Camera3D, Color, Compute, ComputePass, Effect, Lighting, Material, MaterialDesc, Mesh, MeshData, Model,
-    PointLight3D, Post, Quat, ScreenEffect, Shader, Sky, SpotLight3D, TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera,
-    TerrainMaterialDesc, TerrainTile, TextureArray, TextureKind, Tonemap, Transform3D, Vec2, Vec3, Vec4,
+    AmbientOcclusion, AntiAliasing, Blend, Camera3D, Color, Compute, ComputePass, Effect, Lighting, Material,
+    MaterialDesc, Mesh, MeshData, Model, PointLight3D, Post, Quat, ScreenEffect, Shader, Sky, SpotLight3D,
+    TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera, TerrainMaterialDesc, TerrainTile, TextureArray, TextureKind, Tonemap,
+    Transform3D, Vec2, Vec3, Vec4,
 };
 
 use crate::ctx::{ctx_access, out, text};
@@ -502,6 +503,18 @@ pub extern "C" fn crabby_sun_direction_at(hour: f32) -> CrabbyVec3 {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CrabbyPost {
+    /// Post AA: 0 none, 1 FXAA, 2 SMAA 1x.
+    pub anti_aliasing: u32,
+    /// Enable GTAO on ambient light only (unsupported backends ignore it).
+    pub ao_enabled: bool,
+    /// GTAO world-space radius, above zero.
+    pub ao_radius: f32,
+    /// GTAO strength, nonnegative.
+    pub ao_intensity: f32,
+    /// GTAO angular slices, 1 to 8.
+    pub ao_slices: u32,
+    /// GTAO horizon steps per side, 1 to 16.
+    pub ao_steps: u32,
     /// Brightness in stops: +1 doubles the light.
     pub exposure: f32,
     /// How light maps to the screen (see above).
@@ -2241,6 +2254,12 @@ pub unsafe extern "C" fn crabby_ctx_post(ctx: *mut CrabbyCtx, out_post: *mut Cra
             out(
                 out_post,
                 CrabbyPost {
+                    anti_aliasing: p.anti_aliasing as u32,
+                    ao_enabled: p.ambient_occlusion.enabled,
+                    ao_radius: p.ambient_occlusion.radius,
+                    ao_intensity: p.ambient_occlusion.intensity,
+                    ao_slices: p.ambient_occlusion.slices,
+                    ao_steps: p.ambient_occlusion.steps,
                     exposure: p.exposure,
                     tonemap: p.tonemap as u32,
                     bloom: p.bloom,
@@ -2277,6 +2296,23 @@ pub unsafe extern "C" fn crabby_ctx_set_post(ctx: *mut CrabbyCtx, post: *const C
             let Some(&p) = post.as_ref() else {
                 return Err(invalid("post is null"));
             };
+            let anti_aliasing = match p.anti_aliasing {
+                0 => AntiAliasing::None,
+                1 => AntiAliasing::Fxaa,
+                2 => AntiAliasing::Smaa,
+                _ => return Err(invalid("anti_aliasing must be 0 to 2")),
+            };
+            if !p.ao_radius.is_finite()
+                || p.ao_radius <= 0.0
+                || !p.ao_intensity.is_finite()
+                || p.ao_intensity < 0.0
+                || !(1..=8).contains(&p.ao_slices)
+                || !(1..=16).contains(&p.ao_steps)
+            {
+                return Err(invalid(
+                    "AO requires positive finite radius, nonnegative finite intensity, 1..8 slices and 1..16 steps",
+                ));
+            }
             let tonemap = match p.tonemap {
                 0 => Tonemap::Aces,
                 1 => Tonemap::AgX,
@@ -2300,6 +2336,14 @@ pub unsafe extern "C" fn crabby_ctx_set_post(ctx: *mut CrabbyCtx, post: *const C
                 return Err(invalid("bloom, threshold, contrast and saturation can't be negative"));
             }
             c.post = Post {
+                anti_aliasing,
+                ambient_occlusion: AmbientOcclusion {
+                    enabled: p.ao_enabled,
+                    radius: p.ao_radius,
+                    intensity: p.ao_intensity,
+                    slices: p.ao_slices,
+                    steps: p.ao_steps,
+                },
                 exposure: p.exposure,
                 tonemap,
                 bloom: p.bloom,

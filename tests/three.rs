@@ -900,3 +900,22 @@ fn models_name_meshes_that_must_be_files() {
         assert!(err.unwrap_err().to_string().contains("ctx.load_mesh(\"nope.glb\")"));
     });
 }
+
+#[test]
+fn ao_and_aa_settings_preserve_existing_defaults() {
+    Game::new("post settings", 64, 64).run_headless(0, |ctx| {
+        assert_eq!(ctx.post.anti_aliasing, AntiAliasing::None);
+        assert!(!ctx.post.ambient_occlusion.enabled);
+        // ANCHOR: ao_aa
+        ctx.post.ambient_occlusion = AmbientOcclusion {
+            enabled: true,
+            radius: 1.5,
+            intensity: 1.0,
+            slices: 3,
+            steps: 6,
+        };
+        ctx.post.anti_aliasing = AntiAliasing::Smaa;
+        // ANCHOR_END: ao_aa
+        assert_eq!(ctx.post.ambient_occlusion.radius, 1.5);
+    });
+}

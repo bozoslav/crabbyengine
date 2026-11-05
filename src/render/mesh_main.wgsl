@@ -207,7 +207,12 @@ fn shade(s: Surface) -> vec3<f32> {
 // Opaque: the prepass already cut the cut-outs.
 @fragment
 fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
-    let s = surface_at(in, front);
+    var s = surface_at(in, front);
+    // The opaque pass uses the otherwise unused scene-color slot for GTAO
+    // occlusion (zero in the no-scene stand-in). Transparent passes retain
+    // the actual scene color and never sample it as occlusion.
+    let ao_at = clamp(vec2<i32>(s.screen), vec2<i32>(0), vec2<i32>(textureDimensions(scene_color_texture)) - 1);
+    s.occlusion *= 1.0 - textureLoad(scene_color_texture, ao_at, 0).r;
     return vec4<f32>(fog(shade(s), s.world), 1.0);
 }
 

@@ -136,6 +136,8 @@ using sky = CrabbySky;
 inline vec3 sun_direction_at(float hour) { return crabby_sun_direction_at(hour); }
 /// ctx::post / ctx::set_post. tonemap: see crabby::tonemap.
 using post = CrabbyPost;
+/// Post AA mode (`post::anti_aliasing`).
+enum class anti_aliasing : uint32_t { none = 0, fxaa = 1, smaa = 2 };
 /// How HDR light maps to the screen (`post::tonemap`).
 enum class tonemap : uint32_t { aces = 0, agx = 1, neutral = 2, none = 3 };
 using draw_params = CrabbyDrawParams;

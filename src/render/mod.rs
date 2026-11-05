@@ -14,6 +14,10 @@ mod mips;
 mod none;
 #[cfg(all(feature = "window", feature = "3d"))]
 mod particles;
+#[cfg(all(feature = "window", feature = "3d"))]
+mod screen;
+#[cfg(all(feature = "window", feature = "3d"))]
+mod smaa;
 #[cfg(feature = "window")]
 mod timer;
 
@@ -91,3 +95,6 @@ mod lights_bench;
 mod skin_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod text3d_render_test;
+
+#[cfg(all(test, feature = "window", feature = "3d"))]
+mod ao_aa_render_test;
