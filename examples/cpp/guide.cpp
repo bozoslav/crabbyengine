@@ -1329,6 +1329,16 @@ static void the_trees_stand_on_the_ground() {
     if (trees != 19) { std::fprintf(stderr, "%d trees\n", trees); std::abort(); }
 }
 
+// ANCHOR: reflection_probes
+static void reflection_probes(crabby::ctx& ctx) {
+    auto volume = crabby::reflection_probe3d_default();
+    volume.size = {12, 4, 8};
+    auto probe = ctx.world().spawn(crabby::transform3d_at({0, 2, 0}), volume);
+    ctx.bake_reflection_probe(probe);
+    // To use a file instead: ctx.load_reflection_probe(probe, "room.exr");
+}
+// ANCHOR_END: reflection_probes
+
 // ANCHOR: punctual_lights
 static void punctual_lights(crabby::ctx& ctx) {
     ctx.world().spawn(crabby::transform3d_at({0, 3, 0}),
@@ -1933,6 +1943,7 @@ int main() {
     crabby::game("ragdoll guide", 1, 1).physics3d({0, -9.81f, 0}).run_headless(5, ragdoll);
     crabby::game("contacts guide", 1, 1).physics3d({0, -9.81f, 0}).run_headless(5, contacts);
     crabby::game("light guide", 64, 64).run_headless(0, punctual_lights);
+    crabby::game("probe guide", 64, 64).run_headless(0, reflection_probes);
     the_ripples_run_on_a_render_target();
     the_pond_mirrors_the_camera();
     the_hills_are_nine_tiles();

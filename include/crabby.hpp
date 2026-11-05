@@ -91,6 +91,8 @@ struct joint {
 };
 using model = CrabbyModel;
 using point_light3d = CrabbyPointLight3D;
+using reflection_probe3d = CrabbyReflectionProbe3D;
+inline reflection_probe3d reflection_probe3d_default() { return crabby_reflection_probe3d_default(); }
 using spot_light3d = CrabbySpotLight3D;
 /// A square of heightfield terrain, drawn more coarsely further from the
 /// camera (Rust `TerrainTile`); made with ctx::create_terrain_tile.
@@ -697,6 +699,7 @@ protected:
         else if constexpr (std::is_same<T, contact_modifier3d>::value) status = crabby_contact_modifier3d_component(world, &id);
         else if constexpr (std::is_same<T, vehicle3d>::value) status = crabby_vehicle3d_component(world, &id);
         else if constexpr (std::is_same<T, transform3d>::value) status = crabby_transform3d_component(world, &id);
+        else if constexpr (std::is_same<T, reflection_probe3d>::value) status = crabby_reflection_probe3d_component(world, &id);
         else if constexpr (std::is_same<T, point_light3d>::value) status = crabby_point_light3d_component(world, &id);
         else if constexpr (std::is_same<T, spot_light3d>::value) status = crabby_spot_light3d_component(world, &id);
         else if constexpr (std::is_same<T, model>::value) status = crabby_model_component(world, &id);
@@ -2498,6 +2501,11 @@ public:
     void free_terrain_tile(terrain_tile t) { detail::check(crabby_ctx_free_terrain_tile(raw_, t)); }
     /// Frees a mesh's GPU memory; models still showing it draw nothing.
     void free_mesh(mesh m) { detail::check(crabby_ctx_free_mesh(raw_, m)); }
+    /// Captures the scene around reflection probe `e` on the next rendered frame
+    /// (only when asked: bake again to refresh). Throws once four environments exist.
+    void bake_reflection_probe(entity e) { detail::check(crabby_ctx_bake_reflection_probe(raw_, e)); }
+    /// Loads a linear HDR/EXR 2:1 equirectangular image as probe `e`'s environment.
+    void load_reflection_probe(entity e, const std::string& name) { detail::check(crabby_ctx_load_reflection_probe(raw_, e, name.c_str())); }
     /// Whether models showing `m` cast shadows (on at first); off suits grass and pebbles.
     void set_mesh_shadows(mesh m, bool casts) { detail::check(crabby_ctx_set_mesh_shadows(raw_, m, casts)); }
     /// Draws `m` into the shadow maps for `e` instead of its model (Rust `ShadowMesh`);
