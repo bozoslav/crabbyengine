@@ -86,8 +86,13 @@ mod backend {
         reverb::ReverbBuilder,
     };
     use kira::sound::{
-        FromFileError, PlaybackState,
+        PlaybackState,
         static_sound::{StaticSoundData, StaticSoundHandle},
+    };
+    // Kira streams from files, which the web doesn't have.
+    #[cfg(not(target_arch = "wasm32"))]
+    use kira::sound::{
+        FromFileError,
         streaming::{StreamingSoundData, StreamingSoundHandle},
     };
     use kira::track::{SendTrackBuilder, SendTrackHandle, TrackBuilder, TrackHandle};
@@ -96,10 +101,12 @@ mod backend {
 
     enum Clip {
         Static(Box<StaticSoundData>),
+        #[cfg(not(target_arch = "wasm32"))]
         Stream(PathBuf),
     }
     enum Handle {
         Static(StaticSoundHandle),
+        #[cfg(not(target_arch = "wasm32"))]
         Stream(StreamingSoundHandle<FromFileError>),
     }
     struct Voice {
@@ -113,12 +120,14 @@ mod backend {
         fn state(&self) -> PlaybackState {
             match self {
                 Self::Static(h) => h.state(),
+                #[cfg(not(target_arch = "wasm32"))]
                 Self::Stream(h) => h.state(),
             }
         }
         fn stop(&mut self) {
             match self {
                 Self::Static(h) => h.stop(Tween::default()),
+                #[cfg(not(target_arch = "wasm32"))]
                 Self::Stream(h) => h.stop(Tween::default()),
             }
         }
@@ -133,6 +142,7 @@ mod backend {
             }
             match self {
                 Self::Static(h) => apply!(h),
+                #[cfg(not(target_arch = "wasm32"))]
                 Self::Stream(h) => apply!(h),
             }
         }
@@ -161,6 +171,7 @@ mod backend {
             self.sounds[id as usize] = Clip::Static(Box::new(decode(bytes)?));
             Ok(())
         }
+        #[cfg(not(target_arch = "wasm32"))]
         pub fn stream(&mut self, path: PathBuf) -> Result<(u32, f32), String> {
             if let Some(index) = self
                 .sounds
@@ -177,6 +188,11 @@ mod backend {
             let seconds = data.duration().as_secs_f32();
             self.sounds.push(Clip::Stream(path));
             Ok(((self.sounds.len() - 1) as u32, seconds))
+        }
+        /// The web can't stream from files: read the whole file and decode it.
+        #[cfg(target_arch = "wasm32")]
+        pub fn stream(&mut self, path: PathBuf) -> Result<(u32, f32), String> {
+            self.load(std::fs::read(&path).map_err(|e| e.to_string())?)
         }
         pub fn create(&mut self, sample_rate: u32, samples: &[f32]) -> (u32, f32) {
             let frames: Arc<[Frame]> = samples.iter().map(|&s| Frame::from_mono(s)).collect();
@@ -241,6 +257,7 @@ mod backend {
                     }
                     track.play(data).ok().map(Handle::Static)
                 }
+                #[cfg(not(target_arch = "wasm32"))]
                 Clip::Stream(path) => {
                     let Ok(data) = StreamingSoundData::from_file(path) else {
                         return id;
