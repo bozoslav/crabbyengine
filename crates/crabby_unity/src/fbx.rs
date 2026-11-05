@@ -1,5 +1,6 @@
 //! Meshes inside model files (FBX, OBJ), read with ufbx the way Unity's
-//! model importer sees them: X mirrored into Unity's left-handed space,
+//! model importer sees them: X mirrored into Unity's left-handed space
+//! (or, with `bakeAxisConversion`, the file's axes turned into Unity's),
 //! the winding turned to match, scaled to meters (`useFileScale`) and by
 //! `globalScale`, a submesh per material.
 
@@ -15,6 +16,9 @@ pub(crate) struct ModelFile {
     names: HashMap<i64, String>,
     /// Unity's import scale for it: units to meters times `globalScale`.
     scale: f32,
+    /// Rows of the map from the file's space to Unity's (a signed axis
+    /// permutation, the mirror included).
+    to_unity: [[f64; 3]; 3],
 }
 
 impl ModelFile {
@@ -41,6 +45,11 @@ impl ModelFile {
             1.0
         };
         let scale = file_scale * setting("globalScale:").unwrap_or(1.0);
+        let to_unity = if setting("bakeAxisConversion:").unwrap_or(0.0) >= 0.5 {
+            baked_axes(&scene.settings.axes)
+        } else {
+            MIRROR_X
+        };
         let mut names = mesh_names(&meta);
         // Unity 2019.3+ leaves the table empty and derives ids from names:
         // xxHash64 of "Type:Mesh->" + name + how many came before by that name.
@@ -51,7 +60,12 @@ impl ModelFile {
             names.entry(hashed_id("Mesh", &name, *k)).or_insert(name);
             *k += 1;
         }
-        Ok(Self { scene, names, scale })
+        Ok(Self {
+            scene,
+            names,
+            scale,
+            to_unity,
+        })
     }
 
     /// The mesh with sub-asset id `file_id`, in Unity's space.
@@ -76,19 +90,20 @@ impl ModelFile {
                 None,
             ),
         };
+        let m = self.to_unity;
+        let to_unity = |v: ufbx::Vec3| m.map(|r| r[0] * v.x + r[1] * v.y + r[2] * v.z);
         let place = |p: ufbx::Vec3| {
-            let p = to_node.map_or(p, |m| transform(&m, p, 1.0));
-            [
-                -(p.x as f32) * self.scale,
-                p.y as f32 * self.scale,
-                p.z as f32 * self.scale,
-            ]
+            let p = to_unity(to_node.map_or(p, |m| transform(&m, p, 1.0)));
+            p.map(|c| c as f32 * self.scale)
         };
         let turn = |n: ufbx::Vec3| {
-            let n = to_node.map_or(n, |m| transform(&m, n, 0.0));
-            let len = (n.x * n.x + n.y * n.y + n.z * n.z).sqrt().max(1e-12);
-            [-(n.x / len) as f32, (n.y / len) as f32, (n.z / len) as f32]
+            let n = to_unity(to_node.map_or(n, |m| transform(&m, n, 0.0)));
+            let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt().max(1e-12);
+            n.map(|c| (c / len) as f32)
         };
+        // A mirroring map turns the winding around.
+        let mirrored = glam::DMat3::from_cols_array_2d(&m).determinant() < 0.0;
+        let order = if mirrored { [0, 2, 1] } else { [0, 1, 2] };
         let mut out = UnityMesh {
             name: name.clone(),
             ..Default::default()
@@ -109,9 +124,8 @@ impl ModelFile {
                 let face = mesh.faces[f as usize];
                 let n = ufbx::triangulate_face(&mut corners, mesh, face) as usize;
                 for tri in corners[..n * 3].as_chunks::<3>().0 {
-                    // Mirrored, so the winding turns around.
-                    for &i in &[tri[0], tri[2], tri[1]] {
-                        let i = i as usize;
+                    for k in order {
+                        let i = tri[k] as usize;
                         let p = place(mesh.vertex_position[i]);
                         let nrm = if mesh.vertex_normal.exists {
                             turn(mesh.vertex_normal[i])
@@ -156,6 +170,31 @@ impl ModelFile {
         }
         Ok(out)
     }
+}
+
+/// Unity's handedness change alone: X negated.
+const MIRROR_X: [[f64; 3]; 3] = [[-1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+
+/// What Unity's "Bake Axis Conversion" does to a file saved with `axes`:
+/// the file's right, up and front become Unity's +X, +Y and -Z (so a
+/// right-handed Y-up file only has Z negated, and a Z-up file such as
+/// Blender's has Y and Z swapped). Unity bakes that into the vertices
+/// instead of turning the model's root.
+fn baked_axes(axes: &ufbx::CoordinateAxes) -> [[f64; 3]; 3] {
+    let unit = |a: ufbx::CoordinateAxis, default: [f64; 3]| match a {
+        ufbx::CoordinateAxis::PositiveX => [1.0, 0.0, 0.0],
+        ufbx::CoordinateAxis::NegativeX => [-1.0, 0.0, 0.0],
+        ufbx::CoordinateAxis::PositiveY => [0.0, 1.0, 0.0],
+        ufbx::CoordinateAxis::NegativeY => [0.0, -1.0, 0.0],
+        ufbx::CoordinateAxis::PositiveZ => [0.0, 0.0, 1.0],
+        ufbx::CoordinateAxis::NegativeZ => [0.0, 0.0, -1.0],
+        ufbx::CoordinateAxis::Unknown => default,
+    };
+    // FBX's default when a file doesn't say: right-handed, Y up.
+    let right = unit(axes.right, [1.0, 0.0, 0.0]);
+    let up = unit(axes.up, [0.0, 1.0, 0.0]);
+    let front = unit(axes.front, [0.0, 0.0, 1.0]);
+    [right, up, front.map(|c| -c)]
 }
 
 fn transform(m: &ufbx::Matrix, v: ufbx::Vec3, w: f64) -> ufbx::Vec3 {
@@ -221,6 +260,18 @@ mod tests {
         // editor-imported project), and the next one by that name.
         assert_eq!(hashed_id("Mesh", "Body", 0), 2959467708922500008);
         assert_eq!(hashed_id("Mesh", "Body", 1), -1107389024503286118);
+    }
+
+    #[test]
+    fn baked_axes_match_unitys_for_y_up_and_z_up_files() {
+        use ufbx::CoordinateAxis::*;
+        let axes = |right, up, front| ufbx::CoordinateAxes { right, up, front };
+        // Right-handed Y-up (front +Z): only Z is negated.
+        let y_up = baked_axes(&axes(PositiveX, PositiveY, PositiveZ));
+        assert_eq!(y_up, [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, -1.0]]);
+        // Right-handed Z-up (front -Y): Y and Z swap.
+        let z_up = baked_axes(&axes(PositiveX, PositiveZ, NegativeY));
+        assert_eq!(z_up, [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]]);
     }
 
     #[test]

@@ -32,7 +32,10 @@ space.
 
 - **Meshes** from mesh assets (`.asset`), FBX and OBJ files (scaled and
   oriented as Unity's model importer does), and Unity's built-in Cube,
-  Plane and Quad. Each submesh keeps its material.
+  Plane and Quad. Each submesh keeps its material. A model imported with
+  **Bake Axis Conversion** has its file's axes (Z-up, say) turned into
+  Unity's in the mesh itself, as Unity does, so parts placed one by one
+  in a prefab line up.
 - **Materials** of URP's Lit, Simple Lit and Unlit shaders, and of other
   shaders that use the same property names: base color and map, normal
   map, metallic and smoothness (packed into glTF's occlusion, roughness
