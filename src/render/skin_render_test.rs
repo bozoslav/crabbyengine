@@ -1,0 +1,221 @@
+//! A skinned model drawn through the whole frame offscreen: posing its
+//! skeleton must move its pixels (collection, posed mesh ids, the skinning
+//! pass and the depth, opaque and shadow passes together). Skips without a
+//! GPU.
+use super::gpu::GpuTexture;
+use super::gpu3d::*;
+use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight};
+use crate::*;
+
+const SIZE: u32 = 64;
+
+#[test]
+fn posing_a_skeleton_moves_the_drawn_pixels() {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) else {
+        eprintln!("no GPU device: skipped");
+        return;
+    };
+    let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: None,
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    });
+    let white = device.create_texture(&wgpu::TextureDescriptor {
+        label: None,
+        size: wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
+    });
+    queue.write_texture(
+        white.as_image_copy(),
+        &[255; 4],
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(4),
+            rows_per_image: None,
+        },
+        white.size(),
+    );
+    let sampler = device.create_sampler(&Default::default());
+    let view = white.create_view(&Default::default());
+    let textures = [GpuTexture {
+        texture: white.clone(),
+        nearest: false,
+        mips: None,
+        bind_group: device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        }),
+    }];
+    let output = device.create_texture(&wgpu::TextureDescriptor {
+        label: None,
+        size: wgpu::Extent3d {
+            width: SIZE,
+            height: SIZE,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let target = output.create_view(&Default::default());
+
+    // A bar 2 tall standing on the origin: the lower half on joint 0, the
+    // upper half on joint 1 (1 up). Glowing, so light doesn't matter.
+    let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
+    let skeleton = Skeleton::new(vec![
+        Joint {
+            name: "base".into(),
+            parent: None,
+            rest: Transform3D::default(),
+        },
+        Joint {
+            name: "top".into(),
+            parent: Some(0),
+            rest: Transform3D::at(vec3(0.0, 1.0, 0.0)),
+        },
+    ]);
+    let mut bar = MeshData::cube(1.0);
+    for p in &mut bar.positions {
+        *p = vec3(p.x * 0.3, (p.y + 0.5) * 2.0, p.z * 0.3);
+    }
+    bar.joints = bar.positions.iter().map(|p| [u16::from(p.y > 1.0), 0, 0, 0]).collect();
+    bar.weights = vec![[1.0, 0.0, 0.0, 0.0]; bar.positions.len()];
+    let glow = MaterialDesc {
+        color: Color::rgb(0.0, 0.0, 0.0),
+        emissive: Color::WHITE,
+        ..Default::default()
+    };
+    let material = ctx.create_material(glow);
+    let mesh = ctx.create_skinned_mesh(&bar, material, &skeleton);
+    let entity = ctx.world.spawn((Transform3D::default(), Model::new(mesh), skeleton));
+    ctx.camera3d.position = vec3(0.0, 1.0, 6.0);
+    ctx.camera3d.look_at(vec3(0.0, 1.0, 0.0));
+    ctx.lighting.shadows = true; // the shadow passes draw it too
+    ctx.sky.atmosphere = false; // a black background
+
+    let mut renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
+    renderer.create_material(&device, &GpuMaterialDesc::new(&glow), &textures);
+    let mut weighted = bar.clone();
+    for w in &mut weighted.weights {
+        *w = crate::three::normalized_weights(*w);
+    }
+    renderer.create_mesh(&device, &weighted, &[(0..bar.indices.len() as u32, material)], true);
+
+    let mut draw = |ctx: &mut Ctx| -> Vec<u8> {
+        let mut skins = SkinFrame::default();
+        skins.collect(&mut ctx.world, &ctx.assets3d);
+        let mut frame = Frame3D::default();
+        frame.collect(&mut ctx.world, &ctx.assets3d, &skins, &ctx.camera3d, &ctx.lighting);
+        frame.skins = skins;
+        let scene = Scene3D {
+            frame: &frame,
+            lighting: &ctx.lighting,
+            sky: &ctx.sky,
+            light: SkyLight {
+                sun: Vec3::ZERO,
+                sky: Vec3::ZERO,
+                ground: Vec3::ZERO,
+            },
+            camera: ctx.camera3d.position,
+            post: &ctx.post,
+            time: (0.0, 1.0 / 60.0),
+        };
+        renderer.prepare(
+            &device,
+            &queue,
+            &Prepare3D {
+                scene: &scene,
+                lut: None,
+                size: (SIZE, SIZE),
+            },
+        );
+        let buffers = renderer.draw(&device, &target, wgpu::Color::BLACK, &textures, None);
+        queue.submit(buffers);
+        let readback = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: u64::from(SIZE * SIZE * 4),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = device.create_command_encoder(&Default::default());
+        encoder.copy_texture_to_buffer(
+            output.as_image_copy(),
+            wgpu::TexelCopyBufferInfo {
+                buffer: &readback,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(SIZE * 4),
+                    rows_per_image: None,
+                },
+            },
+            output.size(),
+        );
+        queue.submit([encoder.finish()]);
+        readback.map_async(wgpu::MapMode::Read, .., |r| r.unwrap());
+        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+        let pixels = readback.get_mapped_range(..).unwrap().to_vec();
+        pixels
+    };
+    // Brightness of the pixel where the camera sees `at`.
+    let lit = |pixels: &[u8], ctx: &Ctx, at: Vec3| {
+        let clip = ctx.camera3d.view_proj() * at.extend(1.0);
+        let ndc = clip.truncate() / clip.w;
+        let x = ((ndc.x * 0.5 + 0.5) * SIZE as f32) as usize;
+        let y = ((0.5 - ndc.y * 0.5) * SIZE as f32) as usize;
+        pixels[(y * SIZE as usize + x) * 4] > 128
+    };
+    let (above, beside) = (vec3(0.0, 1.8, 0.0), vec3(-0.8, 1.0, 0.0));
+
+    let rest = draw(&mut ctx);
+    assert!(lit(&rest, &ctx, above), "at rest the top half stands up");
+    assert!(!lit(&rest, &ctx, beside));
+
+    let s = ctx.world.get_mut::<Skeleton>(entity).unwrap();
+    s.pose[1].rotation = Quat::from_rotation_z(std::f32::consts::FRAC_PI_2);
+    let bent = draw(&mut ctx);
+    assert!(!lit(&bent, &ctx, above), "bent, nothing stands above");
+    assert!(lit(&bent, &ctx, beside), "bent, the top half points left");
+}

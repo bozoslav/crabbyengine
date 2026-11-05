@@ -39,7 +39,7 @@ pub use post::{Post, Tonemap};
 pub use sky::Sky;
 pub use skin::{AttachToJoint, Joint, Skeleton, SkinOf};
 #[cfg(all(test, feature = "window"))]
-pub(crate) use skin::SkinDraw;
+pub(crate) use skin::{SkinDraw, normalized as normalized_weights};
 #[cfg(feature = "window")]
 pub(crate) use skin::blend as blend_skin;
 pub(crate) use skin::{MeshSkin, SkinFrame};
