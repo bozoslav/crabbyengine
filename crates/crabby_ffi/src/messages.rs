@@ -17,7 +17,7 @@ fn io(e: std::io::Error) -> Failure {
 /// A message endpoint from `crabby_net_messages_host`, `_join` or
 /// `_loopback`. Free it with `crabby_net_messages_free`.
 pub struct CrabbyNetMessages {
-    net: NetMessages,
+    pub(crate) net: NetMessages,
     /// The event last handed out: its bytes and reason stay valid until
     /// the next `crabby_net_messages_next_event`.
     current: Option<MessageEvent>,
@@ -36,6 +36,8 @@ pub enum CrabbyLane {
     CRABBY_LANE_RELIABLE = 0,
     /// May be lost; late ones are dropped (positions, aim).
     CRABBY_LANE_UNRELIABLE = 1,
+    /// Reliable delivery without ordering.
+    CRABBY_LANE_RELIABLE_UNORDERED = 2,
 }
 
 /// What a `CrabbyMessageEvent` is.
@@ -121,6 +123,7 @@ fn lane(l: CrabbyLane) -> Lane {
     match l {
         CrabbyLane::CRABBY_LANE_RELIABLE => Lane::Reliable,
         CrabbyLane::CRABBY_LANE_UNRELIABLE => Lane::Unreliable,
+        CrabbyLane::CRABBY_LANE_RELIABLE_UNORDERED => Lane::ReliableUnordered,
     }
 }
 /// # Safety
@@ -363,6 +366,7 @@ pub unsafe extern "C" fn crabby_net_messages_next_event(
                 e.lane = match lane {
                     Lane::Reliable => CrabbyLane::CRABBY_LANE_RELIABLE,
                     Lane::Unreliable => CrabbyLane::CRABBY_LANE_UNRELIABLE,
+                    Lane::ReliableUnordered => CrabbyLane::CRABBY_LANE_RELIABLE_UNORDERED,
                 };
                 e.bytes = bytes.as_ptr();
                 e.len = bytes.len();
@@ -412,5 +416,108 @@ pub unsafe extern "C" fn crabby_net_messages_stats(
                 },
             )
         }
+    })
+}
+
+/// Host a message endpoint over Steam; requires the `steam` feature.
+/// # Safety
+/// `out_endpoint` writable. On failure it is set to null.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_net_messages_steam_host(480, 0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_net_messages_steam_host(
+    app_id: u32,
+    max_clients: usize,
+    out_endpoint: *mut *mut CrabbyNetMessages,
+) -> CrabbyStatus {
+    boundary(|| {
+        if out_endpoint.is_null() {
+            return Err(invalid("output is null"));
+        }
+        // SAFETY: checked writable output under caller contract.
+        unsafe {
+            out_endpoint.write(std::ptr::null_mut());
+        }
+        if !(1..=249).contains(&max_clients) {
+            return Err(invalid("max_clients must be 1..=249"));
+        }
+        #[cfg(feature = "steam")]
+        {
+            let client = crate::steam::client::get(app_id)?;
+            let net = NetMessages::steam_host(&client, max_clients).map_err(io)?;
+            // SAFETY: forwarded caller contract.
+            unsafe { out(out_endpoint, wrap(net)) }
+        }
+        #[cfg(not(feature = "steam"))]
+        {
+            let _ = (app_id, max_clients);
+            Err(invalid("crabby_ffi was built without the `steam` feature"))
+        }
+    })
+}
+
+/// Join a message endpoint over Steam; requires the `steam` feature.
+/// # Safety
+/// `out_endpoint` writable. On failure it is set to null.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_net_messages_steam_join(480, 0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_net_messages_steam_join(
+    app_id: u32,
+    lobby: u64,
+    out_endpoint: *mut *mut CrabbyNetMessages,
+) -> CrabbyStatus {
+    boundary(|| {
+        if out_endpoint.is_null() {
+            return Err(invalid("output is null"));
+        }
+        // SAFETY: checked writable output under caller contract.
+        unsafe {
+            out_endpoint.write(std::ptr::null_mut());
+        }
+        if lobby == 0 {
+            return Err(invalid("lobby id is zero"));
+        }
+        #[cfg(feature = "steam")]
+        {
+            let client = crate::steam::client::get(app_id)?;
+            let net =
+                NetMessages::steam_join(&client, crabbyengine::steamworks::LobbyId::from_raw(lobby)).map_err(io)?;
+            // SAFETY: forwarded caller contract.
+            unsafe { out(out_endpoint, wrap(net)) }
+        }
+        #[cfg(not(feature = "steam"))]
+        {
+            let _ = (app_id, lobby);
+            Err(invalid("crabby_ffi was built without the `steam` feature"))
+        }
+    })
+}
+
+/// Steam identity of a connected peer, or zero for unknown/non-Steam peers.
+/// # Safety
+/// Live/null endpoint; writable output.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_net_messages_steam_peer(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_net_messages_steam_peer(
+    endpoint: *mut CrabbyNetMessages,
+    peer: u64,
+    output: *mut u64,
+) -> CrabbyStatus {
+    boundary(|| {
+        let m = live(endpoint)?;
+        #[cfg(feature = "steam")]
+        let value = m.net.steam_peer(PeerId::from_bits(peer)).map_or(0, |id| id.raw());
+        #[cfg(not(feature = "steam"))]
+        let value = {
+            let _ = (m, peer);
+            0
+        };
+        // SAFETY: forwarded caller contract.
+        unsafe { out(output, value) }
     })
 }

@@ -258,14 +258,92 @@ unencrypted**. Session nonces reject delayed traffic from earlier connections,
 but do not authenticate users. Use a trusted network or a secure tunnel;
 public Internet authentication, encryption and admission policy belong in a
 secure transport. This message API currently supports UDP and memory only.
-Steam relay support is a follow-up: the existing Steam adapter owns lockstep
-lobby state and channel 0, so it must be separated or given an independent
-message channel before both APIs can safely coexist. The existing `steam`
-feature and lockstep Steam API remain available.
+With feature `steam`, `NetMessages` uses Steam Networking Messages on a
+separate channel from lockstep. Steam sends unreliable packets without Nagle;
+renet supplies delivery, ordering and fragmentation. Each transport packet is
+at most 1,500 bytes, below Steam's message limit. `Lane::ReliableUnordered`
+(`CRABBY_LANE_RELIABLE_UNORDERED` in C++) retries without ordering messages.
+
+Create one message endpoint per Steam client. The host creates a friends-only
+lobby (1–249 clients plus host); join with its lobby id. Poll every frame and
+drain the same events as UDP. Peer ids remain session-local; `steam_peer`
+returns the authenticated Steam identity. Hosts do not automatically forward
+client messages. The protocol metadata is checked before joining the message
+handshake; applications should check their own game version before accepting
+application messages. Host migration requires creating a new endpoint.
+
+<div class="lang-pair">
+<div class="lang-rust">
+
+```rust,no_run
+use crabbyengine::*;
+let client = steamworks::Client::init_app(480).unwrap();
+let lobby_id = steam_lobby_from_args();
+let mut net = match lobby_id {
+    Some(id) => NetMessages::steam_join(&client, id)?,
+    None => NetMessages::steam_host(&client, 3)?,
+};
+net.poll()?;
+if lobby_id.is_none() {
+    if let Some(lobby) = net.steam_lobby().filter(|l| l.id().is_some()) {
+        lobby.set_metadata("version", "1")?;
+        lobby.invite()?;
+    }
+}
+# Ok::<(), std::io::Error>(())
+```
+
+</div>
+<div class="lang-cpp">
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:steam_messages}}
+```
+
+</div>
+</div>
+
+For a lobby without a message endpoint, use `SteamLobby`. Visibility can be
+friends-only, public or private; capacity includes the owner (1–250).
+Creation and joining are asynchronous: `poll` runs callbacks and reports
+errors, and `id` remains absent until ready. Metadata writes require ownership;
+reads use Steam's callback-updated cache. Drop/free leaves the lobby, including
+when a pending request completes after the handle was dropped. The existing
+`steam_lobby_from_args` and `steam_wait_for_invite` helpers cover overlay invites
+accepted before launch or while running. Steam is initialized only by the
+application (or the C API's first call with an app id), never by fake relay tests.
+
+<div class="lang-pair">
+<div class="lang-rust">
+
+```rust,no_run
+use crabbyengine::*;
+let client = steamworks::Client::init_app(480).unwrap();
+let mut lobby = SteamLobby::create(&client, SteamLobbyVisibility::Public, 4)?;
+lobby.poll()?;
+if lobby.id().is_some() {
+    lobby.set_metadata("version", "1")?;
+    let members = lobby.members();
+    let version = lobby.metadata("version");
+    lobby.invite()?;
+    lobby.leave()?;
+}
+# Ok::<(), std::io::Error>(())
+```
+
+</div>
+<div class="lang-cpp">
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:general_steam_lobby}}
+```
+
+</div>
+</div>
+
 
 The protocol layer uses [Renet](https://docs.rs/renet/2.0.0/renet/), whose
 transport-independent channels provide retransmission, ordered delivery and
 fragmentation without Bevy or an async runtime. `renet_steam` was evaluated,
 but its Steamworks 0.12.2 dependency differs from this engine's 0.13.1, and
-its separate transport lifecycle needs integration. That work is deferred
-with Steam support.
+the engine instead adapts the existing renet packet protocol directly.

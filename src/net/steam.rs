@@ -17,14 +17,14 @@ use super::{Net, Role, Session, Transport};
 /// so the lockstep code is the same for UDP and Steam.
 const PREFIX: [u16; 4] = [0xfd63, 0x7261, 0x6262, 0x7900];
 /// "The lobby owner", before we know who that is.
-const HOST: SocketAddr = SocketAddr::V6(SocketAddrV6::new(
+pub(super) const HOST: SocketAddr = SocketAddr::V6(SocketAddrV6::new(
     Ipv6Addr::new(0xfd63, 0x7261, 0x6262, 0x7900, 0, 0, 0, 0),
     1,
     0,
     0,
 ));
 
-fn addr(id: SteamId) -> SocketAddr {
+pub(super) fn addr(id: SteamId) -> SocketAddr {
     let b = id.raw();
     let ip = Ipv6Addr::new(
         PREFIX[0],
@@ -38,7 +38,7 @@ fn addr(id: SteamId) -> SocketAddr {
     );
     SocketAddr::V6(SocketAddrV6::new(ip, 0, 0, 0))
 }
-fn steam_id(a: SocketAddr) -> Option<SteamId> {
+pub(super) fn steam_id(a: SocketAddr) -> Option<SteamId> {
     let SocketAddr::V6(v6) = a else { return None };
     let s = v6.ip().segments();
     if s[..4] != PREFIX || a == HOST {

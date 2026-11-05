@@ -30,7 +30,11 @@ pub use messages::{Lane, MAX_MESSAGE_BYTES, MessageEvent, MessageStats, NetMessa
 #[cfg(feature = "steam")]
 mod steam;
 #[cfg(feature = "steam")]
+mod steam_messages;
+#[cfg(feature = "steam")]
 pub use steam::{steam_lobby_from_args, steam_wait_for_invite};
+#[cfg(feature = "steam")]
+pub use steam_messages::{SteamLobby, SteamLobbyVisibility};
 
 /// The most players in one session.
 pub const MAX_PLAYERS: usize = 8;

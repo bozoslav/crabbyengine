@@ -1,7 +1,7 @@
 //! Game-owned byte messages over UDP, independently of deterministic lockstep.
 //! Renet handles channels, acknowledgements, retransmission and fragmentation.
 //! UDP sessions are unauthenticated and unencrypted: use a trusted network or
-//! an application-managed secure tunnel. Steam transport is a follow-up.
+//! an application-managed secure tunnel. Feature `steam` adds Steam relays.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::hash::{BuildHasher, Hasher};
@@ -43,6 +43,11 @@ pub enum Lane {
     /// let lane = crabbyengine::Lane::Reliable;
     /// ```
     Reliable,
+    /// Reliable delivery without ordering between messages.
+    /// ```
+    /// let lane = crabbyengine::Lane::ReliableUnordered;
+    /// ```
+    ReliableUnordered,
     /// Never retransmitted; messages older than the newest delivered message
     /// are discarded. A fragmented message is lost if any fragment is lost.
     /// ```
@@ -55,6 +60,7 @@ impl Lane {
         match self {
             Self::Reliable => 0,
             Self::Unreliable => 1,
+            Self::ReliableUnordered => 2,
         }
     }
 }
@@ -199,6 +205,11 @@ impl Link {
                 send_type: SendType::ReliableOrdered { resend_time: INTERVAL },
             },
             ChannelConfig {
+                channel_id: 2,
+                max_memory_usage_bytes: CHANNEL_MEMORY,
+                send_type: SendType::ReliableUnordered { resend_time: INTERVAL },
+            },
+            ChannelConfig {
                 channel_id: 1,
                 max_memory_usage_bytes: CHANNEL_MEMORY,
                 send_type: SendType::Unreliable,
@@ -226,7 +237,20 @@ impl Link {
     }
 }
 type Inbox = VecDeque<(SocketAddr, Vec<u8>)>;
+/// Packet boundary below the renet protocol and session handshake.
+#[cfg(feature = "steam")]
+pub(super) trait PacketTransport: Send {
+    fn send(&mut self, to: SocketAddr, bytes: &[u8]) -> io::Result<bool>;
+    fn recv(&mut self, buf: &mut [u8]) -> io::Result<Option<(SocketAddr, usize)>>;
+    #[cfg(feature = "steam")]
+    fn lobby(&self) -> Option<&super::SteamLobby> {
+        None
+    }
+}
+
 enum Wire {
+    #[cfg(feature = "steam")]
+    Custom(Box<dyn PacketTransport>),
     Udp(UdpSocket),
     Local {
         me: usize,
@@ -238,12 +262,16 @@ enum Wire {
 impl Wire {
     fn addr(&self) -> io::Result<SocketAddr> {
         match self {
+            #[cfg(feature = "steam")]
+            Self::Custom(_) => Err(io::Error::other("no UDP address")),
             Self::Udp(s) => s.local_addr(),
             Self::Local { me, .. } => Ok(local_addr(*me)),
         }
     }
     fn send(&mut self, addr: SocketAddr, bytes: &[u8]) -> io::Result<bool> {
         match self {
+            #[cfg(feature = "steam")]
+            Self::Custom(t) => t.send(addr, bytes),
             Self::Udp(s) => match s.send_to(bytes, addr) {
                 Ok(_) => Ok(true),
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(false),
@@ -271,6 +299,8 @@ impl Wire {
     }
     fn recv(&mut self, buf: &mut [u8]) -> io::Result<Option<(SocketAddr, usize)>> {
         match self {
+            #[cfg(feature = "steam")]
+            Self::Custom(t) => t.recv(buf),
             Self::Udp(s) => match s.recv_from(buf) {
                 Ok((n, addr)) => Ok(Some((addr, n))),
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(None),
@@ -329,6 +359,29 @@ pub struct NetMessages {
     scratch: Vec<u8>,
 }
 impl NetMessages {
+    #[cfg(feature = "steam")]
+    pub(super) fn transported(
+        transport: Box<dyn PacketTransport>,
+        host: Option<SocketAddr>,
+        max_clients: usize,
+    ) -> Self {
+        let mut net = Self::new(Wire::Custom(transport), host.is_none(), max_clients);
+        if let Some(addr) = host {
+            net.links.insert(PeerId::HOST, Link::new(addr, nonce(), 0, net.now));
+        }
+        net
+    }
+    #[cfg(feature = "steam")]
+    pub(super) fn transport_peer_addr(&self, peer: PeerId) -> Option<SocketAddr> {
+        self.links.get(&peer).filter(|l| l.connected).map(|l| l.addr)
+    }
+    #[cfg(feature = "steam")]
+    pub(super) fn transport_lobby(&self) -> Option<&super::SteamLobby> {
+        match &self.wire {
+            Wire::Custom(t) => t.lobby(),
+            _ => None,
+        }
+    }
     fn new(wire: Wire, hosting: bool, max_clients: usize) -> Self {
         Self {
             wire,
@@ -554,7 +607,7 @@ impl NetMessages {
                     continue;
                 }
                 if link.connected {
-                    for lane in [Lane::Reliable, Lane::Unreliable] {
+                    for lane in [Lane::Reliable, Lane::ReliableUnordered, Lane::Unreliable] {
                         while self.events.len() < EVENT_LIMIT && self.event_bytes < CHANNEL_MEMORY {
                             let Some(message) = link.renet.receive_message(lane.channel()) else {
                                 break;

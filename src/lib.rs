@@ -41,7 +41,7 @@
 //! - `physics3d`: 3D physics with rapier (`Game::physics3d`): bodies,
 //!   colliders (heightfield terrain too), queries, a character controller and
 //!   raycast-wheel vehicles.
-//! - `steam`: lockstep multiplayer over Steam's relays and lobbies
+//! - `steam`: lockstep and byte messages over Steam's relays and lobbies
 //!   (`Net::steam_host`), with the `steamworks` crate re-exported.
 
 #![warn(missing_docs)]
@@ -122,7 +122,7 @@ pub use net::{
     NetState, NetStats, PeerId,
 };
 #[cfg(feature = "steam")]
-pub use net::{steam_lobby_from_args, steam_wait_for_invite};
+pub use net::{SteamLobby, SteamLobbyVisibility, steam_lobby_from_args, steam_wait_for_invite};
 #[cfg(feature = "physics")]
 pub use physics::{Collider, MAX_POLYGON_POINTS, Physics, RayHit, RigidBody, Shape, Velocity, step_physics};
 #[cfg(feature = "physics3d")]

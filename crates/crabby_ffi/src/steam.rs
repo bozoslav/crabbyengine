@@ -11,14 +11,14 @@ use crate::{CrabbyGame, CrabbyStatus, boundary, invalid};
 use crate::{Failure, ctx::ctx_access, ctx::out, game::build, invalid_owned};
 
 #[cfg(feature = "steam")]
-mod client {
+pub(crate) mod client {
     use super::*;
     use std::sync::Mutex;
 
     static CLIENT: Mutex<Option<(u32, crabbyengine::steamworks::Client)>> = Mutex::new(None);
 
     /// The process's Steam client for `app_id`, started on first use.
-    pub(super) fn get(app_id: u32) -> Result<crabbyengine::steamworks::Client, Failure> {
+    pub(crate) fn get(app_id: u32) -> Result<crabbyengine::steamworks::Client, Failure> {
         let mut c = CLIENT.lock().map_err(|_| invalid("steam client lock poisoned"))?;
         if let Some((id, client)) = c.as_ref() {
             if *id != app_id {
