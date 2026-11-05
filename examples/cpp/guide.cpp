@@ -405,6 +405,69 @@ static bool physics_snippets() {
     return landed && world.size() == 5;
 }
 
+// ---- 3D physics ---------------------------------------------------------------------
+// ANCHOR: physics3d_world
+struct Walker { crabby::entity id; };   // a resource: who walks
+
+static void build_world3d(crabby::ctx& ctx) {
+    auto world = ctx.world();
+    // Ground: a heightfield from the same heights as the terrain tile it
+    // stands for (here a gentle slope), at the tile's corner.
+    const int n = 33;
+    std::vector<float> heights(n * n);
+    for (int i = 0; i < n * n; ++i) heights[i] = float(i % n) * 0.1f;
+    auto ground = ctx.heightfield_collider(heights, 64);
+    world.spawn(crabby::transform3d_at({-32, 0, -32}), crabby::fixed_body3d(), crabby::mesh_collider(ground));
+    // A crate that falls, slides and can be pushed.
+    auto crate = crabby::box_collider({1, 1, 1});
+    crate.density = 200;   // kg per m³
+    world.spawn(crabby::transform3d_at({4, 6, 0}), crabby::dynamic_body3d(), crate, crabby::velocity3d{});
+    // The walker: a capsule 1.8 m tall, its transform at its feet.
+    auto walker = crabby::character(1.8f, 0.3f);
+    walker.step_height = 0.3f;   // climbs stairs this high
+    const crabby::entity me = world.spawn(crabby::transform3d_at({0, 4, 0}), walker);
+    world.set_resource(Walker{me});
+}
+// ANCHOR_END: physics3d_world
+
+// ANCHOR: physics3d_walk
+/// WASD walks, space jumps (only from the ground).
+static void walk(crabby::ctx& ctx) {
+    auto world = ctx.world();
+    const crabby::entity me = world.resource<Walker>().id;
+    auto c = world.get<crabby::character3d>(me);
+    float x = float(ctx.key_down(CRABBY_KEY_D)) - float(ctx.key_down(CRABBY_KEY_A));
+    float z = float(ctx.key_down(CRABBY_KEY_S)) - float(ctx.key_down(CRABBY_KEY_W));
+    c.velocity.x = x * 4;   // m/s
+    c.velocity.z = z * 4;
+    if (c.grounded && ctx.key_pressed(CRABBY_KEY_SPACE)) c.velocity.y = 5;
+    world.set(me, c);
+}
+// ANCHOR_END: physics3d_walk
+
+// ANCHOR: physics3d_queries
+/// What the walker is looking at, up to 50 m away (not itself).
+static std::optional<crabby::hit3d> look(crabby::ctx& ctx, crabby::vec3 eye, crabby::vec3 forward) {
+    const crabby::entity me = ctx.world().resource<Walker>().id;
+    return ctx.cast_ray3d(eye, forward, 50, crabby::filter3d().exclude(me));
+}
+// ANCHOR_END: physics3d_queries
+
+static bool physics3d_snippets() {
+    bool saw_ground = false;
+    // ANCHOR: physics3d_setup
+    auto world = crabby::game("3D physics", 1280, 720)
+        .physics3d({0, -9.81f, 0})   // m/s², +Y up; 50 steps a second
+        .sim_system(walk, "walk")
+        // ANCHOR_END: physics3d_setup
+        .sim_system([&](crabby::ctx& ctx) {
+            if (ctx.sim_tick() == 1) saw_ground = look(ctx, {0, 10, 0}, {0, -1, 0}).has_value();
+        }, "test")
+        .run_headless(100, build_world3d);
+    const auto me = world.resource<Walker>().id;
+    return saw_ground && world.get<crabby::character3d>(me).grounded;
+}
+
 // ---- Lockstep networking ----------------------------------------------------------
 // ANCHOR: lockstep_input
 struct Order { float x, y; bool go; };   // what one player did this tick
@@ -1208,6 +1271,10 @@ int main() {
     }
     if (!physics_snippets()) {
         std::fprintf(stderr, "physics snippets failed\n");
+        return 1;
+    }
+    if (!physics3d_snippets()) {
+        std::fprintf(stderr, "3D physics snippets failed\n");
         return 1;
     }
     (void)&multiplayer;

@@ -159,6 +159,14 @@ using collider = CrabbyCollider;
 using velocity = CrabbyVelocity;
 using ray_hit = CrabbyRayHit;
 using collision = CrabbyCollision;
+using rigid_body3d = CrabbyRigidBody3D;
+using collider3d = CrabbyCollider3D;
+using velocity3d = CrabbyVelocity3D;
+using character3d = CrabbyCharacter3D;
+using collision_mesh = CrabbyCollisionMesh;
+using collision_groups = CrabbyCollisionGroups;
+using query_filter3d = CrabbyQueryFilter3D;
+using hit3d = CrabbyHit3D;
 enum class texture_filter { linear, nearest };
 
 inline float length(vec2 v) { return std::sqrt(v.x * v.x + v.y * v.y); }
@@ -234,6 +242,34 @@ inline transform3d transform3d_at(vec3 position, quat rotation = {0, 0, 0, 1}, f
 inline transform3d looking_at(const transform3d& t, vec3 target) { return crabby_transform3d_looking_at(t, target); }
 /// The direction `t` faces: its -Z axis.
 inline vec3 forward(const transform3d& t) { return crabby_transform3d_forward(t); }
+/// 3D physics bodies (game::physics3d), like the 2D ones.
+inline rigid_body3d dynamic_body3d() { return crabby_rigid_body3d(CRABBY_BODY_DYNAMIC); }
+inline rigid_body3d fixed_body3d() { return crabby_rigid_body3d(CRABBY_BODY_FIXED); }
+inline rigid_body3d kinematic_body3d() { return crabby_rigid_body3d(CRABBY_BODY_KINEMATIC); }
+/// 3D collider shapes, in meters; change density, friction, restitution,
+/// sensor, offset and groups on the result.
+inline collider3d sphere_collider(float radius) { return crabby_collider3d_sphere(radius); }
+inline collider3d box_collider(vec3 size) { return crabby_collider3d_box(size); }
+inline collider3d capsule_collider3d(float height, float radius) { return crabby_collider3d_capsule(height, radius); }
+/// A collider of a heightfield, convex hull or triangle mesh made by
+/// ctx::heightfield_collider and friends.
+inline collider3d mesh_collider(collision_mesh m) { return crabby_collider3d_mesh(m); }
+/// A walking capsule `height` tall and `radius` wide, its transform3d at
+/// its feet: set `velocity`, read `grounded`.
+inline character3d character(float height = 1.8f, float radius = 0.3f) { return crabby_character3d(height, radius); }
+/// In groups `memberships`, touching colliders in groups `filter`.
+inline collision_groups groups(std::uint32_t memberships, std::uint32_t filter) { return {memberships, filter}; }
+/// What a 3D query sees: every solid collider (no sensors) by default.
+struct filter3d {
+    query_filter3d raw = crabby_query_filter3d();
+    /// Looks through `e` (say, the one casting).
+    filter3d& exclude(entity e) { raw.exclude = true; raw.exclude_entity = e; return *this; }
+    /// Sees what a collider in these groups would touch.
+    filter3d& groups(collision_groups g) { raw.groups = g; return *this; }
+    /// Sees sensors too.
+    filter3d& with_sensors() { raw.sensors = true; return *this; }
+};
+
 /// Draws `m` tinted by `tint` (white: its own colors).
 inline model model_of(mesh m, color tint = colors::white) { model x = crabby_model(m); x.color = tint; return x; }
 /// A plain material of one color: roughness 0.6, not metallic. Change
@@ -518,6 +554,10 @@ protected:
         else if constexpr (std::is_same<T, rigid_body>::value) status = crabby_rigid_body_component(world, &id);
         else if constexpr (std::is_same<T, collider>::value) status = crabby_collider_component(world, &id);
         else if constexpr (std::is_same<T, velocity>::value) status = crabby_velocity_component(world, &id);
+        else if constexpr (std::is_same<T, rigid_body3d>::value) status = crabby_rigid_body3d_component(world, &id);
+        else if constexpr (std::is_same<T, collider3d>::value) status = crabby_collider3d_component(world, &id);
+        else if constexpr (std::is_same<T, velocity3d>::value) status = crabby_velocity3d_component(world, &id);
+        else if constexpr (std::is_same<T, character3d>::value) status = crabby_character3d_component(world, &id);
         else if constexpr (std::is_same<T, transform3d>::value) status = crabby_transform3d_component(world, &id);
         else if constexpr (std::is_same<T, model>::value) status = crabby_model_component(world, &id);
         else if constexpr (std::is_same<T, terrain_tile>::value) status = crabby_terrain_tile_component(world, &id);
@@ -561,6 +601,9 @@ protected:
                       "sprite is not a query column: query transform2d (and your own components) instead");
         static_assert(!std::disjunction<std::is_same<Ts, rigid_body>..., std::is_same<Ts, collider>...>::value,
                       "rigid_body and collider are not query columns: use get/set (velocity is fine)");
+        static_assert(!std::disjunction<std::is_same<Ts, rigid_body3d>..., std::is_same<Ts, collider3d>...,
+                                        std::is_same<Ts, character3d>...>::value,
+                      "rigid_body3d, collider3d and character3d are not query columns: use get/set (velocity3d is fine)");
         valid(); std::array<std::uint32_t, sizeof...(Ts)> ids{{id<Ts>()...}};
         struct context { F* fn; detail::first_error error; } c{&fn, {}};
         auto trampoline = [](const CrabbyChunk* raw, void* user) noexcept {
@@ -1223,6 +1266,12 @@ public:
     vec2 mouse_pos() const { vec2 v{}; detail::check(crabby_ctx_mouse_pos(raw_, &v)); return v; }
     vec2 mouse_world() const { vec2 v{}; detail::check(crabby_ctx_mouse_world(raw_, &v)); return v; }
     vec2 mouse_wheel() const { vec2 v{}; detail::check(crabby_ctx_mouse_wheel(raw_, &v)); return v; }
+    /// How far the mouse moved this frame in raw device units (+y down),
+    /// even while the cursor is locked: for mouse look.
+    vec2 mouse_motion() const { vec2 v{}; detail::check(crabby_ctx_mouse_motion(raw_, &v)); return v; }
+    /// Hides the cursor and holds it in the window (or lets it go), after this frame.
+    void set_cursor_locked(bool locked) { detail::check(crabby_ctx_set_cursor_locked(raw_, locked)); }
+    bool cursor_locked() const { bool b = false; detail::check(crabby_ctx_cursor_locked(raw_, &b)); return b; }
     /// The connected gamepads: `for (crabby::gamepad pad : ctx.gamepads())`.
     gamepad_list gamepads() const {
         gamepad_list list;
@@ -1574,6 +1623,102 @@ private:
     }
 public:
 
+    // 3D physics (game::physics3d), as of the last physics step. Not inside query callbacks.
+    void set_gravity3d(vec3 gravity) { detail::check(crabby_ctx_set_gravity3d(raw_, gravity)); }
+    /// A heightfield from the same n x n heights and `size` as
+    /// create_terrain_tile (NaN for holes): give mesh_collider(it) to a
+    /// fixed body at the tile's transform3d (its corner).
+    collision_mesh heightfield_collider(const std::vector<float>& heights, float size) {
+        collision_mesh m{}; detail::check(crabby_ctx_physics3d_heightfield(raw_, heights.data(), heights.size(), size, &m)); return m;
+    }
+    /// A convex hull around `points`.
+    collision_mesh convex_hull_collider(const std::vector<vec3>& points) {
+        collision_mesh m{}; detail::check(crabby_ctx_physics3d_convex_hull(raw_, points.data(), points.size(), &m)); return m;
+    }
+    /// A triangle mesh: three indices into `vertices` per triangle.
+    collision_mesh trimesh_collider(const std::vector<vec3>& vertices, const std::vector<std::uint32_t>& indices) {
+        collision_mesh m{};
+        detail::check(crabby_ctx_physics3d_trimesh(raw_, vertices.data(), vertices.size(), indices.data(), indices.size(), &m));
+        return m;
+    }
+    /// Lets go of a collision mesh; colliders using it keep it until removed.
+    void free_collision_mesh(collision_mesh m) { detail::check(crabby_ctx_physics3d_free_mesh(raw_, m)); }
+    /// The closest collider a ray hits within `max_distance`.
+    std::optional<hit3d> cast_ray3d(vec3 origin, vec3 direction, float max_distance, filter3d filter = {}) {
+        bool found = false; hit3d hit{};
+        detail::check(crabby_ctx_cast_ray3d(raw_, origin, direction, max_distance, filter.raw, &found, &hit));
+        if (!found) return std::nullopt;
+        return hit;
+    }
+    /// Every collider a ray hits within `max_distance`, nearest first, into `out`.
+    void cast_ray3d_all(vec3 origin, vec3 direction, float max_distance, std::vector<hit3d>& out, filter3d filter = {}) {
+        std::size_t n = 0;
+        out.resize(out.capacity());
+        detail::check(crabby_ctx_cast_ray3d_all(raw_, origin, direction, max_distance, filter.raw, out.data(), out.size(), &n));
+        if (n > out.size()) {
+            out.resize(n);
+            detail::check(crabby_ctx_cast_ray3d_all(raw_, origin, direction, max_distance, filter.raw, out.data(), out.size(), &n));
+        }
+        out.resize(n);
+    }
+    /// Sweeps a ball: the first collider it touches within `max_distance`.
+    std::optional<hit3d> cast_sphere3d(vec3 origin, float radius, vec3 direction, float max_distance, filter3d filter = {}) {
+        bool found = false; hit3d hit{};
+        detail::check(crabby_ctx_cast_sphere3d(raw_, origin, radius, direction, max_distance, filter.raw, &found, &hit));
+        if (!found) return std::nullopt;
+        return hit;
+    }
+    /// Sweeps an upright capsule centered on `origin`.
+    std::optional<hit3d> cast_capsule3d(vec3 origin, float height, float radius, vec3 direction, float max_distance,
+                                        filter3d filter = {}) {
+        bool found = false; hit3d hit{};
+        detail::check(crabby_ctx_cast_capsule3d(raw_, origin, height, radius, direction, max_distance, filter.raw, &found, &hit));
+        if (!found) return std::nullopt;
+        return hit;
+    }
+    /// Entities whose collider overlaps the ball, into `out`.
+    void overlap_sphere3d(vec3 center, float radius, std::vector<CrabbyEntity>& out, filter3d filter = {}) {
+        overlap3d(out, [&](CrabbyEntity* data, std::size_t cap, std::size_t* n) {
+            return crabby_ctx_overlap_sphere3d(raw_, center, radius, filter.raw, data, cap, n);
+        });
+    }
+    /// Entities whose collider overlaps the box of `size` turned by `rotation`.
+    void overlap_box3d(vec3 center, vec3 size, quat rotation, std::vector<CrabbyEntity>& out, filter3d filter = {}) {
+        overlap3d(out, [&](CrabbyEntity* data, std::size_t cap, std::size_t* n) {
+            return crabby_ctx_overlap_box3d(raw_, center, size, rotation, filter.raw, data, cap, n);
+        });
+    }
+    /// Entities whose collider overlaps the upright capsule.
+    void overlap_capsule3d(vec3 center, float height, float radius, std::vector<CrabbyEntity>& out, filter3d filter = {}) {
+        overlap3d(out, [&](CrabbyEntity* data, std::size_t cap, std::size_t* n) {
+            return crabby_ctx_overlap_capsule3d(raw_, center, height, radius, filter.raw, data, cap, n);
+        });
+    }
+    /// Pushes a dynamic 3D body once (kg × m/s); false if `e` isn't one.
+    bool apply_impulse3d(entity e, vec3 impulse) {
+        auto status = crabby_ctx_apply_impulse3d(raw_, e, impulse);
+        if (status == CRABBY_NOT_FOUND) return false;
+        detail::check(status);
+        return true;
+    }
+    /// A 3D body's mass in kg, if `e` is one.
+    std::optional<float> mass3d(entity e) {
+        float m = 0;
+        auto status = crabby_ctx_body_mass3d(raw_, e, &m);
+        if (status == CRABBY_NOT_FOUND) return std::nullopt;
+        detail::check(status);
+        return m;
+    }
+private:
+    template<class F> static void overlap3d(std::vector<CrabbyEntity>& out, F call) {
+        std::size_t n = 0;
+        out.resize(out.capacity());
+        detail::check(call(out.data(), out.size(), &n));
+        if (n > out.size()) { out.resize(n); detail::check(call(out.data(), out.size(), &n)); }
+        out.resize(n);
+    }
+public:
+
     // The built-in spatial grid (game::spatial_grid); safe from query_par callbacks.
     void spatial_radius(vec2 center, float radius, std::vector<grid_hit>& out) const {
         std::size_t n = 0;
@@ -1660,6 +1805,11 @@ public:
     /// with a rigid_body, a collider and a transform2d are simulated. Adds
     /// the physics step here in the order: after the sim systems that move things.
     game& physics(vec2 gravity) { return check(crabby_game_physics(raw_, gravity)); }
+    /// Turns on 3D physics with `gravity` in m/s² (+Y up): entities with a
+    /// rigid_body3d, a collider3d and a transform3d, and characters, are
+    /// simulated at 50 steps a second (unless fixed_hz chose a rate), and
+    /// drawn blended between steps. Adds the step here in the order.
+    game& physics3d(vec3 gravity) { return check(crabby_game_physics3d(raw_, gravity)); }
     /// Hosts a lockstep session for `players` (2-8; you are player 0) on
     /// `addr` ("0.0.0.0:7777"; port 0 picks one, written to `*port`). Input
     /// is scheduled `input_delay` ticks ahead; worlds are compared every
