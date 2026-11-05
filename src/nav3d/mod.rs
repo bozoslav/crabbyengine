@@ -10,11 +10,11 @@
 //! the baked agent clearance); they do not carve new edges or rebuild tiles.
 //! Register `step_navmesh3d` as a sim system, including on headless servers.
 //! Agents directly own their Transform3D: do not also attach a physics body or
-//! character controller. There is no crowd avoidance. Bake for the largest
+//! character controller. Crowd avoidance is opt-in. Bake for the largest
 //! agent radius/height; agents larger than that radius are stopped.
 
-use crate::{Ctx, MeshData, Transform3D, Vec3};
-use navmesh_rs::{Limits, Workspace, bake, detour};
+use crate::{Ctx, Entity, MeshData, Transform3D, Vec3};
+use navmesh_rs::{Limits, Workspace, bake, crowd, detour};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_REVISION: AtomicU64 = AtomicU64::new(1);
@@ -182,6 +182,11 @@ struct NavState {
     obstacles: Vec<NavObstacle3D>,
     scratch: Vec<NavObstacle3D>,
     revision: u64,
+    crowd: Option<crowd::Crowd>,
+    crowd_revision: u64,
+    crowd_seen: Vec<bool>,
+    crowd_owners: Vec<Option<Entity>>,
+    crowd_workspace: Workspace,
 }
 impl NavMesh3D {
     /// Bakes ordered world triangles with bounded backend memory/work budgets.
@@ -327,6 +332,11 @@ impl NavState {
             obstacles: Vec::new(),
             scratch: Vec::new(),
             revision: NEXT_REVISION.fetch_add(1, Ordering::Relaxed),
+            crowd: None,
+            crowd_revision: 0,
+            crowd_seen: Vec::new(),
+            crowd_owners: Vec::new(),
+            crowd_workspace: Workspace::new(),
         })
     }
 
@@ -476,8 +486,10 @@ impl NavObstacle3D {
     }
 }
 
-/// Agent component; its feet follow the surface, without gravity or crowd avoidance.
-/// Path storage is retained between ticks; path queries allocate only on replans.
+/// Agent component; its feet follow the surface, without gravity.
+/// Enable `avoidance` to use DetourCrowd instead of the original path follower.
+/// The original follower retains path storage and allocates only on replans.
+/// Crowd mode retains slots/corridors but the backend allocates query scratch.
 /// ```
 /// use crabbyengine::*;
 /// let mut agent = NavAgent3D::default();
@@ -497,18 +509,40 @@ pub struct NavAgent3D {
     /// assert_eq!(NavAgent3D::default().radius, 0.3);
     /// ```
     pub radius: f32,
-    /// Speed increase per second; direction changes at corners without inertia.
+    /// Maximum acceleration per second. The original follower turns without inertia.
     /// ```
     /// # use crabbyengine::*;
     /// assert!(NavAgent3D::default().acceleration > 0.0);
     /// ```
     pub acceleration: f32,
-    /// Requested feet position. None stops; changing it triggers a replan.
+    /// Requested feet position; changing it triggers a replan. None stops desired
+    /// motion (crowd overlap correction may still displace a stopped agent).
     /// ```
     /// # use crabbyengine::*;
     /// assert!(NavAgent3D::default().destination.is_none());
     /// ```
     pub destination: Option<Vec3>,
+    /// Opt into DetourCrowd. Disabled by default to preserve existing movement.
+    /// Stopped opted-in agents remain neighbours; opted-out agents are ignored.
+    /// ```
+    /// # use crabbyengine::*;
+    /// assert!(!NavAgent3D::default().avoidance);
+    /// ```
+    pub avoidance: bool,
+    /// Nonnegative separation steering weight (not a right-of-way priority).
+    /// ```
+    /// # use crabbyengine::*;
+    /// assert_eq!(NavAgent3D::default().avoidance_weight, 2.0);
+    /// ```
+    pub avoidance_weight: f32,
+    /// Neighbour and wall query distance, in world units; must be positive.
+    /// ```
+    /// # use crabbyengine::*;
+    /// assert_eq!(NavAgent3D::default().neighbour_distance, 3.6);
+    /// ```
+    pub neighbour_distance: f32,
+    crowd_id: Option<crowd::AgentId>,
+    crowd_revision: u64,
     path: Vec<Vec3>,
     corner: usize,
     revision: u64,
@@ -523,6 +557,11 @@ impl Default for NavAgent3D {
             radius: 0.3,
             acceleration: 10.0,
             destination: None,
+            avoidance: false,
+            avoidance_weight: 2.0,
+            neighbour_distance: 3.6,
+            crowd_id: None,
+            crowd_revision: 0,
             path: Vec::new(),
             corner: 0,
             revision: 0,
@@ -563,9 +602,14 @@ pub fn step_navmesh3d(ctx: &mut Ctx) {
         std::mem::swap(&mut nav.scratch, &mut nav.obstacles);
         nav.apply_obstacles();
     }
+    step_crowd(ctx, &mut nav, dt);
     ctx.world
         .query::<(&mut Transform3D, &mut NavAgent3D)>()
         .for_each(|(t, a)| {
+            if a.avoidance {
+                return;
+            }
+            a.crowd_id = None;
             let valid = a.radius.is_finite()
                 && a.radius >= 0.0
                 && a.radius <= nav.settings.agent_radius
@@ -611,4 +655,159 @@ pub fn step_navmesh3d(ctx: &mut Ctx) {
             a.expected_position = t.position;
         });
     ctx.world.resource_mut::<NavMesh3D>().state = Some(nav);
+}
+
+// Persistent slots preserve velocity/corridors; recreating a crowd is limited to
+// mesh/obstacle revisions and capacity growth. No entity-index scan per neighbour.
+fn step_crowd(ctx: &mut Ctx, nav: &mut NavState, dt: f32) {
+    let count = ctx.world.query::<&NavAgent3D>().iter().filter(|a| a.avoidance).count();
+    if count == 0 && nav.crowd.is_none() {
+        return;
+    }
+    let capacity = nav.crowd.as_ref().map_or(0, crowd::Crowd::max_agents);
+    if nav.crowd_revision != nav.revision || count.min(16383) > capacity {
+        let size = count.max(16).next_power_of_two().min(16383);
+        nav.crowd = crowd::Crowd::new(
+            &mut nav.crowd_workspace,
+            &nav.mesh,
+            size,
+            (nav.settings.agent_radius * 1.3).max(0.001),
+        )
+        .ok();
+        if let Some(c) = &mut nav.crowd {
+            c.set_fixes(navmesh_rs::UpstreamFixes::ALL);
+        }
+        nav.crowd_seen.resize(size, false);
+        nav.crowd_owners.clear();
+        nav.crowd_owners.resize(size, None);
+        nav.crowd_revision = nav.revision;
+        // Also invalidate slots on capacity growth without changing mesh paths.
+        ctx.world.query::<&mut NavAgent3D>().for_each(|a| a.crowd_id = None);
+    }
+    let Some(c) = &mut nav.crowd else {
+        return;
+    };
+    nav.crowd_seen.fill(false);
+    ctx.world
+        .query::<(Entity, &mut Transform3D, &mut NavAgent3D)>()
+        .for_each(|(entity, t, a)| {
+            if !a.avoidance {
+                return;
+            }
+            a.revision = 0;
+            // Component clones and restored transforms cannot inherit another entity's slot.
+            if a.crowd_id
+                .is_some_and(|id| nav.crowd_owners.get(id.0) != Some(&Some(entity)))
+            {
+                a.crowd_id = None;
+            }
+            if a.crowd_revision != nav.crowd_revision {
+                a.crowd_id = None;
+            }
+            let valid = t.position.is_finite()
+                && a.radius.is_finite()
+                && a.radius > 0.0
+                && a.radius <= nav.settings.agent_radius
+                && a.speed.is_finite()
+                && a.speed > 0.0
+                && a.acceleration.is_finite()
+                && a.acceleration > 0.0
+                && a.avoidance_weight.is_finite()
+                && a.avoidance_weight >= 0.0
+                && a.neighbour_distance.is_finite()
+                && a.neighbour_distance > 0.0;
+            if !valid {
+                a.crowd_id = None;
+                return;
+            }
+            if t.position != a.expected_position
+                && let Some(id) = a.crowd_id.take()
+            {
+                let _ = c.remove_agent(id);
+            }
+            let mut p = crowd::AgentParams::default();
+            p.radius = a.radius * 1.3;
+            p.height = nav.settings.agent_height;
+            p.max_speed = a.speed;
+            p.max_acceleration = a.acceleration;
+            p.collision_query_range = a.neighbour_distance;
+            p.separation_weight = a.avoidance_weight;
+            let fresh = a.crowd_id.is_none();
+            if fresh {
+                a.crowd_id = c
+                    .add_agent(&mut nav.crowd_workspace, &nav.mesh, t.position.to_array(), p)
+                    .ok();
+            }
+            let Some(id) = a.crowd_id else {
+                return;
+            };
+            nav.crowd_seen[id.0] = true;
+            nav.crowd_owners[id.0] = Some(entity);
+            let _ = c.update_agent_parameters(id, p);
+            if fresh || a.destination != a.planned_destination {
+                let _ = c.reset_move_target(id);
+                // Preserve complete-route semantics, including disconnected targets.
+                if let Some(to) = a.destination.filter(|to| nav.mesh.max_tiles() > 0 && to.is_finite()) {
+                    let query = detour::NavMeshQuery::new(&nav.mesh, 8192).ok();
+                    if let Some(mut q) = query {
+                        let ext = [
+                            nav.settings.cell_size * 2.0,
+                            nav.settings.max_climb + nav.settings.cell_height * 2.0,
+                            nav.settings.cell_size * 2.0,
+                        ];
+                        let filter = detour::DefaultFilter::default();
+                        if let (Ok((from_ref, from, _)), Ok((to_ref, target, _))) = (
+                            q.find_nearest_poly(&t.position.to_array(), &ext, &filter),
+                            q.find_nearest_poly(&to.to_array(), &ext, &filter),
+                        ) {
+                            let mut path = Vec::new();
+                            if from_ref != 0
+                                && to_ref != 0
+                                && q.find_path(from_ref, to_ref, &from, &target, &filter, &mut path, 8192)
+                                    .is_ok_and(|s| {
+                                        !s.has_detail(
+                                            detour::Status::PARTIAL_RESULT
+                                                | detour::Status::OUT_OF_NODES
+                                                | detour::Status::BUFFER_TOO_SMALL,
+                                        )
+                                    })
+                                && path.last() == Some(&to_ref)
+                            {
+                                let _ = c.request_move_target(&nav.mesh, id, to_ref, target);
+                            }
+                        }
+                    }
+                }
+                a.planned_destination = a.destination;
+            }
+            a.crowd_revision = nav.crowd_revision;
+        });
+    for (i, seen) in nav.crowd_seen.iter().enumerate() {
+        if !seen && c.agent(crowd::AgentId(i)).is_some() {
+            let _ = c.remove_agent(crowd::AgentId(i));
+            nav.crowd_owners[i] = None;
+        }
+    }
+    // Bound simulation steps for collision prediction during low-rate ticks.
+    let steps = (dt / (1.0 / 60.0)).ceil().clamp(1.0, 64.0) as u32;
+    for _ in 0..steps {
+        if c.update(&mut nav.crowd_workspace, &nav.mesh, dt / steps as f32)
+            .is_err()
+        {
+            break;
+        }
+    }
+    ctx.world
+        .query::<(Entity, &mut Transform3D, &mut NavAgent3D)>()
+        .for_each(|(entity, t, a)| {
+            if a.avoidance
+                && let Some(agent) = a
+                    .crowd_id
+                    .filter(|id| nav.crowd_owners[id.0] == Some(entity))
+                    .and_then(|id| c.agent(id))
+            {
+                t.position = Vec3::from_array(agent.npos);
+                a.expected_position = t.position;
+            }
+        });
 }

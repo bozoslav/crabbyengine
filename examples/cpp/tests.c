@@ -35,6 +35,12 @@ static void setup(CrabbyCtx* ctx, void* user) {
     CHECK(crabby_ctx_remove_text3d(ctx, e) == CRABBY_OK);
     CHECK(crabby_ctx_text3d(ctx, e, &got) == CRABBY_NOT_FOUND);
 
+    CHECK(crabby_ctx_set_nav_avoidance(ctx, e, true, 2, 3.6f) == CRABBY_NOT_FOUND);
+    CHECK(crabby_ctx_set_nav_agent(ctx, e, 3, 0.3f, 10) == CRABBY_OK);
+    CHECK(crabby_ctx_set_nav_avoidance(ctx, e, true, 2, 3.6f) == CRABBY_OK);
+    CHECK(crabby_ctx_set_nav_avoidance(ctx, e, false, 0, 1) == CRABBY_OK);
+    CHECK(crabby_ctx_set_nav_avoidance(ctx, e, true, -1, 3) == CRABBY_INVALID_ARGUMENT);
+    CHECK(crabby_ctx_set_nav_avoidance(ctx, e, true, 2, 0) == CRABBY_INVALID_ARGUMENT);
 }
 static void tick(CrabbyCtx* ctx, void* user) {
     Run* r = user;

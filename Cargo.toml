@@ -20,7 +20,7 @@ features = ["physics", "physics3d", "steam", "3d", "navmesh"]
 
 [dependencies]
 taffy = { version = "0.15.1", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid", "content_size"] }
-navmesh-rs = { version = "0.2.1", optional = true, default-features = false, features = ["std", "libm", "recast", "detour", "polyref64"] }
+navmesh-rs = { version = "0.2.1", optional = true, default-features = false, features = ["std", "libm", "recast", "detour", "crowd", "polyref64"] }
 renet = "2.0.0"
 crabby_ecs = { path = "crates/crabby_ecs", version = "1.0.0", features = ["serde"] }
 bytemuck = { version = "1.25.2", features = ["derive"] }

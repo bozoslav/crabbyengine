@@ -2173,6 +2173,12 @@ enum CrabbyStatus crabby_ctx_remove_nav(struct CrabbyCtx *ctx, uint64_t entity_b
 
 enum CrabbyStatus crabby_game_navmesh3d(struct CrabbyGame *game);
 
+enum CrabbyStatus crabby_ctx_set_nav_avoidance(struct CrabbyCtx *ctx,
+                                               uint64_t entity_bits,
+                                               bool enabled,
+                                               float weight,
+                                               float neighbour_distance);
+
 enum CrabbyStatus crabby_game_lockstep_host(struct CrabbyGame *game,
                                             const char *addr,
                                             uint32_t players,

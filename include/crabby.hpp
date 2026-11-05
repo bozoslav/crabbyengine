@@ -2545,6 +2545,10 @@ public:
         return corners;
     }
     /// Makes `e` (with a transform3d) an agent; moves only with game::navmesh3d().
+    /// Opt into sampled crowd avoidance; weight controls separation steering.
+    void set_nav_avoidance(entity e, bool enabled = true, float weight = 2, float neighbour_distance = 3.6f) {
+        detail::check(crabby_ctx_set_nav_avoidance(raw_, e, enabled, weight, neighbour_distance));
+    }
     void set_nav_agent(entity e, float speed = 3, float radius = 0.3f, float acceleration = 10) {
         detail::check(crabby_ctx_set_nav_agent(raw_, e, speed, radius, acceleration));
     }

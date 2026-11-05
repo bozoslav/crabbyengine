@@ -388,3 +388,40 @@ pub unsafe extern "C" fn crabby_game_navmesh3d(game: *mut CrabbyGame) -> CrabbyS
     // SAFETY: forwarded caller contract.
     unsafe { build(game, |g| ok(g.sim_system(step_navmesh3d))) }
 }
+
+/// Enables crowd avoidance and sets nonnegative separation weight and positive
+/// neighbour distance. Disabled agents use the original follower and are ignored
+/// by the crowd. The collision time horizon is Detour's default 2.5 seconds.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_nav_avoidance(std::ptr::null_mut(), 0, true, 2.0, 3.6) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` null or live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_nav_avoidance(
+    ctx: *mut CrabbyCtx,
+    entity_bits: u64,
+    enabled: bool,
+    weight: f32,
+    neighbour_distance: f32,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let e = entity(c, entity_bits)?;
+            if !weight.is_finite() || weight < 0.0 || !neighbour_distance.is_finite() || neighbour_distance <= 0.0 {
+                return Err(invalid(
+                    "avoidance weight must be nonnegative and neighbour distance positive",
+                ));
+            }
+            let a = c
+                .world
+                .get_mut::<NavAgent3D>(e)
+                .ok_or_else(|| error(CrabbyStatus::CRABBY_NOT_FOUND, "that entity is not a nav agent"))?;
+            a.avoidance = enabled;
+            a.avoidance_weight = weight;
+            a.neighbour_distance = neighbour_distance;
+            Ok(())
+        })
+    })
+}

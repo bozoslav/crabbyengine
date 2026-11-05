@@ -1711,6 +1711,9 @@ static void navigation_guide() {
             // ANCHOR: nav_agent_spawn
             auto agent = ctx.world().spawn(crabby::transform3d_at(start));
             ctx.set_nav_agent(agent, 3);
+            // ANCHOR: nav_avoidance
+            ctx.set_nav_avoidance(agent, true, 2.0f, 3.6f);
+            // ANCHOR_END: nav_avoidance
             ctx.set_nav_destination(agent, destination);
             // A world-space box; move it or remove it to reopen polygons.
             ctx.set_nav_obstacle(ctx.world().spawn(), {0, 1, 8}, {1, 1, 1});

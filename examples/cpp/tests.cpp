@@ -1060,6 +1060,10 @@ static void navigation() {
         CHECK(path.size() >= 3); // around the wall's end
         walker = ctx.world().spawn(crabby::transform3d_at({-5, 0, 0}));
         ctx.set_nav_agent(walker, 4);
+        ctx.set_nav_avoidance(walker);
+        throws([&] { ctx.set_nav_avoidance(walker, true, -1); });
+        throws([&] { ctx.set_nav_avoidance(walker, true, 2, 0); });
+        throws([&] { ctx.set_nav_avoidance(ctx.world().spawn()); });
         ctx.set_nav_destination(walker, crabby::vec3{5, 0, 0});
         throws([&] { ctx.set_nav_agent(walker, -1); });
         crabby::nav_sources empty;
