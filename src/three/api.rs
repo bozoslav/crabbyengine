@@ -41,7 +41,7 @@ pub(crate) struct GpuMaterialDesc {
 }
 
 impl GpuMaterialDesc {
-    fn new(desc: &MaterialDesc) -> Self {
+    pub(crate) fn new(desc: &MaterialDesc) -> Self {
         let [r, g, b, _] = linear(desc.emissive);
         let id = |t: Option<crate::Texture>| t.map(|t| t.id);
         Self {

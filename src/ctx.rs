@@ -320,6 +320,7 @@ pub struct Ctx {
     /// ```
     pub ui_style: UiStyle,
     pub(crate) audio: Audio,
+    pub(crate) last_render_stats: RenderStats,
 }
 
 impl Ctx {
@@ -334,6 +335,11 @@ impl Ctx {
                 crate::reflect::WorldReflect::reflect::<crate::Transform3D>(&mut world);
                 #[cfg(feature = "3d")]
                 crate::reflect::reflect_model(&mut world);
+                #[cfg(feature = "3d")]
+                {
+                    crate::reflect::WorldReflect::reflect::<crate::PointLight3D>(&mut world);
+                    crate::reflect::WorldReflect::reflect::<crate::SpotLight3D>(&mut world);
+                }
                 crate::reflect::reflect_sprite(&mut world);
                 world
             },
@@ -410,6 +416,7 @@ impl Ctx {
             ui_press_at: Vec2::splat(f32::NAN),
             ui_style: UiStyle::default(),
             audio: Audio::default(),
+            last_render_stats: RenderStats::default(),
             clear_color: Color::CRABBY_DARK,
         }
     }
@@ -430,6 +437,7 @@ impl Ctx {
             ),
             None => FrameStatus::Skipped,
         };
+        self.last_render_stats = self.renderer.as_ref().map(Renderer::stats).unwrap_or_default();
         self.draw_list.clear();
         self.ui_list.clear();
         if let Some(shot) = self.renderer.as_mut().and_then(Renderer::take_screenshot) {
@@ -1372,7 +1380,7 @@ impl Ctx {
 
     /// Draw calls, sprites and vertices of the last rendered frame (all zero headless).
     pub fn render_stats(&self) -> RenderStats {
-        self.renderer.as_ref().map(Renderer::stats).unwrap_or_default()
+        self.last_render_stats
     }
 
     // ---------------------------------------------------------------- timing

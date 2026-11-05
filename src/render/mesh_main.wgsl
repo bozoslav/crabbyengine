@@ -190,30 +190,10 @@ fn sunlight(world: vec3<f32>, n: vec3<f32>) -> f32 {
 
 fn shade(s: Surface) -> vec3<f32> {
     let n = s.normal;
-    let v = s.view;
-    let l = frame.sun_dir.xyz;
-    let h = normalize(l + v);
-    let n_l = max(dot(n, l), 0.0);
-    let n_v = max(dot(n, v), 1e-4);
-    let n_h = max(dot(n, h), 0.0);
-    let v_h = max(dot(v, h), 0.0);
-
-    let a = s.roughness * s.roughness;
-    let a2 = a * a;
-    let d_denom = n_h * n_h * (a2 - 1.0) + 1.0;
-    let d = a2 / (PI * d_denom * d_denom);
-    let k = (s.roughness + 1.0) * (s.roughness + 1.0) / 8.0;
-    let g = n_v / (n_v * (1.0 - k) + k) * n_l / (n_l * (1.0 - k) + k);
     let f0 = mix(vec3<f32>(0.04), s.albedo, s.metallic);
-    let f = f0 + (vec3<f32>(1.0) - f0) * pow(1.0 - v_h, 5.0);
-    let specular = d * g * f / max(4.0 * n_v * n_l, 1e-4);
-    let diffuse = (vec3<f32>(1.0) - f) * (1.0 - s.metallic) * s.albedo / PI;
-    // Facing away from the sun, it's unlit anyway: no shadow lookup.
     var sun = 0.0;
-    if n_l > 0.0 {
-        sun = sunlight(s.world, n);
-    }
-    let direct = (diffuse + specular) * frame.sun_color.rgb * n_l * sun;
+    if dot(n, frame.sun_dir.xyz) > 0.0 { sun = sunlight(s.world, n); }
+    let direct = direct_light(s, frame.sun_dir.xyz, frame.sun_color.rgb * sun) + punctual_light(s);
 
     // Sky from above, ground from below; metals reflect it in their color.
     let ambient_light = mix(frame.ground.rgb, frame.sky.rgb, n.y * 0.5 + 0.5);

@@ -23,6 +23,7 @@ use glam::{Mat4, Vec3};
 use wgpu::util::DeviceExt;
 
 use super::gpu::GpuTexture;
+use super::lights::LightTextures;
 use super::timer::GpuTimer;
 use crate::Material;
 use crate::three::Scene3D;
@@ -74,6 +75,8 @@ struct FrameUniform {
     night: [f32; 4],
     /// x: distance fog start, y: its end (0: none), z: sun glow, w: sun focus.
     fog_far: [f32; 4],
+    cluster_depth: [f32; 4],
+    cluster_view_proj: [[f32; 4]; 4],
 }
 
 /// One corner of a mesh on the GPU.
@@ -283,7 +286,7 @@ struct FrameSources {
 }
 
 impl FrameSources {
-    fn bind_group(&self, device: &wgpu::Device, frame: &wgpu::Buffer) -> wgpu::BindGroup {
+    fn bind_group(&self, device: &wgpu::Device, frame: &wgpu::Buffer, lights: &LightTextures) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("3d frame"),
             layout: &self.layout,
@@ -308,6 +311,14 @@ impl FrameSources {
                     binding: 4,
                     resource: wgpu::BindingResource::Sampler(&self.sky_sampler),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(&lights.records_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::TextureView(&lights.indices_view),
+                },
             ],
         })
     }
@@ -322,6 +333,7 @@ struct ViewTarget {
     resolve: wgpu::TextureView,
     frame_buffer: wgpu::Buffer,
     frame_bind_group: wgpu::BindGroup,
+    lights: LightTextures,
 }
 
 /// A render target compute passes run on: the scratch texture each pass
@@ -371,6 +383,7 @@ pub(crate) struct Renderer3D {
     sky: wgpu::RenderPipeline,
     atmosphere: bool,
     frame_bind_group: wgpu::BindGroup,
+    lights: LightTextures,
     /// What frame bind groups are made of, for each target camera's own.
     frame_sources: FrameSources,
     /// Every render target's texture, by texture id.
@@ -845,7 +858,8 @@ impl Renderer3D {
             sky_view: sky_view.clone(),
             sky_sampler,
         };
-        let frame_bind_group = frame_sources.bind_group(device, &frame_buffer);
+        let lights = LightTextures::new(device);
+        let frame_bind_group = frame_sources.bind_group(device, &frame_buffer, &lights);
         // A compute pass reads its render target and writes a scratch copy.
         let compute_layouts = compute.then(|| {
             let compute_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -913,6 +927,7 @@ impl Renderer3D {
             compare: Some(wgpu::CompareFunction::LessEqual),
             ..Default::default()
         });
+        let no_lights = LightTextures::new(device);
         let shadow_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("3d shadow"),
             layout: &shadow_layout,
@@ -941,6 +956,14 @@ impl Renderer3D {
                     binding: 4,
                     resource: wgpu::BindingResource::Sampler(&no_sky_sampler),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(&no_lights.records_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::TextureView(&no_lights.indices_view),
+                },
             ],
         });
         let capacity = 1024;
@@ -967,6 +990,7 @@ impl Renderer3D {
             sky,
             atmosphere: false,
             frame_bind_group,
+            lights,
             frame_sources,
             render_targets: Vec::new(),
             view_targets: Vec::new(),
@@ -1047,13 +1071,15 @@ impl Renderer3D {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let frame_bind_group = self.frame_sources.bind_group(device, &frame_buffer);
+        let lights = LightTextures::new(device);
+        let frame_bind_group = self.frame_sources.bind_group(device, &frame_buffer, &lights);
         let view = ViewTarget {
             color: target("3d target camera color", HDR_FORMAT),
             depth: target("3d target camera depth", DEPTH_FORMAT),
             resolve: texture.create_view(&Default::default()),
             frame_buffer,
             frame_bind_group,
+            lights,
         };
         self.view_targets.push((id, view));
         Some(self.view_targets.len() - 1)
@@ -1392,7 +1418,12 @@ impl Renderer3D {
         };
         let ambient = |light: Vec3| (light * lighting.ambient_intensity).extend(0.0).to_array();
         let sun = (-lighting.sun_direction).try_normalize().unwrap_or(Vec3::Y);
+        if self.lights.upload(device, queue, &frame.lights) {
+            self.frame_bind_group = self.frame_sources.bind_group(device, &self.frame_buffer, &self.lights);
+        }
         let mut uniform = FrameUniform {
+            cluster_depth: frame.lights.depth,
+            cluster_view_proj: frame.view_proj.to_cols_array_2d(),
             view_proj: frame.view_proj.to_cols_array_2d(),
             sun_view_proj: frame.sun_view_proj.map(|m| m.to_cols_array_2d()),
             caster_view_proj: Mat4::IDENTITY.to_cols_array_2d(),
@@ -1449,13 +1480,19 @@ impl Renderer3D {
         };
         queue.write_buffer(&self.frame_buffer, 0, bytemuck::bytes_of(&uniform));
         // Each target camera's frame: the same, seen from it.
-        for (view, &(target, _)) in frame
-            .views
-            .iter()
-            .filter(|v| self.view_targets.iter().any(|&(id, _)| id == v.target))
-            .zip(&self.views)
-        {
+        for view in &frame.views {
+            let Some(target) = self.view_targets.iter().position(|&(id, _)| id == view.target) else {
+                continue;
+            };
+            let target_lights = &mut self.view_targets[target].1;
+            if target_lights.lights.upload(device, queue, &view.frame.lights) {
+                target_lights.frame_bind_group =
+                    self.frame_sources
+                        .bind_group(device, &target_lights.frame_buffer, &target_lights.lights);
+            }
             let mut theirs = uniform;
+            theirs.cluster_depth = view.frame.lights.depth;
+            theirs.cluster_view_proj = view.frame.view_proj.to_cols_array_2d();
             theirs.view_proj = view.view_proj.to_cols_array_2d();
             theirs.inv_view_proj = view.view_proj.inverse().to_cols_array_2d();
             theirs.camera = view.camera.extend(1.0).to_array();
@@ -2167,6 +2204,26 @@ fn frame_entries(stages: wgpu::ShaderStages, per_cascade: bool) -> Vec<wgpu::Bin
             ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
             count: None,
         },
+        wgpu::BindGroupLayoutEntry {
+            binding: 5,
+            visibility: stages,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        },
+        wgpu::BindGroupLayoutEntry {
+            binding: 6,
+            visibility: stages,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Uint,
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        },
     ]
 }
 
@@ -2350,6 +2407,45 @@ fn array_view(texture: &wgpu::Texture) -> wgpu::TextureView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn frame_uniform_matches_shader_layout() {
+        let module = wgpu::naga::front::wgsl::parse_str(&compose_shader("")).unwrap();
+        let (_, ty) = module
+            .types
+            .iter()
+            .find(|(_, t)| t.name.as_deref() == Some("Frame"))
+            .unwrap();
+        let wgpu::naga::TypeInner::Struct { members, span } = &ty.inner else {
+            panic!("Frame must be a struct");
+        };
+        assert_eq!(*span as usize, size_of::<FrameUniform>());
+        for (name, offset) in [
+            ("fog_far", std::mem::offset_of!(FrameUniform, fog_far)),
+            ("cluster_depth", std::mem::offset_of!(FrameUniform, cluster_depth)),
+            (
+                "cluster_view_proj",
+                std::mem::offset_of!(FrameUniform, cluster_view_proj),
+            ),
+        ] {
+            assert_eq!(
+                members.iter().find(|m| m.name.as_deref() == Some(name)).unwrap().offset as usize,
+                offset,
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn custom_materials_can_evaluate_punctual_lighting() {
+        check_shader(
+            "punctual",
+            &compose_shader(
+                "fn surface(s: Surface) -> Surface { var o = s; o.emissive = punctual_light(s); return o; }",
+            ),
+        )
+        .unwrap();
+    }
 
     #[test]
     fn finds_defined_functions() {

@@ -5,8 +5,8 @@ use std::ffi::c_char;
 
 use crabbyengine::{
     Blend, Camera3D, Color, Compute, ComputePass, Effect, Lighting, Material, MaterialDesc, Mesh, MeshData, Model,
-    Post, Quat, ScreenEffect, Shader, Sky, TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera, TerrainMaterialDesc,
-    TerrainTile, TextureArray, TextureKind, Tonemap, Transform3D, Vec2, Vec3, Vec4,
+    PointLight3D, Post, Quat, ScreenEffect, Shader, Sky, SpotLight3D, TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera,
+    TerrainMaterialDesc, TerrainTile, TextureArray, TextureKind, Tonemap, Transform3D, Vec2, Vec3, Vec4,
 };
 
 use crate::ctx::{ctx_access, out, text};
@@ -66,6 +66,44 @@ pub struct CrabbyTransform3D {
     pub scale: CrabbyVec3,
     /// Unused; keeps the Rust size.
     pub reserved: [f32; 2],
+}
+
+/// Entity PointLight3D: position from its transform; spots point along local -Z.
+/// Angles are half angles in radians. Range ignores transform scale.
+/// ```
+/// use crabby_ffi::*;
+/// assert!(std::mem::size_of::<CrabbyPointLight3D>() >= 24);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CrabbyPointLight3D {
+    /// sRGB color; alpha ignored.
+    pub color: CrabbyColor,
+    /// Same as Rust `PointLight3D::intensity`.
+    pub intensity: f32,
+    /// Same as Rust `PointLight3D::range`.
+    pub range: f32,
+}
+
+/// Entity SpotLight3D: position from its transform; spots point along local -Z.
+/// Angles are half angles in radians. Range ignores transform scale.
+/// ```
+/// use crabby_ffi::*;
+/// assert!(std::mem::size_of::<CrabbySpotLight3D>() >= 24);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CrabbySpotLight3D {
+    /// sRGB color; alpha ignored.
+    pub color: CrabbyColor,
+    /// Same as Rust `SpotLight3D::intensity`.
+    pub intensity: f32,
+    /// Same as Rust `SpotLight3D::range`.
+    pub range: f32,
+    /// Same as Rust `SpotLight3D::inner_angle`.
+    pub inner_angle: f32,
+    /// Same as Rust `SpotLight3D::outer_angle`.
+    pub outer_angle: f32,
 }
 
 /// A mesh on the GPU (`crabby_ctx_create_mesh`, `crabby_ctx_load_mesh`).
@@ -2426,4 +2464,50 @@ pub unsafe extern "C" fn crabby_ctx_mesh_shadows(
 ) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe { ctx_access(ctx, |c| out(out_casts, c.mesh_shadows(to_c(mesh)))) })
+}
+
+same_layout!(
+    CrabbyPointLight3D,
+    PointLight3D,
+    color = color,
+    intensity = intensity,
+    range = range
+);
+
+/// Registers the built-in `PointLight3D` for entity insertion and query columns.
+/// # Safety
+/// Live world and writable output.
+/// ```
+/// use crabby_ffi::*;
+/// let w = crabby_world_new();
+/// unsafe { let mut id = 0; assert_eq!(crabby_point_light3d_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_point_light3d_component(world: *mut CrabbyWorld, out_id: *mut u32) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe { builtin::<PointLight3D>(world, out_id) }
+}
+
+same_layout!(
+    CrabbySpotLight3D,
+    SpotLight3D,
+    color = color,
+    intensity = intensity,
+    range = range,
+    inner_angle = inner_angle,
+    outer_angle = outer_angle
+);
+
+/// Registers the built-in `SpotLight3D` for entity insertion and query columns.
+/// # Safety
+/// Live world and writable output.
+/// ```
+/// use crabby_ffi::*;
+/// let w = crabby_world_new();
+/// unsafe { let mut id = 0; assert_eq!(crabby_spot_light3d_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_spot_light3d_component(world: *mut CrabbyWorld, out_id: *mut u32) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe { builtin::<SpotLight3D>(world, out_id) }
 }

@@ -152,3 +152,7 @@ homepage = "https://bozoslav.github.io/crabbyengine/"
 # stays. Clean builds take longer (16 -> 25 s for the test suite).
 [profile.dev]
 opt-level = 1
+
+[[example]]
+name = "lights"
+required-features = ["3d"]

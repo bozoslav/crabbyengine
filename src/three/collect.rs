@@ -33,6 +33,7 @@ type Entry = (u32, Instance3D, bool, u8);
 #[derive(Default)]
 pub(crate) struct Frame3D {
     pub instances: Vec<Instance3D>,
+    pub lights: super::lights::LightGrid,
     /// (mesh id, first instance, count) for the camera, in mesh order.
     pub runs: Vec<(u32, u32, u32)>,
     /// The same for each cascade's shadow map; empty without shadows.
@@ -77,6 +78,7 @@ impl Frame3D {
     /// what's inside the sun's shadow box.
     pub fn collect(&mut self, world: &mut World, assets: &Assets3D, camera: &Camera3D, lighting: &Lighting) {
         self.view_proj = camera.view_proj();
+        self.lights.collect(world, camera);
         self.cascades = if lighting.shadows && lighting.shadow_distance > 0.0 {
             (lighting.shadow_cascades as usize).clamp(1, MAX_CASCADES)
         } else {

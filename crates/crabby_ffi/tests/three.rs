@@ -601,3 +601,62 @@ fn loaded_materials_are_found_and_changed_from_c() {
     let _ = std::fs::remove_dir(&assets); // only if empty
     assert_eq!(found, vec![(1, true), (0, true)]);
 }
+
+#[test]
+fn punctual_light_components_have_rust_layout_and_roundtrip() {
+    unsafe {
+        let w = crabby_world_new();
+        let mut point_id = 0;
+        let mut spot_id = 0;
+        assert_eq!(crabby_point_light3d_component(w, &mut point_id), CRABBY_OK);
+        assert_eq!(crabby_spot_light3d_component(w, &mut spot_id), CRABBY_OK);
+        assert_ne!(point_id, spot_id);
+        let point = CrabbyPointLight3D {
+            color: WHITE,
+            intensity: 42.0,
+            range: 17.0,
+        };
+        let spot = CrabbySpotLight3D {
+            color: WHITE,
+            intensity: 20.0,
+            range: 11.0,
+            inner_angle: 0.2,
+            outer_angle: 0.6,
+        };
+        let parts = [value(point_id, &point), value(spot_id, &spot)];
+        let mut e = 0;
+        assert_eq!(crabby_spawn(w, parts.as_ptr(), parts.len(), &mut e), CRABBY_OK);
+        let mut got = point;
+        got.intensity = 0.0;
+        assert_eq!(
+            crabby_get(
+                w,
+                e,
+                point_id,
+                (&mut got as *mut CrabbyPointLight3D).cast(),
+                size_of_val(&got)
+            ),
+            CRABBY_OK
+        );
+        assert_eq!(got, point);
+        let mut beam = spot;
+        beam.range = 0.0;
+        assert_eq!(
+            crabby_get(
+                w,
+                e,
+                spot_id,
+                (&mut beam as *mut CrabbySpotLight3D).cast(),
+                size_of_val(&beam)
+            ),
+            CRABBY_OK
+        );
+        assert_eq!(beam, spot);
+        assert_eq!(
+            crabby_point_light3d_component(null_mut(), &mut point_id),
+            CRABBY_INVALID_ARGUMENT
+        );
+        assert_eq!(crabby_spot_light3d_component(w, null_mut()), CRABBY_INVALID_ARGUMENT);
+        crabby_world_free(w);
+    }
+}
