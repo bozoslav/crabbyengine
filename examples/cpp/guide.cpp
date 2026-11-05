@@ -1536,6 +1536,24 @@ static void contacts(crabby::ctx& ctx) {
 }
 // ANCHOR_END: skin_ik
 
+// ANCHOR: morph
+// System or setup: everything here runs headless too.
+static void morphed_sheet(crabby::ctx& ctx) {
+    // One target, named to find it again: at full weight its third corner
+    // sinks 0.4 into the sheet. Leave the normals empty to keep the
+    // shading, or give one offset per corner to bend the light along.
+    crabby::morph_target dent{"dent", std::vector<crabby::vec3>(4), {}};
+    dent.positions[2] = {0, 0, -0.4f};
+    auto sheet = crabby::mesh_data::plane(1.0);
+    sheet.add_morph_target(dent);
+
+    auto mesh = ctx.create_mesh(sheet, ctx.default_material());
+    auto at = ctx.morph_target(mesh, "dent").value();
+    auto panel = ctx.world().spawn(crabby::transform3d_at({0, 0, 0}), crabby::model_of(mesh));
+    ctx.set_morph_weight(panel, at, 0.5f); // halfway dented
+}
+// ANCHOR_END: morph
+
 // ANCHOR: sound3d
 static void sound3d(crabby::ctx& ctx) {
     float samples[4410];
@@ -1712,6 +1730,7 @@ int main() {
         buses_and_effects(ctx, ctx.create_sound(44100, silence, 16));
     });
     crabby::game("skinning guide", 1, 1).run_headless(0, skinned_tentacle);
+    crabby::game("morph guide", 1, 1).run_headless(0, morphed_sheet);
     crabby::game("joint guide", 1, 1).physics3d({0, 0, 0}).run_headless(5, joints_and_dominance);
     crabby::game("ragdoll guide", 1, 1).physics3d({0, -9.81f, 0}).run_headless(5, ragdoll);
     crabby::game("contacts guide", 1, 1).physics3d({0, -9.81f, 0}).run_headless(5, contacts);

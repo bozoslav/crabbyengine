@@ -690,6 +690,35 @@ static void skeletons() {
     });
 }
 
+static void morph_targets() {
+    crabby::game("morph targets", 1, 1).run_headless(0, [&](crabby::ctx& ctx) {
+        // Two targets on a plane: one dents the whole sheet, one tips a corner.
+        auto sheet = crabby::mesh_data::plane(1.0);
+        crabby::morph_target dent{"dent", std::vector<crabby::vec3>(4, {0, 0, -0.7f}), {}};
+        sheet.add_morph_target(dent);
+        crabby::morph_target tip{"tip", std::vector<crabby::vec3>(4), {}}; // normals stay flat
+        tip.positions[0] = {0, 0.4f, 0};
+        sheet.add_morph_target(tip);
+        throws([&] { sheet.add_morph_target(crabby::morph_target{"short", std::vector<crabby::vec3>(3), {}}); });
+
+        auto mesh = ctx.create_mesh(sheet, ctx.default_material());
+        CHECK(ctx.morph_target(mesh, "dent") == std::optional<std::size_t>(0));
+        CHECK(ctx.morph_target(mesh, "tip") == std::optional<std::size_t>(1));
+        CHECK(!ctx.morph_target(mesh, "sag"));
+
+        auto e = ctx.world().spawn(crabby::transform3d_at({0, 0, 0}), crabby::model_of(mesh));
+        CHECK(!ctx.morph_weight(e, 0)); // no weights: its mesh's defaults show
+        ctx.set_morph_weight(e, 0, 0.5f);
+        ctx.set_morph_weight(e, 1, 1.0f);
+        CHECK(ctx.morph_weight(e, 0) == std::optional(0.5f));
+        CHECK(ctx.morph_weight(e, 1) == std::optional(1.0f));
+        CHECK(ctx.morph_weight(e, 2) == std::optional(0.0f));
+        ctx.clear_morph_weights(e);
+        CHECK(!ctx.morph_weight(e, 0));
+        throws([&] { ctx.set_morph_weight(12345, 0, 0.5f); }); // no such entity
+    });
+}
+
 static void sound3d() {
     crabby::game("sound3d", 1, 1).run_headless(0, [&](crabby::ctx& ctx) {
         float samples[64] = {};
@@ -1130,6 +1159,7 @@ int main() {
     scenes_and_prefabs();
     three_d();
     skeletons();
+    morph_targets();
     sound3d();
     animators();
     inverse_kinematics();
