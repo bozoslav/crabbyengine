@@ -168,7 +168,9 @@ fn mesh_blend_shapes_keep_their_full_weight_frame() {
     - 50
     - 100
 ";
+    // Windows checkouts may end the fixture's lines with \r\n.
     let text = include_str!("fixtures/quad.asset")
+        .replace("\r\n", "\n")
         .replace("  m_MeshCompression: 0\n", &format!("{shapes}  m_MeshCompression: 0\n"));
     let file = UnityFile::parse(&text).unwrap();
     let mesh = UnityMesh::from_object(&file.objects[0]).unwrap();
