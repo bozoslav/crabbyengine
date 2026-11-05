@@ -293,16 +293,16 @@ fn build(
         color: points[i].2,
     };
     let mut previous = side(0);
-    let mut center = Vec3::ZERO;
+    // Each segment uses the points at both of its ends.
+    #[allow(clippy::needless_range_loop)]
     for i in 1..points.len() {
         let next = side(i);
         let (a0, a1) = (corner(i - 1, previous, 0.0), corner(i - 1, previous, 1.0));
         let (b0, b1) = (corner(i, next, 0.0), corner(i, next, 1.0));
         vertices.extend([a0, a1, b0, b0, a1, b1]);
-        center += points[i].0;
         previous = next;
     }
-    center /= (points.len() - 1) as f32;
+    let center = points[1..].iter().map(|p| p.0).sum::<Vec3>() / (points.len() - 1) as f32;
     runs.push(StripRun {
         first: first as u32,
         count: (vertices.len() - first) as u32,
