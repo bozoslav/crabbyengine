@@ -27,6 +27,21 @@ use crate::{Instant, World, WorldReflect};
 mod messages;
 pub use messages::{Lane, MAX_MESSAGE_BYTES, MessageEvent, MessageStats, NetMessages, PeerId};
 
+mod interest;
+mod sequence;
+mod snapshots;
+pub use interest::{
+    Interest, InterestChange, InterestChangeKind, InterestConfig, InterestEntity, InterestEntry, InterestTier,
+    InterestViewer, MAX_INTEREST_TIERS,
+};
+pub use sequence::{Authority, AuthorityCheck, LatestWins, UpdateStamp, seq_diff, seq_newer};
+pub use snapshots::{
+    ClockSync, Interpolate, Pose, SnapshotBuffer, SnapshotConfig, SnapshotPush, SnapshotSample, SnapshotState,
+    SnapshotStream,
+};
+#[cfg(feature = "3d")]
+pub use snapshots::{NetPose, apply_net_poses};
+
 #[cfg(feature = "steam")]
 mod steam;
 #[cfg(feature = "steam")]

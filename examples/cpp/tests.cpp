@@ -1391,6 +1391,72 @@ static void world_text() {
         throws([&] { (void)c.text3d(e); });
     });
 }
+// Replication helpers: sequence numbers, authority, snapshots and interest.
+static void replication() {
+    CHECK(crabby::seq_newer(0, 65535) && !crabby::seq_newer(5, 5) && crabby::seq_diff(1, 65535) == 2);
+    CHECK(crabby::stamp_newer({1, 0}, {0, 60000}) && !crabby::stamp_newer({0, 7}, {0, 7}));
+
+    crabby::authority car(0);
+    CHECK(car.check(0, 0) == crabby::authority_check::accept);
+    CHECK(car.handoff(1) == 1 && car.owner() == 1 && car.epoch() == 1);
+    CHECK(car.check(0, 0) == crabby::authority_check::stale);
+    CHECK(car.check(0, 1) == crabby::authority_check::wrong_owner);
+    CHECK(car.check(1, 2) == crabby::authority_check::ahead);
+    CHECK(!car.adopt(2, 1) && car.owner() == 1); // simultaneous handoff: the lower id wins
+    CHECK(car.adopt(2, 2) && car.owner() == 2);
+
+    crabby::latest_wins filter;
+    CHECK(filter.accept(5, std::uint16_t(3)) && !filter.accept(5, std::uint16_t(2)) && !filter.accept(5, std::uint16_t(3)));
+    CHECK(filter.accept(5, crabby::update_stamp{1, 0})); // a new epoch beats any sequence number
+    CHECK(filter.size() == 1);
+    filter.forget(5);
+    CHECK(filter.accept(5, std::uint16_t(1)) && filter.size() == 1);
+    auto moved = std::move(filter);
+    moved.clear();
+    CHECK(moved.size() == 0);
+
+    crabby::snapshot_stream stream;
+    CHECK(!stream.sample(0) && !stream.clock_offset());
+    for (int n = 0; n < 20; n++) {
+        auto p = crabby::moving(crabby::pose_at({float(n), 0, 0}), {20, 0, 0});
+        CHECK(stream.push(5000 + n * 0.05, n * 0.05 + 0.03, p) == crabby::snapshot_push::added);
+    }
+    CHECK(stream.push(5000, 1.0, crabby::pose_at({0, 0, 0})) == crabby::snapshot_push::duplicate);
+    auto shown = stream.sample(1.0);
+    CHECK(shown && shown->state == crabby::snapshot_state::interpolated && std::fabs(shown->value.position.x - 17.4f) < 0.05f);
+    CHECK(stream.sample(1.2)->state == crabby::snapshot_state::extrapolated);
+    CHECK(stream.sample(5.0)->state == crabby::snapshot_state::held);
+    CHECK(stream.size() == 20 && stream.clock_offset() && std::fabs(*stream.clock_offset() + 4999.97) < 0.01);
+    stream.set_delay(0);
+    throws([&] { stream.set_delay(-1); });
+    stream.clear();
+    CHECK(stream.size() == 0 && !stream.sample(1.0));
+    auto config = crabby::snapshot_defaults();
+    config.capacity = 1;
+    throws([&] { crabby::snapshot_stream bad(config); });
+
+    crabby::interest interest;
+    std::vector<crabby::interest_viewer> viewers{{1, {0, 0, 0}}};
+    std::vector<crabby::interest_entity> world{{10, {10, 0, 0}}, {20, {100, 0, 0}}, {30, {900, 0, 0}}};
+    interest.update(0, viewers, world);
+    auto entries = interest.entries(1);
+    CHECK(entries.size() == 2 && entries[0].entity == 10 && entries[0].tier == 0 && entries[1].tier == 1 && entries[1].send);
+    CHECK(interest.changes().size() == 2 && interest.changes()[0].kind == CRABBY_INTEREST_ENTERED);
+    int near_sent = 0, mid_sent = 0;
+    for (std::uint64_t tick = 1; tick <= 8; tick++) {
+        interest.update(tick, viewers, world);
+        CHECK(interest.changes().empty());
+        for (auto& e : interest.entries(1)) (e.tier == 0 ? near_sent : mid_sent) += e.send;
+    }
+    CHECK(near_sent == 8 && mid_sent == 2); // every tick, and every 4th
+    interest.update(9, {}, world); // nobody is looking any more
+    CHECK(interest.entries(1).empty() && interest.changes().size() == 2);
+    interest.remove_peer(1);
+    auto bad = crabby::interest_defaults();
+    bad.hysteresis = 99;
+    throws([&] { crabby::interest invalid(bad); });
+}
+
 int main() {
     worlds();
     names_and_reflection();
@@ -1413,6 +1479,7 @@ int main() {
     vehicles();
     lockstep();
     messages();
+    replication();
     navigation();
     particles3d();
     ragdolls();
