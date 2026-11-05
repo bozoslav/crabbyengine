@@ -12,6 +12,7 @@ pub struct AnimationClip {
     looping: bool,
     curves: Vec<Curve>,
     skipped: Vec<String>,
+    morphs: Vec<(String, Curve)>,
 }
 #[derive(Debug, Clone)]
 struct Curve {
@@ -67,7 +68,7 @@ impl AnimationClip {
         }
         let mut curves = Vec::new();
         let mut skipped = Vec::new();
-        for field in ["m_FloatCurves", "m_PPtrCurves", "m_ClipBindingConstant"] {
+        for field in ["m_PPtrCurves", "m_ClipBindingConstant"] {
             if has_data(&m[field]) {
                 skipped.push(format!("skipped {field}"));
             }
@@ -106,11 +107,50 @@ impl AnimationClip {
                 }
             }
         }
+        let mut morphs = Vec::new();
+        for entry in m["m_FloatCurves"].as_seq().unwrap_or_default() {
+            let name = entry["attribute"].as_str().unwrap_or("").strip_prefix("blendShape.");
+            if let Some(name) = name.filter(|_| entry["classID"].as_i64() == Some(137)) {
+                let mut keys = Vec::new();
+                for k in entry["curve"]["m_Curve"].as_seq().unwrap_or_default() {
+                    let time = number(&k["time"]);
+                    let value = number(&k["value"]) / 100.;
+                    let incoming = number(&k["inSlope"]) / 100.;
+                    let outgoing = number(&k["outSlope"]) / 100.;
+                    if !time.is_finite() || !value.is_finite() || incoming.is_nan() || outgoing.is_nan() {
+                        return Err(Error::new("non-finite morph key"));
+                    }
+                    keys.push(Key {
+                        time,
+                        value: [value; 4],
+                        incoming: [incoming; 4],
+                        outgoing: [outgoing; 4],
+                    });
+                }
+                keys.sort_by(|a, b| a.time.total_cmp(&b.time));
+                if keys.windows(2).any(|w| w[0].time == w[1].time) {
+                    return Err(Error::new("duplicate morph key time"));
+                }
+                if !keys.is_empty() {
+                    morphs.push((
+                        name.into(),
+                        Curve {
+                            path: entry["path"].as_str().unwrap_or("").into(),
+                            kind: 0,
+                            keys,
+                        },
+                    ));
+                }
+            } else {
+                skipped.push("skipped m_FloatCurves property".into());
+            }
+        }
         let settings = &m["m_AnimationClipSettings"];
         let start = number(&settings["m_StartTime"]);
         let stop = settings["m_StopTime"].as_f32().unwrap_or_else(|| {
             curves
                 .iter()
+                .chain(morphs.iter().map(|(_, c)| c))
                 .flat_map(|c| c.keys.iter().map(|k| k.time))
                 .fold(start, f32::max)
         });
@@ -132,6 +172,7 @@ impl AnimationClip {
             looping: settings["m_LoopTime"].as_bool().unwrap_or(false),
             curves,
             skipped,
+            morphs,
         })
     }
 
@@ -174,9 +215,43 @@ impl AnimationClip {
                 .filter(|k| k.time >= self.start && k.time <= self.stop)
                 .map(|k| k.time - self.start),
         );
+        times.extend(
+            self.morphs
+                .iter()
+                .flat_map(|(_, c)| c.keys.iter())
+                .filter(|k| k.time >= self.start && k.time <= self.stop)
+                .map(|k| k.time - self.start),
+        );
         times.sort_by(f32::total_cmp);
         times.dedup();
+        let mut morphs = Vec::new();
+        for (name, c) in &self.morphs {
+            let mut node = (root < skin.nodes.len()).then_some(root);
+            for part in c.path.split('/').filter(|s| !s.is_empty()) {
+                node = node.and_then(|parent| {
+                    let mut found = skin
+                        .nodes
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, n)| n.parent == Some(parent) && n.name == part);
+                    let first = found.next().map(|(i, _)| i);
+                    if found.next().is_some() { None } else { first }
+                });
+            }
+            if node.is_some() {
+                morphs.push((
+                    name.clone(),
+                    times.iter().map(|t| c.sample(*t + self.start)[0]).collect(),
+                    c.keys
+                        .windows(2)
+                        .all(|w| w[0].outgoing[0].is_infinite() || w[1].incoming[0].is_infinite()),
+                ));
+            } else {
+                diagnostics.push(format!("{}: unresolved morph path {:?}", self.name, c.path));
+            }
+        }
         let mut animation = SkinAnimation {
+            morphs,
             name: self.name.clone(),
             looping: self.looping,
             times,
@@ -239,7 +314,7 @@ impl AnimationClip {
                 animation.nodes[node].push(Mat4::from_scale_rotation_translation(s, r, t).to_cols_array());
             }
         }
-        if animation.nodes.iter().any(|n| !n.is_empty()) {
+        if !animation.morphs.is_empty() || animation.nodes.iter().any(|n| !n.is_empty()) {
             skin.animations.push(animation);
         }
         diagnostics.sort();
@@ -407,6 +482,68 @@ mod tests {
                 _ => {}
             }
         }
+    }
+    #[test]
+    fn blend_shape_curves_scale_percent_and_keep_sparse_names() {
+        let clip = AnimationClip::parse("--- !u!74 &1\nAnimationClip:\n  m_Name: Face\n  m_SampleRate: 2\n  m_FloatCurves:\n  - attribute: blendShape.Raise\n    classID: 137\n    path: ''\n    curve:\n      m_Curve:\n      - {time: 0, value: 0, inSlope: 100, outSlope: 100}\n      - {time: 1, value: 100, inSlope: 100, outSlope: 100}\n").unwrap();
+        let mut skin = MeshSkin {
+            nodes: vec![crate::SkinNode {
+                name: "Root".into(),
+                parent: None,
+                matrix: Mat4::IDENTITY.to_cols_array(),
+            }],
+            ..Default::default()
+        };
+        assert!(clip.append_to_skin(&mut skin, 0).is_empty());
+        assert_eq!(skin.animations[0].times, [0., 0.5, 1.]);
+        assert_eq!(skin.animations[0].morphs, [("Raise".into(), vec![0., 0.5, 1.], false)]);
+        let vertices = crate::glb::Vertices {
+            skin: Some(skin),
+            positions: vec![[0.; 3]; 3],
+            joints: vec![[0; 4]; 3],
+            weights: vec![[1., 0., 0., 0.]; 3],
+            targets: vec![
+                crate::glb::Target {
+                    name: "Raise".into(),
+                    positions: vec![[0.; 3]; 3],
+                    ..Default::default()
+                },
+                crate::glb::Target {
+                    name: "Untouched".into(),
+                    positions: vec![[0.; 3]; 3],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let bytes = crate::glb::write(
+            "Face",
+            &vertices,
+            &[crate::glb::Primitive {
+                indices: vec![0, 1, 2],
+                material: 0,
+            }],
+            vec![serde_json::json!({})],
+            &[],
+        );
+        let g = gltf::Gltf::from_slice(&bytes).unwrap();
+        let a = g.animations().next().unwrap();
+        let ch = a
+            .channels()
+            .find(|c| c.target().property() == gltf::animation::Property::MorphTargetWeights)
+            .unwrap();
+        let gltf::animation::util::ReadOutputs::MorphTargetWeights(v) =
+            ch.reader(|_| g.blob.as_deref()).read_outputs().unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(v.into_f32().collect::<Vec<_>>(), [0., 0., 0.5, 0., 1., 0.]);
+        let len = u32::from_le_bytes(bytes[12..16].try_into().unwrap()) as usize;
+        let doc: serde_json::Value = serde_json::from_slice(&bytes[20..20 + len]).unwrap();
+        assert_eq!(
+            doc["animations"][0]["extras"]["crabbyAnimatedTargets"],
+            serde_json::json!(["Raise"])
+        );
     }
     #[test]
     fn compressed_and_binary_clips_report_the_limitation() {

@@ -245,6 +245,7 @@ impl ModelFile {
                         })
                         .collect();
                     data.animations.push(crate::mesh::SkinAnimation {
+                        morphs: Vec::new(),
                         name: clip.name,
                         looping: clip.looping,
                         step,
@@ -255,9 +256,8 @@ impl ModelFile {
             }
             out.skin = Some(data);
         }
-        // Blend shapes: one per channel, at its full-weight shape (Unity
-        // also keeps in-between frames; they're left out). Offsets turn
-        // and scale like positions, without moving.
+        // Every authored blend channel frame. Offsets turn and scale like
+        // positions, without moving.
         let shift = |d: ufbx::Vec3| {
             let d = to_unity(to_node.map_or(d, |m| transform(&m, d, 0.0)));
             d.map(|c| c as f32 * self.scale)
@@ -267,13 +267,24 @@ impl ModelFile {
             .blend_deformers
             .iter()
             .flat_map(|b| b.channels.iter())
-            .filter_map(|c| Some((c, c.target_shape.as_ref()?)))
+            .flat_map(|c| {
+                c.keyframes
+                    .iter()
+                    .enumerate()
+                    .map(move |(i, k)| (c, &k.shape, k.target_weight as f32, i + 1 == c.keyframes.len()))
+            })
             .collect();
         out.blend_shapes = channels
             .iter()
-            .map(|(channel, _)| BlendShape {
-                name: channel.element.name.to_string(),
-                weight: channel.weight as f32,
+            .map(|(channel, _, weight, last)| BlendShape {
+                name: if *last {
+                    channel.element.name.to_string()
+                } else {
+                    format!("{}@{weight}", channel.element.name)
+                },
+                channel: channel.element.name.to_string(),
+                frame_weight: *weight,
+                weight: if *last { channel.weight as f32 } else { 0. },
                 ..Default::default()
             })
             .collect();
@@ -281,7 +292,7 @@ impl ModelFile {
         // normals too.
         let offsets: Vec<(ShapeOffsets, bool)> = channels
             .iter()
-            .map(|(_, shape)| {
+            .map(|(_, shape, _, _)| {
                 let normals = shape.normal_offsets.len() >= shape.num_offsets && shape.num_offsets > 0;
                 let by_vertex = (0..shape.num_offsets)
                     .map(|k| {

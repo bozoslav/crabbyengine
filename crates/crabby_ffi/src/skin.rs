@@ -537,6 +537,7 @@ pub unsafe extern "C" fn crabby_ctx_sample_clip(
             };
             let s = skeleton_mut(c, entity_bits)?;
             clip.0.sample_blended(time, weight, s);
+            c.write_animated_morphs();
             Ok(())
         })
     })

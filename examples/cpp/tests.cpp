@@ -699,6 +699,9 @@ static void morph_targets() {
         crabby::morph_target tip{"tip", std::vector<crabby::vec3>(4), {}}; // normals stay flat
         tip.positions[0] = {0, 0.4f, 0};
         sheet.add_morph_target(tip);
+        sheet.add_morph_frame(0, 1, 0.5f);
+        sheet.add_morph_frame(0, 0, 1.0f);
+        throws([&] { sheet.add_morph_frame(0, 0, 1.0f); });
         throws([&] { sheet.add_morph_target(crabby::morph_target{"short", std::vector<crabby::vec3>(3), {}}); });
 
         auto mesh = ctx.create_mesh(sheet, ctx.default_material());
@@ -713,6 +716,15 @@ static void morph_targets() {
         CHECK(ctx.morph_weight(e, 0) == std::optional(0.5f));
         CHECK(ctx.morph_weight(e, 1) == std::optional(1.0f));
         CHECK(ctx.morph_weight(e, 2) == std::optional(0.0f));
+        ctx.set_skeleton(e, {});
+        crabby::clip face("face");
+        face.set_morph_track("dent", {0, 2}, {0, 1});
+        CHECK(face.duration() == 2);
+        ctx.sample_clip(face, e, 1);
+        CHECK(ctx.morph_weight(e, 0) == std::optional(0.5f));
+        CHECK(ctx.morph_weight(e, 1) == std::optional(1.0f));
+        throws([&] { face.set_morph_track("dent", {0, 1}, {0}); });
+        ctx.write_animated_morphs();
         ctx.clear_morph_weights(e);
         CHECK(!ctx.morph_weight(e, 0));
         throws([&] { ctx.set_morph_weight(12345, 0, 0.5f); }); // no such entity

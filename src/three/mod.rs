@@ -45,13 +45,13 @@ pub use animator::{
 pub(crate) use api::GpuMaterialDesc;
 #[cfg(feature = "window")]
 pub(crate) use api::MaterialTextures;
-pub use clip::{AnimationClip, AnimationTrack, Interpolation, JointAnimation};
+pub use clip::{AnimationClip, AnimationTrack, Interpolation, JointAnimation, MorphAnimation};
 pub(crate) use collect::Frame3D;
 #[cfg(feature = "window")]
 pub(crate) use collect::{Instance3D, MAX_CASCADES, MAX_SHADOW_VIEWS, SHADOW_MAP_SIZE, shadow_views};
 pub use compute::{Compute, ComputePass};
 pub use effect::{Effect, ScreenEffect};
-pub use mesh::{MeshData, MorphTarget};
+pub use mesh::{MeshData, MorphFrame, MorphTarget};
 #[cfg(feature = "window")]
 pub(crate) use post::PostUniform;
 pub use post::{Post, Tonemap};
@@ -645,6 +645,8 @@ pub(crate) struct Scene3D<'a> {
 /// culling, and for headless runs, which have no GPU.
 #[derive(Default)]
 pub(crate) struct Assets3D {
+    pub morph_entities: Vec<crate::Entity>,
+    pub morph_bases: std::collections::HashMap<crate::Entity, (u32, MorphWeights, MorphWeights)>,
     /// Bounding sphere of each mesh, in its own space: center and radius.
     pub bounds: Vec<(Vec3, f32)>,
     /// How each skinned mesh binds to joints, by mesh id; shorter than

@@ -141,7 +141,7 @@ pub struct UnityMesh {
     pub blend_shapes: Vec<BlendShape>,
 }
 
-/// One blend shape of a mesh at full weight: how far each vertex moves.
+/// One authored blend-shape frame: how far each vertex moves.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BlendShape {
     /// Its name (the model file's channel name).
@@ -152,6 +152,11 @@ pub struct BlendShape {
     pub normals: Vec<[f32; 3]>,
     /// The weight it starts at, 0 to 1.
     pub weight: f32,
+    /// Weight of this frame, in units where 1 means 100 percent (0 means 1
+    /// for older callers). Frames of a channel share `channel`.
+    pub frame_weight: f32,
+    /// Original channel name; empty for an ordinary single-frame shape.
+    pub channel: String,
 }
 
 /// A skeleton in Unity space; matrices are column-major.
@@ -186,6 +191,9 @@ pub struct SkinAnimation {
     pub step: Vec<[bool; 3]>,
     /// One local matrix per sample for each skeleton node.
     pub nodes: Vec<Vec<[f32; 16]>>,
+    /// Named blend-shape curves sampled at `times`, in 0..1 weight units.
+    /// The bool selects STEP interpolation.
+    pub morphs: Vec<(String, Vec<f32>, bool)>,
 }
 
 /// One skeleton node, relative to its parent (or the mesh for roots).
@@ -199,27 +207,33 @@ pub struct SkinNode {
     pub matrix: [f32; 16],
 }
 
-/// A mesh asset's blend shapes (`m_Shapes`), each at its last (full
-/// weight) frame; in-between frames are left out.
+/// All authored frames from a mesh asset, with sparse offsets expanded.
 fn blend_shapes(shapes: &crate::Value, count: usize) -> Vec<BlendShape> {
     let vertices = shapes["vertices"].as_seq().unwrap_or_default();
     let frames = shapes["shapes"].as_seq().unwrap_or_default();
+    let weights = shapes["fullWeights"].as_seq().unwrap_or_default();
     let xyz = |v: &crate::Value| ["x", "y", "z"].map(|k| v[k].as_f32().unwrap_or(0.0));
-    shapes["channels"]
-        .as_seq()
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|c| {
-            let last = c["frameIndex"].as_i64()? + c["frameCount"].as_i64()? - 1;
-            let frame = frames.get(usize::try_from(last).ok()?)?;
-            let first = frame["firstVertex"].as_i64()? as usize;
-            let n = frame["vertexCount"].as_i64()? as usize;
+    let mut out = Vec::new();
+    for c in shapes["channels"].as_seq().unwrap_or_default() {
+        let first_frame = c["frameIndex"].as_i64().unwrap_or(0).max(0) as usize;
+        let nframes = c["frameCount"].as_i64().unwrap_or(0).max(0) as usize;
+        let channel = c["name"].as_str().unwrap_or_default();
+        for (k, frame) in frames.iter().enumerate().skip(first_frame).take(nframes) {
+            let first = frame["firstVertex"].as_i64().unwrap_or(0).max(0) as usize;
+            let n = frame["vertexCount"].as_i64().unwrap_or(0).max(0) as usize;
             let normals = frame["hasNormals"].as_i64().unwrap_or(0) != 0;
+            let weight = weights.get(k).and_then(crate::Value::as_f32).unwrap_or(100.) / 100.;
             let mut shape = BlendShape {
-                name: c["name"].as_str().unwrap_or_default().to_owned(),
-                positions: vec![[0.0; 3]; count],
-                normals: if normals { vec![[0.0; 3]; count] } else { Vec::new() },
-                weight: 0.0,
+                name: if k + 1 == first_frame + nframes {
+                    channel.into()
+                } else {
+                    format!("{channel}@{weight}")
+                },
+                channel: channel.into(),
+                frame_weight: weight,
+                positions: vec![[0.; 3]; count],
+                normals: if normals { vec![[0.; 3]; count] } else { Vec::new() },
+                weight: 0.,
             };
             for v in vertices.iter().skip(first).take(n) {
                 let Some(i) = v["index"]
@@ -234,9 +248,10 @@ fn blend_shapes(shapes: &crate::Value, count: usize) -> Vec<BlendShape> {
                     shape.normals[i] = xyz(&v["normal"]);
                 }
             }
-            Some(shape)
-        })
-        .collect()
+            out.push(shape);
+        }
+    }
+    out
 }
 
 /// Unity's four-influence import policy.
@@ -464,6 +479,19 @@ pub(crate) fn hex(text: &str) -> Vec<u8> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn mesh_assets_keep_all_blend_shape_frames() {
+        let file = crate::UnityFile::parse("--- !u!43 &1\nMesh:\n  m_Shapes:\n    channels: [{name: Raise, frameIndex: 0, frameCount: 2}]\n    fullWeights: [50, 100]\n    shapes: [{firstVertex: 0, vertexCount: 1, hasNormals: 1}, {firstVertex: 1, vertexCount: 1, hasNormals: 0}]\n    vertices:\n    - {index: 0, vertex: {x: 1, y: 2, z: 3}, normal: {x: 0, y: 1, z: 0}}\n    - {index: 0, vertex: {x: 4, y: 5, z: 6}}\n").unwrap();
+        let mesh = file.of_class(43).next().unwrap();
+        let frames = blend_shapes(&mesh.body["m_Shapes"], 2);
+        assert_eq!(frames.len(), 2);
+        assert_eq!((frames[0].frame_weight, frames[1].frame_weight), (0.5, 1.));
+        assert_eq!(frames[0].channel, "Raise");
+        assert_eq!(frames[1].name, "Raise");
+        assert_eq!(frames[0].positions, [[1., 2., 3.], [0.; 3]]);
+        assert_eq!(frames[1].positions[0], [4., 5., 6.]);
+        assert_eq!(frames[0].normals[0], [0., 1., 0.]);
+    }
     #[test]
     fn vertex_data_skin_channels_decode_and_normalize() {
         let mut bytes = Vec::new();

@@ -243,7 +243,7 @@ pub(crate) fn load(
         .default_scene()
         .or_else(|| gltf.scenes().next())
         .ok_or_else(|| format!("{name}: has no scene"))?;
-    let mut rig = if gltf.skins().len() > 0 {
+    let mut rig = if gltf.skins().len() > 0 || gltf.animations().len() > 0 {
         Some(Rig::new(&gltf.document, &scene, name)?)
     } else {
         None
@@ -287,7 +287,12 @@ pub(crate) fn load(
             let targets = target_names(&mesh);
             for (k, target) in targets.iter().enumerate() {
                 if !defaults.iter().any(|(n, _)| n == target) {
-                    let weight = mesh.weights().and_then(|w| w.get(k)).copied().unwrap_or(0.0);
+                    let weight = node
+                        .weights()
+                        .or_else(|| mesh.weights())
+                        .and_then(|w| w.get(k))
+                        .copied()
+                        .unwrap_or(0.0);
                     defaults.push((target.clone(), weight));
                 }
             }
@@ -341,6 +346,36 @@ pub(crate) fn load(
         data.indices.extend(part.indices.iter().map(|i| i + base));
         parts.push((first..data.indices.len() as u32, material));
     }
+    // Importer-authored in-between frames are ordinary glTF targets plus
+    // a channel mapping in mesh extras. Resolve indices after name merging.
+    for mesh in gltf.meshes() {
+        let names = target_names(&mesh);
+        let extras = mesh
+            .extras()
+            .as_ref()
+            .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw.get()).ok());
+        if let Some(frames) = extras
+            .as_ref()
+            .and_then(|v| v.get("crabbyMorphFrames"))
+            .and_then(|v| v.as_array())
+        {
+            for f in frames {
+                let parse = || -> Option<super::MorphFrame> {
+                    let channel = names.get(f["channel"].as_u64()? as usize)?;
+                    let target = names.get(f["target"].as_u64()? as usize)?;
+                    Some(super::MorphFrame {
+                        channel: data.morph_targets.iter().position(|t| t.name == *channel)?,
+                        target: data.morph_targets.iter().position(|t| t.name == *target)?,
+                        weight: f["weight"].as_f64()? as f32,
+                    })
+                };
+                let frame = parse().ok_or("invalid morph frame extras")?;
+                if !data.morph_frames.contains(&frame) {
+                    data.morph_frames.push(frame);
+                }
+            }
+        }
+    }
     data.check().map_err(|e| format!("{name}: {e}"))?;
     let morph_defaults = data
         .morph_targets
@@ -348,7 +383,7 @@ pub(crate) fn load(
         .map(|t| defaults.iter().find(|(n, _)| *n == t.name).map_or(0.0, |d| d.1))
         .collect();
     let clips = match &rig {
-        Some(rig) => read_clips(&gltf.document, &buffers, rig)?,
+        Some(rig) => read_clips(&gltf.document, &buffers, rig, &data)?,
         None => Vec::new(),
     };
     let skin = rig.map(|rig| LoadedSkin {
@@ -423,7 +458,12 @@ fn merge_targets(into: &mut Vec<MorphTarget>, before: usize, new: Vec<MorphTarge
     }
 }
 
-fn read_clips(document: &gltf::Document, buffers: &[Vec<u8>], rig: &Rig) -> Result<Vec<super::AnimationClip>, String> {
+fn read_clips(
+    document: &gltf::Document,
+    buffers: &[Vec<u8>],
+    rig: &Rig,
+    data: &MeshData,
+) -> Result<Vec<super::AnimationClip>, String> {
     use super::{AnimationClip, AnimationTrack, Interpolation, JointAnimation, Skeleton};
     use gltf::animation::util::ReadOutputs;
     let source = Skeleton::new(rig.joints.clone());
@@ -431,17 +471,23 @@ fn read_clips(document: &gltf::Document, buffers: &[Vec<u8>], rig: &Rig) -> Resu
         .animations()
         .map(|animation| {
             let mut tracks: Vec<JointAnimation> = Vec::new();
+            let mut morphs = Vec::new();
+            let extras = animation
+                .extras()
+                .as_ref()
+                .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw.get()).ok());
+            let animated = extras
+                .as_ref()
+                .and_then(|e| e.get("crabbyAnimatedTargets"))
+                .and_then(|v| v.as_array());
             for channel in animation.channels() {
-                if channel.target().property() == gltf::animation::Property::MorphTargetWeights {
-                    continue;
-                }
                 let joint = rig.of_node[channel.target().node().index()];
                 if joint == u16::MAX {
                     continue;
                 }
                 let joint = usize::from(joint);
                 let reader = channel.reader(|b| buffers.get(b.index()).map(Vec::as_slice));
-                let times = reader.read_inputs().ok_or("animation has no key times")?.collect();
+                let times: Vec<f32> = reader.read_inputs().ok_or("animation has no key times")?.collect();
                 let interpolation = match channel.sampler().interpolation() {
                     gltf::animation::Interpolation::Step => Interpolation::Step,
                     gltf::animation::Interpolation::Linear => Interpolation::Linear,
@@ -451,7 +497,45 @@ fn read_clips(document: &gltf::Document, buffers: &[Vec<u8>], rig: &Rig) -> Resu
                     ReadOutputs::Translations(v) => (0, v.map(|v| Vec3::from(v).extend(0.0)).collect()),
                     ReadOutputs::Rotations(v) => (1, v.into_f32().map(glam::Vec4::from).collect()),
                     ReadOutputs::Scales(v) => (2, v.map(|v| Vec3::from(v).extend(0.0)).collect()),
-                    ReadOutputs::MorphTargetWeights(_) => continue,
+                    ReadOutputs::MorphTargetWeights(v) => {
+                        let mesh = channel.target().node().mesh().ok_or("weight channel has no mesh")?;
+                        let names = target_names(&mesh);
+                        let values: Vec<f32> = v.into_f32().collect();
+                        let multiple = if interpolation == Interpolation::CubicSpline {
+                            3
+                        } else {
+                            1
+                        };
+                        if names.is_empty() || values.len() != times.len() * multiple * names.len() {
+                            return Err("invalid morph animation value count".into());
+                        }
+                        for (k, name) in names.iter().enumerate() {
+                            if animated.is_some_and(|a| !a.iter().any(|v| v.as_str() == Some(name))) {
+                                continue;
+                            }
+                            if !data.morph_targets.iter().any(|t| t.name == *name) {
+                                continue;
+                            }
+                            let track = AnimationTrack::try_new(
+                                times.clone(),
+                                values
+                                    .iter()
+                                    .skip(k)
+                                    .step_by(names.len())
+                                    .map(|v| glam::Vec4::new(*v, 0., 0., 0.))
+                                    .collect(),
+                                interpolation,
+                            )?;
+                            if let Some(at) = morphs.iter().position(|t: &super::MorphAnimation| t.name == *name) {
+                                morphs.remove(at);
+                            }
+                            morphs.push(super::MorphAnimation {
+                                name: name.clone(),
+                                track,
+                            });
+                        }
+                        continue;
+                    }
                 };
                 let track = AnimationTrack::try_new(times, values, interpolation)?;
                 let at = tracks.iter().position(|t| t.joint == joint).unwrap_or_else(|| {
@@ -476,7 +560,8 @@ fn read_clips(document: &gltf::Document, buffers: &[Vec<u8>], rig: &Rig) -> Resu
                     .map_or_else(|| format!("animation {}", animation.index()), str::to_string),
                 &source,
                 tracks,
-            ))
+            )
+            .with_morph_tracks(morphs))
         })
         .collect()
 }
@@ -1050,6 +1135,54 @@ mod tests {
             accessor(1),
             accessor(2),
         )
+    }
+
+    #[test]
+    fn morph_only_gltf_channels_sample_all_interpolations_and_frame_metadata() {
+        use crate::{MorphWeights, Skeleton};
+        for (mode, values, expected) in [
+            ("LINEAR", vec![0., 0.2, 1., 0.6], [0.5, 0.4]),
+            ("STEP", vec![0., 0.2, 1., 0.6], [0., 0.2]),
+            // key-major in/value/out triples, with each tuple's target values interleaved.
+            (
+                "CUBICSPLINE",
+                vec![0., 0., 0., 0.2, 4., 0., 0., 0., 0., 0.6, 0., 0.],
+                [1., 0.4],
+            ),
+        ] {
+            let mut doc: serde_json::Value = serde_json::from_str(&morph_gltf()).unwrap();
+            let mut bytes = Vec::new();
+            for v in [0f32, 2.].into_iter().chain(values) {
+                bytes.extend(v.to_le_bytes());
+            }
+            doc["buffers"].as_array_mut().unwrap().push(serde_json::json!({"byteLength":bytes.len(),"uri":format!("data:application/octet-stream;base64,{}",to_base64(&bytes))}));
+            doc["bufferViews"]
+                .as_array_mut()
+                .unwrap()
+                .push(serde_json::json!({"buffer":1,"byteLength":bytes.len()}));
+            doc["accessors"].as_array_mut().unwrap().extend([
+                serde_json::json!({"bufferView":1,"componentType":5126,"count":2,"type":"SCALAR","min":[0.],"max":[2.]}),
+                serde_json::json!({"bufferView":1,"byteOffset":8,"componentType":5126,"count":(bytes.len()-8)/4,"type":"SCALAR"})]);
+            doc["animations"] = serde_json::json!([{"name":"face","samplers":[{"input":3,"output":4,"interpolation":mode}],"channels":[{"sampler":0,"target":{"node":0,"path":"weights"}}]}]);
+            doc["meshes"][0]["extras"]["crabbyMorphFrames"] = serde_json::json!([
+                {"channel":0,"target":1,"weight":0.5},{"channel":0,"target":0,"weight":1.}]);
+            let loaded = load("face.gltf", doc.to_string().as_bytes(), &mut |f| Err(f.into()), &|_| {
+                false
+            })
+            .unwrap();
+            assert_eq!(loaded.data.morph_frames.len(), 2);
+            let mut skeleton = Skeleton::from_shared(loaded.skin.unwrap().joints);
+            loaded.clips[0].sample(1., &mut skeleton);
+            let mut weights = MorphWeights(vec![0., 0.]);
+            let names: Vec<_> = loaded.data.morph_targets.iter().map(|t| t.name.clone()).collect();
+            skeleton.write_morph_weights(&names, &mut weights);
+            for (name, value) in [("smile", expected[0]), ("blink", expected[1])] {
+                assert!(
+                    (weights.get(names.iter().position(|n| n == name).unwrap()) - value).abs() < 1e-6,
+                    "{mode} {name}"
+                );
+            }
+        }
     }
 
     #[test]

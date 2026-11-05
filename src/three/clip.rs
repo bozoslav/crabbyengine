@@ -162,15 +162,31 @@ pub struct JointAnimation {
     /// Local scale keys, xyz.
     pub scale: Option<AnimationTrack>,
 }
+/// A named morph channel. Values use the track's x component, in units where
+/// 1 is full weight. Cubic tangents use weight units per second.
+/// ```
+/// use crabbyengine::*;
+/// let channel = MorphAnimation { name: "smile".into(), track: AnimationTrack::new(
+///     vec![0.0], vec![Vec4::ONE], Interpolation::Step) };
+/// assert_eq!(channel.name, "smile");
+/// ```
+#[derive(Debug, Clone)]
+pub struct MorphAnimation {
+    /// Mesh target name; unrelated targets are untouched.
+    pub name: String,
+    /// Scalar keys in x.
+    pub track: AnimationTrack,
+}
 #[derive(Debug)]
 struct ClipData {
     name: String,
     duration: f32,
     tracks: Vec<JointAnimation>,
+    morphs: Vec<MorphAnimation>,
     joints: Arc<[Joint]>,
     bindings: Mutex<Vec<Binding>>,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Binding {
     joints: Arc<[Joint]>,
     indices: Vec<Option<usize>>,
@@ -218,9 +234,62 @@ impl AnimationClip {
             name: name.into(),
             duration,
             tracks,
+            morphs: Vec::new(),
             joints: source.shared_joints().clone(),
             bindings: Mutex::new(Vec::new()),
         }))
+    }
+    /// Replaces named morph tracks on a clip. Duplicate names are rejected.
+    /// ```
+    /// use crabbyengine::*;
+    /// let clip = AnimationClip::new("face", &Skeleton::new(vec![]), vec![])
+    ///     .with_morph_tracks(vec![]);
+    /// assert!(clip.morph_tracks().is_empty());
+    /// ```
+    pub fn with_morph_tracks(mut self, tracks: Vec<MorphAnimation>) -> Self {
+        for (i, t) in tracks.iter().enumerate() {
+            assert!(
+                !tracks[..i].iter().any(|p| p.name == t.name),
+                "duplicate morph track name"
+            );
+        }
+        if Arc::get_mut(&mut self.0).is_none() {
+            self.0 = Arc::new(ClipData {
+                name: self.0.name.clone(),
+                duration: self.0.duration,
+                tracks: self.0.tracks.clone(),
+                morphs: self.0.morphs.clone(),
+                joints: self.0.joints.clone(),
+                bindings: Mutex::new(Vec::new()),
+            });
+        }
+        let data = Arc::get_mut(&mut self.0).unwrap();
+        data.duration = tracks
+            .iter()
+            .map(|t| *t.track.times.last().unwrap())
+            .chain(
+                data.tracks
+                    .iter()
+                    .flat_map(|t| [&t.translation, &t.rotation, &t.scale])
+                    .flatten()
+                    .map(|t| *t.times.last().unwrap()),
+            )
+            .fold(0., f32::max);
+        data.morphs = tracks;
+        self
+    }
+    /// Named morph tracks, in weight units (1 is full weight).
+    /// ```
+    /// # use crabbyengine::*;
+    /// assert!(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![]).morph_tracks().is_empty());
+    /// ```
+    pub fn morph_tracks(&self) -> &[MorphAnimation] {
+        &self.0.morphs
+    }
+    pub(crate) fn sample_morphs(&self, time: f32, weight: f32, skeleton: &mut Skeleton) {
+        for t in &self.0.morphs {
+            skeleton.morphs.set(&t.name, t.track.sample(time, false).x, weight);
+        }
     }
     /// Clip name (unnamed glTF clips use `animation N`, with zero-based N).
     /// ```
@@ -273,6 +342,7 @@ impl AnimationClip {
         } else {
             time.clamp(0.0, self.duration())
         };
+        self.sample_morphs(time, weight, skeleton);
         if skeleton.shares_joints(&self.0.joints) {
             self.apply(time, weight, skeleton, None);
         } else {

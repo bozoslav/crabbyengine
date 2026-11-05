@@ -50,6 +50,10 @@ pub struct MeshData {
     /// [`MorphWeights`](crate::MorphWeights) say how much of each to add.
     /// Empty for meshes that don't change shape.
     pub morph_targets: Vec<MorphTarget>,
+    /// Optional piecewise linear channels. Each entry links a target's deltas
+    /// at a positive weight to the controlling target index. Unlisted targets
+    /// remain ordinary single-frame glTF targets.
+    pub morph_frames: Vec<MorphFrame>,
 }
 
 /// One shape a mesh can blend toward (see [`MeshData::morph_targets`]):
@@ -72,6 +76,24 @@ pub struct MorphTarget {
     pub positions: Vec<Vec3>,
     /// One normal offset per corner; empty when normals don't change.
     pub normals: Vec<Vec3>,
+}
+
+/// One frame of a piecewise linear morph channel. The channel's weight is
+/// stored at `channel` in MorphWeights; `target` selects this frame's deltas.
+/// Every participating target must belong to exactly one channel.
+/// ```
+/// use crabbyengine::*;
+/// let frame = MorphFrame { channel: 0, target: 1, weight: 0.5 };
+/// assert_eq!(frame.weight, 0.5);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MorphFrame {
+    /// Index controlled by animation or game code.
+    pub channel: usize,
+    /// Index of the frame's offsets in MeshData::morph_targets.
+    pub target: usize,
+    /// Positive, finite frame weight (1 means 100 percent).
+    pub weight: f32,
 }
 
 impl MeshData {
@@ -328,6 +350,22 @@ impl MeshData {
         }
         if !self.positions.iter().all(|p| p.is_finite()) || !self.normals.iter().all(|n| n.is_finite()) {
             return Err("a position or normal isn't a finite number".into());
+        }
+        for (i, f) in self.morph_frames.iter().enumerate() {
+            if f.channel >= self.morph_targets.len()
+                || f.target >= self.morph_targets.len()
+                || !f.weight.is_finite()
+                || f.weight <= 0.
+                || self.morph_frames[..i]
+                    .iter()
+                    .any(|p| p.target == f.target || (p.channel == f.channel && p.weight == f.weight))
+                || self
+                    .morph_frames
+                    .iter()
+                    .any(|p| p.target == f.channel && p.channel != f.channel)
+            {
+                return Err("invalid morph frame mapping".into());
+            }
         }
         for t in &self.morph_targets {
             if t.positions.len() != corners || !t.normals.is_empty() && t.normals.len() != corners {

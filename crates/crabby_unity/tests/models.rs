@@ -441,3 +441,25 @@ fn blend_shapes_become_named_morph_targets() {
     assert_eq!(far_corners, 2, "{:?}", mesh.positions);
     assert!(target["NORMAL"].is_u64());
 }
+
+#[test]
+fn fbx_inbetween_frames_survive_glb_export() {
+    // Windows checkouts may turn the fixture's line endings into CRLF.
+    let source = include_str!("fixtures/lid_shape.fbx")
+        .replace("\r\n", "\n")
+        .replace("FullWeights: *1 {\n\t\t\ta: 100", "FullWeights: *2 {\n\t\t\ta: 50,100")
+        .replace("\tDeformer: 4000", "\tGeometry: 3001, \"Geometry::Half\", \"Shape\" {\n\t\tVersion: 100\n\t\tIndexes: *2 { a: 2,3 }\n\t\tVertices: *6 { a: 0,0,0.2,0,0,0.2 }\n\t}\n\tDeformer: 4000")
+        .replace("C: \"OO\",3000,5000", "C: \"OO\",3001,5000\n\tC: \"OO\",3000,5000");
+    let glb = import_glb("inbetween", source.as_bytes(), "    bakeAxisConversion: 1\n");
+    let len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+    let doc: Json = serde_json::from_slice(&glb[20..20 + len]).unwrap();
+    let frames = doc["meshes"][0]["extras"]["crabbyMorphFrames"].as_array().unwrap();
+    assert_eq!(frames.len(), 2);
+    assert_eq!(frames[0]["weight"], 0.5);
+    assert_eq!(frames[1]["weight"], 1.0);
+    assert_eq!(frames[0]["channel"], 1);
+    assert_eq!(
+        doc["meshes"][0]["primitives"][0]["targets"].as_array().unwrap().len(),
+        2
+    );
+}

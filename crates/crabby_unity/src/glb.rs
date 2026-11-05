@@ -33,6 +33,8 @@ pub(crate) struct Target {
     pub positions: Vec<[f32; 3]>,
     pub normals: Vec<[f32; 3]>,
     pub weight: f32,
+    pub frame_weight: f32,
+    pub channel: String,
 }
 
 /// Builds the binary chunk and the JSON that points into it.
@@ -230,8 +232,27 @@ pub(crate) fn write(
                     view.as_object_mut().unwrap().remove("target");
                 }
             }
+            if !clip.morphs.is_empty() && !vertices.targets.is_empty() {
+                let values: Vec<[f32; 1]> = (0..clip.times.len())
+                    .flat_map(|i| {
+                        vertices.targets.iter().map(move |t| {
+                            [clip
+                                .morphs
+                                .iter()
+                                .find(|(name, _, _)| *name == t.name)
+                                .map_or(t.weight, |(_, v, _)| v[i])]
+                        })
+                    })
+                    .collect();
+                let output = w.floats(&values, "SCALAR", json!({}));
+                w.views.last_mut().unwrap().as_object_mut().unwrap().remove("target");
+                let step = clip.morphs.iter().all(|(_, _, step)| *step);
+                samplers
+                    .push(json!({"input": input, "output": output, "interpolation": if step {"STEP"} else {"LINEAR"}}));
+                channels.push(json!({"sampler": samplers.len()-1, "target": {"node": 0, "path": "weights"}}));
+            }
             if !channels.is_empty() {
-                animations.push(json!({"name": clip.name, "extras": {"loop": clip.looping}, "channels": channels, "samplers": samplers}));
+                animations.push(json!({"name": clip.name, "extras": {"loop": clip.looping, "crabbyAnimatedTargets": clip.morphs.iter().map(|(n,_,_)| n).collect::<Vec<_>>()}, "channels": channels, "samplers": samplers}));
             }
         }
     }
@@ -252,6 +273,11 @@ pub(crate) fn write(
     if !vertices.targets.is_empty() {
         let names: Vec<&str> = vertices.targets.iter().map(|t| t.name.as_str()).collect();
         doc["meshes"][0]["extras"] = json!({ "targetNames": names });
+        doc["meshes"][0]["extras"]["crabbyMorphFrames"] =
+            json!(vertices.targets.iter().enumerate().filter_map(|(i,t)| {
+            let channel = vertices.targets.iter().position(|p| p.name == t.channel)?;
+            Some(json!({"channel": channel, "target": i, "weight": if t.frame_weight > 0. {t.frame_weight} else {1.}}))
+        }).collect::<Vec<_>>());
         doc["meshes"][0]["weights"] = json!(vertices.targets.iter().map(|t| t.weight).collect::<Vec<_>>());
     }
     if let (Some(skin), Some(mut skin_json)) = (&vertices.skin, skin_json) {
@@ -345,6 +371,7 @@ mod tests {
                 joints: vec![0],
                 inverse_binds: vec![glam::Mat4::IDENTITY.to_cols_array()],
                 animations: vec![crate::mesh::SkinAnimation {
+                    morphs: Vec::new(),
                     name: "Move".into(),
                     looping: true,
                     step: vec![[true, false, false]],

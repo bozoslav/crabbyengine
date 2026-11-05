@@ -92,6 +92,7 @@ pub unsafe extern "C" fn crabby_mesh_data_clear_morph_targets(data: *mut CrabbyM
             return Err(invalid("mesh data is null"));
         };
         data.0.morph_targets.clear();
+        data.0.morph_frames.clear();
         Ok(())
     })
 }
@@ -222,6 +223,143 @@ pub unsafe extern "C" fn crabby_ctx_clear_morph_weights(ctx: *mut CrabbyCtx, ent
         ctx_access(ctx, |c| {
             let e = entity(c, entity_bits)?;
             c.world.remove::<MorphWeights>(e);
+            Ok(())
+        })
+    })
+}
+
+/// Links existing mesh targets into a piecewise linear channel (Rust MorphFrame).
+/// Frame weights must be positive and distinct, and targets cannot be shared.
+/// # Safety
+/// `data` null or live.
+/// ```
+/// assert_ne!(unsafe { crabby_ffi::crabby_mesh_data_add_morph_frame(std::ptr::null_mut(), 0, 0, 0.5) } as u32, 0);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_mesh_data_add_morph_frame(
+    data: *mut CrabbyMeshData,
+    channel: usize,
+    target: usize,
+    weight: f32,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        let data = data.as_mut().ok_or_else(|| invalid("mesh data is null"))?;
+        data.0.morph_frames.push(crabbyengine::MorphFrame {
+            channel,
+            target,
+            weight,
+        });
+        if let Err(e) = data.0.check() {
+            data.0.morph_frames.pop();
+            return Err(invalid_owned(e));
+        }
+        Ok(())
+    })
+}
+
+/// Creates an empty animation clip, ready for named morph tracks.
+/// # Safety
+/// `name` is a C string; `output` writable.
+/// ```
+/// assert_ne!(unsafe { crabby_ffi::crabby_clip_new(c"face".as_ptr(), std::ptr::null_mut()) } as u32, 0);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_clip_new(
+    name: *const std::ffi::c_char,
+    output: *mut *mut crate::CrabbyClip,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        let name = text(name)?;
+        if output.is_null() {
+            return Err(invalid("output is null"));
+        }
+        out(
+            output,
+            Box::into_raw(Box::new(crate::CrabbyClip(crabbyengine::AnimationClip::new(
+                name,
+                &crabbyengine::Skeleton::new(vec![]),
+                vec![],
+            )))),
+        )?;
+        Ok(())
+    })
+}
+
+/// Adds/replaces one named scalar morph track. `interpolation`: 0 STEP,
+/// 1 LINEAR, 2 CUBICSPLINE. Cubic values are in/value/out triples per key;
+/// other modes have one value per key. Weights use 1 for full weight.
+/// # Safety
+/// `clip` null or live; `name` C string; `times` holds `count` floats;
+/// `values` holds `count` floats (three times as many for cubic).
+/// ```
+/// assert_ne!(unsafe { crabby_ffi::crabby_clip_set_morph_track(std::ptr::null_mut(), c"smile".as_ptr(), std::ptr::null(), std::ptr::null(), 0, 1) } as u32, 0);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_clip_set_morph_track(
+    clip: *mut crate::CrabbyClip,
+    name: *const std::ffi::c_char,
+    times: *const f32,
+    values: *const f32,
+    count: usize,
+    interpolation: u32,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        let clip = clip.as_mut().ok_or_else(|| invalid("clip is null"))?;
+        let name = text(name)?;
+        if count == 0 || count > 1_000_000 || times.is_null() || values.is_null() {
+            return Err(invalid("invalid morph keys"));
+        }
+        let interpolation = match interpolation {
+            0 => crabbyengine::Interpolation::Step,
+            1 => crabbyengine::Interpolation::Linear,
+            2 => crabbyengine::Interpolation::CubicSpline,
+            _ => return Err(invalid("invalid interpolation")),
+        };
+        let times = std::slice::from_raw_parts(times, count).to_vec();
+        let n = count
+            * if interpolation == crabbyengine::Interpolation::CubicSpline {
+                3
+            } else {
+                1
+            };
+        let values = std::slice::from_raw_parts(values, n);
+        if times.iter().any(|v| !v.is_finite() || *v < 0.)
+            || times.windows(2).any(|w| w[0] >= w[1])
+            || values.iter().any(|v| !v.is_finite())
+        {
+            return Err(invalid("invalid morph keys"));
+        }
+        let track = crabbyengine::AnimationTrack::new(
+            times,
+            values.iter().map(|v| crabbyengine::Vec4::new(*v, 0., 0., 0.)).collect(),
+            interpolation,
+        );
+        let mut tracks = clip.0.morph_tracks().to_vec();
+        tracks.retain(|t| t.name != name);
+        tracks.push(crabbyengine::MorphAnimation {
+            name: name.into(),
+            track,
+        });
+        clip.0 = clip.0.clone().with_morph_tracks(tracks);
+        Ok(())
+    })
+}
+
+/// Writes manually sampled skeleton morph channels to model components.
+/// # Safety
+/// `ctx` null or live.
+/// ```
+/// assert_ne!(unsafe { crabby_ffi::crabby_ctx_write_animated_morphs(std::ptr::null_mut()) } as u32, 0);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_write_animated_morphs(ctx: *mut CrabbyCtx) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            c.write_animated_morphs();
             Ok(())
         })
     })

@@ -2144,6 +2144,22 @@ enum CrabbyStatus crabby_ctx_morph_weight(struct CrabbyCtx *ctx,
 
 enum CrabbyStatus crabby_ctx_clear_morph_weights(struct CrabbyCtx *ctx, uint64_t entity_bits);
 
+enum CrabbyStatus crabby_mesh_data_add_morph_frame(struct CrabbyMeshData *data,
+                                                   size_t channel,
+                                                   size_t target,
+                                                   float weight);
+
+enum CrabbyStatus crabby_clip_new(const char *name, struct CrabbyClip **output);
+
+enum CrabbyStatus crabby_clip_set_morph_track(struct CrabbyClip *clip,
+                                              const char *name,
+                                              const float *times,
+                                              const float *values,
+                                              size_t count,
+                                              uint32_t interpolation);
+
+enum CrabbyStatus crabby_ctx_write_animated_morphs(struct CrabbyCtx *ctx);
+
 struct CrabbyNavBakeSettings crabby_nav_bake_settings_default(void);
 
 struct CrabbyNavSources *crabby_nav_sources_new(void);
