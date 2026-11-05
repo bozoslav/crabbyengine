@@ -612,14 +612,16 @@ impl Ctx {
         let mut costs: Vec<super::MeshCost> = renderer
             .mesh_costs()
             .into_iter()
-            .map(|(id, models, triangles, shadow_models, shadow_triangles)| super::MeshCost {
-                mesh: super::Mesh { id },
-                name: names.get(&id).map(|p| p.display().to_string()),
-                models,
-                triangles,
-                shadow_models,
-                shadow_triangles,
-            })
+            .map(
+                |(id, models, triangles, shadow_models, shadow_triangles)| super::MeshCost {
+                    mesh: super::Mesh { id },
+                    name: names.get(&id).map(|p| p.display().to_string()),
+                    models,
+                    triangles,
+                    shadow_models,
+                    shadow_triangles,
+                },
+            )
             .collect();
         costs.sort_by_key(|c| std::cmp::Reverse(c.triangles + c.shadow_triangles));
         costs

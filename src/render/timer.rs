@@ -278,7 +278,10 @@ fn smooth_passes(passes: &mut Vec<GpuPass>, out: &mut Vec<GpuPass>, frame: &[Pas
     for span in frame {
         match out.iter_mut().find(|p| p.name == span.name) {
             Some(p) => p.ms += span.ms,
-            None => out.push(GpuPass { name: span.name, ms: span.ms }),
+            None => out.push(GpuPass {
+                name: span.name,
+                ms: span.ms,
+            }),
         }
     }
     for p in out.iter_mut() {
@@ -331,10 +334,30 @@ mod tests {
 
     #[test]
     fn same_named_passes_add_up_and_smooth() {
-        let span = |name, ms| PassSpan { name, start_ms: 0.0, ms };
+        let span = |name, ms| PassSpan {
+            name,
+            start_ms: 0.0,
+            ms,
+        };
         let (mut passes, mut scratch) = (Vec::new(), Vec::new());
-        smooth_passes(&mut passes, &mut scratch, &[span("shadows", 1.0), span("opaque", 4.0), span("shadows", 1.0)]);
-        assert_eq!(passes, [GpuPass { name: "shadows", ms: 2.0 }, GpuPass { name: "opaque", ms: 4.0 }]);
+        smooth_passes(
+            &mut passes,
+            &mut scratch,
+            &[span("shadows", 1.0), span("opaque", 4.0), span("shadows", 1.0)],
+        );
+        assert_eq!(
+            passes,
+            [
+                GpuPass {
+                    name: "shadows",
+                    ms: 2.0
+                },
+                GpuPass {
+                    name: "opaque",
+                    ms: 4.0
+                }
+            ]
+        );
         smooth_passes(&mut passes, &mut scratch, &[span("opaque", 14.0)]);
         assert_eq!(passes.len(), 1, "passes that stopped running are dropped");
         assert!((passes[0].ms - 5.0).abs() < 1e-5, "{}", passes[0].ms);

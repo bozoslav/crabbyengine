@@ -9,7 +9,11 @@
 //! - `CRABBY_HUD=1`: show the performance HUD.
 //! - `CRABBY_BENCH=<frames>`: after `CRABBY_BENCH_WARMUP` frames (default
 //!   240), measure that many frames with vsync off, print a report, write it
-//!   as JSON to `CRABBY_BENCH_OUT` if set, and quit.
+//!   as JSON to `CRABBY_BENCH_OUT` if set, and quit. With 3D, it also lists
+//!   the meshes that drew the most triangles, and writes every mesh's counts
+//!   as CSV to `CRABBY_BENCH_MESHES` if set. Frames are drawn offscreen, so
+//!   the display's refresh rate doesn't cap them; `CRABBY_BENCH_PRESENT=1`
+//!   shows them in the window instead (where it can take them).
 //! - `CRABBY_TRACE=<path.json>`: after `CRABBY_TRACE_SKIP` frames (default
 //!   240), record `CRABBY_TRACE_FRAMES` frames (default 120) as a Chrome trace
 //!   (open it in <https://ui.perfetto.dev>).
@@ -377,13 +381,7 @@ impl Trace {
     }
 
     /// Returns `true` once the trace is written.
-    fn record(
-        &mut self,
-        frame: u64,
-        s: &FrameSample,
-        systems: &[SystemTiming],
-        gpu: Option<&[PassSpan]>,
-    ) -> bool {
+    fn record(&mut self, frame: u64, s: &FrameSample, systems: &[SystemTiming], gpu: Option<&[PassSpan]>) -> bool {
         if frame <= self.skip {
             return false;
         }
@@ -617,7 +615,10 @@ mod tests {
         let mut text = String::new();
         let passes = [
             GpuPass { name: "post", ms: 0.2 },
-            GpuPass { name: "opaque", ms: 5.0 },
+            GpuPass {
+                name: "opaque",
+                ms: 5.0,
+            },
         ];
         hud_text(&mut text, &FrameStats::default(), &[], &passes, RenderStats::default());
         let opaque = text.find("opaque").unwrap();
@@ -627,7 +628,11 @@ mod tests {
     #[test]
     fn a_benchmark_ends_after_its_frames() {
         let mut b = Bench::new(2, 3, None);
-        let spans = [PassSpan { name: "opaque", start_ms: 0.0, ms: 2.0 }];
+        let spans = [PassSpan {
+            name: "opaque",
+            start_ms: 0.0,
+            ms: 2.0,
+        }];
         let done: Vec<bool> = (1..=5).map(|f| b.record(f, &sample(5.0), &[], Some(&spans))).collect();
         assert_eq!(done, [false, false, false, false, true]);
         assert_eq!(b.passes, [("opaque", 6.0)]);

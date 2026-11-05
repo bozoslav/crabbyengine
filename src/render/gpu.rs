@@ -51,6 +51,9 @@ pub(crate) struct Renderer {
     /// Draw frames the window can't take into `hidden_target` instead of
     /// skipping them (benchmarks).
     draw_hidden: bool,
+    /// Draw every frame into `hidden_target`, never to the window: the
+    /// display's refresh rate then neither caps nor stalls a benchmark.
+    only_hidden: bool,
     hidden_target: Option<wgpu::Texture>,
     /// Offscreen frames still on the GPU, oldest first: no more than a
     /// window's swapchain would allow, so the CPU can't run ahead.
@@ -59,6 +62,12 @@ pub(crate) struct Renderer {
     /// The 3D pass, made when the game first creates a mesh or material.
     #[cfg(feature = "3d")]
     three: Option<super::gpu3d::Renderer3D>,
+    /// Samples per pixel of the 3D frame.
+    #[cfg(feature = "3d")]
+    msaa: u32,
+    /// The GPU draws in tiles (see `Renderer3D::solid_prepass`).
+    #[cfg(feature = "3d")]
+    tiled: bool,
     #[cfg(feature = "3d")]
     mips: Option<super::mips::MipMaker>,
     /// Time spent collecting and uploading this frame's 3D models.
@@ -196,9 +205,11 @@ impl Renderer {
     }
 
     /// Draw frames that the window can't take offscreen instead of skipping
-    /// them, so benchmarks measure every frame.
-    pub fn set_draw_hidden(&mut self, on: bool) {
-        self.draw_hidden = on;
+    /// them, so benchmarks measure every frame; with `always`, draw every
+    /// frame offscreen.
+    pub fn set_draw_hidden(&mut self, on: bool, always: bool) {
+        self.draw_hidden = on || always;
+        self.only_hidden = always;
     }
 
     /// A view of the offscreen stand-in for the window, made at its size.
@@ -248,11 +259,16 @@ impl Renderer {
     /// Opens the GPU and sets up drawing to `window`, waiting for the GPU
     /// (desktop; the web build calls [`Self::new_async`]).
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn new(window: Arc<Window>, display: winit::event_loop::OwnedDisplayHandle, vsync: bool) -> Self {
-        pollster::block_on(Self::new_async(window, display, vsync))
+    pub fn new(window: Arc<Window>, display: winit::event_loop::OwnedDisplayHandle, vsync: bool, msaa: u32) -> Self {
+        pollster::block_on(Self::new_async(window, display, vsync, msaa))
     }
 
-    pub async fn new_async(window: Arc<Window>, display: winit::event_loop::OwnedDisplayHandle, vsync: bool) -> Self {
+    pub async fn new_async(
+        window: Arc<Window>,
+        display: winit::event_loop::OwnedDisplayHandle,
+        vsync: bool,
+        msaa: u32,
+    ) -> Self {
         let descriptor = wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(display));
         // In a browser, use WebGPU where it works and WebGL2 elsewhere.
         #[cfg(target_arch = "wasm32")]
@@ -275,7 +291,8 @@ impl Renderer {
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("crabbyengine device"),
-                required_features: adapter.features() & (wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES),
+                required_features: adapter.features()
+                    & (wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES),
                 // The defaults ask for more than WebGL2 has; we need little.
                 required_limits: if cfg!(target_arch = "wasm32") {
                     adapter.limits()
@@ -286,6 +303,22 @@ impl Renderer {
             })
             .await
             .unwrap_or_else(|e| panic!("crabbyengine: could not open the GPU device: {e}"));
+
+        // The 3D frame's samples per pixel: the game's choice where this GPU
+        // can multisample both 3D targets that much, else 4 (always works).
+        #[cfg(feature = "3d")]
+        let msaa = if super::gpu3d::multisamples(&adapter, msaa) {
+            msaa
+        } else {
+            eprintln!("crabbyengine: this GPU can't do {msaa}x multisampling here; using 4x");
+            4
+        };
+        #[cfg(not(feature = "3d"))]
+        let _ = msaa;
+        // Apple's GPUs (Metal) draw in tiles and drop hidden solid fragments
+        // themselves: there solid surfaces skip the depth prepass.
+        #[cfg(feature = "3d")]
+        let tiled = adapter.get_info().backend == wgpu::Backend::Metal;
 
         let size = window.inner_size();
         let mut config = surface
@@ -446,11 +479,16 @@ impl Renderer {
             instance_capacity: INITIAL_INSTANCE_CAPACITY,
             timer,
             draw_hidden: false,
+            only_hidden: false,
             hidden_target: None,
             hidden_in_flight: std::collections::VecDeque::with_capacity(4),
             stats: RenderStats::default(),
             #[cfg(feature = "3d")]
             three: None,
+            #[cfg(feature = "3d")]
+            msaa,
+            #[cfg(feature = "3d")]
+            tiled,
             #[cfg(feature = "3d")]
             mips: None,
             display_wait_ms: 0.0,
@@ -489,6 +527,8 @@ impl Renderer {
                 self.view_format,
                 white,
                 &white_array,
+                self.msaa,
+                !self.tiled,
             ));
         }
         self.three.as_mut().expect("just made")
@@ -941,7 +981,11 @@ impl Renderer {
         // screenshot is still drawn (offscreen), so it never waits on the
         // window being visible.
         let acquire_start = web_time::Instant::now();
-        let acquired = self.surface.get_current_texture();
+        let acquired = if self.only_hidden {
+            wgpu::CurrentSurfaceTexture::Occluded
+        } else {
+            self.surface.get_current_texture()
+        };
         self.display_wait_ms = acquire_start.elapsed().as_secs_f32() * 1000.0;
         let (frame, status) = match acquired {
             wgpu::CurrentSurfaceTexture::Success(t) => (Some(t), FrameStatus::Presented),
@@ -1059,7 +1103,13 @@ impl Renderer {
         if let Some(view) = &view {
             let timer = self.timer.as_ref();
             let sprite_clear = self.draw_3d(&mut buffers_3d, view, clear, timer);
-            Self::sprite_pass(&mut encoder, view, sprite_clear, timer.and_then(|t| t.pass("sprites")), &pass);
+            Self::sprite_pass(
+                &mut encoder,
+                view,
+                sprite_clear,
+                timer.and_then(|t| t.pass("sprites")),
+                &pass,
+            );
         }
         // A screenshot draws the same sprites a second time, into a texture
         // that can be copied (the window's surface can't, on some GPUs).

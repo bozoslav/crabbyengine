@@ -119,9 +119,9 @@ pub use physics3d::{
     Character3D, Collider3D, CollisionGroups, CollisionMesh, FrictionCurve, Hit3D, PHYSICS3D_HZ, Physics3D,
     QueryFilter3D, RigidBody3D, Shape3D, Vehicle3D, Velocity3D, Wheel3D, interpolate_physics3d, step_physics3d,
 };
+pub use profiler::{FrameStats, GpuPass};
 pub use random::{DEFAULT_SEED, Random, Rng};
 pub use reflect::{Field, FieldType, ReflectError, WorldReflect};
-pub use profiler::{FrameStats, GpuPass};
 pub use render::RenderStats;
 pub use sheet::{Animation, SpriteSheet, animate_sprites};
 #[doc(hidden)]
@@ -139,9 +139,10 @@ pub use text::{Font, TextParams};
 pub use texture::{DrawParams, Texture, TextureFilter};
 #[cfg(feature = "3d")]
 pub use three::{
-    Blend, Camera3D, Compute, ComputePass, Effect, Heightfield, Lighting, Material, MaterialDesc, Mesh, MeshData,
-    MeshCost, Model, PointLight3D, Post, ScreenEffect, ShadowMesh, Shader, Sky, SpotLight3D, TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera,
-    TerrainMaterialDesc, TerrainTile, TerrainTileData, TextureArray, TextureKind, Tonemap, Transform3D,
+    Blend, Camera3D, Compute, ComputePass, Effect, Heightfield, Lighting, Material, MaterialDesc, Mesh, MeshCost,
+    MeshData, Model, PointLight3D, Post, ScreenEffect, Shader, ShadowMesh, Sky, SpotLight3D, TERRAIN_LAYERS,
+    TERRAIN_LODS, TargetCamera, TerrainMaterialDesc, TerrainTile, TerrainTileData, TextureArray, TextureKind, Tonemap,
+    Transform3D,
 };
 pub use tilemap::{TileMap, draw_tilemaps};
 pub use ui::UiStyle;

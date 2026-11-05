@@ -20,7 +20,7 @@ impl Renderer {
     pub fn mesh_costs(&self) -> Vec<(u32, usize, usize, usize, usize)> {
         match *self {}
     }
-    pub fn set_draw_hidden(&mut self, _on: bool) {
+    pub fn set_draw_hidden(&mut self, _on: bool, _always: bool) {
         match *self {}
     }
     pub fn gpu_passes(&self) -> &[crate::profiler::GpuPass] {

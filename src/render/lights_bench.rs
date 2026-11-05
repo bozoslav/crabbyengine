@@ -107,7 +107,7 @@ fn offscreen_light_benchmark() {
     for count in [0, 100, 1000] {
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(1280.0, 720.0));
         scene::setup(&mut ctx, count);
-        let mut renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white);
+        let mut renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
         let desc = GpuMaterialDesc::new(&crate::MaterialDesc {
             roughness: 0.5,
             ..Default::default()

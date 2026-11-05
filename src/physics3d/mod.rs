@@ -811,9 +811,8 @@ impl Physics3D {
             self.moving_dirty = false;
             self.moving.clear();
             let links = &self.links;
-            self.moving.extend(
-                (0..links.len() as u32).filter(|&i| links[i as usize].is_some_and(|l| l.kind.moves())),
-            );
+            self.moving
+                .extend((0..links.len() as u32).filter(|&i| links[i as usize].is_some_and(|l| l.kind.moves())));
         }
         &self.moving
     }

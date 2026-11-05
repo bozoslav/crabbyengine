@@ -34,7 +34,11 @@ enum Part {
     Prelude,
     /// A shadow cascade's runs `first..end`: big cascades are drawn in
     /// several passes (the first clears the map), recorded on several cores.
-    Shadow { cascade: usize, first: u32, end: u32 },
+    Shadow {
+        cascade: usize,
+        first: u32,
+        end: u32,
+    },
     /// Every target camera.
     Views,
     Prepass,
@@ -96,7 +100,16 @@ const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 /// The lit frame before tone mapping: light brighter than white survives.
 pub(super) const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 /// Samples per pixel: smooth edges.
-const MSAA: u32 = 4;
+/// Whether this GPU can multisample the 3D frame's color and depth `samples`
+/// times. 4 always works (WebGPU guarantees it).
+pub(crate) fn multisamples(adapter: &wgpu::Adapter, samples: u32) -> bool {
+    [DEPTH_FORMAT, HDR_FORMAT].iter().all(|&f| {
+        adapter
+            .get_texture_format_features(f)
+            .flags
+            .sample_count_supported(samples)
+    })
+}
 
 /// The frame's camera and light, as the shader reads them.
 #[repr(C)]
@@ -194,6 +207,8 @@ struct Pipelines {
     /// shader for its alpha. Solid ones write depth without any.
     prepass_cutout: wgpu::RenderPipeline,
     shadow_cutout: wgpu::RenderPipeline,
+    /// Solid surfaces lit without a prepass: they write their own depth.
+    opaque_solid: wgpu::RenderPipeline,
 }
 
 /// The built-in parts of every material shader.
@@ -414,6 +429,13 @@ pub(crate) struct Prepare3D<'a> {
 }
 
 pub(crate) struct Renderer3D {
+    /// Samples per pixel of the frame and target cameras (2 or 4).
+    samples: u32,
+    /// Whether solid surfaces go through the depth prepass too. GPUs that
+    /// draw in tiles (Apple's) drop hidden solid fragments themselves, so
+    /// there they skip it and write their depth while lit; only cut-out
+    /// ones, which those GPUs can't drop early, are laid down first.
+    solid_prepass: bool,
     /// Pipeline layouts of the material shaders: lit passes, and the
     /// shadow pass (which can't read the shadow map it draws into).
     layout: wgpu::PipelineLayout,
@@ -504,6 +526,8 @@ impl Renderer3D {
         format: wgpu::TextureFormat,
         white: u32,
         white_array: &wgpu::Texture,
+        samples: u32,
+        solid_prepass: bool,
     ) -> Self {
         // The material shaders' bindings are seen by compute passes too
         // (they read the frame and their material), where there are any.
@@ -632,7 +656,7 @@ impl Renderer3D {
             let depth = tiny(
                 "3d no scene depth",
                 DEPTH_FORMAT,
-                MSAA,
+                samples,
                 wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
             );
             scene_bind_group(device, &scene_layout, &color, &depth)
@@ -653,6 +677,7 @@ impl Renderer3D {
             &shadow_pipeline_layout,
             "built-in",
             &compose_shader(""),
+            samples,
         );
         let post_shader = device.create_shader_module(wgpu::include_wgsl!("post.wgsl"));
         let texture_entry = |binding| wgpu::BindGroupLayoutEntry {
@@ -903,7 +928,7 @@ impl Renderer3D {
                 immediate_size: 0,
             }),
             "fs_sky",
-            MSAA,
+            samples,
             Some(wgpu::DepthStencilState {
                 format: DEPTH_FORMAT,
                 depth_write_enabled: Some(false),
@@ -1029,6 +1054,8 @@ impl Renderer3D {
         });
         let capacity = 1024;
         Self {
+            samples,
+            solid_prepass,
             layout,
             shadow_pipeline_layout,
             shaders: vec![builtin],
@@ -1118,7 +1145,7 @@ impl Renderer3D {
                     label: Some(label),
                     size: texture.size(),
                     mip_level_count: 1,
-                    sample_count: MSAA,
+                    sample_count: self.samples,
                     dimension: wgpu::TextureDimension::D2,
                     format,
                     usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -1232,7 +1259,14 @@ impl Renderer3D {
     pub fn create_shader(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, String> {
         let source = compose_shader(user);
         check_shader(name, &source)?;
-        let mut pipelines = build_pipelines(device, &self.layout, &self.shadow_pipeline_layout, name, &source);
+        let mut pipelines = build_pipelines(
+            device,
+            &self.layout,
+            &self.shadow_pipeline_layout,
+            name,
+            &source,
+            self.samples,
+        );
         pipelines.reads_scene = reads_scene(user);
         self.shaders.push(pipelines);
         Ok(self.shaders.len() as u32 - 1)
@@ -1242,7 +1276,14 @@ impl Renderer3D {
     pub fn replace_shader(&mut self, device: &wgpu::Device, id: u32, name: &str, user: &str) -> Result<(), String> {
         let source = compose_shader(user);
         check_shader(name, &source)?;
-        let mut pipelines = build_pipelines(device, &self.layout, &self.shadow_pipeline_layout, name, &source);
+        let mut pipelines = build_pipelines(
+            device,
+            &self.layout,
+            &self.shadow_pipeline_layout,
+            name,
+            &source,
+            self.samples,
+        );
         pipelines.reads_scene = reads_scene(user);
         self.shaders[id as usize] = pipelines;
         Ok(())
@@ -1621,7 +1662,12 @@ impl Renderer3D {
                     | wgpu::TextureUsages::RENDER_ATTACHMENT,
             );
             let scene_view = scene_texture.create_view(&Default::default());
-            let depth = target("3d depth", DEPTH_FORMAT, MSAA, wgpu::TextureUsages::TEXTURE_BINDING);
+            let depth = target(
+                "3d depth",
+                DEPTH_FORMAT,
+                self.samples,
+                wgpu::TextureUsages::TEXTURE_BINDING,
+            );
             let scene = scene_bind_group(device, &self.scene_layout, &scene_view, &depth);
             let scene_of_hdr = scene_bind_group(device, &self.scene_layout, &hdr, &depth);
             // Bloom starts at half size and halves until about 8 pixels.
@@ -1678,7 +1724,7 @@ impl Renderer3D {
             };
             let n = bloom_mips.len();
             self.targets = Some(Targets {
-                color: target("3d color", HDR_FORMAT, MSAA, none),
+                color: target("3d color", HDR_FORMAT, self.samples, none),
                 depth,
                 hdr_texture,
                 scene_texture,
@@ -1819,12 +1865,20 @@ impl Renderer3D {
             for (i, &(mesh, _, _)) in runs.iter().enumerate() {
                 draws += self.meshes[mesh as usize].parts.len();
                 if draws >= SHADOW_DRAWS_PER_PASS {
-                    parts.push(Part::Shadow { cascade, first, end: i as u32 + 1 });
+                    parts.push(Part::Shadow {
+                        cascade,
+                        first,
+                        end: i as u32 + 1,
+                    });
                     (first, draws) = (i as u32 + 1, 0);
                 }
             }
             if first == 0 || (first as usize) < runs.len() {
-                parts.push(Part::Shadow { cascade, first, end: runs.len() as u32 });
+                parts.push(Part::Shadow {
+                    cascade,
+                    first,
+                    end: runs.len() as u32,
+                });
             }
         }
         if !self.views.is_empty() {
@@ -1844,7 +1898,9 @@ impl Renderer3D {
             time: &time,
         };
         let record = |part: &Part| {
-            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some(part.label()) });
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some(part.label()),
+            });
             self.record(*part, &mut encoder, &frame);
             encoder.finish()
         };
@@ -1954,26 +2010,24 @@ impl Renderer3D {
                 }
             }
             Part::Prepass => {
-                {
-                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("3d depth prepass"),
-                        color_attachments: &[],
-                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                            view: &targets.depth,
-                            depth_ops: Some(wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(1.0),
-                                store: wgpu::StoreOp::Store,
-                            }),
-                            stencil_ops: None,
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("3d depth prepass"),
+                    color_attachments: &[],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &targets.depth,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: wgpu::StoreOp::Store,
                         }),
-                        timestamp_writes: time("depth prepass"),
-                        occlusion_query_set: None,
-                        multiview_mask: None,
-                    });
-                    pass.set_bind_group(0, &self.frame_bind_group, &[]);
-                    pass.set_bind_group(2, &self.no_scene, &[]);
-                    self.draw_models(&mut pass, &self.runs, Kind::Prepass);
-                }
+                        stencil_ops: None,
+                    }),
+                    timestamp_writes: time("depth prepass"),
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                pass.set_bind_group(0, &self.frame_bind_group, &[]);
+                pass.set_bind_group(2, &self.no_scene, &[]);
+                self.draw_models(&mut pass, &self.runs, Kind::Prepass);
             }
             Part::Opaque => {
                 {
@@ -1997,7 +2051,9 @@ impl Renderer3D {
                             view: &targets.depth,
                             depth_ops: Some(wgpu::Operations {
                                 load: wgpu::LoadOp::Load,
-                                store: if split {
+                                // Later passes read it; without a solid
+                                // prepass, it's only complete here.
+                                store: if split || !self.solid_prepass {
                                     wgpu::StoreOp::Store
                                 } else {
                                     wgpu::StoreOp::Discard
@@ -2142,14 +2198,7 @@ impl Renderer3D {
                         step(encoder, "bloom", &self.bloom_down, group, &mips[i + 1], clear);
                     }
                     for (i, group) in targets.bloom_up.iter().enumerate().rev() {
-                        step(
-                            encoder,
-                            "bloom",
-                            &self.bloom_up,
-                            group,
-                            &mips[i],
-                            wgpu::LoadOp::Load,
-                        );
+                        step(encoder, "bloom", &self.bloom_up, group, &mips[i], wgpu::LoadOp::Load);
                     }
                 }
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -2274,7 +2323,9 @@ impl Renderer3D {
                     Kind::Shadow if m.cutout => &pipelines.shadow_cutout,
                     Kind::Shadow => &pipelines.shadow,
                     Kind::Prepass if m.cutout => &pipelines.prepass_cutout,
+                    Kind::Prepass if !self.solid_prepass => continue,
                     Kind::Prepass => &pipelines.prepass,
+                    Kind::Opaque if !m.cutout && !self.solid_prepass => &pipelines.opaque_solid,
                     Kind::Opaque => &pipelines.opaque,
                     Kind::Transparent => &pipelines.transparent,
                 };
@@ -2443,6 +2494,7 @@ fn build_pipelines(
     shadow_layout: &wgpu::PipelineLayout,
     name: &str,
     source: &str,
+    samples: u32,
 ) -> ShaderPipelines {
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some(name),
@@ -2470,7 +2522,7 @@ fn build_pipelines(
         })
     };
     let msaa = wgpu::MultisampleState {
-        count: MSAA,
+        count: samples,
         ..Default::default()
     };
     let color = |blend| {
@@ -2559,6 +2611,16 @@ fn build_pipelines(
             Some("fs_main"),
             cull,
             depth(false, wgpu::CompareFunction::Equal, Default::default()),
+            msaa,
+            &opaque_target,
+        ),
+        opaque_solid: pipeline(
+            "3d opaque solid",
+            layout,
+            "vs_main",
+            Some("fs_main"),
+            cull,
+            depth(true, wgpu::CompareFunction::Less, Default::default()),
             msaa,
             &opaque_target,
         ),

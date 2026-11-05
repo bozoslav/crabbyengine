@@ -119,6 +119,23 @@ fn print_mesh_costs(ctx: &Ctx) {
             c.name.as_deref().unwrap_or("(made in code)")
         );
     }
+    // Every mesh, for sorting and grouping elsewhere.
+    if let Some(path) = std::env::var_os("CRABBY_BENCH_MESHES") {
+        let mut csv = String::from("models,triangles,shadow_models,shadow_triangles,name\n");
+        for c in &costs {
+            csv.push_str(&format!(
+                "{},{},{},{},{}\n",
+                c.models,
+                c.triangles,
+                c.shadow_models,
+                c.shadow_triangles,
+                c.name.as_deref().unwrap_or("")
+            ));
+        }
+        if let Err(e) = std::fs::write(&path, csv) {
+            eprintln!("crabbyengine: could not write {}: {e}", path.to_string_lossy());
+        }
+    }
 }
 
 /// The GPU is ready (with the assets, on the web): setup can run.
@@ -253,7 +270,12 @@ where
             return;
         };
         let mut renderer = renderer;
-        renderer.set_draw_hidden(self.ctx.profiler.benchmarking());
+        // Benchmarks draw offscreen: a window is shown at most once per display
+        // refresh, so above that rate presenting stalls now and then.
+        // CRABBY_BENCH_PRESENT=1 draws to the window when it can take a frame.
+        let present = std::env::var("CRABBY_BENCH_PRESENT").is_ok_and(|v| v == "1");
+        let benchmarking = self.ctx.profiler.benchmarking();
+        renderer.set_draw_hidden(benchmarking, benchmarking && !present);
         self.ctx.renderer = Some(renderer);
         self.ctx.set_window_size(Self::logical_window_size(&window));
         self.ctx.set_scale_factor(window.scale_factor() as f32);
@@ -319,10 +341,11 @@ where
         self.window = Some(window.clone());
         let display = event_loop.owned_display_handle();
         let vsync = self.config.vsync;
+        let msaa = self.config.msaa;
 
         // Desktop: open the GPU and start right away.
         #[cfg(not(target_arch = "wasm32"))]
-        self.start(Renderer::new(window, display, vsync));
+        self.start(Renderer::new(window, display, vsync, msaa));
 
         // Web: the browser can't block, so fetch the assets and open the GPU
         // in a task, which sends `Ready` when done.
@@ -330,7 +353,7 @@ where
         if let Some(proxy) = self.proxy.take() {
             wasm_bindgen_futures::spawn_local(async move {
                 crate::web::fetch_assets().await;
-                let renderer = Renderer::new_async(window, display, vsync).await;
+                let renderer = Renderer::new_async(window, display, vsync, msaa).await;
                 let _ = proxy.send_event(Ready(renderer));
             });
         }
