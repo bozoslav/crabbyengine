@@ -441,11 +441,14 @@ pub(crate) struct ParticleFrame {
     pub runs: Vec<ParticleRun>,
     pub right: [f32; 4],
     pub up: [f32; 4],
+    /// Ribbons and lines, drawn with the particles.
+    pub strips: super::strips::StripFrame,
 }
 impl ParticleFrame {
     pub fn collect(&mut self, world: &mut World, camera: &Camera3D) {
         self.instances.clear();
         self.runs.clear();
+        self.strips.collect(world, camera);
         self.right = (camera.rotation * Vec3::X).extend(0.0).to_array();
         self.up = (camera.rotation * Vec3::Y).extend(0.0).to_array();
         world.query::<(&ParticleEmitter3D, &Transform3D)>().for_each(|(e, t)| {

@@ -813,8 +813,12 @@ impl Ctx {
         let mut emitters = self
             .world
             .query::<(&mut super::ParticleEmitter3D, &super::Transform3D)>();
-        let any = emitters.count() > 0;
+        let mut any = emitters.count() > 0;
         emitters.par_for_each(|(emitter, transform)| emitter.update(dt, transform));
+        let mut trails = self.world.query::<(&mut super::Trail3D, &super::Transform3D)>();
+        any |= trails.count() > 0;
+        trails.for_each(|(trail, transform)| trail.update(dt, transform.position));
+        any |= self.world.query::<&super::Line3D>().count() > 0;
         if any && !self.headless && self.renderer.is_some() {
             self.default_material(); // also initializes a particle-only 3D renderer
         }
@@ -884,7 +888,10 @@ impl Ctx {
         if self.renderer.is_none()
             || (self.assets3d.bounds.is_empty()
                 && self.frame3d.particles.runs.is_empty()
-                && self.world.query::<&super::ParticleEmitter3D>().count() == 0)
+                && self.frame3d.particles.strips.runs.is_empty()
+                && self.world.query::<&super::ParticleEmitter3D>().count() == 0
+                && self.world.query::<&super::Trail3D>().count() == 0
+                && self.world.query::<&super::Line3D>().count() == 0)
         {
             return; // no drawable 3D scene
         }

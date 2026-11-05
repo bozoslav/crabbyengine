@@ -1582,7 +1582,7 @@ impl Renderer3D {
             |k| drawn[k],
         );
         self.skin_drawn = drawn;
-        if total == 0 && frame.particles.instances.is_empty() {
+        if total == 0 && frame.particles.instances.is_empty() && frame.particles.strips.runs.is_empty() {
             return;
         }
         if total > self.capacity {
@@ -1904,7 +1904,7 @@ impl Renderer3D {
         self.computes.len()
             + (parts + view_parts) * 2
             + self.views.len() * usize::from(self.atmosphere)
-            + self.particles.runs.len()
+            + self.particles.draw_count()
             + self.effects.len()
             + if self.atmosphere { 2 } else { 0 }
             + shadow_views(self.cascades, self.light_views)
@@ -1977,7 +1977,7 @@ impl Renderer3D {
 
     /// Whether this frame has anything to draw.
     pub fn has_draws(&self) -> bool {
-        !self.runs.is_empty() || !self.particles.runs.is_empty()
+        !self.runs.is_empty() || self.particles.has_draws()
     }
 
     /// Draws the frame's passes (see the module docs) and leaves the tone

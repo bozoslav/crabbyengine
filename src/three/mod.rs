@@ -28,6 +28,8 @@ pub use particles::{
 };
 mod post;
 mod skin;
+pub(crate) mod strips;
+pub use strips::{Line3D, Trail3D};
 mod sky;
 mod target;
 mod terrain;
