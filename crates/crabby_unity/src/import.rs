@@ -241,6 +241,13 @@ impl<'p> Importer<'p> {
                 self.report.skip("renderer off");
                 continue;
             }
+            // Cast Shadows: Shadows Only (3). Unity draws it only into the
+            // shadow map, often a simplified stand-in for the shadows of
+            // the pieces around it; drawn, it would cover them.
+            if renderer.body["m_CastShadows"].as_i64() == Some(3) {
+                self.report.skip("shadows only");
+                continue;
+            }
             if far.contains(&renderer.file_id) {
                 self.report.skip("a far level of detail (LOD 1+)");
                 continue;

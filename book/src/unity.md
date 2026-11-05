@@ -49,7 +49,9 @@ Vertex colors are kept only for shaders you name (see below): URP's
 shaders ignore them, so most meshes are drawn as Unity draws them without.
 
 Left out, and counted in the report: far levels of detail (only LOD 0 is
-kept), inactive objects and disabled renderers, skinned meshes, the
+kept), inactive objects and disabled renderers, renderers set to cast
+shadows only (Unity never draws them, only their shadows; the meshes
+around them still cast theirs in Crabby), skinned meshes, the
 built-in Sphere, Capsule and Cylinder, compressed meshes, and meshes or
 textures it can't find or read.
 
