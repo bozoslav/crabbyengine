@@ -946,7 +946,9 @@ impl Ctx {
                 && self.frame3d.particles.strips.runs.is_empty()
                 && self.world.query::<&super::ParticleEmitter3D>().count() == 0
                 && self.world.query::<&super::Trail3D>().count() == 0
-                && self.world.query::<&super::Line3D>().count() == 0)
+                && self.world.query::<&super::Line3D>().count() == 0
+                && self.frame3d.particles.texts.vertices.is_empty()
+                && self.world.query::<&super::Text3D>().count() == 0)
         {
             return; // no drawable 3D scene
         }
@@ -975,6 +977,7 @@ impl Ctx {
                 .contains(&c.target)
                 .then_some((c.compute.id, c.target.id, material.id))
         }));
+        self.collect_text3d();
         let Some(renderer) = self.renderer.as_mut() else {
             return;
         };

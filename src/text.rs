@@ -83,6 +83,32 @@ pub(crate) struct Glyph {
 pub(crate) struct Placed {
     pub pos: Vec2,
     pub glyph: Glyph,
+    /// Which line it's on, from 0.
+    #[cfg_attr(not(feature = "3d"), allow(dead_code))]
+    pub line: u32,
+}
+
+/// Line height in pixels SDF glyphs are made at.
+#[cfg_attr(not(feature = "3d"), allow(dead_code))]
+pub(crate) const SDF_PX: f32 = 64.0;
+/// How far, in those pixels, SDF glyphs record the distance to the edge:
+/// outlines and soft edges can reach this far out.
+#[cfg_attr(not(feature = "3d"), allow(dead_code))]
+pub(crate) const SDF_SPREAD: u32 = 8;
+
+/// Signed-distance glyphs, made once per font and character at
+/// [`SDF_PX`] and drawn at any size: the alpha channel is the distance to
+/// the glyph's edge, 0.5 on it, more inside.
+#[cfg_attr(not(feature = "3d"), allow(dead_code))]
+#[derive(Default)]
+pub(crate) struct SdfAtlas {
+    glyphs: HashMap<(u32, char), Glyph>,
+    cursor: [u32; 2],
+    row: u32,
+    /// The atlas is full: start over next frame.
+    full: bool,
+    /// Glyphs made but not yet on the GPU: atlas position, size, RGBA.
+    pub uploads: Vec<([u32; 2], [u32; 2], Vec<u8>)>,
 }
 
 pub(crate) struct Text {
@@ -97,6 +123,10 @@ pub(crate) struct Text {
     pub uploads: Vec<([u32; 2], [u32; 2], Vec<u8>)>,
     /// Reused per draw call.
     placed: Vec<Placed>,
+    /// Each line's width in the last layout, in its pixels.
+    line_widths: Vec<f32>,
+    /// Signed-distance glyphs for text drawn at any size (3D text).
+    pub sdf: SdfAtlas,
 }
 
 impl Text {
@@ -109,6 +139,8 @@ impl Text {
             full: false,
             uploads: Vec::new(),
             placed: Vec::new(),
+            line_widths: Vec::new(),
+            sdf: SdfAtlas::default(),
         }
     }
 
@@ -127,6 +159,7 @@ impl Text {
             .map_err(|e| format!("not a font file this engine can read: {e}"))?;
         self.fonts[font.0 as usize] = Some(new);
         self.glyphs.retain(|k, _| k.0 != font.0);
+        self.sdf.glyphs.retain(|k, _| k.0 != font.0);
         Ok(())
     }
 
@@ -141,6 +174,12 @@ impl Text {
     /// Call once per frame before drawing: forgets every glyph if the atlas
     /// filled up last frame, so it fills again with what's in use now.
     pub fn begin_frame(&mut self) -> bool {
+        if self.sdf.full {
+            self.sdf.full = false;
+            self.sdf.glyphs.clear();
+            self.sdf.cursor = [PAD, PAD];
+            self.sdf.row = 0;
+        }
         if !self.full {
             return false;
         }
@@ -155,18 +194,48 @@ impl Text {
     /// missing glyphs are drawn into the atlas (queued in `uploads`).
     /// Returns the size in physical pixels; the glyphs are in `placed()`.
     pub fn layout(&mut self, text: &str, font: Font, px: f32, rasterize: bool) -> Vec2 {
+        let key_px = px.round().max(1.0) as u32;
+        self.layout_with(text, font, px, |t, c| match t.glyphs.get(&(font.0, c, key_px)) {
+            Some(g) => Some(*g),
+            None if rasterize => t.rasterize(font, c, px, key_px),
+            None => None,
+        })
+    }
+
+    /// Lays out `text` with signed-distance glyphs, at [`SDF_PX`] pixels
+    /// per line (missing glyphs are made and queued in `sdf.uploads`).
+    /// Returns the size in those pixels; the glyphs are in `placed()`,
+    /// each line's width in `line_widths()`.
+    #[cfg_attr(not(feature = "3d"), allow(dead_code))]
+    pub fn layout_sdf(&mut self, text: &str, font: Font) -> Vec2 {
+        self.layout_with(text, font, SDF_PX, |t, c| match t.sdf.glyphs.get(&(font.0, c)) {
+            Some(g) => Some(*g),
+            None => t.make_sdf(font, c),
+        })
+    }
+
+    fn layout_with(
+        &mut self,
+        text: &str,
+        font: Font,
+        px: f32,
+        mut glyph_of: impl FnMut(&mut Self, char) -> Option<Glyph>,
+    ) -> Vec2 {
         let mut placed = std::mem::take(&mut self.placed);
         placed.clear();
+        self.line_widths.clear();
         let lines = self.font(font).horizontal_line_metrics(px);
         let (ascent, line_height) = lines.map_or((px * 0.8, px), |m| (m.ascent, m.new_line_size));
-        let key_px = px.round().max(1.0) as u32;
         let (mut x, mut y, mut width) = (0.0f32, 0.0f32, 0.0f32);
+        let mut line = 0;
         let mut prev: Option<char> = None;
         for c in text.chars() {
             if c == '\n' {
                 width = width.max(x);
+                self.line_widths.push(x);
                 x = 0.0;
                 y += line_height;
+                line += 1;
                 prev = None;
                 continue;
             }
@@ -175,24 +244,26 @@ impl Text {
                 x += f.horizontal_kern(p, c, px).unwrap_or(0.0);
             }
             let advance = f.metrics(c, px).advance_width;
-            let glyph = match self.glyphs.get(&(font.0, c, key_px)) {
-                Some(g) => Some(*g),
-                None if rasterize => self.rasterize(font, c, px, key_px),
-                None => None,
-            };
-            if let Some(glyph) = glyph {
+            if let Some(glyph) = glyph_of(self, c) {
                 let pos = Vec2::new(
                     (x + glyph.offset[0]).round(),
                     (y + ascent - glyph.offset[1] - glyph.size[1] as f32).round(),
                 );
-                placed.push(Placed { pos, glyph });
+                placed.push(Placed { pos, glyph, line });
             }
             x += advance;
             prev = Some(c);
         }
         width = width.max(x);
+        self.line_widths.push(x);
         self.placed = placed;
         Vec2::new(width, y + line_height)
+    }
+
+    /// Each line's width in the last layout.
+    #[cfg_attr(not(feature = "3d"), allow(dead_code))]
+    pub fn line_widths(&self) -> &[f32] {
+        &self.line_widths
     }
 
     pub fn placed(&self) -> &[Placed] {
@@ -226,6 +297,96 @@ impl Text {
         self.glyphs.insert((font.0, c, key_px), glyph);
         Some(glyph)
     }
+}
+
+impl Text {
+    /// Makes `c`'s signed-distance glyph and packs it into the SDF atlas.
+    #[cfg_attr(not(feature = "3d"), allow(dead_code))]
+    fn make_sdf(&mut self, font: Font, c: char) -> Option<Glyph> {
+        let (m, coverage) = self.font(font).rasterize(c, SDF_PX);
+        let spread = SDF_SPREAD;
+        let (w, h) = (m.width as u32, m.height as u32);
+        let size = if w == 0 || h == 0 {
+            [0, 0]
+        } else {
+            [w + 2 * spread, h + 2 * spread]
+        };
+        let offset = [m.xmin as f32 - spread as f32, m.ymin as f32 - spread as f32];
+        let at = if size[0] == 0 {
+            None
+        } else {
+            let atlas = &mut self.sdf;
+            if atlas.cursor == [0, 0] {
+                atlas.cursor = [PAD, PAD];
+            }
+            if atlas.cursor[0] + size[0] + PAD > ATLAS {
+                atlas.cursor = [PAD, atlas.cursor[1] + atlas.row + PAD];
+                atlas.row = 0;
+            }
+            if atlas.cursor[1] + size[1] + PAD > ATLAS {
+                atlas.full = true;
+                return None;
+            }
+            let at = atlas.cursor;
+            atlas.cursor[0] += size[0] + PAD;
+            atlas.row = atlas.row.max(size[1]);
+            let distance = signed_distance(&coverage, w, h, spread);
+            let rgba = distance.iter().flat_map(|&a| [255, 255, 255, a]).collect();
+            atlas.uploads.push((at, size, rgba));
+            Some(at)
+        };
+        let glyph = Glyph { at, size, offset };
+        self.sdf.glyphs.insert((font.0, c), glyph);
+        Some(glyph)
+    }
+}
+
+/// A glyph's coverage (`w` x `h`) as a signed distance field `spread`
+/// pixels larger on each side: 128 on the edge, up to 255 `spread` pixels
+/// inside, down to 0 as far outside.
+#[cfg_attr(not(feature = "3d"), allow(dead_code))]
+fn signed_distance(coverage: &[u8], w: u32, h: u32, spread: u32) -> Vec<u8> {
+    let (w, h, s) = (w as i32, h as i32, spread as i32);
+    let at = |x: i32, y: i32| -> f32 {
+        if x < 0 || y < 0 || x >= w || y >= h {
+            0.0
+        } else {
+            f32::from(coverage[(y * w + x) as usize]) / 255.0
+        }
+    };
+    let (out_w, out_h) = (w + 2 * s, h + 2 * s);
+    let mut out = Vec::with_capacity((out_w * out_h) as usize);
+    for oy in 0..out_h {
+        for ox in 0..out_w {
+            let (x, y) = (ox - s, oy - s);
+            let a = at(x, y);
+            let signed = if a > 0.0 && a < 1.0 {
+                // On the edge: coverage says how far across it.
+                a - 0.5
+            } else {
+                // The nearest pixel the edge runs through or past; it
+                // crosses one half of coverage `b - 0.5` beyond that
+                // pixel's center (for inside pixels; mirrored outside).
+                let inside = a >= 1.0;
+                let mut best = s as f32;
+                for dy in -s..=s {
+                    for dx in -s..=s {
+                        let b = at(x + dx, y + dy);
+                        let across = if inside { b - 0.5 } else { 0.5 - b };
+                        if (inside && b >= 1.0) || (!inside && b <= 0.0) {
+                            continue;
+                        }
+                        let d = ((dx * dx + dy * dy) as f32).sqrt() + across;
+                        best = best.min(d);
+                    }
+                }
+                if inside { best } else { -best }
+            };
+            let v = 0.5 + signed / (2.0 * s as f32);
+            out.push((v.clamp(0.0, 1.0) * 255.0).round() as u8);
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -272,6 +433,44 @@ mod tests {
         assert!(t.begin_frame());
         assert!(!t.full && t.glyphs.is_empty());
         assert!(!t.begin_frame());
+    }
+
+    #[test]
+    fn distance_fields_are_half_on_the_edge_and_rise_inside() {
+        // A 4 x 4 square, fully covered, with a spread of 3.
+        let field = signed_distance(&[255; 16], 4, 4, 3);
+        let side = 10;
+        let at = |x: usize, y: usize| field[y * side + x];
+        // Center of the square: 2 px from the edge, inside.
+        assert!(at(5, 5) > 128 + 20, "{}", at(5, 5));
+        // Just inside and just outside the left edge (x = 3 is the first
+        // covered column) are on either side of one half.
+        assert!(at(3, 5) > 128 && at(2, 5) < 128, "{} {}", at(3, 5), at(2, 5));
+        // Far outside: as low as the spread allows.
+        assert_eq!(at(0, 0), 0);
+        // Symmetric.
+        assert_eq!(at(3, 5), at(6, 5));
+    }
+
+    #[test]
+    fn sdf_glyphs_are_made_once_padded_by_the_spread() {
+        let mut t = Text::new();
+        let size = t.layout_sdf("Hi\nthere", Font::DEFAULT);
+        assert_eq!(t.line_widths().len(), 2);
+        assert!(size.y > SDF_PX * 1.5, "{size}");
+        assert_eq!(t.placed().iter().filter(|p| p.line == 1).count(), 5);
+        let made = t.sdf.uploads.len();
+        assert_eq!(made, 6, "H, i, t, h, e, r (e twice)");
+        let ([w, h], bitmap) = (t.sdf.uploads[0].1, t.font(Font::DEFAULT).rasterize('H', SDF_PX).0);
+        assert_eq!(
+            [w, h],
+            [
+                bitmap.width as u32 + 2 * SDF_SPREAD,
+                bitmap.height as u32 + 2 * SDF_SPREAD
+            ]
+        );
+        t.layout_sdf("there", Font::DEFAULT);
+        assert_eq!(t.sdf.uploads.len(), made, "cached");
     }
 
     #[test]
