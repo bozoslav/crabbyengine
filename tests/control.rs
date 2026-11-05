@@ -1,7 +1,7 @@
 //! The control endpoint, end to end: a headless game driven over TCP, the
 //! way `crabby-mcp` drives it.
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -419,18 +419,41 @@ fn output_printed_right_before_exit_still_reaches_the_terminal() {
             .run_headless(1, |_| {});
         return;
     }
+    // The parent stops reading near the end, so the last lines are still in
+    // the engine's pipe (and its copy thread) when the child exits.
+    let total: usize = (0..20_000).map(|i| format!("exit-test line {i}\n").len()).sum();
     let me = std::env::current_exe().unwrap();
-    let out = std::process::Command::new(me)
+    let mut child = std::process::Command::new(me)
         .args([
             "--exact",
             "output_printed_right_before_exit_still_reaches_the_terminal",
             "--nocapture",
         ])
         .env("CHILD_EXITS", "1")
-        .output()
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
         .unwrap();
-    let text = String::from_utf8_lossy(&out.stdout);
-    assert!(out.status.success(), "{text}");
+    let mut stdout = child.stdout.take().unwrap();
+    let mut data = Vec::new();
+    let mut buf = [0u8; 4096];
+    let mut paused = false;
+    loop {
+        let n = stdout.read(&mut buf).unwrap();
+        if n == 0 {
+            break;
+        }
+        data.extend_from_slice(&buf[..n]);
+        if !paused && data.len() + 6_000 >= total {
+            // Less than the pipes in between hold, so the child gets to its
+            // exit while this stands still (but under the engine's wait).
+            paused = true;
+            thread::sleep(Duration::from_millis(250));
+        }
+    }
+    let status = child.wait().unwrap();
+    let text = String::from_utf8_lossy(&data);
+    assert!(status.success(), "{text}");
     assert!(text.contains("exit-test line 19999"), "lost the last lines: {text}");
 }
 

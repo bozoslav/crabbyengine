@@ -101,6 +101,12 @@ mod capture {
     use std::sync::mpsc::{self, Receiver};
     use std::thread;
     use std::time::Duration;
+    #[cfg(windows)]
+    use std::{
+        cell::UnsafeCell,
+        sync::Arc,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
 
     #[cfg(unix)]
     use super::unix as sys;
@@ -118,11 +124,102 @@ mod capture {
         Err,
     }
 
+    /// Size of the copy thread's buffer.
+    const COPY_BUF: usize = 8192;
+
+    /// Windows: the copy thread writes to the real stream in pieces this big,
+    /// so that after being killed at most one piece is in doubt.
+    #[cfg(windows)]
+    const WRITE_PIECE: usize = 512;
+
+    /// Windows: what the copy thread has taken from the pipe but not yet
+    /// written to the real stream. The thread keeps it here, in memory that
+    /// outlives it, because `ExitProcess` (what `std::process::exit` calls)
+    /// kills the thread wherever it is: the exit hook then passes this on,
+    /// and the rest of the pipe, itself.
+    #[cfg(windows)]
+    struct InFlight {
+        buf: UnsafeCell<[u8; COPY_BUF]>,
+        /// Bytes of `buf` that hold output not yet fully passed on (0: none).
+        len: AtomicUsize,
+        /// How many of those were already written.
+        written: AtomicUsize,
+    }
+
+    // SAFETY: `buf` is only written by the copy thread, and only read by
+    // others (the exit hook) once that thread is dead, or by the thread itself.
+    #[cfg(windows)]
+    unsafe impl Sync for InFlight {}
+
+    #[cfg(windows)]
+    impl InFlight {
+        fn new() -> Self {
+            Self {
+                buf: UnsafeCell::new([0; COPY_BUF]),
+                len: AtomicUsize::new(0),
+                written: AtomicUsize::new(0),
+            }
+        }
+
+        /// Copy thread: reads what's in the pipe into the buffer.
+        fn read_from(&self, reader: &mut PipeReader) -> std::io::Result<usize> {
+            // SAFETY: only the copy thread calls this; nobody reads `buf`
+            // while `len` is 0.
+            reader.read(unsafe { &mut *self.buf.get() })
+        }
+
+        /// Copy thread: the first `n` bytes read.
+        fn chunk(&self, n: usize) -> &[u8] {
+            assert!(n <= COPY_BUF);
+            // SAFETY: only the copy thread calls this, between two reads;
+            // `n` is within the buffer.
+            unsafe { std::slice::from_raw_parts(self.buf.get().cast::<u8>(), n) }
+        }
+
+        /// Copy thread: writes the first `n` bytes to `out`, keeping track
+        /// of how far it got.
+        fn pass_on(&self, n: usize, out: &mut File) {
+            self.written.store(0, Ordering::Relaxed);
+            self.len.store(n, Ordering::Release);
+            let data = self.chunk(n);
+            let mut at = 0;
+            while at < n {
+                let end = (at + WRITE_PIECE).min(n);
+                if out.write_all(&data[at..end]).is_err() {
+                    break;
+                }
+                at = end;
+                self.written.store(at, Ordering::Release);
+            }
+            self.len.store(0, Ordering::Release);
+        }
+
+        /// What the copy thread took but didn't write. Only call this when
+        /// the thread is dead.
+        fn left(&self) -> &[u8] {
+            let len = self.len.load(Ordering::Acquire);
+            let written = self.written.load(Ordering::Acquire);
+            if written < len {
+                // SAFETY: the copy thread is dead, so nothing writes `buf`;
+                // `written < len <= COPY_BUF`.
+                unsafe { std::slice::from_raw_parts(self.buf.get().cast::<u8>().add(written), len - written) }
+            } else {
+                &[]
+            }
+        }
+    }
+
     /// One redirected stream: how to put it back, and the thread copying.
     struct Stream {
         which: Std,
         saved: sys::Saved,
         done: Receiver<()>,
+        /// Windows: the copy thread, to tell whether it was killed.
+        #[cfg(windows)]
+        copier: thread::JoinHandle<()>,
+        /// Windows: what the copy thread holds, for the exit hook.
+        #[cfg(windows)]
+        in_flight: Arc<InFlight>,
         /// Windows: the pipe and the real stream again, for the exit hook,
         /// which passes on what's left itself (see `register_exit_hook`).
         #[cfg(windows)]
@@ -171,6 +268,9 @@ mod capture {
                 s.streams = streams;
                 register_exit_hook();
             }
+            // Whichever thread runs the game may be the one that exits.
+            #[cfg(windows)]
+            sys::watch_this_thread(on_thread_end);
             s.users += 1;
             Some(Capture(()))
         }
@@ -193,11 +293,23 @@ mod capture {
         let (saved, reader, out) = sys::redirect(which)?;
         #[cfg(windows)]
         let at_exit = reader.try_clone().ok().zip(out.try_clone().ok());
-        let done = spawn_copier(which, reader, out)?;
+        #[cfg(windows)]
+        let in_flight = Arc::new(InFlight::new());
+        let (done, _copier) = spawn_copier(
+            which,
+            reader,
+            out,
+            #[cfg(windows)]
+            in_flight.clone(),
+        )?;
         Ok(Stream {
             which,
             saved,
             done,
+            #[cfg(windows)]
+            copier: _copier,
+            #[cfg(windows)]
+            in_flight,
             #[cfg(windows)]
             at_exit,
         })
@@ -205,22 +317,39 @@ mod capture {
 
     /// Copies everything from `reader` to `out` and keeps it line by line,
     /// until the pipe's write end is closed.
-    fn spawn_copier(which: Std, mut reader: PipeReader, mut out: File) -> std::io::Result<Receiver<()>> {
+    fn spawn_copier(
+        which: Std,
+        mut reader: PipeReader,
+        mut out: File,
+        #[cfg(windows)] in_flight: Arc<InFlight>,
+    ) -> std::io::Result<(Receiver<()>, thread::JoinHandle<()>)> {
         let (done_tx, done) = mpsc::channel();
         let name = if which == Std::Out {
             "crabby-logs-out"
         } else {
             "crabby-logs-err"
         };
-        thread::Builder::new().name(name.into()).spawn(move || {
-            let mut buf = [0u8; 8192];
+        let copier = thread::Builder::new().name(name.into()).spawn(move || {
+            #[cfg(unix)]
+            let mut buf = [0u8; COPY_BUF];
             let mut partial = Vec::new();
-            while let Ok(n) = reader.read(&mut buf) {
-                if n == 0 {
-                    break;
-                }
+            loop {
+                #[cfg(unix)]
+                let read = reader.read(&mut buf);
+                #[cfg(windows)]
+                let read = in_flight.read_from(&mut reader);
+                let n = match read {
+                    Ok(n) if n > 0 => n,
+                    _ => break,
+                };
+                #[cfg(unix)]
                 let _ = out.write_all(&buf[..n]);
+                #[cfg(windows)]
+                in_flight.pass_on(n, &mut out);
+                #[cfg(unix)]
                 partial.extend_from_slice(&buf[..n]);
+                #[cfg(windows)]
+                partial.extend_from_slice(in_flight.chunk(n));
                 let mut start = 0;
                 while let Some(i) = partial[start..].iter().position(|&b| b == b'\n') {
                     super::push_line(&partial[start..start + i]);
@@ -237,7 +366,7 @@ mod capture {
             }
             let _ = done_tx.send(());
         })?;
-        Ok(done)
+        Ok((done, copier))
     }
 
     /// Puts every stream back where it was and lets the threads finish
@@ -262,32 +391,64 @@ mod capture {
         }
     }
 
-    /// `std::process::exit` skips destructors: restore at exit too, so the
-    /// last lines a game prints still reach the terminal.
+    /// Restores the streams when the process ends without dropping the
+    /// capture (`std::process::exit` skips destructors), so the last lines a
+    /// game prints still reach the terminal.
     ///
-    /// On Windows, exiting ends the other threads before this hook runs, so
-    /// the copy threads can't pass on the rest: the hook does, reading only
-    /// what's in the pipe (never waiting).
+    /// Two ways out, two hooks:
+    /// - Returning from `main`, or C's `exit`: `atexit` handlers run, with
+    ///   the copy threads still alive. They finish passing on the pipe.
+    /// - Windows, `std::process::exit`: Rust calls `ExitProcess`, which runs
+    ///   no `atexit` handlers, and ends every other thread (the copy
+    ///   threads) before it runs the exiting thread's fiber-local storage
+    ///   callbacks. That callback (see `sys::watch_this_thread`) passes on
+    ///   what's left itself: what the dead copy thread held, then the pipe,
+    ///   reading only what's in it (never waiting).
     fn register_exit_hook() {
         static ONCE: std::sync::Once = std::sync::Once::new();
         extern "C" fn restore_at_exit() {
-            // try_lock: never wait at exit (a thread may hold it forever).
-            // No flushing either: another thread may hold Rust's stdout lock.
-            if let Ok(mut s) = STATE.try_lock() {
-                #[cfg(windows)]
-                for stream in &mut s.streams {
-                    sys::restore(stream.which, &mut stream.saved);
-                    if let Some((reader, out)) = &mut stream.at_exit {
-                        sys::drain(reader, out);
-                    }
-                }
-                undo(&mut s.streams, false);
-            }
+            finish_at_exit(false);
         }
         // SAFETY: registers a plain function with no captured state.
         ONCE.call_once(|| unsafe {
             libc::atexit(restore_at_exit);
         });
+    }
+
+    /// Windows: runs when a thread that called `Capture::start` ends, which
+    /// includes it calling `ExitProcess`.
+    #[cfg(windows)]
+    unsafe extern "system" fn on_thread_end(_data: *const std::ffi::c_void) {
+        finish_at_exit(true);
+    }
+
+    /// The exit hooks' work. With `only_if_killed`, it does nothing unless
+    /// the copy threads are gone: then the thread ending is just a thread,
+    /// not the process.
+    fn finish_at_exit(only_if_killed: bool) {
+        // try_lock: never wait at exit (a thread may hold it forever).
+        // No flushing either: another thread may hold Rust's stdout lock.
+        let Ok(mut s) = STATE.try_lock() else {
+            return;
+        };
+        #[cfg(windows)]
+        {
+            let killed = !s.streams.is_empty() && s.streams.iter().all(|stream| sys::is_dead(&stream.copier));
+            if killed {
+                for stream in &mut s.streams {
+                    sys::restore(stream.which, &mut stream.saved);
+                    if let Some((reader, out)) = &mut stream.at_exit {
+                        let _ = out.write_all(stream.in_flight.left());
+                        sys::drain(reader, out);
+                    }
+                }
+                s.streams.clear();
+                return;
+            }
+        }
+        if !only_if_killed {
+            undo(&mut s.streams, false);
+        }
     }
 }
 
@@ -339,10 +500,13 @@ mod unix {
 /// to the C runtime's descriptors 1 and 2, so both point at the pipes.
 #[cfg(windows)]
 mod windows {
+    use std::cell::Cell;
     use std::ffi::c_void;
     use std::fs::File;
     use std::io::{PipeReader, PipeWriter};
     use std::os::windows::io::{AsRawHandle, BorrowedHandle, IntoRawHandle};
+    use std::sync::OnceLock;
+    use std::thread::JoinHandle;
 
     use super::capture::Std;
 
@@ -353,6 +517,9 @@ mod windows {
     unsafe extern "system" {
         fn GetStdHandle(id: u32) -> *mut c_void;
         fn SetStdHandle(id: u32, handle: *mut c_void) -> i32;
+        fn WaitForSingleObject(handle: *mut c_void, milliseconds: u32) -> u32;
+        fn FlsAlloc(callback: Option<unsafe extern "system" fn(*const c_void)>) -> u32;
+        fn FlsSetValue(index: u32, data: *const c_void) -> i32;
         fn PeekNamedPipe(
             pipe: *mut c_void,
             buffer: *mut c_void,
@@ -361,6 +528,39 @@ mod windows {
             available: *mut u32,
             left: *mut u32,
         ) -> i32;
+    }
+
+    const FLS_OUT_OF_INDEXES: u32 = 0xFFFF_FFFF;
+    const WAIT_OBJECT_0: u32 = 0;
+
+    /// Whether the thread has ended: it ran out, or the process killed it.
+    pub(super) fn is_dead(thread: &JoinHandle<()>) -> bool {
+        // SAFETY: a live thread handle, owned by the `JoinHandle`.
+        unsafe { WaitForSingleObject(thread.as_raw_handle(), 0) == WAIT_OBJECT_0 }
+    }
+
+    /// Has `callback` run when the calling thread ends, which includes
+    /// the thread calling `ExitProcess` (what `std::process::exit` does),
+    /// after the process's other threads were killed. `atexit` handlers
+    /// don't run on that path. Does nothing if called again on this thread.
+    pub(super) fn watch_this_thread(callback: unsafe extern "system" fn(*const c_void)) {
+        thread_local! {
+            static WATCHED: Cell<bool> = const { Cell::new(false) };
+        }
+        static KEY: OnceLock<u32> = OnceLock::new();
+        if WATCHED.get() {
+            return;
+        }
+        // SAFETY: allocates a fiber-local storage slot, never freed.
+        let key = *KEY.get_or_init(|| unsafe { FlsAlloc(Some(callback)) });
+        if key == FLS_OUT_OF_INDEXES {
+            return;
+        }
+        // The callback runs for a slot holding a non-null value.
+        // SAFETY: `key` is a valid slot; the value is never dereferenced.
+        if unsafe { FlsSetValue(key, std::ptr::without_provenance(1)) } != 0 {
+            WATCHED.set(true);
+        }
     }
 
     /// Copies what's in the pipe now to `out`, without waiting for more.
