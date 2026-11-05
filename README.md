@@ -2,7 +2,7 @@
 
 # 🦀 Crabby Engine
 
-**A fast 2D game engine for simulating millions of things.**
+**A fast 2D and 3D game engine for simulating millions of things.**
 
 Colonies, crowds, armies, ecosystems, factories: games where the number of
 simulated things is the point. Written in Rust, with a C++ API at close to
@@ -35,6 +35,13 @@ It runs a million units headless at 19 ms per tick.</sub>
   sprites render at 120 FPS. A fixed-rate simulation clock runs separately from
   drawing, so the simulation can pause, step one tick, run at up to 64×, or
   run with no window at all.
+- **A full 3D renderer on the same ECS.** Behind the `3d` feature: PBR
+  materials and custom WGSL shaders, glTF meshes, a physically based sky
+  with fog, cascaded sun shadows, clustered point and spot lights,
+  heightfield terrain streamed around the camera, compute passes, screen
+  effects, and 3D physics with a walking character and raycast-wheel
+  vehicles. Unity scenes, prefabs and colliders import through
+  `crabby_unity`.
 - **Fast iteration.** Images, sounds, fonts and JSON data files reload while
   the game runs, and so does game code (`dx serve --hot-patch`), with all
   game state kept. Press `` ` `` for an in-game inspector that lists every
@@ -140,6 +147,7 @@ see [C and C++](https://bozoslav.github.io/crabbyengine/c-cpp.html).
 ```sh
 git clone https://github.com/bozoslav/crabbyengine && cd crabbyengine
 cargo run --release --example battle     # two armies, 20k units; click to rally
+cargo run --release --example terrain --features 3d   # hills, grass, a lake
 ```
 
 | Example | What it shows |
@@ -164,6 +172,38 @@ cargo run --release --example battle     # two armies, 20k units; click to rally
 <td align="center"><sub>Flow fields, 20k agents</sub></td>
 <td align="center"><sub>Ant colonies</sub></td>
 <td align="center"><sub>The inspector</sub></td>
+</tr>
+</table>
+
+### In 3D
+
+The 3D examples need `--features 3d`, the physics ones
+`--features physics3d`, added to any command below. This is the same ECS
+and the same systems, not a second engine: 3D models sit next to sprites
+if you like, and simulate with the same fixed-rate clock.
+
+| Example | What it shows |
+|---|---|
+| [`3d`](examples/3d.rs) | Meshes and glTF models, a sun, thousands of instanced cubes; `BENCH_SECONDS=8` runs the Unity-comparison benchmark |
+| [`terrain`](examples/terrain.rs) | Heightfield terrain in 5 × 5 tiles with four LODs, grass, dirt and rock blended by a weight map, a lake and an underwater effect |
+| [`shaders`](examples/shaders.rs) | Custom material shaders in WGSL: lake waves, grass in the wind, a procedural pattern, post-processing |
+| [`lights`](examples/lights.rs) | 1,000 clustered point and spot lights (`LIGHTS` to change the count) |
+| [`streaming`](examples/streaming.rs) | An endless landscape built on worker threads and streamed in around the camera |
+| [`compute`](examples/compute.rs) | A compute pass running a wave simulation on the GPU: rain bending a pond's normals |
+| [`physics3d`](examples/physics3d.rs) | Walk on hilly terrain in first person, climb steps, push crates |
+| [`vehicle`](examples/vehicle.rs) | Drive a raycast-wheel car over terrain |
+| [`scene_viewer`](examples/scene_viewer.rs) | Fly around a scene file, like the Unity importer writes |
+
+<table>
+<tr>
+<td width="33%"><img src="book/src/images/terrain.jpg" alt="Heightfield terrain: hills of grass, dirt and rock around a lake, drawn coarser in the distance"></td>
+<td width="33%"><img src="book/src/images/shaders.jpg" alt="Custom material shaders: grass swaying in the wind beside a lake with its own wave shader"></td>
+<td width="33%"><img src="book/src/images/lights.jpg" alt="A dark scene lit by one thousand colored point and spot lights"></td>
+</tr>
+<tr>
+<td align="center"><sub>Terrain tiles with LOD, streamed by distance</sub></td>
+<td align="center"><sub>Custom WGSL shaders, hot reloaded</sub></td>
+<td align="center"><sub>1,000 clustered lights</sub></td>
 </tr>
 </table>
 
@@ -212,18 +252,41 @@ What's not equal, and how to rerun both sides, is on the
 - Headless runs for tests, servers and batch simulations; the build without a window has about half as many crates
 - Web builds: WebGPU or WebGL2, assets fetched before setup, sound through WebAudio ([guide](https://bozoslav.github.io/crabbyengine/web.html))
 
+**3D** (`3d` feature, `physics3d` adds physics)
+- PBR meshes: instanced per mesh and culled to the view, from glTF, your
+  own triangles or Unity scenes; custom `vertex`/`surface` shaders in WGSL
+  (hot reloaded), with render targets (mirrors), compute passes and screen
+  effects; depth prepass, HDR, 2 or 4× MSAA, bloom and tone mapping
+- A physically based sky with a day-night cycle, height and distance fog;
+  cascaded sun shadows; clustered point and spot lights; per-mesh shadow
+  switches (`ShadowMesh`, `set_mesh_shadows`)
+- Heightfield terrain: tiles with four LODs, up to 8 ground layers blended
+  by a weight map, triplanar on cliffs, streamed in on worker threads
+  (`CellStreamer`) and freed behind the camera
+- 3D physics (rapier3d, `physics3d`): rigid bodies, heightfield colliders,
+  ray and shape queries, a kinematic walking character, raycast-wheel
+  vehicles
+- Scenes and prefabs: `ctx.load_scene`, `ctx.spawn_prefab`; the
+  `crabby_unity` importer brings Unity projects (scenes, prefabs,
+  materials, colliders) into Crabby scene files
+
 **Drawing, sound, input**
 - wgpu sprite batcher: instancing, z-order, tint, rotation, scale
 - 2D camera (pan, zoom, follow), text, shapes, simple UI (panels, buttons, labels)
 - Sprite sheets, animation, tilemaps; sound through kira
-- Keyboard, mouse and gamepads (Xbox, PlayStation, Switch, hot-plugged); CPU and GPU timings per frame
+- Keyboard, mouse and gamepads (Xbox, PlayStation, Switch, hot-plugged),
+  named action maps all of them feed; CPU and GPU timings per frame
 
 **Iteration and tools**
 - Hot reload of images, sounds, fonts and JSON data files; hot-patching of game code
-- Runtime inspector (egui): entities, live component editing, resources, system timings, sim controls
+- Runtime inspector (egui): entities, live component editing, level
+  editing (drag, scene save and load, prefabs) while paused, resources,
+  system timings, sim controls
 - Reflection: components and resources as JSON, used by the inspector, save files and agents
 - Control endpoint and MCP server for AI agents and external tools
-- Per-system timings always on; puffin profiler behind a feature
+- Per-system timings always on; frame stats, per-pass GPU timings, a
+  performance HUD, Perfetto traces and an offscreen benchmark mode
+  (`CRABBY_BENCH`); puffin profiler behind a feature
 
 **C and C++**
 - C API (`crabby_ffi`) with a generated header, plus a header-only C++17 wrapper (`include/crabby.hpp`)

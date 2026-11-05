@@ -8,6 +8,35 @@ says what that covers.
 ## [Unreleased]
 
 ### Added
+- Named input actions (behind no feature): bind keyboard, mouse and gamepad
+  inputs to names once and query those names in game systems.
+  `Action::Button`, `Action::Axis` and `Action::Axis2` take several sources
+  each (buttons OR together; axes pick the strongest source), so keyboard and
+  controller share one set of names. `ctx.action_down`, `action_pressed`,
+  `action_released`, `action_axis` and `action_axis2` read them;
+  `ctx.actions()` and `ctx.set_actions` rebind at runtime;
+  `ActionMap::to_json`/`from_json` save bindings as JSON; `feed_input`
+  feeds input by hand for headless tests and replay. In C
+  (`crabby_action_map_new` and friends, `crabby_ctx_action_down` and
+  friends) and C++ (`crabby::action_map`, `action_binding`). New
+  `action_map` example.
+- Frame profiling: `ctx.frame_stats()` (fps, frame-time percentiles, CPU
+  split into systems, render and display wait, GPU time), `ctx.gpu_passes()`
+  (GPU time per pass: every shadow cascade, prepass, opaque, transparent,
+  effects, bloom, post), `render_stats()` now counts models and triangles
+  for the camera and the shadow maps separately, `ctx.mesh_costs()` per
+  mesh, a performance HUD (`ctx.set_perf_hud`, `CRABBY_HUD=1`), Perfetto
+  traces (`ctx.record_trace`, `CRABBY_TRACE`), an offscreen benchmark mode
+  (`CRABBY_BENCH=<frames>`, with a JSON and CSV report), and the MCP tools
+  `perf_report`, `record_trace` and `perf_hud`. The 3D renderer records its
+  frame parts and culls in parallel; `Game::msaa(2)` is an option; on
+  tile-based GPUs solid surfaces skip the depth prepass; a `ShadowMesh`
+  component gives an entity a simpler shadow caster, a shadow-only shape,
+  or none (the Unity importer maps Cast Shadows: Off and Shadows Only to
+  it). In C (`crabby_game_msaa`, `crabby_ctx_frame_stats`,
+  `crabby_ctx_set_perf_hud`, `crabby_ctx_record_trace`,
+  `crabby_ctx_set_shadow_mesh`) and C++ (the same `ctx` methods,
+  `game.msaa()`). The `3d` example's 100,000 cubes: 255 → 318 FPS.
 - Vehicles (`physics3d` feature): `Vehicle3D` puts a dynamic body on up
   to 8 raycast `Wheel3D`s with spring-damper suspension, slip-based tyre
   grip through `FrictionCurve`s and wheel spin from motor and brake
@@ -19,6 +48,80 @@ says what that covers.
   `crabby_wheel3d_pose`, `crabby_friction_curve_*`,
   `crabby_ctx_body_center_of_mass3d`) and C++ (`crabby::vehicle`,
   `crabby::wheel`, `crabby::wheel_pose`). New `vehicle` example.
+- Point and spot lights: `PointLight3D` and `SpotLight3D` components found
+  by `Transform3D`, spots aiming along local −Z. Visible lights are binned
+  into clusters per camera and a mesh fragment lights only its cluster's
+  lights, with the packing WebGL2-friendly (no storage buffers). Sunlight
+  and lights share one GGX lighting function; custom shaders call
+  `punctual_light` and `direct_light`. 1,000 visible lights cost about
+  0.14 ms of CPU and 1 ms of GPU at 720p (M4 Max, shadows off). In C
+  (`CrabbyPointLight3D`, `CrabbySpotLight3D`) and C++
+  (`crabby::point_light3d`, `spot_light3d`). New `lights` example.
+- The Unity importer imports colliders: `Importer::colliders(true)` turns
+  enabled box, sphere, capsule and mesh colliders into entities with a
+  fixed `RigidBody3D` and a `Collider3D`. Scene files gain
+  mesh-collider shapes, built once and shared by `ctx.load_scene`.
+- Meshes that cast no shadow: `ctx.set_mesh_shadows(mesh, false)` leaves
+  every model using that mesh out of the shadow maps (grass tufts,
+  pebbles) while still drawn; `ctx.mesh_shadows(mesh)` reads it. In C
+  (`crabby_ctx_set_mesh_shadows`, `crabby_ctx_mesh_shadows`) and C++
+  (`ctx.set_mesh_shadows`, `ctx.mesh_shadows`).
+- The Unity importer leaves out renderers set to Shadows Only (Unity never
+  draws them either) and reports how many.
+- 3D physics (`physics3d` feature): `RigidBody3D`, `Collider3D` and
+  `Velocity3D` components — sphere, box, capsule, convex hull, triangle
+  mesh and heightfield shapes, friction, restitution, sensors and
+  collision groups, a fixed 50 Hz step, drawn transforms interpolated
+  between steps; setting `Transform3D` teleports the body.
+  `Physics3D::heightfield` makes a terrain collider in the exact layout of
+  a terrain tile. Queries on `ctx.physics3d`: `cast_ray`, `cast_ray_all`,
+  `cast_sphere`, `cast_capsule`, `overlap_sphere`, `overlap_box`,
+  `overlap_capsule` (with a `QueryFilter3D`), plus `apply_impulse`.
+  `Character3D` is a kinematic walking capsule: slope limit, step height,
+  snap to ground, pushes light bodies; set `velocity`, read `grounded`.
+  `ctx.set_cursor_locked` grabs the mouse for first-person look and
+  `ctx.mouse_motion` reads raw motion. Collision events are shared with
+  the 2D physics. In C (`crabby_ctx_cast_ray3d` and friends,
+  `crabby_ctx_apply_impulse3d`) and C++ (`dynamic_body_at`, `box_collider`,
+  `mesh_collider`, `character`, `filter3d`, `ctx.heightfield_collider()`,
+  `game.physics3d()`). New `physics3d` example.
+- Distance fog: `Sky::fog_start` and `::fog_end` blend the world into the
+  fog from one distance to another, whatever the camera height, so an
+  open world fades out before its streamed edges; `Sky::fog_sun_glow`
+  (forward scattering of sunlight) makes the haze brighten toward the sun,
+  height fog included. The sky itself takes none, so the sun disk stays
+  visible. In C and C++ (the four new `Sky` fields), with a Book example
+  in both.
+- Custom material shaders get `origin` — the model's position — in both
+  `vertex` and `surface`, so each instance can vary on its own (how high
+  a pixel is above the model's base, a color per model, a sway phase)
+  without a material per model.
+- A second set of texture coordinates: `MeshData::uvs1` (glTF's
+  `TEXCOORD_1`), read in custom shaders from `Vertex.uv1`/`Surface.uv1`;
+  the Unity importer writes it for meshes drawn with a game's own
+  shaders.
+- Materials imported from Unity keep their names:
+  `ctx.loaded_materials(name)` finds every material loaded from glTF
+  files of that name with the `MaterialDesc` it was made from, so a game
+  keeps its colors and textures and swaps in its own shader with
+  `ctx.update_material`. `Importer::custom_shader(path)` marks imported
+  materials for one of the game's shaders and writes `materials.json`
+  with everything they set, textures as PNGs;
+  `Importer::vertex_colors(shader, f)` fills a mesh's vertex colors from
+  any Unity channel (a second UV set, say) for such shaders. The
+  importer is a Rust tool; run it once and keep the files it writes.
+- `crabby_unity` imports Unity scenes and prefabs into Crabby scene
+  files: a scene's tree in `crabby-world` JSON, a `.glb` per drawn mesh
+  with glTF PBR materials (URP Lit, Simple Lit and Unlit, with an ORM map
+  packed from Unity's metallic/smoothness/occlusion), PNG textures shared
+  across scenes, FBX and OBJ meshes via ufbx, built-in Cube/Plane/Quad.
+  `Model` is reflected (scenes save it by its mesh file, and loading a
+  scene loads the meshes first); glTF loading shares images between files.
+  New `scene_viewer` example.
+- `crabby_unity`, a workspace crate (not published yet): reads Unity
+  projects as the importer's ground — text serialized files parsed into a
+  lossless map, editor/Unity 6 binary files through their type trees, and
+  GUIDs mapped to files from the `.meta`s.
 - `Heightfield`: the ground's height and facing under a point on the CPU
   (`height_at`, `normal_at`), following the drawn triangles exactly, for
   standing things on terrain; `TerrainTileData::heightfield` keeps one. In
@@ -164,6 +267,13 @@ says what that covers.
   the sun. Distant cascades draw terrain tiles at a coarser detail level.
 
 ### Fixed
+- The Unity importer honors `bakeAxisConversion` on FBX meshes: positions
+  and normals go through the same axis permutation and the winding turns
+  where it mirrors, so such meshes no longer stand the wrong way round in
+  imported prefabs.
+- A custom `surface` shader that reads `sunlight()` or `sky_radiance()`
+  could fail pipeline validation when only the shadow or sky pass drew it;
+  those passes now bind everything the frame group declares.
 - A 3D body that falls asleep reports a zero `Velocity3D` instead of the
   speed it had just before.
 - `vsync(false)` no longer waits for the window's redraw events, which
