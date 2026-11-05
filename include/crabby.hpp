@@ -1337,6 +1337,9 @@ public:
 };
 
 /// A finished, immutable animation graph, shared by the animators made from it.
+enum class layer_blend : std::uint32_t { override_pose = 0, additive = 1 };
+enum class root_motion : std::uint32_t { off = 0, extract = 1, apply = 2 };
+
 class animation_graph {
     CrabbyAnimationGraph* raw_ = nullptr;
 public:
@@ -2016,6 +2019,41 @@ public:
     }
     /// Jumps to `state` at normalized time `time` on the next update.
     void animator_play(entity e, std::size_t state, float time = 0) { animator_crossfade(e, state, 0, time); }
+    /// Adds a layer playing `g` over `e`'s base animation; returns its index.
+    /// `mask_joint` limits it to that joint and its children ("" for all joints).
+    std::size_t animator_add_layer(entity e, const animation_graph& g, layer_blend mode = layer_blend::override_pose,
+                                   const std::string& mask_joint = "") {
+        std::size_t index = 0;
+        detail::check(crabby_ctx_animator_add_layer(raw_, e, g.raw(), static_cast<std::uint32_t>(mode),
+                                                    mask_joint.empty() ? nullptr : mask_joint.c_str(), &index));
+        return index;
+    }
+    void animator_set_layer_weight(entity e, std::size_t layer, float weight) {
+        detail::check(crabby_ctx_animator_set_layer_weight(raw_, e, layer, weight));
+    }
+    void animator_layer_set_float(entity e, std::size_t layer, std::size_t parameter, float value) {
+        detail::check(crabby_ctx_animator_layer_set_float(raw_, e, layer, parameter, value));
+    }
+    void animator_layer_set_bool(entity e, std::size_t layer, std::size_t parameter, bool value) {
+        detail::check(crabby_ctx_animator_layer_set_bool(raw_, e, layer, parameter, value));
+    }
+    void animator_layer_set_trigger(entity e, std::size_t layer, std::size_t parameter, bool value = true) {
+        detail::check(crabby_ctx_animator_layer_set_trigger(raw_, e, layer, parameter, value));
+    }
+    void animator_layer_crossfade(entity e, std::size_t layer, std::size_t state, float duration, float offset = 0) {
+        detail::check(crabby_ctx_animator_layer_crossfade(raw_, e, layer, state, duration, offset));
+    }
+    /// What `e`'s animator does with joint `root_joint`'s horizontal movement and turning.
+    void animator_set_root_motion(entity e, root_motion mode, std::size_t root_joint = 0) {
+        detail::check(crabby_ctx_animator_set_root_motion(raw_, e, static_cast<std::uint32_t>(mode), root_joint));
+    }
+    /// The movement (entity axes, before scale) and turn taken out of the pose in the latest update.
+    std::pair<vec3, quat> animator_root_motion(entity e) {
+        vec3 p{};
+        quat r{0, 0, 0, 1};
+        detail::check(crabby_ctx_animator_root_motion(raw_, e, &p, &r));
+        return {p, r};
+    }
     void animator_set_manual(entity e, bool manual) { detail::check(crabby_ctx_animator_set_manual(raw_, e, manual)); }
     /// Advances `e`'s animator by `dt` and poses its skeleton now.
     void animator_update(entity e, float dt) { detail::check(crabby_ctx_animator_update(raw_, e, dt)); }

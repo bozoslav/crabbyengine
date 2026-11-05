@@ -767,6 +767,22 @@ static void animators() {
         ctx.animator_play(e, still);
         ctx.animator_update(e, 0.0f);
         CHECK(ctx.animator_state(e) == still);
+
+        ctx.animator_set_float(e, speed, 0); // the base stays still
+        crabby::animation_graph_builder lb;
+        lb.add_state(crabby::motion::of(rise), 1, std::nullopt, false);
+        auto overlay = lb.build(0);
+        auto layer = ctx.animator_add_layer(e, overlay, crabby::layer_blend::override_pose, "arm");
+        CHECK(layer == 0);
+        ctx.animator_set_layer_weight(e, layer, 0.5f);
+        ctx.animator_update(e, 0.5f); // layer: y = 1, base: y = 0
+        CHECK(std::fabs(ctx.joint_pose(e, arm).position.y - 0.5f) < 1e-4f);
+        throws([&] { ctx.animator_set_layer_weight(e, 1, 1); });
+        throws([&] { ctx.animator_add_layer(e, overlay, crabby::layer_blend::additive, "tail"); });
+        ctx.animator_set_root_motion(e, crabby::root_motion::extract, arm);
+        ctx.animator_update(e, 0.1f);
+        auto [moved, turned] = ctx.animator_root_motion(e);
+        CHECK(moved.x == 0 && moved.z == 0 && turned.w == 1); // rising isn't horizontal
     });
     std::filesystem::remove(file);
 }

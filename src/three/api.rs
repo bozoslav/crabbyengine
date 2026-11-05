@@ -826,10 +826,16 @@ impl Ctx {
     pub(crate) fn update_animators(&mut self) {
         let dt = self.dt();
         self.world
-            .query::<(&mut super::Animator, &mut Skeleton)>()
-            .for_each(|(animator, skeleton)| {
-                if !animator.manual {
-                    animator.update(dt, skeleton);
+            .query::<(&mut super::Animator, &mut Skeleton, Option<&mut super::Transform3D>)>()
+            .for_each(|(animator, skeleton, transform)| {
+                if animator.manual {
+                    return;
+                }
+                animator.update(dt, skeleton);
+                if let (true, Some(t)) = (animator.apply_root_motion, transform) {
+                    let motion = animator.root_motion();
+                    t.position += t.rotation * (motion.position * t.scale);
+                    t.rotation = (t.rotation * motion.rotation).normalize();
                 }
             });
     }

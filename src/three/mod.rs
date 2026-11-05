@@ -34,8 +34,8 @@ mod terrain;
 mod texture_array;
 
 pub use animator::{
-    AnimationCondition, AnimationEvent, AnimationGraph, AnimationParameter, AnimationState, AnimationTransition,
-    Animator, Motion, MotionChild,
+    AnimationCondition, AnimationEvent, AnimationGraph, AnimationLayer, AnimationParameter, AnimationState,
+    AnimationTransition, Animator, JointMask, LayerBlend, Motion, MotionChild, RootMotion,
 };
 pub(crate) use api::GpuMaterialDesc;
 #[cfg(feature = "window")]

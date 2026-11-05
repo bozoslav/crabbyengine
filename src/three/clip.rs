@@ -291,6 +291,37 @@ impl AnimationClip {
             self.apply(time, weight, skeleton, Some(&bindings[at].indices));
         }
     }
+    /// One joint's local transform at clamped `time`, starting from its rest
+    /// pose (root motion). Tracks bind by index on the clip's own skeleton,
+    /// otherwise by joint name.
+    pub(crate) fn sample_joint(&self, time: f32, skeleton: &Skeleton, joint: usize) -> crate::Transform3D {
+        let Some(j) = skeleton.joints().get(joint) else {
+            return crate::Transform3D::default();
+        };
+        let mut pose = j.rest;
+        let time = if time.is_nan() {
+            0.0
+        } else {
+            time.clamp(0.0, self.duration())
+        };
+        let own = skeleton.shares_joints(&self.0.joints);
+        for track in &self.0.tracks {
+            if !(if own {
+                track.joint == joint
+            } else {
+                *track.name == *j.name
+            }) {
+                continue;
+            }
+            if let Some(t) = &track.translation {
+                pose.position = t.sample(time, false).truncate();
+            }
+            if let Some(t) = &track.rotation {
+                pose.rotation = quaternion(t.sample(time, true));
+            }
+        }
+        pose
+    }
     fn apply(&self, time: f32, weight: f32, skeleton: &mut Skeleton, mapping: Option<&[Option<usize>]>) {
         for (i, track) in self.0.tracks.iter().enumerate() {
             let Some(joint) = mapping.map_or(Some(track.joint), |m| m[i]) else {

@@ -8,12 +8,13 @@ use std::ffi::c_char;
 use std::sync::Arc;
 
 use crabbyengine::{
-    AnimationCondition, AnimationEvent, AnimationGraph, AnimationParameter, AnimationState, AnimationTransition,
-    Animator, Ctx, Entity, Motion, MotionChild, Skeleton, Vec2,
+    AnimationCondition, AnimationEvent, AnimationGraph, AnimationLayer, AnimationParameter, AnimationState,
+    AnimationTransition, Animator, Ctx, Entity, JointMask, LayerBlend, Motion, MotionChild, Skeleton, Vec2,
 };
 
 use crate::ctx::{ctx_access, out, text};
 use crate::skin::CrabbyClip;
+use crate::three::{CrabbyQuat, CrabbyVec3};
 use crate::{CrabbyCtx, CrabbyStatus, Failure, boundary, error, invalid, invalid_owned};
 
 /// A motion being built: a clip, or a blend tree of motions. Free it with
@@ -729,6 +730,292 @@ pub unsafe extern "C" fn crabby_ctx_animator_next_event(
                 buffer.add(n).write(0);
             }
             out(out_found, true)
+        })
+    })
+}
+
+// ---- layers and root motion -------------------------------------------------------
+
+/// How an animation layer combines with the layers under it.
+/// ```
+/// assert_eq!(crabby_ffi::CrabbyLayerBlend::CRABBY_LAYER_ADDITIVE as u32, 1);
+/// ```
+#[repr(C)]
+#[allow(non_camel_case_types)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CrabbyLayerBlend {
+    /// Blends toward the layer's pose by its weight.
+    CRABBY_LAYER_OVERRIDE,
+    /// Adds the layer's difference from its first frame (a lean, a breath).
+    CRABBY_LAYER_ADDITIVE,
+}
+
+/// What an animator does with its root joint's horizontal movement and turning.
+/// ```
+/// assert_eq!(crabby_ffi::CrabbyRootMotion::CRABBY_ROOT_MOTION_APPLY as u32, 2);
+/// ```
+#[repr(C)]
+#[allow(non_camel_case_types)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CrabbyRootMotion {
+    /// Leave it in the pose (the default).
+    CRABBY_ROOT_MOTION_OFF,
+    /// Take it out of the pose; read it with `crabby_ctx_animator_root_motion`.
+    CRABBY_ROOT_MOTION_EXTRACT,
+    /// Take it out of the pose and move the entity's transform by it.
+    CRABBY_ROOT_MOTION_APPLY,
+}
+
+fn layer(c: &mut Ctx, bits: u64, index: usize) -> Result<&mut Animator, Failure> {
+    let a = animator(c, bits)?;
+    if index >= a.layer_count() {
+        return Err(invalid("no such animation layer"));
+    }
+    Ok(&mut a.layer_mut(index).animator)
+}
+
+/// Adds a layer playing `graph` over `entity`'s animator, with its own
+/// parameters and clock, at full weight. `mode` is a `CrabbyLayerBlend`.
+/// `mask_joint` limits it to that joint and its children (null: every joint).
+/// Writes its index (0 for the first layer) to `out_layer`, which may be null.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_animator_add_layer(std::ptr::null_mut(), 0, std::ptr::null(), 0, std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` null or live; `graph` null or live; `mask_joint` null or a
+/// NUL-terminated string; `out_layer` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_animator_add_layer(
+    ctx: *mut CrabbyCtx,
+    entity_bits: u64,
+    graph: *const CrabbyAnimationGraph,
+    mode: u32,
+    mask_joint: *const c_char,
+    out_layer: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let graph = graph.as_ref().ok_or_else(|| invalid("graph is null"))?;
+            let mode = match mode {
+                0 => LayerBlend::Override,
+                1 => LayerBlend::Additive,
+                _ => return Err(invalid("unknown layer blend")),
+            };
+            let mask = if mask_joint.is_null() {
+                None
+            } else {
+                let name = text(mask_joint)?;
+                let e = entity(c, entity_bits)?;
+                let skeleton = c
+                    .world
+                    .get::<Skeleton>(e)
+                    .ok_or_else(|| error(CrabbyStatus::CRABBY_NOT_FOUND, "that entity has no skeleton"))?;
+                Some(
+                    JointMask::descendants(skeleton, name)
+                        .ok_or_else(|| invalid_owned(format!("no joint named {name:?}")))?,
+                )
+            };
+            let mut l = AnimationLayer::new(graph.0.clone());
+            l.mode = mode;
+            l.mask = mask;
+            let index = animator(c, entity_bits)?.add_layer(l);
+            if !out_layer.is_null() {
+                out_layer.write(index);
+            }
+            Ok(())
+        })
+    })
+}
+
+/// Sets how strongly layer `layer` of `entity`'s animator shows, 0 to 1.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_animator_set_layer_weight(std::ptr::null_mut(), 0, 0, 0.5) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` null or live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_animator_set_layer_weight(
+    ctx: *mut CrabbyCtx,
+    entity_bits: u64,
+    layer: usize,
+    weight: f32,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            if !weight.is_finite() {
+                return Err(invalid("layer weight must be finite"));
+            }
+            let a = animator(c, entity_bits)?;
+            if layer >= a.layer_count() {
+                return Err(invalid("no such animation layer"));
+            }
+            a.layer_mut(layer).weight = weight.clamp(0., 1.);
+            Ok(())
+        })
+    })
+}
+
+/// Sets float parameter `parameter` of layer `layer`'s own graph.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_animator_layer_set_float(std::ptr::null_mut(), 0, 0, 0, 1.0) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` null or live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_animator_layer_set_float(
+    ctx: *mut CrabbyCtx,
+    entity_bits: u64,
+    layer_index: usize,
+    parameter: usize,
+    value: f32,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            layer(c, entity_bits, layer_index)?.set_float(parameter, value);
+            Ok(())
+        })
+    })
+}
+
+/// Sets bool parameter `parameter` of layer `layer`'s own graph.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_animator_layer_set_bool(std::ptr::null_mut(), 0, 0, 0, true) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` null or live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_animator_layer_set_bool(
+    ctx: *mut CrabbyCtx,
+    entity_bits: u64,
+    layer_index: usize,
+    parameter: usize,
+    value: bool,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            layer(c, entity_bits, layer_index)?.set_bool(parameter, value);
+            Ok(())
+        })
+    })
+}
+
+/// Sets (or clears) trigger parameter `parameter` of layer `layer`'s own graph.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_animator_layer_set_trigger(std::ptr::null_mut(), 0, 0, 0, true) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` null or live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_animator_layer_set_trigger(
+    ctx: *mut CrabbyCtx,
+    entity_bits: u64,
+    layer_index: usize,
+    parameter: usize,
+    value: bool,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            layer(c, entity_bits, layer_index)?.set_trigger(parameter, value);
+            Ok(())
+        })
+    })
+}
+
+/// Crossfades layer `layer` to `state` of its own graph (like
+/// `crabby_ctx_animator_crossfade`).
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_animator_layer_crossfade(std::ptr::null_mut(), 0, 0, 0, 0.2, 0.0) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` null or live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_animator_layer_crossfade(
+    ctx: *mut CrabbyCtx,
+    entity_bits: u64,
+    layer_index: usize,
+    state: usize,
+    duration: f32,
+    offset: f32,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            layer(c, entity_bits, layer_index)?.crossfade(state, duration, offset);
+            Ok(())
+        })
+    })
+}
+
+/// Sets what `entity`'s animator does with joint `root_joint`'s horizontal
+/// movement and turning: `mode` is a `CrabbyRootMotion`.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_animator_set_root_motion(std::ptr::null_mut(), 0, 2, 0) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` null or live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_animator_set_root_motion(
+    ctx: *mut CrabbyCtx,
+    entity_bits: u64,
+    mode: u32,
+    root_joint: usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let (extract, apply) = match mode {
+                0 => (false, false),
+                1 => (true, false),
+                2 => (true, true),
+                _ => return Err(invalid("unknown root motion mode")),
+            };
+            let a = animator(c, entity_bits)?;
+            (a.extract_root_motion, a.apply_root_motion, a.root_joint) = (extract, apply, root_joint);
+            Ok(())
+        })
+    })
+}
+
+/// The root movement (in the entity's own axes, before its scale) and turn
+/// that `entity`'s animator took out of the pose in its latest update.
+/// Either output may be null.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_animator_root_motion(std::ptr::null_mut(), 0, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` null or live; outputs null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_animator_root_motion(
+    ctx: *mut CrabbyCtx,
+    entity_bits: u64,
+    out_position: *mut CrabbyVec3,
+    out_rotation: *mut CrabbyQuat,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let m = animator(c, entity_bits)?.root_motion();
+            if !out_position.is_null() {
+                out_position.write(CrabbyVec3 {
+                    x: m.position.x,
+                    y: m.position.y,
+                    z: m.position.z,
+                });
+            }
+            if !out_rotation.is_null() {
+                out_rotation.write(CrabbyQuat {
+                    x: m.rotation.x,
+                    y: m.rotation.y,
+                    z: m.rotation.z,
+                    w: m.rotation.w,
+                });
+            }
+            Ok(())
         })
     })
 }

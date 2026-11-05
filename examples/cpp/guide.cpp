@@ -1438,6 +1438,16 @@ static void skinned_tentacle(crabby::ctx& ctx) {
     ctx.animator_crossfade(character, idle, 0.12f);
     while (auto name = ctx.animator_next_event(character)) std::printf("Animation event: %s\n", name->c_str());
     // ANCHOR_END: animator_update
+    // ANCHOR: animator_layers
+    crabby::animation_graph_builder upper;
+    upper.add_state(crabby::motion::of(ctx.load_clip("models/character.glb", "wave")));
+    auto waving = upper.build(0);
+    // The wave plays on the spine and everything under it, over the walk.
+    auto wave = ctx.animator_add_layer(character, waving, crabby::layer_blend::override_pose, "spine");
+    ctx.animator_set_layer_weight(character, wave, 0.8f);
+    // The walk's own steps move the character, instead of sliding in place.
+    ctx.animator_set_root_motion(character, crabby::root_motion::apply, *ctx.find_joint(character, "hips"));
+    // ANCHOR_END: animator_layers
 }
 
 static void joints_and_dominance(crabby::ctx& ctx) {

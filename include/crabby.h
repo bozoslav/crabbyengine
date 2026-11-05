@@ -321,6 +321,17 @@ typedef enum CrabbyParticleSpace3D {
   CRABBY_PARTICLES_LOCAL,
 } CrabbyParticleSpace3D;
 
+typedef enum CrabbyLayerBlend {
+  CRABBY_LAYER_OVERRIDE,
+  CRABBY_LAYER_ADDITIVE,
+} CrabbyLayerBlend;
+
+typedef enum CrabbyRootMotion {
+  CRABBY_ROOT_MOTION_OFF,
+  CRABBY_ROOT_MOTION_EXTRACT,
+  CRABBY_ROOT_MOTION_APPLY,
+} CrabbyRootMotion;
+
 typedef struct CrabbyActionMap CrabbyActionMap;
 
 typedef struct CrabbyAnimationGraph CrabbyAnimationGraph;
@@ -391,6 +402,19 @@ typedef struct CrabbyVec2 {
   float y;
 } CrabbyVec2;
 
+typedef struct CrabbyVec3 {
+  float x;
+  float y;
+  float z;
+} CrabbyVec3;
+
+typedef struct CrabbyQuat {
+  float x;
+  float y;
+  float z;
+  float w;
+} CrabbyQuat;
+
 typedef struct CrabbyAudioEffects {
   float low_pass_hz;
   float reverb;
@@ -424,19 +448,6 @@ typedef struct CrabbySound {
 typedef struct CrabbyPlaying {
   uint64_t id;
 } CrabbyPlaying;
-
-typedef struct CrabbyVec3 {
-  float x;
-  float y;
-  float z;
-} CrabbyVec3;
-
-typedef struct CrabbyQuat {
-  float x;
-  float y;
-  float z;
-  float w;
-} CrabbyQuat;
 
 typedef struct CrabbyAudioListener3D {
   struct CrabbyVec3 position;
@@ -1249,6 +1260,53 @@ enum CrabbyStatus crabby_ctx_animator_next_event(struct CrabbyCtx *ctx,
                                                  size_t capacity,
                                                  bool *out_found);
 
+enum CrabbyStatus crabby_ctx_animator_add_layer(struct CrabbyCtx *ctx,
+                                                uint64_t entity_bits,
+                                                const struct CrabbyAnimationGraph *graph,
+                                                uint32_t mode,
+                                                const char *mask_joint,
+                                                size_t *out_layer);
+
+enum CrabbyStatus crabby_ctx_animator_set_layer_weight(struct CrabbyCtx *ctx,
+                                                       uint64_t entity_bits,
+                                                       size_t layer,
+                                                       float weight);
+
+enum CrabbyStatus crabby_ctx_animator_layer_set_float(struct CrabbyCtx *ctx,
+                                                      uint64_t entity_bits,
+                                                      size_t layer_index,
+                                                      size_t parameter,
+                                                      float value);
+
+enum CrabbyStatus crabby_ctx_animator_layer_set_bool(struct CrabbyCtx *ctx,
+                                                     uint64_t entity_bits,
+                                                     size_t layer_index,
+                                                     size_t parameter,
+                                                     bool value);
+
+enum CrabbyStatus crabby_ctx_animator_layer_set_trigger(struct CrabbyCtx *ctx,
+                                                        uint64_t entity_bits,
+                                                        size_t layer_index,
+                                                        size_t parameter,
+                                                        bool value);
+
+enum CrabbyStatus crabby_ctx_animator_layer_crossfade(struct CrabbyCtx *ctx,
+                                                      uint64_t entity_bits,
+                                                      size_t layer_index,
+                                                      size_t state,
+                                                      float duration,
+                                                      float offset);
+
+enum CrabbyStatus crabby_ctx_animator_set_root_motion(struct CrabbyCtx *ctx,
+                                                      uint64_t entity_bits,
+                                                      uint32_t mode,
+                                                      size_t root_joint);
+
+enum CrabbyStatus crabby_ctx_animator_root_motion(struct CrabbyCtx *ctx,
+                                                  uint64_t entity_bits,
+                                                  struct CrabbyVec3 *out_position,
+                                                  struct CrabbyQuat *out_rotation);
+
 enum CrabbyStatus crabby_attached_component(struct CrabbyWorld *world, uint32_t *out_id);
 
 enum CrabbyStatus crabby_game_follow_attachments(struct CrabbyGame *game);
@@ -1751,22 +1809,6 @@ enum CrabbyStatus crabby_ctx_remove_nav(struct CrabbyCtx *ctx, uint64_t entity_b
 
 enum CrabbyStatus crabby_game_navmesh3d(struct CrabbyGame *game);
 
-struct CrabbyParticleSettings3D crabby_particle_settings3d_default(void);
-
-enum CrabbyStatus crabby_ctx_set_particle_emitter3d(struct CrabbyCtx *ctx,
-                                                    uint64_t entity_bits,
-                                                    const struct CrabbyParticleSettings3D *settings);
-
-enum CrabbyStatus crabby_ctx_particle_burst(struct CrabbyCtx *ctx,
-                                            uint64_t entity_bits,
-                                            uint32_t count);
-
-enum CrabbyStatus crabby_ctx_particle_live_count(struct CrabbyCtx *ctx,
-                                                 uint64_t entity_bits,
-                                                 uint32_t *out_count);
-
-enum CrabbyStatus crabby_ctx_remove_particle_emitter3d(struct CrabbyCtx *ctx, uint64_t entity_bits);
-
 enum CrabbyStatus crabby_game_lockstep_host(struct CrabbyGame *game,
                                             const char *addr,
                                             uint32_t players,
@@ -1793,6 +1835,22 @@ enum CrabbyStatus crabby_ctx_net_desync(struct CrabbyCtx *ctx,
                                         bool *out_found,
                                         uint64_t *out_tick,
                                         uint32_t *out_player);
+
+struct CrabbyParticleSettings3D crabby_particle_settings3d_default(void);
+
+enum CrabbyStatus crabby_ctx_set_particle_emitter3d(struct CrabbyCtx *ctx,
+                                                    uint64_t entity_bits,
+                                                    const struct CrabbyParticleSettings3D *settings);
+
+enum CrabbyStatus crabby_ctx_particle_burst(struct CrabbyCtx *ctx,
+                                            uint64_t entity_bits,
+                                            uint32_t count);
+
+enum CrabbyStatus crabby_ctx_particle_live_count(struct CrabbyCtx *ctx,
+                                                 uint64_t entity_bits,
+                                                 uint32_t *out_count);
+
+enum CrabbyStatus crabby_ctx_remove_particle_emitter3d(struct CrabbyCtx *ctx, uint64_t entity_bits);
 
 enum CrabbyStatus crabby_ctx_frame_stats(const struct CrabbyCtx *ctx,
                                          struct CrabbyFrameStats *out_stats);

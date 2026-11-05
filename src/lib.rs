@@ -151,13 +151,14 @@ pub use text::{Font, TextParams};
 pub use texture::{DrawParams, Texture, TextureFilter};
 #[cfg(feature = "3d")]
 pub use three::{
-    AnimationClip, AnimationCondition, AnimationEvent, AnimationGraph, AnimationParameter, AnimationState,
-    AnimationTrack, AnimationTransition, Animator, AttachToJoint, Blend, Camera3D, Compute, ComputePass, Effect,
-    Heightfield, Interpolation, Joint, JointAnimation, Lighting, Material, MaterialDesc, Mesh, MeshCost, MeshData,
-    Model, Motion, MotionChild, ParticleBlend3D, ParticleCurve, ParticleEmitter3D, ParticleGradient,
-    ParticleSettings3D, ParticleShape3D, ParticleSpace3D, PointLight3D, Post, ScreenEffect, Shader, ShadowMesh,
-    Skeleton, SkinOf, Sky, SpotLight3D, TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera, TerrainMaterialDesc, TerrainTile,
-    TerrainTileData, TextureArray, TextureKind, Tonemap, Transform3D, look_at_joint, two_bone_ik,
+    AnimationClip, AnimationCondition, AnimationEvent, AnimationGraph, AnimationLayer, AnimationParameter,
+    AnimationState, AnimationTrack, AnimationTransition, Animator, AttachToJoint, Blend, Camera3D, Compute,
+    ComputePass, Effect, Heightfield, Interpolation, Joint, JointAnimation, JointMask, LayerBlend, Lighting, Material,
+    MaterialDesc, Mesh, MeshCost, MeshData, Model, Motion, MotionChild, ParticleBlend3D, ParticleCurve,
+    ParticleEmitter3D, ParticleGradient, ParticleSettings3D, ParticleShape3D, ParticleSpace3D, PointLight3D, Post,
+    RootMotion, ScreenEffect, Shader, ShadowMesh, Skeleton, SkinOf, Sky, SpotLight3D, TERRAIN_LAYERS, TERRAIN_LODS,
+    TargetCamera, TerrainMaterialDesc, TerrainTile, TerrainTileData, TextureArray, TextureKind, Tonemap, Transform3D,
+    look_at_joint, two_bone_ik,
 };
 pub use tilemap::{TileMap, draw_tilemaps};
 pub use ui::UiStyle;
