@@ -1072,8 +1072,7 @@ pub unsafe extern "C" fn crabby_mesh_data_new(
                     std::slice::from_raw_parts(indices, index_count).to_vec()
                 }
             },
-            colors: Vec::new(),
-            uvs1: Vec::new(),
+            ..Default::default()
         };
         data.check().map_err(invalid_owned)?;
         result = boxed(data);

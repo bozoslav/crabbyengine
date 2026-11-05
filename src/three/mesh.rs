@@ -38,6 +38,13 @@ pub struct MeshData {
     /// the game's own shaders: `v.uv1` and `s.uv1` (lightmaps, texture
     /// layers, masks). The built-in shading doesn't use it. Empty: all zero.
     pub uvs1: Vec<Vec2>,
+    /// For skinned meshes: up to four joints per corner that move it (see
+    /// [`Ctx::create_skinned_mesh`](crate::Ctx::create_skinned_mesh)). Empty
+    /// for meshes that don't bend.
+    pub joints: Vec<[u16; 4]>,
+    /// How much each of `joints` moves the corner; they're scaled to add
+    /// up to 1. One per corner when `joints` is given.
+    pub weights: Vec<[f32; 4]>,
 }
 
 impl MeshData {
@@ -101,8 +108,7 @@ impl MeshData {
                 Vec2::new(0.0, 0.0),
             ],
             indices: vec![0, 1, 2, 0, 2, 3],
-            colors: Vec::new(),
-            uvs1: Vec::new(),
+            ..Default::default()
         }
     }
 
@@ -255,6 +261,8 @@ impl MeshData {
     /// let broken = MeshData { positions: vec![Vec3::ZERO], indices: vec![0, 1, 2], ..Default::default() };
     /// let short = MeshData { positions: vec![Vec3::ZERO; 3], indices: vec![0, 1, 2], uvs1: vec![Vec2::ZERO], ..Default::default() };
     /// assert!(short.check().unwrap_err().contains("second texture coordinates"));
+    /// let unweighted = MeshData { positions: vec![Vec3::ZERO; 3], indices: vec![0, 1, 2], joints: vec![[0; 4]; 3], ..Default::default() };
+    /// assert!(unweighted.check().unwrap_err().contains("weights"));
     /// assert!(broken.check().is_err());
     /// ```
     ///
@@ -283,6 +291,13 @@ impl MeshData {
         }
         if !self.colors.is_empty() && self.colors.len() != corners {
             return Err(format!("{} colors for {corners} corners", self.colors.len()));
+        }
+        if self.joints.len() != self.weights.len() || !self.joints.is_empty() && self.joints.len() != corners {
+            return Err(format!(
+                "{} joints and {} weights for {corners} corners: needs one of each per corner, or none",
+                self.joints.len(),
+                self.weights.len()
+            ));
         }
         if !self.positions.iter().all(|p| p.is_finite()) || !self.normals.iter().all(|n| n.is_finite()) {
             return Err("a position or normal isn't a finite number".into());

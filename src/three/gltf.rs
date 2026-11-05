@@ -3,13 +3,15 @@
 //!
 //! Every mesh in the file's default scene is placed where its node puts it
 //! and merged, so a file is one [`Mesh`](crate::Mesh): a tree, a house, a
-//! car. Node hierarchy and animation aren't kept (yet).
+//! car. A file with skins keeps its nodes as the joints of a skeleton:
+//! skinned meshes stay in the space they were bound in, and other meshes
+//! follow their node rigidly. Animation isn't loaded (yet).
 
 use std::ops::Range;
 
-use glam::{Mat3, Mat4, Vec2, Vec3};
+use glam::{Mat3, Mat4, Quat, Vec2, Vec3};
 
-use super::{Blend, MeshData};
+use super::{Blend, Joint, MeshData, Transform3D};
 use crate::Color;
 
 /// A loaded file, before it goes to the GPU.
@@ -24,6 +26,85 @@ pub(crate) struct Loaded {
     /// `orm:` plus two of them for a merged image), so files sharing an
     /// image upload it once. One the caller said it has is left empty.
     pub image_sources: Vec<Option<String>>,
+    /// With skins: the file's nodes as joints, and what `data.joints`
+    /// index (each slot's joint and inverse bind matrix).
+    pub skin: Option<LoadedSkin>,
+}
+
+pub(crate) struct LoadedSkin {
+    pub joints: Vec<Joint>,
+    pub slots: Vec<u16>,
+    pub inverse_binds: Vec<Mat4>,
+}
+
+/// The joints of a file with skins while its meshes are read: every node
+/// of the scene, parents first.
+struct Rig {
+    joints: Vec<Joint>,
+    /// Joint index of each node of the file (`u16::MAX`: not in the scene).
+    of_node: Vec<u16>,
+    /// Each joint's matrix at rest, in the file's space.
+    rest: Vec<Mat4>,
+    /// The slots so far: joint and inverse bind matrix.
+    slots: Vec<(u16, Mat4)>,
+}
+
+impl Rig {
+    fn new(gltf: &gltf::Document, scene: &gltf::Scene, name: &str) -> Result<Self, String> {
+        let mut rig = Self {
+            joints: Vec::new(),
+            of_node: vec![u16::MAX; gltf.nodes().len()],
+            rest: Vec::new(),
+            slots: Vec::new(),
+        };
+        let mut stack: Vec<(gltf::Node, Option<usize>)> = scene.nodes().map(|n| (n, None)).collect();
+        stack.reverse();
+        while let Some((node, parent)) = stack.pop() {
+            if rig.joints.len() >= usize::from(u16::MAX) {
+                return Err(format!("{name}: more than 65535 nodes in a skinned file"));
+            }
+            let (t, r, s) = node.transform().decomposed();
+            let rest = Transform3D {
+                position: Vec3::from(t),
+                rotation: Quat::from_array(r),
+                scale: Vec3::from(s),
+            };
+            let at = rig.joints.len();
+            rig.of_node[node.index()] = at as u16;
+            let matrix = Mat4::from_cols_array_2d(&node.transform().matrix());
+            rig.rest.push(parent.map_or(matrix, |p| rig.rest[p] * matrix));
+            rig.joints.push(Joint {
+                name: node.name().map_or_else(|| format!("node {}", node.index()), str::to_string),
+                parent,
+                rest,
+            });
+            let children: Vec<_> = node.children().collect();
+            stack.extend(children.into_iter().rev().map(|c| (c, Some(at))));
+        }
+        Ok(rig)
+    }
+
+    /// The slot of `joint` bound with `inverse_bind`, made if it's new.
+    fn slot(&mut self, joint: u16, inverse_bind: Mat4) -> Result<u16, String> {
+        if let Some(i) = self.slots.iter().position(|s| *s == (joint, inverse_bind)) {
+            return Ok(i as u16);
+        }
+        if self.slots.len() >= usize::from(u16::MAX) {
+            return Err("more than 65535 joint bindings".into());
+        }
+        self.slots.push((joint, inverse_bind));
+        Ok(self.slots.len() as u16 - 1)
+    }
+}
+
+/// How one primitive's corners get their joints.
+enum Binding {
+    /// No skins in the file.
+    None,
+    /// Rigidly on one slot.
+    Rigid(u16),
+    /// Its skin's joints, as slots.
+    Skin(Vec<u16>),
 }
 
 /// Width, height and RGBA8 pixels.
@@ -156,11 +237,45 @@ pub(crate) fn load(
         .default_scene()
         .or_else(|| gltf.scenes().next())
         .ok_or_else(|| format!("{name}: has no scene"))?;
+    let mut rig = if gltf.skins().len() > 0 {
+        Some(Rig::new(&gltf.document, &scene, name)?)
+    } else {
+        None
+    };
     let mut by_material: Vec<(usize, MeshData)> = Vec::new();
     let mut stack: Vec<(gltf::Node, Mat4)> = scene.nodes().map(|n| (n, Mat4::IDENTITY)).collect();
     while let Some((node, parent)) = stack.pop() {
-        let matrix = parent * Mat4::from_cols_array_2d(&node.transform().matrix());
+        let mut matrix = parent * Mat4::from_cols_array_2d(&node.transform().matrix());
+        let children = matrix;
         if let Some(mesh) = node.mesh() {
+            // A skinned mesh is in the space it was bound in, whatever its
+            // node; any other follows its node.
+            let binding = match (&mut rig, node.skin()) {
+                (None, _) => Binding::None,
+                (Some(rig), Some(skin)) => {
+                    matrix = Mat4::IDENTITY;
+                    let reader = skin.reader(|b| buffers.get(b.index()).map(Vec::as_slice));
+                    let inverse: Vec<Mat4> = reader
+                        .read_inverse_bind_matrices()
+                        .map(|m| m.map(|m| Mat4::from_cols_array_2d(&m)).collect())
+                        .unwrap_or_default();
+                    let mut slots = Vec::new();
+                    for (i, joint) in skin.joints().enumerate() {
+                        let j = rig.of_node[joint.index()];
+                        if j == u16::MAX {
+                            return Err(format!("{name}: a skin's joint isn't in the scene"));
+                        }
+                        let ib = inverse.get(i).copied().unwrap_or(Mat4::IDENTITY);
+                        slots.push(rig.slot(j, ib).map_err(|e| format!("{name}: {e}"))?);
+                    }
+                    Binding::Skin(slots)
+                }
+                (Some(rig), None) => {
+                    let j = rig.of_node[node.index()];
+                    let ib = rig.rest[usize::from(j)].inverse();
+                    Binding::Rigid(rig.slot(j, ib).map_err(|e| format!("{name}: {e}"))?)
+                }
+            };
             for primitive in mesh.primitives() {
                 if primitive.mode() != gltf::mesh::Mode::Triangles {
                     continue; // lines and points aren't drawn
@@ -173,10 +288,10 @@ pub(crate) fn load(
                         by_material.len() - 1
                     }
                 };
-                append(&mut by_material[at].1, &primitive, &buffers, matrix, name)?;
+                append(&mut by_material[at].1, &primitive, &buffers, matrix, &binding, name)?;
             }
         }
-        stack.extend(node.children().map(|c| (c, matrix)));
+        stack.extend(node.children().map(|c| (c, children)));
     }
     if by_material.is_empty() {
         return Err(format!("{name}: has no triangles"));
@@ -195,16 +310,24 @@ pub(crate) fn load(
         data.uvs.extend(part.uvs);
         data.colors.extend(part.colors);
         data.uvs1.extend(part.uvs1);
+        data.joints.extend(part.joints);
+        data.weights.extend(part.weights);
         data.indices.extend(part.indices.iter().map(|i| i + base));
         parts.push((first..data.indices.len() as u32, material));
     }
     data.check().map_err(|e| format!("{name}: {e}"))?;
+    let skin = rig.map(|rig| LoadedSkin {
+        joints: rig.joints,
+        slots: rig.slots.iter().map(|s| s.0).collect(),
+        inverse_binds: rig.slots.iter().map(|s| s.1).collect(),
+    });
     Ok(Loaded {
         data,
         parts,
         materials,
         images,
         image_sources,
+        skin,
     })
 }
 
@@ -214,6 +337,7 @@ fn append(
     primitive: &gltf::Primitive,
     buffers: &[Vec<u8>],
     matrix: Mat4,
+    binding: &Binding,
     name: &str,
 ) -> Result<(), String> {
     let reader = primitive.reader(|b| buffers.get(b.index()).map(Vec::as_slice));
@@ -251,7 +375,43 @@ fn append(
             .read_tex_coords(1)
             .map(|t| t.into_f32().map(Vec2::from).collect())
             .unwrap_or_default(),
+        ..Default::default()
     };
+    match binding {
+        Binding::None => {}
+        Binding::Rigid(slot) => {
+            out.joints.extend(std::iter::repeat_n([*slot, 0, 0, 0], count as usize));
+            out.weights.extend(std::iter::repeat_n([1.0, 0.0, 0.0, 0.0], count as usize));
+        }
+        Binding::Skin(slots) => {
+            let joints: Vec<[u16; 4]> = reader
+                .read_joints(0)
+                .map(|j| j.into_u16().collect())
+                .unwrap_or_default();
+            let weights: Vec<[f32; 4]> = reader
+                .read_weights(0)
+                .map(|w| w.into_f32().collect())
+                .unwrap_or_default();
+            if joints.len() != count as usize || weights.len() != count as usize {
+                return Err(format!("{name}: a skinned mesh needs JOINTS_0 and WEIGHTS_0 on every corner"));
+            }
+            let slot = |j: u16| {
+                slots
+                    .get(usize::from(j))
+                    .copied()
+                    .ok_or_else(|| format!("{name}: a corner names joint {j}, past its skin's joints"))
+            };
+            for (j, w) in joints.iter().zip(&weights) {
+                let mut mapped = [0u16; 4];
+                for k in 0..4 {
+                    // Unused influences may name any joint.
+                    mapped[k] = if w[k] > 0.0 { slot(j[k])? } else { 0 };
+                }
+                out.joints.push(mapped);
+                out.weights.push(super::skin::normalized(*w));
+            }
+        }
+    }
     part.check().map_err(|e| format!("{name}: {e}"))?;
     let normals = part.normals_or_computed().into_owned();
     // A mirroring node flips triangles inside out: swap two corners back.
@@ -697,6 +857,93 @@ mod tests {
         )
         .unwrap();
         assert_eq!(plain.data.uvs1, vec![Vec2::ZERO; 3], "none: zeros");
+    }
+
+    /// A skinned .gltf: an "Armature" node over two joints ("root", and
+    /// "tip" one up), a triangle skinned to them, and a plain triangle
+    /// under "tip".
+    fn skinned_gltf() -> String {
+        let mut bytes = Vec::new();
+        let floats = |bytes: &mut Vec<u8>, v: &[f32]| v.iter().for_each(|c| bytes.extend(c.to_le_bytes()));
+        // 0: positions (36 bytes)
+        floats(&mut bytes, &[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
+        // 36: joints, u8 x 4 per corner (12 bytes)
+        bytes.extend([0u8, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0]);
+        // 48: weights (48 bytes): unnormalized on the first corner
+        floats(&mut bytes, &[1.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]);
+        // 96: inverse binds (128 bytes): root at the origin, tip at y 1
+        let identity = Mat4::IDENTITY.to_cols_array();
+        let tip = Mat4::from_translation(Vec3::new(0.0, -1.0, 0.0)).to_cols_array();
+        floats(&mut bytes, &identity);
+        floats(&mut bytes, &tip);
+        let b64 = to_base64(&bytes);
+        format!(
+            r#"{{
+            "asset": {{ "version": "2.0" }},
+            "scene": 0,
+            "scenes": [{{ "nodes": [0, 3] }}],
+            "nodes": [
+                {{ "name": "Armature", "children": [1], "scale": [2, 2, 2] }},
+                {{ "name": "root", "children": [2] }},
+                {{ "name": "tip", "translation": [0, 1, 0], "children": [4] }},
+                {{ "name": "body", "mesh": 0, "skin": 0, "translation": [50, 0, 0] }},
+                {{ "name": "cup", "mesh": 1 }}
+            ],
+            "skins": [{{ "joints": [1, 2], "inverseBindMatrices": 3 }}],
+            "meshes": [
+                {{ "primitives": [{{ "attributes": {{ "POSITION": 0, "JOINTS_0": 1, "WEIGHTS_0": 2 }} }}] }},
+                {{ "primitives": [{{ "attributes": {{ "POSITION": 0 }} }}] }}
+            ],
+            "buffers": [{{ "byteLength": 224, "uri": "data:application/octet-stream;base64,{b64}" }}],
+            "bufferViews": [
+                {{ "buffer": 0, "byteLength": 36 }},
+                {{ "buffer": 0, "byteOffset": 36, "byteLength": 12 }},
+                {{ "buffer": 0, "byteOffset": 48, "byteLength": 48 }},
+                {{ "buffer": 0, "byteOffset": 96, "byteLength": 128 }}
+            ],
+            "accessors": [
+                {{ "bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3", "min": [0, 0, 0], "max": [1, 1, 0] }},
+                {{ "bufferView": 1, "componentType": 5121, "count": 3, "type": "VEC4" }},
+                {{ "bufferView": 2, "componentType": 5126, "count": 3, "type": "VEC4" }},
+                {{ "bufferView": 3, "componentType": 5126, "count": 2, "type": "MAT4" }}
+            ]
+        }}"#
+        )
+    }
+
+    #[test]
+    fn skinned_files_keep_their_nodes_as_joints() {
+        let loaded = load("skin.gltf", skinned_gltf().as_bytes(), &mut |f| Err(f.to_string()), &|_| false).unwrap();
+        let skin = loaded.skin.expect("a skinned file has a skeleton");
+        let names: Vec<&str> = skin.joints.iter().map(|j| j.name.as_str()).collect();
+        assert_eq!(names, ["Armature", "root", "tip", "cup", "body"], "every node, parents first");
+        let parents: Vec<Option<usize>> = skin.joints.iter().map(|j| j.parent).collect();
+        assert_eq!(parents, [None, Some(0), Some(1), Some(2), None]);
+        assert_eq!(skin.joints[2].rest.position, Vec3::Y);
+        // Slots: root and tip from the skin, then cup's own node for the
+        // plain triangle, bound where cup sits at rest (scaled by 2, up 2).
+        assert_eq!(skin.slots, [1, 2, 3]);
+        assert_eq!(skin.inverse_binds[1], Mat4::from_translation(-Vec3::Y));
+        let cup_rest = Mat4::from_scale(Vec3::splat(2.0)) * Mat4::from_translation(Vec3::Y);
+        assert!(skin.inverse_binds[2].abs_diff_eq(cup_rest.inverse(), 1e-6));
+        let data = &loaded.data;
+        assert_eq!(data.joints.len(), 6);
+        // The skinned triangle stays where it was bound (its node's move
+        // is ignored, as glTF says); weights add up to 1.
+        assert_eq!(data.positions[..3], [Vec3::ZERO, Vec3::X, Vec3::Y]);
+        assert_eq!(data.joints[0], [0, 1, 0, 0]);
+        assert_eq!(data.weights[0], [0.5, 0.5, 0.0, 0.0]);
+        assert_eq!(data.joints[2], [1, 0, 0, 0]);
+        // The plain one is placed by its node, all on its own slot.
+        assert!(data.positions[4].abs_diff_eq(Vec3::new(2.0, 2.0, 0.0), 1e-6));
+        assert_eq!(data.joints[3..], [[2, 0, 0, 0]; 3]);
+        assert_eq!(data.weights[3..], [[1.0, 0.0, 0.0, 0.0]; 3]);
+    }
+
+    #[test]
+    fn files_without_skins_have_no_joints() {
+        let loaded = load("tri.gltf", triangle_gltf(None).as_bytes(), &mut |f| Err(f.to_string()), &|_| false).unwrap();
+        assert!(loaded.skin.is_none() && loaded.data.joints.is_empty());
     }
 
     #[test]
