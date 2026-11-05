@@ -18,8 +18,8 @@ pub(crate) mod lights;
 mod mesh;
 pub use lights::{PointLight3D, SpotLight3D};
 mod post;
-mod sky;
 mod skin;
+mod sky;
 mod target;
 mod terrain;
 mod texture_array;
@@ -36,13 +36,13 @@ pub use mesh::MeshData;
 #[cfg(feature = "window")]
 pub(crate) use post::PostUniform;
 pub use post::{Post, Tonemap};
-pub use sky::Sky;
-pub use skin::{AttachToJoint, Joint, Skeleton, SkinOf};
-#[cfg(all(test, feature = "window"))]
-pub(crate) use skin::{SkinDraw, normalized as normalized_weights};
 #[cfg(feature = "window")]
 pub(crate) use skin::blend as blend_skin;
+pub use skin::{AttachToJoint, Joint, Skeleton, SkinOf};
 pub(crate) use skin::{MeshSkin, SkinFrame};
+#[cfg(all(test, feature = "window"))]
+pub(crate) use skin::{SkinDraw, normalized as normalized_weights};
+pub use sky::Sky;
 pub(crate) use sky::SkyLight;
 pub use target::TargetCamera;
 pub use terrain::{Heightfield, TERRAIN_LAYERS, TERRAIN_LODS, TerrainMaterialDesc, TerrainTile, TerrainTileData};

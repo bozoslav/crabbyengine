@@ -74,7 +74,9 @@ impl Rig {
             let matrix = Mat4::from_cols_array_2d(&node.transform().matrix());
             rig.rest.push(parent.map_or(matrix, |p| rig.rest[p] * matrix));
             rig.joints.push(Joint {
-                name: node.name().map_or_else(|| format!("node {}", node.index()), str::to_string),
+                name: node
+                    .name()
+                    .map_or_else(|| format!("node {}", node.index()), str::to_string),
                 parent,
                 rest,
             });
@@ -381,7 +383,8 @@ fn append(
         Binding::None => {}
         Binding::Rigid(slot) => {
             out.joints.extend(std::iter::repeat_n([*slot, 0, 0, 0], count as usize));
-            out.weights.extend(std::iter::repeat_n([1.0, 0.0, 0.0, 0.0], count as usize));
+            out.weights
+                .extend(std::iter::repeat_n([1.0, 0.0, 0.0, 0.0], count as usize));
         }
         Binding::Skin(slots) => {
             let joints: Vec<[u16; 4]> = reader
@@ -393,7 +396,9 @@ fn append(
                 .map(|w| w.into_f32().collect())
                 .unwrap_or_default();
             if joints.len() != count as usize || weights.len() != count as usize {
-                return Err(format!("{name}: a skinned mesh needs JOINTS_0 and WEIGHTS_0 on every corner"));
+                return Err(format!(
+                    "{name}: a skinned mesh needs JOINTS_0 and WEIGHTS_0 on every corner"
+                ));
             }
             let slot = |j: u16| {
                 slots
@@ -870,7 +875,10 @@ mod tests {
         // 36: joints, u8 x 4 per corner (12 bytes)
         bytes.extend([0u8, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0]);
         // 48: weights (48 bytes): unnormalized on the first corner
-        floats(&mut bytes, &[1.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]);
+        floats(
+            &mut bytes,
+            &[1.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+        );
         // 96: inverse binds (128 bytes): root at the origin, tip at y 1
         let identity = Mat4::IDENTITY.to_cols_array();
         let tip = Mat4::from_translation(Vec3::new(0.0, -1.0, 0.0)).to_cols_array();
@@ -913,10 +921,20 @@ mod tests {
 
     #[test]
     fn skinned_files_keep_their_nodes_as_joints() {
-        let loaded = load("skin.gltf", skinned_gltf().as_bytes(), &mut |f| Err(f.to_string()), &|_| false).unwrap();
+        let loaded = load(
+            "skin.gltf",
+            skinned_gltf().as_bytes(),
+            &mut |f| Err(f.to_string()),
+            &|_| false,
+        )
+        .unwrap();
         let skin = loaded.skin.expect("a skinned file has a skeleton");
         let names: Vec<&str> = skin.joints.iter().map(|j| j.name.as_str()).collect();
-        assert_eq!(names, ["Armature", "root", "tip", "cup", "body"], "every node, parents first");
+        assert_eq!(
+            names,
+            ["Armature", "root", "tip", "cup", "body"],
+            "every node, parents first"
+        );
         let parents: Vec<Option<usize>> = skin.joints.iter().map(|j| j.parent).collect();
         assert_eq!(parents, [None, Some(0), Some(1), Some(2), None]);
         assert_eq!(skin.joints[2].rest.position, Vec3::Y);
@@ -942,7 +960,13 @@ mod tests {
 
     #[test]
     fn files_without_skins_have_no_joints() {
-        let loaded = load("tri.gltf", triangle_gltf(None).as_bytes(), &mut |f| Err(f.to_string()), &|_| false).unwrap();
+        let loaded = load(
+            "tri.gltf",
+            triangle_gltf(None).as_bytes(),
+            &mut |f| Err(f.to_string()),
+            &|_| false,
+        )
+        .unwrap();
         assert!(loaded.skin.is_none() && loaded.data.joints.is_empty());
     }
 

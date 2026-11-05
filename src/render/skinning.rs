@@ -193,7 +193,8 @@ impl Skinning {
         }
         if self.pipeline.is_some() && !skins.matrices.is_empty() {
             self.matrix_scratch.clear();
-            self.matrix_scratch.extend(skins.matrices.iter().map(glam::Mat4::to_cols_array));
+            self.matrix_scratch
+                .extend(skins.matrices.iter().map(glam::Mat4::to_cols_array));
             queue.write_buffer(&self.joints, 0, bytemuck::cast_slice(&self.matrix_scratch));
         }
         if self.draws.len() > self.param_capacity {
@@ -265,7 +266,9 @@ impl Skinning {
                     self.scratch.extend(vertices.iter().zip(influences).map(|(v, i)| {
                         let m = crate::three::blend_skin(skin_matrices, i.joints, i.weights);
                         let p = m.transform_point3(glam::Vec3::from(v.position));
-                        let n = m.transform_vector3(glam::Vec3::from(v.normal)).normalize_or(glam::Vec3::Y);
+                        let n = m
+                            .transform_vector3(glam::Vec3::from(v.normal))
+                            .normalize_or(glam::Vec3::Y);
                         Vertex {
                             position: p.to_array(),
                             normal: n.to_array(),
@@ -383,7 +386,11 @@ mod tests {
             color: [1, 2, 3, 4],
             uv1: [7.0, 8.0],
         };
-        let rest = [vertex([0.0, 0.0, 0.0]), vertex([1.0, 0.0, 0.0]), vertex([0.0, 1.0, 0.0])];
+        let rest = [
+            vertex([0.0, 0.0, 0.0]),
+            vertex([1.0, 0.0, 0.0]),
+            vertex([0.0, 1.0, 0.0]),
+        ];
         let joints = [[0u16, 0, 0, 0], [0, 1, 0, 0], [1, 0, 0, 0]];
         let weights = [[1.0f32, 0.0, 0.0, 0.0], [0.5, 0.5, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]];
         let skin = skinning.create(&device, &rest, &joints, &weights);
@@ -425,16 +432,27 @@ mod tests {
         for i in 0..3 {
             let m = crate::three::blend_skin(&frame.matrices[1..], joints[i], weights[i]);
             let want = m.transform_point3(Vec3::from(rest[i].position));
-            assert!(Vec3::from(posed[i].position).abs_diff_eq(want, 1e-5), "corner {i}: {:?} vs {want}", posed[i].position);
+            assert!(
+                Vec3::from(posed[i].position).abs_diff_eq(want, 1e-5),
+                "corner {i}: {:?} vs {want}",
+                posed[i].position
+            );
             let n = Vec3::from(posed[i].normal);
             assert!((n.length() - 1.0).abs() < 1e-5);
-            assert_eq!((posed[i].uv, posed[i].color, posed[i].uv1), (rest[i].uv, rest[i].color, rest[i].uv1));
+            assert_eq!(
+                (posed[i].uv, posed[i].color, posed[i].uv1),
+                (rest[i].uv, rest[i].color, rest[i].uv1)
+            );
         }
     }
 
     #[test]
     fn influences_are_six_words() {
         assert_eq!(size_of::<super::Influence>(), 24, "skin.wgsl reads 6 words per corner");
-        assert_eq!(size_of::<super::super::Vertex>(), 44, "skin.wgsl reads 11 words per vertex");
+        assert_eq!(
+            size_of::<super::super::Vertex>(),
+            44,
+            "skin.wgsl reads 11 words per vertex"
+        );
     }
 }

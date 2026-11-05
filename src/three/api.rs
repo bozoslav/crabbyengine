@@ -378,7 +378,8 @@ impl Ctx {
     /// With a clear message if the file is missing, can't be read or has
     /// no skins.
     pub fn load_skeleton(&mut self, path: &str) -> Skeleton {
-        self.try_load_skeleton(path).unwrap_or_else(|e| panic!("crabbyengine: {e}"))
+        self.try_load_skeleton(path)
+            .unwrap_or_else(|e| panic!("crabbyengine: {e}"))
     }
 
     pub(crate) fn try_load_skeleton(&mut self, path: &str) -> Result<Skeleton, String> {
@@ -583,7 +584,13 @@ impl Ctx {
         if let Some(skin) = self.assets3d.skins.get_mut(mesh.id as usize) {
             *skin = None;
         }
-        let freed: Vec<_> = self.assets3d.loaded.iter().filter(|(_, m)| **m == mesh).map(|(f, _)| f.clone()).collect();
+        let freed: Vec<_> = self
+            .assets3d
+            .loaded
+            .iter()
+            .filter(|(_, m)| **m == mesh)
+            .map(|(f, _)| f.clone())
+            .collect();
         for file in freed {
             self.assets3d.loaded_skeletons.remove(&file);
         }

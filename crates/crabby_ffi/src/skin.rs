@@ -51,7 +51,10 @@ fn joint_index(s: &Skeleton, joint: usize) -> Result<usize, Failure> {
     if joint < s.joints().len() {
         Ok(joint)
     } else {
-        Err(invalid_owned(format!("joint {joint} is past the skeleton's {}", s.joints().len())))
+        Err(invalid_owned(format!(
+            "joint {joint} is past the skeleton's {}",
+            s.joints().len()
+        )))
     }
 }
 
@@ -146,7 +149,11 @@ pub unsafe extern "C" fn crabby_ctx_set_skeleton(
                 let parent = match j.parent {
                     -1 => None,
                     p if p >= 0 && (p as usize) < i => Some(p as usize),
-                    p => return Err(invalid_owned(format!("joint {i} hangs from {p}, which doesn't come before it"))),
+                    p => {
+                        return Err(invalid_owned(format!(
+                            "joint {i} hangs from {p}, which doesn't come before it"
+                        )));
+                    }
                 };
                 list.push(Joint {
                     name: name.to_string(),
@@ -235,7 +242,11 @@ pub unsafe extern "C" fn crabby_ctx_create_skinned_mesh(
 /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_joint_count(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_joint_count(ctx: *mut CrabbyCtx, entity_bits: u64, out_count: *mut usize) -> CrabbyStatus {
+pub unsafe extern "C" fn crabby_ctx_joint_count(
+    ctx: *mut CrabbyCtx,
+    entity_bits: u64,
+    out_count: *mut usize,
+) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe { ctx_access(ctx, |c| out(out_count, skeleton(c, entity_bits)?.joints().len())) })
 }
@@ -384,7 +395,11 @@ pub unsafe extern "C" fn crabby_ctx_joint_matrix(
 /// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_skin_of(std::ptr::null_mut(), 0, 0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_set_skin_of(ctx: *mut CrabbyCtx, entity_bits: u64, skeleton_entity: u64) -> CrabbyStatus {
+pub unsafe extern "C" fn crabby_ctx_set_skin_of(
+    ctx: *mut CrabbyCtx,
+    entity_bits: u64,
+    skeleton_entity: u64,
+) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {

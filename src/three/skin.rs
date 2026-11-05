@@ -463,7 +463,11 @@ fn add(
 
 /// The longest of a matrix's three axes.
 fn max_scale(m: Mat4) -> f32 {
-    m.x_axis.truncate().length().max(m.y_axis.truncate().length()).max(m.z_axis.truncate().length())
+    m.x_axis
+        .truncate()
+        .length()
+        .max(m.y_axis.truncate().length())
+        .max(m.z_axis.truncate().length())
 }
 
 #[cfg(test)]
@@ -602,7 +606,11 @@ mod tests {
             ..Default::default()
         };
         frame.collect(&mut world, &assets, &skins, &camera, &lighting);
-        assert_eq!(frame.runs, [(0, 0, 1), (1, 1, 1)], "mesh 0 once, skinned model 0 as mesh 1");
+        assert_eq!(
+            frame.runs,
+            [(0, 0, 1), (1, 1, 1)],
+            "mesh 0 once, skinned model 0 as mesh 1"
+        );
     }
 
     #[test]
