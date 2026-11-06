@@ -278,3 +278,74 @@ fn turning_streaming_off_brings_every_collider_back() {
         });
     assert_eq!(seen.take(), [false, false, true, true]);
 }
+
+// ANCHOR: collider_streaming
+/// A streamed tile, built on a worker: its meshes and its collider, from
+/// the same heights.
+fn build_tile(heights: Vec<f32>) -> Job<(TerrainTileData, CollisionMeshData)> {
+    Job::spawn(move || {
+        let drawn = TerrainTileData::new(&heights, 128.0);
+        let solid = CollisionMeshData::heightfield(&heights, 128.0);
+        (drawn, solid)
+    })
+}
+
+/// Once built, on the game's thread: drawn and solid. Free both when the
+/// tile goes (`ctx.free_terrain_tile`, `ctx.physics3d.free_mesh`).
+fn place_tile(ctx: &mut Ctx, corner: Vec3, built: (TerrainTileData, CollisionMeshData), ground: Material) -> Entity {
+    let (drawn, solid) = built;
+    let tile = ctx.upload_terrain_tile(&drawn, ground);
+    let mesh = ctx.physics3d.add_mesh(&solid);
+    ctx.world
+        .spawn((Transform3D::at(corner), tile, TerrainCollider::new(mesh)))
+}
+
+/// Drawn out to the streamer's 600 m, but solid only near the player and
+/// the car (further ahead of the car: it's faster), 4 new colliders a step.
+fn solid_near(ctx: &mut Ctx, player: Entity, car: Entity) {
+    ctx.physics3d.stream_colliders(Some(4));
+    ctx.world.insert(player, ColliderFocus::new(150.0, 200.0));
+    ctx.world.insert(car, ColliderFocus::new(300.0, 350.0));
+}
+// ANCHOR_END: collider_streaming
+
+#[test]
+fn the_guide_tiles_are_solid_only_near_the_player_and_the_car() {
+    let seen = Rc::new(RefCell::new(None));
+    let out = seen.clone();
+    let tiles = Rc::new(RefCell::new(Vec::new()));
+    let tiles_in = tiles.clone();
+    Game::new("t", 1, 1)
+        .physics3d(GRAVITY)
+        .sim_system(move |ctx: &mut Ctx| {
+            if ctx.sim_tick() == 5 {
+                let active: Vec<bool> = tiles_in
+                    .borrow()
+                    .iter()
+                    .map(|&t| ctx.physics3d.is_collider_active(t))
+                    .collect();
+                *out.borrow_mut() = Some(active);
+            }
+        })
+        .run_headless(6, |ctx| {
+            let ground = ctx.default_material();
+            // Tiles every 128 m along X, out to 1 km.
+            for k in 0..8 {
+                let built = build_tile(vec![0.0; 33 * 33]).wait();
+                let tile = place_tile(ctx, vec3(k as f32 * 128.0, 0.0, 0.0), built, ground);
+                tiles.borrow_mut().push(tile);
+            }
+            let player = ctx
+                .world
+                .spawn((Transform3D::at(vec3(10.0, 0.0, 10.0)), Character3D::new(1.8, 0.3)));
+            let car = ctx.world.spawn((
+                Transform3D::at(vec3(900.0, 1.0, 10.0)),
+                RigidBody3D::dynamic(),
+                Collider3D::cuboid(vec3(2.0, 1.0, 4.0)),
+            ));
+            solid_near(ctx, player, car);
+        });
+    let active = seen.take().unwrap();
+    // The player's 150 m reaches tiles 0 and 1; the car's 300 m tiles 4 to 7.
+    assert_eq!(active, [true, true, false, false, true, true, true, true]);
+}

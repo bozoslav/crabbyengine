@@ -823,11 +823,13 @@ fn transforms_are_reflected_as_json() {
 
 // ANCHOR: streaming
 /// Ground that loads around the camera: tiles 128 m wide within 600 m,
-/// built on worker threads, freed past 800 m.
+/// built on worker threads, freed past 800 m, and coarse far ground
+/// beyond them.
 struct Ground {
     cells: CellStreamer,
     tiles: std::collections::HashMap<(i32, i32), Tile>,
     material: Material,
+    far: FarTerrain,
 }
 
 enum Tile {
@@ -841,10 +843,16 @@ fn hill(x: f32, z: f32) -> f32 {
 
 impl Ground {
     fn new(material: Material) -> Self {
+        // The far ground: 8 km around the start, a height every 32 m.
+        let n = 257;
+        let heights: Vec<f32> = (0..n * n)
+            .map(|i| hill(-4096.0 + (i % n) as f32 * 32.0, -4096.0 + (i / n) as f32 * 32.0))
+            .collect();
         Self {
             cells: CellStreamer::new(128.0, 600.0, 800.0),
             tiles: Default::default(),
             material,
+            far: FarTerrain::new(&heights, n, vec2(-4096.0, -4096.0), 32.0, 128.0, material),
         }
     }
 
@@ -867,6 +875,7 @@ impl Ground {
             if let Some(Tile::Live(entity, tile)) = self.tiles.remove(cell) {
                 ctx.world.despawn(entity);
                 ctx.free_terrain_tile(tile);
+                self.far.uncut(*cell);
             }
         }
         let mut uploads = 0;
@@ -878,9 +887,12 @@ impl Ground {
                 let made = ctx.upload_terrain_tile(&data, self.material);
                 let entity = ctx.world.spawn((Transform3D::at(self.cells.corner(cell)), made));
                 *tile = Tile::Live(entity, made);
+                // Shown now: cut the far ground away under it.
+                self.far.cut(cell);
                 uploads += 1;
             }
         }
+        self.far.update(ctx);
     }
 }
 // ANCHOR_END: streaming
@@ -904,11 +916,17 @@ fn the_guide_ground_streams_in_and_out() {
         }
         let first = live(&ground);
         assert!(first > 20, "{first} tiles");
+        assert!(
+            ground.cells.loaded().all(|c| ground.far.is_cut(c)),
+            "far ground cut under every tile"
+        );
+        assert_eq!(ground.far.mesh_count(), 16);
         // Far away: the old tiles are freed.
         ctx.camera3d.position = vec3(10_000.0, 0.0, 0.0);
         ground.update(ctx);
         assert_eq!(ground.cells.to_drop().len(), first);
         assert!(ground.tiles.keys().all(|&(x, _)| x > 50));
+        assert!(!ground.far.is_cut((0, 0)), "filled in again behind");
     });
 }
 

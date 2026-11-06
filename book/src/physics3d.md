@@ -92,6 +92,22 @@ Collision meshes are made once and shared by any number of colliders:
 - `ctx.physics3d.free_mesh(m)` lets go of one; colliders still using it
   keep it until they're removed.
 
+Each of these has a twin in `CollisionMeshData` (C++
+`crabby::collision_mesh_data`) that builds the mesh on any thread, for
+[streamed worlds](#big-worlds-solid-only-near-the-player): build it in the
+same `Job` as the rest of a cell, then `ctx.physics3d.add_mesh(&data)` (C++
+`ctx.add_collision_mesh`) on the game's thread, which only shares it.
+
+A terrain tile is simplest to make solid with a **`TerrainCollider`** on
+the tile's own entity: `TerrainCollider::new(mesh)` (C++
+`crabby::solid_terrain(mesh)`) with the heightfield of the tile's heights.
+It sits at the tile's `Transform3D`, turned **and scaled** with it (a tile
+drawn twice as high is solid twice as high), so it matches the drawn ground
+triangle for triangle, holes included. Despawning the tile removes it; to
+edit the ground (a crater), make a new heightfield, put it in the
+component's `mesh` and free the old one: the collider changes at the next
+step. Its `friction`, `restitution` and `groups` work as on a `Collider3D`.
+
 In a scene file, a mesh collider can name a mesh file instead, and
 `ctx.load_scene` makes the mesh (the [Unity importer](unity.md) writes
 them this way):
@@ -347,6 +363,57 @@ For bigger crowds, move them yourself, with a ray down to find the ground.
 Level geometry as a triangle mesh is somewhat cheaper than a heightfield.
 
 Try it: `cargo run --release --example physics3d --features physics3d`.
+
+## Big worlds: solid only near the player
+
+A world that streams in kilometers of terrain and thousands of buildings
+doesn't need all of them solid: only the ground near the player and the
+vehicles. `ctx.physics3d.stream_colliders(Some(max_new))` (C++
+`ctx.stream_colliders(max_new)`) turns that on. From then, the colliders of
+fixed bodies and `TerrainCollider`s are only in the physics world near
+entities with a **`ColliderFocus`** (C++ `crabby::focus_colliders(radius,
+keep_radius)`):
+
+- A collider within a focus's `radius` (measured on the ground, to the
+  nearest point of the collider) comes in, nearest first, at most
+  `max_new` a step, so a big area doesn't arrive in one step.
+- It stays until it's beyond `keep_radius` from every focus. The gap
+  between the two stops colliders at the edge from coming and going as
+  the player walks back and forth.
+- A collider never goes while a moving body (dynamic, kinematic or a
+  character) is over it, so a crate left behind doesn't fall through the
+  ground. Bodies far from every focus find no new ground, though: give
+  anything that travels far on its own, like a car, its own focus, a
+  bigger one if it's fast.
+- Ray casts and other queries only see colliders that are in.
+  `ctx.physics3d.is_collider_active(e)` says whether `e`'s is.
+- Drawing doesn't change: the world is still drawn out to the streamer's
+  load radius. `stream_colliders(None)` brings every collider back.
+
+<div class="lang-pair">
+<div>
+
+```rust
+{{#include ../../tests/physics3d_streaming.rs:collider_streaming}}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:collider_streaming}}
+```
+
+</div>
+</div>
+
+Bringing a collider in or taking it out is cheap: the mesh was built on
+the worker, and the collider only joins or leaves rapier's broad phase.
+Checking which colliders to bring in looks at every static collider each
+step: with 10,000 fixed boxes, 100 balls and a moving focus, a step takes
+about 0.2 ms with streaming on or off (M4 Max, release). Building a
+129 × 129 heightfield takes about 0.05 ms on the worker, and adding it on
+the game's thread under a microsecond.
 
 ## Joints
 

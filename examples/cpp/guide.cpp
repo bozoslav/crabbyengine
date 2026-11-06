@@ -500,6 +500,57 @@ static bool physics3d_snippets() {
     return saw_ground && world.get<crabby::character3d>(me).grounded;
 }
 
+// ANCHOR: collider_streaming
+/// A streamed tile, built on a worker: its meshes and its collider, from
+/// the same heights.
+struct BuiltTile {
+    crabby::terrain_tile_data drawn;
+    crabby::collision_mesh_data solid;
+};
+static std::future<BuiltTile> build_tile(std::vector<float> heights) {
+    return std::async(std::launch::async, [heights = std::move(heights)] {
+        return BuiltTile{crabby::terrain_tile_data(heights, 128), crabby::collision_mesh_data::heightfield(heights, 128)};
+    });
+}
+
+/// Once built, on the game's thread: drawn and solid. Free both when the
+/// tile goes (ctx.free_terrain_tile, ctx.free_collision_mesh).
+static crabby::entity place_tile(crabby::ctx& ctx, crabby::vec3 corner, const BuiltTile& built, crabby::material ground) {
+    auto tile = ctx.upload_terrain_tile(built.drawn, ground);
+    auto mesh = ctx.add_collision_mesh(built.solid);
+    return ctx.world().spawn(crabby::transform3d_at(corner), tile, crabby::solid_terrain(mesh));
+}
+
+/// Drawn out to the streamer's 600 m, but solid only near the player and
+/// the car (further ahead of the car: it's faster), 4 new colliders a step.
+static void solid_near(crabby::ctx& ctx, crabby::entity player, crabby::entity car) {
+    ctx.stream_colliders(4);
+    ctx.world().set(player, crabby::focus_colliders(150, 200));
+    ctx.world().set(car, crabby::focus_colliders(300, 350));
+}
+// ANCHOR_END: collider_streaming
+
+static void tiles_are_solid_only_near_the_player_and_the_car() {
+    std::vector<crabby::entity> tiles;
+    std::vector<bool> active;
+    crabby::game("solid", 1, 1)
+        .physics3d({0, -9.81f, 0})
+        .sim_system([&](crabby::ctx& ctx) {
+            if (ctx.sim_tick() == 5)
+                for (auto t : tiles) active.push_back(ctx.is_collider_active(t));
+        })
+        .run_headless(6, [&](crabby::ctx& ctx) {
+            auto ground = ctx.default_material();
+            for (int k = 0; k < 8; ++k)
+                tiles.push_back(place_tile(ctx, {float(k) * 128, 0, 0}, build_tile(std::vector<float>(33 * 33, 0.0f)).get(), ground));
+            auto player = ctx.world().spawn(crabby::transform3d_at({10, 0, 10}), crabby::character(1.8f, 0.3f));
+            auto car = ctx.world().spawn(crabby::transform3d_at({900, 1, 10}), crabby::dynamic_body3d(), crabby::box_collider({2, 1, 4}));
+            solid_near(ctx, player, car);
+        });
+    const std::vector<bool> want{true, true, false, false, true, true, true, true};
+    if (active != want) { std::fprintf(stderr, "solid tiles\n"); std::abort(); }
+}
+
 // ---- Vehicles -------------------------------------------------------------------------
 struct Driven { crabby::entity car; };   // a resource: the car the player drives
 
@@ -1277,8 +1328,17 @@ static void plant_trees(crabby::ctx& ctx, const std::vector<float>& heights, cra
 
 // ANCHOR: streaming
 /// Ground that loads around the camera: tiles 128 m wide within 600 m,
-/// built on worker threads, freed past 800 m.
+/// built on worker threads, freed past 800 m, and coarse far ground
+/// beyond them.
 static float hill(float x, float z) { return std::sin(x * 0.01f) * std::cos(z * 0.013f) * 20.0f; }
+
+/// The far ground: 8 km around the start, a height every 32 m.
+static std::vector<float> far_heights() {
+    std::vector<float> heights(257 * 257);
+    for (std::size_t i = 0; i < heights.size(); ++i)
+        heights[i] = hill(-4096 + float(i % 257) * 32, -4096 + float(i / 257) * 32);
+    return heights;
+}
 
 struct Ground {
     struct Tile {
@@ -1289,6 +1349,9 @@ struct Ground {
     crabby::cell_streamer cells{128, 600, 800};
     std::map<std::pair<int, int>, Tile> tiles;
     crabby::material material;
+    crabby::far_terrain far;
+
+    explicit Ground(crabby::material m) : material(m), far(far_heights(), 257, {-4096, -4096}, 32, 128, m) {}
 
     /// Every frame: start up to 4 tiles, drop the far ones, and put up to
     /// 2 finished ones in the world.
@@ -1310,6 +1373,7 @@ struct Ground {
             if (!found->second.building.valid()) {
                 ctx.world().despawn(found->second.entity);
                 ctx.free_terrain_tile(found->second.tile);
+                far.uncut(cell);
             }
             tiles.erase(found);   // a tile still building is waited for here
         }
@@ -1319,8 +1383,10 @@ struct Ground {
             if (!t.building.valid() || t.building.wait_for(std::chrono::seconds(0)) != std::future_status::ready) continue;
             t.tile = ctx.upload_terrain_tile(t.building.get(), material);
             t.entity = ctx.world().spawn(crabby::transform3d_at(cells.corner({cell.first, cell.second})), t.tile);
+            far.cut({cell.first, cell.second});   // shown now: cut the far ground away under it
             ++uploads;
         }
+        far.update(ctx);
     }
 };
 // ANCHOR_END: streaming
@@ -1408,12 +1474,12 @@ static void the_hills_are_nine_tiles() {
 
 static void the_ground_streams_in_and_out() {
     crabby::game("ground", 1, 1).run_headless(0, [](crabby::ctx& ctx) {
-        Ground ground{};
-        ground.material = ctx.create_material(crabby::material_of(crabby::colors::white));
+        Ground ground(ctx.create_material(crabby::material_of(crabby::colors::white)));
         auto live = [&] { std::size_t n = 0; for (auto& [c, t] : ground.tiles) n += !t.building.valid(); return n; };
         for (int i = 0; i < 100000 && (live() < ground.tiles.size() || ground.tiles.empty()); ++i) ground.update(ctx);
         auto first = live();
         if (first < 20) { std::fprintf(stderr, "%zu tiles\n", first); std::abort(); }
+        if (ground.far.mesh_count() != 16 || !ground.far.is_cut({0, 0})) { std::fprintf(stderr, "far ground\n"); std::abort(); }
         auto camera = ctx.camera3d();
         camera.position = {10000, 0, 0};
         ctx.set_camera3d(camera);
@@ -2185,6 +2251,7 @@ int main() {
     the_ripples_run_on_a_render_target();
     the_pond_mirrors_the_camera();
     the_hills_are_nine_tiles();
+    tiles_are_solid_only_near_the_player_and_the_car();
     the_ground_streams_in_and_out();
     the_trees_stand_on_the_ground();
     the_dive_adds_one_effect();
