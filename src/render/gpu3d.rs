@@ -845,7 +845,8 @@ impl Renderer3D {
                     binding: 0,
                     visibility: all_stages,
                     ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        // Filtered for the screen-space reflections (see `ssr.rs`).
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
                         view_dimension: wgpu::TextureViewDimension::D2,
                         multisampled: false,
                     },
@@ -3253,7 +3254,7 @@ impl Renderer3D {
                         .draw(encoder, targets.ao.as_ref().unwrap(), time);
                 }
                 if let (Some(ssr), Some(images)) = (&self.ssr, &targets.ssr) {
-                    ssr.trace(encoder, images, time("screen reflections"));
+                    ssr.trace(encoder, images, &time);
                 }
             }
             Part::Opaque => {

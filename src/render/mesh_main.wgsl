@@ -289,9 +289,19 @@ fn opaque_color(in: VertexOut, front: bool, dp_x: vec3<f32>, dp_y: vec3<f32>) ->
     s.occlusion *= 1.0 - screen.r;
     contact_shadow = screen.g;
     // Blue marks screen-space reflections in a second level, at half size.
-    if screen.b > 0.5 {
-        let half = vec2<i32>(textureDimensions(scene_color_texture, 1)) - 1;
-        screen_reflection = textureLoad(scene_color_texture, min(ao_at / 2, half), 1);
+    if screen.b > 0.5 && s.roughness < 0.7 {
+        let size = vec2<f32>(textureDimensions(scene_color_texture));
+        let last = min(5.0, floor(log2(max(size.x, size.y))));
+        // Fixed screen-space footprint: up to 32 full-size pixels, blended
+        // between the two nearest levels.
+        let lod = clamp(1.0 + max(s.roughness - 0.05, 0.0) * 9.0, 1.0, last);
+        let low = i32(floor(lod));
+        let uv = s.screen / size;
+        var filtered = reflection_level(uv, low);
+        if fract(lod) > 0.0 && low < i32(last) {
+            filtered = mix(filtered, reflection_level(uv, low + 1), fract(lod));
+        }
+        screen_reflection = vec4<f32>(filtered.rgb / max(filtered.a, 0.00001), filtered.a);
     }
     return vec4<f32>(fog(shade(s), s.world), 1.0);
 }
@@ -382,4 +392,13 @@ fn fs_velocity(in: VelocityOut) -> @location(0) vec2<f32> {
     let a = in.rigid.xy / in.rigid.w;
     let b = in.before.xy / in.before.w;
     return vec2<f32>((b.x - a.x) * 0.5, (a.y - b.y) * 0.5);
+}
+
+// Reflection mips contain confidence-premultiplied radiance. Material
+// shaders have no sampler of their own to spare: this borrows the sky's
+// linear one, which wraps around horizontally, so the lookup stays half a
+// pixel inside the edges.
+fn reflection_level(uv: vec2<f32>, level: i32) -> vec4<f32> {
+    let half = 0.5 / vec2<f32>(textureDimensions(scene_color_texture, level));
+    return textureSampleLevel(scene_color_texture, sky_sampler, clamp(uv, half, 1.0 - half), f32(level));
 }

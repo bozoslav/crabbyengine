@@ -1162,7 +1162,7 @@ fn screen_space_reflections_are_off_until_turned_on() {
         ctx.post.ssr = 1.0;
         ctx.post.ssr_max_distance = 40.0; // world units along the reflected ray
         ctx.post.anti_aliasing = AntiAliasing::Taa; // smooths their grain
-        // Only smooth surfaces reflect it: roughness below 0.5, fully below 0.2.
+        // Glossy surfaces blur it: full strength up to roughness 0.4, gone by 0.7.
         let wet = MaterialDesc {
             roughness: 0.1,
             ..MaterialDesc::color(Color::rgb(0.2, 0.2, 0.22))

@@ -137,8 +137,8 @@ pub struct Post {
     /// 0.3 suits people and props. Only things on screen cast them. Shares
     /// a full-screen pass with [`AmbientOcclusion`] (one pass for both).
     pub contact_shadows: f32,
-    /// Screen-space reflections: how strongly smooth surfaces (roughness
-    /// below about 0.5, fully below 0.2) reflect what's on screen, 0 to 1,
+    /// Screen-space reflections: how strongly glossy surfaces (roughness
+    /// below about 0.7, fully below 0.4) reflect what's on screen, 0 to 1,
     /// on top of the sky and reflection probes they reflect anyway. Where
     /// the reflected ray finds nothing on screen (it leaves the screen, goes
     /// behind something, or runs past
@@ -148,7 +148,8 @@ pub struct Post {
     /// reflection. The colors come from the last frame's image, so the
     /// first frame after a camera cut reflects only the environment. A
     /// half-resolution pass after the depth prepass; [`AntiAliasing::Taa`]
-    /// smooths its grain. 0 (the default) is off.
+    /// smooths its grain. Reflections use depth-aware filtered mips as roughness
+    /// increases; the blur footprint is bounded in screen pixels. 0 (the default) is off.
     /// ```
     /// use crabbyengine::*;
     /// assert_eq!(Post::default().ssr, 0.0);
