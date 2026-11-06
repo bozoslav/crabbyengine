@@ -319,6 +319,8 @@ fn reflections_and_ambient_occlusion_share_the_opaque_pass_image() {
         i32::from(pixels[((y * SIZE + x) * 4) as usize])
     };
     rig.ctx.post.ambient_occlusion.enabled = true;
+    rig.ctx.post.ao_half_resolution = true;
+    rig.ctx.post.ao_temporal = true;
     let pixels = rig.draw();
     assert!(red(&pixels) < 40, "GTAO alone reflects nothing: {}", red(&pixels));
     rig.ctx.post.ssr = 1.0;

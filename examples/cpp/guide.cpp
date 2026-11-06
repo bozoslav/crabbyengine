@@ -1020,6 +1020,8 @@ static void golden_hour(crabby::ctx& ctx) {
     auto post = ctx.post();
     // ANCHOR: ao_aa
     post.ao_enabled = true;
+    post.ao_half_resolution = true;
+    post.ao_temporal = true;
     post.ao_radius = 1.5f; // world units
     post.ao_intensity = 1.0f;
     post.ao_slices = 3;

@@ -3064,6 +3064,8 @@ public:
     void set_sky(const crabby::sky& s) { detail::check(crabby_ctx_set_sky(raw_, &s)); }
     /// Exposure, bloom, color grading and tone mapping of the 3D frame.
     crabby::post post() const { crabby::post p{}; detail::check(crabby_ctx_post(raw_, &p)); return p; }
+    /// GTAO ao_half_resolution uses bilateral upsampling; ao_temporal accumulates
+    /// camera-reprojected history independently of TAA. Contact shadows stay full resolution.
     /// Bloom, its threshold, contrast and saturation can't be negative; render_scale is
     /// 0.25 to 2 and sharpen 0 to 1; contact_shadows can't be negative; ssr is 0 to 1 and
     /// ssr_max_distance above zero.

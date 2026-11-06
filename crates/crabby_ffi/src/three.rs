@@ -557,6 +557,10 @@ pub struct CrabbyPost {
     pub ao_slices: u32,
     /// GTAO horizon steps per side, 1 to 16.
     pub ao_steps: u32,
+    /// Half-resolution GTAO with bilateral upsampling; contacts stay full resolution.
+    pub ao_half_resolution: bool,
+    /// Camera-reprojected GTAO accumulation (independent of TAA).
+    pub ao_temporal: bool,
     /// Brightness in stops: +1 doubles the light.
     pub exposure: f32,
     /// How light maps to the screen (see above).
@@ -2391,6 +2395,8 @@ pub unsafe extern "C" fn crabby_ctx_post(ctx: *mut CrabbyCtx, out_post: *mut Cra
                     ao_intensity: p.ambient_occlusion.intensity,
                     ao_slices: p.ambient_occlusion.slices,
                     ao_steps: p.ambient_occlusion.steps,
+                    ao_half_resolution: p.ao_half_resolution,
+                    ao_temporal: p.ao_temporal,
                     exposure: p.exposure,
                     tonemap: p.tonemap as u32,
                     bloom: p.bloom,
@@ -2497,6 +2503,8 @@ pub unsafe extern "C" fn crabby_ctx_set_post(ctx: *mut CrabbyCtx, post: *const C
                     slices: p.ao_slices,
                     steps: p.ao_steps,
                 },
+                ao_half_resolution: p.ao_half_resolution,
+                ao_temporal: p.ao_temporal,
                 exposure: p.exposure,
                 tonemap,
                 bloom: p.bloom,
@@ -2551,6 +2559,10 @@ pub struct CrabbyGraphicsQuality {
     pub ao_slices: u32,
     /// AO horizon steps per side, 1 to 16.
     pub ao_steps: u32,
+    /// Half-resolution GTAO with bilateral upsampling; contacts stay full resolution.
+    pub ao_half_resolution: bool,
+    /// Camera-reprojected GTAO accumulation (independent of TAA).
+    pub ao_temporal: bool,
     /// Post AA: 0 none, 1 FXAA, 2 SMAA 1x, 3 temporal.
     pub anti_aliasing: u32,
     /// How often the far shadow cascades are drawn again, in frames, 1 to 8.
@@ -2571,6 +2583,8 @@ fn quality_to_c(q: GraphicsQuality) -> CrabbyGraphicsQuality {
         light_shadow_resolution: q.light_shadow_resolution,
         light_shadow_atlas: q.light_shadow_atlas,
         ambient_occlusion: q.ambient_occlusion,
+        ao_half_resolution: q.ao_half_resolution,
+        ao_temporal: q.ao_temporal,
         ao_slices: q.ao_slices,
         ao_steps: q.ao_steps,
         anti_aliasing: q.anti_aliasing as u32,
@@ -2633,6 +2647,8 @@ fn quality_from_c(q: &CrabbyGraphicsQuality) -> Result<GraphicsQuality, crate::F
         light_shadow_resolution: q.light_shadow_resolution,
         light_shadow_atlas: q.light_shadow_atlas,
         ambient_occlusion: q.ambient_occlusion,
+        ao_half_resolution: q.ao_half_resolution,
+        ao_temporal: q.ao_temporal,
         ao_slices: q.ao_slices,
         ao_steps: q.ao_steps,
         ssr: q.ssr,

@@ -8,19 +8,29 @@ const SIZE: u32 = 64;
 
 #[test]
 fn gtao_darkens_contact_more_than_open_ground_and_aa_smooths_edges() {
-    render(false);
+    render(false, false);
 }
 #[test]
 fn downlevel_devices_skip_ao_and_keep_post_aa() {
-    render(true);
+    render(true, false);
 }
-fn render(downlevel: bool) {
+#[test]
+#[ignore = "offscreen 1080p GPU timestamps; run in release with --ignored --nocapture"]
+fn ao_gpu_timings_1080p() {
+    render(false, true);
+}
+fn render(downlevel: bool, benchmark: bool) {
+    let (width, height) = if benchmark { (1920, 1080) } else { (SIZE, SIZE) };
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
         eprintln!("no GPU adapter: skipped");
         return;
     };
+    eprintln!("AO adapter: {:?}", adapter.get_info());
     let mut descriptor = wgpu::DeviceDescriptor::default();
+    if benchmark {
+        descriptor.required_features = adapter.features() & wgpu::Features::TIMESTAMP_QUERY;
+    }
     if downlevel {
         descriptor.required_limits.max_compute_workgroups_per_dimension = 0;
         descriptor.required_limits.max_storage_textures_per_shader_stage = 0;
@@ -98,8 +108,8 @@ fn render(downlevel: bool) {
     let output = device.create_texture(&wgpu::TextureDescriptor {
         label: None,
         size: wgpu::Extent3d {
-            width: SIZE,
-            height: SIZE,
+            width,
+            height,
             depth_or_array_layers: 1,
         },
         mip_level_count: 1,
@@ -112,7 +122,7 @@ fn render(downlevel: bool) {
     let target = output.create_view(&Default::default());
 
     // A white ground, a box 3 up, and a spot light 6 up pointing down.
-    let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
+    let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(width as f32, height as f32));
     let matte = MaterialDesc {
         color: Color::WHITE,
         roughness: 1.0,
@@ -138,7 +148,22 @@ fn render(downlevel: bool) {
     renderer.create_mesh(&device, &ground, &[(0..ground.indices.len() as u32, material)], true);
     renderer.create_mesh(&device, &cube, &[(0..cube.indices.len() as u32, material)], true);
 
-    let mut draw = |ctx: &mut Ctx| -> Vec<u8> {
+    if benchmark {
+        for z in -25..25 {
+            for x in -25..25 {
+                ctx.world.spawn((
+                    Transform3D {
+                        position: vec3(x as f32 * 0.35, 0.15, z as f32 * 0.35),
+                        scale: Vec3::splat(0.3),
+                        ..Default::default()
+                    },
+                    Model::new(cube_mesh),
+                ));
+            }
+        }
+    }
+    let mut timer = super::timer::GpuTimer::new(&device, &queue);
+    let mut draw = |ctx: &mut Ctx, clear: wgpu::Color| -> Vec<u8> {
         let mut frame = Frame3D::default();
         frame.collect(
             &mut ctx.world,
@@ -167,11 +192,41 @@ fn render(downlevel: bool) {
             &Prepare3D {
                 scene: &scene,
                 lut: None,
-                size: (SIZE, SIZE),
+                size: (width, height),
             },
         );
-        let buffers = renderer.draw(&device, &target, wgpu::Color::BLACK, &textures, None);
+        if let Some(timer) = &mut timer {
+            timer.collect(&device);
+            timer.begin_frame();
+        }
+        let buffers = renderer.draw(&device, &target, clear, &textures, timer.as_ref());
         queue.submit(buffers);
+        if let Some(timer) = &mut timer {
+            let mut encoder = device.create_command_encoder(&Default::default());
+            timer.resolve(&mut encoder);
+            queue.submit([encoder.finish()]);
+            timer.submitted();
+            device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+            timer.collect(&device);
+        }
+        if benchmark {
+            if let Some(timer) = &timer {
+                eprintln!(
+                    "AO half={} temporal={} slices={} steps={} {:.4} ms",
+                    ctx.post.ao_half_resolution,
+                    ctx.post.ao_temporal,
+                    ctx.post.ambient_occlusion.slices,
+                    ctx.post.ambient_occlusion.steps,
+                    timer
+                        .last_frame
+                        .iter()
+                        .filter(|p| p.name.starts_with("GTAO"))
+                        .map(|p| p.ms)
+                        .sum::<f32>()
+                );
+            }
+            return Vec::new();
+        }
         let readback = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: u64::from(SIZE * SIZE * 4),
@@ -196,6 +251,24 @@ fn render(downlevel: bool) {
         device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
         readback.get_mapped_range(..).unwrap().to_vec()
     };
+    if benchmark {
+        for (label, half, temporal, slices, steps) in [
+            ("full 4x8", false, false, 4, 8),
+            ("half 4x8", true, false, 4, 8),
+            ("half temporal 2x4", true, true, 2, 4),
+        ] {
+            ctx.post.ambient_occlusion.enabled = true;
+            ctx.post.ambient_occlusion.slices = slices;
+            ctx.post.ambient_occlusion.steps = steps;
+            ctx.post.ao_half_resolution = half;
+            ctx.post.ao_temporal = temporal;
+            for _ in 0..80 {
+                draw(&mut ctx, wgpu::Color::BLACK);
+            }
+            eprintln!("mode completed: {label}");
+        }
+        return;
+    }
     // Where a ground point lands on screen, and how bright it is there.
     let view_proj = ctx.camera3d.view_proj();
     let brightness = |pixels: &[u8], p: Vec3| -> u32 {
@@ -207,7 +280,7 @@ fn render(downlevel: bool) {
     };
 
     let (under, open) = (vec3(0.0, 0.0, 0.7), vec3(0.0, 0.0, 2.5));
-    let baseline = draw(&mut ctx);
+    let baseline = draw(&mut ctx, wgpu::Color::BLACK);
     ctx.post.ambient_occlusion = AmbientOcclusion {
         enabled: true,
         radius: 2.0,
@@ -215,7 +288,7 @@ fn render(downlevel: bool) {
         slices: 6,
         steps: 12,
     };
-    let occluded = draw(&mut ctx);
+    let occluded = draw(&mut ctx, wgpu::Color::BLACK);
     let contact_loss = brightness(&baseline, under) as i32 - brightness(&occluded, under) as i32;
     let open_loss = brightness(&baseline, open) as i32 - brightness(&occluded, open) as i32;
     eprintln!("AO contact loss {contact_loss}, open loss {open_loss} (summed RGB bytes)");
@@ -228,12 +301,34 @@ fn render(downlevel: bool) {
             "contact {contact_loss}, open {open_loss}"
         );
     }
+    if !downlevel {
+        ctx.post.ao_half_resolution = true;
+        let half = draw(&mut ctx, wgpu::Color::BLACK);
+        let half_loss = brightness(&baseline, under) as i32 - brightness(&half, under) as i32;
+        eprintln!("half loss {half_loss}, full loss {contact_loss}");
+        assert!(half_loss > 15 && (half_loss - contact_loss).abs() < 30);
+        ctx.post.ao_temporal = true;
+        for _ in 0..8 {
+            let _ = draw(&mut ctx, wgpu::Color::BLACK);
+        }
+        let temporal = draw(&mut ctx, wgpu::Color::BLACK);
+        assert!((brightness(&temporal, under) as i32 - brightness(&half, under) as i32).abs() < 40);
+        // A camera cut exposes the sky: history cannot darken sky pixels.
+        ctx.camera3d.look_at(vec3(0.0, 30.0, 0.0));
+        let sky_ao = draw(&mut ctx, wgpu::Color::BLACK);
+        ctx.post.ambient_occlusion.enabled = false;
+        let sky_clear = draw(&mut ctx, wgpu::Color::BLACK);
+        assert_eq!(sky_ao, sky_clear, "sky has no AO halo after a camera cut");
+        ctx.camera3d.look_at(Vec3::ZERO);
+        ctx.post.ao_half_resolution = false;
+        ctx.post.ao_temporal = false;
+    }
     ctx.post.ambient_occlusion.enabled = false;
     ctx.lighting.ambient_intensity = 0.0;
     ctx.lighting.sun_intensity = 3.0;
-    let direct = draw(&mut ctx);
+    let direct = draw(&mut ctx, wgpu::Color::BLACK);
     ctx.post.ambient_occlusion.enabled = true;
-    let direct_ao = draw(&mut ctx);
+    let direct_ao = draw(&mut ctx, wgpu::Color::BLACK);
     assert_eq!(direct, direct_ao, "AO leaves direct sunlight unchanged");
     ctx.post.ambient_occlusion.enabled = false;
     ctx.lighting.ambient_intensity = 1.0;
@@ -251,10 +346,28 @@ fn render(downlevel: bool) {
     ctx.camera3d.position = vec3(0.0, 0.0, 5.0);
     ctx.camera3d.look_at(Vec3::ZERO);
     let count = |px: &[u8]| px.as_chunks::<4>().0.iter().filter(|p| p[0] > 10 && p[0] < 200).count();
-    let no_aa = draw(&mut ctx);
+    if !downlevel {
+        let silhouette = draw(&mut ctx, wgpu::Color::WHITE);
+        ctx.post.ambient_occlusion.enabled = true;
+        ctx.post.ao_half_resolution = true;
+        ctx.post.ao_temporal = true;
+        let silhouette_ao = draw(&mut ctx, wgpu::Color::WHITE);
+        for (clear, ao) in silhouette
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(silhouette_ao.as_chunks::<4>().0)
+        {
+            if clear[..3] == [255; 3] {
+                assert_eq!(&ao[..3], &[255; 3], "sky silhouette halo");
+            }
+        }
+        ctx.post.ambient_occlusion.enabled = false;
+    }
+    let no_aa = draw(&mut ctx, wgpu::Color::BLACK);
     for mode in [AntiAliasing::Fxaa, AntiAliasing::Smaa] {
         ctx.post.anti_aliasing = mode;
-        let aa = draw(&mut ctx);
+        let aa = draw(&mut ctx, wgpu::Color::BLACK);
         eprintln!("{mode:?}: {} intermediate pixels vs {}", count(&aa), count(&no_aa));
         assert!(
             count(&aa) > count(&no_aa),

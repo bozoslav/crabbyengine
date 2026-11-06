@@ -260,4 +260,14 @@ fn contact_shadows_shade_what_something_close_blocks() {
     let (shade, sun) = (red(&pixels, beside), red(&pixels, open));
     assert!(shade < 60, "beside the pebble, in its shadow: {shade}");
     assert!(sun > 150, "out in the sun: {sun}");
+    // Switching AO off while contacts stay on restores the full-size trace.
+    rig.ctx.post.ao_half_resolution = true;
+    rig.ctx.post.ambient_occlusion.enabled = true;
+    let _ = rig.draw();
+    rig.ctx.post.ambient_occlusion.enabled = false;
+    assert_eq!(
+        rig.draw(),
+        pixels,
+        "contact-only output survives half-resolution AO toggles"
+    );
 }

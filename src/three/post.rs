@@ -122,6 +122,13 @@ pub struct Post {
     pub sharpen: f32,
     /// Ambient-only GTAO, before opaque lighting.
     pub ambient_occlusion: AmbientOcclusion,
+    /// Trace GTAO at half width and height, then bilaterally upsample.
+    /// Contact shadows remain full resolution. Default false.
+    pub ao_half_resolution: bool,
+    /// Accumulate GTAO with camera reprojection and depth rejection, with
+    /// rotating slices. Independent of TAA; moving objects have no motion
+    /// vectors here. Default false; enable to trade history cost for fewer samples.
+    pub ao_temporal: bool,
     /// Contact shadows: how far, in world units, each pixel looks toward
     /// the sun across the depth buffer for something close that blocks
     /// it. They catch the small shadows the shadow map is too coarse for:
@@ -189,6 +196,8 @@ impl Default for Post {
             render_scale: 1.0,
             sharpen: 0.0,
             ambient_occlusion: AmbientOcclusion::default(),
+            ao_half_resolution: false,
+            ao_temporal: false,
             contact_shadows: 0.0,
             ssr: 0.0,
             ssr_max_distance: 30.0,
