@@ -902,6 +902,24 @@ fn models_name_meshes_that_must_be_files() {
 }
 
 #[test]
+fn occlusion_culling_is_off_until_turned_on() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        assert!(!ctx.camera3d.occlusion_culling);
+        // ANCHOR: occlusion
+        // A town or a forest: skip what houses, hills and trunks hide.
+        ctx.camera3d.occlusion_culling = true;
+        // ANCHOR_END: occlusion
+        // Headless, there's no depth to cull with: everything in view is drawn.
+        let white = ctx.default_material();
+        let mesh = ctx.create_mesh(&MeshData::cube(1.0), white);
+        ctx.world.spawn((Transform3D::default(), Model::new(mesh)));
+        ctx.camera3d.position = vec3(0.0, 0.0, 5.0);
+        ctx.camera3d.look_at(Vec3::ZERO);
+        assert_eq!(ctx.render_stats().occluded, 0);
+    });
+}
+
+#[test]
 fn lod_groups_pick_levels_by_screen_height() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
         let white = ctx.default_material();

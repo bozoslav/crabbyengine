@@ -18,6 +18,7 @@ mod effect;
 mod gltf;
 mod ik;
 mod lod;
+pub(crate) mod occlusion;
 pub use ik::{look_at_joint, two_bone_ik};
 pub use lod::{LodGroup, LodLevel, LodPick, LodRenderer, LodSettings, LodShadow};
 pub(crate) mod lights;
@@ -496,6 +497,16 @@ pub struct Camera3D {
     pub near: f32,
     /// Nothing farther than this is drawn. Default 1000.
     pub far: f32,
+    /// Skip models hidden behind what was drawn a frame or two before.
+    /// Default off.
+    ///
+    /// The renderer keeps the farthest depth of small screen tiles and reads
+    /// it back without waiting for the GPU; a model whose bounds lie behind
+    /// it everywhere they cover isn't drawn (it still casts shadows). A model
+    /// that comes out from behind something can show up a frame or two late,
+    /// mostly when the camera moves fast. Needs compute shaders: on WebGL2
+    /// nothing is culled.
+    pub occlusion_culling: bool,
     /// Window size in pixels, kept up to date by the engine.
     viewport: Vec2,
 }
@@ -508,6 +519,7 @@ impl Camera3D {
             fov_y: 60f32.to_radians(),
             near: 0.1,
             far: 1000.0,
+            occlusion_culling: false,
             viewport,
         }
     }
@@ -697,6 +709,8 @@ pub(crate) struct Scene3D<'a> {
     pub post: &'a Post,
     /// Seconds since the game started, and since the last frame.
     pub time: (f32, f32),
+    /// Whether to make the depth grid occlusion culling reads.
+    pub occlusion: bool,
 }
 
 /// What the engine keeps about each mesh and material on the CPU side: for

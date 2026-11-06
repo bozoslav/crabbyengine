@@ -66,6 +66,13 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
         camera.position = v3(0.0, 5.0, 10.0);
         assert_eq!(crabby_ctx_set_camera3d(ctx, &camera), CRABBY_OK);
         assert_eq!(crabby_ctx_camera3d_look_at(ctx, v3(0.0, 0.0, 0.0)), CRABBY_OK);
+        let mut culling = true;
+        assert_eq!(crabby_ctx_occlusion_culling(ctx, &mut culling), CRABBY_OK);
+        assert!(!culling);
+        assert_eq!(crabby_ctx_set_occlusion_culling(ctx, true), CRABBY_OK);
+        assert_eq!(crabby_ctx_occlusion_culling(ctx, &mut culling), CRABBY_OK);
+        assert!(culling);
+        assert_eq!(crabby_ctx_set_occlusion_culling(ctx, false), CRABBY_OK);
         let bad = CrabbyCamera3D { near: 0.0, ..camera };
         ids.errors.push(crabby_ctx_set_camera3d(ctx, &bad));
 

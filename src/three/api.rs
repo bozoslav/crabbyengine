@@ -1127,6 +1127,11 @@ impl Ctx {
         self.frame3d.size_limit = renderer.max_texture_size();
         self.frame3d.lod = self.lod;
         self.frame3d.motion.enabled = self.post.anti_aliasing == super::AntiAliasing::Taa;
+        if !self.camera3d.occlusion_culling {
+            self.frame3d.occlusion = None;
+        } else if let Some(grid) = renderer.take_occlusion() {
+            self.frame3d.occlusion = Some(grid);
+        }
         self.frame3d
             .collect(&mut self.world, &self.assets3d, &skins, &self.camera3d, &self.lighting);
         self.frame3d.skins = skins;
@@ -1159,6 +1164,7 @@ impl Ctx {
             camera: self.camera3d.position,
             post: &self.post,
             time,
+            occlusion: self.camera3d.occlusion_culling,
         };
         renderer.prepare_3d(&scene, collect_ms);
         self.frame3d.motion.reset = false;

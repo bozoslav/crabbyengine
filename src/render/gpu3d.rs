@@ -672,6 +672,10 @@ pub(crate) struct Renderer3D {
     meshes: Vec<GpuMesh>,
     /// This frame's skinned models, drawn as mesh ids past `meshes`.
     skinning: skinning::Skinning,
+    /// The depth grid occlusion culling tests against.
+    occlusion: super::occlusion::Occlusion,
+    /// How many models in view the frame culled as hidden.
+    pub occluded: usize,
     particles: super::particles::Particles,
     materials: Vec<GpuMaterial>,
     instances: wgpu::Buffer,
@@ -1321,6 +1325,8 @@ impl Renderer3D {
                 compute && device.limits().max_storage_buffers_per_shader_stage >= 4,
             ),
             particles: super::particles::Particles::new(device, texture_layout, samples),
+            occlusion: super::occlusion::Occlusion::new(device, compute),
+            occluded: 0,
             compute_states: Vec::new(),
             computes: Vec::new(),
             views: Vec::new(),
@@ -1745,6 +1751,7 @@ impl Renderer3D {
             camera,
             post,
             time,
+            occlusion,
         } = scene;
         // The scene is drawn at `size` and scaled to the window's `window`.
         let size = scaled_size(window, post.render_scale, device.limits().max_texture_dimension_2d);
@@ -2290,6 +2297,40 @@ impl Renderer3D {
             self.taa_frame_read = self.taa_read;
             self.taa_read ^= 1;
         }
+        self.occluded = frame.occluded;
+        if let Some(targets) = &self.targets {
+            self.occlusion.prepare(
+                device,
+                queue,
+                &targets.depth,
+                size,
+                self.samples,
+                frame.view_proj,
+                camera,
+                occlusion,
+            );
+        }
+    }
+
+    /// The newest depth grid read back for occlusion culling, if one came
+    /// back since the last call.
+    pub fn take_occlusion(&mut self) -> Option<crate::three::occlusion::OcclusionGrid> {
+        self.occlusion.latest.take()
+    }
+
+    /// Starts reading this frame's occlusion depth back. Call after submitting.
+    pub fn submitted(&mut self) {
+        self.occlusion.submitted();
+    }
+
+    /// Records the occlusion depth grid's reduction, timed as a compute pass.
+    fn record_occlusion(&self, encoder: &mut wgpu::CommandEncoder, frame: &FrameParts<'_, '_>) {
+        let timestamps = (frame.time)("occlusion depth").map(|t| wgpu::ComputePassTimestampWrites {
+            query_set: t.query_set,
+            beginning_of_pass_write_index: t.beginning_of_pass_write_index,
+            end_of_pass_write_index: t.end_of_pass_write_index,
+        });
+        self.occlusion.record(encoder, timestamps);
     }
 
     /// Makes the sun's shadow map for this frame's size and cascades, if it
@@ -2775,6 +2816,10 @@ impl Renderer3D {
                 pass.set_bind_group(2, &self.no_scene, &[]);
                 self.draw_models(&mut pass, &self.runs, Kind::Prepass, &self.instances);
                 drop(pass);
+                // With every solid surface in it, the depth is complete here.
+                if self.solid_prepass {
+                    self.record_occlusion(encoder, frame);
+                }
                 if self.ao_enabled {
                     self.ao.as_ref().unwrap().draw(encoder, targets.ao.as_ref().unwrap());
                 }
@@ -2873,6 +2918,9 @@ impl Renderer3D {
                     pass.set_bind_group(0, &self.frame_bind_group, &[]);
                     pass.set_bind_group(2, &self.no_scene, &[]);
                     self.draw_models(&mut pass, &self.moved_runs, Kind::Velocity, &self.moved);
+                }
+                if !self.solid_prepass {
+                    self.record_occlusion(encoder, frame);
                 }
             }
             Part::Transparent => {

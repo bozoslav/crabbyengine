@@ -248,6 +248,10 @@ static void three_d() {
         cam.position = {0, 5, 10};
         ctx.set_camera3d(cam);
         ctx.camera3d_look_at({0, 0, 0});
+        CHECK(!ctx.occlusion_culling());
+        ctx.set_occlusion_culling(true);
+        CHECK(ctx.occlusion_culling());
+        ctx.set_occlusion_culling(false);
         CHECK(crabby::forward(crabby::looking_at(crabby::transform3d_at(cam.position), {0, 0, 0})).z < 0);
         cam.near = 0;
         throws([&] { ctx.set_camera3d(cam); });

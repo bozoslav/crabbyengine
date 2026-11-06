@@ -736,6 +736,12 @@ impl Renderer {
 
     /// Uploads the frame's 3D models, camera and light for the next `render`.
     /// `collect_ms`: how long collecting the models took, counted in `cpu_ms`.
+    /// The newest depth grid for occlusion culling, if one came back.
+    #[cfg(feature = "3d")]
+    pub fn take_occlusion(&mut self) -> Option<crate::three::occlusion::OcclusionGrid> {
+        self.three.as_mut()?.take_occlusion()
+    }
+
     #[cfg(feature = "3d")]
     pub fn prepare_3d(&mut self, scene: &crate::three::Scene3D<'_>, collect_ms: f32) {
         let start = web_time::Instant::now();
@@ -1107,6 +1113,7 @@ impl Renderer {
             self.stats.triangles = triangles;
             self.stats.shadow_instances = shadow_instances;
             self.stats.shadow_triangles = shadow_triangles;
+            self.stats.occluded = three.occluded;
             self.stats.collect_ms = self.collect_ms;
         }
 
@@ -1265,6 +1272,10 @@ impl Renderer {
         self.stats.submit_ms = submit_start.elapsed().as_secs_f32() * 1000.0;
         if hidden {
             self.hidden_in_flight.push_back(submitted);
+        }
+        #[cfg(feature = "3d")]
+        if let Some(three) = &mut self.three {
+            three.submitted();
         }
         if let Some(timer) = &mut self.timer {
             timer.submitted();

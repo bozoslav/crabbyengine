@@ -21,6 +21,12 @@ static void visit(const CrabbyChunk* chunk, void* user) {
 typedef struct { size_t ticks; float dt; CrabbyStatus busy_quit; } Run;
 static void setup(CrabbyCtx* ctx, void* user) {
     (void)user;
+    bool culling = true;
+    CHECK(crabby_ctx_occlusion_culling(ctx, &culling) == CRABBY_OK && !culling);
+    CHECK(crabby_ctx_set_occlusion_culling(ctx, true) == CRABBY_OK);
+    CHECK(crabby_ctx_occlusion_culling(ctx, &culling) == CRABBY_OK && culling);
+    CHECK(crabby_ctx_set_occlusion_culling(ctx, false) == CRABBY_OK);
+    CHECK(crabby_ctx_occlusion_culling(NULL, &culling) == CRABBY_INVALID_ARGUMENT);
     CrabbyPost post;
     CHECK(crabby_ctx_post(ctx, &post) == CRABBY_OK);
     CHECK(!post.ao_enabled && post.anti_aliasing == 0 && post.ao_radius == 1);

@@ -3253,6 +3253,10 @@ enum CrabbyStatus crabby_ctx_camera3d(struct CrabbyCtx *ctx, struct CrabbyCamera
 enum CrabbyStatus crabby_ctx_set_camera3d(struct CrabbyCtx *ctx,
                                           const struct CrabbyCamera3D *camera);
 
+enum CrabbyStatus crabby_ctx_set_occlusion_culling(struct CrabbyCtx *ctx, bool on);
+
+enum CrabbyStatus crabby_ctx_occlusion_culling(struct CrabbyCtx *ctx, bool *out_on);
+
 enum CrabbyStatus crabby_ctx_camera3d_look_at(struct CrabbyCtx *ctx, struct CrabbyVec3 target);
 
 enum CrabbyStatus crabby_ctx_screen_ray(struct CrabbyCtx *ctx,
