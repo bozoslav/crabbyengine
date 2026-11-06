@@ -165,6 +165,27 @@ mod cells {
     }
 
     #[test]
+    fn mesh_none_never_becomes_another_mesh() {
+        Game::new("t", 64, 64).run_headless(1, |ctx| {
+            let material = ctx.default_material();
+            let cube = MeshData::cube(1.0);
+            let freed = ctx.create_mesh(&cube, material);
+            ctx.free_mesh(freed);
+            ctx.free_mesh(Mesh::NONE); // does nothing
+            ctx.set_mesh_shadows(Mesh::NONE, false); // does nothing
+            ctx.camera3d.position = vec3(0.0, 0.0, 5.0);
+            ctx.camera3d.look_at(Vec3::ZERO);
+            ctx.world.spawn((Transform3D::default(), Model::new(Mesh::NONE)));
+            // A freed id is taken by the next mesh made; NONE never is.
+            let made: Vec<Mesh> = (0..4).map(|_| ctx.create_mesh(&cube, material)).collect();
+            assert!(made.contains(&freed));
+            assert!(!made.contains(&Mesh::NONE));
+            assert!(!ctx.is_mesh_live(Mesh::NONE));
+            assert!(ctx.mesh_shadows(Mesh::NONE));
+        });
+    }
+
+    #[test]
     fn tiles_built_on_a_worker_match_tiles_built_in_place() {
         Game::new("t", 1, 1).run_headless(0, |ctx| {
             let heights: Vec<f32> = (0..17 * 17).map(|i| (i % 17) as f32 * 0.5).collect();

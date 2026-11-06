@@ -95,6 +95,9 @@ struct joint {
     transform3d rest{{0, 0, 0, 1}, {0, 0, 0}, {1, 1, 1}, {0, 0}};
 };
 using model = CrabbyModel;
+/// No mesh (Rust `Mesh::NONE`): a model showing it draws nothing, and it
+/// never becomes another mesh, unlike a freed one.
+constexpr CrabbyMesh mesh_none{CRABBY_MESH_NONE};
 /// One mesh of a LOD level, placed and tinted (Rust `LodRenderer`).
 using lod_renderer = CrabbyLodRenderer;
 inline lod_renderer lod_renderer_of(CrabbyMesh m) { return crabby_lod_renderer(m); }
