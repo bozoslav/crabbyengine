@@ -341,6 +341,8 @@ static void three_d() {
             auto temporal = post;
             temporal.anti_aliasing = uint32_t(crabby::anti_aliasing::taa);
             temporal.taa_sharpness = 0.5f;
+            temporal.ao_enabled = true;
+            temporal.ao_temporal = true;
             ctx.set_post(temporal);
             ctx.reset_temporal_history();
             CHECK(ctx.post().anti_aliasing == 3 && ctx.post().taa_sharpness == 0.5f);

@@ -1,4 +1,4 @@
-//! Which models moved since the last frame, for temporal antialiasing: the
+//! Which models moved since the last frame, for temporal reprojection: the
 //! renderer draws their motion vectors from the model matrix they had then.
 //! Everything else moves only with the camera, which the renderer works out
 //! from depth.
@@ -43,7 +43,7 @@ pub(crate) struct MovedInstance {
 /// whose matrix changed. Does nothing (and keeps nothing) until `enabled`.
 #[derive(Default)]
 pub(crate) struct Motion {
-    /// Whether temporal antialiasing is on: set before `Frame3D::collect`.
+    /// Whether TAA or temporal AO is on: set before `Frame3D::collect`.
     pub enabled: bool,
     /// Whether the game asked to forget the history (a camera cut).
     pub reset: bool,
@@ -139,6 +139,26 @@ mod tests {
         assert_eq!(motion.instances[1].previous[3][0], 0.0);
         assert_eq!(motion.instances[1].instance.model[3][0], 1.0);
         assert_eq!(motion.instances[1].previous[0][3], 3.0);
+    }
+
+    #[test]
+    fn rotation_animation_preserves_the_previous_matrix() {
+        let mut motion = Motion {
+            enabled: true,
+            ..Default::default()
+        };
+        let first = at(0.0);
+        let mut rotated = first;
+        rotated.model = glam::Mat4::from_rotation_y(0.7).to_cols_array_2d();
+        rotated.model[0][3] = first.model[0][3];
+        for instance in [&first, &rotated] {
+            motion.begin();
+            motion.note(7, 2, instance);
+            motion.finish();
+        }
+        assert_eq!(motion.instances.len(), 1);
+        assert_eq!(motion.instances[0].previous, first.model);
+        assert_eq!(motion.instances[0].instance.model, rotated.model);
     }
 
     #[test]

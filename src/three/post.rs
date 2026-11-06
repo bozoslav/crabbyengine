@@ -125,9 +125,10 @@ pub struct Post {
     /// Trace GTAO at half width and height, then bilaterally upsample.
     /// Contact shadows remain full resolution. Default false.
     pub ao_half_resolution: bool,
-    /// Accumulate GTAO with camera reprojection and depth rejection, with
-    /// rotating slices. Independent of TAA; moving objects have no motion
-    /// vectors here. Default false; enable to trade history cost for fewer samples.
+    /// Accumulate GTAO over frames with rotating slices, following the
+    /// camera and moving models (the same motion vectors as TAA) and
+    /// rejecting history whose depth disagrees. Independent of TAA. Default
+    /// false; enable to trade history cost for fewer samples.
     pub ao_temporal: bool,
     /// Contact shadows: how far, in world units, each pixel looks toward
     /// the sun across the depth buffer for something close that blocks

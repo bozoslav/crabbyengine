@@ -1103,7 +1103,7 @@ fn temporal_antialiasing_is_a_setting_and_can_forget_its_history() {
         // ANCHOR: taa
         ctx.post.anti_aliasing = AntiAliasing::Taa;
         ctx.post.taa_sharpness = 0.3; // it softens the image a little
-        // After teleporting the camera, forget the old view:
+        // After teleporting the camera (or an object), forget the old view:
         ctx.camera3d.position = vec3(400.0, 3.0, 0.0);
         ctx.reset_temporal_history();
         // ANCHOR_END: taa

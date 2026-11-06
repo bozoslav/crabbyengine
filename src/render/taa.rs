@@ -16,9 +16,9 @@ use super::gpu3d::HDR_FORMAT;
 /// How many positions the jitter visits before it repeats.
 pub(super) const JITTER_SAMPLES: u32 = 16;
 
-/// The velocity target: x, y motion in texture coordinates; alpha 1 where a
-/// moved model was drawn (averaged over the pixel's samples).
-pub(super) const VELOCITY_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+/// Object-only backward UV motion, added to depth-derived camera motion.
+/// Zero for static surfaces; MSAA resolves coverage without a validity channel.
+pub(super) const VELOCITY_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg16Float;
 
 /// The `index`th number of the Halton sequence in `base`, in 0..1.
 pub(super) fn halton(mut index: u32, base: u32) -> f32 {
@@ -92,19 +92,53 @@ pub(super) struct TaaTargets {
     pub input: wgpu::Texture,
     pub input_view: wgpu::TextureView,
     history: [wgpu::TextureView; 2],
+    /// `groups[i]` reads history `i`.
+    groups: [wgpu::BindGroup; 2],
+}
+
+/// Shared by TAA and temporal AO, without allocating TAA color histories.
+pub(super) struct VelocityTargets {
     /// Multisampled motion of moved models, resolved into `velocity`.
     pub velocity_color: wgpu::TextureView,
     velocity: wgpu::TextureView,
     #[cfg(test)]
     pub velocity_texture: wgpu::Texture,
-    /// `groups[i]` reads history `i`.
-    groups: [wgpu::BindGroup; 2],
 }
-
-impl TaaTargets {
-    /// Resolve target of the motion pass.
+impl VelocityTargets {
     pub fn velocity(&self) -> &wgpu::TextureView {
         &self.velocity
+    }
+    pub fn new(device: &wgpu::Device, size: (u32, u32), samples: u32) -> Self {
+        let make = |samples, usage| {
+            device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("object velocity"),
+                size: wgpu::Extent3d {
+                    width: size.0,
+                    height: size.1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: samples,
+                dimension: wgpu::TextureDimension::D2,
+                format: VELOCITY_FORMAT,
+                usage,
+                view_formats: &[],
+            })
+        };
+        let velocity_texture = make(
+            1,
+            wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
+        );
+        let velocity = velocity_texture.create_view(&Default::default());
+        let velocity_color = make(samples, wgpu::TextureUsages::RENDER_ATTACHMENT).create_view(&Default::default());
+        Self {
+            velocity,
+            velocity_color,
+            #[cfg(test)]
+            velocity_texture,
+        }
     }
 }
 
@@ -207,7 +241,7 @@ impl Taa {
         &self,
         device: &wgpu::Device,
         size: (u32, u32),
-        samples: u32,
+        velocity: &wgpu::TextureView,
         depth: &wgpu::TextureView,
     ) -> TaaTargets {
         let make = |label, format, samples, usage| {
@@ -234,18 +268,6 @@ impl Taa {
             make("TAA history 0", HDR_FORMAT, 1, bound).create_view(&Default::default()),
             make("TAA history 1", HDR_FORMAT, 1, bound).create_view(&Default::default()),
         ];
-        #[cfg(test)]
-        let velocity_texture = make(
-            "TAA velocity",
-            VELOCITY_FORMAT,
-            1,
-            bound | wgpu::TextureUsages::COPY_SRC,
-        );
-        #[cfg(not(test))]
-        let velocity_texture = make("TAA velocity", VELOCITY_FORMAT, 1, bound);
-        let velocity = velocity_texture.create_view(&Default::default());
-        let velocity_color =
-            make("TAA velocity samples", VELOCITY_FORMAT, samples, render).create_view(&Default::default());
         let group = |history: &wgpu::TextureView| {
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("TAA"),
@@ -261,7 +283,7 @@ impl Taa {
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: wgpu::BindingResource::TextureView(&velocity),
+                        resource: wgpu::BindingResource::TextureView(velocity),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
@@ -283,10 +305,6 @@ impl Taa {
             input,
             input_view,
             history,
-            velocity_color,
-            velocity,
-            #[cfg(test)]
-            velocity_texture,
             groups,
         }
     }

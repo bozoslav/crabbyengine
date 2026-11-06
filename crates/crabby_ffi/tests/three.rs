@@ -272,6 +272,8 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
         let taa = CrabbyPost {
             anti_aliasing: 3,
             taa_sharpness: 0.5,
+            ao_enabled: true,
+            ao_temporal: true,
             ..post
         };
         assert_eq!(crabby_ctx_set_post(ctx, &taa), CRABBY_OK);

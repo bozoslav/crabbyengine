@@ -2750,8 +2750,8 @@ pub unsafe extern "C" fn crabby_ctx_set_graphics_quality(
     })
 }
 
-/// Makes temporal antialiasing (post `anti_aliasing` 3) forget the frames
-/// before this one: call it when the camera cuts somewhere else. The engine
+/// Makes TAA (post `anti_aliasing` 3) and temporal AO forget the frames
+/// before this one: call it after camera cuts or object teleports. The engine
 /// also resets on resize and when the camera jumps or turns sharply.
 /// # Safety
 /// `ctx` null or live.
