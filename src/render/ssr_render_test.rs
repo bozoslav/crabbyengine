@@ -21,12 +21,19 @@ struct Rig {
 impl Rig {
     /// `None` without a GPU.
     fn new() -> Option<Self> {
+        Self::sized(SIZE, SIZE)
+    }
+
+    fn sized(width: u32, height: u32) -> Option<Self> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
             eprintln!("no GPU adapter: skipped");
             return None;
         };
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) else {
+        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            required_features: adapter.features() & wgpu::Features::TIMESTAMP_QUERY,
+            ..Default::default()
+        })) else {
             eprintln!("no GPU device: skipped");
             return None;
         };
@@ -99,8 +106,8 @@ impl Rig {
         let output = device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size: wgpu::Extent3d {
-                width: SIZE,
-                height: SIZE,
+                width,
+                height,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -112,7 +119,7 @@ impl Rig {
         });
         let target = output.create_view(&Default::default());
         let renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
-        let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
+        let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(width as f32, height as f32));
         ctx.sky.atmosphere = false;
         Some(Self {
             device,
@@ -138,6 +145,16 @@ impl Rig {
 
     /// Draws the world and reads the pixels back (RGBA).
     fn draw(&mut self) -> Vec<u8> {
+        self.draw_timed(None)
+    }
+
+    fn draw_timed(&mut self, mut timer: Option<&mut super::timer::GpuTimer>) -> Vec<u8> {
+        let width = self.output.width();
+        let height = self.output.height();
+        if let Some(t) = &mut timer {
+            t.collect(&self.device);
+            t.begin_frame();
+        }
         let ctx = &mut self.ctx;
         let mut frame = Frame3D::default();
         frame.lod = ctx.lod;
@@ -169,16 +186,26 @@ impl Rig {
             &Prepare3D {
                 scene: &scene,
                 lut: None,
-                size: (SIZE, SIZE),
+                size: (width, height),
             },
         );
-        let buffers = self
-            .renderer
-            .draw(&self.device, &self.target, wgpu::Color::BLACK, &self.textures, None);
+        let buffers = self.renderer.draw(
+            &self.device,
+            &self.target,
+            wgpu::Color::BLACK,
+            &self.textures,
+            timer.as_deref(),
+        );
         self.queue.submit(buffers);
+        if let Some(t) = &mut timer {
+            let mut encoder = self.device.create_command_encoder(&Default::default());
+            t.resolve(&mut encoder);
+            self.queue.submit([encoder.finish()]);
+            t.submitted();
+        }
         let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size: u64::from(SIZE * SIZE * 4),
+            size: u64::from(width * height * 4),
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
@@ -189,7 +216,7 @@ impl Rig {
                 buffer: &readback,
                 layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(SIZE * 4),
+                    bytes_per_row: Some(width * 4),
                     rows_per_image: None,
                 },
             },
@@ -215,10 +242,14 @@ fn pixel(view_proj: Mat4, p: Vec3) -> (u32, u32) {
 /// A mirror floor and a glowing red box over it: with screen-space
 /// reflections, the floor in front of the box shows it.
 fn mirror_rig() -> Option<(Rig, Vec3, Vec3)> {
+    floor_rig(0.0)
+}
+
+fn floor_rig(roughness: f32) -> Option<(Rig, Vec3, Vec3)> {
     let mut rig = Rig::new()?;
     let mirror = MaterialDesc {
         color: Color::WHITE,
-        roughness: 0.0,
+        roughness,
         metallic: 1.0,
         ..Default::default()
     };
@@ -331,4 +362,110 @@ fn reflections_and_ambient_occlusion_share_the_opaque_pass_image() {
     rig.draw();
     let pixels = rig.draw();
     assert!(red(&pixels) > 120, "and so does a clear without it: {}", red(&pixels));
+}
+
+#[test]
+fn a_glossy_floor_has_a_wider_lower_peak_reflection() {
+    fn profile(roughness: f32) -> Option<(f32, f32)> {
+        let (mut rig, reflection, _) = floor_rig(roughness)?;
+        // Keep the bright source below display clipping so peak comparison
+        // measures filtering rather than the tone mapper's saturation.
+        rig.ctx.post.exposure = -4.0;
+        let (cx, cy) = pixel(rig.ctx.camera3d.view_proj(), reflection);
+        let off = rig.draw();
+        rig.ctx.post.ssr = 1.0;
+        rig.draw();
+        let on = rig.draw();
+        let mut energy = 0.0f32;
+        let mut moment = 0.0f32;
+        let mut peak = 0.0f32;
+        for x in cx - 24..=cx + 24 {
+            let at = ((cy * SIZE + x) * 4) as usize;
+            assert!(off[at] < 40, "SSR off leaves the glossy floor dark");
+            let value = (f32::from(on[at]) - f32::from(off[at])).max(0.0);
+            energy += value;
+            moment += value * (x as f32 - cx as f32).powi(2);
+            peak = peak.max(value);
+        }
+        assert!(energy > 100.0, "the floor still reflects the box");
+        rig.ctx.post.ssr = 0.0;
+        let disabled = rig.draw();
+        assert!(disabled[((cy * SIZE + cx) * 4) as usize] < 40);
+        Some((peak, (moment / energy).sqrt()))
+    }
+    let Some(mirror) = profile(0.0) else { return };
+    let Some(glossy) = profile(0.35) else { return };
+    eprintln!("reflection peak / RMS width: mirror {mirror:?}, roughness 0.35 {glossy:?}");
+    assert!(
+        glossy.0 < mirror.0 * 0.95,
+        "glossy peak falls: {mirror:?} -> {glossy:?}"
+    );
+    assert!(
+        glossy.1 > mirror.1 * 1.1,
+        "glossy reflection spreads: {mirror:?} -> {glossy:?}"
+    );
+}
+
+/// Offscreen timestamp measurement; run with --release --ignored --nocapture.
+#[test]
+#[ignore]
+fn reflection_filter_gpu_cost() {
+    let Some(mut rig) = Rig::sized(1920, 1080) else { return };
+    let Some(mut timer) = super::timer::GpuTimer::new(&rig.device, &rig.queue) else {
+        eprintln!("timestamp queries unavailable: skipped");
+        return;
+    };
+    let floor = rig.mesh(
+        &MeshData::cube(1.0),
+        MaterialDesc {
+            roughness: 0.35,
+            metallic: 1.0,
+            ..Default::default()
+        },
+    );
+    rig.ctx.world.spawn((
+        Transform3D {
+            position: vec3(0.0, -0.5, 0.0),
+            scale: vec3(20.0, 1.0, 20.0),
+            ..Default::default()
+        },
+        Model::new(floor),
+    ));
+    let block = rig.mesh(
+        &MeshData::cube(1.0),
+        MaterialDesc {
+            color: Color::BLACK,
+            emissive: Color::rgb(4.0, 0.0, 0.0),
+            ..Default::default()
+        },
+    );
+    rig.ctx.world.spawn((
+        Transform3D {
+            position: vec3(0.0, 1.0, 0.0),
+            ..Default::default()
+        },
+        Model::new(block),
+    ));
+    rig.ctx.camera3d.position = vec3(0.0, 2.0, 6.0);
+    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    rig.ctx.post.ssr = 1.0;
+    rig.ctx.post.bloom = 0.0;
+    rig.ctx.lighting.shadows = false;
+    let mut samples = Vec::new();
+    for frame in 0..90 {
+        rig.draw_timed(Some(&mut timer));
+        if frame >= 30
+            && let Some(pass) = timer.last_frame.iter().find(|p| p.name == "screen reflections")
+        {
+            samples.push(pass.ms);
+        }
+    }
+    assert!(!samples.is_empty(), "GPU timestamps must be collected");
+    samples.sort_by(f32::total_cmp);
+    eprintln!(
+        "1920x1080 SSR trace + blur GPU median {:.4} ms, p95 {:.4} ms ({} samples)",
+        samples[samples.len() / 2],
+        samples[samples.len() * 95 / 100],
+        samples.len()
+    );
 }

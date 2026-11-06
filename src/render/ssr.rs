@@ -4,8 +4,9 @@
 //!
 //! Material shaders have no texture slot to spare, so the opaque pass reads
 //! the reflections where it reads GTAO: its scene color slot holds a
-//! two-level image, GTAO and contact shadows in the first level (full size,
-//! red and green), the reflections in the second (half size). Blue 1 in the
+//! mipmapped image, GTAO and contact shadows in the first level (full size,
+//! red and green), the reflections in the second (half size), followed by up to four
+//! depth-aware filtered reflection levels. Blue 1 in the
 //! first level says the second is there: GTAO writes it, or without GTAO a
 //! clear of the new image. (GTAO's own RG8 image and the opaque pass's
 //! black stand-in read 0 there; GLSL ES can't count a texture's levels.)
@@ -31,6 +32,7 @@ pub(super) struct Ssr {
     layout: wgpu::BindGroupLayout,
     trace_pipeline: wgpu::RenderPipeline,
     copy_pipeline: wgpu::RenderPipeline,
+    blur_pipeline: wgpu::RenderPipeline,
     uniform: wgpu::Buffer,
     sampler: wgpu::Sampler,
     /// The camera the image in the history was drawn with, while it holds
@@ -42,12 +44,14 @@ pub(super) struct Ssr {
 pub(super) struct SsrTargets {
     /// The last frame's opaque image.
     history: wgpu::TextureView,
-    /// The two-level image the opaque pass reads (see the module docs).
+    /// The mipmapped image the opaque pass reads (see the module docs).
     pub screen: wgpu::TextureView,
     /// Its first level, GTAO's target.
     pub ao: wgpu::TextureView,
     /// Its second level, the trace's target.
     output: wgpu::TextureView,
+    /// Each lower reflection mip and its preceding mip as input.
+    blur: Vec<(wgpu::TextureView, wgpu::BindGroup)>,
     /// Without GTAO, until the first level has its blue mark.
     unmarked: AtomicBool,
     trace_group: wgpu::BindGroup,
@@ -123,6 +127,7 @@ impl Ssr {
             })
         };
         let trace_pipeline = pipeline("fs_trace", SCREEN_FORMAT);
+        let blur_pipeline = pipeline("fs_blur", SCREEN_FORMAT);
         let copy_pipeline = pipeline("fs_copy", super::gpu3d::HDR_FORMAT);
         let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("screen reflections"),
@@ -139,6 +144,7 @@ impl Ssr {
             layout,
             trace_pipeline,
             copy_pipeline,
+            blur_pipeline,
             uniform,
             sampler,
             previous: None,
@@ -211,7 +217,9 @@ impl Ssr {
         let history =
             texture("screen reflections history", size, 1, super::gpu3d::HDR_FORMAT).create_view(&Default::default());
         // At least 2 pixels across, for the second level.
-        let screen = texture("screen reflections", (size.0.max(2), size.1.max(2)), 2, SCREEN_FORMAT);
+        let extent = (size.0.max(2), size.1.max(2));
+        let levels = (32 - extent.0.max(extent.1).leading_zeros()).min(6);
+        let screen = texture("screen reflections", extent, levels, SCREEN_FORMAT);
         let level = |level| {
             screen.create_view(&wgpu::TextureViewDescriptor {
                 base_mip_level: level,
@@ -244,6 +252,7 @@ impl Ssr {
             })
         };
         SsrTargets {
+            blur: (2..levels).map(|mip| (level(mip), group(&level(mip - 1)))).collect(),
             trace_group: group(&history),
             copy_group: group(lit),
             history,
@@ -279,6 +288,20 @@ impl Ssr {
                 ..Default::default()
             });
         }
+        // One profiler span covers both the trace and all filter passes.
+        let end =
+            timestamp_writes
+                .as_ref()
+                .filter(|_| !targets.blur.is_empty())
+                .map(|t| wgpu::RenderPassTimestampWrites {
+                    query_set: t.query_set,
+                    beginning_of_pass_write_index: None,
+                    end_of_pass_write_index: t.end_of_pass_write_index,
+                });
+        let mut timestamp_writes = timestamp_writes;
+        if end.is_some() {
+            timestamp_writes.as_mut().unwrap().end_of_pass_write_index = None;
+        }
         self.full_screen(
             encoder,
             "3d screen reflections",
@@ -287,6 +310,20 @@ impl Ssr {
             &targets.output,
             timestamp_writes,
         );
+        for (index, (output, group)) in targets.blur.iter().enumerate() {
+            self.full_screen(
+                encoder,
+                "3d reflection blur",
+                &self.blur_pipeline,
+                group,
+                output,
+                if index + 1 == targets.blur.len() {
+                    end.clone()
+                } else {
+                    None
+                },
+            );
+        }
     }
 
     /// Keeps the opaque image for the next frame, after the opaque pass.

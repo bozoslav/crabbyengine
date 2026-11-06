@@ -1047,7 +1047,7 @@ static void screen_reflections(crabby::ctx& ctx) {
     post.ssr_max_distance = 40.0f; // world units along the reflected ray
     post.anti_aliasing = uint32_t(crabby::anti_aliasing::taa); // smooths their grain
     ctx.set_post(post);
-    // Only smooth surfaces reflect it: roughness below 0.5, fully below 0.2.
+    // Glossy surfaces blur it: full strength up to roughness 0.4, gone by 0.7.
     auto wet = crabby::material_of(crabby::rgb(.2f, .2f, .22f));
     wet.roughness = 0.1f;
     (void)wet;

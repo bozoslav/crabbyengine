@@ -500,8 +500,8 @@ fn environment_light(s: Surface, f0: vec3<f32>) -> vec3<f32> {
     diffuse += environment_sample(0.0, s.normal, 0.0, true) * remaining;
     specular += environment_sample(0.0, ray, s.roughness, false) * remaining;
     // What's on screen replaces the environment where the reflected ray hit
-    // it, on smooth surfaces only: it's a sharp reflection.
-    specular = mix(specular, screen_reflection.rgb, screen_reflection.a * (1.0 - smoothstep(0.2, 0.5, s.roughness)));
+    // it, with filtered reflections on glossy surfaces.
+    specular = mix(specular, screen_reflection.rgb, screen_reflection.a * (1.0 - smoothstep(0.4, 0.7, s.roughness)));
     let nv = max(dot(s.normal, s.view), 0.0);
     let uv = (vec2<f32>(800.0, 0.0) + clamp(vec2<f32>(nv, s.roughness) * 128.0, vec2<f32>(0.5), vec2<f32>(127.5))) / vec2<f32>(1024.0, 1536.0);
     let brdf = textureSampleLevel(sky_texture, sky_sampler, uv, 0.0).rg;

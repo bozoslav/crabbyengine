@@ -146,10 +146,40 @@ fn behind(c: vec4<f32>) -> bool {
     if !on_screen(last_uv) { return vec4<f32>(0.0); }
     let color = textureSampleLevel(image, image_sampler, last_uv, 0.0).rgb;
     let far = 1.0 - smoothstep(0.6, 1.0, hit * reach);
-    return vec4<f32>(color, strength * far * edge_fade(uv) * edge_fade(last_uv));
+    let confidence = strength * far * edge_fade(uv) * edge_fade(last_uv);
+    return vec4<f32>(color * confidence, confidence);
 }
 
 // This frame's opaque image, for the next frame's reflections.
 @fragment fn fs_copy(in: Full) -> @location(0) vec4<f32> {
     return textureLoad(image, vec2<i32>(in.at.xy), 0);
+}
+
+// Four-tap downsample of premultiplied radiance/confidence. Reject samples
+// across the receiver's plane to keep reflections off unrelated geometry.
+// Only reflection mips are bound here; mip zero (AO) is never sampled.
+@fragment fn fs_blur(in: Full) -> @location(0) vec4<f32> {
+    let source_size = vec2<i32>(textureDimensions(image));
+    let dest_size = max(source_size / 2, vec2<i32>(1));
+    let uv = in.at.xy / vec2<f32>(dest_size);
+    let depth_size = vec2<f32>(textureDimensions(depth));
+    let p = vec2<i32>(uv * depth_size);
+    if z_at(p) >= 0.999999 { return vec4<f32>(0.0); }
+    let center = position(p);
+    let normal = safe_normalize(cross(position(p + vec2<i32>(1, 0)) - center,
+                                    position(p + vec2<i32>(0, 1)) - center), vec3<f32>(0.0, 1.0, 0.0));
+    var sum = vec4<f32>(0.0);
+    var weight = 0.0;
+    for (var y = 0; y < 2; y++) {
+        for (var x = 0; x < 2; x++) {
+            let q = min(vec2<i32>(in.at.xy) * 2 + vec2<i32>(x, y), source_size - 1);
+            let dp = vec2<i32>((vec2<f32>(q) + 0.5) / vec2<f32>(source_size) * depth_size);
+            let gap = abs(dot(position(dp) - center, normal));
+            let tolerance = 0.02 + distance(center, settings.camera.xyz) * 0.005;
+            let w = select(0.0, exp(-gap / tolerance), z_at(dp) < 0.999999);
+            sum += textureLoad(image, q, 0) * w;
+            weight += w;
+        }
+    }
+    return sum / max(weight, 0.00001);
 }

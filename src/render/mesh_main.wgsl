@@ -289,9 +289,17 @@ fn opaque_color(in: VertexOut, front: bool, dp_x: vec3<f32>, dp_y: vec3<f32>) ->
     s.occlusion *= 1.0 - screen.r;
     contact_shadow = screen.g;
     // Blue marks screen-space reflections in a second level, at half size.
-    if screen.b > 0.5 {
-        let half = vec2<i32>(textureDimensions(scene_color_texture, 1)) - 1;
-        screen_reflection = textureLoad(scene_color_texture, min(ao_at / 2, half), 1);
+    if screen.b > 0.5 && s.roughness < 0.7 {
+        let size = vec2<f32>(textureDimensions(scene_color_texture));
+        let last = min(5.0, floor(log2(max(size.x, size.y))));
+        // Fixed screen-space footprint: up to 32 full-size pixels. Manual
+        // bilinear/trilinear filtering needs no extra material sampler slot.
+        let lod = clamp(1.0 + max(s.roughness - 0.05, 0.0) * 9.0, 1.0, last);
+        let low = i32(floor(lod));
+        let high = min(low + 1, i32(last));
+        let uv = s.screen / size;
+        let filtered = mix(reflection_level(uv, low), reflection_level(uv, high), fract(lod));
+        screen_reflection = vec4<f32>(filtered.rgb / max(filtered.a, 0.00001), filtered.a);
     }
     return vec4<f32>(fog(shade(s), s.world), 1.0);
 }
@@ -382,4 +390,17 @@ fn fs_velocity(in: VelocityOut) -> @location(0) vec4<f32> {
     let a = in.now.xy / in.now.w;
     let b = in.before.xy / in.before.w;
     return vec4<f32>((b.x - a.x) * 0.5, (a.y - b.y) * 0.5, 0.0, 1.0);
+}
+
+// Reflection mips contain confidence-premultiplied radiance.
+fn reflection_level(uv: vec2<f32>, level: i32) -> vec4<f32> {
+    let size = vec2<i32>(textureDimensions(scene_color_texture, level));
+    let p = uv * vec2<f32>(size) - 0.5;
+    let base = vec2<i32>(floor(p));
+    let f = fract(p);
+    let a = textureLoad(scene_color_texture, clamp(base, vec2<i32>(0), size - 1), level);
+    let b = textureLoad(scene_color_texture, clamp(base + vec2<i32>(1, 0), vec2<i32>(0), size - 1), level);
+    let c = textureLoad(scene_color_texture, clamp(base + vec2<i32>(0, 1), vec2<i32>(0), size - 1), level);
+    let d = textureLoad(scene_color_texture, clamp(base + vec2<i32>(1, 1), vec2<i32>(0), size - 1), level);
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
