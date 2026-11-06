@@ -3742,7 +3742,8 @@ impl Renderer3D {
             let offset = (self.shadow_stride * MAX_SHADOW_VIEWS as u64) as u32;
             pass.set_bind_group(0, &self.shadow_bind_group, &[offset]);
             pass.set_bind_group(2, &self.no_scene, &[]);
-            self.draw_models(&mut pass, &self.gi_runs, Kind::Shadow, &self.instances);
+            // Models only: instance batches are culled for the main camera.
+            self.draw_model_runs(&mut pass, &self.gi_runs, Kind::Shadow(0), &self.instances, None);
         }
         // Each view in its own square of the views image.
         let views = |pass: &mut wgpu::RenderPass<'_>, kind| {
@@ -3753,11 +3754,12 @@ impl Renderer3D {
                 pass.set_viewport(x as f32, y as f32, size as f32, size as f32, 0.0, 1.0);
                 pass.set_scissor_rect(x, y, size, size);
                 pass.set_bind_group(0, &gi.face_groups[i], &[]);
-                self.draw_models(
+                self.draw_model_runs(
                     pass,
                     &self.gi_face_runs[start as usize..end as usize],
                     kind,
                     &self.instances,
+                    None,
                 );
             }
         };
