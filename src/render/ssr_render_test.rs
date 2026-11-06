@@ -203,9 +203,11 @@ impl Rig {
             self.queue.submit([encoder.finish()]);
             t.submitted();
         }
+        // Rows padded to the copy alignment.
+        let row = (width * 4).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
         let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size: u64::from(width * height * 4),
+            size: u64::from(row * height),
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
@@ -216,7 +218,7 @@ impl Rig {
                 buffer: &readback,
                 layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(width * 4),
+                    bytes_per_row: Some(row),
                     rows_per_image: None,
                 },
             },
@@ -225,7 +227,14 @@ impl Rig {
         self.queue.submit([encoder.finish()]);
         readback.map_async(wgpu::MapMode::Read, .., |r| r.unwrap());
         self.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-        readback.get_mapped_range(..).unwrap().to_vec()
+        let data = readback.get_mapped_range(..).unwrap();
+        if row == width * 4 {
+            return data.to_vec();
+        }
+        data.chunks(row as usize)
+            .flat_map(|r| &r[..(width * 4) as usize])
+            .copied()
+            .collect()
     }
 }
 
@@ -406,7 +415,44 @@ fn a_glossy_floor_has_a_wider_lower_peak_reflection() {
     );
 }
 
+#[test]
+fn small_and_odd_sizes_filter_reflections() {
+    // Too small for any filtered level, for some of them, and odd sizes.
+    for (width, height) in [(1, 1), (3, 2), (5, 3), (37, 19), (130, 67)] {
+        let Some(mut rig) = Rig::sized(width, height) else {
+            return;
+        };
+        let floor = rig.mesh(
+            &MeshData::cube(1.0),
+            MaterialDesc {
+                roughness: 0.6,
+                metallic: 1.0,
+                ..Default::default()
+            },
+        );
+        rig.ctx.world.spawn((
+            Transform3D {
+                scale: vec3(20.0, 1.0, 20.0),
+                ..Default::default()
+            },
+            Model::new(floor),
+        ));
+        rig.ctx.camera3d.position = vec3(0.0, 2.0, 6.0);
+        rig.ctx.camera3d.look_at(Vec3::ZERO);
+        rig.ctx.post.ssr = 1.0;
+        for _ in 0..3 {
+            assert_eq!(rig.draw().len(), (width * height * 4) as usize);
+        }
+    }
+}
+
 /// Offscreen timestamp measurement; run with --release --ignored --nocapture.
+/// It prints the trace's span and the frame's GPU time with and without the
+/// filtered levels, in alternating blocks of frames so both see the same
+/// GPU clocks. (The filter's own span isn't printed: tile-based GPUs run
+/// it alongside the start of the opaque pass, so the profiler, which
+/// charges each pass from where the one before it ended, charges little or
+/// none of it there.)
 #[test]
 #[ignore]
 fn reflection_filter_gpu_cost() {
@@ -451,21 +497,34 @@ fn reflection_filter_gpu_cost() {
     rig.ctx.post.ssr = 1.0;
     rig.ctx.post.bloom = 0.0;
     rig.ctx.lighting.shadows = false;
-    let mut samples = Vec::new();
-    for frame in 0..90 {
+    // [with the filter, without]
+    let mut frames = [Vec::new(), Vec::new()];
+    let mut trace = Vec::new();
+    for frame in 0..1230 {
+        let skip = (frame / 20) % 2 == 1;
+        super::ssr::SKIP_FILTER.store(skip, std::sync::atomic::Ordering::Relaxed);
         rig.draw_timed(Some(&mut timer));
-        if frame >= 30
-            && let Some(pass) = timer.last_frame.iter().find(|p| p.name == "screen reflections")
-        {
-            samples.push(pass.ms);
+        // Results come back a few frames late: keep each block's last 15.
+        if frame < 30 || frame % 20 < 5 {
+            continue;
+        }
+        frames[usize::from(skip)].push(timer.last_frame.iter().map(|s| s.ms).sum::<f32>());
+        if let Some(pass) = timer.last_frame.iter().find(|p| p.name == "screen reflections") {
+            trace.push(pass.ms);
         }
     }
-    assert!(!samples.is_empty(), "GPU timestamps must be collected");
-    samples.sort_by(f32::total_cmp);
+    super::ssr::SKIP_FILTER.store(false, std::sync::atomic::Ordering::Relaxed);
+    assert!(!trace.is_empty(), "GPU timestamps must be collected");
+    let median = |samples: &mut Vec<f32>| {
+        samples.sort_by(f32::total_cmp);
+        samples[samples.len() / 2]
+    };
+    let [mut with, mut without] = frames;
+    let (with, without) = (median(&mut with), median(&mut without));
     eprintln!(
-        "1920x1080 SSR trace + blur GPU median {:.4} ms, p95 {:.4} ms ({} samples)",
-        samples[samples.len() / 2],
-        samples[samples.len() * 95 / 100],
-        samples.len()
+        "1920x1080: trace median {:.4} ms; frame median {with:.4} ms with the filtered levels, \
+         {without:.4} ms without (+{:.4} ms)",
+        median(&mut trace),
+        with - without
     );
 }

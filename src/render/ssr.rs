@@ -6,7 +6,8 @@
 //! the reflections where it reads GTAO: its scene color slot holds a
 //! mipmapped image, GTAO and contact shadows in the first level (full size,
 //! red and green), the reflections in the second (half size), followed by up to four
-//! depth-aware filtered reflection levels. Blue 1 in the
+//! depth-aware filtered reflection levels (one compute dispatch makes them
+//! all, see `Blur`). Blue 1 in the
 //! first level says the second is there: GTAO writes it, or without GTAO a
 //! clear of the new image. (GTAO's own RG8 image and the opaque pass's
 //! black stand-in read 0 there; GLSL ES can't count a texture's levels.)
@@ -28,11 +29,24 @@ struct Settings {
 /// The image the opaque pass reads GTAO and the reflections from.
 pub(super) const SCREEN_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
+/// Lets the cost test time frames with and without the filtered levels.
+#[cfg(test)]
+pub(super) static SKIP_FILTER: AtomicBool = AtomicBool::new(false);
+#[cfg(test)]
+fn filter_skipped() -> bool {
+    SKIP_FILTER.load(Ordering::Relaxed)
+}
+#[cfg(not(test))]
+fn filter_skipped() -> bool {
+    false
+}
+
 pub(super) struct Ssr {
     layout: wgpu::BindGroupLayout,
     trace_pipeline: wgpu::RenderPipeline,
     copy_pipeline: wgpu::RenderPipeline,
-    blur_pipeline: wgpu::RenderPipeline,
+    blur_layout: wgpu::BindGroupLayout,
+    blur_pipeline: wgpu::ComputePipeline,
     uniform: wgpu::Buffer,
     sampler: wgpu::Sampler,
     /// The camera the image in the history was drawn with, while it holds
@@ -50,12 +64,23 @@ pub(super) struct SsrTargets {
     pub ao: wgpu::TextureView,
     /// Its second level, the trace's target.
     output: wgpu::TextureView,
-    /// Each lower reflection mip and its preceding mip as input.
-    blur: Vec<(wgpu::TextureView, wgpu::BindGroup)>,
+    /// The filtered levels, if there's room for any of them.
+    blur: Option<Blur>,
     /// Without GTAO, until the first level has its blue mark.
     unmarked: AtomicBool,
     trace_group: wgpu::BindGroup,
     copy_group: wgpu::BindGroup,
+}
+
+/// The filtered levels' pass: the compute shader writes them to `levels`,
+/// then they're copied into `screen`'s lower levels. (Letting the shader
+/// write `screen` itself slowed the passes that draw into and read it: by
+/// more than the copies cost, measured on an Apple GPU.)
+struct Blur {
+    group: wgpu::BindGroup,
+    workgroups: (u32, u32),
+    levels: wgpu::Texture,
+    screen: wgpu::Texture,
 }
 
 impl Ssr {
@@ -127,7 +152,67 @@ impl Ssr {
             })
         };
         let trace_pipeline = pipeline("fs_trace", SCREEN_FORMAT);
-        let blur_pipeline = pipeline("fs_blur", SCREEN_FORMAT);
+        let compute = |binding, ty| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty,
+            count: None,
+        };
+        let level = |binding| {
+            compute(
+                binding,
+                wgpu::BindingType::StorageTexture {
+                    access: wgpu::StorageTextureAccess::WriteOnly,
+                    format: SCREEN_FORMAT,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                },
+            )
+        };
+        let blur_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("screen reflection levels"),
+            entries: &[
+                compute(
+                    0,
+                    wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: true,
+                    },
+                ),
+                compute(
+                    1,
+                    wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                ),
+                compute(
+                    3,
+                    wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                ),
+                level(4),
+                level(5),
+                level(6),
+                level(7),
+            ],
+        });
+        let blur_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("screen reflection levels"),
+            layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("screen reflection levels"),
+                bind_group_layouts: &[Some(&blur_layout)],
+                immediate_size: 0,
+            })),
+            module: &shader,
+            entry_point: Some("cs_blur"),
+            compilation_options: Default::default(),
+            cache: None,
+        });
         let copy_pipeline = pipeline("fs_copy", super::gpu3d::HDR_FORMAT);
         let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("screen reflections"),
@@ -144,6 +229,7 @@ impl Ssr {
             layout,
             trace_pipeline,
             copy_pipeline,
+            blur_layout,
             blur_pipeline,
             uniform,
             sampler,
@@ -198,7 +284,7 @@ impl Ssr {
         lit: &wgpu::TextureView,
         ao: bool,
     ) -> SsrTargets {
-        let texture = |label, size: (u32, u32), levels, format| {
+        let texture = |label, size: (u32, u32), levels, format, usage| {
             device.create_texture(&wgpu::TextureDescriptor {
                 label: Some(label),
                 size: wgpu::Extent3d {
@@ -210,16 +296,28 @@ impl Ssr {
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | usage,
                 view_formats: &[],
             })
         };
-        let history =
-            texture("screen reflections history", size, 1, super::gpu3d::HDR_FORMAT).create_view(&Default::default());
+        let history = texture(
+            "screen reflections history",
+            size,
+            1,
+            super::gpu3d::HDR_FORMAT,
+            wgpu::TextureUsages::RENDER_ATTACHMENT,
+        )
+        .create_view(&Default::default());
         // At least 2 pixels across, for the second level.
         let extent = (size.0.max(2), size.1.max(2));
         let levels = (32 - extent.0.max(extent.1).leading_zeros()).min(6);
-        let screen = texture("screen reflections", extent, levels, SCREEN_FORMAT);
+        let screen = texture(
+            "screen reflections",
+            extent,
+            levels,
+            SCREEN_FORMAT,
+            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_DST,
+        );
         let level = |level| {
             screen.create_view(&wgpu::TextureViewDescriptor {
                 base_mip_level: level,
@@ -251,8 +349,70 @@ impl Ssr {
                 ],
             })
         };
+        // The filtered levels; a stand-in for those too small to exist.
+        let blur = (levels > 2).then(|| {
+            let filtered = texture(
+                "screen reflection levels",
+                ((extent.0 >> 2).max(1), (extent.1 >> 2).max(1)),
+                levels - 2,
+                SCREEN_FORMAT,
+                wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC,
+            );
+            let stand_in = texture(
+                "screen reflections stand-in",
+                (1, 1),
+                1,
+                SCREEN_FORMAT,
+                wgpu::TextureUsages::STORAGE_BINDING,
+            );
+            let views: Vec<_> = (2..6)
+                .map(|mip| {
+                    if mip < levels {
+                        filtered.create_view(&wgpu::TextureViewDescriptor {
+                            base_mip_level: mip - 2,
+                            mip_level_count: Some(1),
+                            ..Default::default()
+                        })
+                    } else {
+                        stand_in.create_view(&Default::default())
+                    }
+                })
+                .collect();
+            let source = level(1);
+            let mut entries = vec![
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(depth),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&source),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: self.uniform.as_entire_binding(),
+                },
+            ];
+            entries.extend(views.iter().zip(4..).map(|(view, binding)| wgpu::BindGroupEntry {
+                binding,
+                resource: wgpu::BindingResource::TextureView(view),
+            }));
+            let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("screen reflection levels"),
+                layout: &self.blur_layout,
+                entries: &entries,
+            });
+            // Each workgroup makes 8x8 pixels of level 2.
+            let size = filtered.size();
+            Blur {
+                group,
+                workgroups: (size.width.div_ceil(8), size.height.div_ceil(8)),
+                levels: filtered,
+                screen: screen.clone(),
+            }
+        });
         SsrTargets {
-            blur: (2..levels).map(|mip| (level(mip), group(&level(mip - 1)))).collect(),
+            blur,
             trace_group: group(&history),
             copy_group: group(lit),
             history,
@@ -263,12 +423,12 @@ impl Ssr {
         }
     }
 
-    /// The trace, after the depth prepass.
-    pub fn trace(
+    /// The trace, after the depth prepass, and the filtered levels.
+    pub fn trace<'t>(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         targets: &SsrTargets,
-        timestamp_writes: Option<wgpu::RenderPassTimestampWrites<'_>>,
+        time: &dyn Fn(&'static str) -> Option<wgpu::RenderPassTimestampWrites<'t>>,
     ) {
         if targets.unmarked.swap(false, Ordering::Relaxed) {
             encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -288,41 +448,47 @@ impl Ssr {
                 ..Default::default()
             });
         }
-        // One profiler span covers both the trace and all filter passes.
-        let end =
-            timestamp_writes
-                .as_ref()
-                .filter(|_| !targets.blur.is_empty())
-                .map(|t| wgpu::RenderPassTimestampWrites {
-                    query_set: t.query_set,
-                    beginning_of_pass_write_index: None,
-                    end_of_pass_write_index: t.end_of_pass_write_index,
-                });
-        let mut timestamp_writes = timestamp_writes;
-        if end.is_some() {
-            timestamp_writes.as_mut().unwrap().end_of_pass_write_index = None;
-        }
         self.full_screen(
             encoder,
             "3d screen reflections",
             &self.trace_pipeline,
             &targets.trace_group,
             &targets.output,
-            timestamp_writes,
+            time("screen reflections"),
         );
-        for (index, (output, group)) in targets.blur.iter().enumerate() {
-            self.full_screen(
-                encoder,
-                "3d reflection blur",
-                &self.blur_pipeline,
-                group,
-                output,
-                if index + 1 == targets.blur.len() {
-                    end.clone()
-                } else {
-                    None
-                },
-            );
+        if let Some(blur) = &targets.blur
+            && !filter_skipped()
+        {
+            let time = time("reflection blur");
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("3d reflection blur"),
+                timestamp_writes: time.map(|t| wgpu::ComputePassTimestampWrites {
+                    query_set: t.query_set,
+                    beginning_of_pass_write_index: t.beginning_of_pass_write_index,
+                    end_of_pass_write_index: t.end_of_pass_write_index,
+                }),
+            });
+            pass.set_pipeline(&self.blur_pipeline);
+            pass.set_bind_group(0, &blur.group, &[]);
+            pass.dispatch_workgroups(blur.workgroups.0, blur.workgroups.1, 1);
+            drop(pass);
+            for mip in 0..blur.levels.mip_level_count() {
+                encoder.copy_texture_to_texture(
+                    wgpu::TexelCopyTextureInfo {
+                        texture: &blur.levels,
+                        mip_level: mip,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    wgpu::TexelCopyTextureInfo {
+                        texture: &blur.screen,
+                        mip_level: mip + 2,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    blur.levels.size().mip_level_size(mip, wgpu::TextureDimension::D2),
+                );
+            }
         }
     }
 

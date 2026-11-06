@@ -155,31 +155,147 @@ fn behind(c: vec4<f32>) -> bool {
     return textureLoad(image, vec2<i32>(in.at.xy), 0);
 }
 
-// Four-tap downsample of premultiplied radiance/confidence. Reject samples
-// across the receiver's plane to keep reflections off unrelated geometry.
-// Only reflection mips are bound here; mip zero (AO) is never sampled.
-@fragment fn fs_blur(in: Full) -> @location(0) vec4<f32> {
-    let source_size = vec2<i32>(textureDimensions(image));
-    let dest_size = max(source_size / 2, vec2<i32>(1));
-    let uv = in.at.xy / vec2<f32>(dest_size);
-    let depth_size = vec2<f32>(textureDimensions(depth));
-    let p = vec2<i32>(uv * depth_size);
-    if z_at(p) >= 0.999999 { return vec4<f32>(0.0); }
-    let center = position(p);
-    let normal = safe_normalize(cross(position(p + vec2<i32>(1, 0)) - center,
-                                    position(p + vec2<i32>(0, 1)) - center), vec3<f32>(0.0, 1.0, 0.0));
-    var sum = vec4<f32>(0.0);
+// The filtered levels: a four-tap, depth-aware downsample of premultiplied
+// radiance/confidence, from the trace's level (bound as `image`) down to four
+// smaller ones in one dispatch. Each workgroup reduces a 16x16 block of the
+// trace's level to 8x8, 4x4, 2x2 and 1 pixel, keeping each step in shared
+// memory. A tap counts less the farther it is from the plane of the
+// receiving pixel, so reflections don't bleed onto unrelated geometry; sky
+// counts not at all. Level 2 reads the depth at its pixels' centers (and,
+// where there's anything to filter, at its taps' centers) and finds the
+// planes' normals from its neighbors; the levels below take the plane of one
+// of their four pixels, so they read no depth at all. The levels go to an
+// image of their own (see `ssr.rs`); missing ones (tiny screens) to a 1x1
+// stand-in.
+@group(0) @binding(4) var level2: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(5) var level3: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(6) var level4: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(7) var level5: texture_storage_2d<rgba16float, write>;
+
+const TILE: i32 = 8;
+// Each step's results, and each pixel's plane: a point on it (w 0: sky) and
+// its normal.
+var<workgroup> filtered: array<vec4<f32>, 64>;
+var<workgroup> centers: array<vec4<f32>, 64>;
+var<workgroup> normals: array<vec3<f32>, 64>;
+
+fn slot(x: vec2<i32>) -> i32 { return x.y * TILE + x.x; }
+fn level_size(top: vec2<i32>, steps: u32) -> vec2<i32> {
+    return max(top >> vec2<u32>(steps), vec2<i32>(1));
+}
+// The full-size pixel at the center of pixel `x` of an image of `size`.
+fn center_pixel(x: vec2<i32>, size: vec2<i32>) -> vec2<i32> {
+    return vec2<i32>((vec2<f32>(x) + 0.5) / vec2<f32>(size) * vec2<f32>(textureDimensions(depth)));
+}
+// The surface at the center of pixel `x` of an image of `size` (w 0: sky).
+fn center_at(x: vec2<i32>, size: vec2<i32>) -> vec4<f32> {
+    let p = center_pixel(x, size);
+    return select(vec4<f32>(position(p), 1.0), vec4<f32>(0.0), z_at(p) >= 0.999999);
+}
+// The step from `c`, at pixel `x` of level 2 (`local` in this workgroup's
+// part of it, `size` in all), to its neighbor along one axis, on the side
+// that's less discontinuous (zero if neither neighbor is a surface).
+fn neighbor_step(x: vec2<i32>, local: vec2<i32>, size: vec2<i32>, axis: vec2<i32>, c: vec3<f32>) -> vec3<f32> {
+    let before = local - axis;
+    let after = local + axis;
+    let has_before = all(before >= vec2<i32>(0)) && centers[slot(before)].w > 0.0;
+    let has_after = all(after < vec2<i32>(TILE)) && all(x + axis < size) && centers[slot(after)].w > 0.0;
+    let back = select(vec3<f32>(0.0), c - centers[slot(before)].xyz, has_before);
+    let ahead = select(vec3<f32>(0.0), centers[slot(after)].xyz - c, has_after);
+    return select(back, ahead, has_after && (!has_before || dot(ahead, ahead) < dot(back, back)));
+}
+// The weighted average of `colors`, four pixels of the level above, for a
+// pixel on the plane through `c` (w 0: sky) along `normal`: each counts less
+// the farther its center (in `taps`) is from the plane, and not at all on
+// sky. Nothing on sky, or where none of them reflects anything.
+fn reduce(c: vec4<f32>, normal: vec3<f32>, colors: array<vec4<f32>, 4>, taps: array<vec4<f32>, 4>) -> vec4<f32> {
+    let zero = vec4<f32>(0.0);
+    if c.w == 0.0 || all((colors[0] == zero) & (colors[1] == zero) & (colors[2] == zero) & (colors[3] == zero)) {
+        return zero;
+    }
+    let tolerance = 0.02 + distance(c.xyz, settings.camera.xyz) * 0.005;
+    var sum = zero;
     var weight = 0.0;
-    for (var y = 0; y < 2; y++) {
-        for (var x = 0; x < 2; x++) {
-            let q = min(vec2<i32>(in.at.xy) * 2 + vec2<i32>(x, y), source_size - 1);
-            let dp = vec2<i32>((vec2<f32>(q) + 0.5) / vec2<f32>(source_size) * depth_size);
-            let gap = abs(dot(position(dp) - center, normal));
-            let tolerance = 0.02 + distance(center, settings.camera.xyz) * 0.005;
-            let w = select(0.0, exp(-gap / tolerance), z_at(dp) < 0.999999);
-            sum += textureLoad(image, q, 0) * w;
-            weight += w;
-        }
+    for (var k = 0; k < 4; k++) {
+        let gap = abs(dot(taps[k].xyz - c.xyz, normal));
+        let w = select(0.0, exp(-gap / tolerance), taps[k].w > 0.0);
+        sum += colors[k] * w;
+        weight += w;
     }
     return sum / max(weight, 0.00001);
+}
+fn store(level: u32, x: vec2<i32>, size: vec2<i32>, color: vec4<f32>) {
+    if any(x >= size) { return; }
+    switch level {
+        case 2u: { textureStore(level2, x, color); }
+        case 3u: { textureStore(level3, x, color); }
+        case 4u: { textureStore(level4, x, color); }
+        default: { textureStore(level5, x, color); }
+    }
+}
+
+@compute @workgroup_size(8, 8)
+fn cs_blur(@builtin(workgroup_id) group: vec3<u32>, @builtin(local_invocation_id) id: vec3<u32>) {
+    let top = vec2<i32>(textureDimensions(image));
+    let local = vec2<i32>(id.xy);
+    // Level 2 from the trace's level.
+    let size = level_size(top, 1u);
+    let x = vec2<i32>(group.xy) * TILE + local;
+    let c = center_at(x, size);
+    var colors: array<vec4<f32>, 4>;
+    var taps: array<vec4<f32>, 4>;
+    var blank = true;
+    for (var k = 0; k < 4; k++) {
+        colors[k] = textureLoad(image, min(x * 2 + vec2<i32>(k & 1, k >> 1u), top - 1), 0);
+        blank = blank && all(colors[k] == vec4<f32>(0.0));
+    }
+    // The depth is read only where it counts (reduce skips the rest).
+    if !blank && c.w > 0.0 {
+        for (var k = 0; k < 4; k++) {
+            taps[k] = center_at(min(x * 2 + vec2<i32>(k & 1, k >> 1u), top - 1), top);
+        }
+    }
+    centers[slot(local)] = c;
+    workgroupBarrier();
+    var normal = vec3<f32>(0.0, 1.0, 0.0);
+    if c.w > 0.0 {
+        let dx = neighbor_step(x, local, size, vec2<i32>(1, 0), c.xyz);
+        let dy = neighbor_step(x, local, size, vec2<i32>(0, 1), c.xyz);
+        normal = safe_normalize(cross(dx, dy), normal);
+    }
+    var color = reduce(c, normal, colors, taps);
+    store(2u, x, size, color);
+    filtered[slot(local)] = color;
+    normals[slot(local)] = normal;
+    workgroupBarrier();
+    // Levels 3 to 5 from the one before: 4x4, 2x2 and 1 thread. Each
+    // pixel takes the plane of one of its four (alternating corners, so the
+    // chosen point stays near the middle), or of any that isn't sky.
+    for (var level = 3u; level <= 5u; level++) {
+        let width = TILE >> (level - 2u);
+        let busy = all(local < vec2<i32>(width));
+        var plane = vec4<f32>(0.0);
+        if busy {
+            var pick = select(0, 3, level == 4u);
+            for (var k = 0; k < 4; k++) {
+                let child = slot(local * 2 + vec2<i32>(k & 1, k >> 1u));
+                colors[k] = filtered[child];
+                taps[k] = centers[child];
+            }
+            for (var k = 0; k < 4; k++) {
+                if taps[pick].w == 0.0 { pick = (pick + 1) & 3; }
+            }
+            plane = taps[pick];
+            normal = normals[slot(local * 2 + vec2<i32>(pick & 1, pick >> 1u))];
+            color = reduce(plane, normal, colors, taps);
+            store(level, vec2<i32>(group.xy) * width + local, level_size(top, level - 1u), color);
+        }
+        workgroupBarrier();
+        if busy {
+            filtered[slot(local)] = color;
+            centers[slot(local)] = plane;
+            normals[slot(local)] = normal;
+        }
+        workgroupBarrier();
+    }
 }
