@@ -506,6 +506,8 @@ typedef struct CrabbyNavSources CrabbyNavSources;
 
 typedef struct CrabbyNetMessages CrabbyNetMessages;
 
+typedef struct CrabbyProfileScope CrabbyProfileScope;
+
 typedef struct CrabbySnapshotStream CrabbySnapshotStream;
 
 typedef struct CrabbySteamLobby CrabbySteamLobby;
@@ -2186,6 +2188,13 @@ enum CrabbyStatus crabby_game_system(struct CrabbyGame *game,
 
 enum CrabbyStatus crabby_game_remove_system(struct CrabbyGame *game, const char *name_ptr);
 
+enum CrabbyStatus crabby_game_profile_headless(struct CrabbyGame *game,
+                                               uint64_t warmup,
+                                               uint64_t ticks,
+                                               CrabbySystemFn setup,
+                                               void *user,
+                                               struct CrabbyWorld **out_world);
+
 enum CrabbyStatus crabby_game_run(struct CrabbyGame *game, CrabbySystemFn setup, void *user);
 
 enum CrabbyStatus crabby_game_run_headless(struct CrabbyGame *game,
@@ -2503,6 +2512,41 @@ enum CrabbyStatus crabby_ctx_frame_stats(const struct CrabbyCtx *ctx,
 enum CrabbyStatus crabby_ctx_set_perf_hud(struct CrabbyCtx *ctx, bool on);
 
 enum CrabbyStatus crabby_ctx_record_trace(struct CrabbyCtx *ctx, const char *path, uint32_t frames);
+
+enum CrabbyStatus crabby_last_perf_report(char *buffer, size_t capacity, size_t *out_len);
+
+const struct CrabbyProfileScope *crabby_profile_scope(const char *name);
+
+uint64_t crabby_profile_begin(const struct CrabbyProfileScope *scope);
+
+void crabby_profile_end(const struct CrabbyProfileScope *scope, uint64_t token);
+
+void crabby_note_allocation(size_t bytes);
+
+enum CrabbyStatus crabby_ctx_set_profiling(struct CrabbyCtx *ctx, bool on);
+
+enum CrabbyStatus crabby_ctx_perf_report(const struct CrabbyCtx *ctx,
+                                         char *buffer,
+                                         size_t capacity,
+                                         size_t *out_len);
+
+enum CrabbyStatus crabby_perf_report_text(const char *report_json,
+                                          char *buffer,
+                                          size_t capacity,
+                                          size_t *out_len);
+
+enum CrabbyStatus crabby_perf_check(const char *report_json,
+                                    const char *budget_json,
+                                    char *buffer,
+                                    size_t capacity,
+                                    size_t *out_len);
+
+enum CrabbyStatus crabby_perf_compare(const char *report_json,
+                                      const char *baseline_json,
+                                      float tolerance,
+                                      char *buffer,
+                                      size_t capacity,
+                                      size_t *out_len);
 
 struct CrabbyRigidBody crabby_rigid_body(uint32_t kind);
 

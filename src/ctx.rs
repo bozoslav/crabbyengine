@@ -344,6 +344,8 @@ pub struct Ctx {
     pub(crate) last_render_stats: RenderStats,
     /// Frame statistics, the HUD, traces and benchmark runs.
     pub(crate) profiler: crate::profiler::Profiler,
+    /// Scopes, allocation counts and the history behind `perf_report`.
+    pub(crate) perf: crate::perf_report::PerfState,
     /// The renderer's per-pass GPU times, copied after every frame.
     gpu_passes: Vec<crate::GpuPass>,
 }
@@ -448,6 +450,7 @@ impl Ctx {
             audio: Audio::default(),
             last_render_stats: RenderStats::default(),
             profiler: crate::profiler::Profiler::new(),
+            perf: crate::perf_report::PerfState::new(),
             gpu_passes: Vec::new(),
             clear_color: Color::CRABBY_DARK,
         }
@@ -1636,17 +1639,170 @@ impl Ctx {
         }
     }
 
+    /// Turns on the deeper profiling: your [`profile_scope!`](crate::profile_scope)
+    /// scopes and [`Ctx::profile`] calls are timed, allocations are counted
+    /// (if [`CountingAllocator`](crate::CountingAllocator) is installed), and
+    /// [`perf_report`](Self::perf_report) has numbers. The overlay
+    /// (`set_perf_hud`) and `CRABBY_BENCH` switch it on by themselves. While
+    /// it is off, scopes cost one atomic load.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// fn debug_keys(ctx: &mut Ctx) {
+    ///     if ctx.key_pressed(Key::F5) {
+    ///         let on = !ctx.profiling();
+    ///         ctx.set_profiling(on);
+    ///     }
+    /// }
+    /// # Game::new("t", 1, 1).system(debug_keys).run_headless(1, |_| {});
+    /// ```
+    pub fn set_profiling(&mut self, on: bool) {
+        self.perf.explicit = on;
+        self.sync_profiling();
+    }
+
+    /// Whether scopes are being timed and allocations counted right now.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// if ctx.profiling() { /* build an expensive debug string */ }
+    /// # }
+    /// ```
+    pub fn profiling(&self) -> bool {
+        self.perf.on
+    }
+
+    /// Times `f` as a scope called `name` (see
+    /// [`profile_scope!`](crate::profile_scope), which is cheaper in hot
+    /// code: this looks the name up each time). Times add up across calls.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// fn ai(ctx: &mut Ctx) {
+    ///     let target = ctx.profile("ai/pathing", |_ctx| 42);
+    ///     assert_eq!(target, 42);
+    /// }
+    /// # Game::new("t", 1, 1).sim_system(ai).run_headless(1, |_| {});
+    /// ```
+    pub fn profile<R>(&mut self, name: &str, f: impl FnOnce(&mut Ctx) -> R) -> R {
+        if !crate::scope::active() {
+            return f(self);
+        }
+        let scope = crate::scope_named(name);
+        let token = scope.begin();
+        let out = f(self);
+        scope.end(token);
+        out
+    }
+
+    /// Each profiling scope's time in the last frame, in the order they
+    /// first ran. Empty while profiling is off.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// fn report(ctx: &mut Ctx) {
+    ///     for s in ctx.scope_timings() {
+    ///         println!("{}: {:.2} ms in {} calls", s.name, s.last_ms, s.calls);
+    ///     }
+    /// }
+    /// # Game::new("t", 1, 1).system(report).run_headless(1, |_| {});
+    /// ```
+    pub fn scope_timings(&self) -> &[crate::ScopeTiming] {
+        &self.perf.scopes.timings
+    }
+
+    /// Where time and allocations went over the last frames (about half a
+    /// minute in a window; every tick of a [`Game::profile_headless`](crate::Game::profile_headless) run):
+    /// frame-time percentiles, systems, scopes, allocations, the slowest
+    /// frames and what was in them, drawing stats, and warnings with advice.
+    /// `println!("{report}")` prints it. Empty until profiling is on (see
+    /// [`set_profiling`](Self::set_profiling)).
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// fn dump(ctx: &mut Ctx) {
+    ///     if ctx.key_pressed(Key::F6) {
+    ///         println!("{}", ctx.perf_report());
+    ///     }
+    /// }
+    /// # Game::new("t", 1, 1).system(dump).run_headless(1, |_| {});
+    /// ```
+    pub fn perf_report(&self) -> crate::PerfReport {
+        let mut report = self.perf.collector.report();
+        report.entities = self.world.len();
+        if !self.headless && report.frames > 0 {
+            let f = self.profiler.stats();
+            let r = self.last_render_stats;
+            let mut passes: Vec<_> = self
+                .gpu_passes
+                .iter()
+                .map(|p| crate::PassReport {
+                    name: p.name.into(),
+                    ms: p.ms,
+                })
+                .collect();
+            passes.sort_by(|a, b| b.ms.total_cmp(&a.ms));
+            report.render = Some(crate::RenderReport {
+                systems_ms: f.systems_ms,
+                render_cpu_ms: f.render_cpu_ms,
+                display_wait_ms: f.display_wait_ms,
+                gpu_ms: f.gpu_ms,
+                draw_calls: r.draw_calls,
+                sprites: r.sprites,
+                models: r.instances,
+                triangles: r.triangles,
+                shadow_models: r.shadow_instances,
+                shadow_triangles: r.shadow_triangles,
+                occluded: r.occluded,
+                gpu_passes: passes,
+            });
+        }
+        crate::perf_report::analyze(&mut report);
+        report
+    }
+
+    /// Starts or stops the deeper profiling to match what's wanted: the
+    /// overlay, a benchmark run, or `set_profiling`.
+    pub(crate) fn sync_profiling(&mut self) {
+        let wanted = self.perf.explicit || self.profiler.hud || self.profiler.benchmarking();
+        self.perf.sync(wanted);
+    }
+
+    /// Ends a frame (or headless tick) that took `ms` for the report.
+    pub(crate) fn end_perf_frame(&mut self, ms: f32) {
+        self.perf.end_frame(ms, &self.timings);
+    }
+
     /// Hands one frame's timings to the profiler. `true` when a benchmark
     /// run is done and the game should quit.
     pub(crate) fn record_frame(&mut self, sample: crate::profiler::FrameSample) -> bool {
         let gpu_frame = self.renderer.as_ref().and_then(Renderer::gpu_frame);
-        self.profiler.record(
+        let quit = self.profiler.record(
             sample,
             &self.timings,
             &self.gpu_passes,
             gpu_frame,
             self.last_render_stats,
-        )
+        );
+        self.end_perf_frame(sample.frame_ms);
+        if self.profiler.warmup_ends_now() {
+            // A benchmark's report covers the measured frames only.
+            self.perf.collector.clear();
+        }
+        if quit {
+            let report = self.perf_report();
+            eprint!("{report}");
+            if let Some(path) = std::env::var_os("CRABBY_BENCH_REPORT")
+                && let Err(e) = report.save(&path)
+            {
+                eprintln!(
+                    "crabbyengine: could not write {}: {e}",
+                    std::path::Path::new(&path).display()
+                );
+            }
+        }
+        quit
     }
 
     /// Queues the HUD's drawing for this frame (the game loop calls it
@@ -1655,7 +1811,16 @@ impl Ctx {
         if !self.profiler.hud || self.profiler.hud_text().is_empty() {
             return;
         }
-        let text = std::mem::take(self.profiler.hud_text_mut());
+        if self.perf.on && self.perf.hud_due() {
+            let before = crate::alloc_counts();
+            let report = self.perf_report();
+            crate::perf_report::hud_lines(&mut self.perf.hud_extra, &report);
+            // Building the overlay isn't the game's allocation.
+            self.perf.forgive_allocs(before);
+        }
+        let mut text = std::mem::take(self.profiler.hud_text_mut());
+        let base = text.len();
+        text.push_str(&self.perf.hud_extra);
         let lines = text.lines().count() as f32;
         let (size, pad) = (14.0, 8.0);
         let panel = crate::Rect::new(4.0, 4.0, 420.0, lines * size * 1.25 + pad * 2.0);
@@ -1670,6 +1835,7 @@ impl Ctx {
                 ..Default::default()
             },
         );
+        text.truncate(base);
         *self.profiler.hud_text_mut() = text;
     }
 

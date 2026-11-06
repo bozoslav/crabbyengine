@@ -3,8 +3,10 @@
 
 use std::ffi::c_char;
 
+use crabbyengine::{Budget, PerfReport, ProfileScope};
+
 use crate::ctx::{ctx_access, out, text};
-use crate::{CrabbyCtx, CrabbyStatus, boundary};
+use crate::{CrabbyCtx, CrabbyStatus, boundary, invalid, invalid_owned};
 
 /// Frame timing over the last few seconds (Rust `FrameStats`), in ms.
 /// ```
@@ -129,4 +131,296 @@ pub unsafe extern "C" fn crabby_ctx_record_trace(
             Ok(())
         })
     })
+}
+
+/// Copies `s` into `buffer` (NUL-terminated if it fits) and writes its
+/// length to `out_len`.
+///
+/// # Safety
+/// `buffer` holds `capacity` bytes (or is null with capacity 0); `out_len` is writable.
+pub(crate) unsafe fn write_text(buffer: *mut c_char, capacity: usize, out_len: *mut usize, s: &str) {
+    // SAFETY: forwarded caller contract.
+    unsafe {
+        out_len.write(s.len());
+        if s.len() < capacity {
+            std::ptr::copy_nonoverlapping(s.as_ptr(), buffer.cast::<u8>(), s.len());
+            buffer.add(s.len()).write(0);
+        } else if capacity > 0 {
+            buffer.write(0);
+        }
+    }
+}
+
+thread_local! {
+    /// The report of this thread's last `crabby_game_profile_headless`.
+    static LAST_REPORT: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+}
+
+pub(crate) fn keep_report(json: String) {
+    LAST_REPORT.with(|r| *r.borrow_mut() = json);
+}
+
+/// Writes the report of this thread's last `crabby_game_profile_headless`
+/// (JSON) to `buffer` (NUL-terminated if it fits in `capacity`) and its
+/// length to `*out_len`; call with a null buffer and capacity 0 first to
+/// learn the size. The length is 0 if there was none.
+/// ```
+/// let mut len = 1usize;
+/// let s = unsafe { crabby_ffi::crabby_last_perf_report(std::ptr::null_mut(), 0, &mut len) };
+/// assert_eq!(s as u32, 0);
+/// ```
+/// # Safety
+/// `buffer` holds `capacity` bytes (or is null with capacity 0); `out_len` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_last_perf_report(
+    buffer: *mut c_char,
+    capacity: usize,
+    out_len: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        if out_len.is_null() {
+            return Err(invalid("output is null"));
+        }
+        if buffer.is_null() && capacity > 0 {
+            return Err(invalid("buffer is null"));
+        }
+        LAST_REPORT.with(|r| write_text(buffer, capacity, out_len, &r.borrow()));
+        Ok(())
+    })
+}
+
+/// Something to time: made once per place in your code with
+/// `crabby_profile_scope`. Opaque.
+pub struct CrabbyProfileScope {
+    _private: [u8; 0],
+}
+
+/// The profiling scope called `name`, to time with `crabby_profile_begin` and
+/// `crabby_profile_end`. Keep the pointer (it lives as long as the process):
+/// `CRABBY_PROFILE_SCOPE` in `crabby.hpp` keeps it in a `static`. Null if
+/// `name` is null or not UTF-8.
+/// ```
+/// let a = unsafe { crabby_ffi::crabby_profile_scope(c"ai".as_ptr()) };
+/// let b = unsafe { crabby_ffi::crabby_profile_scope(c"ai".as_ptr()) };
+/// assert!(!a.is_null() && a == b);
+/// ```
+/// # Safety
+/// `name` must be null or NUL-terminated.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_profile_scope(name: *const c_char) -> *const CrabbyProfileScope {
+    // SAFETY: forwarded caller contract.
+    match unsafe { text(name) } {
+        Ok(name) => std::ptr::from_ref(crabbyengine::scope_named(name)).cast(),
+        Err(_) => std::ptr::null(),
+    }
+}
+
+/// Starts timing `scope`; hand the result to `crabby_profile_end`. Costs one
+/// atomic load (and returns 0) while profiling is off, and is safe to call
+/// from any thread.
+/// ```
+/// let scope = unsafe { crabby_ffi::crabby_profile_scope(c"work".as_ptr()) };
+/// let token = unsafe { crabby_ffi::crabby_profile_begin(scope) };
+/// unsafe { crabby_ffi::crabby_profile_end(scope, token) };
+/// ```
+/// # Safety
+/// `scope` must be null or from `crabby_profile_scope`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_profile_begin(scope: *const CrabbyProfileScope) -> u64 {
+    // SAFETY: scopes come from `scope_named`, which leaks them: they are `'static`.
+    unsafe { scope.cast::<ProfileScope>().as_ref() }.map_or(0, ProfileScope::begin)
+}
+
+/// Stops timing `scope`, started by `crabby_profile_begin` (which returned
+/// `token`).
+/// # Safety
+/// `scope` must be null or from `crabby_profile_scope`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_profile_end(scope: *const CrabbyProfileScope, token: u64) {
+    // SAFETY: as in `crabby_profile_begin`.
+    if let Some(scope) = unsafe { scope.cast::<ProfileScope>().as_ref() } {
+        scope.end(token);
+    }
+}
+
+/// Counts one heap allocation of `bytes`, made by something other than Rust's
+/// allocator (`CRABBY_COUNT_CPP_ALLOCATIONS` in `crabby.hpp` calls this from
+/// `operator new`). Counted only while profiling is on.
+/// ```
+/// crabby_ffi::crabby_note_allocation(64);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn crabby_note_allocation(bytes: usize) {
+    crabbyengine::note_allocation(bytes);
+}
+
+/// Turns the deeper profiling on or off: scopes are timed and allocations
+/// counted (the overlay switches it on by itself).
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_profiling(std::ptr::null_mut(), true) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_profiling(ctx: *mut CrabbyCtx, on: bool) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            c.set_profiling(on);
+            Ok(())
+        })
+    })
+}
+
+/// Writes the performance report of the last frames as JSON to `buffer`
+/// (NUL-terminated if it fits in `capacity`) and its length to `*out_len`;
+/// call with a null buffer and capacity 0 first to learn the size. Needs
+/// `crabby_ctx_set_profiling` (or the overlay) to have been on for a while.
+/// Print it with `crabby_perf_report_text`.
+/// ```
+/// let mut len = 0usize;
+/// let s = unsafe { crabby_ffi::crabby_ctx_perf_report(std::ptr::null(), std::ptr::null_mut(), 0, &mut len) };
+/// assert_eq!(s as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; `buffer` holds `capacity` bytes (or is null
+/// with capacity 0); `out_len` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_perf_report(
+    ctx: *const CrabbyCtx,
+    buffer: *mut c_char,
+    capacity: usize,
+    out_len: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        if out_len.is_null() {
+            return Err(invalid("output is null"));
+        }
+        if buffer.is_null() && capacity > 0 {
+            return Err(invalid("buffer is null"));
+        }
+        let json = ctx_access(ctx, |c| Ok(c.perf_report().to_json()))?;
+        write_text(buffer, capacity, out_len, &json);
+        Ok(())
+    })
+}
+
+/// Runs `f` on the report in `json`, writes its text to `buffer`.
+///
+/// # Safety
+/// As the public functions below.
+unsafe fn report_text(
+    json: *const c_char,
+    buffer: *mut c_char,
+    capacity: usize,
+    out_len: *mut usize,
+    f: impl FnOnce(PerfReport) -> Result<String, String>,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        if out_len.is_null() {
+            return Err(invalid("output is null"));
+        }
+        if buffer.is_null() && capacity > 0 {
+            return Err(invalid("buffer is null"));
+        }
+        let report = PerfReport::from_json(text(json)?).map_err(invalid_owned)?;
+        let out = f(report).map_err(invalid_owned)?;
+        write_text(buffer, capacity, out_len, &out);
+        Ok(())
+    })
+}
+
+/// Formats a report from `crabby_ctx_perf_report` or
+/// `crabby_game_profile_headless` for people to read: frame times, systems,
+/// scopes, allocations, the slowest frames and warnings with advice.
+/// Writes into `buffer` as `crabby_ctx_perf_report` does.
+/// ```
+/// let mut len = 0usize;
+/// let s = unsafe { crabby_ffi::crabby_perf_report_text(c"nope".as_ptr(), std::ptr::null_mut(), 0, &mut len) };
+/// assert_ne!(s as u32, 0, "not a report");
+/// ```
+/// # Safety
+/// `report_json` NUL-terminated; `buffer` holds `capacity` bytes (or is null
+/// with capacity 0); `out_len` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_perf_report_text(
+    report_json: *const c_char,
+    buffer: *mut c_char,
+    capacity: usize,
+    out_len: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe { report_text(report_json, buffer, capacity, out_len, |r| Ok(r.to_string())) }
+}
+
+/// Checks a report against a budget, for tests and CI. `budget_json` is
+/// like `{"frame_p99_ms": 2, "allocs_per_frame": 0, "systems": {"movement":
+/// 0.5}, "scopes": {"ai/pathing": 1}}` (every key is optional). Writes what
+/// is over budget, one line each, to `buffer`: an empty string (length 0)
+/// means every limit holds. `CRABBY_INVALID_ARGUMENT` if either is not JSON
+/// of that shape.
+/// ```
+/// let mut len = 1usize;
+/// let s = unsafe { crabby_ffi::crabby_perf_check(c"{}".as_ptr(), c"{}".as_ptr(), std::ptr::null_mut(), 0, &mut len) };
+/// assert_ne!(s as u32, 0, "an empty object is not a report");
+/// ```
+/// # Safety
+/// Both strings NUL-terminated; `buffer` holds `capacity` bytes (or is null
+/// with capacity 0); `out_len` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_perf_check(
+    report_json: *const c_char,
+    budget_json: *const c_char,
+    buffer: *mut c_char,
+    capacity: usize,
+    out_len: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe {
+        let budget = text(budget_json)
+            .map_err(|_| ())
+            .and_then(|j| Budget::from_json(j).map_err(|_| ()));
+        report_text(report_json, buffer, capacity, out_len, |r| {
+            let budget = budget.map_err(|()| "the budget is not valid JSON of the budget's shape".to_string())?;
+            Ok(r.check(&budget).iter().map(|v| format!("{v}\n")).collect())
+        })
+    }
+}
+
+/// What got slower between two reports, one line each (empty: nothing did):
+/// `report_json` is today's, `baseline_json` an earlier one you saved.
+/// Values count when they grew by more than `tolerance` (0.2 is 20%). Writes
+/// into `buffer` as `crabby_perf_check` does.
+/// ```
+/// let mut len = 1usize;
+/// let s = unsafe { crabby_ffi::crabby_perf_compare(c"x".as_ptr(), c"y".as_ptr(), 0.2, std::ptr::null_mut(), 0, &mut len) };
+/// assert_ne!(s as u32, 0);
+/// ```
+/// # Safety
+/// As `crabby_perf_check`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_perf_compare(
+    report_json: *const c_char,
+    baseline_json: *const c_char,
+    tolerance: f32,
+    buffer: *mut c_char,
+    capacity: usize,
+    out_len: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe {
+        let baseline = text(baseline_json)
+            .map_err(|_| ())
+            .and_then(|j| PerfReport::from_json(j).map_err(|_| ()));
+        report_text(report_json, buffer, capacity, out_len, |r| {
+            let baseline = baseline.map_err(|()| "the baseline is not a performance report".to_string())?;
+            Ok(r.regressions(&baseline, tolerance)
+                .iter()
+                .map(|v| format!("{v}\n"))
+                .collect())
+        })
+    }
 }

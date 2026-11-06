@@ -171,6 +171,11 @@ impl Profiler {
         self.bench.is_some()
     }
 
+    /// The frame just recorded was a benchmark's last warm-up frame.
+    pub fn warmup_ends_now(&self) -> bool {
+        self.bench.as_ref().is_some_and(|b| b.warmup == self.frame)
+    }
+
     pub fn stats(&self) -> FrameStats {
         self.stats
     }
@@ -243,7 +248,7 @@ impl Profiler {
 }
 
 /// Percentile `p` (0..=1) of sorted `v`, nearest rank.
-fn percentile(v: &[f32], p: f32) -> f32 {
+pub(crate) fn percentile(v: &[f32], p: f32) -> f32 {
     if v.is_empty() {
         return 0.0;
     }

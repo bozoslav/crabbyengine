@@ -135,6 +135,7 @@ fn end_timings(ctx: &mut Ctx) {
 fn run_one(s: &mut System, ctx: &mut Ctx, timing_index: usize) {
     #[cfg(feature = "profiling")]
     puffin::profile_scope!("system", s.name);
+    let allocs_before = ctx.perf.on.then(crate::alloc_counts);
     let start = Instant::now();
     ctx.system_index = timing_index;
     ctx.events.reader = s.id;
@@ -142,6 +143,10 @@ fn run_one(s: &mut System, ctx: &mut Ctx, timing_index: usize) {
     ctx.events.reader = 0;
     ctx.apply_commands();
     ctx.timings[timing_index].last_ms += start.elapsed().as_secs_f32() * 1000.0;
+    if let Some(before) = allocs_before {
+        let made = crate::alloc_counts().count.saturating_sub(before.count);
+        ctx.perf.add_system_allocs(timing_index, made);
+    }
 }
 
 impl System {
@@ -790,6 +795,8 @@ impl Game {
         for t in &mut ctx.timings {
             t.last_ms = 0.0;
         }
+        ctx.sync_profiling();
+        ctx.perf.begin_frame(ctx.timings.len());
         ctx.events.keep_ticks = self.sim_systems.iter().map(|s| s.every).max().unwrap_or(1);
     }
 
@@ -825,7 +832,59 @@ impl Game {
     /// let y = world.query::<&Pos>().iter().next().unwrap().0;
     /// assert!((y - 90.0).abs() < 1e-3);
     /// ```
-    pub fn run_headless<S, U>(mut self, ticks: u64, setup: S) -> World
+    pub fn run_headless<S, U>(self, ticks: u64, setup: S) -> World
+    where
+        S: FnOnce(&mut Ctx) -> U,
+        U: SetupResult,
+    {
+        self.run_headless_inner(ticks, None, setup).0
+    }
+
+    /// Like [`run_headless`](Self::run_headless), but times everything and
+    /// returns a [`PerfReport`](crate::PerfReport) next to the world: where
+    /// the time goes (systems, [`profile_scope!`](crate::profile_scope)
+    /// scopes), allocations, the slowest ticks, and warnings with advice.
+    /// The first `warmup` ticks run but aren't measured (caches fill, buffers
+    /// grow); the report covers the next `ticks` ticks (at most the last
+    /// 50,000). Call it from a test or a CI job; see [`PerfReport::assert_within`](crate::PerfReport::assert_within).
+    ///
+    /// Counting allocations needs [`CountingAllocator`](crate::CountingAllocator)
+    /// as the global allocator.
+    ///
+    /// ```
+    /// use crabbyengine::*;
+    ///
+    /// fn movement(ctx: &mut Ctx) {
+    ///     profile_scope!("movement/integrate");
+    ///     ctx.world.query::<&mut Transform2D>().for_each(|t| t.position.x += 1.0);
+    /// }
+    ///
+    /// let (_world, report) = Game::new("bench", 1, 1)
+    ///     .sim_system(movement)
+    ///     .profile_headless(10, 100, |ctx| {
+    ///         for _ in 0..1000 {
+    ///             ctx.world.spawn((Transform2D::default(),));
+    ///         }
+    ///     });
+    /// assert_eq!((report.frames, report.entities), (100, 1000));
+    /// // Timings vary between machines: keep limits generous.
+    /// report.assert_within(&Budget::new().frame_p99_ms(100.0));
+    /// ```
+    pub fn profile_headless<S, U>(self, warmup: u64, ticks: u64, setup: S) -> (World, crate::PerfReport)
+    where
+        S: FnOnce(&mut Ctx) -> U,
+        U: SetupResult,
+    {
+        let (world, report) = self.run_headless_inner(ticks, Some(warmup), setup);
+        (world, report.unwrap_or_default())
+    }
+
+    fn run_headless_inner<S, U>(
+        mut self,
+        ticks: u64,
+        warmup: Option<u64>,
+        setup: S,
+    ) -> (World, Option<crate::PerfReport>)
     where
         S: FnOnce(&mut Ctx) -> U,
         U: SetupResult,
@@ -861,8 +920,13 @@ impl Game {
             fixed_steps: 1,
             alpha: 0.0,
         };
+        if warmup.is_some() {
+            ctx.perf.collector = crate::perf_report::Collector::new(crate::perf_report::HEADLESS_HISTORY);
+            ctx.set_profiling(true);
+        }
+        let total = ticks + warmup.unwrap_or(0);
         let mut ran = 0;
-        while ran < ticks && !ctx.quit_requested() {
+        while ran < total && !ctx.quit_requested() {
             if let Some(control) = &control {
                 control.poll(&mut ctx);
                 if ctx.quit_requested() {
@@ -881,6 +945,7 @@ impl Game {
                 continue;
             }
             ran += 1;
+            let tick_start = Instant::now();
             ctx.begin_frame(timing);
             ctx.reload_changed_assets();
             self.begin_timings(&mut ctx);
@@ -890,8 +955,15 @@ impl Game {
             end_timings(&mut ctx);
             ctx.discard_draws();
             ctx.input.end_frame();
+            if ctx.perf.on {
+                ctx.end_perf_frame(tick_start.elapsed().as_secs_f32() * 1000.0);
+                if warmup == Some(ran) {
+                    ctx.perf.collector.clear();
+                }
+            }
         }
-        std::mem::take(&mut ctx.world)
+        let report = warmup.map(|_| ctx.perf_report());
+        (std::mem::take(&mut ctx.world), report)
     }
 
     /// Opens the window and runs the game until it is closed.

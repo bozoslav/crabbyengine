@@ -58,6 +58,13 @@ mod ui_retained;
 mod vehicle3d;
 pub use actions::*;
 pub use animator::*;
+/// Counts the library's heap allocations while profiling is on (one atomic
+/// load per allocation otherwise), so a C or C++ game's reports show how many
+/// the engine makes. A Rust program that links this crate as a library and
+/// wants its own allocator should depend on the engine instead.
+#[global_allocator]
+static ALLOCATOR: crabbyengine::CountingAllocator = crabbyengine::CountingAllocator;
+
 pub use attach::*;
 pub use audio3d::*;
 pub use contacts3d::*;

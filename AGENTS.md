@@ -78,6 +78,11 @@ Measure first, in release builds; the book's "Profiling a frame"
   percentiles, CPU vs GPU, GPU time per pass, triangles for the camera and
   the shadows, the slowest systems and the heaviest meshes, then quits.
   Frames are drawn offscreen, so the display's refresh rate doesn't cap them.
+- Where the time and allocations go: `profile_scope!("name")` around suspect code,
+  `Game::profile_headless(warmup, ticks, setup)` for a `PerfReport` (systems, scopes,
+  allocations with `CountingAllocator`, worst frames, warnings), `report.assert_within(&Budget)`
+  in tests; `CRABBY_BENCH_REPORT=now.json` saves one from a benchmark run. See
+  `book/src/profiling.md`.
 - Hitches: `CRABBY_TRACE=trace.json` (a Perfetto trace of every system,
   render, display wait and GPU pass); look for the slow frames in it.
 - A running game (`CRABBY_CONTROL=1`): the MCP tools `perf_report`,

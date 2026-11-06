@@ -40,5 +40,6 @@
 # Reference
 
 - [Performance and benchmarks](performance.md)
+- [Performance and profiling](profiling.md)
 - [API reference](api.md)
 - [Contributing](contributing.md)

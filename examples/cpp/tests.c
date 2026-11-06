@@ -549,6 +549,27 @@ static void replication(void) {
     CHECK(crabby_interest_new(&config, &interest) == CRABBY_INVALID_ARGUMENT);
 }
 
+static void profiling_c(void) {
+    const CrabbyProfileScope* scope = crabby_profile_scope("c scope");
+    CHECK(scope && scope == crabby_profile_scope("c scope"));
+    CHECK(crabby_profile_scope(NULL) == NULL);
+    crabby_profile_end(scope, crabby_profile_begin(scope));
+    crabby_note_allocation(16);
+    CrabbyGame* game = crabby_game_new("c perf", 1, 1); CHECK(game);
+    CrabbyWorld* world = NULL;
+    CHECK(crabby_game_profile_headless(game, 2, 10, NULL, NULL, &world) == CRABBY_OK && world);
+    CHECK(crabby_world_free(world) == CRABBY_OK);
+    size_t len = 0;
+    CHECK(crabby_last_perf_report(NULL, 0, &len) == CRABBY_OK && len > 10);
+    char* json = malloc(len + 1);
+    CHECK(crabby_last_perf_report(json, len + 1, &len) == CRABBY_OK && json[0] == '{');
+    size_t problems = 1;
+    CHECK(crabby_perf_check(json, "{\"frame_p99_ms\": 100000}", NULL, 0, &problems) == CRABBY_OK && problems == 0);
+    CHECK(crabby_perf_check(json, "{\"systems\": {\"missing\": 1}}", NULL, 0, &problems) == CRABBY_OK && problems > 0);
+    CHECK(crabby_perf_report_text("nope", NULL, 0, &problems) == CRABBY_INVALID_ARGUMENT);
+    free(json);
+}
+
 int main(void) {
     steam_messages_validation();
     morph_clip_api();
@@ -619,5 +640,6 @@ int main(void) {
     ribbons_and_decals();
     lod_helpers();
     streamed_worlds();
+    profiling_c();
     return 0;
 }

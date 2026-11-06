@@ -491,7 +491,7 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
     ),
     (
         "perf.get",
-        "frame timing over the last few seconds (fps; avg, p50, p95, p99, max ms; CPU split into systems, render and waiting on the display; GPU ms), GPU ms per pass, what was drawn (draw calls; 3D models and triangles for the camera and the shadows; render CPU split into collect, record, submit), the slowest systems; params: meshes? (list the n meshes drawing the most triangles, default 0)",
+        "frame timing over the last few seconds (fps; avg, p50, p95, p99, max ms; CPU split into systems, render and waiting on the display; GPU ms), GPU ms per pass, what was drawn (draw calls; 3D models and triangles for the camera and the shadows; render CPU split into collect, record, submit), the slowest systems; params: meshes? (list the n meshes drawing the most triangles, default 0), profiling? (true turns on scope timing and allocation counting, false turns it off). While profiling is on, the answer also has `report`: frame percentiles, every system and profile_scope with time and allocations per frame, the slowest frames and what was in them, and warnings with advice",
     ),
     (
         "perf.trace",
@@ -813,7 +813,18 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
                 .map(|t| json!({ "name": t.name, "sim": t.sim, "last_ms": t.last_ms, "avg_ms": t.avg_ms }))
                 .collect(),
         ),
-        "perf.get" => perf_json(ctx, usize_param(params, "meshes", 0)?),
+        "perf.get" => {
+            if let Some(on) = params.get("profiling") {
+                ctx.set_profiling(on.as_bool().ok_or("`profiling` must be true or false")?);
+            }
+            let mut out = perf_json(ctx, usize_param(params, "meshes", 0)?);
+            if ctx.profiling() {
+                let report = ctx.perf_report();
+                out["report"] = serde_json::to_value(&report).unwrap_or_default();
+                out["report_text"] = json!(report.to_string());
+            }
+            out
+        }
         "perf.trace" => {
             if ctx.headless {
                 return Err("headless games have no frames to trace".into());
@@ -1016,6 +1027,11 @@ mod tests {
         assert!(handle(&mut ctx, "perf.hud", &json!({ "on": true })).unwrap() == json!(true));
         assert!(ctx.perf_hud());
         assert!(handle(&mut ctx, "perf.hud", &json!({})).is_err(), "`on` is required");
+        assert!(perf.get("report").is_none(), "the deep report needs profiling on");
+        let deep = handle(&mut ctx, "perf.get", &json!({ "profiling": true })).unwrap();
+        assert!(ctx.profiling() && deep["report"].is_object(), "{deep}");
+        assert!(handle(&mut ctx, "perf.get", &json!({ "profiling": 3 })).is_err());
+        ctx.set_profiling(false);
     }
 
     #[test]

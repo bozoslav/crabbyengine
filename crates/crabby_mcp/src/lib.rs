@@ -286,9 +286,14 @@ fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "perf_report",
-            description: "Where a windowed game's frame time goes, over the last few seconds: fps and frame-time percentiles; CPU time in systems, rendering and waiting on the display; GPU time per pass (shadows, opaque, bloom, ...); draw calls and the 3D models and triangles drawn for the camera and the shadows; the slowest systems; optionally the meshes drawing the most triangles. Start here for any performance question: a large display wait means the GPU is the limit. For exact numbers, run the game with CRABBY_BENCH=<frames> instead (a fixed-length, vsync-off run that prints a report and quits).",
+            description: "Where a windowed game's frame time goes, over the last few seconds: fps and frame-time percentiles; CPU time in systems, rendering and waiting on the display; GPU time per pass (shadows, opaque, bloom, ...); draw calls and the 3D models and triangles drawn for the camera and the shadows; the slowest systems; optionally the meshes drawing the most triangles. Start here for any performance question: a large display wait means the GPU is the limit. For exact numbers, run the game with CRABBY_BENCH=<frames> instead (a fixed-length, vsync-off run that prints a report and quits). Pass profiling=true to also time the game's own profile_scope!/CRABBY_PROFILE_SCOPE scopes and count allocations per system; ask again a few seconds later and the answer has `report` with the slowest frames and warnings with advice.",
             writes: false,
-            params: || json!({ "meshes": { "type": "integer", "minimum": 0, "description": "Also list this many meshes drawing the most triangles (3D games; default 0)" } }),
+            params: || {
+                json!({
+                    "meshes": { "type": "integer", "minimum": 0, "description": "Also list this many meshes drawing the most triangles (3D games; default 0)" },
+                    "profiling": { "type": "boolean", "description": "true turns on scope timing and allocation counting (and the deeper `report`), false turns it off" }
+                })
+            },
             required: &[],
         },
         Tool {
@@ -730,7 +735,7 @@ impl Server {
                 .call("entities.stats", pass(&["fields", "with", "where"])),
             "get_entity" => self.instance(args)?.call("entity.get", pass(&["entity"])),
             "system_timings" => self.instance(args)?.call("systems.timings", json!({})),
-            "perf_report" => self.instance(args)?.call("perf.get", pass(&["meshes"])),
+            "perf_report" => self.instance(args)?.call("perf.get", pass(&["meshes", "profiling"])),
             "record_trace" => self.instance(args)?.call("perf.trace", pass(&["frames", "path"])),
             "perf_hud" => self.instance(args)?.call("perf.hud", pass(&["on"])),
             "list_resources" => self.instance(args)?.call("resources.list", json!({})),
