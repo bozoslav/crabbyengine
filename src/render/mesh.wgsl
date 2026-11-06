@@ -466,6 +466,11 @@ fn probe_direction(p: ReflectionVolume, world: vec3<f32>, ray: vec3<f32>) -> vec
     let t = min(times.x, min(times.y, times.z));
     return local + ray * t;
 }
+// The opaque pass's screen-space reflection at this pixel (see ssr.wgsl):
+// what the reflected ray hit on screen, and how much it counts. Zero
+// elsewhere, and where the ray found nothing.
+var<private> screen_reflection: vec4<f32> = vec4<f32>(0.0);
+
 fn environment_light(s: Surface, f0: vec3<f32>) -> vec3<f32> {
     let ray = reflect(-s.view, s.normal);
     // The two smallest volumes around this pixel: a room inside a bigger one
@@ -494,6 +499,9 @@ fn environment_light(s: Surface, f0: vec3<f32>) -> vec3<f32> {
     }
     diffuse += environment_sample(0.0, s.normal, 0.0, true) * remaining;
     specular += environment_sample(0.0, ray, s.roughness, false) * remaining;
+    // What's on screen replaces the environment where the reflected ray hit
+    // it, on smooth surfaces only: it's a sharp reflection.
+    specular = mix(specular, screen_reflection.rgb, screen_reflection.a * (1.0 - smoothstep(0.2, 0.5, s.roughness)));
     let nv = max(dot(s.normal, s.view), 0.0);
     let uv = (vec2<f32>(800.0, 0.0) + clamp(vec2<f32>(nv, s.roughness) * 128.0, vec2<f32>(0.5), vec2<f32>(127.5))) / vec2<f32>(1024.0, 1536.0);
     let brdf = textureSampleLevel(sky_texture, sky_sampler, uv, 0.0).rg;

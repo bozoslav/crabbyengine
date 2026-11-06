@@ -21,6 +21,8 @@ mod screen;
 #[cfg(all(feature = "window", feature = "3d"))]
 mod smaa;
 #[cfg(all(feature = "window", feature = "3d"))]
+mod ssr;
+#[cfg(all(feature = "window", feature = "3d"))]
 mod taa;
 #[cfg(feature = "window")]
 mod timer;
@@ -116,6 +118,8 @@ mod occlusion_render_test;
 mod shafts_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod skin_render_test;
+#[cfg(all(test, feature = "window", feature = "3d"))]
+mod ssr_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod text3d_render_test;
 

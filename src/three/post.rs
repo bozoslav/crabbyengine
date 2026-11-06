@@ -129,6 +129,28 @@ pub struct Post {
     /// 0.3 suits people and props. Only things on screen cast them. Shares
     /// a full-screen pass with [`AmbientOcclusion`] (one pass for both).
     pub contact_shadows: f32,
+    /// Screen-space reflections: how strongly smooth surfaces (roughness
+    /// below about 0.5, fully below 0.2) reflect what's on screen, 0 to 1,
+    /// on top of the sky and reflection probes they reflect anyway. Where
+    /// the reflected ray finds nothing on screen (it leaves the screen, goes
+    /// behind something, or runs past
+    /// [`ssr_max_distance`](Self::ssr_max_distance)), the environment's
+    /// reflection stays. Wet streets, polished floors, still water. Things
+    /// off screen or hidden aren't reflected, and normal maps don't bend the
+    /// reflection. The colors come from the last frame's image, so the
+    /// first frame after a camera cut reflects only the environment. A
+    /// half-resolution pass after the depth prepass; [`AntiAliasing::Taa`]
+    /// smooths its grain. 0 (the default) is off.
+    /// ```
+    /// use crabbyengine::*;
+    /// assert_eq!(Post::default().ssr, 0.0);
+    /// let wet_street = Post { ssr: 1.0, ..Default::default() };
+    /// assert_eq!(wet_street.ssr_max_distance, 30.0);
+    /// ```
+    pub ssr: f32,
+    /// How far, in world units, a screen-space reflection looks along the
+    /// reflected ray; it fades out toward the end. Default 30.
+    pub ssr_max_distance: f32,
     /// Post antialiasing. Default off to preserve existing scenes.
     pub anti_aliasing: AntiAliasing,
     /// How much [`AntiAliasing::Taa`] sharpens the result (it softens the
@@ -168,6 +190,8 @@ impl Default for Post {
             sharpen: 0.0,
             ambient_occlusion: AmbientOcclusion::default(),
             contact_shadows: 0.0,
+            ssr: 0.0,
+            ssr_max_distance: 30.0,
             anti_aliasing: AntiAliasing::None,
             taa_sharpness: 0.25,
             exposure: 0.0,

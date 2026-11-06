@@ -584,6 +584,11 @@ pub struct CrabbyPost {
     /// Contact shadows: how far each pixel looks toward the sun for
     /// something close blocking it, in world units; 0 (default) is off.
     pub contact_shadows: f32,
+    /// Screen-space reflections on smooth surfaces, 0 (default, off) to 1.
+    pub ssr: f32,
+    /// How far a screen-space reflection looks, in world units, above zero
+    /// (default 30).
+    pub ssr_max_distance: f32,
 }
 
 /// Triangles on the CPU (Rust `MeshData`), before `crabby_ctx_create_mesh`
@@ -2403,6 +2408,8 @@ pub unsafe extern "C" fn crabby_ctx_post(ctx: *mut CrabbyCtx, out_post: *mut Cra
                     }),
                     taa_sharpness: p.taa_sharpness,
                     contact_shadows: p.contact_shadows,
+                    ssr: p.ssr,
+                    ssr_max_distance: p.ssr_max_distance,
                 },
             )
         })
@@ -2412,7 +2419,7 @@ pub unsafe extern "C" fn crabby_ctx_post(ctx: *mut CrabbyCtx, out_post: *mut Cra
 /// Changes the 3D post-processing settings. `tonemap` must be 0 to 3;
 /// bloom, its threshold, contrast and saturation can't be negative;
 /// `render_scale` is 0.25 to 2 and `sharpen` 0 to 1; `contact_shadows`
-/// can't be negative.
+/// can't be negative; `ssr` is 0 to 1 and `ssr_max_distance` above zero.
 /// # Safety
 /// `ctx` null or live; `post` valid.
 /// ```
@@ -2438,6 +2445,9 @@ pub unsafe extern "C" fn crabby_ctx_set_post(ctx: *mut CrabbyCtx, post: *const C
             }
             if !(p.contact_shadows.is_finite() && p.contact_shadows >= 0.0) {
                 return Err(invalid("contact_shadows can't be negative"));
+            }
+            if !(0.0..=1.0).contains(&p.ssr) || !(p.ssr_max_distance.is_finite() && p.ssr_max_distance > 0.0) {
+                return Err(invalid("ssr must be 0 to 1 and ssr_max_distance above zero"));
             }
             if !p.ao_radius.is_finite()
                 || p.ao_radius <= 0.0
@@ -2498,6 +2508,8 @@ pub unsafe extern "C" fn crabby_ctx_set_post(ctx: *mut CrabbyCtx, post: *const C
                 vignette: p.vignette,
                 lut: p.has_lut.then(|| texture_from_c(p.lut)),
                 contact_shadows: p.contact_shadows,
+                ssr: p.ssr,
+                ssr_max_distance: p.ssr_max_distance,
             };
             Ok(())
         })
@@ -2543,6 +2555,8 @@ pub struct CrabbyGraphicsQuality {
     pub anti_aliasing: u32,
     /// How often the far shadow cascades are drawn again, in frames, 1 to 8.
     pub shadow_refresh: u32,
+    /// Screen-space reflections' strength, 0 (off) to 1.
+    pub ssr: f32,
 }
 
 fn quality_to_c(q: GraphicsQuality) -> CrabbyGraphicsQuality {
@@ -2561,6 +2575,7 @@ fn quality_to_c(q: GraphicsQuality) -> CrabbyGraphicsQuality {
         ao_steps: q.ao_steps,
         anti_aliasing: q.anti_aliasing as u32,
         shadow_refresh: q.shadow_refresh,
+        ssr: q.ssr,
     }
 }
 
@@ -2604,6 +2619,9 @@ fn quality_from_c(q: &CrabbyGraphicsQuality) -> Result<GraphicsQuality, crate::F
     if !(1..=8).contains(&q.shadow_refresh) {
         return Err(invalid("shadow_refresh must be 1 to 8"));
     }
+    if !(0.0..=1.0).contains(&q.ssr) {
+        return Err(invalid("ssr must be 0 to 1"));
+    }
     Ok(GraphicsQuality {
         render_scale: q.render_scale,
         sharpen: q.sharpen,
@@ -2617,6 +2635,7 @@ fn quality_from_c(q: &CrabbyGraphicsQuality) -> Result<GraphicsQuality, crate::F
         ambient_occlusion: q.ambient_occlusion,
         ao_slices: q.ao_slices,
         ao_steps: q.ao_steps,
+        ssr: q.ssr,
         anti_aliasing,
         shadow_refresh: q.shadow_refresh,
     })

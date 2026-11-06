@@ -6,7 +6,8 @@
 //! 0. **sky texture**: with an atmosphere, the sky in every direction;
 //! 1. **shadows**: one pass per cascade of the sun's shadow map;
 //! 2. **depth prepass**: the nearest depth of every pixel, so the next pass
-//!    lights each pixel once, and later passes can read the depth;
+//!    lights each pixel once, and later passes can read the depth; GTAO and
+//!    screen-space reflections (see `screen.rs`, `ssr.rs`) trace it here;
 //! 3. **opaque**: lit models into an HDR (16-bit float) target, keeping only
 //!    the fragments the prepass found nearest, then the sky behind them and
 //!    the transparent models over them;
@@ -410,6 +411,10 @@ const BLOOM_SCATTER: f64 = 0.7;
 /// Scene-sized targets: the window's size times `Post::render_scale`.
 struct Targets {
     ao: Option<super::screen::AoTargets>,
+    ssr: Option<super::ssr::SsrTargets>,
+    /// With GTAO or screen-space reflections: what the opaque pass reads
+    /// them by (its scene bind group).
+    opaque_scene: Option<wgpu::BindGroup>,
     /// With temporal antialiasing: the lit frame's image, history and motion.
     taa: Option<super::taa::TaaTargets>,
     ldr: Option<wgpu::TextureView>,
@@ -623,6 +628,10 @@ pub(crate) struct Renderer3D {
     moved_runs: Vec<Run>,
     ao: Option<super::screen::Ao>,
     ao_enabled: bool,
+    /// Screen-space reflections: the passes (made when first used), and
+    /// whether this frame has them.
+    ssr: Option<super::ssr::Ssr>,
+    ssr_on: bool,
     dummy_depth: wgpu::TextureView,
     post_layout: wgpu::BindGroupLayout,
     bloom_prefilter: wgpu::RenderPipeline,
@@ -1393,6 +1402,8 @@ impl Renderer3D {
             moved_runs: Vec::new(),
             ao: None,
             ao_enabled: false,
+            ssr: None,
+            ssr_on: false,
             dummy_depth,
             post_layout,
             bloom_prefilter,
@@ -2007,6 +2018,14 @@ impl Renderer3D {
         if self.ao_enabled && self.ao.is_none() {
             self.ao = Some(super::screen::Ao::new(device));
         }
+        self.ssr_on = post.ssr.is_finite()
+            && post.ssr > 0.0
+            && post.ssr_max_distance.is_finite()
+            && post.ssr_max_distance > 0.0
+            && can_compute(device);
+        if self.ssr_on && self.ssr.is_none() {
+            self.ssr = Some(super::ssr::Ssr::new(device));
+        }
         if let Some(ao) = &self.ao {
             let sun = (-lighting.sun_direction).try_normalize().unwrap_or(Vec3::Y);
             ao.prepare(
@@ -2367,6 +2386,7 @@ impl Renderer3D {
         if self.targets.as_ref().is_none_or(|t| {
             t.size != size
                 || t.ao.is_some() != self.ao_enabled
+                || t.ssr.is_some() != self.ssr_on
                 || t.taa.is_some() != self.taa_on
                 || t.ldr.is_some() != (self.aa == crate::AntiAliasing::Fxaa)
                 || t.upscale.is_some() != upscaled
@@ -2489,19 +2509,35 @@ impl Renderer3D {
                 )
             });
             let upscale_group = upscale.as_ref().map(|u| group(u, &self.black));
-            let ao = self
-                .ao
-                .as_ref()
-                .filter(|_| self.ao_enabled)
-                .map(|ao| ao.targets(device, size, &depth, &self.scene_layout, &self.black, &self.dummy_depth));
             let n = bloom_mips.len();
             let taa = self
                 .taa
                 .as_ref()
                 .filter(|_| self.taa_on)
                 .map(|t| t.targets(device, size, self.samples, &depth));
+            let lit = match &taa {
+                Some(t) => &t.input_view,
+                None => &hdr,
+            };
+            let ssr = self
+                .ssr
+                .as_ref()
+                .filter(|_| self.ssr_on)
+                .map(|s| s.targets(device, size, &depth, lit, self.ao_enabled));
+            // With reflections, GTAO writes the first level of their image.
+            let ao = self
+                .ao
+                .as_ref()
+                .filter(|_| self.ao_enabled)
+                .map(|ao| ao.targets(device, size, &depth, &self.black, ssr.as_ref().map(|s| &s.ao)));
+            // The opaque pass reads both from its scene color slot (see `ssr.rs`).
+            let screen = ssr.as_ref().map(|s| &s.screen).or(ao.as_ref().map(|a| &a.output));
+            let opaque_scene =
+                screen.map(|screen| scene_bind_group(device, &self.scene_layout, screen, &self.dummy_depth));
             self.targets = Some(Targets {
                 ao,
+                ssr,
+                opaque_scene,
                 taa,
                 ldr,
                 aa_group,
@@ -2549,6 +2585,17 @@ impl Renderer3D {
             self.taa_frame = self.taa_frame.wrapping_add(1);
             self.taa_frame_read = self.taa_read;
             self.taa_read ^= 1;
+        }
+        // Screen-space reflections: the last frame's image is their colors,
+        // unless the targets are new or the camera jumped.
+        let drawn = self.has_draws();
+        if let Some(ssr) = &mut self.ssr {
+            if !self.ssr_on || rebuilt || ssr.previous().is_some_and(|before| camera_cut(before, view_proj)) {
+                ssr.forget();
+            }
+            if self.ssr_on && drawn {
+                ssr.prepare(queue, view_proj, camera, post.ssr.min(1.0), post.ssr_max_distance);
+            }
         }
         self.occluded = frame.occluded;
         if let Some(targets) = &self.targets {
@@ -2747,6 +2794,7 @@ impl Renderer3D {
             + self.particles.draw_count()
             + self.effects.len()
             + usize::from(self.ao_enabled) * 2
+            + usize::from(self.ssr_on) * 2
             + if self.taa_on {
                 // The resolve, and the motion pass (one draw per moved part).
                 1 + self
@@ -2835,6 +2883,13 @@ impl Renderer3D {
     /// Whether this frame has anything to draw.
     pub fn has_draws(&self) -> bool {
         !self.runs.is_empty() || self.particles.has_draws() || !self.computes.is_empty()
+    }
+
+    /// Whether solid surfaces go through the depth prepass too: on GPUs
+    /// that need it, and for the passes that read the complete depth
+    /// before the opaque pass (GTAO, screen-space reflections).
+    fn full_prepass(&self) -> bool {
+        self.solid_prepass || self.ao_enabled || self.ssr_on
     }
 
     /// Draws the frame's passes (see the module docs) and leaves the tone
@@ -3094,6 +3149,9 @@ impl Renderer3D {
                 if self.ao_enabled {
                     self.ao.as_ref().unwrap().draw(encoder, targets.ao.as_ref().unwrap());
                 }
+                if let (Some(ssr), Some(images)) = (&self.ssr, &targets.ssr) {
+                    ssr.trace(encoder, images, time("screen reflections"));
+                }
             }
             Part::Opaque => {
                 {
@@ -3120,11 +3178,7 @@ impl Renderer3D {
                                 // Later passes read it (the motion pass and
                                 // screen effects too); without a solid
                                 // prepass, it's only complete here.
-                                store: if split
-                                    || self.taa_on
-                                    || !self.effects.is_empty()
-                                    || !(self.solid_prepass || self.ao_enabled)
-                                {
+                                store: if split || self.taa_on || !self.effects.is_empty() || !self.full_prepass() {
                                     wgpu::StoreOp::Store
                                 } else {
                                     wgpu::StoreOp::Discard
@@ -3136,30 +3190,15 @@ impl Renderer3D {
                         occlusion_query_set: None,
                         multiview_mask: None,
                     });
+                    let opaque_scene = targets.opaque_scene.as_ref().unwrap_or(&self.no_scene);
                     pass.set_bind_group(0, &self.frame_bind_group, &[]);
-                    pass.set_bind_group(
-                        2,
-                        if self.ao_enabled {
-                            &targets.ao.as_ref().unwrap().scene
-                        } else {
-                            &self.no_scene
-                        },
-                        &[],
-                    );
+                    pass.set_bind_group(2, opaque_scene, &[]);
                     self.draw_models(&mut pass, &self.runs, Kind::Opaque, &self.instances);
                     if self.atmosphere {
                         pass.set_pipeline(&self.sky);
                         pass.set_bind_group(0, &self.frame_bind_group, &[]);
                         pass.draw(0..3, 0..1);
-                        pass.set_bind_group(
-                            2,
-                            if self.ao_enabled {
-                                &targets.ao.as_ref().unwrap().scene
-                            } else {
-                                &self.no_scene
-                            },
-                            &[],
-                        );
+                        pass.set_bind_group(2, opaque_scene, &[]);
                     }
                     if !split {
                         self.draw_models(&mut pass, &self.runs, Kind::Transparent, &self.instances);
@@ -3194,6 +3233,9 @@ impl Renderer3D {
                     pass.set_bind_group(0, &self.frame_bind_group, &[]);
                     pass.set_bind_group(2, &self.no_scene, &[]);
                     self.draw_models(&mut pass, &self.moved_runs, Kind::Velocity, &self.moved);
+                }
+                if let (Some(ssr), Some(images)) = (&self.ssr, &targets.ssr) {
+                    ssr.keep(encoder, images);
                 }
                 if !self.solid_prepass {
                     self.record_occlusion(encoder, frame);
@@ -3622,9 +3664,9 @@ impl Renderer3D {
                     // With coverage, cut-outs have a prepass of their own.
                     Kind::Prepass if coverage.is_some() => continue,
                     Kind::Prepass if m.cutout => &pipelines.prepass_cutout,
-                    Kind::Prepass if !(self.solid_prepass || self.ao_enabled) => continue,
+                    Kind::Prepass if !self.full_prepass() => continue,
                     Kind::Prepass => &pipelines.prepass,
-                    Kind::Opaque if !m.cutout && !(self.solid_prepass || self.ao_enabled) => &pipelines.opaque_solid,
+                    Kind::Opaque if !m.cutout && !self.full_prepass() => &pipelines.opaque_solid,
                     Kind::Opaque => match coverage {
                         Some([_, opaque]) => opaque,
                         None => &pipelines.opaque,

@@ -1,5 +1,7 @@
 //! Full-resolution, fragment-only GTAO and contact shadows, and bilateral
-//! denoising: occlusion in red, the contact shadow in green.
+//! denoising: occlusion in red, the contact shadow in green. With
+//! screen-space reflections, the denoised result goes into the first level
+//! of their image instead (see `ssr.rs`).
 use glam::{Mat4, Vec3};
 use wgpu::util::DeviceExt;
 
@@ -16,6 +18,8 @@ pub(super) struct Ao {
     layout: wgpu::BindGroupLayout,
     raw_pipeline: wgpu::RenderPipeline,
     blur_pipeline: wgpu::RenderPipeline,
+    /// Denoising into the screen-space reflections' image.
+    blur_wide_pipeline: wgpu::RenderPipeline,
     uniform: wgpu::Buffer,
 }
 pub(super) struct AoTargets {
@@ -23,7 +27,8 @@ pub(super) struct AoTargets {
     pub output: wgpu::TextureView,
     raw_group: wgpu::BindGroup,
     blur_group: wgpu::BindGroup,
-    pub scene: wgpu::BindGroup,
+    /// Whether `output` is the screen-space reflections' image.
+    wide: bool,
 }
 impl Ao {
     pub fn new(device: &wgpu::Device) -> Self {
@@ -60,7 +65,7 @@ impl Ao {
             bind_group_layouts: &[Some(&layout)],
             immediate_size: 0,
         });
-        let pipeline = |entry| {
+        let pipeline = |entry, format| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(entry),
                 layout: Some(&pipeline_layout),
@@ -75,7 +80,7 @@ impl Ao {
                     entry_point: Some(entry),
                     compilation_options: Default::default(),
                     targets: &[Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::Rg8Unorm,
+                        format,
                         blend: None,
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
@@ -87,8 +92,9 @@ impl Ao {
                 cache: None,
             })
         };
-        let raw_pipeline = pipeline("fs_ao");
-        let blur_pipeline = pipeline("fs_denoise");
+        let raw_pipeline = pipeline("fs_ao", wgpu::TextureFormat::Rg8Unorm);
+        let blur_pipeline = pipeline("fs_denoise", wgpu::TextureFormat::Rg8Unorm);
+        let blur_wide_pipeline = pipeline("fs_denoise", super::ssr::SCREEN_FORMAT);
         let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("GTAO"),
             contents: bytemuck::bytes_of(&Settings::zeroed()),
@@ -98,6 +104,7 @@ impl Ao {
             layout,
             raw_pipeline,
             blur_pipeline,
+            blur_wide_pipeline,
             uniform,
         }
     }
@@ -138,9 +145,8 @@ impl Ao {
         device: &wgpu::Device,
         size: (u32, u32),
         depth: &wgpu::TextureView,
-        scene_layout: &wgpu::BindGroupLayout,
         dummy_color: &wgpu::TextureView,
-        dummy_depth: &wgpu::TextureView,
+        reflections: Option<&wgpu::TextureView>,
     ) -> AoTargets {
         let target = || {
             device
@@ -161,7 +167,7 @@ impl Ao {
                 .create_view(&Default::default())
         };
         let raw = target();
-        let output = target();
+        let output = reflections.cloned().unwrap_or_else(target);
         let group = |image: &wgpu::TextureView| {
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("GTAO"),
@@ -184,13 +190,12 @@ impl Ao {
         };
         let raw_group = group(dummy_color);
         let blur_group = group(&raw);
-        let scene = super::gpu3d::scene_bind_group(device, scene_layout, &output, dummy_depth);
         AoTargets {
             raw,
             output,
             raw_group,
             blur_group,
-            scene,
+            wide: reflections.is_some(),
         }
     }
     pub fn draw(&self, encoder: &mut wgpu::CommandEncoder, targets: &AoTargets) {
@@ -198,7 +203,11 @@ impl Ao {
             ("GTAO horizons", &self.raw_pipeline, &targets.raw_group, &targets.raw),
             (
                 "GTAO bilateral",
-                &self.blur_pipeline,
+                if targets.wide {
+                    &self.blur_wide_pipeline
+                } else {
+                    &self.blur_pipeline
+                },
                 &targets.blur_group,
                 &targets.output,
             ),
