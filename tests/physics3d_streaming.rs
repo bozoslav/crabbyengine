@@ -26,7 +26,7 @@ fn a_ball_rests_on_a_turned_and_scaled_terrain_tile_at_the_drawn_height_and_fall
     let corner = vec3(40.0, -3.0, 20.0);
     let tile_transform = Transform3D {
         position: corner,
-        rotation: Quat::from_rotation_y(0.5236),
+        rotation: Quat::from_rotation_y(std::f32::consts::FRAC_PI_6),
         scale: vec3(1.0, 2.0, 1.0),
     };
     let ground = Heightfield::new(&heights, size);

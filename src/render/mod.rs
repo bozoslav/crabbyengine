@@ -107,6 +107,8 @@ mod coverage_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod effect_shadow_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
+mod far_terrain_render_test;
+#[cfg(all(test, feature = "window", feature = "3d"))]
 mod light_shadow_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod lights_bench;
