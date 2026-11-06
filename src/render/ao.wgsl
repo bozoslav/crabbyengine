@@ -4,6 +4,8 @@
 struct Settings {
     inverse: mat4x4<f32>,
     projection: mat4x4<f32>,
+    previous: mat4x4<f32>,
+    temporal: vec4<f32>, // weight, rotation, half resolution, reserved
     camera: vec4<f32>,
     params: vec4<f32>, // radius, intensity (0: no AO), slices, steps
     sun: vec4<f32>,    // xyz: toward the sun; w: contact shadow length (0: none)
@@ -11,6 +13,7 @@ struct Settings {
 @group(0) @binding(0) var depth: texture_depth_multisampled_2d;
 @group(0) @binding(1) var image: texture_2d<f32>;
 @group(0) @binding(2) var<uniform> settings: Settings;
+@group(0) @binding(3) var history: texture_2d<f32>;
 struct Full { @builtin(position) at: vec4<f32> };
 @vertex fn vs_full(@builtin(vertex_index) i: u32) -> Full {
     var out: Full;
@@ -60,11 +63,11 @@ fn contact_shadow(p: vec2<i32>, center: vec3<f32>) -> f32 {
 }
 
 @fragment fn fs_ao(in: Full) -> @location(0) vec4<f32> {
-    let p = vec2<i32>(in.at.xy);
+    let p = coordinate(vec2<i32>(in.at.xy * select(1.0, 2.0, settings.temporal.z > 0.0)));
     if z_at(p) >= 0.999999 { return vec4<f32>(0.0); }
     let center = position(p);
     var contact = 0.0;
-    if settings.sun.w > 0.0 {
+    if settings.sun.w > 0.0 && settings.temporal.z == 0.0 {
         contact = contact_shadow(p, center);
     }
     if settings.params.y <= 0.0 {
@@ -86,7 +89,7 @@ fn contact_shadow(p: vec2<i32>, center: vec3<f32>) -> f32 {
     let pixel_radius = clamp(radius * length(vec3<f32>(settings.projection[0].y, settings.projection[1].y, settings.projection[2].y)) * f32(textureDimensions(depth).y) / max(abs(clip.w), 0.01) * 0.5, 1.0, 256.0);
     var visibility = 0.0;
     for (var slice = 0u; slice < u32(settings.params.z); slice++) {
-        let phi = (f32(slice) + 0.5) * 3.14159265 / settings.params.z;
+        let phi = (f32(slice) + 0.5 + settings.temporal.y) * 3.14159265 / settings.params.z;
         let direction = vec2<f32>(cos(phi), sin(phi));
         let neighbor = position(p + vec2<i32>(round(direction * 2.0)));
         let fallback = safe_normalize(cross(view, vec3<f32>(0.0, 1.0, 0.0)), vec3<f32>(1.0, 0.0, 0.0));
@@ -125,20 +128,43 @@ fn contact_shadow(p: vec2<i32>, center: vec3<f32>) -> f32 {
 }
 // Blue 1 marks screen-space reflections in the target's second level (an RG8
 // target drops it; see ssr.rs).
-@fragment fn fs_denoise(in: Full) -> @location(0) vec4<f32> {
+struct Resolved { @location(0) color: vec4<f32>, @location(1) history: vec4<f32> };
+fn resolve_ao(in: Full) -> Resolved {
     let p = vec2<i32>(in.at.xy);
-    if z_at(p) >= 0.999999 { return vec4<f32>(0.0, 0.0, 1.0, 0.0); }
+    if z_at(p) >= 0.999999 { return Resolved(vec4<f32>(0.0, 0.0, 1.0, 0.0), vec4<f32>(0.0)); }
     let center = position(p);
     var sum = vec2<f32>(0.0);
     var total = 0.0;
-    for (var y = -2; y <= 2; y++) {
-        for (var x = -2; x <= 2; x++) {
-            let at = coordinate(p + vec2<i32>(x, y));
+    let scale = select(1, 2, settings.temporal.z > 0.0);
+    let begin = select(-2, 0, scale == 2);
+    let end = select(2, 1, scale == 2);
+    let base = select(p, vec2<i32>(floor((vec2<f32>(p) + 0.5) / 2.0 - 0.5)), scale == 2);
+    for (var y = begin; y <= end; y++) {
+        for (var x = begin; x <= end; x++) {
+            let q = clamp(base + vec2<i32>(x, y), vec2<i32>(0), vec2<i32>(textureDimensions(image))-1);
+            let at = coordinate(q * scale + vec2<i32>(scale / 2));
+            if z_at(at) >= 0.999999 { continue; }
             let delta = position(at) - center;
-            let w = exp(-f32(x*x+y*y) * 0.25) * exp(-dot(delta, delta) / max(settings.params.x * settings.params.x * 0.01, 0.000001));
-            sum += textureLoad(image, at, 0).rg * w;
+            let w = exp(-dot(vec2<f32>(at-p) / f32(scale), vec2<f32>(at-p) / f32(scale)) * 0.25) * exp(-dot(delta, delta) / max(settings.params.x * settings.params.x * 0.01, 0.000001));
+            sum += textureLoad(image, q, 0).rg * w;
             total += w;
         }
     }
-    return vec4<f32>(sum / max(total, 0.00001), 1.0, 1.0);
+    var value = sum / max(total, 0.00001);
+    // Half-resolution tracing never softens the contact-shadow channel.
+    if scale == 2 && settings.sun.w > 0.0 { value.y = contact_shadow(p, center); }
+    let clip = settings.previous * vec4<f32>(center, 1.0);
+    let uv = clip.xy / clip.w * vec2<f32>(0.5, -0.5) + 0.5;
+    if settings.temporal.x > 0.0 && clip.w > 0.0 && all(uv >= vec2<f32>(0.0)) && all(uv < vec2<f32>(1.0)) {
+        let old = textureLoad(history, vec2<i32>(uv * vec2<f32>(textureDimensions(history))), 0);
+        // Store previous projected depth; reject newly exposed surfaces and sky.
+        if old.w > 0.0 && abs(old.z - clip.z) < max(0.001, abs(clip.z) * 0.002) {
+            value.x = mix(value.x, clamp(old.x, value.x - 0.15, value.x + 0.15), settings.temporal.x);
+        }
+    }
+    let depth_value = (settings.projection * vec4<f32>(center, 1.0)).z;
+    return Resolved(vec4<f32>(value, 1.0, 1.0), vec4<f32>(value, depth_value, 1.0));
 }
+
+@fragment fn fs_denoise(in: Full) -> Resolved { return resolve_ao(in); }
+@fragment fn fs_spatial(in: Full) -> @location(0) vec4<f32> { return resolve_ao(in).color; }

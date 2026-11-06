@@ -290,12 +290,13 @@ fn switching_presets_back_and_forth_renders_clean_full_size_frames() {
             (W * H * 4) as usize,
             "round {round}: the output is the window's size"
         );
-        assert_eq!(
-            first,
-            second,
-            "round {round} ({:?}): the first frame after the switch is as good as the next",
-            quality.level()
-        );
+        if quality.ao_temporal {
+            // Rotating AO slices and history deliberately change between frames.
+            let delta = difference(&first, &second);
+            assert!(delta < 1.0, "round {round}: temporal AO difference {delta}");
+        } else {
+            assert_eq!(first, second, "round {round}: stable spatial rendering");
+        }
         let lit = lit_corners(&first);
         assert!(
             lit[2] > 0 && lit[3] > 0,

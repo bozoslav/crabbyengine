@@ -76,6 +76,7 @@ impl QualityLevel {
 /// | `light_shadow_resolution` | 512 | 512 | 1024 | 2048 |
 /// | `light_shadow_atlas` | 1024 | 2048 | 4096 | 8192 |
 /// | `ambient_occlusion` (slices, steps) | off | off | 2, 4 | 4, 8 |
+/// | AO half resolution / temporal | off | off | on | on |
 /// | `ssr` | 0 | 0 | 1 | 1 |
 /// | `anti_aliasing` | none | FXAA | SMAA | SMAA |
 ///
@@ -121,6 +122,10 @@ pub struct GraphicsQuality {
     pub light_shadow_atlas: u32,
     /// [`AmbientOcclusion::enabled`](crate::AmbientOcclusion::enabled).
     pub ambient_occlusion: bool,
+    /// Trace at half resolution, with full-resolution bilateral upsampling.
+    pub ao_half_resolution: bool,
+    /// Reproject and accumulate GTAO history independently of TAA.
+    pub ao_temporal: bool,
     /// [`AmbientOcclusion::slices`](crate::AmbientOcclusion::slices), 1 to 8.
     pub ao_slices: u32,
     /// [`AmbientOcclusion::steps`](crate::AmbientOcclusion::steps), 1 to 16.
@@ -149,6 +154,8 @@ impl Default for GraphicsQuality {
             light_shadow_resolution: 1024,
             light_shadow_atlas: 4096,
             ambient_occlusion: false,
+            ao_half_resolution: false,
+            ao_temporal: false,
             ao_slices: 3,
             ao_steps: 6,
             ssr: 0.0,
@@ -181,6 +188,8 @@ impl GraphicsQuality {
             light_shadow_resolution: 512,
             light_shadow_atlas: 1024,
             ambient_occlusion: false,
+            ao_half_resolution: false,
+            ao_temporal: false,
             ao_slices: 2,
             ao_steps: 4,
             ssr: 0.0,
@@ -210,6 +219,8 @@ impl GraphicsQuality {
             light_shadow_resolution: 512,
             light_shadow_atlas: 2048,
             ambient_occlusion: false,
+            ao_half_resolution: false,
+            ao_temporal: false,
             ao_slices: 2,
             ao_steps: 4,
             ssr: 0.0,
@@ -239,6 +250,8 @@ impl GraphicsQuality {
             light_shadow_resolution: 1024,
             light_shadow_atlas: 4096,
             ambient_occlusion: true,
+            ao_half_resolution: true,
+            ao_temporal: true,
             ao_slices: 2,
             ao_steps: 4,
             ssr: 1.0,
@@ -270,6 +283,8 @@ impl GraphicsQuality {
             light_shadow_resolution: 2048,
             light_shadow_atlas: 8192,
             ambient_occlusion: true,
+            ao_half_resolution: true,
+            ao_temporal: true,
             ao_slices: 4,
             ao_steps: 8,
             ssr: 1.0,
@@ -329,6 +344,8 @@ impl GraphicsQuality {
                     .clamp(MIN_LIGHT_SHADOW_ATLAS, MAX_LIGHT_SHADOW_ATLAS),
             ),
             ambient_occlusion: self.ambient_occlusion,
+            ao_half_resolution: self.ao_half_resolution,
+            ao_temporal: self.ao_temporal,
             ao_slices: self.ao_slices.clamp(1, 8),
             ao_steps: self.ao_steps.clamp(1, 16),
             ssr: float(self.ssr, 0.0, 1.0, d.ssr),
@@ -363,6 +380,8 @@ impl Ctx {
             light_shadow_resolution: self.lighting.light_shadow_resolution,
             light_shadow_atlas: self.lighting.light_shadow_atlas,
             ambient_occlusion: self.post.ambient_occlusion.enabled,
+            ao_half_resolution: self.post.ao_half_resolution,
+            ao_temporal: self.post.ao_temporal,
             ao_slices: self.post.ambient_occlusion.slices,
             ao_steps: self.post.ambient_occlusion.steps,
             ssr: self.post.ssr,
@@ -392,6 +411,8 @@ impl Ctx {
         self.post.sharpen = q.sharpen;
         self.post.anti_aliasing = q.anti_aliasing;
         self.post.ambient_occlusion.enabled = q.ambient_occlusion;
+        self.post.ao_half_resolution = q.ao_half_resolution;
+        self.post.ao_temporal = q.ao_temporal;
         self.post.ambient_occlusion.slices = q.ao_slices;
         self.post.ambient_occlusion.steps = q.ao_steps;
         self.post.ssr = q.ssr;
@@ -501,6 +522,7 @@ mod tests {
             (8, 1024, 4096)
         );
         assert_eq!((high.ambient_occlusion, high.ao_slices, high.ao_steps), (true, 2, 4));
+        assert!(high.ao_half_resolution && high.ao_temporal);
         assert_eq!(high.anti_aliasing, AntiAliasing::Smaa);
         assert_eq!((low.ssr, medium.ssr, high.ssr), (0.0, 0.0, 1.0));
         let ultra = GraphicsQuality::ultra();
@@ -565,6 +587,8 @@ mod tests {
                 assert_eq!(ctx.post.render_scale, q.render_scale);
                 assert_eq!(ctx.lighting.shadow_resolution, q.shadow_resolution);
                 assert_eq!(ctx.post.ambient_occlusion.enabled, q.ambient_occlusion);
+                assert_eq!(ctx.post.ao_half_resolution, q.ao_half_resolution);
+                assert_eq!(ctx.post.ao_temporal, q.ao_temporal);
                 assert_eq!(ctx.post.ssr, q.ssr);
             }
         });

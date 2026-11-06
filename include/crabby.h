@@ -1200,6 +1200,8 @@ typedef struct CrabbyPost {
   float ao_intensity;
   uint32_t ao_slices;
   uint32_t ao_steps;
+  bool ao_half_resolution;
+  bool ao_temporal;
   float exposure;
   uint32_t tonemap;
   float bloom;
@@ -1230,6 +1232,8 @@ typedef struct CrabbyGraphicsQuality {
   bool ambient_occlusion;
   uint32_t ao_slices;
   uint32_t ao_steps;
+  bool ao_half_resolution;
+  bool ao_temporal;
   uint32_t anti_aliasing;
   uint32_t shadow_refresh;
   float ssr;
