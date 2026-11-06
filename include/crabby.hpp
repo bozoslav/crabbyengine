@@ -3047,7 +3047,7 @@ public:
     /// Exposure, bloom, color grading and tone mapping of the 3D frame.
     crabby::post post() const { crabby::post p{}; detail::check(crabby_ctx_post(raw_, &p)); return p; }
     /// Bloom, its threshold, contrast and saturation can't be negative; render_scale is
-    /// 0.25 to 2 and sharpen 0 to 1.
+    /// 0.25 to 2 and sharpen 0 to 1; contact_shadows can't be negative.
     void set_post(const crabby::post& p) { detail::check(crabby_ctx_set_post(raw_, &p)); }
     /// The current graphics quality, gathered from the post and lighting settings.
     crabby::graphics_quality graphics_quality() const {

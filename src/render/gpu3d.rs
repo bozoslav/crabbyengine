@@ -1793,17 +1793,31 @@ impl Renderer3D {
         let previous_view_proj = self.taa_previous.filter(|_| self.taa_on).unwrap_or(unjittered);
         self.moved_runs.clear();
         self.particles.prepare(device, queue, &frame.particles, view_proj);
-        self.ao_enabled = post.ambient_occlusion.enabled
+        let ao_on = post.ambient_occlusion.enabled
             && post.ambient_occlusion.radius.is_finite()
             && post.ambient_occlusion.intensity.is_finite()
             && post.ambient_occlusion.radius > 0.0
-            && post.ambient_occlusion.intensity > 0.0
-            && can_compute(device);
+            && post.ambient_occlusion.intensity > 0.0;
+        // Contact shadows block only the sun, and only while it's up.
+        let contact = if post.contact_shadows.is_finite() && lighting.sun_intensity > 0.0 {
+            post.contact_shadows.max(0.0)
+        } else {
+            0.0
+        };
+        // One full-screen pass makes both.
+        self.ao_enabled = (ao_on || contact > 0.0) && can_compute(device);
         if self.ao_enabled && self.ao.is_none() {
             self.ao = Some(super::screen::Ao::new(device));
         }
         if let Some(ao) = &self.ao {
-            ao.prepare(queue, view_proj, camera, &post.ambient_occlusion);
+            let sun = (-lighting.sun_direction).try_normalize().unwrap_or(Vec3::Y);
+            ao.prepare(
+                queue,
+                view_proj,
+                camera,
+                ao_on.then_some(&post.ambient_occlusion),
+                (sun, contact),
+            );
         }
         if self.targets.as_ref().is_some_and(|t| t.size != size) || self.aa != crate::AntiAliasing::Smaa {
             self.smaa = None;

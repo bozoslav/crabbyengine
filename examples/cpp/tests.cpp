@@ -302,6 +302,8 @@ static void three_d() {
         throws([&] { ctx.set_post(invalid_post); });
         invalid_post = post; invalid_post.taa_sharpness = 2;
         throws([&] { ctx.set_post(invalid_post); });
+        invalid_post = post; invalid_post.contact_shadows = -1;
+        throws([&] { ctx.set_post(invalid_post); });
         {
             auto temporal = post;
             temporal.anti_aliasing = uint32_t(crabby::anti_aliasing::taa);

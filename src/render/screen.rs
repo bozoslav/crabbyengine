@@ -1,4 +1,5 @@
-//! Full-resolution, fragment-only GTAO and bilateral denoising.
+//! Full-resolution, fragment-only GTAO and contact shadows, and bilateral
+//! denoising: occlusion in red, the contact shadow in green.
 use glam::{Mat4, Vec3};
 use wgpu::util::DeviceExt;
 
@@ -9,6 +10,7 @@ struct Settings {
     projection: [[f32; 4]; 4],
     camera: [f32; 4],
     params: [f32; 4],
+    sun: [f32; 4],
 }
 pub(super) struct Ao {
     layout: wgpu::BindGroupLayout,
@@ -73,7 +75,7 @@ impl Ao {
                     entry_point: Some(entry),
                     compilation_options: Default::default(),
                     targets: &[Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::R8Unorm,
+                        format: wgpu::TextureFormat::Rg8Unorm,
                         blend: None,
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
@@ -99,7 +101,21 @@ impl Ao {
             uniform,
         }
     }
-    pub fn prepare(&self, queue: &wgpu::Queue, view_proj: Mat4, camera: Vec3, ao: &crate::AmbientOcclusion) {
+    /// `ao`: `None` for contact shadows alone. `sun`: toward the sun, and
+    /// the contact shadows' length (0: none).
+    pub fn prepare(
+        &self,
+        queue: &wgpu::Queue,
+        view_proj: Mat4,
+        camera: Vec3,
+        ao: Option<&crate::AmbientOcclusion>,
+        sun: (Vec3, f32),
+    ) {
+        let off = crate::AmbientOcclusion {
+            intensity: 0.0,
+            ..Default::default()
+        };
+        let ao = ao.unwrap_or(&off);
         queue.write_buffer(
             &self.uniform,
             0,
@@ -113,6 +129,7 @@ impl Ao {
                     ao.slices.clamp(1, 8) as f32,
                     ao.steps.clamp(1, 16) as f32,
                 ],
+                sun: sun.0.normalize_or_zero().extend(sun.1).to_array(),
             }),
         );
     }
@@ -137,7 +154,7 @@ impl Ao {
                     mip_level_count: 1,
                     sample_count: 1,
                     dimension: wgpu::TextureDimension::D2,
-                    format: wgpu::TextureFormat::R8Unorm,
+                    format: wgpu::TextureFormat::Rg8Unorm,
                     usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
                     view_formats: &[],
                 })

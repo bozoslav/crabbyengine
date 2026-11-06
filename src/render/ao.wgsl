@@ -5,7 +5,8 @@ struct Settings {
     inverse: mat4x4<f32>,
     projection: mat4x4<f32>,
     camera: vec4<f32>,
-    params: vec4<f32>, // radius, intensity, slices, steps
+    params: vec4<f32>, // radius, intensity (0: no AO), slices, steps
+    sun: vec4<f32>,    // xyz: toward the sun; w: contact shadow length (0: none)
 };
 @group(0) @binding(0) var depth: texture_depth_multisampled_2d;
 @group(0) @binding(1) var image: texture_2d<f32>;
@@ -28,10 +29,47 @@ fn position(p: vec2<i32>) -> vec3<f32> {
     let h = settings.inverse * vec4<f32>(uv * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0), z_at(p), 1.0);
     return h.xyz / h.w;
 }
+// Steps of the march toward the sun for contact shadows.
+const CONTACT_STEPS: i32 = 12;
+
+// 1 where something on screen blocks the sun within `settings.sun.w` of
+// `center` (pixel `p`), else 0: a march toward the sun, each step tested
+// against the depth there. Only what's in front of a step by no more than
+// the march length counts, so a wall far behind doesn't shade a point.
+fn contact_shadow(p: vec2<i32>, center: vec3<f32>) -> f32 {
+    let length = settings.sun.w;
+    let size = vec2<f32>(textureDimensions(depth));
+    let eye = distance(center, settings.camera.xyz);
+    // The depth buffer's precision falls with distance: so does trust.
+    let bias = 0.02 + eye * 0.002;
+    let jitter = fract(52.9829189 * fract(dot(vec2<f32>(p), vec2<f32>(0.06711056, 0.00583715))));
+    for (var i = 0; i < CONTACT_STEPS; i++) {
+        let at = center + settings.sun.xyz * length * (f32(i) + jitter + 0.5) / f32(CONTACT_STEPS);
+        let clip = settings.projection * vec4<f32>(at, 1.0);
+        if clip.w <= 0.0 { break; }
+        let uv = clip.xy / clip.w * vec2<f32>(0.5, -0.5) + 0.5;
+        if any(uv < vec2<f32>(0.0)) || any(uv >= vec2<f32>(1.0)) { break; }
+        let q = vec2<i32>(uv * size);
+        if z_at(q) >= 0.999999 { continue; }
+        let gap = distance(at, settings.camera.xyz) - distance(position(q), settings.camera.xyz);
+        if gap > bias && gap < length {
+            return 1.0;
+        }
+    }
+    return 0.0;
+}
+
 @fragment fn fs_ao(in: Full) -> @location(0) vec4<f32> {
     let p = vec2<i32>(in.at.xy);
     if z_at(p) >= 0.999999 { return vec4<f32>(0.0); }
     let center = position(p);
+    var contact = 0.0;
+    if settings.sun.w > 0.0 {
+        contact = contact_shadow(p, center);
+    }
+    if settings.params.y <= 0.0 {
+        return vec4<f32>(0.0, contact, 0.0, 1.0);
+    }
     let view = normalize(settings.camera.xyz - center);
     // Use the less discontinuous neighbor on either side of each axis.
     let left = center - position(p - vec2<i32>(1, 0));
@@ -83,22 +121,22 @@ fn position(p: vec2<i32>) -> vec3<f32> {
         visibility += projected_length * 0.25 * (2.0 * cos_n + 2.0 * (h1 + h2) * sin(angle_n) - cos(2.0 * h1 - angle_n) - cos(2.0 * h2 - angle_n));
     }
     let ao = pow(clamp(visibility / settings.params.z, 0.0, 1.0), settings.params.y);
-    return vec4<f32>(1.0 - ao, 0.0, 0.0, 1.0);
+    return vec4<f32>(1.0 - ao, contact, 0.0, 1.0);
 }
 @fragment fn fs_denoise(in: Full) -> @location(0) vec4<f32> {
     let p = vec2<i32>(in.at.xy);
     if z_at(p) >= 0.999999 { return vec4<f32>(0.0); }
     let center = position(p);
-    var sum = 0.0;
+    var sum = vec2<f32>(0.0);
     var total = 0.0;
     for (var y = -2; y <= 2; y++) {
         for (var x = -2; x <= 2; x++) {
             let at = coordinate(p + vec2<i32>(x, y));
             let delta = position(at) - center;
             let w = exp(-f32(x*x+y*y) * 0.25) * exp(-dot(delta, delta) / max(settings.params.x * settings.params.x * 0.01, 0.000001));
-            sum += textureLoad(image, at, 0).r * w;
+            sum += textureLoad(image, at, 0).rg * w;
             total += w;
         }
     }
-    return vec4<f32>(sum / max(total, 0.00001), 0.0, 0.0, 1.0);
+    return vec4<f32>(sum / max(total, 0.00001), 0.0, 1.0);
 }

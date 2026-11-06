@@ -1060,9 +1060,11 @@ fn ao_and_aa_settings_preserve_existing_defaults() {
             slices: 3,
             steps: 6,
         };
+        ctx.post.contact_shadows = 0.3; // small, sharp sun shadows under feet and props
         ctx.post.anti_aliasing = AntiAliasing::Smaa;
         // ANCHOR_END: ao_aa
         assert_eq!(ctx.post.ambient_occlusion.radius, 1.5);
+        assert_eq!(ctx.post.contact_shadows, 0.3);
     });
 }
 

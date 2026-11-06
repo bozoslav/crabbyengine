@@ -563,6 +563,9 @@ pub struct CrabbyPost {
     pub lut: CrabbyTexture,
     /// How much TAA sharpens its result, 0 to 1 (default 0.25).
     pub taa_sharpness: f32,
+    /// Contact shadows: how far each pixel looks toward the sun for
+    /// something close blocking it, in world units; 0 (default) is off.
+    pub contact_shadows: f32,
 }
 
 /// Triangles on the CPU (Rust `MeshData`), before `crabby_ctx_create_mesh`
@@ -2360,6 +2363,7 @@ pub unsafe extern "C" fn crabby_ctx_post(ctx: *mut CrabbyCtx, out_post: *mut Cra
                         height: 0,
                     }),
                     taa_sharpness: p.taa_sharpness,
+                    contact_shadows: p.contact_shadows,
                 },
             )
         })
@@ -2368,7 +2372,8 @@ pub unsafe extern "C" fn crabby_ctx_post(ctx: *mut CrabbyCtx, out_post: *mut Cra
 
 /// Changes the 3D post-processing settings. `tonemap` must be 0 to 3;
 /// bloom, its threshold, contrast and saturation can't be negative;
-/// `render_scale` is 0.25 to 2 and `sharpen` 0 to 1.
+/// `render_scale` is 0.25 to 2 and `sharpen` 0 to 1; `contact_shadows`
+/// can't be negative.
 /// # Safety
 /// `ctx` null or live; `post` valid.
 /// ```
@@ -2391,6 +2396,9 @@ pub unsafe extern "C" fn crabby_ctx_set_post(ctx: *mut CrabbyCtx, post: *const C
             };
             if !(0.0..=1.0).contains(&p.taa_sharpness) {
                 return Err(invalid("taa_sharpness must be 0 to 1"));
+            }
+            if !(p.contact_shadows.is_finite() && p.contact_shadows >= 0.0) {
+                return Err(invalid("contact_shadows can't be negative"));
             }
             if !p.ao_radius.is_finite()
                 || p.ao_radius <= 0.0
@@ -2450,6 +2458,7 @@ pub unsafe extern "C" fn crabby_ctx_set_post(ctx: *mut CrabbyCtx, post: *const C
                 tint: p.tint,
                 vignette: p.vignette,
                 lut: p.has_lut.then(|| texture_from_c(p.lut)),
+                contact_shadows: p.contact_shadows,
             };
             Ok(())
         })

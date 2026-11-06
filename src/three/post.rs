@@ -122,6 +122,13 @@ pub struct Post {
     pub sharpen: f32,
     /// Ambient-only GTAO, before opaque lighting.
     pub ambient_occlusion: AmbientOcclusion,
+    /// Contact shadows: how far, in world units, each pixel looks toward
+    /// the sun across the depth buffer for something close that blocks
+    /// it. They catch the small shadows the shadow map is too coarse for:
+    /// under feet, pebbles and cups, in creases. 0 (the default) is off;
+    /// 0.3 suits people and props. Only things on screen cast them. Shares
+    /// a full-screen pass with [`AmbientOcclusion`] (one pass for both).
+    pub contact_shadows: f32,
     /// Post antialiasing. Default off to preserve existing scenes.
     pub anti_aliasing: AntiAliasing,
     /// How much [`AntiAliasing::Taa`] sharpens the result (it softens the
@@ -160,6 +167,7 @@ impl Default for Post {
             render_scale: 1.0,
             sharpen: 0.0,
             ambient_occlusion: AmbientOcclusion::default(),
+            contact_shadows: 0.0,
             anti_aliasing: AntiAliasing::None,
             taa_sharpness: 0.25,
             exposure: 0.0,
