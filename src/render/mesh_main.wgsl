@@ -1,6 +1,7 @@
 // The entry points of every material shader (see mesh.wgsl).
 
 struct VertexIn {
+    @builtin(instance_index) instance_index: u32,
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
@@ -37,6 +38,7 @@ fn world_vertex(in: VertexIn) -> Vertex {
     let scale = vec3<f32>(length(in.m0.xyz), length(in.m1.xyz), length(in.m2.xyz));
     let normal = mat3x3<f32>(in.m0.xyz, in.m1.xyz, in.m2.xyz) * (in.normal / max(scale * scale, vec3<f32>(1e-12)));
     var v: Vertex;
+    v.instance_index = in.instance_index;
     v.position = (model * vec4<f32>(in.position, 1.0)).xyz;
     v.normal = normal;
     v.uv = in.uv;

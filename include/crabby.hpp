@@ -148,6 +148,7 @@ using material_desc = CrabbyMaterialDesc;
 using shader = CrabbyShader;
 /// A compute pass shader in WGSL (ctx::load_compute, ctx::create_compute).
 using compute = CrabbyCompute;
+using gpu_buffer = CrabbyGpuBuffer;
 /// One compute pass run each frame (Rust `ComputePass`); see compute_pass_of.
 using compute_pass = CrabbyComputePass;
 /// A screen effect shader in WGSL (ctx::load_effect, ctx::create_effect).
@@ -445,10 +446,13 @@ inline material_desc material_of(color c) { return crabby_material_desc(c); }
 /// material when `m` is left out).
 inline screen_effect screen_effect_of(effect e) { return {e, false, {}}; }
 inline screen_effect screen_effect_of(effect e, material m) { return {e, true, m}; }
+/// Runs `fn update(i: u32)` on every buffer element, with optional material inputs.
+inline compute_pass buffer_compute_pass(compute c, gpu_buffer b) { return {true, b, c, {}, false, {}}; }
+inline compute_pass buffer_compute_pass(compute c, gpu_buffer b, material m) { return {true, b, c, {}, true, m}; }
 /// Runs `c` on render target `target`, reading its values and textures
 /// from `m` (or from the default material when `m` is left out).
-inline compute_pass compute_pass_of(compute c, texture target) { return {c, target, false, {}}; }
-inline compute_pass compute_pass_of(compute c, texture target, material m) { return {c, target, true, m}; }
+inline compute_pass compute_pass_of(compute c, texture target) { return {false, {}, c, target, false, {}}; }
+inline compute_pass compute_pass_of(compute c, texture target, material m) { return {false, {}, c, target, true, m}; }
 /// `c` drawing into render target `target` (ctx::create_render_target),
 /// with no clip plane.
 inline target_camera target_camera_of(const camera3d& c, texture target) { return {c, target, false, {0, 0, 0, 0}}; }
@@ -2655,6 +2659,17 @@ public:
     }
     /// Replaces the screen effects run each frame (empty: none).
     void set_effects(const std::vector<screen_effect>& list) { detail::check(crabby_ctx_set_effects(raw_, list.data(), list.size())); }
+    /// Zeroed or initialized GPU vec4 storage, updated without CPU particle work.
+    gpu_buffer create_gpu_buffer(uint32_t len, const std::vector<std::array<float, 4>>& data = {}) {
+        gpu_buffer b{}; detail::check(crabby_ctx_create_gpu_buffer(raw_, len,
+            reinterpret_cast<const float (*)[4]>(data.data()), data.size(), &b)); return b;
+    }
+    void write_gpu_buffer(gpu_buffer b, uint32_t offset, const std::vector<std::array<float, 4>>& data) {
+        detail::check(crabby_ctx_write_gpu_buffer(raw_, b, offset, reinterpret_cast<const float (*)[4]>(data.data()), data.size()));
+    }
+    void set_mesh_gpu_buffer(mesh m, gpu_buffer b, uint32_t count) {
+        detail::check(crabby_ctx_set_mesh_gpu_buffer(raw_, m, b, count));
+    }
     /// Loads a compute pass (WGSL defining `fn compute(c: Cell) -> vec4<f32>`)
     /// from assets/, hot reloaded; the same file again gives the same one.
     crabby::compute load_compute(const char* path) { crabby::compute c{}; detail::check(crabby_ctx_load_compute(raw_, path, &c)); return c; }

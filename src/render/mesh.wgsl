@@ -79,6 +79,7 @@ struct MaterialData {
 
 // A vertex in world space, as a shader's `vertex` function gets and returns it.
 struct Vertex {
+    instance_index: u32, // index into a mesh GPU buffer
     position: vec3<f32>,
     normal: vec3<f32>,
     uv: vec2<f32>,

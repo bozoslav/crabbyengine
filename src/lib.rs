@@ -166,8 +166,8 @@ pub use texture::{DrawParams, Texture, TextureFilter};
 pub use three::{
     AmbientOcclusion, AnimationClip, AnimationCondition, AnimationEvent, AnimationGraph, AnimationLayer,
     AnimationParameter, AnimationState, AnimationTrack, AnimationTransition, Animator, AntiAliasing, AttachToJoint,
-    Blend, Camera3D, Compute, ComputePass, Decal3D, Effect, GraphicsQuality, Heightfield, Interpolation, Joint,
-    JointAnimation, JointMask, LIGHT_SHADOW_SIZE, LayerBlend, Lighting, Line3D, LodGroup, LodLevel, LodPick,
+    Blend, Camera3D, Compute, ComputePass, Decal3D, Effect, GpuBuffer, GraphicsQuality, Heightfield, Interpolation,
+    Joint, JointAnimation, JointMask, LIGHT_SHADOW_SIZE, LayerBlend, Lighting, Line3D, LodGroup, LodLevel, LodPick,
     LodRenderer, LodSettings, LodShadow, MAX_DECALS, MAX_DECALS_PER_CLUSTER, MAX_LIGHT_SHADOW_VIEWS, MAX_RENDER_SCALE,
     MIN_RENDER_SCALE, Material, MaterialDesc, Mesh, MeshCost, MeshData, Model, MorphAnimation, MorphFrame, MorphTarget,
     MorphWeights, Motion, MotionChild, ParticleBlend3D, ParticleCurve, ParticleEmitter3D, ParticleGradient,

@@ -2089,6 +2089,22 @@ static void world_text_snippet() {
 }
 // ANCHOR_END: text3d
 
+// ANCHOR: gpu_buffers
+static void gpu_particles(crabby::ctx& ctx) {
+    auto items = ctx.create_gpu_buffer(128);
+    auto update = ctx.create_compute("particles", "fn update(i: u32) { items[i].y += frame.time.y; }");
+    ctx.set_compute_passes({crabby::buffer_compute_pass(update, items)});
+    auto shader = ctx.create_shader("particles", "fn vertex(v: Vertex) -> Vertex { var o = v; o.position += items[v.instance_index].xyz; return o; }");
+    auto desc = crabby::material_of(crabby::colors::white);
+    desc.has_shader = true;
+    desc.shader = shader;
+    auto material = ctx.create_material(desc);
+    auto mesh = ctx.create_mesh(crabby::mesh_data::cube(0.05f), material);
+    ctx.set_mesh_gpu_buffer(mesh, items, 128);
+    ctx.world().spawn(crabby::transform3d_at({0, 0, 0}), crabby::model_of(mesh));
+}
+// ANCHOR_END: gpu_buffers
+
 int main() {
     navigation_guide();
     crabby::game("shop guide", 900, 700).run_headless(0, shop_guide);
@@ -2225,6 +2241,7 @@ int main() {
     (void)&score_point;
     (void)&my_game;
     (void)&controls;
+    crabby::game("gpu buffers", 1, 1).run_headless(0, gpu_particles);
     world_text_snippet();
     action_map_snippet();
     std::puts("guide snippets ok");

@@ -1134,3 +1134,41 @@ fn lod_groups_in_the_importers_json_shape_load() {
         assert_eq!(group.center, vec3(0.0, 1.0, -2.0));
     });
 }
+
+// ANCHOR: gpu_buffers
+fn gpu_particles(ctx: &mut Ctx) -> GpuBuffer {
+    let items = ctx.create_gpu_buffer(128, &[]);
+    let update = ctx.create_compute("particles", "fn update(i: u32) { items[i].y += frame.time.y; }");
+    ctx.compute_passes.push(ComputePass::for_buffer(update, items));
+    let shader = ctx.create_shader(
+        "particles",
+        "fn vertex(v: Vertex) -> Vertex { var o = v; o.position += items[v.instance_index].xyz; return o; }",
+    );
+    let material = ctx.create_material(MaterialDesc {
+        shader: Some(shader),
+        ..Default::default()
+    });
+    let mesh = ctx.create_mesh(&MeshData::cube(0.05), material);
+    ctx.set_mesh_gpu_buffer(mesh, items, 128);
+    ctx.world.spawn((Transform3D::default(), Model::new(mesh)));
+    items
+}
+// ANCHOR_END: gpu_buffers
+#[test]
+fn gpu_buffers_support_headless_setup_and_writes() {
+    Game::new("buffers", 1, 1).run_headless(1, |ctx| {
+        let b = gpu_particles(ctx);
+        assert_eq!(ctx.gpu_buffer_len(b), Some(128));
+        ctx.write_gpu_buffer(b, 127, &[Vec4::ONE]);
+        ctx.write_gpu_buffer(b, 128, &[]);
+        assert_eq!(ctx.compute_passes[0].buffer, Some(b));
+    });
+}
+#[test]
+#[should_panic(expected = "out of bounds")]
+fn gpu_buffer_writes_validate_ranges() {
+    Game::new("buffers", 1, 1).run_headless(0, |ctx| {
+        let b = ctx.create_gpu_buffer(1, &[]);
+        ctx.write_gpu_buffer(b, 1, &[Vec4::ONE]);
+    });
+}
