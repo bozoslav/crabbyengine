@@ -2162,12 +2162,7 @@ impl Renderer3D {
         let gi_frame = frame.gi.as_deref().filter(|_| self.frame_sources.gi);
         if let Some(g) = gi_frame {
             let gi = self.gi.get_or_insert_with(|| {
-                super::gi::Gi::new(
-                    device,
-                    &self.frame_sources.layout,
-                    self.samples,
-                    size_of::<FrameUniform>() as u64,
-                )
+                super::gi::Gi::new(device, self.samples, size_of::<FrameUniform>() as u64)
             });
             let mut remade = gi.prepare(device, queue, g) || gi.face_groups.is_empty();
             remade |= gi.lights.upload(device, queue, &g.capture.lights, &g.capture.decals);
@@ -2992,6 +2987,7 @@ impl Renderer3D {
     /// Makes global illumination's probe views' frame bind groups again.
     fn rebind_gi(&mut self, device: &wgpu::Device) {
         if let Some(gi) = &mut self.gi {
+            gi.set_sky(device, &self.frame_sources.sky_view, &self.frame_sources.sky_sampler);
             gi.face_groups = gi
                 .face_buffers
                 .iter()
@@ -3720,8 +3716,6 @@ impl Renderer3D {
         }
     }
 
-    /// One target camera's view: depth prepass, then the lit solid models
-    /// and the sky, resolved into its render target.
     /// Global illumination's part of the frame (see `gi.rs`): the probe
     /// views' sun shadow map, the views (cut-outs' coverage first, then
     /// lit), and the probes' update from them.
@@ -3804,9 +3798,11 @@ impl Renderer3D {
             beginning_of_pass_write_index: t.beginning_of_pass_write_index,
             end_of_pass_write_index: t.end_of_pass_write_index,
         });
-        gi.update(encoder, &self.frame_bind_group, timestamps);
+        gi.update(encoder, timestamps);
     }
 
+    /// One target camera's view: depth prepass, then the lit solid models
+    /// and the sky, resolved into its render target.
     fn draw_view<'t>(
         &self,
         encoder: &mut wgpu::CommandEncoder,

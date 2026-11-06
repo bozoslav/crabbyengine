@@ -13,7 +13,8 @@ use super::lights::LightTextures;
 use crate::three::MAX_GI_PROBES_PER_FRAME;
 use crate::three::gi::{GI_SHADOW_SIZE, GiFrame};
 
-/// Each probe view's width and height, in pixels.
+/// Each probe view's width and height, in pixels (`GI_VIEW` in
+/// `gi_update.wgsl`).
 pub(super) const VIEW_SIZE: u32 = 16;
 /// The most probes the views have room for.
 const MAX_UPDATES: u32 = MAX_GI_PROBES_PER_FRAME;
@@ -42,6 +43,11 @@ struct Updates {
 
 pub(super) struct Gi {
     layout: wgpu::BindGroupLayout,
+    /// The update's group 0: only the sky's light (the frame's bindings 3
+    /// and 4). Binding the whole frame there (its shadow maps) in a compute
+    /// pass costs a millisecond on some GPUs.
+    sky_layout: wgpu::BindGroupLayout,
+    sky_group: Option<wgpu::BindGroup>,
     pipeline: wgpu::ComputePipeline,
     uniform: wgpu::Buffer,
     atlas: wgpu::Texture,
@@ -71,9 +77,9 @@ pub(super) struct Gi {
 }
 
 impl Gi {
-    /// `frame_layout`: the material shaders' frame bindings, which the
-    /// update reads the sky from.
-    pub fn new(device: &wgpu::Device, frame_layout: &wgpu::BindGroupLayout, samples: u32, uniform_size: u64) -> Self {
+    /// `samples`: the views' multisampling; `uniform_size`: a view's frame
+    /// uniform's size.
+    pub fn new(device: &wgpu::Device, samples: u32, uniform_size: u64) -> Self {
         let texture = |entry: wgpu::BindingType, binding| wgpu::BindGroupLayoutEntry {
             binding,
             visibility: wgpu::ShaderStages::COMPUTE,
@@ -116,13 +122,27 @@ impl Gi {
                 ),
             ],
         });
+        let sky_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("3d gi sky layout"),
+            entries: &[
+                texture(
+                    wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    3,
+                ),
+                texture(wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), 4),
+            ],
+        });
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("3d gi update"),
             source: wgpu::ShaderSource::Wgsl(super::gpu3d::gi_update_source().into()),
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("3d gi update"),
-            bind_group_layouts: &[Some(frame_layout), None, None, Some(&layout)],
+            bind_group_layouts: &[Some(&sky_layout), None, None, Some(&layout)],
             immediate_size: 0,
         });
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -208,6 +228,8 @@ impl Gi {
         let group = Self::group(device, &layout, &uniform, &resolve, &depth, &atlas_view, &scratch);
         Self {
             layout,
+            sky_layout,
+            sky_group: None,
             pipeline,
             uniform,
             atlas,
@@ -241,7 +263,7 @@ impl Gi {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: ATLAS_FORMAT,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
         let view = atlas.create_view(&Default::default());
@@ -276,6 +298,25 @@ impl Gi {
                 view(4, &scratch),
             ],
         })
+    }
+
+    /// Binds the sky's light (the frame's sky texture and sampler) for the
+    /// update.
+    pub fn set_sky(&mut self, device: &wgpu::Device, sky: &wgpu::TextureView, sampler: &wgpu::Sampler) {
+        self.sky_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("3d gi sky"),
+            layout: &self.sky_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(sky),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::Sampler(sampler),
+                },
+            ],
+        }));
     }
 
     /// Rows of tiles the atlas has.
@@ -326,12 +367,10 @@ impl Gi {
 
     /// The update pass, after the views are drawn: each probe's tiles into
     /// the scratch image, then into the atlas.
-    pub fn update(
-        &self,
-        encoder: &mut wgpu::CommandEncoder,
-        frame_group: &wgpu::BindGroup,
-        timestamps: Option<wgpu::ComputePassTimestampWrites<'_>>,
-    ) {
+    pub fn update(&self, encoder: &mut wgpu::CommandEncoder, timestamps: Option<wgpu::ComputePassTimestampWrites<'_>>) {
+        let Some(sky) = &self.sky_group else {
+            return;
+        };
         if self.updates.is_empty() {
             return;
         }
@@ -341,7 +380,7 @@ impl Gi {
                 timestamp_writes: timestamps,
             });
             pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, frame_group, &[]);
+            pass.set_bind_group(0, sky, &[]);
             pass.set_bind_group(3, &self.group, &[]);
             pass.dispatch_workgroups(5, 1, self.updates.len() as u32);
         }

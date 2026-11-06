@@ -16,6 +16,7 @@ struct Rig {
     textures: Vec<GpuTexture>,
     renderer: Renderer3D,
     ctx: Ctx,
+    size: (u32, u32),
 }
 
 impl Rig {
@@ -23,6 +24,12 @@ impl Rig {
     /// false: a device at the default limits (16 texture slots, as WebGL2),
     /// which can't.
     fn new(slots: bool) -> Option<Self> {
+        Self::sized(slots, (SIZE, SIZE))
+    }
+
+    /// [`new`](Self::new), drawing `size` pixels, with GPU timestamps
+    /// where the GPU has them.
+    fn sized(slots: bool, size: (u32, u32)) -> Option<Self> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
             eprintln!("no GPU adapter: skipped");
@@ -38,6 +45,7 @@ impl Rig {
                 },
                 ..wgpu::Limits::default()
             },
+            required_features: adapter.features() & wgpu::Features::TIMESTAMP_QUERY,
             ..Default::default()
         })) else {
             eprintln!("no GPU device: skipped");
@@ -116,8 +124,8 @@ impl Rig {
         let output = device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size: wgpu::Extent3d {
-                width: SIZE,
-                height: SIZE,
+                width: size.0,
+                height: size.1,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -129,7 +137,7 @@ impl Rig {
         });
         let target = output.create_view(&Default::default());
         let renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
-        let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
+        let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(size.0 as f32, size.1 as f32));
         ctx.sky.atmosphere = false;
         ctx.assets3d.decals_supported = supports_decals(&device);
         ctx.assets3d.gi_supported = true;
@@ -141,6 +149,7 @@ impl Rig {
             textures,
             renderer,
             ctx,
+            size,
         })
     }
 
@@ -159,6 +168,19 @@ impl Rig {
     /// last one back (RGBA).
     fn draw(&mut self, frames: usize) -> Vec<u8> {
         for _ in 0..frames {
+            let _ = self.frame(None);
+        }
+        self.read_back()
+    }
+
+    /// Collects and draws one frame, timed by `timer`; returns how long the
+    /// GPU took from the submit to finishing it, in milliseconds.
+    fn frame(&mut self, mut timer: Option<&mut super::timer::GpuTimer>) -> f64 {
+        if let Some(t) = timer.as_deref_mut() {
+            t.collect(&self.device);
+            t.begin_frame();
+        }
+        {
             let ctx = &mut self.ctx;
             ctx.frame3d.lod = ctx.lod;
             ctx.frame3d.collect(
@@ -192,17 +214,32 @@ impl Rig {
                 &Prepare3D {
                     scene: &scene,
                     lut: None,
-                    size: (SIZE, SIZE),
+                    size: self.size,
                 },
             );
-            let buffers = self
-                .renderer
-                .draw(&self.device, &self.target, wgpu::Color::BLACK, &self.textures, None);
+            let mut buffers =
+                self.renderer
+                    .draw(&self.device, &self.target, wgpu::Color::BLACK, &self.textures, timer.as_deref());
+            if let Some(t) = timer.as_deref_mut() {
+                let mut encoder = self.device.create_command_encoder(&Default::default());
+                t.resolve(&mut encoder);
+                buffers.push(encoder.finish());
+            }
+            let start = std::time::Instant::now();
             self.queue.submit(buffers);
+            if let Some(t) = timer {
+                t.submitted();
+            }
+            self.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+            start.elapsed().as_secs_f64() * 1000.0
         }
+    }
+
+    /// The last frame drawn (RGBA).
+    fn read_back(&self) -> Vec<u8> {
         let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size: u64::from(SIZE * SIZE * 4),
+            size: u64::from(self.size.0 * self.size.1 * 4),
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
@@ -213,7 +250,7 @@ impl Rig {
                 buffer: &readback,
                 layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(SIZE * 4),
+                    bytes_per_row: Some(self.size.0 * 4),
                     rows_per_image: None,
                 },
             },
@@ -332,4 +369,111 @@ fn without_the_texture_slot_bounced_light_is_skipped() {
     };
     on.ctx.assets3d.gi_supported = true; // even if the engine asked for it
     assert_eq!(off.draw(1), on.draw(3));
+}
+
+/// GPU cost of global illumination in a town-like scene at 1280x720: off,
+/// at the defaults, and at the most probes a frame. Run in release
+/// (`cargo test --release --lib --features 3d -- --ignored --nocapture
+/// gi_cost`); prints the GPU frame time and the GI passes' times from the
+/// engine's timestamp profiler, and the CPU time to collect a frame.
+#[test]
+#[ignore = "benchmark: run in release"]
+fn gi_cost() {
+    let Some(mut rig) = Rig::sized(true, (1280, 720)) else {
+        return;
+    };
+    let Some(mut timer) = super::timer::GpuTimer::new(&rig.device, &rig.queue) else {
+        eprintln!("no GPU timestamps: skipped");
+        return;
+    };
+    let white = rig.mesh(&MeshData::cube(1.0), MaterialDesc::color(Color::WHITE));
+    let tinted = rig.mesh(&MeshData::cube(1.0), MaterialDesc::color(Color::rgb(0.8, 0.5, 0.3)));
+    rig.block(white, vec3(-60.0, -1.0, -60.0), vec3(60.0, 0.0, 60.0));
+    // 30 x 30 buildings, 4 apart, 3 to 12 high.
+    let mut seed = 7u32;
+    let mut random = move || {
+        seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+        (seed >> 8) as f32 / (1 << 24) as f32
+    };
+    for i in 0..30 {
+        for j in 0..30 {
+            let at = vec3(i as f32 * 4.0 - 58.0, 0.0, j as f32 * 4.0 - 58.0);
+            let mesh = if (i + j) % 3 == 0 { tinted } else { white };
+            let height = 3.0 + random() * 9.0;
+            rig.block(mesh, at, at + vec3(2.5, height, 2.5));
+        }
+    }
+    rig.ctx.lighting.sun_direction = vec3(-0.4, -1.0, -0.3);
+    rig.ctx.camera3d.position = vec3(1.0, 1.7, 1.0);
+    rig.ctx.camera3d.look_at(vec3(20.0, 3.0, 12.0));
+    rig.ctx.camera3d.far = 200.0;
+    // Rounds of every setting, each setting's best round kept: this runs
+    // on machines doing other things too.
+    let settings = [
+        ("off", None),
+        ("defaults (4 probes a frame)", Some(GlobalIllumination::default().probes_per_frame)),
+        ("16 probes a frame", Some(MAX_GI_PROBES_PER_FRAME)),
+    ];
+    let mut best = vec![(f32::MAX, f64::MAX, f64::MAX, String::new()); settings.len()];
+    for _ in 0..5 {
+        for (k, &(_, gi)) in settings.iter().enumerate() {
+            rig.ctx.lighting.gi = GlobalIllumination {
+                enabled: gi.is_some(),
+                probes_per_frame: gi.unwrap_or(1),
+                ..Default::default()
+            };
+            for _ in 0..20 {
+                let _ = rig.frame(Some(&mut timer));
+            }
+            let (mut frames, mut total) = (0, 0.0);
+            let mut parts = std::collections::BTreeMap::<&str, f32>::new();
+            let mut read = timer.frames_read;
+            let mut waits = Vec::with_capacity(60);
+            for _ in 0..60 {
+                waits.push(rig.frame(Some(&mut timer)));
+                if timer.frames_read != read {
+                    read = timer.frames_read;
+                    frames += 1;
+                    let spans = &timer.last_frame;
+                    let end = spans.iter().map(|p| p.start_ms + p.ms).fold(0.0, f32::max);
+                    total += end - spans.iter().map(|p| p.start_ms).fold(f32::MAX, f32::min);
+                    for p in spans {
+                        *parts.entry(p.name).or_default() += p.ms;
+                    }
+                }
+            }
+            let mut frame = crate::three::Frame3D::default();
+            let cpu_start = std::time::Instant::now();
+            for _ in 0..30 {
+                frame.collect(
+                    &mut rig.ctx.world,
+                    &rig.ctx.assets3d,
+                    &SkinFrame::default(),
+                    &rig.ctx.camera3d,
+                    &rig.ctx.lighting,
+                );
+            }
+            let cpu = cpu_start.elapsed().as_secs_f64() * 1000.0 / 30.0;
+            waits.sort_by(f64::total_cmp);
+            let n = frames.max(1) as f32;
+            let gpu = total / n;
+            let b = &mut best[k];
+            if gpu < b.0 {
+                let shown: Vec<String> = parts
+                    .iter()
+                    .filter(|(name, _)| name.starts_with("gi") || **name == "opaque")
+                    .map(|(name, ms)| format!("{name} {:.3}", ms / n))
+                    .collect();
+                b.0 = gpu;
+                b.3 = shown.join(", ");
+            }
+            b.1 = b.1.min(waits[waits.len() / 2]);
+            b.2 = b.2.min(cpu);
+        }
+    }
+    for ((label, _), (gpu, wait, cpu, parts)) in settings.iter().zip(&best) {
+        println!(
+            "gi {label}: GPU frame {gpu:.3} ms ({parts}); submit to done {wait:.3} ms; collect {cpu:.3} ms"
+        );
+    }
 }
