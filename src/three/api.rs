@@ -456,7 +456,9 @@ impl Ctx {
     /// from `assets/` as one [`Mesh`]: every mesh in the file's scene, where
     /// the file puts it, with its materials and their base color, normal,
     /// occlusion-roughness-metalness and emissive maps.
-    /// Loading the same file again returns the same mesh.
+    /// Loading the same file again returns the same mesh. After freeing its
+    /// geometry, loading it again reuses its materials and textures, keeping
+    /// edits made with [`update_material`](Self::update_material).
     ///
     /// ```no_run
     /// # use crabbyengine::*;
@@ -492,52 +494,58 @@ impl Ctx {
             },
             &|source| shared.contains_key(source),
         )?;
-        let textures: Vec<crate::Texture> = loaded
-            .images
-            .iter()
-            .zip(&loaded.image_sources)
-            .map(|((w, h, rgba), source)| match source {
-                Some(s) => match self.assets3d.shared_images.get(s) {
-                    Some(&t) => t,
-                    None => {
-                        let t = self.create_texture(*w, *h, rgba);
-                        self.assets3d.shared_images.insert(s.clone(), t);
-                        t
+        let materials = if let Some(materials) = self.assets3d.file_materials.get(&file) {
+            materials.clone()
+        } else {
+            let textures: Vec<crate::Texture> = loaded
+                .images
+                .iter()
+                .zip(&loaded.image_sources)
+                .map(|((w, h, rgba), source)| match source {
+                    Some(s) => match self.assets3d.shared_images.get(s) {
+                        Some(&t) => t,
+                        None => {
+                            let t = self.create_texture(*w, *h, rgba);
+                            self.assets3d.shared_images.insert(s.clone(), t);
+                            t
+                        }
+                    },
+                    None => self.create_texture(*w, *h, rgba),
+                })
+                .collect();
+            let materials: Vec<Material> = loaded
+                .materials
+                .iter()
+                .map(|m| {
+                    let texture = |i: Option<usize>| i.map(|i| textures[i]);
+                    let desc = MaterialDesc {
+                        color: m.color,
+                        texture: texture(m.image),
+                        roughness: m.roughness.clamp(0.0, 1.0),
+                        metallic: m.metallic.clamp(0.0, 1.0),
+                        emissive: m.emissive,
+                        normal_map: texture(m.normal_map),
+                        normal_strength: m.normal_strength,
+                        orm_map: texture(m.orm_map),
+                        emissive_map: texture(m.emissive_map),
+                        blend: m.blend,
+                        double_sided: m.double_sided,
+                        ..Default::default()
+                    };
+                    let material = self.create_material(desc);
+                    if !m.name.is_empty() {
+                        self.assets3d
+                            .loaded_materials
+                            .entry(m.name.clone())
+                            .or_default()
+                            .push((material, desc));
                     }
-                },
-                None => self.create_texture(*w, *h, rgba),
-            })
-            .collect();
-        let materials: Vec<Material> = loaded
-            .materials
-            .iter()
-            .map(|m| {
-                let texture = |i: Option<usize>| i.map(|i| textures[i]);
-                let desc = MaterialDesc {
-                    color: m.color,
-                    texture: texture(m.image),
-                    roughness: m.roughness.clamp(0.0, 1.0),
-                    metallic: m.metallic.clamp(0.0, 1.0),
-                    emissive: m.emissive,
-                    normal_map: texture(m.normal_map),
-                    normal_strength: m.normal_strength,
-                    orm_map: texture(m.orm_map),
-                    emissive_map: texture(m.emissive_map),
-                    blend: m.blend,
-                    double_sided: m.double_sided,
-                    ..Default::default()
-                };
-                let material = self.create_material(desc);
-                if !m.name.is_empty() {
-                    self.assets3d
-                        .loaded_materials
-                        .entry(m.name.clone())
-                        .or_default()
-                        .push((material, desc));
-                }
-                material
-            })
-            .collect();
+                    material
+                })
+                .collect();
+            self.assets3d.file_materials.insert(file.clone(), materials.clone());
+            materials
+        };
         let parts: Vec<(Range<u32>, Material)> = loaded
             .parts
             .iter()

@@ -275,3 +275,24 @@ mod cells {
         });
     }
 }
+
+#[cfg(feature = "3d")]
+#[test]
+fn reloading_freed_geometry_reuses_materials_and_preserves_edits() {
+    Game::new("reload", 1, 1).run_headless(0, |ctx| {
+        let mut mesh = ctx.load_mesh("models/house.glb");
+        let walls = ctx.loaded_materials("walls");
+        let roof = ctx.loaded_materials("roof");
+        assert!(!walls.is_empty());
+        let (material, mut desc) = walls[0];
+        desc.roughness = 0.17;
+        ctx.update_material(material, desc);
+        for _ in 0..32 {
+            ctx.free_mesh(mesh);
+            mesh = ctx.load_mesh("models/house.glb");
+            assert_eq!(ctx.loaded_materials("walls").len(), walls.len());
+            assert_eq!(ctx.loaded_materials("roof").len(), roof.len());
+            assert_eq!(ctx.loaded_materials("walls")[0].0, material);
+        }
+    });
+}
