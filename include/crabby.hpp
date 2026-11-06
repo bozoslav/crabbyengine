@@ -140,6 +140,14 @@ inline vec3 sun_direction_at(float hour) { return crabby_sun_direction_at(hour);
 using post = CrabbyPost;
 /// Post AA mode (`post::anti_aliasing`).
 enum class anti_aliasing : uint32_t { none = 0, fxaa = 1, smaa = 2 };
+/// Quality settings that trade looks for speed, switched at run time (Rust
+/// `GraphicsQuality`): the 3D resolution scale, shadows, AO and antialiasing.
+/// Get a preset with graphics_quality_preset(); apply it with
+/// ctx::set_graphics_quality(); read the current one with ctx::graphics_quality().
+using graphics_quality = CrabbyGraphicsQuality;
+/// The presets (Rust `QualityLevel`); `custom` is what graphics_quality_level()
+/// says of settings that are none of them.
+enum class quality_level : uint32_t { low = 0, medium = 1, high = 2, ultra = 3, custom = 4 };
 /// How HDR light maps to the screen (`post::tonemap`).
 enum class tonemap : uint32_t { aces = 0, agx = 1, neutral = 2, none = 3 };
 using draw_params = CrabbyDrawParams;
@@ -587,6 +595,15 @@ template<> struct field_type<std::uint64_t> { static constexpr CrabbyFieldType v
 template<> struct field_type<bool> { static constexpr CrabbyFieldType value = CRABBY_FIELD_BOOL; };
 template<> struct field_type<CrabbyVec2> { static constexpr CrabbyFieldType value = CRABBY_FIELD_VEC2; };
 template<> struct field_type<CrabbyColor> { static constexpr CrabbyFieldType value = CRABBY_FIELD_COLOR; };
+}
+/// The settings of a quality preset (low, medium, high or ultra; throws for
+/// quality_level::custom). Change single fields before applying them.
+inline graphics_quality graphics_quality_preset(quality_level level) {
+    graphics_quality q{}; detail::check(crabby_graphics_quality_preset(uint32_t(level), &q)); return q;
+}
+/// Which preset `q` is, or quality_level::custom. Throws if a field is out of range.
+inline quality_level graphics_quality_level(const graphics_quality& q) {
+    uint32_t level = 0; detail::check(crabby_graphics_quality_level(&q, &level)); return quality_level(level);
 }
 /// One described field of a component, from crabby::field.
 template<class T> struct field_info { CrabbyField raw; };
@@ -2959,7 +2976,9 @@ public:
         vec3 origin{}, direction{}; detail::check(crabby_ctx_screen_ray(raw_, screen, &origin, &direction)); return {origin, direction};
     }
     crabby::lighting lighting() const { crabby::lighting l{}; detail::check(crabby_ctx_lighting(raw_, &l)); return l; }
-    /// Intensities and the shadow distance can't be negative; shadow_cascades is 1 to 4.
+    /// Intensities and the shadow distance can't be negative; shadow_cascades is 1 to 4;
+    /// shadow_resolution is 256 to 4096, light_shadow_resolution 128 to 2048 and
+    /// light_shadow_views 0 to 12.
     void set_lighting(const crabby::lighting& l) { detail::check(crabby_ctx_set_lighting(raw_, &l)); }
     /// The sky behind the 3D world and the fog in front of it.
     crabby::sky sky() const { crabby::sky s{}; detail::check(crabby_ctx_sky(raw_, &s)); return s; }
@@ -2968,8 +2987,17 @@ public:
     void set_sky(const crabby::sky& s) { detail::check(crabby_ctx_set_sky(raw_, &s)); }
     /// Exposure, bloom, color grading and tone mapping of the 3D frame.
     crabby::post post() const { crabby::post p{}; detail::check(crabby_ctx_post(raw_, &p)); return p; }
-    /// Bloom, its threshold, contrast and saturation can't be negative.
+    /// Bloom, its threshold, contrast and saturation can't be negative; render_scale is
+    /// 0.25 to 2 and sharpen 0 to 1.
     void set_post(const crabby::post& p) { detail::check(crabby_ctx_set_post(raw_, &p)); }
+    /// The current graphics quality, gathered from the post and lighting settings.
+    crabby::graphics_quality graphics_quality() const {
+        crabby::graphics_quality q{}; detail::check(crabby_ctx_graphics_quality(raw_, &q)); return q;
+    }
+    /// Switches the 3D picture to `q` without a restart: the next frame draws at the new
+    /// resolution scale and shadow map sizes. Throws, changing nothing, for a field
+    /// outside its range.
+    void set_graphics_quality(const crabby::graphics_quality& q) { detail::check(crabby_ctx_set_graphics_quality(raw_, &q)); }
     void save_screenshot(const char* path) { detail::check(crabby_ctx_save_screenshot(raw_, path)); }
     /// texture_filter::nearest keeps pixel art square.
     void set_texture_filter(texture t, texture_filter f) {

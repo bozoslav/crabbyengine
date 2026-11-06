@@ -21,6 +21,7 @@ pub use ik::{look_at_joint, two_bone_ik};
 pub(crate) mod lights;
 mod mesh;
 pub use lights::{LIGHT_SHADOW_SIZE, MAX_LIGHT_SHADOW_VIEWS, PointLight3D, SpotLight3D};
+pub(crate) use lights::{MAX_LIGHT_SHADOW_RESOLUTION, MIN_LIGHT_SHADOW_RESOLUTION};
 pub(crate) mod particles;
 pub use particles::{
     ParticleBlend3D, ParticleCurve, ParticleEmitter3D, ParticleGradient, ParticleSettings3D, ParticleShape3D,
@@ -30,6 +31,7 @@ mod decal;
 mod post;
 pub(crate) mod probe;
 pub use probe::ReflectionProbe3D;
+mod quality;
 mod skin;
 pub(crate) mod strips;
 pub use strips::{Line3D, Trail3D};
@@ -48,15 +50,16 @@ pub(crate) use api::GpuMaterialDesc;
 #[cfg(feature = "window")]
 pub(crate) use api::MaterialTextures;
 pub use clip::{AnimationClip, AnimationTrack, Interpolation, JointAnimation, MorphAnimation};
-pub(crate) use collect::Frame3D;
+pub(crate) use collect::{Frame3D, MAX_SHADOW_RESOLUTION, MIN_SHADOW_RESOLUTION, SHADOW_MAP_SIZE};
 #[cfg(feature = "window")]
-pub(crate) use collect::{Instance3D, MAX_CASCADES, MAX_SHADOW_VIEWS, SHADOW_MAP_SIZE, shadow_views};
+pub(crate) use collect::{Instance3D, MAX_CASCADES, MAX_SHADOW_VIEWS, shadow_views};
 pub use compute::{Compute, ComputePass};
 pub use effect::{Effect, ScreenEffect};
 pub use mesh::{MeshData, MorphFrame, MorphTarget};
+pub use post::{AmbientOcclusion, AntiAliasing, MAX_RENDER_SCALE, MIN_RENDER_SCALE, Post, Tonemap};
 #[cfg(feature = "window")]
-pub(crate) use post::PostUniform;
-pub use post::{AmbientOcclusion, AntiAliasing, Post, Tonemap};
+pub(crate) use post::{PostUniform, scaled_size};
+pub use quality::{GraphicsQuality, QualityLevel};
 #[cfg(feature = "window")]
 pub(crate) use skin::blend as blend_skin;
 pub use skin::{AttachToJoint, Joint, MorphWeights, Skeleton, SkinOf};
@@ -612,6 +615,20 @@ pub struct Lighting {
     /// sharp near the camera however far they reach. Fewer are cheaper.
     /// Default 4.
     pub shadow_cascades: u32,
+    /// Width and height of each of the sun's shadow maps, in texels:
+    /// 256 to 4096 (and no more than the GPU allows). Doubling it quadruples
+    /// the memory (`4 * resolution² * cascades` bytes) and sharpens shadows.
+    /// Changing it at run time makes new shadow maps. Default 2048.
+    pub shadow_resolution: u32,
+    /// How many shadow views point and spot lights may share, 0 to
+    /// [`MAX_LIGHT_SHADOW_VIEWS`]: a shadowed spot light takes one, a
+    /// shadowed point light six. 0 turns point and spot light shadows off.
+    /// Default [`MAX_LIGHT_SHADOW_VIEWS`].
+    pub light_shadow_views: u32,
+    /// Width and height of each point or spot light shadow view, in texels:
+    /// 128 to 2048. Changing it at run time makes new shadow maps. Default
+    /// [`LIGHT_SHADOW_SIZE`].
+    pub light_shadow_resolution: u32,
 }
 
 impl Default for Lighting {
@@ -626,7 +643,32 @@ impl Default for Lighting {
             shadows: true,
             shadow_distance: 60.0,
             shadow_cascades: 4,
+            shadow_resolution: SHADOW_MAP_SIZE,
+            light_shadow_views: MAX_LIGHT_SHADOW_VIEWS as u32,
+            light_shadow_resolution: LIGHT_SHADOW_SIZE,
         }
+    }
+}
+
+impl Lighting {
+    /// The sun's shadow map size, clamped to what the GPU can make (`limit`
+    /// 0: no limit known).
+    pub(crate) fn shadow_size(&self, limit: u32) -> u32 {
+        let limit = if limit == 0 { u32::MAX } else { limit };
+        self.shadow_resolution
+            .clamp(MIN_SHADOW_RESOLUTION, MAX_SHADOW_RESOLUTION)
+            .min(limit)
+    }
+    /// The point and spot lights' shadow view size, clamped likewise.
+    pub(crate) fn light_shadow_size(&self, limit: u32) -> u32 {
+        let limit = if limit == 0 { u32::MAX } else { limit };
+        self.light_shadow_resolution
+            .clamp(MIN_LIGHT_SHADOW_RESOLUTION, MAX_LIGHT_SHADOW_RESOLUTION)
+            .min(limit)
+    }
+    /// How many light shadow views are allowed this frame.
+    pub(crate) fn light_shadow_budget(&self) -> usize {
+        (self.light_shadow_views as usize).min(MAX_LIGHT_SHADOW_VIEWS)
     }
 }
 

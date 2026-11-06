@@ -277,6 +277,28 @@ static void three_d() {
         post.saturation = -1;
         throws([&] { ctx.set_post(post); });
 
+        // Graphics quality presets, switched at run time.
+        CHECK(ctx.post().render_scale == 1 && ctx.post().sharpen == 0);
+        auto quality = crabby::graphics_quality_preset(crabby::quality_level::medium);
+        CHECK(crabby::graphics_quality_level(quality) == crabby::quality_level::medium);
+        CHECK(quality.shadow_cascades == 3 && quality.anti_aliasing == uint32_t(crabby::anti_aliasing::fxaa));
+        ctx.set_graphics_quality(quality);
+        CHECK(ctx.lighting().shadow_cascades == 3 && ctx.lighting().shadow_resolution == 2048);
+        CHECK(ctx.graphics_quality().light_shadow_views == 4);
+        quality = crabby::graphics_quality_preset(crabby::quality_level::low);
+        ctx.set_graphics_quality(quality);
+        CHECK(ctx.post().render_scale < 1 && ctx.lighting().light_shadow_views == 0);
+        quality.shadow_cascades = 3;
+        CHECK(crabby::graphics_quality_level(quality) == crabby::quality_level::custom);
+        auto bad_quality = quality; bad_quality.render_scale = 4;
+        throws([&] { ctx.set_graphics_quality(bad_quality); });
+        throws([&] { crabby::graphics_quality_preset(crabby::quality_level::custom); });
+        CHECK(ctx.graphics_quality().shadow_cascades == 2);
+        ctx.set_graphics_quality(crabby::graphics_quality_preset(crabby::quality_level::high));
+        auto light_q = ctx.lighting();
+        light_q.shadow_resolution = 100;
+        throws([&] { ctx.set_lighting(light_q); });
+
         auto tiles = ctx.create_shader("tiles", R"(
             fn surface(s: Surface) -> Surface {
                 var out = s;

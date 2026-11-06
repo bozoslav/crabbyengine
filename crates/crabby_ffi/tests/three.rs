@@ -154,6 +154,128 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
         let mut back = std::mem::zeroed::<CrabbyPost>();
         assert_eq!(crabby_ctx_post(ctx, &mut back), CRABBY_OK);
         assert_eq!(back, post);
+        assert_eq!(post.render_scale, 1.0);
+        assert_eq!(post.sharpen, 0.0);
+        for bad in [
+            CrabbyPost {
+                render_scale: 0.1,
+                ..post
+            },
+            CrabbyPost {
+                render_scale: 2.5,
+                ..post
+            },
+            CrabbyPost {
+                render_scale: f32::NAN,
+                ..post
+            },
+            CrabbyPost { sharpen: 1.5, ..post },
+        ] {
+            assert_eq!(crabby_ctx_set_post(ctx, &bad), CRABBY_INVALID_ARGUMENT);
+        }
+        let scaled = CrabbyPost {
+            render_scale: 0.5,
+            sharpen: 0.4,
+            ..post
+        };
+        assert_eq!(crabby_ctx_set_post(ctx, &scaled), CRABBY_OK);
+        assert_eq!(crabby_ctx_post(ctx, &mut back), CRABBY_OK);
+        assert_eq!(back, scaled);
+        assert_eq!(crabby_ctx_set_post(ctx, &post), CRABBY_OK);
+
+        // Graphics quality: presets, reading back, tweaking, validation.
+        let mut q = std::mem::zeroed::<CrabbyGraphicsQuality>();
+        assert_eq!(crabby_graphics_quality_preset(4, &mut q), CRABBY_INVALID_ARGUMENT);
+        assert_eq!(
+            crabby_graphics_quality_preset(0, std::ptr::null_mut()),
+            CRABBY_INVALID_ARGUMENT
+        );
+        let mut level = 99;
+        for expected in 0..4u32 {
+            assert_eq!(crabby_graphics_quality_preset(expected, &mut q), CRABBY_OK);
+            assert_eq!(crabby_graphics_quality_level(&q, &mut level), CRABBY_OK);
+            assert_eq!(level, expected);
+            assert_eq!(crabby_ctx_set_graphics_quality(ctx, &q), CRABBY_OK);
+            let mut read = std::mem::zeroed::<CrabbyGraphicsQuality>();
+            assert_eq!(crabby_ctx_graphics_quality(ctx, &mut read), CRABBY_OK);
+            assert_eq!(read, q);
+        }
+        // Ultra is applied: the lighting and post structs show it.
+        assert_eq!(crabby_ctx_lighting(ctx, &mut light), CRABBY_OK);
+        assert_eq!(
+            (light.shadow_resolution, light.light_shadow_views, light.shadow_cascades),
+            (4096, 12, 4)
+        );
+        assert_eq!(crabby_ctx_post(ctx, &mut back), CRABBY_OK);
+        assert!(back.ao_enabled && back.anti_aliasing == 2 && back.ao_steps == 8);
+        // A tweak makes it custom.
+        q.shadow_cascades = 2;
+        assert_eq!(crabby_ctx_set_graphics_quality(ctx, &q), CRABBY_OK);
+        assert_eq!(crabby_graphics_quality_level(&q, &mut level), CRABBY_OK);
+        assert_eq!(level, 4);
+        // Invalid values are refused, and change nothing.
+        let before = q;
+        for bad in [
+            CrabbyGraphicsQuality { render_scale: 0.0, ..q },
+            CrabbyGraphicsQuality { sharpen: -1.0, ..q },
+            CrabbyGraphicsQuality {
+                shadow_cascades: 5,
+                ..q
+            },
+            CrabbyGraphicsQuality {
+                shadow_resolution: 100,
+                ..q
+            },
+            CrabbyGraphicsQuality {
+                shadow_resolution: 8192,
+                ..q
+            },
+            CrabbyGraphicsQuality {
+                light_shadow_views: 13,
+                ..q
+            },
+            CrabbyGraphicsQuality {
+                light_shadow_resolution: 4096,
+                ..q
+            },
+            CrabbyGraphicsQuality { ao_slices: 0, ..q },
+            CrabbyGraphicsQuality { ao_steps: 17, ..q },
+            CrabbyGraphicsQuality { anti_aliasing: 3, ..q },
+            CrabbyGraphicsQuality {
+                shadow_distance: f32::NAN,
+                ..q
+            },
+        ] {
+            assert_eq!(crabby_ctx_set_graphics_quality(ctx, &bad), CRABBY_INVALID_ARGUMENT);
+            assert_eq!(crabby_graphics_quality_level(&bad, &mut level), CRABBY_INVALID_ARGUMENT);
+        }
+        let mut read = std::mem::zeroed::<CrabbyGraphicsQuality>();
+        assert_eq!(crabby_ctx_graphics_quality(ctx, &mut read), CRABBY_OK);
+        assert_eq!(read, before);
+        assert_eq!(
+            crabby_ctx_set_graphics_quality(ctx, std::ptr::null()),
+            CRABBY_INVALID_ARGUMENT
+        );
+        // Lighting validates the new fields as it does the others.
+        assert_eq!(crabby_ctx_lighting(ctx, &mut light), CRABBY_OK);
+        for bad in [
+            CrabbyLighting {
+                shadow_resolution: 128,
+                ..light
+            },
+            CrabbyLighting {
+                light_shadow_views: 13,
+                ..light
+            },
+            CrabbyLighting {
+                light_shadow_resolution: 64,
+                ..light
+            },
+        ] {
+            assert_eq!(crabby_ctx_set_lighting(ctx, &bad), CRABBY_INVALID_ARGUMENT);
+        }
+        // Back to the defaults for the rest of the test.
+        assert_eq!(crabby_ctx_set_post(ctx, &post), CRABBY_OK);
         ids.errors
             .push(crabby_ctx_set_post(ctx, &CrabbyPost { tonemap: 7, ..post }));
 

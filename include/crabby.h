@@ -1157,6 +1157,9 @@ typedef struct CrabbyLighting {
   bool shadows;
   float shadow_distance;
   uint32_t shadow_cascades;
+  uint32_t shadow_resolution;
+  uint32_t light_shadow_views;
+  uint32_t light_shadow_resolution;
 } CrabbyLighting;
 
 typedef struct CrabbySky {
@@ -1176,6 +1179,8 @@ typedef struct CrabbySky {
 } CrabbySky;
 
 typedef struct CrabbyPost {
+  float render_scale;
+  float sharpen;
   uint32_t anti_aliasing;
   bool ao_enabled;
   float ao_radius;
@@ -1194,6 +1199,21 @@ typedef struct CrabbyPost {
   bool has_lut;
   struct CrabbyTexture lut;
 } CrabbyPost;
+
+typedef struct CrabbyGraphicsQuality {
+  float render_scale;
+  float sharpen;
+  bool shadows;
+  float shadow_distance;
+  uint32_t shadow_cascades;
+  uint32_t shadow_resolution;
+  uint32_t light_shadow_views;
+  uint32_t light_shadow_resolution;
+  bool ambient_occlusion;
+  uint32_t ao_slices;
+  uint32_t ao_steps;
+  uint32_t anti_aliasing;
+} CrabbyGraphicsQuality;
 
 typedef struct CrabbyReflectionProbe3D {
   struct CrabbyVec3 size;
@@ -3197,6 +3217,18 @@ enum CrabbyStatus crabby_ctx_set_sky(struct CrabbyCtx *ctx, const struct CrabbyS
 enum CrabbyStatus crabby_ctx_post(struct CrabbyCtx *ctx, struct CrabbyPost *out_post);
 
 enum CrabbyStatus crabby_ctx_set_post(struct CrabbyCtx *ctx, const struct CrabbyPost *post);
+
+enum CrabbyStatus crabby_graphics_quality_preset(uint32_t level,
+                                                 struct CrabbyGraphicsQuality *out_quality);
+
+enum CrabbyStatus crabby_graphics_quality_level(const struct CrabbyGraphicsQuality *quality,
+                                                uint32_t *out_level);
+
+enum CrabbyStatus crabby_ctx_graphics_quality(struct CrabbyCtx *ctx,
+                                              struct CrabbyGraphicsQuality *out_quality);
+
+enum CrabbyStatus crabby_ctx_set_graphics_quality(struct CrabbyCtx *ctx,
+                                                  const struct CrabbyGraphicsQuality *quality);
 
 struct CrabbyHeightfield *crabby_heightfield_new(const float *heights, size_t count, float size);
 

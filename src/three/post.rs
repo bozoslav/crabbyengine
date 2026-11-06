@@ -37,6 +37,15 @@ pub enum AntiAliasing {
     Smaa = 2,
 }
 
+/// Smallest and largest [`Post::render_scale`].
+/// ```
+/// assert_eq!(crabbyengine::MIN_RENDER_SCALE, 0.25);
+/// assert_eq!(crabbyengine::MAX_RENDER_SCALE, 2.0);
+/// ```
+pub const MIN_RENDER_SCALE: f32 = 0.25;
+/// See [`MIN_RENDER_SCALE`].
+pub const MAX_RENDER_SCALE: f32 = 2.0;
+
 /// Ground-truth ambient occlusion. Radius is in world units; quality controls
 /// angular slices and horizon steps. Disabled by default to preserve scenes.
 /// ```
@@ -84,6 +93,17 @@ impl Default for AmbientOcclusion {
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Post {
+    /// The 3D scene is drawn at this fraction of the window's size in each
+    /// direction, then scaled to the window before sprites and UI, which stay
+    /// at the window's resolution: below 1 is cheaper and softer, above 1
+    /// (supersampling) sharper and costlier. From [`MIN_RENDER_SCALE`] to
+    /// [`MAX_RENDER_SCALE`]; anything else is clamped. Default 1 (no extra
+    /// pass).
+    pub render_scale: f32,
+    /// How much the scaled image is sharpened, 0 to 1 (an adaptive
+    /// contrast filter that only touches soft edges). Only used with a
+    /// `render_scale` other than 1. Default 0.
+    pub sharpen: f32,
     /// Ambient-only GTAO, before opaque lighting.
     pub ambient_occlusion: AmbientOcclusion,
     /// Post antialiasing. Default off to preserve existing scenes.
@@ -118,6 +138,8 @@ pub struct Post {
 impl Default for Post {
     fn default() -> Self {
         Self {
+            render_scale: 1.0,
+            sharpen: 0.0,
             ambient_occlusion: AmbientOcclusion::default(),
             anti_aliasing: AntiAliasing::None,
             exposure: 0.0,
@@ -135,6 +157,20 @@ impl Default for Post {
 }
 
 impl Post {
+    /// The size the 3D scene is drawn at in a window of `window` pixels:
+    /// scaled by [`render_scale`](Self::render_scale) (clamped; a NaN counts
+    /// as 1), at least 1 pixel and at most `limit` wide (0: no limit).
+    ///
+    /// ```
+    /// use crabbyengine::*;
+    /// let post = Post { render_scale: 0.5, ..Default::default() };
+    /// assert_eq!(post.render_size((1920, 1080)), (960, 540));
+    /// ```
+    #[must_use]
+    pub fn render_size(&self, window: (u32, u32)) -> (u32, u32) {
+        scaled_size(window, self.render_scale, 0)
+    }
+
     /// A neutral lookup table of `n` x `n` x `n` colors as RGBA pixels,
     /// `n * n` wide and `n` high: the starting point for a [`Post::lut`].
     ///
@@ -167,6 +203,19 @@ impl Post {
     }
 }
 
+/// `window` scaled by `scale` (clamped to the allowed range), at least 1 and
+/// at most `limit` pixels per side (0: no limit).
+pub(crate) fn scaled_size(window: (u32, u32), scale: f32, limit: u32) -> (u32, u32) {
+    let scale = if scale.is_nan() {
+        1.0
+    } else {
+        scale.clamp(MIN_RENDER_SCALE, MAX_RENDER_SCALE)
+    };
+    let limit = if limit == 0 { u32::MAX } else { limit };
+    let side = |v: u32| ((v as f32 * scale).round() as u32).clamp(1, limit.max(1));
+    (side(window.0), side(window.1))
+}
+
 /// [`Post`] as the post shader reads it.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -179,6 +228,9 @@ pub(crate) struct PostUniform {
     pub mode: [u32; 4],
     /// x: bloom threshold, y: soft knee.
     pub bloom: [f32; 4],
+    /// For the scaling pass: one output pixel in uv (x, y), the sharpness
+    /// (z) and the scene's size over the output's (w).
+    pub output: [f32; 4],
 }
 
 impl PostUniform {
@@ -195,7 +247,25 @@ impl PostUniform {
             balance: [l, m, s, post.vignette.clamp(0.0, 1.0)],
             mode: [post.tonemap as u32, lut_size.unwrap_or(0), u32::from(bloom > 0.0), 0],
             bloom: [post.bloom_threshold.max(0.0), 0.5, 0.0, 0.0],
+            output: [0.0; 4],
         }
+    }
+
+    /// The same, for a scene drawn at `scene` pixels and scaled to
+    /// `output` ones.
+    pub fn scaled(mut self, post: &Post, scene: (u32, u32), output: (u32, u32)) -> Self {
+        let sharpen = if post.sharpen.is_nan() {
+            0.0
+        } else {
+            post.sharpen.clamp(0.0, 1.0)
+        };
+        self.output = [
+            1.0 / output.0.max(1) as f32,
+            1.0 / output.1.max(1) as f32,
+            sharpen,
+            scene.0 as f32 / output.0.max(1) as f32,
+        ];
+        self
     }
 }
 
@@ -221,6 +291,34 @@ fn white_balance(temperature: f32, tint: f32) -> [f32; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scaled_sizes_round_clamp_and_never_reach_zero() {
+        assert_eq!(scaled_size((1920, 1080), 1.0, 0), (1920, 1080));
+        assert_eq!(scaled_size((1920, 1080), 0.5, 0), (960, 540));
+        assert_eq!(scaled_size((1921, 1081), 0.5, 0), (961, 541));
+        assert_eq!(scaled_size((100, 100), 0.01, 0), (25, 25), "clamped to the minimum");
+        assert_eq!(scaled_size((100, 100), 9.0, 0), (200, 200), "clamped to the maximum");
+        assert_eq!(scaled_size((100, 100), f32::NAN, 0), (100, 100));
+        assert_eq!(scaled_size((100, 100), f32::INFINITY, 0), (200, 200));
+        assert_eq!(scaled_size((1, 1), 0.25, 0), (1, 1));
+        assert_eq!(scaled_size((0, 0), 1.0, 0), (1, 1));
+        assert_eq!(
+            scaled_size((4096, 4096), 2.0, 4096),
+            (4096, 4096),
+            "within the GPU's limit"
+        );
+    }
+
+    #[test]
+    fn the_scaling_uniform_holds_the_pixel_size_and_ratio() {
+        let post = Post {
+            sharpen: 2.0,
+            ..Default::default()
+        };
+        let u = PostUniform::new(&post, None).scaled(&post, (960, 540), (1920, 1080));
+        assert_eq!(u.output, [1.0 / 1920.0, 1.0 / 1080.0, 1.0, 0.5], "sharpness is clamped");
+    }
 
     #[test]
     fn neutral_white_balance_changes_nothing() {

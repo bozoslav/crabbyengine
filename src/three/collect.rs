@@ -9,8 +9,11 @@ use super::{
 };
 use crate::World;
 
-/// Width and height of each of the sun's shadow maps, in texels.
+/// Default width and height of each of the sun's shadow maps, in texels.
 pub(crate) const SHADOW_MAP_SIZE: u32 = 2048;
+/// Smallest and largest sun shadow map a game may ask for.
+pub(crate) const MIN_SHADOW_RESOLUTION: u32 = 256;
+pub(crate) const MAX_SHADOW_RESOLUTION: u32 = 4096;
 
 /// The most shadow cascades: shadow maps, each covering a stretch of the
 /// view further out than the one before.
@@ -52,6 +55,15 @@ pub(crate) struct Frame3D {
     pub view_proj: Mat4,
     /// How many cascades are drawn: 0 without shadows.
     pub cascades: usize,
+    /// The sun's shadow map size and the light shadow views' size this
+    /// frame, in texels: what `Lighting` asks for, within the GPU's limit.
+    pub shadow_size: u32,
+    pub light_shadow_size: u32,
+    /// How many point and spot light shadow views `Lighting` allows (0 with
+    /// shadows off).
+    pub light_budget: usize,
+    /// The largest texture the GPU makes (0: not known yet).
+    pub size_limit: u32,
     /// How many point and spot light shadow views are drawn (their matrices
     /// are `lights.shadow_views`).
     pub light_views: usize,
@@ -106,7 +118,15 @@ impl Frame3D {
     ) {
         self.view_proj = camera.view_proj();
         self.particles.collect(world, camera);
-        self.lights.collect(world, camera, lighting.shadows);
+        self.shadow_size = lighting.shadow_size(self.size_limit);
+        self.light_shadow_size = lighting.light_shadow_size(self.size_limit);
+        self.light_budget = if lighting.shadows {
+            lighting.light_shadow_budget()
+        } else {
+            0
+        };
+        self.lights
+            .collect(world, camera, self.light_budget, self.light_shadow_size);
         self.light_views = self.lights.shadow_views.len();
         self.cascades = if lighting.shadows && lighting.shadow_distance > 0.0 {
             (lighting.shadow_cascades as usize).clamp(1, MAX_CASCADES)
@@ -119,7 +139,7 @@ impl Frame3D {
         let mut sun_planes = [[Vec4::ZERO; 5]; MAX_CASCADES];
         for i in 0..self.cascades {
             let near = if i == 0 { camera.near } else { splits[i - 1] };
-            let (m, texel) = sun_view_proj(camera, lighting.sun_direction, near, splits[i]);
+            let (m, texel) = sun_view_proj(camera, lighting.sun_direction, near, splits[i], self.shadow_size);
             self.sun_view_proj[i] = m;
             self.cascade_texel[i] = texel;
             let [l, r, b, t, _, f] = frustum_planes(m);
@@ -392,7 +412,7 @@ pub(crate) fn cascade_splits(near: f32, distance: f32, count: usize) -> [f32; MA
 /// orthographic box around that part of the view, facing along the
 /// sunlight, moved in whole shadow-map texels so shadow edges don't shimmer
 /// as the camera moves.
-pub(crate) fn sun_view_proj(camera: &Camera3D, sun_direction: Vec3, near: f32, far: f32) -> (Mat4, f32) {
+pub(crate) fn sun_view_proj(camera: &Camera3D, sun_direction: Vec3, near: f32, far: f32, map_size: u32) -> (Mat4, f32) {
     let light = sun_direction.try_normalize().unwrap_or(Vec3::NEG_Y);
     let far = far.max(camera.near * 2.0);
     // The bounding sphere of the view's slice: it doesn't change size as
@@ -422,7 +442,7 @@ pub(crate) fn sun_view_proj(camera: &Camera3D, sun_direction: Vec3, near: f32, f
     let up = if light.y.abs() > 0.99 { Vec3::Z } else { Vec3::Y };
     let rotation = glam::camera::rh::view::look_to_mat4(Vec3::ZERO, light, up);
     // Snap the center to whole texels in the light's view.
-    let texel = 2.0 * radius / SHADOW_MAP_SIZE as f32;
+    let texel = 2.0 * radius / map_size.max(1) as f32;
     let snapped = (rotation.transform_point3(center) / texel).round() * texel;
     let center = rotation.inverse().transform_point3(snapped);
 
@@ -612,7 +632,7 @@ mod tests {
     fn the_shadow_box_holds_the_near_view_and_snaps_to_texels() {
         let camera = camera();
         let sun_dir = Vec3::new(-0.3, -1.0, -0.2);
-        let (sun, _) = sun_view_proj(&camera, sun_dir, camera.near, 20.0);
+        let (sun, _) = sun_view_proj(&camera, sun_dir, camera.near, 20.0, SHADOW_MAP_SIZE);
         let in_box = |p: Vec3| {
             let c = sun * p.extend(1.0);
             let n = c.truncate() / c.w;
@@ -625,7 +645,7 @@ mod tests {
         let mut moved = camera;
         moved.position.x += 0.013;
         let a = sun * Vec4::new(0.0, 0.0, 0.0, 1.0);
-        let b = sun_view_proj(&moved, sun_dir, moved.near, 20.0).0 * Vec4::new(0.0, 0.0, 0.0, 1.0);
+        let b = sun_view_proj(&moved, sun_dir, moved.near, 20.0, SHADOW_MAP_SIZE).0 * Vec4::new(0.0, 0.0, 0.0, 1.0);
         let texels = (a - b).truncate().truncate() * SHADOW_MAP_SIZE as f32 / 2.0;
         assert!((texels - texels.round()).length() < 2e-2, "{texels}");
     }

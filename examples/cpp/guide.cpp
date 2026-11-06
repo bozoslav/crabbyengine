@@ -986,6 +986,21 @@ static void golden_hour(crabby::ctx& ctx) {
 }
 // ANCHOR_END: post
 
+// ANCHOR: quality
+/// An options menu: pick a preset, then change single settings on top of it.
+static void options_menu(crabby::ctx& ctx) {
+    ctx.set_graphics_quality(crabby::graphics_quality_preset(crabby::quality_level::medium));
+    auto quality = ctx.graphics_quality();
+    quality.render_scale = 0.8f; // draw the 3D scene at 80% and scale it up
+    quality.sharpen = 0.3f;
+    quality.shadow_resolution = 4096;
+    ctx.set_graphics_quality(quality);
+    // The settings are the ordinary ones in ctx.post() and ctx.lighting().
+    auto level = crabby::graphics_quality_level(ctx.graphics_quality()); // quality_level::custom
+    (void)level;
+}
+// ANCHOR_END: quality
+
 // ANCHOR: shader
 /// Grass that sways in the wind: the higher a vertex, the more it moves.
 static const char* wind_shader = R"(
@@ -1234,6 +1249,7 @@ static void the_village_has_five_spinning_houses() {
     auto world = crabby::game("guide", 640, 480).sim_system(spin, "spin").run_headless(60, [](crabby::ctx& ctx) {
         village(ctx);
         golden_hour(ctx);
+        options_menu(ctx);
         misty_morning(ctx);
         far_haze(ctx);
         auto tuft = ctx.create_mesh(crabby::mesh_data::cube(0.1f), ctx.default_material());

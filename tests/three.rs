@@ -919,3 +919,26 @@ fn ao_and_aa_settings_preserve_existing_defaults() {
         assert_eq!(ctx.post.ambient_occlusion.radius, 1.5);
     });
 }
+
+#[test]
+fn quality_presets_switch_at_run_time() {
+    Game::new("quality", 64, 64).run_headless(0, |ctx| {
+        // ANCHOR: quality
+        // An options menu: pick a preset ...
+        ctx.set_graphics_quality(GraphicsQuality::medium());
+        // ... then change single settings on top of it.
+        let mut quality = ctx.graphics_quality();
+        quality.render_scale = 0.8; // draw the 3D scene at 80% and scale it up
+        quality.sharpen = 0.3;
+        quality.shadow_resolution = 4096;
+        ctx.set_graphics_quality(quality);
+        // The settings are the ordinary ones in ctx.post and ctx.lighting.
+        ctx.post.ambient_occlusion.radius = 2.0;
+        let level = ctx.graphics_quality().level(); // QualityLevel::Custom
+        // ANCHOR_END: quality
+        assert_eq!(level, QualityLevel::Custom);
+        assert_eq!(ctx.post.render_scale, 0.8);
+        assert_eq!(ctx.lighting.shadow_resolution, 4096);
+        assert_eq!(ctx.post.render_size((1000, 500)), (800, 400));
+    });
+}
