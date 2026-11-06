@@ -38,10 +38,11 @@ impl InstanceBatch {
 pub struct InstanceBatchOptions {
     /// Width of each spatial cell in world units. Must be finite and positive.
     pub cell_size: f32,
-    /// Maximum distance from the camera to an instance's bounding sphere.
+    /// Maximum distance from this view's camera or shadow-casting light to
+    /// an instance's bounding sphere. Sun cascades use the main camera.
     /// Positive infinity disables distance culling.
     pub max_distance: f32,
-    /// Whether the batch casts shadows.
+    /// Whether the batch casts sun, point-light and spot-light shadows.
     pub cast_shadows: bool,
     /// Uniform tint, in sRGB like `Model::with_color`.
     pub tint: Color,

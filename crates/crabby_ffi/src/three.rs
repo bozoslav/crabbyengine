@@ -3708,9 +3708,9 @@ pub struct CrabbyInstanceBatch {
 pub struct CrabbyInstanceBatchOptions {
     /// World-space cell width; finite and positive.
     pub cell_size: f32,
-    /// Nonnegative draw distance; infinity disables it.
+    /// Nonnegative distance from this view's camera or light; infinity disables it.
     pub max_distance: f32,
-    /// Whether to cast sun shadows.
+    /// Whether to cast sun, point-light and spot-light shadows.
     pub cast_shadows: bool,
     /// Uniform sRGB tint.
     pub tint: CrabbyColor,

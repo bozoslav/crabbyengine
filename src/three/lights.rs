@@ -138,6 +138,8 @@ pub(crate) struct LightGrid {
     /// World to each light shadow view's clip space: a spot light's one
     /// view, or a point light's six faces (+X, -X, +Y, -Y, +Z, -Z).
     pub shadow_views: Vec<Mat4>,
+    /// Position of the light owning each shadow view, for distance culling.
+    pub shadow_positions: Vec<Vec3>,
     /// Each shadow view's tile in the atlas, in texels.
     pub shadow_tiles: Vec<Tile>,
     /// The atlas's width and height in texels, as of the last `collect`.
@@ -240,6 +242,7 @@ impl LightGrid {
     fn plan_shadows(&mut self, world: &mut World, camera: &Camera3D, budget: usize, max_side: u32) {
         let shadows = budget > 0;
         self.shadow_views.clear();
+        self.shadow_positions.clear();
         self.shadow_tiles.clear();
         self.candidates.clear();
         self.first_view.clear();
@@ -302,6 +305,7 @@ impl LightGrid {
             if let Some(c) = next.next_if(|c| c.1 == 0 && c.2 == i as u32) {
                 self.first_view[i] = self.shadow_views.len() as i32;
                 self.shadow_views.extend(point_shadow_views(t.position, p.range));
+                self.shadow_positions.extend([t.position; 6]);
                 self.sides.extend([c.3; 6]);
             }
         }
@@ -309,6 +313,7 @@ impl LightGrid {
             if let Some(c) = next.next_if(|c| c.1 == 1 && c.2 == i as u32) {
                 self.first_view[points + i] = self.shadow_views.len() as i32;
                 self.shadow_views.push(spot_shadow_view(t, s));
+                self.shadow_positions.push(t.position);
                 self.sides.push(c.3);
             }
         }
@@ -714,11 +719,15 @@ mod tests {
         // Without shadows on (or in other views), no light gets views.
         g.collect(&mut w, &camera(), 0, LIGHT_SHADOW_SIZE, LIGHT_SHADOW_ATLAS_SIZE);
         assert!(g.shadow_views.is_empty() && g.lights.iter().all(|l| l.inner[1] < 0.0));
+        assert!(g.shadow_positions.is_empty());
         // With room, a shadowed spot light takes one.
         w.despawn(far);
         w.despawn(near);
         g.collect(&mut w, &camera(), 12, LIGHT_SHADOW_SIZE, LIGHT_SHADOW_ATLAS_SIZE);
         assert_eq!(g.shadow_views.len(), 7);
+        assert_eq!(g.shadow_positions.len(), 7);
+        assert_eq!(&g.shadow_positions[..6], &[vec3(0.0, 0.0, -12.0); 6]);
+        assert_eq!(g.shadow_positions[6], vec3(0.0, 0.0, -70.0));
     }
 
     #[test]

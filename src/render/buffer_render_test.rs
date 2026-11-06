@@ -162,6 +162,8 @@ impl Rig {
             &ctx.camera3d,
             &ctx.lighting,
         );
+        ctx.collect_views(&SkinFrame::default());
+        frame.views = std::mem::take(&mut ctx.frame3d.views);
         // Like the frame does: a freed buffer's passes are left out.
         frame.computes.extend(
             ctx.compute_passes
@@ -569,4 +571,100 @@ fn freed_buffers_are_skipped_and_their_ids_reused() {
         "bound again"
     );
     assert!(!drawn(&mut rig, vec3(-1.0, 0.0, 0.0)), "nothing of the old data");
+}
+
+#[test]
+fn batches_draw_into_target_textures() {
+    batch_target(true, false);
+    batch_target(false, false);
+    batch_target(true, true);
+    batch_target(false, true);
+}
+fn batch_target(compute: bool, reflection: bool) {
+    let Some(mut rig) = Rig::with_compute(compute) else {
+        return;
+    };
+    let mesh = rig.mesh(
+        &MeshData::cube(1.0),
+        MaterialDesc {
+            emissive: Color::WHITE,
+            color: Color::WHITE,
+            ..Default::default()
+        },
+    );
+    let b = rig.ctx.create_instance_batch(
+        mesh,
+        &[Mat4::from_translation(vec3(0.0, 1.0, 0.0))],
+        InstanceBatchOptions {
+            cast_shadows: false,
+            max_distance: 10.0,
+            ..Default::default()
+        },
+    );
+    rig.renderer.set_instance_batch(
+        &rig.device,
+        b.id(),
+        rig.ctx.assets3d.instance_batches[b.id() as usize].as_ref(),
+    );
+    let texture = rig.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("batch target test"),
+        size: rig.output.size(),
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba16Float,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+            | wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    // The test owns the offscreen renderer separately from the context.
+    rig.ctx.headless = true;
+    let handle = rig.ctx.create_render_target(SIZE, SIZE);
+    rig.renderer.add_render_target(handle.id, &texture);
+    let mut camera = rig.ctx.camera3d;
+    camera.position = vec3(0.0, 1.0, 4.0);
+    camera.look_at(vec3(0.0, 1.0, 0.0));
+    let target = if reflection {
+        camera.position.y = -1.0;
+        camera.look_at(vec3(0.0, 1.0, 0.0));
+        let mut target = TargetCamera::new(camera, handle);
+        target.clip_plane = Some(Vec4::new(0.0, 1.0, 0.0, 0.0));
+        target
+    } else {
+        TargetCamera::new(camera, handle)
+    };
+    rig.ctx.target_cameras.push(target);
+    // Main camera is beyond max_distance; only the target view can see this batch.
+    rig.ctx.camera3d.position = vec3(100.0, 100.0, 100.0);
+    rig.draw();
+    let read = rig.device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: (SIZE * SIZE * 8) as u64,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut encoder = rig.device.create_command_encoder(&Default::default());
+    encoder.copy_texture_to_buffer(
+        texture.as_image_copy(),
+        wgpu::TexelCopyBufferInfo {
+            buffer: &read,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(SIZE * 8),
+                rows_per_image: None,
+            },
+        },
+        texture.size(),
+    );
+    rig.queue.submit([encoder.finish()]);
+    read.map_async(wgpu::MapMode::Read, .., |r| r.unwrap());
+    rig.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    let bytes = read.get_mapped_range(..).unwrap();
+    let center = ((SIZE / 2 * SIZE + SIZE / 2) * 8) as usize;
+    // White unlit geometry has RGB half floats near 1; clear black has zero RGB.
+    assert!(
+        u16::from_le_bytes([bytes[center], bytes[center + 1]]) >= 0x3800,
+        "target batch absent (compute={compute}, reflection={reflection})"
+    );
 }
