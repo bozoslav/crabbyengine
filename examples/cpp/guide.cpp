@@ -1076,8 +1076,7 @@ static void temporal_antialiasing(crabby::ctx& ctx) {
     post.anti_aliasing = uint32_t(crabby::anti_aliasing::taa);
     post.taa_sharpness = 0.3f; // it softens the image a little
     ctx.set_post(post);
-    // After teleporting the camera, forget the old view:
-    // Resets temporal AO too after camera cuts or object teleports.
+    // After teleporting the camera (or an object), forget the old view:
     ctx.reset_temporal_history();
 }
 // ANCHOR_END: taa

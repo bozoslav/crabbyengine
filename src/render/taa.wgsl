@@ -180,10 +180,11 @@ fn fs_resolve(in: Full) -> Resolved {
     // A model that moved says so itself.
     let object_motion = textureLoad(velocity, nearest, 0).xy;
     motion += object_motion;
-    // A foreground vector dilated onto newly uncovered background would
-    // otherwise fetch the moving object again. Alpha is geometry coverage
-    // (zero for the background), independent of its color or brightness.
-    usable = usable && !(now.a <= 1e-4 && any(abs(object_motion) > vec2<f32>(1e-5)));
+    // A moved model's vector dilated onto a pixel it does not cover (the
+    // background it just uncovered, sky included) would fetch the model
+    // again from the history: such a pixel starts over instead.
+    let own_motion = textureLoad(velocity, home, 0).xy;
+    usable = usable && !(all(own_motion == vec2<f32>(0.0)) && any(object_motion != vec2<f32>(0.0)));
     let earlier = in.uv + motion;
     usable = usable && taa.params.z < 0.5 && all(earlier > vec2<f32>(0.0)) && all(earlier < vec2<f32>(1.0));
 

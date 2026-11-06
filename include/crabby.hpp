@@ -3078,9 +3078,9 @@ public:
     /// resolution scale and shadow map sizes. Throws, changing nothing, for a field
     /// outside its range.
     void set_graphics_quality(const crabby::graphics_quality& q) { detail::check(crabby_ctx_set_graphics_quality(raw_, &q)); }
-    /// Makes temporal antialiasing forget earlier frames: call it when the camera cuts
-    /// somewhere else. (Resizes and big camera jumps reset by themselves.)
-    /// Forget TAA and temporal AO history after camera cuts or object teleports.
+    /// Makes temporal antialiasing and temporal AO forget earlier frames: call it
+    /// after a camera cut or an object teleport. (Resizes and big camera jumps
+    /// reset by themselves.)
     void reset_temporal_history() { detail::check(crabby_ctx_reset_temporal_history(raw_)); }
     void save_screenshot(const char* path) { detail::check(crabby_ctx_save_screenshot(raw_, path)); }
     /// texture_filter::nearest keeps pixel art square.
