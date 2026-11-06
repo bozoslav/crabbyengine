@@ -435,3 +435,57 @@ fn environment_light(s: Surface, f0: vec3<f32>) -> vec3<f32> {
     let brdf = textureSampleLevel(sky_texture, sky_sampler, uv, 0.0).rg;
     return (diffuse * s.albedo * (1.0 - s.metallic) + specular * (f0 * brdf.x + brdf.y)) * s.occlusion;
 }
+
+// The sun's shadow, for material shaders, screen effects and compute passes.
+// Where `world` falls in shadow cascade `i`: the shadow map uv, the depth
+// to compare, and how near the edge of the cascade's box it is (0 at the
+// center, 1 at the edge, more outside).
+fn cascade_coords(i: i32, world: vec3<f32>, n: vec3<f32>) -> vec4<f32> {
+    // Looking up a little off the surface keeps it from shadowing itself.
+    let offset = n * frame.shadow.z * frame.cascade_texel[i];
+    let clip = frame.sun_view_proj[i] * vec4<f32>(world + offset, 1.0);
+    let ndc = clip.xyz / clip.w;
+    let edge = max(max(abs(ndc.x), abs(ndc.y)), select(0.0, 2.0, ndc.z > 1.0));
+    return vec4<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5, ndc.z, edge);
+}
+
+// How much light cascade `i` lets through at `c` (from `cascade_coords`),
+// softened over 3x3 texels.
+fn cascade_light(i: i32, c: vec4<f32>) -> f32 {
+    var lit = 0.0;
+    for (var y = -1; y <= 1; y++) {
+        for (var x = -1; x <= 1; x++) {
+            let at = c.xy + vec2<f32>(f32(x), f32(y)) * frame.shadow.y;
+            lit += textureSampleCompareLevel(shadow_map, shadow_sampler, at, i, c.z);
+        }
+    }
+    return lit / 9.0;
+}
+
+// How much sun reaches `world` (0 in shadow, 1 lit). The first cascade
+// whose box holds the point gives the sharpest shadow; near that box's edge
+// it fades into the next cascade, so the step between them doesn't show.
+// Only the cascades used are sampled.
+fn sunlight(world: vec3<f32>, n: vec3<f32>) -> f32 {
+    let count = i32(frame.shadow.x);
+    // Towards the shadow distance, shadows fade out.
+    let fade = smoothstep(0.85, 1.0, distance(world, frame.camera.xyz) / frame.shadow.w);
+    if count == 0 || fade >= 1.0 {
+        return 1.0;
+    }
+    // The 3x3 filter reaches one texel further out than the point.
+    let inside = 1.0 - 2.0 * frame.shadow.y;
+    var lit = 1.0;
+    for (var i = 0; i < count; i++) {
+        let c = cascade_coords(i, world, n);
+        if c.w < inside {
+            lit = cascade_light(i, c);
+            let blend = smoothstep(0.85, 1.0, c.w / inside);
+            if blend > 0.0 && i + 1 < count {
+                lit = mix(lit, cascade_light(i + 1, cascade_coords(i + 1, world, n)), blend);
+            }
+            break;
+        }
+    }
+    return mix(lit, 1.0, fade);
+}
