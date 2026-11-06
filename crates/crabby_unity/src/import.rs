@@ -15,6 +15,7 @@ use serde_json::{Value as Json, json};
 
 use crate::fbx::ModelFile;
 use crate::glb::{self, Primitive, Vertices};
+use crate::hierarchy::GameObject;
 use crate::material::{Surface, UnityMaterial};
 use crate::{Error, Hierarchy, ObjRef, Project, UnityFile, UnityMesh, UnityTexture, Value};
 
@@ -40,6 +41,8 @@ pub struct Report {
     pub textures: usize,
     /// Colliders written (`Importer::colliders`).
     pub colliders: usize,
+    /// `LodGroup`s written (`Importer::lod_groups`).
+    pub lod_groups: usize,
     /// What was left out, by reason, with how often.
     pub skipped: BTreeMap<String, usize>,
     /// The shaders of the materials imported, by asset path (or built-in
@@ -117,7 +120,17 @@ pub struct Importer<'p> {
     vertex_colors: HashMap<String, VertexColors>,
     /// Whether scenes get their colliders too (`colliders`).
     colliders: bool,
+    /// Whether LOD groups come over (`lod_groups`).
+    lod_groups: bool,
     report: Report,
+}
+
+/// A renderer of a LOD group's level: its mesh file, where it is (in
+/// Crabby's space) and its Cast Shadows setting.
+struct GroupRenderer {
+    mesh: String,
+    world: Mat4,
+    cast_shadows: i64,
 }
 
 /// Makes a mesh's vertex colors for a custom shader (`vertex_colors`).
@@ -159,6 +172,7 @@ impl<'p> Importer<'p> {
             custom_materials: BTreeMap::new(),
             vertex_colors: HashMap::new(),
             colliders: false,
+            lod_groups: true,
             report: Report::default(),
         }
     }
@@ -180,6 +194,30 @@ impl<'p> Importer<'p> {
     /// ```
     pub fn colliders(&mut self, on: bool) {
         self.colliders = on;
+    }
+
+    /// Whether Unity `LODGroup`s come over as Crabby `LodGroup`s: on at
+    /// first. On, the renderers of every level of detail are kept, under one
+    /// entity at the Unity group's object with the group's `size`
+    /// (`m_Size`), reference point, each level's screen-relative height
+    /// and crossfade width. Each renderer is placed relative to the group,
+    /// and its Cast Shadows setting becomes the level's shadow casters
+    /// (Off and Shadows Only renderers make the level cast different
+    /// meshes than it shows). Cross-fading (`m_FadeMode`) needs the group
+    /// not to animate it; animated fades (`m_AnimateCrossFading`) become
+    /// a fade over a band of screen heights, and are counted in the report.
+    /// Off, only LOD 0 is kept and the far levels are left out.
+    ///
+    /// Skinned renderers are never part of a group: one in LOD 0 stays an
+    /// entity of its own, and the ones in far levels are left out.
+    ///
+    /// ```no_run
+    /// # let project = crabby_unity::Project::open("MyUnityGame").unwrap();
+    /// let mut import = crabby_unity::Importer::new(&project, "my_game/assets/town", "town/");
+    /// import.lod_groups(false); // LOD 0 only
+    /// ```
+    pub fn lod_groups(&mut self, on: bool) {
+        self.lod_groups = on;
     }
 
     /// Says the game draws materials of `shader` (its asset path, as
@@ -250,21 +288,31 @@ impl<'p> Importer<'p> {
             world.push(parent * local);
             active.push(o.active && parent_active);
         }
-        // Renderers that only draw from a distance: LOD 1 and up.
+        // The LOD groups' renderers (by the id of the renderer component):
+        // their group's object and level. Without groups (`lod_groups`),
+        // the renderers of LOD 1 and up are left out instead.
+        let mut member: HashMap<i64, (usize, usize)> = HashMap::new();
         let mut far: HashSet<i64> = HashSet::new();
-        for o in objects {
+        for (g, o) in objects.iter().enumerate() {
             if let Some(lod) = o.component(LOD_GROUP)
                 && let Some(lods) = lod.body["m_LODs"].as_seq()
             {
-                for level in lods.iter().skip(1) {
-                    for r in level["renderers"].as_seq().unwrap_or(&[]) {
+                for (level, l) in lods.iter().enumerate() {
+                    for r in l["renderers"].as_seq().unwrap_or(&[]) {
                         if let Some(r) = r["renderer"].obj_ref() {
-                            far.insert(r.file_id);
+                            if self.lod_groups {
+                                member.insert(r.file_id, (g, level));
+                            } else if level > 0 {
+                                far.insert(r.file_id);
+                            }
                         }
                     }
                 }
             }
         }
+        // What each group draws, by its object: per level, the renderers
+        // with their Cast Shadows setting.
+        let mut groups: BTreeMap<usize, Vec<Vec<GroupRenderer>>> = BTreeMap::new();
 
         let mut entities = Vec::new();
         for (i, o) in objects.iter().enumerate() {
@@ -291,7 +339,13 @@ impl<'p> Importer<'p> {
             // simplified stand-in for the shadows of the pieces around it
             // (which are Off): a ShadowMesh with no Model.
             let cast_shadows = renderer.body["m_CastShadows"].as_i64().unwrap_or(1);
-            if far.contains(&renderer.file_id) {
+            let bones = renderer.body["m_Bones"].as_seq().unwrap_or_default();
+            // Skinned renderers can't be part of a group (they are posed by
+            // their skeleton): LOD 1 and up are left out.
+            let member_of = member.get(&renderer.file_id).copied().filter(|_| bones.is_empty());
+            if far.contains(&renderer.file_id)
+                || (member_of.is_none() && member.get(&renderer.file_id).is_some_and(|m| m.1 > 0))
+            {
                 self.report.skip("a far level of detail (LOD 1+)");
                 continue;
             }
@@ -305,7 +359,6 @@ impl<'p> Importer<'p> {
                 .iter()
                 .filter_map(Value::obj_ref)
                 .collect();
-            let bones = renderer.body["m_Bones"].as_seq().unwrap_or_default();
             let Some(name) = (if bones.is_empty() {
                 self.model(&mesh, &materials)?
             } else {
@@ -317,6 +370,18 @@ impl<'p> Importer<'p> {
             }) else {
                 continue;
             };
+            if let Some((group, level)) = member_of {
+                let levels = groups.entry(group).or_default();
+                if levels.len() <= level {
+                    levels.resize_with(level + 1, Vec::new);
+                }
+                levels[level].push(GroupRenderer {
+                    mesh: name,
+                    world: mirror(world[i]),
+                    cast_shadows,
+                });
+                continue;
+            }
             let (scale, rotation, position) = mirror(world[i]).to_scale_rotation_translation();
             let mut components = json!({
                 "Transform3D": {
@@ -337,6 +402,11 @@ impl<'p> Importer<'p> {
             }
             entities.push(json!({ "entity": entities.len(), "components": components }));
         }
+        for (g, levels) in groups {
+            if let Some(components) = self.lod_group(&objects[g], mirror(world[g]), levels) {
+                entities.push(json!({ "entity": entities.len(), "components": components }));
+            }
+        }
         if self.colliders {
             for (i, o) in objects.iter().enumerate() {
                 if !active[i] {
@@ -355,6 +425,107 @@ impl<'p> Importer<'p> {
             "version": 1,
             "entities": entities,
             "resources": {},
+        }))
+    }
+
+    /// The components of a group's entity: `Transform3D` and `LodGroup`
+    /// (from the Unity `LODGroup` of `object`, placed at `world` in
+    /// Crabby's space, with the `renderers` of each level); `None` if a
+    /// group has nothing to draw or can't be placed.
+    fn lod_group(&mut self, object: &GameObject, world: Mat4, mut levels: Vec<Vec<GroupRenderer>>) -> Option<Json> {
+        let lod = object.component(LOD_GROUP)?;
+        let b = &lod.body;
+        let lods = b["m_LODs"].as_seq().unwrap_or(&[]);
+        levels.resize_with(lods.len().max(levels.len()), Vec::new);
+        if levels.iter().all(Vec::is_empty) || world.determinant().abs() < 1e-12 {
+            return None;
+        }
+        // Cross-fade (1) and SpeedTree (2) fade; None (0) switches at once.
+        let fades = b["m_FadeMode"].as_i64().unwrap_or(0) != 0;
+        let animated = b["m_AnimateCrossFading"].as_i64() == Some(1);
+        if fades && animated {
+            self.report
+                .skip("an animated cross-fade (fades over a band of screen heights instead)");
+        }
+        let inverse = world.inverse();
+        let renderer = |r: &GroupRenderer| {
+            let (scale, rotation, position) = (inverse * r.world).to_scale_rotation_translation();
+            json!({
+                "mesh": r.mesh,
+                "offset": {
+                    "position": position.to_array(),
+                    "rotation": rotation.to_array(),
+                    "scale": scale.to_array(),
+                },
+            })
+        };
+        let levels: Vec<Json> = levels
+            .iter()
+            .enumerate()
+            .map(|(k, renderers)| {
+                let l = &lods[k.min(lods.len().saturating_sub(1))];
+                let height = if lods.is_empty() {
+                    0.5 / (1 << k.min(10)) as f32
+                } else {
+                    l["screenRelativeHeight"]
+                        .as_f32()
+                        // Unity's own defaults when a file has none.
+                        .unwrap_or(0.5 / (1 << k.min(10)) as f32)
+                };
+                let width = if !fades {
+                    0.0
+                } else if animated {
+                    0.2
+                } else {
+                    l["fadeTransitionWidth"].as_f32().unwrap_or(0.0).clamp(0.0, 1.0)
+                };
+                // Shadows: the level's own meshes cast them, unless some
+                // renderer casts none (Off) or only a shadow (Shadows Only).
+                let own = renderers.iter().all(|r| matches!(r.cast_shadows, 1 | 2));
+                let shadow = if own {
+                    json!("Same")
+                } else {
+                    let casters: Vec<Json> = renderers
+                        .iter()
+                        .filter(|r| r.cast_shadows != 0)
+                        .map(&renderer)
+                        .collect();
+                    json!({ "Casters": casters })
+                };
+                let shown: Vec<Json> = renderers
+                    .iter()
+                    .filter(|r| r.cast_shadows != 3)
+                    .map(&renderer)
+                    .collect();
+                json!({
+                    "screen_height": height,
+                    "fade_width": width,
+                    "renderers": shown,
+                    "shadow": shadow,
+                })
+            })
+            .collect();
+        let at = |v: &Value| {
+            Vec3::new(
+                v["x"].as_f32().unwrap_or(0.0),
+                v["y"].as_f32().unwrap_or(0.0),
+                // Crabby's Z is Unity's turned around.
+                -v["z"].as_f32().unwrap_or(0.0),
+            )
+        };
+        let (scale, rotation, position) = world.to_scale_rotation_translation();
+        self.report.lod_groups += 1;
+        Some(json!({
+            "Transform3D": {
+                "position": position.to_array(),
+                "rotation": rotation.to_array(),
+                "scale": scale.to_array(),
+            },
+            "LodGroup": {
+                "size": b["m_Size"].as_f32().unwrap_or(1.0),
+                "center": at(&b["m_LocalReferencePoint"]).to_array(),
+                "levels": levels,
+            },
         }))
     }
 

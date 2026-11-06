@@ -1088,3 +1088,33 @@ fn quality_presets_switch_at_run_time() {
         assert_eq!(ctx.post.render_size((1000, 500)), (800, 400));
     });
 }
+
+/// The scene format the Unity importer writes for a LOD group loads.
+#[test]
+fn lod_groups_in_the_importers_json_shape_load() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        ctx.load_mesh("models/house.glb");
+        let part = |y: f32| {
+            serde_json::json!({
+                "mesh": "models/house.glb",
+                "offset": { "position": [0.0, y, -1.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
+            })
+        };
+        let json = serde_json::json!({
+            "size": 4.0,
+            "center": [0.0, 1.0, -2.0],
+            "levels": [
+                { "screen_height": 0.6, "fade_width": 0.25, "renderers": [part(1.0)], "shadow": "Same" },
+                { "screen_height": 0.3, "fade_width": 0.0, "renderers": [part(0.0)], "shadow": { "Casters": [part(2.0)] } },
+                { "screen_height": 0.1, "fade_width": 0.5, "renderers": [], "shadow": { "Casters": [] } },
+            ],
+        });
+        let e = ctx.world.spawn((Transform3D::default(),));
+        ctx.world.set_json(e, "LodGroup", json).unwrap();
+        let group = ctx.world.get::<LodGroup>(e).unwrap();
+        assert_eq!(group.levels.len(), 3);
+        assert_eq!(group.levels[0].renderers[0].offset.position, vec3(0.0, 1.0, -1.0));
+        assert!(matches!(&group.levels[1].shadow, LodShadow::Casters(c) if c.len() == 1));
+        assert_eq!(group.center, vec3(0.0, 1.0, -2.0));
+    });
+}
