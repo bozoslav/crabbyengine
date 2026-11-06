@@ -3763,10 +3763,6 @@ impl Renderer3D {
                 let Some(buffer) = self.storage_buffers.get(id as usize).and_then(Option::as_ref) else {
                     continue;
                 };
-                // Motion vectors need per-instance matrices: not drawn.
-                if kind == Kind::Velocity {
-                    continue;
-                }
                 Some((buffer, count.min(buffer.len)))
             } else {
                 None
@@ -3864,7 +3860,11 @@ impl Renderer3D {
                     // (transform and tint) is shared by all `count` instances.
                     if count > 0 {
                         pass.set_bind_group(3, &b.read, &[]);
-                        let record = size_of::<Instance3D>() as u64;
+                        let record = if kind == Kind::Velocity {
+                            size_of::<MovedInstance>()
+                        } else {
+                            size_of::<Instance3D>()
+                        } as u64;
                         for model in start..start + models {
                             pass.set_vertex_buffer(
                                 1,
@@ -4218,7 +4218,7 @@ impl SideBuilder {
         let moved_buffers = [
             buffers[0].clone(),
             Some(wgpu::VertexBufferLayout {
-                array_stride: size_of::<MovedInstance>() as u64,
+                array_stride: if shared { 0 } else { size_of::<MovedInstance>() as u64 },
                 step_mode: wgpu::VertexStepMode::Instance,
                 attributes: &MOVED_ATTRIBUTES,
             }),
