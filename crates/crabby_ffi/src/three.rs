@@ -455,6 +455,12 @@ pub struct CrabbyLighting {
     /// How often the far shadow cascades are drawn again, in frames, 1 to 8
     /// (1: every frame). Default 2.
     pub shadow_refresh: u32,
+    /// Whether `equator_color` is used: the ambient light then goes from
+    /// `ground_color` below through `equator_color` on the horizon to
+    /// `sky_color` above. Off by default. Only without an atmosphere.
+    pub has_equator: bool,
+    /// Light from the horizon, on surfaces facing sideways (with `has_equator`).
+    pub equator_color: CrabbyColor,
 }
 
 /// The sky behind the 3D world and the fog in front of it (Rust
@@ -2160,6 +2166,8 @@ pub unsafe extern "C" fn crabby_ctx_lighting(ctx: *mut CrabbyCtx, out_lighting: 
                     light_shadow_views: l.light_shadow_views,
                     light_shadow_resolution: l.light_shadow_resolution,
                     shadow_refresh: l.shadow_refresh,
+                    has_equator: l.equator_color.is_some(),
+                    equator_color: to_c(l.equator_color.unwrap_or(l.sky_color)),
                 },
             )
         })
@@ -2214,6 +2222,7 @@ pub unsafe extern "C" fn crabby_ctx_set_lighting(ctx: *mut CrabbyCtx, lighting: 
                 light_shadow_views: l.light_shadow_views,
                 light_shadow_resolution: l.light_shadow_resolution,
                 shadow_refresh: l.shadow_refresh,
+                equator_color: l.has_equator.then(|| color(l.equator_color)),
             };
             Ok(())
         })

@@ -619,6 +619,11 @@ pub struct Lighting {
     /// Light bounced off the ground, on surfaces facing down. Like
     /// `sky_color`, only without an atmosphere.
     pub ground_color: Color,
+    /// Light from the horizon, on surfaces facing sideways: with it, the
+    /// ambient light goes from `ground_color` below through this to
+    /// `sky_color` above (a three-color gradient); without it (`None`, the
+    /// default), straight from ground to sky. Only without an atmosphere.
+    pub equator_color: Option<Color>,
     /// How bright the sky and ground light is: 1 is as bright as the sky
     /// makes it. Default 1.
     pub ambient_intensity: f32,
@@ -664,6 +669,7 @@ impl Default for Lighting {
             sun_intensity: 3.0,
             sky_color: Color::hex(0x869BB0),
             ground_color: Color::hex(0x4D4135),
+            equator_color: None,
             ambient_intensity: 1.0,
             shadows: true,
             shadow_distance: 60.0,

@@ -27,6 +27,15 @@ static void setup(CrabbyCtx* ctx, void* user) {
     CHECK(crabby_ctx_occlusion_culling(ctx, &culling) == CRABBY_OK && culling);
     CHECK(crabby_ctx_set_occlusion_culling(ctx, false) == CRABBY_OK);
     CHECK(crabby_ctx_occlusion_culling(NULL, &culling) == CRABBY_INVALID_ARGUMENT);
+    CrabbyLighting light;
+    CHECK(crabby_ctx_lighting(ctx, &light) == CRABBY_OK && !light.has_equator);
+    light.has_equator = true;
+    light.equator_color = (CrabbyColor){0, 1, 0, 1};
+    CHECK(crabby_ctx_set_lighting(ctx, &light) == CRABBY_OK);
+    CrabbyLighting lit;
+    CHECK(crabby_ctx_lighting(ctx, &lit) == CRABBY_OK && lit.has_equator && lit.equator_color.g == 1);
+    light.has_equator = false;
+    CHECK(crabby_ctx_set_lighting(ctx, &light) == CRABBY_OK);
     CrabbyPost post;
     CHECK(crabby_ctx_post(ctx, &post) == CRABBY_OK);
     CHECK(!post.ao_enabled && post.anti_aliasing == 0 && post.ao_radius == 1);

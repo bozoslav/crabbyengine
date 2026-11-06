@@ -891,6 +891,18 @@ static void spin(crabby::ctx& ctx) {
 }
 // ANCHOR_END: three_d
 
+// ANCHOR: trilight
+/// Without an atmosphere: a blue sky, a green-grey horizon and brown ground.
+static void trilight(crabby::ctx& ctx) {
+    auto light = ctx.lighting();
+    light.sky_color = crabby::rgb(0.56f, 0.70f, 0.85f);
+    light.has_equator = true;
+    light.equator_color = crabby::rgb(0.55f, 0.60f, 0.53f);
+    light.ground_color = crabby::rgb(0.30f, 0.25f, 0.21f);
+    ctx.set_lighting(light);
+}
+// ANCHOR_END: trilight
+
 // ANCHOR: sky
 /// A misty morning: the sun low in the east, fog lying in the valleys.
 static void misty_morning(crabby::ctx& ctx) {
@@ -1284,6 +1296,8 @@ static void the_village_has_five_spinning_houses() {
         golden_hour(ctx);
         options_menu(ctx);
         temporal_antialiasing(ctx);
+        trilight(ctx);
+        if (!ctx.lighting().has_equator) { std::fprintf(stderr, "trilight\n"); std::abort(); }
         misty_morning(ctx);
         far_haze(ctx);
         auto tuft = ctx.create_mesh(crabby::mesh_data::cube(0.1f), ctx.default_material());

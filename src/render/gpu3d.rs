@@ -2015,6 +2015,19 @@ impl Renderer3D {
                 sky.fog_sun_focus.clamp(0.0, 0.99),
             ],
         };
+        // A three-color ambient, without an atmosphere.
+        let equator = match lighting.equator_color {
+            Some(c) if !sky.atmosphere => {
+                let [r, g, b, _] = linear(c);
+                [
+                    r * lighting.ambient_intensity,
+                    g * lighting.ambient_intensity,
+                    b * lighting.ambient_intensity,
+                    1.0,
+                ]
+            }
+            _ => [0.0; 4],
+        };
         self.environment.prepare(
             queue,
             [
@@ -2036,11 +2049,14 @@ impl Renderer3D {
                 uniform.night[0],
                 uniform.night[1],
                 uniform.night[2],
+                equator[0],
+                equator[1],
+                equator[2],
+                equator[3],
             ],
             sky.atmosphere,
             lighting.ambient_intensity,
-            uniform.sky,
-            uniform.ground,
+            [uniform.sky, uniform.ground, equator],
         );
         self.environment.upload(device, queue, &frame.probe_uploads);
         self.environment.bakes.clear();
