@@ -2873,9 +2873,14 @@ impl Renderer3D {
                             view: &targets.depth,
                             depth_ops: Some(wgpu::Operations {
                                 load: wgpu::LoadOp::Load,
-                                // Later passes read it (the motion pass too);
-                                // without a solid prepass, it's only complete here.
-                                store: if split || self.taa_on || !(self.solid_prepass || self.ao_enabled) {
+                                // Later passes read it (the motion pass and
+                                // screen effects too); without a solid
+                                // prepass, it's only complete here.
+                                store: if split
+                                    || self.taa_on
+                                    || !self.effects.is_empty()
+                                    || !(self.solid_prepass || self.ao_enabled)
+                                {
                                     wgpu::StoreOp::Store
                                 } else {
                                     wgpu::StoreOp::Discard
