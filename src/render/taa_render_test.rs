@@ -401,7 +401,8 @@ fn a_moved_model_writes_its_motion_and_a_still_one_does_not() {
 }
 
 /// Shifts every buffer element's cube by the element's `xyz`.
-const OFFSETS: &str = "fn vertex(v: Vertex) -> Vertex { var o = v; o.position += items[v.instance_index].xyz; return o; }";
+const OFFSETS: &str =
+    "fn vertex(v: Vertex) -> Vertex { var o = v; o.position += items[v.instance_index].xyz; return o; }";
 
 impl Rig {
     /// A cube drawn once per element of a GPU buffer holding `offsets`.
@@ -504,7 +505,10 @@ fn a_moving_buffer_driven_mesh_leaves_no_ghost_behind() {
     let (Some(camera_only), Some(with_vectors)) = (trail(true, true), trail(false, true)) else {
         return;
     };
-    assert!(with_vectors < 0.03, "background behind moving buffer meshes: {with_vectors}");
+    assert!(
+        with_vectors < 0.03,
+        "background behind moving buffer meshes: {with_vectors}"
+    );
     assert!(camera_only > 0.1, "without vectors they ghost: {camera_only}");
 }
 
