@@ -101,6 +101,13 @@ pub(crate) struct Frame3D {
     pub sun_view_proj: [Mat4; MAX_CASCADES],
     /// Each cascade's size, in world units per shadow-map texel.
     pub cascade_texel: [f32; MAX_CASCADES],
+    /// Which cascades are drawn this frame, one bit each: the rest keep
+    /// what an earlier frame drew into them (see `Lighting::shadow_refresh`).
+    pub redrawn: u32,
+    /// What each far cascade's shadow map holds, from the frame that drew it.
+    cascade_cache: [Option<CachedCascade>; MAX_CASCADES],
+    /// Counts frames, for taking turns redrawing the far cascades.
+    frame_number: u32,
     /// The screen effects to run, in order: (effect, material).
     pub effects: Vec<(u32, u32)>,
     /// The compute passes to run, in order: (compute, target texture, material).
@@ -183,14 +190,70 @@ impl Frame3D {
         let splits = cascade_splits(camera.near, lighting.shadow_distance, self.cascades);
         // Each cascade's box is open towards the sun: casters above it
         // still shade what's inside, so its near plane isn't tested.
+        // Far cascades can keep an earlier frame's shadow map: each is drawn
+        // into a box a little bigger than it needs, and kept while what the
+        // camera sees of that stretch stays inside it, the sun stays put and
+        // its turn hasn't come (see `Lighting::shadow_refresh`). Kept
+        // cascades cull every caster, so they draw nothing.
+        let refresh = lighting.shadow_refresh.clamp(1, MAX_SHADOW_REFRESH);
+        let first_far = if refresh > 1 {
+            far_cascades(self.cascades)
+        } else {
+            self.cascades
+        };
+        self.frame_number = self.frame_number.wrapping_add(1);
+        self.redrawn = 0;
         let mut sun_planes = [[Vec4::ZERO; 5]; MAX_CASCADES];
         for i in 0..self.cascades {
             let near = if i == 0 { camera.near } else { splits[i - 1] };
-            let (m, texel) = sun_view_proj(camera, lighting.sun_direction, near, splits[i], self.shadow_size);
-            self.sun_view_proj[i] = m;
-            self.cascade_texel[i] = texel;
-            let [l, r, b, t, _, f] = frustum_planes(m);
+            if i >= first_far {
+                let (center, radius) = slice_sphere(camera, near, splits[i]);
+                let turn = (self.frame_number + i as u32).is_multiple_of(refresh);
+                let kept = self.cascade_cache[i].filter(|c| {
+                    !turn
+                        && c.size == self.shadow_size
+                        && c.cascades == self.cascades
+                        && c.sun == lighting.sun_direction
+                        && center.distance(c.center) + radius <= c.reach
+                });
+                if let Some(c) = kept {
+                    self.sun_view_proj[i] = c.view_proj;
+                    self.cascade_texel[i] = c.texel;
+                    // Planes no sphere is inside of: nothing is drawn.
+                    sun_planes[i] = [Vec4::new(0.0, 0.0, 0.0, -f32::MAX); 5];
+                    continue;
+                }
+                let (m, texel, reach) = sun_box(
+                    camera,
+                    lighting.sun_direction,
+                    near,
+                    splits[i],
+                    self.shadow_size,
+                    1.0 + CACHE_MARGIN,
+                );
+                self.cascade_cache[i] = Some(CachedCascade {
+                    view_proj: m,
+                    texel,
+                    center,
+                    reach,
+                    sun: lighting.sun_direction,
+                    size: self.shadow_size,
+                    cascades: self.cascades,
+                });
+                self.sun_view_proj[i] = m;
+                self.cascade_texel[i] = texel;
+            } else {
+                self.cascade_cache[i] = None;
+                let (m, texel) = sun_view_proj(camera, lighting.sun_direction, near, splits[i], self.shadow_size);
+                self.sun_view_proj[i] = m;
+                self.cascade_texel[i] = texel;
+            }
+            self.redrawn |= 1 << i;
+            let [l, r, b, t, _, f] = frustum_planes(self.sun_view_proj[i]);
             sun_planes[i] = [l, r, b, t, f];
+        }
+        for cache in &mut self.cascade_cache[self.cascades..] {
+            *cache = None;
         }
         let sun_planes = &sun_planes[..self.cascades];
         let mut light_planes = [[Vec4::ZERO; 6]; super::lights::MAX_LIGHT_SHADOW_VIEWS];
@@ -547,11 +610,15 @@ pub(crate) fn cascade_splits(near: f32, distance: f32, count: usize) -> [f32; MA
 /// orthographic box around that part of the view, facing along the
 /// sunlight, moved in whole shadow-map texels so shadow edges don't shimmer
 /// as the camera moves.
-pub(crate) fn sun_view_proj(camera: &Camera3D, sun_direction: Vec3, near: f32, far: f32, map_size: u32) -> (Mat4, f32) {
-    let light = sun_direction.try_normalize().unwrap_or(Vec3::NEG_Y);
+pub(crate) fn sun_view_proj(camera: &Camera3D, sun_direction: Vec3, near: f32, far: f32, size: u32) -> (Mat4, f32) {
+    let (m, texel, _) = sun_box(camera, sun_direction, near, far, size, 1.0);
+    (m, texel)
+}
+
+/// The bounding sphere of what the camera sees from `near` to `far` away:
+/// its center and radius. It doesn't change size as the camera turns.
+fn slice_sphere(camera: &Camera3D, near: f32, far: f32) -> (Vec3, f32) {
     let far = far.max(camera.near * 2.0);
-    // The bounding sphere of the view's slice: it doesn't change size as
-    // the camera turns, so neither do texels.
     let slice = Camera3D {
         near: near.clamp(camera.near, far * 0.5),
         far,
@@ -572,12 +639,21 @@ pub(crate) fn sun_view_proj(camera: &Camera3D, sun_direction: Vec3, near: f32, f
     }
     let center = corners.iter().copied().sum::<Vec3>() / 8.0;
     let radius = corners.iter().map(|c| c.distance(center)).fold(0.0, f32::max);
-    let radius = (radius * 16.0).ceil() / 16.0;
+    (center, radius)
+}
+
+/// [`sun_view_proj`] with the box `grow` times as wide as the view's
+/// slice needs, and how far from the slice's center the box reaches
+/// (anything within that distance of it is inside the box).
+fn sun_box(camera: &Camera3D, sun_direction: Vec3, near: f32, far: f32, size: u32, grow: f32) -> (Mat4, f32, f32) {
+    let light = sun_direction.try_normalize().unwrap_or(Vec3::NEG_Y);
+    let (center, radius) = slice_sphere(camera, near, far);
+    let radius = (radius * grow * 16.0).ceil() / 16.0;
 
     let up = if light.y.abs() > 0.99 { Vec3::Z } else { Vec3::Y };
     let rotation = glam::camera::rh::view::look_to_mat4(Vec3::ZERO, light, up);
     // Snap the center to whole texels in the light's view.
-    let texel = 2.0 * radius / map_size.max(1) as f32;
+    let texel = 2.0 * radius / size.max(1) as f32;
     let snapped = (rotation.transform_point3(center) / texel).round() * texel;
     let center = rotation.inverse().transform_point3(snapped);
 
@@ -587,8 +663,37 @@ pub(crate) fn sun_view_proj(camera: &Camera3D, sun_direction: Vec3, near: f32, f
     let view = glam::camera::rh::view::look_to_mat4(center - light * back, light, up);
     let projection =
         glam::camera::rh::proj::directx::orthographic(-radius, radius, -radius, radius, 0.0, back + radius);
-    (projection * view, texel)
+    // Snapping moved the box by up to a texel in each direction.
+    (projection * view, texel, radius - texel * 2.0)
 }
+
+/// The first of `cascades` cascades that can be kept between frames: the
+/// far half (cascades 2 and 3 of 4, 1 of 2).
+pub(crate) fn far_cascades(cascades: usize) -> usize {
+    cascades.div_ceil(2).max(1)
+}
+
+/// What a far cascade's shadow map holds (see `Frame3D::cascade_cache`).
+#[derive(Clone, Copy, Debug)]
+struct CachedCascade {
+    view_proj: Mat4,
+    texel: f32,
+    /// The center of the view's slice it was drawn for, and how far from
+    /// there its box reaches.
+    center: Vec3,
+    reach: f32,
+    /// What it was drawn with: a change to any of them draws it again.
+    sun: Vec3,
+    size: u32,
+    cascades: usize,
+}
+
+/// How much bigger a far cascade's box is than it needs to be, so the
+/// camera can move a while before it must be drawn again.
+const CACHE_MARGIN: f32 = 0.2;
+
+/// The most frames a far cascade may be kept for.
+pub(crate) const MAX_SHADOW_REFRESH: u32 = 8;
 
 /// The six planes of a view volume (`xyz` normal pointing in, `w`
 /// distance), from a projection-times-view matrix with 0..1 depth: left,
@@ -865,5 +970,115 @@ mod tests {
             assert!(i.fade() != 0.0 && i.fade().abs() < 1.0, "{}", i.fade());
         }
         assert!(seen[0].fade() * seen[1].fade() < 0.0, "complementary patterns");
+    }
+
+    /// A world with one model near the camera and one far, the camera and
+    /// lighting for the shadow cache tests.
+    fn cache_scene(refresh: u32) -> (World, Assets3D, Camera3D, Lighting) {
+        let mut world = World::new();
+        let assets = Assets3D {
+            bounds: vec![(Vec3::ZERO, 0.5)],
+            ..Default::default()
+        };
+        let mut camera = camera();
+        camera.position = Vec3::new(0.0, 2.0, 0.0);
+        camera.look_at(Vec3::new(0.0, 2.0, -1.0));
+        camera.near = 0.1;
+        camera.far = 1000.0;
+        let lighting = Lighting {
+            sun_direction: Vec3::new(0.2, -1.0, 0.1),
+            shadow_distance: 400.0,
+            shadow_refresh: refresh,
+            ..Default::default()
+        };
+        let model = Model::new(Mesh { id: 0 });
+        world.spawn((Transform3D::at(Vec3::new(0.0, 0.0, -3.0)), model));
+        world.spawn((Transform3D::at(Vec3::new(0.0, 0.0, -350.0)), model));
+        (world, assets, camera, lighting)
+    }
+
+    #[test]
+    fn far_cascades_take_turns_and_keep_their_maps_in_between() {
+        let (mut world, assets, camera, lighting) = cache_scene(2);
+        let mut frame = Frame3D::default();
+        let mut collect = |frame: &mut Frame3D, camera: &Camera3D, lighting: &Lighting| {
+            frame.collect(&mut world, &assets, &SkinFrame::default(), camera, lighting);
+            (frame.redrawn, frame.sun_view_proj, frame.shadow_runs.clone())
+        };
+        let (first, matrices, _) = collect(&mut frame, &camera, &lighting);
+        assert_eq!(first, 0b1111, "the first frame draws every cascade");
+        let (second, kept, runs) = collect(&mut frame, &camera, &lighting);
+        let (third, _, _) = collect(&mut frame, &camera, &lighting);
+        // Near cascades every frame; the far two (2 and 3) alternate.
+        assert_eq!(second & 0b11, 0b11);
+        assert_eq!(third & 0b11, 0b11);
+        assert_eq!((second | third) & 0b1100, 0b1100);
+        assert_eq!((second & third) & 0b1100, 0, "{second:b} {third:b}");
+        let skipped = if second & 0b100 == 0 { 2 } else { 3 };
+        assert_eq!(
+            kept[skipped], matrices[skipped],
+            "a kept cascade samples the map it drew"
+        );
+        assert!(runs[skipped].is_empty(), "and draws nothing");
+        let drawn = 5 - skipped;
+        assert!(!runs[drawn].is_empty(), "the other far cascade draws its casters");
+    }
+
+    #[test]
+    fn a_kept_cascade_is_drawn_again_when_the_camera_leaves_it_or_the_sun_moves() {
+        let (mut world, assets, mut camera, mut lighting) = cache_scene(8);
+        let mut frame = Frame3D::default();
+        let mut redrawn = |camera: &Camera3D, lighting: &Lighting| {
+            frame.collect(&mut world, &assets, &SkinFrame::default(), camera, lighting);
+            frame.redrawn
+        };
+        redrawn(&camera, &lighting);
+        // Still: at most one far cascade's turn comes up each frame.
+        let still = redrawn(&camera, &lighting);
+        assert!((still & 0b1100).count_ones() <= 1, "{still:b}");
+        // A small step stays inside the bigger boxes.
+        camera.position.x += 1.0;
+        let step = redrawn(&camera, &lighting);
+        assert!((step & 0b1100).count_ones() <= 1, "{step:b}");
+        // A long way: every cascade is drawn again.
+        camera.position.x += 500.0;
+        assert_eq!(redrawn(&camera, &lighting), 0b1111);
+        redrawn(&camera, &lighting);
+        // The sun moves: the same.
+        lighting.sun_direction.x += 0.01;
+        assert_eq!(redrawn(&camera, &lighting), 0b1111);
+        // So does a new shadow map size.
+        lighting.shadow_resolution = 1024;
+        assert_eq!(redrawn(&camera, &lighting), 0b1111);
+    }
+
+    #[test]
+    fn refresh_1_draws_every_cascade_every_frame_in_tight_boxes() {
+        let (mut world, assets, camera, lighting) = cache_scene(1);
+        let mut frame = Frame3D::default();
+        for _ in 0..3 {
+            frame.collect(&mut world, &assets, &SkinFrame::default(), &camera, &lighting);
+            assert_eq!(frame.redrawn, 0b1111);
+        }
+        let splits = cascade_splits(camera.near, lighting.shadow_distance, 4);
+        let (tight, _) = sun_view_proj(
+            &camera,
+            lighting.sun_direction,
+            splits[2],
+            splits[3],
+            lighting.shadow_size(0),
+        );
+        assert_eq!(frame.sun_view_proj[3], tight);
+        // With caching on, the far boxes are a little bigger: coarser texels.
+        let (mut world, assets, camera, lighting) = cache_scene(2);
+        let mut cached = Frame3D::default();
+        cached.collect(&mut world, &assets, &SkinFrame::default(), &camera, &lighting);
+        assert!(cached.cascade_texel[3] > frame.cascade_texel[3] * 1.15);
+        assert_eq!(cached.cascade_texel[0], frame.cascade_texel[0]);
+    }
+
+    #[test]
+    fn the_far_half_of_the_cascades_can_be_kept() {
+        assert_eq!((1..=4).map(far_cascades).collect::<Vec<_>>(), [1, 1, 2, 2]);
     }
 }

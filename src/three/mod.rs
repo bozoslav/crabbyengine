@@ -624,6 +624,14 @@ pub struct Lighting {
     /// the memory (`4 * resolution² * cascades` bytes) and sharpens shadows.
     /// Changing it at run time makes new shadow maps. Default 2048.
     pub shadow_resolution: u32,
+    /// How often the far cascades (the farther half of them) are drawn
+    /// again, in frames, 1 to 8. At 1 every cascade is drawn every frame. Above
+    /// 1 the far ones take turns: each is drawn into a box a little bigger
+    /// than it needs and kept for up to this many frames, or until the
+    /// camera leaves its box or the sun moves. Far shadows of moving things
+    /// then lag by up to that many frames. Default 2: half the far
+    /// cascades' drawing.
+    pub shadow_refresh: u32,
     /// How many shadow views point and spot lights may share, 0 to
     /// [`MAX_LIGHT_SHADOW_VIEWS`]: a shadowed spot light takes one, a
     /// shadowed point light six. 0 turns point and spot light shadows off.
@@ -648,6 +656,7 @@ impl Default for Lighting {
             shadow_distance: 60.0,
             shadow_cascades: 4,
             shadow_resolution: SHADOW_MAP_SIZE,
+            shadow_refresh: 2,
             light_shadow_views: MAX_LIGHT_SHADOW_VIEWS as u32,
             light_shadow_resolution: LIGHT_SHADOW_SIZE,
         }

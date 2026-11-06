@@ -595,6 +595,9 @@ pub(crate) struct Renderer3D {
     /// Each cascade's layer of the shadow map, drawn into.
     shadow_layers: Vec<wgpu::TextureView>,
     cascades: usize,
+    /// Which cascades are drawn this frame (one bit each); the others keep
+    /// an earlier frame's shadow map.
+    redrawn: u32,
     /// The sun's shadow map as made: its width and its layers (a 1x1 one
     /// without shadows).
     shadow_dims: (u32, u32),
@@ -1255,6 +1258,7 @@ impl Renderer3D {
             shadow_bind_group,
             shadow_layers,
             cascades: 0,
+            redrawn: 0,
             shadow_dims: (1, 1),
             light_shadow_dims: None,
             light_shadow_layers: Vec::new(),
@@ -1689,6 +1693,7 @@ impl Renderer3D {
                 .filter(|&&(e, m)| (e as usize) < effects && (m as usize) < materials),
         );
         self.cascades = frame.cascades;
+        self.redrawn = frame.redrawn;
         self.light_views = frame.light_views;
         for (mine, theirs) in self.shadow_runs.iter_mut().zip(&frame.shadow_runs) {
             mine.clear();
@@ -2388,6 +2393,9 @@ impl Renderer3D {
         let mut parts = Vec::with_capacity(8 + self.cascades + self.light_views);
         parts.push(Part::Prelude);
         for cascade in shadow_views(self.cascades, self.light_views) {
+            if cascade < MAX_CASCADES && self.redrawn & (1 << cascade) == 0 {
+                continue; // kept from an earlier frame: not even cleared
+            }
             let runs = &self.shadow_runs[cascade];
             let mut first = 0;
             let mut draws = 0;
