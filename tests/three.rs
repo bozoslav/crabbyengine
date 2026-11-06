@@ -1248,3 +1248,34 @@ fn gpu_buffer_writes_validate_ranges() {
         ctx.write_gpu_buffer(b, 1, &[Vec4::ONE]);
     });
 }
+
+// ANCHOR: gpu_instances
+fn persistent_instances(ctx: &mut Ctx, mesh: Mesh) {
+    let transforms = (0..100_000)
+        .map(|i| Mat4::from_translation(vec3((i % 1000) as f32, 0.0, (i / 1000) as f32)))
+        .collect::<Vec<_>>();
+    let batch = ctx.create_instance_batch(
+        mesh,
+        &transforms,
+        InstanceBatchOptions {
+            max_distance: 500.0,
+            ..Default::default()
+        },
+    );
+    assert_eq!(ctx.instance_batch_len(batch), Some(100_000));
+    assert!(ctx.update_instance_batch(batch, &[Mat4::IDENTITY]));
+    ctx.free_instance_batch(batch);
+    assert_eq!(ctx.instance_batch_len(batch), None);
+    assert!(!ctx.update_instance_batch(batch, &[]));
+    ctx.free_instance_batch(batch);
+}
+// ANCHOR_END: gpu_instances
+#[test]
+fn hundred_thousand_static_instances_need_no_entities() {
+    Game::new("static instances", 1, 1).run_headless(0, |ctx| {
+        let material = ctx.create_material(MaterialDesc::default());
+        let mesh = ctx.create_mesh(&MeshData::cube(1.0), material);
+        persistent_instances(ctx, mesh);
+        assert_eq!(ctx.world.len(), 0);
+    });
+}

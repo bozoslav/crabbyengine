@@ -14,6 +14,8 @@ struct VertexIn {
     @location(9) uv1: vec2<f32>,
 };
 
+// STATIC_INSTANCE_HELPER
+
 struct VertexOut {
     // Invariant: the depth prepass and the main pass must land on exactly the same depth.
     @builtin(position) @invariant clip: vec4<f32>,
@@ -30,7 +32,8 @@ struct VertexOut {
 };
 
 // The vertex in world space, after the shader's `vertex` function.
-fn world_vertex(in: VertexIn) -> Vertex {
+fn world_vertex(input: VertexIn) -> Vertex {
+    let in = static_instance(input);
     // The matrix's last row is (0, 0, 0, 1); the first slot of it carries the
     // model's decal layers instead (see instance_decal_layers).
     let model = mat4x4<f32>(vec4<f32>(in.m0.xyz, 0.0), vec4<f32>(in.m1.xyz, 0.0), vec4<f32>(in.m2.xyz, 0.0), vec4<f32>(in.m3.xyz, 1.0));
@@ -52,7 +55,7 @@ fn world_vertex(in: VertexIn) -> Vertex {
 
 // The decal layers the model takes, as the engine put them in the instance.
 fn instance_decal_layers(in: VertexIn) -> u32 {
-    return u32(in.m0.w + 0.5);
+    return u32(static_instance(in).m0.w + 0.5);
 }
 
 @vertex

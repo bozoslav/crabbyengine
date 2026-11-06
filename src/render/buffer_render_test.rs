@@ -148,9 +148,13 @@ impl Rig {
 
     /// Draws the world and reads the pixels back (RGBA).
     fn draw(&mut self) -> Vec<u8> {
+        self.draw_with_grid(None)
+    }
+    fn draw_with_grid(&mut self, grid: Option<crate::three::occlusion::OcclusionGrid>) -> Vec<u8> {
         let ctx = &mut self.ctx;
         let mut frame = Frame3D::default();
         frame.lod = ctx.lod;
+        frame.occlusion = grid;
         frame.collect(
             &mut ctx.world,
             &ctx.assets3d,
@@ -176,7 +180,7 @@ impl Rig {
             camera: ctx.camera3d.position,
             post: &ctx.post,
             time: (0.0, 1.0 / 60.0),
-            occlusion: false,
+            occlusion: ctx.camera3d.occlusion_culling,
         };
         self.renderer.prepare(
             &self.device,
@@ -290,4 +294,113 @@ fn buffer_draw(compute: bool) {
     assert!(red(vec3(1.0, 0.0, 0.0)) > 150, "second computed instance");
     assert!(red(Vec3::ZERO) < 20, "nothing at the identity origin");
     assert!(red(vec3(-1.0, -1.0, 0.0)) < 20, "ordered second pass moved it");
+}
+
+#[test]
+fn persistent_batches_cull_on_gpu() {
+    persistent_batch_draw(true);
+}
+#[test]
+fn persistent_batches_fallback_draws_visible_cells() {
+    persistent_batch_draw(false);
+}
+fn persistent_batch_draw(compute: bool) {
+    let Some(mut rig) = Rig::with_compute(compute) else {
+        return;
+    };
+    let mesh = rig.mesh(
+        &MeshData::cube(0.5),
+        MaterialDesc {
+            emissive: Color::WHITE,
+            ..Default::default()
+        },
+    );
+    rig.ctx.camera3d.position = Vec3::ZERO;
+    rig.ctx.camera3d.look_at(-Vec3::Z);
+    rig.ctx.lighting.shadows = false;
+    let options = InstanceBatchOptions {
+        cell_size: if compute { 32.0 } else { 1.0 },
+        max_distance: 10.0,
+        ..Default::default()
+    };
+    let at = [vec3(-1.0, 0.0, -5.0), vec3(1.0, 0.0, 5.0), vec3(-8.0, 0.0, -20.0)];
+    let transforms = at.map(Mat4::from_translation);
+    let b = rig.ctx.create_instance_batch(mesh, &transforms, options);
+    rig.renderer.set_instance_batch(
+        &rig.device,
+        b.id(),
+        rig.ctx.assets3d.instance_batches[b.id() as usize].as_ref(),
+    );
+    let image = rig.draw();
+    let vp = rig.ctx.camera3d.view_proj();
+    let (x, y) = pixel(vp, at[0]);
+    assert!(
+        image[((y * SIZE + x) * 4) as usize] > 100,
+        "visible batch absent ({compute})"
+    );
+    // The far instance projects inside the view, but its maximum distance excludes it.
+    let (x, y) = pixel(vp, at[2]);
+    assert!(
+        image[((y * SIZE + x) * 4) as usize] < 50,
+        "distant instance drawn ({compute})"
+    );
+    if compute {
+        let view = &rig.renderer.static_batches[b.id() as usize].as_ref().unwrap().views[0];
+        let read = rig.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: 20,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let mut encoder = rig.device.create_command_encoder(&Default::default());
+        encoder.copy_buffer_to_buffer(&view.args, 0, &read, 0, 20);
+        rig.queue.submit([encoder.finish()]);
+        read.map_async(wgpu::MapMode::Read, .., |r| r.unwrap());
+        rig.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+        let bytes = read.get_mapped_range(..).unwrap();
+        assert_eq!(
+            u32::from_le_bytes(bytes[4..8].try_into().unwrap()),
+            1,
+            "behind/distant instances survived GPU culling"
+        );
+    }
+    rig.ctx.camera3d.occlusion_culling = true;
+    let wall = vp * vec3(0.0, 0.0, -2.0).extend(1.0);
+    let grid = crate::three::occlusion::OcclusionGrid::new(vp, Vec3::ZERO, 16, 16, vec![wall.z / wall.w; 256]);
+    let hidden = rig.draw_with_grid(Some(grid));
+    let (x, y) = pixel(vp, at[0]);
+    assert!(
+        hidden[((y * SIZE + x) * 4) as usize] < 50,
+        "occluded instance survived ({compute})"
+    );
+    rig.renderer.set_instance_batch(&rig.device, b.id(), None);
+    // Cutout-only batches must trigger the coverage prepass even without model entities.
+    let cutout = rig.mesh(
+        &MeshData::cube(0.5),
+        MaterialDesc {
+            blend: Blend::Cutout,
+            emissive: Color::WHITE,
+            ..Default::default()
+        },
+    );
+    let cb = rig
+        .ctx
+        .create_instance_batch(cutout, &[Mat4::from_translation(at[0])], options);
+    rig.renderer.set_instance_batch(
+        &rig.device,
+        cb.id(),
+        rig.ctx.assets3d.instance_batches[cb.id() as usize].as_ref(),
+    );
+    rig.ctx.lighting.shadows = true;
+    rig.ctx.camera3d.occlusion_culling = false;
+    let image = rig.draw();
+    assert!(
+        image[((y * SIZE + x) * 4) as usize] > 100,
+        "cutout batch absent ({compute})"
+    );
+    rig.renderer.set_instance_batch(&rig.device, cb.id(), None);
+    rig.renderer.set_instance_batch(&rig.device, b.id(), None);
+    let image = rig.draw();
+    let (x, y) = pixel(vp, at[0]);
+    assert!(image[((y * SIZE + x) * 4) as usize] < 50, "freed batch still drawn");
 }

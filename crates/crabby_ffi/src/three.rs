@@ -3634,3 +3634,125 @@ pub unsafe extern "C" fn crabby_ctx_set_mesh_gpu_buffer(
         })
     })
 }
+
+/// Persistent static instance batch handle.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct CrabbyInstanceBatch {
+    /// Opaque batch identifier.
+    pub id: u32,
+}
+/// Static batch settings. Materials come from the mesh.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct CrabbyInstanceBatchOptions {
+    /// World-space cell width; finite and positive.
+    pub cell_size: f32,
+    /// Nonnegative draw distance; infinity disables it.
+    pub max_distance: f32,
+    /// Whether to cast sun shadows.
+    pub cast_shadows: bool,
+    /// Uniform sRGB tint.
+    pub tint: CrabbyColor,
+}
+/// Creates a persistent batch from column-major affine matrices.
+/// # Safety
+/// Context is live or null, matrices hold `count` entries, output is writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_create_instance_batch(
+    ctx: *mut CrabbyCtx,
+    mesh: CrabbyMesh,
+    matrices: *const [f32; 16],
+    count: usize,
+    options: CrabbyInstanceBatchOptions,
+    output: *mut CrabbyInstanceBatch,
+) -> CrabbyStatus {
+    // SAFETY: caller supplies the described matrices and output.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            if output.is_null()
+                || !c.is_mesh_live(to_c(mesh))
+                || !options.cell_size.is_finite()
+                || options.cell_size <= 0.0
+                || (options.max_distance.is_nan() || options.max_distance < 0.0)
+                || count > 16_777_216
+                || (count > 0 && matrices.is_null())
+            {
+                return Err(invalid("invalid instance batch"));
+            }
+            let data = if count == 0 {
+                Vec::new()
+            } else {
+                std::slice::from_raw_parts(matrices, count)
+                    .iter()
+                    .map(crabbyengine::Mat4::from_cols_array)
+                    .collect::<Vec<_>>()
+            };
+            if data.iter().any(|m| !m.is_finite() || m.row(3) != crabbyengine::Vec4::W) {
+                return Err(invalid("invalid instance transform"));
+            }
+            let b = c.create_instance_batch(
+                to_c(mesh),
+                &data,
+                crabbyengine::InstanceBatchOptions {
+                    cell_size: options.cell_size,
+                    max_distance: options.max_distance,
+                    cast_shadows: options.cast_shadows,
+                    tint: Color::rgba(options.tint.r, options.tint.g, options.tint.b, options.tint.a),
+                },
+            );
+            out(output, CrabbyInstanceBatch { id: b.id() })
+        })
+    })
+}
+/// Replaces transforms and rebuilds spatial cells.
+/// # Safety
+/// Context is live or null; matrices hold `count` entries.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_update_instance_batch(
+    ctx: *mut CrabbyCtx,
+    batch: CrabbyInstanceBatch,
+    matrices: *const [f32; 16],
+    count: usize,
+) -> CrabbyStatus {
+    // SAFETY: caller supplies the described matrix array.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let b = crabbyengine::InstanceBatch::from_id(batch.id);
+            if c.instance_batch_len(b).is_none() || count > 16_777_216 || (count > 0 && matrices.is_null()) {
+                return Err(invalid("invalid instance batch update"));
+            }
+            let data = if count == 0 {
+                Vec::new()
+            } else {
+                std::slice::from_raw_parts(matrices, count)
+                    .iter()
+                    .map(crabbyengine::Mat4::from_cols_array)
+                    .collect::<Vec<_>>()
+            };
+            if data.iter().any(|m| !m.is_finite() || m.row(3) != crabbyengine::Vec4::W) {
+                return Err(invalid("invalid instance transform"));
+            }
+            if !c.update_instance_batch(b, &data) {
+                return Err(invalid("invalid instance mesh"));
+            }
+            Ok(())
+        })
+    })
+}
+/// Frees a batch; repeated frees are harmless.
+/// # Safety
+/// Context is live or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_free_instance_batch(
+    ctx: *mut CrabbyCtx,
+    batch: CrabbyInstanceBatch,
+) -> CrabbyStatus {
+    // SAFETY: forwarded context contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            c.free_instance_batch(crabbyengine::InstanceBatch::from_id(batch.id));
+            Ok(())
+        })
+    })
+}

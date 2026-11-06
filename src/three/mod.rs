@@ -17,6 +17,8 @@ mod compute;
 mod effect;
 mod gltf;
 mod ik;
+pub(crate) mod instances;
+pub use instances::{InstanceBatch, InstanceBatchOptions};
 mod lod;
 pub(crate) mod occlusion;
 pub use ik::{look_at_joint, two_bone_ik};
@@ -781,6 +783,7 @@ pub(crate) struct Assets3D {
     /// Compute passes made so far, and those loaded from files.
     pub computes: u32,
     pub gpu_buffers: Vec<u32>,
+    pub instance_batches: Vec<Option<instances::Batch>>,
     pub loaded_computes: std::collections::HashMap<std::path::PathBuf, Compute>,
     /// Effects loaded from files, by resolved path.
     pub loaded_effects: std::collections::HashMap<std::path::PathBuf, Effect>,

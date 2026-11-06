@@ -238,6 +238,13 @@ static void three_d() {
         throws([&] { ctx.set_target_cameras({crabby::target_camera_of(eye, plain)}); });
         throws([&] { ctx.create_render_target(0, 4); });
         ctx.set_target_cameras({});
+        auto batch_material = ctx.create_material(crabby::material_of(crabby::colors::white));
+        auto batch_mesh = ctx.create_mesh(crabby::mesh_data::cube(1.0f), batch_material);
+        std::vector<std::array<float,16>> batch_matrices = {{{1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1}}};
+        auto batch = ctx.create_instance_batch(batch_mesh,batch_matrices);
+        ctx.update_instance_batch(batch,batch_matrices);
+        ctx.free_instance_batch(batch);
+        throws([&] {ctx.update_instance_batch(batch,batch_matrices);});
         auto buffer = ctx.create_gpu_buffer(65);
         ctx.write_gpu_buffer(buffer, 64, {{1, 2, 3, 4}});
         throws([&] { ctx.write_gpu_buffer(buffer, 65, {{1, 2, 3, 4}}); });

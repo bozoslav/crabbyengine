@@ -12,6 +12,7 @@
 #include "crabby.h"
 #include <algorithm>
 #include <array>
+#include <limits>
 #include <atomic>
 #include <climits>
 #include <cmath>
@@ -148,6 +149,8 @@ using material_desc = CrabbyMaterialDesc;
 using shader = CrabbyShader;
 /// A compute pass shader in WGSL (ctx::load_compute, ctx::create_compute).
 using compute = CrabbyCompute;
+using instance_batch = CrabbyInstanceBatch;
+using instance_batch_options = CrabbyInstanceBatchOptions;
 using gpu_buffer = CrabbyGpuBuffer;
 /// One compute pass run each frame (Rust `ComputePass`); see compute_pass_of.
 using compute_pass = CrabbyComputePass;
@@ -2661,6 +2664,16 @@ public:
     /// Replaces the screen effects run each frame (empty: none).
     void set_effects(const std::vector<screen_effect>& list) { detail::check(crabby_ctx_set_effects(raw_, list.data(), list.size())); }
     /// Zeroed or initialized GPU vec4 storage, updated without CPU particle work.
+    instance_batch create_instance_batch(mesh m, const std::vector<std::array<float,16>>& matrices,
+        instance_batch_options options = {32.0f, std::numeric_limits<float>::infinity(), true, colors::white}) {
+        instance_batch b{};
+        detail::check(crabby_ctx_create_instance_batch(raw_,m,reinterpret_cast<const float (*)[16]>(matrices.data()),matrices.size(),options,&b));
+        return b;
+    }
+    void update_instance_batch(instance_batch b, const std::vector<std::array<float,16>>& matrices) {
+        detail::check(crabby_ctx_update_instance_batch(raw_,b,reinterpret_cast<const float (*)[16]>(matrices.data()),matrices.size()));
+    }
+    void free_instance_batch(instance_batch b) { detail::check(crabby_ctx_free_instance_batch(raw_,b)); }
     gpu_buffer create_gpu_buffer(uint32_t len, const std::vector<std::array<float, 4>>& data = {}) {
         gpu_buffer b{}; detail::check(crabby_ctx_create_gpu_buffer(raw_, len,
             reinterpret_cast<const float (*)[4]>(data.data()), data.size(), &b)); return b;
