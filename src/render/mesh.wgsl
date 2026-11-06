@@ -27,7 +27,7 @@ struct Frame {
     screen: vec4<f32>,     // width and height in pixels, then their inverses
     atmosphere: vec4<f32>, // x: a physical sky (1) or not (0), y: haze, z: cos of the sun's radius, w: stars
     sky_light: vec4<f32>,  // rgb: the sunlight the sky is lit by, w: camera height in km
-    fog: vec4<f32>,        // x: density per unit, y: fog height, z: 1 / falloff
+    fog: vec4<f32>,        // x: density per unit, y: fog height, z: 1 / falloff, w: light shafts
     fog_color: vec4<f32>,  // rgb: linear, without an atmosphere
     night: vec4<f32>,      // rgb: light at night
     fog_far: vec4<f32>,    // x: distance fog start, y: its end (0: none), z: sun glow, w: sun focus
@@ -204,8 +204,63 @@ fn fog_along(color: vec3<f32>, world: vec3<f32>, distance: bool) -> vec3<f32> {
     let g = frame.fog_far.w;
     let mu = dot(dir, frame.sun_dir.xyz);
     let phase = (1.0 - g * g) / pow(max(1.0 + g * g - 2.0 * g * mu, 1e-4), 1.5);
-    fog_color += frame.sun_color.rgb * phase * frame.fog_far.z;
+    var glow = frame.fog_far.z;
+    if glow > 0.0 && density > 0.0 && frame.fog.w > 0.0 {
+        glow *= mix(1.0, fog_in_sun(world, start * span * along), frame.fog.w);
+    }
+    fog_color += frame.sun_color.rgb * phase * glow;
     return mix(fog_color, color, seen);
+}
+
+// Steps of the march through the fog for light shafts.
+const SHAFT_STEPS: i32 = 16;
+
+// Of the sunlight the fog between the camera and `world` scatters toward
+// the camera, the share that isn't in shadow (`optical`: the fog's whole
+// optical depth along the ray). Marched to the shadow distance, each step
+// weighted by how thick the fog is there and how much of it gets through
+// to the camera; past the shadows, the fog is all in sun. Shadows cut the
+// glow into shafts.
+fn fog_in_sun(world: vec3<f32>, optical: f32) -> f32 {
+    let count = i32(frame.shadow.x);
+    if count == 0 || frame.camera.w == 0.0 {
+        return 1.0;
+    }
+    let ray = world - frame.camera.xyz;
+    let span = max(length(ray), 1e-6);
+    let reach = min(span, frame.shadow.w);
+    let dt = reach / f32(SHAFT_STEPS);
+    // A different offset each pixel and frame: the noise is fine grained,
+    // and with temporal antialiasing it averages away.
+    let clip = frame.view_proj * vec4<f32>(world, 1.0);
+    let pixel = floor((clip.xy / clip.w * vec2<f32>(0.5, -0.5) + 0.5) * frame.screen.xy);
+    let turn = f32(u32(frame.time.x * 60.0) % 64u);
+    let jitter = fract(52.9829189 * fract(dot(pixel + 5.588238 * turn, vec2<f32>(0.06711056, 0.00583715))));
+    var through = 1.0;
+    var lit = 0.0;
+    for (var i = 0; i < SHAFT_STEPS; i++) {
+        let p = frame.camera.xyz + ray * ((f32(i) + jitter) * dt / span);
+        let thick = frame.fog.x * exp(min(-(p.y - frame.fog.y) * frame.fog.z, 20.0)) * dt;
+        let scattered = through * (1.0 - exp(-thick));
+        through *= exp(-thick);
+        lit += scattered * sun_at(p);
+    }
+    let all = 1.0 - exp(-optical);
+    // Past the shadow distance: all in sun.
+    let beyond = max(through - exp(-optical), 0.0);
+    return clamp((lit + beyond) / max(all, 1e-5), 0.0, 1.0);
+}
+
+// Whether the sun reaches `world`, one shadow map tap in the sharpest
+// cascade that holds it (1 outside them all).
+fn sun_at(world: vec3<f32>) -> f32 {
+    for (var i = 0; i < i32(frame.shadow.x); i++) {
+        let c = cascade_coords(i, world, vec3<f32>(0.0));
+        if c.w < 1.0 {
+            return textureSampleCompareLevel(shadow_map, shadow_sampler, c.xy, i, c.z);
+        }
+    }
+    return 1.0;
 }
 
 // `color` seen through all the fog between the camera and `world`.

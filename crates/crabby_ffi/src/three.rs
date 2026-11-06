@@ -498,6 +498,8 @@ pub struct CrabbySky {
     pub fog_sun_glow: f32,
     /// How tight that glow is around the sun, 0 to under 1.
     pub fog_sun_focus: f32,
+    /// Light shafts: how much shadows cut the fog's sun glow, 0 (off) to 1.
+    pub light_shafts: f32,
 }
 
 /// Which way sunlight travels at `hour` o'clock, for a day and night cycle
@@ -2257,6 +2259,7 @@ pub unsafe extern "C" fn crabby_ctx_sky(ctx: *mut CrabbyCtx, out_sky: *mut Crabb
                     fog_end: s.fog_end,
                     fog_sun_glow: s.fog_sun_glow,
                     fog_sun_focus: s.fog_sun_focus,
+                    light_shafts: s.light_shafts,
                 },
             )
         })
@@ -2265,7 +2268,8 @@ pub unsafe extern "C" fn crabby_ctx_sky(ctx: *mut CrabbyCtx, out_sky: *mut Crabb
 
 /// Changes the sky and fog. Haze, stars, fog density, the distance fog's
 /// distances and the sun glow can't be negative; the sun's size and the fog
-/// falloff must be above 0; the glow's focus is from 0 to under 1.
+/// falloff must be above 0; the glow's focus is from 0 to under 1; light
+/// shafts are from 0 to 1.
 /// # Safety
 /// `ctx` null or live; `sky` valid.
 /// ```
@@ -2290,6 +2294,7 @@ pub unsafe extern "C" fn crabby_ctx_set_sky(ctx: *mut CrabbyCtx, sky: *const Cra
                 s.fog_end,
                 s.fog_sun_glow,
                 s.fog_sun_focus,
+                s.light_shafts,
             ]
             .iter()
             .all(|v| v.is_finite());
@@ -2303,6 +2308,9 @@ pub unsafe extern "C" fn crabby_ctx_set_sky(ctx: *mut CrabbyCtx, sky: *const Cra
             }
             if !(0.0..1.0).contains(&s.fog_sun_focus) {
                 return Err(invalid("fog_sun_focus must be from 0 to under 1"));
+            }
+            if !(0.0..=1.0).contains(&s.light_shafts) {
+                return Err(invalid("light_shafts must be from 0 to 1"));
             }
             if s.sun_size <= 0.0 || s.fog_falloff <= 0.0 {
                 return Err(invalid("sun_size and fog_falloff must be above 0"));
@@ -2321,6 +2329,7 @@ pub unsafe extern "C" fn crabby_ctx_set_sky(ctx: *mut CrabbyCtx, sky: *const Cra
                 fog_end: s.fog_end,
                 fog_sun_glow: s.fog_sun_glow,
                 fog_sun_focus: s.fog_sun_focus,
+                light_shafts: s.light_shafts,
             };
             Ok(())
         })

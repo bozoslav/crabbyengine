@@ -70,6 +70,14 @@ pub struct Sky {
     /// How tight that glow is around the sun, 0 (all around) to just
     /// under 1 (a small bright halo). Default 0.7.
     pub fog_sun_focus: f32,
+    /// Light shafts: how much shadows cut the fog's sun glow, from 0 (the
+    /// default, off) to 1. Where the fog is in a tree's or a house's
+    /// shadow it stops glowing, so beams of sunlight show between them.
+    /// It needs fog, a `fog_sun_glow` and the sun's shadows, and reaches
+    /// as far as they do. It costs 16 shadow map taps per pixel, and it is
+    /// grainy without [`AntiAliasing::Taa`](crate::AntiAliasing::Taa) in
+    /// `ctx.post`, which smooths it out.
+    pub light_shafts: f32,
 }
 
 impl Default for Sky {
@@ -88,6 +96,7 @@ impl Default for Sky {
             fog_end: 0.0,
             fog_sun_glow: 0.0,
             fog_sun_focus: 0.7,
+            light_shafts: 0.0,
         }
     }
 }

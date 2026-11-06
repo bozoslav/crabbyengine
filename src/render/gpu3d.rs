@@ -2018,7 +2018,7 @@ impl Renderer3D {
                 sky.fog_density.max(0.0),
                 sky.fog_height,
                 1.0 / sky.fog_falloff.max(1e-3),
-                0.0,
+                sky.light_shafts.clamp(0.0, 1.0),
             ],
             fog_color: scaled(sky.fog_color, 1.0),
             night: scaled(sky.night_light, 1.0),

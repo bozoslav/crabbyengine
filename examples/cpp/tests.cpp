@@ -283,6 +283,12 @@ static void three_d() {
         sky.fog_sun_focus = 1;
         throws([&] { ctx.set_sky(sky); });
         sky.fog_sun_focus = 0.7f;
+        sky.light_shafts = 2;
+        throws([&] { ctx.set_sky(sky); });
+        sky.light_shafts = 1;
+        ctx.set_sky(sky);
+        CHECK(ctx.sky().light_shafts == 1);
+        sky.light_shafts = 0;
         sky.sun_size = 0;
         throws([&] { ctx.set_sky(sky); });
         CHECK(crabby::sun_direction_at(12).y < -0.8f);

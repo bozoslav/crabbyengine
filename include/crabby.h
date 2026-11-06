@@ -1181,6 +1181,7 @@ typedef struct CrabbySky {
   float fog_end;
   float fog_sun_glow;
   float fog_sun_focus;
+  float light_shafts;
 } CrabbySky;
 
 typedef struct CrabbyPost {
