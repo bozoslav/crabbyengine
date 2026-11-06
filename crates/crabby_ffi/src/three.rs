@@ -2057,6 +2057,39 @@ pub unsafe extern "C" fn crabby_ctx_set_camera3d(ctx: *mut CrabbyCtx, camera: *c
     })
 }
 
+/// Turns occlusion culling on or off: models hidden behind what was drawn a
+/// frame or two before aren't drawn (they still cast shadows). Off by
+/// default. A model coming out from behind something can show up a frame or
+/// two late when the camera moves fast. Without compute shaders (WebGL2)
+/// nothing is culled.
+/// # Safety
+/// `ctx` null or live.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_occlusion_culling(std::ptr::null_mut(), true) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_occlusion_culling(ctx: *mut CrabbyCtx, on: bool) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            c.camera3d.occlusion_culling = on;
+            Ok(())
+        })
+    })
+}
+
+/// Whether occlusion culling is on (see `crabby_ctx_set_occlusion_culling`).
+/// # Safety
+/// `ctx` null or live; output writable.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_occlusion_culling(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_occlusion_culling(ctx: *mut CrabbyCtx, out_on: *mut bool) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_on, c.camera3d.occlusion_culling)) })
+}
+
 /// Turns the 3D camera to look at `target`, +Y up.
 /// # Safety
 /// `ctx` null or live.

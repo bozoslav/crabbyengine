@@ -110,6 +110,10 @@ impl Renderer {
         match *self {}
     }
     #[cfg(feature = "3d")]
+    pub fn take_occlusion(&mut self) -> Option<crate::three::occlusion::OcclusionGrid> {
+        match *self {}
+    }
+    #[cfg(feature = "3d")]
     pub fn prepare_3d(&mut self, _scene: &crate::three::Scene3D<'_>, _collect_ms: f32) {
         match *self {}
     }

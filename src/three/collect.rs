@@ -114,6 +114,12 @@ pub(crate) struct Frame3D {
     pub computes: Vec<(u32, u32, u32)>,
     /// How many of `instances` the camera sees (the rest cast shadows).
     pub visible: usize,
+    /// An earlier frame's depth to cull hidden models with, when the camera
+    /// has [`occlusion_culling`](Camera3D::occlusion_culling) on.
+    pub occlusion: Option<super::occlusion::OcclusionGrid>,
+    /// How many models (and shadow-only casters) in view were culled as
+    /// hidden this frame.
+    pub occluded: usize,
     /// What each target camera draws, in `Ctx::target_cameras` order (only
     /// the main frame has these).
     pub views: Vec<ViewFrame>,
@@ -294,12 +300,20 @@ impl Frame3D {
         // i (cascades, then light views from MAX_CASCADES on).
         // `bounds`: the camera mesh's, and the shadow mesh's (`None`: no
         // shadow), as (center, radius) in model space.
+        // Hidden behind what an earlier frame drew: still casts shadows.
+        let occlusion = self.occlusion.as_ref().filter(|_| camera.occlusion_culling);
+        let occluded = std::sync::atomic::AtomicUsize::new(0);
         let classify_at = |matrix: Mat4, scale: f32, bounds: (Vec3, f32), shadow_bounds: Option<(Vec3, f32)>| -> u32 {
-            let mut flags = u32::from(sphere_visible(
-                &planes,
-                matrix.transform_point3(bounds.0),
-                bounds.1 * scale,
-            ));
+            let (center, radius) = (matrix.transform_point3(bounds.0), bounds.1 * scale);
+            let mut seen = sphere_visible(&planes, center, radius);
+            if seen
+                && let Some(grid) = occlusion
+                && grid.hides(center - radius, center + radius, camera.position)
+            {
+                occluded.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                seen = false;
+            }
+            let mut flags = u32::from(seen);
             if let Some((center, radius)) = shadow_bounds {
                 let (world_center, world_radius) = (matrix.transform_point3(center), radius * scale);
                 // How far the shadow can reach: down through the whole view.
@@ -559,6 +573,7 @@ impl Frame3D {
         self.motion.finish();
         let meshes = assets.bounds.len() + skins.draws.len();
         let (counts, instances) = (&mut self.counts, &mut self.instances);
+        self.occluded = occluded.into_inner();
         self.visible = sort_runs(&self.scratch, |e| e.2, meshes, counts, instances, &mut self.runs);
         for i in shadow_views(self.cascades, self.light_views) {
             let runs = &mut self.shadow_runs[i];

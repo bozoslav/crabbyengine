@@ -951,6 +951,13 @@ static crabby::entity lod_object(crabby::ctx& ctx, crabby::mesh high, crabby::me
 }
 // ANCHOR_END: lod
 
+// ANCHOR: occlusion
+/// A town or a forest: skip what houses, hills and trunks hide.
+static void cull_hidden(crabby::ctx& ctx) {
+    ctx.set_occlusion_culling(true);
+}
+// ANCHOR_END: occlusion
+
 /// F3 shows the performance overlay; F4 records the next 300 frames as a
 /// trace to open in Perfetto. Slow stretches are logged with their cause.
 static void perf_keys(crabby::ctx& ctx) {
@@ -1283,6 +1290,9 @@ static void the_village_has_five_spinning_houses() {
         plant_meadow(ctx, tuft);
         yard(ctx, tuft, tuft, tuft, tuft, tuft);
         auto lod = lod_object(ctx, tuft, tuft);
+        cull_hidden(ctx);
+        if (!ctx.occlusion_culling()) { std::fprintf(stderr, "occlusion\n"); std::abort(); }
+        ctx.set_occlusion_culling(false);
         if (ctx.lod().bias != 0.7f || ctx.lod_pick_of(lod).kind == 0) { std::fprintf(stderr, "lod\n"); std::abort(); }
         ctx.set_lod({1, true});
         perf_keys(ctx);

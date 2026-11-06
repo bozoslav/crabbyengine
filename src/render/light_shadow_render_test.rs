@@ -158,6 +158,7 @@ fn a_shadowed_spot_light_darkens_the_ground_behind_a_box() {
             camera: ctx.camera3d.position,
             post: &ctx.post,
             time: (0.0, 1.0 / 60.0),
+            occlusion: false,
         };
         renderer.prepare(
             &device,

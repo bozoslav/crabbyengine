@@ -3026,6 +3026,9 @@ public:
     void set_camera3d(const crabby::camera3d& c) { detail::check(crabby_ctx_set_camera3d(raw_, &c)); }
     /// Turns the 3D camera to look at `target`, +Y up.
     void camera3d_look_at(vec3 target) { detail::check(crabby_ctx_camera3d_look_at(raw_, target)); }
+    /// Skip models hidden behind what was drawn a frame or two before (off by default).
+    void set_occlusion_culling(bool on) { detail::check(crabby_ctx_set_occlusion_culling(raw_, on)); }
+    bool occlusion_culling() const { bool on = false; detail::check(crabby_ctx_occlusion_culling(raw_, &on)); return on; }
     /// The ray from the 3D camera through a window point (as the mouse
     /// position): its start and unit direction.
     std::pair<vec3, vec3> screen_ray(vec2 screen) const {

@@ -13,6 +13,8 @@ mod mips;
 #[cfg(not(feature = "window"))]
 mod none;
 #[cfg(all(feature = "window", feature = "3d"))]
+mod occlusion;
+#[cfg(all(feature = "window", feature = "3d"))]
 mod particles;
 #[cfg(all(feature = "window", feature = "3d"))]
 mod screen;
@@ -67,6 +69,9 @@ pub struct RenderStats {
     pub shadow_instances: usize,
     /// Triangles drawn into the shadow maps, all cascades together.
     pub shadow_triangles: usize,
+    /// 3D models in the camera's view that weren't drawn because something
+    /// hid them (see `Camera3D::occlusion_culling`).
+    pub occluded: usize,
 }
 
 /// What happened when we tried to draw a frame.
@@ -95,6 +100,8 @@ mod light_shadow_render_test;
 mod lights_bench;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod lod_render_test;
+#[cfg(all(test, feature = "window", feature = "3d"))]
+mod occlusion_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod skin_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
