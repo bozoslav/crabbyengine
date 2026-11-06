@@ -315,21 +315,36 @@ won't see them yet.
 
 Bodies cost only where they exist, and steady-state steps add no
 allocations of their own on top of rapier's. Compared with calling rapier
-directly, the engine's syncing adds 15–20%
+directly, the engine's syncing adds 13–25%
 (`cargo run --release -p crabby_bench -- physics3d`, M4 Max):
 
 | Boxes falling into a pit, 250 ticks | Crabby | rapier alone |
 |---|---|---|
-| 1,000 | 28.5 ms | 23.3 ms |
-| 10,000 | 414 ms | 361 ms |
+| 1,000 | 30.4 ms | 24.5 ms |
+| 10,000 | 440 ms | 389 ms |
+
+Sleeping bodies are skipped when positions are written back, and the pass that hands
+velocity from heavier to lighter bodies (`dominance`) only runs when some
+body has a non-zero dominance group.
 
 Characters cost more than bodies: each one sweeps its capsule against the
 world several times a step (walking, stepping, snapping to the ground).
-On heightfield terrain that's about 50 µs per character per step (100
-characters: 5 ms a step), on flat boxes about 16 µs: fine for a player and
-a few dozen others, not for crowds (move those yourself, with a ray down
-to find the ground). Level geometry as a triangle mesh is somewhat cheaper
-than a heightfield.
+Those sweeps only read the world, so from 8 characters up they run on all
+cores; the results are applied one after another in a fixed order, so a
+crowd moves exactly the same way on every run. Walking over heightfield
+terrain:
+
+| Characters, 250 ticks | Time | Per step |
+|---|---|---|
+| 100 | 218 ms | 0.9 ms |
+| 1,000 | 2.45 s | 9.8 ms |
+
+A thousand is about the limit of a 50 Hz step. Characters also sweep
+against each other; if a crowd doesn't need to, give them a group that
+leaves itself out of its filter (`groups = CollisionGroups::new(CROWD, !CROWD)`),
+and each sweep only meets the level.
+For bigger crowds, move them yourself, with a ray down to find the ground.
+Level geometry as a triangle mesh is somewhat cheaper than a heightfield.
 
 Try it: `cargo run --release --example physics3d --features physics3d`.
 

@@ -501,6 +501,10 @@ pub struct Physics3D {
     /// Rebuilt when a link comes or goes (`moving_dirty`).
     moving: Vec<u32>,
     moving_dirty: bool,
+    /// Whether some dynamic body has a non-zero dominance group, rebuilt
+    /// with `moving`. Without one, no contact can need a dominance
+    /// velocity transfer, so the pass over every contact pair is skipped.
+    dominance: bool,
     gravity: Vec3,
     step: u64,
     collector: Collector,
@@ -558,6 +562,7 @@ impl Physics3D {
             links: Vec::new(),
             moving: Vec::new(),
             moving_dirty: false,
+            dominance: false,
             gravity,
             step: 0,
             collector: Collector::default(),
@@ -876,8 +881,17 @@ impl Physics3D {
             let links = &self.links;
             self.moving
                 .extend((0..links.len() as u32).filter(|&i| links[i as usize].is_some_and(|l| l.kind.moves())));
+            self.dominance = links.iter().flatten().any(|l| {
+                matches!(l.kind, LinkKind::Body(rigid, _) if rigid.kind == BodyKind::Dynamic && rigid.dominance != 0)
+            });
         }
         &self.moving
+    }
+
+    /// See [`Physics3D::dominance`](Self::dominance).
+    fn uses_dominance(&mut self) -> bool {
+        self.moving();
+        self.dominance
     }
 
     fn insert_link(&mut self, e: Entity, t: &Transform3D, kind: LinkKind, velocity: Velocity3D) {
@@ -1001,7 +1015,9 @@ pub fn step_physics3d(ctx: &mut Ctx) {
         custom: physics.contact_hook.as_deref(),
     };
     physics.world.step_with_events(&hooks, &physics.collector);
-    dominance::transfer_velocity(physics, dt);
+    if physics.uses_dominance() {
+        dominance::transfer_velocity(physics, dt);
+    }
     write_back(physics, &mut ctx.world);
     pose_ragdolls(&mut ctx.world, &mut physics.ragdolls);
     std::mem::swap(
@@ -1165,19 +1181,17 @@ fn write_back(physics: &mut Physics3D, world: &mut World) {
             continue;
         };
         let e = link.entity;
-        // Only entities that still have a transform (as the old query).
-        if world.get::<Transform3D>(e).is_none() {
-            continue;
-        }
-        link.prev = link.curr;
         let Some(body) = physics.world.bodies.get(link.body) else {
             continue;
         };
         // A sleeping body hasn't moved since it fell asleep: it only
-        // needs its speed cleared, once.
+        // needs its speed cleared, once. Checked before looking the
+        // entity up, since most bodies in a big scene are asleep.
         if body.is_sleeping() {
+            link.prev = link.curr;
             if let LinkKind::Body(..) = link.kind
                 && link.velocity != Velocity3D::default()
+                && world.get::<Transform3D>(e).is_some()
             {
                 link.velocity = Velocity3D::default();
                 if let Some(velocity) = world.get_mut::<Velocity3D>(e) {
@@ -1186,6 +1200,11 @@ fn write_back(physics: &mut Physics3D, world: &mut World) {
             }
             continue;
         }
+        // Only entities that still have a transform (as the old query).
+        if world.get::<Transform3D>(e).is_none() {
+            continue;
+        }
+        link.prev = link.curr;
         link.curr.position = from_rp(body.translation());
         let moved_rotation = matches!(link.kind, LinkKind::Body(..)).then(|| rot_from_rp(*body.rotation()));
         if let Some(rotation) = moved_rotation {
