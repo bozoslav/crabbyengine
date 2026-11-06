@@ -250,6 +250,10 @@ struct Pipelines {
     /// shader for its alpha. Solid ones write depth without any.
     prepass_cutout: wgpu::RenderPipeline,
     shadow_cutout: wgpu::RenderPipeline,
+    /// Cut-out materials with multisampling: alpha to coverage in the
+    /// prepass (with a color target it doesn't write) and the opaque pass.
+    /// `None` without multisampling.
+    coverage: Option<[wgpu::RenderPipeline; 2]>,
     /// Solid surfaces lit without a prepass: they write their own depth.
     opaque_solid: wgpu::RenderPipeline,
     /// Motion vectors of moved models, over the opaque pass's depth.
@@ -2832,6 +2836,13 @@ impl Renderer3D {
                 pass.set_bind_group(2, &self.no_scene, &[]);
                 self.draw_models(&mut pass, &self.runs, Kind::Prepass, &self.instances);
                 drop(pass);
+                self.coverage_prepass(
+                    encoder,
+                    &targets.color,
+                    &targets.depth,
+                    &self.frame_bind_group,
+                    &self.runs,
+                );
                 // With every solid surface in it, the depth is complete here.
                 if self.solid_prepass {
                     self.record_occlusion(encoder, frame);
@@ -3175,6 +3186,7 @@ impl Renderer3D {
             pass.set_bind_group(2, &self.no_scene, &[]);
             self.draw_models(&mut pass, runs, Kind::Prepass, &self.instances);
         }
+        self.coverage_prepass(encoder, &target.color, &target.depth, &target.frame_bind_group, runs);
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("3d target camera"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -3242,6 +3254,54 @@ impl Renderer3D {
 
     /// The mesh parts of `runs` that `kind` draws, each with its material
     /// and all its models at once.
+    /// With multisampling, the cut-out materials' prepass, with alpha to
+    /// coverage: a pass of its own, as coverage needs a color target (`color`,
+    /// attached but not written; the opaque pass clears it).
+    fn coverage_prepass(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        color: &wgpu::TextureView,
+        depth: &wgpu::TextureView,
+        frame_bind_group: &wgpu::BindGroup,
+        runs: &[(u32, u32, u32)],
+    ) {
+        let cutout = runs.iter().any(|&(mesh, _, _)| {
+            self.meshes[self.base(mesh & !FADED) as usize]
+                .parts
+                .iter()
+                .any(|&(_, m)| self.materials[m as usize].cutout)
+        });
+        if self.samples <= 1 || !cutout {
+            return;
+        }
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("3d cut-out prepass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: color,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Discard,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: depth,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_bind_group(0, frame_bind_group, &[]);
+        pass.set_bind_group(2, &self.no_scene, &[]);
+        self.draw_models(&mut pass, runs, Kind::PrepassCoverage, &self.instances);
+    }
+
     fn draw_models(
         &self,
         pass: &mut wgpu::RenderPass<'_>,
@@ -3288,14 +3348,24 @@ impl Renderer3D {
                 } else {
                     &shader.sides[side]
                 };
+                let coverage = pipelines.coverage.as_ref().filter(|_| m.cutout);
                 let pipeline = match kind {
                     Kind::Shadow if m.cutout => &pipelines.shadow_cutout,
                     Kind::Shadow => &pipelines.shadow,
+                    Kind::PrepassCoverage => match coverage {
+                        Some([prepass, _]) => prepass,
+                        None => continue,
+                    },
+                    // With coverage, cut-outs have a prepass of their own.
+                    Kind::Prepass if coverage.is_some() => continue,
                     Kind::Prepass if m.cutout => &pipelines.prepass_cutout,
                     Kind::Prepass if !(self.solid_prepass || self.ao_enabled) => continue,
                     Kind::Prepass => &pipelines.prepass,
                     Kind::Opaque if !m.cutout && !(self.solid_prepass || self.ao_enabled) => &pipelines.opaque_solid,
-                    Kind::Opaque => &pipelines.opaque,
+                    Kind::Opaque => match coverage {
+                        Some([_, opaque]) => opaque,
+                        None => &pipelines.opaque,
+                    },
                     Kind::Transparent => &pipelines.transparent,
                     Kind::Velocity => &pipelines.velocity,
                 };
@@ -3322,6 +3392,8 @@ impl Renderer3D {
 enum Kind {
     Shadow,
     Prepass,
+    /// Cut-out materials' prepass with alpha to coverage (multisampling).
+    PrepassCoverage,
     Opaque,
     Transparent,
     /// Motion vectors of the models that moved (temporal antialiasing).
@@ -3709,7 +3781,49 @@ impl SideBuilder {
             )
         };
         let depth_fragment = if fade { "fs_depth_fade" } else { "fs_depth" };
+        let coverage_msaa = wgpu::MultisampleState {
+            alpha_to_coverage_enabled: true,
+            ..msaa
+        };
+        let unwritten = [Some(wgpu::ColorTargetState {
+            format: HDR_FORMAT,
+            blend: None,
+            write_mask: wgpu::ColorWrites::empty(),
+        })];
+        let coverage = (samples > 1).then(|| {
+            [
+                pipeline(
+                    "3d depth prepass coverage",
+                    layout,
+                    "vs_main",
+                    Some(if fade {
+                        "fs_depth_coverage_fade"
+                    } else {
+                        "fs_depth_coverage"
+                    }),
+                    cull,
+                    depth(true, wgpu::CompareFunction::Less, Default::default()),
+                    coverage_msaa,
+                    &unwritten,
+                ),
+                pipeline(
+                    "3d opaque coverage",
+                    layout,
+                    "vs_main",
+                    Some(if fade {
+                        "fs_main_coverage_fade"
+                    } else {
+                        "fs_main_coverage"
+                    }),
+                    cull,
+                    depth(false, wgpu::CompareFunction::Equal, Default::default()),
+                    coverage_msaa,
+                    &opaque_target,
+                ),
+            ]
+        });
         Pipelines {
+            coverage,
             prepass: prepass(fade.then_some("fs_fade"), cull),
             prepass_cutout: prepass(Some(depth_fragment), cull),
             // Only the fragments the prepass found nearest: each pixel is lit once.

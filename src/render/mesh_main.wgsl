@@ -179,6 +179,50 @@ fn fs_depth_fade(in: VertexOut, @builtin(front_facing) front: bool) {
     }
 }
 
+// Alpha to coverage (cut-out materials with multisampling): the alpha
+// sharpened to a ramp about a pixel wide around the cutoff, so the edge gets
+// partial coverage instead of a hard cut. Called in uniform control flow.
+fn coverage(alpha: f32) -> f32 {
+    return clamp((alpha - 0.5) / max(fwidth(alpha), 0.0001) + 0.5, 0.0, 1.0);
+}
+
+// The depth prepass of cut-out materials with multisampling: the alpha goes
+// to coverage (the color target isn't written).
+@fragment
+fn fs_depth_coverage(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    return vec4<f32>(0.0, 0.0, 0.0, coverage(surface_at(in, front).alpha));
+}
+
+@fragment
+fn fs_depth_coverage_fade(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    let a = coverage(surface_at(in, front).alpha);
+    if !fade_keeps(in.fade, in.clip.xy) {
+        discard;
+    }
+    return vec4<f32>(0.0, 0.0, 0.0, a);
+}
+
+// Opaque cut-outs with multisampling: the same coverage as their prepass, so
+// the depth test keeps exactly the samples it wrote.
+@fragment
+fn fs_main_coverage(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    let dp_x = dpdx(in.world);
+    let dp_y = dpdy(in.world);
+    let a = coverage(surface_at(in, front).alpha);
+    return vec4<f32>(opaque_color(in, front, dp_x, dp_y).rgb, a);
+}
+
+@fragment
+fn fs_main_coverage_fade(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    let dp_x = dpdx(in.world);
+    let dp_y = dpdy(in.world);
+    let a = coverage(surface_at(in, front).alpha);
+    if !fade_keeps(in.fade, in.clip.xy) {
+        discard;
+    }
+    return vec4<f32>(opaque_color(in, front, dp_x, dp_y).rgb, a);
+}
+
 // The depth prepass and shadow map of a crossfading instance of a solid
 // material: only the dither.
 @fragment
