@@ -395,6 +395,52 @@ fn setup_fn(setup: crate::CrabbySystemFn, user: *mut c_void) -> impl FnOnce(&mut
     }
 }
 
+/// Like `crabby_game_run_headless`, but times it: the first `warmup` ticks
+/// aren't measured, the next `ticks` are. Read the performance report (JSON)
+/// afterwards with `crabby_last_perf_report`, and format and check it with
+/// `crabby_perf_report_text`, `crabby_perf_check` and `crabby_perf_compare`.
+/// Rust's allocations are counted; C++'s need `CRABBY_COUNT_CPP_ALLOCATIONS`
+/// (or `crabby_note_allocation`).
+/// # Safety
+/// As `crabby_game_run_headless`.
+/// ```
+/// use crabby_ffi::*;
+/// unsafe {
+///     let g = crabby_game_new(c"sim".as_ptr(), 1, 1);
+///     let mut world = std::ptr::null_mut();
+///     let s = crabby_game_profile_headless(g, 2, 10, None, std::ptr::null_mut(), &mut world);
+///     assert_eq!(s, CrabbyStatus::CRABBY_OK);
+///     let mut len = 0;
+///     crabby_last_perf_report(std::ptr::null_mut(), 0, &mut len);
+///     assert!(len > 10);
+///     crabby_world_free(world);
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_game_profile_headless(
+    game: *mut CrabbyGame,
+    warmup: u64,
+    ticks: u64,
+    setup: CrabbySystemFn,
+    user: *mut c_void,
+    out_world: *mut *mut CrabbyWorld,
+) -> CrabbyStatus {
+    boundary(|| {
+        // SAFETY: forwarded caller contract.
+        let game = unsafe { take(game)? };
+        if out_world.is_null() {
+            return Err(invalid("out_world is null"));
+        }
+        // SAFETY: checked non-null; caller supplies writable storage.
+        unsafe { out_world.write(std::ptr::null_mut()) };
+        let (world, report) = game.profile_headless(warmup, ticks, setup_fn(setup, user));
+        crate::perf::keep_report(report.to_json());
+        // SAFETY: as above.
+        unsafe { out_world.write(owned_world(world)) };
+        Ok(())
+    })
+}
+
 /// Opens the window and runs the game until it quits, then frees `game`.
 /// `setup` (may be null) runs once first: load textures, spawn entities.
 /// On macOS it must be called from the main thread.

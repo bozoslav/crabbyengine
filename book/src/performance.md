@@ -144,6 +144,8 @@ get the same numbers from the control endpoint's `info` method.
 
 ## Profiling a frame
 
+(The [profiling chapter](profiling.md) has the rest: your own timing scopes, counting allocations, headless performance tests with budgets, and what to do about what you find.)
+
 A frame takes about as long as the slower of the CPU (systems, then
 recording draws) and the GPU. The profiler shows which, and where the time
 goes, in a running game:

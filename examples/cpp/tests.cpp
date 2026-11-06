@@ -19,6 +19,7 @@ struct Vel { float x, y; };
 struct Tag {};
 namespace game { struct Health { float value; }; }
 namespace other { struct Health { int value; }; }
+CRABBY_COUNT_CPP_ALLOCATIONS
 template<class F> void throws(F f) { bool caught = false; try { f(); } catch (const std::exception&) { caught = true; } CHECK(caught); }
 
 static void worlds() {
@@ -1698,6 +1699,40 @@ static void replication() {
     throws([&] { crabby::interest invalid(bad); });
 }
 
+static void profiling() {
+    auto work = [](crabby::ctx&) {
+        CRABBY_PROFILE_SCOPE("cpp_work");
+        volatile float x = 0;
+        for (int i = 0; i < 3000; ++i) x = x + std::sqrt(float(i));
+    };
+    auto leaky = [](crabby::ctx&) { int* p = new int[4]; *static_cast<volatile int*>(p) = 7; delete[] p; };
+    auto run = crabby::game("p", 1, 1)
+        .sim_system(work, "work")
+        .sim_system(leaky, "leaky")
+        .profile_headless(5, 40, [](crabby::ctx& ctx) { ctx.world().spawn(Pos{1, 2}); });
+    CHECK(run.world.size() == 1);
+    const std::string text = run.report.text();
+    CHECK(text.find("40 frames") != std::string::npos && text.find("cpp_work") != std::string::npos);
+    // C++ `new` is counted: the leaky system is named, the other isn't.
+    CHECK(text.find("`leaky` allocates") != std::string::npos);
+    CHECK(text.find("`work` allocates") == std::string::npos);
+    CHECK(run.report.within(R"({"frame_p99_ms": 1000, "systems": {"work": 1000}})"));
+    const std::string broken = run.report.check(R"({"allocs_per_frame": 0, "scopes": {"cpp_work": 0}})");
+    CHECK(broken.find("allocations per frame") != std::string::npos && broken.find("cpp_work") != std::string::npos);
+    CHECK(run.report.regressions(run.report).empty());
+    throws([&] { (void)run.report.check("not json"); });
+    const auto file = std::filesystem::temp_directory_path() / "crabby-cpp-report.json";
+    run.report.save(file.string().c_str());
+    CHECK(crabby::perf_report::load(file.string().c_str()).json() == run.report.json());
+    std::filesystem::remove(file);
+    // Scopes and profiling toggles work from a live ctx too.
+    crabby::game("q", 1, 1).run_headless(0, [](crabby::ctx& ctx) {
+        ctx.set_profiling(true);
+        CHECK(ctx.perf_report().json().size() > 2);
+        ctx.set_profiling(false);
+    });
+}
+
 int main() {
     worlds();
     names_and_reflection();
@@ -1732,6 +1767,7 @@ int main() {
     retained_ui();
     ui_panels();
     events();
+    profiling();
     rng_matches_rust();
     grid_views_match_engine_queries();
     std::cout << "C++ wrapper tests passed\n";

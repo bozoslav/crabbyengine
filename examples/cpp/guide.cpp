@@ -1036,6 +1036,49 @@ static void perf_keys(crabby::ctx& ctx) {
 }
 // ANCHOR_END: profiling
 
+// ANCHOR: profile_scopes
+// In one .cpp file, at global scope: count C++ `new` calls in the reports.
+CRABBY_COUNT_CPP_ALLOCATIONS
+
+/// Time the parts of your own code you suspect.
+static void steering(crabby::ctx& ctx) {
+    CRABBY_PROFILE_SCOPE("steering");
+    {
+        CRABBY_PROFILE_SCOPE("steering/neighbors");
+        volatile float x = 0;
+        for (int i = 0; i < 2000; ++i) x = x + std::sqrt(float(i));
+    }
+    (void)ctx;
+}
+// ANCHOR_END: profile_scopes
+
+// ANCHOR: profile_live
+/// F5 starts timing your scopes and counting allocations; F6 prints where
+/// the last half minute went.
+static void perf_report_keys(crabby::ctx& ctx) {
+    static bool on = false;
+    if (ctx.key_pressed(CRABBY_KEY_F5)) ctx.set_profiling(on = !on);
+    if (ctx.key_pressed(CRABBY_KEY_F6)) std::printf("%s", ctx.perf_report().text().c_str());
+}
+// ANCHOR_END: profile_live
+
+// ANCHOR: profile_headless
+/// Run the game headless for 200 ticks (after 20 warm-up ticks) and keep it
+/// within budget. Call it from a test or a CI job; keep time limits generous.
+static void steering_stays_within_budget() {
+    auto run = crabby::game("bench", 1, 1)
+        .sim_system(steering, "steering")
+        .profile_headless(20, 200, [](crabby::ctx&) {});
+    std::printf("%s", run.report.text().c_str());
+    std::string broken = run.report.check(R"({
+        "frame_p99_ms": 50,
+        "systems": {"steering": 10},
+        "scopes": {"steering/neighbors": 10}
+    })");
+    if (!broken.empty()) throw std::runtime_error("over budget:\n" + broken);
+}
+// ANCHOR_END: profile_headless
+
 // ANCHOR: distance_fog
 /// A big open world fading out far away, glowing toward the sun.
 static void far_haze(crabby::ctx& ctx) {
@@ -1414,6 +1457,7 @@ static void the_village_has_five_spinning_houses() {
         if (ctx.lod().bias != 0.7f || ctx.lod_pick_of(lod).kind == 0) { std::fprintf(stderr, "lod\n"); std::abort(); }
         ctx.set_lod({1, true});
         perf_keys(ctx);
+        perf_report_keys(ctx);
         if (ctx.frame_stats().frames != 0) { std::fprintf(stderr, "frame stats\n"); std::abort(); }
         if (ctx.mesh_shadows(tuft)) { std::fprintf(stderr, "mesh shadows\n"); std::abort(); }
         meadow(ctx);
@@ -2226,6 +2270,7 @@ void persistent_instances(crabby::ctx& ctx, crabby::mesh mesh) {
 // ANCHOR_END: gpu_instances
 
 int main() {
+    steering_stays_within_budget();
     navigation_guide();
     crabby::game("shop guide", 900, 700).run_headless(0, shop_guide);
     crabby::game("panel guide", 960, 640).run_headless(0, panel_guide);

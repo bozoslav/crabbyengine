@@ -16,10 +16,14 @@
 #include <atomic>
 #include <climits>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <cstdint>
 #include <exception>
+#include <fstream>
 #include <functional>
+#include <new>
+#include <sstream>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -565,6 +569,19 @@ template<class T> constexpr bool pod = std::is_trivially_copyable<T>::value &&
     std::is_trivially_destructible<T>::value && std::is_standard_layout<T>::value;
 template<class T> using bare = typename std::remove_cv<typename std::remove_reference<T>::type>::type;
 
+/// Reads text a C function writes into a buffer (call with a null buffer
+/// to learn the size, then again to fill it; asks again if it grew).
+template<class F> std::string read_text(F&& fill) {
+    std::size_t capacity = 0;
+    for (;;) {
+        std::size_t len = 0;
+        std::string s(capacity + 1, '\0');
+        check(fill(capacity ? &s[0] : nullptr, capacity, &len));
+        if (len < capacity || (capacity == 0 && len == 0)) { s.resize(len); return s; }
+        capacity = len + 1;
+    }
+}
+
 /// A small number per C++ type, so a world finds a type's component id by
 /// indexing an array instead of a hash map.
 inline std::size_t next_type_slot() { static std::atomic<std::size_t> next{0}; return next++; }
@@ -665,6 +682,61 @@ template<class T, class M> field_info<T> field(const char* name, M T::*m) {
     const auto offset = std::size_t(reinterpret_cast<const char*>(&(sample.*m)) - reinterpret_cast<const char*>(&sample));
     return {{name, std::uint32_t(detail::field_type<typename std::remove_cv<M>::type>::value), offset}};
 }
+/// Where a game's time and allocations went: frame times, systems, your
+/// profile scopes, allocations, the slowest frames and warnings with advice.
+/// From ctx::perf_report() or game::profile_headless(). It is the report's
+/// JSON; text() reads well, check() and regressions() are for tests and CI.
+class perf_report {
+    std::string json_;
+public:
+    perf_report() = default;
+    explicit perf_report(std::string json) : json_(std::move(json)) {}
+    /// The report as JSON, to save and compare later.
+    const std::string& json() const noexcept { return json_; }
+    /// The report for people to read.
+    std::string text() const {
+        return detail::read_text([&](char* b, std::size_t c, std::size_t* n) { return crabby_perf_report_text(json_.c_str(), b, c, n); });
+    }
+    /// What is over `budget_json` (e.g. `{"frame_p99_ms": 2, "allocs_per_frame": 0,
+    /// "systems": {"movement": 0.5}, "scopes": {"ai/pathing": 1}}`), one line
+    /// each. Empty: every limit holds.
+    std::string check(const std::string& budget_json) const {
+        return detail::read_text([&](char* b, std::size_t c, std::size_t* n) { return crabby_perf_check(json_.c_str(), budget_json.c_str(), b, c, n); });
+    }
+    /// True if every limit in `budget_json` holds.
+    bool within(const std::string& budget_json) const { return check(budget_json).empty(); }
+    /// What got slower than in `baseline` (an earlier report), by more than
+    /// `tolerance` (0.2 is 20%), one line each. Empty: nothing did.
+    std::string regressions(const perf_report& baseline, float tolerance = 0.2f) const {
+        return detail::read_text([&](char* b, std::size_t c, std::size_t* n) { return crabby_perf_compare(json_.c_str(), baseline.json_.c_str(), tolerance, b, c, n); });
+    }
+    /// Writes the JSON to `path`.
+    void save(const char* path) const {
+        std::ofstream out(path, std::ios::binary);
+        out << json_;
+        if (!out) throw std::runtime_error(std::string("could not write ") + path);
+    }
+    /// Reads a report written by save().
+    static perf_report load(const char* path) {
+        std::ifstream in(path, std::ios::binary);
+        if (!in) throw std::runtime_error(std::string("could not read ") + path);
+        std::stringstream text;
+        text << in.rdbuf();
+        return perf_report(text.str());
+    }
+};
+
+/// Times the scope it lives in (see CRABBY_PROFILE_SCOPE).
+class profile_scope_guard {
+    const CrabbyProfileScope* scope_;
+    std::uint64_t token_;
+public:
+    explicit profile_scope_guard(const CrabbyProfileScope* scope) noexcept : scope_(scope), token_(crabby_profile_begin(scope)) {}
+    ~profile_scope_guard() { crabby_profile_end(scope_, token_); }
+    profile_scope_guard(const profile_scope_guard&) = delete;
+    profile_scope_guard& operator=(const profile_scope_guard&) = delete;
+};
+
 class world_view;
 class ctx;
 /// One archetype's rows in a query: a column (array) per component, in the
@@ -2531,6 +2603,13 @@ public:
     crabby::frame_stats frame_stats() const { crabby::frame_stats s{}; detail::check(crabby_ctx_frame_stats(raw_, &s)); return s; }
     /// Shows or hides the on-screen performance overlay.
     void set_perf_hud(bool on) { detail::check(crabby_ctx_set_perf_hud(raw_, on)); }
+    /// Turns on scope timing (CRABBY_PROFILE_SCOPE) and allocation counting;
+    /// the overlay and CRABBY_BENCH do it by themselves. Off, a scope costs one atomic load.
+    void set_profiling(bool on) { detail::check(crabby_ctx_set_profiling(raw_, on)); }
+    /// Where time and allocations went over the last frames (needs set_profiling(true) for a while).
+    crabby::perf_report perf_report() const {
+        return crabby::perf_report(detail::read_text([&](char* b, std::size_t c, std::size_t* n) { return crabby_ctx_perf_report(raw_, b, c, n); }));
+    }
     /// Records the next `frames` frames as a Chrome/Perfetto trace at `path`.
     void record_trace(const char* path, std::uint32_t frames) { detail::check(crabby_ctx_record_trace(raw_, path, frames)); }
     vec2 window_size() const noexcept { return crabby_ctx_window_size(raw_); }
@@ -3729,6 +3808,26 @@ public:
         return owned;
     }
     crabby::world run_headless(std::uint64_t ticks) { return run_headless(ticks, [](ctx&) {}); }
+
+    /// What profile_headless returns.
+    struct profiled {
+        crabby::world world;
+        crabby::perf_report report;
+    };
+    /// Like run_headless, but timed: the first `warmup` ticks aren't measured,
+    /// the next `ticks` are. The report says where the time went (systems,
+    /// CRABBY_PROFILE_SCOPE scopes), how many allocations each tick made, the
+    /// slowest ticks and what to try. For tests and CI: see perf_report::check.
+    template<class S> profiled profile_headless(std::uint64_t warmup, std::uint64_t ticks, S setup) {
+        holder* h = keep(std::move(setup));
+        CrabbyWorld* result = nullptr;
+        auto status = crabby_game_profile_headless(take(), warmup, ticks, trampoline, h, &result);
+        crabby::world owned(result, state_->owner);
+        state_->error.rethrow();
+        state_->owner->hook_error.rethrow();
+        detail::check(status);
+        return profiled{std::move(owned), crabby::perf_report(detail::read_text([](char* b, std::size_t c, std::size_t* n) { return crabby_last_perf_report(b, c, n); }))};
+    }
 };
 
 /// The lobby of the Steam invite the game was launched with, or 0.
@@ -3745,4 +3844,31 @@ inline std::uint64_t steam_wait_for_invite(std::uint32_t app_id, std::uint32_t t
     return l;
 }
 } // namespace crabby
+
+#define CRABBY_PP_CAT2(a, b) a##b
+#define CRABBY_PP_CAT(a, b) CRABBY_PP_CAT2(a, b)
+/// Times the rest of the block as a scope called `name` (a string literal).
+/// It shows up next to the systems in the overlay, in CRABBY_BENCH reports and
+/// in ctx::perf_report(). Scopes nest, work on any thread (times add up), and
+/// cost one atomic load while profiling is off.
+///
+///     void ai(crabby::ctx& ctx) {
+///         CRABBY_PROFILE_SCOPE("ai");
+///         { CRABBY_PROFILE_SCOPE("ai/pathing"); /* ... */ }
+///     }
+#define CRABBY_PROFILE_SCOPE(name) \
+    static const CrabbyProfileScope* const CRABBY_PP_CAT(crabby_scope_, __LINE__) = crabby_profile_scope(name); \
+    ::crabby::profile_scope_guard CRABBY_PP_CAT(crabby_scope_guard_, __LINE__)(CRABBY_PP_CAT(crabby_scope_, __LINE__))
+
+/// Put this once, at global scope in one .cpp file, to count C++ heap
+/// allocations (operator new) per frame and per system in the reports. It
+/// replaces the global operator new/delete; counting happens only while
+/// profiling is on, so the cost otherwise is one atomic load per `new`.
+#define CRABBY_COUNT_CPP_ALLOCATIONS \
+    void* operator new(std::size_t n) { crabby_note_allocation(n); if (void* p = std::malloc(n ? n : 1)) return p; throw std::bad_alloc(); } \
+    void* operator new[](std::size_t n) { crabby_note_allocation(n); if (void* p = std::malloc(n ? n : 1)) return p; throw std::bad_alloc(); } \
+    void operator delete(void* p) noexcept { std::free(p); } \
+    void operator delete[](void* p) noexcept { std::free(p); } \
+    void operator delete(void* p, std::size_t) noexcept { std::free(p); } \
+    void operator delete[](void* p, std::size_t) noexcept { std::free(p); }
 #endif

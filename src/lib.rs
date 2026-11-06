@@ -33,7 +33,9 @@
 //!   with the backquote key. On in debug builds; see `Game::inspector`.
 //! - `gamepad` (default): gamepads through gilrs; without it
 //!   `Ctx::gamepads` is always empty. On Linux it needs libudev headers.
-//! - `profiling`: per-system scopes for `puffin_viewer`.
+//! - `profiling`: per-system scopes for `puffin_viewer`. (Not needed for
+//!   [`profile_scope!`], [`Ctx::perf_report`] or [`CountingAllocator`], which
+//!   are always built in and cost one atomic load while profiling is off.)
 //! - `hotpatch`: change system code while the game runs, with
 //!   `dx serve --hot-patch --features hotpatch`.
 //! - `physics`: 2D physics with rapier (`Game::physics`); `physics-determinism`
@@ -49,6 +51,7 @@
 #![cfg_attr(not(feature = "window"), allow(dead_code))]
 
 mod actions;
+mod alloc_count;
 mod assets;
 mod attach;
 mod audio;
@@ -77,6 +80,7 @@ mod nav3d;
 mod net;
 #[cfg(feature = "navmesh")]
 pub use nav3d::{NavAgent3D, NavBakeError, NavBakeSettings, NavMesh3D, NavObstacle3D, NavSource, step_navmesh3d};
+mod perf_report;
 #[cfg(feature = "physics")]
 mod physics;
 #[cfg(feature = "physics3d")]
@@ -88,6 +92,7 @@ mod random;
 mod reflect;
 mod render;
 mod scene;
+mod scope;
 mod sheet;
 mod spatial;
 mod stream;
@@ -101,6 +106,7 @@ mod ui;
 #[cfg(all(target_arch = "wasm32", feature = "window"))]
 mod web;
 
+pub use alloc_count::{AllocCounts, CountingAllocator, alloc_counts, note_allocation};
 pub use attach::{Attached, follow_attachments};
 pub use audio::{AudioBus, AudioEffects, Playing, Sound, SoundParams};
 #[cfg(feature = "3d")]
@@ -130,6 +136,10 @@ pub use net::{
 pub use net::{NetPose, apply_net_poses};
 #[cfg(feature = "steam")]
 pub use net::{SteamLobby, SteamLobbyVisibility, steam_lobby_from_args, steam_wait_for_invite};
+pub use perf_report::{
+    AllocReport, Budget, BudgetViolation, Contributor, FrameTimes, PassReport, PerfReport, PerfWarning, Regression,
+    RenderReport, ScopeReport, SystemReport, WarningKind, WorstFrame,
+};
 #[cfg(feature = "physics")]
 pub use physics::{Collider, MAX_POLYGON_POINTS, Physics, RayHit, RigidBody, Shape, Velocity, step_physics};
 #[cfg(feature = "physics3d")]
@@ -143,6 +153,7 @@ pub use profiler::{FrameStats, GpuPass};
 pub use random::{DEFAULT_SEED, Random, Rng};
 pub use reflect::{Field, FieldType, ReflectError, WorldReflect};
 pub use render::RenderStats;
+pub use scope::{ProfileScope, ScopeGuard, ScopeTiming, scope_named};
 pub use sheet::{Animation, SpriteSheet, animate_sprites};
 #[doc(hidden)]
 pub use spatial::RawGridView;
