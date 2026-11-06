@@ -5,10 +5,11 @@ use std::ffi::c_char;
 
 use crabbyengine::{
     AmbientOcclusion, AntiAliasing, Blend, Camera3D, Color, Compute, ComputePass, Decal3D, Effect, GraphicsQuality,
-    Lighting, MAX_LIGHT_SHADOW_VIEWS, MAX_RENDER_SCALE, MIN_RENDER_SCALE, Material, MaterialDesc, Mesh, MeshData,
-    Model, PointLight3D, Post, QualityLevel, Quat, ReceivesDecals, ReflectionProbe3D, ScreenEffect, Shader, Sky,
-    SpotLight3D, TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera, TerrainMaterialDesc, TerrainTile, TextureArray,
-    TextureKind, Tonemap, Transform3D, Vec2, Vec3, Vec4,
+    Lighting, LodGroup, LodLevel, LodPick, LodRenderer, LodSettings, LodShadow, MAX_LIGHT_SHADOW_VIEWS,
+    MAX_RENDER_SCALE, MIN_RENDER_SCALE, Material, MaterialDesc, Mesh, MeshData, Model, PointLight3D, Post,
+    QualityLevel, Quat, ReceivesDecals, ReflectionProbe3D, ScreenEffect, Shader, Sky, SpotLight3D, TERRAIN_LAYERS,
+    TERRAIN_LODS, TargetCamera, TerrainMaterialDesc, TerrainTile, TextureArray, TextureKind, Tonemap, Transform3D,
+    Vec2, Vec3, Vec4,
 };
 
 use crate::ctx::{ctx_access, out, text};
@@ -3091,4 +3092,281 @@ pub unsafe extern "C" fn crabby_ctx_load_reflection_probe(
                 .map_err(invalid_owned)
         })
     })
+}
+
+// ---- levels of detail ---------------------------------------------------------
+
+/// One mesh of a LOD level (Rust `LodRenderer`), placed by `offset` in the
+/// group's space and tinted by `color` (white: no change).
+/// ```
+/// let r = crabby_ffi::crabby_lod_renderer(Default::default());
+/// assert_eq!((r.color.r, r.offset.scale.x), (1.0, 1.0));
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CrabbyLodRenderer {
+    /// What to draw.
+    pub mesh: CrabbyMesh,
+    /// Where it sits in the group's space.
+    pub offset: CrabbyTransform3D,
+    /// Multiplied with the materials' colors.
+    pub color: CrabbyColor,
+}
+
+/// `mesh` at the group's origin, untinted.
+/// ```
+/// let r = crabby_ffi::crabby_lod_renderer(crabby_ffi::CrabbyMesh { id: 4 });
+/// assert_eq!(r.mesh.id, 4);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn crabby_lod_renderer(mesh: CrabbyMesh) -> CrabbyLodRenderer {
+    CrabbyLodRenderer {
+        mesh,
+        offset: transform_to_c(Transform3D::default()),
+        color: to_c(Color::WHITE),
+    }
+}
+
+/// One level of a LOD group (Rust `LodLevel`): its renderers are drawn while
+/// the group covers at least `screen_height` of the screen's height. With
+/// `custom_shadow`, `shadow_casters` cast the shadow instead of the
+/// renderers (none: no shadow).
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct CrabbyLodLevel {
+    /// 0 to 1, going down from level to level.
+    pub screen_height: f32,
+    /// How much of the way up to the previous threshold it crossfades into
+    /// the next level, 0 to 1 (0: switches at once).
+    pub fade_width: f32,
+    /// `renderer_count` renderers (may be null when 0).
+    pub renderers: *const CrabbyLodRenderer,
+    /// How many.
+    pub renderer_count: usize,
+    /// Whether `shadow_casters` cast the shadow instead of the renderers.
+    pub custom_shadow: bool,
+    /// `shadow_caster_count` renderers (may be null when 0).
+    pub shadow_casters: *const CrabbyLodRenderer,
+    /// How many.
+    pub shadow_caster_count: usize,
+}
+
+/// Global LOD settings (Rust `ctx.lod`).
+/// ```
+/// let s = crabby_ffi::CrabbyLodSettings { bias: 1.0, crossfade: true };
+/// assert!(s.crossfade);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CrabbyLodSettings {
+    /// Multiplies every group's screen height (2: detail twice as far).
+    pub bias: f32,
+    /// Whether levels with a fade width crossfade.
+    pub crossfade: bool,
+}
+
+/// Which level of a group is drawn (Rust `LodPick`).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct CrabbyLodPick {
+    /// 0 culled, 1 one level (`level`), 2 crossfading from `level` to `to`.
+    pub kind: u32,
+    /// The level drawn, or fading out.
+    pub level: u32,
+    /// The level fading in; -1 for none (fading out past the last level).
+    pub to: i32,
+    /// How far along the fade is, 0 to 1.
+    pub blend: f32,
+}
+
+/// # Safety
+/// `count` values at `list` (may be null when 0).
+unsafe fn lod_renderers(list: *const CrabbyLodRenderer, count: usize) -> Result<Vec<LodRenderer>, crate::Failure> {
+    if list.is_null() && count > 0 {
+        return Err(invalid("renderers is null"));
+    }
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+    // SAFETY: caller contract.
+    let given = unsafe { std::slice::from_raw_parts(list, count) };
+    Ok(given
+        .iter()
+        .map(|r| LodRenderer {
+            mesh: to_c(r.mesh),
+            offset: transform_from_c(r.offset),
+            color: to_c(r.color),
+        })
+        .collect())
+}
+
+/// Gives `entity` levels of detail (Rust `LodGroup`): `count` levels, most
+/// detailed first, for an object `size` tall in its own space, its
+/// distance measured to `center`. Replaces any it had. Stale entities are an
+/// error.
+/// # Safety
+/// `ctx` null or live; `levels` holds `count` values (may be null when 0),
+/// each pointing at as many renderers as it says.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_lod_group(std::ptr::null_mut(), 0, 1.0, Default::default(), std::ptr::null(), 0) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_lod_group(
+    ctx: *mut CrabbyCtx,
+    entity: u64,
+    size: f32,
+    center: CrabbyVec3,
+    levels: *const CrabbyLodLevel,
+    count: usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let entity = crabbyengine::Entity::from_bits(entity);
+            if !c.world.is_alive(entity) {
+                return Err(invalid("no such entity"));
+            }
+            if levels.is_null() && count > 0 {
+                return Err(invalid("levels is null"));
+            }
+            let given = if count == 0 {
+                &[][..]
+            } else {
+                std::slice::from_raw_parts(levels, count)
+            };
+            let mut list = Vec::with_capacity(count);
+            for l in given {
+                let shadow = if l.custom_shadow {
+                    LodShadow::Casters(lod_renderers(l.shadow_casters, l.shadow_caster_count)?)
+                } else {
+                    LodShadow::Same
+                };
+                list.push(
+                    LodLevel::new(l.screen_height, lod_renderers(l.renderers, l.renderer_count)?)
+                        .with_fade(l.fade_width)
+                        .with_shadow(shadow),
+                );
+            }
+            c.world
+                .insert(entity, LodGroup::new(size, list).with_center(to_c(center)));
+            Ok(())
+        })
+    })
+}
+
+/// The level of `entity`'s LOD group the 3D camera picks, under the current
+/// settings (Rust `LodGroup::pick_for`). Entities without a group, or
+/// without a `CrabbyTransform3D`, are an error.
+/// # Safety
+/// `ctx` null or live; output writable.
+/// ```
+/// let mut pick = Default::default();
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_lod_pick(std::ptr::null_mut(), 0, &mut pick) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_lod_pick(
+    ctx: *mut CrabbyCtx,
+    entity: u64,
+    out_pick: *mut CrabbyLodPick,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let entity = crabbyengine::Entity::from_bits(entity);
+            let (Some(group), Some(transform)) = (c.world.get::<LodGroup>(entity), c.world.get::<Transform3D>(entity))
+            else {
+                return Err(invalid("that entity has no LOD group and transform"));
+            };
+            let pick = match group.pick_for(transform, &c.camera3d, &c.lod) {
+                LodPick::Culled => CrabbyLodPick::default(),
+                LodPick::Level(i) => CrabbyLodPick {
+                    kind: 1,
+                    level: i as u32,
+                    to: -1,
+                    blend: 0.0,
+                },
+                LodPick::Fade { from, to, blend } => CrabbyLodPick {
+                    kind: 2,
+                    level: from as u32,
+                    to: to.map_or(-1, |t| t as i32),
+                    blend,
+                },
+            };
+            out(out_pick, pick)
+        })
+    })
+}
+
+/// The global LOD settings.
+/// # Safety
+/// `ctx` null or live; output writable.
+/// ```
+/// let mut s = crabby_ffi::CrabbyLodSettings { bias: 0.0, crossfade: false };
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_lod_settings(std::ptr::null_mut(), &mut s) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_lod_settings(
+    ctx: *mut CrabbyCtx,
+    out_settings: *mut CrabbyLodSettings,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            out(
+                out_settings,
+                CrabbyLodSettings {
+                    bias: c.lod.bias,
+                    crossfade: c.lod.crossfade,
+                },
+            )
+        })
+    })
+}
+
+/// Replaces the global LOD settings: a quality setting changes `bias`.
+/// Negative or non-finite biases are an error.
+/// # Safety
+/// `ctx` null or live.
+/// ```
+/// let s = crabby_ffi::CrabbyLodSettings { bias: 1.0, crossfade: true };
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_lod_settings(std::ptr::null_mut(), s) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_lod_settings(ctx: *mut CrabbyCtx, settings: CrabbyLodSettings) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            if !settings.bias.is_finite() || settings.bias < 0.0 {
+                return Err(invalid("bias must be 0 or more"));
+            }
+            c.lod = LodSettings {
+                bias: settings.bias,
+                crossfade: settings.crossfade,
+            };
+            Ok(())
+        })
+    })
+}
+
+/// The fraction of the screen's height something `size` tall covers at
+/// `distance` from a camera with vertical field of view `fov_y` (radians):
+/// to turn distances into thresholds.
+/// ```
+/// let h = crabby_ffi::crabby_lod_screen_height_at(2.0, 10.0, 60f32.to_radians());
+/// assert!((h - 0.1732).abs() < 1e-3);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn crabby_lod_screen_height_at(size: f32, distance: f32, fov_y: f32) -> f32 {
+    LodGroup::screen_height_at(size, distance, fov_y)
+}
+
+/// The distance at which something `size` tall covers `height` of the
+/// screen: the inverse of `crabby_lod_screen_height_at`.
+/// ```
+/// let d = crabby_ffi::crabby_lod_distance_at(2.0, 0.1732, 60f32.to_radians());
+/// assert!((d - 10.0).abs() < 0.01);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn crabby_lod_distance_at(size: f32, height: f32, fov_y: f32) -> f32 {
+    LodGroup::distance_at(size, height, fov_y)
 }

@@ -97,11 +97,11 @@ const SHADOW_PASSES: [&str; 8] = [
     "shadows 7",
 ];
 use crate::Material;
-use crate::three::{Frame3D, Scene3D};
 use crate::three::{
-    GpuMaterialDesc, Instance3D, MAX_CASCADES, MAX_LIGHT_SHADOW_VIEWS, MAX_SHADOW_VIEWS, MaterialTextures, MeshData,
-    PostUniform, linear, scaled_size, shadow_views,
+    FADED, GpuMaterialDesc, Instance3D, MAX_CASCADES, MAX_LIGHT_SHADOW_VIEWS, MAX_SHADOW_VIEWS, MaterialTextures,
+    MeshData, PostUniform, linear, scaled_size, shadow_views,
 };
+use crate::three::{Frame3D, Scene3D};
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 /// The lit frame before tone mapping: light brighter than white survives.
@@ -211,6 +211,9 @@ struct GpuMaterial {
 /// One material shader's pipelines, for one-sided and double-sided surfaces.
 struct ShaderPipelines {
     sides: [Pipelines; 2],
+    /// The same for crossfading instances, built when first drawn.
+    fade: [std::sync::OnceLock<Pipelines>; 2],
+    builder: SideBuilder,
     /// Whether it reads the scene behind it (`scene_color`, `scene_position`,
     /// `scene_distance`): its transparent surfaces then need a copy of it.
     reads_scene: bool,
@@ -1737,7 +1740,10 @@ impl Renderer3D {
             .chain(shadow_views(self.cascades, self.light_views).flat_map(|v| &self.shadow_runs[v]))
             .chain(self.views.iter().flat_map(|(_, r)| r));
         for &(mesh, _, _) in runs {
-            if let Some(d) = mesh.checked_sub(real).and_then(|k| drawn.get_mut(k as usize)) {
+            if let Some(d) = (mesh & !FADED)
+                .checked_sub(real)
+                .and_then(|k| drawn.get_mut(k as usize))
+            {
                 *d = true;
             }
         }
@@ -2325,6 +2331,7 @@ impl Renderer3D {
                 .sum()
         };
         let mut add = |mesh: u32, count: u32, shadow: bool| {
+            let mesh = mesh & !FADED;
             let at = match out.binary_search_by_key(&mesh, |e| e.0) {
                 Ok(i) => i,
                 Err(i) => {
@@ -2918,6 +2925,7 @@ impl Renderer3D {
     /// The mesh a run's mesh id draws: itself, or for a skinned model (ids
     /// past the meshes), the skinned mesh.
     fn base(&self, mesh: u32) -> u32 {
+        let mesh = mesh & !FADED;
         match (mesh as usize).checked_sub(self.meshes.len()) {
             None => mesh,
             Some(k) => self.skinning.draws.get(k).map_or(0, |d| d.0),
@@ -2933,6 +2941,8 @@ impl Renderer3D {
         let mut bound = None;
         let mut bound_material = u32::MAX;
         for &(mesh, start, count) in runs {
+            let fading = mesh & FADED != 0;
+            let mesh = mesh & !FADED;
             let posed = (mesh as usize).checked_sub(self.meshes.len());
             let mesh = &self.meshes[self.base(mesh) as usize];
             let Some((rest, indices)) = &mesh.buffers else {
@@ -2952,7 +2962,18 @@ impl Renderer3D {
                 if m.transparent != (kind == Kind::Transparent) {
                     continue;
                 }
-                let pipelines = &self.shaders[m.shader as usize].sides[usize::from(m.double_sided)];
+                let shader = &self.shaders[m.shader as usize];
+                let side = usize::from(m.double_sided);
+                // Crossfading instances dither in every pass (their
+                // pipelines are built the first time they're drawn).
+                let pipelines = if fading {
+                    shader.fade[side].get_or_init(|| {
+                        let cull = (side == 0).then_some(wgpu::Face::Back);
+                        shader.builder.build(cull, true)
+                    })
+                } else {
+                    &shader.sides[side]
+                };
                 let pipeline = match kind {
                     Kind::Shadow if m.cutout => &pipelines.shadow_cutout,
                     Kind::Shadow => &pipelines.shadow,
@@ -3167,146 +3188,17 @@ fn build_pipelines(
         label: Some(name),
         source: wgpu::ShaderSource::Wgsl(source.into()),
     });
-    let buffers = [
-        Some(wgpu::VertexBufferLayout {
-            array_stride: size_of::<Vertex>() as u64,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &VERTEX_ATTRIBUTES,
-        }),
-        Some(wgpu::VertexBufferLayout {
-            array_stride: size_of::<Instance3D>() as u64,
-            step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &INSTANCE_ATTRIBUTES,
-        }),
-    ];
-    let depth = |write, compare, bias| {
-        Some(wgpu::DepthStencilState {
-            format: DEPTH_FORMAT,
-            depth_write_enabled: Some(write),
-            depth_compare: Some(compare),
-            stencil: Default::default(),
-            bias,
-        })
-    };
-    let msaa = wgpu::MultisampleState {
-        count: samples,
-        ..Default::default()
-    };
-    let color = |blend| {
-        [Some(wgpu::ColorTargetState {
-            format: HDR_FORMAT,
-            blend,
-            write_mask: wgpu::ColorWrites::ALL,
-        })]
-    };
-    let opaque_target = color(None);
-    let transparent_target = color(Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING));
-    let pipeline = |label: &str,
-                    layout: &wgpu::PipelineLayout,
-                    vertex: &str,
-                    fragment: Option<&str>,
-                    cull: Option<wgpu::Face>,
-                    depth_stencil,
-                    multisample,
-                    targets: &[Option<wgpu::ColorTargetState>]| {
-        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some(label),
-            layout: Some(layout),
-            vertex: wgpu::VertexState {
-                module: &module,
-                entry_point: Some(vertex),
-                compilation_options: Default::default(),
-                buffers: &buffers,
-            },
-            primitive: wgpu::PrimitiveState {
-                cull_mode: cull,
-                ..Default::default()
-            },
-            depth_stencil,
-            multisample,
-            fragment: fragment.map(|fragment| wgpu::FragmentState {
-                module: &module,
-                entry_point: Some(fragment),
-                compilation_options: Default::default(),
-                targets,
-            }),
-            multiview_mask: None,
-            cache: None,
-        })
-    };
-    let shadow_bias = wgpu::DepthBiasState {
-        constant: 2,
-        slope_scale: 2.0,
-        clamp: 0.0,
-    };
-    // Solid surfaces write depth with no fragment shader at all, so the
-    // GPU can reject hidden ones early; cut-out ones run it for the alpha.
-    let prepass = |fragment, cull| {
-        pipeline(
-            "3d depth prepass",
-            layout,
-            "vs_main",
-            fragment,
-            cull,
-            depth(true, wgpu::CompareFunction::Less, Default::default()),
-            msaa,
-            &[],
-        )
-    };
-    // Both faces cast: thin things (leaves, planes) too. The stored depth
-    // is pushed back a little, against shadow acne.
-    let shadow = |fragment| {
-        pipeline(
-            "3d shadow",
-            shadow_layout,
-            "vs_shadow",
-            fragment,
-            None,
-            depth(true, wgpu::CompareFunction::Less, shadow_bias),
-            wgpu::MultisampleState::default(),
-            &[],
-        )
-    };
-    let side = |cull: Option<wgpu::Face>| Pipelines {
-        prepass: prepass(None, cull),
-        prepass_cutout: prepass(Some("fs_depth"), cull),
-        // Only the fragments the prepass found nearest: each pixel is lit once.
-        opaque: pipeline(
-            "3d opaque",
-            layout,
-            "vs_main",
-            Some("fs_main"),
-            cull,
-            depth(false, wgpu::CompareFunction::Equal, Default::default()),
-            msaa,
-            &opaque_target,
-        ),
-        opaque_solid: pipeline(
-            "3d opaque solid",
-            layout,
-            "vs_main",
-            Some("fs_main"),
-            cull,
-            depth(true, wgpu::CompareFunction::Less, Default::default()),
-            msaa,
-            &opaque_target,
-        ),
-        // Over the opaque frame, without hiding what's behind it.
-        transparent: pipeline(
-            "3d transparent",
-            layout,
-            "vs_main",
-            Some("fs_transparent"),
-            cull,
-            depth(false, wgpu::CompareFunction::Less, Default::default()),
-            msaa,
-            &transparent_target,
-        ),
-        shadow: shadow(None),
-        shadow_cutout: shadow(Some("fs_depth")),
+    let builder = SideBuilder {
+        device: device.clone(),
+        module,
+        layout: layout.clone(),
+        shadow_layout: shadow_layout.clone(),
+        samples,
     };
     ShaderPipelines {
-        sides: [side(Some(wgpu::Face::Back)), side(None)],
+        sides: [builder.build(Some(wgpu::Face::Back), false), builder.build(None, false)],
+        fade: Default::default(),
+        builder,
         reads_scene: false,
     }
 }
@@ -3319,6 +3211,170 @@ fn cluster_depth(frame: &Frame3D) -> [f32; 4] {
     depth[2] = frame.decals.records.len() as f32;
     depth[3] = frame.lights.lists.len() as f32;
     depth
+}
+
+/// What it takes to build a material shader's pipelines, kept to build the
+/// crossfade variants when a frame first needs them.
+struct SideBuilder {
+    device: wgpu::Device,
+    module: wgpu::ShaderModule,
+    layout: wgpu::PipelineLayout,
+    shadow_layout: wgpu::PipelineLayout,
+    samples: u32,
+}
+
+impl SideBuilder {
+    /// The pipelines for one-sided (`cull`) or double-sided surfaces. With
+    /// `fade`, the fragment shaders also dither crossfading instances
+    /// (`fade_keeps` in the shader), even solid materials' depth passes.
+    fn build(&self, cull: Option<wgpu::Face>, fade: bool) -> Pipelines {
+        let (device, module, layout, shadow_layout, samples) = (
+            &self.device,
+            &self.module,
+            &self.layout,
+            &self.shadow_layout,
+            self.samples,
+        );
+        let buffers = [
+            Some(wgpu::VertexBufferLayout {
+                array_stride: size_of::<Vertex>() as u64,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &VERTEX_ATTRIBUTES,
+            }),
+            Some(wgpu::VertexBufferLayout {
+                array_stride: size_of::<Instance3D>() as u64,
+                step_mode: wgpu::VertexStepMode::Instance,
+                attributes: &INSTANCE_ATTRIBUTES,
+            }),
+        ];
+        let depth = |write, compare, bias| {
+            Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(write),
+                depth_compare: Some(compare),
+                stencil: Default::default(),
+                bias,
+            })
+        };
+        let msaa = wgpu::MultisampleState {
+            count: samples,
+            ..Default::default()
+        };
+        let color = |blend| {
+            [Some(wgpu::ColorTargetState {
+                format: HDR_FORMAT,
+                blend,
+                write_mask: wgpu::ColorWrites::ALL,
+            })]
+        };
+        let opaque_target = color(None);
+        let transparent_target = color(Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING));
+        let pipeline = |label: &str,
+                        layout: &wgpu::PipelineLayout,
+                        vertex: &str,
+                        fragment: Option<&str>,
+                        cull: Option<wgpu::Face>,
+                        depth_stencil,
+                        multisample,
+                        targets: &[Option<wgpu::ColorTargetState>]| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(layout),
+                vertex: wgpu::VertexState {
+                    module,
+                    entry_point: Some(vertex),
+                    compilation_options: Default::default(),
+                    buffers: &buffers,
+                },
+                primitive: wgpu::PrimitiveState {
+                    cull_mode: cull,
+                    ..Default::default()
+                },
+                depth_stencil,
+                multisample,
+                fragment: fragment.map(|fragment| wgpu::FragmentState {
+                    module,
+                    entry_point: Some(fragment),
+                    compilation_options: Default::default(),
+                    targets,
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let shadow_bias = wgpu::DepthBiasState {
+            constant: 2,
+            slope_scale: 2.0,
+            clamp: 0.0,
+        };
+        // Solid surfaces write depth with no fragment shader at all, so the
+        // GPU can reject hidden ones early; cut-out ones run it for the alpha.
+        let prepass = |fragment, cull| {
+            pipeline(
+                "3d depth prepass",
+                layout,
+                "vs_main",
+                fragment,
+                cull,
+                depth(true, wgpu::CompareFunction::Less, Default::default()),
+                msaa,
+                &[],
+            )
+        };
+        // Both faces cast: thin things (leaves, planes) too. The stored depth
+        // is pushed back a little, against shadow acne.
+        let shadow = |fragment| {
+            pipeline(
+                "3d shadow",
+                shadow_layout,
+                "vs_shadow",
+                fragment,
+                None,
+                depth(true, wgpu::CompareFunction::Less, shadow_bias),
+                wgpu::MultisampleState::default(),
+                &[],
+            )
+        };
+        let depth_fragment = if fade { "fs_depth_fade" } else { "fs_depth" };
+        Pipelines {
+            prepass: prepass(fade.then_some("fs_fade"), cull),
+            prepass_cutout: prepass(Some(depth_fragment), cull),
+            // Only the fragments the prepass found nearest: each pixel is lit once.
+            opaque: pipeline(
+                "3d opaque",
+                layout,
+                "vs_main",
+                Some(if fade { "fs_main_fade" } else { "fs_main" }),
+                cull,
+                depth(false, wgpu::CompareFunction::Equal, Default::default()),
+                msaa,
+                &opaque_target,
+            ),
+            opaque_solid: pipeline(
+                "3d opaque solid",
+                layout,
+                "vs_main",
+                Some(if fade { "fs_main_fade" } else { "fs_main" }),
+                cull,
+                depth(true, wgpu::CompareFunction::Less, Default::default()),
+                msaa,
+                &opaque_target,
+            ),
+            // Over the opaque frame, without hiding what's behind it.
+            transparent: pipeline(
+                "3d transparent",
+                layout,
+                "vs_main",
+                Some(if fade { "fs_transparent_fade" } else { "fs_transparent" }),
+                cull,
+                depth(false, wgpu::CompareFunction::Less, Default::default()),
+                msaa,
+                &transparent_target,
+            ),
+            shadow: shadow(fade.then_some("fs_fade")),
+            shadow_cutout: shadow(Some(depth_fragment)),
+        }
+    }
 }
 
 /// What transparent shaders read of the scene behind them.

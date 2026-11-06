@@ -92,6 +92,8 @@ mod light_shadow_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod lights_bench;
 #[cfg(all(test, feature = "window", feature = "3d"))]
+mod lod_render_test;
+#[cfg(all(test, feature = "window", feature = "3d"))]
 mod skin_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod text3d_render_test;

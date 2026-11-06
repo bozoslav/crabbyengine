@@ -1376,9 +1376,179 @@ fn shadow_mesh_from_json(world: &World, value: Value) -> Result<crate::ShadowMes
     Ok(crate::ShadowMesh(Some(mesh)))
 }
 
-/// Reflects [`Model`](crate::Model) as `"Model"`, and
-/// [`ShadowMesh`](crate::ShadowMesh) as `"ShadowMesh"`, their meshes saved
-/// by file name (see [`MeshNames`]).
+/// A mesh's file name, or an error naming what to load first.
+#[cfg(feature = "3d")]
+fn mesh_by_name(world: &World, name: &str) -> Result<crate::Mesh, String> {
+    world
+        .get_resource::<MeshNames>()
+        .and_then(|t| t.by_name.get(name))
+        .copied()
+        .ok_or_else(|| format!("mesh \"{name}\" isn't loaded: ctx.load_mesh(\"{name}\") first"))
+}
+
+/// A [`LodRenderer`](crate::LodRenderer) as JSON: the mesh by its file name.
+#[cfg(feature = "3d")]
+#[derive(Serialize, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct LodRendererJson {
+    mesh: Option<String>,
+    offset: crate::Transform3D,
+    color: crate::Color,
+}
+
+#[cfg(feature = "3d")]
+impl Default for LodRendererJson {
+    fn default() -> Self {
+        Self {
+            mesh: None,
+            offset: crate::Transform3D::default(),
+            color: crate::Color::WHITE,
+        }
+    }
+}
+
+#[cfg(feature = "3d")]
+#[derive(Serialize, serde::Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+enum LodShadowJson {
+    #[default]
+    Same,
+    Casters(Vec<LodRendererJson>),
+}
+
+#[cfg(feature = "3d")]
+#[derive(Serialize, serde::Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
+struct LodLevelJson {
+    screen_height: f32,
+    fade_width: f32,
+    renderers: Vec<LodRendererJson>,
+    shadow: LodShadowJson,
+}
+
+/// A [`LodGroup`](crate::LodGroup) as JSON, its meshes by file name.
+#[cfg(feature = "3d")]
+#[derive(Serialize, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct LodGroupJson {
+    size: f32,
+    center: glam::Vec3,
+    levels: Vec<LodLevelJson>,
+}
+
+#[cfg(feature = "3d")]
+impl Default for LodGroupJson {
+    fn default() -> Self {
+        Self {
+            size: 1.0,
+            center: glam::Vec3::ZERO,
+            levels: Vec::new(),
+        }
+    }
+}
+
+/// `None` if a mesh was made in code: it has no file to name, so the group
+/// isn't saved (the rest of the entity is).
+#[cfg(feature = "3d")]
+fn lod_group_json(world: &World, g: &crate::LodGroup) -> Option<Result<Value, String>> {
+    let names = world.get_resource::<MeshNames>()?;
+    let renderers = |list: &[crate::LodRenderer]| -> Option<Vec<LodRendererJson>> {
+        list.iter()
+            .map(|r| {
+                Some(LodRendererJson {
+                    mesh: Some(names.by_id.get(&r.mesh.id)?.clone()),
+                    offset: r.offset,
+                    color: r.color,
+                })
+            })
+            .collect()
+    };
+    let mut levels = Vec::with_capacity(g.levels.len());
+    for level in &g.levels {
+        levels.push(LodLevelJson {
+            screen_height: level.screen_height,
+            fade_width: level.fade_width,
+            renderers: renderers(&level.renderers)?,
+            shadow: match &level.shadow {
+                crate::LodShadow::Same => LodShadowJson::Same,
+                crate::LodShadow::Casters(list) => LodShadowJson::Casters(renderers(list)?),
+            },
+        });
+    }
+    let json = LodGroupJson {
+        size: g.size,
+        center: g.center,
+        levels,
+    };
+    Some(serde_json::to_value(json).map_err(|err| err.to_string()))
+}
+
+#[cfg(feature = "3d")]
+fn lod_group_from_json(world: &World, value: Value) -> Result<crate::LodGroup, String> {
+    let json: LodGroupJson = serde_json::from_value(value).map_err(|err| err.to_string())?;
+    let renderers = |list: Vec<LodRendererJson>| -> Result<Vec<crate::LodRenderer>, String> {
+        list.into_iter()
+            .map(|r| {
+                let name = r
+                    .mesh
+                    .ok_or("a LOD renderer needs \"mesh\": a glTF file in assets/, like \"tree.glb\"")?;
+                Ok(crate::LodRenderer::new(mesh_by_name(world, &name)?)
+                    .with_offset(r.offset)
+                    .with_color(r.color))
+            })
+            .collect()
+    };
+    let mut levels = Vec::with_capacity(json.levels.len());
+    for level in json.levels {
+        levels.push(
+            crate::LodLevel::new(level.screen_height, renderers(level.renderers)?)
+                .with_fade(level.fade_width)
+                .with_shadow(match level.shadow {
+                    LodShadowJson::Same => crate::LodShadow::Same,
+                    LodShadowJson::Casters(list) => crate::LodShadow::Casters(renderers(list)?),
+                }),
+        );
+    }
+    Ok(crate::LodGroup::new(json.size, levels).with_center(json.center))
+}
+
+/// Every `"mesh"` named inside `"LodGroup"` objects anywhere in `json`, for
+/// loading them first.
+#[cfg(feature = "3d")]
+pub(crate) fn lod_mesh_names(json: &Value, out: &mut Vec<String>) {
+    fn meshes(json: &Value, out: &mut Vec<String>) {
+        match json {
+            Value::Object(map) => {
+                for (k, value) in map {
+                    match value {
+                        Value::String(name) if k == "mesh" => out.push(name.clone()),
+                        _ => meshes(value, out),
+                    }
+                }
+            }
+            Value::Array(list) => list.iter().for_each(|v| meshes(v, out)),
+            _ => {}
+        }
+    }
+    match json {
+        Value::Object(map) => {
+            for (k, value) in map {
+                if k == "LodGroup" {
+                    meshes(value, out);
+                } else {
+                    lod_mesh_names(value, out);
+                }
+            }
+        }
+        Value::Array(list) => list.iter().for_each(|v| lod_mesh_names(v, out)),
+        _ => {}
+    }
+}
+
+/// Reflects [`Model`](crate::Model) as `"Model"`,
+/// [`ShadowMesh`](crate::ShadowMesh) as `"ShadowMesh"` and
+/// [`LodGroup`](crate::LodGroup) as `"LodGroup"`, their meshes saved by file
+/// name (see [`MeshNames`]).
 #[cfg(feature = "3d")]
 pub(crate) fn reflect_model(world: &mut World) {
     if world.get_resource::<MeshNames>().is_none() {
@@ -1432,6 +1602,27 @@ pub(crate) fn reflect_model(world: &mut World) {
         }),
         check: Arc::new(check::<ShadowMeshJson>),
         remove: Arc::new(remove::<crate::ShadowMesh>),
+    });
+    reg.by_name.insert("LodGroup".into(), reg.list.len());
+    reg.list.push(Reflected {
+        name: "LodGroup".into(),
+        type_name: std::any::type_name::<crate::LodGroup>().into(),
+        get: Arc::new(|w: &World, e| w.get::<crate::LodGroup>(e).and_then(|g| lod_group_json(w, g))),
+        set: Arc::new(|w: &mut World, e, v| {
+            let group = lod_group_from_json(w, v)?;
+            w.insert(e, group);
+            Ok(())
+        }),
+        spawn: Arc::new(|w: &mut World, v| {
+            let group = lod_group_from_json(w, v)?;
+            Ok(w.spawn((group,)))
+        }),
+        spawn_at: Arc::new(|w: &mut World, e, v| {
+            let group = lod_group_from_json(w, v)?;
+            Ok(w.spawn_at(e, (group,)))
+        }),
+        check: Arc::new(check::<LodGroupJson>),
+        remove: Arc::new(remove::<crate::LodGroup>),
     });
 }
 

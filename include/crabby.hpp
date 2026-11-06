@@ -90,6 +90,27 @@ struct joint {
     transform3d rest{{0, 0, 0, 1}, {0, 0, 0}, {1, 1, 1}, {0, 0}};
 };
 using model = CrabbyModel;
+/// One mesh of a LOD level, placed and tinted (Rust `LodRenderer`).
+using lod_renderer = CrabbyLodRenderer;
+inline lod_renderer lod_renderer_of(CrabbyMesh m) { return crabby_lod_renderer(m); }
+/// One level of a LOD group (Rust `LodLevel`): its renderers are drawn while
+/// the group covers at least `screen_height` of the screen's height. With
+/// `custom_shadow`, `shadow_casters` cast the shadow instead (none: no shadow).
+struct lod_level {
+    float screen_height = 0;
+    float fade_width = 0;
+    std::vector<lod_renderer> renderers;
+    bool custom_shadow = false;
+    std::vector<lod_renderer> shadow_casters;
+};
+/// Global LOD settings (Rust `ctx.lod`): `bias` scales every group's screen height.
+using lod_settings = CrabbyLodSettings;
+/// Which level a group shows: kind 0 culled, 1 `level`, 2 fading from `level` to `to` (-1: nothing).
+using lod_pick = CrabbyLodPick;
+/// The fraction of the screen's height something `size` tall covers at `distance`.
+inline float lod_screen_height_at(float size, float distance, float fov_y) { return crabby_lod_screen_height_at(size, distance, fov_y); }
+/// The distance at which something `size` tall covers `height` of the screen.
+inline float lod_distance_at(float size, float height, float fov_y) { return crabby_lod_distance_at(size, height, fov_y); }
 using point_light3d = CrabbyPointLight3D;
 using reflection_probe3d = CrabbyReflectionProbe3D;
 inline reflection_probe3d reflection_probe3d_default() { return crabby_reflection_probe3d_default(); }
@@ -2733,6 +2754,22 @@ public:
     void set_shadow_mesh(entity e, mesh m) { detail::check(crabby_ctx_set_shadow_mesh(raw_, e, m, true)); }
     /// `e` casts no shadow (a model, or a terrain tile's ground).
     void set_no_shadow(entity e) { detail::check(crabby_ctx_set_shadow_mesh(raw_, e, mesh{}, false)); }
+    /// Gives `e` levels of detail (Rust `LodGroup`), most detailed first, for an
+    /// object `size` tall, its distance measured to `center` in its own space.
+    void set_lod_group(entity e, float size, const std::vector<lod_level>& levels, vec3 center = {0, 0, 0}) {
+        std::vector<CrabbyLodLevel> raw;
+        raw.reserve(levels.size());
+        for (const lod_level& l : levels) {
+            raw.push_back(CrabbyLodLevel{l.screen_height, l.fade_width, l.renderers.data(), l.renderers.size(),
+                                         l.custom_shadow, l.shadow_casters.data(), l.shadow_casters.size()});
+        }
+        detail::check(crabby_ctx_set_lod_group(raw_, e, size, center, raw.data(), raw.size()));
+    }
+    /// The level of `e`'s LOD group the 3D camera picks now.
+    lod_pick lod_pick_of(entity e) const { lod_pick p{}; detail::check(crabby_ctx_lod_pick(raw_, e, &p)); return p; }
+    lod_settings lod() const { lod_settings s{}; detail::check(crabby_ctx_lod_settings(raw_, &s)); return s; }
+    /// bias 0 or more: 2 keeps detail twice as far, 0.5 drops it at half the distance.
+    void set_lod(const lod_settings& s) { detail::check(crabby_ctx_set_lod_settings(raw_, s)); }
     /// Puts a skeleton of `joints`, at rest, on `e` (Rust `Skeleton::new`).
     void set_skeleton(entity e, const std::vector<joint>& joints) {
         std::vector<CrabbyJoint> raw;

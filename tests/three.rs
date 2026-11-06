@@ -902,6 +902,104 @@ fn models_name_meshes_that_must_be_files() {
 }
 
 #[test]
+fn lod_groups_pick_levels_by_screen_height() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        let white = ctx.default_material();
+        let high = ctx.create_mesh(&MeshData::sphere(1.0, 32), white);
+        let low = ctx.create_mesh(&MeshData::cube(2.0), white);
+        // ANCHOR: lod
+        // A 2 m object: the sphere until it's 25% of the screen's height,
+        // the cube down to 3%, then nothing. The sphere crossfades into the
+        // cube over the top quarter of its range.
+        let group = LodGroup::new(
+            2.0,
+            vec![
+                LodLevel::new(0.25, vec![LodRenderer::new(high)]).with_fade(0.25),
+                LodLevel::new(0.03, vec![LodRenderer::new(low)]),
+            ],
+        );
+        let e = ctx.world.spawn((Transform3D::default(), group));
+        // Lower quality: drop detail at 70% of the distance.
+        ctx.lod.bias = 0.7;
+        // ANCHOR_END: lod
+        let group = ctx.world.get::<LodGroup>(e).unwrap().clone();
+        let at = |ctx: &mut Ctx, d: f32| {
+            ctx.camera3d.position = vec3(0.0, 0.0, d);
+            ctx.camera3d.look_at(Vec3::ZERO);
+            group.pick_for(&Transform3D::default(), &ctx.camera3d, &ctx.lod)
+        };
+        ctx.lod.bias = 1.0;
+        assert_eq!(at(ctx, 2.0), LodPick::Level(0));
+        assert_eq!(at(ctx, 10.0), LodPick::Level(1));
+        assert_eq!(at(ctx, 100.0), LodPick::Culled);
+        assert!(matches!(
+            at(ctx, 6.4),
+            LodPick::Fade {
+                from: 0,
+                to: Some(1),
+                ..
+            }
+        ));
+        // A distance to the screen height and back.
+        let fov = ctx.camera3d.fov_y;
+        let d = LodGroup::distance_at(2.0, 0.25, fov);
+        assert!((LodGroup::screen_height_at(2.0, d, fov) - 0.25).abs() < 1e-5);
+        ctx.lod.bias = 0.7;
+        assert_eq!(at(ctx, 5.0), LodPick::Level(1), "the bias drops detail sooner");
+    });
+}
+
+#[test]
+fn lod_groups_of_loaded_meshes_save_and_load_by_file_name() {
+    let file = "test-lod-scene.json";
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("assets")
+        .join(file);
+    let group = |house: Mesh| {
+        LodGroup::new(
+            8.0,
+            vec![
+                LodLevel::new(0.3, vec![LodRenderer::new(house).with_color(Color::rgb(1.0, 0.0, 0.0))]).with_fade(0.2),
+                LodLevel::new(
+                    0.05,
+                    vec![LodRenderer::new(house).with_offset(Transform3D::at(vec3(0.0, 1.0, 0.0)))],
+                )
+                .with_shadow(LodShadow::Casters(vec![])),
+            ],
+        )
+        .with_center(vec3(0.0, 4.0, 0.0))
+    };
+    Game::new("t", 1, 1).run_headless(0, move |ctx| {
+        let house = ctx.load_mesh("models/house.glb");
+        ctx.world.spawn((Transform3D::at(vec3(1.0, 2.0, 3.0)), group(house)));
+        // A group with a mesh made in code has no file to name: not saved.
+        let white = ctx.default_material();
+        let cube = ctx.create_mesh(&MeshData::cube(1.0), white);
+        ctx.world.spawn((
+            Transform3D::default(),
+            LodGroup::new(1.0, vec![LodLevel::new(0.1, vec![LodRenderer::new(cube)])]),
+        ));
+        ctx.save_scene(file).unwrap();
+    });
+    let result = std::panic::catch_unwind(move || {
+        Game::new("t", 1, 1).run_headless(0, move |ctx| {
+            ctx.load_scene(file).unwrap();
+            let house = ctx.load_mesh("models/house.glb");
+            let groups: Vec<LodGroup> = ctx.world.query::<&LodGroup>().iter().cloned().collect();
+            assert_eq!(groups, vec![group(house)], "loaded with the scene, its mesh with it");
+        });
+    });
+    let _ = std::fs::remove_file(path);
+    result.unwrap();
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        let e = ctx.world.spawn((Transform3D::default(),));
+        let level = serde_json::json!({ "levels": [{ "screen_height": 0.1, "renderers": [{ "mesh": "nope.glb" }] }] });
+        let err = ctx.world.set_json(e, "LodGroup", level);
+        assert!(err.unwrap_err().to_string().contains("ctx.load_mesh(\"nope.glb\")"));
+    });
+}
+
+#[test]
 fn ao_and_aa_settings_preserve_existing_defaults() {
     Game::new("post settings", 64, 64).run_headless(0, |ctx| {
         assert_eq!(ctx.post.anti_aliasing, AntiAliasing::None);

@@ -813,3 +813,112 @@ fn punctual_light_components_have_rust_layout_and_roundtrip() {
         crabby_world_free(w);
     }
 }
+
+unsafe extern "C" fn lod(ctx: *mut CrabbyCtx, user: *mut c_void) {
+    unsafe {
+        let errors = &mut *user.cast::<Vec<CrabbyStatus>>();
+        let w = crabby_ctx_world(ctx);
+        let mut transform = 0;
+        assert_eq!(crabby_transform3d_component(w, &mut transform), CRABBY_OK);
+        let mut white = CrabbyMaterial::default();
+        assert_eq!(crabby_ctx_default_material(ctx, &mut white), CRABBY_OK);
+        let cube = crabby_mesh_data_cube(1.0);
+        let mut mesh = CrabbyMesh::default();
+        assert_eq!(crabby_ctx_create_mesh(ctx, cube, white, &mut mesh), CRABBY_OK);
+        crabby_mesh_data_free(cube);
+        let t = crabby_transform3d_at(v3(0.0, 0.0, 0.0));
+        let mut e = 0;
+        assert_eq!(crabby_spawn(w, &value(transform, &t), 1, &mut e), CRABBY_OK);
+        let mut bare = 0;
+        assert_eq!(crabby_spawn(w, null(), 0, &mut bare), CRABBY_OK);
+        let renderers = [crabby_lod_renderer(mesh)];
+        let levels = [
+            CrabbyLodLevel {
+                screen_height: 0.5,
+                fade_width: 0.0,
+                renderers: renderers.as_ptr(),
+                renderer_count: 1,
+                custom_shadow: false,
+                shadow_casters: null(),
+                shadow_caster_count: 0,
+            },
+            CrabbyLodLevel {
+                screen_height: 0.1,
+                fade_width: 0.5,
+                renderers: renderers.as_ptr(),
+                renderer_count: 1,
+                custom_shadow: true,
+                shadow_casters: null(),
+                shadow_caster_count: 0,
+            },
+        ];
+        assert_eq!(
+            crabby_ctx_set_lod_group(ctx, e, 2.0, v3(0.0, 0.0, 0.0), levels.as_ptr(), 2),
+            CRABBY_OK
+        );
+        // A group with no transform has no pick.
+        assert_eq!(
+            crabby_ctx_set_lod_group(ctx, bare, 2.0, v3(0.0, 0.0, 0.0), levels.as_ptr(), 2),
+            CRABBY_OK
+        );
+        let mut pick = CrabbyLodPick::default();
+        errors.push(crabby_ctx_lod_pick(ctx, bare, &mut pick));
+        let mut camera = std::mem::zeroed();
+        assert_eq!(crabby_ctx_camera3d(ctx, &mut camera), CRABBY_OK);
+        let mut at = |d: f32| {
+            camera.position = v3(0.0, 0.0, d);
+            assert_eq!(crabby_ctx_set_camera3d(ctx, &camera), CRABBY_OK);
+            assert_eq!(crabby_ctx_camera3d_look_at(ctx, v3(0.0, 0.0, 0.0)), CRABBY_OK);
+            let mut pick = CrabbyLodPick::default();
+            assert_eq!(crabby_ctx_lod_pick(ctx, e, &mut pick), CRABBY_OK);
+            pick
+        };
+        assert_eq!((at(1.0).kind, at(1.0).level), (1, 0));
+        assert_eq!((at(5.0).kind, at(5.0).level), (1, 1));
+        assert_eq!(at(100.0).kind, 0);
+        let mut settings = CrabbyLodSettings {
+            bias: 0.0,
+            crossfade: false,
+        };
+        assert_eq!(crabby_ctx_lod_settings(ctx, &mut settings), CRABBY_OK);
+        assert_eq!((settings.bias, settings.crossfade), (1.0, true));
+        settings.bias = -1.0;
+        errors.push(crabby_ctx_set_lod_settings(ctx, settings));
+        // Stale entities and null lists.
+        errors.push(crabby_ctx_set_lod_group(
+            ctx,
+            u64::MAX,
+            1.0,
+            v3(0.0, 0.0, 0.0),
+            null(),
+            0,
+        ));
+        errors.push(crabby_ctx_set_lod_group(ctx, e, 1.0, v3(0.0, 0.0, 0.0), null(), 1));
+        let bad = [CrabbyLodLevel {
+            renderers: null(),
+            renderer_count: 2,
+            ..levels[0]
+        }];
+        errors.push(crabby_ctx_set_lod_group(
+            ctx,
+            e,
+            1.0,
+            v3(0.0, 0.0, 0.0),
+            bad.as_ptr(),
+            1,
+        ));
+    }
+}
+
+#[test]
+fn lod_groups_are_set_and_picked_from_c() {
+    let mut errors: Vec<CrabbyStatus> = Vec::new();
+    unsafe {
+        let g = crabby_game_new(c"lod".as_ptr(), 64, 64);
+        let mut world = null_mut();
+        let user = (&raw mut errors).cast();
+        assert_eq!(crabby_game_run_headless(g, 0, Some(lod), user, &mut world), CRABBY_OK);
+        crabby_world_free(world);
+    }
+    assert_eq!(errors, vec![CRABBY_INVALID_ARGUMENT; 5]);
+}

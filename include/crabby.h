@@ -1244,6 +1244,34 @@ typedef struct CrabbyDecal3D {
   uint32_t layers;
 } CrabbyDecal3D;
 
+typedef struct CrabbyLodRenderer {
+  struct CrabbyMesh mesh;
+  struct CrabbyTransform3D offset;
+  struct CrabbyColor color;
+} CrabbyLodRenderer;
+
+typedef struct CrabbyLodLevel {
+  float screen_height;
+  float fade_width;
+  const struct CrabbyLodRenderer *renderers;
+  size_t renderer_count;
+  bool custom_shadow;
+  const struct CrabbyLodRenderer *shadow_casters;
+  size_t shadow_caster_count;
+} CrabbyLodLevel;
+
+typedef struct CrabbyLodPick {
+  uint32_t kind;
+  uint32_t level;
+  int32_t to;
+  float blend;
+} CrabbyLodPick;
+
+typedef struct CrabbyLodSettings {
+  float bias;
+  bool crossfade;
+} CrabbyLodSettings;
+
 typedef struct CrabbySpriteSheet {
   struct CrabbyTexture texture;
   struct CrabbyVec2 frame_size;
@@ -3305,6 +3333,29 @@ enum CrabbyStatus crabby_ctx_bake_reflection_probe(struct CrabbyCtx *ctx, uint64
 enum CrabbyStatus crabby_ctx_load_reflection_probe(struct CrabbyCtx *ctx,
                                                    uint64_t entity,
                                                    const char *name);
+
+struct CrabbyLodRenderer crabby_lod_renderer(struct CrabbyMesh mesh);
+
+enum CrabbyStatus crabby_ctx_set_lod_group(struct CrabbyCtx *ctx,
+                                           uint64_t entity,
+                                           float size,
+                                           struct CrabbyVec3 center,
+                                           const struct CrabbyLodLevel *levels,
+                                           size_t count);
+
+enum CrabbyStatus crabby_ctx_lod_pick(struct CrabbyCtx *ctx,
+                                      uint64_t entity,
+                                      struct CrabbyLodPick *out_pick);
+
+enum CrabbyStatus crabby_ctx_lod_settings(struct CrabbyCtx *ctx,
+                                          struct CrabbyLodSettings *out_settings);
+
+enum CrabbyStatus crabby_ctx_set_lod_settings(struct CrabbyCtx *ctx,
+                                              struct CrabbyLodSettings settings);
+
+float crabby_lod_screen_height_at(float size, float distance, float fov_y);
+
+float crabby_lod_distance_at(float size, float height, float fov_y);
 
 enum CrabbyStatus crabby_sprite_sheet(struct CrabbyTexture texture,
                                       uint32_t frame_width,

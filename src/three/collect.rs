@@ -4,8 +4,8 @@
 use glam::{Mat4, Vec3, Vec4};
 
 use super::{
-    Assets3D, Camera3D, Lighting, Model, ReceivesDecals, ShadowMesh, Skeleton, SkinFrame, SkinOf, TERRAIN_LODS,
-    TerrainTile, Transform3D, linear,
+    Assets3D, Camera3D, Lighting, LodGroup, LodPick, LodRenderer, LodSettings, LodShadow, Model, ReceivesDecals,
+    ShadowMesh, Skeleton, SkinFrame, SkinOf, TERRAIN_LODS, TerrainTile, Transform3D, linear,
 };
 use crate::World;
 
@@ -24,12 +24,38 @@ pub(crate) const MAX_SHADOW_VIEWS: usize = MAX_CASCADES + super::lights::MAX_LIG
 
 /// One drawn model, as the GPU reads it: the model matrix's columns, and the
 /// tint in linear color.
+///
+/// The model matrix is affine, so its fourth row is always (0, 0, 0, 1):
+/// its first slot holds the decal layers the model takes, and its second
+/// the instance's crossfade (see [`Instance3D::with_fade`]), which costs no
+/// more instance data.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct Instance3D {
     pub model: [[f32; 4]; 4],
     pub color: [f32; 4],
 }
+
+impl Instance3D {
+    /// The same, dithered for a crossfade: `fade` is 0 for none (drawn
+    /// whole), else the share of pixels kept (0 to 1): positive for the
+    /// level fading in, and negative for the one fading out, which keeps the
+    /// pixels the other doesn't (`-(1 - fade)` for a level that is `fade`
+    /// of the way to the other). The shader reads it from the second column's `w`.
+    pub(crate) fn with_fade(mut self, fade: f32) -> Self {
+        self.model[1][3] = fade;
+        self
+    }
+
+    /// The crossfade set by [`with_fade`](Self::with_fade).
+    pub(crate) fn fade(&self) -> f32 {
+        self.model[1][3]
+    }
+}
+
+/// Set in the mesh id of a run whose instances are crossfading (dithered):
+/// their depth and shadow passes run a fragment shader for the dither.
+pub(crate) const FADED: u32 = 1 << 31;
 
 /// An instance before sorting: its mesh, whether the camera sees it, and
 /// which shadow views it casts into (one bit each).
@@ -90,10 +116,14 @@ pub(crate) struct Frame3D {
     /// cameras draw the same). In `runs`, skinned model `k` is mesh id
     /// `assets.bounds.len() + k`.
     pub skins: SkinFrame,
+    /// The global LOD settings to select with (set by the engine each frame).
+    pub lod: LodSettings,
     scratch: Vec<Entry>,
     counts: Vec<u32>,
     /// Per model, which passes see it (see `collect`), kept between frames.
     flags: Vec<u32>,
+    /// Per LOD group: what the camera picked, and which passes see any of it.
+    lod_picks: Vec<(LodPick, u32)>,
 }
 
 /// What one target camera draws this frame.
@@ -348,6 +378,52 @@ impl Frame3D {
                 add_instance([real_meshes + k as u32; 1 + MAX_CASCADES], d.instance, f);
             }
         }
+        // LOD groups: the level (or two, in a crossfade) the camera picks
+        // for each, which the shadow maps draw too. Picking and culling the
+        // renderers is parallel; the few that are seen are added in order.
+        let lod = self.lod;
+        let lod_flags = |t: &Transform3D, r: &LodRenderer, drawn: bool, casts: bool| -> Option<(Mat4, u32)> {
+            let bounds = assets.live_bounds(r.mesh.id)?;
+            let matrix = t.matrix() * r.offset.matrix();
+            let scale = t.scale.abs().max_element() * r.offset.scale.abs().max_element();
+            let shadow = (casts && assets.casts_shadows(r.mesh.id)).then_some(bounds);
+            let seen = classify_at(matrix, scale, bounds, shadow);
+            Some((matrix, if drawn { seen } else { seen & !1 }))
+        };
+        let picks = &mut self.lod_picks;
+        world
+            .query::<(&Transform3D, &LodGroup)>()
+            .par_collect_into(picks, |(t, g)| {
+                let pick = g.pick_for(t, camera, &lod);
+                let mut seen = 0;
+                lod_draws(g, pick, |r, drawn, casts, _| {
+                    seen |= lod_flags(t, r, drawn, casts).map_or(0, |(_, f)| f);
+                });
+                (pick, seen)
+            });
+        let mut at = 0;
+        world
+            .query::<(&Transform3D, &LodGroup, Option<&ReceivesDecals>)>()
+            .for_each(|(t, g, decals)| {
+                let (pick, seen) = picks[at];
+                at += 1;
+                if seen != 0 {
+                    let receives = super::projected::receiver_mask(decals);
+                    lod_draws(g, pick, |r, drawn, casts, fade| {
+                        if let Some((matrix, f)) = lod_flags(t, r, drawn, casts)
+                            && f != 0
+                        {
+                            let mut model = matrix.to_cols_array_2d();
+                            model[0][3] = receives;
+                            let instance = Instance3D {
+                                model,
+                                color: linear(r.color),
+                            };
+                            add_instance([r.mesh.id; 1 + MAX_CASCADES], instance.with_fade(fade), f);
+                        }
+                    });
+                }
+            });
         // Terrain: the detail level for how far the camera is from the
         // tile's bounds (the finest level's, which hold every coarser one).
         // Shadow cascade i draws at least level i: its texels are too big
@@ -395,6 +471,8 @@ pub(crate) fn shadow_views(cascades: usize, light_views: usize) -> impl Iterator
 
 /// Appends the entries of `scratch` that `keep` picks to `instances`, sorted
 /// by mesh (a counting sort), and their runs to `runs`. Returns how many.
+/// Crossfading entries (see [`Instance3D::with_fade`]) come after the whole
+/// ones, in runs of their own with [`FADED`] set in the mesh id.
 fn sort_runs(
     scratch: &[Entry],
     keep: impl Fn(&Entry) -> bool,
@@ -403,29 +481,48 @@ fn sort_runs(
     instances: &mut Vec<Instance3D>,
     runs: &mut Vec<(u32, u32, u32)>,
 ) -> usize {
+    let bucket = |e: &Entry| e.0 as usize + if e.1.fade() != 0.0 { meshes } else { 0 };
     counts.clear();
-    counts.resize(meshes, 0);
+    counts.resize(meshes * 2, 0);
     for e in scratch.iter().filter(|e| keep(e)) {
-        counts[e.0 as usize] += 1;
+        counts[bucket(e)] += 1;
     }
     let base = instances.len() as u32;
     let mut start = base;
-    for (mesh, count) in counts.iter_mut().enumerate() {
+    for (b, count) in counts.iter_mut().enumerate() {
         if *count > 0 {
-            runs.push((mesh as u32, start, *count));
+            let faded = if b >= meshes { FADED } else { 0 };
+            runs.push(((b % meshes) as u32 | faded, start, *count));
         }
         let n = *count;
-        *count = start; // now: where this mesh's next instance goes
+        *count = start; // now: where this bucket's next instance goes
         start += n;
     }
     let added = (start - base) as usize;
     instances.resize(instances.len() + added, Instance3D::default());
     for e in scratch.iter().filter(|e| keep(e)) {
-        let at = &mut counts[e.0 as usize];
+        let at = &mut counts[bucket(e)];
         instances[*at as usize] = e.1;
         *at += 1;
     }
     added
+}
+
+/// Calls `f(renderer, drawn, casts, fade)` for each renderer that `pick`
+/// shows: whether the camera draws it, whether it casts a shadow, and its
+/// dither (see [`Instance3D::with_fade`]).
+fn lod_draws(group: &LodGroup, pick: LodPick, mut f: impl FnMut(&LodRenderer, bool, bool, f32)) {
+    for (level, fade) in group.drawn(pick).into_iter().flatten() {
+        let own_shadow = matches!(level.shadow, LodShadow::Same);
+        for r in &level.renderers {
+            f(r, true, own_shadow, fade);
+        }
+        if let LodShadow::Casters(casters) = &level.shadow {
+            for r in casters {
+                f(r, false, true, fade);
+            }
+        }
+    }
 }
 
 /// Where each of `count` cascades ends, as distances from the camera, up to
@@ -733,5 +830,40 @@ mod tests {
             frame.cascade_texel[0] < frame.cascade_texel[3] / 10.0,
             "near texels are much finer"
         );
+    }
+
+    #[test]
+    fn lod_instances_carry_their_decal_layers_and_fade_in_separate_slots() {
+        use crate::three::projected::ReceivesDecals;
+        use crate::{LodGroup, LodLevel, LodRenderer};
+        let mut world = World::new();
+        let assets = Assets3D {
+            bounds: vec![(Vec3::ZERO, 0.5), (Vec3::ZERO, 0.5)],
+            ..Default::default()
+        };
+        let camera = camera(); // 10 from the origin, 60 degree lens
+        // A group 4 tall covers about 35% of the screen: inside level 0's
+        // fade band (0.3 up to 0.65).
+        let group = LodGroup::new(
+            4.0,
+            vec![
+                LodLevel::new(0.3, vec![LodRenderer::new(Mesh { id: 0 })]).with_fade(0.5),
+                LodLevel::new(0.05, vec![LodRenderer::new(Mesh { id: 1 })]),
+            ],
+        );
+        world.spawn((Transform3D::default(), group, ReceivesDecals(0b101)));
+        let mut frame = Frame3D::default();
+        let lighting = Lighting {
+            shadows: false,
+            ..Default::default()
+        };
+        frame.collect(&mut world, &assets, &SkinFrame::default(), &camera, &lighting);
+        let seen = &frame.instances[..frame.visible];
+        assert_eq!(seen.len(), 2, "both levels draw during the fade");
+        for i in seen {
+            assert_eq!(i.model[0][3], 5.0, "the group's decal layers");
+            assert!(i.fade() != 0.0 && i.fade().abs() < 1.0, "{}", i.fade());
+        }
+        assert!(seen[0].fade() * seen[1].fade() < 0.0, "complementary patterns");
     }
 }
