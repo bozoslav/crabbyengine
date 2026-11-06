@@ -52,7 +52,7 @@ impl QualityLevel {
 
 /// The settings that decide how heavy the 3D picture is, in one place: the
 /// resolution it is drawn at, shadows, ambient occlusion, screen-space
-/// reflections and antialiasing.
+/// reflections, global illumination and antialiasing.
 /// [`low`](Self::low), [`medium`](Self::medium), [`high`](Self::high) and
 /// [`ultra`](Self::ultra) are ready-made sets; apply one with
 /// [`Ctx::set_graphics_quality`] and read the current one back with
@@ -78,6 +78,7 @@ impl QualityLevel {
 /// | `ambient_occlusion` (slices, steps) | off | off | 2, 4 | 4, 8 |
 /// | AO half resolution / temporal | off | off | on | on |
 /// | `ssr` | 0 | 0 | 1 | 1 |
+/// | `gi` | off | off | off | on |
 /// | `anti_aliasing` | none | FXAA | SMAA | SMAA |
 ///
 /// ```no_run
@@ -133,6 +134,10 @@ pub struct GraphicsQuality {
     /// [`Post::ssr`](crate::Post::ssr): screen-space reflections' strength,
     /// 0 (off) to 1.
     pub ssr: f32,
+    /// [`GlobalIllumination::enabled`](crate::GlobalIllumination::enabled)
+    /// at [`Lighting::gi`](crate::Lighting::gi): bounced light (its other
+    /// settings stay as they are).
+    pub gi: bool,
     /// [`Post::anti_aliasing`](crate::Post::anti_aliasing).
     pub anti_aliasing: AntiAliasing,
 }
@@ -159,6 +164,7 @@ impl Default for GraphicsQuality {
             ao_slices: 3,
             ao_steps: 6,
             ssr: 0.0,
+            gi: false,
             anti_aliasing: AntiAliasing::None,
         }
     }
@@ -193,6 +199,7 @@ impl GraphicsQuality {
             ao_slices: 2,
             ao_steps: 4,
             ssr: 0.0,
+            gi: false,
             anti_aliasing: AntiAliasing::None,
         }
     }
@@ -224,6 +231,7 @@ impl GraphicsQuality {
             ao_slices: 2,
             ao_steps: 4,
             ssr: 0.0,
+            gi: false,
             anti_aliasing: AntiAliasing::Fxaa,
         }
     }
@@ -255,6 +263,7 @@ impl GraphicsQuality {
             ao_slices: 2,
             ao_steps: 4,
             ssr: 1.0,
+            gi: false,
             anti_aliasing: AntiAliasing::Smaa,
         }
     }
@@ -263,11 +272,11 @@ impl GraphicsQuality {
     /// redrawn every frame, 24
     /// views of up to 2048² for point and spot lights in an 8192² atlas
     /// (another 256 MB), finer AO (4 slices, 8 steps), screen-space
-    /// reflections, SMAA.
+    /// reflections, global illumination, SMAA.
     /// ```
     /// use crabbyengine::*;
     /// let q = GraphicsQuality::ultra();
-    /// assert_eq!((q.shadow_resolution, q.ao_steps), (4096, 8));
+    /// assert_eq!((q.shadow_resolution, q.ao_steps, q.gi), (4096, 8, true));
     /// ```
     #[must_use]
     pub fn ultra() -> Self {
@@ -288,6 +297,7 @@ impl GraphicsQuality {
             ao_slices: 4,
             ao_steps: 8,
             ssr: 1.0,
+            gi: true,
             anti_aliasing: AntiAliasing::Smaa,
         }
     }
@@ -349,6 +359,7 @@ impl GraphicsQuality {
             ao_slices: self.ao_slices.clamp(1, 8),
             ao_steps: self.ao_steps.clamp(1, 16),
             ssr: float(self.ssr, 0.0, 1.0, d.ssr),
+            gi: self.gi,
             anti_aliasing: self.anti_aliasing,
         }
     }
@@ -385,6 +396,7 @@ impl Ctx {
             ao_slices: self.post.ambient_occlusion.slices,
             ao_steps: self.post.ambient_occlusion.steps,
             ssr: self.post.ssr,
+            gi: self.lighting.gi.enabled,
             anti_aliasing: self.post.anti_aliasing,
         }
         .clamped()
@@ -416,6 +428,7 @@ impl Ctx {
         self.post.ambient_occlusion.slices = q.ao_slices;
         self.post.ambient_occlusion.steps = q.ao_steps;
         self.post.ssr = q.ssr;
+        self.lighting.gi.enabled = q.gi;
         self.lighting.shadows = q.shadows;
         self.lighting.shadow_distance = q.shadow_distance;
         self.lighting.shadow_cascades = q.shadow_cascades;
@@ -455,6 +468,7 @@ mod tests {
             assert!(a.ambient_occlusion <= b.ambient_occlusion);
             assert!(a.ao_slices * a.ao_steps <= b.ao_slices * b.ao_steps);
             assert!(a.ssr <= b.ssr);
+            assert!(a.gi <= b.gi);
             assert!(a.anti_aliasing as u32 <= b.anti_aliasing as u32);
         }
     }
@@ -539,6 +553,7 @@ mod tests {
             (24, 2048, 8192)
         );
         assert_eq!((ultra.ao_slices, ultra.ao_steps, ultra.ssr), (4, 8, 1.0));
+        assert!(ultra.gi && !high.gi);
     }
 
     #[test]
@@ -590,6 +605,7 @@ mod tests {
                 assert_eq!(ctx.post.ao_half_resolution, q.ao_half_resolution);
                 assert_eq!(ctx.post.ao_temporal, q.ao_temporal);
                 assert_eq!(ctx.post.ssr, q.ssr);
+                assert_eq!(ctx.lighting.gi.enabled, q.gi);
             }
         });
     }

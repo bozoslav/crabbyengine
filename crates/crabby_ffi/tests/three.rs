@@ -165,6 +165,53 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
             ..light
         };
         ids.errors.push(crabby_ctx_set_lighting(ctx, &many));
+        // Global illumination: off by default; its settings are checked
+        // only when it's on.
+        assert!(!light.gi_enabled);
+        assert_eq!(
+            (
+                light.gi_extent.y,
+                light.gi_spacing,
+                light.gi_probes_per_frame,
+                light.gi_intensity
+            ),
+            (16.0, 2.0, 4, 1.0)
+        );
+        let bounced = CrabbyLighting {
+            gi_enabled: true,
+            gi_spacing: 1.5,
+            gi_probes_per_frame: 8,
+            ..light
+        };
+        assert_eq!(crabby_ctx_set_lighting(ctx, &bounced), CRABBY_OK);
+        assert_eq!(crabby_ctx_lighting(ctx, &mut back), CRABBY_OK);
+        assert!(back.gi_enabled && back.gi_spacing == 1.5 && back.gi_probes_per_frame == 8);
+        for bad in [
+            CrabbyLighting {
+                gi_spacing: 0.0,
+                ..bounced
+            },
+            CrabbyLighting {
+                gi_probes_per_frame: 17,
+                ..bounced
+            },
+            CrabbyLighting {
+                gi_intensity: f32::NAN,
+                ..bounced
+            },
+            CrabbyLighting {
+                gi_extent: v3(0.0, 1.0, 1.0),
+                ..bounced
+            },
+        ] {
+            assert_eq!(crabby_ctx_set_lighting(ctx, &bad), CRABBY_INVALID_ARGUMENT);
+            let off = CrabbyLighting {
+                gi_enabled: false,
+                ..bad
+            };
+            assert_eq!(crabby_ctx_set_lighting(ctx, &off), CRABBY_OK);
+        }
+        assert_eq!(crabby_ctx_set_lighting(ctx, &light), CRABBY_OK);
 
         let mut sky = std::mem::zeroed::<CrabbySky>();
         assert_eq!(crabby_ctx_sky(ctx, &mut sky), CRABBY_OK);
@@ -371,6 +418,10 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
                 && back.ao_steps == 8
                 && back.ssr == 1.0
         );
+        assert!(q.gi, "ultra has global illumination");
+        let mut lit = std::mem::zeroed::<CrabbyLighting>();
+        assert_eq!(crabby_ctx_lighting(ctx, &mut lit), CRABBY_OK);
+        assert!(lit.gi_enabled);
         // A tweak makes it custom.
         q.shadow_cascades = 2;
         assert_eq!(crabby_ctx_set_graphics_quality(ctx, &q), CRABBY_OK);

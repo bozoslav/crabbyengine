@@ -44,6 +44,7 @@ struct Frame {
     unjittered_view_proj: mat4x4<f32>,
     previous_view_proj: mat4x4<f32>,
     jitter: vec4<f32>,     // xy: this frame's jitter in pixels (0 without TAA)
+    gi: array<vec4<f32>, 3>, // global illumination's probe grid (see gi.wgsl)
 };
 
 struct MaterialData {
@@ -470,6 +471,9 @@ fn probe_direction(p: ReflectionVolume, world: vec3<f32>, ray: vec3<f32>) -> vec
 // what the reflected ray hit on screen, and how much it counts. Zero
 // elsewhere, and where the ray found nothing.
 var<private> screen_reflection: vec4<f32> = vec4<f32>(0.0);
+// Global illumination's bounced light at this pixel (see gi.wgsl): rgb, and
+// how much it replaces the ambient light in a. Zero without it.
+var<private> bounced_light: vec4<f32> = vec4<f32>(0.0);
 
 fn environment_light(s: Surface, f0: vec3<f32>) -> vec3<f32> {
     let ray = reflect(-s.view, s.normal);
@@ -499,6 +503,14 @@ fn environment_light(s: Surface, f0: vec3<f32>) -> vec3<f32> {
     }
     diffuse += environment_sample(0.0, s.normal, 0.0, true) * remaining;
     specular += environment_sample(0.0, ray, s.roughness, false) * remaining;
+    // Bounced light replaces the ambient light where the probes cover this
+    // point. Where it's darker (indoors), reflections of the sky darken too.
+    if bounced_light.a > 0.0 {
+        let luma = vec3<f32>(0.2126, 0.7152, 0.0722);
+        let dimmer = clamp(dot(bounced_light.rgb, luma) / max(dot(diffuse, luma), 1e-4), 0.0, 1.0);
+        specular *= mix(1.0, dimmer, bounced_light.a);
+        diffuse = mix(diffuse, bounced_light.rgb, bounced_light.a);
+    }
     // What's on screen replaces the environment where the reflected ray hit
     // it, with filtered reflections on glossy surfaces.
     specular = mix(specular, screen_reflection.rgb, screen_reflection.a * (1.0 - smoothstep(0.4, 0.7, s.roughness)));

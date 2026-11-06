@@ -135,6 +135,9 @@ pub(crate) struct Frame3D {
     pub lod: LodSettings,
     /// Which models moved since last frame (when temporal antialiasing is on).
     pub motion: super::motion::Motion,
+    /// Global illumination's probes and what they draw, when it's on (only
+    /// the main frame has this).
+    pub gi: Option<Box<super::gi::GiFrame>>,
     scratch: Vec<Entry>,
     counts: Vec<u32>,
     /// Per model, which passes see it (see `collect`), kept between frames.
@@ -587,6 +590,7 @@ impl Frame3D {
             let runs = &mut self.shadow_runs[i];
             sort_runs(&self.scratch, |e| e.3 & (1 << i) != 0, meshes, counts, instances, runs);
         }
+        self.collect_gi(world, assets, skins, camera, lighting);
     }
 }
 

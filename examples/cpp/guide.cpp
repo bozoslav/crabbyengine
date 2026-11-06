@@ -1105,6 +1105,19 @@ static void screen_reflections(crabby::ctx& ctx) {
 }
 // ANCHOR_END: ssr
 
+// ANCHOR: gi
+/// Sunlight bounces off walls and floors onto other surfaces.
+static void bounced_light(crabby::ctx& ctx) {
+    auto light = ctx.lighting();
+    light.gi_enabled = true;
+    light.gi_extent = {48, 16, 48};  // the probe grid around the camera
+    light.gi_spacing = 2.0f;         // a probe every 2 world units
+    light.gi_probes_per_frame = 4;   // how many look around each frame
+    light.gi_intensity = 1.0f;
+    ctx.set_lighting(light);
+}
+// ANCHOR_END: gi
+
 // ANCHOR: quality
 /// An options menu: pick a preset, then change single settings on top of it.
 static void options_menu(crabby::ctx& ctx) {
@@ -1399,6 +1412,8 @@ static void the_village_has_five_spinning_houses() {
         temporal_antialiasing(ctx);
         screen_reflections(ctx);
         if (ctx.post().ssr != 1.0f) { std::fprintf(stderr, "ssr\n"); std::abort(); }
+        bounced_light(ctx);
+        if (!ctx.lighting().gi_enabled) { std::fprintf(stderr, "gi\n"); std::abort(); }
         trilight(ctx);
         if (!ctx.lighting().has_equator) { std::fprintf(stderr, "trilight\n"); std::abort(); }
         misty_morning(ctx);

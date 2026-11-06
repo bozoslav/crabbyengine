@@ -1180,6 +1180,29 @@ fn screen_space_reflections_are_off_until_turned_on() {
 }
 
 #[test]
+fn global_illumination_is_off_until_turned_on() {
+    Game::new("gi settings", 64, 64).run_headless(0, |ctx| {
+        assert!(!ctx.lighting.gi.enabled);
+        // ANCHOR: gi
+        // Sunlight bounces off walls and floors onto other surfaces.
+        ctx.lighting.gi = GlobalIllumination {
+            enabled: true,
+            extent: vec3(48.0, 16.0, 48.0), // the probe grid around the camera
+            spacing: 2.0,                   // a probe every 2 world units
+            probes_per_frame: 4,            // how many look around each frame
+            intensity: 1.0,
+        };
+        // ANCHOR_END: gi
+        assert_eq!(ctx.lighting.gi.probe_counts(), [25, 9, 25]);
+        ctx.set_graphics_quality(GraphicsQuality::high());
+        assert!(!ctx.lighting.gi.enabled, "high turns it off");
+        ctx.set_graphics_quality(GraphicsQuality::ultra());
+        assert!(ctx.lighting.gi.enabled, "ultra turns it on");
+        assert_eq!(ctx.lighting.gi.extent, vec3(48.0, 16.0, 48.0), "and keeps the rest");
+    });
+}
+
+#[test]
 fn quality_presets_switch_at_run_time() {
     Game::new("quality", 64, 64).run_headless(0, |ctx| {
         // ANCHOR: quality

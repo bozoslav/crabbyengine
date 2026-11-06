@@ -4,12 +4,12 @@
 use std::ffi::c_char;
 
 use crabbyengine::{
-    AmbientOcclusion, AntiAliasing, Blend, Camera3D, Color, Compute, ComputePass, Decal3D, Effect, GpuBuffer,
-    GraphicsQuality, Lighting, LodGroup, LodLevel, LodPick, LodRenderer, LodSettings, LodShadow,
-    MAX_LIGHT_SHADOW_VIEWS, MAX_RENDER_SCALE, MIN_RENDER_SCALE, Material, MaterialDesc, Mesh, MeshData, Model,
-    PointLight3D, Post, QualityLevel, Quat, ReceivesDecals, ReflectionProbe3D, ScreenEffect, Shader, Sky, SpotLight3D,
-    TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera, TerrainMaterialDesc, TerrainTile, TextureArray, TextureKind, Tonemap,
-    Transform3D, Vec2, Vec3, Vec4,
+    AmbientOcclusion, AntiAliasing, Blend, Camera3D, Color, Compute, ComputePass, Decal3D, Effect, GlobalIllumination,
+    GpuBuffer, GraphicsQuality, Lighting, LodGroup, LodLevel, LodPick, LodRenderer, LodSettings, LodShadow,
+    MAX_GI_PROBES_PER_FRAME, MAX_LIGHT_SHADOW_VIEWS, MAX_RENDER_SCALE, MIN_RENDER_SCALE, Material, MaterialDesc, Mesh,
+    MeshData, Model, PointLight3D, Post, QualityLevel, Quat, ReceivesDecals, ReflectionProbe3D, ScreenEffect, Shader,
+    Sky, SpotLight3D, TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera, TerrainMaterialDesc, TerrainTile, TextureArray,
+    TextureKind, Tonemap, Transform3D, Vec2, Vec3, Vec4,
 };
 
 use crate::ctx::{ctx_access, out, text};
@@ -477,6 +477,18 @@ pub struct CrabbyLighting {
     pub has_equator: bool,
     /// Light from the horizon, on surfaces facing sideways (with `has_equator`).
     pub equator_color: CrabbyColor,
+    /// Light bounced off surfaces (global illumination) from a grid of
+    /// probes around the camera. Off by default. Needs compute shaders and
+    /// 18 texture slots; elsewhere it's skipped.
+    pub gi_enabled: bool,
+    /// The probe grid's size, in world units. Default 32 x 16 x 32.
+    pub gi_extent: CrabbyVec3,
+    /// How far apart the probes are. Default 2.
+    pub gi_spacing: f32,
+    /// How many probes are updated each frame, 1 to 16. Default 4.
+    pub gi_probes_per_frame: u32,
+    /// How bright the bounced light is (1: physically based). Default 1.
+    pub gi_intensity: f32,
 }
 
 /// The sky behind the 3D world and the fog in front of it (Rust
@@ -2208,6 +2220,11 @@ pub unsafe extern "C" fn crabby_ctx_lighting(ctx: *mut CrabbyCtx, out_lighting: 
                     shadow_refresh: l.shadow_refresh,
                     has_equator: l.equator_color.is_some(),
                     equator_color: to_c(l.equator_color.unwrap_or(l.sky_color)),
+                    gi_enabled: l.gi.enabled,
+                    gi_extent: to_c(l.gi.extent),
+                    gi_spacing: l.gi.spacing,
+                    gi_probes_per_frame: l.gi.probes_per_frame,
+                    gi_intensity: l.gi.intensity,
                 },
             )
         })
@@ -2217,6 +2234,8 @@ pub unsafe extern "C" fn crabby_ctx_lighting(ctx: *mut CrabbyCtx, out_lighting: 
 /// Changes the sun and sky light. Intensities and the shadow distance
 /// can't be negative; `shadow_cascades` is 1 to 4, `shadow_refresh` 1 to 8; the shadow resolutions
 /// and `light_shadow_views` must be in their ranges (see `CrabbyLighting`).
+/// With `gi_enabled`, `gi_extent` and `gi_spacing` must be above zero,
+/// `gi_probes_per_frame` 1 to 16 and `gi_intensity` not negative.
 /// # Safety
 /// `ctx` null or live; `lighting` valid.
 /// ```
@@ -2250,6 +2269,20 @@ pub unsafe extern "C" fn crabby_ctx_set_lighting(ctx: *mut CrabbyCtx, lighting: 
             if !light_atlas_ok(l.light_shadow_atlas) {
                 return Err(invalid("light_shadow_atlas must be a power of two from 1024 to 8192"));
             }
+            let extent: Vec3 = to_c(l.gi_extent);
+            if l.gi_enabled
+                && !(extent.is_finite()
+                    && extent.min_element() > 0.0
+                    && l.gi_spacing.is_finite()
+                    && l.gi_spacing > 0.0
+                    && (1..=MAX_GI_PROBES_PER_FRAME).contains(&l.gi_probes_per_frame)
+                    && l.gi_intensity.is_finite()
+                    && l.gi_intensity >= 0.0)
+            {
+                return Err(invalid(
+                    "gi_extent and gi_spacing must be above zero, gi_probes_per_frame 1 to 16 and gi_intensity not negative",
+                ));
+            }
             let color = |c: CrabbyColor| -> Color { to_c(c) };
             c.lighting = Lighting {
                 sun_direction: to_c(l.sun_direction),
@@ -2267,6 +2300,13 @@ pub unsafe extern "C" fn crabby_ctx_set_lighting(ctx: *mut CrabbyCtx, lighting: 
                 light_shadow_atlas: l.light_shadow_atlas,
                 shadow_refresh: l.shadow_refresh,
                 equator_color: l.has_equator.then(|| color(l.equator_color)),
+                gi: GlobalIllumination {
+                    enabled: l.gi_enabled,
+                    extent,
+                    spacing: l.gi_spacing,
+                    probes_per_frame: l.gi_probes_per_frame,
+                    intensity: l.gi_intensity,
+                },
             };
             Ok(())
         })
@@ -2569,6 +2609,8 @@ pub struct CrabbyGraphicsQuality {
     pub shadow_refresh: u32,
     /// Screen-space reflections' strength, 0 (off) to 1.
     pub ssr: f32,
+    /// Global illumination (bounced light) on or off.
+    pub gi: bool,
 }
 
 fn quality_to_c(q: GraphicsQuality) -> CrabbyGraphicsQuality {
@@ -2590,6 +2632,7 @@ fn quality_to_c(q: GraphicsQuality) -> CrabbyGraphicsQuality {
         anti_aliasing: q.anti_aliasing as u32,
         shadow_refresh: q.shadow_refresh,
         ssr: q.ssr,
+        gi: q.gi,
     }
 }
 
@@ -2652,6 +2695,7 @@ fn quality_from_c(q: &CrabbyGraphicsQuality) -> Result<GraphicsQuality, crate::F
         ao_slices: q.ao_slices,
         ao_steps: q.ao_steps,
         ssr: q.ssr,
+        gi: q.gi,
         anti_aliasing,
         shadow_refresh: q.shadow_refresh,
     })
