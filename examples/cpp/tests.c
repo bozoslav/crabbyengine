@@ -94,6 +94,8 @@ static void setup(CrabbyCtx* ctx, void* user) {
     CHECK(crabby_ctx_set_post(ctx, &post) == CRABBY_INVALID_ARGUMENT);
     post.ssr_max_distance = 20;
     CHECK(crabby_ctx_set_post(ctx, &post) == CRABBY_OK);
+    post.ao_enabled = true; post.ao_temporal = true;
+    CHECK(crabby_ctx_set_post(ctx, &post) == CRABBY_OK);
     CHECK(crabby_ctx_reset_temporal_history(ctx) == CRABBY_OK);
     CHECK(crabby_ctx_post(ctx, &back) == CRABBY_OK && back.anti_aliasing == 3 && back.taa_sharpness == 0.5f && back.contact_shadows == 0.3f && back.ssr == 0.5f && back.ssr_max_distance == 20);
     uint64_t e;

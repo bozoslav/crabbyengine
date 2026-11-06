@@ -17,6 +17,8 @@ struct Rig {
     frame: Frame3D,
     cube: Mesh,
     size: u32,
+    timer: Option<super::timer::GpuTimer>,
+    disable_motion: bool,
 }
 
 impl Rig {
@@ -26,7 +28,10 @@ impl Rig {
             eprintln!("no GPU adapter: skipped");
             return None;
         };
-        let mut descriptor = wgpu::DeviceDescriptor::default();
+        let mut descriptor = wgpu::DeviceDescriptor {
+            required_features: adapter.features() & wgpu::Features::TIMESTAMP_QUERY,
+            ..Default::default()
+        };
         if downlevel {
             descriptor.required_limits.max_compute_workgroups_per_dimension = 0;
             descriptor.required_limits.max_storage_textures_per_shader_stage = 0;
@@ -151,6 +156,8 @@ impl Rig {
             frame: Frame3D::default(),
             cube,
             size,
+            timer: None,
+            disable_motion: false,
         })
     }
 
@@ -171,7 +178,8 @@ impl Rig {
     fn draw(&mut self) -> Vec<f32> {
         let size = self.size;
         let ctx = &mut self.ctx;
-        self.frame.motion.enabled = ctx.post.anti_aliasing == AntiAliasing::Taa;
+        self.frame.motion.enabled =
+            ctx.post.anti_aliasing == AntiAliasing::Taa || (ctx.post.ao_temporal && ctx.post.ambient_occlusion.enabled);
         self.frame.collect(
             &mut ctx.world,
             &ctx.assets3d,
@@ -179,6 +187,9 @@ impl Rig {
             &ctx.camera3d,
             &ctx.lighting,
         );
+        if self.disable_motion {
+            self.frame.motion.runs.clear();
+        }
         let scene = Scene3D {
             frame: &self.frame,
             lighting: &ctx.lighting,
@@ -204,10 +215,24 @@ impl Rig {
         );
         self.frame.motion.reset = false;
         let target = self.output.create_view(&Default::default());
-        let buffers = self
-            .renderer
-            .draw(&self.device, &target, wgpu::Color::BLACK, &self.textures, None);
+        if let Some(timer) = &mut self.timer {
+            timer.collect(&self.device);
+            timer.begin_frame();
+        }
+        let buffers = self.renderer.draw(
+            &self.device,
+            &target,
+            wgpu::Color::BLACK,
+            &self.textures,
+            self.timer.as_ref(),
+        );
         self.queue.submit(buffers);
+        if let Some(timer) = &mut self.timer {
+            let mut encoder = self.device.create_command_encoder(&Default::default());
+            timer.resolve(&mut encoder);
+            self.queue.submit([encoder.finish()]);
+            timer.submitted();
+        }
         let bytes = self.read(&self.output, 4);
         bytes
             .as_chunks::<4>()
@@ -332,11 +357,10 @@ fn a_still_diagonal_edge_converges_smoother_than_without_it() {
 /// Reads the motion vector at pixel (x, y): xy over alpha.
 fn motion_at(rig: &Rig, x: u32, y: u32) -> Option<(f32, f32)> {
     let texture = rig.renderer.velocity_texture()?;
-    let bytes = rig.read(texture, 8);
-    let at = ((y * rig.size + x) * 8) as usize;
+    let bytes = rig.read(texture, 4);
+    let at = ((y * rig.size + x) * 4) as usize;
     let half = |i: usize| half::f16::from_le_bytes([bytes[at + i * 2], bytes[at + i * 2 + 1]]).to_f32();
-    let alpha = half(3);
-    (alpha > 0.5).then(|| (half(0) / alpha, half(1) / alpha))
+    (half(0) != 0.0 || half(1) != 0.0).then(|| (half(0), half(1)))
 }
 
 #[test]
@@ -378,44 +402,52 @@ fn a_moved_model_writes_its_motion_and_a_still_one_does_not() {
 
 #[test]
 fn a_moving_box_leaves_no_ghost_behind() {
-    let Some(mut rig) = Rig::new(SIZE, false) else {
-        return;
-    };
-    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
-    rig.ctx
-        .world
-        .spawn((Transform3D::at(vec3(-2.0, 0.0, 0.0)), Model::new(rig.cube)));
-    // A still start, so the history holds the box, then a fast drift to the right.
-    for _ in 0..8 {
-        rig.draw();
-    }
-    let mut last = Vec::new();
-    for _ in 0..12 {
+    fn trail(disabled: bool) -> Option<f32> {
+        let mut rig = Rig::new(SIZE, false)?;
+        rig.disable_motion = disabled;
+        rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
         rig.ctx
             .world
-            .query::<&mut Transform3D>()
-            .for_each(|t| t.position.x += 0.3);
-        last = rig.draw();
-    }
-    let n = SIZE as usize;
-    // Where the box is now, in pixels; its trail is to the left of it.
-    let view_proj = rig.ctx.camera3d.view_proj();
-    let x_of = |x: f32| (view_proj.project_point3(vec3(x, 0.0, 0.0)).x * 0.5 + 0.5) * SIZE as f32;
-    let box_now = -2.0 + 12.0 * 0.3;
-    let tail = x_of(box_now - 0.5);
-    let (y0, y1) = (n / 2 - 3, n / 2 + 3);
-    let mut ghost = 0.0f32;
-    let mut inside = 0.0f32;
-    for y in y0..y1 {
-        for x in (tail as usize).saturating_sub(14)..(tail as usize).saturating_sub(2) {
-            ghost = ghost.max(last[y * n + x]);
+            .spawn((Transform3D::at(vec3(-2.0, 0.0, 0.0)), Model::new(rig.cube)));
+        // A still start, so the history holds the box, then a fast drift to the right.
+        for _ in 0..8 {
+            rig.draw();
         }
-        inside = inside.max(last[y * n + x_of(box_now) as usize]);
+        let mut last = Vec::new();
+        for _ in 0..12 {
+            rig.ctx
+                .world
+                .query::<&mut Transform3D>()
+                .for_each(|t| t.position.x += 0.3);
+            last = rig.draw();
+        }
+        let n = SIZE as usize;
+        // Where the box is now, in pixels; its trail is to the left of it.
+        let view_proj = rig.ctx.camera3d.view_proj();
+        let x_of = |x: f32| (view_proj.project_point3(vec3(x, 0.0, 0.0)).x * 0.5 + 0.5) * SIZE as f32;
+        let box_now = -2.0 + 12.0 * 0.3;
+        let tail = x_of(box_now - 0.5);
+        let (y0, y1) = (n / 2 - 3, n / 2 + 3);
+        let mut ghost = 0.0f32;
+        let mut inside = 0.0f32;
+        for y in y0..y1 {
+            for x in (tail as usize).saturating_sub(14)..(tail as usize).saturating_sub(2) {
+                ghost = ghost.max(last[y * n + x]);
+            }
+            inside = inside.max(last[y * n + x_of(box_now) as usize]);
+        }
+        eprintln!("vectors disabled={disabled}: ghost {ghost:.4}, box {inside:.4}");
+        assert!(inside > 0.9, "the box is drawn: {inside}");
+        Some(ghost)
     }
-    eprintln!("ghost {ghost:.4}, box {inside:.4}");
-
-    assert!(inside > 0.9, "the box is drawn: {inside}");
-    assert!(ghost < 0.03, "no trail behind it: {ghost}");
+    let (Some(camera_only), Some(with_vectors)) = (trail(true), trail(false)) else {
+        return;
+    };
+    assert!(with_vectors < 0.03, "background behind moving box: {with_vectors}");
+    assert!(
+        camera_only > 0.1,
+        "negative control must expose old ghosting: {camera_only}"
+    );
 }
 
 #[test]
@@ -459,4 +491,119 @@ fn downlevel_devices_fall_back_to_fxaa() {
     let taa = rig.draw();
     assert!(!rig.renderer.taa_active(), "no TAA without compute");
     assert_eq!(fxaa, taa, "TAA draws as FXAA there");
+}
+
+#[test]
+fn temporal_ao_tracks_objects_without_taa_and_reset_discards_history() {
+    let Some(mut rig) = Rig::new(SIZE * 2, false) else {
+        return;
+    };
+    rig.ctx.post.ambient_occlusion.enabled = true;
+    rig.ctx.post.ao_temporal = true;
+    rig.ctx.world.spawn((Transform3D::default(), Model::new(rig.cube)));
+    rig.draw();
+    rig.ctx
+        .world
+        .query::<&mut Transform3D>()
+        .for_each(|t| t.position.x += 0.15);
+    rig.draw();
+    assert!(!rig.renderer.taa_active());
+    assert!(motion_at(&rig, rig.size / 2, rig.size / 2).unwrap().0 < -0.01);
+    // Negative control: camera-only reprojection has no object correction.
+    rig.disable_motion = true;
+    rig.ctx
+        .world
+        .query::<&mut Transform3D>()
+        .for_each(|t| t.position.x += 0.15);
+    rig.draw();
+    assert!(motion_at(&rig, rig.size / 2, rig.size / 2).is_none());
+    rig.frame.motion.reset = true;
+    let reset = rig.draw();
+    rig.ctx.post.ao_temporal = false;
+    assert_eq!(reset, rig.draw());
+}
+
+#[test]
+#[ignore = "offscreen GPU timestamp benchmark; run in release with --ignored --nocapture"]
+fn motion_vectors_gpu_cost() {
+    let Some(mut rig) = Rig::new(1024, false) else {
+        return;
+    };
+    rig.timer = super::timer::GpuTimer::new(&rig.device, &rig.queue);
+    assert!(rig.timer.is_some(), "GPU timestamps required for measurement");
+    for y in -10..10 {
+        for x in -10..10 {
+            rig.ctx.world.spawn((
+                Transform3D {
+                    position: vec3(x as f32 * 0.2, y as f32 * 0.2, 0.0),
+                    scale: Vec3::splat(0.15),
+                    ..Default::default()
+                },
+                Model::new(rig.cube),
+            ));
+        }
+    }
+    for (label, taa, ao, moving) in [
+        ("TAA static", true, false, false),
+        ("TAA moving", true, false, true),
+        ("AO moving", false, true, true),
+    ] {
+        rig.ctx.post.anti_aliasing = if taa { AntiAliasing::Taa } else { AntiAliasing::None };
+        rig.ctx.post.ambient_occlusion.enabled = ao;
+        rig.ctx.post.ao_temporal = ao;
+        let mut sums = [0.0f32; 3];
+        for frame in 0..48 {
+            if moving {
+                rig.ctx
+                    .world
+                    .query::<&mut Transform3D>()
+                    .for_each(|t| t.position.x += if frame % 2 == 0 { 0.01 } else { -0.01 });
+            }
+            rig.draw();
+            let timer = rig.timer.as_mut().unwrap();
+            timer.collect(&rig.device);
+            if frame >= 16 {
+                for pass in &timer.last_frame {
+                    sums[0] += pass.ms;
+                    if pass.name == "motion vectors" {
+                        sums[1] += pass.ms;
+                    }
+                    if pass.name == "depth prepass" {
+                        sums[2] += pass.ms;
+                    }
+                }
+            }
+        }
+        eprintln!(
+            "{label}, 1024x1024, 400 boxes: total {:.4} ms, vectors {:.4} ms, depth {:.4} ms",
+            sums[0] / 32.0,
+            sums[1] / 32.0,
+            sums[2] / 32.0
+        );
+    }
+}
+
+#[test]
+fn rotation_animation_writes_motion_away_from_the_pivot() {
+    let Some(mut rig) = Rig::new(256, false) else {
+        return;
+    };
+    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    rig.ctx.world.spawn((Transform3D::default(), Model::new(rig.cube)));
+    rig.draw();
+    let rotation = Quat::from_rotation_z(0.5);
+    rig.ctx
+        .world
+        .query::<&mut Transform3D>()
+        .for_each(|t| t.rotation = rotation);
+    rig.draw();
+    let local = vec3(0.3, 0.0, 0.5);
+    let vp = rig.ctx.camera3d.view_proj();
+    let a = vp.project_point3(local);
+    let b = vp.project_point3(rotation * local);
+    let x = ((b.x * 0.5 + 0.5) * rig.size as f32) as u32;
+    let y = ((0.5 - b.y * 0.5) * rig.size as f32) as u32;
+    let motion = motion_at(&rig, x, y).expect("rotating face has motion");
+    assert!((motion.0 - (a.x - b.x) * 0.5).abs() < 0.002);
+    assert!((motion.1 - (b.y - a.y) * 0.5).abs() < 0.002);
 }

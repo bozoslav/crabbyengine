@@ -337,9 +337,9 @@ struct VelocityIn {
 struct VelocityOut {
     // The same position as `vs_main`, so depth matches exactly.
     @builtin(position) @invariant clip: vec4<f32>,
-    // Now and before, without the jitter.
-    @location(0) now: vec4<f32>,
-    @location(1) before: vec4<f32>,
+    // Previous camera, with previous and current object transforms.
+    @location(0) before: vec4<f32>,
+    @location(1) rigid: vec4<f32>,
 };
 
 @vertex
@@ -364,19 +364,19 @@ fn vs_velocity(in: VelocityIn) -> VelocityOut {
     let before = world_vertex(b);
     var out: VelocityOut;
     out.clip = frame.view_proj * vec4<f32>(now.position, 1.0);
-    out.now = frame.unjittered_view_proj * vec4<f32>(now.position, 1.0);
+    out.rigid = frame.previous_view_proj * vec4<f32>(now.position, 1.0);
     out.before = frame.previous_view_proj * vec4<f32>(before.position, 1.0);
     return out;
 }
 
-// Where the pixel was last frame, minus where it is, in texture coordinates;
-// alpha 1 marks the pixel as covered by a moved model.
+// Object-only correction to backward history lookup in texture coordinates,
+// minus the camera-only motion; static pixels keep the clear value zero.
 @fragment
-fn fs_velocity(in: VelocityOut) -> @location(0) vec4<f32> {
-    if in.before.w <= 1e-5 {
-        return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+fn fs_velocity(in: VelocityOut) -> @location(0) vec2<f32> {
+    if in.before.w <= 1e-5 || in.rigid.w <= 1e-5 {
+        return vec2<f32>(0.0);
     }
-    let a = in.now.xy / in.now.w;
+    let a = in.rigid.xy / in.rigid.w;
     let b = in.before.xy / in.before.w;
-    return vec4<f32>((b.x - a.x) * 0.5, (a.y - b.y) * 0.5, 0.0, 1.0);
+    return vec2<f32>((b.x - a.x) * 0.5, (a.y - b.y) * 0.5);
 }

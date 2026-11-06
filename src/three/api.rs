@@ -809,12 +809,12 @@ impl Ctx {
         self.frame3d.instances.len()
     }
 
-    /// Makes [`AntiAliasing::Taa`](super::AntiAliasing::Taa) forget the
+    /// Makes TAA and temporal ambient occlusion forget the
     /// frames before this one: call it when the camera cuts to somewhere
     /// else (a teleport, a new scene), so the old view does not blend into
     /// the new one. The engine resets by itself on a window resize, when
     /// temporal antialiasing is turned on, and when the camera jumps far or
-    /// turns sharply in one frame. Harmless with the other modes.
+    /// turns sharply in one frame. Call this after teleporting objects too.
     ///
     /// ```
     /// # use crabbyengine::*;
@@ -1131,7 +1131,8 @@ impl Ctx {
         };
         self.frame3d.size_limit = renderer.max_texture_size();
         self.frame3d.lod = self.lod;
-        self.frame3d.motion.enabled = self.post.anti_aliasing == super::AntiAliasing::Taa;
+        self.frame3d.motion.enabled = self.post.anti_aliasing == super::AntiAliasing::Taa
+            || (self.post.ao_temporal && self.post.ambient_occlusion.enabled);
         if !self.camera3d.occlusion_culling {
             self.frame3d.occlusion = None;
         } else if let Some(grid) = renderer.take_occlusion() {

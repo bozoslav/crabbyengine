@@ -19,7 +19,7 @@
 //! With temporal antialiasing, the camera also jitters by a sub-pixel amount
 //! each frame, the lit frame goes into its own image, models that moved
 //! since the last frame are drawn again for their motion vectors (after the
-//! opaque pass), and the post pass starts by resolving the frame with the
+//! depth prepass, shared with temporal AO), and the post pass starts by resolving the frame with the
 //! history into the HDR target (see `taa.rs`).
 //!
 //! Sprites and UI are drawn on top afterwards, without tone mapping.
@@ -417,6 +417,7 @@ struct Targets {
     opaque_scene: Option<wgpu::BindGroup>,
     /// With temporal antialiasing: the lit frame's image, history and motion.
     taa: Option<super::taa::TaaTargets>,
+    velocity: Option<super::taa::VelocityTargets>,
     ldr: Option<wgpu::TextureView>,
     aa_group: Option<wgpu::BindGroup>,
     /// With a render scale other than 1: the tone mapped (and antialiased)
@@ -615,6 +616,7 @@ pub(crate) struct Renderer3D {
     taa_supported: bool,
     /// Whether this frame is resolved by it.
     taa_on: bool,
+    velocity_on: bool,
     /// Frames drawn with it in a row (the jitter's position).
     taa_frame: u32,
     /// Which history image the next frame reads, and the one this frame does.
@@ -1393,6 +1395,7 @@ impl Renderer3D {
             taa: None,
             taa_supported: can_compute(device),
             taa_on: false,
+            velocity_on: false,
             taa_frame: 0,
             taa_read: 0,
             taa_frame_read: 0,
@@ -1999,7 +2002,7 @@ impl Renderer3D {
         } else {
             unjittered
         };
-        let previous_view_proj = self.taa_previous.filter(|_| self.taa_on).unwrap_or(unjittered);
+        let previous_view_proj = self.taa_previous.unwrap_or(unjittered);
         self.moved_runs.clear();
         self.particles.prepare(device, queue, &frame.particles, view_proj);
         let ao_on = post.ambient_occlusion.enabled
@@ -2026,7 +2029,14 @@ impl Renderer3D {
         if self.ssr_on && self.ssr.is_none() {
             self.ssr = Some(super::ssr::Ssr::new(device));
         }
+        self.velocity_on = self.taa_on || (self.ao_enabled && post.ao_temporal && ao_on);
         if let Some(ao) = &mut self.ao {
+            if frame.motion.reset
+                || self.targets.as_ref().is_none_or(|t| t.size != size)
+                || self.taa_previous.is_some_and(|before| camera_cut(before, unjittered))
+            {
+                ao.reset();
+            }
             let sun = (-lighting.sun_direction).try_normalize().unwrap_or(Vec3::Y);
             ao.prepare(
                 queue,
@@ -2170,7 +2180,7 @@ impl Renderer3D {
             }
             at += view.frame.instances.len();
         }
-        if self.taa_on && !frame.motion.runs.is_empty() {
+        if self.velocity_on && !frame.motion.runs.is_empty() {
             let moved = &frame.motion.instances;
             if moved.len() > self.moved_capacity {
                 self.moved_capacity = moved.len().next_power_of_two();
@@ -2393,6 +2403,7 @@ impl Renderer3D {
                 || t.ao.as_ref().is_some_and(|a| a.temporal != (post.ao_temporal && ao_on))
                 || t.ssr.is_some() != self.ssr_on
                 || t.taa.is_some() != self.taa_on
+                || t.velocity.is_some() != self.velocity_on
                 || t.ldr.is_some() != (self.aa == crate::AntiAliasing::Fxaa)
                 || t.upscale.is_some() != upscaled
         }) {
@@ -2515,11 +2526,14 @@ impl Renderer3D {
             });
             let upscale_group = upscale.as_ref().map(|u| group(u, &self.black));
             let n = bloom_mips.len();
+            let velocity = self
+                .velocity_on
+                .then(|| taa::VelocityTargets::new(device, size, self.samples));
             let taa = self
                 .taa
                 .as_ref()
                 .filter(|_| self.taa_on)
-                .map(|t| t.targets(device, size, self.samples, &depth));
+                .map(|t| t.targets(device, size, velocity.as_ref().unwrap().velocity(), &depth));
             let lit = match &taa {
                 Some(t) => &t.input_view,
                 None => &hdr,
@@ -2530,11 +2544,16 @@ impl Renderer3D {
                 .filter(|_| self.ssr_on)
                 .map(|s| s.targets(device, size, &depth, lit, self.ao_enabled));
             // With reflections, GTAO writes the first level of their image.
-            let ao = self
-                .ao
-                .as_ref()
-                .filter(|_| self.ao_enabled)
-                .map(|ao| ao.targets(device, size, &depth, &self.black, ssr.as_ref().map(|s| &s.ao)));
+            let ao = self.ao.as_ref().filter(|_| self.ao_enabled).map(|ao| {
+                ao.targets(
+                    device,
+                    size,
+                    &depth,
+                    &self.black,
+                    ssr.as_ref().map(|s| &s.ao),
+                    velocity.as_ref().map(|v| v.velocity()).unwrap_or(&self.black),
+                )
+            });
             // The opaque pass reads both from its scene color slot (see `ssr.rs`).
             let screen = ssr.as_ref().map(|s| &s.screen).or(ao.as_ref().map(|a| &a.output));
             let opaque_scene =
@@ -2544,6 +2563,7 @@ impl Renderer3D {
                 ssr,
                 opaque_scene,
                 taa,
+                velocity,
                 ldr,
                 aa_group,
                 upscale,
@@ -2568,7 +2588,7 @@ impl Renderer3D {
         }
         // Temporal antialiasing: this frame's resolve, and what the next reads.
         if !self.taa_on {
-            self.taa_previous = None;
+            self.taa_previous = self.velocity_on.then_some(unjittered);
         } else if self.has_draws() {
             let reset =
                 frame.motion.reset || rebuilt || self.taa_previous.is_none_or(|before| camera_cut(before, unjittered));
@@ -2800,10 +2820,10 @@ impl Renderer3D {
             + self.effects.len()
             + usize::from(self.ao_enabled) * 2
             + usize::from(self.ssr_on) * 2
-            + if self.taa_on {
-                // The resolve, and the motion pass (one draw per moved part).
-                1 + self
-                    .moved_runs
+            + usize::from(self.taa_on)
+            + if self.velocity_on {
+                // The motion pass (one draw per moved part).
+                self.moved_runs
                     .iter()
                     .map(|&(mesh, _, _)| self.meshes[self.base(mesh) as usize].parts.len())
                     .sum::<usize>()
@@ -2894,7 +2914,7 @@ impl Renderer3D {
     /// that need it, and for the passes that read the complete depth
     /// before the opaque pass (GTAO, screen-space reflections).
     fn full_prepass(&self) -> bool {
-        self.solid_prepass || self.ao_enabled || self.ssr_on
+        self.solid_prepass || self.ao_enabled || self.ssr_on || self.velocity_on
     }
 
     /// Draws the frame's passes (see the module docs) and leaves the tone
@@ -3151,6 +3171,35 @@ impl Renderer3D {
                 if self.solid_prepass {
                     self.record_occlusion(encoder, frame);
                 }
+                if self.velocity_on
+                    && let Some(taa) = &targets.velocity
+                {
+                    // Motion of the models that moved, over the final depth
+                    // (read-only); everything else moves with the camera.
+                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("3d motion vectors"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &taa.velocity_color,
+                            depth_slice: None,
+                            resolve_target: Some(taa.velocity()),
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                                store: wgpu::StoreOp::Discard,
+                            },
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: &targets.depth,
+                            depth_ops: None,
+                            stencil_ops: None,
+                        }),
+                        timestamp_writes: time("motion vectors"),
+                        occlusion_query_set: None,
+                        multiview_mask: None,
+                    });
+                    pass.set_bind_group(0, &self.frame_bind_group, &[]);
+                    pass.set_bind_group(2, &self.no_scene, &[]);
+                    self.draw_models(&mut pass, &self.moved_runs, Kind::Velocity, &self.moved);
+                }
                 if self.ao_enabled {
                     self.ao
                         .as_ref()
@@ -3212,35 +3261,6 @@ impl Renderer3D {
                         self.draw_models(&mut pass, &self.runs, Kind::Transparent, &self.instances);
                         self.particles.draw(&mut pass, textures, self.white);
                     }
-                }
-                if self.taa_on
-                    && let Some(taa) = &targets.taa
-                {
-                    // Motion of the models that moved, over the final depth
-                    // (read-only); everything else moves with the camera.
-                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("3d motion vectors"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &taa.velocity_color,
-                            depth_slice: None,
-                            resolve_target: Some(taa.velocity()),
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                                store: wgpu::StoreOp::Discard,
-                            },
-                        })],
-                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                            view: &targets.depth,
-                            depth_ops: None,
-                            stencil_ops: None,
-                        }),
-                        timestamp_writes: time("motion vectors"),
-                        occlusion_query_set: None,
-                        multiview_mask: None,
-                    });
-                    pass.set_bind_group(0, &self.frame_bind_group, &[]);
-                    pass.set_bind_group(2, &self.no_scene, &[]);
-                    self.draw_models(&mut pass, &self.moved_runs, Kind::Velocity, &self.moved);
                 }
                 if let (Some(ssr), Some(images)) = (&self.ssr, &targets.ssr) {
                     ssr.keep(encoder, images);
@@ -3525,7 +3545,7 @@ impl Renderer3D {
     /// The motion vector image of the last frame (for tests).
     #[cfg(test)]
     pub(crate) fn velocity_texture(&self) -> Option<&wgpu::Texture> {
-        self.targets.as_ref()?.taa.as_ref().map(|t| &t.velocity_texture)
+        self.targets.as_ref()?.velocity.as_ref().map(|t| &t.velocity_texture)
     }
 
     /// Whether this frame is resolved by temporal antialiasing (for tests).

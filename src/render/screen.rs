@@ -60,6 +60,7 @@ impl Ao {
             label: Some("GTAO"),
             entries: &[
                 texture(0, wgpu::TextureSampleType::Depth, true),
+                texture(4, wgpu::TextureSampleType::Float { filterable: false }, false),
                 texture(3, wgpu::TextureSampleType::Float { filterable: false }, false),
                 texture(1, wgpu::TextureSampleType::Float { filterable: false }, false),
                 wgpu::BindGroupLayoutEntry {
@@ -141,6 +142,10 @@ impl Ao {
     }
     /// `ao`: `None` for contact shadows alone. `sun`: toward the sun, and
     /// the contact shadows' length (0: none).
+    pub fn reset(&mut self) {
+        self.previous = None;
+        self.signature = None;
+    }
     pub fn prepare(
         &mut self,
         queue: &wgpu::Queue,
@@ -198,6 +203,7 @@ impl Ao {
         depth: &wgpu::TextureView,
         dummy_color: &wgpu::TextureView,
         reflections: Option<&wgpu::TextureView>,
+        velocity: &wgpu::TextureView,
     ) -> AoTargets {
         let target = |half: bool, format| {
             device
@@ -233,6 +239,10 @@ impl Ao {
                 label: Some("GTAO"),
                 layout: &self.layout,
                 entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: wgpu::BindingResource::TextureView(velocity),
+                    },
                     wgpu::BindGroupEntry {
                         binding: 3,
                         resource: wgpu::BindingResource::TextureView(history),

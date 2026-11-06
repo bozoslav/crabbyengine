@@ -14,6 +14,7 @@ struct Settings {
 @group(0) @binding(1) var image: texture_2d<f32>;
 @group(0) @binding(2) var<uniform> settings: Settings;
 @group(0) @binding(3) var history: texture_2d<f32>;
+@group(0) @binding(4) var velocity: texture_2d<f32>;
 struct Full { @builtin(position) at: vec4<f32> };
 @vertex fn vs_full(@builtin(vertex_index) i: u32) -> Full {
     var out: Full;
@@ -27,11 +28,20 @@ fn safe_normalize(v: vec3<f32>, fallback: vec3<f32>) -> vec3<f32> {
     return select(fallback, v / max(length(v), 0.00001), dot(v, v) > 0.00000001);
 }
 fn z_at(p: vec2<i32>) -> f32 { return textureLoad(depth, coordinate(p), 0); }
-fn position(p: vec2<i32>) -> vec3<f32> {
+// Only velocity dilation needs all MSAA samples; keep horizon tracing cheap.
+fn motion_depth(p: vec2<i32>) -> f32 {
+    var z = 1.0;
+    for (var sample = 0; sample < i32(textureNumSamples(depth)); sample++) {
+        z = min(z, textureLoad(depth, coordinate(p), sample));
+    }
+    return z;
+}
+fn position_at_depth(p: vec2<i32>, z: f32) -> vec3<f32> {
     let uv = (vec2<f32>(coordinate(p)) + 0.5) / vec2<f32>(textureDimensions(depth));
-    let h = settings.inverse * vec4<f32>(uv * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0), z_at(p), 1.0);
+    let h = settings.inverse * vec4<f32>(uv * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0), z, 1.0);
     return h.xyz / h.w;
 }
+fn position(p: vec2<i32>) -> vec3<f32> { return position_at_depth(p, z_at(p)); }
 // Steps of the march toward the sun for contact shadows.
 const CONTACT_STEPS: i32 = 12;
 
@@ -153,13 +163,28 @@ fn resolve_ao(in: Full) -> Resolved {
     var value = sum / max(total, 0.00001);
     // Half-resolution tracing never softens the contact-shadow channel.
     if scale == 2 && settings.sun.w > 0.0 { value.y = contact_shadow(p, center); }
-    let clip = settings.previous * vec4<f32>(center, 1.0);
-    let uv = clip.xy / clip.w * vec2<f32>(0.5, -0.5) + 0.5;
-    if settings.temporal.x > 0.0 && clip.w > 0.0 && all(uv >= vec2<f32>(0.0)) && all(uv < vec2<f32>(1.0)) {
-        let old = textureLoad(history, vec2<i32>(uv * vec2<f32>(textureDimensions(history))), 0);
-        // Store previous projected depth; reject newly exposed surfaces and sky.
-        if old.w > 0.0 && abs(old.z - clip.z) < max(0.001, abs(clip.z) * 0.002) {
-            value.x = mix(value.x, clamp(old.x, value.x - 0.15, value.x + 0.15), settings.temporal.x);
+    if settings.temporal.x > 0.0 {
+        let clip = settings.previous * vec4<f32>(center, 1.0);
+        var nearest = p;
+        var nearest_z = motion_depth(p);
+        for (var y = -1; y <= 1; y++) {
+            for (var x = -1; x <= 1; x++) {
+                let q = coordinate(p + vec2<i32>(x,y));
+                let z = motion_depth(q);
+                if z < nearest_z { nearest_z = z; nearest = q; }
+            }
+        }
+        let near_clip = settings.previous * vec4<f32>(position_at_depth(nearest, nearest_z), 1.0);
+        let near_uv = near_clip.xy / near_clip.w * vec2<f32>(0.5, -0.5) + 0.5;
+        let size = vec2<f32>(textureDimensions(depth));
+        let camera_motion = near_uv - (vec2<f32>(nearest) + 0.5) / size;
+        let uv = (vec2<f32>(p) + 0.5) / size + camera_motion + textureLoad(velocity, nearest, 0).xy;
+        if near_clip.w > 0.0 && clip.w > 0.0 && all(uv >= vec2<f32>(0.0)) && all(uv < vec2<f32>(1.0)) {
+            let old = textureLoad(history, vec2<i32>(uv * vec2<f32>(textureDimensions(history))), 0);
+            // Store previous projected depth; reject newly exposed surfaces and sky.
+            if old.w > 0.0 && abs(old.z - clip.z) < max(0.001, abs(clip.z) * 0.002) {
+                value.x = mix(value.x, clamp(old.x, value.x - 0.15, value.x + 0.15), settings.temporal.x);
+            }
         }
     }
     let depth_value = (settings.projection * vec4<f32>(center, 1.0)).z;
