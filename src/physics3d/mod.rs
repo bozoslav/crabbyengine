@@ -25,9 +25,11 @@ mod joints;
 pub use joints::{Joint3D, JointAxis3D, JointDrive3D, JointMotion3D};
 mod query;
 mod ragdoll;
+mod streaming;
 mod vehicle;
 pub use ragdoll::{Ragdoll3D, RagdollBone};
 pub(crate) use ragdoll::{blend_back, pose_ragdolls};
+pub use streaming::{ColliderFocus, CollisionMeshData, TerrainCollider};
 
 pub use character::Character3D;
 pub use query::{Hit3D, QueryFilter3D};
@@ -152,9 +154,9 @@ impl RigidBody3D {
 }
 
 /// A convex hull, triangle mesh or heightfield, built once with
-/// [`Physics3D::convex_hull`], [`Physics3D::trimesh`] or
-/// [`Physics3D::heightfield`] and shared by any number of
-/// [`Collider3D::mesh`] colliders. A handle: copying it doesn't copy the
+/// [`Physics3D::convex_hull`], [`Physics3D::trimesh`],
+/// [`Physics3D::heightfield`] or [`Physics3D::add_mesh`] and shared by any
+/// number of [`Collider3D::mesh`] colliders and [`TerrainCollider`]s. A handle: copying it doesn't copy the
 /// data. Handles are only meaningful in the game that made them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct CollisionMesh {
@@ -425,6 +427,13 @@ impl Pose {
 struct Link {
     entity: Entity,
     body: rp::RigidBodyHandle,
+    /// Its (one) collider.
+    collider: rp::ColliderHandle,
+    /// Whether the collider is in the physics world (only static ones are
+    /// ever left out, by collider streaming).
+    active: bool,
+    /// Where a static collider lies on the ground, for collider streaming.
+    rect: streaming::Rect,
     kind: LinkKind,
     velocity: Velocity3D,
     /// The transform as last written or seen: anything else is your change.
@@ -439,6 +448,8 @@ struct Link {
 enum LinkKind {
     Body(RigidBody3D, Collider3D),
     Character(character::Capsule),
+    /// A terrain collider, and the scale of its transform.
+    Terrain(TerrainCollider, Vec3),
 }
 
 impl LinkKind {
@@ -446,6 +457,7 @@ impl LinkKind {
         match self {
             LinkKind::Body(rigid, _) => rigid.kind != BodyKind::Fixed,
             LinkKind::Character(_) => true,
+            LinkKind::Terrain(..) => false,
         }
     }
 }
@@ -501,6 +513,13 @@ pub struct Physics3D {
     /// Rebuilt when a link comes or goes (`moving_dirty`).
     moving: Vec<u32>,
     moving_dirty: bool,
+    /// The indices in `links` of fixed bodies and terrain, rebuilt with `moving`.
+    statics: Vec<u32>,
+    /// Collider streaming: at most this many static colliders come in per step.
+    streaming: Option<usize>,
+    /// Whether streaming may have left colliders out.
+    streamed_out: bool,
+    stream_scratch: streaming::Scratch,
     /// Whether some dynamic body has a non-zero dominance group, rebuilt
     /// with `moving`. Without one, no contact can need a dominance
     /// velocity transfer, so the pass over every contact pair is skipped.
@@ -562,6 +581,10 @@ impl Physics3D {
             links: Vec::new(),
             moving: Vec::new(),
             moving_dirty: false,
+            statics: Vec::new(),
+            streaming: None,
+            streamed_out: false,
+            stream_scratch: streaming::Scratch::default(),
             dominance: false,
             gravity,
             step: 0,
@@ -687,17 +710,7 @@ impl Physics3D {
     /// assert!(physics.convex_hull(&corners[..3]).is_none(), "flat");
     /// ```
     pub fn convex_hull(&mut self, points: &[Vec3]) -> Option<CollisionMesh> {
-        if points.len() < 4 || !points.iter().all(|p| p.is_finite()) {
-            return None;
-        }
-        let points: Vec<rp::Vector> = points.iter().map(|&p| to_rp(p)).collect();
-        let shape = rp::SharedShape::convex_hull(&points)?;
-        // A hull of points on one plane has no volume.
-        let mass = shape.mass_properties(1.0).mass();
-        if !(mass > 0.0 && mass.is_finite()) {
-            return None;
-        }
-        Some(self.add_mesh(shape, Vec3::ZERO))
+        Some(self.add_mesh(&CollisionMeshData::convex_hull(points)?))
     }
 
     /// A triangle mesh (buildings, rocks, any static level geometry), for
@@ -718,24 +731,16 @@ impl Physics3D {
     /// `None` if there are no triangles, an index is out of range or a
     /// vertex isn't finite.
     pub fn trimesh(&mut self, vertices: &[Vec3], indices: &[[u32; 3]]) -> Option<CollisionMesh> {
-        if indices.is_empty()
-            || !vertices.iter().all(|p| p.is_finite())
-            || indices.iter().flatten().any(|&i| i as usize >= vertices.len())
-        {
-            return None;
-        }
-        let vertices: Vec<rp::Vector> = vertices.iter().map(|&p| to_rp(p)).collect();
-        let shape =
-            rp::SharedShape::trimesh_with_flags(vertices, indices.to_vec(), rp::TriMeshFlags::FIX_INTERNAL_EDGES)
-                .ok()?;
-        Some(self.add_mesh(shape, Vec3::ZERO))
+        Some(self.add_mesh(&CollisionMeshData::trimesh(vertices, indices)?))
     }
 
     /// Ground for a terrain tile, from the same heights and size as
     /// [`Ctx::create_terrain_tile`](crate::Ctx::create_terrain_tile) (n × n
     /// heights, row by row along +Z, each row along +X; NaN for a hole), so
     /// the collider matches the drawn ground triangle for triangle. Give it
-    /// to a fixed body at the tile's [`Transform3D`]: the tile's corner.
+    /// to a [`TerrainCollider`] on the tile's entity (or a fixed body at the
+    /// tile's [`Transform3D`]: its corner). [`CollisionMeshData::heightfield`]
+    /// builds it on another thread.
     ///
     /// ```
     /// use crabbyengine::*;
@@ -750,42 +755,11 @@ impl Physics3D {
     /// If `heights` isn't a square grid of at least 2 × 2 or `size` isn't above 0.
     #[track_caller]
     pub fn heightfield(&mut self, heights: &[f32], size: f32) -> CollisionMesh {
-        let n = (heights.len() as f64).sqrt() as usize;
-        assert!(
-            n >= 2 && n * n == heights.len(),
-            "Physics3D::heightfield: {} heights isn't a square grid of at least 2 x 2",
-            heights.len()
-        );
-        assert!(
-            size > 0.0 && size.is_finite(),
-            "Physics3D::heightfield: size must be above 0 (got {size})"
-        );
-        // rapier's rows run along Z and its storage is by column: element
-        // (z, x) sits at z + x * n, where ours is at z * n + x.
-        let mut data = vec![0.0; n * n];
-        for z in 0..n {
-            for x in 0..n {
-                let h = heights[z * n + x];
-                data[z + x * n] = if h.is_finite() { h } else { 0.0 };
-            }
-        }
-        let grid = rapier3d::parry::utils::Array2::new(n, n, data);
-        let mut field = rapier3d::parry::shape::HeightField::with_flags(
-            grid,
-            rp::Vector::new(size, 1.0, size),
-            rapier3d::parry::shape::HeightFieldFlags::FIX_INTERNAL_EDGES,
-        );
-        // Cells with a hole in any corner aren't drawn, so they aren't solid.
-        for z in 0..n - 1 {
-            for x in 0..n - 1 {
-                let corners = [(x, z), (x + 1, z), (x, z + 1), (x + 1, z + 1)];
-                if corners.iter().any(|&(x, z)| !heights[z * n + x].is_finite()) {
-                    field.set_cell_status(z, x, rapier3d::parry::shape::HeightFieldCellStatus::CELL_REMOVED);
-                }
-            }
-        }
-        let half = size * 0.5;
-        self.add_mesh(rp::SharedShape::new(field), Vec3::new(half, 0.0, half))
+        self.add_mesh(&CollisionMeshData::heightfield_named(
+            heights,
+            size,
+            "Physics3D::heightfield",
+        ))
     }
 
     /// Lets go of a mesh made here. Colliders already using it keep it
@@ -811,7 +785,7 @@ impl Physics3D {
             .filter(|s| s.generation == mesh.generation && s.shape.is_some())
     }
 
-    fn add_mesh(&mut self, shape: rp::SharedShape, offset: Vec3) -> CollisionMesh {
+    fn add_shape(&mut self, shape: rp::SharedShape, offset: Vec3) -> CollisionMesh {
         if let Some(index) = self.free_meshes.pop() {
             let slot = &mut self.meshes[index as usize];
             slot.shape = Some(shape);
@@ -834,6 +808,22 @@ impl Physics3D {
 
     /// A rapier collider for `c` (a speck touching nothing for a freed mesh).
     fn collider_of(&self, c: &Collider3D, e: Entity) -> rp::Collider {
+        self.scaled_collider_of(c, e, Vec3::ONE)
+    }
+
+    /// A rapier collider for a terrain collider, scaled with its tile.
+    fn terrain_collider_of(&self, t: &TerrainCollider, scale: Vec3, e: Entity) -> rp::Collider {
+        let c = Collider3D {
+            friction: t.friction,
+            restitution: t.restitution,
+            groups: t.groups,
+            ..Collider3D::mesh(t.mesh)
+        };
+        self.scaled_collider_of(&c, e, scale)
+    }
+
+    /// [`collider_of`](Self::collider_of) with its mesh scaled by `scale`.
+    fn scaled_collider_of(&self, c: &Collider3D, e: Entity, scale: Vec3) -> rp::Collider {
         let tiny = f32::EPSILON;
         let (shape, offset) = match c.shape {
             Shape3D::Sphere { radius } => (rp::SharedShape::ball(radius.max(tiny)), Vec3::ZERO),
@@ -846,7 +836,11 @@ impl Physics3D {
                 Vec3::ZERO,
             ),
             Shape3D::Mesh(m) => match self.mesh(m) {
-                Some(slot) => (slot.shape.clone().expect("live slot"), slot.offset),
+                Some(slot) if scale == Vec3::ONE => (slot.shape.clone().expect("live slot"), slot.offset),
+                Some(slot) => (
+                    streaming::scaled(slot.shape.as_ref().expect("live slot"), scale),
+                    slot.offset * scale.abs(),
+                ),
                 // A freed mesh: a speck that touches nothing.
                 None => (rp::SharedShape::ball(tiny), Vec3::ZERO),
             },
@@ -878,9 +872,12 @@ impl Physics3D {
         if self.moving_dirty {
             self.moving_dirty = false;
             self.moving.clear();
+            self.statics.clear();
             let links = &self.links;
             self.moving
                 .extend((0..links.len() as u32).filter(|&i| links[i as usize].is_some_and(|l| l.kind.moves())));
+            self.statics
+                .extend((0..links.len() as u32).filter(|&i| links[i as usize].is_some_and(|l| !l.kind.moves())));
             self.dominance = links.iter().flatten().any(|l| {
                 matches!(l.kind, LinkKind::Body(rigid, _) if rigid.kind == BodyKind::Dynamic && rigid.dominance != 0)
             });
@@ -894,15 +891,18 @@ impl Physics3D {
         self.dominance
     }
 
+    /// Puts `e` in the physics world. With collider streaming on, a static
+    /// collider starts out (the streaming pass brings it in when it's near).
     fn insert_link(&mut self, e: Entity, t: &Transform3D, kind: LinkKind, velocity: Velocity3D) {
         self.moving_dirty = true;
-        let body = match kind {
+        let active = kind.moves() || self.streaming.is_none();
+        let (body, collider) = match kind {
             LinkKind::Body(rigid, shape) => {
                 let body = self.world.insert_body(body_of(t, rigid, velocity));
                 let mut collider = self.collider_of(&shape, e);
                 set_mass(&mut collider, rigid);
-                self.world.insert_collider(collider, Some(body));
-                body
+                collider.set_enabled(active);
+                (body, self.world.insert_collider(collider, Some(body)))
             }
             LinkKind::Character(capsule) => {
                 let body = self.world.insert_body(
@@ -910,9 +910,24 @@ impl Physics3D {
                         .pose(pose_to_rp(t.position, Quat::IDENTITY))
                         .build(),
                 );
-                self.world.insert_collider(capsule.collider(e), Some(body));
-                body
+                (body, self.world.insert_collider(capsule.collider(e), Some(body)))
             }
+            LinkKind::Terrain(terrain, scale) => {
+                let body = self
+                    .world
+                    .insert_body(body_of(t, RigidBody3D::fixed(), Velocity3D::default()));
+                let mut collider = self.terrain_collider_of(&terrain, scale, e);
+                collider.set_enabled(active);
+                (body, self.world.insert_collider(collider, Some(body)))
+            }
+        };
+        if !active {
+            self.streamed_out = true;
+        }
+        let rect = if kind.moves() {
+            [0.0; 4]
+        } else {
+            self.rect_of(collider, t)
         };
         let i = e.index() as usize;
         if self.links.len() <= i {
@@ -922,6 +937,9 @@ impl Physics3D {
         self.links[i] = Some(Link {
             entity: e,
             body,
+            collider,
+            active,
+            rect,
             kind,
             velocity,
             written: *t,
@@ -992,6 +1010,7 @@ pub(crate) fn start(ctx: &mut Ctx, gravity: Vec3) {
     ctx.world.reflect::<Velocity3D>();
     ctx.world.reflect::<Character3D>();
     ctx.world.reflect::<Vehicle3D>();
+    ctx.world.reflect::<ColliderFocus>();
 }
 
 /// Steps the 3D physics world one simulation tick: picks up new, changed
@@ -1004,6 +1023,7 @@ pub fn step_physics3d(ctx: &mut Ctx) {
     let physics = &mut ctx.physics3d;
     physics.step += 1;
     sync_into(physics, &mut ctx.world);
+    streaming::stream(physics, &mut ctx.world);
     joints::sync(physics, &mut ctx.world);
     contacts::sync(physics, &mut ctx.world);
     physics.world.gravity = to_rp(physics.gravity);
@@ -1087,7 +1107,7 @@ pub fn interpolate_physics3d(ctx: &mut Ctx) {
 fn written_matches(link: &Link, t: &Transform3D) -> bool {
     match link.kind {
         LinkKind::Character(_) => link.written.position == t.position,
-        LinkKind::Body(..) => link.written == *t,
+        LinkKind::Body(..) | LinkKind::Terrain(..) => link.written == *t,
     }
 }
 
@@ -1105,6 +1125,14 @@ fn sync_into(physics: &mut Physics3D, world: &mut World) {
         .query::<(Entity, &Transform3D, &Character3D)>()
         .for_each(|(e, t, c)| {
             let kind = LinkKind::Character(character::Capsule::of(c));
+            sync_one(physics, e, t, kind, None, step);
+        });
+    world
+        .query::<(Entity, &Transform3D, &TerrainCollider)>()
+        .without::<RigidBody3D>()
+        .without::<Character3D>()
+        .for_each(|(e, t, terrain)| {
+            let kind = LinkKind::Terrain(*terrain, t.scale);
             sync_one(physics, e, t, kind, None, step);
         });
     // Despawned entities and ones that lost a physics component, in index
@@ -1142,19 +1170,25 @@ fn sync_one(
     };
     link.seen = step;
     if link.kind != kind {
-        // Rare (a door that becomes dynamic, a resized collider): rebuild.
-        let current = link.velocity;
+        // Rare (a door that becomes dynamic, a resized collider, edited
+        // terrain): rebuild. A static collider that was in stays in, so
+        // nothing standing on it falls through.
+        let (current, was_active) = (link.velocity, link.active);
         physics.world.remove_body(link.body);
         physics.insert_link(e, t, kind, velocity.unwrap_or(current));
+        if was_active && physics.links[i].is_some_and(|l| !l.active) {
+            physics.set_active(i, true);
+        }
         return;
     }
     // `bodies.get_mut` marks a body as changed (rapier then redoes its
     // broad phase and wakes it), so only touch bodies you changed.
+    let mut moved_static = None;
     if !written_matches(link, t)
         && let Some(body) = physics.world.bodies.get_mut(link.body)
     {
         let rotation = match kind {
-            LinkKind::Body(..) => t.rotation,
+            LinkKind::Body(..) | LinkKind::Terrain(..) => t.rotation,
             LinkKind::Character(_) => Quat::IDENTITY,
         };
         body.set_position(pose_to_rp(t.position, rotation), true);
@@ -1162,6 +1196,9 @@ fn sync_one(
         // A teleport isn't blended.
         link.curr = Pose::of(t);
         link.prev = link.curr;
+        if !kind.moves() {
+            moved_static = Some(link.collider);
+        }
     }
     if let Some(v) = velocity
         && link.velocity != v
@@ -1170,6 +1207,13 @@ fn sync_one(
         body.set_linvel(to_rp(v.linear), true);
         body.set_angvel(to_rp(v.angular), true);
         link.velocity = v;
+    }
+    if let Some(collider) = moved_static {
+        // Moved ground: where it lies, for collider streaming.
+        let rect = physics.rect_of(collider, t);
+        if let Some(link) = physics.links[i].as_mut() {
+            link.rect = rect;
+        }
     }
 }
 
