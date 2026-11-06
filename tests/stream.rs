@@ -186,8 +186,31 @@ mod cells {
             let a = ctx.load_mesh("models/house.glb");
             ctx.free_mesh(a);
             let b = ctx.load_mesh("models/house.glb");
-            assert_ne!(a, b);
             assert!(ctx.is_mesh_live(b));
+        });
+    }
+
+    #[test]
+    fn freed_mesh_ids_are_reused() {
+        Game::new("t", 1, 1).run_headless(0, |ctx| {
+            let material = ctx.default_material();
+            let cube = MeshData::cube(1.0);
+            let first: Vec<Mesh> = (0..4).map(|_| ctx.create_mesh(&cube, material)).collect();
+            ctx.set_mesh_shadows(first[1], false);
+            ctx.free_mesh(first[1]);
+            ctx.free_mesh(first[3]);
+            // Streaming tiles in and out keeps the mesh tables the same size.
+            let again = [ctx.create_mesh(&cube, material), ctx.create_mesh(&cube, material)];
+            assert!(
+                again == [first[3], first[1]] || again == [first[1], first[3]],
+                "{again:?}"
+            );
+            assert!(again.iter().all(|&m| ctx.is_mesh_live(m)));
+            // The new mesh doesn't inherit the old one's settings.
+            assert!(ctx.mesh_shadows(first[1]));
+            // Past the freed ones, ids are new.
+            let new = ctx.create_mesh(&cube, material);
+            assert!(!first.contains(&new));
         });
     }
 }

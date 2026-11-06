@@ -605,22 +605,35 @@ impl Ctx {
         skin: Option<MeshSkin>,
         morph_defaults: Vec<f32>,
     ) -> Mesh {
-        let id = self.assets3d.bounds.len() as u32;
-        self.assets3d.bounds.push(data.bounds());
+        // A freed mesh's id first, so streaming meshes in and out doesn't
+        // grow the tables.
+        let id = match self.assets3d.free_meshes.pop() {
+            Some(id) => {
+                self.assets3d.bounds[id as usize] = data.bounds();
+                id
+            }
+            None => {
+                self.assets3d.bounds.push(data.bounds());
+                self.assets3d.bounds.len() as u32 - 1
+            }
+        };
         let posed = skin.is_some() || !data.morph_targets.is_empty();
         if let Some(skin) = skin {
-            self.assets3d.skins.resize(id as usize + 1, None);
+            if self.assets3d.skins.len() <= id as usize {
+                self.assets3d.skins.resize(id as usize + 1, None);
+            }
             self.assets3d.skins[id as usize] = Some(std::sync::Arc::new(skin));
         }
         if let Some(morph) = MeshMorph::new(data, morph_defaults) {
-            self.assets3d.morphs.resize_with(id as usize + 1, || None);
+            if self.assets3d.morphs.len() <= id as usize {
+                self.assets3d.morphs.resize_with(id as usize + 1, || None);
+            }
             self.assets3d.morphs[id as usize] = Some(std::sync::Arc::new(morph));
         }
         if let Some(renderer) = self.renderer.as_mut()
             && !self.headless
         {
-            let gpu_id = renderer.create_mesh(data, parts, posed);
-            debug_assert_eq!(gpu_id, id);
+            renderer.create_mesh(id, data, parts, posed);
         }
         Mesh { id }
     }
@@ -667,8 +680,10 @@ impl Ctx {
     }
 
     /// Frees `mesh`'s GPU memory, for worlds streamed in and out. Models
-    /// still showing it draw nothing; despawn them too. A mesh loaded from
-    /// a file loads afresh next time. Freeing it again does nothing.
+    /// still showing it draw nothing; despawn them too, and drop the handle:
+    /// the next mesh made takes its id, and old handles would show that one.
+    /// A mesh loaded from a file loads afresh next time. Freeing it again
+    /// does nothing (until a new mesh takes its id).
     ///
     /// ```
     /// # use crabbyengine::*;
@@ -687,6 +702,10 @@ impl Ctx {
             return;
         }
         *bounds = (Vec3::ZERO, -1.0);
+        self.assets3d.free_meshes.push(mesh.id);
+        if let Some(shadowless) = self.assets3d.shadowless.get_mut(mesh.id as usize) {
+            *shadowless = false;
+        }
         if let Some(skin) = self.assets3d.skins.get_mut(mesh.id as usize) {
             *skin = None;
         }

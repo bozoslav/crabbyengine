@@ -715,14 +715,17 @@ impl Renderer {
     }
 
     #[cfg(feature = "3d")]
+    /// Makes 3D mesh `id`: a freed mesh's id, or the next new one.
+    #[cfg(feature = "3d")]
     pub fn create_mesh(
         &mut self,
+        id: u32,
         data: &crate::MeshData,
         parts: &[(std::ops::Range<u32>, crate::Material)],
         skinned: bool,
-    ) -> u32 {
+    ) {
         let device = self.device.clone();
-        self.three().create_mesh(&device, data, parts, skinned)
+        self.three().create_mesh_at(&device, id, data, parts, skinned);
     }
 
     /// Frees 3D mesh `id`'s GPU memory.

@@ -98,10 +98,11 @@ impl Renderer {
     #[cfg(feature = "3d")]
     pub fn create_mesh(
         &mut self,
+        _id: u32,
         _data: &crate::MeshData,
         _parts: &[(std::ops::Range<u32>, crate::Material)],
         _skinned: bool,
-    ) -> u32 {
+    ) {
         match *self {}
     }
     #[cfg(feature = "3d")]
