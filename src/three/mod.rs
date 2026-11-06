@@ -46,9 +46,11 @@ pub(crate) mod strips;
 pub use strips::{Line3D, Trail3D};
 pub(crate) mod text3d;
 pub use text3d::{Text3D, TextAlign3D};
+mod far_terrain;
 mod sky;
 mod target;
 mod terrain;
+pub use far_terrain::FarTerrain;
 mod texture_array;
 
 pub use animator::{

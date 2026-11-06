@@ -763,6 +763,56 @@ static void streaming() {
     });
 }
 
+static void streamed_worlds() {
+    // Far ground, cut where a tile is shown.
+    crabby::game("far", 64, 64).run_headless(0, [](crabby::ctx& ctx) {
+        auto ground = ctx.default_material();
+        crabby::far_terrain far(std::vector<float>(129 * 129, 1.0f), 129, {-1024, -1024}, 16, 128, ground);
+        far.update(ctx);
+        CHECK(far.mesh_count() == 4 && !far.is_cut({0, 0}));
+        far.cut({0, 0});
+        far.update(ctx);
+        CHECK(far.is_cut({0, 0}) && far.mesh_count() == 4);
+        far.uncut({0, 0});
+        CHECK(!far.is_cut({0, 0}));
+        far.clear(ctx);
+        CHECK(far.mesh_count() == 0);
+    });
+    throws([] { crabby::far_terrain(std::vector<float>(16, 0.0f), 4, {5, 0}, 10, 10, crabby::material{}); });
+    throws([] { crabby::collision_mesh_data::heightfield(std::vector<float>(8, 0.0f), 4); });
+    throws([] { crabby::collision_mesh_data::convex_hull({{0, 0, 0}, {1, 0, 0}, {0, 1, 0}}); });
+    // A ball on terrain built on another thread; a far wall that comes in
+    // once the focus walks to it.
+    crabby::entity ball = 0, wall = 0, focus = 0, ground = 0;
+    bool wall_at_start = true, wall_later = false;
+    auto w = crabby::game("t", 1, 1)
+        .physics3d({0, -9.81f, 0})
+        .sim_system([&](crabby::ctx& ctx) {
+            if (ctx.sim_tick() == 0) {
+                wall_at_start = ctx.is_collider_active(wall);
+                ctx.world().set(focus, crabby::transform3d_at({290, 0, 0}));
+            } else if (ctx.sim_tick() == 1) {
+                wall_later = ctx.is_collider_active(wall);
+            }
+        })
+        .run_headless(120, [&](crabby::ctx& ctx) {
+            ctx.stream_colliders(8);
+            auto data = std::async(std::launch::async, [] {
+                return crabby::collision_mesh_data::heightfield(std::vector<float>(9, 2.0f), 20);
+            });
+            auto mesh = ctx.add_collision_mesh(data.get());
+            auto world = ctx.world();
+            ground = world.spawn(crabby::transform3d_at({-10, 0, -10}), crabby::solid_terrain(mesh));
+            ball = world.spawn(crabby::transform3d_at({0, 4, 0}), crabby::dynamic_body3d(), crabby::sphere_collider(0.5f));
+            wall = world.spawn(crabby::transform3d_at({300, 0, 0}), crabby::fixed_body3d(), crabby::box_collider({1, 1, 1}));
+            focus = world.spawn(crabby::transform3d_at({0, 0, 0}), crabby::focus_colliders(50, 80));
+        });
+    CHECK(std::fabs(w.get<crabby::transform3d>(ball).position.y - 2.5f) < 0.05f);
+    CHECK(!wall_at_start && wall_later);
+    CHECK(w.get<crabby::terrain_collider>(ground).friction == 0.5f);
+    CHECK(w.get<crabby::collider_focus>(focus).keep_radius == 80);
+}
+
 static void lod_groups() {
     float fov = 60 * 3.14159265f / 180;
     CHECK(std::abs(crabby::lod_screen_height_at(2, 10, fov) - 0.1732f) < 1e-3f);
@@ -1658,6 +1708,7 @@ int main() {
     animators();
     inverse_kinematics();
     streaming();
+    streamed_worlds();
     parallel_queries();
     games();
     attachments();

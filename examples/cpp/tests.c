@@ -336,6 +336,46 @@ static void ribbons_and_decals(void) {
     CHECK(crabby_mesh_data_decal(floor, NULL, 0.002f) == NULL);
     crabby_mesh_data_free(floor);
 }
+static void far_ground(CrabbyCtx* ctx, void* user) {
+    (void)user;
+    CrabbyMaterial ground; CHECK(crabby_ctx_default_material(ctx, &ground) == CRABBY_OK);
+    static float heights[33 * 33];
+    for (int i = 0; i < 33 * 33; ++i) heights[i] = 1.0f;
+    CrabbyVec2 corner = {-256, -256};
+    CrabbyFarTerrain* far = crabby_far_terrain_new(heights, 33 * 33, 33, corner, 16, 64, ground); CHECK(far);
+    CHECK(crabby_far_terrain_update(far, ctx) == CRABBY_OK);
+    CrabbyCell cell = {0, 0}; bool cut = true; size_t meshes = 0;
+    CHECK(crabby_far_terrain_is_cut(far, cell, &cut, &meshes) == CRABBY_OK && !cut && meshes == 1);
+    CHECK(crabby_far_terrain_cut(far, cell, true) == CRABBY_OK);
+    CHECK(crabby_far_terrain_update(far, ctx) == CRABBY_OK);
+    CHECK(crabby_far_terrain_is_cut(far, cell, &cut, NULL) == CRABBY_OK && cut);
+    CHECK(crabby_far_terrain_clear(far, ctx) == CRABBY_OK);
+    crabby_far_terrain_free(far);
+    CrabbyCollisionMeshData* data = crabby_collision_mesh_data_heightfield(heights, 33 * 33, 64); CHECK(data);
+    CrabbyCollisionMesh mesh;
+    CHECK(crabby_ctx_physics3d_add_mesh(ctx, data, &mesh) == CRABBY_OK);
+    crabby_collision_mesh_data_free(data);
+    CrabbyTerrainCollider solid = crabby_terrain_collider(mesh);
+    CHECK(solid.friction == .5f && solid.mesh.id == mesh.id);
+    CrabbyColliderFocus focus = crabby_collider_focus(100, 150);
+    CHECK(focus.radius == 100 && focus.keep_radius == 150);
+    CHECK(crabby_ctx_physics3d_stream_colliders(ctx, true, 4) == CRABBY_OK);
+    bool active = true;
+    CHECK(crabby_ctx_physics3d_is_collider_active(ctx, 0, &active) == CRABBY_OK && !active);
+}
+
+static void streamed_worlds(void) {
+    CrabbyGame* game = crabby_game_new("far", 1, 1); CHECK(game);
+    CHECK(crabby_game_physics3d(game, (CrabbyVec3){0, -9.81f, 0}) == CRABBY_OK);
+    CrabbyWorld* w = NULL;
+    CHECK(crabby_game_run_headless(game, 0, far_ground, NULL, &w) == CRABBY_OK);
+    CHECK(crabby_world_free(w) == CRABBY_OK);
+    float flat[4] = {0, 0, 0, 0};
+    CrabbyMaterial none = {0};
+    CHECK(!crabby_far_terrain_new(flat, 4, 2, (CrabbyVec2){0, 0}, 1, 1.5f, none));
+    CHECK(!crabby_collision_mesh_data_heightfield(flat, 3, 1));
+}
+
 static void lod_helpers(void) {
     float fov = 60 * 3.14159265f / 180;
     float h = crabby_lod_screen_height_at(2, 10, fov);
@@ -575,5 +615,6 @@ int main(void) {
     ui_panels();
     ribbons_and_decals();
     lod_helpers();
+    streamed_worlds();
     return 0;
 }

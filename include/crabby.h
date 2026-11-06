@@ -476,9 +476,13 @@ typedef struct CrabbyCellStreamer CrabbyCellStreamer;
 
 typedef struct CrabbyClip CrabbyClip;
 
+typedef struct CrabbyCollisionMeshData CrabbyCollisionMeshData;
+
 typedef struct CrabbyContactPair3D CrabbyContactPair3D;
 
 typedef struct CrabbyCtx CrabbyCtx;
+
+typedef struct CrabbyFarTerrain CrabbyFarTerrain;
 
 typedef struct CrabbyFlowField CrabbyFlowField;
 
@@ -921,6 +925,18 @@ typedef struct CrabbyHit3D {
   struct CrabbyVec3 normal;
   float distance;
 } CrabbyHit3D;
+
+typedef struct CrabbyTerrainCollider {
+  struct CrabbyCollisionMesh mesh;
+  float friction;
+  float restitution;
+  struct CrabbyCollisionGroups groups;
+} CrabbyTerrainCollider;
+
+typedef struct CrabbyColliderFocus {
+  float radius;
+  float keep_radius;
+} CrabbyColliderFocus;
 
 typedef struct CrabbyRagdollBone {
   const char *joint;
@@ -2683,6 +2699,40 @@ enum CrabbyStatus crabby_ctx_body_center_of_mass3d(struct CrabbyCtx *ctx,
                                                    uint64_t entity,
                                                    struct CrabbyVec3 *out_center);
 
+struct CrabbyTerrainCollider crabby_terrain_collider(struct CrabbyCollisionMesh mesh);
+
+struct CrabbyColliderFocus crabby_collider_focus(float radius, float keep_radius);
+
+enum CrabbyStatus crabby_terrain_collider_component(struct CrabbyWorld *world, uint32_t *out_id);
+
+enum CrabbyStatus crabby_collider_focus_component(struct CrabbyWorld *world, uint32_t *out_id);
+
+struct CrabbyCollisionMeshData *crabby_collision_mesh_data_heightfield(const float *heights,
+                                                                       size_t count,
+                                                                       float size);
+
+struct CrabbyCollisionMeshData *crabby_collision_mesh_data_trimesh(const struct CrabbyVec3 *vertices,
+                                                                   size_t vertex_count,
+                                                                   const uint32_t *indices,
+                                                                   size_t index_count);
+
+struct CrabbyCollisionMeshData *crabby_collision_mesh_data_convex_hull(const struct CrabbyVec3 *points,
+                                                                       size_t count);
+
+void crabby_collision_mesh_data_free(struct CrabbyCollisionMeshData *data);
+
+enum CrabbyStatus crabby_ctx_physics3d_add_mesh(struct CrabbyCtx *ctx,
+                                                const struct CrabbyCollisionMeshData *data,
+                                                struct CrabbyCollisionMesh *out_mesh);
+
+enum CrabbyStatus crabby_ctx_physics3d_stream_colliders(struct CrabbyCtx *ctx,
+                                                        bool enabled,
+                                                        size_t max_new);
+
+enum CrabbyStatus crabby_ctx_physics3d_is_collider_active(struct CrabbyCtx *ctx,
+                                                          uint64_t entity,
+                                                          bool *out_active);
+
 struct CrabbyRagdollBone crabby_ragdoll_bone(const char *joint, float radius);
 
 enum CrabbyStatus crabby_ctx_start_ragdoll(struct CrabbyCtx *ctx,
@@ -3049,6 +3099,29 @@ enum CrabbyStatus crabby_ctx_is_mesh_live(struct CrabbyCtx *ctx,
 
 enum CrabbyStatus crabby_ctx_free_terrain_tile(struct CrabbyCtx *ctx,
                                                struct CrabbyTerrainTile tile);
+
+struct CrabbyFarTerrain *crabby_far_terrain_new(const float *heights,
+                                                size_t count,
+                                                size_t columns,
+                                                struct CrabbyVec2 corner,
+                                                float spacing,
+                                                float cell_size,
+                                                struct CrabbyMaterial material);
+
+void crabby_far_terrain_free(struct CrabbyFarTerrain *far);
+
+enum CrabbyStatus crabby_far_terrain_cut(struct CrabbyFarTerrain *far,
+                                         struct CrabbyCell cell,
+                                         bool cut);
+
+enum CrabbyStatus crabby_far_terrain_is_cut(struct CrabbyFarTerrain *far,
+                                            struct CrabbyCell cell,
+                                            bool *out_cut,
+                                            size_t *out_meshes);
+
+enum CrabbyStatus crabby_far_terrain_update(struct CrabbyFarTerrain *far, struct CrabbyCtx *ctx);
+
+enum CrabbyStatus crabby_far_terrain_clear(struct CrabbyFarTerrain *far, struct CrabbyCtx *ctx);
 
 struct CrabbyTrail3D crabby_trail3d_new(float lifetime, float width);
 

@@ -213,4 +213,44 @@ mod cells {
             assert!(!first.contains(&new));
         });
     }
+
+    #[test]
+    fn far_terrain_rebuilds_the_meshes_around_a_cut_and_frees_what_it_replaces() {
+        Game::new("t", 1, 1).run_headless(0, |ctx| {
+            let ground = ctx.default_material();
+            // 256 squares of 16 m each way: 4 x 4 meshes. Cells of 128 m.
+            let n = 257;
+            let heights = vec![0.0; n * n];
+            let mut far = FarTerrain::new(&heights, n, vec2(-2048.0, -2048.0), 16.0, 128.0, ground);
+            far.update(ctx);
+            assert_eq!(far.mesh_count(), 16);
+            let models = |ctx: &mut Ctx| ctx.world.query::<&Model>().iter().count();
+            assert_eq!(models(ctx), 16, "one entity each");
+            let meshes: Vec<Mesh> = ctx.world.query::<&Model>().iter().map(|m| m.mesh).collect();
+            // Cell (0, 0) starts in the middle: four meshes meet there, and
+            // three of them only get its skirts.
+            far.cut((0, 0));
+            far.update(ctx);
+            let after: Vec<Mesh> = ctx.world.query::<&Model>().iter().map(|m| m.mesh).collect();
+            assert_eq!(after.len(), 16);
+            assert!(after.iter().all(|&m| ctx.is_mesh_live(m)));
+            // Freed ids are reused, so the old and new sets are the same size.
+            assert_eq!(after.len(), meshes.len());
+            // A cell whose mesh has nothing left goes away with its entity.
+            let mut tiny = FarTerrain::new(&[0.0; 3 * 3], 3, Vec2::ZERO, 16.0, 32.0, ground);
+            tiny.update(ctx);
+            assert_eq!(tiny.mesh_count(), 1);
+            tiny.cut((0, 0));
+            tiny.update(ctx);
+            assert_eq!(tiny.mesh_count(), 0);
+            assert_eq!(models(ctx), 16);
+            tiny.uncut((0, 0));
+            tiny.update(ctx);
+            assert_eq!(tiny.mesh_count(), 1);
+            far.clear(ctx);
+            tiny.clear(ctx);
+            assert_eq!(models(ctx), 0);
+            assert!(meshes.iter().chain(&after).all(|&m| !ctx.is_mesh_live(m)));
+        });
+    }
 }
