@@ -135,6 +135,11 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
             ..sky
         };
         ids.errors.push(crabby_ctx_set_sky(ctx, &ring));
+        let bright = CrabbySky {
+            light_shafts: 1.5,
+            ..sky
+        };
+        ids.errors.push(crabby_ctx_set_sky(ctx, &bright));
         let behind = CrabbySky { fog_start: -1.0, ..sky };
         ids.errors.push(crabby_ctx_set_sky(ctx, &behind));
         assert!(crabby_sun_direction_at(12.0).y < -0.8);
@@ -411,7 +416,7 @@ fn games_build_and_move_3d_worlds_from_c() {
         let mut world = null_mut();
         assert_eq!(crabby_game_run_headless(g, 5, Some(setup), user, &mut world), CRABBY_OK);
         assert_eq!(
-            ids.errors, [CRABBY_INVALID_ARGUMENT; 11],
+            ids.errors, [CRABBY_INVALID_ARGUMENT; 12],
             "bad material, bad metallic, bad camera, negative light, bad fog, bad tone map, broken shader, unknown shader"
         );
 

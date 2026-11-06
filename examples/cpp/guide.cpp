@@ -997,6 +997,23 @@ static void far_haze(crabby::ctx& ctx) {
 }
 // ANCHOR_END: distance_fog
 
+// ANCHOR: light_shafts
+/// Beams of morning sun through the trees.
+static void sunbeams(crabby::ctx& ctx) {
+    auto sky = ctx.sky();
+    sky.fog_density = 0.03f;    // low mist to light up
+    sky.fog_sun_glow = 0.1f;    // glowing in the sun
+    sky.light_shafts = 1;       // but not in the shade
+    ctx.set_sky(sky);
+    auto light = ctx.lighting();
+    light.shadows = true;       // shafts follow the sun's shadows
+    ctx.set_lighting(light);
+    auto post = ctx.post();
+    post.anti_aliasing = uint32_t(crabby::anti_aliasing::taa); // smooth their grain
+    ctx.set_post(post);
+}
+// ANCHOR_END: light_shafts
+
 // ANCHOR: post
 /// A warm, glowing evening look.
 static void golden_hour(crabby::ctx& ctx) {
@@ -1301,6 +1318,7 @@ static void the_village_has_five_spinning_houses() {
         if (!ctx.lighting().has_equator) { std::fprintf(stderr, "trilight\n"); std::abort(); }
         misty_morning(ctx);
         far_haze(ctx);
+        sunbeams(ctx);
         auto tuft = ctx.create_mesh(crabby::mesh_data::cube(0.1f), ctx.default_material());
         plant_meadow(ctx, tuft);
         yard(ctx, tuft, tuft, tuft, tuft, tuft);

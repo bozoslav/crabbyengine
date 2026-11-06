@@ -147,6 +147,17 @@ fn far_haze(ctx: &mut Ctx) {
 }
 // ANCHOR_END: distance_fog
 
+// ANCHOR: light_shafts
+/// Beams of morning sun through the trees.
+fn sunbeams(ctx: &mut Ctx) {
+    ctx.sky.fog_density = 0.03; // low mist to light up
+    ctx.sky.fog_sun_glow = 0.1; // glowing in the sun
+    ctx.sky.light_shafts = 1.0; // but not in the shade
+    ctx.lighting.shadows = true; // shafts follow the sun's shadows
+    ctx.post.anti_aliasing = AntiAliasing::Taa; // and smooth out their grain
+}
+// ANCHOR_END: light_shafts
+
 #[test]
 fn sky_settings_stay_as_set() {
     Game::new("t", 1, 1).run_headless(1, |ctx| {
@@ -162,6 +173,9 @@ fn sky_settings_stay_as_set() {
         far_haze(ctx);
         assert_eq!(ctx.sky.fog_end, 1200.0);
         assert_eq!(ctx.sky.fog_density, 0.03, "both kinds of fog at once");
+        assert_eq!(ctx.sky.light_shafts, 0.0, "no light shafts by default");
+        sunbeams(ctx);
+        assert_eq!(ctx.sky.light_shafts, 1.0);
         let to_sun = -ctx.lighting.sun_direction;
         assert!(to_sun.x > 0.0 && to_sun.y > 0.0, "morning: low in the east");
     });
