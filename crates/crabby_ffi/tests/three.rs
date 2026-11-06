@@ -301,6 +301,7 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
             CrabbyGraphicsQuality { ao_slices: 0, ..q },
             CrabbyGraphicsQuality { ao_steps: 17, ..q },
             CrabbyGraphicsQuality { anti_aliasing: 4, ..q },
+            CrabbyGraphicsQuality { shadow_refresh: 0, ..q },
             CrabbyGraphicsQuality {
                 shadow_distance: f32::NAN,
                 ..q

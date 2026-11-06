@@ -2500,6 +2500,8 @@ pub struct CrabbyGraphicsQuality {
     pub ao_steps: u32,
     /// Post AA: 0 none, 1 FXAA, 2 SMAA 1x, 3 temporal.
     pub anti_aliasing: u32,
+    /// How often the far shadow cascades are drawn again, in frames, 1 to 8.
+    pub shadow_refresh: u32,
 }
 
 fn quality_to_c(q: GraphicsQuality) -> CrabbyGraphicsQuality {
@@ -2516,6 +2518,7 @@ fn quality_to_c(q: GraphicsQuality) -> CrabbyGraphicsQuality {
         ao_slices: q.ao_slices,
         ao_steps: q.ao_steps,
         anti_aliasing: q.anti_aliasing as u32,
+        shadow_refresh: q.shadow_refresh,
     }
 }
 
@@ -2548,6 +2551,9 @@ fn quality_from_c(q: &CrabbyGraphicsQuality) -> Result<GraphicsQuality, crate::F
     if !(1..=8).contains(&q.ao_slices) || !(1..=16).contains(&q.ao_steps) {
         return Err(invalid("ao_slices must be 1 to 8 and ao_steps 1 to 16"));
     }
+    if !(1..=8).contains(&q.shadow_refresh) {
+        return Err(invalid("shadow_refresh must be 1 to 8"));
+    }
     Ok(GraphicsQuality {
         render_scale: q.render_scale,
         sharpen: q.sharpen,
@@ -2561,6 +2567,7 @@ fn quality_from_c(q: &CrabbyGraphicsQuality) -> Result<GraphicsQuality, crate::F
         ao_slices: q.ao_slices,
         ao_steps: q.ao_steps,
         anti_aliasing,
+        shadow_refresh: q.shadow_refresh,
     })
 }
 
