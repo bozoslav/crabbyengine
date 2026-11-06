@@ -268,6 +268,21 @@ impl Frame3D {
         }
         self.scratch.clear();
         let planes = frustum_planes(self.view_proj);
+        // What the sun's shadows can fall on: the view out to the shadow
+        // distance. A caster is drawn into the cascades only if its shadow,
+        // swept along the sunlight, can reach that (Unity's caster sweep).
+        let receivers = frustum_planes(
+            Camera3D {
+                far: lighting
+                    .shadow_distance
+                    .clamp(camera.near * 2.0, camera.far.max(camera.near * 2.0)),
+                ..*camera
+            }
+            .view_proj(),
+        );
+        let sunlight = lighting.sun_direction.try_normalize().unwrap_or(Vec3::NEG_Y);
+        let sweep = lighting.shadow_distance * 2.0;
+        let texels = self.cascade_texel;
         let scratch = &mut self.scratch;
         // `meshes`: what the camera draws, then what each cascade's shadow
         // map draws (the same for models; coarser for distant terrain).
@@ -283,9 +298,14 @@ impl Frame3D {
             ));
             if let Some((center, radius)) = shadow_bounds {
                 let (world_center, world_radius) = (matrix.transform_point3(center), radius * scale);
-                for (i, p) in sun_planes.iter().enumerate() {
-                    if sphere_visible(p, world_center, world_radius) {
-                        flags |= 2 << i;
+                // How far the shadow can reach: down through the whole view.
+                let reach = world_center.distance(camera.position) + sweep;
+                if capsule_visible(&receivers, world_center, world_center + sunlight * reach, world_radius) {
+                    for (i, p) in sun_planes.iter().enumerate() {
+                        // Smaller than a texel: its shadow wouldn't show.
+                        if world_radius * 2.0 >= texels[i] && sphere_visible(p, world_center, world_radius) {
+                            flags |= 2 << i;
+                        }
                     }
                 }
                 for (i, p) in light_planes.iter().enumerate() {
@@ -708,6 +728,14 @@ fn sphere_visible(planes: &[Vec4], center: Vec3, radius: f32) -> bool {
     planes.iter().all(|p| p.truncate().dot(center) + p.w >= -radius)
 }
 
+/// Whether a capsule (a sphere of `radius` swept from `a` to `b`) can be
+/// inside the planes: false only when it is wholly outside one of them.
+fn capsule_visible(planes: &[Vec4], a: Vec3, b: Vec3, radius: f32) -> bool {
+    planes
+        .iter()
+        .all(|p| (p.truncate().dot(a) + p.w).max(p.truncate().dot(b) + p.w) >= -radius)
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::TERRAIN_LODS;
@@ -1080,5 +1108,64 @@ mod tests {
     #[test]
     fn the_far_half_of_the_cascades_can_be_kept() {
         assert_eq!((1..=4).map(far_cascades).collect::<Vec<_>>(), [1, 1, 2, 2]);
+    }
+
+    /// How many shadow instances each cascade draws, after one collect of
+    /// `models` (position, radius of a unit-mesh model scaled to it).
+    fn cascade_counts(models: &[(Vec3, f32)], sun: Vec3) -> [u32; MAX_CASCADES] {
+        let mut world = World::new();
+        let assets = Assets3D {
+            bounds: vec![(Vec3::ZERO, 1.0)],
+            ..Default::default()
+        };
+        let mut camera = camera();
+        camera.position = Vec3::new(0.0, 2.0, 0.0);
+        camera.look_at(Vec3::new(0.0, 2.0, -1.0)); // looking down -z
+        camera.near = 0.1;
+        camera.far = 1000.0;
+        let lighting = Lighting {
+            sun_direction: sun,
+            shadow_distance: 200.0,
+            shadow_refresh: 1,
+            ..Default::default()
+        };
+        for &(at, radius) in models {
+            let mut t = Transform3D::at(at);
+            t.scale = Vec3::splat(radius);
+            world.spawn((t, Model::new(Mesh { id: 0 })));
+        }
+        let mut frame = Frame3D::default();
+        frame.collect(&mut world, &assets, &SkinFrame::default(), &camera, &lighting);
+        let mut counts = [0; MAX_CASCADES];
+        for (i, runs) in frame.shadow_runs.iter().take(MAX_CASCADES).enumerate() {
+            counts[i] = runs.iter().map(|r| r.2).sum();
+        }
+        counts
+    }
+
+    #[test]
+    fn casters_whose_shadow_cant_reach_the_view_are_skipped() {
+        // A tree 15 m behind the camera. With the sun behind the camera the
+        // shadow falls forwards into the view; with the sun in front it falls
+        // away, behind the camera, where nothing it shades is seen.
+        let tree = [(Vec3::new(0.0, 3.0, 15.0), 3.0)];
+        let towards_view = cascade_counts(&tree, Vec3::new(0.0, -0.5, -1.0));
+        let away = cascade_counts(&tree, Vec3::new(0.0, -0.5, 1.0));
+        assert!(towards_view.iter().sum::<u32>() > 0, "{towards_view:?}");
+        assert_eq!(away, [0; MAX_CASCADES]);
+    }
+
+    #[test]
+    fn casters_smaller_than_a_texel_are_left_out_of_coarse_cascades() {
+        let sun = Vec3::new(0.2, -1.0, 0.1);
+        // Pebbles 150 m away, in the last cascade (texels of about 10 cm).
+        let small = cascade_counts(&[(Vec3::new(0.0, 0.0, -150.0), 0.02)], sun);
+        let big = cascade_counts(&[(Vec3::new(0.0, 0.0, -150.0), 0.5)], sun);
+        assert_eq!(small[3], 0, "{small:?}");
+        assert_eq!(big[3], 1, "{big:?}");
+        // Near the camera (in view, at eye height) the same pebble still
+        // casts: fine texels.
+        let near = cascade_counts(&[(Vec3::new(0.0, 2.0, -3.0), 0.02)], sun);
+        assert_eq!(near[0], 1, "{near:?}");
     }
 }
