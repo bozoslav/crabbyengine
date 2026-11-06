@@ -183,10 +183,12 @@ static void three_d() {
     CHECK(decals.size() == 1);
     crabby::world lights;
     auto lamp = lights.spawn(crabby::transform3d_at({1, 2, 3}), crabby::point_light3d{crabby::colors::red, 20, 12, false});
-    auto beam = lights.spawn(crabby::transform3d_at({0, 3, 0}), crabby::spot_light3d{crabby::colors::white, 40, 25, .2f, .5f, true});
+    auto beam = lights.spawn(crabby::transform3d_at({0, 3, 0}), crabby::spot_light3d{crabby::colors::white, 40, 25, .2f, .5f, true, 256});
     CHECK(lights.get<crabby::point_light3d>(lamp).range == 12);
     CHECK(lights.get<crabby::spot_light3d>(beam).inner_angle == .2f);
     CHECK(lights.get<crabby::spot_light3d>(beam).shadows);
+    CHECK(lights.get<crabby::spot_light3d>(beam).shadow_resolution == 256);
+    CHECK(lights.get<crabby::point_light3d>(lamp).shadow_resolution == 0);
     lights.each([](crabby::point_light3d& p) { p.intensity += 1; });
     CHECK(lights.get<crabby::point_light3d>(lamp).intensity == 21);
     std::vector<crabby::entity> cubes;
@@ -338,6 +340,7 @@ static void three_d() {
         ctx.set_graphics_quality(quality);
         CHECK(ctx.lighting().shadow_cascades == 3 && ctx.lighting().shadow_resolution == 2048);
         CHECK(ctx.graphics_quality().light_shadow_views == 4);
+        CHECK(ctx.lighting().light_shadow_atlas == 2048);
         quality = crabby::graphics_quality_preset(crabby::quality_level::low);
         ctx.set_graphics_quality(quality);
         CHECK(ctx.post().render_scale < 1 && ctx.lighting().light_shadow_views == 0);

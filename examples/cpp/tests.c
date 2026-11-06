@@ -65,6 +65,7 @@ static void setup(CrabbyCtx* ctx, void* user) {
     CHECK(crabby_graphics_quality_preset(4, &quality) == CRABBY_INVALID_ARGUMENT);
     CHECK(crabby_graphics_quality_preset(0, &quality) == CRABBY_OK);
     CHECK(quality.shadow_cascades == 2 && quality.light_shadow_views == 0 && quality.render_scale < 1);
+    CHECK(quality.light_shadow_atlas == 1024);
     CHECK(crabby_graphics_quality_level(&quality, &level) == CRABBY_OK && level == 0);
     CHECK(crabby_ctx_set_graphics_quality(ctx, &quality) == CRABBY_OK);
     CHECK(crabby_ctx_graphics_quality(ctx, &now) == CRABBY_OK && now.shadow_resolution == 1024);
@@ -74,6 +75,9 @@ static void setup(CrabbyCtx* ctx, void* user) {
     CHECK(crabby_graphics_quality_preset(3, &quality) == CRABBY_OK);
     CHECK(crabby_ctx_set_graphics_quality(ctx, &quality) == CRABBY_OK);
     CHECK(crabby_ctx_graphics_quality(ctx, &now) == CRABBY_OK && now.shadow_resolution == 4096 && now.ao_steps == 8 && now.shadow_refresh == 1);
+    CHECK(now.light_shadow_atlas == 8192 && now.light_shadow_views == 24);
+    quality.light_shadow_atlas = 3000; /* not a power of two */
+    CHECK(crabby_ctx_set_graphics_quality(ctx, &quality) == CRABBY_INVALID_ARGUMENT);
     post.anti_aliasing = 3; /* temporal */
     post.taa_sharpness = 2;
     CHECK(crabby_ctx_set_post(ctx, &post) == CRABBY_INVALID_ARGUMENT);
@@ -521,13 +525,14 @@ int main(void) {
     uint32_t point_id, spot_id;
     CHECK(crabby_point_light3d_component(w, &point_id) == CRABBY_OK);
     CHECK(crabby_spot_light3d_component(w, &spot_id) == CRABBY_OK);
-    CrabbyPointLight3D point = {{1, .5f, .1f, 1}, 20, 12, false};
+    CrabbyPointLight3D point = {{1, .5f, .1f, 1}, 20, 12, true, 512};
     CrabbySpotLight3D spot = {{.1f, .5f, 1, 1}, 30, 18, .2f, .5f, true};
     CrabbyValue lights[] = {{point_id, &point, sizeof(point)}, {spot_id, &spot, sizeof(spot)}};
     CHECK(crabby_spawn(w, lights, 2, &e) == CRABBY_OK);
     CrabbyPointLight3D point_out;
     CrabbySpotLight3D spot_out;
     CHECK(crabby_get(w, e, point_id, &point_out, sizeof(point_out)) == CRABBY_OK && point_out.intensity == 20);
+    CHECK(point_out.shadow_resolution == 512 && point_out.shadows);
     CHECK(crabby_get(w, e, spot_id, &spot_out, sizeof(spot_out)) == CRABBY_OK && spot_out.outer_angle == .5f);
     CHECK(crabby_world_free(w) == CRABBY_OK);
 

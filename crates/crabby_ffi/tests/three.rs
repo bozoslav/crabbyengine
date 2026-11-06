@@ -282,8 +282,13 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
         // Ultra is applied: the lighting and post structs show it.
         assert_eq!(crabby_ctx_lighting(ctx, &mut light), CRABBY_OK);
         assert_eq!(
-            (light.shadow_resolution, light.light_shadow_views, light.shadow_cascades),
-            (4096, 12, 4)
+            (
+                light.shadow_resolution,
+                light.light_shadow_views,
+                light.light_shadow_atlas,
+                light.shadow_cascades
+            ),
+            (4096, 24, 8192, 4)
         );
         assert_eq!(crabby_ctx_post(ctx, &mut back), CRABBY_OK);
         assert!(back.ao_enabled && back.anti_aliasing == 2 && back.ao_steps == 8);
@@ -310,7 +315,15 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
                 ..q
             },
             CrabbyGraphicsQuality {
-                light_shadow_views: 13,
+                light_shadow_views: 25,
+                ..q
+            },
+            CrabbyGraphicsQuality {
+                light_shadow_atlas: 3000,
+                ..q
+            },
+            CrabbyGraphicsQuality {
+                light_shadow_atlas: 16384,
                 ..q
             },
             CrabbyGraphicsQuality {
@@ -344,7 +357,11 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
                 ..light
             },
             CrabbyLighting {
-                light_shadow_views: 13,
+                light_shadow_views: 25,
+                ..light
+            },
+            CrabbyLighting {
+                light_shadow_atlas: 512,
                 ..light
             },
             CrabbyLighting {
@@ -901,6 +918,7 @@ fn punctual_light_components_have_rust_layout_and_roundtrip() {
             intensity: 42.0,
             range: 17.0,
             shadows: false,
+            shadow_resolution: 0,
         };
         let spot = CrabbySpotLight3D {
             color: WHITE,
@@ -909,6 +927,7 @@ fn punctual_light_components_have_rust_layout_and_roundtrip() {
             inner_angle: 0.2,
             outer_angle: 0.6,
             shadows: true,
+            shadow_resolution: 256,
         };
         let parts = [value(point_id, &point), value(spot_id, &spot)];
         let mut e = 0;

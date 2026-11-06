@@ -3,8 +3,9 @@
 
 use super::collect::MAX_CASCADES;
 use super::{
-    AntiAliasing, MAX_LIGHT_SHADOW_RESOLUTION, MAX_LIGHT_SHADOW_VIEWS, MAX_RENDER_SCALE, MAX_SHADOW_RESOLUTION,
-    MIN_LIGHT_SHADOW_RESOLUTION, MIN_RENDER_SCALE, MIN_SHADOW_RESOLUTION,
+    AntiAliasing, MAX_LIGHT_SHADOW_ATLAS, MAX_LIGHT_SHADOW_RESOLUTION, MAX_LIGHT_SHADOW_VIEWS, MAX_RENDER_SCALE,
+    MAX_SHADOW_RESOLUTION, MIN_LIGHT_SHADOW_ATLAS, MIN_LIGHT_SHADOW_RESOLUTION, MIN_RENDER_SCALE,
+    MIN_SHADOW_RESOLUTION,
 };
 use crate::Ctx;
 
@@ -70,8 +71,9 @@ impl QualityLevel {
 /// | `shadow_cascades` | 2 | 3 | 4 | 4 |
 /// | `shadow_resolution` | 1024 | 2048 | 2048 | 4096 |
 /// | `shadow_refresh` | 4 | 2 | 2 | 1 |
-/// | `light_shadow_views` | 0 | 4 | 8 | 12 |
-/// | `light_shadow_resolution` | 512 | 512 | 1024 | 1024 |
+/// | `light_shadow_views` | 0 | 4 | 8 | 24 |
+/// | `light_shadow_resolution` | 512 | 512 | 1024 | 2048 |
+/// | `light_shadow_atlas` | 1024 | 2048 | 4096 | 8192 |
 /// | `ambient_occlusion` (slices, steps) | off | off | 2, 4 | 4, 8 |
 /// | `anti_aliasing` | none | FXAA | SMAA | SMAA |
 ///
@@ -107,11 +109,14 @@ pub struct GraphicsQuality {
     pub shadow_refresh: u32,
     /// [`Lighting::light_shadow_views`](crate::Lighting::light_shadow_views):
     /// how many shadow views point and spot lights share, 0 (no shadows
-    /// from them) to 12.
+    /// from them) to 24.
     pub light_shadow_views: u32,
-    /// [`Lighting::light_shadow_resolution`](crate::Lighting::light_shadow_resolution),
-    /// 128 to 2048.
+    /// [`Lighting::light_shadow_resolution`](crate::Lighting::light_shadow_resolution):
+    /// the largest light shadow view, 128 to 2048.
     pub light_shadow_resolution: u32,
+    /// [`Lighting::light_shadow_atlas`](crate::Lighting::light_shadow_atlas):
+    /// the atlas the light shadow views share, 1024 to 8192 (a power of two).
+    pub light_shadow_atlas: u32,
     /// [`AmbientOcclusion::enabled`](crate::AmbientOcclusion::enabled).
     pub ambient_occlusion: bool,
     /// [`AmbientOcclusion::slices`](crate::AmbientOcclusion::slices), 1 to 8.
@@ -135,8 +140,9 @@ impl Default for GraphicsQuality {
             shadow_cascades: 4,
             shadow_resolution: 2048,
             shadow_refresh: 2,
-            light_shadow_views: MAX_LIGHT_SHADOW_VIEWS as u32,
+            light_shadow_views: 12,
             light_shadow_resolution: 1024,
+            light_shadow_atlas: 4096,
             ambient_occlusion: false,
             ao_slices: 3,
             ao_steps: 6,
@@ -167,6 +173,7 @@ impl GraphicsQuality {
             shadow_refresh: 4,
             light_shadow_views: 0,
             light_shadow_resolution: 512,
+            light_shadow_atlas: 1024,
             ambient_occlusion: false,
             ao_slices: 2,
             ao_steps: 4,
@@ -175,7 +182,8 @@ impl GraphicsQuality {
     }
 
     /// Full resolution, three 2048² cascades reaching 50 units, four
-    /// 512² views for point and spot lights, FXAA, no AO.
+    /// views of up to 512² for point and spot lights in a 2048² atlas, FXAA,
+    /// no AO.
     /// ```
     /// use crabbyengine::*;
     /// let q = GraphicsQuality::medium();
@@ -193,6 +201,7 @@ impl GraphicsQuality {
             shadow_refresh: 2,
             light_shadow_views: 4,
             light_shadow_resolution: 512,
+            light_shadow_atlas: 2048,
             ambient_occlusion: false,
             ao_slices: 2,
             ao_steps: 4,
@@ -200,8 +209,9 @@ impl GraphicsQuality {
         }
     }
 
-    /// Four 2048² cascades reaching 80 units, eight 1024² views for point and
-    /// spot lights, light AO (2 slices, 4 steps), SMAA.
+    /// Four 2048² cascades reaching 80 units, eight views of up to 1024² for
+    /// point and spot lights in a 4096² atlas, light AO (2 slices, 4
+    /// steps), SMAA.
     /// ```
     /// use crabbyengine::*;
     /// let q = GraphicsQuality::high();
@@ -219,6 +229,7 @@ impl GraphicsQuality {
             shadow_refresh: 2,
             light_shadow_views: 8,
             light_shadow_resolution: 1024,
+            light_shadow_atlas: 4096,
             ambient_occlusion: true,
             ao_slices: 2,
             ao_steps: 4,
@@ -227,9 +238,9 @@ impl GraphicsQuality {
     }
 
     /// Four 4096² cascades (256 MB of shadow maps) reaching 120 units, all
-    /// redrawn every frame, twelve
-    /// 1024² views for point and spot lights, finer AO (4 slices, 8 steps),
-    /// SMAA.
+    /// redrawn every frame, 24
+    /// views of up to 2048² for point and spot lights in an 8192² atlas
+    /// (another 256 MB), finer AO (4 slices, 8 steps), SMAA.
     /// ```
     /// use crabbyengine::*;
     /// let q = GraphicsQuality::ultra();
@@ -246,7 +257,8 @@ impl GraphicsQuality {
             shadow_resolution: 4096,
             shadow_refresh: 1,
             light_shadow_views: MAX_LIGHT_SHADOW_VIEWS as u32,
-            light_shadow_resolution: 1024,
+            light_shadow_resolution: 2048,
+            light_shadow_atlas: 8192,
             ambient_occlusion: true,
             ao_slices: 4,
             ao_steps: 8,
@@ -301,6 +313,10 @@ impl GraphicsQuality {
             light_shadow_resolution: self
                 .light_shadow_resolution
                 .clamp(MIN_LIGHT_SHADOW_RESOLUTION, MAX_LIGHT_SHADOW_RESOLUTION),
+            light_shadow_atlas: super::shadow_atlas::floor_pow2(
+                self.light_shadow_atlas
+                    .clamp(MIN_LIGHT_SHADOW_ATLAS, MAX_LIGHT_SHADOW_ATLAS),
+            ),
             ambient_occlusion: self.ambient_occlusion,
             ao_slices: self.ao_slices.clamp(1, 8),
             ao_steps: self.ao_steps.clamp(1, 16),
@@ -333,6 +349,7 @@ impl Ctx {
             shadow_refresh: self.lighting.shadow_refresh,
             light_shadow_views: self.lighting.light_shadow_views,
             light_shadow_resolution: self.lighting.light_shadow_resolution,
+            light_shadow_atlas: self.lighting.light_shadow_atlas,
             ambient_occlusion: self.post.ambient_occlusion.enabled,
             ao_slices: self.post.ambient_occlusion.slices,
             ao_steps: self.post.ambient_occlusion.steps,
@@ -371,6 +388,7 @@ impl Ctx {
         self.lighting.shadow_refresh = q.shadow_refresh;
         self.lighting.light_shadow_views = q.light_shadow_views;
         self.lighting.light_shadow_resolution = q.light_shadow_resolution;
+        self.lighting.light_shadow_atlas = q.light_shadow_atlas;
     }
 }
 
@@ -398,6 +416,7 @@ mod tests {
             );
             assert!(a.light_shadow_views < b.light_shadow_views);
             assert!(a.light_shadow_resolution <= b.light_shadow_resolution);
+            assert!(a.light_shadow_atlas < b.light_shadow_atlas);
             assert!(a.ambient_occlusion <= b.ambient_occlusion);
             assert!(a.ao_slices * a.ao_steps <= b.ao_slices * b.ao_steps);
             assert!(a.anti_aliasing as u32 <= b.anti_aliasing as u32);
@@ -427,14 +446,28 @@ mod tests {
         assert_eq!((low.shadow_cascades, low.shadow_resolution), (2, 1024));
         assert_eq!(low.shadow_refresh, 4);
         assert_eq!(GraphicsQuality::ultra().shadow_refresh, 1);
-        assert_eq!((low.light_shadow_views, low.light_shadow_resolution), (0, 512));
+        assert_eq!(
+            (
+                low.light_shadow_views,
+                low.light_shadow_resolution,
+                low.light_shadow_atlas
+            ),
+            (0, 512, 1024)
+        );
         assert_eq!((low.ambient_occlusion, low.anti_aliasing), (false, AntiAliasing::None));
         let medium = GraphicsQuality::medium();
         assert_eq!(
             (medium.shadow_distance, medium.shadow_cascades, medium.shadow_resolution),
             (50.0, 3, 2048)
         );
-        assert_eq!((medium.light_shadow_views, medium.light_shadow_resolution), (4, 512));
+        assert_eq!(
+            (
+                medium.light_shadow_views,
+                medium.light_shadow_resolution,
+                medium.light_shadow_atlas
+            ),
+            (4, 512, 2048)
+        );
         assert_eq!(
             (medium.ambient_occlusion, medium.anti_aliasing),
             (false, AntiAliasing::Fxaa)
@@ -444,7 +477,14 @@ mod tests {
             (high.shadow_distance, high.shadow_cascades, high.shadow_resolution),
             (80.0, 4, 2048)
         );
-        assert_eq!((high.light_shadow_views, high.light_shadow_resolution), (8, 1024));
+        assert_eq!(
+            (
+                high.light_shadow_views,
+                high.light_shadow_resolution,
+                high.light_shadow_atlas
+            ),
+            (8, 1024, 4096)
+        );
         assert_eq!((high.ambient_occlusion, high.ao_slices, high.ao_steps), (true, 2, 4));
         assert_eq!(high.anti_aliasing, AntiAliasing::Smaa);
         let ultra = GraphicsQuality::ultra();
@@ -452,7 +492,14 @@ mod tests {
             (ultra.shadow_distance, ultra.shadow_cascades, ultra.shadow_resolution),
             (120.0, 4, 4096)
         );
-        assert_eq!((ultra.light_shadow_views, ultra.light_shadow_resolution), (12, 1024));
+        assert_eq!(
+            (
+                ultra.light_shadow_views,
+                ultra.light_shadow_resolution,
+                ultra.light_shadow_atlas
+            ),
+            (24, 2048, 8192)
+        );
         assert_eq!((ultra.ao_slices, ultra.ao_steps), (4, 8));
     }
 
@@ -466,6 +513,7 @@ mod tests {
             shadow_resolution: 1 << 20,
             light_shadow_views: 99,
             light_shadow_resolution: 1,
+            light_shadow_atlas: 5000,
             ao_slices: 0,
             ao_steps: 99,
             ..Default::default()
@@ -476,8 +524,9 @@ mod tests {
         assert_eq!(q.shadow_distance, 0.0);
         assert_eq!(q.shadow_cascades, 4);
         assert_eq!(q.shadow_resolution, 4096);
-        assert_eq!(q.light_shadow_views, 12);
+        assert_eq!(q.light_shadow_views, 24);
         assert_eq!(q.light_shadow_resolution, 128);
+        assert_eq!(q.light_shadow_atlas, 4096);
         assert_eq!((q.ao_slices, q.ao_steps), (1, 16));
     }
 

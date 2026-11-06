@@ -46,7 +46,7 @@ pub fn setup(ctx: &mut Ctx, count: usize) {
                     range: 12.0,
                     inner_angle: 0.3,
                     outer_angle: 0.7,
-                    shadows: false,
+                    ..Default::default()
                 },
             ));
         } else {
@@ -56,7 +56,7 @@ pub fn setup(ctx: &mut Ctx, count: usize) {
                     color,
                     intensity: 30.0,
                     range: 9.0,
-                    shadows: false,
+                    ..Default::default()
                 },
             ));
         }

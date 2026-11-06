@@ -158,6 +158,56 @@ fn sunbeams(ctx: &mut Ctx) {
 }
 // ANCHOR_END: light_shafts
 
+// ANCHOR: light_shadow_atlas
+/// A street at night: a sharp shadow for the lamp beside the player,
+/// rough ones for the street lights down the road.
+fn street_lights(ctx: &mut Ctx) {
+    ctx.lighting.light_shadow_atlas = 8192; // room for more shadow views
+    ctx.lighting.light_shadow_views = 24; // as many as there can be
+    let lamp = PointLight3D {
+        color: Color::rgb(1.0, 0.8, 0.6),
+        intensity: 40.0,
+        range: 12.0,
+        shadows: true,
+        shadow_resolution: 2048, // always sharp
+    };
+    ctx.world.spawn((Transform3D::at(vec3(0.0, 3.0, 0.0)), lamp));
+    for i in 0..18 {
+        let x = -20.0 + 2.5 * i as f32;
+        let at = Transform3D::at(vec3(x, 5.0, -30.0)).looking_at(vec3(x, 0.0, -29.9));
+        // Sized by how big they look: smaller the farther they are.
+        let street_light = SpotLight3D {
+            intensity: 60.0,
+            range: 8.0,
+            shadows: true,
+            ..Default::default()
+        };
+        ctx.world.spawn((at, street_light));
+    }
+}
+// ANCHOR_END: light_shadow_atlas
+
+#[test]
+fn light_shadow_atlas_settings_stay_as_set() {
+    Game::new("t", 1, 1).run_headless(1, |ctx| {
+        let l = ctx.lighting;
+        assert_eq!(
+            (l.light_shadow_atlas, l.light_shadow_views, l.light_shadow_resolution),
+            (4096, 12, 1024)
+        );
+        street_lights(ctx);
+        assert_eq!(ctx.lighting.light_shadow_atlas, 8192);
+        let hinted: Vec<u32> = ctx
+            .world
+            .query::<&PointLight3D>()
+            .iter()
+            .map(|p| p.shadow_resolution)
+            .collect();
+        assert_eq!(hinted, [2048]);
+        assert_eq!(ctx.world.query::<&SpotLight3D>().iter().count(), 18);
+    });
+}
+
 #[test]
 fn sky_settings_stay_as_set() {
     Game::new("t", 1, 1).run_headless(1, |ctx| {

@@ -89,6 +89,10 @@ pub struct CrabbyPointLight3D {
     /// Cast shadows (Rust `PointLight3D::shadows`): six of the frame's
     /// `MAX_LIGHT_SHADOW_VIEWS` shadow views, nearest lights first.
     pub shadows: bool,
+    /// Each shadow view's size in the shadow atlas, in texels (Rust
+    /// `PointLight3D::shadow_resolution`): 0 sizes it by how big the light
+    /// looks; otherwise 64 to 2048, rounded down to a power of two.
+    pub shadow_resolution: u32,
 }
 
 /// Entity SpotLight3D: position from its transform; spots point along local -Z.
@@ -112,6 +116,9 @@ pub struct CrabbySpotLight3D {
     pub outer_angle: f32,
     /// Cast shadows (Rust `SpotLight3D::shadows`): one shadow view.
     pub shadows: bool,
+    /// Its shadow view's size in the atlas (Rust
+    /// `SpotLight3D::shadow_resolution`); 0: automatic.
+    pub shadow_resolution: u32,
 }
 
 /// A mesh on the GPU (`crabby_ctx_create_mesh`, `crabby_ctx_load_mesh`).
@@ -453,10 +460,14 @@ pub struct CrabbyLighting {
     /// Width and height of each of the sun's shadow maps, 256 to 4096.
     pub shadow_resolution: u32,
     /// How many shadow views point and spot lights share, 0 (no shadows
-    /// from them) to 12.
+    /// from them) to 24. Default 12.
     pub light_shadow_views: u32,
-    /// Width and height of each point or spot light shadow view, 128 to 2048.
+    /// Width and height of the largest point or spot light shadow view
+    /// (what a light near the camera gets), 128 to 2048.
     pub light_shadow_resolution: u32,
+    /// Width and height of the atlas the light shadow views are packed
+    /// into: a power of two from 1024 to 8192. Default 4096.
+    pub light_shadow_atlas: u32,
     /// How often the far shadow cascades are drawn again, in frames, 1 to 8
     /// (1: every frame). Default 2.
     pub shadow_refresh: u32,
@@ -2184,6 +2195,7 @@ pub unsafe extern "C" fn crabby_ctx_lighting(ctx: *mut CrabbyCtx, out_lighting: 
                     shadow_resolution: l.shadow_resolution,
                     light_shadow_views: l.light_shadow_views,
                     light_shadow_resolution: l.light_shadow_resolution,
+                    light_shadow_atlas: l.light_shadow_atlas,
                     shadow_refresh: l.shadow_refresh,
                     has_equator: l.equator_color.is_some(),
                     equator_color: to_c(l.equator_color.unwrap_or(l.sky_color)),
@@ -2223,8 +2235,11 @@ pub unsafe extern "C" fn crabby_ctx_set_lighting(ctx: *mut CrabbyCtx, lighting: 
                 || l.light_shadow_views > MAX_LIGHT_SHADOW_VIEWS as u32
             {
                 return Err(invalid(
-                    "shadow_resolution must be 256 to 4096, light_shadow_resolution 128 to 2048 and light_shadow_views 0 to 12",
+                    "shadow_resolution must be 256 to 4096, light_shadow_resolution 128 to 2048 and light_shadow_views 0 to 24",
                 ));
+            }
+            if !light_atlas_ok(l.light_shadow_atlas) {
+                return Err(invalid("light_shadow_atlas must be a power of two from 1024 to 8192"));
             }
             let color = |c: CrabbyColor| -> Color { to_c(c) };
             c.lighting = Lighting {
@@ -2240,6 +2255,7 @@ pub unsafe extern "C" fn crabby_ctx_set_lighting(ctx: *mut CrabbyCtx, lighting: 
                 shadow_resolution: l.shadow_resolution,
                 light_shadow_views: l.light_shadow_views,
                 light_shadow_resolution: l.light_shadow_resolution,
+                light_shadow_atlas: l.light_shadow_atlas,
                 shadow_refresh: l.shadow_refresh,
                 equator_color: l.has_equator.then(|| color(l.equator_color)),
             };
@@ -2511,10 +2527,12 @@ pub struct CrabbyGraphicsQuality {
     pub shadow_cascades: u32,
     /// Width of each sun shadow map, 256 to 4096.
     pub shadow_resolution: u32,
-    /// Shadow views point and spot lights share, 0 to 12.
+    /// Shadow views point and spot lights share, 0 to 24.
     pub light_shadow_views: u32,
-    /// Width of each point or spot light shadow view, 128 to 2048.
+    /// Width of the largest point or spot light shadow view, 128 to 2048.
     pub light_shadow_resolution: u32,
+    /// Width of the light shadow atlas: a power of two, 1024 to 8192.
+    pub light_shadow_atlas: u32,
     /// Ambient occlusion on or off.
     pub ambient_occlusion: bool,
     /// AO angular slices, 1 to 8.
@@ -2537,12 +2555,18 @@ fn quality_to_c(q: GraphicsQuality) -> CrabbyGraphicsQuality {
         shadow_resolution: q.shadow_resolution,
         light_shadow_views: q.light_shadow_views,
         light_shadow_resolution: q.light_shadow_resolution,
+        light_shadow_atlas: q.light_shadow_atlas,
         ambient_occlusion: q.ambient_occlusion,
         ao_slices: q.ao_slices,
         ao_steps: q.ao_steps,
         anti_aliasing: q.anti_aliasing as u32,
         shadow_refresh: q.shadow_refresh,
     }
+}
+
+/// Whether a light shadow atlas size is allowed: a power of two, 1024 to 8192.
+fn light_atlas_ok(size: u32) -> bool {
+    (1024..=8192).contains(&size) && size.is_power_of_two()
 }
 
 /// Checks every field of a C quality struct against its range, and makes
@@ -2568,8 +2592,11 @@ fn quality_from_c(q: &CrabbyGraphicsQuality) -> Result<GraphicsQuality, crate::F
         || q.light_shadow_views > MAX_LIGHT_SHADOW_VIEWS as u32
     {
         return Err(invalid(
-            "shadow_resolution must be 256 to 4096, light_shadow_resolution 128 to 2048 and light_shadow_views 0 to 12",
+            "shadow_resolution must be 256 to 4096, light_shadow_resolution 128 to 2048 and light_shadow_views 0 to 24",
         ));
+    }
+    if !light_atlas_ok(q.light_shadow_atlas) {
+        return Err(invalid("light_shadow_atlas must be a power of two from 1024 to 8192"));
     }
     if !(1..=8).contains(&q.ao_slices) || !(1..=16).contains(&q.ao_steps) {
         return Err(invalid("ao_slices must be 1 to 8 and ao_steps 1 to 16"));
@@ -2586,6 +2613,7 @@ fn quality_from_c(q: &CrabbyGraphicsQuality) -> Result<GraphicsQuality, crate::F
         shadow_resolution: q.shadow_resolution,
         light_shadow_views: q.light_shadow_views,
         light_shadow_resolution: q.light_shadow_resolution,
+        light_shadow_atlas: q.light_shadow_atlas,
         ambient_occlusion: q.ambient_occlusion,
         ao_slices: q.ao_slices,
         ao_steps: q.ao_steps,
@@ -2897,7 +2925,8 @@ same_layout!(
     color = color,
     intensity = intensity,
     range = range,
-    shadows = shadows
+    shadows = shadows,
+    shadow_resolution = shadow_resolution
 );
 
 /// Registers the built-in `PointLight3D` for entity insertion and query columns.
@@ -2922,7 +2951,8 @@ same_layout!(
     range = range,
     inner_angle = inner_angle,
     outer_angle = outer_angle,
-    shadows = shadows
+    shadows = shadows,
+    shadow_resolution = shadow_resolution
 );
 
 /// Registers the built-in `SpotLight3D` for entity insertion and query columns.

@@ -371,14 +371,14 @@ fn shadow_maps_are_made_again_at_the_new_resolution_and_count() {
     let Some(mut f) = Fixture::new() else { return };
     f.draw();
     assert_eq!(f.renderer.shadow_map(), (2048, 4), "the engine's defaults");
-    assert_eq!(f.renderer.light_shadow_map(), Some((1024, 12)));
+    assert_eq!(f.renderer.light_shadow_map(), Some(4096), "one 4096² atlas");
 
     f.ctx.lighting.shadow_resolution = 512;
     f.draw();
     assert_eq!(f.renderer.shadow_map(), (512, 4));
     assert_eq!(
         f.renderer.light_shadow_map(),
-        Some((1024, 12)),
+        Some(4096),
         "the light shadow map is left alone"
     );
 
@@ -386,10 +386,14 @@ fn shadow_maps_are_made_again_at_the_new_resolution_and_count() {
     f.draw();
     assert_eq!(f.renderer.shadow_map(), (512, 2));
 
+    // Fewer or smaller views share the same atlas; a new atlas size makes it again.
     f.ctx.lighting.light_shadow_resolution = 256;
     f.ctx.lighting.light_shadow_views = 4;
     f.draw();
-    assert_eq!(f.renderer.light_shadow_map(), Some((256, 4)));
+    assert_eq!(f.renderer.light_shadow_map(), Some(4096));
+    f.ctx.lighting.light_shadow_atlas = 2048;
+    f.draw();
+    assert_eq!(f.renderer.light_shadow_map(), Some(2048));
     assert_eq!(f.renderer.shadow_map(), (512, 2));
 
     // Point and spot light shadows off: the map is freed.
@@ -399,7 +403,14 @@ fn shadow_maps_are_made_again_at_the_new_resolution_and_count() {
     // ... and made again when they come back.
     f.ctx.lighting.light_shadow_views = 1;
     f.draw();
-    assert_eq!(f.renderer.light_shadow_map(), Some((256, 1)));
+    assert_eq!(f.renderer.light_shadow_map(), Some(2048));
+    // Not a power of two: rounded down.
+    f.ctx.lighting.light_shadow_atlas = 3000;
+    f.draw();
+    assert_eq!(f.renderer.light_shadow_map(), Some(2048));
+    f.ctx.lighting.light_shadow_atlas = 1;
+    f.draw();
+    assert_eq!(f.renderer.light_shadow_map(), Some(1024));
 
     // A resolution beyond the allowed range is clamped.
     f.ctx.lighting.shadow_resolution = 1 << 20;

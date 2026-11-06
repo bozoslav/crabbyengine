@@ -95,6 +95,8 @@ pub(crate) struct Screenshot {
 }
 
 #[cfg(all(test, feature = "window", feature = "3d"))]
+mod atlas_render_test;
+#[cfg(all(test, feature = "window", feature = "3d"))]
 mod buffer_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod contact_render_test;

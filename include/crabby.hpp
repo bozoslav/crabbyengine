@@ -3052,7 +3052,8 @@ public:
     crabby::lighting lighting() const { crabby::lighting l{}; detail::check(crabby_ctx_lighting(raw_, &l)); return l; }
     /// Intensities and the shadow distance can't be negative; shadow_cascades is 1 to 4,
     /// shadow_refresh 1 to 8; shadow_resolution is 256 to 4096, light_shadow_resolution
-    /// 128 to 2048 and light_shadow_views 0 to 12.
+    /// 128 to 2048, light_shadow_views 0 to 24 and light_shadow_atlas a power of two
+    /// from 1024 to 8192.
     void set_lighting(const crabby::lighting& l) { detail::check(crabby_ctx_set_lighting(raw_, &l)); }
     /// The sky behind the 3D world and the fog in front of it.
     crabby::sky sky() const { crabby::sky s{}; detail::check(crabby_ctx_sky(raw_, &s)); return s; }
