@@ -1247,6 +1247,8 @@ fn gpu_particles(ctx: &mut Ctx) -> GpuBuffer {
     });
     let mesh = ctx.create_mesh(&MeshData::cube(0.05), material);
     ctx.set_mesh_gpu_buffer(mesh, items, 128);
+    // The emitter's extent around its entity, for culling.
+    ctx.set_mesh_gpu_bounds(mesh, Vec3::ZERO, 20.0);
     ctx.world.spawn((Transform3D::default(), Model::new(mesh)));
     items
 }
@@ -1259,6 +1261,34 @@ fn gpu_buffers_support_headless_setup_and_writes() {
         ctx.write_gpu_buffer(b, 127, &[Vec4::ONE]);
         ctx.write_gpu_buffer(b, 128, &[]);
         assert_eq!(ctx.compute_passes[0].buffer, Some(b));
+    });
+}
+#[test]
+fn freed_gpu_buffers_reuse_ids_and_drop_their_passes() {
+    Game::new("buffers", 1, 1).run_headless(0, |ctx| {
+        let b = ctx.create_gpu_buffer(4, &[]);
+        let other = ctx.create_gpu_buffer(2, &[]);
+        let update = ctx.create_compute("up", "fn update(i: u32) { items[i].x += 1.0; }");
+        ctx.compute_passes.push(ComputePass::for_buffer(update, b));
+        ctx.compute_passes.push(ComputePass::for_buffer(update, other));
+        ctx.free_gpu_buffer(b);
+        assert_eq!(ctx.gpu_buffer_len(b), None);
+        assert_eq!(ctx.compute_passes.len(), 1, "only the other buffer's pass is left");
+        assert_eq!(ctx.compute_passes[0].buffer, Some(other));
+        ctx.free_gpu_buffer(b); // again: nothing
+        let again = ctx.create_gpu_buffer(8, &[]);
+        assert_eq!(again, b);
+        assert_eq!(ctx.gpu_buffer_len(again), Some(8));
+        assert_eq!(ctx.create_gpu_buffer(1, &[]).id(), 2, "then a new id");
+    });
+}
+#[test]
+#[should_panic(expected = "invalid GPU buffer")]
+fn a_freed_gpu_buffer_rejects_writes() {
+    Game::new("buffers", 1, 1).run_headless(0, |ctx| {
+        let b = ctx.create_gpu_buffer(1, &[]);
+        ctx.free_gpu_buffer(b);
+        ctx.write_gpu_buffer(b, 0, &[Vec4::ONE]);
     });
 }
 #[test]

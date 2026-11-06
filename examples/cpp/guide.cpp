@@ -2206,6 +2206,8 @@ static void gpu_particles(crabby::ctx& ctx) {
     auto material = ctx.create_material(desc);
     auto mesh = ctx.create_mesh(crabby::mesh_data::cube(0.05f), material);
     ctx.set_mesh_gpu_buffer(mesh, items, 128);
+    // The emitter's extent around its entity, for culling.
+    ctx.set_mesh_gpu_bounds(mesh, {0, 0, 0}, 20);
     ctx.world().spawn(crabby::transform3d_at({0, 0, 0}), crabby::model_of(mesh));
 }
 // ANCHOR_END: gpu_buffers

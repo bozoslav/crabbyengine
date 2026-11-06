@@ -784,8 +784,14 @@ pub(crate) struct Assets3D {
     pub effects: u32,
     /// Compute passes made so far, and those loaded from files.
     pub computes: u32,
+    /// GPU buffers' lengths, by id; 0 for a freed one.
     pub gpu_buffers: Vec<u32>,
     pub instance_batches: Vec<Option<instances::Batch>>,
+    /// Freed GPU buffers' ids, for the next buffers made.
+    pub free_gpu_buffers: Vec<u32>,
+    /// Buffer-driven meshes' own bounds (before `set_mesh_gpu_bounds`
+    /// grew them), by mesh id.
+    pub gpu_mesh_bounds: std::collections::HashMap<u32, (Vec3, f32)>,
     pub loaded_computes: std::collections::HashMap<std::path::PathBuf, Compute>,
     /// Effects loaded from files, by resolved path.
     pub loaded_effects: std::collections::HashMap<std::path::PathBuf, Effect>,

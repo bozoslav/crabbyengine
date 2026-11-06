@@ -230,7 +230,6 @@ struct StorageBuffer {
     buffer: wgpu::Buffer,
     read: wgpu::BindGroup,
     write: wgpu::BindGroup,
-    instances: wgpu::Buffer,
     len: u32,
 }
 struct GpuMaterial {
@@ -248,6 +247,10 @@ struct ShaderPipelines {
     sides: [Pipelines; 2],
     /// The same for crossfading instances, built when first drawn.
     fade: [std::sync::OnceLock<Pipelines>; 2],
+    /// The same for buffer-driven instances, which all share their
+    /// entity's one instance record (a zero-stride instance buffer);
+    /// built when first drawn.
+    shared: [std::sync::OnceLock<Pipelines>; 2],
     builder: SideBuilder,
     /// Whether it reads the scene behind it (`scene_color`, `scene_position`,
     /// `scene_distance`): its transparent surfaces then need a copy of it.
@@ -1598,60 +1601,71 @@ impl Renderer3D {
         Some(self.compute_states.len() - 1)
     }
 
-    pub fn create_gpu_buffer(&mut self, device: &wgpu::Device, len: u32, data: &[crate::Vec4]) {
-        let Some(read_layout) = &self.storage_read else {
-            self.storage_buffers.push(None);
-            return;
-        };
-        assert!(
-            u64::from(len) * 16 <= device.limits().max_storage_buffer_binding_size,
-            "GPU buffer exceeds device limit"
-        );
-        assert!(
-            len.div_ceil(64) <= device.limits().max_compute_workgroups_per_dimension
-                && u64::from(len) * size_of::<Instance3D>() as u64 <= device.limits().max_buffer_size,
-            "GPU buffer exceeds draw or dispatch limits"
-        );
-        let zeros;
-        let data = if data.is_empty() {
-            zeros = vec![crate::Vec4::ZERO; len as usize];
-            &zeros
-        } else {
-            data
-        };
-        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("GPU items"),
-            contents: bytemuck::cast_slice(&data.iter().map(|v| v.to_array()).collect::<Vec<_>>()),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        });
-        let group = |layout| {
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: buffer.as_entire_binding(),
-                }],
-            })
-        };
-        let read = group(read_layout);
-        let write = group(&self.storage_write.as_ref().unwrap().0);
-        let identity = Instance3D {
-            model: glam::Mat4::IDENTITY.to_cols_array_2d(),
-            color: [1.0; 4],
-        };
-        let instances = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("GPU draw identities"),
-            contents: bytemuck::cast_slice(&vec![identity; len as usize]),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-        self.storage_buffers.push(Some(StorageBuffer {
-            buffer,
-            read,
-            write,
-            instances,
-            len,
-        }));
+    /// Makes GPU buffer `id`: a freed one's slot, or the next new one.
+    pub fn create_gpu_buffer(&mut self, device: &wgpu::Device, id: u32, len: u32, data: &[crate::Vec4]) {
+        let mut slot = None;
+        if let Some(read_layout) = &self.storage_read {
+            assert!(
+                u64::from(len) * 16 <= device.limits().max_storage_buffer_binding_size,
+                "GPU buffer exceeds device limit"
+            );
+            assert!(
+                len.div_ceil(64) <= device.limits().max_compute_workgroups_per_dimension,
+                "GPU buffer exceeds dispatch limit"
+            );
+            let zeros;
+            let data = if data.is_empty() {
+                zeros = vec![crate::Vec4::ZERO; len as usize];
+                &zeros
+            } else {
+                data
+            };
+            let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("GPU items"),
+                contents: bytemuck::cast_slice(&data.iter().map(|v| v.to_array()).collect::<Vec<_>>()),
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            });
+            let group = |layout| {
+                device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: None,
+                    layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: buffer.as_entire_binding(),
+                    }],
+                })
+            };
+            let read = group(read_layout);
+            let write = group(&self.storage_write.as_ref().unwrap().0);
+            slot = Some(StorageBuffer {
+                buffer,
+                read,
+                write,
+                len,
+            });
+        }
+        match self.storage_buffers.get_mut(id as usize) {
+            Some(old) => *old = slot,
+            None => {
+                // Ids are handed out in order: only the next one is new.
+                debug_assert_eq!(id as usize, self.storage_buffers.len());
+                self.storage_buffers.push(slot);
+            }
+        }
+    }
+    /// Frees GPU buffer `id`; passes and meshes using it do nothing from now on.
+    pub fn free_gpu_buffer(&mut self, id: u32) {
+        if let Some(slot) = self.storage_buffers.get_mut(id as usize) {
+            *slot = None;
+        }
+        for mesh in &mut self.meshes {
+            // Still buffer-driven but bound to no buffer: it draws nothing
+            // (not once as a plain model), and the id's next buffer isn't
+            // picked up until the mesh is bound to it again.
+            if mesh.gpu_buffer.is_some_and(|(b, _)| b == id) {
+                mesh.gpu_buffer = Some((u32::MAX, 0));
+            }
+        }
     }
     pub fn write_gpu_buffer(&self, queue: &wgpu::Queue, id: u32, offset: u32, data: &[crate::Vec4]) {
         if let Some(Some(b)) = self.storage_buffers.get(id as usize) {
@@ -1967,6 +1981,7 @@ impl Renderer3D {
             mesh.buffers = None;
             mesh.parts = Vec::new();
             mesh.skin = None;
+            mesh.gpu_buffer = None;
         }
     }
 
@@ -3729,7 +3744,7 @@ impl Renderer3D {
         // validation and a Metal/Vulkan call per draw otherwise.
         let mut bound = None;
         let mut bound_material = u32::MAX;
-        for &(mesh, start, count) in runs {
+        for &(mesh, start, models) in runs {
             let fading = mesh & FADED != 0;
             let mesh = mesh & !FADED;
             let posed = (mesh as usize).checked_sub(self.meshes.len());
@@ -3738,7 +3753,11 @@ impl Renderer3D {
                 let Some(buffer) = self.storage_buffers.get(id as usize).and_then(Option::as_ref) else {
                     continue;
                 };
-                Some((buffer, count))
+                // Motion vectors need per-instance matrices: not drawn.
+                if kind == Kind::Velocity {
+                    continue;
+                }
+                Some((buffer, count.min(buffer.len)))
             } else {
                 None
             };
@@ -3763,10 +3782,15 @@ impl Renderer3D {
                 let side = usize::from(m.double_sided);
                 // Crossfading instances dither in every pass (their
                 // pipelines are built the first time they're drawn).
-                let pipelines = if fading {
+                let pipelines = if storage.is_some() {
+                    shader.shared[side].get_or_init(|| {
+                        let cull = (side == 0).then_some(wgpu::Face::Back);
+                        shader.builder.build(cull, false, true)
+                    })
+                } else if fading {
                     shader.fade[side].get_or_init(|| {
                         let cull = (side == 0).then_some(wgpu::Face::Back);
-                        shader.builder.build(cull, true)
+                        shader.builder.build(cull, true, false)
                     })
                 } else {
                     &shader.sides[side]
@@ -3826,17 +3850,25 @@ impl Renderer3D {
                         }
                     }
                 } else if let Some((b, count)) = storage {
-                    if count > 0 && kind != Kind::Velocity {
+                    // Each model gets its own draw: its one instance record
+                    // (transform and tint) is shared by all `count` instances.
+                    if count > 0 {
                         pass.set_bind_group(3, &b.read, &[]);
-                        pass.set_vertex_buffer(1, b.instances.slice(..));
-                        pass.draw_indexed(range.clone(), 0, 0..count);
+                        let record = size_of::<Instance3D>() as u64;
+                        for model in start..start + models {
+                            pass.set_vertex_buffer(
+                                1,
+                                instances.slice(model as u64 * record..(model as u64 + 1) * record),
+                            );
+                            pass.draw_indexed(range.clone(), 0, 0..count);
+                        }
                     }
                 } else {
                     if let Some(dummy) = &self.storage_dummy {
                         pass.set_bind_group(3, dummy, &[]);
                     }
                     pass.set_vertex_buffer(1, instances.slice(..));
-                    pass.draw_indexed(range.clone(), 0, start..start + count);
+                    pass.draw_indexed(range.clone(), 0, start..start + models);
                 }
             }
         }
@@ -4040,8 +4072,12 @@ fn build_pipelines(
         samples,
     };
     ShaderPipelines {
-        sides: [builder.build(Some(wgpu::Face::Back), false), builder.build(None, false)],
+        sides: [
+            builder.build(Some(wgpu::Face::Back), false, false),
+            builder.build(None, false, false),
+        ],
         fade: Default::default(),
+        shared: Default::default(),
         builder,
         reads_scene: false,
     }
@@ -4089,7 +4125,11 @@ impl SideBuilder {
     /// The pipelines for one-sided (`cull`) or double-sided surfaces. With
     /// `fade`, the fragment shaders also dither crossfading instances
     /// (`fade_keeps` in the shader), even solid materials' depth passes.
-    fn build(&self, cull: Option<wgpu::Face>, fade: bool) -> Pipelines {
+    ///
+    /// With `shared`, every instance of a draw reads the same instance
+    /// record (the entity's model and tint): the instance buffer's stride
+    /// is 0.
+    fn build(&self, cull: Option<wgpu::Face>, fade: bool, shared: bool) -> Pipelines {
         let (device, module, layout, shadow_layout, samples) = (
             &self.device,
             &self.module,
@@ -4104,7 +4144,7 @@ impl SideBuilder {
                 attributes: &VERTEX_ATTRIBUTES,
             }),
             Some(wgpu::VertexBufferLayout {
-                array_stride: size_of::<Instance3D>() as u64,
+                array_stride: if shared { 0 } else { size_of::<Instance3D>() as u64 },
                 step_mode: wgpu::VertexStepMode::Instance,
                 attributes: &INSTANCE_ATTRIBUTES,
             }),

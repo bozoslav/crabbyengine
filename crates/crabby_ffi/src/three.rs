@@ -3627,7 +3627,51 @@ pub unsafe extern "C" fn crabby_ctx_write_gpu_buffer(
         })
     })
 }
-/// Draws `count` GPU instances of a mesh, reading `items[v.instance_index]`.
+/// Frees a GPU buffer's memory; its compute passes are removed from the
+/// context's list and meshes using it draw nothing. Its id is reused by
+/// the next buffer made. An invalid or already freed buffer is an error.
+/// # Safety
+/// `ctx` is live or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_free_gpu_buffer(ctx: *mut CrabbyCtx, buffer: CrabbyGpuBuffer) -> CrabbyStatus {
+    // SAFETY: forwarded context contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let b = GpuBuffer::from_id(buffer.id);
+            if c.gpu_buffer_len(b).is_none() {
+                return Err(invalid("invalid GPU buffer"));
+            }
+            c.free_gpu_buffer(b);
+            Ok(())
+        })
+    })
+}
+/// Grows a mesh's culling bounds to hold the sphere `center`, `radius` (in
+/// the mesh's space): where a buffer-driven mesh's shader puts its instances.
+/// # Safety
+/// `ctx` is live or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_mesh_gpu_bounds(
+    ctx: *mut CrabbyCtx,
+    mesh: CrabbyMesh,
+    center: CrabbyVec3,
+    radius: f32,
+) -> CrabbyStatus {
+    // SAFETY: forwarded context contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let mesh = to_c(mesh);
+            let center = to_c(center);
+            if !c.is_mesh_live(mesh) || !(radius >= 0.0 && radius.is_finite() && center.is_finite()) {
+                return Err(invalid("invalid mesh bounds arguments"));
+            }
+            c.set_mesh_gpu_bounds(mesh, center, radius);
+            Ok(())
+        })
+    })
+}
+/// Draws `count` GPU instances of a mesh, reading `items[v.instance_index]`,
+/// each at its entity's transform and tint.
 /// # Safety
 /// `ctx` is live or null.
 #[unsafe(no_mangle)]

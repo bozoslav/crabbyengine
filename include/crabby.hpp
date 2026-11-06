@@ -2719,8 +2719,18 @@ public:
     void write_gpu_buffer(gpu_buffer b, uint32_t offset, const std::vector<std::array<float, 4>>& data) {
         detail::check(crabby_ctx_write_gpu_buffer(raw_, b, offset, reinterpret_cast<const float (*)[4]>(data.data()), data.size()));
     }
+    /// Frees a GPU buffer; its compute passes are removed and meshes using
+    /// it draw nothing. The next buffer made reuses its id: drop the handle.
+    void free_gpu_buffer(gpu_buffer b) { detail::check(crabby_ctx_free_gpu_buffer(raw_, b)); }
+    /// Draws `count` instances of a mesh from a GPU buffer, each at its
+    /// entity's transform and tint (`items[v.instance_index]` in the shader).
     void set_mesh_gpu_buffer(mesh m, gpu_buffer b, uint32_t count) {
         detail::check(crabby_ctx_set_mesh_gpu_buffer(raw_, m, b, count));
+    }
+    /// Grows a mesh's culling bounds by the sphere `center`, `radius`: where
+    /// its buffer-driven instances can be.
+    void set_mesh_gpu_bounds(mesh m, vec3 center, float radius) {
+        detail::check(crabby_ctx_set_mesh_gpu_bounds(raw_, m, center, radius));
     }
     /// Loads a compute pass (WGSL defining `fn compute(c: Cell) -> vec4<f32>`)
     /// from assets/, hot reloaded; the same file again gives the same one.

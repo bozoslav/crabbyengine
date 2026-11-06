@@ -3483,6 +3483,13 @@ enum CrabbyStatus crabby_ctx_write_gpu_buffer(struct CrabbyCtx *ctx,
                                               const float (*data)[4],
                                               size_t count);
 
+enum CrabbyStatus crabby_ctx_free_gpu_buffer(struct CrabbyCtx *ctx, struct CrabbyGpuBuffer buffer);
+
+enum CrabbyStatus crabby_ctx_set_mesh_gpu_bounds(struct CrabbyCtx *ctx,
+                                                 struct CrabbyMesh mesh,
+                                                 struct CrabbyVec3 center,
+                                                 float radius);
+
 enum CrabbyStatus crabby_ctx_set_mesh_gpu_buffer(struct CrabbyCtx *ctx,
                                                  struct CrabbyMesh mesh,
                                                  struct CrabbyGpuBuffer buffer,

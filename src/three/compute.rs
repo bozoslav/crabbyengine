@@ -3,7 +3,7 @@
 //! trails, wet ground, ripples, heat, fog of war).
 
 use super::Material;
-use crate::{Ctx, Texture};
+use crate::{Ctx, Texture, Vec3};
 
 /// A compute pass shader, made with [`Ctx::load_compute`] or
 /// [`Ctx::create_compute`]; a cheap handle. Run it by adding a
@@ -254,22 +254,31 @@ impl GpuBuffer {
 }
 impl Ctx {
     /// Creates `len` elements. Initial data may be empty or exactly `len` elements.
+    /// A freed buffer's id is reused first (see [`Ctx::free_gpu_buffer`]).
     /// Panics for zero length or mismatched data. See [`GpuBuffer`].
     pub fn create_gpu_buffer(&mut self, len: u32, data: &[crate::Vec4]) -> GpuBuffer {
         assert!(
             len > 0 && (data.is_empty() || data.len() == len as usize),
             "invalid GPU buffer length"
         );
-        let id = self.assets3d.gpu_buffers.len() as u32;
+        let id = match self.assets3d.free_gpu_buffers.pop() {
+            Some(id) => {
+                self.assets3d.gpu_buffers[id as usize] = len;
+                id
+            }
+            None => {
+                self.assets3d.gpu_buffers.push(len);
+                self.assets3d.gpu_buffers.len() as u32 - 1
+            }
+        };
         if let Some(r) = self.renderer.as_mut()
             && !self.headless
         {
-            r.create_gpu_buffer(len, data);
+            r.create_gpu_buffer(id, len, data);
         }
-        self.assets3d.gpu_buffers.push(len);
         GpuBuffer { id }
     }
-    /// Number of elements, or `None` for an invalid handle.
+    /// Number of elements, or `None` for an invalid or freed handle.
     /// ```
     /// # use crabbyengine::*;
     /// Game::new("b", 1, 1).run_headless(0, |ctx| {
@@ -277,7 +286,44 @@ impl Ctx {
     /// });
     /// ```
     pub fn gpu_buffer_len(&self, b: GpuBuffer) -> Option<u32> {
-        self.assets3d.gpu_buffers.get(b.id as usize).copied()
+        self.assets3d
+            .gpu_buffers
+            .get(b.id as usize)
+            .copied()
+            .filter(|&len| len > 0)
+    }
+    /// Frees `b`'s GPU memory, for effects that come and go. Its compute
+    /// passes are removed from [`Ctx::compute_passes`] and meshes drawing
+    /// from it draw nothing (they can be bound to another buffer again).
+    /// Drop the handle: the next buffer made takes its id, and an old handle
+    /// would reach that one. Freeing it again does nothing (until a new
+    /// buffer takes its id).
+    /// ```
+    /// # use crabbyengine::*;
+    /// Game::new("b", 1, 1).run_headless(0, |ctx| {
+    ///     let b = ctx.create_gpu_buffer(8, &[]);
+    ///     ctx.free_gpu_buffer(b);
+    ///     assert_eq!(ctx.gpu_buffer_len(b), None);
+    ///     // The id is reused.
+    ///     assert_eq!(ctx.create_gpu_buffer(4, &[]), b);
+    /// });
+    /// ```
+    pub fn free_gpu_buffer(&mut self, b: GpuBuffer) {
+        let Some(len) = self.assets3d.gpu_buffers.get_mut(b.id as usize) else {
+            return;
+        };
+        if *len == 0 {
+            return;
+        }
+        *len = 0;
+        self.assets3d.free_gpu_buffers.push(b.id);
+        // Clear what pointed at it, so the id's next buffer starts clean.
+        self.compute_passes.retain(|p| p.buffer != Some(b));
+        if let Some(r) = self.renderer.as_mut()
+            && !self.headless
+        {
+            r.free_gpu_buffer(b.id);
+        }
     }
     /// Updates a range before the next frame. Panics for invalid handles or ranges.
     /// See [`GpuBuffer`] for an example.
@@ -295,15 +341,25 @@ impl Ctx {
         }
     }
     /// Draws a mesh as `count` GPU instances, using `items[v.instance_index]`
-    /// in its custom vertex shader. Instances use identity transforms and white
-    /// tint; the model's transform only controls CPU visibility. Use a generous
-    /// mesh bound and disable occlusion culling for shader-displaced geometry.
-    /// Unsupported GPUs draw nothing. Panics for invalid handles or count.
+    /// in its custom vertex shader. Every instance is drawn at its entity's
+    /// transform and tint, like a normal model: the shader receives the
+    /// vertex already placed there (`v.position`, `v.origin` is the entity's
+    /// position) and moves it by what it reads from `items`, in world axes. A
+    /// particle emitter therefore follows its entity. One draw per entity;
+    /// use one entity per emitter.
+    ///
+    /// The entity is culled by the mesh's bounds, which don't know where the
+    /// shader puts the instances: give the whole simulation's extent (in the
+    /// entity's space, around the entity) with
+    /// [`Ctx::set_mesh_gpu_bounds`]. Disable occlusion culling for
+    /// shader-displaced geometry. Unsupported GPUs draw nothing. Panics for
+    /// invalid handles or count.
     /// ```no_run
     /// # use crabbyengine::*;
     /// # fn f(ctx: &mut Ctx, mesh: Mesh) {
     /// let b = ctx.create_gpu_buffer(100, &[]);
     /// ctx.set_mesh_gpu_buffer(mesh, b, 100);
+    /// ctx.set_mesh_gpu_bounds(mesh, Vec3::ZERO, 10.0);
     /// # }
     /// ```
     pub fn set_mesh_gpu_buffer(&mut self, mesh: super::Mesh, b: GpuBuffer, count: u32) {
@@ -317,5 +373,81 @@ impl Ctx {
         {
             r.set_mesh_gpu_buffer(mesh.id, b.id, count);
         }
+    }
+    /// Grows `mesh`'s culling bounds to also hold the sphere at `center`
+    /// with `radius`, in the mesh's space: where a buffer-driven
+    /// simulation (see [`Ctx::set_mesh_gpu_buffer`]) can put its instances.
+    /// The result is the mesh's own bounds united with the sphere; calling it
+    /// again replaces the sphere. Panics for a freed mesh or a negative or
+    /// non-finite radius.
+    /// ```
+    /// # use crabbyengine::*;
+    /// Game::new("b", 1, 1).run_headless(0, |ctx| {
+    ///     let material = ctx.default_material();
+    ///     let mesh = ctx.create_mesh(&MeshData::cube(0.1), material);
+    ///     ctx.set_mesh_gpu_bounds(mesh, Vec3::Y * 5.0, 6.0);
+    /// });
+    /// ```
+    pub fn set_mesh_gpu_bounds(&mut self, mesh: super::Mesh, center: Vec3, radius: f32) {
+        assert!(
+            radius >= 0.0 && radius.is_finite() && center.is_finite(),
+            "invalid bounds"
+        );
+        assert!(self.is_mesh_live(mesh), "invalid mesh");
+        let own = *self
+            .assets3d
+            .gpu_mesh_bounds
+            .entry(mesh.id)
+            .or_insert_with(|| self.assets3d.bounds[mesh.id as usize]);
+        self.assets3d.bounds[mesh.id as usize] = union_spheres(own, (center, radius));
+    }
+}
+
+/// The smallest sphere holding both spheres (center, radius).
+fn union_spheres(a: (Vec3, f32), b: (Vec3, f32)) -> (Vec3, f32) {
+    let d = b.0 - a.0;
+    let distance = d.length();
+    if distance + b.1 <= a.1 {
+        return a;
+    }
+    if distance + a.1 <= b.1 {
+        return b;
+    }
+    let radius = (distance + a.1 + b.1) * 0.5;
+    (a.0 + d * ((radius - a.1) / distance), radius)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vec3;
+
+    #[test]
+    fn gpu_bounds_grow_the_culling_sphere_of_a_buffer_mesh() {
+        crate::Game::new("bounds", 1, 1).run_headless(0, |ctx| {
+            let material = ctx.default_material();
+            let mesh = ctx.create_mesh(&crate::MeshData::cube(0.5), material);
+            let own = ctx.assets3d.bounds[mesh.id as usize];
+            ctx.set_mesh_gpu_bounds(mesh, Vec3::Y * 10.0, 2.0);
+            let grown = ctx.assets3d.bounds[mesh.id as usize];
+            assert!(grown.1 > own.1 + 5.0);
+            // Calling again replaces the sphere instead of piling on.
+            ctx.set_mesh_gpu_bounds(mesh, Vec3::Y * 10.0, 2.0);
+            assert_eq!(ctx.assets3d.bounds[mesh.id as usize], grown);
+            // A freed mesh's slot starts over.
+            ctx.free_mesh(mesh);
+            let again = ctx.create_mesh(&crate::MeshData::cube(0.5), material);
+            assert_eq!((again, ctx.assets3d.bounds[again.id as usize]), (mesh, own));
+        });
+    }
+
+    #[test]
+    fn union_holds_both_spheres() {
+        let (a, b) = ((vec3(0.0, 0.0, 0.0), 1.0), (vec3(10.0, 0.0, 0.0), 2.0));
+        let (c, r) = union_spheres(a, b);
+        assert!(c.distance(a.0) + a.1 <= r + 1e-4 && c.distance(b.0) + b.1 <= r + 1e-4);
+        assert!((r - 6.5).abs() < 1e-4);
+        assert_eq!(union_spheres(a, (vec3(0.5, 0.0, 0.0), 0.1)), a);
+        assert_eq!(union_spheres((vec3(0.5, 0.0, 0.0), 0.1), a), a);
     }
 }
