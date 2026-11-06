@@ -134,12 +134,31 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
             crabby_ctx_set_post(
                 ctx,
                 &CrabbyPost {
-                    anti_aliasing: 3,
+                    anti_aliasing: 4,
                     ..post
                 }
             ),
             CRABBY_OK
         );
+        assert_ne!(
+            crabby_ctx_set_post(
+                ctx,
+                &CrabbyPost {
+                    taa_sharpness: 2.0,
+                    ..post
+                }
+            ),
+            CRABBY_OK
+        );
+        // Temporal antialiasing, sharpened less, and a camera cut.
+        let taa = CrabbyPost {
+            anti_aliasing: 3,
+            taa_sharpness: 0.5,
+            ..post
+        };
+        assert_eq!(crabby_ctx_set_post(ctx, &taa), CRABBY_OK);
+        assert_eq!(crabby_ctx_reset_temporal_history(ctx), CRABBY_OK);
+        assert_eq!(crabby_ctx_set_post(ctx, &post), CRABBY_OK);
         assert_ne!(
             crabby_ctx_set_post(
                 ctx,
@@ -240,7 +259,7 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
             },
             CrabbyGraphicsQuality { ao_slices: 0, ..q },
             CrabbyGraphicsQuality { ao_steps: 17, ..q },
-            CrabbyGraphicsQuality { anti_aliasing: 3, ..q },
+            CrabbyGraphicsQuality { anti_aliasing: 4, ..q },
             CrabbyGraphicsQuality {
                 shadow_distance: f32::NAN,
                 ..q

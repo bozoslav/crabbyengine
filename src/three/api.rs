@@ -790,6 +790,25 @@ impl Ctx {
         self.frame3d.instances.len()
     }
 
+    /// Makes [`AntiAliasing::Taa`](super::AntiAliasing::Taa) forget the
+    /// frames before this one: call it when the camera cuts to somewhere
+    /// else (a teleport, a new scene), so the old view does not blend into
+    /// the new one. The engine resets by itself on a window resize, when
+    /// temporal antialiasing is turned on, and when the camera jumps far or
+    /// turns sharply in one frame. Harmless with the other modes.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// Game::new("t", 1, 1).run_headless(1, |ctx| {
+    ///     ctx.post.anti_aliasing = AntiAliasing::Taa;
+    ///     ctx.camera3d.position = vec3(500.0, 2.0, 0.0);
+    ///     ctx.reset_temporal_history();
+    /// });
+    /// ```
+    pub fn reset_temporal_history(&mut self) {
+        self.frame3d.motion.reset = true;
+    }
+
     /// Engine side, before drawing: collect the visible models and hand
     /// them, the camera and the light to the renderer.
     /// What each target camera into a real render target sees.
@@ -1088,6 +1107,7 @@ impl Ctx {
         };
         self.frame3d.size_limit = renderer.max_texture_size();
         self.frame3d.lod = self.lod;
+        self.frame3d.motion.enabled = self.post.anti_aliasing == super::AntiAliasing::Taa;
         self.frame3d
             .collect(&mut self.world, &self.assets3d, &skins, &self.camera3d, &self.lighting);
         self.frame3d.skins = skins;
@@ -1122,6 +1142,7 @@ impl Ctx {
             time,
         };
         renderer.prepare_3d(&scene, collect_ms);
+        self.frame3d.motion.reset = false;
     }
 }
 

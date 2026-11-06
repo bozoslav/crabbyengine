@@ -287,8 +287,19 @@ static void three_d() {
         CHECK(ctx.post().tonemap == uint32_t(crabby::tonemap::neutral));
         CHECK(ctx.post().ao_enabled && ctx.post().ao_radius == 2 && ctx.post().ao_steps == 8);
         CHECK(ctx.post().anti_aliasing == uint32_t(crabby::anti_aliasing::smaa));
-        auto invalid_post = post; invalid_post.anti_aliasing = 3;
+        auto invalid_post = post; invalid_post.anti_aliasing = 4;
         throws([&] { ctx.set_post(invalid_post); });
+        invalid_post = post; invalid_post.taa_sharpness = 2;
+        throws([&] { ctx.set_post(invalid_post); });
+        {
+            auto temporal = post;
+            temporal.anti_aliasing = uint32_t(crabby::anti_aliasing::taa);
+            temporal.taa_sharpness = 0.5f;
+            ctx.set_post(temporal);
+            ctx.reset_temporal_history();
+            CHECK(ctx.post().anti_aliasing == 3 && ctx.post().taa_sharpness == 0.5f);
+            ctx.set_post(post);
+        }
         invalid_post = post; invalid_post.ao_radius = 0;
         throws([&] { ctx.set_post(invalid_post); });
         post.saturation = -1;

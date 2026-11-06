@@ -15,6 +15,12 @@
 //! 5. **post**: exposure, bloom, color grading and tone mapping, onto the
 //!    screen.
 //!
+//! With temporal antialiasing, the camera also jitters by a sub-pixel amount
+//! each frame, the lit frame goes into its own image, models that moved
+//! since the last frame are drawn again for their motion vectors (after the
+//! opaque pass), and the post pass starts by resolving the frame with the
+//! history into the HDR target (see `taa.rs`).
+//!
 //! Sprites and UI are drawn on top afterwards, without tone mapping.
 
 use std::ops::Range;
@@ -24,6 +30,7 @@ use wgpu::util::DeviceExt;
 
 use super::gpu::GpuTexture;
 use super::lights::LightTextures;
+use super::taa::{self, Taa};
 use super::timer::GpuTimer;
 
 // Native command recording uses rayon; browser GPU handles stay on one thread.
@@ -97,6 +104,7 @@ const SHADOW_PASSES: [&str; 8] = [
     "shadows 7",
 ];
 use crate::Material;
+use crate::three::motion::MovedInstance;
 use crate::three::{
     FADED, GpuMaterialDesc, Instance3D, MAX_CASCADES, MAX_LIGHT_SHADOW_VIEWS, MAX_SHADOW_VIEWS, MaterialTextures,
     MeshData, PostUniform, linear, scaled_size, shadow_views,
@@ -164,6 +172,12 @@ struct FrameUniform {
     /// lookup moves along the normal (in texels).
     light_shadow: [f32; 4],
     probes: [crate::three::probe::ProbeUniform; 4],
+    /// The camera without the temporal antialiasing jitter, and last
+    /// frame's (the same without TAA).
+    unjittered_view_proj: [[f32; 4]; 4],
+    previous_view_proj: [[f32; 4]; 4],
+    /// xy: this frame's jitter in pixels.
+    jitter: [f32; 4],
 }
 
 #[path = "skinning.rs"]
@@ -187,6 +201,14 @@ const VERTEX_ATTRIBUTES: [wgpu::VertexAttribute; 5] =
 const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
     3 => Float32x4, 4 => Float32x4, 5 => Float32x4, 6 => Float32x4, // model matrix
     7 => Float32x4, // tint
+];
+
+/// A moved model for the motion pass: the instance, then last frame's model
+/// matrix.
+const MOVED_ATTRIBUTES: [wgpu::VertexAttribute; 9] = wgpu::vertex_attr_array![
+    3 => Float32x4, 4 => Float32x4, 5 => Float32x4, 6 => Float32x4, // model matrix
+    7 => Float32x4, // tint
+    10 => Float32x4, 11 => Float32x4, 12 => Float32x4, 13 => Float32x4, // last frame's matrix
 ];
 
 struct GpuMesh {
@@ -230,6 +252,8 @@ struct Pipelines {
     shadow_cutout: wgpu::RenderPipeline,
     /// Solid surfaces lit without a prepass: they write their own depth.
     opaque_solid: wgpu::RenderPipeline,
+    /// Motion vectors of moved models, over the opaque pass's depth.
+    velocity: wgpu::RenderPipeline,
 }
 
 /// The built-in parts of every material shader.
@@ -363,6 +387,8 @@ const BLOOM_SCATTER: f64 = 0.7;
 /// Scene-sized targets: the window's size times `Post::render_scale`.
 struct Targets {
     ao: Option<super::screen::AoTargets>,
+    /// With temporal antialiasing: the lit frame's image, history and motion.
+    taa: Option<super::taa::TaaTargets>,
     ldr: Option<wgpu::TextureView>,
     aa_group: Option<wgpu::BindGroup>,
     /// With a render scale other than 1: the tone mapped (and antialiased)
@@ -399,6 +425,24 @@ struct Targets {
     bloom_down: Vec<wgpu::BindGroup>,
     bloom_up: Vec<wgpu::BindGroup>,
     size: (u32, u32),
+}
+
+impl Targets {
+    /// What the 3D passes resolve the lit frame into: `hdr`, or with
+    /// temporal antialiasing its input image (the resolve then writes `hdr`).
+    fn lit_view(&self, taa: bool) -> &wgpu::TextureView {
+        match &self.taa {
+            Some(t) if taa => &t.input_view,
+            _ => &self.hdr,
+        }
+    }
+
+    fn lit_texture(&self, taa: bool) -> &wgpu::Texture {
+        match &self.taa {
+            Some(t) if taa => &t.input,
+            _ => &self.hdr_texture,
+        }
+    }
 }
 
 /// (mesh, first instance, count): one instanced draw of a mesh.
@@ -537,6 +581,23 @@ pub(crate) struct Renderer3D {
     output_format: wgpu::TextureFormat,
     aa: crate::AntiAliasing,
     smaa: Option<super::smaa::Smaa>,
+    /// Temporal antialiasing: the resolve pass (made when first used), and
+    /// whether this device can run it (WebGL2 can't: FXAA stands in).
+    taa: Option<super::taa::Taa>,
+    taa_supported: bool,
+    /// Whether this frame is resolved by it.
+    taa_on: bool,
+    /// Frames drawn with it in a row (the jitter's position).
+    taa_frame: u32,
+    /// Which history image the next frame reads, and the one this frame does.
+    taa_read: usize,
+    taa_frame_read: usize,
+    /// The last frame's unjittered camera, when its image is in the history.
+    taa_previous: Option<Mat4>,
+    /// Models that moved: their instances (see `MovedInstance`) and runs.
+    moved: wgpu::Buffer,
+    moved_capacity: usize,
+    moved_runs: Vec<Run>,
     ao: Option<super::screen::Ao>,
     ao_enabled: bool,
     dummy_depth: wgpu::TextureView,
@@ -1217,6 +1278,16 @@ impl Renderer3D {
             output_format: format,
             aa: crate::AntiAliasing::None,
             smaa: None,
+            taa: None,
+            taa_supported: can_compute(device),
+            taa_on: false,
+            taa_frame: 0,
+            taa_read: 0,
+            taa_frame_read: 0,
+            taa_previous: None,
+            moved: Self::moved_buffer(device, 16),
+            moved_capacity: 16,
+            moved_runs: Vec::new(),
             ao: None,
             ao_enabled: false,
             dummy_depth,
@@ -1416,6 +1487,15 @@ impl Renderer3D {
     pub fn add_texture_array(&mut self, texture: &wgpu::Texture) -> u32 {
         self.arrays.push(array_view(texture));
         self.arrays.len() as u32 - 1
+    }
+
+    fn moved_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("3d moved instances"),
+            size: (capacity * size_of::<MovedInstance>()) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        })
     }
 
     fn instance_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
@@ -1651,10 +1731,34 @@ impl Renderer3D {
             0,
             bytemuck::bytes_of(&PostUniform::new(post, lut.map(|(_, n)| n)).scaled(post, size, window)),
         );
-        self.particles.prepare(device, queue, &frame.particles, frame.view_proj);
         self.lut = lut.map_or(self.white, |(id, _)| id);
         self.bloom = post.bloom > 0.0;
-        self.aa = post.anti_aliasing;
+        // Temporal antialiasing needs compute-class devices; the others get FXAA.
+        self.taa_on = post.anti_aliasing == crate::AntiAliasing::Taa && self.taa_supported;
+        self.aa = match post.anti_aliasing {
+            crate::AntiAliasing::Taa if !self.taa_supported => crate::AntiAliasing::Fxaa,
+            aa => aa,
+        };
+        if self.taa_on && self.taa.is_none() {
+            self.taa = Some(Taa::new(device));
+        }
+        // The camera the frame is drawn with: jittered by a sub-pixel amount
+        // with TAA (depth, GTAO and particles all use it), and the one that
+        // moves are measured with.
+        let unjittered = frame.view_proj;
+        let jitter = if self.taa_on {
+            taa::jitter(self.taa_frame)
+        } else {
+            [0.0; 2]
+        };
+        let view_proj = if self.taa_on {
+            taa::jittered(unjittered, jitter, size)
+        } else {
+            unjittered
+        };
+        let previous_view_proj = self.taa_previous.filter(|_| self.taa_on).unwrap_or(unjittered);
+        self.moved_runs.clear();
+        self.particles.prepare(device, queue, &frame.particles, view_proj);
         self.ao_enabled = post.ambient_occlusion.enabled
             && post.ambient_occlusion.radius.is_finite()
             && post.ambient_occlusion.intensity.is_finite()
@@ -1665,7 +1769,7 @@ impl Renderer3D {
             self.ao = Some(super::screen::Ao::new(device));
         }
         if let Some(ao) = &self.ao {
-            ao.prepare(queue, frame.view_proj, camera, &post.ambient_occlusion);
+            ao.prepare(queue, view_proj, camera, &post.ambient_occlusion);
         }
         if self.targets.as_ref().is_some_and(|t| t.size != size) || self.aa != crate::AntiAliasing::Smaa {
             self.smaa = None;
@@ -1780,6 +1884,15 @@ impl Renderer3D {
             }
             at += view.frame.instances.len();
         }
+        if self.taa_on && !frame.motion.runs.is_empty() {
+            let moved = &frame.motion.instances;
+            if moved.len() > self.moved_capacity {
+                self.moved_capacity = moved.len().next_power_of_two();
+                self.moved = Self::moved_buffer(device, self.moved_capacity);
+            }
+            queue.write_buffer(&self.moved, 0, bytemuck::cast_slice(moved));
+            self.moved_runs.extend_from_slice(&frame.motion.runs);
+        }
         let scaled = |c, k: f32| {
             let [r, g, b, _] = linear(c);
             [r * k, g * k, b * k, 0.0]
@@ -1815,7 +1928,10 @@ impl Renderer3D {
             ],
             cluster_depth: cluster_depth(frame),
             cluster_view_proj: frame.view_proj.to_cols_array_2d(),
-            view_proj: frame.view_proj.to_cols_array_2d(),
+            view_proj: view_proj.to_cols_array_2d(),
+            unjittered_view_proj: unjittered.to_cols_array_2d(),
+            previous_view_proj: previous_view_proj.to_cols_array_2d(),
+            jitter: [jitter[0], jitter[1], 0.0, 0.0],
             sun_view_proj: frame.sun_view_proj.map(|m| m.to_cols_array_2d()),
             caster_view_proj: Mat4::IDENTITY.to_cols_array_2d(),
             camera: camera.extend(1.0).to_array(),
@@ -1833,7 +1949,7 @@ impl Renderer3D {
             ],
             cascade_texel: frame.cascade_texel,
             time: [time.0, time.1, 0.0, 0.0],
-            inv_view_proj: frame.view_proj.inverse().to_cols_array_2d(),
+            inv_view_proj: view_proj.inverse().to_cols_array_2d(),
             screen: [
                 size.0 as f32,
                 size.1 as f32,
@@ -1924,6 +2040,10 @@ impl Renderer3D {
             theirs.cluster_view_proj = view.frame.view_proj.to_cols_array_2d();
             theirs.view_proj = view.view_proj.to_cols_array_2d();
             theirs.inv_view_proj = view.view_proj.inverse().to_cols_array_2d();
+            // Target cameras are not resolved over time.
+            theirs.unjittered_view_proj = theirs.view_proj;
+            theirs.previous_view_proj = theirs.view_proj;
+            theirs.jitter = [0.0; 4];
             theirs.camera = view.camera.extend(1.0).to_array();
             theirs.screen = [
                 view.size.0 as f32,
@@ -1957,15 +2077,18 @@ impl Renderer3D {
                 bytemuck::bytes_of(&uniform),
             );
         }
+        let mut rebuilt = false;
         // Targets made for settings that have since changed (a different
         // size, or an effect turned on or off) are replaced; the old ones
         // are freed once the commands that used them have run.
         if self.targets.as_ref().is_none_or(|t| {
             t.size != size
                 || t.ao.is_some() != self.ao_enabled
+                || t.taa.is_some() != self.taa_on
                 || t.ldr.is_some() != (self.aa == crate::AntiAliasing::Fxaa)
                 || t.upscale.is_some() != upscaled
         }) {
+            rebuilt = true;
             let texture = |label, format, samples, usage| {
                 device.create_texture(&wgpu::TextureDescriptor {
                     label: Some(label),
@@ -2089,8 +2212,14 @@ impl Renderer3D {
                 .filter(|_| self.ao_enabled)
                 .map(|ao| ao.targets(device, size, &depth, &self.scene_layout, &self.black, &self.dummy_depth));
             let n = bloom_mips.len();
+            let taa = self
+                .taa
+                .as_ref()
+                .filter(|_| self.taa_on)
+                .map(|t| t.targets(device, size, self.samples, &depth));
             self.targets = Some(Targets {
                 ao,
+                taa,
                 ldr,
                 aa_group,
                 upscale,
@@ -2112,6 +2241,31 @@ impl Renderer3D {
                 hdr,
                 size,
             });
+        }
+        // Temporal antialiasing: this frame's resolve, and what the next reads.
+        if !self.taa_on {
+            self.taa_previous = None;
+        } else if self.has_draws() {
+            let reset =
+                frame.motion.reset || rebuilt || self.taa_previous.is_none_or(|before| camera_cut(before, unjittered));
+            if let Some(taa) = &self.taa {
+                taa.prepare(
+                    queue,
+                    &taa::Resolve {
+                        jittered: view_proj,
+                        current: unjittered,
+                        previous: previous_view_proj,
+                        input_size: size,
+                        output_size: size,
+                        sharpness: post.taa_sharpness,
+                        reset,
+                    },
+                );
+            }
+            self.taa_previous = Some(unjittered);
+            self.taa_frame = self.taa_frame.wrapping_add(1);
+            self.taa_frame_read = self.taa_read;
+            self.taa_read ^= 1;
         }
     }
 
@@ -2289,8 +2443,18 @@ impl Renderer3D {
             + self.particles.draw_count()
             + self.effects.len()
             + usize::from(self.ao_enabled) * 2
+            + if self.taa_on {
+                // The resolve, and the motion pass (one draw per moved part).
+                1 + self
+                    .moved_runs
+                    .iter()
+                    .map(|&(mesh, _, _)| self.meshes[self.base(mesh) as usize].parts.len())
+                    .sum::<usize>()
+            } else {
+                0
+            }
             + match self.aa {
-                crate::AntiAliasing::None => 0,
+                crate::AntiAliasing::None | crate::AntiAliasing::Taa => 0,
                 crate::AntiAliasing::Fxaa => 1,
                 crate::AntiAliasing::Smaa => 3,
             }
@@ -2555,7 +2719,7 @@ impl Renderer3D {
                 pass.set_bind_group(0, &self.shadow_bind_group, &[offset]);
                 pass.set_bind_group(2, &self.no_scene, &[]);
                 let runs = &self.shadow_runs[cascade][first as usize..end as usize];
-                self.draw_models(&mut pass, runs, Kind::Shadow);
+                self.draw_models(&mut pass, runs, Kind::Shadow, &self.instances);
             }
             Part::Views => {
                 // Target cameras, before the main view, whose materials may read them.
@@ -2586,7 +2750,7 @@ impl Renderer3D {
                 });
                 pass.set_bind_group(0, &self.frame_bind_group, &[]);
                 pass.set_bind_group(2, &self.no_scene, &[]);
-                self.draw_models(&mut pass, &self.runs, Kind::Prepass);
+                self.draw_models(&mut pass, &self.runs, Kind::Prepass, &self.instances);
                 drop(pass);
                 if self.ao_enabled {
                     self.ao.as_ref().unwrap().draw(encoder, targets.ao.as_ref().unwrap());
@@ -2599,7 +2763,7 @@ impl Renderer3D {
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                             view: &targets.color,
                             depth_slice: None,
-                            resolve_target: Some(&targets.hdr),
+                            resolve_target: Some(targets.lit_view(self.taa_on)),
                             ops: wgpu::Operations {
                                 // Alpha 0 marks the background for the post pass.
                                 load: wgpu::LoadOp::Clear(wgpu::Color { a: 0.0, ..clear }),
@@ -2614,9 +2778,9 @@ impl Renderer3D {
                             view: &targets.depth,
                             depth_ops: Some(wgpu::Operations {
                                 load: wgpu::LoadOp::Load,
-                                // Later passes read it; without a solid
-                                // prepass, it's only complete here.
-                                store: if split || !(self.solid_prepass || self.ao_enabled) {
+                                // Later passes read it (the motion pass too);
+                                // without a solid prepass, it's only complete here.
+                                store: if split || self.taa_on || !(self.solid_prepass || self.ao_enabled) {
                                     wgpu::StoreOp::Store
                                 } else {
                                     wgpu::StoreOp::Discard
@@ -2638,7 +2802,7 @@ impl Renderer3D {
                         },
                         &[],
                     );
-                    self.draw_models(&mut pass, &self.runs, Kind::Opaque);
+                    self.draw_models(&mut pass, &self.runs, Kind::Opaque, &self.instances);
                     if self.atmosphere {
                         pass.set_pipeline(&self.sky);
                         pass.set_bind_group(0, &self.frame_bind_group, &[]);
@@ -2654,24 +2818,54 @@ impl Renderer3D {
                         );
                     }
                     if !split {
-                        self.draw_models(&mut pass, &self.runs, Kind::Transparent);
+                        self.draw_models(&mut pass, &self.runs, Kind::Transparent, &self.instances);
                         self.particles.draw(&mut pass, textures, self.white);
                     }
+                }
+                if self.taa_on
+                    && let Some(taa) = &targets.taa
+                {
+                    // Motion of the models that moved, over the final depth
+                    // (read-only); everything else moves with the camera.
+                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("3d motion vectors"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &taa.velocity_color,
+                            depth_slice: None,
+                            resolve_target: Some(taa.velocity()),
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                                store: wgpu::StoreOp::Discard,
+                            },
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: &targets.depth,
+                            depth_ops: None,
+                            stencil_ops: None,
+                        }),
+                        timestamp_writes: time("motion vectors"),
+                        occlusion_query_set: None,
+                        multiview_mask: None,
+                    });
+                    pass.set_bind_group(0, &self.frame_bind_group, &[]);
+                    pass.set_bind_group(2, &self.no_scene, &[]);
+                    self.draw_models(&mut pass, &self.moved_runs, Kind::Velocity, &self.moved);
                 }
             }
             Part::Transparent => {
                 if split {
+                    let lit = targets.lit_texture(self.taa_on);
                     encoder.copy_texture_to_texture(
-                        targets.hdr_texture.as_image_copy(),
+                        lit.as_image_copy(),
                         targets.scene_texture.as_image_copy(),
-                        targets.hdr_texture.size(),
+                        lit.size(),
                     );
                     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("3d transparent"),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                             view: &targets.color,
                             depth_slice: None,
-                            resolve_target: Some(&targets.hdr),
+                            resolve_target: Some(targets.lit_view(self.taa_on)),
                             ops: wgpu::Operations {
                                 load: wgpu::LoadOp::Load,
                                 store: wgpu::StoreOp::Discard,
@@ -2689,11 +2883,18 @@ impl Renderer3D {
                     });
                     pass.set_bind_group(0, &self.frame_bind_group, &[]);
                     pass.set_bind_group(2, &targets.scene, &[]);
-                    self.draw_models(&mut pass, &self.runs, Kind::Transparent);
+                    self.draw_models(&mut pass, &self.runs, Kind::Transparent, &self.instances);
                     self.particles.draw(&mut pass, textures, self.white);
                 }
             }
             Part::Post => {
+                // Temporal antialiasing first: effects and bloom then see the
+                // settled image, in `hdr`.
+                if self.taa_on
+                    && let (Some(taa), Some(images)) = (&self.taa, &targets.taa)
+                {
+                    taa.draw(encoder, images, self.taa_frame_read, &targets.hdr, time("taa"));
+                }
                 // Screen effects, in order, swapping between `hdr` and the scene
                 // texture (free once the transparents are drawn): each reads the
                 // frame so far from one and writes the other, with no copies.
@@ -2789,7 +2990,7 @@ impl Renderer3D {
                     label: Some("3d post"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: match self.aa {
-                            crate::AntiAliasing::None => output,
+                            crate::AntiAliasing::None | crate::AntiAliasing::Taa => output,
                             crate::AntiAliasing::Fxaa => targets.ldr.as_ref().unwrap(),
                             crate::AntiAliasing::Smaa => self.smaa.as_ref().unwrap().input(),
                         },
@@ -2811,7 +3012,7 @@ impl Renderer3D {
                 pass.draw(0..3, 0..1);
                 drop(pass);
                 match self.aa {
-                    crate::AntiAliasing::None => {}
+                    crate::AntiAliasing::None | crate::AntiAliasing::Taa => {}
                     crate::AntiAliasing::Smaa => self.smaa.as_ref().unwrap().draw(encoder, output),
                     crate::AntiAliasing::Fxaa => {
                         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -2885,7 +3086,7 @@ impl Renderer3D {
             });
             pass.set_bind_group(0, &target.frame_bind_group, &[]);
             pass.set_bind_group(2, &self.no_scene, &[]);
-            self.draw_models(&mut pass, runs, Kind::Prepass);
+            self.draw_models(&mut pass, runs, Kind::Prepass, &self.instances);
         }
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("3d target camera"),
@@ -2912,12 +3113,24 @@ impl Renderer3D {
         });
         pass.set_bind_group(0, &target.frame_bind_group, &[]);
         pass.set_bind_group(2, &self.no_scene, &[]);
-        self.draw_models(&mut pass, runs, Kind::Opaque);
+        self.draw_models(&mut pass, runs, Kind::Opaque, &self.instances);
         if self.atmosphere {
             pass.set_pipeline(&self.sky);
             pass.set_bind_group(0, &target.frame_bind_group, &[]);
             pass.draw(0..3, 0..1);
         }
+    }
+
+    /// The motion vector image of the last frame (for tests).
+    #[cfg(test)]
+    pub(crate) fn velocity_texture(&self) -> Option<&wgpu::Texture> {
+        self.targets.as_ref()?.taa.as_ref().map(|t| &t.velocity_texture)
+    }
+
+    /// Whether this frame is resolved by temporal antialiasing (for tests).
+    #[cfg(test)]
+    pub(crate) fn taa_active(&self) -> bool {
+        self.taa_on
     }
 
     /// Whether a transparent surface this frame reads the scene behind it.
@@ -2942,8 +3155,14 @@ impl Renderer3D {
 
     /// The mesh parts of `runs` that `kind` draws, each with its material
     /// and all its models at once.
-    fn draw_models(&self, pass: &mut wgpu::RenderPass<'_>, runs: &[(u32, u32, u32)], kind: Kind) {
-        pass.set_vertex_buffer(1, self.instances.slice(..));
+    fn draw_models(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        runs: &[(u32, u32, u32)],
+        kind: Kind,
+        instances: &wgpu::Buffer,
+    ) {
+        pass.set_vertex_buffer(1, instances.slice(..));
         // Only what changes is set again: each `set_*` costs wgpu
         // validation and a Metal/Vulkan call per draw otherwise.
         let mut bound = None;
@@ -2991,6 +3210,7 @@ impl Renderer3D {
                     Kind::Opaque if !m.cutout && !(self.solid_prepass || self.ao_enabled) => &pipelines.opaque_solid,
                     Kind::Opaque => &pipelines.opaque,
                     Kind::Transparent => &pipelines.transparent,
+                    Kind::Velocity => &pipelines.velocity,
                 };
                 if bound != Some(pipeline as *const _) {
                     pass.set_pipeline(pipeline);
@@ -3017,6 +3237,8 @@ enum Kind {
     Prepass,
     Opaque,
     Transparent,
+    /// Motion vectors of the models that moved (temporal antialiasing).
+    Velocity,
 }
 
 /// A material shader's pipelines: depth prepass, opaque, transparent and
@@ -3211,6 +3433,24 @@ fn build_pipelines(
     }
 }
 
+/// Whether the camera `now` is a cut from the one `before`: it turned a
+/// lot or jumped far in one frame, so what was drawn then is no history.
+fn camera_cut(before: Mat4, now: Mat4) -> bool {
+    // Where the view starts and which way it looks.
+    let eye = |m: Mat4| {
+        let inverse = m.inverse();
+        let near = inverse.project_point3(Vec3::ZERO);
+        let far = inverse.project_point3(Vec3::Z);
+        (near, (far - near).normalize_or_zero())
+    };
+    let (a, b) = (eye(before), eye(now));
+    !(a.0.distance(b.0) < TAA_CUT_DISTANCE && a.1.dot(b.1) > TAA_CUT_ANGLE.cos())
+}
+
+/// A camera cut: this far apart (world units), or turned this much (radians).
+const TAA_CUT_DISTANCE: f32 = 50.0;
+const TAA_CUT_ANGLE: f32 = std::f32::consts::FRAC_PI_4;
+
 /// A frame's cluster mapping for the shader: the lights' near plane and
 /// slice scale, then how many decals there are and where their cell table
 /// starts in the light lists (in words).
@@ -3310,6 +3550,44 @@ impl SideBuilder {
                 cache: None,
             })
         };
+        // Moved models: only the motion, wherever the opaque pass drew them.
+        let moved_buffers = [
+            buffers[0].clone(),
+            Some(wgpu::VertexBufferLayout {
+                array_stride: size_of::<MovedInstance>() as u64,
+                step_mode: wgpu::VertexStepMode::Instance,
+                attributes: &MOVED_ATTRIBUTES,
+            }),
+        ];
+        let velocity_target = [Some(wgpu::ColorTargetState {
+            format: super::taa::VELOCITY_FORMAT,
+            blend: None,
+            write_mask: wgpu::ColorWrites::ALL,
+        })];
+        let velocity = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("3d motion vectors"),
+            layout: Some(layout),
+            vertex: wgpu::VertexState {
+                module,
+                entry_point: Some("vs_velocity"),
+                compilation_options: Default::default(),
+                buffers: &moved_buffers,
+            },
+            primitive: wgpu::PrimitiveState {
+                cull_mode: cull,
+                ..Default::default()
+            },
+            depth_stencil: depth(false, wgpu::CompareFunction::Equal, Default::default()),
+            multisample: msaa,
+            fragment: Some(wgpu::FragmentState {
+                module,
+                entry_point: Some("fs_velocity"),
+                compilation_options: Default::default(),
+                targets: &velocity_target,
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
         let shadow_bias = wgpu::DepthBiasState {
             constant: 2,
             slope_scale: 2.0,
@@ -3381,6 +3659,7 @@ impl SideBuilder {
             ),
             shadow: shadow(fade.then_some("fs_fade")),
             shadow_cutout: shadow(Some(depth_fragment)),
+            velocity,
         }
     }
 }
@@ -3436,6 +3715,15 @@ mod tests {
         for (name, offset) in [
             ("fog_far", std::mem::offset_of!(FrameUniform, fog_far)),
             ("probes", std::mem::offset_of!(FrameUniform, probes)),
+            (
+                "unjittered_view_proj",
+                std::mem::offset_of!(FrameUniform, unjittered_view_proj),
+            ),
+            (
+                "previous_view_proj",
+                std::mem::offset_of!(FrameUniform, previous_view_proj),
+            ),
+            ("jitter", std::mem::offset_of!(FrameUniform, jitter)),
             ("cluster_depth", std::mem::offset_of!(FrameUniform, cluster_depth)),
             (
                 "cluster_view_proj",

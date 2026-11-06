@@ -125,6 +125,8 @@ pub(crate) struct Frame3D {
     pub skins: SkinFrame,
     /// The global LOD settings to select with (set by the engine each frame).
     pub lod: LodSettings,
+    /// Which models moved since last frame (when temporal antialiasing is on).
+    pub motion: super::motion::Motion,
     scratch: Vec<Entry>,
     counts: Vec<u32>,
     /// Per model, which passes see it (see `collect`), kept between frames.
@@ -263,6 +265,7 @@ impl Frame3D {
         let light_planes = &light_planes[..self.light_views];
         self.instances.clear();
         self.runs.clear();
+        self.motion.begin();
         for runs in &mut self.shadow_runs {
             runs.clear();
         }
@@ -284,6 +287,7 @@ impl Frame3D {
         let sweep = lighting.shadow_distance * 2.0;
         let texels = self.cascade_texel;
         let scratch = &mut self.scratch;
+        let motion = &mut self.motion;
         // `meshes`: what the camera draws, then what each cascade's shadow
         // map draws (the same for models; coarser for distant terrain).
         // Which passes see a model: bit 0 the camera, bit 1 + i shadow view
@@ -346,7 +350,7 @@ impl Frame3D {
                 meshes[1]
             }
         };
-        let mut add_instance = |meshes: [u32; 1 + MAX_CASCADES], instance: Instance3D, flags: u32| {
+        let mut add_instance = |meshes: [u32; 1 + MAX_CASCADES], instance: Instance3D, flags: u32, key: u64| {
             let (seen, casts) = (flags & 1 != 0, flags >> 1);
             // One entry per distinct mesh, with the passes that draw it.
             let mut done = 0u32; // views already in an entry
@@ -361,6 +365,7 @@ impl Frame3D {
                 })
             };
             if seen {
+                motion.note(key, camera_mesh, &instance);
                 let mask = in_cascades(camera_mesh);
                 done |= mask;
                 scratch.push((camera_mesh, instance, true, mask));
@@ -409,6 +414,7 @@ impl Frame3D {
         let mut at = 0;
         world
             .query::<(
+                crate::Entity,
                 &Transform3D,
                 &Model,
                 Option<&ShadowMesh>,
@@ -416,7 +422,7 @@ impl Frame3D {
                 Option<&ReceivesDecals>,
             )>()
             .without::<SkinOf>()
-            .for_each(|(t, m, shadow, _, receives)| {
+            .for_each(|(e, t, m, shadow, _, receives)| {
                 let f = flags[at];
                 at += 1;
                 if f != 0
@@ -426,6 +432,7 @@ impl Frame3D {
                         meshes,
                         instance(t, linear(m.color), super::projected::receiver_mask(receives)),
                         f,
+                        e.to_bits(),
                     );
                 }
             });
@@ -446,7 +453,12 @@ impl Frame3D {
                 if f != 0
                     && let Some((mesh, _)) = shadow_only(shadow)
                 {
-                    add_instance([mesh; 1 + MAX_CASCADES], instance(t, [1.0; 4], all_decals), f);
+                    add_instance(
+                        [mesh; 1 + MAX_CASCADES],
+                        instance(t, [1.0; 4], all_decals),
+                        f,
+                        super::motion::NO_KEY,
+                    );
                 }
             });
         // Skinned models: each its own mesh, skinned on the GPU this frame.
@@ -458,7 +470,7 @@ impl Frame3D {
             let caster = assets.casts_shadows(d.mesh).then_some(d.bounds);
             let f = classify_at(d.matrix, d.scale, d.bounds, caster);
             if f != 0 {
-                add_instance([real_meshes + k as u32; 1 + MAX_CASCADES], d.instance, f);
+                add_instance([real_meshes + k as u32; 1 + MAX_CASCADES], d.instance, f, d.entity);
             }
         }
         // LOD groups: the level (or two, in a crossfade) the camera picks
@@ -502,7 +514,14 @@ impl Frame3D {
                                 model,
                                 color: linear(r.color),
                             };
-                            add_instance([r.mesh.id; 1 + MAX_CASCADES], instance.with_fade(fade), f);
+                            // No motion of their own for temporal antialiasing: they
+                            // reproject with the camera (scenery stays put).
+                            add_instance(
+                                [r.mesh.id; 1 + MAX_CASCADES],
+                                instance.with_fade(fade),
+                                f,
+                                super::motion::NO_KEY,
+                            );
                         }
                     });
                 }
@@ -513,8 +532,8 @@ impl Frame3D {
         // for finer detail to show.
         // A `ShadowMesh(None)` on the tile turns its shadow off.
         world
-            .query::<(&Transform3D, &TerrainTile, Option<&ShadowMesh>)>()
-            .for_each(|(t, tile, shadow)| {
+            .query::<(crate::Entity, &Transform3D, &TerrainTile, Option<&ShadowMesh>)>()
+            .for_each(|(e, t, tile, shadow)| {
                 let Some((center, radius)) = assets.live_bounds(tile.lods[0].id) else {
                     return;
                 };
@@ -533,10 +552,11 @@ impl Frame3D {
                     let casts = !matches!(shadow, Some(ShadowMesh(None)));
                     let f = classify(t, (center, radius), casts.then_some((center, radius)));
                     if f != 0 {
-                        add_instance(meshes, instance(t, [1.0; 4], all_decals), f);
+                        add_instance(meshes, instance(t, [1.0; 4], all_decals), f, e.to_bits());
                     }
                 }
             });
+        self.motion.finish();
         let meshes = assets.bounds.len() + skins.draws.len();
         let (counts, instances) = (&mut self.counts, &mut self.instances);
         self.visible = sort_runs(&self.scratch, |e| e.2, meshes, counts, instances, &mut self.runs);

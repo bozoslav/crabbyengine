@@ -54,6 +54,7 @@ pub(crate) use api::GpuMaterialDesc;
 #[cfg(feature = "window")]
 pub(crate) use api::MaterialTextures;
 pub use clip::{AnimationClip, AnimationTrack, Interpolation, JointAnimation, MorphAnimation};
+pub(crate) mod motion;
 #[cfg(feature = "window")]
 pub(crate) use collect::{FADED, Instance3D, MAX_CASCADES, MAX_SHADOW_VIEWS, shadow_views};
 pub(crate) use collect::{Frame3D, MAX_SHADOW_RESOLUTION, MIN_SHADOW_RESOLUTION, SHADOW_MAP_SIZE};

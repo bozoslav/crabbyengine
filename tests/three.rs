@@ -1000,6 +1000,21 @@ fn lod_groups_of_loaded_meshes_save_and_load_by_file_name() {
 }
 
 #[test]
+fn temporal_antialiasing_is_a_setting_and_can_forget_its_history() {
+    Game::new("taa settings", 64, 64).run_headless(1, |ctx| {
+        assert_eq!(ctx.post.taa_sharpness, 0.25);
+        // ANCHOR: taa
+        ctx.post.anti_aliasing = AntiAliasing::Taa;
+        ctx.post.taa_sharpness = 0.3; // it softens the image a little
+        // After teleporting the camera, forget the old view:
+        ctx.camera3d.position = vec3(400.0, 3.0, 0.0);
+        ctx.reset_temporal_history();
+        // ANCHOR_END: taa
+        assert_eq!(ctx.post.anti_aliasing, AntiAliasing::Taa);
+    });
+}
+
+#[test]
 fn ao_and_aa_settings_preserve_existing_defaults() {
     Game::new("post settings", 64, 64).run_headless(0, |ctx| {
         assert_eq!(ctx.post.anti_aliasing, AntiAliasing::None);

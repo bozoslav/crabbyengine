@@ -20,7 +20,8 @@ pub enum Tonemap {
     None = 3,
 }
 
-/// Post antialiasing, after tone mapping and before sprites/UI.
+/// Antialiasing of the 3D frame. FXAA and SMAA work on the tone mapped image
+/// before sprites/UI; [`Taa`](Self::Taa) works on the lit HDR frame.
 /// ```
 /// use crabbyengine::AntiAliasing;
 /// assert_eq!(AntiAliasing::default(), AntiAliasing::None);
@@ -35,6 +36,21 @@ pub enum AntiAliasing {
     Fxaa = 1,
     /// SMAA 1x, three full-screen passes.
     Smaa = 2,
+    /// Temporal antialiasing: the camera jitters by a sub-pixel amount each
+    /// frame, and the lit HDR frame (before bloom and tone mapping) is
+    /// blended with last frame's, reprojected along per-pixel motion and
+    /// clamped to the colors nearby, so edges and shading converge on
+    /// smooth ones while still. Costs a motion pass, a resolve pass and
+    /// three full-size HDR images.
+    ///
+    /// Moving models are tracked per entity; skinned models move with their
+    /// model matrix only (limbs bending between frames can ghost slightly),
+    /// and particles, transparent surfaces and [`LodGroup`](crate::LodGroup)s
+    /// have no motion of their own (they reproject with the camera and what's
+    /// behind them, and may smear a little when they move).
+    /// Needs compute-capable devices: WebGL2 draws with FXAA instead. See
+    /// [`Post::taa_sharpness`] and `Ctx::reset_temporal_history`.
+    Taa = 3,
 }
 
 /// Smallest and largest [`Post::render_scale`].
@@ -108,6 +124,9 @@ pub struct Post {
     pub ambient_occlusion: AmbientOcclusion,
     /// Post antialiasing. Default off to preserve existing scenes.
     pub anti_aliasing: AntiAliasing,
+    /// How much [`AntiAliasing::Taa`] sharpens the result (it softens the
+    /// image a little), 0 to 1. Default 0.25.
+    pub taa_sharpness: f32,
     /// Brightness in stops: +1 doubles the light, -1 halves it. Default 0.
     pub exposure: f32,
     /// How light maps to the screen. Default [`Tonemap::Aces`].
@@ -142,6 +161,7 @@ impl Default for Post {
             sharpen: 0.0,
             ambient_occlusion: AmbientOcclusion::default(),
             anti_aliasing: AntiAliasing::None,
+            taa_sharpness: 0.25,
             exposure: 0.0,
             tonemap: Tonemap::Aces,
             bloom: 0.05,
