@@ -79,7 +79,7 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
             ..light
         };
         ids.errors.push(crabby_ctx_set_lighting(ctx, &dark));
-        assert_eq!(light.shadow_cascades, 4);
+        assert_eq!((light.shadow_cascades, light.shadow_refresh), (4, 2));
         let many = CrabbyLighting {
             shadow_cascades: 5,
             ..light
@@ -269,6 +269,14 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
             },
             CrabbyLighting {
                 light_shadow_resolution: 64,
+                ..light
+            },
+            CrabbyLighting {
+                shadow_refresh: 0,
+                ..light
+            },
+            CrabbyLighting {
+                shadow_refresh: 9,
                 ..light
             },
         ] {

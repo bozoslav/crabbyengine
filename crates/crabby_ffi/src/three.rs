@@ -452,6 +452,9 @@ pub struct CrabbyLighting {
     pub light_shadow_views: u32,
     /// Width and height of each point or spot light shadow view, 128 to 2048.
     pub light_shadow_resolution: u32,
+    /// How often the far shadow cascades are drawn again, in frames, 1 to 8
+    /// (1: every frame). Default 2.
+    pub shadow_refresh: u32,
 }
 
 /// The sky behind the 3D world and the fog in front of it (Rust
@@ -2120,6 +2123,7 @@ pub unsafe extern "C" fn crabby_ctx_lighting(ctx: *mut CrabbyCtx, out_lighting: 
                     shadow_resolution: l.shadow_resolution,
                     light_shadow_views: l.light_shadow_views,
                     light_shadow_resolution: l.light_shadow_resolution,
+                    shadow_refresh: l.shadow_refresh,
                 },
             )
         })
@@ -2127,7 +2131,7 @@ pub unsafe extern "C" fn crabby_ctx_lighting(ctx: *mut CrabbyCtx, out_lighting: 
 }
 
 /// Changes the sun and sky light. Intensities and the shadow distance
-/// can't be negative; `shadow_cascades` is 1 to 4; the shadow resolutions
+/// can't be negative; `shadow_cascades` is 1 to 4, `shadow_refresh` 1 to 8; the shadow resolutions
 /// and `light_shadow_views` must be in their ranges (see `CrabbyLighting`).
 /// # Safety
 /// `ctx` null or live; `lighting` valid.
@@ -2147,6 +2151,9 @@ pub unsafe extern "C" fn crabby_ctx_set_lighting(ctx: *mut CrabbyCtx, lighting: 
             }
             if !(1..=4).contains(&l.shadow_cascades) {
                 return Err(invalid("shadow_cascades must be 1 to 4"));
+            }
+            if !(1..=8).contains(&l.shadow_refresh) {
+                return Err(invalid("shadow_refresh must be 1 to 8"));
             }
             if !(256..=4096).contains(&l.shadow_resolution)
                 || !(128..=2048).contains(&l.light_shadow_resolution)
@@ -2170,6 +2177,7 @@ pub unsafe extern "C" fn crabby_ctx_set_lighting(ctx: *mut CrabbyCtx, lighting: 
                 shadow_resolution: l.shadow_resolution,
                 light_shadow_views: l.light_shadow_views,
                 light_shadow_resolution: l.light_shadow_resolution,
+                shadow_refresh: l.shadow_refresh,
             };
             Ok(())
         })

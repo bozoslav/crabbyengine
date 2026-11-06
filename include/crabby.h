@@ -1162,6 +1162,7 @@ typedef struct CrabbyLighting {
   uint32_t shadow_resolution;
   uint32_t light_shadow_views;
   uint32_t light_shadow_resolution;
+  uint32_t shadow_refresh;
 } CrabbyLighting;
 
 typedef struct CrabbySky {

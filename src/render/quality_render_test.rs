@@ -18,6 +18,9 @@ struct Fixture {
     target: wgpu::TextureView,
     renderer: Renderer3D,
     ctx: Ctx,
+    /// Kept between frames, as the engine keeps it (far shadow cascades
+    /// can be kept from an earlier frame).
+    frame: Frame3D,
 }
 
 impl Fixture {
@@ -155,6 +158,7 @@ impl Fixture {
             target,
             renderer,
             ctx,
+            frame: Frame3D::default(),
         })
     }
 
@@ -163,7 +167,7 @@ impl Fixture {
     fn draw(&mut self) -> Vec<u8> {
         let (device, queue, ctx) = (&self.device, &self.queue, &mut self.ctx);
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let mut frame = Frame3D::default();
+        let frame = &mut self.frame;
         frame.size_limit = device.limits().max_texture_dimension_2d;
         frame.collect(
             &mut ctx.world,
@@ -173,7 +177,7 @@ impl Fixture {
             &ctx.lighting,
         );
         let scene = Scene3D {
-            frame: &frame,
+            frame,
             lighting: &ctx.lighting,
             sky: &ctx.sky,
             light: SkyLight {
@@ -431,4 +435,45 @@ fn a_bigger_shadow_map_changes_the_picture_less_than_it_changes_the_map() {
     f.ctx.lighting.shadow_resolution = 4096;
     let sharp = f.draw();
     assert!(difference(&medium, &sharp) < 6.0, "{}", difference(&medium, &sharp));
+}
+
+#[test]
+fn a_kept_far_cascade_still_shadows_the_frames_it_is_not_drawn_in() {
+    let Some(mut f) = Fixture::new() else { return };
+    // Two cascades, and the box far enough away to be in the far one.
+    f.ctx.lighting.shadow_cascades = 2;
+    f.ctx.lighting.light_shadow_views = 0;
+    f.ctx.lighting.sun_intensity = 1.0;
+    f.ctx.lighting.sun_direction = vec3(-1.0, -0.6, 0.0); // a long shadow
+    f.ctx.lighting.ambient_intensity = 0.1;
+    f.ctx.post.exposure = -1.0;
+    f.ctx.world.query::<&mut Transform3D>().for_each(|t| {
+        if t.position.y > 0.0 {
+            t.scale = Vec3::splat(4.0); // the box: big enough to see
+        }
+    });
+    f.ctx.camera3d.position = vec3(0.0, 24.0, 30.0);
+    f.ctx.camera3d.look_at(Vec3::ZERO);
+    f.ctx.camera3d.fov_y = 20f32.to_radians(); // zoomed in on the box
+    f.ctx.post.anti_aliasing = AntiAliasing::None;
+    f.ctx.post.ambient_occlusion.enabled = false;
+    f.ctx.lighting.shadow_refresh = 1;
+    let every_frame = f.draw();
+    f.ctx.lighting.shadows = false;
+    let unshadowed = f.draw();
+    let shadow = difference(&every_frame, &unshadowed);
+    assert!(shadow > 0.5, "the box casts a visible shadow: {shadow}");
+
+    f.ctx.lighting.shadows = true;
+    f.ctx.lighting.shadow_refresh = 2;
+    let mut kept = 0;
+    for _ in 0..4 {
+        let picture = f.draw();
+        if f.frame.redrawn & 0b10 == 0 {
+            kept += 1;
+        }
+        let off = difference(&picture, &every_frame);
+        assert!(off < shadow * 0.25, "{off} against a shadow of {shadow}");
+    }
+    assert!(kept >= 1, "the far cascade was kept on some frames");
 }
