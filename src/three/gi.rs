@@ -15,7 +15,8 @@
 
 use glam::{IVec3, Mat3, Mat4, Quat, UVec3, Vec2, Vec3, Vec4};
 
-use super::{Assets3D, Camera3D, FADED, Frame3D, Lighting, SkinFrame};
+use super::collect::FADED;
+use super::{Assets3D, Camera3D, Frame3D, Lighting, SkinFrame};
 use crate::World;
 
 /// The most probes a [`GlobalIllumination`] grid has: a bigger
