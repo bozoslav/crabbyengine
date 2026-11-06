@@ -178,6 +178,10 @@ MeshRenderer:
 ";
 
 fn fixture(name: &str) -> (Fixture, Project) {
+    fixture_with(name, PREFAB)
+}
+
+fn fixture_with(name: &str, prefab: &str) -> (Fixture, Project) {
     let dir = std::env::temp_dir().join(format!("crabby_unity_import_{name}_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let assets = dir.join("Assets");
@@ -188,7 +192,7 @@ fn fixture(name: &str) -> (Fixture, Project) {
     };
     write("Quad.asset", include_bytes!("fixtures/quad.asset"), "quad0000");
     write("Bark.mat", MATERIAL.as_bytes(), "bark0mat");
-    write("Tree.prefab", PREFAB.as_bytes(), "tree0000");
+    write("Tree.prefab", prefab.as_bytes(), "tree0000");
     write("Lit.shader", b"Shader \"Lit\" {}", "lit00000");
     let png = |pixel: [u8; 4], size: u32| {
         let mut bytes = std::io::Cursor::new(Vec::new());
@@ -223,9 +227,243 @@ fn import(name: &str) -> (Fixture, Json, Report) {
     let file = UnityFile::read(project.root().join("Assets/Tree.prefab")).unwrap();
     let hierarchy = Hierarchy::build(&file, &project).unwrap();
     let mut importer = Importer::new(&project, &out, "trees");
+    importer.lod_groups(false);
     let scene = importer.scene(&hierarchy).unwrap();
     let report = importer.finish().unwrap();
     (fixture, scene, report)
+}
+
+/// A renderer child of the group's root: object `id` (components `id + 1`
+/// to `id + 3`), at local `position`, with Cast Shadows `cast`.
+fn renderer_object(id: i64, position: [f32; 3], cast: i64) -> String {
+    format!(
+        "--- !u!1 &{id}
+GameObject:
+  m_Component:
+  - component: {{fileID: {t}}}
+  - component: {{fileID: {f}}}
+  - component: {{fileID: {r}}}
+  m_Name: Part{id}
+  m_IsActive: 1
+--- !u!4 &{t}
+Transform:
+  m_GameObject: {{fileID: {id}}}
+  m_LocalRotation: {{x: 0, y: 0, z: 0, w: 1}}
+  m_LocalPosition: {{x: {}, y: {}, z: {}}}
+  m_LocalScale: {{x: 1, y: 1, z: 1}}
+  m_Children: []
+  m_Father: {{fileID: 2}}
+--- !u!33 &{f}
+MeshFilter:
+  m_GameObject: {{fileID: {id}}}
+  m_Mesh: {{fileID: 4300000, guid: quad0000, type: 2}}
+--- !u!23 &{r}
+MeshRenderer:
+  m_GameObject: {{fileID: {id}}}
+  m_Enabled: 1
+  m_CastShadows: {cast}
+  m_Materials:
+  - {{fileID: 2100000, guid: bark0mat, type: 2}}
+",
+        position[0],
+        position[1],
+        position[2],
+        t = id + 1,
+        f = id + 2,
+        r = id + 3,
+    )
+}
+
+/// A prefab of a synthetic LOD group: a root at (10, 0, 5) scaled by 2 with
+/// four levels. LOD 0 (renderer 13) and 3 (43) cast their own shadows; LOD 1
+/// has a part with shadows off (23) and a shadows-only stand-in (33).
+/// `group` is what follows `m_GameObject` in the LODGroup.
+fn lod_prefab(group: &str) -> String {
+    let mut text = format!(
+        "%YAML 1.1
+--- !u!1 &1
+GameObject:
+  m_Component:
+  - component: {{fileID: 2}}
+  - component: {{fileID: 9}}
+  m_Name: Root
+  m_IsActive: 1
+--- !u!4 &2
+Transform:
+  m_GameObject: {{fileID: 1}}
+  m_LocalRotation: {{x: 0, y: 0, z: 0, w: 1}}
+  m_LocalPosition: {{x: 10, y: 0, z: 5}}
+  m_LocalScale: {{x: 2, y: 2, z: 2}}
+  m_Children:
+  - {{fileID: 11}}
+  - {{fileID: 21}}
+  - {{fileID: 31}}
+  - {{fileID: 41}}
+  m_Father: {{fileID: 0}}
+--- !u!205 &9
+LODGroup:
+  m_GameObject: {{fileID: 1}}
+{group}"
+    );
+    text += &renderer_object(10, [0.0, 1.0, 1.0], 1);
+    text += &renderer_object(20, [0.0, 0.0, 0.0], 0);
+    text += &renderer_object(30, [1.0, 0.0, 0.0], 3);
+    text += &renderer_object(40, [0.0, 0.0, 0.0], 2);
+    text
+}
+
+const LOD_GROUP: &str = "  m_Size: 4
+  m_LocalReferencePoint: {x: 0, y: 1, z: 2}
+  m_FadeMode: 1
+  m_AnimateCrossFading: 0
+  m_LODs:
+  - screenRelativeHeight: 0.6
+    fadeTransitionWidth: 0.25
+    renderers:
+    - renderer: {fileID: 13}
+  - screenRelativeHeight: 0.3
+    fadeTransitionWidth: 0
+    renderers:
+    - renderer: {fileID: 23}
+    - renderer: {fileID: 33}
+  - screenRelativeHeight: 0.1
+    fadeTransitionWidth: 0.5
+    renderers: []
+  - screenRelativeHeight: 0.02
+    fadeTransitionWidth: 0.4
+    renderers:
+    - renderer: {fileID: 43}
+";
+
+fn import_lod(name: &str, group: &str, configure: impl FnOnce(&mut Importer)) -> (Fixture, Json, Report) {
+    let (fixture, project) = fixture_with(name, &lod_prefab(group));
+    let out = fixture.dir.join("out");
+    let file = UnityFile::read(project.root().join("Assets/Tree.prefab")).unwrap();
+    let hierarchy = Hierarchy::build(&file, &project).unwrap();
+    let mut importer = Importer::new(&project, &out, "trees");
+    configure(&mut importer);
+    let scene = importer.scene(&hierarchy).unwrap();
+    let report = importer.finish().unwrap();
+    (fixture, scene, report)
+}
+
+fn numbers(v: &Json) -> Vec<f64> {
+    v.as_array().unwrap().iter().map(|n| n.as_f64().unwrap()).collect()
+}
+
+fn close(got: &[f64], want: &[f64]) {
+    assert!(
+        got.len() == want.len() && got.iter().zip(want).all(|(g, w)| (g - w).abs() < 1e-5),
+        "{got:?} vs {want:?}"
+    );
+}
+
+#[test]
+fn a_lod_group_keeps_every_level_under_one_entity() {
+    let (_f, scene, report) = import_lod("lod", LOD_GROUP, |_| {});
+    let entities = scene["entities"].as_array().unwrap();
+    assert_eq!(
+        entities.len(),
+        1,
+        "one group; no renderer is an entity of its own: {scene}"
+    );
+    assert_eq!((report.lod_groups, report.entities), (1, 1));
+    assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+    let c = &entities[0]["components"];
+    assert!(c["Model"].is_null() && c["ShadowMesh"].is_null());
+    // The root, mirrored along Z.
+    close(&numbers(&c["Transform3D"]["position"]), &[10.0, 0.0, -5.0]);
+    close(&numbers(&c["Transform3D"]["scale"]), &[2.0, 2.0, 2.0]);
+    let g = &c["LodGroup"];
+    assert_eq!(g["size"], 4.0);
+    close(&numbers(&g["center"]), &[0.0, 1.0, -2.0]);
+    let levels = g["levels"].as_array().unwrap();
+    assert_eq!(levels.len(), 4);
+    let heights: Vec<f64> = levels.iter().map(|l| l["screen_height"].as_f64().unwrap()).collect();
+    close(&heights, &[0.6, 0.3, 0.1, 0.02]);
+    let widths: Vec<f64> = levels.iter().map(|l| l["fade_width"].as_f64().unwrap()).collect();
+    close(&widths, &[0.25, 0.0, 0.5, 0.4]);
+    // LOD 0's part is at (0, 1, 1) in the root's space, world (10, 2, 7)
+    // in Unity: in the group's own space it's (0, 1, -1) again, mirrored.
+    let part = &levels[0]["renderers"][0];
+    assert!(part["mesh"].as_str().unwrap().starts_with("trees/meshes/"));
+    close(&numbers(&part["offset"]["position"]), &[0.0, 1.0, -1.0]);
+    close(&numbers(&part["offset"]["scale"]), &[1.0, 1.0, 1.0]);
+    // An empty level stays: the group draws nothing there.
+    assert!(levels[2]["renderers"].as_array().unwrap().is_empty());
+    assert_eq!(levels[3]["renderers"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn lod_levels_cast_the_shadows_their_renderers_ask_for() {
+    let (_f, scene, _) = import_lod("lodshadow", LOD_GROUP, |_| {});
+    let levels = scene["entities"][0]["components"]["LodGroup"]["levels"]
+        .as_array()
+        .unwrap();
+    assert_eq!(levels[0]["shadow"], "Same");
+    assert_eq!(levels[3]["shadow"], "Same", "Two Sided casts too");
+    // LOD 1: the part with shadows off is drawn but casts none; the
+    // shadows-only one casts without being drawn.
+    let shown = levels[1]["renderers"].as_array().unwrap();
+    assert_eq!(shown.len(), 1);
+    close(&numbers(&shown[0]["offset"]["position"]), &[0.0, -0.0, 0.0]);
+    let casters = levels[1]["shadow"]["Casters"].as_array().unwrap();
+    assert_eq!(casters.len(), 1);
+    // Unity (1, 0, 0) in the root's space, scaled by the root's 2, then
+    // divided by it again in the group's space.
+    close(&numbers(&casters[0]["offset"]["position"]), &[1.0, 0.0, 0.0]);
+}
+
+#[test]
+fn animated_and_unfaded_groups_fade_as_far_as_they_can() {
+    let none = LOD_GROUP.replace("m_FadeMode: 1", "m_FadeMode: 0");
+    let (_f, scene, _) = import_lod("lodnofade", &none, |_| {});
+    let levels = scene["entities"][0]["components"]["LodGroup"]["levels"]
+        .as_array()
+        .unwrap();
+    assert!(
+        levels.iter().all(|l| l["fade_width"] == 0.0),
+        "no fade mode: switches at once"
+    );
+
+    let animated = LOD_GROUP.replace("m_AnimateCrossFading: 0", "m_AnimateCrossFading: 1");
+    let (_f, scene, report) = import_lod("lodanim", &animated, |_| {});
+    let levels = scene["entities"][0]["components"]["LodGroup"]["levels"]
+        .as_array()
+        .unwrap();
+    assert!(levels.iter().all(|l| l["fade_width"].as_f64().unwrap() > 0.0));
+    assert_eq!(
+        report.skipped["an animated cross-fade (fades over a band of screen heights instead)"],
+        1
+    );
+}
+
+#[test]
+fn lod_groups_can_be_turned_off_to_keep_lod_0_only() {
+    let (_f, scene, report) = import_lod("lodoff", LOD_GROUP, |i| i.lod_groups(false));
+    let entities = scene["entities"].as_array().unwrap();
+    // Only LOD 0's renderer; the other three levels' are left out.
+    assert_eq!(entities.len(), 1, "{scene}");
+    assert!(entities[0]["components"]["Model"]["mesh"].is_string());
+    assert!(entities[0]["components"]["LodGroup"].is_null());
+    assert_eq!(report.skipped["a far level of detail (LOD 1+)"], 3);
+    assert_eq!(report.lod_groups, 0);
+}
+
+#[test]
+fn groups_are_on_by_default() {
+    let (fixture, project) = fixture("lodon");
+    let file = UnityFile::read(project.root().join("Assets/Tree.prefab")).unwrap();
+    let hierarchy = Hierarchy::build(&file, &project).unwrap();
+    let mut importer = Importer::new(&project, fixture.dir.join("out"), "trees");
+    let scene = importer.scene(&hierarchy).unwrap();
+    let entities = scene["entities"].as_array().unwrap();
+    // The shadow-only part outside the group, and the group of the two renderers.
+    assert_eq!(entities.len(), 2, "{scene}");
+    let group = &entities[1]["components"]["LodGroup"];
+    assert_eq!(group["levels"].as_array().unwrap().len(), 2);
+    assert_eq!(importer.report().lod_groups, 1);
+    assert!(!importer.report().skipped.contains_key("a far level of detail (LOD 1+)"));
 }
 
 #[test]
@@ -443,7 +681,9 @@ fn custom_shader_materials_are_described_for_the_game() {
     assert!(out.join(file.strip_prefix("trees/").unwrap()).is_file(), "{file}");
     assert!(bark["textures"]["_MetallicGlossMap"]["file"].is_string());
     // The glTF material has the name materials.json uses.
-    let name = scene["entities"][0]["components"]["Model"]["mesh"].as_str().unwrap();
+    let name = scene["entities"][1]["components"]["LodGroup"]["levels"][0]["renderers"][0]["mesh"]
+        .as_str()
+        .unwrap();
     let glb = std::fs::read(out.join(name.strip_prefix("trees/").unwrap())).unwrap();
     assert_eq!(glb_json(&glb)["materials"][0]["name"], "Bark");
 }

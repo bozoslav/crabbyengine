@@ -63,14 +63,33 @@ none, and Shadows Only (often a simplified stand-in for the shadows of the
 pieces around it) becomes a `ShadowMesh` with no `Model`, drawn only into
 the shadow maps.
 
+### Levels of detail
+
+A Unity `LODGroup` comes over as a [`LodGroup`](3d.md) on one entity placed
+at the group's object. Every level keeps its renderers (each placed
+relative to the group), its screen-relative height as the level's
+`screen_height`, and its `fadeTransitionWidth` as `fade_width` when the group's
+Fade Mode is on. The group's `m_Size` is the `size` and its reference point
+the `center`. A renderer's Cast Shadows setting becomes the level's shadow:
+a level with a renderer set to Off or Shadows Only casts the shadow of
+the right meshes, not the ones it shows.
+
+```rust
+import.lod_groups(false); // LOD 0 only, the far levels left out
+```
+
+Animated cross-fading (a fade over seconds) isn't supported: those groups
+fade over a band of screen heights instead, and the report counts them.
+Skinned renderers can't be part of a group: one in LOD 0 stays an entity of
+its own, and the ones in far levels are left out (also counted).
+
 FBX and uncompressed Unity `.asset` skinned meshes export inverse bind
 matrices and up to four influences per vertex (weights below 0.001 are
 dropped, then the largest four are normalized). Mesh assets support legacy
 bone weights and VertexData blend channels. Renderer bone references use
 the flattened scene's names, hierarchy and overridden rest transforms when
 all joints resolve; otherwise the source skeleton is retained (mesh assets
-use unnamed bind-pose joints). Left out, and counted in the report: far levels of detail
-(only LOD 0 is kept), inactive objects and disabled renderers, the built-in
+use unnamed bind-pose joints). Left out, and counted in the report: skinned renderers in far levels of detail, inactive objects and disabled renderers, the built-in
 Sphere, Capsule and Cylinder, compressed meshes, and meshes or textures
 it can't find or read.
 
