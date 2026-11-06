@@ -218,8 +218,16 @@ struct GpuMesh {
     parts: Vec<(Range<u32>, u32)>,
     /// What skinning it needs, if it's skinned.
     skin: Option<skinning::GpuSkin>,
+    gpu_buffer: Option<(u32, u32)>,
 }
 
+struct StorageBuffer {
+    buffer: wgpu::Buffer,
+    read: wgpu::BindGroup,
+    write: wgpu::BindGroup,
+    instances: wgpu::Buffer,
+    len: u32,
+}
 struct GpuMaterial {
     buffer: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
@@ -323,6 +331,7 @@ pub(crate) fn compose_shader_with(user: &str, decals: bool) -> String {
     let decal_code = if decals { DECALS } else { NO_DECALS };
     let mut source = String::with_capacity(MESH_PRELUDE.len() + decal_code.len() + user.len() + MESH_MAIN.len() + 200);
     source.push_str(MESH_PRELUDE);
+    source.push_str("@group(3) @binding(0) var<storage, read> items: array<vec4<f32>>;\n");
     source.push_str(decal_code);
     source.push_str("\n// ---- the game's shader ----\n");
     source.push_str(user);
@@ -357,11 +366,19 @@ pub(crate) fn compose_compute(user: &str) -> String {
     let mut source =
         String::with_capacity(MESH_PRELUDE.len() + COMPUTE_PRELUDE.len() + user.len() + COMPUTE_MAIN.len() + 100);
     source.push_str(MESH_PRELUDE);
-    source.push_str(COMPUTE_PRELUDE);
+    if defines(user, "update") {
+        source.push_str("@group(3) @binding(0) var<storage, read_write> items: array<vec4<f32>>;\n");
+    } else {
+        source.push_str(COMPUTE_PRELUDE);
+    }
     source.push_str("\n// ---- the game's compute pass ----\n");
     source.push_str(user);
     source.push_str("\n// ---- the engine's entry point ----\n");
-    source.push_str(COMPUTE_MAIN);
+    if defines(user, "update") {
+        source.push_str("@compute @workgroup_size(64) fn cs_compute(@builtin(global_invocation_id) id: vec3<u32>) { if id.x < arrayLength(&items) { update(id.x); } }");
+    } else {
+        source.push_str(COMPUTE_MAIN);
+    }
     source
 }
 
@@ -638,7 +655,12 @@ pub(crate) struct Renderer3D {
     /// made the first time one does, by texture id.
     view_targets: Vec<(u32, ViewTarget)>,
     /// Compute pass pipelines, by compute id, and their layouts.
-    compute_pipelines: Vec<wgpu::ComputePipeline>,
+    compute_pipelines: Vec<Option<wgpu::ComputePipeline>>,
+    storage_read: Option<wgpu::BindGroupLayout>,
+    storage_write: Option<(wgpu::BindGroupLayout, wgpu::PipelineLayout)>,
+    storage_buffers: Vec<Option<StorageBuffer>>,
+    buffer_computes: Vec<bool>,
+    storage_dummy: Option<wgpu::BindGroup>,
     /// Their bind group and pipeline layouts; `None` where the GPU can't
     /// run compute shaders (WebGL2).
     compute_layouts: Option<(wgpu::BindGroupLayout, wgpu::PipelineLayout)>,
@@ -807,14 +829,69 @@ impl Renderer3D {
                 },
             ],
         });
+        let storage_layout = |read_only| {
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("GPU buffer layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: if read_only {
+                        wgpu::ShaderStages::VERTEX_FRAGMENT
+                    } else {
+                        wgpu::ShaderStages::COMPUTE
+                    },
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            })
+        };
+        let storage_supported = compute && device.limits().max_storage_buffers_per_shader_stage > 0;
+        let storage_read = storage_supported.then(|| storage_layout(true));
+        let storage_dummy = storage_read.as_ref().map(|layout| {
+            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: None,
+                size: 16,
+                usage: wgpu::BufferUsages::STORAGE,
+                mapped_at_creation: false,
+            });
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: buffer.as_entire_binding(),
+                }],
+            })
+        });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("3d pipeline layout"),
-            bind_group_layouts: &[Some(&frame_layout), Some(&material_layout), Some(&scene_layout)],
+            bind_group_layouts: &if let Some(s) = &storage_read {
+                vec![
+                    Some(&frame_layout),
+                    Some(&material_layout),
+                    Some(&scene_layout),
+                    Some(s),
+                ]
+            } else {
+                vec![Some(&frame_layout), Some(&material_layout), Some(&scene_layout)]
+            },
             immediate_size: 0,
         });
         let shadow_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("3d shadow pipeline layout"),
-            bind_group_layouts: &[Some(&shadow_layout), Some(&material_layout), Some(&scene_layout)],
+            bind_group_layouts: &if let Some(s) = &storage_read {
+                vec![
+                    Some(&shadow_layout),
+                    Some(&material_layout),
+                    Some(&scene_layout),
+                    Some(s),
+                ]
+            } else {
+                vec![Some(&shadow_layout), Some(&material_layout), Some(&scene_layout)]
+            },
             immediate_size: 0,
         });
         // Passes that can't see the scene bind a 1x1 stand-in (black, far).
@@ -1215,6 +1292,20 @@ impl Renderer3D {
             });
             (compute_layout, compute_pipeline_layout)
         });
+        let storage_write = storage_supported.then(|| {
+            let binding = storage_layout(false);
+            let pipeline = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("GPU buffer compute"),
+                bind_group_layouts: &[
+                    Some(&frame_sources.layout),
+                    Some(&material_layout),
+                    Some(&scene_layout),
+                    Some(&binding),
+                ],
+                immediate_size: 0,
+            });
+            (binding, pipeline)
+        });
         let no_shadow = stand_in("3d no shadow", DEPTH_FORMAT, wgpu::TextureViewDimension::D2Array);
         let no_sky = stand_in("3d no sky", HDR_FORMAT, wgpu::TextureViewDimension::D2);
         let no_sky_sampler = device.create_sampler(&Default::default());
@@ -1323,6 +1414,11 @@ impl Renderer3D {
             render_targets: Vec::new(),
             view_targets: Vec::new(),
             compute_pipelines: Vec::new(),
+            storage_read,
+            storage_write,
+            storage_buffers: Vec::new(),
+            buffer_computes: Vec::new(),
+            storage_dummy,
             compute_layouts,
             skinning: skinning::Skinning::new(
                 device,
@@ -1465,17 +1561,97 @@ impl Renderer3D {
         Some(self.compute_states.len() - 1)
     }
 
+    pub fn create_gpu_buffer(&mut self, device: &wgpu::Device, len: u32, data: &[crate::Vec4]) {
+        let Some(read_layout) = &self.storage_read else {
+            self.storage_buffers.push(None);
+            return;
+        };
+        assert!(
+            u64::from(len) * 16 <= device.limits().max_storage_buffer_binding_size,
+            "GPU buffer exceeds device limit"
+        );
+        assert!(
+            len.div_ceil(64) <= device.limits().max_compute_workgroups_per_dimension
+                && u64::from(len) * size_of::<Instance3D>() as u64 <= device.limits().max_buffer_size,
+            "GPU buffer exceeds draw or dispatch limits"
+        );
+        let zeros;
+        let data = if data.is_empty() {
+            zeros = vec![crate::Vec4::ZERO; len as usize];
+            &zeros
+        } else {
+            data
+        };
+        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("GPU items"),
+            contents: bytemuck::cast_slice(&data.iter().map(|v| v.to_array()).collect::<Vec<_>>()),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
+        let group = |layout| {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: buffer.as_entire_binding(),
+                }],
+            })
+        };
+        let read = group(read_layout);
+        let write = group(&self.storage_write.as_ref().unwrap().0);
+        let identity = Instance3D {
+            model: glam::Mat4::IDENTITY.to_cols_array_2d(),
+            color: [1.0; 4],
+        };
+        let instances = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("GPU draw identities"),
+            contents: bytemuck::cast_slice(&vec![identity; len as usize]),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        self.storage_buffers.push(Some(StorageBuffer {
+            buffer,
+            read,
+            write,
+            instances,
+            len,
+        }));
+    }
+    pub fn write_gpu_buffer(&self, queue: &wgpu::Queue, id: u32, offset: u32, data: &[crate::Vec4]) {
+        if let Some(Some(b)) = self.storage_buffers.get(id as usize) {
+            queue.write_buffer(
+                &b.buffer,
+                u64::from(offset) * 16,
+                bytemuck::cast_slice(&data.iter().map(|v| v.to_array()).collect::<Vec<_>>()),
+            );
+        }
+    }
+    pub fn set_mesh_gpu_buffer(&mut self, mesh: u32, b: u32, count: u32) {
+        if let Some(mesh) = self.meshes.get_mut(mesh as usize) {
+            mesh.gpu_buffer = Some((b, count));
+        }
+    }
     /// Compiles a compute pass from the game's WGSL; returns its id.
     pub fn create_compute(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, String> {
         let source = compose_compute(user);
         check_shader(name, &source)?;
-        let Some((_, layout)) = &self.compute_layouts else {
+        let layouts = if defines(user, "update") {
+            &self.storage_write
+        } else {
+            &self.compute_layouts
+        };
+        if layouts.is_none() && defines(user, "update") {
+            self.buffer_computes.push(true);
+            self.compute_pipelines.push(None);
+            return Ok(self.compute_pipelines.len() as u32 - 1);
+        }
+        let Some((_, layout)) = layouts else {
             return Err(format!(
                 "{name}: this GPU can't run compute passes (WebGL2 has no compute shaders)"
             ));
         };
         let pipeline = build_compute(device, layout, name, &source);
-        self.compute_pipelines.push(pipeline);
+        self.buffer_computes.push(defines(user, "update"));
+        self.compute_pipelines.push(Some(pipeline));
         Ok(self.compute_pipelines.len() as u32 - 1)
     }
 
@@ -1483,12 +1659,18 @@ impl Renderer3D {
     pub fn replace_compute(&mut self, device: &wgpu::Device, id: u32, name: &str, user: &str) -> Result<(), String> {
         let source = compose_compute(user);
         check_shader(name, &source)?;
-        let Some((_, layout)) = &self.compute_layouts else {
+        let layouts = if defines(user, "update") {
+            &self.storage_write
+        } else {
+            &self.compute_layouts
+        };
+        let Some((_, layout)) = layouts else {
             return Ok(());
         };
         let pipeline = build_compute(device, layout, name, &source);
         if let Some(old) = self.compute_pipelines.get_mut(id as usize) {
-            *old = pipeline;
+            *old = Some(pipeline);
+            self.buffer_computes[id as usize] = defines(user, "update");
         }
         Ok(())
     }
@@ -1520,6 +1702,11 @@ impl Renderer3D {
     /// Compiles a material shader from the game's WGSL; returns its index.
     pub fn create_shader(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, String> {
         let source = compose_shader_with(user, self.frame_sources.decals);
+        let source = if self.storage_read.is_none() && user.contains("items") {
+            compose_shader_with("", self.frame_sources.decals)
+        } else {
+            source
+        };
         check_shader(name, &source)?;
         let mut pipelines = build_pipelines(
             device,
@@ -1537,6 +1724,11 @@ impl Renderer3D {
     /// Recompiles shader `id` (hot reload). On an error the old one stays.
     pub fn replace_shader(&mut self, device: &wgpu::Device, id: u32, name: &str, user: &str) -> Result<(), String> {
         let source = compose_shader_with(user, self.frame_sources.decals);
+        let source = if self.storage_read.is_none() && user.contains("items") {
+            compose_shader_with("", self.frame_sources.decals)
+        } else {
+            source
+        };
         check_shader(name, &source)?;
         let mut pipelines = build_pipelines(
             device,
@@ -1720,6 +1912,7 @@ impl Renderer3D {
             buffers: Some((vertices, indices)),
             parts: parts.iter().map(|(r, m)| (r.clone(), m.id)).collect(),
             skin,
+            gpu_buffer: None,
         };
         match self.meshes.get_mut(id as usize) {
             Some(slot) => *slot = mesh,
@@ -1853,6 +2046,24 @@ impl Renderer3D {
         }
         self.computes.clear();
         for &(compute, target, material) in &frame.computes {
+            if material as usize >= self.materials.len() {
+                continue;
+            }
+            if self.buffer_computes.get(compute as usize).copied() != Some(target & (1 << 31) != 0) {
+                continue;
+            }
+            if target & (1 << 31) != 0 {
+                let id = target & !(1 << 31);
+                if self
+                    .compute_pipelines
+                    .get(compute as usize)
+                    .is_some_and(Option::is_some)
+                    && self.storage_buffers.get(id as usize).is_some_and(Option::is_some)
+                {
+                    self.computes.push((compute, target as usize, material));
+                }
+                continue;
+            }
             if (compute as usize) < self.compute_pipelines.len()
                 && (material as usize) < self.materials.len()
                 && let Some(state) = self.compute_state(device, target)
@@ -2628,7 +2839,7 @@ impl Renderer3D {
 
     /// Whether this frame has anything to draw.
     pub fn has_draws(&self) -> bool {
-        !self.runs.is_empty() || self.particles.has_draws()
+        !self.runs.is_empty() || self.particles.has_draws() || !self.computes.is_empty()
     }
 
     /// Draws the frame's passes (see the module docs) and leaves the tone
@@ -2737,6 +2948,20 @@ impl Renderer3D {
                 }
                 // Compute passes first, so this frame's materials see their results.
                 for &(compute, state, material) in &self.computes {
+                    if state & (1 << 31) != 0 {
+                        let buffer = self.storage_buffers[state & !(1 << 31)].as_ref().unwrap();
+                        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                            label: Some("GPU buffer update"),
+                            timestamp_writes: None,
+                        });
+                        pass.set_pipeline(self.compute_pipelines[compute as usize].as_ref().unwrap());
+                        pass.set_bind_group(0, &self.frame_bind_group, &[]);
+                        pass.set_bind_group(1, &self.materials[material as usize].bind_group, &[]);
+                        pass.set_bind_group(2, &self.no_scene, &[]);
+                        pass.set_bind_group(3, &buffer.write, &[]);
+                        pass.dispatch_workgroups(buffer.len.div_ceil(64), 1, 1);
+                        continue;
+                    }
                     let state = &self.compute_states[state].1;
                     {
                         let timestamps = time("compute").map(|t| wgpu::ComputePassTimestampWrites {
@@ -2748,7 +2973,7 @@ impl Renderer3D {
                             label: Some("3d compute"),
                             timestamp_writes: timestamps,
                         });
-                        pass.set_pipeline(&self.compute_pipelines[compute as usize]);
+                        pass.set_pipeline(self.compute_pipelines[compute as usize].as_ref().unwrap());
                         pass.set_bind_group(0, &self.frame_bind_group, &[]);
                         pass.set_bind_group(1, &self.materials[material as usize].bind_group, &[]);
                         pass.set_bind_group(2, &self.no_scene, &[]);
@@ -3043,6 +3268,9 @@ impl Renderer3D {
                     pass.set_bind_group(0, &self.frame_bind_group, &[]);
                     pass.set_bind_group(1, &self.materials[material as usize].bind_group, &[]);
                     pass.set_bind_group(2, source, &[]);
+                    if let Some(dummy) = &self.storage_dummy {
+                        pass.set_bind_group(3, dummy, &[]);
+                    }
                     pass.draw(0..3, 0..1);
                 }
                 let (post, bloom_prefilter) = if in_hdr {
@@ -3329,6 +3557,9 @@ impl Renderer3D {
         instances: &wgpu::Buffer,
     ) {
         pass.set_vertex_buffer(1, instances.slice(..));
+        if let Some(dummy) = &self.storage_dummy {
+            pass.set_bind_group(3, dummy, &[]);
+        }
         // Only what changes is set again: each `set_*` costs wgpu
         // validation and a Metal/Vulkan call per draw otherwise.
         let mut bound = None;
@@ -3338,6 +3569,14 @@ impl Renderer3D {
             let mesh = mesh & !FADED;
             let posed = (mesh as usize).checked_sub(self.meshes.len());
             let mesh = &self.meshes[self.base(mesh) as usize];
+            let storage = if let Some((id, count)) = mesh.gpu_buffer {
+                let Some(buffer) = self.storage_buffers.get(id as usize).and_then(Option::as_ref) else {
+                    continue;
+                };
+                Some((buffer, count))
+            } else {
+                None
+            };
             let Some((rest, indices)) = &mesh.buffers else {
                 continue;
             };
@@ -3401,7 +3640,19 @@ impl Renderer3D {
                     pass.set_bind_group(1, &m.bind_group, &[]);
                     bound_material = *material;
                 }
-                pass.draw_indexed(range.clone(), 0, start..start + count);
+                if let Some((b, count)) = storage {
+                    if count > 0 && kind != Kind::Velocity {
+                        pass.set_bind_group(3, &b.read, &[]);
+                        pass.set_vertex_buffer(1, b.instances.slice(..));
+                        pass.draw_indexed(range.clone(), 0, 0..count);
+                    }
+                } else {
+                    if let Some(dummy) = &self.storage_dummy {
+                        pass.set_bind_group(3, dummy, &[]);
+                    }
+                    pass.set_vertex_buffer(1, instances.slice(..));
+                    pass.draw_indexed(range.clone(), 0, start..start + count);
+                }
             }
         }
     }

@@ -673,6 +673,20 @@ impl Renderer {
         }
     }
 
+    #[cfg(feature = "3d")]
+    pub fn create_gpu_buffer(&mut self, len: u32, data: &[crate::Vec4]) {
+        let device = self.device.clone();
+        self.three().create_gpu_buffer(&device, len, data);
+    }
+    #[cfg(feature = "3d")]
+    pub fn write_gpu_buffer(&mut self, id: u32, offset: u32, data: &[crate::Vec4]) {
+        let queue = self.queue.clone();
+        self.three().write_gpu_buffer(&queue, id, offset, data);
+    }
+    #[cfg(feature = "3d")]
+    pub fn set_mesh_gpu_buffer(&mut self, mesh: u32, b: u32, count: u32) {
+        self.three().set_mesh_gpu_buffer(mesh, b, count);
+    }
     /// Compiles a compute pass; its id, or the compiler's message.
     #[cfg(feature = "3d")]
     pub fn create_compute(&mut self, name: &str, source: &str) -> Result<u32, String> {

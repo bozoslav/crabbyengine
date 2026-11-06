@@ -1084,6 +1084,7 @@ impl Ctx {
     pub(crate) fn prepare_3d(&mut self) {
         if self.renderer.is_none()
             || (self.assets3d.bounds.is_empty()
+                && self.compute_passes.is_empty()
                 && self.frame3d.particles.runs.is_empty()
                 && self.frame3d.particles.strips.runs.is_empty()
                 && self.world.query::<&super::ParticleEmitter3D>().count() == 0
@@ -1116,9 +1117,13 @@ impl Ctx {
         self.frame3d.computes.clear();
         self.frame3d.computes.extend(self.compute_passes.iter().filter_map(|c| {
             let material = c.material.or(fallback)?;
-            targets
-                .contains(&c.target)
-                .then_some((c.compute.id, c.target.id, material.id))
+            if let Some(b) = c.buffer {
+                Some((c.compute.id, b.id | (1 << 31), material.id))
+            } else {
+                targets
+                    .contains(&c.target)
+                    .then_some((c.compute.id, c.target.id, material.id))
+            }
         }));
         self.collect_text3d();
         let Some(renderer) = self.renderer.as_mut() else {

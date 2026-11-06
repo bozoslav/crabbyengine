@@ -71,6 +71,13 @@ impl Renderer {
     pub fn create_texture_array(&mut self, _width: u32, _height: u32, _layers: &[&[u8]], _linear: bool) -> u32 {
         match *self {}
     }
+
+    #[cfg(feature = "3d")]
+    pub fn create_gpu_buffer(&mut self, _: u32, _: &[crate::Vec4]) {}
+    #[cfg(feature = "3d")]
+    pub fn write_gpu_buffer(&mut self, _: u32, _: u32, _: &[crate::Vec4]) {}
+    #[cfg(feature = "3d")]
+    pub fn set_mesh_gpu_buffer(&mut self, _: u32, _: u32, _: u32) {}
     #[cfg(feature = "3d")]
     pub fn create_compute(&mut self, _name: &str, _source: &str) -> Result<u32, String> {
         match *self {}

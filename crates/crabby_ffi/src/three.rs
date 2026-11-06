@@ -4,12 +4,12 @@
 use std::ffi::c_char;
 
 use crabbyengine::{
-    AmbientOcclusion, AntiAliasing, Blend, Camera3D, Color, Compute, ComputePass, Decal3D, Effect, GraphicsQuality,
-    Lighting, LodGroup, LodLevel, LodPick, LodRenderer, LodSettings, LodShadow, MAX_LIGHT_SHADOW_VIEWS,
-    MAX_RENDER_SCALE, MIN_RENDER_SCALE, Material, MaterialDesc, Mesh, MeshData, Model, PointLight3D, Post,
-    QualityLevel, Quat, ReceivesDecals, ReflectionProbe3D, ScreenEffect, Shader, Sky, SpotLight3D, TERRAIN_LAYERS,
-    TERRAIN_LODS, TargetCamera, TerrainMaterialDesc, TerrainTile, TextureArray, TextureKind, Tonemap, Transform3D,
-    Vec2, Vec3, Vec4,
+    AmbientOcclusion, AntiAliasing, Blend, Camera3D, Color, Compute, ComputePass, Decal3D, Effect, GpuBuffer,
+    GraphicsQuality, Lighting, LodGroup, LodLevel, LodPick, LodRenderer, LodSettings, LodShadow,
+    MAX_LIGHT_SHADOW_VIEWS, MAX_RENDER_SCALE, MIN_RENDER_SCALE, Material, MaterialDesc, Mesh, MeshData, Model,
+    PointLight3D, Post, QualityLevel, Quat, ReceivesDecals, ReflectionProbe3D, ScreenEffect, Shader, Sky, SpotLight3D,
+    TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera, TerrainMaterialDesc, TerrainTile, TextureArray, TextureKind, Tonemap,
+    Transform3D, Vec2, Vec3, Vec4,
 };
 
 use crate::ctx::{ctx_access, out, text};
@@ -194,6 +194,7 @@ pub struct CrabbyCompute {
 /// textures come from (the default material without one).
 /// ```
 /// let p = crabby_ffi::CrabbyComputePass {
+///     has_buffer: false, buffer: Default::default(),
 ///     compute: crabby_ffi::CrabbyCompute { id: 0 },
 ///     target: crabby_ffi::CrabbyTexture { id: 0, width: 8, height: 8 },
 ///     has_material: false,
@@ -204,6 +205,10 @@ pub struct CrabbyCompute {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CrabbyComputePass {
+    /// Whether this pass updates `buffer` instead of `target`.
+    pub has_buffer: bool,
+    /// Storage buffer target when `has_buffer` is true.
+    pub buffer: CrabbyGpuBuffer,
     /// The shader.
     pub compute: CrabbyCompute,
     /// What it updates: from `crabby_ctx_create_render_target`.
@@ -1545,7 +1550,11 @@ pub unsafe extern "C" fn crabby_ctx_set_compute_passes(
                     return Err(invalid("that compute pass wasn't made by this game"));
                 }
                 let target = texture_from_c(p.target);
-                if !c.is_render_target(target) {
+                let buffer = p.has_buffer.then(|| GpuBuffer::from_id(p.buffer.id));
+                if buffer.is_some_and(|b| c.gpu_buffer_len(b).is_none()) {
+                    return Err(invalid("invalid GPU buffer"));
+                }
+                if buffer.is_none() && !c.is_render_target(target) {
                     return Err(invalid("that texture isn't a render target of this game"));
                 }
                 let material = p.has_material.then(|| to_c(p.material));
@@ -1553,6 +1562,7 @@ pub unsafe extern "C" fn crabby_ctx_set_compute_passes(
                     return Err(invalid("that material wasn't made by this game"));
                 }
                 list.push(ComputePass {
+                    buffer,
                     compute,
                     target,
                     material,
@@ -1588,6 +1598,10 @@ pub unsafe extern "C" fn crabby_ctx_compute_passes(
             }
             for (i, p) in c.compute_passes.iter().take(capacity).enumerate() {
                 out_passes.add(i).write(CrabbyComputePass {
+                    has_buffer: p.buffer.is_some(),
+                    buffer: CrabbyGpuBuffer {
+                        id: p.buffer.map_or(0, |b| b.id()),
+                    },
                     compute: CrabbyCompute { id: p.compute.id() },
                     target: texture_to_c(p.target),
                     has_material: p.material.is_some(),
@@ -3466,4 +3480,101 @@ pub extern "C" fn crabby_lod_screen_height_at(size: f32, distance: f32, fov_y: f
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_lod_distance_at(size: f32, height: f32, fov_y: f32) -> f32 {
     LodGroup::distance_at(size, height, fov_y)
+}
+
+/// A GPU array of four-float elements.
+/// ```
+/// let b = crabby_ffi::CrabbyGpuBuffer { id: 0 }; assert_eq!(b.id, 0);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CrabbyGpuBuffer {
+    /// Engine-internal handle ID.
+    pub id: u32,
+}
+
+/// Creates a GPU buffer. `count` is zero for zeroed data or equals `len`.
+/// # Safety
+/// `ctx` is live or null; `data` holds `count` arrays, output is writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_create_gpu_buffer(
+    ctx: *mut CrabbyCtx,
+    len: u32,
+    data: *const [f32; 4],
+    count: usize,
+    output: *mut CrabbyGpuBuffer,
+) -> CrabbyStatus {
+    // SAFETY: caller supplies the described arrays and output.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            if output.is_null() || len == 0 || (count != 0 && (count != len as usize || data.is_null())) {
+                return Err(invalid("invalid GPU buffer arguments"));
+            }
+            let data = if count == 0 {
+                Vec::new()
+            } else {
+                std::slice::from_raw_parts(data, count)
+                    .iter()
+                    .map(|v| Vec4::from_array(*v))
+                    .collect()
+            };
+            let b = c.create_gpu_buffer(len, &data);
+            out(output, CrabbyGpuBuffer { id: b.id() })
+        })
+    })
+}
+/// Writes a GPU buffer range. Out-of-range writes return InvalidArgument.
+/// # Safety
+/// `ctx` is live or null; `data` holds `count` arrays, null allowed for zero.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_write_gpu_buffer(
+    ctx: *mut CrabbyCtx,
+    buffer: CrabbyGpuBuffer,
+    offset: u32,
+    data: *const [f32; 4],
+    count: usize,
+) -> CrabbyStatus {
+    // SAFETY: caller supplies the described array.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let b = GpuBuffer::from_id(buffer.id);
+            let len = c.gpu_buffer_len(b).ok_or_else(|| invalid("invalid GPU buffer"))?;
+            if offset > len || count > (len - offset) as usize || (count > 0 && data.is_null()) {
+                return Err(invalid("invalid GPU buffer write"));
+            }
+            let data = if count == 0 {
+                Vec::new()
+            } else {
+                std::slice::from_raw_parts(data, count)
+                    .iter()
+                    .map(|v| Vec4::from_array(*v))
+                    .collect()
+            };
+            c.write_gpu_buffer(b, offset, &data);
+            Ok(())
+        })
+    })
+}
+/// Draws `count` GPU instances of a mesh, reading `items[v.instance_index]`.
+/// # Safety
+/// `ctx` is live or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_mesh_gpu_buffer(
+    ctx: *mut CrabbyCtx,
+    mesh: CrabbyMesh,
+    buffer: CrabbyGpuBuffer,
+    count: u32,
+) -> CrabbyStatus {
+    // SAFETY: forwarded context contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let mesh = to_c(mesh);
+            let b = GpuBuffer::from_id(buffer.id);
+            if !c.is_mesh_live(mesh) || c.gpu_buffer_len(b).is_none_or(|len| count > len) {
+                return Err(invalid("invalid GPU instance arguments"));
+            }
+            c.set_mesh_gpu_buffer(mesh, b, count);
+            Ok(())
+        })
+    })
 }

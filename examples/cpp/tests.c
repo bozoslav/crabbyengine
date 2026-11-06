@@ -21,6 +21,12 @@ static void visit(const CrabbyChunk* chunk, void* user) {
 typedef struct { size_t ticks; float dt; CrabbyStatus busy_quit; } Run;
 static void setup(CrabbyCtx* ctx, void* user) {
     (void)user;
+    CrabbyGpuBuffer buffer;
+    const float items[2][4] = {{1, 2, 3, 4}, {0, 0, 0, 0}};
+    CHECK(crabby_ctx_create_gpu_buffer(ctx, 2, items, 2, &buffer) == CRABBY_OK);
+    CHECK(crabby_ctx_write_gpu_buffer(ctx, buffer, 1, items, 1) == CRABBY_OK);
+    CHECK(crabby_ctx_write_gpu_buffer(ctx, buffer, 2, items, 1) == CRABBY_INVALID_ARGUMENT);
+    CHECK(crabby_ctx_create_gpu_buffer(ctx, 0, NULL, 0, &buffer) == CRABBY_INVALID_ARGUMENT);
     bool culling = true;
     CHECK(crabby_ctx_occlusion_culling(ctx, &culling) == CRABBY_OK && !culling);
     CHECK(crabby_ctx_set_occlusion_culling(ctx, true) == CRABBY_OK);

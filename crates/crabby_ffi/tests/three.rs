@@ -44,6 +44,20 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
         assert_eq!(crabby_ctx_create_material(ctx, &desc, &mut stone), CRABBY_OK);
         let cube = crabby_mesh_data_cube(1.0);
         assert_eq!(crabby_ctx_create_mesh(ctx, cube, stone, &mut ids.mesh), CRABBY_OK);
+        let mut b = CrabbyGpuBuffer::default();
+        assert_eq!(
+            crabby_ctx_create_gpu_buffer(ctx, 2, std::ptr::null(), 0, &mut b),
+            CRABBY_OK
+        );
+        assert_eq!(crabby_ctx_set_mesh_gpu_buffer(ctx, ids.mesh, b, 2), CRABBY_OK);
+        assert_eq!(
+            crabby_ctx_set_mesh_gpu_buffer(ctx, ids.mesh, b, 3),
+            CRABBY_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            crabby_ctx_set_mesh_gpu_buffer(ctx, CrabbyMesh { id: u32::MAX }, b, 1),
+            CRABBY_INVALID_ARGUMENT
+        );
         // A material this game didn't make.
         let mut other = CrabbyMesh::default();
         ids.errors
@@ -682,6 +696,28 @@ unsafe extern "C" fn target_cameras(ctx: *mut CrabbyCtx, user: *mut c_void) {
         errors.push(crabby_ctx_create_render_target(ctx, 0, 8, &mut plain));
         assert_eq!(crabby_ctx_target_cameras(ctx, back.as_mut_ptr(), 2, &mut n), CRABBY_OK);
         assert_eq!(n, 1, "failed calls change nothing");
+        let mut buffer = CrabbyGpuBuffer::default();
+        assert_eq!(
+            crabby_ctx_create_gpu_buffer(ctx, 65, std::ptr::null(), 0, &mut buffer),
+            CRABBY_OK
+        );
+        let data = [[1.0, 2.0, 3.0, 4.0]];
+        assert_eq!(
+            crabby_ctx_write_gpu_buffer(ctx, buffer, 64, data.as_ptr(), 1),
+            CRABBY_OK
+        );
+        assert_eq!(
+            crabby_ctx_write_gpu_buffer(ctx, buffer, 65, data.as_ptr(), 1),
+            CRABBY_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            crabby_ctx_write_gpu_buffer(ctx, buffer, 0, std::ptr::null(), 1),
+            CRABBY_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            crabby_ctx_create_gpu_buffer(ctx, 0, std::ptr::null(), 0, &mut buffer),
+            CRABBY_INVALID_ARGUMENT
+        );
         // A compute pass on the render target.
         let mut fade = CrabbyCompute::default();
         let source = c"fn compute(c: Cell) -> vec4<f32> { return c.value * 0.9; }";
@@ -690,11 +726,35 @@ unsafe extern "C" fn target_cameras(ctx: *mut CrabbyCtx, user: *mut c_void) {
             CRABBY_OK
         );
         let pass = CrabbyComputePass {
+            has_buffer: false,
+            buffer: Default::default(),
             compute: fade,
             target: mirror,
             has_material: false,
             material: CrabbyMaterial::default(),
         };
+        assert_eq!(crabby_ctx_set_compute_passes(ctx, &pass, 1), CRABBY_OK);
+        let mut update = CrabbyCompute::default();
+        assert_eq!(
+            crabby_ctx_create_compute(
+                ctx,
+                c"update".as_ptr(),
+                c"fn update(i: u32) { items[i].x += frame.time.y; }".as_ptr(),
+                &mut update
+            ),
+            CRABBY_OK
+        );
+        let bp = CrabbyComputePass {
+            has_buffer: true,
+            buffer,
+            compute: update,
+            ..pass
+        };
+        assert_eq!(crabby_ctx_set_compute_passes(ctx, &bp, 1), CRABBY_OK);
+        let mut read = bp;
+        let mut n = 0;
+        assert_eq!(crabby_ctx_compute_passes(ctx, &mut read, 1, &mut n), CRABBY_OK);
+        assert!(read.has_buffer && read.buffer == buffer && n == 1);
         assert_eq!(crabby_ctx_set_compute_passes(ctx, &pass, 1), CRABBY_OK);
         let mut passes = [pass; 2];
         assert_eq!(

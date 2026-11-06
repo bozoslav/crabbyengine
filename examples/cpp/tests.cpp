@@ -236,6 +236,12 @@ static void three_d() {
         throws([&] { ctx.set_target_cameras({crabby::target_camera_of(eye, plain)}); });
         throws([&] { ctx.create_render_target(0, 4); });
         ctx.set_target_cameras({});
+        auto buffer = ctx.create_gpu_buffer(65);
+        ctx.write_gpu_buffer(buffer, 64, {{1, 2, 3, 4}});
+        throws([&] { ctx.write_gpu_buffer(buffer, 65, {{1, 2, 3, 4}}); });
+        auto update = ctx.create_compute("update", "fn update(i: u32) { items[i].x += frame.time.y; }");
+        ctx.set_compute_passes({crabby::buffer_compute_pass(update, buffer)});
+        CHECK(ctx.compute_passes()[0].has_buffer && ctx.compute_passes()[0].buffer.id == buffer.id);
         auto fade = ctx.create_compute("fade", "fn compute(c: Cell) -> vec4<f32> { return c.value * 0.9; }");
         ctx.set_compute_passes({crabby::compute_pass_of(fade, mirror), crabby::compute_pass_of(fade, mirror, stone)});
         CHECK(ctx.compute_passes().size() == 2 && ctx.compute_passes()[1].material.id == stone.id);

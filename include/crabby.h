@@ -1117,7 +1117,13 @@ typedef struct CrabbyCompute {
   uint32_t id;
 } CrabbyCompute;
 
+typedef struct CrabbyGpuBuffer {
+  uint32_t id;
+} CrabbyGpuBuffer;
+
 typedef struct CrabbyComputePass {
+  bool has_buffer;
+  struct CrabbyGpuBuffer buffer;
   struct CrabbyCompute compute;
   struct CrabbyTexture target;
   bool has_material;
@@ -3368,6 +3374,23 @@ enum CrabbyStatus crabby_ctx_set_lod_settings(struct CrabbyCtx *ctx,
 float crabby_lod_screen_height_at(float size, float distance, float fov_y);
 
 float crabby_lod_distance_at(float size, float height, float fov_y);
+
+enum CrabbyStatus crabby_ctx_create_gpu_buffer(struct CrabbyCtx *ctx,
+                                               uint32_t len,
+                                               const float (*data)[4],
+                                               size_t count,
+                                               struct CrabbyGpuBuffer *output);
+
+enum CrabbyStatus crabby_ctx_write_gpu_buffer(struct CrabbyCtx *ctx,
+                                              struct CrabbyGpuBuffer buffer,
+                                              uint32_t offset,
+                                              const float (*data)[4],
+                                              size_t count);
+
+enum CrabbyStatus crabby_ctx_set_mesh_gpu_buffer(struct CrabbyCtx *ctx,
+                                                 struct CrabbyMesh mesh,
+                                                 struct CrabbyGpuBuffer buffer,
+                                                 uint32_t count);
 
 enum CrabbyStatus crabby_sprite_sheet(struct CrabbyTexture texture,
                                       uint32_t frame_width,

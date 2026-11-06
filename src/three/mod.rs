@@ -59,7 +59,7 @@ pub(crate) mod motion;
 #[cfg(feature = "window")]
 pub(crate) use collect::{FADED, Instance3D, MAX_CASCADES, MAX_SHADOW_VIEWS, shadow_views};
 pub(crate) use collect::{Frame3D, MAX_SHADOW_RESOLUTION, MIN_SHADOW_RESOLUTION, SHADOW_MAP_SIZE};
-pub use compute::{Compute, ComputePass};
+pub use compute::{Compute, ComputePass, GpuBuffer};
 pub use effect::{Effect, ScreenEffect};
 pub use mesh::{MeshData, MorphFrame, MorphTarget};
 pub use post::{AmbientOcclusion, AntiAliasing, MAX_RENDER_SCALE, MIN_RENDER_SCALE, Post, Tonemap};
@@ -759,6 +759,7 @@ pub(crate) struct Assets3D {
     pub effects: u32,
     /// Compute passes made so far, and those loaded from files.
     pub computes: u32,
+    pub gpu_buffers: Vec<u32>,
     pub loaded_computes: std::collections::HashMap<std::path::PathBuf, Compute>,
     /// Effects loaded from files, by resolved path.
     pub loaded_effects: std::collections::HashMap<std::path::PathBuf, Effect>,
