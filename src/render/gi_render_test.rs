@@ -217,9 +217,13 @@ impl Rig {
                     size: self.size,
                 },
             );
-            let mut buffers =
-                self.renderer
-                    .draw(&self.device, &self.target, wgpu::Color::BLACK, &self.textures, timer.as_deref());
+            let mut buffers = self.renderer.draw(
+                &self.device,
+                &self.target,
+                wgpu::Color::BLACK,
+                &self.textures,
+                timer.as_deref(),
+            );
             if let Some(t) = timer.as_deref_mut() {
                 let mut encoder = self.device.create_command_encoder(&Default::default());
                 t.resolve(&mut encoder);
@@ -411,7 +415,10 @@ fn gi_cost() {
     // on machines doing other things too.
     let settings = [
         ("off", None),
-        ("defaults (4 probes a frame)", Some(GlobalIllumination::default().probes_per_frame)),
+        (
+            "defaults (4 probes a frame)",
+            Some(GlobalIllumination::default().probes_per_frame),
+        ),
         ("16 probes a frame", Some(MAX_GI_PROBES_PER_FRAME)),
     ];
     let mut best = vec![(f32::MAX, f64::MAX, f64::MAX, String::new()); settings.len()];
@@ -472,8 +479,6 @@ fn gi_cost() {
         }
     }
     for ((label, _), (gpu, wait, cpu, parts)) in settings.iter().zip(&best) {
-        println!(
-            "gi {label}: GPU frame {gpu:.3} ms ({parts}); submit to done {wait:.3} ms; collect {cpu:.3} ms"
-        );
+        println!("gi {label}: GPU frame {gpu:.3} ms ({parts}); submit to done {wait:.3} ms; collect {cpu:.3} ms");
     }
 }

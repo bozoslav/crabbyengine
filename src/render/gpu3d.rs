@@ -2161,9 +2161,9 @@ impl Renderer3D {
         // atlas bound to every frame (again when it's remade).
         let gi_frame = frame.gi.as_deref().filter(|_| self.frame_sources.gi);
         if let Some(g) = gi_frame {
-            let gi = self.gi.get_or_insert_with(|| {
-                super::gi::Gi::new(device, self.samples, size_of::<FrameUniform>() as u64)
-            });
+            let gi = self
+                .gi
+                .get_or_insert_with(|| super::gi::Gi::new(device, self.samples, size_of::<FrameUniform>() as u64));
             let mut remade = gi.prepare(device, queue, g) || gi.face_groups.is_empty();
             remade |= gi.lights.upload(device, queue, &g.capture.lights, &g.capture.decals);
             if remade {
