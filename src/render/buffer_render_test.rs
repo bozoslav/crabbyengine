@@ -162,9 +162,11 @@ impl Rig {
             &ctx.camera3d,
             &ctx.lighting,
         );
+        // Like the frame does: a freed buffer's passes are left out.
         frame.computes.extend(
             ctx.compute_passes
                 .iter()
+                .filter(|c| ctx.gpu_buffer_len(c.buffer.unwrap()).is_some())
                 .map(|c| (c.compute.id, c.buffer.unwrap().id | (1 << 31), 0)),
         );
         let scene = Scene3D {
@@ -259,7 +261,7 @@ fn buffer_draw(compute: bool) {
     let mut data = vec![vec4(99.0, -1.0, 0.0, 1.0); 65];
     data[0].x = -2.0;
     let b = rig.ctx.create_gpu_buffer(65, &data);
-    rig.renderer.create_gpu_buffer(&rig.device, 65, &data);
+    rig.renderer.create_gpu_buffer(&rig.device, b.id, 65, &data);
     rig.renderer
         .write_gpu_buffer(&rig.queue, b.id, 64, &[vec4(0.0, -1.0, 0.0, 1.0)]);
     rig.renderer.set_mesh_gpu_buffer(mesh.id, b.id, 65);
@@ -403,4 +405,168 @@ fn persistent_batch_draw(compute: bool) {
     let image = rig.draw();
     let (x, y) = pixel(vp, at[0]);
     assert!(image[((y * SIZE + x) * 4) as usize] < 50, "freed batch still drawn");
+}
+
+const OFFSETS: &str =
+    "fn vertex(v: Vertex) -> Vertex { var o = v; o.position += items[v.instance_index].xyz; return o; }
+    fn surface(s: Surface) -> Surface { var o = s; o.emissive = s.albedo * 4.0; return o; }";
+
+impl Rig {
+    /// A cube mesh drawn from GPU buffer elements by `OFFSETS`.
+    fn offset_mesh(&mut self) -> Mesh {
+        let shader = self.ctx.create_shader("offsets", OFFSETS);
+        self.renderer.create_shader(&self.device, "offsets", OFFSETS).unwrap();
+        self.mesh(
+            &MeshData::cube(0.4),
+            MaterialDesc {
+                shader: Some(shader),
+                ..Default::default()
+            },
+        )
+    }
+    /// A buffer of `data` on the CPU and the GPU.
+    fn buffer(&mut self, data: &[Vec4]) -> GpuBuffer {
+        let b = self.ctx.create_gpu_buffer(data.len() as u32, data);
+        self.renderer
+            .create_gpu_buffer(&self.device, b.id, data.len() as u32, data);
+        b
+    }
+    fn look_at_origin(&mut self) -> Mat4 {
+        self.ctx.lighting.shadows = false;
+        self.ctx.camera3d.position = vec3(0.0, 0.0, 5.0);
+        self.ctx.camera3d.look_at(Vec3::ZERO);
+        self.ctx.camera3d.view_proj()
+    }
+}
+
+/// Channel `c` of the pixel under world point `p`.
+fn channel(pixels: &[u8], view_proj: Mat4, p: Vec3, c: usize) -> u8 {
+    let (x, y) = pixel(view_proj, p);
+    pixels[((y * SIZE + x) * 4) as usize + c]
+}
+
+#[test]
+fn buffer_instances_move_and_tint_with_their_entity() {
+    let Some(mut rig) = Rig::new() else { return };
+    if rig.device.limits().max_storage_buffers_per_shader_stage == 0 {
+        return;
+    }
+    let mesh = rig.offset_mesh();
+    let b = rig.buffer(&[vec4(-1.0, 0.0, 0.0, 0.0), vec4(1.0, 0.0, 0.0, 0.0)]);
+    rig.renderer.set_mesh_gpu_buffer(mesh.id, b.id, 2);
+    let entity = rig.ctx.world.spawn((Transform3D::default(), Model::new(mesh)));
+    let view_proj = rig.look_at_origin();
+
+    let pixels = rig.draw();
+    for x in [-1.0, 1.0] {
+        let p = vec3(x, 0.0, 0.0);
+        let rgb = [0, 1, 2].map(|c| channel(&pixels, view_proj, p, c));
+        assert!(rgb.iter().all(|&v| v > 150), "white instance at {x}: {rgb:?}");
+    }
+    assert!(channel(&pixels, view_proj, Vec3::ZERO, 0) < 20, "nothing between them");
+
+    // Moved up and tinted red: the instances went along.
+    let up = vec3(0.0, 1.5, 0.0);
+    rig.ctx.world.get_mut::<Transform3D>(entity).unwrap().position = up;
+    rig.ctx.world.get_mut::<Model>(entity).unwrap().color = Color::rgb(1.0, 0.0, 0.0);
+    let pixels = rig.draw();
+    for x in [-1.0, 1.0] {
+        let p = up + vec3(x, 0.0, 0.0);
+        let rgb = [0, 1, 2].map(|c| channel(&pixels, view_proj, p, c));
+        assert!(
+            rgb[0] > 150 && rgb[1] < 30 && rgb[2] < 30,
+            "red instance at {p}: {rgb:?}"
+        );
+        let old = vec3(x, 0.0, 0.0);
+        assert!(channel(&pixels, view_proj, old, 0) < 20, "nothing left at {old}");
+    }
+
+    // Scaled by two, the cube each instance draws is too.
+    rig.ctx.world.get_mut::<Transform3D>(entity).unwrap().scale = Vec3::splat(2.0);
+    rig.ctx.world.get_mut::<Model>(entity).unwrap().color = Color::WHITE;
+    let pixels = rig.draw();
+    // Beyond the unscaled cube's reach (0.4), inside the scaled one's.
+    let wide = up + vec3(-1.0, 0.5, 0.0);
+    assert!(
+        channel(&pixels, view_proj, wide, 0) > 150,
+        "a scaled cube covers {wide}"
+    );
+}
+
+#[test]
+fn buffer_instances_are_culled_by_the_grown_bounds() {
+    let Some(mut rig) = Rig::new() else { return };
+    if rig.device.limits().max_storage_buffers_per_shader_stage == 0 {
+        return;
+    }
+    let mesh = rig.offset_mesh();
+    // The entity is far off to the left; its instance is shifted back on screen.
+    let b = rig.buffer(&[vec4(12.0, 0.0, 0.0, 0.0)]);
+    rig.renderer.set_mesh_gpu_buffer(mesh.id, b.id, 1);
+    rig.ctx
+        .world
+        .spawn((Transform3D::at(vec3(-12.0, 0.0, 0.0)), Model::new(mesh)));
+    let view_proj = rig.look_at_origin();
+
+    let pixels = rig.draw();
+    assert!(
+        channel(&pixels, view_proj, Vec3::ZERO, 0) < 20,
+        "culled by the mesh's own bounds"
+    );
+
+    rig.ctx.set_mesh_gpu_bounds(mesh, vec3(12.0, 0.0, 0.0), 1.0);
+    let pixels = rig.draw();
+    assert!(
+        channel(&pixels, view_proj, Vec3::ZERO, 0) > 150,
+        "the grown bounds keep it"
+    );
+}
+
+#[test]
+fn freed_buffers_are_skipped_and_their_ids_reused() {
+    let Some(mut rig) = Rig::new() else { return };
+    if rig.device.limits().max_storage_buffers_per_shader_stage == 0 {
+        return;
+    }
+    let mesh = rig.offset_mesh();
+    let b = rig.buffer(&[vec4(-1.0, 0.0, 0.0, 0.0), vec4(1.0, 0.0, 0.0, 0.0)]);
+    rig.renderer.set_mesh_gpu_buffer(mesh.id, b.id, 2);
+    let source = "fn update(i: u32) { items[i].y += 1.0; }";
+    let c = rig.ctx.create_compute("up", source);
+    rig.renderer.create_compute(&rig.device, "up", source).unwrap();
+    rig.ctx.compute_passes.push(ComputePass::for_buffer(c, b));
+    rig.ctx.world.spawn((Transform3D::default(), Model::new(mesh)));
+    let view_proj = rig.look_at_origin();
+    let drawn = |rig: &mut Rig, p| channel(&rig.draw(), view_proj, p, 0) > 150;
+
+    assert!(drawn(&mut rig, vec3(-1.0, 1.0, 0.0)), "the pass moved it up");
+
+    rig.ctx.free_gpu_buffer(b);
+    rig.renderer.free_gpu_buffer(b.id);
+    assert_eq!(rig.ctx.gpu_buffer_len(b), None);
+    assert!(rig.ctx.compute_passes.is_empty(), "its passes went with it");
+    assert!(!drawn(&mut rig, vec3(-1.0, 1.0, 0.0)) && !drawn(&mut rig, vec3(-1.0, 0.0, 0.0)));
+
+    // A stale pass is skipped, not a panic.
+    rig.ctx.compute_passes.push(ComputePass::for_buffer(c, b));
+    assert!(!drawn(&mut rig, vec3(-1.0, 0.0, 0.0)));
+    rig.ctx.compute_passes.clear();
+    // Freeing it again does nothing.
+    rig.ctx.free_gpu_buffer(b);
+
+    // The id comes back for a new buffer; the mesh isn't bound to it.
+    let again = rig.buffer(&[
+        vec4(0.0, 0.0, 0.0, 0.0),
+        vec4(0.0, -1.0, 0.0, 0.0),
+        vec4(0.0, 1.0, 0.0, 0.0),
+    ]);
+    assert_eq!(again, b);
+    assert_eq!(rig.ctx.gpu_buffer_len(again), Some(3));
+    assert!(!drawn(&mut rig, Vec3::ZERO), "the old binding was cleared");
+    rig.renderer.set_mesh_gpu_buffer(mesh.id, again.id, 3);
+    assert!(
+        drawn(&mut rig, Vec3::ZERO) && drawn(&mut rig, vec3(0.0, 1.0, 0.0)),
+        "bound again"
+    );
+    assert!(!drawn(&mut rig, vec3(-1.0, 0.0, 0.0)), "nothing of the old data");
 }

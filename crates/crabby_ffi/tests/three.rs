@@ -82,6 +82,18 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
         );
         assert_eq!(crabby_ctx_set_mesh_gpu_buffer(ctx, ids.mesh, b, 2), CRABBY_OK);
         assert_eq!(
+            crabby_ctx_set_mesh_gpu_bounds(ctx, ids.mesh, v3(0.0, 5.0, 0.0), 3.0),
+            CRABBY_OK
+        );
+        assert_eq!(
+            crabby_ctx_set_mesh_gpu_bounds(ctx, ids.mesh, v3(0.0, 5.0, 0.0), -1.0),
+            CRABBY_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            crabby_ctx_set_mesh_gpu_bounds(ctx, CrabbyMesh { id: u32::MAX }, v3(0.0, 0.0, 0.0), 1.0),
+            CRABBY_INVALID_ARGUMENT
+        );
+        assert_eq!(
             crabby_ctx_set_mesh_gpu_buffer(ctx, ids.mesh, b, 3),
             CRABBY_INVALID_ARGUMENT
         );
@@ -804,6 +816,19 @@ unsafe extern "C" fn target_cameras(ctx: *mut CrabbyCtx, user: *mut c_void) {
             crabby_ctx_create_gpu_buffer(ctx, 0, std::ptr::null(), 0, &mut buffer),
             CRABBY_INVALID_ARGUMENT
         );
+        // Freeing: once; later calls see an invalid buffer; the id comes back.
+        let freed = buffer;
+        assert_eq!(crabby_ctx_free_gpu_buffer(ctx, freed), CRABBY_OK);
+        assert_eq!(crabby_ctx_free_gpu_buffer(ctx, freed), CRABBY_INVALID_ARGUMENT);
+        assert_eq!(
+            crabby_ctx_write_gpu_buffer(ctx, freed, 0, data.as_ptr(), 1),
+            CRABBY_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            crabby_ctx_create_gpu_buffer(ctx, 4, std::ptr::null(), 0, &mut buffer),
+            CRABBY_OK
+        );
+        assert_eq!(buffer.id, freed.id);
         // A compute pass on the render target.
         let mut fade = CrabbyCompute::default();
         let source = c"fn compute(c: Cell) -> vec4<f32> { return c.value * 0.9; }";

@@ -73,7 +73,9 @@ impl Renderer {
     }
 
     #[cfg(feature = "3d")]
-    pub fn create_gpu_buffer(&mut self, _: u32, _: &[crate::Vec4]) {}
+    pub fn create_gpu_buffer(&mut self, _: u32, _: u32, _: &[crate::Vec4]) {}
+    #[cfg(feature = "3d")]
+    pub fn free_gpu_buffer(&mut self, _: u32) {}
     #[cfg(feature = "3d")]
     pub fn write_gpu_buffer(&mut self, _: u32, _: u32, _: &[crate::Vec4]) {}
     #[cfg(feature = "3d")]

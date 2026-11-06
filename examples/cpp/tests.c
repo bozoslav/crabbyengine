@@ -40,6 +40,9 @@ static void setup(CrabbyCtx* ctx, void* user) {
     CHECK(crabby_ctx_update_instance_batch(ctx,batch,matrices,1) == CRABBY_OK);
     CHECK(crabby_ctx_free_instance_batch(ctx,batch) == CRABBY_OK);
     CHECK(crabby_ctx_update_instance_batch(ctx,batch,matrices,1) == CRABBY_INVALID_ARGUMENT);
+    CHECK(crabby_ctx_free_gpu_buffer(ctx, buffer) == CRABBY_OK);
+    CHECK(crabby_ctx_free_gpu_buffer(ctx, buffer) == CRABBY_INVALID_ARGUMENT);
+    CHECK(crabby_ctx_write_gpu_buffer(ctx, buffer, 0, items, 1) == CRABBY_INVALID_ARGUMENT);
     bool culling = true;
     CHECK(crabby_ctx_occlusion_culling(ctx, &culling) == CRABBY_OK && !culling);
     CHECK(crabby_ctx_set_occlusion_culling(ctx, true) == CRABBY_OK);

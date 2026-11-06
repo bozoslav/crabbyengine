@@ -609,6 +609,7 @@ impl Ctx {
         // grow the tables.
         let id = match self.assets3d.free_meshes.pop() {
             Some(id) => {
+                self.assets3d.gpu_mesh_bounds.remove(&id);
                 self.assets3d.bounds[id as usize] = data.bounds();
                 id
             }
@@ -702,6 +703,7 @@ impl Ctx {
             return;
         }
         *bounds = (Vec3::ZERO, -1.0);
+        self.assets3d.gpu_mesh_bounds.remove(&mesh.id);
         self.assets3d.free_meshes.push(mesh.id);
         if let Some(shadowless) = self.assets3d.shadowless.get_mut(mesh.id as usize) {
             *shadowless = false;
@@ -1118,6 +1120,8 @@ impl Ctx {
         self.frame3d.computes.extend(self.compute_passes.iter().filter_map(|c| {
             let material = c.material.or(fallback)?;
             if let Some(b) = c.buffer {
+                // A freed buffer's passes do nothing.
+                self.assets3d.gpu_buffers.get(b.id as usize).filter(|&&len| len > 0)?;
                 Some((c.compute.id, b.id | (1 << 31), material.id))
             } else {
                 targets
