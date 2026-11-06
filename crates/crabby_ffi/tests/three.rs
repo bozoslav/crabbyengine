@@ -44,6 +44,37 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
         assert_eq!(crabby_ctx_create_material(ctx, &desc, &mut stone), CRABBY_OK);
         let cube = crabby_mesh_data_cube(1.0);
         assert_eq!(crabby_ctx_create_mesh(ctx, cube, stone, &mut ids.mesh), CRABBY_OK);
+        let mut batch = CrabbyInstanceBatch::default();
+        let matrices = [crabbyengine::Mat4::IDENTITY.to_cols_array()];
+        let options = CrabbyInstanceBatchOptions {
+            cell_size: 32.0,
+            max_distance: 100.0,
+            cast_shadows: true,
+            tint: WHITE,
+        };
+        assert_eq!(
+            crabby_ctx_create_instance_batch(ctx, ids.mesh, matrices.as_ptr(), 1, options, &mut batch),
+            CRABBY_OK
+        );
+        assert_eq!(
+            crabby_ctx_update_instance_batch(ctx, batch, matrices.as_ptr(), 1),
+            CRABBY_OK
+        );
+        assert_eq!(crabby_ctx_free_instance_batch(ctx, batch), CRABBY_OK);
+        assert_eq!(
+            crabby_ctx_update_instance_batch(ctx, batch, matrices.as_ptr(), 1),
+            CRABBY_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            crabby_ctx_create_instance_batch(ctx, ids.mesh, null(), 1, options, &mut batch),
+            CRABBY_INVALID_ARGUMENT
+        );
+        let mut bad = matrices;
+        bad[0][0] = f32::NAN;
+        assert_eq!(
+            crabby_ctx_create_instance_batch(ctx, ids.mesh, bad.as_ptr(), 1, options, &mut batch),
+            CRABBY_INVALID_ARGUMENT
+        );
         let mut b = CrabbyGpuBuffer::default();
         assert_eq!(
             crabby_ctx_create_gpu_buffer(ctx, 2, std::ptr::null(), 0, &mut b),

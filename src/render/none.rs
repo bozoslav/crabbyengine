@@ -77,6 +77,7 @@ impl Renderer {
     #[cfg(feature = "3d")]
     pub fn write_gpu_buffer(&mut self, _: u32, _: u32, _: &[crate::Vec4]) {}
     #[cfg(feature = "3d")]
+    pub fn set_instance_batch(&mut self, _: u32, _: Option<&crate::three::instances::Batch>) {}
     pub fn set_mesh_gpu_buffer(&mut self, _: u32, _: u32, _: u32) {}
     #[cfg(feature = "3d")]
     pub fn create_compute(&mut self, _name: &str, _source: &str) -> Result<u32, String> {

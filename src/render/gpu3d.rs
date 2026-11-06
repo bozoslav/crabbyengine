@@ -24,6 +24,8 @@
 //!
 //! Sprites and UI are drawn on top afterwards, without tone mapping.
 
+mod instances;
+use instances::{Culling, StaticBatch};
 use std::ops::Range;
 
 use glam::{Mat4, Vec3};
@@ -345,8 +347,20 @@ pub(crate) fn compose_shader_with(user: &str, decals: bool) -> String {
     if !defines(user, "surface") {
         source.push_str("fn surface(s: Surface) -> Surface { return s; }\n");
     }
-    source.push_str(MESH_MAIN);
+    source.push_str(&MESH_MAIN.replace("// STATIC_INSTANCE_HELPER", include_str!("gpu3d/instance_vertex.wgsl")));
     source
+}
+
+fn compose_shader_storage(user: &str, decals: bool, storage: bool) -> String {
+    let source = compose_shader_with(user, decals);
+    if storage {
+        source
+    } else {
+        source.replace(
+            include_str!("gpu3d/instance_vertex.wgsl"),
+            "fn static_instance(v: VertexIn) -> VertexIn { return v; }",
+        )
+    }
 }
 
 /// A whole screen effect shader from the game's part: the mesh prelude
@@ -667,6 +681,8 @@ pub(crate) struct Renderer3D {
     view_targets: Vec<(u32, ViewTarget)>,
     /// Compute pass pipelines, by compute id, and their layouts.
     compute_pipelines: Vec<Option<wgpu::ComputePipeline>>,
+    pub(super) static_batches: Vec<Option<StaticBatch>>,
+    static_culling: Option<Culling>,
     storage_read: Option<wgpu::BindGroupLayout>,
     storage_write: Option<(wgpu::BindGroupLayout, wgpu::PipelineLayout)>,
     storage_buffers: Vec<Option<StorageBuffer>>,
@@ -951,7 +967,7 @@ impl Renderer3D {
             &layout,
             &shadow_pipeline_layout,
             "built-in",
-            &compose_shader_with("", decals),
+            &compose_shader_storage("", decals, storage_supported),
             samples,
         );
         let post_shader = device.create_shader_module(wgpu::include_wgsl!("post.wgsl"));
@@ -1429,6 +1445,8 @@ impl Renderer3D {
             render_targets: Vec::new(),
             view_targets: Vec::new(),
             compute_pipelines: Vec::new(),
+            static_batches: Vec::new(),
+            static_culling: None,
             storage_read,
             storage_write,
             storage_buffers: Vec::new(),
@@ -1717,9 +1735,9 @@ impl Renderer3D {
 
     /// Compiles a material shader from the game's WGSL; returns its index.
     pub fn create_shader(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, String> {
-        let source = compose_shader_with(user, self.frame_sources.decals);
+        let source = compose_shader_storage(user, self.frame_sources.decals, self.storage_read.is_some());
         let source = if self.storage_read.is_none() && user.contains("items") {
-            compose_shader_with("", self.frame_sources.decals)
+            compose_shader_storage("", self.frame_sources.decals, false)
         } else {
             source
         };
@@ -1739,9 +1757,9 @@ impl Renderer3D {
 
     /// Recompiles shader `id` (hot reload). On an error the old one stays.
     pub fn replace_shader(&mut self, device: &wgpu::Device, id: u32, name: &str, user: &str) -> Result<(), String> {
-        let source = compose_shader_with(user, self.frame_sources.decals);
+        let source = compose_shader_storage(user, self.frame_sources.decals, self.storage_read.is_some());
         let source = if self.storage_read.is_none() && user.contains("items") {
-            compose_shader_with("", self.frame_sources.decals)
+            compose_shader_storage("", self.frame_sources.decals, false)
         } else {
             source
         };
@@ -2052,6 +2070,7 @@ impl Renderer3D {
             ));
         }
         self.atmosphere = sky.atmosphere;
+        self.prepare_static(queue, frame, camera, occlusion);
         self.runs.clear();
         self.runs.extend_from_slice(&frame.runs);
         self.effects.clear();
@@ -2154,7 +2173,11 @@ impl Renderer3D {
             |k| drawn[k],
         );
         self.skin_drawn = drawn;
-        if total == 0 && frame.particles.instances.is_empty() && frame.particles.strips.runs.is_empty() {
+        if self.static_batches.iter().all(Option::is_none)
+            && total == 0
+            && frame.particles.instances.is_empty()
+            && frame.particles.strips.runs.is_empty()
+        {
             return;
         }
         if total > self.capacity {
@@ -2887,7 +2910,10 @@ impl Renderer3D {
 
     /// Whether this frame has anything to draw.
     pub fn has_draws(&self) -> bool {
-        !self.runs.is_empty() || self.particles.has_draws() || !self.computes.is_empty()
+        self.static_batches.iter().any(Option::is_some)
+            || !self.runs.is_empty()
+            || self.particles.has_draws()
+            || !self.computes.is_empty()
     }
 
     /// Whether solid surfaces go through the depth prepass too: on GPUs
@@ -2992,6 +3018,7 @@ impl Renderer3D {
         } = *frame;
         match part {
             Part::Prelude => {
+                self.cull_static(encoder);
                 // Skinned models first: every pass draws them posed.
                 if self.skinning.has_work() {
                     let timestamps = time("skinning").map(|t| wgpu::ComputePassTimestampWrites {
@@ -3107,7 +3134,10 @@ impl Renderer3D {
                 pass.set_bind_group(0, &self.shadow_bind_group, &[offset]);
                 pass.set_bind_group(2, &self.no_scene, &[]);
                 let runs = &self.shadow_runs[cascade][first as usize..end as usize];
-                self.draw_models(&mut pass, runs, Kind::Shadow, &self.instances);
+                self.draw_model_runs(&mut pass, runs, Kind::Shadow(cascade), &self.instances, None);
+                if first == 0 {
+                    self.draw_models(&mut pass, &[], Kind::Shadow(cascade), &self.instances);
+                }
             }
             Part::Views => {
                 // Target cameras, before the main view, whose materials may read them.
@@ -3146,6 +3176,7 @@ impl Renderer3D {
                     &targets.depth,
                     &self.frame_bind_group,
                     &self.runs,
+                    true,
                 );
                 // With every solid surface in it, the depth is complete here.
                 if self.solid_prepass {
@@ -3486,9 +3517,16 @@ impl Renderer3D {
             });
             pass.set_bind_group(0, &target.frame_bind_group, &[]);
             pass.set_bind_group(2, &self.no_scene, &[]);
-            self.draw_models(&mut pass, runs, Kind::Prepass, &self.instances);
+            self.draw_model_runs(&mut pass, runs, Kind::Prepass, &self.instances, None);
         }
-        self.coverage_prepass(encoder, &target.color, &target.depth, &target.frame_bind_group, runs);
+        self.coverage_prepass(
+            encoder,
+            &target.color,
+            &target.depth,
+            &target.frame_bind_group,
+            runs,
+            false,
+        );
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("3d target camera"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -3514,7 +3552,7 @@ impl Renderer3D {
         });
         pass.set_bind_group(0, &target.frame_bind_group, &[]);
         pass.set_bind_group(2, &self.no_scene, &[]);
-        self.draw_models(&mut pass, runs, Kind::Opaque, &self.instances);
+        self.draw_model_runs(&mut pass, runs, Kind::Opaque, &self.instances, None);
         if self.atmosphere {
             pass.set_pipeline(&self.sky);
             pass.set_bind_group(0, &target.frame_bind_group, &[]);
@@ -3536,12 +3574,16 @@ impl Renderer3D {
 
     /// Whether a transparent surface this frame reads the scene behind it.
     fn needs_scene(&self) -> bool {
-        self.runs.iter().any(|&(mesh, _, _)| {
-            self.meshes[self.base(mesh) as usize].parts.iter().any(|&(_, m)| {
-                let m = &self.materials[m as usize];
-                m.transparent && self.shaders[m.shader as usize].reads_scene
+        self.runs
+            .iter()
+            .map(|&(mesh, _, _)| mesh)
+            .chain(self.static_batches.iter().flatten().map(|b| b.mesh))
+            .any(|mesh| {
+                self.meshes[self.base(mesh) as usize].parts.iter().any(|&(_, m)| {
+                    let m = &self.materials[m as usize];
+                    m.transparent && self.shaders[m.shader as usize].reads_scene
+                })
             })
-        })
     }
 
     /// The mesh a run's mesh id draws: itself, or for a skinned model (ids
@@ -3566,6 +3608,7 @@ impl Renderer3D {
         depth: &wgpu::TextureView,
         frame_bind_group: &wgpu::BindGroup,
         runs: &[(u32, u32, u32)],
+        batches: bool,
     ) {
         let cutout = runs.iter().any(|&(mesh, _, _)| {
             self.meshes[self.base(mesh & !FADED) as usize]
@@ -3573,6 +3616,14 @@ impl Renderer3D {
                 .iter()
                 .any(|&(_, m)| self.materials[m as usize].cutout)
         });
+        let cutout = cutout
+            || (batches
+                && self.static_batches.iter().flatten().any(|b| {
+                    self.meshes[b.mesh as usize]
+                        .parts
+                        .iter()
+                        .any(|(_, m)| self.materials[*m as usize].cutout)
+                }));
         if self.samples <= 1 || !cutout {
             return;
         }
@@ -3601,7 +3652,11 @@ impl Renderer3D {
         });
         pass.set_bind_group(0, frame_bind_group, &[]);
         pass.set_bind_group(2, &self.no_scene, &[]);
-        self.draw_models(&mut pass, runs, Kind::PrepassCoverage, &self.instances);
+        if batches {
+            self.draw_models(&mut pass, runs, Kind::PrepassCoverage, &self.instances);
+        } else {
+            self.draw_model_runs(&mut pass, runs, Kind::PrepassCoverage, &self.instances, None);
+        }
     }
 
     fn draw_models(
@@ -3610,6 +3665,41 @@ impl Renderer3D {
         runs: &[(u32, u32, u32)],
         kind: Kind,
         instances: &wgpu::Buffer,
+    ) {
+        self.draw_model_runs(pass, runs, kind, instances, None);
+        if kind == Kind::Velocity {
+            return;
+        }
+        let view = match kind {
+            Kind::Shadow(v) => v + 1,
+            _ => 0,
+        };
+        if view >= 5 {
+            return;
+        }
+        for batch in self.static_batches.iter().flatten() {
+            if view > 0 && !batch.options.cast_shadows {
+                continue;
+            }
+            if self.meshes.get(batch.mesh as usize).is_none_or(|m| m.buffers.is_none()) {
+                continue;
+            }
+            self.draw_model_runs(
+                pass,
+                &[(batch.mesh, 0, batch.count)],
+                kind,
+                &batch.vertices,
+                Some((batch, view)),
+            );
+        }
+    }
+    fn draw_model_runs(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        runs: &[(u32, u32, u32)],
+        kind: Kind,
+        instances: &wgpu::Buffer,
+        batch: Option<(&StaticBatch, usize)>,
     ) {
         pass.set_vertex_buffer(1, instances.slice(..));
         if let Some(dummy) = &self.storage_dummy {
@@ -3643,7 +3733,7 @@ impl Renderer3D {
                 },
             };
             let mut buffers_set = false;
-            for (range, material) in &mesh.parts {
+            for (part, (range, material)) in mesh.parts.iter().enumerate() {
                 let m = &self.materials[*material as usize];
                 // Transparent surfaces are drawn last and cast no shadows.
                 if m.transparent != (kind == Kind::Transparent) {
@@ -3663,8 +3753,8 @@ impl Renderer3D {
                 };
                 let coverage = pipelines.coverage.as_ref().filter(|_| m.cutout);
                 let pipeline = match kind {
-                    Kind::Shadow if m.cutout => &pipelines.shadow_cutout,
-                    Kind::Shadow => &pipelines.shadow,
+                    Kind::Shadow(_) if m.cutout => &pipelines.shadow_cutout,
+                    Kind::Shadow(_) => &pipelines.shadow,
                     Kind::PrepassCoverage => match coverage {
                         Some([prepass, _]) => prepass,
                         None => continue,
@@ -3695,7 +3785,27 @@ impl Renderer3D {
                     pass.set_bind_group(1, &m.bind_group, &[]);
                     bound_material = *material;
                 }
-                if let Some((b, count)) = storage {
+                if let Some((batch, view)) = batch {
+                    if let Some(v) = batch.views.get(view) {
+                        pass.set_bind_group(3, &v.read, &[]);
+                        if mesh.parts.len() > 1 {
+                            if part > 0 && mesh.parts[part - 1].1 == *material {
+                                continue;
+                            }
+                            let n = mesh.parts[part..].iter().take_while(|(_, m)| m == material).count();
+                            pass.multi_draw_indexed_indirect(&v.args, (part * 20) as u64, n as u32);
+                        } else {
+                            pass.draw_indexed_indirect(&v.args, (part * 20) as u64);
+                        }
+                    } else {
+                        if let Some(dummy) = &self.storage_dummy {
+                            pass.set_bind_group(3, dummy, &[]);
+                        }
+                        for &(start, count) in &batch.visible[view] {
+                            pass.draw_indexed(range.clone(), 0, start..start + count);
+                        }
+                    }
+                } else if let Some((b, count)) = storage {
                     if count > 0 && kind != Kind::Velocity {
                         pass.set_bind_group(3, &b.read, &[]);
                         pass.set_vertex_buffer(1, b.instances.slice(..));
@@ -3715,7 +3825,7 @@ impl Renderer3D {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
-    Shadow,
+    Shadow(usize),
     Prepass,
     /// Cut-out materials' prepass with alpha to coverage (multisampling).
     PrepassCoverage,

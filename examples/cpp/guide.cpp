@@ -2144,6 +2144,19 @@ static void gpu_particles(crabby::ctx& ctx) {
 }
 // ANCHOR_END: gpu_buffers
 
+// ANCHOR: gpu_instances
+void persistent_instances(crabby::ctx& ctx, crabby::mesh mesh) {
+    std::vector<std::array<float,16>> transforms;
+    for (unsigned i=0; i<100000; ++i) {
+        transforms.push_back({1,0,0,0, 0,1,0,0, 0,0,1,0,
+            float(i%1000),0,float(i/1000),1});
+    }
+    auto batch = ctx.create_instance_batch(mesh, transforms, {32.0f,500.0f,true,crabby::colors::white});
+    ctx.update_instance_batch(batch, transforms);
+    ctx.free_instance_batch(batch);
+}
+// ANCHOR_END: gpu_instances
+
 int main() {
     navigation_guide();
     crabby::game("shop guide", 900, 700).run_headless(0, shop_guide);
@@ -2287,6 +2300,10 @@ int main() {
     crabby::game("gpu buffers", 1, 1).run_headless(0, gpu_particles);
     world_text_snippet();
     action_map_snippet();
+    crabby::game("static instances",1,1).run_headless(0,[](crabby::ctx& ctx) {
+        auto material=ctx.create_material(crabby::material_of(crabby::colors::white));
+        persistent_instances(ctx,ctx.create_mesh(crabby::mesh_data::cube(1.0f),material));
+    });
     std::puts("guide snippets ok");
 }
 

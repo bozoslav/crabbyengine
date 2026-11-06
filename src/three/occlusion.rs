@@ -31,6 +31,9 @@ pub(crate) struct OcclusionGrid {
 const MAX_CELLS: u32 = 4;
 
 impl OcclusionGrid {
+    pub(crate) fn base(&self) -> Option<&(u32, u32, Vec<f32>)> {
+        self.levels.first()
+    }
     /// A grid of `width` x `height` farthest depths, row by row from the top.
     pub fn new(view_proj: Mat4, camera: Vec3, width: u32, height: u32, depth: Vec<f32>) -> Self {
         assert_eq!(depth.len(), (width * height) as usize);

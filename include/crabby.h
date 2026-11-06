@@ -1294,6 +1294,17 @@ typedef struct CrabbyLodSettings {
   bool crossfade;
 } CrabbyLodSettings;
 
+typedef struct CrabbyInstanceBatchOptions {
+  float cell_size;
+  float max_distance;
+  bool cast_shadows;
+  struct CrabbyColor tint;
+} CrabbyInstanceBatchOptions;
+
+typedef struct CrabbyInstanceBatch {
+  uint32_t id;
+} CrabbyInstanceBatch;
+
 typedef struct CrabbySpriteSheet {
   struct CrabbyTexture texture;
   struct CrabbyVec2 frame_size;
@@ -3403,6 +3414,21 @@ enum CrabbyStatus crabby_ctx_set_mesh_gpu_buffer(struct CrabbyCtx *ctx,
                                                  struct CrabbyMesh mesh,
                                                  struct CrabbyGpuBuffer buffer,
                                                  uint32_t count);
+
+enum CrabbyStatus crabby_ctx_create_instance_batch(struct CrabbyCtx *ctx,
+                                                   struct CrabbyMesh mesh,
+                                                   const float (*matrices)[16],
+                                                   size_t count,
+                                                   struct CrabbyInstanceBatchOptions options,
+                                                   struct CrabbyInstanceBatch *output);
+
+enum CrabbyStatus crabby_ctx_update_instance_batch(struct CrabbyCtx *ctx,
+                                                   struct CrabbyInstanceBatch batch,
+                                                   const float (*matrices)[16],
+                                                   size_t count);
+
+enum CrabbyStatus crabby_ctx_free_instance_batch(struct CrabbyCtx *ctx,
+                                                 struct CrabbyInstanceBatch batch);
 
 enum CrabbyStatus crabby_sprite_sheet(struct CrabbyTexture texture,
                                       uint32_t frame_width,
