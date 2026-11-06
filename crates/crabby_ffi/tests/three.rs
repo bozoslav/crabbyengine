@@ -173,6 +173,24 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
             ),
             CRABBY_OK
         );
+        assert_ne!(
+            crabby_ctx_set_post(
+                ctx,
+                &CrabbyPost {
+                    contact_shadows: -1.0,
+                    ..post
+                }
+            ),
+            CRABBY_OK
+        );
+        let contact = CrabbyPost {
+            contact_shadows: 0.3,
+            ..post
+        };
+        assert_eq!(crabby_ctx_set_post(ctx, &contact), CRABBY_OK);
+        let mut back = std::mem::zeroed::<CrabbyPost>();
+        assert_eq!(crabby_ctx_post(ctx, &mut back), CRABBY_OK);
+        assert_eq!(back.contact_shadows, 0.3);
         // Temporal antialiasing, sharpened less, and a camera cut.
         let taa = CrabbyPost {
             anti_aliasing: 3,

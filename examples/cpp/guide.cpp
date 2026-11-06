@@ -1007,6 +1007,7 @@ static void golden_hour(crabby::ctx& ctx) {
     post.ao_intensity = 1.0f;
     post.ao_slices = 3;
     post.ao_steps = 6;
+    post.contact_shadows = 0.3f; // small, sharp sun shadows under feet and props
     post.anti_aliasing = uint32_t(crabby::anti_aliasing::smaa);
     // ANCHOR_END: ao_aa
     post.exposure = 0.3f;      // a third of a stop brighter

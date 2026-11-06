@@ -1204,6 +1204,7 @@ typedef struct CrabbyPost {
   bool has_lut;
   struct CrabbyTexture lut;
   float taa_sharpness;
+  float contact_shadows;
 } CrabbyPost;
 
 typedef struct CrabbyGraphicsQuality {

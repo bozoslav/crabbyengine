@@ -232,11 +232,14 @@ fn fs_fade(in: VertexOut) {
     }
 }
 
+// The opaque pass's contact shadow at this pixel (see opaque_color).
+var<private> contact_shadow: f32 = 0.0;
+
 fn shade(s: Surface) -> vec3<f32> {
     let n = s.normal;
     let f0 = mix(vec3<f32>(0.04), s.albedo, s.metallic);
     var sun = 0.0;
-    if dot(n, frame.sun_dir.xyz) > 0.0 { sun = sunlight(s.world, n); }
+    if dot(n, frame.sun_dir.xyz) > 0.0 { sun = sunlight(s.world, n) * (1.0 - contact_shadow); }
     let direct = direct_light(s, frame.sun_dir.xyz, frame.sun_color.rgb * sun) + punctual_light(s);
 
     let ambient = environment_light(s, f0);
@@ -275,8 +278,11 @@ fn opaque_color(in: VertexOut, front: bool, dp_x: vec3<f32>, dp_y: vec3<f32>) ->
     // The opaque pass uses the otherwise unused scene-color slot for GTAO
     // occlusion (zero in the no-scene stand-in). Transparent passes retain
     // the actual scene color and never sample it as occlusion.
+    // Green holds the contact shadow, which blocks only the sun.
     let ao_at = clamp(vec2<i32>(s.screen), vec2<i32>(0), vec2<i32>(textureDimensions(scene_color_texture)) - 1);
-    s.occlusion *= 1.0 - textureLoad(scene_color_texture, ao_at, 0).r;
+    let screen = textureLoad(scene_color_texture, ao_at, 0);
+    s.occlusion *= 1.0 - screen.r;
+    contact_shadow = screen.g;
     return vec4<f32>(fog(shade(s), s.world), 1.0);
 }
 
