@@ -34,8 +34,10 @@ struct Frame {
     cluster_depth: vec4<f32>,
     cluster_view_proj: mat4x4<f32>,
     // World to each point and spot light shadow view's clip space.
-    light_view_proj: array<mat4x4<f32>, 12>,
-    light_shadow: vec4<f32>, // views (0: none), texel size in uv, normal offset in texels
+    light_view_proj: array<mat4x4<f32>, 24>,
+    // Each view's tile in the light shadow atlas, in uv: x, y, side.
+    light_rect: array<vec4<f32>, 24>,
+    light_shadow: vec4<f32>, // views (0: none), atlas texel size in uv, normal offset in texels
     probes: array<ReflectionVolume, 4>,
     // Temporal antialiasing: `view_proj` carries the sub-pixel jitter; these
     // are the camera without it, and last frame's, to tell motion from jitter.
@@ -60,8 +62,8 @@ struct MaterialData {
 @group(0) @binding(4) var sky_sampler: sampler;
 @group(0) @binding(5) var punctual_records: texture_2d<f32>;
 @group(0) @binding(6) var punctual_clusters: texture_2d<u32>;
-// Point and spot lights' shadow views, one layer each (see punctual_shadow).
-@group(0) @binding(7) var light_shadow_map: texture_depth_2d_array;
+// Point and spot lights' shadow views, one tile each (see punctual_shadow).
+@group(0) @binding(7) var light_shadow_map: texture_depth_2d;
 @group(1) @binding(0) var<uniform> material: MaterialData;
 @group(1) @binding(1) var material_sampler: sampler;
 @group(1) @binding(2) var base_texture: texture_2d<f32>;
@@ -399,12 +401,18 @@ fn punctual_shadow(first: i32, texel: f32, light: vec3<f32>, world: vec3<f32>, n
     if abs(ndc.x) > 1.0 || abs(ndc.y) > 1.0 || ndc.z > 1.0 {
         return 1.0;
     }
-    let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+    // Into the view's atlas tile; filtering stays half a texel inside it,
+    // off its neighbors.
+    let rect = frame.light_rect[view];
+    let uv = rect.xy + vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5) * rect.z;
+    let step = frame.light_shadow.y;
+    let lo = rect.xy + 0.5 * step;
+    let hi = rect.xy + rect.z - 0.5 * step;
     var lit = 0.0;
     for (var y = -1; y <= 1; y++) {
         for (var x = -1; x <= 1; x++) {
-            let at = uv + vec2<f32>(f32(x), f32(y)) * frame.light_shadow.y;
-            lit += textureSampleCompareLevel(light_shadow_map, shadow_sampler, at, view, ndc.z);
+            let at = clamp(uv + vec2<f32>(f32(x), f32(y)) * step, lo, hi);
+            lit += textureSampleCompareLevel(light_shadow_map, shadow_sampler, at, ndc.z);
         }
     }
     return lit / 9.0;

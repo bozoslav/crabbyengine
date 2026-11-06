@@ -85,10 +85,12 @@ pub(crate) struct Frame3D {
     pub view_proj: Mat4,
     /// How many cascades are drawn: 0 without shadows.
     pub cascades: usize,
-    /// The sun's shadow map size and the light shadow views' size this
-    /// frame, in texels: what `Lighting` asks for, within the GPU's limit.
+    /// The sun's shadow map size, the largest light shadow view's and the
+    /// lights' shadow atlas's this frame, in texels: what `Lighting` asks
+    /// for, within the GPU's limit.
     pub shadow_size: u32,
     pub light_shadow_size: u32,
+    pub light_atlas: u32,
     /// How many point and spot light shadow views `Lighting` allows (0 with
     /// shadows off).
     pub light_budget: usize,
@@ -169,13 +171,19 @@ impl Frame3D {
         self.particles.collect(world, camera);
         self.shadow_size = lighting.shadow_size(self.size_limit);
         self.light_shadow_size = lighting.light_shadow_size(self.size_limit);
+        self.light_atlas = lighting.light_shadow_atlas_size(self.size_limit);
         self.light_budget = if lighting.shadows {
             lighting.light_shadow_budget()
         } else {
             0
         };
-        self.lights
-            .collect(world, camera, self.light_budget, self.light_shadow_size);
+        self.lights.collect(
+            world,
+            camera,
+            self.light_budget,
+            self.light_shadow_size,
+            self.light_atlas,
+        );
         self.decals.records.clear();
         self.decals.lists.clear();
         self.decal_array = assets.decal_array.map(|a| a.id);

@@ -1,4 +1,5 @@
 //! Punctual lights and retained, conservative CPU froxel lists.
+use super::shadow_atlas::{MIN_TILE, Tile, fit, floor_pow2, pack, round_pow2};
 use super::{Camera3D, Transform3D, linear};
 use crate::{Color, World};
 use glam::{Mat4, Vec3};
@@ -27,6 +28,12 @@ pub struct PointLight3D {
     /// Shadowed lights nearest the camera get views first; see
     /// [`MAX_LIGHT_SHADOW_VIEWS`]. Lights left over shine unshadowed.
     pub shadows: bool,
+    /// Width and height of each of its shadow views in the shadow atlas, in
+    /// texels (rounded down to a power of two, 64 to 2048). 0, the default,
+    /// sizes them by how big the light looks from the camera, up to
+    /// [`Lighting::light_shadow_resolution`](crate::Lighting::light_shadow_resolution).
+    /// When the atlas is full, the largest views shrink first.
+    pub shadow_resolution: u32,
 }
 impl Default for PointLight3D {
     fn default() -> Self {
@@ -35,6 +42,7 @@ impl Default for PointLight3D {
             intensity: 1.0,
             range: 10.0,
             shadows: false,
+            shadow_resolution: 0,
         }
     }
 }
@@ -66,6 +74,9 @@ pub struct SpotLight3D {
     pub outer_angle: f32,
     /// Cast shadows (one shadow view). Default false.
     pub shadows: bool,
+    /// Its shadow view's size in the shadow atlas; see
+    /// [`PointLight3D::shadow_resolution`]. Default 0: automatic.
+    pub shadow_resolution: u32,
 }
 impl Default for SpotLight3D {
     fn default() -> Self {
@@ -76,23 +87,33 @@ impl Default for SpotLight3D {
             inner_angle: 0.3,
             outer_angle: 0.5,
             shadows: false,
+            shadow_resolution: 0,
         }
     }
 }
 
-/// How many shadow views point and spot lights share each frame: a
-/// shadowed spot light takes one, a shadowed point light six. Each view is
-/// a [`LIGHT_SHADOW_SIZE`]² depth map.
+/// The most shadow views point and spot lights can share each frame (see
+/// [`Lighting::light_shadow_views`](crate::Lighting::light_shadow_views),
+/// 12 by default): a shadowed spot light takes one, a shadowed point light
+/// six. Each view is a square tile of the lights' shadow atlas.
 /// ```
-/// assert_eq!(crabbyengine::MAX_LIGHT_SHADOW_VIEWS, 12);
+/// assert_eq!(crabbyengine::MAX_LIGHT_SHADOW_VIEWS, 24);
 /// ```
-pub const MAX_LIGHT_SHADOW_VIEWS: usize = 12;
-/// Default width and height of each point or spot light shadow view, in
-/// texels (see [`Lighting::light_shadow_resolution`](crate::Lighting)).
+pub const MAX_LIGHT_SHADOW_VIEWS: usize = 24;
+/// Default width and height of the largest point or spot light shadow
+/// view, in texels (see [`Lighting::light_shadow_resolution`](crate::Lighting)):
+/// what a light near the camera gets.
 /// ```
 /// assert_eq!(crabbyengine::LIGHT_SHADOW_SIZE, 1024);
 /// ```
 pub const LIGHT_SHADOW_SIZE: u32 = 1024;
+/// Default width and height of the depth atlas every point and spot light
+/// shadow view is packed into, in texels (see
+/// [`Lighting::light_shadow_atlas`](crate::Lighting::light_shadow_atlas)).
+/// ```
+/// assert_eq!(crabbyengine::LIGHT_SHADOW_ATLAS_SIZE, 4096);
+/// ```
+pub const LIGHT_SHADOW_ATLAS_SIZE: u32 = 4096;
 /// Smallest and largest point or spot light shadow view a game may ask for.
 pub(crate) const MIN_LIGHT_SHADOW_RESOLUTION: u32 = 128;
 pub(crate) const MAX_LIGHT_SHADOW_RESOLUTION: u32 = 2048;
@@ -117,11 +138,17 @@ pub(crate) struct LightGrid {
     /// World to each light shadow view's clip space: a spot light's one
     /// view, or a point light's six faces (+X, -X, +Y, -Y, +Z, -Z).
     pub shadow_views: Vec<Mat4>,
-    /// Width of each shadow view in texels, as of the last `collect`.
-    pub shadow_size: u32,
+    /// Each shadow view's tile in the atlas, in texels.
+    pub shadow_tiles: Vec<Tile>,
+    /// The atlas's width and height in texels, as of the last `collect`.
+    pub atlas: u32,
     /// Shadowed lights by priority: (camera distance to the light's reach,
-    /// point (0) or spot (1), index in that query).
-    candidates: Vec<(f32, u8, u32)>,
+    /// point (0) or spot (1), index in that query, tile side).
+    candidates: Vec<(f32, u8, u32, u32)>,
+    /// Scratch for fitting and packing the tiles.
+    fitting: Vec<(u32, u32)>,
+    sides: Vec<u32>,
+    order: Vec<u32>,
     /// The first shadow view of each point light, then each spot light, in
     /// query order (-1: unshadowed).
     first_view: Vec<i32>,
@@ -137,12 +164,12 @@ pub(crate) struct LightGrid {
 impl LightGrid {
     /// Lists the lights each cluster sees. Shadowed lights nearest the
     /// camera also get shadow views, up to `budget` of them (0: none), each
-    /// `size` texels wide.
-    pub fn collect(&mut self, world: &mut World, camera: &Camera3D, budget: usize, size: u32) {
+    /// a tile of an `atlas`² shadow atlas up to `size` texels wide.
+    pub fn collect(&mut self, world: &mut World, camera: &Camera3D, budget: usize, size: u32, atlas: u32) {
         self.lights.clear();
         self.bounds.clear();
-        self.shadow_size = size.max(1);
-        self.plan_shadows(world, camera, budget);
+        self.atlas = floor_pow2(atlas.max(MIN_TILE));
+        self.plan_shadows(world, camera, budget, floor_pow2(size.max(MIN_TILE)).min(self.atlas));
         let first_view = std::mem::take(&mut self.first_view);
         let mut first_views = first_view.iter().copied();
         let near = camera.near.max(f32::MIN_POSITIVE);
@@ -171,6 +198,7 @@ impl LightGrid {
                     intensity: s.intensity,
                     range: s.range,
                     shadows: s.shadows,
+                    shadow_resolution: s.shadow_resolution,
                 },
                 Some(*s),
                 first,
@@ -205,18 +233,23 @@ impl LightGrid {
     }
 
     /// Gives shadowed lights shadow views, nearest the camera first, while
-    /// views are left, and works out each view's matrix. Fills `first_view`
-    /// for every point light, then every spot light, in query order.
-    fn plan_shadows(&mut self, world: &mut World, camera: &Camera3D, budget: usize) {
+    /// views are left, sizes each light's tiles (see [`tile_side`]), fits and
+    /// packs them into the atlas, and works out each view's matrix. Fills
+    /// `first_view` for every point light, then every spot light, in query
+    /// order.
+    fn plan_shadows(&mut self, world: &mut World, camera: &Camera3D, budget: usize, max_side: u32) {
         let shadows = budget > 0;
         self.shadow_views.clear();
+        self.shadow_tiles.clear();
         self.candidates.clear();
         self.first_view.clear();
         let reach = |t: &Transform3D, range: f32| t.position.distance(camera.position) - range;
+        let side = |t: &Transform3D, range: f32, hint: u32| tile_side(t.position, range, hint, camera, max_side);
         for (i, (t, p)) in world.query::<(&Transform3D, &PointLight3D)>().iter().enumerate() {
             self.first_view.push(-1);
             if shadows && p.shadows && shadow_light_ok(t, p.range, p.intensity) {
-                self.candidates.push((reach(t, p.range), 0, i as u32));
+                let side = side(t, p.range, p.shadow_resolution);
+                self.candidates.push((reach(t, p.range), 0, i as u32, side));
             }
         }
         let points = self.first_view.len();
@@ -229,7 +262,8 @@ impl LightGrid {
                 && s.outer_angle > 0.0
                 && s.outer_angle < std::f32::consts::FRAC_PI_2
             {
-                self.candidates.push((reach(t, s.range), 1, i as u32));
+                let side = side(t, s.range, s.shadow_resolution);
+                self.candidates.push((reach(t, s.range), 1, i as u32, side));
             }
         }
         if self.candidates.is_empty() {
@@ -237,10 +271,9 @@ impl LightGrid {
         }
         self.candidates
             .sort_unstable_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
-        // Then take them in query order, so matrices come from one pass per kind.
         let mut taken = 0;
         let mut chosen = std::mem::take(&mut self.candidates);
-        chosen.retain(|&(_, kind, _)| {
+        chosen.retain(|&(_, kind, _, _)| {
             let views = if kind == 0 { 6 } else { 1 };
             if taken + views > budget.min(MAX_LIGHT_SHADOW_VIEWS) {
                 return false;
@@ -248,22 +281,38 @@ impl LightGrid {
             taken += views;
             true
         });
-        chosen.sort_unstable_by_key(|&(_, kind, i)| (kind, i));
+        // Then shrink tiles (or drop the least important lights) until
+        // they fit the atlas.
+        self.fitting.clear();
+        self.fitting.extend(
+            chosen
+                .iter()
+                .map(|&(_, kind, _, side)| (side, if kind == 0 { 6 } else { 1 })),
+        );
+        let kept = fit(&mut self.fitting, self.atlas);
+        chosen.truncate(kept);
+        for (c, &(side, _)) in chosen.iter_mut().zip(&self.fitting) {
+            c.3 = side;
+        }
+        // Then take them in query order, so matrices come from one pass per kind.
+        chosen.sort_unstable_by_key(|&(_, kind, i, _)| (kind, i));
+        self.sides.clear();
         let mut next = chosen.iter().peekable();
         for (i, (t, p)) in world.query::<(&Transform3D, &PointLight3D)>().iter().enumerate() {
-            if next.peek().is_some_and(|c| c.1 == 0 && c.2 == i as u32) {
-                next.next();
+            if let Some(c) = next.next_if(|c| c.1 == 0 && c.2 == i as u32) {
                 self.first_view[i] = self.shadow_views.len() as i32;
                 self.shadow_views.extend(point_shadow_views(t.position, p.range));
+                self.sides.extend([c.3; 6]);
             }
         }
         for (i, (t, s)) in world.query::<(&Transform3D, &SpotLight3D)>().iter().enumerate() {
-            if next.peek().is_some_and(|c| c.1 == 1 && c.2 == i as u32) {
-                next.next();
+            if let Some(c) = next.next_if(|c| c.1 == 1 && c.2 == i as u32) {
                 self.first_view[points + i] = self.shadow_views.len() as i32;
                 self.shadow_views.push(spot_shadow_view(t, s));
+                self.sides.push(c.3);
             }
         }
+        pack(&self.sides, self.atlas, &mut self.order, &mut self.shadow_tiles);
         self.candidates = chosen;
     }
 
@@ -330,6 +379,10 @@ impl LightGrid {
             return;
         }
         let outer = spot.map_or(-2.0, |s| s.outer_angle.cos());
+        let side = usize::try_from(first_view)
+            .ok()
+            .and_then(|v| self.shadow_tiles.get(v))
+            .map_or(1, |t| t[2].max(1));
         self.lights.push(GpuLight {
             position_range: t.position.extend(r).to_array(),
             color: [rgba[0] * p.intensity, rgba[1] * p.intensity, rgba[2] * p.intensity, 0.0],
@@ -339,13 +392,31 @@ impl LightGrid {
             inner: [
                 spot.map_or(1.0, |s| s.inner_angle.cos()),
                 first_view as f32,
-                2.0 * (shadow_fov(spot.map(|s| s.outer_angle)) * 0.5).tan() / self.shadow_size as f32,
+                2.0 * (shadow_fov(spot.map(|s| s.outer_angle)) * 0.5).tan() / side as f32,
                 0.0,
             ],
         });
         self.bounds.push((lo, hi));
     }
 }
+/// How wide a light's shadow tiles are: its `hint` when it has one, else
+/// `max_side` times how much of the screen's height the light's reach can
+/// cover from the camera (all of it from inside the reach), to the nearest
+/// power of two. So a light twice as far away gets tiles half as wide.
+fn tile_side(position: Vec3, range: f32, hint: u32, camera: &Camera3D, max_side: u32) -> u32 {
+    if hint > 0 {
+        return floor_pow2(hint.clamp(MIN_TILE, MAX_LIGHT_SHADOW_RESOLUTION));
+    }
+    let distance = position.distance(camera.position);
+    let half_height = (camera.fov_y * 0.5).tan().max(1e-3);
+    let cover = if distance <= range {
+        1.0
+    } else {
+        (range / (distance * half_height)).min(1.0)
+    };
+    round_pow2(max_side as f32 * cover).clamp(MIN_TILE, max_side.max(MIN_TILE))
+}
+
 fn shadow_light_ok(t: &Transform3D, range: f32, intensity: f32) -> bool {
     t.position.is_finite() && range.is_finite() && range > 0.0 && intensity.is_finite() && intensity > 0.0
 }
@@ -457,7 +528,7 @@ mod tests {
             ));
         }
         let mut g = LightGrid::default();
-        g.collect(&mut w, &camera(), 0, LIGHT_SHADOW_SIZE);
+        g.collect(&mut w, &camera(), 0, LIGHT_SHADOW_SIZE, LIGHT_SHADOW_ATLAS_SIZE);
         assert_eq!(g.lights.len(), 2);
         assert_eq!(g.bounds[1].0[..2], [0, 0]);
         assert_eq!(g.bounds[1].1[..2], [15, 8]);
@@ -469,7 +540,7 @@ mod tests {
             w.spawn((Transform3D::default(), PointLight3D::default()));
         }
         let mut g = LightGrid::default();
-        g.collect(&mut w, &camera(), 0, LIGHT_SHADOW_SIZE);
+        g.collect(&mut w, &camera(), 0, LIGHT_SHADOW_SIZE, LIGHT_SHADOW_ATLAS_SIZE);
         assert_eq!(g.lists[1], 1000);
         let ptrs = (
             g.lights.as_ptr(),
@@ -480,11 +551,11 @@ mod tests {
         );
         ALLOCS.with(|n| n.set(Some(0)));
         for _ in 0..20 {
-            g.collect(&mut w, &camera(), 0, LIGHT_SHADOW_SIZE);
+            g.collect(&mut w, &camera(), 0, LIGHT_SHADOW_SIZE, LIGHT_SHADOW_ATLAS_SIZE);
         }
         let allocations = ALLOCS.with(|n| n.replace(None).unwrap());
         assert_eq!(allocations, 0, "light collection must not allocate once warm");
-        g.collect(&mut w, &camera(), 0, LIGHT_SHADOW_SIZE);
+        g.collect(&mut w, &camera(), 0, LIGHT_SHADOW_SIZE, LIGHT_SHADOW_ATLAS_SIZE);
         assert_eq!(
             ptrs,
             (
@@ -534,7 +605,7 @@ mod tests {
             },
         ));
         let mut g = LightGrid::default();
-        g.collect(&mut w, &c, 0, LIGHT_SHADOW_SIZE);
+        g.collect(&mut w, &c, 0, LIGHT_SHADOW_SIZE, LIGHT_SHADOW_ATLAS_SIZE);
         assert_eq!(g.lights.len(), 1);
     }
 
@@ -553,7 +624,7 @@ mod tests {
             ));
         }
         let mut g = LightGrid::default();
-        g.collect(&mut w, &c, 0, LIGHT_SHADOW_SIZE);
+        g.collect(&mut w, &c, 0, LIGHT_SHADOW_SIZE, LIGHT_SHADOW_ATLAS_SIZE);
         for (id, light) in g.lights.iter().enumerate() {
             let center = Vec3::from_slice(&light.position_range);
             for dx in [-2.0, 0.0, 2.0] {
@@ -606,7 +677,7 @@ mod tests {
             SpotLight3D::default(),
         ));
         let mut g = LightGrid::default();
-        g.collect(&mut w, &camera(), 0, LIGHT_SHADOW_SIZE);
+        g.collect(&mut w, &camera(), 0, LIGHT_SHADOW_SIZE, LIGHT_SHADOW_ATLAS_SIZE);
         assert_eq!(g.lights.len(), 1);
         assert!((Vec3::from_slice(&g.lights[0].direction_outer) - Vec3::NEG_X).length() < 1e-5);
     }
@@ -621,8 +692,8 @@ mod tests {
             shadows: true,
             ..Default::default()
         };
-        // Nearest first: the point at z -60 doesn't fit after two points
-        // (12 views), and the far spot doesn't either.
+        // Nearest first: with a budget of 12, the point at z -60 doesn't
+        // fit after two points, and the far spot doesn't either.
         let far = w.spawn((Transform3D::at(vec3(0.0, 0.0, -60.0)), shadowed));
         let near = w.spawn((Transform3D::at(vec3(0.0, 0.0, -15.0)), shadowed));
         let nearer = w.spawn((Transform3D::at(vec3(0.0, 0.0, -12.0)), shadowed));
@@ -633,21 +704,113 @@ mod tests {
         };
         w.spawn((Transform3D::at(vec3(0.0, 0.0, -70.0)), spot));
         let mut g = LightGrid::default();
-        g.collect(&mut w, &camera(), MAX_LIGHT_SHADOW_VIEWS, LIGHT_SHADOW_SIZE);
-        assert_eq!(g.shadow_views.len(), MAX_LIGHT_SHADOW_VIEWS);
+        g.collect(&mut w, &camera(), 12, LIGHT_SHADOW_SIZE, LIGHT_SHADOW_ATLAS_SIZE);
+        assert_eq!(g.shadow_views.len(), 12);
         let order: Vec<Entity> = w.query::<(Entity, &PointLight3D)>().iter().map(|(e, _)| e).collect();
         let first = |e| g.lights[order.iter().position(|&x| x == e).unwrap()].inner[1];
         assert_eq!(first(far), -1.0, "no views left for the farthest point light");
         assert!(first(near) >= 0.0 && first(nearer) >= 0.0);
         assert_eq!(g.lights.iter().filter(|l| l.inner[1] >= 0.0).count(), 2);
         // Without shadows on (or in other views), no light gets views.
-        g.collect(&mut w, &camera(), 0, LIGHT_SHADOW_SIZE);
+        g.collect(&mut w, &camera(), 0, LIGHT_SHADOW_SIZE, LIGHT_SHADOW_ATLAS_SIZE);
         assert!(g.shadow_views.is_empty() && g.lights.iter().all(|l| l.inner[1] < 0.0));
         // With room, a shadowed spot light takes one.
         w.despawn(far);
         w.despawn(near);
-        g.collect(&mut w, &camera(), MAX_LIGHT_SHADOW_VIEWS, LIGHT_SHADOW_SIZE);
+        g.collect(&mut w, &camera(), 12, LIGHT_SHADOW_SIZE, LIGHT_SHADOW_ATLAS_SIZE);
         assert_eq!(g.shadow_views.len(), 7);
+    }
+
+    #[test]
+    fn shadow_tiles_shrink_with_distance_and_follow_hints() {
+        use glam::vec3;
+        let mut w = World::new();
+        let spot = |z: f32, hint: u32| {
+            (
+                Transform3D::at(vec3(0.0, 0.0, z)),
+                SpotLight3D {
+                    range: 5.0,
+                    shadows: true,
+                    shadow_resolution: hint,
+                    ..Default::default()
+                },
+            )
+        };
+        // Inside its reach, 3 x its reach away, 12 x, far, and far with a hint.
+        let lights = [
+            spot(-2.0, 0),
+            spot(-15.0, 0),
+            spot(-60.0, 0),
+            spot(-900.0, 0),
+            spot(-900.0, 700),
+        ];
+        for light in lights {
+            w.spawn(light);
+        }
+        let mut g = LightGrid::default();
+        g.collect(&mut w, &camera(), 12, LIGHT_SHADOW_SIZE, LIGHT_SHADOW_ATLAS_SIZE);
+        let sides: Vec<u32> = g.shadow_tiles.iter().map(|t| t[2]).collect();
+        // 1024 * 5 / (15 tan 30°) = 591, 1024 * 5 / (60 tan 30°) = 148.
+        assert_eq!(sides, [1024, 512, 128, MIN_TILE, 512]);
+        // A light's texel size follows its tile.
+        assert!((g.lights[1].inner[2] / g.lights[0].inner[2] - 2.0).abs() < 1e-4);
+        // A smaller atlas holds them too, smaller.
+        g.collect(&mut w, &camera(), 12, 2048, 1024);
+        assert_eq!(g.atlas, 1024);
+        let area: u32 = g.shadow_tiles.iter().map(|t| t[2] * t[2]).sum();
+        assert!(area <= 1024 * 1024 && g.shadow_tiles.len() == 5, "{:?}", g.shadow_tiles);
+        assert!(
+            g.shadow_tiles
+                .iter()
+                .all(|t| t[0] + t[2] <= 1024 && t[1] + t[2] <= 1024)
+        );
+    }
+
+    #[test]
+    fn shadowed_light_collection_does_not_allocate_once_warm() {
+        use glam::vec3;
+        let mut w = World::new();
+        for i in 0..40 {
+            let at = Transform3D::at(vec3((i % 8) as f32 * 3.0 - 12.0, 1.0, -3.0 - i as f32 * 2.0));
+            if i % 5 == 0 {
+                w.spawn((
+                    at,
+                    PointLight3D {
+                        shadows: true,
+                        ..Default::default()
+                    },
+                ));
+            } else {
+                w.spawn((
+                    at,
+                    SpotLight3D {
+                        shadows: true,
+                        ..Default::default()
+                    },
+                ));
+            }
+        }
+        let mut g = LightGrid::default();
+        g.collect(
+            &mut w,
+            &camera(),
+            MAX_LIGHT_SHADOW_VIEWS,
+            LIGHT_SHADOW_SIZE,
+            LIGHT_SHADOW_ATLAS_SIZE,
+        );
+        assert_eq!(g.shadow_views.len(), MAX_LIGHT_SHADOW_VIEWS);
+        ALLOCS.with(|n| n.set(Some(0)));
+        for _ in 0..20 {
+            g.collect(
+                &mut w,
+                &camera(),
+                MAX_LIGHT_SHADOW_VIEWS,
+                LIGHT_SHADOW_SIZE,
+                LIGHT_SHADOW_ATLAS_SIZE,
+            );
+        }
+        let allocations = ALLOCS.with(|n| n.replace(None).unwrap());
+        assert_eq!(allocations, 0, "shadow planning must not allocate once warm");
     }
 
     #[test]

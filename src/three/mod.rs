@@ -23,8 +23,10 @@ pub use ik::{look_at_joint, two_bone_ik};
 pub use lod::{LodGroup, LodLevel, LodPick, LodRenderer, LodSettings, LodShadow};
 pub(crate) mod lights;
 mod mesh;
-pub use lights::{LIGHT_SHADOW_SIZE, MAX_LIGHT_SHADOW_VIEWS, PointLight3D, SpotLight3D};
+pub use lights::{LIGHT_SHADOW_ATLAS_SIZE, LIGHT_SHADOW_SIZE, MAX_LIGHT_SHADOW_VIEWS, PointLight3D, SpotLight3D};
 pub(crate) use lights::{MAX_LIGHT_SHADOW_RESOLUTION, MIN_LIGHT_SHADOW_RESOLUTION};
+pub(crate) mod shadow_atlas;
+pub(crate) use shadow_atlas::{MAX_LIGHT_SHADOW_ATLAS, MIN_LIGHT_SHADOW_ATLAS};
 pub(crate) mod particles;
 pub use particles::{
     ParticleBlend3D, ParticleCurve, ParticleEmitter3D, ParticleGradient, ParticleSettings3D, ParticleShape3D,
@@ -653,12 +655,21 @@ pub struct Lighting {
     /// How many shadow views point and spot lights may share, 0 to
     /// [`MAX_LIGHT_SHADOW_VIEWS`]: a shadowed spot light takes one, a
     /// shadowed point light six. 0 turns point and spot light shadows off.
-    /// Default [`MAX_LIGHT_SHADOW_VIEWS`].
+    /// Default 12.
     pub light_shadow_views: u32,
-    /// Width and height of each point or spot light shadow view, in texels:
-    /// 128 to 2048. Changing it at run time makes new shadow maps. Default
-    /// [`LIGHT_SHADOW_SIZE`].
+    /// Width and height of the largest point or spot light shadow view, in
+    /// texels: 128 to 2048, rounded down to a power of two. A light whose
+    /// reach fills the view gets this; one twice as far away half of it,
+    /// down to 64 (see [`PointLight3D::shadow_resolution`] to pick a
+    /// light's own). Default [`LIGHT_SHADOW_SIZE`].
     pub light_shadow_resolution: u32,
+    /// Width and height of the depth atlas all point and spot light shadow
+    /// views are packed into, in texels: 1024 to 8192, rounded down to a
+    /// power of two (and no more than the GPU allows). It takes
+    /// `4 * light_shadow_atlas²` bytes once a light casts shadows; when
+    /// the views don't fit, the largest shrink. Changing it at run time
+    /// makes a new atlas. Default [`LIGHT_SHADOW_ATLAS_SIZE`].
+    pub light_shadow_atlas: u32,
 }
 
 impl Default for Lighting {
@@ -676,8 +687,9 @@ impl Default for Lighting {
             shadow_cascades: 4,
             shadow_resolution: SHADOW_MAP_SIZE,
             shadow_refresh: 2,
-            light_shadow_views: MAX_LIGHT_SHADOW_VIEWS as u32,
+            light_shadow_views: 12,
             light_shadow_resolution: LIGHT_SHADOW_SIZE,
+            light_shadow_atlas: LIGHT_SHADOW_ATLAS_SIZE,
         }
     }
 }
@@ -697,6 +709,15 @@ impl Lighting {
         self.light_shadow_resolution
             .clamp(MIN_LIGHT_SHADOW_RESOLUTION, MAX_LIGHT_SHADOW_RESOLUTION)
             .min(limit)
+    }
+    /// The lights' shadow atlas size, clamped likewise.
+    pub(crate) fn light_shadow_atlas_size(&self, limit: u32) -> u32 {
+        let limit = if limit == 0 { u32::MAX } else { limit };
+        let size = self
+            .light_shadow_atlas
+            .clamp(MIN_LIGHT_SHADOW_ATLAS, MAX_LIGHT_SHADOW_ATLAS)
+            .min(limit);
+        shadow_atlas::floor_pow2(size)
     }
     /// How many light shadow views are allowed this frame.
     pub(crate) fn light_shadow_budget(&self) -> usize {

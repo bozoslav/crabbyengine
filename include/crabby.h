@@ -1168,6 +1168,7 @@ typedef struct CrabbyLighting {
   uint32_t shadow_resolution;
   uint32_t light_shadow_views;
   uint32_t light_shadow_resolution;
+  uint32_t light_shadow_atlas;
   uint32_t shadow_refresh;
   bool has_equator;
   struct CrabbyColor equator_color;
@@ -1223,6 +1224,7 @@ typedef struct CrabbyGraphicsQuality {
   uint32_t shadow_resolution;
   uint32_t light_shadow_views;
   uint32_t light_shadow_resolution;
+  uint32_t light_shadow_atlas;
   bool ambient_occlusion;
   uint32_t ao_slices;
   uint32_t ao_steps;
@@ -1516,6 +1518,7 @@ typedef struct CrabbyPointLight3D {
   float intensity;
   float range;
   bool shadows;
+  uint32_t shadow_resolution;
 } CrabbyPointLight3D;
 
 typedef struct CrabbySpotLight3D {
@@ -1525,6 +1528,7 @@ typedef struct CrabbySpotLight3D {
   float inner_angle;
   float outer_angle;
   bool shadows;
+  uint32_t shadow_resolution;
 } CrabbySpotLight3D;
 
 typedef struct CrabbyReceivesDecals {

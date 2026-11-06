@@ -10,6 +10,7 @@ fn entity_lights_roundtrip_and_spots_follow_forward() {
             intensity: 12.0,
             range: 8.0,
             shadows: true,
+            shadow_resolution: 512,
         };
         let spot = SpotLight3D {
             inner_angle: 0.2,
@@ -21,6 +22,7 @@ fn entity_lights_roundtrip_and_spots_follow_forward() {
         assert_eq!(*ctx.world.get::<SpotLight3D>(e).unwrap(), spot);
         let json = ctx.world.get_json(e, "PointLight3D").unwrap();
         assert_eq!(json["intensity"], 12.0);
+        assert_eq!(json["shadow_resolution"], 512);
         ctx.world
             .set_json(
                 e,

@@ -1460,6 +1460,26 @@ static void punctual_lights(crabby::ctx& ctx) {
 }
 // ANCHOR_END: punctual_lights
 
+// ANCHOR: light_shadow_atlas
+/// A street at night: a sharp shadow for the lamp beside the player,
+/// rough ones for the street lights down the road.
+static void street_lights(crabby::ctx& ctx) {
+    auto light = ctx.lighting();
+    light.light_shadow_atlas = 8192; // room for more shadow views
+    light.light_shadow_views = 24;   // as many as there can be
+    ctx.set_lighting(light);
+    crabby::point_light3d lamp{crabby::rgb(1, .8f, .6f), 40, 12, true};
+    lamp.shadow_resolution = 2048; // always sharp
+    ctx.world().spawn(crabby::transform3d_at({0, 3, 0}), lamp);
+    for (int i = 0; i < 18; i++) {
+        float x = -20 + 2.5f * i;
+        auto at = crabby::looking_at(crabby::transform3d_at({x, 5, -30}), {x, 0, -29.9f});
+        // Sized by how big they look: smaller the farther they are.
+        ctx.world().spawn(at, crabby::spot_light3d{crabby::colors::white, 60, 8, .3f, .5f, true});
+    }
+}
+// ANCHOR_END: light_shadow_atlas
+
 // ANCHOR: skin_chain
 constexpr int chain_joints = 8;
 constexpr float chain_step = 0.5f;
@@ -2124,6 +2144,10 @@ int main() {
     crabby::game("ragdoll guide", 1, 1).physics3d({0, -9.81f, 0}).run_headless(5, ragdoll);
     crabby::game("contacts guide", 1, 1).physics3d({0, -9.81f, 0}).run_headless(5, contacts);
     crabby::game("light guide", 64, 64).run_headless(0, punctual_lights);
+    crabby::game("atlas guide", 64, 64).run_headless(0, [](crabby::ctx& ctx) {
+        street_lights(ctx);
+        if (ctx.lighting().light_shadow_atlas != 8192) { std::fprintf(stderr, "atlas\n"); std::abort(); }
+    });
     crabby::game("probe guide", 64, 64).run_headless(0, reflection_probes);
     crabby::game("decal guide", 64, 64).run_headless(0, projected_decals);
     the_ripples_run_on_a_render_target();

@@ -168,8 +168,10 @@ struct FrameUniform {
     cluster_view_proj: [[f32; 4]; 4],
     /// World to each point and spot light shadow view's clip space.
     light_view_proj: [[[f32; 4]; 4]; MAX_LIGHT_SHADOW_VIEWS],
-    /// x: how many light shadow views, y: one texel in uv, z: how far the
-    /// lookup moves along the normal (in texels).
+    /// Each light shadow view's tile in the atlas, in uv: x, y, side.
+    light_rect: [[f32; 4]; MAX_LIGHT_SHADOW_VIEWS],
+    /// x: how many light shadow views, y: one atlas texel in uv, z: how
+    /// far the lookup moves along the normal (in texels).
     light_shadow: [f32; 4],
     probes: [crate::three::probe::ProbeUniform; 4],
     /// The camera without the temporal antialiasing jitter, and last
@@ -688,11 +690,13 @@ pub(crate) struct Renderer3D {
     /// The sun's shadow map as made: its width and its layers (a 1x1 one
     /// without shadows).
     shadow_dims: (u32, u32),
-    /// The same for the point and spot lights' shadow map, once made.
-    light_shadow_dims: Option<(u32, u32)>,
-    /// Each point and spot light shadow view's layer, drawn into; empty
-    /// until a light first casts shadows.
-    light_shadow_layers: Vec<wgpu::TextureView>,
+    /// The width of the point and spot lights' shadow atlas, once made.
+    light_shadow_dims: Option<u32>,
+    /// The atlas, drawn into (each view into its tile); `None` until a
+    /// light first casts shadows.
+    light_atlas: Option<wgpu::TextureView>,
+    /// This frame's light shadow views' tiles in it.
+    light_tiles: Vec<crate::three::shadow_atlas::Tile>,
     light_views: usize,
     material_layout: wgpu::BindGroupLayout,
     meshes: Vec<GpuMesh>,
@@ -1225,7 +1229,7 @@ impl Renderer3D {
                     ..Default::default()
                 })
         };
-        let no_light_shadow = stand_in("3d no light shadows", DEPTH_FORMAT, wgpu::TextureViewDimension::D2Array);
+        let no_light_shadow = stand_in("3d no light shadows", DEPTH_FORMAT, wgpu::TextureViewDimension::D2);
         let no_decal_view = stand_in(
             "3d no decal images",
             wgpu::TextureFormat::Rgba8Unorm,
@@ -1349,7 +1353,7 @@ impl Renderer3D {
             },
             wgpu::BindGroupEntry {
                 binding: 7,
-                resource: wgpu::BindingResource::TextureView(&no_shadow),
+                resource: wgpu::BindingResource::TextureView(&no_light_shadow),
             },
         ];
         if decals {
@@ -1438,7 +1442,8 @@ impl Renderer3D {
             redrawn: 0,
             shadow_dims: (1, 1),
             light_shadow_dims: None,
-            light_shadow_layers: Vec::new(),
+            light_atlas: None,
+            light_tiles: Vec::new(),
             light_views: 0,
             material_layout,
             meshes: Vec::new(),
@@ -2040,6 +2045,8 @@ impl Renderer3D {
         self.cascades = frame.cascades;
         self.redrawn = frame.redrawn;
         self.light_views = frame.light_views;
+        self.light_tiles.clear();
+        self.light_tiles.extend_from_slice(&frame.lights.shadow_tiles);
         for (mine, theirs) in self.shadow_runs.iter_mut().zip(&frame.shadow_runs) {
             mine.clear();
             mine.extend_from_slice(theirs);
@@ -2175,16 +2182,17 @@ impl Renderer3D {
         for (mine, theirs) in light_view_proj.iter_mut().zip(&frame.lights.shadow_views) {
             *mine = theirs.to_cols_array_2d();
         }
+        let atlas = frame.lights.atlas.max(1) as f32;
+        let mut light_rect = [[0.0; 4]; MAX_LIGHT_SHADOW_VIEWS];
+        for (mine, &[x, y, side]) in light_rect.iter_mut().zip(&frame.lights.shadow_tiles) {
+            *mine = [x as f32 / atlas, y as f32 / atlas, side as f32 / atlas, 0.0];
+        }
         let mut uniform = FrameUniform {
             light_view_proj,
+            light_rect,
             probes: frame.probes,
             // Light shadows move out along the normal by 1.5 texels too.
-            light_shadow: [
-                frame.light_views as f32,
-                1.0 / frame.light_shadow_size.max(1) as f32,
-                1.5,
-                0.0,
-            ],
+            light_shadow: [frame.light_views as f32, 1.0 / atlas, 1.5, 0.0],
             cluster_depth: cluster_depth(frame),
             cluster_view_proj: frame.view_proj.to_cols_array_2d(),
             view_proj: view_proj.to_cols_array_2d(),
@@ -2640,15 +2648,14 @@ impl Renderer3D {
         true
     }
 
-    /// Makes the point and spot lights' shadow views (the first time a light
-    /// casts shadows) and binds them to every frame. Made again when the
-    /// view size or the number of views changes, and freed when point and
-    /// spot light shadows are turned off.
+    /// Makes the point and spot lights' shadow atlas (the first time a light
+    /// casts shadows) and binds it to every frame. Made again when its size
+    /// changes, and freed when point and spot light shadows are turned off.
     fn set_light_shadow_map(&mut self, device: &wgpu::Device, frame: &Frame3D) {
         let wanted = if frame.light_budget == 0 {
             None
         } else if frame.light_views > 0 || self.light_shadow_dims.is_some() {
-            Some((frame.light_shadow_size.max(1), frame.light_budget as u32))
+            Some(frame.light_atlas.max(1))
         } else {
             return; // not needed yet
         };
@@ -2656,19 +2663,19 @@ impl Renderer3D {
             return;
         }
         self.light_shadow_dims = wanted;
-        let Some((size, layers)) = wanted else {
+        let Some(size) = wanted else {
             // Back to the 1x1 stand-in the frame bind groups start with.
-            self.light_shadow_layers = Vec::new();
+            self.light_atlas = None;
             self.frame_sources.light_shadow_view = self.no_light_shadow.clone();
             self.rebind_frames(device);
             return;
         };
         let map = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("3d light shadow maps"),
+            label: Some("3d light shadow atlas"),
             size: wgpu::Extent3d {
                 width: size,
                 height: size,
-                depth_or_array_layers: layers,
+                depth_or_array_layers: 1,
             },
             mip_level_count: 1,
             sample_count: 1,
@@ -2677,21 +2684,9 @@ impl Renderer3D {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
-        self.frame_sources.light_shadow_view = map.create_view(&wgpu::TextureViewDescriptor {
-            dimension: Some(wgpu::TextureViewDimension::D2Array),
-            ..Default::default()
-        });
-        self.light_shadow_layers = (0..layers)
-            .map(|layer| {
-                map.create_view(&wgpu::TextureViewDescriptor {
-                    label: Some("3d light shadow view"),
-                    dimension: Some(wgpu::TextureViewDimension::D2),
-                    base_array_layer: layer,
-                    array_layer_count: Some(1),
-                    ..Default::default()
-                })
-            })
-            .collect();
+        let view = map.create_view(&Default::default());
+        self.frame_sources.light_shadow_view = view.clone();
+        self.light_atlas = Some(view);
         self.rebind_frames(device);
     }
 
@@ -2718,10 +2713,10 @@ impl Renderer3D {
         self.shadow_dims
     }
 
-    /// The point and spot lights' shadow map: width and layers, once made
-    /// (test hook).
+    /// The point and spot lights' shadow atlas: its width, once made (test
+    /// hook).
     #[cfg(test)]
-    pub(super) fn light_shadow_map(&self) -> Option<(u32, u32)> {
+    pub(super) fn light_shadow_map(&self) -> Option<u32> {
         self.light_shadow_dims
     }
 
@@ -3011,17 +3006,21 @@ impl Renderer3D {
                 self.environment.sky(encoder, &self.sky_texture);
             }
             Part::Shadow { cascade, first, end } => {
+                // Light views share the atlas: the first one clears all of it.
+                let (view, clear) = if cascade < MAX_CASCADES {
+                    (&self.shadow_layers[cascade], first == 0)
+                } else if let Some(atlas) = &self.light_atlas {
+                    (atlas, cascade == MAX_CASCADES && first == 0)
+                } else {
+                    return;
+                };
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("3d shadows"),
                     color_attachments: &[],
                     depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: if cascade < MAX_CASCADES {
-                            &self.shadow_layers[cascade]
-                        } else {
-                            &self.light_shadow_layers[cascade - MAX_CASCADES]
-                        },
+                        view,
                         depth_ops: Some(wgpu::Operations {
-                            load: if first == 0 {
+                            load: if clear {
                                 wgpu::LoadOp::Clear(1.0)
                             } else {
                                 wgpu::LoadOp::Load
@@ -3038,6 +3037,12 @@ impl Renderer3D {
                     occlusion_query_set: None,
                     multiview_mask: None,
                 });
+                if cascade >= MAX_CASCADES
+                    && let Some(&[x, y, side]) = self.light_tiles.get(cascade - MAX_CASCADES)
+                {
+                    pass.set_viewport(x as f32, y as f32, side as f32, side as f32, 0.0, 1.0);
+                    pass.set_scissor_rect(x, y, side, side);
+                }
                 let offset = (self.shadow_stride * cascade as u64) as u32;
                 pass.set_bind_group(0, &self.shadow_bind_group, &[offset]);
                 pass.set_bind_group(2, &self.no_scene, &[]);
@@ -3806,7 +3811,7 @@ fn frame_entries(stages: wgpu::ShaderStages, per_cascade: bool, decals: bool) ->
             visibility: stages - wgpu::ShaderStages::COMPUTE,
             ty: wgpu::BindingType::Texture {
                 sample_type: wgpu::TextureSampleType::Depth,
-                view_dimension: wgpu::TextureViewDimension::D2Array,
+                view_dimension: wgpu::TextureViewDimension::D2,
                 multisampled: false,
             },
             count: None,
