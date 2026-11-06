@@ -706,6 +706,8 @@ pub(crate) struct Assets3D {
     pub morph_bases: std::collections::HashMap<crate::Entity, (u32, MorphWeights, MorphWeights)>,
     /// Bounding sphere of each mesh, in its own space: center and radius.
     pub bounds: Vec<(Vec3, f32)>,
+    /// Freed meshes' ids, for the next meshes made.
+    pub free_meshes: Vec<u32>,
     pub probes: probe::ProbeAssets,
     /// How each skinned mesh binds to joints, by mesh id; shorter than
     /// `bounds` when the last ones aren't skinned.

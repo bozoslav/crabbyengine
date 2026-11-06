@@ -1562,6 +1562,8 @@ impl Renderer3D {
         material.double_sided = desc.double_sided;
     }
 
+    /// Makes the next new mesh (tests make meshes this way).
+    #[cfg(test)]
     pub fn create_mesh(
         &mut self,
         device: &wgpu::Device,
@@ -1569,6 +1571,20 @@ impl Renderer3D {
         parts: &[(Range<u32>, Material)],
         skinned: bool,
     ) -> u32 {
+        let id = self.meshes.len() as u32;
+        self.create_mesh_at(device, id, data, parts, skinned);
+        id
+    }
+
+    /// Makes mesh `id`: a freed one's slot, or the next new one.
+    pub fn create_mesh_at(
+        &mut self,
+        device: &wgpu::Device,
+        id: u32,
+        data: &MeshData,
+        parts: &[(Range<u32>, Material)],
+        skinned: bool,
+    ) {
         let normals = data.normals_or_computed();
         let vertices: Vec<Vertex> = (0..data.positions.len())
             .map(|i| Vertex {
@@ -1610,12 +1626,19 @@ impl Renderer3D {
             contents: bytemuck::cast_slice(&data.indices),
             usage: wgpu::BufferUsages::INDEX,
         });
-        self.meshes.push(GpuMesh {
+        let mesh = GpuMesh {
             buffers: Some((vertices, indices)),
             parts: parts.iter().map(|(r, m)| (r.clone(), m.id)).collect(),
             skin,
-        });
-        self.meshes.len() as u32 - 1
+        };
+        match self.meshes.get_mut(id as usize) {
+            Some(slot) => *slot = mesh,
+            None => {
+                // Ids are handed out in order: only the next one is new.
+                debug_assert_eq!(id as usize, self.meshes.len());
+                self.meshes.push(mesh);
+            }
+        }
     }
 
     /// Frees mesh `id`'s GPU memory; it draws nothing from now on.
