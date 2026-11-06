@@ -590,6 +590,12 @@ impl Renderer {
         super::gpu3d::supports_decals(&self.device)
     }
 
+    /// Whether global illumination can be drawn (see `gpu3d::supports_gi`).
+    #[cfg(feature = "3d")]
+    pub fn supports_gi(&self) -> bool {
+        super::gpu3d::supports_gi(&self.device)
+    }
+
     /// The largest texture array this GPU takes: width and height, and layers.
     #[cfg(feature = "3d")]
     pub fn max_texture_array_size(&self) -> (u32, u32) {

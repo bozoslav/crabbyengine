@@ -15,12 +15,14 @@ mod clip;
 mod collect;
 mod compute;
 mod effect;
+pub(crate) mod gi;
 mod gltf;
 mod ik;
 pub(crate) mod instances;
 pub use instances::{InstanceBatch, InstanceBatchOptions};
 mod lod;
 pub(crate) mod occlusion;
+pub use gi::{GlobalIllumination, MAX_GI_PROBES, MAX_GI_PROBES_PER_FRAME};
 pub use ik::{look_at_joint, two_bone_ik};
 pub use lod::{LodGroup, LodLevel, LodPick, LodRenderer, LodSettings, LodShadow};
 pub(crate) mod lights;
@@ -674,6 +676,9 @@ pub struct Lighting {
     /// the views don't fit, the largest shrink. Changing it at run time
     /// makes a new atlas. Default [`LIGHT_SHADOW_ATLAS_SIZE`].
     pub light_shadow_atlas: u32,
+    /// Light bounced off the world's surfaces (global illumination). Off
+    /// by default; see [`GlobalIllumination`].
+    pub gi: GlobalIllumination,
 }
 
 impl Default for Lighting {
@@ -694,6 +699,7 @@ impl Default for Lighting {
             light_shadow_views: 12,
             light_shadow_resolution: LIGHT_SHADOW_SIZE,
             light_shadow_atlas: LIGHT_SHADOW_ATLAS_SIZE,
+            gi: GlobalIllumination::default(),
         }
     }
 }
@@ -778,6 +784,9 @@ pub(crate) struct Assets3D {
     /// Whether the renderer can draw projected decals (its GPU has a spare
     /// texture slot); set each frame.
     pub decals_supported: bool,
+    /// Whether the renderer can draw global illumination (compute shaders
+    /// and a texture slot for the probes); set each frame.
+    pub gi_supported: bool,
     /// Render targets made so far.
     pub render_targets: Vec<crate::Texture>,
     /// Screen effects made so far.

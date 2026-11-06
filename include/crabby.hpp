@@ -168,6 +168,9 @@ using camera3d = CrabbyCamera3D;
 /// A camera drawing the 3D world into a render target each frame (Rust
 /// `TargetCamera`); see target_camera_of and ctx::reflection_camera.
 using target_camera = CrabbyTargetCamera;
+/// The sun, the sky's light, shadows and global illumination (bounced
+/// light, the gi_ fields); read and change it with ctx::lighting /
+/// ctx::set_lighting.
 using lighting = CrabbyLighting;
 /// Post-processing of the 3D frame (Rust `Post`); read and change it with
 /// ctx::sky / ctx::set_sky: the sky behind the 3D world and the fog.
@@ -181,7 +184,7 @@ using post = CrabbyPost;
 enum class anti_aliasing : uint32_t { none = 0, fxaa = 1, smaa = 2, taa = 3 };
 /// Quality settings that trade looks for speed, switched at run time (Rust
 /// `GraphicsQuality`): the 3D resolution scale, shadows, AO, screen-space
-/// reflections and antialiasing.
+/// reflections, global illumination and antialiasing.
 /// Get a preset with graphics_quality_preset(); apply it with
 /// ctx::set_graphics_quality(); read the current one with ctx::graphics_quality().
 using graphics_quality = CrabbyGraphicsQuality;
@@ -3194,7 +3197,8 @@ public:
     /// Intensities and the shadow distance can't be negative; shadow_cascades is 1 to 4,
     /// shadow_refresh 1 to 8; shadow_resolution is 256 to 4096, light_shadow_resolution
     /// 128 to 2048, light_shadow_views 0 to 24 and light_shadow_atlas a power of two
-    /// from 1024 to 8192.
+    /// from 1024 to 8192. With gi_enabled, gi_extent and gi_spacing must be above
+    /// zero, gi_probes_per_frame 1 to 16 and gi_intensity not negative.
     void set_lighting(const crabby::lighting& l) { detail::check(crabby_ctx_set_lighting(raw_, &l)); }
     /// The sky behind the 3D world and the fog in front of it.
     crabby::sky sky() const { crabby::sky s{}; detail::check(crabby_ctx_sky(raw_, &s)); return s; }

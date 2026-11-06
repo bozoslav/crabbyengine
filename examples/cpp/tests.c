@@ -58,6 +58,16 @@ static void setup(CrabbyCtx* ctx, void* user) {
     CHECK(crabby_ctx_lighting(ctx, &lit) == CRABBY_OK && lit.has_equator && lit.equator_color.g == 1);
     light.has_equator = false;
     CHECK(crabby_ctx_set_lighting(ctx, &light) == CRABBY_OK);
+    /* Global illumination: off by default, its settings checked when on. */
+    CHECK(!light.gi_enabled && light.gi_spacing == 2 && light.gi_probes_per_frame == 4);
+    light.gi_enabled = true;
+    light.gi_probes_per_frame = 0;
+    CHECK(crabby_ctx_set_lighting(ctx, &light) == CRABBY_INVALID_ARGUMENT);
+    light.gi_probes_per_frame = 8;
+    CHECK(crabby_ctx_set_lighting(ctx, &light) == CRABBY_OK);
+    CHECK(crabby_ctx_lighting(ctx, &lit) == CRABBY_OK && lit.gi_enabled && lit.gi_probes_per_frame == 8);
+    light.gi_enabled = false;
+    CHECK(crabby_ctx_set_lighting(ctx, &light) == CRABBY_OK);
     CrabbyPost post;
     CHECK(crabby_ctx_post(ctx, &post) == CRABBY_OK);
     CHECK(!post.ao_enabled && post.anti_aliasing == 0 && post.ao_radius == 1);
@@ -90,7 +100,7 @@ static void setup(CrabbyCtx* ctx, void* user) {
     CHECK(crabby_ctx_set_graphics_quality(ctx, &quality) == CRABBY_INVALID_ARGUMENT);
     CHECK(crabby_graphics_quality_preset(3, &quality) == CRABBY_OK);
     CHECK(crabby_ctx_set_graphics_quality(ctx, &quality) == CRABBY_OK);
-    CHECK(crabby_ctx_graphics_quality(ctx, &now) == CRABBY_OK && now.shadow_resolution == 4096 && now.ao_steps == 8 && now.shadow_refresh == 1 && now.ssr == 1);
+    CHECK(crabby_ctx_graphics_quality(ctx, &now) == CRABBY_OK && now.shadow_resolution == 4096 && now.ao_steps == 8 && now.shadow_refresh == 1 && now.ssr == 1 && now.gi);
     CHECK(now.light_shadow_atlas == 8192 && now.light_shadow_views == 24);
     quality.light_shadow_atlas = 3000; /* not a power of two */
     CHECK(crabby_ctx_set_graphics_quality(ctx, &quality) == CRABBY_INVALID_ARGUMENT);

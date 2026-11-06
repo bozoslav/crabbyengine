@@ -57,6 +57,8 @@ enum Part {
     },
     /// Every target camera.
     Views,
+    /// Global illumination's probe views and their update.
+    Gi,
     Prepass,
     /// The opaque pass, with the transparent surfaces when none reads the scene.
     Opaque,
@@ -72,6 +74,7 @@ impl Part {
             Part::Prelude => "3d prelude",
             Part::Shadow { .. } => "3d shadows",
             Part::Views => "3d target cameras",
+            Part::Gi => "3d global illumination",
             Part::Prepass => "3d depth prepass",
             Part::Opaque => "3d opaque",
             Part::Transparent => "3d transparent",
@@ -107,6 +110,7 @@ const SHADOW_PASSES: [&str; 8] = [
     "shadows 7",
 ];
 use crate::Material;
+use crate::three::gi::GI_SHADOW_SIZE;
 use crate::three::motion::MovedInstance;
 use crate::three::{
     FADED, GpuMaterialDesc, Instance3D, MAX_CASCADES, MAX_LIGHT_SHADOW_VIEWS, MAX_SHADOW_VIEWS, MaterialTextures,
@@ -183,6 +187,8 @@ struct FrameUniform {
     previous_view_proj: [[f32; 4]; 4],
     /// xy: this frame's jitter in pixels.
     jitter: [f32; 4],
+    /// Global illumination's probe grid (see `gi.wgsl`); all zero without.
+    gi: [[f32; 4]; 3],
 }
 
 #[path = "skinning.rs"]
@@ -294,6 +300,26 @@ const DECAL_SAMPLED_TEXTURES: u32 = 17;
 pub(crate) fn supports_decals(device: &wgpu::Device) -> bool {
     device.limits().max_sampled_textures_per_shader_stage >= DECAL_SAMPLED_TEXTURES
 }
+
+/// Global illumination's probes in the mesh shader (see `gi.rs`), or the
+/// stand-in where the GPU can't have them.
+const GI: &str = include_str!("gi.wgsl");
+const NO_GI: &str = include_str!("gi_off.wgsl");
+
+/// Global illumination's probe update pass (see `gi.rs`).
+const GI_UPDATE: &str = include_str!("gi_update.wgsl");
+
+/// The probe update shader: the mesh prelude (the frame, the sky's light)
+/// and the update.
+pub(super) fn gi_update_source() -> String {
+    format!("{MESH_PRELUDE}\n{GI_UPDATE}")
+}
+
+/// Whether `device` can draw global illumination: compute shaders, and a
+/// texture slot past the decals' for the probes (the 18th).
+pub(crate) fn supports_gi(device: &wgpu::Device) -> bool {
+    can_compute(device) && device.limits().max_sampled_textures_per_shader_stage > DECAL_SAMPLED_TEXTURES
+}
 const EFFECT_PRELUDE: &str = include_str!("effect.wgsl");
 const EFFECT_MAIN: &str = include_str!("effect_main.wgsl");
 const COMPUTE_PRELUDE: &str = include_str!("compute.wgsl");
@@ -330,17 +356,28 @@ fn reads_scene(user: &str) -> bool {
 /// pass-through `vertex` and `surface` functions when it has none) and the
 /// engine's entry points.
 pub(crate) fn compose_shader(user: &str) -> String {
-    compose_shader_with(user, true)
+    compose_material(user, true, true)
 }
 
 /// [`compose_shader`] for a device with (`decals`) or without a texture
-/// slot for projected decals.
+/// slot for projected decals (and none for global illumination either).
+#[cfg(test)]
 pub(crate) fn compose_shader_with(user: &str, decals: bool) -> String {
+    compose_material(user, decals, decals)
+}
+
+/// [`compose_shader`] for a device with or without the texture slots for
+/// projected decals and global illumination.
+fn compose_material(user: &str, decals: bool, gi: bool) -> String {
     let decal_code = if decals { DECALS } else { NO_DECALS };
-    let mut source = String::with_capacity(MESH_PRELUDE.len() + decal_code.len() + user.len() + MESH_MAIN.len() + 200);
+    let gi_code = if gi { GI } else { NO_GI };
+    let mut source = String::with_capacity(
+        MESH_PRELUDE.len() + decal_code.len() + gi_code.len() + user.len() + MESH_MAIN.len() + 200,
+    );
     source.push_str(MESH_PRELUDE);
     source.push_str("@group(3) @binding(0) var<storage, read> items: array<vec4<f32>>;\n");
     source.push_str(decal_code);
+    source.push_str(gi_code);
     source.push_str("\n// ---- the game's shader ----\n");
     source.push_str(user);
     source.push_str("\n// ---- the engine's entry points ----\n");
@@ -354,8 +391,8 @@ pub(crate) fn compose_shader_with(user: &str, decals: bool) -> String {
     source
 }
 
-fn compose_shader_storage(user: &str, decals: bool, storage: bool) -> String {
-    let source = compose_shader_with(user, decals);
+fn compose_shader_storage(user: &str, decals: bool, gi: bool, storage: bool) -> String {
+    let source = compose_material(user, decals, gi);
     if storage {
         source
     } else {
@@ -509,10 +546,26 @@ struct FrameSources {
     /// The decal images: a stand-in until the game sets some.
     decal_view: wgpu::TextureView,
     decal_sampler: wgpu::Sampler,
+    /// Whether the layout has global illumination's probes (see
+    /// `supports_gi`), and their atlas: a stand-in while it's off.
+    gi: bool,
+    gi_view: wgpu::TextureView,
 }
 
 impl FrameSources {
     fn bind_group(&self, device: &wgpu::Device, frame: &wgpu::Buffer, lights: &LightTextures) -> wgpu::BindGroup {
+        self.bind_group_shadowed(device, frame, lights, &self.shadow_view)
+    }
+
+    /// [`bind_group`](Self::bind_group) with another sun shadow map (global
+    /// illumination's probe views have their own).
+    fn bind_group_shadowed(
+        &self,
+        device: &wgpu::Device,
+        frame: &wgpu::Buffer,
+        lights: &LightTextures,
+        shadow: &wgpu::TextureView,
+    ) -> wgpu::BindGroup {
         let mut entries = vec![
             wgpu::BindGroupEntry {
                 binding: 0,
@@ -520,7 +573,7 @@ impl FrameSources {
             },
             wgpu::BindGroupEntry {
                 binding: 1,
-                resource: wgpu::BindingResource::TextureView(&self.shadow_view),
+                resource: wgpu::BindingResource::TextureView(shadow),
             },
             wgpu::BindGroupEntry {
                 binding: 2,
@@ -549,6 +602,12 @@ impl FrameSources {
         ];
         if self.decals {
             entries.extend(decal_entries(&self.decal_view, &self.decal_sampler));
+        }
+        if self.gi {
+            entries.push(wgpu::BindGroupEntry {
+                binding: 10,
+                resource: wgpu::BindingResource::TextureView(&self.gi_view),
+            });
         }
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("3d frame"),
@@ -651,6 +710,14 @@ pub(crate) struct Renderer3D {
     /// whether this frame has them.
     ssr: Option<super::ssr::Ssr>,
     ssr_on: bool,
+    /// Global illumination: the probes (made when first used), the
+    /// atlas's stand-in while it's off, what the probes' views draw (into
+    /// `instances`), and each view's slice of `gi_face_runs`.
+    gi: Option<super::gi::Gi>,
+    no_gi: wgpu::TextureView,
+    gi_runs: Vec<Run>,
+    gi_face_runs: Vec<Run>,
+    gi_faces: Vec<(u32, u32)>,
     dummy_depth: wgpu::TextureView,
     post_layout: wgpu::BindGroupLayout,
     bloom_prefilter: wgpu::RenderPipeline,
@@ -788,14 +855,15 @@ impl Renderer3D {
             },
             count: None,
         };
-        let frame_bindings = frame_entries(all_stages, false, decals);
+        let gi = supports_gi(device);
+        let frame_bindings = frame_entries(all_stages, false, decals, gi);
         let frame_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("3d frame layout"),
             entries: &frame_bindings,
         });
         let shadow_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("3d shadow layout"),
-            entries: &frame_entries(all_stages, true, decals),
+            entries: &frame_entries(all_stages, true, decals, gi),
         });
         let material_texture = |binding| wgpu::BindGroupLayoutEntry {
             binding,
@@ -973,7 +1041,7 @@ impl Renderer3D {
             &layout,
             &shadow_pipeline_layout,
             "built-in",
-            &compose_shader_storage("", decals, storage_supported),
+            &compose_shader_storage("", decals, gi, storage_supported),
             samples,
         );
         let post_shader = device.create_shader_module(wgpu::include_wgsl!("post.wgsl"));
@@ -1143,7 +1211,8 @@ impl Renderer3D {
         let shadow_stride = (size_of::<FrameUniform>() as u64).div_ceil(align) * align;
         let shadow_frames = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("3d shadow frames"),
-            size: shadow_stride * MAX_SHADOW_VIEWS as u64,
+            // And one for global illumination's shadow map (see `gi.rs`).
+            size: shadow_stride * (MAX_SHADOW_VIEWS as u64 + 1),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -1266,7 +1335,10 @@ impl Renderer3D {
             wgpu::TextureFormat::Rgba8Unorm,
             wgpu::TextureViewDimension::D2Array,
         );
+        let no_gi = stand_in("3d no gi", HDR_FORMAT, wgpu::TextureViewDimension::D2);
         let frame_sources = FrameSources {
+            gi,
+            gi_view: no_gi.clone(),
             layout: frame_layout,
             shadow_view,
             light_shadow_view: no_light_shadow.clone(),
@@ -1390,6 +1462,12 @@ impl Renderer3D {
         if decals {
             shadow_entries.extend(decal_entries(&frame_sources.decal_view, &frame_sources.decal_sampler));
         }
+        if gi {
+            shadow_entries.push(wgpu::BindGroupEntry {
+                binding: 10,
+                resource: wgpu::BindingResource::TextureView(&no_gi),
+            });
+        }
         let shadow_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("3d shadow"),
             layout: &shadow_layout,
@@ -1427,6 +1505,11 @@ impl Renderer3D {
             ao_enabled: false,
             ssr: None,
             ssr_on: false,
+            gi: None,
+            no_gi,
+            gi_runs: Vec::new(),
+            gi_face_runs: Vec::new(),
+            gi_faces: Vec::new(),
             dummy_depth,
             post_layout,
             bloom_prefilter,
@@ -1753,9 +1836,14 @@ impl Renderer3D {
 
     /// Compiles a material shader from the game's WGSL; returns its index.
     pub fn create_shader(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, String> {
-        let source = compose_shader_storage(user, self.frame_sources.decals, self.storage_read.is_some());
+        let source = compose_shader_storage(
+            user,
+            self.frame_sources.decals,
+            self.frame_sources.gi,
+            self.storage_read.is_some(),
+        );
         let source = if self.storage_read.is_none() && user.contains("items") {
-            compose_shader_storage("", self.frame_sources.decals, false)
+            compose_shader_storage("", self.frame_sources.decals, self.frame_sources.gi, false)
         } else {
             source
         };
@@ -1775,9 +1863,14 @@ impl Renderer3D {
 
     /// Recompiles shader `id` (hot reload). On an error the old one stays.
     pub fn replace_shader(&mut self, device: &wgpu::Device, id: u32, name: &str, user: &str) -> Result<(), String> {
-        let source = compose_shader_storage(user, self.frame_sources.decals, self.storage_read.is_some());
+        let source = compose_shader_storage(
+            user,
+            self.frame_sources.decals,
+            self.frame_sources.gi,
+            self.storage_read.is_some(),
+        );
         let source = if self.storage_read.is_none() && user.contains("items") {
-            compose_shader_storage("", self.frame_sources.decals, false)
+            compose_shader_storage("", self.frame_sources.decals, self.frame_sources.gi, false)
         } else {
             source
         };
@@ -2064,6 +2157,23 @@ impl Renderer3D {
             self.ssr = Some(super::ssr::Ssr::new(device));
         }
         self.velocity_on = self.taa_on || (self.ao_enabled && post.ao_temporal && ao_on);
+        // Global illumination: the probes are made when first on, and their
+        // atlas bound to every frame (again when it's remade).
+        let gi_frame = frame.gi.as_deref().filter(|_| self.frame_sources.gi);
+        if let Some(g) = gi_frame {
+            let gi = self
+                .gi
+                .get_or_insert_with(|| super::gi::Gi::new(device, self.samples, size_of::<FrameUniform>() as u64));
+            let mut remade = gi.prepare(device, queue, g) || gi.face_groups.is_empty();
+            remade |= gi.lights.upload(device, queue, &g.capture.lights, &g.capture.decals);
+            if remade {
+                self.frame_sources.gi_view = gi.atlas_view.clone();
+                self.rebind_frames(device);
+            }
+        } else if self.gi.take().is_some() {
+            self.frame_sources.gi_view = self.no_gi.clone();
+            self.rebind_frames(device);
+        }
         if let Some(ao) = &mut self.ao {
             if frame.motion.reset
                 || self.targets.as_ref().is_none_or(|t| t.size != size)
@@ -2143,8 +2253,11 @@ impl Renderer3D {
                 self.computes.push((compute, state, material));
             }
         }
-        // Target cameras' instances follow the main view's in one buffer.
-        let total = frame.instances.len() + frame.views.iter().map(|v| v.frame.instances.len()).sum::<usize>();
+        // Target cameras' instances follow the main view's in one buffer,
+        // then those of global illumination's probe views.
+        let total = frame.instances.len()
+            + frame.views.iter().map(|v| v.frame.instances.len()).sum::<usize>()
+            + gi_frame.map_or(0, |g| g.capture.instances.len());
         let mut views = std::mem::take(&mut self.views);
         let mut used = 0;
         let mut offset = frame.instances.len() as u32;
@@ -2170,6 +2283,15 @@ impl Renderer3D {
         }
         views.truncate(used);
         self.views = views;
+        self.gi_runs.clear();
+        self.gi_face_runs.clear();
+        self.gi_faces.clear();
+        if let Some(g) = gi_frame {
+            let moved = |&(mesh, start, count): &Run| (mesh, start + offset, count);
+            self.gi_runs.extend(g.capture.runs.iter().map(moved));
+            self.gi_face_runs.extend(g.face_runs.iter().map(moved));
+            self.gi_faces.extend_from_slice(&g.faces);
+        }
         // Skinned models: only those some pass draws are posed.
         let real = self.meshes.len() as u32;
         let mut drawn = std::mem::take(&mut self.skin_drawn);
@@ -2179,7 +2301,8 @@ impl Renderer3D {
             .runs
             .iter()
             .chain(shadow_views(self.cascades, self.light_views).flat_map(|v| &self.shadow_runs[v]))
-            .chain(self.views.iter().flat_map(|(_, r, _)| r));
+            .chain(self.views.iter().flat_map(|(_, r, _)| r))
+            .chain(&self.gi_runs);
         for &(mesh, _, _) in runs {
             if let Some(d) = (mesh & !FADED)
                 .checked_sub(real)
@@ -2220,6 +2343,10 @@ impl Renderer3D {
             }
             at += view.frame.instances.len();
         }
+        if let Some(g) = gi_frame.filter(|g| !g.capture.instances.is_empty()) {
+            let bytes = (at * size_of::<Instance3D>()) as u64;
+            queue.write_buffer(&self.instances, bytes, bytemuck::cast_slice(&g.capture.instances));
+        }
         if self.velocity_on && !frame.motion.runs.is_empty() {
             let moved = &frame.motion.instances;
             if moved.len() > self.moved_capacity {
@@ -2247,6 +2374,7 @@ impl Renderer3D {
                     .frame_sources
                     .bind_group(device, &target.frame_buffer, &target.lights);
             }
+            self.rebind_gi(device);
         }
         let mut light_view_proj = [Mat4::IDENTITY.to_cols_array_2d(); MAX_LIGHT_SHADOW_VIEWS];
         for (mine, theirs) in light_view_proj.iter_mut().zip(&frame.lights.shadow_views) {
@@ -2321,7 +2449,16 @@ impl Renderer3D {
                 sky.fog_sun_glow.max(0.0),
                 sky.fog_sun_focus.clamp(0.0, 0.99),
             ],
+            gi: [[0.0; 4]; 3],
         };
+        if let (Some(g), Some(gi)) = (gi_frame, &self.gi) {
+            let (n, origin) = (g.grid.counts.as_vec3(), g.grid.origin.as_vec3());
+            uniform.gi = [
+                [0.0, 0.0, 0.0, g.grid.spacing],
+                [n.x, n.y, n.z, g.intensity],
+                [origin.x, origin.y, origin.z, gi.rows() as f32],
+            ];
+        }
         // A three-color ambient, without an atmosphere.
         let equator = match lighting.equator_color {
             Some(c) if !sky.atmosphere => {
@@ -2411,6 +2548,31 @@ impl Renderer3D {
                 bytemuck::bytes_of(&theirs),
             );
         }
+        // Global illumination's probe views: the same, from each probe, lit
+        // by their own sun shadow map (one cascade around the grid, not
+        // fading out), without point and spot light shadows.
+        if let (Some(g), Some(gi)) = (gi_frame, &self.gi) {
+            let mut theirs = uniform;
+            theirs.cluster_depth = cluster_depth(&g.capture);
+            theirs.cluster_view_proj = g.capture_view_proj.to_cols_array_2d();
+            theirs.jitter = [0.0; 4];
+            let size = super::gi::VIEW_SIZE as f32;
+            theirs.screen = [size, size, 1.0 / size, 1.0 / size];
+            theirs.shadow = [1.0, 1.0 / GI_SHADOW_SIZE as f32, 1.5, f32::MAX];
+            theirs.sun_view_proj[0] = g.sun_view_proj.to_cols_array_2d();
+            theirs.cascade_texel[0] = g.sun_texel;
+            theirs.light_shadow[0] = 0.0;
+            for (i, view_proj) in g.face_view_proj.iter().enumerate() {
+                let probe = g.updates[i / 6].position;
+                theirs.view_proj = view_proj.to_cols_array_2d();
+                theirs.inv_view_proj = view_proj.inverse().to_cols_array_2d();
+                theirs.unjittered_view_proj = theirs.view_proj;
+                theirs.previous_view_proj = theirs.view_proj;
+                theirs.camera = probe.extend(1.0).to_array();
+                theirs.sky_light[3] = (probe.y / 1000.0).max(0.0);
+                queue.write_buffer(&gi.face_buffers[i], 0, bytemuck::bytes_of(&theirs));
+            }
+        }
         // Copy 0 also serves the sky texture's pass. `camera.w` 0 tells
         // material shaders they're drawing a shadow map (`drawing_shadows`).
         uniform.camera[3] = 0.0;
@@ -2427,6 +2589,14 @@ impl Renderer3D {
             queue.write_buffer(
                 &self.shadow_frames,
                 self.shadow_stride * (MAX_CASCADES + i) as u64,
+                bytemuck::bytes_of(&uniform),
+            );
+        }
+        if let Some(g) = gi_frame {
+            uniform.caster_view_proj = g.sun_view_proj.to_cols_array_2d();
+            queue.write_buffer(
+                &self.shadow_frames,
+                self.shadow_stride * MAX_SHADOW_VIEWS as u64,
                 bytemuck::bytes_of(&uniform),
             );
         }
@@ -2811,6 +2981,22 @@ impl Renderer3D {
                 .frame_sources
                 .bind_group(device, &target.frame_buffer, &target.lights);
         }
+        self.rebind_gi(device);
+    }
+
+    /// Makes global illumination's probe views' frame bind groups again.
+    fn rebind_gi(&mut self, device: &wgpu::Device) {
+        if let Some(gi) = &mut self.gi {
+            gi.set_sky(device, &self.frame_sources.sky_view, &self.frame_sources.sky_sampler);
+            gi.face_groups = gi
+                .face_buffers
+                .iter()
+                .map(|b| {
+                    self.frame_sources
+                        .bind_group_shadowed(device, b, &gi.lights, &gi.shadow_array)
+                })
+                .collect();
+        }
     }
 
     /// The size the scene is drawn at (test hook).
@@ -3012,6 +3198,9 @@ impl Renderer3D {
         if !self.views.is_empty() || self.environment.has_probes() {
             parts.push(Part::Views);
         }
+        if self.gi.as_ref().is_some_and(|g| g.update_count() > 0) {
+            parts.push(Part::Gi);
+        }
         parts.extend([Part::Prepass, Part::Opaque]);
         if split {
             parts.push(Part::Transparent);
@@ -3187,6 +3376,7 @@ impl Renderer3D {
                 }
                 self.environment.probes(encoder);
             }
+            Part::Gi => self.record_gi(encoder, time),
             Part::Prepass => {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("3d depth prepass"),
@@ -3526,6 +3716,93 @@ impl Renderer3D {
         }
     }
 
+    /// Global illumination's part of the frame (see `gi.rs`): the probe
+    /// views' sun shadow map, the views (cut-outs' coverage first, then
+    /// lit), and the probes' update from them.
+    fn record_gi<'t>(&self, encoder: &mut wgpu::CommandEncoder, time: &PassTimer<'_, 't>) {
+        let Some(gi) = &self.gi else {
+            return;
+        };
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("3d gi shadows"),
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &gi.shadow,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: time("gi shadows"),
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            let offset = (self.shadow_stride * MAX_SHADOW_VIEWS as u64) as u32;
+            pass.set_bind_group(0, &self.shadow_bind_group, &[offset]);
+            pass.set_bind_group(2, &self.no_scene, &[]);
+            // Models only: instance batches are culled for the main camera.
+            self.draw_model_runs(&mut pass, &self.gi_runs, Kind::Shadow(0), &self.instances, None);
+        }
+        // Each view in its own square of the views image.
+        let views = |pass: &mut wgpu::RenderPass<'_>, kind| {
+            let size = super::gi::VIEW_SIZE;
+            pass.set_bind_group(2, &self.no_scene, &[]);
+            for (i, &(start, end)) in self.gi_faces.iter().enumerate() {
+                let (x, y) = ((i % 6) as u32 * size, (i / 6) as u32 * size);
+                pass.set_viewport(x as f32, y as f32, size as f32, size as f32, 0.0, 1.0);
+                pass.set_scissor_rect(x, y, size, size);
+                pass.set_bind_group(0, &gi.face_groups[i], &[]);
+                self.draw_model_runs(
+                    pass,
+                    &self.gi_face_runs[start as usize..end as usize],
+                    kind,
+                    &self.instances,
+                    None,
+                );
+            }
+        };
+        let pass = |encoder: &mut wgpu::CommandEncoder, label, first: bool, timestamps, kind| {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some(label),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &gi.views,
+                    depth_slice: None,
+                    resolve_target: (!first).then_some(&gi.resolve),
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Discard,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &gi.depth,
+                    depth_ops: Some(wgpu::Operations {
+                        load: if first {
+                            wgpu::LoadOp::Clear(1.0)
+                        } else {
+                            wgpu::LoadOp::Load
+                        },
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: timestamps,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            views(&mut pass, kind);
+        };
+        pass(encoder, "3d gi cut-out views", true, None, Kind::PrepassCoverage);
+        pass(encoder, "3d gi views", false, time("gi views"), Kind::Capture);
+        let timestamps = time("gi update").map(|t| wgpu::ComputePassTimestampWrites {
+            query_set: t.query_set,
+            beginning_of_pass_write_index: t.beginning_of_pass_write_index,
+            end_of_pass_write_index: t.end_of_pass_write_index,
+        });
+        gi.update(encoder, timestamps);
+    }
+
     /// One target camera's view: depth prepass, then the lit solid models
     /// and the sky, resolved into its render target.
     fn draw_view<'t>(
@@ -3821,6 +4098,11 @@ impl Renderer3D {
                     },
                     Kind::Transparent => &pipelines.transparent,
                     Kind::Velocity => &pipelines.velocity,
+                    Kind::Capture if !m.cutout => &pipelines.opaque_solid,
+                    Kind::Capture => match coverage {
+                        Some([_, opaque]) => opaque,
+                        None => &pipelines.opaque,
+                    },
                 };
                 if bound != Some(pipeline as *const _) {
                     pass.set_pipeline(pipeline);
@@ -3895,6 +4177,9 @@ enum Kind {
     Transparent,
     /// Motion vectors of the models that moved (temporal antialiasing).
     Velocity,
+    /// Global illumination's probe views: lit, solid surfaces writing
+    /// their own depth (cut-outs went through `PrepassCoverage`).
+    Capture,
 }
 
 /// A material shader's pipelines: depth prepass, opaque, transparent and
@@ -3960,7 +4245,12 @@ fn build_effect(
 /// per cascade) and stand-ins for the shadow map and sky, which they draw
 /// into: a material shader that reads them (from `surface`, which runs
 /// for cut-outs' alpha) must build there too.
-fn frame_entries(stages: wgpu::ShaderStages, per_cascade: bool, decals: bool) -> Vec<wgpu::BindGroupLayoutEntry> {
+fn frame_entries(
+    stages: wgpu::ShaderStages,
+    per_cascade: bool,
+    decals: bool,
+    gi: bool,
+) -> Vec<wgpu::BindGroupLayoutEntry> {
     let mut entries = vec![
         wgpu::BindGroupLayoutEntry {
             binding: 0,
@@ -4056,6 +4346,20 @@ fn frame_entries(stages: wgpu::ShaderStages, per_cascade: bool, decals: bool) ->
             binding: 9,
             visibility: wgpu::ShaderStages::FRAGMENT,
             ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+            count: None,
+        });
+    }
+    if gi {
+        // Global illumination's probes: the 18th sampled texture (see
+        // `supports_gi`). Fragment only.
+        entries.push(wgpu::BindGroupLayoutEntry {
+            binding: 10,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
             count: None,
         });
     }
@@ -4421,6 +4725,7 @@ mod tests {
         for (name, offset) in [
             ("fog_far", std::mem::offset_of!(FrameUniform, fog_far)),
             ("probes", std::mem::offset_of!(FrameUniform, probes)),
+            ("gi", std::mem::offset_of!(FrameUniform, gi)),
             (
                 "unjittered_view_proj",
                 std::mem::offset_of!(FrameUniform, unjittered_view_proj),
@@ -4514,11 +4819,11 @@ mod tests {
     fn shadow_passes_bind_everything_a_material_shader_reads() {
         let user = "fn surface(s: Surface) -> Surface { var o = s; o.emissive = sky_radiance(s.normal) * sunlight(s.world, s.normal); return o; }";
         let module = wgpu::naga::front::wgsl::parse_str(&compose_shader(user)).unwrap();
-        let shadow: Vec<u32> = frame_entries(wgpu::ShaderStages::VERTEX_FRAGMENT, true, true)
+        let shadow: Vec<u32> = frame_entries(wgpu::ShaderStages::VERTEX_FRAGMENT, true, true, true)
             .iter()
             .map(|e| e.binding)
             .collect();
-        let frame: Vec<u32> = frame_entries(wgpu::ShaderStages::VERTEX_FRAGMENT, false, true)
+        let frame: Vec<u32> = frame_entries(wgpu::ShaderStages::VERTEX_FRAGMENT, false, true, true)
             .iter()
             .map(|e| e.binding)
             .collect();

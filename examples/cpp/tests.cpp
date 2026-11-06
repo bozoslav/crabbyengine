@@ -289,6 +289,17 @@ static void three_d() {
         light.has_equator = false;
         ctx.set_lighting(light);
         CHECK(!ctx.lighting().has_equator);
+        {
+            auto bounced = light;
+            CHECK(!bounced.gi_enabled && bounced.gi_extent.x == 32);
+            bounced.gi_enabled = true;
+            bounced.gi_spacing = 0;
+            throws([&] { ctx.set_lighting(bounced); });
+            bounced.gi_spacing = 1.5f;
+            ctx.set_lighting(bounced);
+            CHECK(ctx.lighting().gi_enabled && ctx.lighting().gi_spacing == 1.5f);
+            ctx.set_lighting(light);
+        }
         light.shadow_cascades = 0;
         throws([&] { ctx.set_lighting(light); });
         auto sky = ctx.sky();
@@ -379,6 +390,7 @@ static void three_d() {
         CHECK(ctx.graphics_quality().shadow_cascades == 2);
         ctx.set_graphics_quality(crabby::graphics_quality_preset(crabby::quality_level::high));
         CHECK(ctx.graphics_quality().ssr == 1 && ctx.post().ssr == 1);
+        CHECK(!ctx.graphics_quality().gi && crabby::graphics_quality_preset(crabby::quality_level::ultra).gi);
         auto light_q = ctx.lighting();
         light_q.shadow_resolution = 100;
         throws([&] { ctx.set_lighting(light_q); });

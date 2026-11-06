@@ -886,6 +886,10 @@ impl Ctx {
         views.resize_with(count, Default::default);
         let lighting = super::Lighting {
             shadows: false,
+            gi: super::GlobalIllumination {
+                enabled: false,
+                ..self.lighting.gi
+            },
             ..self.lighting
         };
         for (view, camera) in views.iter_mut().zip(cameras) {
@@ -1099,6 +1103,7 @@ impl Ctx {
         }
         let time = (self.time() as f32, self.dt());
         self.assets3d.decals_supported = self.supports_decals();
+        self.assets3d.gi_supported = self.renderer.as_ref().is_some_and(|r| r.supports_gi());
         let fallback = if self.effects.iter().any(|e| e.material.is_none())
             || self.compute_passes.iter().any(|c| c.material.is_none())
         {

@@ -2,6 +2,8 @@
 //! lives in `gpu`, behind the `window` feature; without it, `none` stands in.
 
 pub(crate) mod batch;
+#[cfg(all(feature = "window", feature = "3d"))]
+mod gi;
 #[cfg(feature = "window")]
 mod gpu;
 #[cfg(all(feature = "window", feature = "3d"))]
@@ -108,6 +110,8 @@ mod coverage_render_test;
 mod effect_shadow_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod far_terrain_render_test;
+#[cfg(all(test, feature = "window", feature = "3d"))]
+mod gi_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod light_shadow_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]

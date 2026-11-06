@@ -1190,6 +1190,11 @@ typedef struct CrabbyLighting {
   uint32_t shadow_refresh;
   bool has_equator;
   struct CrabbyColor equator_color;
+  bool gi_enabled;
+  struct CrabbyVec3 gi_extent;
+  float gi_spacing;
+  uint32_t gi_probes_per_frame;
+  float gi_intensity;
 } CrabbyLighting;
 
 typedef struct CrabbySky {
@@ -1255,6 +1260,7 @@ typedef struct CrabbyGraphicsQuality {
   uint32_t anti_aliasing;
   uint32_t shadow_refresh;
   float ssr;
+  bool gi;
 } CrabbyGraphicsQuality;
 
 typedef struct CrabbyReflectionProbe3D {
