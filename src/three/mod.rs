@@ -227,6 +227,25 @@ pub struct Mesh {
     pub(crate) id: u32,
 }
 
+impl Mesh {
+    /// No mesh: a [`Model`] showing it draws nothing and casts no shadow, at
+    /// almost no cost. For models that are sometimes hidden, such as
+    /// plants beyond their draw distance. Unlike a freed mesh, it never
+    /// becomes another mesh, since no mesh is ever made with its id.
+    ///
+    /// ```
+    /// # use crabbyengine::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let material = ctx.default_material();
+    ///     let bush = ctx.create_mesh(&MeshData::cube(1.0), material);
+    ///     ctx.world.spawn((Transform3D::default(), Model::new(Mesh::NONE)));
+    ///     assert!(!ctx.is_mesh_live(Mesh::NONE));
+    ///     assert_ne!(bush, Mesh::NONE);
+    /// });
+    /// ```
+    pub const NONE: Mesh = Mesh { id: u32::MAX };
+}
+
 /// What one mesh cost to draw in the last frame, from
 /// [`Ctx::mesh_costs`](crate::Ctx::mesh_costs).
 #[derive(Debug, Clone, PartialEq)]

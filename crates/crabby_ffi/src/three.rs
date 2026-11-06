@@ -133,6 +133,13 @@ pub struct CrabbyMesh {
     pub id: u32,
 }
 
+/// `CrabbyMesh` id of no mesh (Rust `Mesh::NONE`): a model showing it draws
+/// nothing, and no mesh is ever made with it, unlike a freed mesh's id.
+/// ```
+/// assert_eq!(crabby_ffi::CRABBY_MESH_NONE, u32::MAX);
+/// ```
+pub const CRABBY_MESH_NONE: u32 = u32::MAX;
+
 /// A material (`crabby_ctx_create_material`).
 /// ```
 /// let m = crabby_ffi::CrabbyMaterial { id: 0 };
