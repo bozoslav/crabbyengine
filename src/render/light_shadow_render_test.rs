@@ -10,12 +10,41 @@ const SIZE: u32 = 64;
 
 #[test]
 fn a_shadowed_spot_light_darkens_the_ground_behind_a_box() {
+    local_shadow(false, false, true, true);
+}
+
+#[test]
+fn batches_cast_spot_light_shadows() {
+    local_shadow(true, false, true, true);
+    local_shadow(true, false, false, true);
+}
+
+#[test]
+fn batches_cast_point_light_shadows() {
+    local_shadow(true, true, true, true);
+    local_shadow(true, true, false, true);
+}
+
+#[test]
+fn batches_can_disable_local_light_shadows() {
+    local_shadow(true, false, true, false);
+    local_shadow(true, true, true, false);
+}
+
+fn local_shadow(batch: bool, point: bool, compute: bool, casts: bool) {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
         eprintln!("no GPU adapter: skipped");
         return;
     };
-    let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) else {
+    let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        required_limits: if compute {
+            wgpu::Limits::default()
+        } else {
+            wgpu::Limits::downlevel_webgl2_defaults()
+        },
+        ..Default::default()
+    })) else {
         eprintln!("no GPU device: skipped");
         return;
     };
@@ -114,8 +143,10 @@ fn a_shadowed_spot_light_darkens_the_ground_behind_a_box() {
     let ground_mesh = ctx.create_mesh(&ground, material);
     let cube_mesh = ctx.create_mesh(&cube, material);
     ctx.world.spawn((Transform3D::default(), Model::new(ground_mesh)));
-    ctx.world
-        .spawn((Transform3D::at(vec3(0.0, 3.0, 0.0)), Model::new(cube_mesh)));
+    if !batch {
+        ctx.world
+            .spawn((Transform3D::at(vec3(0.0, 3.0, 0.0)), Model::new(cube_mesh)));
+    }
     let light = ctx.world.spawn((
         Transform3D::at(vec3(0.0, 6.0, 0.0)).looking_at(vec3(0.0, 0.0, 0.001)),
         SpotLight3D {
@@ -127,9 +158,24 @@ fn a_shadowed_spot_light_darkens_the_ground_behind_a_box() {
             ..Default::default()
         },
     ));
+    let point_light = point.then(|| {
+        ctx.world.spawn((
+            Transform3D::at(vec3(0.0, 6.0, 0.0)),
+            PointLight3D {
+                intensity: 400.0,
+                range: 20.0,
+                shadows: true,
+                ..Default::default()
+            },
+        ))
+    });
+    if point {
+        ctx.world.get_mut::<SpotLight3D>(light).unwrap().intensity = 0.0;
+    }
     ctx.camera3d.position = vec3(0.0, 6.0, 6.0);
     ctx.camera3d.look_at(Vec3::ZERO);
     ctx.lighting.shadows = true;
+    ctx.lighting.light_shadow_atlas = 2048;
     ctx.sky.atmosphere = false;
 
     let mut renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
@@ -137,6 +183,22 @@ fn a_shadowed_spot_light_darkens_the_ground_behind_a_box() {
     renderer.create_mesh(&device, &ground, &[(0..ground.indices.len() as u32, material)], true);
     renderer.create_mesh(&device, &cube, &[(0..cube.indices.len() as u32, material)], true);
 
+    if batch {
+        let handle = ctx.create_instance_batch(
+            cube_mesh,
+            &[Mat4::from_translation(vec3(0.0, 3.0, 0.0))],
+            InstanceBatchOptions {
+                max_distance: 4.0,
+                cast_shadows: casts,
+                ..Default::default()
+            },
+        );
+        renderer.set_instance_batch(
+            &device,
+            handle.id(),
+            ctx.assets3d.instance_batches[handle.id() as usize].as_ref(),
+        );
+    }
     let mut draw = |ctx: &mut Ctx| -> Vec<u8> {
         let mut frame = Frame3D::default();
         frame.collect(
@@ -209,12 +271,19 @@ fn a_shadowed_spot_light_darkens_the_ground_behind_a_box() {
     let (under, open) = (vec3(0.0, 0.0, 0.6), vec3(0.0, 0.0, 2.5));
     let shadowed = draw(&mut ctx);
     ctx.world.get_mut::<SpotLight3D>(light).unwrap().shadows = false;
+    if let Some(light) = point_light {
+        ctx.world.get_mut::<PointLight3D>(light).unwrap().shadows = false;
+    }
     let unshadowed = draw(&mut ctx);
     assert!(brightness(&unshadowed, open) > 60, "the light reaches the open ground");
     assert!(
         brightness(&unshadowed, under) > 60,
         "without shadows the light passes the box"
     );
+    if !casts {
+        assert_eq!(brightness(&shadowed, under), brightness(&unshadowed, under));
+        return;
+    }
     assert!(
         brightness(&shadowed, under) * 4 < brightness(&unshadowed, under),
         "the box shadows the ground under it: {} vs {}",

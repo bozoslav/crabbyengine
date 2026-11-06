@@ -703,8 +703,8 @@ pub(crate) struct Renderer3D {
     /// `compute_states`, material).
     computes: Vec<(u32, usize, u32)>,
     /// This frame's target cameras: (index into `view_targets`, first
-    /// instance offset already added to its runs, runs).
-    views: Vec<(usize, Vec<Run>)>,
+    /// instance offset already added to its runs, runs, batch visibility slot).
+    views: Vec<(usize, Vec<Run>, usize)>,
     /// The frame uniform alone, for the shadow pass (which can't also read
     /// the shadow map it draws into): one copy per cascade, each with its
     /// `caster_view_proj`, `shadow_stride` bytes apart.
@@ -2096,7 +2096,7 @@ impl Renderer3D {
             ));
         }
         self.atmosphere = sky.atmosphere;
-        self.prepare_static(queue, frame, camera, occlusion);
+        self.prepare_static(device, queue, frame, camera, occlusion);
         self.runs.clear();
         self.runs.extend_from_slice(&frame.runs);
         self.effects.clear();
@@ -2148,14 +2148,15 @@ impl Renderer3D {
         let mut views = std::mem::take(&mut self.views);
         let mut used = 0;
         let mut offset = frame.instances.len() as u32;
-        for view in &frame.views {
+        for (camera_index, view) in frame.views.iter().enumerate() {
             let Some(target) = self.view_target(device, view.target) else {
                 continue;
             };
             if used == views.len() {
-                views.push((0, Vec::new()));
+                views.push((0, Vec::new(), 0));
             }
-            let (index, runs) = &mut views[used];
+            let (index, runs, batch_view) = &mut views[used];
+            *batch_view = 1 + MAX_CASCADES + frame.light_views + camera_index;
             *index = target;
             runs.clear();
             runs.extend(
@@ -2178,7 +2179,7 @@ impl Renderer3D {
             .runs
             .iter()
             .chain(shadow_views(self.cascades, self.light_views).flat_map(|v| &self.shadow_runs[v]))
-            .chain(self.views.iter().flat_map(|(_, r)| r));
+            .chain(self.views.iter().flat_map(|(_, r, _)| r));
         for &(mesh, _, _) in runs {
             if let Some(d) = (mesh & !FADED)
                 .checked_sub(real)
@@ -2849,7 +2850,7 @@ impl Renderer3D {
         let view_parts: usize = self
             .views
             .iter()
-            .flat_map(|(_, runs)| runs)
+            .flat_map(|(_, runs, _)| runs)
             .map(|&(mesh, _, _)| self.meshes[self.base(mesh) as usize].parts.len())
             .sum();
         self.computes.len()
@@ -3177,12 +3178,12 @@ impl Renderer3D {
             }
             Part::Views => {
                 // Target cameras, before the main view, whose materials may read them.
-                for (target, runs) in &self.views {
+                for (target, runs, batch_view) in &self.views {
                     let (id, target) = &self.view_targets[*target];
                     // Probe captures start empty (alpha 0): the sky fills in behind them.
                     let capture = self.environment.is_capture(*id);
                     let clear = if capture { wgpu::Color::TRANSPARENT } else { clear };
-                    self.draw_view(encoder, target, runs, clear, time);
+                    self.draw_view(encoder, target, runs, *batch_view, clear, time);
                 }
                 self.environment.probes(encoder);
             }
@@ -3212,7 +3213,7 @@ impl Renderer3D {
                     &targets.depth,
                     &self.frame_bind_group,
                     &self.runs,
-                    true,
+                    Some(0),
                 );
                 // With every solid surface in it, the depth is complete here.
                 if self.solid_prepass {
@@ -3532,6 +3533,7 @@ impl Renderer3D {
         encoder: &mut wgpu::CommandEncoder,
         target: &ViewTarget,
         runs: &[(u32, u32, u32)],
+        batch_view: usize,
         clear: wgpu::Color,
         time: &PassTimer<'_, 't>,
     ) {
@@ -3553,7 +3555,7 @@ impl Renderer3D {
             });
             pass.set_bind_group(0, &target.frame_bind_group, &[]);
             pass.set_bind_group(2, &self.no_scene, &[]);
-            self.draw_model_runs(&mut pass, runs, Kind::Prepass, &self.instances, None);
+            self.draw_models_view(&mut pass, runs, Kind::Prepass, &self.instances, batch_view);
         }
         self.coverage_prepass(
             encoder,
@@ -3561,7 +3563,7 @@ impl Renderer3D {
             &target.depth,
             &target.frame_bind_group,
             runs,
-            false,
+            Some(batch_view),
         );
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("3d target camera"),
@@ -3588,7 +3590,7 @@ impl Renderer3D {
         });
         pass.set_bind_group(0, &target.frame_bind_group, &[]);
         pass.set_bind_group(2, &self.no_scene, &[]);
-        self.draw_model_runs(&mut pass, runs, Kind::Opaque, &self.instances, None);
+        self.draw_models_view(&mut pass, runs, Kind::Opaque, &self.instances, batch_view);
         if self.atmosphere {
             pass.set_pipeline(&self.sky);
             pass.set_bind_group(0, &target.frame_bind_group, &[]);
@@ -3644,7 +3646,7 @@ impl Renderer3D {
         depth: &wgpu::TextureView,
         frame_bind_group: &wgpu::BindGroup,
         runs: &[(u32, u32, u32)],
-        batches: bool,
+        batches: Option<usize>,
     ) {
         let cutout = runs.iter().any(|&(mesh, _, _)| {
             self.meshes[self.base(mesh & !FADED) as usize]
@@ -3653,7 +3655,7 @@ impl Renderer3D {
                 .any(|&(_, m)| self.materials[m as usize].cutout)
         });
         let cutout = cutout
-            || (batches
+            || (batches.is_some()
                 && self.static_batches.iter().flatten().any(|b| {
                     self.meshes[b.mesh as usize]
                         .parts
@@ -3688,8 +3690,8 @@ impl Renderer3D {
         });
         pass.set_bind_group(0, frame_bind_group, &[]);
         pass.set_bind_group(2, &self.no_scene, &[]);
-        if batches {
-            self.draw_models(&mut pass, runs, Kind::PrepassCoverage, &self.instances);
+        if let Some(view) = batches {
+            self.draw_models_view(&mut pass, runs, Kind::PrepassCoverage, &self.instances, view);
         } else {
             self.draw_model_runs(&mut pass, runs, Kind::PrepassCoverage, &self.instances, None);
         }
@@ -3702,19 +3704,26 @@ impl Renderer3D {
         kind: Kind,
         instances: &wgpu::Buffer,
     ) {
-        self.draw_model_runs(pass, runs, kind, instances, None);
-        if kind == Kind::Velocity {
-            return;
-        }
         let view = match kind {
             Kind::Shadow(v) => v + 1,
             _ => 0,
         };
-        if view >= 5 {
+        self.draw_models_view(pass, runs, kind, instances, view);
+    }
+    fn draw_models_view(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        runs: &[(u32, u32, u32)],
+        kind: Kind,
+        instances: &wgpu::Buffer,
+        view: usize,
+    ) {
+        self.draw_model_runs(pass, runs, kind, instances, None);
+        if kind == Kind::Velocity {
             return;
         }
         for batch in self.static_batches.iter().flatten() {
-            if view > 0 && !batch.options.cast_shadows {
+            if matches!(kind, Kind::Shadow(_)) && !batch.options.cast_shadows {
                 continue;
             }
             if self.meshes.get(batch.mesh as usize).is_none_or(|m| m.buffers.is_none()) {
