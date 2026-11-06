@@ -278,6 +278,17 @@ static void ribbons_and_decals(void) {
     CHECK(crabby_mesh_data_decal(floor, NULL, 0.002f) == NULL);
     crabby_mesh_data_free(floor);
 }
+static void lod_helpers(void) {
+    float fov = 60 * 3.14159265f / 180;
+    float h = crabby_lod_screen_height_at(2, 10, fov);
+    CHECK(h > 0.172f && h < 0.174f);
+    float d = crabby_lod_distance_at(2, h, fov);
+    CHECK(d > 9.99f && d < 10.01f);
+    CrabbyLodRenderer r = crabby_lod_renderer((CrabbyMesh){3});
+    CHECK(r.mesh.id == 3 && r.color.r == 1 && r.offset.scale.y == 1);
+    CrabbyLodLevel level = {0.1f, 0, &r, 1, false, NULL, 0};
+    CHECK(crabby_ctx_set_lod_group(NULL, 0, 1, (CrabbyVec3){0, 0, 0}, &level, 1) == CRABBY_INVALID_ARGUMENT);
+}
 static void steam_messages_validation(void) {
     CrabbyNetMessages* endpoint = NULL;
     CrabbySteamLobby* lobby = NULL;
@@ -504,5 +515,6 @@ int main(void) {
     retained_ui();
     ui_panels();
     ribbons_and_decals();
+    lod_helpers();
     return 0;
 }

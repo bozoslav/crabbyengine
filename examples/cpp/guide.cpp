@@ -936,7 +936,21 @@ static void yard(crabby::ctx& ctx, crabby::mesh tree, crabby::mesh blob, crabby:
 }
 // ANCHOR_END: shadow_mesh
 
-// ANCHOR: profiling
+// ANCHOR: lod
+/// A 2 m object: the sphere until it's 25% of the screen's height, the cube
+/// down to 3%, then nothing. The sphere crossfades into the cube over the top
+/// quarter of its range.
+static crabby::entity lod_object(crabby::ctx& ctx, crabby::mesh high, crabby::mesh low) {
+    auto e = ctx.world().spawn(crabby::transform3d_at({0, 0, 0}));
+    crabby::lod_level near_level{0.25f, 0.25f, {crabby::lod_renderer_of(high)}};
+    crabby::lod_level far_level{0.03f, 0, {crabby::lod_renderer_of(low)}};
+    ctx.set_lod_group(e, 2, {near_level, far_level});
+    // Lower quality: drop detail at 70% of the distance.
+    ctx.set_lod({0.7f, true});
+    return e;
+}
+// ANCHOR_END: lod
+
 /// F3 shows the performance overlay; F4 records the next 300 frames as a
 /// trace to open in Perfetto. Slow stretches are logged with their cause.
 static void perf_keys(crabby::ctx& ctx) {
@@ -1255,6 +1269,9 @@ static void the_village_has_five_spinning_houses() {
         auto tuft = ctx.create_mesh(crabby::mesh_data::cube(0.1f), ctx.default_material());
         plant_meadow(ctx, tuft);
         yard(ctx, tuft, tuft, tuft, tuft, tuft);
+        auto lod = lod_object(ctx, tuft, tuft);
+        if (ctx.lod().bias != 0.7f || ctx.lod_pick_of(lod).kind == 0) { std::fprintf(stderr, "lod\n"); std::abort(); }
+        ctx.set_lod({1, true});
         perf_keys(ctx);
         if (ctx.frame_stats().frames != 0) { std::fprintf(stderr, "frame stats\n"); std::abort(); }
         if (ctx.mesh_shadows(tuft)) { std::fprintf(stderr, "mesh shadows\n"); std::abort(); }

@@ -24,6 +24,8 @@ struct VertexOut {
     @location(5) @interpolate(flat) origin: vec3<f32>,
     // Which decal layers the model takes (see apply_decals).
     @location(6) @interpolate(flat) decal_layers: u32,
+    // The crossfade dither (see `fade_keeps`), else 0.
+    @location(7) @interpolate(flat) fade: f32,
 };
 
 // The vertex in world space, after the shader's `vertex` function.
@@ -63,6 +65,7 @@ fn vs_main(in: VertexIn) -> VertexOut {
     out.color = v.color;
     out.uv1 = v.uv1;
     out.origin = v.origin;
+    out.fade = in.m1.w;
     return out;
 }
 
@@ -79,7 +82,26 @@ fn vs_shadow(in: VertexIn) -> VertexOut {
     out.color = v.color;
     out.uv1 = v.uv1;
     out.origin = v.origin;
+    out.fade = in.m1.w;
     return out;
+}
+
+// Whether a pixel of a crossfading instance is drawn: a screen-door dither.
+// `fade` is the share of pixels kept; negative for the level fading out,
+// which keeps the pixels the level fading in doesn't (so together they
+// cover every pixel once). The depth prepass, the main pass and the shadow
+// pass all use this on the pixel they draw, so they agree.
+fn fade_keeps(fade: f32, pixel: vec2<f32>) -> bool {
+    if fade == 0.0 {
+        return true;
+    }
+    // Interleaved gradient noise (Jimenez): an even spread of 0..1 per pixel.
+    let p = floor(pixel);
+    let t = fract(52.9829189 * fract(dot(p, vec2<f32>(0.06711056, 0.00583715))));
+    if fade > 0.0 {
+        return t < fade;
+    }
+    return t >= 1.0 + fade;
 }
 
 // The surface from the material and its textures, then the shader's `surface`.
@@ -142,6 +164,26 @@ fn surface_at(in: VertexOut, front: bool) -> Surface {
 @fragment
 fn fs_depth(in: VertexOut, @builtin(front_facing) front: bool) {
     if surface_at(in, front).alpha < 0.5 {
+        discard;
+    }
+}
+
+// The same for crossfading instances (see `fade_keeps`).
+@fragment
+fn fs_depth_fade(in: VertexOut, @builtin(front_facing) front: bool) {
+    if !fade_keeps(in.fade, in.clip.xy) {
+        discard;
+    }
+    if surface_at(in, front).alpha < 0.5 {
+        discard;
+    }
+}
+
+// The depth prepass and shadow map of a crossfading instance of a solid
+// material: only the dither.
+@fragment
+fn fs_fade(in: VertexOut) {
+    if !fade_keeps(in.fade, in.clip.xy) {
         discard;
     }
 }
@@ -216,8 +258,21 @@ fn shade(s: Surface) -> vec3<f32> {
 @fragment
 fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
     // Screen derivatives need uniform control flow: taken before any branch.
+    return opaque_color(in, front, dpdx(in.world), dpdy(in.world));
+}
+
+// Opaque, for crossfading instances (see `fade_keeps`).
+@fragment
+fn fs_main_fade(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
     let dp_x = dpdx(in.world);
     let dp_y = dpdy(in.world);
+    if !fade_keeps(in.fade, in.clip.xy) {
+        discard;
+    }
+    return opaque_color(in, front, dp_x, dp_y);
+}
+
+fn opaque_color(in: VertexOut, front: bool, dp_x: vec3<f32>, dp_y: vec3<f32>) -> vec4<f32> {
     var s = surface_at(in, front);
     var geometric = normalize(in.normal);
     if !front {
@@ -237,6 +292,18 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
 // Transparent: blended over what's behind it (premultiplied alpha).
 @fragment
 fn fs_transparent(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    return transparent_color(in, front);
+}
+
+@fragment
+fn fs_transparent_fade(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    if !fade_keeps(in.fade, in.clip.xy) {
+        discard;
+    }
+    return transparent_color(in, front);
+}
+
+fn transparent_color(in: VertexOut, front: bool) -> vec4<f32> {
     let s = surface_at(in, front);
     return vec4<f32>(fog(shade(s), s.world) * s.alpha, s.alpha);
 }

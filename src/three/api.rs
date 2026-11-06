@@ -852,6 +852,7 @@ impl Ctx {
             let size = (camera.target.width(), camera.target.height());
             let mut eye = camera.camera;
             eye.set_viewport(glam::Vec2::new(size.0 as f32, size.1 as f32));
+            view.frame.lod = self.lod;
             view.frame
                 .collect(&mut self.world, &self.assets3d, skins, &eye, &lighting);
             view.target = camera.target.id;
@@ -1086,6 +1087,7 @@ impl Ctx {
             return;
         };
         self.frame3d.size_limit = renderer.max_texture_size();
+        self.frame3d.lod = self.lod;
         self.frame3d
             .collect(&mut self.world, &self.assets3d, &skins, &self.camera3d, &self.lighting);
         self.frame3d.skins = skins;

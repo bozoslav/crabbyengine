@@ -180,6 +180,7 @@ fn games_reflect_the_builtin_components_by_default() {
         expected.push("Transform3D");
         expected.extend([
             "Decal3D",
+            "LodGroup",
             "Model",
             "PointLight3D",
             "ReceivesDecals",

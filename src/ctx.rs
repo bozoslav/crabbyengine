@@ -234,6 +234,18 @@ pub struct Ctx {
     /// ```
     #[cfg(feature = "3d")]
     pub lighting: crate::Lighting,
+    /// Global settings for [`LodGroup`](crate::LodGroup)s (feature `3d`):
+    /// the bias that a graphics quality setting drives, and crossfades on
+    /// or off.
+    ///
+    /// ```no_run
+    /// # use crabbyengine::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// ctx.lod.bias = 1.5; // keep detail up to 50% farther
+    /// # }
+    /// ```
+    #[cfg(feature = "3d")]
+    pub lod: crate::LodSettings,
     /// What happens to the lit 3D frame on its way to the screen (feature
     /// `3d`): exposure, bloom, color grading, tone mapping.
     ///
@@ -410,6 +422,8 @@ impl Ctx {
             camera3d: crate::Camera3D::new(window_size),
             #[cfg(feature = "3d")]
             lighting: crate::Lighting::default(),
+            #[cfg(feature = "3d")]
+            lod: crate::LodSettings::default(),
             #[cfg(feature = "3d")]
             post: crate::Post::default(),
             #[cfg(feature = "3d")]
@@ -1195,6 +1209,7 @@ impl Ctx {
         {
             crate::reflect::asset_names(json, "Model", "mesh", &mut names);
             crate::reflect::asset_names(json, "ShadowMesh", "mesh", &mut names);
+            crate::reflect::lod_mesh_names(json, &mut names);
             names.sort_unstable();
             names.dedup();
             for name in names {

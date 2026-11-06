@@ -702,6 +702,35 @@ static void streaming() {
     });
 }
 
+static void lod_groups() {
+    float fov = 60 * 3.14159265f / 180;
+    CHECK(std::abs(crabby::lod_screen_height_at(2, 10, fov) - 0.1732f) < 1e-3f);
+    CHECK(std::abs(crabby::lod_distance_at(2, 0.1732f, fov) - 10) < 0.01f);
+    crabby::game("lod", 64, 64).run_headless(0, [](crabby::ctx& ctx) {
+        auto white = ctx.default_material();
+        auto high = ctx.create_mesh(crabby::mesh_data::cube(1), white);
+        auto low = ctx.create_mesh(crabby::mesh_data::cube(2), white);
+        auto e = ctx.world().spawn(crabby::transform3d_at({0, 0, 0}));
+        crabby::lod_level a{0.5f, 0, {crabby::lod_renderer_of(high)}};
+        crabby::lod_level b{0.1f, 0, {crabby::lod_renderer_of(low)}, true, {}};
+        ctx.set_lod_group(e, 2, {a, b});
+        auto at = [&](float d) {
+            auto cam = ctx.camera3d();
+            cam.position = {0, 0, d};
+            ctx.set_camera3d(cam);
+            ctx.camera3d_look_at({0, 0, 0});
+            return ctx.lod_pick_of(e);
+        };
+        CHECK(at(1).kind == 1 && at(1).level == 0);
+        CHECK(at(5).kind == 1 && at(5).level == 1);
+        CHECK(at(100).kind == 0);
+        ctx.set_lod({20, true});
+        CHECK(at(5).level == 0 && ctx.lod().bias == 20);
+        throws([&] { ctx.set_lod({-1, true}); });
+        throws([&] { ctx.lod_pick_of(ctx.world().spawn(crabby::transform3d_at({0, 0, 0}))); });
+    });
+}
+
 static void skeletons() {
     crabby::game("skeletons", 1, 1).run_headless(0, [&](crabby::ctx& ctx) {
         auto arm = ctx.world().spawn(crabby::transform3d_at({0, 0, 0}));
@@ -1562,6 +1591,7 @@ int main() {
     world_text();
     three_d();
     skeletons();
+    lod_groups();
     morph_targets();
     sound3d();
     animators();
