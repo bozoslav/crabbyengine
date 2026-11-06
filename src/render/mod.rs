@@ -95,6 +95,8 @@ pub(crate) struct Screenshot {
 }
 
 #[cfg(all(test, feature = "window", feature = "3d"))]
+mod coverage_render_test;
+#[cfg(all(test, feature = "window", feature = "3d"))]
 mod light_shadow_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod lights_bench;
