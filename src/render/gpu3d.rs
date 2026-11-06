@@ -2026,7 +2026,7 @@ impl Renderer3D {
         if self.ssr_on && self.ssr.is_none() {
             self.ssr = Some(super::ssr::Ssr::new(device));
         }
-        if let Some(ao) = &self.ao {
+        if let Some(ao) = &mut self.ao {
             let sun = (-lighting.sun_direction).try_normalize().unwrap_or(Vec3::Y);
             ao.prepare(
                 queue,
@@ -2034,6 +2034,7 @@ impl Renderer3D {
                 camera,
                 ao_on.then_some(&post.ambient_occlusion),
                 (sun, contact),
+                (post.ao_half_resolution, post.ao_temporal && ao_on),
             );
         }
         if self.targets.as_ref().is_some_and(|t| t.size != size) || self.aa != crate::AntiAliasing::Smaa {
@@ -2386,6 +2387,10 @@ impl Renderer3D {
         if self.targets.as_ref().is_none_or(|t| {
             t.size != size
                 || t.ao.is_some() != self.ao_enabled
+                || t.ao
+                    .as_ref()
+                    .is_some_and(|a| a.half != (post.ao_half_resolution && ao_on))
+                || t.ao.as_ref().is_some_and(|a| a.temporal != (post.ao_temporal && ao_on))
                 || t.ssr.is_some() != self.ssr_on
                 || t.taa.is_some() != self.taa_on
                 || t.ldr.is_some() != (self.aa == crate::AntiAliasing::Fxaa)
@@ -3147,7 +3152,10 @@ impl Renderer3D {
                     self.record_occlusion(encoder, frame);
                 }
                 if self.ao_enabled {
-                    self.ao.as_ref().unwrap().draw(encoder, targets.ao.as_ref().unwrap());
+                    self.ao
+                        .as_ref()
+                        .unwrap()
+                        .draw(encoder, targets.ao.as_ref().unwrap(), time);
                 }
                 if let (Some(ssr), Some(images)) = (&self.ssr, &targets.ssr) {
                     ssr.trace(encoder, images, time("screen reflections"));

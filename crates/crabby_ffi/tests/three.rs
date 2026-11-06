@@ -167,6 +167,8 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
         assert!(!post.ao_enabled);
         assert_eq!(post.anti_aliasing, 0);
         post.ao_enabled = true;
+        post.ao_half_resolution = true;
+        post.ao_temporal = true;
         post.ao_radius = 2.0;
         post.ao_slices = 4;
         post.ao_steps = 8;
@@ -316,7 +318,14 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
             (4096, 24, 8192, 4)
         );
         assert_eq!(crabby_ctx_post(ctx, &mut back), CRABBY_OK);
-        assert!(back.ao_enabled && back.anti_aliasing == 2 && back.ao_steps == 8 && back.ssr == 1.0);
+        assert!(
+            back.ao_half_resolution
+                && back.ao_temporal
+                && back.ao_enabled
+                && back.anti_aliasing == 2
+                && back.ao_steps == 8
+                && back.ssr == 1.0
+        );
         // A tweak makes it custom.
         q.shadow_cascades = 2;
         assert_eq!(crabby_ctx_set_graphics_quality(ctx, &q), CRABBY_OK);

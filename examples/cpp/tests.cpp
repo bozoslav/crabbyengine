@@ -306,11 +306,11 @@ static void three_d() {
         post.bloom = 0.2f;
         CHECK(post.anti_aliasing == 0 && !post.ao_enabled && post.ao_radius == 1);
         post.anti_aliasing = uint32_t(crabby::anti_aliasing::smaa);
-        post.ao_enabled = true; post.ao_radius = 2; post.ao_intensity = 1.5f;
+        post.ao_enabled = true; post.ao_half_resolution = true; post.ao_temporal = true; post.ao_radius = 2; post.ao_intensity = 1.5f;
         post.ao_slices = 4; post.ao_steps = 8;
         ctx.set_post(post);
         CHECK(ctx.post().tonemap == uint32_t(crabby::tonemap::neutral));
-        CHECK(ctx.post().ao_enabled && ctx.post().ao_radius == 2 && ctx.post().ao_steps == 8);
+        CHECK(ctx.post().ao_half_resolution && ctx.post().ao_temporal && ctx.post().ao_enabled && ctx.post().ao_radius == 2 && ctx.post().ao_steps == 8);
         CHECK(ctx.post().anti_aliasing == uint32_t(crabby::anti_aliasing::smaa));
         auto invalid_post = post; invalid_post.anti_aliasing = 4;
         throws([&] { ctx.set_post(invalid_post); });

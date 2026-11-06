@@ -1116,7 +1116,10 @@ fn ao_and_aa_settings_preserve_existing_defaults() {
     Game::new("post settings", 64, 64).run_headless(0, |ctx| {
         assert_eq!(ctx.post.anti_aliasing, AntiAliasing::None);
         assert!(!ctx.post.ambient_occlusion.enabled);
+        assert!(!ctx.post.ao_half_resolution && !ctx.post.ao_temporal);
         // ANCHOR: ao_aa
+        ctx.post.ao_half_resolution = true;
+        ctx.post.ao_temporal = true;
         ctx.post.ambient_occlusion = AmbientOcclusion {
             enabled: true,
             radius: 1.5,
