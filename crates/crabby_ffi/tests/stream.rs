@@ -132,3 +132,103 @@ fn tiles_upload_and_free_from_c() {
     assert_eq!(errors, vec![CRABBY_INVALID_ARGUMENT; 3]);
     assert!(unsafe { crabby_terrain_tile_data_new([0.0f32; 3].as_ptr(), 3, 1.0) }.is_null());
 }
+
+unsafe extern "C" fn far_ground(ctx: *mut CrabbyCtx, user: *mut c_void) {
+    unsafe {
+        let errors = &mut *user.cast::<Vec<CrabbyStatus>>();
+        let mut ground = CrabbyMaterial::default();
+        let green = CrabbyColor {
+            r: 0.2,
+            g: 0.6,
+            b: 0.2,
+            a: 1.0,
+        };
+        assert_eq!(
+            crabby_ctx_create_material(ctx, &crabby_material_desc(green), &mut ground),
+            CRABBY_OK
+        );
+        // 2 km sampled every 16 m (128 squares, 2 x 2 meshes), cells of 128 m.
+        let heights = vec![1.0f32; 129 * 129];
+        let corner = CrabbyVec2 { x: -1024.0, y: -1024.0 };
+        let far = crabby_far_terrain_new(heights.as_ptr(), heights.len(), 129, corner, 16.0, 128.0, ground);
+        assert!(!far.is_null());
+        assert_eq!(crabby_far_terrain_update(far, ctx), CRABBY_OK);
+        let (mut cut, mut meshes) = (true, 0);
+        let cell = CrabbyCell { x: 0, z: 0 };
+        assert_eq!(crabby_far_terrain_is_cut(far, cell, &mut cut, &mut meshes), CRABBY_OK);
+        assert_eq!((cut, meshes), (false, 4));
+        assert_eq!(crabby_far_terrain_cut(far, cell, true), CRABBY_OK);
+        assert_eq!(crabby_far_terrain_update(far, ctx), CRABBY_OK);
+        assert_eq!(crabby_far_terrain_is_cut(far, cell, &mut cut, null_mut()), CRABBY_OK);
+        assert!(cut);
+        assert_eq!(crabby_far_terrain_cut(far, cell, false), CRABBY_OK);
+        assert_eq!(crabby_far_terrain_is_cut(far, cell, &mut cut, null_mut()), CRABBY_OK);
+        assert!(!cut);
+        assert_eq!(crabby_far_terrain_clear(far, ctx), CRABBY_OK);
+        assert_eq!(crabby_far_terrain_is_cut(far, cell, &mut cut, &mut meshes), CRABBY_OK);
+        assert_eq!(meshes, 0);
+        crabby_far_terrain_free(far);
+        // Errors: a material from elsewhere, no output, no far terrain.
+        let wrong = crabby_far_terrain_new(
+            heights.as_ptr(),
+            heights.len(),
+            129,
+            corner,
+            16.0,
+            128.0,
+            CrabbyMaterial { id: 999 },
+        );
+        errors.push(crabby_far_terrain_update(wrong, ctx));
+        errors.push(crabby_far_terrain_is_cut(wrong, cell, null_mut(), null_mut()));
+        crabby_far_terrain_free(wrong);
+        errors.push(crabby_far_terrain_update(null_mut(), ctx));
+    }
+}
+
+#[test]
+fn far_terrain_is_built_cut_and_cleared_from_c() {
+    let mut errors: Vec<CrabbyStatus> = Vec::new();
+    unsafe {
+        let g = crabby_game_new(c"far".as_ptr(), 64, 64);
+        let mut world = null_mut();
+        let user = (&raw mut errors).cast();
+        assert_eq!(
+            crabby_game_run_headless(g, 1, Some(far_ground), user, &mut world),
+            CRABBY_OK
+        );
+        crabby_world_free(world);
+    }
+    assert_eq!(errors, vec![CRABBY_INVALID_ARGUMENT; 3]);
+    let h = [0.0f32; 16];
+    let at = CrabbyVec2 { x: 5.0, y: 0.0 };
+    let off_grid = unsafe { crabby_far_terrain_new(h.as_ptr(), 16, 4, at, 10.0, 10.0, CrabbyMaterial::default()) };
+    assert!(off_grid.is_null(), "the corner must be on the grid");
+    assert!(
+        unsafe {
+            crabby_far_terrain_new(
+                null(),
+                16,
+                4,
+                CrabbyVec2::default(),
+                1.0,
+                1.0,
+                CrabbyMaterial::default(),
+            )
+        }
+        .is_null()
+    );
+    assert!(
+        unsafe {
+            crabby_far_terrain_new(
+                h.as_ptr(),
+                15,
+                4,
+                CrabbyVec2::default(),
+                1.0,
+                1.0,
+                CrabbyMaterial::default(),
+            )
+        }
+        .is_null()
+    );
+}

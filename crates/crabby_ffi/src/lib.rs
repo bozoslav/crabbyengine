@@ -38,6 +38,7 @@ mod particles;
 mod perf;
 mod physics;
 mod physics3d;
+mod physics3d_stream;
 mod ragdoll;
 mod reflect;
 mod replicate;
@@ -74,6 +75,7 @@ pub use particles::*;
 pub use perf::*;
 pub use physics::*;
 pub use physics3d::*;
+pub use physics3d_stream::*;
 pub use ragdoll::*;
 pub use reflect::*;
 pub use replicate::*;
@@ -391,6 +393,7 @@ pub(crate) fn component(world: &World, id: u32) -> Result<(ComponentId, Kind), F
         Some(t) if t == TypeId::of::<crabbyengine::TerrainTile>() => Kind::Plain,
         Some(t) => match crate::physics::kind(t)
             .or_else(|| crate::physics3d::kind3d(t))
+            .or_else(|| crate::physics3d_stream::stream_kind(t))
             .or_else(|| crate::contacts3d::contact_kind(t))
         {
             Some(kind) => kind,

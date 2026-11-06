@@ -253,6 +253,8 @@ using hit3d = CrabbyHit3D;
 using vehicle3d = CrabbyVehicle3D;
 using wheel3d = CrabbyWheel3D;
 using friction_curve = CrabbyFrictionCurve;
+using terrain_collider = CrabbyTerrainCollider;
+using collider_focus = CrabbyColliderFocus;
 enum class texture_filter { linear, nearest };
 
 inline float length(vec2 v) { return std::sqrt(v.x * v.x + v.y * v.y); }
@@ -340,6 +342,14 @@ inline collider3d capsule_collider3d(float height, float radius) { return crabby
 /// A collider of a heightfield, convex hull or triangle mesh made by
 /// ctx::heightfield_collider and friends.
 inline collider3d mesh_collider(collision_mesh m) { return crabby_collider3d_mesh(m); }
+/// Makes a terrain tile's entity solid: a collider of `m` (its heightfield)
+/// at the tile's transform3d, turned and scaled with it (Rust
+/// `TerrainCollider::new`). Change friction, restitution and groups on the result.
+inline terrain_collider solid_terrain(collision_mesh m) { return crabby_terrain_collider(m); }
+/// Keeps static colliders within `radius` of its entity, until they're
+/// beyond `keep_radius` of every focus, once ctx::stream_colliders is on
+/// (Rust `ColliderFocus::new`).
+inline collider_focus focus_colliders(float radius, float keep_radius) { return crabby_collider_focus(radius, keep_radius); }
 /// A walking capsule `height` tall and `radius` wide, its transform3d at
 /// its feet: set `velocity`, read `grounded`.
 inline character3d character(float height = 1.8f, float radius = 0.3f) { return crabby_character3d(height, radius); }
@@ -754,6 +764,8 @@ protected:
         else if constexpr (std::is_same<T, joint3d>::value) status = crabby_joint3d_component(world, &id);
         else if constexpr (std::is_same<T, contact_modifier3d>::value) status = crabby_contact_modifier3d_component(world, &id);
         else if constexpr (std::is_same<T, vehicle3d>::value) status = crabby_vehicle3d_component(world, &id);
+        else if constexpr (std::is_same<T, terrain_collider>::value) status = crabby_terrain_collider_component(world, &id);
+        else if constexpr (std::is_same<T, collider_focus>::value) status = crabby_collider_focus_component(world, &id);
         else if constexpr (std::is_same<T, transform3d>::value) status = crabby_transform3d_component(world, &id);
         else if constexpr (std::is_same<T, reflection_probe3d>::value) status = crabby_reflection_probe3d_component(world, &id);
         else if constexpr (std::is_same<T, decal3d>::value) status = crabby_decal3d_component(world, &id);
@@ -2335,6 +2347,32 @@ public:
     const CrabbyTerrainTileData* raw() const noexcept { return raw_.get(); }
 };
 
+/// A convex hull, triangle mesh or heightfield built on the CPU (Rust
+/// `CollisionMeshData`): make it on any thread (std::async), then
+/// ctx::add_collision_mesh on the game's, which is quick.
+class collision_mesh_data {
+    std::unique_ptr<CrabbyCollisionMeshData, void (*)(CrabbyCollisionMeshData*)> raw_;
+    explicit collision_mesh_data(CrabbyCollisionMeshData* d) : raw_(d, crabby_collision_mesh_data_free) {
+        if (!d) throw std::invalid_argument(crabby_last_error());
+    }
+public:
+    /// A heightfield from n x n heights `size` wide (row after row along +Z,
+    /// NaN for a hole), as ctx::heightfield_collider makes it.
+    static collision_mesh_data heightfield(const std::vector<float>& heights, float size) {
+        return collision_mesh_data(crabby_collision_mesh_data_heightfield(heights.data(), heights.size(), size));
+    }
+    /// A triangle mesh: three indices into `vertices` per triangle.
+    static collision_mesh_data trimesh(const std::vector<vec3>& vertices, const std::vector<std::uint32_t>& indices) {
+        return collision_mesh_data(
+            crabby_collision_mesh_data_trimesh(vertices.data(), vertices.size(), indices.data(), indices.size()));
+    }
+    /// A convex hull around `points`.
+    static collision_mesh_data convex_hull(const std::vector<vec3>& points) {
+        return collision_mesh_data(crabby_collision_mesh_data_convex_hull(points.data(), points.size()));
+    }
+    const CrabbyCollisionMeshData* raw() const noexcept { return raw_.get(); }
+};
+
 /// One physical source for a named action. Configure once or when rebinding.
 struct action_binding {
     CrabbyActionBinding raw{};
@@ -3341,6 +3379,22 @@ public:
     }
     /// Lets go of a collision mesh; colliders using it keep it until removed.
     void free_collision_mesh(collision_mesh m) { detail::check(crabby_ctx_physics3d_free_mesh(raw_, m)); }
+    /// A collision mesh from data built (on any thread) as collision_mesh_data.
+    collision_mesh add_collision_mesh(const collision_mesh_data& data) {
+        collision_mesh m{}; detail::check(crabby_ctx_physics3d_add_mesh(raw_, data.raw(), &m)); return m;
+    }
+    /// Collider streaming (Rust `Physics3D::stream_colliders`): with a
+    /// number, the colliders of fixed bodies and terrain colliders are only
+    /// in the physics world near entities with a collider_focus, at most
+    /// that many more each step, nearest first; std::nullopt turns it off.
+    void stream_colliders(std::optional<std::size_t> max_new) {
+        detail::check(crabby_ctx_physics3d_stream_colliders(raw_, max_new.has_value(), max_new.value_or(0)));
+    }
+    /// Whether `e`'s collider is in the physics world now (false for a
+    /// static collider that streaming left out).
+    bool is_collider_active(entity e) const {
+        bool active = false; detail::check(crabby_ctx_physics3d_is_collider_active(raw_, e, &active)); return active;
+    }
     /// How many joints the 3D physics world holds after its last step.
     std::size_t joint_count() const { std::size_t n = 0; detail::check(crabby_ctx_physics3d_joint_count(raw_, &n)); return n; }
     /// Sets the contact hook (Rust `Physics3D::set_contact_hook`): each step,
@@ -3495,6 +3549,44 @@ public:
         detail::check(status);
         return hit;
     }
+};
+
+/// Low-detail ground for the whole world beyond the loaded terrain tiles
+/// (Rust `FarTerrain`): a few large meshes from a coarse grid of heights,
+/// cut away a cell at a time where the cell's own tile is shown, with
+/// skirts so there's no crack.
+class far_terrain {
+    std::unique_ptr<CrabbyFarTerrain, void (*)(CrabbyFarTerrain*)> raw_;
+    static CrabbyFarTerrain* make(const std::vector<float>& heights, std::size_t columns, vec2 corner, float spacing,
+                                  float cell_size, material m) {
+        CrabbyFarTerrain* f = crabby_far_terrain_new(heights.data(), heights.size(), columns, corner, spacing, cell_size, m);
+        if (!f) throw std::invalid_argument(crabby_last_error());
+        return f;
+    }
+public:
+    /// `heights`, `columns` per row (row after row along +Z, NaN for a
+    /// hole), the first at `corner` (x, z) and the rest `spacing` apart,
+    /// drawn with `m`; cut a cell at a time for tiles `cell_size` wide (a
+    /// whole number of spacings; `corner` on the grid of spacings).
+    far_terrain(const std::vector<float>& heights, std::size_t columns, vec2 corner, float spacing, float cell_size, material m)
+        : raw_(make(heights, columns, corner, spacing, cell_size, m), crabby_far_terrain_free) {}
+    /// Cuts the far ground away over `c`, whose own tile is now shown.
+    void cut(cell c) { detail::check(crabby_far_terrain_cut(raw_.get(), c, true)); }
+    /// Fills `c` with far ground again, when its tile goes.
+    void uncut(cell c) { detail::check(crabby_far_terrain_cut(raw_.get(), c, false)); }
+    bool is_cut(cell c) const {
+        bool cut = false; detail::check(crabby_far_terrain_is_cut(raw_.get(), c, &cut, nullptr)); return cut;
+    }
+    /// How many meshes (and entities) the far ground has in the world.
+    std::size_t mesh_count() const {
+        bool cut = false; std::size_t n = 0;
+        detail::check(crabby_far_terrain_is_cut(raw_.get(), cell{0, 0}, &cut, &n)); return n;
+    }
+    /// Builds the meshes that changed since the last update (all of them
+    /// the first time) and puts them in the world.
+    void update(ctx& c) { detail::check(crabby_far_terrain_update(raw_.get(), c.raw())); }
+    /// Despawns its entities and frees its meshes; the next update builds them again.
+    void clear(ctx& c) { detail::check(crabby_far_terrain_clear(raw_.get(), c.raw())); }
 };
 
 /// The game builder (Rust `Game`). Add systems, then run() or run_headless().

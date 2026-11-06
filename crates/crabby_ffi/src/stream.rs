@@ -1,13 +1,14 @@
 //! Streaming big worlds: the cell streamer, terrain tiles built on any
-//! thread, and freeing meshes and tiles. Background work itself is the
+//! thread, far terrain beyond them, and freeing meshes and tiles. Background work itself is the
 //! game's (C++ has `std::async` and threads); Rust's `Job` has no C API.
 
-use crabbyengine::{CellStreamer, TerrainTileData, vec3};
+use crabbyengine::{CellStreamer, FarTerrain, TerrainTileData, vec3};
 
 use crate::ctx::{ctx_access, out};
 use crate::three::{CrabbyMaterial, CrabbyMesh, CrabbyTerrainTile, CrabbyVec3, square_grid};
+use crate::types::CrabbyVec2;
 use crate::types::to_c;
-use crate::{CrabbyCtx, CrabbyStatus, boundary, invalid};
+use crate::{CrabbyCtx, CrabbyStatus, boundary, invalid, invalid_owned};
 
 /// One cell of a `CrabbyCellStreamer`'s grid: it covers `x * cell_size`
 /// to `(x + 1) * cell_size` along X, and the same along Z.
@@ -379,5 +380,188 @@ pub unsafe extern "C" fn crabby_ctx_free_terrain_tile(ctx: *mut CrabbyCtx, tile:
             c.free_terrain_tile(to_c(tile));
             Ok(())
         })
+    })
+}
+
+/// Low-detail ground for the whole world beyond the loaded terrain tiles
+/// (Rust `FarTerrain`). Make it with `crabby_far_terrain_new`.
+pub struct CrabbyFarTerrain {
+    far: FarTerrain,
+    material: crabbyengine::Material,
+}
+
+/// Makes far ground from `count` heights, `columns` per row (row after row
+/// along +Z, NaN for a hole), the first at `corner` (x, z) and the rest
+/// `spacing` apart, drawn with `material`, cut a cell at a time for tiles
+/// `cell_size` wide. `cell_size` must be a whole number of `spacing`s and
+/// `corner` lie on the grid of `spacing`s. Nothing is made until
+/// `crabby_far_terrain_update`. Null (see `crabby_last_error`) for bad input.
+/// ```
+/// use crabby_ffi::*;
+/// let h = [0.0f32; 16];
+/// let f = unsafe { crabby_far_terrain_new(h.as_ptr(), 16, 4, CrabbyVec2::default(), 10.0, 20.0, Default::default()) };
+/// assert!(!f.is_null());
+/// unsafe { crabby_far_terrain_free(f) };
+/// assert!(unsafe { crabby_far_terrain_new(h.as_ptr(), 16, 4, CrabbyVec2::default(), 10.0, 25.0, Default::default()) }.is_null());
+/// ```
+/// # Safety
+/// `heights` holds `count` floats.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_far_terrain_new(
+    heights: *const f32,
+    count: usize,
+    columns: usize,
+    corner: CrabbyVec2,
+    spacing: f32,
+    cell_size: f32,
+    material: CrabbyMaterial,
+) -> *mut CrabbyFarTerrain {
+    let mut made = std::ptr::null_mut();
+    let status = boundary(|| {
+        if heights.is_null() {
+            return Err(invalid("heights is null"));
+        }
+        // SAFETY: caller supplies `count` floats.
+        let heights = unsafe { std::slice::from_raw_parts(heights, count) };
+        let material = to_c(material);
+        let far =
+            FarTerrain::try_new(heights, columns, to_c(corner), spacing, cell_size, material).map_err(invalid_owned)?;
+        made = Box::into_raw(Box::new(CrabbyFarTerrain { far, material }));
+        Ok(())
+    });
+    if status == CrabbyStatus::CRABBY_OK {
+        made
+    } else {
+        std::ptr::null_mut()
+    }
+}
+
+/// Frees a far terrain. Null is ignored. Its entities and meshes stay in
+/// the world: `crabby_far_terrain_clear` them first.
+/// ```
+/// unsafe { crabby_ffi::crabby_far_terrain_free(std::ptr::null_mut()) };
+/// ```
+/// # Safety
+/// `far` must be null or live, and not used afterwards.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_far_terrain_free(far: *mut CrabbyFarTerrain) {
+    if !far.is_null() {
+        // SAFETY: caller passes a far terrain from crabby_far_terrain_new, once.
+        drop(unsafe { Box::from_raw(far) });
+    }
+}
+
+unsafe fn far_mut<'a>(far: *mut CrabbyFarTerrain) -> Result<&'a mut CrabbyFarTerrain, crate::Failure> {
+    // SAFETY: caller supplies a live far terrain with no concurrent use.
+    unsafe { far.as_mut() }.ok_or_else(|| invalid("far terrain is null"))
+}
+
+/// Cuts the far ground away over `cell` (`cut` true), whose own tile is now
+/// shown, or fills it in again (`cut` false) when the tile goes (Rust
+/// `FarTerrain::cut` and `uncut`). Takes effect at the next update.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_far_terrain_cut(std::ptr::null_mut(), Default::default(), true) } as u32, 1);
+/// ```
+/// # Safety
+/// `far` must be null or live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_far_terrain_cut(
+    far: *mut CrabbyFarTerrain,
+    cell: CrabbyCell,
+    cut: bool,
+) -> CrabbyStatus {
+    boundary(|| {
+        // SAFETY: forwarded caller contract.
+        let f = unsafe { far_mut(far)? };
+        if cut {
+            f.far.cut((cell.x, cell.z));
+        } else {
+            f.far.uncut((cell.x, cell.z));
+        }
+        Ok(())
+    })
+}
+
+/// Whether `cell` is cut away, and how many meshes the far ground has in
+/// the world. `out_meshes` may be null.
+/// ```
+/// use crabby_ffi::*;
+/// let h = [0.0f32; 16];
+/// let f = unsafe { crabby_far_terrain_new(h.as_ptr(), 16, 4, CrabbyVec2::default(), 10.0, 10.0, Default::default()) };
+/// let (mut cut, mut meshes) = (false, 9);
+/// unsafe {
+///     crabby_far_terrain_cut(f, CrabbyCell { x: 1, z: 1 }, true);
+///     assert_eq!(crabby_far_terrain_is_cut(f, CrabbyCell { x: 1, z: 1 }, &mut cut, &mut meshes), CrabbyStatus::CRABBY_OK);
+///     crabby_far_terrain_free(f);
+/// }
+/// assert_eq!((cut, meshes), (true, 0));
+/// ```
+/// # Safety
+/// `far` must be null or live; `out_cut` writable, `out_meshes` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_far_terrain_is_cut(
+    far: *mut CrabbyFarTerrain,
+    cell: CrabbyCell,
+    out_cut: *mut bool,
+    out_meshes: *mut usize,
+) -> CrabbyStatus {
+    boundary(|| {
+        // SAFETY: forwarded caller contract.
+        unsafe {
+            let f = far_mut(far)?;
+            out(out_cut, f.far.is_cut((cell.x, cell.z)))?;
+            if !out_meshes.is_null() {
+                out_meshes.write(f.far.mesh_count());
+            }
+        }
+        Ok(())
+    })
+}
+
+/// Builds the far ground's meshes that changed since the last update (all
+/// of them the first time) and puts them in the world (Rust
+/// `FarTerrain::update`).
+/// # Safety
+/// `far` and `ctx` null or live.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_far_terrain_update(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_far_terrain_update(far: *mut CrabbyFarTerrain, ctx: *mut CrabbyCtx) -> CrabbyStatus {
+    boundary(|| {
+        // SAFETY: forwarded caller contract.
+        let f = unsafe { far_mut(far)? };
+        // SAFETY: forwarded caller contract.
+        unsafe {
+            ctx_access(ctx, |c| {
+                if !c.has_material(f.material) {
+                    return Err(invalid("that material wasn't made by this game"));
+                }
+                f.far.update(c);
+                Ok(())
+            })
+        }
+    })
+}
+
+/// Despawns the far ground's entities and frees its meshes (Rust
+/// `FarTerrain::clear`); the next update builds them again.
+/// # Safety
+/// `far` and `ctx` null or live.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_far_terrain_clear(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_far_terrain_clear(far: *mut CrabbyFarTerrain, ctx: *mut CrabbyCtx) -> CrabbyStatus {
+    boundary(|| {
+        // SAFETY: forwarded caller contract.
+        let f = unsafe { far_mut(far)? };
+        // SAFETY: forwarded caller contract.
+        unsafe {
+            ctx_access(ctx, |c| {
+                f.far.clear(c);
+                Ok(())
+            })
+        }
     })
 }
