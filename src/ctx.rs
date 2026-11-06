@@ -352,6 +352,8 @@ impl Ctx {
                 {
                     crate::reflect::WorldReflect::reflect::<crate::PointLight3D>(&mut world);
                     crate::reflect::WorldReflect::reflect::<crate::SpotLight3D>(&mut world);
+                    crate::reflect::WorldReflect::reflect::<crate::Decal3D>(&mut world);
+                    crate::reflect::WorldReflect::reflect::<crate::ReceivesDecals>(&mut world);
                 }
                 crate::reflect::reflect_sprite(&mut world);
                 world

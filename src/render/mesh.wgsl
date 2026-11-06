@@ -262,14 +262,22 @@ fn direct_light(s: Surface, l: vec3<f32>, radiance: vec3<f32>) -> vec3<f32> {
     return (diffuse + specular) * radiance * n_l;
 }
 
+// The froxel (16 x 9 screen cells, 24 slices of depth) holding a world
+// position, or -1 when there are no clusters this frame.
+fn cluster_cell(world: vec3<f32>) -> i32 {
+    let clip = frame.cluster_view_proj * vec4<f32>(world, 1.0);
+    if clip.w <= 0.0 || frame.cluster_depth.x <= 0.0 { return -1; }
+    let xy = vec2<u32>(clamp(floor((clip.xy / clip.w * 0.5 + 0.5) * vec2<f32>(16.0, 9.0)), vec2<f32>(0.0), vec2<f32>(15.0, 8.0)));
+    let z = u32(clamp(floor(log(max(clip.w, frame.cluster_depth.x) / frame.cluster_depth.x) * frame.cluster_depth.y), 0.0, 23.0));
+    return i32((z * 9u + xy.y) * 16u + xy.x);
+}
+
 // Evaluate only the lights in the world position's froxel, using the same
 // GGX BRDF as sunlight. Available to custom material shaders too.
 fn punctual_light(s: Surface) -> vec3<f32> {
-    let clip = frame.cluster_view_proj * vec4<f32>(s.world, 1.0);
-    if clip.w <= 0.0 || frame.cluster_depth.x <= 0.0 { return vec3<f32>(0.0); }
-    let xy = vec2<u32>(clamp(floor((clip.xy / clip.w * 0.5 + 0.5) * vec2<f32>(16.0, 9.0)), vec2<f32>(0.0), vec2<f32>(15.0, 8.0)));
-    let z = u32(clamp(floor(log(max(clip.w, frame.cluster_depth.x) / frame.cluster_depth.x) * frame.cluster_depth.y), 0.0, 23.0));
-    let cell = (z * 9u + xy.y) * 16u + xy.x;
+    let found = cluster_cell(s.world);
+    if found < 0 { return vec3<f32>(0.0); }
+    let cell = u32(found);
     let offset = cluster_word(cell * 2u);
     let count = cluster_word(cell * 2u + 1u);
     var sum = vec3<f32>(0.0);

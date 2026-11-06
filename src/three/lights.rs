@@ -497,6 +497,31 @@ mod tests {
         );
     }
     #[test]
+    fn decal_collection_does_not_allocate_once_warm() {
+        use crate::three::projected::{Decal3D, DecalGrid};
+        let mut w = World::new();
+        for i in 0..500 {
+            w.spawn((
+                Transform3D::at(Vec3::new((i % 10) as f32 - 5.0, 0.0, -5.0 - (i / 10) as f32 * 0.5)),
+                Decal3D {
+                    order: i % 7,
+                    ..Default::default()
+                },
+            ));
+        }
+        let c = camera();
+        let depth = [c.near, GRID[2] as f32 / (c.far / c.near).ln(), 0.0, 0.0];
+        let mut g = DecalGrid::default();
+        g.collect(&mut w, &c, depth, 1, 8192, 3);
+        assert!(!g.records.is_empty());
+        ALLOCS.with(|n| n.set(Some(0)));
+        for _ in 0..20 {
+            g.collect(&mut w, &c, depth, 1, 8192, 3);
+        }
+        let allocations = ALLOCS.with(|n| n.replace(None).unwrap());
+        assert_eq!(allocations, 0, "decal collection must not allocate once warm");
+    }
+    #[test]
     fn tiny_camera_near_plane_keeps_tiny_near_lights() {
         let mut c = camera();
         c.near = 1e-6;

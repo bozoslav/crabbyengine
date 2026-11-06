@@ -502,20 +502,31 @@ impl SkinFrame {
             weights: &mut self.weights,
         };
         world
-            .query::<(&Transform3D, &Model, &Skeleton, Option<&MorphWeights>)>()
-            .for_each(|(t, m, s, w)| {
+            .query::<(
+                &Transform3D,
+                &Model,
+                &Skeleton,
+                Option<&MorphWeights>,
+                Option<&super::ReceivesDecals>,
+            )>()
+            .for_each(|(t, m, s, w, r)| {
                 // Unskinned meshes go with the next query, skeleton or not.
                 if assets.skin(m.mesh.id).is_some() {
-                    add(out, assets, t, m, Some(s), w);
+                    add(out, assets, t, m, Some(s), w, r);
                 }
             });
         // Meshes that change shape but don't bend: one identity matrix.
         world
-            .query::<(&Transform3D, &Model, Option<&MorphWeights>)>()
+            .query::<(
+                &Transform3D,
+                &Model,
+                Option<&MorphWeights>,
+                Option<&super::ReceivesDecals>,
+            )>()
             .without::<SkinOf>()
-            .for_each(|(t, m, w)| {
+            .for_each(|(t, m, w, r)| {
                 if assets.skin(m.mesh.id).is_none() && assets.morph(m.mesh.id).is_some() {
-                    add(out, assets, t, m, None, w);
+                    add(out, assets, t, m, None, w, r);
                 }
             });
         self.shared.clear();
@@ -524,7 +535,15 @@ impl SkinFrame {
             .for_each(|(e, m, of)| self.shared.push((*m, of.0, e)));
         for (m, of, e) in &self.shared {
             if let (Some(t), Some(s)) = (world.get::<Transform3D>(*of), world.get::<Skeleton>(*of)) {
-                add(out, assets, t, m, Some(s), world.get::<MorphWeights>(*e));
+                add(
+                    out,
+                    assets,
+                    t,
+                    m,
+                    Some(s),
+                    world.get::<MorphWeights>(*e),
+                    world.get::<super::ReceivesDecals>(*e),
+                );
             }
         }
     }
@@ -539,7 +558,15 @@ struct Out<'a> {
 
 /// Adds model `m`, posed by `s` if its mesh is skinned, shaped by `w` if
 /// it has morph targets, when its mesh is live.
-fn add(out: &mut Out, assets: &Assets3D, t: &Transform3D, m: &Model, s: Option<&Skeleton>, w: Option<&MorphWeights>) {
+fn add(
+    out: &mut Out,
+    assets: &Assets3D,
+    t: &Transform3D,
+    m: &Model,
+    s: Option<&Skeleton>,
+    w: Option<&MorphWeights>,
+    receives: Option<&super::ReceivesDecals>,
+) {
     let Some(mesh_bounds) = assets.live_bounds(m.mesh.id) else {
         return;
     };
@@ -592,10 +619,12 @@ fn add(out: &mut Out, assets: &Assets3D, t: &Transform3D, m: &Model, s: Option<&
         _ => return,
     };
     let matrix = t.matrix();
+    let mut model = matrix.to_cols_array_2d();
+    model[0][3] = super::projected::receiver_mask(receives);
     out.draws.push(SkinDraw {
         mesh: m.mesh.id,
         instance: Instance3D {
-            model: matrix.to_cols_array_2d(),
+            model,
             color: linear(m.color),
         },
         matrix,

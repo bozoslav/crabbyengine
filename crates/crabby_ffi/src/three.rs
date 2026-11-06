@@ -4,11 +4,11 @@
 use std::ffi::c_char;
 
 use crabbyengine::{
-    AmbientOcclusion, AntiAliasing, Blend, Camera3D, Color, Compute, ComputePass, Effect, GraphicsQuality, Lighting,
-    MAX_LIGHT_SHADOW_VIEWS, MAX_RENDER_SCALE, MIN_RENDER_SCALE, Material, MaterialDesc, Mesh, MeshData, Model,
-    PointLight3D, Post, QualityLevel, Quat, ReflectionProbe3D, ScreenEffect, Shader, Sky, SpotLight3D, TERRAIN_LAYERS,
-    TERRAIN_LODS, TargetCamera, TerrainMaterialDesc, TerrainTile, TextureArray, TextureKind, Tonemap, Transform3D,
-    Vec2, Vec3, Vec4,
+    AmbientOcclusion, AntiAliasing, Blend, Camera3D, Color, Compute, ComputePass, Decal3D, Effect, GraphicsQuality,
+    Lighting, MAX_LIGHT_SHADOW_VIEWS, MAX_RENDER_SCALE, MIN_RENDER_SCALE, Material, MaterialDesc, Mesh, MeshData,
+    Model, PointLight3D, Post, QualityLevel, Quat, ReceivesDecals, ReflectionProbe3D, ScreenEffect, Shader, Sky,
+    SpotLight3D, TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera, TerrainMaterialDesc, TerrainTile, TextureArray,
+    TextureKind, Tonemap, Transform3D, Vec2, Vec3, Vec4,
 };
 
 use crate::ctx::{ctx_access, out, text};
@@ -2883,6 +2883,176 @@ pub unsafe extern "C" fn crabby_reflection_probe3d_component(
 ) -> CrabbyStatus {
     // SAFETY: caller supplies the live world and writable output.
     unsafe { builtin::<ReflectionProbe3D>(world, out_id) }
+}
+
+/// A box that paints an image onto the opaque surfaces inside it (Rust
+/// `Decal3D`). The entity's transform places it; the image is projected
+/// along its -Z. Start from `crabby_decal3d_default`.
+/// ```
+/// let d = crabby_ffi::crabby_decal3d_default();
+/// assert_eq!((d.image, d.normal_image), (0, crabby_ffi::CRABBY_DECAL_NO_IMAGE));
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct CrabbyDecal3D {
+    /// Width, height and depth of the box (times the transform's scale).
+    pub size: CrabbyVec3,
+    /// Layer of the decal textures holding the color image, or `CRABBY_DECAL_NO_IMAGE`.
+    pub image: u32,
+    /// Layer holding a tangent-space normal map, or `CRABBY_DECAL_NO_IMAGE`.
+    pub normal_image: u32,
+    /// Top left of the image in its layer (0 to 1).
+    pub uv_min: CrabbyVec2,
+    /// Bottom right of the image in its layer.
+    pub uv_max: CrabbyVec2,
+    /// sRGB tint; its alpha multiplies `opacity`.
+    pub color: CrabbyColor,
+    /// 0 to 1, times the image's alpha.
+    pub opacity: f32,
+    /// How strongly the normal map tilts the surface.
+    pub normal_strength: f32,
+    /// Surface roughness under the decal; negative leaves it.
+    pub roughness: f32,
+    /// Surface metallic value under the decal; negative leaves it.
+    pub metallic: f32,
+    /// Radians from the projection axis up to which the decal is fully visible.
+    pub angle_fade_start: f32,
+    /// Radians where it has faded out completely.
+    pub angle_fade_end: f32,
+    /// Fraction of the box's depth, from each end, it fades over.
+    pub depth_fade: f32,
+    /// Distance past which it is not drawn (0: unlimited).
+    pub max_distance: f32,
+    /// Higher orders draw over lower ones.
+    pub order: i32,
+    /// Models with any of these bits (low 16) in their `CrabbyReceivesDecals` get it.
+    pub layers: u32,
+}
+same_layout!(
+    CrabbyDecal3D,
+    Decal3D,
+    size = size,
+    image = image,
+    normal_image = normal_image,
+    uv_min = uv_min,
+    uv_max = uv_max,
+    color = color,
+    opacity = opacity,
+    normal_strength = normal_strength,
+    roughness = roughness,
+    metallic = metallic,
+    angle_fade_start = angle_fade_start,
+    angle_fade_end = angle_fade_end,
+    depth_fade = depth_fade,
+    max_distance = max_distance,
+    order = order,
+    layers = layers
+);
+
+/// `image` and `normal_image` value that selects no image.
+pub const CRABBY_DECAL_NO_IMAGE: u32 = u32::MAX;
+
+/// A 1 x 1 x 1 white decal from image 0, no normal map, all layers (Rust `Decal3D::default`).
+/// ```
+/// let d = crabby_ffi::crabby_decal3d_default();
+/// assert_eq!((d.opacity, d.layers), (1.0, 0xFFFF));
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn crabby_decal3d_default() -> CrabbyDecal3D {
+    // SAFETY: the layouts are the same (checked above); every field is plain data.
+    unsafe { std::mem::transmute(Decal3D::default()) }
+}
+
+/// Register the decal component for insertion and queries.
+/// # Safety
+/// Live world and writable output.
+/// ```
+/// use crabby_ffi::*;
+/// let w = crabby_world_new();
+/// unsafe { let mut id = 0; assert_eq!(crabby_decal3d_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_decal3d_component(world: *mut CrabbyWorld, out_id: *mut u32) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe { builtin::<Decal3D>(world, out_id) }
+}
+
+/// Which decal layers a model takes (Rust `ReceivesDecals`); the low 16
+/// bits count. Models without the component take every decal.
+/// ```
+/// assert_eq!(std::mem::size_of::<crabby_ffi::CrabbyReceivesDecals>(), 4);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct CrabbyReceivesDecals {
+    /// The layer bits.
+    pub layers: u32,
+}
+same_layout!(CrabbyReceivesDecals, ReceivesDecals);
+
+/// Register the decal receiver component for insertion and queries.
+/// # Safety
+/// Live world and writable output.
+/// ```
+/// use crabby_ffi::*;
+/// let w = crabby_world_new();
+/// unsafe { let mut id = 0; assert_eq!(crabby_receives_decals_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_receives_decals_component(world: *mut CrabbyWorld, out_id: *mut u32) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe { builtin::<ReceivesDecals>(world, out_id) }
+}
+
+/// Sets the texture array decals take their images from (Rust
+/// `Ctx::set_decal_textures`). It must have been made with
+/// `CRABBY_TEXTURE_DATA`: decals decode color layers from sRGB themselves.
+/// # Safety
+/// `ctx` null or live.
+/// ```
+/// let a = crabby_ffi::CrabbyTextureArray::default();
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_decal_textures(std::ptr::null_mut(), a) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_decal_textures(ctx: *mut CrabbyCtx, array: CrabbyTextureArray) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            c.try_set_decal_textures(Some(array_from_c(array)))
+                .map_err(invalid_owned)
+        })
+    })
+}
+
+/// Goes back to flat-colored decals.
+/// # Safety
+/// `ctx` null or live.
+/// ```
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_clear_decal_textures(std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_clear_decal_textures(ctx: *mut CrabbyCtx) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            c.set_decal_textures(None);
+            Ok(())
+        })
+    })
+}
+
+/// Whether this GPU draws projected decals (Rust `Ctx::supports_decals`);
+/// false in headless runs and on WebGL2.
+/// # Safety
+/// `ctx` null or live; output writable.
+/// ```
+/// let mut yes = true;
+/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_supports_decals(std::ptr::null_mut(), &mut yes) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_supports_decals(ctx: *mut CrabbyCtx, out_supported: *mut bool) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_supported, c.supports_decals())) })
 }
 
 /// Queue six HDR views of the scene at the probe and prefilter them.

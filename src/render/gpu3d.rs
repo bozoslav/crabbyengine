@@ -232,6 +232,21 @@ struct Pipelines {
 /// The built-in parts of every material shader.
 const MESH_PRELUDE: &str = include_str!("mesh.wgsl");
 const MESH_MAIN: &str = include_str!("mesh_main.wgsl");
+/// Projected decals in the mesh shader (see `Decal3D`), or the stand-in
+/// where the GPU has no texture slot for them.
+const DECALS: &str = include_str!("decal.wgsl");
+const NO_DECALS: &str = include_str!("decal_off.wgsl");
+
+/// Sampled textures a fragment shader needs for the mesh pipelines with
+/// decals: the 16 WebGL2 and WebGPU's defaults allow, and the decal images.
+const DECAL_SAMPLED_TEXTURES: u32 = 17;
+
+/// Whether `device` has a texture slot to spare for projected decals.
+/// Native devices ask for more than the default when the adapter has it;
+/// WebGL2 doesn't, and skips decals.
+pub(crate) fn supports_decals(device: &wgpu::Device) -> bool {
+    device.limits().max_sampled_textures_per_shader_stage >= DECAL_SAMPLED_TEXTURES
+}
 const EFFECT_PRELUDE: &str = include_str!("effect.wgsl");
 const EFFECT_MAIN: &str = include_str!("effect_main.wgsl");
 const COMPUTE_PRELUDE: &str = include_str!("compute.wgsl");
@@ -268,8 +283,16 @@ fn reads_scene(user: &str) -> bool {
 /// pass-through `vertex` and `surface` functions when it has none) and the
 /// engine's entry points.
 pub(crate) fn compose_shader(user: &str) -> String {
-    let mut source = String::with_capacity(MESH_PRELUDE.len() + user.len() + MESH_MAIN.len() + 200);
+    compose_shader_with(user, true)
+}
+
+/// [`compose_shader`] for a device with (`decals`) or without a texture
+/// slot for projected decals.
+pub(crate) fn compose_shader_with(user: &str, decals: bool) -> String {
+    let decal_code = if decals { DECALS } else { NO_DECALS };
+    let mut source = String::with_capacity(MESH_PRELUDE.len() + decal_code.len() + user.len() + MESH_MAIN.len() + 200);
     source.push_str(MESH_PRELUDE);
+    source.push_str(decal_code);
     source.push_str("\n// ---- the game's shader ----\n");
     source.push_str(user);
     source.push_str("\n// ---- the engine's entry points ----\n");
@@ -388,49 +411,72 @@ struct FrameSources {
     shadow_sampler: wgpu::Sampler,
     sky_view: wgpu::TextureView,
     sky_sampler: wgpu::Sampler,
+    /// Whether the layout has the decal images (see `supports_decals`).
+    decals: bool,
+    /// The decal images: a stand-in until the game sets some.
+    decal_view: wgpu::TextureView,
+    decal_sampler: wgpu::Sampler,
 }
 
 impl FrameSources {
     fn bind_group(&self, device: &wgpu::Device, frame: &wgpu::Buffer, lights: &LightTextures) -> wgpu::BindGroup {
+        let mut entries = vec![
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: frame.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(&self.shadow_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::Sampler(&self.shadow_sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: wgpu::BindingResource::TextureView(&self.sky_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 4,
+                resource: wgpu::BindingResource::Sampler(&self.sky_sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 5,
+                resource: wgpu::BindingResource::TextureView(&lights.records_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 6,
+                resource: wgpu::BindingResource::TextureView(&lights.indices_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 7,
+                resource: wgpu::BindingResource::TextureView(&self.light_shadow_view),
+            },
+        ];
+        if self.decals {
+            entries.extend(decal_entries(&self.decal_view, &self.decal_sampler));
+        }
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("3d frame"),
             layout: &self.layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: frame.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&self.shadow_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&self.shadow_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&self.sky_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::Sampler(&self.sky_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 5,
-                    resource: wgpu::BindingResource::TextureView(&lights.records_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 6,
-                    resource: wgpu::BindingResource::TextureView(&lights.indices_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 7,
-                    resource: wgpu::BindingResource::TextureView(&self.light_shadow_view),
-                },
-            ],
+            entries: &entries,
         })
     }
+}
+
+/// The decal images' bindings in a frame bind group.
+fn decal_entries<'a>(view: &'a wgpu::TextureView, sampler: &'a wgpu::Sampler) -> [wgpu::BindGroupEntry<'a>; 2] {
+    [
+        wgpu::BindGroupEntry {
+            binding: 8,
+            resource: wgpu::BindingResource::TextureView(view),
+        },
+        wgpu::BindGroupEntry {
+            binding: 9,
+            resource: wgpu::BindingResource::Sampler(sampler),
+        },
+    ]
 }
 
 /// A render target a target camera draws into: multisampled color and
@@ -515,6 +561,9 @@ pub(crate) struct Renderer3D {
     lights: LightTextures,
     /// What frame bind groups are made of, for each target camera's own.
     frame_sources: FrameSources,
+    /// The decal texture array the frame bind groups hold (`None`: the stand-in).
+    decal_array: Option<u32>,
+    no_decal_view: wgpu::TextureView,
     /// Every render target's texture, by texture id.
     render_targets: Vec<(u32, wgpu::Texture)>,
     /// What target cameras need of the render targets they draw into,
@@ -592,6 +641,7 @@ impl Renderer3D {
         // The material shaders' bindings are seen by compute passes too
         // (they read the frame and their material), where there are any.
         let compute = can_compute(device);
+        let decals = supports_decals(device);
         let all_stages = if compute {
             wgpu::ShaderStages::VERTEX_FRAGMENT | wgpu::ShaderStages::COMPUTE
         } else {
@@ -607,14 +657,14 @@ impl Renderer3D {
             },
             count: None,
         };
-        let frame_bindings = frame_entries(all_stages, false);
+        let frame_bindings = frame_entries(all_stages, false, decals);
         let frame_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("3d frame layout"),
             entries: &frame_bindings,
         });
         let shadow_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("3d shadow layout"),
-            entries: &frame_entries(all_stages, true),
+            entries: &frame_entries(all_stages, true, decals),
         });
         let material_texture = |binding| wgpu::BindGroupLayoutEntry {
             binding,
@@ -736,7 +786,7 @@ impl Renderer3D {
             &layout,
             &shadow_pipeline_layout,
             "built-in",
-            &compose_shader(""),
+            &compose_shader_with("", decals),
             samples,
         );
         let post_shader = device.create_shader_module(wgpu::include_wgsl!("post.wgsl"));
@@ -1024,6 +1074,11 @@ impl Renderer3D {
                 })
         };
         let no_light_shadow = stand_in("3d no light shadows", DEPTH_FORMAT, wgpu::TextureViewDimension::D2Array);
+        let no_decal_view = stand_in(
+            "3d no decal images",
+            wgpu::TextureFormat::Rgba8Unorm,
+            wgpu::TextureViewDimension::D2Array,
+        );
         let frame_sources = FrameSources {
             layout: frame_layout,
             shadow_view,
@@ -1031,6 +1086,18 @@ impl Renderer3D {
             shadow_sampler,
             sky_view: environment.atlas.create_view(&Default::default()),
             sky_sampler,
+            decals,
+            // Never sampled: without images every decal reads as flat color.
+            decal_view: no_decal_view.clone(),
+            decal_sampler: device.create_sampler(&wgpu::SamplerDescriptor {
+                label: Some("3d decals"),
+                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                mag_filter: wgpu::FilterMode::Linear,
+                min_filter: wgpu::FilterMode::Linear,
+                mipmap_filter: wgpu::MipmapFilterMode::Linear,
+                ..Default::default()
+            }),
         };
         let lights = LightTextures::new(device);
         let frame_bind_group = frame_sources.bind_group(device, &frame_buffer, &lights);
@@ -1081,47 +1148,51 @@ impl Renderer3D {
             ..Default::default()
         });
         let no_lights = LightTextures::new(device);
+        let mut shadow_entries = vec![
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &shadow_frames,
+                    offset: 0,
+                    size: wgpu::BufferSize::new(size_of::<FrameUniform>() as u64),
+                }),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(&no_shadow),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::Sampler(&no_shadow_sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: wgpu::BindingResource::TextureView(&no_sky),
+            },
+            wgpu::BindGroupEntry {
+                binding: 4,
+                resource: wgpu::BindingResource::Sampler(&no_sky_sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 5,
+                resource: wgpu::BindingResource::TextureView(&no_lights.records_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 6,
+                resource: wgpu::BindingResource::TextureView(&no_lights.indices_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 7,
+                resource: wgpu::BindingResource::TextureView(&no_shadow),
+            },
+        ];
+        if decals {
+            shadow_entries.extend(decal_entries(&frame_sources.decal_view, &frame_sources.decal_sampler));
+        }
         let shadow_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("3d shadow"),
             layout: &shadow_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &shadow_frames,
-                        offset: 0,
-                        size: wgpu::BufferSize::new(size_of::<FrameUniform>() as u64),
-                    }),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&no_shadow),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&no_shadow_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&no_sky),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::Sampler(&no_sky_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 5,
-                    resource: wgpu::BindingResource::TextureView(&no_lights.records_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 6,
-                    resource: wgpu::BindingResource::TextureView(&no_lights.indices_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 7,
-                    resource: wgpu::BindingResource::TextureView(&no_shadow),
-                },
-            ],
+            entries: &shadow_entries,
         });
         let capacity = 1024;
         Self {
@@ -1162,6 +1233,8 @@ impl Renderer3D {
             frame_bind_group,
             lights,
             frame_sources,
+            decal_array: None,
+            no_decal_view,
             render_targets: Vec::new(),
             view_targets: Vec::new(),
             compute_pipelines: Vec::new(),
@@ -1349,7 +1422,7 @@ impl Renderer3D {
 
     /// Compiles a material shader from the game's WGSL; returns its index.
     pub fn create_shader(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, String> {
-        let source = compose_shader(user);
+        let source = compose_shader_with(user, self.frame_sources.decals);
         check_shader(name, &source)?;
         let mut pipelines = build_pipelines(
             device,
@@ -1366,7 +1439,7 @@ impl Renderer3D {
 
     /// Recompiles shader `id` (hot reload). On an error the old one stays.
     pub fn replace_shader(&mut self, device: &wgpu::Device, id: u32, name: &str, user: &str) -> Result<(), String> {
-        let source = compose_shader(user);
+        let source = compose_shader_with(user, self.frame_sources.decals);
         check_shader(name, &source)?;
         let mut pipelines = build_pipelines(
             device,
@@ -1704,8 +1777,16 @@ impl Renderer3D {
         let sun = (-lighting.sun_direction).try_normalize().unwrap_or(Vec3::Y);
         self.set_shadow_map(device, frame);
         self.set_light_shadow_map(device, frame);
-        if self.lights.upload(device, queue, &frame.lights) {
+        let rebind = self.bind_decal_array(frame.decal_array);
+        if self.lights.upload(device, queue, &frame.lights, &frame.decals) || rebind {
             self.frame_bind_group = self.frame_sources.bind_group(device, &self.frame_buffer, &self.lights);
+        }
+        if rebind {
+            for (_, target) in &mut self.view_targets {
+                target.frame_bind_group = self
+                    .frame_sources
+                    .bind_group(device, &target.frame_buffer, &target.lights);
+            }
         }
         let mut light_view_proj = [Mat4::IDENTITY.to_cols_array_2d(); MAX_LIGHT_SHADOW_VIEWS];
         for (mine, theirs) in light_view_proj.iter_mut().zip(&frame.lights.shadow_views) {
@@ -1721,7 +1802,7 @@ impl Renderer3D {
                 1.5,
                 0.0,
             ],
-            cluster_depth: frame.lights.depth,
+            cluster_depth: cluster_depth(frame),
             cluster_view_proj: frame.view_proj.to_cols_array_2d(),
             view_proj: frame.view_proj.to_cols_array_2d(),
             sun_view_proj: frame.sun_view_proj.map(|m| m.to_cols_array_2d()),
@@ -1815,7 +1896,10 @@ impl Renderer3D {
                 continue;
             };
             let target_lights = &mut self.view_targets[target].1;
-            if target_lights.lights.upload(device, queue, &view.frame.lights) {
+            if target_lights
+                .lights
+                .upload(device, queue, &view.frame.lights, &view.frame.decals)
+            {
                 target_lights.frame_bind_group =
                     self.frame_sources
                         .bind_group(device, &target_lights.frame_buffer, &target_lights.lights);
@@ -1825,7 +1909,7 @@ impl Renderer3D {
             if frame.probe_bakes.iter().any(|(_, faces)| faces.contains(&view.target)) {
                 theirs.probes.fill(Default::default());
             }
-            theirs.cluster_depth = view.frame.lights.depth;
+            theirs.cluster_depth = cluster_depth(&view.frame);
             theirs.cluster_view_proj = view.frame.view_proj.to_cols_array_2d();
             theirs.view_proj = view.view_proj.to_cols_array_2d();
             theirs.inv_view_proj = view.view_proj.inverse().to_cols_array_2d();
@@ -2064,6 +2148,22 @@ impl Renderer3D {
             .collect();
         self.shadow_dims = wanted;
         self.rebind_frames(device);
+    }
+
+    /// Binds decal texture array `id` (`None`: the stand-in) in the frame
+    /// bind groups' source. True when it changed, so they must be remade.
+    fn bind_decal_array(&mut self, id: Option<u32>) -> bool {
+        let id = id.filter(|&id| (id as usize) < self.arrays.len());
+        if !self.frame_sources.decals || id == self.decal_array {
+            return false;
+        }
+        self.decal_array = id;
+        if let Some(id) = id {
+            self.frame_sources.decal_view = self.arrays[id as usize].clone();
+        } else {
+            self.frame_sources.decal_view = self.no_decal_view.clone();
+        }
+        true
     }
 
     /// Makes the point and spot lights' shadow views (the first time a light
@@ -2953,8 +3053,8 @@ fn build_effect(
 /// per cascade) and stand-ins for the shadow map and sky, which they draw
 /// into: a material shader that reads them (from `surface`, which runs
 /// for cut-outs' alpha) must build there too.
-fn frame_entries(stages: wgpu::ShaderStages, per_cascade: bool) -> Vec<wgpu::BindGroupLayoutEntry> {
-    vec![
+fn frame_entries(stages: wgpu::ShaderStages, per_cascade: bool, decals: bool) -> Vec<wgpu::BindGroupLayoutEntry> {
+    let mut entries = vec![
         wgpu::BindGroupLayoutEntry {
             binding: 0,
             visibility: stages,
@@ -3031,7 +3131,28 @@ fn frame_entries(stages: wgpu::ShaderStages, per_cascade: bool) -> Vec<wgpu::Bin
             },
             count: None,
         },
-    ]
+    ];
+    if decals {
+        // Projected decals' images: the 17th sampled texture of the mesh
+        // pipelines, so only where the device has it. Fragment only.
+        entries.push(wgpu::BindGroupLayoutEntry {
+            binding: 8,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2Array,
+                multisampled: false,
+            },
+            count: None,
+        });
+        entries.push(wgpu::BindGroupLayoutEntry {
+            binding: 9,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+            count: None,
+        });
+    }
+    entries
 }
 
 fn build_pipelines(
@@ -3190,6 +3311,16 @@ fn build_pipelines(
     }
 }
 
+/// A frame's cluster mapping for the shader: the lights' near plane and
+/// slice scale, then how many decals there are and where their cell table
+/// starts in the light lists (in words).
+fn cluster_depth(frame: &Frame3D) -> [f32; 4] {
+    let mut depth = frame.lights.depth;
+    depth[2] = frame.decals.records.len() as f32;
+    depth[3] = frame.lights.lists.len() as f32;
+    depth
+}
+
 /// What transparent shaders read of the scene behind them.
 pub(super) fn scene_bind_group(
     device: &wgpu::Device,
@@ -3325,11 +3456,11 @@ mod tests {
     fn shadow_passes_bind_everything_a_material_shader_reads() {
         let user = "fn surface(s: Surface) -> Surface { var o = s; o.emissive = sky_radiance(s.normal) * sunlight(s.world, s.normal); return o; }";
         let module = wgpu::naga::front::wgsl::parse_str(&compose_shader(user)).unwrap();
-        let shadow: Vec<u32> = frame_entries(wgpu::ShaderStages::VERTEX_FRAGMENT, true)
+        let shadow: Vec<u32> = frame_entries(wgpu::ShaderStages::VERTEX_FRAGMENT, true, true)
             .iter()
             .map(|e| e.binding)
             .collect();
-        let frame: Vec<u32> = frame_entries(wgpu::ShaderStages::VERTEX_FRAGMENT, false)
+        let frame: Vec<u32> = frame_entries(wgpu::ShaderStages::VERTEX_FRAGMENT, false, true)
             .iter()
             .map(|e| e.binding)
             .collect();

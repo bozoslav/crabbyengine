@@ -102,6 +102,9 @@ mod ao_aa_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod environment_render_test;
 
+#[cfg(all(test, feature = "window", feature = "3d"))]
+mod decal_render_test;
+
 #[cfg(all(feature = "window", feature = "3d"))]
 mod environment;
 

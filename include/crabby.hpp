@@ -94,6 +94,15 @@ using point_light3d = CrabbyPointLight3D;
 using reflection_probe3d = CrabbyReflectionProbe3D;
 inline reflection_probe3d reflection_probe3d_default() { return crabby_reflection_probe3d_default(); }
 using spot_light3d = CrabbySpotLight3D;
+/// A box that paints an image onto the opaque surfaces inside it (Rust
+/// `Decal3D`); start from decal3d_default(). Projected along its -Z.
+using decal3d = CrabbyDecal3D;
+inline decal3d decal3d_default() { return crabby_decal3d_default(); }
+/// `image` / `normal_image` value that selects no image.
+constexpr std::uint32_t decal_no_image = CRABBY_DECAL_NO_IMAGE;
+/// Which decal layers a model takes (Rust `ReceivesDecals`); models without
+/// it take all. {0} takes none.
+using receives_decals = CrabbyReceivesDecals;
 /// A square of heightfield terrain, drawn more coarsely further from the
 /// camera (Rust `TerrainTile`); made with ctx::create_terrain_tile.
 using terrain_tile = CrabbyTerrainTile;
@@ -717,6 +726,8 @@ protected:
         else if constexpr (std::is_same<T, vehicle3d>::value) status = crabby_vehicle3d_component(world, &id);
         else if constexpr (std::is_same<T, transform3d>::value) status = crabby_transform3d_component(world, &id);
         else if constexpr (std::is_same<T, reflection_probe3d>::value) status = crabby_reflection_probe3d_component(world, &id);
+        else if constexpr (std::is_same<T, decal3d>::value) status = crabby_decal3d_component(world, &id);
+        else if constexpr (std::is_same<T, receives_decals>::value) status = crabby_receives_decals_component(world, &id);
         else if constexpr (std::is_same<T, point_light3d>::value) status = crabby_point_light3d_component(world, &id);
         else if constexpr (std::is_same<T, spot_light3d>::value) status = crabby_spot_light3d_component(world, &id);
         else if constexpr (std::is_same<T, model>::value) status = crabby_model_component(world, &id);
@@ -2685,6 +2696,13 @@ public:
         detail::check(crabby_ctx_load_texture_array(raw_, paths.data(), paths.size(), std::uint32_t(kind), &a));
         return a;
     }
+    /// The texture array decals take their images from (Rust `set_decal_textures`).
+    /// Make it with texture_kind::data; decals decode colors from sRGB themselves.
+    void set_decal_textures(texture_array a) { detail::check(crabby_ctx_set_decal_textures(raw_, a)); }
+    /// Back to flat-colored decals.
+    void clear_decal_textures() { detail::check(crabby_ctx_clear_decal_textures(raw_)); }
+    /// Whether this GPU draws projected decals (false headless and on WebGL2).
+    bool supports_decals() { bool yes = false; detail::check(crabby_ctx_supports_decals(raw_, &yes)); return yes; }
     /// A material for terrain: ground layers blended by a weight map.
     material create_terrain_material(const terrain_material_desc& desc) {
         material m{}; detail::check(crabby_ctx_create_terrain_material(raw_, &desc, &m)); return m;

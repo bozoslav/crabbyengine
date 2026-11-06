@@ -353,7 +353,15 @@ impl Renderer {
                 required_limits: if cfg!(target_arch = "wasm32") {
                     adapter.limits()
                 } else {
-                    wgpu::Limits::default()
+                    // One more sampled texture than the default 16, where
+                    // the adapter has it: projected decals' images.
+                    wgpu::Limits {
+                        max_sampled_textures_per_shader_stage: adapter
+                            .limits()
+                            .max_sampled_textures_per_shader_stage
+                            .clamp(16, 24),
+                        ..wgpu::Limits::default()
+                    }
                 },
                 ..Default::default()
             })
@@ -574,6 +582,12 @@ impl Renderer {
         if let Some(three) = &mut self.three {
             three.update_material(&self.device, &self.queue, id, desc, &self.textures);
         }
+    }
+
+    /// Whether projected decals can be drawn (see `gpu3d::supports_decals`).
+    #[cfg(feature = "3d")]
+    pub fn supports_decals(&self) -> bool {
+        super::gpu3d::supports_decals(&self.device)
     }
 
     /// The largest texture array this GPU takes: width and height, and layers.
