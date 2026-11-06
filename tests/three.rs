@@ -1133,6 +1133,32 @@ fn ao_and_aa_settings_preserve_existing_defaults() {
 }
 
 #[test]
+fn screen_space_reflections_are_off_until_turned_on() {
+    Game::new("ssr settings", 64, 64).run_headless(0, |ctx| {
+        assert_eq!((ctx.post.ssr, ctx.post.ssr_max_distance), (0.0, 30.0));
+        // ANCHOR: ssr
+        // Wet streets and polished floors reflect what's on screen.
+        ctx.post.ssr = 1.0;
+        ctx.post.ssr_max_distance = 40.0; // world units along the reflected ray
+        ctx.post.anti_aliasing = AntiAliasing::Taa; // smooths their grain
+        // Only smooth surfaces reflect it: roughness below 0.5, fully below 0.2.
+        let wet = MaterialDesc {
+            roughness: 0.1,
+            ..MaterialDesc::color(Color::rgb(0.2, 0.2, 0.22))
+        };
+        // ANCHOR_END: ssr
+        assert_eq!(
+            (ctx.post.ssr, ctx.post.ssr_max_distance, wet.roughness),
+            (1.0, 40.0, 0.1)
+        );
+        ctx.set_graphics_quality(GraphicsQuality::medium());
+        assert_eq!(ctx.post.ssr, 0.0, "medium turns them off");
+        ctx.set_graphics_quality(GraphicsQuality::high());
+        assert_eq!(ctx.post.ssr, 1.0, "high turns them on");
+    });
+}
+
+#[test]
 fn quality_presets_switch_at_run_time() {
     Game::new("quality", 64, 64).run_headless(0, |ctx| {
         // ANCHOR: quality

@@ -1037,6 +1037,21 @@ static void golden_hour(crabby::ctx& ctx) {
 }
 // ANCHOR_END: post
 
+// ANCHOR: ssr
+/// Wet streets and polished floors reflect what's on screen.
+static void screen_reflections(crabby::ctx& ctx) {
+    auto post = ctx.post();
+    post.ssr = 1.0f;
+    post.ssr_max_distance = 40.0f; // world units along the reflected ray
+    post.anti_aliasing = uint32_t(crabby::anti_aliasing::taa); // smooths their grain
+    ctx.set_post(post);
+    // Only smooth surfaces reflect it: roughness below 0.5, fully below 0.2.
+    auto wet = crabby::material_of(crabby::rgb(.2f, .2f, .22f));
+    wet.roughness = 0.1f;
+    (void)wet;
+}
+// ANCHOR_END: ssr
+
 // ANCHOR: quality
 /// An options menu: pick a preset, then change single settings on top of it.
 static void options_menu(crabby::ctx& ctx) {
@@ -1314,6 +1329,8 @@ static void the_village_has_five_spinning_houses() {
         golden_hour(ctx);
         options_menu(ctx);
         temporal_antialiasing(ctx);
+        screen_reflections(ctx);
+        if (ctx.post().ssr != 1.0f) { std::fprintf(stderr, "ssr\n"); std::abort(); }
         trilight(ctx);
         if (!ctx.lighting().has_equator) { std::fprintf(stderr, "trilight\n"); std::abort(); }
         misty_morning(ctx);

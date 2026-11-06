@@ -51,7 +51,8 @@ impl QualityLevel {
 }
 
 /// The settings that decide how heavy the 3D picture is, in one place: the
-/// resolution it is drawn at, shadows, ambient occlusion and antialiasing.
+/// resolution it is drawn at, shadows, ambient occlusion, screen-space
+/// reflections and antialiasing.
 /// [`low`](Self::low), [`medium`](Self::medium), [`high`](Self::high) and
 /// [`ultra`](Self::ultra) are ready-made sets; apply one with
 /// [`Ctx::set_graphics_quality`] and read the current one back with
@@ -75,6 +76,7 @@ impl QualityLevel {
 /// | `light_shadow_resolution` | 512 | 512 | 1024 | 2048 |
 /// | `light_shadow_atlas` | 1024 | 2048 | 4096 | 8192 |
 /// | `ambient_occlusion` (slices, steps) | off | off | 2, 4 | 4, 8 |
+/// | `ssr` | 0 | 0 | 1 | 1 |
 /// | `anti_aliasing` | none | FXAA | SMAA | SMAA |
 ///
 /// ```no_run
@@ -123,6 +125,9 @@ pub struct GraphicsQuality {
     pub ao_slices: u32,
     /// [`AmbientOcclusion::steps`](crate::AmbientOcclusion::steps), 1 to 16.
     pub ao_steps: u32,
+    /// [`Post::ssr`](crate::Post::ssr): screen-space reflections' strength,
+    /// 0 (off) to 1.
+    pub ssr: f32,
     /// [`Post::anti_aliasing`](crate::Post::anti_aliasing).
     pub anti_aliasing: AntiAliasing,
 }
@@ -146,6 +151,7 @@ impl Default for GraphicsQuality {
             ambient_occlusion: false,
             ao_slices: 3,
             ao_steps: 6,
+            ssr: 0.0,
             anti_aliasing: AntiAliasing::None,
         }
     }
@@ -177,6 +183,7 @@ impl GraphicsQuality {
             ambient_occlusion: false,
             ao_slices: 2,
             ao_steps: 4,
+            ssr: 0.0,
             anti_aliasing: AntiAliasing::None,
         }
     }
@@ -205,17 +212,18 @@ impl GraphicsQuality {
             ambient_occlusion: false,
             ao_slices: 2,
             ao_steps: 4,
+            ssr: 0.0,
             anti_aliasing: AntiAliasing::Fxaa,
         }
     }
 
     /// Four 2048² cascades reaching 80 units, eight views of up to 1024² for
     /// point and spot lights in a 4096² atlas, light AO (2 slices, 4
-    /// steps), SMAA.
+    /// steps), screen-space reflections, SMAA.
     /// ```
     /// use crabbyengine::*;
     /// let q = GraphicsQuality::high();
-    /// assert!(q.ambient_occlusion && q.anti_aliasing == AntiAliasing::Smaa);
+    /// assert!(q.ambient_occlusion && q.ssr == 1.0 && q.anti_aliasing == AntiAliasing::Smaa);
     /// ```
     #[must_use]
     pub fn high() -> Self {
@@ -233,6 +241,7 @@ impl GraphicsQuality {
             ambient_occlusion: true,
             ao_slices: 2,
             ao_steps: 4,
+            ssr: 1.0,
             anti_aliasing: AntiAliasing::Smaa,
         }
     }
@@ -240,7 +249,8 @@ impl GraphicsQuality {
     /// Four 4096² cascades (256 MB of shadow maps) reaching 120 units, all
     /// redrawn every frame, 24
     /// views of up to 2048² for point and spot lights in an 8192² atlas
-    /// (another 256 MB), finer AO (4 slices, 8 steps), SMAA.
+    /// (another 256 MB), finer AO (4 slices, 8 steps), screen-space
+    /// reflections, SMAA.
     /// ```
     /// use crabbyengine::*;
     /// let q = GraphicsQuality::ultra();
@@ -262,6 +272,7 @@ impl GraphicsQuality {
             ambient_occlusion: true,
             ao_slices: 4,
             ao_steps: 8,
+            ssr: 1.0,
             anti_aliasing: AntiAliasing::Smaa,
         }
     }
@@ -320,6 +331,7 @@ impl GraphicsQuality {
             ambient_occlusion: self.ambient_occlusion,
             ao_slices: self.ao_slices.clamp(1, 8),
             ao_steps: self.ao_steps.clamp(1, 16),
+            ssr: float(self.ssr, 0.0, 1.0, d.ssr),
             anti_aliasing: self.anti_aliasing,
         }
     }
@@ -353,6 +365,7 @@ impl Ctx {
             ambient_occlusion: self.post.ambient_occlusion.enabled,
             ao_slices: self.post.ambient_occlusion.slices,
             ao_steps: self.post.ambient_occlusion.steps,
+            ssr: self.post.ssr,
             anti_aliasing: self.post.anti_aliasing,
         }
         .clamped()
@@ -381,6 +394,7 @@ impl Ctx {
         self.post.ambient_occlusion.enabled = q.ambient_occlusion;
         self.post.ambient_occlusion.slices = q.ao_slices;
         self.post.ambient_occlusion.steps = q.ao_steps;
+        self.post.ssr = q.ssr;
         self.lighting.shadows = q.shadows;
         self.lighting.shadow_distance = q.shadow_distance;
         self.lighting.shadow_cascades = q.shadow_cascades;
@@ -419,6 +433,7 @@ mod tests {
             assert!(a.light_shadow_atlas < b.light_shadow_atlas);
             assert!(a.ambient_occlusion <= b.ambient_occlusion);
             assert!(a.ao_slices * a.ao_steps <= b.ao_slices * b.ao_steps);
+            assert!(a.ssr <= b.ssr);
             assert!(a.anti_aliasing as u32 <= b.anti_aliasing as u32);
         }
     }
@@ -487,6 +502,7 @@ mod tests {
         );
         assert_eq!((high.ambient_occlusion, high.ao_slices, high.ao_steps), (true, 2, 4));
         assert_eq!(high.anti_aliasing, AntiAliasing::Smaa);
+        assert_eq!((low.ssr, medium.ssr, high.ssr), (0.0, 0.0, 1.0));
         let ultra = GraphicsQuality::ultra();
         assert_eq!(
             (ultra.shadow_distance, ultra.shadow_cascades, ultra.shadow_resolution),
@@ -500,7 +516,7 @@ mod tests {
             ),
             (24, 2048, 8192)
         );
-        assert_eq!((ultra.ao_slices, ultra.ao_steps), (4, 8));
+        assert_eq!((ultra.ao_slices, ultra.ao_steps, ultra.ssr), (4, 8, 1.0));
     }
 
     #[test]
@@ -516,6 +532,7 @@ mod tests {
             light_shadow_atlas: 5000,
             ao_slices: 0,
             ao_steps: 99,
+            ssr: 7.0,
             ..Default::default()
         }
         .clamped();
@@ -528,6 +545,7 @@ mod tests {
         assert_eq!(q.light_shadow_resolution, 128);
         assert_eq!(q.light_shadow_atlas, 4096);
         assert_eq!((q.ao_slices, q.ao_steps), (1, 16));
+        assert_eq!(q.ssr, 1.0);
     }
 
     #[test]
@@ -547,6 +565,7 @@ mod tests {
                 assert_eq!(ctx.post.render_scale, q.render_scale);
                 assert_eq!(ctx.lighting.shadow_resolution, q.shadow_resolution);
                 assert_eq!(ctx.post.ambient_occlusion.enabled, q.ambient_occlusion);
+                assert_eq!(ctx.post.ssr, q.ssr);
             }
         });
     }

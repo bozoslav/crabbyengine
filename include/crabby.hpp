@@ -173,7 +173,8 @@ using post = CrabbyPost;
 /// `taa` is temporal: sub-pixel jitter and a reprojected history (WebGL2 draws FXAA).
 enum class anti_aliasing : uint32_t { none = 0, fxaa = 1, smaa = 2, taa = 3 };
 /// Quality settings that trade looks for speed, switched at run time (Rust
-/// `GraphicsQuality`): the 3D resolution scale, shadows, AO and antialiasing.
+/// `GraphicsQuality`): the 3D resolution scale, shadows, AO, screen-space
+/// reflections and antialiasing.
 /// Get a preset with graphics_quality_preset(); apply it with
 /// ctx::set_graphics_quality(); read the current one with ctx::graphics_quality().
 using graphics_quality = CrabbyGraphicsQuality;
@@ -3064,7 +3065,8 @@ public:
     /// Exposure, bloom, color grading and tone mapping of the 3D frame.
     crabby::post post() const { crabby::post p{}; detail::check(crabby_ctx_post(raw_, &p)); return p; }
     /// Bloom, its threshold, contrast and saturation can't be negative; render_scale is
-    /// 0.25 to 2 and sharpen 0 to 1; contact_shadows can't be negative.
+    /// 0.25 to 2 and sharpen 0 to 1; contact_shadows can't be negative; ssr is 0 to 1 and
+    /// ssr_max_distance above zero.
     void set_post(const crabby::post& p) { detail::check(crabby_ctx_set_post(raw_, &p)); }
     /// The current graphics quality, gathered from the post and lighting settings.
     crabby::graphics_quality graphics_quality() const {

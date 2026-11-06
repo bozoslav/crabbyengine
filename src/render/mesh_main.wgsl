@@ -285,6 +285,11 @@ fn opaque_color(in: VertexOut, front: bool, dp_x: vec3<f32>, dp_y: vec3<f32>) ->
     let screen = textureLoad(scene_color_texture, ao_at, 0);
     s.occlusion *= 1.0 - screen.r;
     contact_shadow = screen.g;
+    // Blue marks screen-space reflections in a second level, at half size.
+    if screen.b > 0.5 {
+        let half = vec2<i32>(textureDimensions(scene_color_texture, 1)) - 1;
+        screen_reflection = textureLoad(scene_color_texture, min(ao_at / 2, half), 1);
+    }
     return vec4<f32>(fog(shade(s), s.world), 1.0);
 }
 

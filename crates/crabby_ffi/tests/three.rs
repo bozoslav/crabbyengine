@@ -210,6 +210,31 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
         let mut back = std::mem::zeroed::<CrabbyPost>();
         assert_eq!(crabby_ctx_post(ctx, &mut back), CRABBY_OK);
         assert_eq!(back.contact_shadows, 0.3);
+        // Screen-space reflections: off by default, 0 to 1, a positive reach.
+        assert_eq!((post.ssr, post.ssr_max_distance), (0.0, 30.0));
+        let reflections = CrabbyPost {
+            ssr: 0.8,
+            ssr_max_distance: 12.0,
+            ..post
+        };
+        assert_eq!(crabby_ctx_set_post(ctx, &reflections), CRABBY_OK);
+        assert_eq!(crabby_ctx_post(ctx, &mut back), CRABBY_OK);
+        assert_eq!((back.ssr, back.ssr_max_distance), (0.8, 12.0));
+        for bad in [
+            CrabbyPost { ssr: 1.5, ..post },
+            CrabbyPost { ssr: -0.1, ..post },
+            CrabbyPost { ssr: f32::NAN, ..post },
+            CrabbyPost {
+                ssr_max_distance: 0.0,
+                ..post
+            },
+            CrabbyPost {
+                ssr_max_distance: f32::INFINITY,
+                ..post
+            },
+        ] {
+            assert_eq!(crabby_ctx_set_post(ctx, &bad), CRABBY_INVALID_ARGUMENT);
+        }
         // Temporal antialiasing, sharpened less, and a camera cut.
         let taa = CrabbyPost {
             anti_aliasing: 3,
@@ -291,7 +316,7 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
             (4096, 24, 8192, 4)
         );
         assert_eq!(crabby_ctx_post(ctx, &mut back), CRABBY_OK);
-        assert!(back.ao_enabled && back.anti_aliasing == 2 && back.ao_steps == 8);
+        assert!(back.ao_enabled && back.anti_aliasing == 2 && back.ao_steps == 8 && back.ssr == 1.0);
         // A tweak makes it custom.
         q.shadow_cascades = 2;
         assert_eq!(crabby_ctx_set_graphics_quality(ctx, &q), CRABBY_OK);
@@ -334,6 +359,7 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
             CrabbyGraphicsQuality { ao_steps: 17, ..q },
             CrabbyGraphicsQuality { anti_aliasing: 4, ..q },
             CrabbyGraphicsQuality { shadow_refresh: 0, ..q },
+            CrabbyGraphicsQuality { ssr: 2.0, ..q },
             CrabbyGraphicsQuality {
                 shadow_distance: f32::NAN,
                 ..q

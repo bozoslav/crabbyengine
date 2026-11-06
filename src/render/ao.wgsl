@@ -123,9 +123,11 @@ fn contact_shadow(p: vec2<i32>, center: vec3<f32>) -> f32 {
     let ao = pow(clamp(visibility / settings.params.z, 0.0, 1.0), settings.params.y);
     return vec4<f32>(1.0 - ao, contact, 0.0, 1.0);
 }
+// Blue 1 marks screen-space reflections in the target's second level (an RG8
+// target drops it; see ssr.rs).
 @fragment fn fs_denoise(in: Full) -> @location(0) vec4<f32> {
     let p = vec2<i32>(in.at.xy);
-    if z_at(p) >= 0.999999 { return vec4<f32>(0.0); }
+    if z_at(p) >= 0.999999 { return vec4<f32>(0.0, 0.0, 1.0, 0.0); }
     let center = position(p);
     var sum = vec2<f32>(0.0);
     var total = 0.0;
@@ -138,5 +140,5 @@ fn contact_shadow(p: vec2<i32>, center: vec3<f32>) -> f32 {
             total += w;
         }
     }
-    return vec4<f32>(sum / max(total, 0.00001), 0.0, 1.0);
+    return vec4<f32>(sum / max(total, 0.00001), 1.0, 1.0);
 }

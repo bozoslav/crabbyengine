@@ -318,6 +318,18 @@ static void three_d() {
         throws([&] { ctx.set_post(invalid_post); });
         invalid_post = post; invalid_post.contact_shadows = -1;
         throws([&] { ctx.set_post(invalid_post); });
+        invalid_post = post; invalid_post.ssr = 1.5f;
+        throws([&] { ctx.set_post(invalid_post); });
+        invalid_post = post; invalid_post.ssr_max_distance = -1;
+        throws([&] { ctx.set_post(invalid_post); });
+        {
+            auto reflective = post;
+            reflective.ssr = 0.7f;
+            reflective.ssr_max_distance = 15;
+            ctx.set_post(reflective);
+            CHECK(ctx.post().ssr == 0.7f && ctx.post().ssr_max_distance == 15);
+            ctx.set_post(post);
+        }
         {
             auto temporal = post;
             temporal.anti_aliasing = uint32_t(crabby::anti_aliasing::taa);
@@ -351,6 +363,7 @@ static void three_d() {
         throws([&] { crabby::graphics_quality_preset(crabby::quality_level::custom); });
         CHECK(ctx.graphics_quality().shadow_cascades == 2);
         ctx.set_graphics_quality(crabby::graphics_quality_preset(crabby::quality_level::high));
+        CHECK(ctx.graphics_quality().ssr == 1 && ctx.post().ssr == 1);
         auto light_q = ctx.lighting();
         light_q.shadow_resolution = 100;
         throws([&] { ctx.set_lighting(light_q); });

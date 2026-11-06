@@ -74,7 +74,7 @@ static void setup(CrabbyCtx* ctx, void* user) {
     CHECK(crabby_ctx_set_graphics_quality(ctx, &quality) == CRABBY_INVALID_ARGUMENT);
     CHECK(crabby_graphics_quality_preset(3, &quality) == CRABBY_OK);
     CHECK(crabby_ctx_set_graphics_quality(ctx, &quality) == CRABBY_OK);
-    CHECK(crabby_ctx_graphics_quality(ctx, &now) == CRABBY_OK && now.shadow_resolution == 4096 && now.ao_steps == 8 && now.shadow_refresh == 1);
+    CHECK(crabby_ctx_graphics_quality(ctx, &now) == CRABBY_OK && now.shadow_resolution == 4096 && now.ao_steps == 8 && now.shadow_refresh == 1 && now.ssr == 1);
     CHECK(now.light_shadow_atlas == 8192 && now.light_shadow_views == 24);
     quality.light_shadow_atlas = 3000; /* not a power of two */
     CHECK(crabby_ctx_set_graphics_quality(ctx, &quality) == CRABBY_INVALID_ARGUMENT);
@@ -86,8 +86,16 @@ static void setup(CrabbyCtx* ctx, void* user) {
     CHECK(crabby_ctx_set_post(ctx, &post) == CRABBY_INVALID_ARGUMENT);
     post.contact_shadows = 0.3f;
     CHECK(crabby_ctx_set_post(ctx, &post) == CRABBY_OK);
+    CHECK(post.ssr == 0 && post.ssr_max_distance == 30); /* screen-space reflections: off */
+    post.ssr = 2;
+    CHECK(crabby_ctx_set_post(ctx, &post) == CRABBY_INVALID_ARGUMENT);
+    post.ssr = 0.5f;
+    post.ssr_max_distance = 0;
+    CHECK(crabby_ctx_set_post(ctx, &post) == CRABBY_INVALID_ARGUMENT);
+    post.ssr_max_distance = 20;
+    CHECK(crabby_ctx_set_post(ctx, &post) == CRABBY_OK);
     CHECK(crabby_ctx_reset_temporal_history(ctx) == CRABBY_OK);
-    CHECK(crabby_ctx_post(ctx, &back) == CRABBY_OK && back.anti_aliasing == 3 && back.taa_sharpness == 0.5f && back.contact_shadows == 0.3f);
+    CHECK(crabby_ctx_post(ctx, &back) == CRABBY_OK && back.anti_aliasing == 3 && back.taa_sharpness == 0.5f && back.contact_shadows == 0.3f && back.ssr == 0.5f && back.ssr_max_distance == 20);
     uint64_t e;
     CHECK(crabby_spawn(crabby_ctx_world(ctx), NULL, 0, &e) == CRABBY_OK);
     CHECK(crabby_world_free(crabby_ctx_world(ctx)) == CRABBY_BUSY);
