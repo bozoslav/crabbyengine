@@ -319,8 +319,12 @@ fn transparent_color(in: VertexOut, front: bool) -> vec4<f32> {
 // Models that moved since last frame are drawn again, over the depth the
 // opaque pass left, to say where each pixel was: the same vertices through
 // last frame's model matrix (the `vertex` function still sees this frame's
-// time, so animation inside it is not part of the motion).
+// time, so animation inside it is not part of the motion). A buffer-driven
+// mesh (see `Vertex.instance_index`) gets the entity's rigid motion: both
+// matrices see the same buffer element, so what the buffer does per element
+// is not part of the motion either.
 struct VelocityIn {
+    @builtin(instance_index) instance_index: u32,
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
@@ -348,6 +352,7 @@ struct VelocityOut {
 @vertex
 fn vs_velocity(in: VelocityIn) -> VelocityOut {
     var a: VertexIn;
+    a.instance_index = in.instance_index;
     a.position = in.position;
     a.normal = in.normal;
     a.uv = in.uv;

@@ -400,47 +400,96 @@ fn a_moved_model_writes_its_motion_and_a_still_one_does_not() {
     );
 }
 
-#[test]
-fn a_moving_box_leaves_no_ghost_behind() {
-    fn trail(disabled: bool) -> Option<f32> {
-        let mut rig = Rig::new(SIZE, false)?;
-        rig.disable_motion = disabled;
-        rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
+/// Shifts every buffer element's cube by the element's `xyz`.
+const OFFSETS: &str = "fn vertex(v: Vertex) -> Vertex { var o = v; o.position += items[v.instance_index].xyz; return o; }";
+
+impl Rig {
+    /// A cube drawn once per element of a GPU buffer holding `offsets`.
+    fn buffered_cube(&mut self, offsets: &[Vec4]) -> Option<Mesh> {
+        if self.device.limits().max_storage_buffers_per_shader_stage == 0 {
+            return None;
+        }
+        let glow = MaterialDesc {
+            color: Color::BLACK,
+            roughness: 1.0,
+            emissive: Color::WHITE,
+            shader: Some(self.ctx.create_shader("offsets", OFFSETS)),
+            ..Default::default()
+        };
+        self.renderer.create_shader(&self.device, "offsets", OFFSETS).unwrap();
+        let material = self.ctx.create_material(glow);
+        let data = MeshData::cube(1.0);
+        let mesh = self.ctx.create_mesh(&data, material);
+        self.renderer
+            .create_material(&self.device, &GpuMaterialDesc::new(&glow), &self.textures);
+        self.renderer
+            .create_mesh(&self.device, &data, &[(0..data.indices.len() as u32, material)], true);
+        let len = offsets.len() as u32;
+        let b = self.ctx.create_gpu_buffer(len, offsets);
+        self.renderer.create_gpu_buffer(&self.device, b.id, len, offsets);
+        self.ctx.set_mesh_gpu_buffer(mesh, b, len);
+        self.renderer.set_mesh_gpu_buffer(mesh.id, b.id, len);
+        // The offsets reach beyond the entity's own bounds.
+        self.ctx.set_mesh_gpu_bounds(mesh, vec3(0.0, 1.0, 0.0), 2.0);
+        Some(mesh)
+    }
+}
+
+/// How bright the background behind a cube drifting right is in the last
+/// frame, at rows `ys` (world height of each cube's middle): the trail.
+/// `buffered` draws the cubes from a GPU buffer; `None` without a GPU.
+fn trail(disabled: bool, buffered: bool) -> Option<f32> {
+    let mut rig = Rig::new(SIZE, false)?;
+    rig.disable_motion = disabled;
+    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    // Two cubes a unit apart when buffered, else one: both rows are checked.
+    let mut ys = vec![0.0];
+    let mesh = if buffered {
+        ys.push(1.5);
+        rig.buffered_cube(&[vec4(0.0, 0.0, 0.0, 0.0), vec4(0.0, 1.5, 0.0, 0.0)])?
+    } else {
+        rig.cube
+    };
+    rig.ctx
+        .world
+        .spawn((Transform3D::at(vec3(-2.0, 0.0, 0.0)), Model::new(mesh)));
+    // A still start, so the history holds the box, then a fast drift to the right.
+    for _ in 0..8 {
+        rig.draw();
+    }
+    let mut last = Vec::new();
+    for _ in 0..12 {
         rig.ctx
             .world
-            .spawn((Transform3D::at(vec3(-2.0, 0.0, 0.0)), Model::new(rig.cube)));
-        // A still start, so the history holds the box, then a fast drift to the right.
-        for _ in 0..8 {
-            rig.draw();
-        }
-        let mut last = Vec::new();
-        for _ in 0..12 {
-            rig.ctx
-                .world
-                .query::<&mut Transform3D>()
-                .for_each(|t| t.position.x += 0.3);
-            last = rig.draw();
-        }
-        let n = SIZE as usize;
-        // Where the box is now, in pixels; its trail is to the left of it.
-        let view_proj = rig.ctx.camera3d.view_proj();
-        let x_of = |x: f32| (view_proj.project_point3(vec3(x, 0.0, 0.0)).x * 0.5 + 0.5) * SIZE as f32;
-        let box_now = -2.0 + 12.0 * 0.3;
-        let tail = x_of(box_now - 0.5);
-        let (y0, y1) = (n / 2 - 3, n / 2 + 3);
-        let mut ghost = 0.0f32;
-        let mut inside = 0.0f32;
-        for y in y0..y1 {
-            for x in (tail as usize).saturating_sub(14)..(tail as usize).saturating_sub(2) {
-                ghost = ghost.max(last[y * n + x]);
-            }
-            inside = inside.max(last[y * n + x_of(box_now) as usize]);
-        }
-        eprintln!("vectors disabled={disabled}: ghost {ghost:.4}, box {inside:.4}");
-        assert!(inside > 0.9, "the box is drawn: {inside}");
-        Some(ghost)
+            .query::<&mut Transform3D>()
+            .for_each(|t| t.position.x += 0.3);
+        last = rig.draw();
     }
-    let (Some(camera_only), Some(with_vectors)) = (trail(true), trail(false)) else {
+    let n = SIZE as usize;
+    // Where the box is now, in pixels; its trail is to the left of it.
+    let view_proj = rig.ctx.camera3d.view_proj();
+    let x_of = |x: f32| (view_proj.project_point3(vec3(x, 0.0, 0.0)).x * 0.5 + 0.5) * SIZE as f32;
+    let y_of = |y: f32| ((0.5 - view_proj.project_point3(vec3(0.0, y, 0.0)).y * 0.5) * SIZE as f32) as usize;
+    let box_now = -2.0 + 12.0 * 0.3;
+    let tail = x_of(box_now - 0.5);
+    let mut ghost = 0.0f32;
+    for &y in &ys {
+        let mut inside = 0.0f32;
+        for row in y_of(y) - 3..y_of(y) + 3 {
+            for x in (tail as usize).saturating_sub(14)..(tail as usize).saturating_sub(2) {
+                ghost = ghost.max(last[row * n + x]);
+            }
+            inside = inside.max(last[row * n + x_of(box_now) as usize]);
+        }
+        eprintln!("vectors disabled={disabled}, buffered={buffered}: ghost {ghost:.4}, box {inside:.4}");
+        assert!(inside > 0.9, "the box at height {y} is drawn: {inside}");
+    }
+    Some(ghost)
+}
+
+#[test]
+fn a_moving_box_leaves_no_ghost_behind() {
+    let (Some(camera_only), Some(with_vectors)) = (trail(true, false), trail(false, false)) else {
         return;
     };
     assert!(with_vectors < 0.03, "background behind moving box: {with_vectors}");
@@ -448,6 +497,15 @@ fn a_moving_box_leaves_no_ghost_behind() {
         camera_only > 0.1,
         "negative control must expose old ghosting: {camera_only}"
     );
+}
+
+#[test]
+fn a_moving_buffer_driven_mesh_leaves_no_ghost_behind() {
+    let (Some(camera_only), Some(with_vectors)) = (trail(true, true), trail(false, true)) else {
+        return;
+    };
+    assert!(with_vectors < 0.03, "background behind moving buffer meshes: {with_vectors}");
+    assert!(camera_only > 0.1, "without vectors they ghost: {camera_only}");
 }
 
 #[test]
