@@ -87,6 +87,22 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
         };
         ids.errors.push(crabby_ctx_set_lighting(ctx, &dark));
         assert_eq!((light.shadow_cascades, light.shadow_refresh), (4, 2));
+        assert!(!light.has_equator);
+        let trilight = CrabbyLighting {
+            has_equator: true,
+            equator_color: CrabbyColor {
+                r: 0.0,
+                g: 1.0,
+                b: 0.0,
+                a: 1.0,
+            },
+            ..light
+        };
+        assert_eq!(crabby_ctx_set_lighting(ctx, &trilight), CRABBY_OK);
+        let mut back = std::mem::zeroed::<CrabbyLighting>();
+        assert_eq!(crabby_ctx_lighting(ctx, &mut back), CRABBY_OK);
+        assert!(back.has_equator && back.equator_color.g == 1.0);
+        assert_eq!(crabby_ctx_set_lighting(ctx, &light), CRABBY_OK);
         let many = CrabbyLighting {
             shadow_cascades: 5,
             ..light

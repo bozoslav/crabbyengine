@@ -307,6 +307,44 @@ fn a_rough_spheres_ambient_follows_the_sky_colour() {
     assert!(dark.max_element() < 3.0, "no ambient, no light: {dark}");
 }
 
+#[test]
+fn a_three_color_ambient_lights_the_sides_with_the_equator_color() {
+    let Some(mut rig) = Rig::new() else { return };
+    let sphere = MeshData::sphere(1.5, 32);
+    let mesh = rig.mesh(&sphere, matte(Color::WHITE));
+    rig.ctx.world.spawn((Transform3D::default(), Model::new(mesh)));
+    rig.ctx.camera3d.position = vec3(0.0, 0.0, -6.0);
+    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    rig.ctx.lighting.sky_color = Color::rgb(1.0, 0.05, 0.05);
+    rig.ctx.lighting.ground_color = Color::rgb(0.05, 0.05, 1.0);
+    // The sphere's top, the side facing the camera, and its bottom.
+    let points = |rig: &mut Rig| {
+        let view_proj = rig.ctx.camera3d.view_proj();
+        let pixels = rig.draw();
+        [vec3(0.0, 1.35, -0.6), vec3(0.0, 0.0, -1.5), vec3(0.0, -1.35, -0.6)].map(|p| {
+            let p = screen(view_proj, p);
+            rgb(&pixels, p.x as u32, p.y as u32)
+        })
+    };
+    let [_, two_color_side, _] = points(&mut rig);
+    assert!(
+        two_color_side.y < 0.3 * two_color_side.x.max(two_color_side.z),
+        "without an equator, the side is sky and ground mixed: {two_color_side}"
+    );
+    rig.ctx.lighting.equator_color = Some(Color::rgb(0.05, 1.0, 0.05));
+    let [top, side, bottom] = points(&mut rig);
+    assert!(
+        top.x > top.y && top.x > 2.0 * top.z,
+        "the top is lit most by the sky: {top}"
+    );
+    // (In sRGB after tone mapping, so the gaps look smaller than they are.)
+    assert!(side.y > side.x.max(side.z) + 40.0, "the side by the horizon: {side}");
+    assert!(
+        bottom.z > bottom.y && bottom.z > 2.0 * bottom.x,
+        "the bottom by the ground: {bottom}"
+    );
+}
+
 /// How many red pixels the sphere's disc has on each side of its middle, as
 /// (screen left, screen right), plus how many are blue.
 fn sphere_redness(rig: &mut Rig) -> (f32, f32, f32) {

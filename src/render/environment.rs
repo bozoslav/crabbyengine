@@ -13,6 +13,11 @@ pub(super) struct Environment {
     cube: wgpu::RenderPipeline,
     filter: wgpu::RenderPipeline,
     diffuse: wgpu::RenderPipeline,
+    /// Projects a slot's cube onto spherical harmonics, one row of `sh` per slot.
+    sh: wgpu::RenderPipeline,
+    sh_texture: wgpu::Texture,
+    /// Each slot's config, reading `sh_texture`: for the diffuse pass.
+    sh_groups: Vec<wgpu::BindGroup>,
     brdf: wgpu::RenderPipeline,
     capture: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
@@ -24,7 +29,7 @@ pub(super) struct Environment {
     dirty: AtomicBool,
     pub bakes: Vec<(u32, [u32; 6])>,
     uploads: Vec<(u32, wgpu::Texture)>,
-    key: Option<[f32; 18]>,
+    key: Option<[f32; 22]>,
 }
 impl Environment {
     pub fn new(device: &wgpu::Device, sky: &wgpu::TextureView) -> Self {
@@ -48,6 +53,8 @@ impl Environment {
         };
         let atlas = texture("IBL atlas", 1024, 1536);
         let source = texture("IBL cube source", 768, 128);
+        // Nine spherical harmonic coefficients for each of the five slots.
+        let sh_texture = texture("IBL spherical harmonics", 9, 5);
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("IBL bake"),
             entries: &[
@@ -88,7 +95,7 @@ impl Environment {
             .map(|slot| {
                 device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("IBL config"),
-                    contents: bytemuck::cast_slice(&[[slot as f32, 0.0, 1.0, 0.0], [0.0; 4], [0.0; 4]]),
+                    contents: bytemuck::cast_slice(&[[slot as f32, 0.0, 1.0, 0.0], [0.0; 4], [0.0; 4], [0.0; 4]]),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 })
             })
@@ -117,6 +124,8 @@ impl Environment {
         let source_group = group(&source_view, &buffers[0]);
         let sky_group = group(sky, &buffers[0]);
         let groups = buffers.iter().map(|b| group(&source_view, b)).collect();
+        let sh_view = sh_texture.create_view(&Default::default());
+        let sh_groups = buffers.iter().map(|b| group(&sh_view, b)).collect();
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("IBL bake"),
             source: wgpu::ShaderSource::Wgsl(include_str!("environment.wgsl").into()),
@@ -153,6 +162,9 @@ impl Environment {
             cube: pipeline("cube"),
             filter: pipeline("prefilter"),
             diffuse: pipeline("diffuse"),
+            sh: pipeline("sh"),
+            sh_texture,
+            sh_groups,
             brdf: pipeline("brdf"),
             capture: pipeline("capture"),
             layout,
@@ -174,11 +186,11 @@ impl Environment {
     pub fn prepare(
         &mut self,
         queue: &wgpu::Queue,
-        key: [f32; 18],
+        key: [f32; 22],
         atmosphere: bool,
         intensity: f32,
-        sky: [f32; 4],
-        ground: [f32; 4],
+        // Sky, ground and equator light (w 1 to use the equator).
+        [sky, ground, equator]: [[f32; 4]; 3],
     ) {
         if self.key != Some(key) {
             self.dirty.store(true, Ordering::Relaxed);
@@ -187,7 +199,7 @@ impl Environment {
         queue.write_buffer(
             &self.buffers[0],
             0,
-            bytemuck::cast_slice(&[[0.0, f32::from(atmosphere), intensity, 0.0], sky, ground]),
+            bytemuck::cast_slice(&[[0.0, f32::from(atmosphere), intensity, 0.0], sky, ground, equator]),
         );
     }
     fn draw(
@@ -231,9 +243,16 @@ impl Environment {
         );
         Self::draw(
             encoder,
+            &self.sh_texture,
+            &self.sh,
+            &self.groups[slot as usize],
+            [0, slot, 9, 1],
+        );
+        Self::draw(
+            encoder,
             &self.atlas,
             &self.diffuse,
-            &self.groups[slot as usize],
+            &self.sh_groups[slot as usize],
             [800, y, 96, 16],
         );
     }

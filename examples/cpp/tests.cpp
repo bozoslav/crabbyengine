@@ -259,8 +259,15 @@ static void three_d() {
         CHECK(light.shadows && light.shadow_cascades == 4);
         light.sun_direction = {-1, -1, 0};
         light.shadow_cascades = 2;
+        CHECK(!light.has_equator);
+        light.has_equator = true;
+        light.equator_color = crabby::rgb(0, 1, 0);
         ctx.set_lighting(light);
         CHECK(ctx.lighting().shadow_cascades == 2);
+        CHECK(ctx.lighting().has_equator && ctx.lighting().equator_color.g == 1);
+        light.has_equator = false;
+        ctx.set_lighting(light);
+        CHECK(!ctx.lighting().has_equator);
         light.shadow_cascades = 0;
         throws([&] { ctx.set_lighting(light); });
         auto sky = ctx.sky();

@@ -1163,6 +1163,8 @@ typedef struct CrabbyLighting {
   uint32_t light_shadow_views;
   uint32_t light_shadow_resolution;
   uint32_t shadow_refresh;
+  bool has_equator;
+  struct CrabbyColor equator_color;
 } CrabbyLighting;
 
 typedef struct CrabbySky {

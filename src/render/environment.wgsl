@@ -1,7 +1,8 @@
 // Render-only IBL baking. Cube faces and roughness levels are packed into
 // a 2D atlas so WebGL2 needs neither compute nor cube arrays.
 const PI: f32 = 3.14159265359;
-struct Config { params: vec4<f32>, sky: vec4<f32>, ground: vec4<f32> };
+// equator.w: 1 for a three-color gradient (sky, equator, ground).
+struct Config { params: vec4<f32>, sky: vec4<f32>, ground: vec4<f32>, equator: vec4<f32> };
 @group(0) @binding(0) var image: texture_2d<f32>;
 @group(0) @binding(1) var linear_sampler: sampler;
 @group(0) @binding(2) var<uniform> config: Config;
@@ -11,6 +12,15 @@ struct Out { @builtin(position) position: vec4<f32> };
     let uv = vec2<f32>(f32((i << 1u) & 2u), f32(i & 2u));
     o.position = vec4<f32>(uv * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0), 0.0, 1.0);
     return o;
+}
+// The ambient light without an atmosphere: sky above, ground below, and
+// with an equator color, that color on the horizon.
+fn gradient(d: vec3<f32>) -> vec3<f32> {
+    if config.equator.w > 0.0 {
+        if d.y >= 0.0 { return mix(config.equator.rgb, config.sky.rgb, d.y); }
+        return mix(config.equator.rgb, config.ground.rgb, -d.y);
+    }
+    return mix(config.ground.rgb, config.sky.rgb, d.y * 0.5 + 0.5);
 }
 fn cube_dir(face: u32, uv: vec2<f32>) -> vec3<f32> {
     let p = uv * 2.0 - 1.0;
@@ -61,7 +71,7 @@ fn ggx(xi: vec2<f32>, roughness: f32) -> vec3<f32> {
 @fragment fn cube(in: Out) -> @location(0) vec4<f32> {
     let p = in.position.xy;
     let d = cube_dir(u32(p.x / 128.0), vec2<f32>(p.x % 128.0, p.y) / 128.0);
-    var light = mix(config.ground.rgb, config.sky.rgb, d.y * 0.5 + 0.5);
+    var light = gradient(d);
     if config.params.y > 0.0 {
         let up = asin(clamp(d.y, -1.0, 1.0)) / (0.5 * PI);
         let uv = vec2<f32>(atan2(d.z, d.x) / (2.0 * PI) + 0.5, 0.5 - 0.5 * sign(up) * sqrt(abs(up)));
@@ -86,15 +96,58 @@ fn ggx(xi: vec2<f32>, roughness: f32) -> vec3<f32> {
     }
     return vec4<f32>(color / max(weight, 0.001), 1.0);
 }
+// The nine order-2 spherical harmonics at unit direction `d`.
+fn sh_basis(d: vec3<f32>, i: u32) -> f32 {
+    switch i {
+        case 0u: { return 0.282095; }
+        case 1u: { return 0.488603 * d.y; }
+        case 2u: { return 0.488603 * d.z; }
+        case 3u: { return 0.488603 * d.x; }
+        case 4u: { return 1.092548 * d.x * d.y; }
+        case 5u: { return 1.092548 * d.y * d.z; }
+        case 6u: { return 0.315392 * (3.0 * d.z * d.z - 1.0); }
+        case 7u: { return 1.092548 * d.x * d.z; }
+        default: { return 0.546274 * (d.x * d.x - d.y * d.y); }
+    }
+}
+// One spherical harmonic coefficient of the cube source (x: which one; the
+// row is the slot): every 2 x 2 texels of each face, read in one bilinear
+// sample, weighted by the solid angle they cover.
+const SH_STEPS: u32 = 64u;
+@fragment fn sh(in: Out) -> @location(0) vec4<f32> {
+    let i = u32(in.position.x);
+    var sum = vec3<f32>(0.0);
+    let step = 2.0 / f32(SH_STEPS);
+    for (var face = 0u; face < 6u; face++) {
+        for (var y = 0u; y < SH_STEPS; y++) {
+            for (var x = 0u; x < SH_STEPS; x++) {
+                let uv = (vec2<f32>(f32(x), f32(y)) + 0.5) / f32(SH_STEPS);
+                let p = uv * 2.0 - 1.0;
+                let solid_angle = step * step / pow(1.0 + dot(p, p), 1.5);
+                let d = cube_dir(face, uv);
+                let pixel = vec2<f32>(f32(face) * 128.0, 0.0) + uv * 128.0;
+                let light = textureSampleLevel(image, linear_sampler, pixel / vec2<f32>(768.0, 128.0), 0.0).rgb;
+                sum += light * sh_basis(d, i) * solid_angle;
+            }
+        }
+    }
+    return vec4<f32>(sum, 1.0);
+}
+// The diffuse light for each direction (irradiance over pi, as a cosine-
+// weighted average of the light), from the source's spherical harmonics
+// (`image` is their texture here): smooth, with no sampling noise.
 @fragment fn diffuse(in: Out) -> @location(0) vec4<f32> {
     let p = in.position.xy - vec2<f32>(800.0, 128.0 + config.params.x * 256.0);
     let n = cube_dir(u32(p.x / 16.0), vec2<f32>(p.x % 16.0, p.y) / 16.0);
-    let tangent = basis(n); var color = vec3<f32>(0.0);
-    for (var i = 0u; i < 64u; i++) {
-        let xi = sequence(i); let r = sqrt(xi.x); let phi = xi.y * 2.0 * PI;
-        color += source(tangent * vec3<f32>(r * cos(phi), r * sin(phi), sqrt(1.0 - xi.x)));
+    // The cosine lobe's weight per band, over pi: 1, 2/3, 1/4.
+    let band = array<f32, 9>(1.0, 2.0 / 3.0, 2.0 / 3.0, 2.0 / 3.0, 0.25, 0.25, 0.25, 0.25, 0.25);
+    var color = vec3<f32>(0.0);
+    for (var i = 0u; i < 9u; i++) {
+        let c = textureLoad(image, vec2<i32>(i32(i), i32(config.params.x)), 0).rgb;
+        color += c * band[i] * sh_basis(n, i);
     }
-    return vec4<f32>(color / 64.0, 1.0);
+    // A bright sun can ring below zero on the far side.
+    return vec4<f32>(max(color, vec3<f32>(0.0)), 1.0);
 }
 @fragment fn brdf(in: Out) -> @location(0) vec4<f32> {
     let uv = (in.position.xy - vec2<f32>(800.0, 0.0)) / 128.0;
@@ -118,7 +171,7 @@ fn ggx(xi: vec2<f32>, roughness: f32) -> vec3<f32> {
     let face = u32(in.position.x / 128.0);
     let local = vec2<f32>(in.position.x - f32(face) * 128.0, in.position.y);
     let d = cube_dir(face, local / 128.0);
-    let sky = mix(config.ground.rgb, config.sky.rgb, d.y * 0.5 + 0.5);
+    let sky = gradient(d);
     // The cube layout is left-handed: the camera's right is the face's left.
     let c = textureLoad(image, vec2<i32>(127 - i32(local.x), i32(local.y)), 0);
     return vec4<f32>(c.rgb + sky * (1.0 - c.a), 1.0);

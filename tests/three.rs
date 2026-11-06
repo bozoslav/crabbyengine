@@ -920,6 +920,21 @@ fn occlusion_culling_is_off_until_turned_on() {
 }
 
 #[test]
+fn a_three_color_ambient_is_set_on_the_lighting() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        assert_eq!(ctx.lighting.equator_color, None);
+        // ANCHOR: trilight
+        // Without an atmosphere: a blue sky, a green-grey horizon and brown ground.
+        ctx.sky.atmosphere = false;
+        ctx.lighting.sky_color = Color::hex(0x8FB3D9);
+        ctx.lighting.equator_color = Some(Color::hex(0x8C9A86));
+        ctx.lighting.ground_color = Color::hex(0x4D4135);
+        // ANCHOR_END: trilight
+        assert!(ctx.lighting.equator_color.is_some());
+    });
+}
+
+#[test]
 fn lod_groups_pick_levels_by_screen_height() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
         let white = ctx.default_material();
