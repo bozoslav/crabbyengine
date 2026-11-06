@@ -67,7 +67,7 @@ static void setup(CrabbyCtx* ctx, void* user) {
     CHECK(crabby_ctx_set_graphics_quality(ctx, &quality) == CRABBY_INVALID_ARGUMENT);
     CHECK(crabby_graphics_quality_preset(3, &quality) == CRABBY_OK);
     CHECK(crabby_ctx_set_graphics_quality(ctx, &quality) == CRABBY_OK);
-    CHECK(crabby_ctx_graphics_quality(ctx, &now) == CRABBY_OK && now.shadow_resolution == 4096 && now.ao_steps == 8);
+    CHECK(crabby_ctx_graphics_quality(ctx, &now) == CRABBY_OK && now.shadow_resolution == 4096 && now.ao_steps == 8 && now.shadow_refresh == 1);
     post.anti_aliasing = 3; /* temporal */
     post.taa_sharpness = 2;
     CHECK(crabby_ctx_set_post(ctx, &post) == CRABBY_INVALID_ARGUMENT);

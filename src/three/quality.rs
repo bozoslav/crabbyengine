@@ -69,6 +69,7 @@ impl QualityLevel {
 /// | `shadow_distance` | 30 | 50 | 80 | 120 |
 /// | `shadow_cascades` | 2 | 3 | 4 | 4 |
 /// | `shadow_resolution` | 1024 | 2048 | 2048 | 4096 |
+/// | `shadow_refresh` | 4 | 2 | 2 | 1 |
 /// | `light_shadow_views` | 0 | 4 | 8 | 12 |
 /// | `light_shadow_resolution` | 512 | 512 | 1024 | 1024 |
 /// | `ambient_occlusion` (slices, steps) | off | off | 2, 4 | 4, 8 |
@@ -101,6 +102,9 @@ pub struct GraphicsQuality {
     /// [`Lighting::shadow_resolution`](crate::Lighting::shadow_resolution),
     /// 256 to 4096.
     pub shadow_resolution: u32,
+    /// [`Lighting::shadow_refresh`](crate::Lighting::shadow_refresh): how
+    /// often the far cascades are drawn again, in frames, 1 to 8.
+    pub shadow_refresh: u32,
     /// [`Lighting::light_shadow_views`](crate::Lighting::light_shadow_views):
     /// how many shadow views point and spot lights share, 0 (no shadows
     /// from them) to 12.
@@ -130,6 +134,7 @@ impl Default for GraphicsQuality {
             shadow_distance: 60.0,
             shadow_cascades: 4,
             shadow_resolution: 2048,
+            shadow_refresh: 2,
             light_shadow_views: MAX_LIGHT_SHADOW_VIEWS as u32,
             light_shadow_resolution: 1024,
             ambient_occlusion: false,
@@ -142,7 +147,8 @@ impl Default for GraphicsQuality {
 
 impl GraphicsQuality {
     /// For weak GPUs: the scene is drawn at two thirds of the window's size
-    /// and sharpened on the way up, two 1024² shadow cascades reach 30 units,
+    /// and sharpened on the way up, two 1024² shadow cascades reach 30 units
+    /// (the far one redrawn every fourth frame),
     /// point and spot lights cast no shadows, no AO, no post antialiasing.
     /// ```
     /// use crabbyengine::*;
@@ -158,6 +164,7 @@ impl GraphicsQuality {
             shadow_distance: 30.0,
             shadow_cascades: 2,
             shadow_resolution: 1024,
+            shadow_refresh: 4,
             light_shadow_views: 0,
             light_shadow_resolution: 512,
             ambient_occlusion: false,
@@ -183,6 +190,7 @@ impl GraphicsQuality {
             shadow_distance: 50.0,
             shadow_cascades: 3,
             shadow_resolution: 2048,
+            shadow_refresh: 2,
             light_shadow_views: 4,
             light_shadow_resolution: 512,
             ambient_occlusion: false,
@@ -208,6 +216,7 @@ impl GraphicsQuality {
             shadow_distance: 80.0,
             shadow_cascades: 4,
             shadow_resolution: 2048,
+            shadow_refresh: 2,
             light_shadow_views: 8,
             light_shadow_resolution: 1024,
             ambient_occlusion: true,
@@ -217,7 +226,8 @@ impl GraphicsQuality {
         }
     }
 
-    /// Four 4096² cascades (256 MB of shadow maps) reaching 120 units, twelve
+    /// Four 4096² cascades (256 MB of shadow maps) reaching 120 units, all
+    /// redrawn every frame, twelve
     /// 1024² views for point and spot lights, finer AO (4 slices, 8 steps),
     /// SMAA.
     /// ```
@@ -234,6 +244,7 @@ impl GraphicsQuality {
             shadow_distance: 120.0,
             shadow_cascades: 4,
             shadow_resolution: 4096,
+            shadow_refresh: 1,
             light_shadow_views: MAX_LIGHT_SHADOW_VIEWS as u32,
             light_shadow_resolution: 1024,
             ambient_occlusion: true,
@@ -285,6 +296,7 @@ impl GraphicsQuality {
             shadow_resolution: self
                 .shadow_resolution
                 .clamp(MIN_SHADOW_RESOLUTION, MAX_SHADOW_RESOLUTION),
+            shadow_refresh: self.shadow_refresh.clamp(1, super::collect::MAX_SHADOW_REFRESH),
             light_shadow_views: self.light_shadow_views.min(MAX_LIGHT_SHADOW_VIEWS as u32),
             light_shadow_resolution: self
                 .light_shadow_resolution
@@ -318,6 +330,7 @@ impl Ctx {
             shadow_distance: self.lighting.shadow_distance,
             shadow_cascades: self.lighting.shadow_cascades,
             shadow_resolution: self.lighting.shadow_resolution,
+            shadow_refresh: self.lighting.shadow_refresh,
             light_shadow_views: self.lighting.light_shadow_views,
             light_shadow_resolution: self.lighting.light_shadow_resolution,
             ambient_occlusion: self.post.ambient_occlusion.enabled,
@@ -355,6 +368,7 @@ impl Ctx {
         self.lighting.shadow_distance = q.shadow_distance;
         self.lighting.shadow_cascades = q.shadow_cascades;
         self.lighting.shadow_resolution = q.shadow_resolution;
+        self.lighting.shadow_refresh = q.shadow_refresh;
         self.lighting.light_shadow_views = q.light_shadow_views;
         self.lighting.light_shadow_resolution = q.light_shadow_resolution;
     }
@@ -378,6 +392,10 @@ mod tests {
             assert!(a.shadow_distance < b.shadow_distance);
             assert!(a.shadow_cascades <= b.shadow_cascades);
             assert!(a.shadow_resolution <= b.shadow_resolution);
+            assert!(
+                a.shadow_refresh >= b.shadow_refresh,
+                "heavier redraws far shadows more often"
+            );
             assert!(a.light_shadow_views < b.light_shadow_views);
             assert!(a.light_shadow_resolution <= b.light_shadow_resolution);
             assert!(a.ambient_occlusion <= b.ambient_occlusion);
@@ -407,6 +425,8 @@ mod tests {
         let low = GraphicsQuality::low();
         assert_eq!((low.render_scale, low.sharpen, low.shadow_distance), (0.67, 0.5, 30.0));
         assert_eq!((low.shadow_cascades, low.shadow_resolution), (2, 1024));
+        assert_eq!(low.shadow_refresh, 4);
+        assert_eq!(GraphicsQuality::ultra().shadow_refresh, 1);
         assert_eq!((low.light_shadow_views, low.light_shadow_resolution), (0, 512));
         assert_eq!((low.ambient_occlusion, low.anti_aliasing), (false, AntiAliasing::None));
         let medium = GraphicsQuality::medium();

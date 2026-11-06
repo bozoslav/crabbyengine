@@ -1221,6 +1221,7 @@ typedef struct CrabbyGraphicsQuality {
   uint32_t ao_slices;
   uint32_t ao_steps;
   uint32_t anti_aliasing;
+  uint32_t shadow_refresh;
 } CrabbyGraphicsQuality;
 
 typedef struct CrabbyReflectionProbe3D {
