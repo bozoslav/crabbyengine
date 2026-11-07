@@ -29,7 +29,44 @@ pub(super) struct Environment {
     dirty: AtomicBool,
     pub bakes: Vec<(u32, [u32; 6])>,
     uploads: Vec<(u32, wgpu::Texture)>,
+    /// The sky lighting the image-based light was last baked from.
     key: Option<[f32; 22]>,
+    /// Frames since the sky drifted from `key` by less than a visible step.
+    stale: u32,
+}
+
+/// Bakes are full-screen filters of the whole cube (several milliseconds), so
+/// a sky that drifts every frame (a moving sun, the camera's height) is baked
+/// again only when it has visibly changed, or after this many frames of small
+/// drift, so the lighting still follows slow changes.
+const REBAKE_AFTER: u32 = 60;
+/// Parts each spherical harmonic coefficient is summed in (`SH_PARTS` in
+/// environment.wgsl): six faces, eight bands of rows each.
+const SH_PARTS: u32 = 48;
+/// A change of this share of a value (or of 1, for values below 1) is visible:
+/// about half a degree of sun, or one percent of a light's color.
+const VISIBLE_CHANGE: f32 = 0.01;
+
+/// Whether the image-based light should be baked again for sky `key`, having
+/// last been baked from `baked`, with `stale` frames of small drift so far.
+/// Returns the decision and the new drift count.
+fn rebake(baked: Option<&[f32; 22]>, key: &[f32; 22], stale: u32) -> (bool, u32) {
+    let Some(baked) = baked else {
+        return (true, 0);
+    };
+    let mut drift = false;
+    for (a, b) in baked.iter().zip(key) {
+        let change = (a - b).abs();
+        if change.is_nan() || change > VISIBLE_CHANGE * a.abs().max(b.abs()).max(1.0) {
+            return (true, 0);
+        }
+        drift |= change > 0.0;
+    }
+    match drift {
+        false => (false, 0),
+        true if stale + 1 >= REBAKE_AFTER => (true, 0),
+        true => (false, stale + 1),
+    }
 }
 impl Environment {
     pub fn new(device: &wgpu::Device, sky: &wgpu::TextureView) -> Self {
@@ -53,8 +90,8 @@ impl Environment {
         };
         let atlas = texture("IBL atlas", 1024, 1536);
         let source = texture("IBL cube source", 768, 128);
-        // Nine spherical harmonic coefficients for each of the five slots.
-        let sh_texture = texture("IBL spherical harmonics", 9, 5);
+        // Each of the five slots' nine coefficients in SH_PARTS parts.
+        let sh_texture = texture("IBL spherical harmonics", 9 * SH_PARTS, 5);
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("IBL bake"),
             entries: &[
@@ -180,6 +217,7 @@ impl Environment {
             dirty: AtomicBool::new(true),
             bakes: Vec::new(),
             key: None,
+            stale: 0,
             uploads: Vec::new(),
         }
     }
@@ -192,10 +230,12 @@ impl Environment {
         // Sky, ground and equator light (w 1 to use the equator).
         [sky, ground, equator]: [[f32; 4]; 3],
     ) {
-        if self.key != Some(key) {
+        let (bake, stale) = rebake(self.key.as_ref(), &key, self.stale);
+        self.stale = stale;
+        if bake {
             self.dirty.store(true, Ordering::Relaxed);
+            self.key = Some(key);
         }
-        self.key = Some(key);
         queue.write_buffer(
             &self.buffers[0],
             0,
@@ -246,7 +286,7 @@ impl Environment {
             &self.sh_texture,
             &self.sh,
             &self.groups[slot as usize],
-            [0, slot, 9, 1],
+            [0, slot, 9 * SH_PARTS, 1],
         );
         Self::draw(
             encoder,
@@ -355,5 +395,42 @@ impl Environment {
             }
             self.filter(encoder, *slot);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slow_sky_drift_rebakes_once_a_second_and_visible_changes_at_once() {
+        let mut key = [0.5; 22];
+        assert_eq!(rebake(None, &key, 0), (true, 0));
+        let baked = key;
+        assert_eq!(rebake(Some(&baked), &key, 0), (false, 0));
+        // The sun creeping along: no bake until it has drifted for a while.
+        let mut stale = 0;
+        for frame in 1..REBAKE_AFTER {
+            key[0] = 0.5 + frame as f32 * 1e-5;
+            let (bake, next) = rebake(Some(&baked), &key, stale);
+            assert!(!bake, "frame {frame}");
+            stale = next;
+        }
+        assert_eq!(rebake(Some(&baked), &key, stale), (true, 0));
+        // A visible step (a cloud over the sun, a teleport) bakes at once.
+        let mut jump = baked;
+        jump[4] = 0.5 + 1.5 * VISIBLE_CHANGE;
+        assert_eq!(rebake(Some(&baked), &jump, 0), (true, 0));
+        // Large values compare relatively: the camera 1 m higher at 180 m drifts.
+        let mut high = baked;
+        high[4] = 180.0;
+        let mut higher = high;
+        higher[4] = 181.0;
+        assert_eq!(rebake(Some(&high), &higher, 0), (false, 1));
+        higher[4] = 183.0;
+        assert_eq!(rebake(Some(&high), &higher, 0), (true, 0));
+        let mut nan = baked;
+        nan[1] = f32::NAN;
+        assert!(rebake(Some(&baked), &nan, 0).0);
     }
 }
