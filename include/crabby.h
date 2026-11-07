@@ -1237,6 +1237,9 @@ typedef struct CrabbyPost {
   float temperature;
   float tint;
   float vignette;
+  float chromatic_aberration;
+  float lens_distortion;
+  float lens_scale;
   bool has_lut;
   struct CrabbyTexture lut;
   float taa_sharpness;

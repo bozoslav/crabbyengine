@@ -93,7 +93,7 @@ pub struct AudioListener3D {
 pub struct AudioSource3D {
     /// Clip to play. Changes apply when the component is replaced.
     pub sound: Sound,
-    /// Live volume, pitch, attenuation and looping settings (looping applies at start).
+    /// Live volume, pitch, attenuation, effects and looping settings (looping applies at start).
     pub settings: AudioSettings3D,
     playing: Option<Playing>,
 }
@@ -282,6 +282,7 @@ pub(crate) fn update_audio3d(ctx: &mut Ctx) {
     while i < ctx.audio.spatial.voices.len() {
         let voice = &mut ctx.audio.spatial.voices[i];
         let mut position = voice.position;
+        let mut changed_effects = None;
         if let Some(entity) = voice.entity {
             match (
                 ctx.world.get::<Transform3D>(entity),
@@ -290,6 +291,9 @@ pub(crate) fn update_audio3d(ctx: &mut Ctx) {
                 (Some(transform), Some(source)) if source.playing == Some(voice.id) => {
                     position = transform.position;
                     let looping = voice.settings.sound.looping;
+                    if source.settings.effects != voice.settings.effects {
+                        changed_effects = Some(source.settings.effects);
+                    }
                     voice.settings = source.settings;
                     voice.settings.sound.looping = looping;
                 }
@@ -319,6 +323,11 @@ pub(crate) fn update_audio3d(ctx: &mut Ctx) {
             pan(offset, listener.rotation),
         );
         let finished = !settings.sound.looping && voice.remaining <= 0.0;
+        if let Some(effects) = changed_effects {
+            // Kira smooths the change, so a filter can follow the game (a
+            // door closing, the camera moving inside).
+            ctx.audio.effects(id.0, effects);
+        }
         ctx.audio.spatialize(id.0, volume, panning, speed);
         if finished {
             ctx.audio.spatial.voices.swap_remove(i);

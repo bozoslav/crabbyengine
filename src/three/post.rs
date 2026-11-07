@@ -184,6 +184,21 @@ pub struct Post {
     pub tint: f32,
     /// How much the corners darken, 0 to 1. Default 0.
     pub vignette: f32,
+    /// Color fringes toward the edges, as a cheap lens splits red, green
+    /// and blue apart, 0 to 1. Default 0.
+    /// ```
+    /// use crabbyengine::*;
+    /// let speed = Post { chromatic_aberration: 0.8, lens_distortion: -0.26, lens_scale: 1.04, ..Default::default() };
+    /// assert_eq!(Post::default().chromatic_aberration, 0.0);
+    /// # let _ = speed;
+    /// ```
+    pub chromatic_aberration: f32,
+    /// Bends the picture as a lens would, -1 to 1: above 0 bulges the
+    /// middle out (barrel), below 0 pinches it in (pincushion). Default 0.
+    pub lens_distortion: f32,
+    /// Zooms the picture in (above 1) or out after the distortion, to hide
+    /// the edges it pulls in. Above zero; default 1.
+    pub lens_scale: f32,
     /// A color lookup table for grading, applied after tone mapping: a
     /// strip of `n` squares of `n` x `n` pixels (for example 1024 x 32),
     /// red across each square, green down it, blue from square to square.
@@ -214,6 +229,9 @@ impl Default for Post {
             temperature: 0.0,
             tint: 0.0,
             vignette: 0.0,
+            chromatic_aberration: 0.0,
+            lens_distortion: 0.0,
+            lens_scale: 1.0,
             lut: None,
         }
     }
@@ -294,6 +312,27 @@ pub(crate) struct PostUniform {
     /// For the scaling pass: one output pixel in uv (x, y), the sharpness
     /// (z) and the scene's size over the output's (w).
     pub output: [f32; 4],
+    /// Lens distortion: x theta (or its inverse when pinching), y sigma,
+    /// z one over the scale, w 1 barrel, -1 pincushion, 0 off. See [`lens`].
+    pub lens: [f32; 4],
+    /// x: chromatic aberration amount (0 off).
+    pub fringe: [f32; 4],
+}
+
+/// The lens distortion terms, as Unity's and other engines' "lens
+/// distortion" effects compute them: an angle `theta` that grows with the
+/// strength (capped at 160 degrees), and `sigma = 2 tan(theta / 2)`.
+fn lens(post: &Post) -> [f32; 4] {
+    let intensity = post.lens_distortion;
+    if !intensity.is_finite() || intensity == 0.0 {
+        return [0.0, 0.0, 1.0, 0.0];
+    }
+    let intensity = intensity.clamp(-1.0, 1.0);
+    let amount = 1.6 * (intensity * 100.0).abs().max(1.0);
+    let theta = amount.min(160.0).to_radians();
+    let sigma = 2.0 * (theta * 0.5).tan();
+    let scale = if post.lens_scale.is_finite() && post.lens_scale > 0.0 { post.lens_scale } else { 1.0 };
+    [if intensity > 0.0 { theta } else { 1.0 / theta }, sigma, 1.0 / scale, if intensity > 0.0 { 1.0 } else { -1.0 }]
 }
 
 impl PostUniform {
@@ -311,6 +350,17 @@ impl PostUniform {
             mode: [post.tonemap as u32, lut_size.unwrap_or(0), u32::from(bloom > 0.0), 0],
             bloom: [post.bloom_threshold.max(0.0), 0.5, 0.0, 0.0],
             output: [0.0; 4],
+            lens: lens(post),
+            fringe: [
+                if post.chromatic_aberration.is_finite() {
+                    post.chromatic_aberration.clamp(0.0, 1.0) * 0.05
+                } else {
+                    0.0
+                },
+                0.0,
+                0.0,
+                0.0,
+            ],
         }
     }
 
@@ -381,6 +431,40 @@ mod tests {
         };
         let u = PostUniform::new(&post, None).scaled(&post, (960, 540), (1920, 1080));
         assert_eq!(u.output, [1.0 / 1920.0, 1.0 / 1080.0, 1.0, 0.5], "sharpness is clamped");
+    }
+
+    #[test]
+    fn lens_terms_follow_the_strength_and_stay_off_at_zero() {
+        let off = PostUniform::new(&Post::default(), None);
+        assert_eq!((off.lens[3], off.fringe[0]), (0.0, 0.0));
+        let bulge = PostUniform::new(
+            &Post {
+                lens_distortion: 0.5,
+                chromatic_aberration: 2.0,
+                ..Default::default()
+            },
+            None,
+        );
+        let theta = 80f32.to_radians();
+        assert!((bulge.lens[0] - theta).abs() < 1e-6);
+        assert!((bulge.lens[1] - 2.0 * (theta / 2.0).tan()).abs() < 1e-5);
+        assert_eq!((bulge.lens[2], bulge.lens[3]), (1.0, 1.0));
+        assert_eq!(bulge.fringe[0], 0.05, "clamped to 1");
+        let pinch = PostUniform::new(
+            &Post {
+                lens_distortion: -0.26,
+                lens_scale: 1.04,
+                ..Default::default()
+            },
+            None,
+        );
+        let theta = (1.6f32 * 26.0).to_radians();
+        assert!((pinch.lens[0] - 1.0 / theta).abs() < 1e-5);
+        assert!((pinch.lens[2] - 1.0 / 1.04).abs() < 1e-6);
+        assert_eq!(pinch.lens[3], -1.0);
+        let strong = lens(&Post { lens_distortion: 1.0, ..Default::default() });
+        assert!((strong[0] - 160f32.to_radians()).abs() < 1e-6, "capped at 160 degrees");
+        assert_eq!(size_of::<PostUniform>() % 16, 0);
     }
 
     #[test]

@@ -243,6 +243,26 @@ fn golden_hour(ctx: &mut Ctx) {
 }
 // ANCHOR_END: post
 
+// ANCHOR: lens
+/// The rush of speed: colors split at the edges, the middle pinches in.
+fn speed_lens(ctx: &mut Ctx, speed: f32) {
+    let rush = (speed / 40.0).clamp(0.0, 1.0);
+    ctx.post.chromatic_aberration = 0.8 * rush;
+    ctx.post.lens_distortion = -0.26 * rush;
+    ctx.post.lens_scale = 1.0 + 0.04 * rush; // hide the pulled-in edges
+}
+// ANCHOR_END: lens
+
+#[test]
+fn lens_settings_stay_as_set() {
+    Game::new("t", 1, 1).run_headless(1, |ctx| {
+        speed_lens(ctx, 40.0);
+        assert_eq!(ctx.post.chromatic_aberration, 0.8);
+        assert_eq!(ctx.post.lens_distortion, -0.26);
+        assert_eq!(ctx.post.lens_scale, 1.04);
+    });
+}
+
 #[test]
 fn post_settings_stay_as_set() {
     Game::new("t", 1, 1).run_headless(1, |ctx| {

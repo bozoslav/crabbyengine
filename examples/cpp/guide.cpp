@@ -1133,6 +1133,18 @@ static void golden_hour(crabby::ctx& ctx) {
 }
 // ANCHOR_END: post
 
+// ANCHOR: lens
+/// The rush of speed: colors split at the edges, the middle pinches in.
+static void speed_lens(crabby::ctx& ctx, float speed) {
+    float rush = std::clamp(speed / 40.0f, 0.0f, 1.0f);
+    auto post = ctx.post();
+    post.chromatic_aberration = 0.8f * rush;
+    post.lens_distortion = -0.26f * rush;
+    post.lens_scale = 1.0f + 0.04f * rush; // hide the pulled-in edges
+    ctx.set_post(post);
+}
+// ANCHOR_END: lens
+
 // ANCHOR: ssr
 /// Wet streets and polished floors reflect what's on screen.
 static void screen_reflections(crabby::ctx& ctx) {
@@ -1451,6 +1463,7 @@ static void the_village_has_five_spinning_houses() {
     auto world = crabby::game("guide", 640, 480).sim_system(spin, "spin").run_headless(60, [](crabby::ctx& ctx) {
         village(ctx);
         golden_hour(ctx);
+        speed_lens(ctx, 40.0f);
         options_menu(ctx);
         temporal_antialiasing(ctx);
         screen_reflections(ctx);
