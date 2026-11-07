@@ -1,7 +1,7 @@
 // Post-processing of the 3D frame: bloom (a mip chain of downsamples and
 // upsamples, as in Jimenez's "Next generation post processing in Call of
 // Duty"), then exposure, white balance, contrast, saturation, tone mapping,
-// a color lookup table and vignette.
+// a color lookup table, vignette, chromatic aberration and lens distortion.
 
 struct Post {
     grade: vec4<f32>,   // exposure multiplier, bloom, contrast, saturation
@@ -9,6 +9,8 @@ struct Post {
     mode: vec4<u32>,    // tone map, lookup table size (0 none), bloom on
     bloom: vec4<f32>,   // threshold, soft knee
     output: vec4<f32>,  // scaling: one output pixel in uv, sharpness, scene size / output size
+    lens: vec4<f32>,    // distortion: theta (1/theta pinching), sigma, 1/scale, 1 barrel -1 pinch 0 off
+    fringe: vec4<f32>,  // x: chromatic aberration amount (0 off)
 };
 
 @group(0) @binding(0) var source: texture_2d<f32>;
@@ -203,14 +205,58 @@ fn apply_lut(c: vec3<f32>) -> vec3<f32> {
     return mix(a, b, s.b - blue);
 }
 
+// ---- Lens ----
+
+// The usual "lens distortion" mapping (as in Unity's post stack): scale
+// about the middle, then bend the radius with tan (barrel) or atan
+// (pincushion).
+fn distort(uv_in: vec2<f32>) -> vec2<f32> {
+    if post.lens.w == 0.0 {
+        return uv_in;
+    }
+    let uv = (uv_in - 0.5) * post.lens.z + 0.5;
+    let ruv = uv - 0.5;
+    let r = max(length(ruv), 1e-5);
+    var bent: f32;
+    if post.lens.w > 0.0 {
+        bent = tan(r * post.lens.x) / (r * post.lens.y);
+    } else {
+        bent = post.lens.x * atan(r * post.lens.y) / r;
+    }
+    return uv + ruv * (bent - 1.0);
+}
+
+// The scene through the lens: distorted, and with red, green and blue
+// taken a little apart toward the edges when there is a fringe.
+fn lens_sample(uv: vec2<f32>) -> vec4<f32> {
+    let amount = post.fringe.x;
+    let center = textureSampleLevel(source, linear_clamp, distort(uv), 0.0);
+    if amount <= 0.0 {
+        return center;
+    }
+    let coords = 2.0 * uv - 1.0;
+    let end = uv - coords * dot(coords, coords) * amount;
+    let delta = (end - uv) / 3.0;
+    let g = textureSampleLevel(source, linear_clamp, distort(uv + delta), 0.0).g;
+    let b = textureSampleLevel(source, linear_clamp, distort(uv + delta * 2.0), 0.0).b;
+    return vec4<f32>(center.r, g, b, center.a);
+}
+
 @fragment
 fn fs_tonemap(in: Full) -> @location(0) vec4<f32> {
-    let texel = textureLoad(source, vec2<i32>(in.at.xy), 0);
+    var texel: vec4<f32>;
+    var bloom_uv = in.uv;
+    if post.lens.w == 0.0 && post.fringe.x <= 0.0 {
+        texel = textureLoad(source, vec2<i32>(in.at.xy), 0);
+    } else {
+        texel = lens_sample(in.uv);
+        bloom_uv = distort(in.uv);
+    }
     // Alpha is 1 where models were drawn and 0 on the background, which
     // keeps the game's clear color as it is (averaged at the edges).
     var c = texel.rgb * post.grade.x;
     if post.mode.z != 0u {
-        c += textureSampleLevel(bloom, linear_clamp, in.uv, 0.0).rgb * post.grade.y;
+        c += textureSampleLevel(bloom, linear_clamp, bloom_uv, 0.0).rgb * post.grade.y;
     }
     c = max(white_balance(c), vec3<f32>(0.0));
     // Contrast around middle grey, in stops.

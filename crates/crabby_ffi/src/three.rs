@@ -601,6 +601,12 @@ pub struct CrabbyPost {
     pub tint: f32,
     /// How much the corners darken, 0 to 1.
     pub vignette: f32,
+    /// Color fringes toward the edges, 0 to 1.
+    pub chromatic_aberration: f32,
+    /// Lens bend, -1 (pinch) to 1 (bulge); 0 is off.
+    pub lens_distortion: f32,
+    /// Zoom after the lens bend, above zero (default 1).
+    pub lens_scale: f32,
     /// Whether `lut` is used.
     pub has_lut: bool,
     /// A color lookup table: n squares of n x n pixels in a row.
@@ -2461,6 +2467,9 @@ pub unsafe extern "C" fn crabby_ctx_post(ctx: *mut CrabbyCtx, out_post: *mut Cra
                     temperature: p.temperature,
                     tint: p.tint,
                     vignette: p.vignette,
+                    chromatic_aberration: p.chromatic_aberration,
+                    lens_distortion: p.lens_distortion,
+                    lens_scale: p.lens_scale,
                     has_lut: p.lut.is_some(),
                     lut: p.lut.map(texture_to_c).unwrap_or(CrabbyTexture {
                         id: 0,
@@ -2480,7 +2489,9 @@ pub unsafe extern "C" fn crabby_ctx_post(ctx: *mut CrabbyCtx, out_post: *mut Cra
 /// Changes the 3D post-processing settings. `tonemap` must be 0 to 3;
 /// bloom, its threshold, contrast and saturation can't be negative;
 /// `render_scale` is 0.25 to 2 and `sharpen` 0 to 1; `contact_shadows`
-/// can't be negative; `ssr` is 0 to 1 and `ssr_max_distance` above zero.
+/// can't be negative; `ssr` is 0 to 1 and `ssr_max_distance` above zero;
+/// `chromatic_aberration` is 0 to 1, `lens_distortion` -1 to 1 and
+/// `lens_scale` above zero.
 /// # Safety
 /// `ctx` null or live; `post` valid.
 /// ```
@@ -2519,6 +2530,14 @@ pub unsafe extern "C" fn crabby_ctx_set_post(ctx: *mut CrabbyCtx, post: *const C
             {
                 return Err(invalid(
                     "AO requires positive finite radius, nonnegative finite intensity, 1..8 slices and 1..16 steps",
+                ));
+            }
+            if !(0.0..=1.0).contains(&p.chromatic_aberration)
+                || !(-1.0..=1.0).contains(&p.lens_distortion)
+                || !(p.lens_scale.is_finite() && p.lens_scale > 0.0)
+            {
+                return Err(invalid(
+                    "chromatic_aberration must be 0 to 1, lens_distortion -1 to 1 and lens_scale above zero",
                 ));
             }
             if !(MIN_RENDER_SCALE..=MAX_RENDER_SCALE).contains(&p.render_scale) || !(0.0..=1.0).contains(&p.sharpen) {
@@ -2569,6 +2588,9 @@ pub unsafe extern "C" fn crabby_ctx_set_post(ctx: *mut CrabbyCtx, post: *const C
                 temperature: p.temperature,
                 tint: p.tint,
                 vignette: p.vignette,
+                chromatic_aberration: p.chromatic_aberration,
+                lens_distortion: p.lens_distortion,
+                lens_scale: p.lens_scale,
                 lut: p.has_lut.then(|| texture_from_c(p.lut)),
                 contact_shadows: p.contact_shadows,
                 ssr: p.ssr,

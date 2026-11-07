@@ -8,6 +8,12 @@ says what that covers.
 ## [Unreleased]
 
 ### Added
+- Lens post effects: `Post::chromatic_aberration` (color fringes toward
+  the edges), `lens_distortion` (barrel or pincushion) and `lens_scale`.
+  In C and C++ as `CrabbyPost` fields.
+- A playing `AudioSource3D` now follows changes to `settings.effects`
+  (low-pass cutoff and reverb send), smoothed, instead of keeping the
+  effects it started with.
 - Named input actions (behind no feature): bind keyboard, mouse and gamepad
   inputs to names once and query those names in game systems.
   `Action::Button`, `Action::Axis` and `Action::Axis2` take several sources
