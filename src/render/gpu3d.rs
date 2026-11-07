@@ -2389,8 +2389,14 @@ impl Renderer3D {
             light_view_proj,
             light_rect,
             probes: frame.probes,
-            // Light shadows move out along the normal by 1.5 texels too.
-            light_shadow: [frame.light_views as f32, 1.0 / atlas, 1.5, 0.0],
+            // Light shadows move out along the normal by 1.5 texels too; w
+            // is the sun shadow's filter (`Lighting::shadow_filter`).
+            light_shadow: [
+                frame.light_views as f32,
+                1.0 / atlas,
+                1.5,
+                lighting.shadow_filter.clamp(1, 3) as f32,
+            ],
             cluster_depth: cluster_depth(frame),
             cluster_view_proj: frame.view_proj.to_cols_array_2d(),
             view_proj: view_proj.to_cols_array_2d(),

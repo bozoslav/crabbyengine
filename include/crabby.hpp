@@ -3198,7 +3198,7 @@ public:
     }
     crabby::lighting lighting() const { crabby::lighting l{}; detail::check(crabby_ctx_lighting(raw_, &l)); return l; }
     /// Intensities and the shadow distance can't be negative; shadow_cascades is 1 to 4,
-    /// shadow_refresh 1 to 8; shadow_resolution is 256 to 4096, light_shadow_resolution
+    /// shadow_refresh 1 to 8, shadow_filter 1 to 3; shadow_resolution is 256 to 4096, light_shadow_resolution
     /// 128 to 2048, light_shadow_views 0 to 24 and light_shadow_atlas a power of two
     /// from 1024 to 8192. With gi_enabled, gi_extent and gi_spacing must be above
     /// zero, gi_probes_per_frame 1 to 16 and gi_intensity not negative.

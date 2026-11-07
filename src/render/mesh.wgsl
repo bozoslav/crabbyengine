@@ -37,7 +37,7 @@ struct Frame {
     light_view_proj: array<mat4x4<f32>, 24>,
     // Each view's tile in the light shadow atlas, in uv: x, y, side.
     light_rect: array<vec4<f32>, 24>,
-    light_shadow: vec4<f32>, // views (0: none), atlas texel size in uv, normal offset in texels
+    light_shadow: vec4<f32>, // views (0: none), atlas texel size in uv, normal offset in texels, w: sun shadow filter (1 to 3)
     probes: array<ReflectionVolume, 4>,
     // Temporal antialiasing: `view_proj` carries the sub-pixel jitter; these
     // are the camera without it, and last frame's, to tell motion from jitter.
@@ -550,8 +550,23 @@ fn cascade_coords(i: i32, world: vec3<f32>, n: vec3<f32>) -> vec4<f32> {
 }
 
 // How much light cascade `i` lets through at `c` (from `cascade_coords`),
-// softened over 3x3 texels.
+// softened by `Lighting::shadow_filter`: one bilinear lookup (2x2 texels),
+// four half a texel apart (3x3), or nine a texel apart (4x4).
 fn cascade_light(i: i32, c: vec4<f32>) -> f32 {
+    let soft = frame.light_shadow.w;
+    if soft < 1.5 {
+        return textureSampleCompareLevel(shadow_map, shadow_sampler, c.xy, i, c.z);
+    }
+    if soft < 2.5 {
+        var four = 0.0;
+        for (var y = -1; y <= 1; y += 2) {
+            for (var x = -1; x <= 1; x += 2) {
+                let at = c.xy + vec2<f32>(f32(x), f32(y)) * 0.5 * frame.shadow.y;
+                four += textureSampleCompareLevel(shadow_map, shadow_sampler, at, i, c.z);
+            }
+        }
+        return four / 4.0;
+    }
     var lit = 0.0;
     for (var y = -1; y <= 1; y++) {
         for (var x = -1; x <= 1; x++) {

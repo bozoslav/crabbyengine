@@ -677,6 +677,12 @@ pub struct Lighting {
     /// then lag by up to that many frames. Default 2: half the far
     /// cascades' drawing.
     pub shadow_refresh: u32,
+    /// How soft the sun's shadow edges are, 1 to 3: how many lookups each
+    /// lit pixel takes in the shadow map. 1 is one smooth lookup (2x2
+    /// texels), the cheapest; 2 is four (3x3 texels); 3 is nine (4x4
+    /// texels), the softest. Default 3. Each step costs about as much as the
+    /// lookups it adds, on every lit pixel.
+    pub shadow_filter: u32,
     /// How many shadow views point and spot lights may share, 0 to
     /// [`MAX_LIGHT_SHADOW_VIEWS`]: a shadowed spot light takes one, a
     /// shadowed point light six. 0 turns point and spot light shadows off.
@@ -715,6 +721,7 @@ impl Default for Lighting {
             shadow_cascades: 4,
             shadow_resolution: SHADOW_MAP_SIZE,
             shadow_refresh: 2,
+            shadow_filter: 3,
             light_shadow_views: 12,
             light_shadow_resolution: LIGHT_SHADOW_SIZE,
             light_shadow_atlas: LIGHT_SHADOW_ATLAS_SIZE,

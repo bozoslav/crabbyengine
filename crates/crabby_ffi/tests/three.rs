@@ -144,6 +144,7 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
         };
         ids.errors.push(crabby_ctx_set_lighting(ctx, &dark));
         assert_eq!((light.shadow_cascades, light.shadow_refresh), (4, 2));
+        assert_eq!(light.shadow_filter, 3);
         assert!(!light.has_equator);
         let trilight = CrabbyLighting {
             has_equator: true,
@@ -464,6 +465,8 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
             CrabbyGraphicsQuality { ao_steps: 17, ..q },
             CrabbyGraphicsQuality { anti_aliasing: 4, ..q },
             CrabbyGraphicsQuality { shadow_refresh: 0, ..q },
+            CrabbyGraphicsQuality { shadow_filter: 0, ..q },
+            CrabbyGraphicsQuality { shadow_filter: 4, ..q },
             CrabbyGraphicsQuality { ssr: 2.0, ..q },
             CrabbyGraphicsQuality {
                 shadow_distance: f32::NAN,
@@ -505,6 +508,14 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
             },
             CrabbyLighting {
                 shadow_refresh: 9,
+                ..light
+            },
+            CrabbyLighting {
+                shadow_filter: 0,
+                ..light
+            },
+            CrabbyLighting {
+                shadow_filter: 4,
                 ..light
             },
         ] {
