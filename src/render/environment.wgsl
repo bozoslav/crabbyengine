@@ -110,25 +110,32 @@ fn sh_basis(d: vec3<f32>, i: u32) -> f32 {
         default: { return 0.546274 * (d.x * d.x - d.y * d.y); }
     }
 }
-// One spherical harmonic coefficient of the cube source (x: which one; the
-// row is the slot): every 2 x 2 texels of each face, read in one bilinear
-// sample, weighted by the solid angle they cover.
+// Part of one spherical harmonic coefficient of the cube source (the row is
+// the slot): column `x` holds coefficient `x % 9` over one band of rows of
+// one face (`SH_BANDS` bands per face), so the sum runs on many pixels at
+// once; `diffuse` adds the parts. Every 2 x 2 texels are read in one
+// bilinear sample, weighted by the solid angle they cover.
 const SH_STEPS: u32 = 64u;
+const SH_BANDS: u32 = 8u;
+const SH_PARTS: u32 = 6u * SH_BANDS;
 @fragment fn sh(in: Out) -> @location(0) vec4<f32> {
-    let i = u32(in.position.x);
+    let column = u32(in.position.x);
+    let i = column % 9u;
+    let part = column / 9u;
+    let face = part / SH_BANDS;
+    let rows = SH_STEPS / SH_BANDS;
+    let first = (part % SH_BANDS) * rows;
     var sum = vec3<f32>(0.0);
     let step = 2.0 / f32(SH_STEPS);
-    for (var face = 0u; face < 6u; face++) {
-        for (var y = 0u; y < SH_STEPS; y++) {
-            for (var x = 0u; x < SH_STEPS; x++) {
-                let uv = (vec2<f32>(f32(x), f32(y)) + 0.5) / f32(SH_STEPS);
-                let p = uv * 2.0 - 1.0;
-                let solid_angle = step * step / pow(1.0 + dot(p, p), 1.5);
-                let d = cube_dir(face, uv);
-                let pixel = vec2<f32>(f32(face) * 128.0, 0.0) + uv * 128.0;
-                let light = textureSampleLevel(image, linear_sampler, pixel / vec2<f32>(768.0, 128.0), 0.0).rgb;
-                sum += light * sh_basis(d, i) * solid_angle;
-            }
+    for (var y = first; y < first + rows; y++) {
+        for (var x = 0u; x < SH_STEPS; x++) {
+            let uv = (vec2<f32>(f32(x), f32(y)) + 0.5) / f32(SH_STEPS);
+            let p = uv * 2.0 - 1.0;
+            let solid_angle = step * step / pow(1.0 + dot(p, p), 1.5);
+            let d = cube_dir(face, uv);
+            let pixel = vec2<f32>(f32(face) * 128.0, 0.0) + uv * 128.0;
+            let light = textureSampleLevel(image, linear_sampler, pixel / vec2<f32>(768.0, 128.0), 0.0).rgb;
+            sum += light * sh_basis(d, i) * solid_angle;
         }
     }
     return vec4<f32>(sum, 1.0);
@@ -143,7 +150,10 @@ const SH_STEPS: u32 = 64u;
     let band = array<f32, 9>(1.0, 2.0 / 3.0, 2.0 / 3.0, 2.0 / 3.0, 0.25, 0.25, 0.25, 0.25, 0.25);
     var color = vec3<f32>(0.0);
     for (var i = 0u; i < 9u; i++) {
-        let c = textureLoad(image, vec2<i32>(i32(i), i32(config.params.x)), 0).rgb;
+        var c = vec3<f32>(0.0);
+        for (var part = 0u; part < SH_PARTS; part++) {
+            c += textureLoad(image, vec2<i32>(i32(part * 9u + i), i32(config.params.x)), 0).rgb;
+        }
         color += c * band[i] * sh_basis(n, i);
     }
     // A bright sun can ring below zero on the far side.

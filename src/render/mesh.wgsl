@@ -209,7 +209,11 @@ fn fog_along(color: vec3<f32>, world: vec3<f32>, distance: bool) -> vec3<f32> {
     let mu = dot(dir, frame.sun_dir.xyz);
     let phase = (1.0 - g * g) / pow(max(1.0 + g * g - 2.0 * g * mu, 1e-4), 1.5);
     var glow = frame.fog_far.z;
-    if glow > 0.0 && density > 0.0 && frame.fog.w > 0.0 {
+    // The shafts can only darken this pixel's glow, by at most what the glow
+    // adds; where that is below what a display shows (looking away from the
+    // sun, or through little fog), skip the march.
+    let visible = max(max(frame.sun_color.r, frame.sun_color.g), frame.sun_color.b) * phase * glow * (1.0 - seen);
+    if visible > SHAFT_VISIBLE && density > 0.0 && frame.fog.w > 0.0 {
         glow *= mix(1.0, fog_in_sun(world, start * span * along), frame.fog.w);
     }
     fog_color += frame.sun_color.rgb * phase * glow;
@@ -218,6 +222,9 @@ fn fog_along(color: vec3<f32>, world: vec3<f32>, distance: bool) -> vec3<f32> {
 
 // Steps of the march through the fog for light shafts.
 const SHAFT_STEPS: i32 = 16;
+// The least glow (in linear color) the shafts are marched for: below it,
+// darkening it to nothing changes the pixel by less than a display shows.
+const SHAFT_VISIBLE: f32 = 0.002;
 
 // Of the sunlight the fog between the camera and `world` scatters toward
 // the camera, the share that isn't in shadow (`optical`: the fog's whole
@@ -240,31 +247,40 @@ fn fog_in_sun(world: vec3<f32>, optical: f32) -> f32 {
     let pixel = floor((clip.xy / clip.w * vec2<f32>(0.5, -0.5) + 0.5) * frame.screen.xy);
     let turn = f32(u32(frame.time.x * 60.0) % 64u);
     let jitter = fract(52.9829189 * fract(dot(pixel + 5.588238 * turn, vec2<f32>(0.06711056, 0.00583715))));
+    // The sun's cascades are orthographic, so a point's shadow map coordinates
+    // move linearly along the ray: project its two ends once per cascade and
+    // interpolate, rather than projecting every step into every cascade.
+    let end = frame.camera.xyz + ray * (reach / span);
+    var start_at: array<vec3<f32>, 4>;
+    var along: array<vec3<f32>, 4>;
+    for (var c = 0; c < count; c++) {
+        let a = (frame.sun_view_proj[c] * vec4<f32>(frame.camera.xyz, 1.0)).xyz;
+        start_at[c] = a;
+        along[c] = (frame.sun_view_proj[c] * vec4<f32>(end, 1.0)).xyz - a;
+    }
     var through = 1.0;
     var lit = 0.0;
     for (var i = 0; i < SHAFT_STEPS; i++) {
-        let p = frame.camera.xyz + ray * ((f32(i) + jitter) * dt / span);
+        let f = (f32(i) + jitter) / f32(SHAFT_STEPS);
+        let p = frame.camera.xyz + (end - frame.camera.xyz) * f;
         let thick = frame.fog.x * exp(min(-(p.y - frame.fog.y) * frame.fog.z, 20.0)) * dt;
         let scattered = through * (1.0 - exp(-thick));
         through *= exp(-thick);
-        lit += scattered * sun_at(p);
+        // The sharpest cascade that holds the point (all sun outside them).
+        var sun = 1.0;
+        for (var c = 0; c < count; c++) {
+            let ndc = start_at[c] + along[c] * f;
+            if max(abs(ndc.x), abs(ndc.y)) < 1.0 && ndc.z <= 1.0 {
+                sun = textureSampleCompareLevel(shadow_map, shadow_sampler, vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5), c, ndc.z);
+                break;
+            }
+        }
+        lit += scattered * sun;
     }
     let all = 1.0 - exp(-optical);
     // Past the shadow distance: all in sun.
     let beyond = max(through - exp(-optical), 0.0);
     return clamp((lit + beyond) / max(all, 1e-5), 0.0, 1.0);
-}
-
-// Whether the sun reaches `world`, one shadow map tap in the sharpest
-// cascade that holds it (1 outside them all).
-fn sun_at(world: vec3<f32>) -> f32 {
-    for (var i = 0; i < i32(frame.shadow.x); i++) {
-        let c = cascade_coords(i, world, vec3<f32>(0.0));
-        if c.w < 1.0 {
-            return textureSampleCompareLevel(shadow_map, shadow_sampler, c.xy, i, c.z);
-        }
-    }
-    return 1.0;
 }
 
 // `color` seen through all the fog between the camera and `world`.
