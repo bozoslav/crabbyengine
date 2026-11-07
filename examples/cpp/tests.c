@@ -100,7 +100,7 @@ static void setup(CrabbyCtx* ctx, void* user) {
     CHECK(crabby_ctx_set_graphics_quality(ctx, &quality) == CRABBY_INVALID_ARGUMENT);
     CHECK(crabby_graphics_quality_preset(3, &quality) == CRABBY_OK);
     CHECK(crabby_ctx_set_graphics_quality(ctx, &quality) == CRABBY_OK);
-    CHECK(crabby_ctx_graphics_quality(ctx, &now) == CRABBY_OK && now.shadow_resolution == 4096 && now.ao_steps == 8 && now.shadow_refresh == 1 && now.ssr == 1 && now.gi);
+    CHECK(crabby_ctx_graphics_quality(ctx, &now) == CRABBY_OK && now.shadow_resolution == 4096 && now.ao_steps == 8 && now.shadow_refresh == 1 && now.shadow_filter == 3 && now.ssr == 1 && now.gi);
     CHECK(now.light_shadow_atlas == 8192 && now.light_shadow_views == 24);
     quality.light_shadow_atlas = 3000; /* not a power of two */
     CHECK(crabby_ctx_set_graphics_quality(ctx, &quality) == CRABBY_INVALID_ARGUMENT);

@@ -72,6 +72,7 @@ impl QualityLevel {
 /// | `shadow_cascades` | 2 | 3 | 4 | 4 |
 /// | `shadow_resolution` | 1024 | 2048 | 2048 | 4096 |
 /// | `shadow_refresh` | 4 | 2 | 2 | 1 |
+/// | `shadow_filter` | 1 | 2 | 3 | 3 |
 /// | `light_shadow_views` | 0 | 4 | 8 | 24 |
 /// | `light_shadow_resolution` | 512 | 512 | 1024 | 2048 |
 /// | `light_shadow_atlas` | 1024 | 2048 | 4096 | 8192 |
@@ -111,6 +112,9 @@ pub struct GraphicsQuality {
     /// [`Lighting::shadow_refresh`](crate::Lighting::shadow_refresh): how
     /// often the far cascades are drawn again, in frames, 1 to 8.
     pub shadow_refresh: u32,
+    /// [`Lighting::shadow_filter`](crate::Lighting::shadow_filter): how soft
+    /// the sun's shadow edges are, 1 (one lookup per pixel) to 3 (nine).
+    pub shadow_filter: u32,
     /// [`Lighting::light_shadow_views`](crate::Lighting::light_shadow_views):
     /// how many shadow views point and spot lights share, 0 (no shadows
     /// from them) to 24.
@@ -155,6 +159,7 @@ impl Default for GraphicsQuality {
             shadow_cascades: 4,
             shadow_resolution: 2048,
             shadow_refresh: 2,
+            shadow_filter: 3,
             light_shadow_views: 12,
             light_shadow_resolution: 1024,
             light_shadow_atlas: 4096,
@@ -190,6 +195,7 @@ impl GraphicsQuality {
             shadow_cascades: 2,
             shadow_resolution: 1024,
             shadow_refresh: 4,
+            shadow_filter: 1,
             light_shadow_views: 0,
             light_shadow_resolution: 512,
             light_shadow_atlas: 1024,
@@ -222,6 +228,7 @@ impl GraphicsQuality {
             shadow_cascades: 3,
             shadow_resolution: 2048,
             shadow_refresh: 2,
+            shadow_filter: 2,
             light_shadow_views: 4,
             light_shadow_resolution: 512,
             light_shadow_atlas: 2048,
@@ -254,6 +261,7 @@ impl GraphicsQuality {
             shadow_cascades: 4,
             shadow_resolution: 2048,
             shadow_refresh: 2,
+            shadow_filter: 3,
             light_shadow_views: 8,
             light_shadow_resolution: 1024,
             light_shadow_atlas: 4096,
@@ -288,6 +296,7 @@ impl GraphicsQuality {
             shadow_cascades: 4,
             shadow_resolution: 4096,
             shadow_refresh: 1,
+            shadow_filter: 3,
             light_shadow_views: MAX_LIGHT_SHADOW_VIEWS as u32,
             light_shadow_resolution: 2048,
             light_shadow_atlas: 8192,
@@ -345,6 +354,7 @@ impl GraphicsQuality {
                 .shadow_resolution
                 .clamp(MIN_SHADOW_RESOLUTION, MAX_SHADOW_RESOLUTION),
             shadow_refresh: self.shadow_refresh.clamp(1, super::collect::MAX_SHADOW_REFRESH),
+            shadow_filter: self.shadow_filter.clamp(1, 3),
             light_shadow_views: self.light_shadow_views.min(MAX_LIGHT_SHADOW_VIEWS as u32),
             light_shadow_resolution: self
                 .light_shadow_resolution
@@ -387,6 +397,7 @@ impl Ctx {
             shadow_cascades: self.lighting.shadow_cascades,
             shadow_resolution: self.lighting.shadow_resolution,
             shadow_refresh: self.lighting.shadow_refresh,
+            shadow_filter: self.lighting.shadow_filter,
             light_shadow_views: self.lighting.light_shadow_views,
             light_shadow_resolution: self.lighting.light_shadow_resolution,
             light_shadow_atlas: self.lighting.light_shadow_atlas,
@@ -434,6 +445,7 @@ impl Ctx {
         self.lighting.shadow_cascades = q.shadow_cascades;
         self.lighting.shadow_resolution = q.shadow_resolution;
         self.lighting.shadow_refresh = q.shadow_refresh;
+        self.lighting.shadow_filter = q.shadow_filter;
         self.lighting.light_shadow_views = q.light_shadow_views;
         self.lighting.light_shadow_resolution = q.light_shadow_resolution;
         self.lighting.light_shadow_atlas = q.light_shadow_atlas;
@@ -462,6 +474,7 @@ mod tests {
                 a.shadow_refresh >= b.shadow_refresh,
                 "heavier redraws far shadows more often"
             );
+            assert!(a.shadow_filter <= b.shadow_filter, "heavier filters softer");
             assert!(a.light_shadow_views < b.light_shadow_views);
             assert!(a.light_shadow_resolution <= b.light_shadow_resolution);
             assert!(a.light_shadow_atlas < b.light_shadow_atlas);

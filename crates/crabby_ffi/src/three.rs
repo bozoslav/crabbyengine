@@ -478,6 +478,9 @@ pub struct CrabbyLighting {
     /// How often the far shadow cascades are drawn again, in frames, 1 to 8
     /// (1: every frame). Default 2.
     pub shadow_refresh: u32,
+    /// How soft the sun's shadow edges are, 1 (one lookup per pixel, the
+    /// cheapest) to 3 (nine, the softest). Default 3.
+    pub shadow_filter: u32,
     /// Whether `equator_color` is used: the ambient light then goes from
     /// `ground_color` below through `equator_color` on the horizon to
     /// `sky_color` above. Off by default. Only without an atmosphere.
@@ -2225,6 +2228,7 @@ pub unsafe extern "C" fn crabby_ctx_lighting(ctx: *mut CrabbyCtx, out_lighting: 
                     light_shadow_resolution: l.light_shadow_resolution,
                     light_shadow_atlas: l.light_shadow_atlas,
                     shadow_refresh: l.shadow_refresh,
+                    shadow_filter: l.shadow_filter,
                     has_equator: l.equator_color.is_some(),
                     equator_color: to_c(l.equator_color.unwrap_or(l.sky_color)),
                     gi_enabled: l.gi.enabled,
@@ -2239,7 +2243,7 @@ pub unsafe extern "C" fn crabby_ctx_lighting(ctx: *mut CrabbyCtx, out_lighting: 
 }
 
 /// Changes the sun and sky light. Intensities and the shadow distance
-/// can't be negative; `shadow_cascades` is 1 to 4, `shadow_refresh` 1 to 8; the shadow resolutions
+/// can't be negative; `shadow_cascades` is 1 to 4, `shadow_refresh` 1 to 8, `shadow_filter` 1 to 3; the shadow resolutions
 /// and `light_shadow_views` must be in their ranges (see `CrabbyLighting`).
 /// With `gi_enabled`, `gi_extent` and `gi_spacing` must be above zero,
 /// `gi_probes_per_frame` 1 to 16 and `gi_intensity` not negative.
@@ -2264,6 +2268,9 @@ pub unsafe extern "C" fn crabby_ctx_set_lighting(ctx: *mut CrabbyCtx, lighting: 
             }
             if !(1..=8).contains(&l.shadow_refresh) {
                 return Err(invalid("shadow_refresh must be 1 to 8"));
+            }
+            if !(1..=3).contains(&l.shadow_filter) {
+                return Err(invalid("shadow_filter must be 1 to 3"));
             }
             if !(256..=4096).contains(&l.shadow_resolution)
                 || !(128..=2048).contains(&l.light_shadow_resolution)
@@ -2306,6 +2313,7 @@ pub unsafe extern "C" fn crabby_ctx_set_lighting(ctx: *mut CrabbyCtx, lighting: 
                 light_shadow_resolution: l.light_shadow_resolution,
                 light_shadow_atlas: l.light_shadow_atlas,
                 shadow_refresh: l.shadow_refresh,
+                shadow_filter: l.shadow_filter,
                 equator_color: l.has_equator.then(|| color(l.equator_color)),
                 gi: GlobalIllumination {
                     enabled: l.gi_enabled,
@@ -2614,6 +2622,8 @@ pub struct CrabbyGraphicsQuality {
     pub anti_aliasing: u32,
     /// How often the far shadow cascades are drawn again, in frames, 1 to 8.
     pub shadow_refresh: u32,
+    /// How soft the sun's shadow edges are, 1 (one lookup) to 3 (nine).
+    pub shadow_filter: u32,
     /// Screen-space reflections' strength, 0 (off) to 1.
     pub ssr: f32,
     /// Global illumination (bounced light) on or off.
@@ -2638,6 +2648,7 @@ fn quality_to_c(q: GraphicsQuality) -> CrabbyGraphicsQuality {
         ao_steps: q.ao_steps,
         anti_aliasing: q.anti_aliasing as u32,
         shadow_refresh: q.shadow_refresh,
+        shadow_filter: q.shadow_filter,
         ssr: q.ssr,
         gi: q.gi,
     }
@@ -2683,6 +2694,9 @@ fn quality_from_c(q: &CrabbyGraphicsQuality) -> Result<GraphicsQuality, crate::F
     if !(1..=8).contains(&q.shadow_refresh) {
         return Err(invalid("shadow_refresh must be 1 to 8"));
     }
+    if !(1..=3).contains(&q.shadow_filter) {
+        return Err(invalid("shadow_filter must be 1 to 3"));
+    }
     if !(0.0..=1.0).contains(&q.ssr) {
         return Err(invalid("ssr must be 0 to 1"));
     }
@@ -2705,6 +2719,7 @@ fn quality_from_c(q: &CrabbyGraphicsQuality) -> Result<GraphicsQuality, crate::F
         gi: q.gi,
         anti_aliasing,
         shadow_refresh: q.shadow_refresh,
+        shadow_filter: q.shadow_filter,
     })
 }
 
