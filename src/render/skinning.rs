@@ -81,7 +81,9 @@ pub(super) struct Skinning {
     params: wgpu::Buffer,
     param_capacity: usize,
     stride: u64,
-    slots: Vec<Slot>,
+    // Keep collection indices stable even when earlier models are culled.
+    // Empty slots have no GPU allocation until a pass first draws them.
+    slots: Vec<Option<Slot>>,
     /// This frame, per slot: the skinned mesh, and whether any pass draws it.
     pub draws: Vec<(u32, bool)>,
     scratch: Vec<Vertex>,
@@ -255,9 +257,12 @@ impl Skinning {
         if self.draws.len() > self.param_capacity {
             self.param_capacity = self.draws.len().next_power_of_two();
             self.params = param_buffer(device, self.stride, self.param_capacity);
-            for slot in &mut self.slots {
+            for slot in self.slots.iter_mut().flatten() {
                 slot.group = None;
             }
+        }
+        if self.slots.len() < skins.draws.len() {
+            self.slots.resize_with(skins.draws.len(), || None);
         }
         self.params_scratch.clear();
         self.params_scratch.resize(self.stride as usize * self.draws.len(), 0);
@@ -274,15 +279,12 @@ impl Skinning {
             if !self.draws[k].1 {
                 continue;
             }
-            if k == self.slots.len() {
-                self.slots.push(Slot {
-                    buffer: slot_buffer(device, count.max(1), self.rest_usage()),
-                    capacity: count.max(1),
-                    group: None,
-                });
-            }
             let usage = self.rest_usage();
-            let slot = &mut self.slots[k];
+            let slot = self.slots[k].get_or_insert_with(|| Slot {
+                buffer: slot_buffer(device, count.max(1), usage),
+                capacity: count.max(1),
+                group: None,
+            });
             if slot.capacity < count {
                 slot.capacity = count.next_power_of_two();
                 slot.buffer = slot_buffer(device, slot.capacity, usage);
@@ -369,14 +371,17 @@ impl Skinning {
         });
         pass.set_pipeline(pipeline);
         for (k, &(mesh, used)) in self.draws.iter().enumerate() {
-            let Some(Some((m, _, group))) = self.slots.get(k).map(|s| s.group.as_ref()) else {
+            let Some(slot) = self.slots.get(k).and_then(Option::as_ref) else {
+                continue;
+            };
+            let Some((m, _, group)) = slot.group.as_ref() else {
                 continue;
             };
             if !used || *m != mesh {
                 continue;
             }
             pass.set_bind_group(0, group, &[(k as u64 * self.stride) as u32]);
-            pass.dispatch_workgroups(self.slots[k].capacity.div_ceil(GROUP), 1, 1);
+            pass.dispatch_workgroups(slot.capacity.div_ceil(GROUP), 1, 1);
         }
     }
 
@@ -388,7 +393,8 @@ impl Skinning {
     /// Skinned model `k`'s posed vertices, if it's drawn this frame.
     pub fn vertices(&self, k: usize) -> Option<&wgpu::Buffer> {
         let &(_, used) = self.draws.get(k)?;
-        used.then(|| self.slots.get(k).map(|s| &s.buffer)).flatten()
+        used.then(|| self.slots.get(k).and_then(Option::as_ref).map(|s| &s.buffer))
+            .flatten()
     }
 }
 

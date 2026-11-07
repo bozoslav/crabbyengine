@@ -11,23 +11,43 @@ const SIZE: u32 = 64;
 
 #[test]
 fn posing_a_skeleton_moves_the_drawn_pixels() {
-    draw_bent(false);
+    draw_bent(false, false, false);
 }
 
 #[test]
 fn morph_weights_move_the_drawn_pixels() {
-    draw_bent(true);
+    draw_bent(true, false, false);
+}
+
+#[test]
+fn culled_models_before_visible_skin_and_morph_models_keep_their_slots() {
+    draw_bent(false, true, false);
+    draw_bent(true, true, false);
+}
+
+#[test]
+fn culled_models_keep_their_slots_on_the_cpu_skinning_fallback() {
+    draw_bent(false, true, true);
+    draw_bent(true, true, true);
 }
 
 /// Draws a bar standing up, then bent left: by its skeleton, or (`morph`)
 /// unskinned, by a morph target.
-fn draw_bent(morph: bool) {
+fn draw_bent(morph: bool, mixed: bool, downlevel: bool) {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
         eprintln!("no GPU adapter: skipped");
         return;
     };
-    let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) else {
+    let descriptor = wgpu::DeviceDescriptor {
+        required_limits: if downlevel {
+            wgpu::Limits::downlevel_webgl2_defaults()
+        } else {
+            wgpu::Limits::default()
+        },
+        ..Default::default()
+    };
+    let Ok((device, queue)) = pollster::block_on(adapter.request_device(&descriptor)) else {
         eprintln!("no GPU device: skipped");
         return;
     };
@@ -155,10 +175,25 @@ fn draw_bent(morph: bool) {
     let material = ctx.create_material(glow);
     let entity = if morph {
         let mesh = ctx.create_mesh(&bar, material);
+        if mixed {
+            for _ in 0..3 {
+                ctx.world.spawn((
+                    Transform3D::at(vec3(1e6, 0.0, 0.0)),
+                    Model::new(mesh),
+                    MorphWeights::default(),
+                ));
+            }
+        }
         ctx.world
             .spawn((Transform3D::default(), Model::new(mesh), MorphWeights::default()))
     } else {
         let mesh = ctx.create_skinned_mesh(&bar, material, &skeleton);
+        if mixed {
+            for _ in 0..3 {
+                ctx.world
+                    .spawn((Transform3D::at(vec3(1e6, 0.0, 0.0)), Model::new(mesh), skeleton.clone()));
+            }
+        }
         ctx.world.spawn((Transform3D::default(), Model::new(mesh), skeleton))
     };
     ctx.camera3d.position = vec3(0.0, 1.0, 6.0);
