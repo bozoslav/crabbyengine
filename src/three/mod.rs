@@ -875,6 +875,10 @@ impl Assets3D {
 
 /// sRGB color to linear RGBA, for the GPU.
 pub(crate) fn linear(c: Color) -> [f32; 4] {
+    // Most tints are white: skip the three `powf`s (this runs per instance).
+    if c.r == 1.0 && c.g == 1.0 && c.b == 1.0 {
+        return [1.0, 1.0, 1.0, c.a];
+    }
     let lin = |v: f32| {
         if v <= 0.04045 {
             v / 12.92

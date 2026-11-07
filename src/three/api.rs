@@ -1048,9 +1048,19 @@ impl Ctx {
     pub fn write_animated_morphs(&mut self) {
         let mut entities = std::mem::take(&mut self.assets3d.morph_entities);
         entities.clear();
-        self.world
-            .query::<(crate::Entity, &super::Model)>()
-            .for_each(|(e, _)| entities.push(e));
+        // Only models whose mesh has morph targets: this runs every frame,
+        // and a large world has hundreds of thousands of models.
+        let morphs = &self.assets3d.morphs;
+        if morphs.iter().all(Option::is_none) {
+            self.assets3d.morph_bases.clear();
+            self.assets3d.morph_entities = entities;
+            return;
+        }
+        self.world.query::<(crate::Entity, &super::Model)>().for_each(|(e, m)| {
+            if morphs.get(m.mesh.id as usize).is_some_and(Option::is_some) {
+                entities.push(e);
+            }
+        });
         for e in entities.iter().copied() {
             let mesh_id = self.world.get::<super::Model>(e).unwrap().mesh.id;
             let Some(morph) = self.assets3d.morphs.get(mesh_id as usize).and_then(|m| m.clone()) else {
