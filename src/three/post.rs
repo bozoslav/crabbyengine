@@ -331,8 +331,17 @@ fn lens(post: &Post) -> [f32; 4] {
     let amount = 1.6 * (intensity * 100.0).abs().max(1.0);
     let theta = amount.min(160.0).to_radians();
     let sigma = 2.0 * (theta * 0.5).tan();
-    let scale = if post.lens_scale.is_finite() && post.lens_scale > 0.0 { post.lens_scale } else { 1.0 };
-    [if intensity > 0.0 { theta } else { 1.0 / theta }, sigma, 1.0 / scale, if intensity > 0.0 { 1.0 } else { -1.0 }]
+    let scale = if post.lens_scale.is_finite() && post.lens_scale > 0.0 {
+        post.lens_scale
+    } else {
+        1.0
+    };
+    [
+        if intensity > 0.0 { theta } else { 1.0 / theta },
+        sigma,
+        1.0 / scale,
+        if intensity > 0.0 { 1.0 } else { -1.0 },
+    ]
 }
 
 impl PostUniform {
@@ -462,7 +471,10 @@ mod tests {
         assert!((pinch.lens[0] - 1.0 / theta).abs() < 1e-5);
         assert!((pinch.lens[2] - 1.0 / 1.04).abs() < 1e-6);
         assert_eq!(pinch.lens[3], -1.0);
-        let strong = lens(&Post { lens_distortion: 1.0, ..Default::default() });
+        let strong = lens(&Post {
+            lens_distortion: 1.0,
+            ..Default::default()
+        });
         assert!((strong[0] - 160f32.to_radians()).abs() < 1e-6, "capped at 160 degrees");
         assert_eq!(size_of::<PostUniform>() % 16, 0);
     }
