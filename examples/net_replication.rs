@@ -1,7 +1,7 @@
 //! Replication helpers on top of byte messages: snapshot interpolation,
 //! authority epochs and interest by distance. Run with
 //! `cargo run --example net_replication --no-default-features`.
-use crabbyengine::*;
+use ponko::*;
 
 fn main() {
     // ANCHOR: snapshots

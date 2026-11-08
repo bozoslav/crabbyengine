@@ -1,6 +1,6 @@
 //! Importing a small hand-written Unity project into Crabby scene files.
 
-use crabby_unity::*;
+use ponko_unity::*;
 use serde_json::Value as Json;
 
 /// A Unity project in a temp dir of its own (tests run in parallel), and

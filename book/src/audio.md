@@ -55,11 +55,11 @@ machines without audio, are silent but run the same code. For servers you
 can drop the audio library entirely:
 
 ```toml
-crabbyengine = { version = "1", default-features = false }
+ponko = { version = "0.0.1", default-features = false }
 ```
 
 The sound API stays; it just makes no noise. The C library has the same
-switch: build `crabby_ffi` with `--no-default-features`. Linux builds with audio need
+switch: build `ponko_ffi` with `--no-default-features`. Linux builds with audio need
 the ALSA headers (`libasound2-dev` on Debian and Ubuntu).
 
 ## Sound in 3D

@@ -6,7 +6,7 @@ impl Ctx {
     /// True while retained UI owns keyboard/gamepad input. Check before game
     /// movement/actions, just as `mouse_over_ui` guards pointer input.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// # fn update(ctx: &mut Ctx) {
     /// if !ctx.ui_wants_keyboard() && ctx.key_pressed(Key::Space) { /* jump */ }
     /// # }
@@ -18,7 +18,7 @@ impl Ctx {
     /// Feed committed Unicode text from a custom host or headless test. Native
     /// hosts should forward character events, rather than mapping physical keys.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// # fn update(ctx: &mut Ctx) {
     /// ctx.ui_insert_text("Hello");
     /// # }
@@ -31,7 +31,7 @@ impl Ctx {
     /// Cleared with other input after frame systems. Does not include IME
     /// composition/preedit. Physical keys remain separate.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// # fn update(ctx: &mut Ctx) {
     /// let text = ctx.typed_text();
     /// # let _ = text;

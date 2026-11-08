@@ -5,7 +5,7 @@ use web_time::Instant;
 
 use glam::Vec2;
 
-use crabby_ecs::World;
+use ponko_ecs::World;
 
 #[cfg(feature = "window")]
 mod window;
@@ -28,7 +28,7 @@ const OCCLUDED_POLL: Duration = Duration::from_millis(100);
 /// A game: a window plus the loop that drives your code.
 ///
 /// ```no_run
-/// use crabbyengine::*;
+/// use ponko::*;
 ///
 /// Game::new("My Game", 800, 600).run(|ctx| {
 ///     // Setup: runs once, after the window exists.
@@ -47,7 +47,7 @@ const OCCLUDED_POLL: Duration = Duration::from_millis(100);
 /// With the ECS, the game is entities plus systems:
 ///
 /// ```no_run
-/// use crabbyengine::*;
+/// use ponko::*;
 ///
 /// struct Vel(Vec2);
 ///
@@ -192,7 +192,7 @@ fn connect_hotpatch() {
         static ONCE: std::sync::Once = std::sync::Once::new();
         ONCE.call_once(|| {
             // stdout: `dx` shows stderr lines as errors.
-            subsecond::register_handler(std::sync::Arc::new(|| println!("crabbyengine: code patched")));
+            subsecond::register_handler(std::sync::Arc::new(|| println!("ponko: code patched")));
             dioxus_devtools::connect_subsecond();
         });
     }
@@ -224,7 +224,7 @@ impl Game {
     /// Nothing opens until you call [`run`](Self::run).
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("Space Crab", 1280, 720).run(|_| |_: &mut Ctx| {});
     /// ```
     pub fn new(title: impl Into<String>, width: u32, height: u32) -> Self {
@@ -266,7 +266,7 @@ impl Game {
     /// systems changing the world). Without it, `ctx.net` is offline.
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// use std::thread;
     ///
     /// // Two players in one process; over the network it's Net::host / Net::join.
@@ -291,7 +291,7 @@ impl Game {
     /// Like frame systems, it does not run in `run_headless`.
     ///
     /// ```no_run
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// Game::new("Pose", 800, 600).late_system(|ctx| { let _ = ctx.dt(); }).run(|_| {});
     /// ```
     pub fn late_system<F: FnMut(&mut Ctx) + 'static>(mut self, system: F) -> Self {
@@ -307,7 +307,7 @@ impl Game {
     /// Systems run in the order they were added.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// fn gravity(ctx: &mut Ctx) { /* ... */ }
     /// fn movement(ctx: &mut Ctx) { /* ... */ }
     ///
@@ -327,7 +327,7 @@ impl Game {
     /// so their cost doesn't land on the same frame.
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     ///
     /// struct Hunger(f32);
     ///
@@ -396,7 +396,7 @@ impl Game {
     }
 
     /// For language bindings (the C API): removes every system named `name`
-    /// (Rust systems are named by their path, e.g. `crabbyengine::ecs::draw_sprites`).
+    /// (Rust systems are named by their path, e.g. `ponko::ecs::draw_sprites`).
     /// Returns how many were removed.
     #[doc(hidden)]
     pub fn remove_named_system(&mut self, name: &str) -> usize {
@@ -420,7 +420,7 @@ impl Game {
     /// systems added before this call.
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut world = Game::new("Drop", 800, 600)
     ///     .physics(vec2(0.0, 980.0))
     ///     .run_headless(60, |ctx| {
@@ -458,7 +458,7 @@ impl Game {
     /// this call.
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut world = Game::new("Drop", 800, 600)
     ///     .physics3d(vec3(0.0, -9.81, 0.0))
     ///     .run_headless(50, |ctx| {
@@ -509,7 +509,7 @@ impl Game {
     /// simulation systems. Use it for input, camera and drawing.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// fn quit_on_escape(ctx: &mut Ctx) {
     ///     if ctx.key_pressed(Key::Escape) { ctx.quit(); }
     /// }
@@ -528,7 +528,7 @@ impl Game {
     /// If no such system was added.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// // A headless-style simulation that draws nothing by itself.
     /// Game::new("Sim", 800, 600).remove_system(draw_sprites).run(|_| {});
     /// ```
@@ -550,7 +550,7 @@ impl Game {
         self
     }
 
-    /// Opens the control endpoint, so tools such as the `crabby-mcp` agent
+    /// Opens the control endpoint, so tools such as the `ponko-mcp` agent
     /// bridge can inspect and drive this game while it runs: list and edit
     /// entities (through [reflection](crate::WorldReflect)), pause, step,
     /// change speed, read system timings.
@@ -562,7 +562,7 @@ impl Game {
     /// changes, and `CRABBY_START_PAUSED=1` starts the simulation paused.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("Colony", 1280, 720).control_endpoint(true).run(|_| {});
     /// ```
     pub fn control_endpoint(mut self, on: bool) -> Self {
@@ -582,7 +582,7 @@ impl Game {
     /// [`Ctx::reloaded_textures`] lists what was reloaded this frame.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("Art test", 1280, 720).hot_reload(true).run(|ctx| {
     ///     let crab = ctx.load_texture("crab.png"); // edit crab.png while it runs
     ///     ctx.world.spawn((Transform2D::at(vec2(640.0, 360.0)), Sprite::new(crab)));
@@ -606,7 +606,7 @@ impl Game {
     /// does nothing. While closed it costs nothing.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// // Ship a release build with the inspector, for playtesters.
     /// Game::new("Playtest", 1280, 720).inspector(true).run(|ctx| {
     ///     let _ = ctx;
@@ -626,7 +626,7 @@ impl Game {
             return None;
         }
         if cfg!(target_arch = "wasm32") {
-            eprintln!("crabbyengine: the control endpoint isn't available in web builds");
+            eprintln!("ponko: the control endpoint isn't available in web builds");
             return None;
         }
         match Control::start(&self.title, headless) {
@@ -635,7 +635,7 @@ impl Game {
                 Some(c)
             }
             Err(e) => {
-                eprintln!("crabbyengine: could not open the control endpoint: {e}");
+                eprintln!("ponko: could not open the control endpoint: {e}");
                 None
             }
         }
@@ -646,7 +646,7 @@ impl Game {
     /// For a different world each run, seed from the clock.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
     /// Game::new("Roguelike", 800, 600).seed(seed).run(|_| {});
     /// ```
@@ -662,7 +662,7 @@ impl Game {
     /// If `hz` is 0.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("Physics", 800, 600).fixed_hz(120).run(|_| |_: &mut Ctx| {});
     /// ```
     pub fn fixed_hz(mut self, hz: u32) -> Self {
@@ -677,7 +677,7 @@ impl Game {
     /// the game *could* run.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("Benchmark", 800, 600).vsync(false).run(|_| |_: &mut Ctx| {});
     /// ```
     pub fn vsync(mut self, on: bool) -> Self {
@@ -691,7 +691,7 @@ impl Game {
     /// can't take 2 everywhere (WebGL2, some mobile ones) keep 4.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("Open world", 1280, 720).msaa(2).run(|_| |_: &mut Ctx| {});
     /// ```
     ///
@@ -713,7 +713,7 @@ impl Game {
     /// ignore it.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("Benchmark", 1280, 720).fullscreen(true).vsync(false).run(|_| |_: &mut Ctx| {});
     /// ```
     pub fn fullscreen(mut self, on: bool) -> Self {
@@ -813,7 +813,7 @@ impl Game {
     /// sizes), but nothing is uploaded to a GPU.
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     ///
     /// struct Pos(f32);
     ///
@@ -852,7 +852,7 @@ impl Game {
     /// as the global allocator.
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     ///
     /// fn movement(ctx: &mut Ctx) {
     ///     profile_scope!("movement/integrate");
@@ -978,7 +978,7 @@ impl Game {
     /// [`draw_sprites`], then rendering.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("Counter", 800, 600).run(|_ctx| {
     ///     let mut clicks = 0;
     ///     move |ctx: &mut Ctx| {
@@ -1005,7 +1005,7 @@ impl Game {
         {
             drop((self, setup));
             panic!(
-                "crabbyengine: Game::run needs a window, and this build has none \
+                "ponko: Game::run needs a window, and this build has none \
                  (the `window` feature is off); use Game::run_headless"
             );
         }

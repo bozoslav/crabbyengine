@@ -1,7 +1,7 @@
 //! Shapes, UI widgets, fonts, sound, screenshots and turns: the rest of `Ctx`.
 use std::ffi::c_char;
 
-use crabbyengine::{Font, Playing, Sound, SoundParams, TextParams, UiStyle};
+use ponko::{Font, Playing, Sound, SoundParams, TextParams, UiStyle};
 
 use crate::ctx::{ctx_access, out, text};
 use crate::types::*;
@@ -9,7 +9,7 @@ use crate::{CrabbyCtx, CrabbyStatus, boundary, invalid};
 
 /// A font from `crabby_ctx_load_font`; `{0}` is the built-in font.
 /// ```
-/// assert_eq!(crabby_ffi::CrabbyFont::default().id, 0);
+/// assert_eq!(ponko_ffi::CrabbyFont::default().id, 0);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -20,7 +20,7 @@ pub struct CrabbyFont {
 
 /// Options for `crabby_ctx_draw_text_ex`. Start from `crabby_text_params_default()`.
 /// ```
-/// assert_eq!(crabby_ffi::crabby_text_params_default().size, 16.0);
+/// assert_eq!(ponko_ffi::crabby_text_params_default().size, 16.0);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -37,7 +37,7 @@ pub struct CrabbyTextParams {
 
 /// The default text options: built-in font, 16 px, white.
 /// ```
-/// assert_eq!(crabby_ffi::crabby_text_params_default().font.id, 0);
+/// assert_eq!(ponko_ffi::crabby_text_params_default().font.id, 0);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_text_params_default() -> CrabbyTextParams {
@@ -52,7 +52,7 @@ pub extern "C" fn crabby_text_params_default() -> CrabbyTextParams {
 
 /// Colors and sizes of the UI widgets (`crabby_ctx_ui_*`).
 /// ```
-/// assert_eq!(crabby_ffi::crabby_ui_style_default().text_size, 16.0);
+/// assert_eq!(ponko_ffi::crabby_ui_style_default().text_size, 16.0);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -90,7 +90,7 @@ fn style_to_c(s: UiStyle) -> CrabbyUiStyle {
 
 /// The engine's default UI style.
 /// ```
-/// assert_eq!(crabby_ffi::crabby_ui_style_default().padding, 10.0);
+/// assert_eq!(ponko_ffi::crabby_ui_style_default().padding, 10.0);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_ui_style_default() -> CrabbyUiStyle {
@@ -99,7 +99,7 @@ pub extern "C" fn crabby_ui_style_default() -> CrabbyUiStyle {
 
 /// A sound from `crabby_ctx_load_sound` or `crabby_ctx_create_sound`.
 /// ```
-/// assert_eq!(std::mem::size_of::<crabby_ffi::CrabbySound>(), 8);
+/// assert_eq!(std::mem::size_of::<ponko_ffi::CrabbySound>(), 8);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -112,7 +112,7 @@ pub struct CrabbySound {
 
 /// One playback of a sound, for `crabby_ctx_stop_sound`.
 /// ```
-/// assert_eq!(std::mem::size_of::<crabby_ffi::CrabbyPlaying>(), 8);
+/// assert_eq!(std::mem::size_of::<ponko_ffi::CrabbyPlaying>(), 8);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -123,7 +123,7 @@ pub struct CrabbyPlaying {
 
 /// Options for `crabby_ctx_play_sound`. Start from `crabby_sound_params_default()`.
 /// ```
-/// assert_eq!(crabby_ffi::crabby_sound_params_default().volume, 1.0);
+/// assert_eq!(ponko_ffi::crabby_sound_params_default().volume, 1.0);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -138,7 +138,7 @@ pub struct CrabbySoundParams {
 
 /// Default playback: full volume, normal speed, once.
 /// ```
-/// assert!(!crabby_ffi::crabby_sound_params_default().looping);
+/// assert!(!ponko_ffi::crabby_sound_params_default().looping);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_sound_params_default() -> CrabbySoundParams {
@@ -154,7 +154,7 @@ pub extern "C" fn crabby_sound_params_default() -> CrabbySoundParams {
 /// entity `e` does when `e.index % every == now`. `dt` covers a whole round
 /// (`every` ticks).
 /// ```
-/// let t = crabby_ffi::CrabbyTurns { every: 4, now: 1, dt: 0.0 };
+/// let t = ponko_ffi::CrabbyTurns { every: 4, now: 1, dt: 0.0 };
 /// assert_eq!(5 % t.every, t.now);
 /// ```
 #[repr(C)]
@@ -203,7 +203,7 @@ pub(crate) fn playing_from_c(p: CrabbyPlaying) -> Playing {
 
 /// Fills a rectangle in world space.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let r = CrabbyRect::default();
 /// let white = CrabbyColor { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
 /// assert_eq!(unsafe { crabby_ctx_draw_rect(std::ptr::null_mut(), r, white) } as u32, 1);
@@ -227,7 +227,7 @@ pub unsafe extern "C" fn crabby_ctx_draw_rect(
 
 /// Draws a line `width` world units thick from `a` to `b`.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let v = CrabbyVec2::default();
 /// let white = CrabbyColor { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
 /// assert_eq!(unsafe { crabby_ctx_draw_line(std::ptr::null_mut(), v, v, 1.0, white) } as u32, 1);
@@ -253,7 +253,7 @@ pub unsafe extern "C" fn crabby_ctx_draw_line(
 
 /// Fills a circle in world space.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let white = CrabbyColor { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
 /// assert_eq!(unsafe { crabby_ctx_draw_circle(std::ptr::null_mut(), CrabbyVec2::default(), 4.0, white) } as u32, 1);
 /// ```
@@ -279,7 +279,7 @@ pub unsafe extern "C" fn crabby_ctx_draw_circle(
 
 /// Reads the UI style.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_style(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_style(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `out_style` must be writable.
@@ -291,7 +291,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_style(ctx: *mut CrabbyCtx, out_style: *mu
 
 /// Changes the UI style for widgets drawn after this call.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_ui_style(std::ptr::null_mut(), std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_ui_style(std::ptr::null_mut(), std::ptr::null()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `style` must be readable.
@@ -322,7 +322,7 @@ pub unsafe extern "C" fn crabby_ctx_set_ui_style(ctx: *mut CrabbyCtx, style: *co
 /// Whether the mouse is over UI drawn this frame or the last, so clicks on
 /// a panel don't also act on the world behind it.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_mouse_over_ui(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_mouse_over_ui(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `out_over` must be writable.
@@ -334,7 +334,7 @@ pub unsafe extern "C" fn crabby_ctx_mouse_over_ui(ctx: *mut CrabbyCtx, out_over:
 
 /// Draws a panel background in screen space (window pixels).
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_panel(std::ptr::null_mut(), Default::default()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_panel(std::ptr::null_mut(), Default::default()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live.
@@ -352,7 +352,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_panel(ctx: *mut CrabbyCtx, rect: CrabbyRe
 /// Draws text in the UI style at `pos` (screen space); writes its size to
 /// `out_size` unless that is null.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_label(std::ptr::null_mut(), Default::default(), c"hi".as_ptr(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_label(std::ptr::null_mut(), Default::default(), c"hi".as_ptr(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `string` NUL-terminated; `out_size` null or writable.
@@ -377,7 +377,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_label(
 
 /// Draws a button in screen space; `out_clicked` is true on the frame it was clicked.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_button(std::ptr::null_mut(), Default::default(), c"ok".as_ptr(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_button(std::ptr::null_mut(), Default::default(), c"ok".as_ptr(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `label` NUL-terminated; `out_clicked` writable.
@@ -404,7 +404,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_button(
 
 /// Loads a TTF or OTF font from the assets folder.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_load_font(std::ptr::null_mut(), c"a.ttf".as_ptr(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_load_font(std::ptr::null_mut(), c"a.ttf".as_ptr(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `path` NUL-terminated; `out_font` writable.
@@ -428,8 +428,8 @@ pub unsafe extern "C" fn crabby_ctx_load_font(
 
 /// Draws text in screen space with a font, size, color and z.
 /// ```
-/// let p = crabby_ffi::crabby_text_params_default();
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_draw_text_ex(std::ptr::null_mut(), c"hi".as_ptr(), Default::default(), &p) } as u32, 1);
+/// let p = ponko_ffi::crabby_text_params_default();
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_draw_text_ex(std::ptr::null_mut(), c"hi".as_ptr(), Default::default(), &p) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `string` NUL-terminated; `params` readable.
@@ -465,7 +465,7 @@ pub unsafe extern "C" fn crabby_ctx_draw_text_ex(
 
 /// Size in pixels that `crabby_ctx_draw_text_ex` would cover with `font` and `size`.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_measure_text_ex(std::ptr::null_mut(), c"hi".as_ptr(), Default::default(), 16.0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_measure_text_ex(std::ptr::null_mut(), c"hi".as_ptr(), Default::default(), 16.0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `string` NUL-terminated; `out_size` writable.
@@ -493,7 +493,7 @@ pub unsafe extern "C" fn crabby_ctx_measure_text_ex(
 
 /// Loads a sound (WAV, OGG, MP3 or FLAC) from the assets folder.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_load_sound(std::ptr::null_mut(), c"a.ogg".as_ptr(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_load_sound(std::ptr::null_mut(), c"a.ogg".as_ptr(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `path` NUL-terminated; `out_sound` writable.
@@ -517,7 +517,7 @@ pub unsafe extern "C" fn crabby_ctx_load_sound(
 
 /// Makes a mono sound from `len` samples in -1..1 at `sample_rate` per second.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_create_sound(std::ptr::null_mut(), 44100, std::ptr::null(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_create_sound(std::ptr::null_mut(), 44100, std::ptr::null(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `samples` must hold `len` floats; `out_sound` writable.
@@ -554,8 +554,8 @@ pub unsafe extern "C" fn crabby_ctx_create_sound(
 /// Plays a sound; `params` may be null for the defaults. Writes the playback
 /// to `out_playing` unless that is null. Silent in headless runs.
 /// ```
-/// let s = crabby_ffi::CrabbySound { id: 0, seconds: 0.0 };
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_play_sound(std::ptr::null_mut(), s, std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// let s = ponko_ffi::CrabbySound { id: 0, seconds: 0.0 };
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_play_sound(std::ptr::null_mut(), s, std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `params` null or readable; `out_playing` null or writable.
@@ -592,7 +592,7 @@ pub unsafe extern "C" fn crabby_ctx_play_sound(
 
 /// Stops a playback. Stopping one that already ended does nothing.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_stop_sound(std::ptr::null_mut(), Default::default()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_stop_sound(std::ptr::null_mut(), Default::default()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live.
@@ -611,7 +611,7 @@ pub unsafe extern "C" fn crabby_ctx_stop_sound(ctx: *mut CrabbyCtx, playing: Cra
 
 /// Saves this frame as a PNG once it is drawn. Does nothing in headless runs.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_save_screenshot(std::ptr::null_mut(), c"a.png".as_ptr()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_save_screenshot(std::ptr::null_mut(), c"a.png".as_ptr()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `path` NUL-terminated.
@@ -632,7 +632,7 @@ pub unsafe extern "C" fn crabby_ctx_save_screenshot(ctx: *mut CrabbyCtx, path: *
 /// handles; use this to redo anything computed from an image.
 /// ```
 /// let (mut p, mut n) = (std::ptr::null(), 0);
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_reloaded_textures(std::ptr::null(), &mut p, &mut n) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_reloaded_textures(std::ptr::null(), &mut p, &mut n) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; outputs writable.
@@ -661,7 +661,7 @@ pub unsafe extern "C" fn crabby_ctx_reloaded_textures(
 
 /// Spreads work over `every` ticks: see `CrabbyTurns`. `every` must be at least 1.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_turns(std::ptr::null(), 4, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_turns(std::ptr::null(), 4, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// Reads only clock values, so it is safe from any thread during the callback.
 /// # Safety

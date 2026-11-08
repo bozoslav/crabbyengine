@@ -178,7 +178,7 @@ optional; anything you leave out isn't checked:
 <div>
 
 ```rust
-# use crabbyengine::*;
+# use ponko::*;
 # let report = PerfReport::default();
 let budget = Budget::new()
     .frame_p99_ms(4.0)
@@ -212,7 +212,7 @@ To catch regressions without picking numbers, keep a report from a good run
 and compare against it:
 
 ```rust
-# use crabbyengine::*;
+# use ponko::*;
 # let (_w, report) = Game::new("t", 1, 1).profile_headless(0, 5, |_| {});
 report.save("target/perf-now.json").unwrap();
 if let Ok(before) = PerfReport::load("perf-baseline.json") {

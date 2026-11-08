@@ -1,7 +1,7 @@
 //! World-space UI panels through the C API: making a panel on an entity,
 //! building its UI with the `crabby_ctx_ui_*` calls and a target, input,
 //! the pointer ray, and errors, in headless runs (no window).
-use crabby_ffi::*;
+use ponko_ffi::*;
 use std::ffi::{CStr, c_void};
 use std::ptr::{null, null_mut};
 

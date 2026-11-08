@@ -7,9 +7,9 @@
 //!
 //! Keys: Space pause, Period single step, 1-4 speed (1x/4x/16x/64x), Escape quit.
 
-use crabbyengine::*;
+use ponko::*;
 
-/// Reflected, so tools and agents (crabby-mcp) can read and change velocities.
+/// Reflected, so tools and agents (ponko-mcp) can read and change velocities.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Vel(Vec2);
 

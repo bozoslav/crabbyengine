@@ -1,5 +1,5 @@
 //! The C game API: systems, the context, commands, parallel queries, spatial queries.
-use crabby_ffi::*;
+use ponko_ffi::*;
 use std::ffi::{CStr, c_void};
 use std::ptr::{null, null_mut};
 
@@ -97,7 +97,7 @@ fn bad_settings_are_errors_and_keep_the_game_usable() {
         );
         assert_eq!(crabby_game_remove_system(g, c"nope".as_ptr()), CRABBY_NOT_FOUND);
         assert_eq!(
-            crabby_game_remove_system(g, c"crabbyengine::ecs::draw_sprites".as_ptr()),
+            crabby_game_remove_system(g, c"ponko::ecs::draw_sprites".as_ptr()),
             CRABBY_OK
         );
         assert_eq!(crabby_game_fixed_hz(g, 30), CRABBY_OK);

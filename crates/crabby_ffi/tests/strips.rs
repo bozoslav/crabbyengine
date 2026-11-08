@@ -1,5 +1,5 @@
 //! Ribbons, lines and decals from C.
-use crabby_ffi::*;
+use ponko_ffi::*;
 use std::ffi::{CString, c_void};
 use std::ptr::{null, null_mut};
 

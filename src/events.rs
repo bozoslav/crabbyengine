@@ -17,7 +17,7 @@ use crate::reflect::{raw_json, short_name};
 /// Messages between systems, by type: [`Ctx::events`](crate::Ctx::events).
 ///
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 ///
 /// struct Died(Entity);
 /// struct Health(i32);
@@ -205,7 +205,7 @@ impl Events {
     /// JSON: list them and subscribe to them. Named by the type's short name.
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// #[derive(serde::Serialize)]
     /// struct Died { who: Entity }
     ///

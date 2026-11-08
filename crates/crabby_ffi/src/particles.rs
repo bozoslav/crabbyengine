@@ -3,7 +3,7 @@
 //! `crabby_particle_settings3d_default()`), then give an entity with a 3D
 //! transform an emitter with `crabby_ctx_set_particle_emitter3d`.
 
-use crabbyengine::{
+use ponko::{
     Color, Ctx, Entity, ParticleBlend3D, ParticleCurve, ParticleEmitter3D, ParticleGradient, ParticleSettings3D,
     ParticleShape3D, ParticleSpace3D, Vec3,
 };
@@ -15,7 +15,7 @@ use crate::{CrabbyCtx, CrabbyStatus, Failure, boundary, invalid, invalid_owned};
 
 /// Where particles start (`CrabbyParticleSettings3D::shape`).
 /// ```
-/// assert_eq!(crabby_ffi::CrabbyParticleShape3D::CRABBY_PARTICLES_CONE as u32, 2);
+/// assert_eq!(ponko_ffi::CrabbyParticleShape3D::CRABBY_PARTICLES_CONE as u32, 2);
 /// ```
 #[repr(C)]
 #[allow(non_camel_case_types)]
@@ -33,7 +33,7 @@ pub enum CrabbyParticleShape3D {
 
 /// How particles combine with the scene (`CrabbyParticleSettings3D::blend`).
 /// ```
-/// assert_eq!(crabby_ffi::CrabbyParticleBlend3D::CRABBY_PARTICLES_ADDITIVE as u32, 1);
+/// assert_eq!(ponko_ffi::CrabbyParticleBlend3D::CRABBY_PARTICLES_ADDITIVE as u32, 1);
 /// ```
 #[repr(C)]
 #[allow(non_camel_case_types)]
@@ -47,7 +47,7 @@ pub enum CrabbyParticleBlend3D {
 
 /// Whether living particles follow the emitter (`CrabbyParticleSettings3D::space`).
 /// ```
-/// assert_eq!(crabby_ffi::CrabbyParticleSpace3D::CRABBY_PARTICLES_LOCAL as u32, 1);
+/// assert_eq!(ponko_ffi::CrabbyParticleSpace3D::CRABBY_PARTICLES_LOCAL as u32, 1);
 /// ```
 #[repr(C)]
 #[allow(non_camel_case_types)]
@@ -61,7 +61,7 @@ pub enum CrabbyParticleSpace3D {
 
 /// One key of a size curve: `value` at normalized lifetime `t` (0..1).
 /// ```
-/// let k = crabby_ffi::CrabbyParticleKey { t: 1.0, value: 0.0 };
+/// let k = ponko_ffi::CrabbyParticleKey { t: 1.0, value: 0.0 };
 /// assert_eq!(k.t, 1.0);
 /// ```
 #[repr(C)]
@@ -75,7 +75,7 @@ pub struct CrabbyParticleKey {
 
 /// One key of a color gradient: `color` at normalized lifetime `t` (0..1).
 /// ```
-/// let k = crabby_ffi::CrabbyParticleColorKey { t: 0.0, color: crabby_ffi::CrabbyColor { r: 1.0, g: 0.5, b: 0.0, a: 1.0 } };
+/// let k = ponko_ffi::CrabbyParticleColorKey { t: 0.0, color: ponko_ffi::CrabbyColor { r: 1.0, g: 0.5, b: 0.0, a: 1.0 } };
 /// assert_eq!(k.color.g, 0.5);
 /// ```
 #[repr(C)]
@@ -91,7 +91,7 @@ pub struct CrabbyParticleColorKey {
 /// pairs. The key pointers are only read during the call that takes the
 /// settings; null with a count of 0 keeps the default curve.
 /// ```
-/// let s = crabby_ffi::crabby_particle_settings3d_default();
+/// let s = ponko_ffi::crabby_particle_settings3d_default();
 /// assert_eq!(s.max_particles, 1024);
 /// ```
 #[repr(C)]
@@ -157,7 +157,7 @@ pub struct CrabbyParticleSettings3D {
 
 /// Default particle settings (same as Rust's `ParticleSettings3D::default()`).
 /// ```
-/// let s = crabby_ffi::crabby_particle_settings3d_default();
+/// let s = ponko_ffi::crabby_particle_settings3d_default();
 /// assert_eq!(s.gravity.y, -9.81);
 /// ```
 #[unsafe(no_mangle)]
@@ -345,8 +345,8 @@ fn emitter(c: &mut Ctx, bits: u64) -> Result<&mut ParticleEmitter3D, Failure> {
 /// Gives `entity` (which needs a 3D transform to draw) a new particle
 /// emitter, replacing any it had along with its living particles.
 /// ```
-/// let s = crabby_ffi::crabby_particle_settings3d_default();
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_particle_emitter3d(std::ptr::null_mut(), 0, &s) } as u32, 1);
+/// let s = ponko_ffi::crabby_particle_settings3d_default();
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_particle_emitter3d(std::ptr::null_mut(), 0, &s) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `settings` null or valid, its key pointers as documented.
@@ -371,7 +371,7 @@ pub unsafe extern "C" fn crabby_ctx_set_particle_emitter3d(
 /// Emits `count` particles from `entity`'s emitter on the next frame (capped
 /// by its `max_particles`).
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_particle_burst(std::ptr::null_mut(), 0, 10) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_particle_burst(std::ptr::null_mut(), 0, 10) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -389,7 +389,7 @@ pub unsafe extern "C" fn crabby_ctx_particle_burst(ctx: *mut CrabbyCtx, entity_b
 /// How many of `entity`'s particles are alive.
 /// ```
 /// let mut n = 0;
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_particle_live_count(std::ptr::null_mut(), 0, &mut n) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_particle_live_count(std::ptr::null_mut(), 0, &mut n) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `out_count` writable.
@@ -410,7 +410,7 @@ pub unsafe extern "C" fn crabby_ctx_particle_live_count(
 
 /// Removes `entity`'s particle emitter and its particles.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_remove_particle_emitter3d(std::ptr::null_mut(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_remove_particle_emitter3d(std::ptr::null_mut(), 0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.

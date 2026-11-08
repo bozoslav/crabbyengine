@@ -12,7 +12,7 @@ use crate::{Ctx, Entity, Transform2D, World};
 /// despawned too. Attachments can be attached to attachments.
 ///
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 ///
 /// struct Tank;
 ///

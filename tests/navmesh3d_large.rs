@@ -1,7 +1,7 @@
 //! Large levels: many tiles with the default settings, helpful limit errors,
 //! opt-in carving layers, and carving that blocks a corridor completely.
 #![cfg(feature = "navmesh")]
-use crabbyengine::*;
+use ponko::*;
 use std::time::Instant;
 
 fn plane(size: f32) -> NavSource {

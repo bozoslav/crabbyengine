@@ -8,7 +8,7 @@ use crate::{JointAxis3D, JointMotion3D, Mat4, Skeleton};
 /// One bone of a ragdoll: the skeleton joint it starts at, how thick it
 /// is, and how far its joint to the parent bone bends.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let thigh = RagdollBone::new("thigh_l", 0.08).swing(0.9).twist(0.2);
 /// assert_eq!(thigh.radius, 0.08);
 /// ```
@@ -32,7 +32,7 @@ pub struct RagdollBone {
 impl RagdollBone {
     /// A bone at `joint`, `radius` thick, with the default limits.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// assert_eq!(RagdollBone::new("spine", 0.12).swing, 0.7);
     /// ```
     #[must_use]
@@ -47,7 +47,7 @@ impl RagdollBone {
     }
     /// With a swing cone of `radians`.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// assert_eq!(RagdollBone::new("arm", 0.05).swing(1.2).swing, 1.2);
     /// ```
     #[must_use]
@@ -56,7 +56,7 @@ impl RagdollBone {
     }
     /// With a twist limit of `radians` either way.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// assert_eq!(RagdollBone::new("arm", 0.05).twist(0.1).twist, 0.1);
     /// ```
     #[must_use]
@@ -85,7 +85,7 @@ struct Bone {
 /// Stop it before despawning the entity: its bodies are entities of their own.
 ///
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// Game::new("t", 1, 1).physics3d(vec3(0.0, -9.81, 0.0)).run_headless(1, |ctx| {
 ///     let skeleton = Skeleton::new(vec![
 ///         Joint { name: "hips".into(), parent: None, rest: Transform3D::at(vec3(0.0, 1.0, 0.0)) },
@@ -111,7 +111,7 @@ pub struct Ragdoll3D {
 impl Ragdoll3D {
     /// The body that bone `joint` (a skeleton joint index) became.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # Game::new("t", 1, 1).physics3d(Vec3::ZERO).run_headless(1, |ctx| {
     /// # let skeleton = Skeleton::new(vec![Joint { name: "hips".into(), parent: None, rest: Transform3D::default() }]);
     /// # let e = ctx.world.spawn((Transform3D::default(), skeleton));
@@ -125,7 +125,7 @@ impl Ragdoll3D {
     }
     /// Every bone's (joint index, body).
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # Game::new("t", 1, 1).physics3d(Vec3::ZERO).run_headless(1, |ctx| {
     /// # let skeleton = Skeleton::new(vec![Joint { name: "hips".into(), parent: None, rest: Transform3D::default() }]);
     /// # let e = ctx.world.spawn((Transform3D::default(), skeleton));
@@ -141,7 +141,7 @@ impl Ragdoll3D {
     /// Whether it is blending back to the animation after
     /// [`Ctx::stop_ragdoll`] (its bodies are gone then).
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # Game::new("t", 1, 1).physics3d(Vec3::ZERO).run_headless(1, |ctx| {
     /// # let skeleton = Skeleton::new(vec![Joint { name: "hips".into(), parent: None, rest: Transform3D::default() }]);
     /// # let e = ctx.world.spawn((Transform3D::default(), skeleton));
@@ -306,7 +306,7 @@ impl Ctx {
     /// it to where the ragdoll lies first (its root bone's body) if the
     /// animation should start from there. Does nothing without a ragdoll.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # Game::new("t", 1, 1).physics3d(Vec3::ZERO).run_headless(1, |ctx| {
     /// # let skeleton = Skeleton::new(vec![Joint { name: "hips".into(), parent: None, rest: Transform3D::default() }]);
     /// # let e = ctx.world.spawn((Transform3D::default(), skeleton));

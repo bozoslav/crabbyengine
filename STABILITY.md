@@ -8,10 +8,10 @@ From 1.0.0, the public API of these crates follows [semver](https://semver.org):
 
 | Crate | What is covered |
 |---|---|
-| `crabbyengine` | Every public item that is not `#[doc(hidden)]`, and the cargo features |
-| `crabby_ecs` | Every public item that is not `#[doc(hidden)]` |
-| `crabby_ffi` | The C ABI in `include/crabby.h` and the C++ wrapper `include/crabby.hpp` (see [C ABI](#c-abi)) |
-| `crabby_mcp` | The MCP tool names and their parameters |
+| `ponko` | Every public item that is not `#[doc(hidden)]`, and the cargo features |
+| `ponko_ecs` | Every public item that is not `#[doc(hidden)]` |
+| `ponko_ffi` | The C ABI in `include/crabby.h` and the C++ wrapper `include/crabby.hpp` (see [C ABI](#c-abi)) |
+| `ponko_mcp` | The MCP tool names and their parameters |
 
 - **Patch** releases (1.0.x) fix bugs. They change no public signatures.
 - **Minor** releases (1.x.0) add things: new functions, types, cargo
@@ -28,7 +28,7 @@ Not covered, and allowed to change in any release:
 
 - `#[doc(hidden)]` items: test helpers such as `Net::loopback_lossy` and
   macro internals.
-- `crabby_bench`, which is not published.
+- `ponko_bench`, which is not published.
 - Error message text, log output, the inspector's look, and the exact
   frames rendered: tests should check behavior, not strings or pixels.
 - Performance. Regressions are bugs, and benchmark numbers go in PRs, but

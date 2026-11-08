@@ -2,7 +2,7 @@
 //! pointers plus a `user` pointer; they get a `CrabbyCtx`.
 use std::ffi::{CStr, c_char, c_void};
 
-use crabbyengine::{Ctx, Game};
+use ponko::{Ctx, Game};
 
 use crate::ctx::{CrabbyCtx, with_ctx};
 use crate::{CrabbyStatus, CrabbyWorld, Failure, boundary, error, invalid, owned_world};
@@ -15,7 +15,7 @@ pub struct CrabbyGame {
 
 /// A system or setup callback. `ctx` is valid until it returns.
 /// ```
-/// let none: crabby_ffi::CrabbySystemFn = None;
+/// let none: ponko_ffi::CrabbySystemFn = None;
 /// assert!(none.is_none());
 /// ```
 pub type CrabbySystemFn = Option<unsafe extern "C" fn(ctx: *mut CrabbyCtx, user: *mut c_void)>;
@@ -27,8 +27,8 @@ pub type CrabbySystemFn = Option<unsafe extern "C" fn(ctx: *mut CrabbyCtx, user:
 /// # Safety
 /// `title` must be a NUL-terminated string.
 /// ```
-/// let g = unsafe { crabby_ffi::crabby_game_new(c"My game".as_ptr(), 800, 600) };
-/// unsafe { crabby_ffi::crabby_game_free(g); }
+/// let g = unsafe { ponko_ffi::crabby_game_new(c"My game".as_ptr(), 800, 600) };
+/// unsafe { ponko_ffi::crabby_game_free(g); }
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_game_new(title: *const c_char, width: u32, height: u32) -> *mut CrabbyGame {
@@ -48,7 +48,7 @@ pub unsafe extern "C" fn crabby_game_new(title: *const c_char, width: u32, heigh
 /// # Safety
 /// `game` must be null or a live, never-run game, not used afterwards.
 /// ```
-/// unsafe { crabby_ffi::crabby_game_free(std::ptr::null_mut()); }
+/// unsafe { ponko_ffi::crabby_game_free(std::ptr::null_mut()); }
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_game_free(game: *mut CrabbyGame) {
@@ -89,7 +89,7 @@ fn reject(g: Game, message: &'static str) -> (Game, Result<(), Failure>) {
 
 /// Simulation ticks per second (default 60). Must be at least 1.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_game_fixed_hz(std::ptr::null_mut(), 30) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_game_fixed_hz(std::ptr::null_mut(), 30) } as u32, 1);
 /// ```
 /// # Safety
 /// `game` must be null or a live game.
@@ -108,7 +108,7 @@ pub unsafe extern "C" fn crabby_game_fixed_hz(game: *mut CrabbyGame, hz: u32) ->
 }
 /// Seed of `crabby_ctx_random_bits` streams (runs with the same seed repeat exactly).
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_game_seed(std::ptr::null_mut(), 7) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_game_seed(std::ptr::null_mut(), 7) } as u32, 1);
 /// ```
 /// # Safety
 /// `game` must be null or a live game.
@@ -119,7 +119,7 @@ pub unsafe extern "C" fn crabby_game_seed(game: *mut CrabbyGame, seed: u64) -> C
 }
 /// Wait for the display between frames (default on).
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_game_vsync(std::ptr::null_mut(), false) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_game_vsync(std::ptr::null_mut(), false) } as u32, 1);
 /// ```
 /// # Safety
 /// `game` must be null or a live game.
@@ -131,7 +131,7 @@ pub unsafe extern "C" fn crabby_game_vsync(game: *mut CrabbyGame, on: bool) -> C
 /// Samples per pixel of the 3D frame: 4 (default) or 2, which costs about a
 /// third less GPU time on a large screen. GPUs that can't take 2 keep 4.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_game_msaa(std::ptr::null_mut(), 2) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_game_msaa(std::ptr::null_mut(), 2) } as u32, 1);
 /// ```
 /// # Safety
 /// `game` must be null or a live game.
@@ -149,7 +149,7 @@ pub unsafe extern "C" fn crabby_game_msaa(game: *mut CrabbyGame, samples: u32) -
 /// windowed games are shown at most once per display refresh even with vsync
 /// off; fullscreen ones aren't.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_game_fullscreen(std::ptr::null_mut(), true) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_game_fullscreen(std::ptr::null_mut(), true) } as u32, 1);
 /// ```
 /// # Safety
 /// `game` must be null or a live game.
@@ -161,7 +161,7 @@ pub unsafe extern "C" fn crabby_game_fullscreen(game: *mut CrabbyGame, on: bool)
 /// Turns on the built-in spatial grid with cells of `cell_size`, rebuilt
 /// from every `Transform2D` at the start of each tick (`crabby_ctx_spatial_*`).
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_game_spatial_grid(std::ptr::null_mut(), 32.0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_game_spatial_grid(std::ptr::null_mut(), 32.0) } as u32, 1);
 /// ```
 /// # Safety
 /// `game` must be null or a live game.
@@ -181,19 +181,19 @@ pub unsafe extern "C" fn crabby_game_spatial_grid(game: *mut CrabbyGame, cell_si
 /// Adds the built-in camera controls as a frame system: right or middle drag
 /// pans, the wheel zooms toward the mouse (not while it is over UI).
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_game_camera_controls(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_game_camera_controls(std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `game` must be null or a live game.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_game_camera_controls(game: *mut CrabbyGame) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    unsafe { build(game, |g| ok(g.system(crabbyengine::camera_controls))) }
+    unsafe { build(game, |g| ok(g.system(ponko::camera_controls))) }
 }
-/// Opens the control endpoint for tools and agents (crabby-mcp); also on
+/// Opens the control endpoint for tools and agents (ponko-mcp); also on
 /// with `CRABBY_CONTROL=1`.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_game_control_endpoint(std::ptr::null_mut(), true) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_game_control_endpoint(std::ptr::null_mut(), true) } as u32, 1);
 /// ```
 /// # Safety
 /// `game` must be null or a live game.
@@ -207,7 +207,7 @@ pub unsafe extern "C" fn crabby_game_control_endpoint(game: *mut CrabbyGame, on:
 /// handles. On by default in debug builds of the engine, off in release;
 /// `CRABBY_HOT_RELOAD=1` or `0` overrides. See `crabby_ctx_reloaded_textures`.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_game_hot_reload(std::ptr::null_mut(), true) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_game_hot_reload(std::ptr::null_mut(), true) } as u32, 1);
 /// ```
 /// # Safety
 /// `game` must be null or a live game.
@@ -222,9 +222,9 @@ pub unsafe extern "C" fn crabby_game_hot_reload(game: *mut CrabbyGame, on: bool)
 /// editable), reflected resources, system times, and pause / step / speed.
 /// On by default in debug builds of the engine, off in release;
 /// `CRABBY_INSPECTOR=1`, `0` or `open` (on and open at start) overrides.
-/// Without the `inspector` feature of crabby_ffi this does nothing.
+/// Without the `inspector` feature of ponko_ffi this does nothing.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_game_inspector(std::ptr::null_mut(), true) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_game_inspector(std::ptr::null_mut(), true) } as u32, 1);
 /// ```
 /// # Safety
 /// `game` must be null or a live game.
@@ -265,7 +265,7 @@ fn system(f: unsafe extern "C" fn(*mut CrabbyCtx, *mut c_void), user: *mut c_voi
 /// # Safety
 /// Live game; `system` and `user` must stay valid while the game runs.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_game_sim_system(std::ptr::null_mut(), std::ptr::null(), 1, None, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_game_sim_system(std::ptr::null_mut(), std::ptr::null(), 1, None, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_game_sim_system(
@@ -297,7 +297,7 @@ pub unsafe extern "C" fn crabby_game_sim_system(
 /// # Safety
 /// Live game; `system` and `user` must stay valid while the game runs.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_game_late_system(std::ptr::null_mut(), std::ptr::null(), None, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_game_late_system(std::ptr::null_mut(), std::ptr::null(), None, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_game_late_system(
@@ -326,7 +326,7 @@ pub unsafe extern "C" fn crabby_game_late_system(
 /// # Safety
 /// Live game; `system` and `user` must stay valid while the game runs.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_game_system(std::ptr::null_mut(), std::ptr::null(), None, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_game_system(std::ptr::null_mut(), std::ptr::null(), None, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_game_system(
@@ -351,14 +351,14 @@ pub unsafe extern "C" fn crabby_game_system(
 }
 
 /// Removes systems by name: your own, or a built-in such as
-/// `"crabbyengine::ecs::draw_sprites"`. `CRABBY_NOT_FOUND` if none matched.
+/// `"ponko::ecs::draw_sprites"`. `CRABBY_NOT_FOUND` if none matched.
 /// # Safety
 /// Live game; NUL-terminated name.
 /// ```
 /// unsafe {
-///     let g = crabby_ffi::crabby_game_new(c"t".as_ptr(), 1, 1);
-///     assert_eq!(crabby_ffi::crabby_game_remove_system(g, c"crabbyengine::ecs::draw_sprites".as_ptr()), crabby_ffi::CrabbyStatus::CRABBY_OK);
-///     crabby_ffi::crabby_game_free(g);
+///     let g = ponko_ffi::crabby_game_new(c"t".as_ptr(), 1, 1);
+///     assert_eq!(ponko_ffi::crabby_game_remove_system(g, c"ponko::ecs::draw_sprites".as_ptr()), ponko_ffi::CrabbyStatus::CRABBY_OK);
+///     ponko_ffi::crabby_game_free(g);
 /// }
 /// ```
 #[unsafe(no_mangle)]
@@ -404,7 +404,7 @@ fn setup_fn(setup: crate::CrabbySystemFn, user: *mut c_void) -> impl FnOnce(&mut
 /// # Safety
 /// As `crabby_game_run_headless`.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// unsafe {
 ///     let g = crabby_game_new(c"sim".as_ptr(), 1, 1);
 ///     let mut world = std::ptr::null_mut();
@@ -448,8 +448,8 @@ pub unsafe extern "C" fn crabby_game_profile_headless(
 /// Live game (consumed even on failure); callbacks and `user` valid until it returns.
 /// ```no_run
 /// unsafe {
-///     let g = crabby_ffi::crabby_game_new(c"My game".as_ptr(), 800, 600);
-///     crabby_ffi::crabby_game_run(g, None, std::ptr::null_mut());
+///     let g = ponko_ffi::crabby_game_new(c"My game".as_ptr(), 800, 600);
+///     ponko_ffi::crabby_game_run(g, None, std::ptr::null_mut());
 /// }
 /// ```
 #[unsafe(no_mangle)]
@@ -474,7 +474,7 @@ pub unsafe extern "C" fn crabby_game_run(
 /// Live game (consumed even on failure); writable `out_world`; callbacks and
 /// `user` valid until it returns.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// unsafe {
 ///     let g = crabby_game_new(c"sim".as_ptr(), 1, 1);
 ///     let mut world = std::ptr::null_mut();

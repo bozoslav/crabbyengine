@@ -52,7 +52,7 @@ and despawned too.
 
 Placing runs on all cores and allocates nothing in steady state: about
 **0.7 ms per tick for 100,000 attachments** (release, M-series Mac,
-`cargo run --release -p crabby_bench -- attach`). Entities without
+`cargo run --release -p ponko_bench -- attach`). Entities without
 `Attached` cost nothing.
 
 Attachments are a sim system, so they're deterministic, saved with the world

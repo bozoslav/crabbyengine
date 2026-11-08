@@ -206,7 +206,7 @@ impl Archetype {
     /// the entity handle. What one more entity costs, with no slack.
     ///
     /// ```
-    /// use crabby_ecs::World;
+    /// use ponko_ecs::World;
     ///
     /// struct Pos(f32, f32);
     /// let mut world = World::new();
@@ -222,7 +222,7 @@ impl Archetype {
     /// capacity, which is why it can exceed `len * bytes_per_entity`).
     ///
     /// ```
-    /// use crabby_ecs::World;
+    /// use ponko_ecs::World;
     ///
     /// struct Pos(f32, f32);
     /// let mut world = World::new();

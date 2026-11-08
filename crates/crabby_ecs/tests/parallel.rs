@@ -4,7 +4,7 @@
 mod common;
 
 use common::*;
-use crabby_ecs::*;
+use ponko_ecs::*;
 
 /// Extra marker for a third matching archetype.
 struct Vel2;

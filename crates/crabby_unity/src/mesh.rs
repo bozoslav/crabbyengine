@@ -112,8 +112,8 @@ pub struct Channel {
 ///
 /// ```
 /// # let text = include_str!("../tests/fixtures/quad.asset");
-/// let file = crabby_unity::UnityFile::parse(text).unwrap();
-/// let mesh = crabby_unity::UnityMesh::from_object(&file.objects[0]).unwrap();
+/// let file = ponko_unity::UnityFile::parse(text).unwrap();
+/// let mesh = ponko_unity::UnityMesh::from_object(&file.objects[0]).unwrap();
 /// assert_eq!(mesh.positions.len(), 5);
 /// assert_eq!(mesh.submeshes[0].len(), 6);
 /// ```

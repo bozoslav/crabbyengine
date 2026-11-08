@@ -1,7 +1,7 @@
 //! 3D physics from C: body, collider, velocity and character components,
 //! collision meshes, the game setting, queries and impulses.
 #![cfg(feature = "physics3d")]
-use crabby_ffi::*;
+use ponko_ffi::*;
 use std::ffi::c_void;
 use std::ptr::{null, null_mut};
 

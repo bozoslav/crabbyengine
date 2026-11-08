@@ -83,7 +83,7 @@ Collecting costs nothing until a tool subscribes.
 
 Sending is a push onto a vector, and reading returns a slice of it: about
 4 ns per event sent, read and dropped (100 000 events per tick cost
-0.43 ms, `cargo run --release -p crabby_bench -- events`). Steady state
+0.43 ms, `cargo run --release -p ponko_bench -- events`). Steady state
 allocates nothing.
 
 Events aren't saved with the world (`world.save`); a save between ticks

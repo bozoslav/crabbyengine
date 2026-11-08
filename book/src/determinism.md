@@ -120,5 +120,5 @@ ctx.world.load(&save)?;
   and the sim clock aren't. C++ components are saved once
   their fields are described (see [Reflection](reflection.md#c-and-c-components)).
 
-Agents can do the same through `crabby-mcp` (`save_world`, `load_world`):
+Agents can do the same through `ponko-mcp` (`save_world`, `load_world`):
 checkpoint, try something, roll back.

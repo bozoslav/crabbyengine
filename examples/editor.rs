@@ -13,7 +13,7 @@
 //! - Edit → Scene → Save writes `assets/levels/level.json`; the next start
 //!   loads it instead of the default crabs.
 
-use crabbyengine::*;
+use ponko::*;
 use serde::{Deserialize, Serialize};
 
 /// Walks in a straight line, turning around at the window's edges.

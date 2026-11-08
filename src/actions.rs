@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 /// A digital source. Gamepad slots are stable while connected.
 /// ```
-/// use crabbyengine::{ButtonBinding, Key};
+/// use ponko::{ButtonBinding, Key};
 /// let binding = ButtonBinding::Key(Key::Space);
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,7 +28,7 @@ pub enum ButtonBinding {
 /// A scalar source. Gamepad values inside the deadzone read zero; outside
 /// they are rescaled continuously to full range. Invalid deadzones read zero.
 /// ```
-/// use crabbyengine::{AxisBinding, Key};
+/// use ponko::{AxisBinding, Key};
 /// let binding = AxisBinding::Keys { negative: Key::A, positive: Key::D };
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,7 +54,7 @@ pub enum AxisBinding {
 /// A vector source. Keyboard diagonals are normalized; sticks use a radial
 /// deadzone and retain their direction. Y is positive down.
 /// ```
-/// use crabbyengine::{Axis2Binding, Key};
+/// use ponko::{Axis2Binding, Key};
 /// let binding = Axis2Binding::Keys { left: Key::A, right: Key::D, up: Key::W, down: Key::S };
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,7 +84,7 @@ pub enum Axis2Binding {
 /// An action's kind and sources. Buttons OR together; axes select the source
 /// with greatest magnitude (first wins ties), avoiding doubled movement.
 /// ```
-/// use crabbyengine::{Action, ButtonBinding, Key};
+/// use ponko::{Action, ButtonBinding, Key};
 /// let jump = Action::Button(vec![ButtonBinding::Key(Key::Space)]);
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -109,7 +109,7 @@ struct State {
 /// Serializable bindings, ordered by name. Runtime state is never serialized.
 /// Unknown names and queries of the wrong kind return false/zero.
 /// ```
-/// use crabbyengine::{ActionMap, Action, ButtonBinding, Key};
+/// use ponko::{ActionMap, Action, ButtonBinding, Key};
 /// let mut map = ActionMap::default();
 /// map.set("jump", Action::Button(vec![ButtonBinding::Key(Key::Space)]));
 /// let json = map.to_json().unwrap();
@@ -124,7 +124,7 @@ pub struct ActionMap {
 impl ActionMap {
     /// Add or replace an action. Installation on a context starts with no edges.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let mut map = ActionMap::default();
     /// map.set("jump", Action::Button(vec![]));
     /// ```
@@ -135,7 +135,7 @@ impl ActionMap {
     }
     /// Remove a binding.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let mut map = ActionMap::default();
     /// map.remove("jump");
     /// ```
@@ -145,7 +145,7 @@ impl ActionMap {
     }
     /// Save bindings to JSON. Use `std::fs::write` to persist them.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let json = ActionMap::default().to_json().unwrap();
     /// ```
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
@@ -153,7 +153,7 @@ impl ActionMap {
     }
     /// Load bindings from JSON. A malformed document returns an error.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let map = ActionMap::from_json(r#"{"bindings":{}}"#).unwrap();
     /// ```
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
@@ -259,7 +259,7 @@ fn deadzone_value(value: f32, deadzone: f32) -> f32 {
 
 /// Raw input for headless tests and replay. Feed before querying actions.
 /// ```
-/// use crabbyengine::{InputEvent, Key};
+/// use ponko::{InputEvent, Key};
 /// let event = InputEvent::Key(Key::Space, true);
 /// ```
 #[derive(Debug, Clone, Copy)]

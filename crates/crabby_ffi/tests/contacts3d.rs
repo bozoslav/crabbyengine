@@ -1,7 +1,7 @@
 //! Contact modification from C: the modifier component (one-way surfaces and
 //! conveyors), the custom contact hook and its pair accessors.
 #![cfg(feature = "physics3d")]
-use crabby_ffi::*;
+use ponko_ffi::*;
 use std::ffi::c_void;
 use std::ptr::null_mut;
 

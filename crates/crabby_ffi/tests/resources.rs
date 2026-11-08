@@ -1,6 +1,6 @@
 //! Resources set, read, removed and described from C.
-use crabby_ffi::CrabbyFieldType::*;
-use crabby_ffi::*;
+use ponko_ffi::CrabbyFieldType::*;
+use ponko_ffi::*;
 use std::ffi::{CStr, c_void};
 use std::ptr::null_mut;
 

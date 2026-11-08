@@ -3,7 +3,7 @@
 mod common;
 
 use common::*;
-use crabby_ecs::*;
+use ponko_ecs::*;
 
 #[test]
 fn commands_apply_in_order() {

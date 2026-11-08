@@ -12,7 +12,7 @@
 //!   `cargo run --example lockstep --features steam -- steam`       host, press I to invite
 //!   `cargo run --example lockstep --features steam -- steam-join`  then accept the invite
 
-use crabbyengine::*;
+use ponko::*;
 use serde::{Deserialize, Serialize};
 
 // ANCHOR: input

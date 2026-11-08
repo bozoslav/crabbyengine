@@ -26,7 +26,7 @@ use crate::text::TextParams;
 /// Colors and sizes of the built-in UI: [`ctx.ui_style`](crate::Ctx::ui_style).
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn setup(ctx: &mut Ctx) {
 /// ctx.ui_style.accent = Color::hex(0x2e8b57);
 /// ctx.ui_style.text_size = 18.0;
@@ -156,7 +156,7 @@ impl Ctx {
     /// Fills `rect` (world units) with `color`.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// ctx.draw_rect(Rect::new(0.0, 0.0, 200.0, 20.0), Color::hex(0x3a5a40));
     /// # }
@@ -169,7 +169,7 @@ impl Ctx {
     /// A line from `a` to `b`, `width` world units thick.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, from: Vec2, to: Vec2) {
     /// ctx.draw_line(from, to, 2.0, Color::RED);
     /// # }
@@ -192,7 +192,7 @@ impl Ctx {
     /// A filled circle (world units).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, tower: Vec2) {
     /// ctx.draw_circle(tower, 120.0, Color::BLUE.with_alpha(0.2)); // its range
     /// # }
@@ -218,7 +218,7 @@ impl Ctx {
     /// button doesn't also select a unit behind it.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn select(ctx: &mut Ctx) {
     /// if ctx.mouse_pressed(MouseButton::Left) && !ctx.mouse_over_ui() {
     ///     let at = ctx.mouse_world();
@@ -241,7 +241,7 @@ impl Ctx {
     /// A background panel at `rect` (window pixels), in the style's panel color.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn sidebar(ctx: &mut Ctx) {
     /// let panel = Rect::new(10.0, 10.0, 220.0, 300.0);
     /// ctx.ui_panel(panel);
@@ -258,7 +258,7 @@ impl Ctx {
     /// Returns the space it took.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn stats(ctx: &mut Ctx, ants: usize) {
     /// let mut at = vec2(20.0, 20.0);
     /// at.y += ctx.ui_label(at, "Ants").y;
@@ -285,7 +285,7 @@ impl Ctx {
     /// after being pressed over it).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn controls(ctx: &mut Ctx) {
     /// if ctx.ui_button(Rect::new(20.0, 20.0, 100.0, 32.0), "Pause") {
     ///     ctx.pause();

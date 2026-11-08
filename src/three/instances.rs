@@ -5,7 +5,7 @@ use crate::{Color, Ctx, Mat4, Vec3};
 /// A persistent batch. Handles are never recycled; freeing twice is harmless.
 /// Create one batch per streamed region and free it when that region unloads.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// Game::new("instances", 1, 1).run_headless(0, |ctx| {
 ///     let mat = ctx.create_material(MaterialDesc::default());
 ///     let mesh = ctx.create_mesh(&MeshData::cube(1.0), mat);
@@ -30,7 +30,7 @@ impl InstanceBatch {
 }
 /// Settings for a batch; materials come from the mesh's parts.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let settings = InstanceBatchOptions { max_distance: 500.0, ..Default::default() };
 /// assert!(settings.cast_shadows);
 /// ```

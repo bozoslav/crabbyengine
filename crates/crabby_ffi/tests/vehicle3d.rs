@@ -1,7 +1,7 @@
 //! Raycast-wheel vehicles from C: the component, its wheels as a query
 //! column, mass and center of mass on 3D bodies.
 #![cfg(feature = "physics3d")]
-use crabby_ffi::*;
+use ponko_ffi::*;
 use std::ffi::c_void;
 use std::ptr::null_mut;
 
@@ -210,7 +210,7 @@ fn friction_curves_and_wheels_match_rust() {
     let c = crabby_friction_curve_sideways();
     assert_eq!(crabby_friction_curve_evaluate(c, 0.2), 1.0);
     assert_eq!(crabby_friction_curve_evaluate(c, -9.0), 0.75);
-    let rust = crabbyengine::Wheel3D::new(crabbyengine::vec3(1.0, 2.0, 3.0), 0.4);
+    let rust = ponko::Wheel3D::new(ponko::vec3(1.0, 2.0, 3.0), 0.4);
     let w = crabby_wheel3d(v3(1.0, 2.0, 3.0), 0.4);
     assert_eq!(
         (w.mass, w.suspension_distance, w.spring, w.damper, w.damping_rate),

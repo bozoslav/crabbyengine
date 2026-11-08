@@ -1,6 +1,6 @@
 //! Performance reports: scopes, per-system timings, budgets and comparing runs.
 
-use crabbyengine::*;
+use ponko::*;
 
 // ANCHOR: profile_scopes
 /// Time the parts of your own code you suspect.

@@ -32,7 +32,7 @@ pub struct AllocCounts {
 /// The system allocator, counting what it hands out while profiling is on.
 ///
 /// ```ignore
-/// use crabbyengine::CountingAllocator;
+/// use ponko::CountingAllocator;
 ///
 /// #[global_allocator]
 /// static ALLOCATOR: CountingAllocator = CountingAllocator;
@@ -91,7 +91,7 @@ pub fn note_allocation(bytes: usize) {
 /// [`note_allocation`].
 ///
 /// ```
-/// use crabbyengine::alloc_counts;
+/// use ponko::alloc_counts;
 /// let before = alloc_counts();
 /// let after = alloc_counts();
 /// assert!(after.count >= before.count);

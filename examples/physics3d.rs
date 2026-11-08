@@ -8,7 +8,7 @@
 //! mouse looks, WASD walks, Shift runs, Space jumps; left click shoves the
 //! crate you're looking at.
 
-use crabbyengine::*;
+use ponko::*;
 
 const N: usize = 65;
 const SIZE: f32 = 128.0;

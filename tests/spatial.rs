@@ -1,7 +1,7 @@
 //! The spatial grid: every query is checked against brute force.
 
-use crabbyengine::ecs_core::World;
-use crabbyengine::*;
+use ponko::ecs_core::World;
+use ponko::*;
 
 /// Deterministic random points in `[-span, span)²`.
 fn points(n: usize, span: f32, seed: u64) -> Vec<(Entity, Vec2)> {

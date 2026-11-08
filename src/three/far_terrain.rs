@@ -27,7 +27,7 @@ const BLOCK: usize = 64;
 /// NaN leaves a hole.
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// Game::new("t", 1, 1).run_headless(0, |ctx| {
 ///     // 8 km of world sampled every 64 m, from (-4096, -4096); tiles 256 m wide.
 ///     let n = 129;
@@ -70,7 +70,7 @@ impl FarTerrain {
     /// cells). Nothing is made until [`FarTerrain::update`].
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ground: Material) {
     /// let far = FarTerrain::new(&[0.0; 4 * 4], 4, Vec2::ZERO, 100.0, 100.0, ground);
     /// # }
@@ -91,7 +91,7 @@ impl FarTerrain {
         material: Material,
     ) -> Self {
         Self::try_new(heights, columns, corner, spacing, cell_size, material)
-            .unwrap_or_else(|e| panic!("crabbyengine: FarTerrain::new: {e}"))
+            .unwrap_or_else(|e| panic!("ponko: FarTerrain::new: {e}"))
     }
 
     /// [`FarTerrain::new`] that returns errors (for the C API).
@@ -155,7 +155,7 @@ impl FarTerrain {
     /// so there's never a gap. Takes effect at the next update.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ground: Material) {
     /// let mut far = FarTerrain::new(&[0.0; 4 * 4], 4, Vec2::ZERO, 100.0, 100.0, ground);
     /// far.cut((1, 2));
@@ -172,7 +172,7 @@ impl FarTerrain {
     /// effect at the next update.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ground: Material) {
     /// let mut far = FarTerrain::new(&[0.0; 4 * 4], 4, Vec2::ZERO, 100.0, 100.0, ground);
     /// far.cut((1, 2));
@@ -189,7 +189,7 @@ impl FarTerrain {
     /// Whether `cell` is cut away.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ground: Material) {
     /// let far = FarTerrain::new(&[0.0; 4 * 4], 4, Vec2::ZERO, 100.0, 100.0, ground);
     /// assert!(!far.is_cut((0, 0)));
@@ -207,7 +207,7 @@ impl FarTerrain {
     /// the mesh or two around it.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let ground = ctx.default_material();
     ///     let mut far = FarTerrain::new(&[0.0; 4 * 4], 4, Vec2::ZERO, 100.0, 100.0, ground);
@@ -258,7 +258,7 @@ impl FarTerrain {
     /// [`FarTerrain::update`] builds them again.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let ground = ctx.default_material();
     ///     let mut far = FarTerrain::new(&[0.0; 4 * 4], 4, Vec2::ZERO, 100.0, 100.0, ground);
@@ -280,7 +280,7 @@ impl FarTerrain {
     /// How many meshes (and entities) the far ground has in the world now.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ground: Material) {
     /// let far = FarTerrain::new(&[0.0; 4 * 4], 4, Vec2::ZERO, 100.0, 100.0, ground);
     /// assert_eq!(far.mesh_count(), 0, "nothing before the first update");

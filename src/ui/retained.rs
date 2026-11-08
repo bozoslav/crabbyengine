@@ -12,7 +12,7 @@ use taffy::prelude::*;
 
 /// Stable node identity, never reused within a UI.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let mut ui = Ui::default();
 /// let id: UiId = ui.add(UiWidget::Panel, ui_layout::Style::default());
 /// assert!(ui.rect(id).is_some());
@@ -24,7 +24,7 @@ impl UiId {
     /// The id as an integer, for hosts that store ids outside the UI (the C
     /// API does).
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut ui = Ui::default();
     /// let id = ui.add(UiWidget::Panel, ui_layout::Style::default());
     /// assert_eq!(UiId::from_bits(id.bits()), id);
@@ -35,7 +35,7 @@ impl UiId {
     /// Rebuild an id from [`UiId::bits`]. Unknown values are stale: every call
     /// ignores or rejects them instead of panicking.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// assert!(Ui::default().rect(UiId::from_bits(7)).is_none());
     /// ```
     pub const fn from_bits(bits: u64) -> Self {
@@ -50,7 +50,7 @@ impl UiId {
 
 /// Built-in behavior; text, images and decoration are configured separately.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let mut ui = Ui::default();
 /// let button = ui.add(UiWidget::Button, ui_layout::Style::default());
 /// ui.set_text(button, "Buy");
@@ -59,49 +59,49 @@ impl UiId {
 pub enum UiWidget {
     /// Non-focusable container.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiWidget::Panel;
     /// ```
     Panel,
     /// Non-focusable text.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiWidget::Label;
     /// ```
     Label,
     /// Press/release or confirm emits `Clicked`.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiWidget::Button;
     /// ```
     Button,
     /// Non-focusable texture.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiWidget::Image;
     /// ```
     Image,
     /// Clipped container with two-axis wheel scrolling and vertical drag/bar.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiWidget::Scroll;
     /// ```
     Scroll,
     /// Single-line Unicode input, with basic selection (no IME/clipboard).
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiWidget::TextInput;
     /// ```
     TextInput,
     /// Checkbox; confirm or clicking toggles its value.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiWidget::Toggle;
     /// ```
     Toggle,
     /// Normalized 0..1 value, changed by pointer or left/right.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiWidget::Slider;
     /// ```
     Slider,
@@ -109,7 +109,7 @@ pub enum UiWidget {
 
 /// Text alignment within a node's content box.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let paint = UiPaint { align: UiTextAlign::Center, ..Default::default() };
 /// assert_eq!(paint.align, UiTextAlign::Center);
 /// ```
@@ -118,19 +118,19 @@ pub enum UiTextAlign {
     /// Start of each line.
     #[default]
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiTextAlign::Start;
     /// ```
     Start,
     /// Center each line.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiTextAlign::Center;
     /// ```
     Center,
     /// End of each line.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiTextAlign::End;
     /// ```
     End,
@@ -139,7 +139,7 @@ pub enum UiTextAlign {
 /// Visual style, independent of Taffy's layout style. A texture with
 /// `slice > 0` is drawn as nine patches; `slice` is the source border in pixels.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let paint = UiPaint { background: Color::BLUE, font_size: 20.0, ..Default::default() };
 /// assert_eq!(paint.font_size, 20.0);
 /// ```
@@ -147,79 +147,79 @@ pub enum UiTextAlign {
 pub struct UiPaint {
     /// Normal background.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiPaint::default().background;
     /// ```
     pub background: Color,
     /// Hovered/focused background.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiPaint::default().hover;
     /// ```
     pub hover: Color,
     /// Pointer-held background.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiPaint::default().pressed;
     /// ```
     pub pressed: Color,
     /// Disabled background.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiPaint::default().disabled;
     /// ```
     pub disabled: Color,
     /// Border and focus-ring color.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiPaint::default().border;
     /// ```
     pub border: Color,
     /// Border thickness in logical units.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiPaint::default().border_width;
     /// ```
     pub border_width: f32,
     /// Text and image tint.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiPaint::default().color;
     /// ```
     pub color: Color,
     /// Font handle, from `Ctx::load_font`.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiPaint::default().font;
     /// ```
     pub font: Font,
     /// Text line height in logical units.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiPaint::default().font_size;
     /// ```
     pub font_size: f32,
     /// Break text at word boundaries, splitting oversized words.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiPaint::default().wrap;
     /// ```
     pub wrap: bool,
     /// Horizontal text alignment.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiPaint::default().align;
     /// ```
     pub align: UiTextAlign,
     /// Image or background texture; `None` draws only color.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiPaint::default().texture;
     /// ```
     pub texture: Option<Texture>,
     /// Source border size for nine-slice drawing; zero stretches the image.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiPaint::default().slice;
     /// ```
     pub slice: f32,
@@ -246,7 +246,7 @@ impl Default for UiPaint {
 
 /// One semantic event; values are read from the node after `Changed`.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let mut ui = Ui::default();
 /// assert_eq!(ui.events().count(), 0);
 /// ```
@@ -254,7 +254,7 @@ impl Default for UiPaint {
 pub enum UiEvent {
     /// A button was activated.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut ui = Ui::default();
     /// let id = ui.add(UiWidget::Button, ui_layout::Style::default());
     /// let _ = UiEvent::Clicked(id);
@@ -262,7 +262,7 @@ pub enum UiEvent {
     Clicked(UiId),
     /// Text, checkbox or slider value changed.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut ui = Ui::default();
     /// let id = ui.add(UiWidget::Button, ui_layout::Style::default());
     /// let _ = UiEvent::Changed(id);
@@ -270,7 +270,7 @@ pub enum UiEvent {
     Changed(UiId),
     /// Enter/confirm in a text field.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut ui = Ui::default();
     /// let id = ui.add(UiWidget::Button, ui_layout::Style::default());
     /// let _ = UiEvent::Submitted(id);
@@ -278,7 +278,7 @@ pub enum UiEvent {
     Submitted(UiId),
     /// Cancel popped this screen; the input is consumed for this frame.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut ui = Ui::default();
     /// let id = ui.add(UiWidget::Button, ui_layout::Style::default());
     /// let _ = UiEvent::ScreenPopped(id);
@@ -289,7 +289,7 @@ pub enum UiEvent {
 /// Input snapshot in logical window coordinates. `Ctx` supplies this each
 /// frame; tests and custom hosts can call `Ui::frame` directly.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let mut ui = Ui::default();
 /// ui.frame(vec2(800.0,600.0), &UiInput::default());
 /// ```
@@ -297,103 +297,103 @@ pub enum UiEvent {
 pub struct UiInput {
     /// Pointer position in logical window units (before user scaling).
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiInput::default().pointer;
     /// ```
     pub pointer: Vec2,
     /// Primary pointer pressed this frame.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiInput::default().pressed;
     /// ```
     pub pressed: bool,
     /// Primary pointer held.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiInput::default().held;
     /// ```
     pub held: bool,
     /// Primary pointer released this frame.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiInput::default().released;
     /// ```
     pub released: bool,
     /// Wheel displacement in logical units (positive scrolls down/right).
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiInput::default().wheel;
     /// ```
     pub wheel: Vec2,
     /// Tab/next focus.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiInput::default().next;
     /// ```
     pub next: bool,
     /// Shift-tab/previous focus.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiInput::default().previous;
     /// ```
     pub previous: bool,
     /// Directional focus, caret or slider movement (-1..1 per axis).
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiInput::default().direction;
     /// ```
     pub direction: Vec2,
     /// Enter/space/gamepad south.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiInput::default().confirm;
     /// ```
     pub confirm: bool,
     /// Escape/gamepad east, pops a screen.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiInput::default().cancel;
     /// ```
     pub cancel: bool,
     /// Shift extends text selection.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiInput::default().shift;
     /// ```
     pub shift: bool,
     /// Select all text.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiInput::default().select_all;
     /// ```
     pub select_all: bool,
     /// Delete before caret.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiInput::default().backspace;
     /// ```
     pub backspace: bool,
     /// Delete after caret.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiInput::default().delete;
     /// ```
     pub delete: bool,
     /// Move caret to start.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiInput::default().home;
     /// ```
     pub home: bool,
     /// Move caret to end.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiInput::default().end;
     /// ```
     pub end: bool,
     /// Committed text; control characters are ignored.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let _ = UiInput::default().text;
     /// ```
     pub text: String,
@@ -430,7 +430,7 @@ enum Drag {
 /// Owned UI tree and screen stack. Build once, then mutate node properties.
 /// Draining events avoids callbacks borrowing the game and UI together.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let mut ui = Ui::default();
 /// let root = ui.add(UiWidget::Panel, ui_layout::Style::default());
 /// ui.push_screen(root, false);
@@ -491,7 +491,7 @@ impl Ui {
 
     /// Add a detached node. Push it as a screen or use `add_child` instead.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut ui = Ui::default();
     /// let root = ui.add(UiWidget::Panel, ui_layout::Style::default());
     /// ```
@@ -522,7 +522,7 @@ impl Ui {
     }
     /// Add a child. Panics if the parent was removed or belongs to another UI.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut ui = Ui::default();
     /// let root = ui.add(UiWidget::Panel, ui_layout::Style::default());
     /// let child = ui.add_child(root, UiWidget::Label, ui_layout::Style::default());
@@ -539,7 +539,7 @@ impl Ui {
     }
     /// Remove a subtree. Stale IDs stay invalid; removing a screen drops it.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut ui = Ui::default();
     /// let id = ui.add(UiWidget::Panel, ui_layout::Style::default());
     /// ui.remove(id);
@@ -575,7 +575,7 @@ impl Ui {
     }
     /// Replace layout style (flex, grid, absolute positioning and constraints).
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Panel, ui_layout::Style::default());
     /// ui.set_layout(id, ui_layout::Style::default());
     /// ```
@@ -586,7 +586,7 @@ impl Ui {
     }
     /// Returns the current layout style, or `None` for a removed node.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut ui = Ui::default();
     /// let id = ui.add(UiWidget::Panel, ui_layout::Style::default());
     /// assert!(ui.layout_style(id).is_some());
@@ -596,7 +596,7 @@ impl Ui {
     }
     /// Replace visual style.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Panel, ui_layout::Style::default());
     /// ui.set_paint(id, UiPaint::default());
     /// ```
@@ -607,7 +607,7 @@ impl Ui {
     }
     /// Set label or input text. Input control characters are discarded.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Label, ui_layout::Style::default());
     /// ui.set_text(id, "Shop"); assert_eq!(ui.text(id), Some("Shop"));
     /// ```
@@ -625,7 +625,7 @@ impl Ui {
     }
     /// Read text, or `None` for a stale ID.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Label, ui_layout::Style::default());
     /// assert_eq!(ui.text(id), Some(""));
     /// ```
@@ -634,7 +634,7 @@ impl Ui {
     }
     /// Enable/disable a node and all descendant interaction.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Button, ui_layout::Style::default());
     /// ui.set_enabled(id, false);
     /// ```
@@ -645,7 +645,7 @@ impl Ui {
     }
     /// Slider value (0..1), or toggle value (zero/off, one/on).
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Slider, ui_layout::Style::default());
     /// ui.set_value(id, 0.5); assert_eq!(ui.value(id), Some(0.5));
     /// ```
@@ -656,7 +656,7 @@ impl Ui {
     }
     /// Read the current slider/toggle value.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Toggle, ui_layout::Style::default());
     /// assert_eq!(ui.value(id), Some(0.0));
     /// ```
@@ -665,7 +665,7 @@ impl Ui {
     }
     /// Set scroll offset in unscaled layout units; clamped during layout.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Scroll, ui_layout::Style::default());
     /// ui.set_scroll(id, vec2(0.0,40.0));
     /// ```
@@ -676,7 +676,7 @@ impl Ui {
     }
     /// Current clamped offset, after layout.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Scroll, ui_layout::Style::default());
     /// assert_eq!(ui.scroll(id), Some(Vec2::ZERO));
     /// ```
@@ -686,7 +686,7 @@ impl Ui {
     /// Push a detached root; only the top screen is interactive. `modal`
     /// draws a dim overlay below this screen. Duplicate/parented roots panic.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut ui = Ui::default(); let root = ui.add(UiWidget::Panel, ui_layout::Style::default());
     /// ui.push_screen(root, true);
     /// ```
@@ -710,7 +710,7 @@ impl Ui {
     }
     /// Pop a screen, restoring the previous focus. Nodes remain reusable.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut ui = Ui::default(); let root = ui.add(UiWidget::Panel, ui_layout::Style::default());
     /// ui.push_screen(root, true); assert_eq!(ui.pop_screen(), Some(root));
     /// ```
@@ -725,7 +725,7 @@ impl Ui {
     }
     /// The node's parent, or `None` for a detached root and for stale IDs.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut ui = Ui::default();
     /// let root = ui.add(UiWidget::Panel, ui_layout::Style::default());
     /// let child = ui.add_child(root, UiWidget::Label, ui_layout::Style::default());
@@ -737,7 +737,7 @@ impl Ui {
     }
     /// Whether `id` is on the screen stack right now.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut ui = Ui::default();
     /// let root = ui.add(UiWidget::Panel, ui_layout::Style::default());
     /// assert!(!ui.is_screen(root));
@@ -749,7 +749,7 @@ impl Ui {
     }
     /// Top screen root.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// assert_eq!(Ui::default().top_screen(), None);
     /// ```
     pub fn top_screen(&self) -> Option<UiId> {
@@ -757,7 +757,7 @@ impl Ui {
     }
     /// User scale, multiplied with the window's existing DPI handling.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut ui = Ui::default(); ui.set_scale(1.5);
     /// ```
     pub fn set_scale(&mut self, scale: f32) {
@@ -765,7 +765,7 @@ impl Ui {
     }
     /// Resolved rectangle in logical window coordinates (including user scale).
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Panel, ui_layout::Style::default());
     /// assert!(ui.rect(id).is_some());
     /// ```
@@ -774,7 +774,7 @@ impl Ui {
     }
     /// Current keyboard/gamepad focus.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// assert_eq!(Ui::default().focus(), None);
     /// ```
     pub fn focus(&self) -> Option<UiId> {
@@ -782,7 +782,7 @@ impl Ui {
     }
     /// Drain semantic events once. Unread events are cleared next frame.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// assert_eq!(Ui::default().events().count(), 0);
     /// ```
     pub fn events(&mut self) -> impl Iterator<Item = UiEvent> + '_ {
@@ -792,7 +792,7 @@ impl Ui {
     /// [`Ui::events`], dropping the result keeps the other events queued, so
     /// calls that read one event at a time (the C API does) lose none.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// assert_eq!(Ui::default().next_event(), None);
     /// ```
     pub fn next_event(&mut self) -> Option<UiEvent> {
@@ -800,7 +800,7 @@ impl Ui {
     }
     /// Pointer or a captured drag belongs to UI; modal screens capture outside.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// assert!(!Ui::default().wants_pointer());
     /// ```
     pub fn wants_pointer(&self) -> bool {
@@ -813,7 +813,7 @@ impl Ui {
     /// Keyboard/gamepad belongs to UI while a screen is open (including text
     /// focus). The game should suppress its own actions while this is true.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// assert!(!Ui::default().wants_keyboard());
     /// ```
     pub fn wants_keyboard(&self) -> bool {
@@ -844,7 +844,7 @@ impl Ui {
     }
     /// Hit test the top screen, respecting ancestor clips and disabled nodes.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// assert_eq!(Ui::default().hit_test(Vec2::ZERO), None);
     /// ```
     pub fn hit_test(&self, point: Vec2) -> Option<UiId> {
@@ -861,7 +861,7 @@ impl Ui {
     /// Resolve all screens against the logical window size. Percent sizes,
     /// min/max, flex/grid and absolute offsets are Taffy styles.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut ui = Ui::default(); ui.layout(vec2(800.0,600.0));
     /// ```
     pub fn layout(&mut self, viewport: Vec2) {
@@ -987,7 +987,7 @@ impl Ui {
     /// Layout and process one input snapshot. Call once per frame, before game
     /// logic reads events. Cancel consumes the frame, preventing click-through.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut ui = Ui::default(); ui.frame(vec2(800.0,600.0), &UiInput::default());
     /// ```
     pub fn frame(&mut self, viewport: Vec2, input: &UiInput) {

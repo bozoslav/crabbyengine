@@ -1,7 +1,7 @@
 //! Same seed, same simulation: everything that could make runs diverge
 //! (threads, the grid, sorting, reduced rates, spawning) at once.
 
-use crabbyengine::*;
+use ponko::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]

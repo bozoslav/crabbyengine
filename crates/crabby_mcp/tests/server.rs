@@ -6,8 +6,8 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-use crabby_mcp::{Config, Server};
-use crabbyengine::*;
+use ponko::*;
+use ponko_mcp::{Config, Server};
 use serde_json::{Value, json};
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -106,7 +106,7 @@ impl Agent {
 // read (where to register), and tests in a file run in parallel.
 #[test]
 fn agents_drive_several_games_through_mcp() {
-    let dir = std::env::temp_dir().join(format!("crabby-mcp-test-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("ponko-mcp-test-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     // SAFETY: set before any other thread of this test binary starts.
     unsafe { std::env::set_var("CRABBY_INSTANCES_DIR", &dir) };
@@ -116,7 +116,7 @@ fn agents_drive_several_games_through_mcp() {
     // Handshake.
     let init = agent.rpc("initialize", json!({ "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "test", "version": "0" } }));
     assert_eq!(init["result"]["protocolVersion"], "2025-06-18");
-    assert_eq!(init["result"]["serverInfo"]["name"], "crabby-mcp");
+    assert_eq!(init["result"]["serverInfo"]["name"], "ponko-mcp");
     assert!(
         agent
             .server

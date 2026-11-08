@@ -12,7 +12,7 @@ use glam::{Mat4, Vec2, Vec3};
 /// The most decals drawn in a frame. When more are in view, the ones
 /// nearest the camera are kept.
 /// ```
-/// assert_eq!(crabbyengine::MAX_DECALS, 4096);
+/// assert_eq!(ponko::MAX_DECALS, 4096);
 /// ```
 pub const MAX_DECALS: usize = 4096;
 
@@ -20,7 +20,7 @@ pub const MAX_DECALS: usize = 4096;
 /// split into 24 slices of depth). Where more overlap, the ones with the
 /// highest [`Decal3D::order`] are kept.
 /// ```
-/// assert_eq!(crabbyengine::MAX_DECALS_PER_CLUSTER, 64);
+/// assert_eq!(ponko::MAX_DECALS_PER_CLUSTER, 64);
 /// ```
 pub const MAX_DECALS_PER_CLUSTER: usize = 64;
 
@@ -43,7 +43,7 @@ pub const MAX_DECALS_PER_CLUSTER: usize = 64;
 /// materials.
 ///
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// // A 2 x 2 m mark, 1 m deep, from the first image of the decal textures.
 /// let mark = Decal3D { size: vec3(2.0, 2.0, 1.0), image: 0, ..Default::default() };
 /// let mut world = World::new();
@@ -139,7 +139,7 @@ impl Default for Decal3D {
 /// without it take every decal. Only the low 16 bits count.
 ///
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let mut ctx_world = World::new();
 /// // A character that no decal lands on:
 /// let hero = ctx_world.spawn((Transform3D::default(), ReceivesDecals::NONE));

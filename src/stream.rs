@@ -18,7 +18,7 @@ use glam::{Vec2, Vec3};
 /// browser, which has no threads here, the work runs when it's spawned.
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// let mut job = Job::spawn(|| (1..=10).sum::<i32>());
 /// // Each frame, until it's done:
 /// let sum = loop {
@@ -42,7 +42,7 @@ impl<T: Send + 'static> Job<T> {
     /// core).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let heights = Job::spawn(|| vec![0.0f32; 129 * 129]);
     /// assert_eq!(heights.wait().len(), 129 * 129);
     /// ```
@@ -72,7 +72,7 @@ impl<T> Job<T> {
     /// Whether the work has finished (its result may already be taken).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let mut job = Job::spawn(|| 7);
     /// while !job.is_done() {}
     /// assert!(job.is_done());
@@ -86,7 +86,7 @@ impl<T> Job<T> {
     /// was taken. Never waits.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let mut job = Job::spawn(|| "ready");
     /// while !job.is_done() {}
     /// assert_eq!(job.take(), Some("ready"));
@@ -109,7 +109,7 @@ impl<T> Job<T> {
     /// tests; a game's frames shouldn't wait).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert_eq!(Job::spawn(|| 2 + 2).wait(), 4);
     /// ```
     ///
@@ -120,10 +120,10 @@ impl<T> Job<T> {
         if let Some(result) = self.done.take() {
             return *result;
         }
-        assert!(!self.taken, "crabbyengine: Job::wait: the result was already taken");
+        assert!(!self.taken, "ponko: Job::wait: the result was already taken");
         self.result
             .recv()
-            .unwrap_or_else(|_| panic!("crabbyengine: a job's work panicked"))
+            .unwrap_or_else(|_| panic!("ponko: a job's work panicked"))
     }
 
     fn poll(&mut self) {
@@ -133,7 +133,7 @@ impl<T> Job<T> {
         match self.result.try_recv() {
             Ok(result) => self.done = Some(Box::new(result)),
             Err(mpsc::TryRecvError::Empty) => {}
-            Err(mpsc::TryRecvError::Disconnected) => panic!("crabbyengine: a job's work panicked"),
+            Err(mpsc::TryRecvError::Disconnected) => panic!("ponko: a job's work panicked"),
         }
     }
 }
@@ -149,7 +149,7 @@ impl<T> Job<T> {
 /// `(x + 1) * cell_size` along X, and the same along Z.
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// let mut cells = CellStreamer::new(256.0, 600.0, 800.0);
 /// cells.update(Vec3::ZERO, 100);
 /// assert!(cells.to_load().contains(&(0, 0)));
@@ -178,7 +178,7 @@ impl CellStreamer {
     /// (raised to `load_radius` when it's less).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let cells = CellStreamer::new(128.0, 500.0, 700.0);
     /// assert!(cells.loaded().next().is_none());
     /// ```
@@ -190,11 +190,11 @@ impl CellStreamer {
     pub fn new(cell_size: f32, load_radius: f32, keep_radius: f32) -> Self {
         assert!(
             cell_size > 0.0 && cell_size.is_finite(),
-            "crabbyengine: CellStreamer: cell_size must be above 0 (got {cell_size})"
+            "ponko: CellStreamer: cell_size must be above 0 (got {cell_size})"
         );
         assert!(
             load_radius >= 0.0 && keep_radius >= 0.0,
-            "crabbyengine: CellStreamer: the radii can't be negative"
+            "ponko: CellStreamer: the radii can't be negative"
         );
         Self {
             cell_size,
@@ -214,7 +214,7 @@ impl CellStreamer {
     /// as done (loaded, dropped) from here on.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let mut cells = CellStreamer::new(10.0, 25.0, 40.0);
     /// cells.update(Vec3::ZERO, 2);
     /// assert_eq!(cells.to_load().len(), 2, "two this frame");
@@ -264,7 +264,7 @@ impl CellStreamer {
     /// The cells the last [`CellStreamer::update`] started loading, nearest first.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let mut cells = CellStreamer::new(1.0, 0.4, 0.4);
     /// cells.update(vec3(0.5, 0.0, 0.5), 10);
     /// assert_eq!(cells.to_load(), &[(0, 0)]);
@@ -277,7 +277,7 @@ impl CellStreamer {
     /// The cells the last [`CellStreamer::update`] dropped, in grid order.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let mut cells = CellStreamer::new(1.0, 0.4, 0.4);
     /// cells.update(vec3(0.5, 0.0, 0.5), 10);
     /// cells.update(vec3(10.5, 0.0, 0.5), 10);
@@ -291,7 +291,7 @@ impl CellStreamer {
     /// Every cell loaded now (or being loaded), in no order.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let mut cells = CellStreamer::new(1.0, 0.4, 0.4);
     /// cells.update(vec3(0.5, 0.0, 0.5), 10);
     /// assert_eq!(cells.loaded().count(), 1);
@@ -303,7 +303,7 @@ impl CellStreamer {
     /// Whether `cell` is loaded (or being loaded).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let mut cells = CellStreamer::new(1.0, 0.4, 0.4);
     /// cells.update(vec3(0.5, 0.0, 0.5), 10);
     /// assert!(cells.is_loaded((0, 0)) && !cells.is_loaded((5, 5)));
@@ -316,7 +316,7 @@ impl CellStreamer {
     /// How many cells are loaded (or being loaded).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let cells = CellStreamer::new(1.0, 0.4, 0.4);
     /// assert_eq!(cells.loaded_count(), 0);
     /// ```
@@ -329,7 +329,7 @@ impl CellStreamer {
     /// height 0.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let cells = CellStreamer::new(256.0, 0.0, 0.0);
     /// assert_eq!(cells.corner((2, -1)), vec3(512.0, 0.0, -256.0));
     /// ```
@@ -342,7 +342,7 @@ impl CellStreamer {
     /// dropped them all, or a new level).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let mut cells = CellStreamer::new(1.0, 2.0, 2.0);
     /// cells.update(Vec3::ZERO, 100);
     /// cells.clear();

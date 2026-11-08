@@ -1,7 +1,7 @@
 //! Binary serialized assets: a small Unity 6 style file built here, byte
 //! by byte, the way the editor lays one out.
 
-use crabby_unity::*;
+use ponko_unity::*;
 
 /// Offsets into Unity's built-in strings (high bit set).
 const fn common(offset: u32) -> u32 {

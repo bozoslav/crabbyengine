@@ -7,7 +7,7 @@ use glam::{Quat, Vec4};
 /// Interpolation between keys. Cubic values are stored as incoming tangent,
 /// value, outgoing tangent for each key; tangents are derivatives per second.
 /// ```
-/// use crabbyengine::Interpolation;
+/// use ponko::Interpolation;
 /// let interpolation = Interpolation::Linear;
 /// assert_ne!(interpolation, Interpolation::Step);
 /// ```
@@ -24,7 +24,7 @@ pub enum Interpolation {
 /// A vector track (translation or scale), or a quaternion track stored as xyzw.
 /// Use [`AnimationTrack::new`] to validate times and value counts.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let track = AnimationTrack::new(vec![0.0], vec![Vec4::ZERO], Interpolation::Step);
 /// assert_eq!(track.times(), &[0.0]);
 /// ```
@@ -39,7 +39,7 @@ impl AnimationTrack {
     /// Panics unless times are finite, nonnegative, strictly increasing and
     /// nonempty, and values are finite with one per key (three for cubic).
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let t = AnimationTrack::new(vec![0.0, 1.0], vec![Vec4::ZERO, Vec4::ONE], Interpolation::Linear);
     /// assert_eq!(t.values().len(), 2);
     /// ```
@@ -69,7 +69,7 @@ impl AnimationTrack {
     }
     /// Key times in seconds.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let t = AnimationTrack::new(vec![0.0], vec![Vec4::ZERO], Interpolation::Step);
     /// assert_eq!(t.times(), &[0.0]);
     /// ```
@@ -78,7 +78,7 @@ impl AnimationTrack {
     }
     /// Values, including tangent triples for cubic tracks.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let t = AnimationTrack::new(vec![0.0], vec![Vec4::ONE], Interpolation::Step);
     /// assert_eq!(t.values(), &[Vec4::ONE]);
     /// ```
@@ -87,7 +87,7 @@ impl AnimationTrack {
     }
     /// How keys are interpolated.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let t = AnimationTrack::new(vec![0.0], vec![Vec4::ZERO], Interpolation::Step);
     /// assert_eq!(t.interpolation(), Interpolation::Step);
     /// ```
@@ -145,7 +145,7 @@ fn quaternion(v: Vec4) -> Quat {
 /// Tracks for a joint, identified both by its source index and name.
 /// Missing tracks leave the corresponding pose property untouched.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let joint = JointAnimation { joint: 0, name: "root".into(), translation: None, rotation: None, scale: None };
 /// assert_eq!(joint.name, "root");
 /// ```
@@ -165,7 +165,7 @@ pub struct JointAnimation {
 /// A named morph channel. Values use the track's x component, in units where
 /// 1 is full weight. Cubic tangents use weight units per second.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let channel = MorphAnimation { name: "smile".into(), track: AnimationTrack::new(
 ///     vec![0.0], vec![Vec4::ONE], Interpolation::Step) };
 /// assert_eq!(channel.name, "smile");
@@ -198,7 +198,7 @@ struct Binding {
 /// later samples (including skeleton clones) allocate nothing. Source skeletons
 /// use indices directly. Missing joints and shortened pose entries are skipped.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let s = Skeleton::new(vec![]);
 /// let clip = AnimationClip::new("idle", &s, vec![]);
 /// assert_eq!(clip.name(), "idle");
@@ -212,7 +212,7 @@ impl AnimationClip {
     /// Makes a clip from tracks for `source`. Duration is the last key time.
     /// Panics if a track's source index and name disagree with the skeleton.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let s = Skeleton::new(vec![]);
     /// let clip = AnimationClip::new("idle", &s, vec![]);
     /// assert_eq!(clip.duration(), 0.0);
@@ -241,7 +241,7 @@ impl AnimationClip {
     }
     /// Replaces named morph tracks on a clip. Duplicate names are rejected.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let clip = AnimationClip::new("face", &Skeleton::new(vec![]), vec![])
     ///     .with_morph_tracks(vec![]);
     /// assert!(clip.morph_tracks().is_empty());
@@ -280,7 +280,7 @@ impl AnimationClip {
     }
     /// Named morph tracks, in weight units (1 is full weight).
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert!(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![]).morph_tracks().is_empty());
     /// ```
     pub fn morph_tracks(&self) -> &[MorphAnimation] {
@@ -293,7 +293,7 @@ impl AnimationClip {
     }
     /// Clip name (unnamed glTF clips use `animation N`, with zero-based N).
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert_eq!(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![]).name(), "idle");
     /// ```
     pub fn name(&self) -> &str {
@@ -301,7 +301,7 @@ impl AnimationClip {
     }
     /// Length in seconds; zero for an empty clip or a single key at zero.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert_eq!(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![]).duration(), 0.0);
     /// ```
     pub fn duration(&self) -> f32 {
@@ -309,7 +309,7 @@ impl AnimationClip {
     }
     /// Animated joints and their tracks.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert!(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![]).tracks().is_empty());
     /// ```
     pub fn tracks(&self) -> &[JointAnimation] {
@@ -317,7 +317,7 @@ impl AnimationClip {
     }
     /// Sets animated properties at clamped `time` (NaN means zero).
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let mut s = Skeleton::new(vec![]);
     /// AnimationClip::new("idle", &s, vec![]).sample(0.5, &mut s);
     /// ```
@@ -327,7 +327,7 @@ impl AnimationClip {
     /// Blends from the current pose by `weight`, clamped to [0, 1] (NaN
     /// means zero). For a crossfade, sample A then blend B by the fade amount.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let mut s = Skeleton::new(vec![]);
     /// let clip = AnimationClip::new("idle", &s, vec![]);
     /// clip.sample_blended(0.5, 0.5, &mut s);

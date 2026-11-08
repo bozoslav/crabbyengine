@@ -81,7 +81,7 @@ impl Ctx {
     /// metallic, and light it gives off.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let bricks = ctx.load_texture("bricks.png");
     /// let wall = ctx.create_material(MaterialDesc { texture: Some(bricks), roughness: 0.9, ..Default::default() });
@@ -108,7 +108,7 @@ impl Ctx {
     /// animating a custom shader's values, or a glow.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, lamp: Material) {
     /// let on = MaterialDesc { emissive: Color::hex(0xFFD080), ..Default::default() };
     /// ctx.update_material(lamp, on);
@@ -121,7 +121,7 @@ impl Ctx {
     pub fn update_material(&mut self, material: Material, desc: MaterialDesc) {
         assert!(
             material.id < self.assets3d.materials,
-            "crabbyengine: update_material: that material wasn't made by this game"
+            "ponko: update_material: that material wasn't made by this game"
         );
         self.check_material(&desc);
         if let Some(renderer) = self.renderer.as_mut()
@@ -134,20 +134,20 @@ impl Ctx {
     fn check_material(&self, desc: &MaterialDesc) {
         assert!(
             (0.0..=1.0).contains(&desc.roughness) && (0.0..=1.0).contains(&desc.metallic),
-            "crabbyengine: material roughness and metallic go from 0 to 1 (got {} and {})",
+            "ponko: material roughness and metallic go from 0 to 1 (got {} and {})",
             desc.roughness,
             desc.metallic
         );
         if let Some(shader) = desc.shader {
             assert!(
                 shader.id < self.assets3d.shaders,
-                "crabbyengine: that shader wasn't made by this game"
+                "ponko: that shader wasn't made by this game"
             );
         }
         for array in desc.custom_arrays.into_iter().flatten() {
             assert!(
                 self.has_texture_array(array),
-                "crabbyengine: that texture array wasn't made by this game"
+                "ponko: that texture array wasn't made by this game"
             );
         }
     }
@@ -160,7 +160,7 @@ impl Ctx {
     /// Loading the same file again returns the same shader.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let wind = ctx.load_shader("shaders/wind.wgsl");
     /// let leaves = ctx.create_material(MaterialDesc { shader: Some(wind), double_sided: true, ..Default::default() });
@@ -171,8 +171,7 @@ impl Ctx {
     ///
     /// If the file can't be read or doesn't compile (the message says where).
     pub fn load_shader(&mut self, path: &str) -> Shader {
-        self.try_load_shader(path)
-            .unwrap_or_else(|e| panic!("crabbyengine: {e}"))
+        self.try_load_shader(path).unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
     /// [`Ctx::load_shader`] that returns errors (for the C API).
@@ -194,7 +193,7 @@ impl Ctx {
     /// messages. See [`Ctx::load_shader`] for what it can define.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let stripes = ctx.create_shader("stripes", "
     ///     fn surface(s: Surface) -> Surface {
@@ -210,7 +209,7 @@ impl Ctx {
     /// If it doesn't compile (the message says where).
     pub fn create_shader(&mut self, name: &str, source: &str) -> Shader {
         self.try_create_shader(name, source)
-            .unwrap_or_else(|e| panic!("crabbyengine: {e}"))
+            .unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
     /// [`Ctx::create_shader`] that returns errors (for the C API).
@@ -258,7 +257,7 @@ impl Ctx {
     /// A plain white material, made once and shared.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let white = ctx.default_material();
     /// let ball = ctx.create_mesh(&MeshData::sphere(0.5, 32), white);
@@ -277,7 +276,7 @@ impl Ctx {
     /// spawning entities with a [`Model`](crate::Model) of it.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let stone = ctx.create_material(MaterialDesc::color(Color::hex(0x8A8A8A)));
     /// let block = ctx.create_mesh(&MeshData::cube(1.0), stone);
@@ -291,11 +290,11 @@ impl Ctx {
     /// material comes from another game.
     pub fn create_mesh(&mut self, data: &MeshData, material: Material) -> Mesh {
         if let Err(e) = data.check() {
-            panic!("crabbyengine: create_mesh: {e}");
+            panic!("ponko: create_mesh: {e}");
         }
         assert!(
             material.id < self.assets3d.materials,
-            "crabbyengine: create_mesh: that material wasn't made by this game"
+            "ponko: create_mesh: that material wasn't made by this game"
         );
         self.mesh_from_parts(data, &[(0..data.indices.len() as u32, material)], None, Vec::new())
     }
@@ -308,7 +307,7 @@ impl Ctx {
     /// with joints of the same names) on the entity.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let skeleton = Skeleton::new(vec![
     ///         Joint { name: "base".into(), parent: None, rest: Transform3D::default() },
@@ -331,19 +330,19 @@ impl Ctx {
     /// comes from another game.
     pub fn create_skinned_mesh(&mut self, data: &MeshData, material: Material, skeleton: &Skeleton) -> Mesh {
         if let Err(e) = data.check() {
-            panic!("crabbyengine: create_skinned_mesh: {e}");
+            panic!("ponko: create_skinned_mesh: {e}");
         }
         assert!(
             !data.joints.is_empty(),
-            "crabbyengine: create_skinned_mesh: the mesh data has no joints (use create_mesh)"
+            "ponko: create_skinned_mesh: the mesh data has no joints (use create_mesh)"
         );
         let n = skeleton.joints().len();
         if let Some(bad) = data.joints.iter().flatten().find(|&&j| usize::from(j) >= n) {
-            panic!("crabbyengine: create_skinned_mesh: joint {bad} is past the skeleton's {n} joints");
+            panic!("ponko: create_skinned_mesh: joint {bad} is past the skeleton's {n} joints");
         }
         assert!(
             material.id < self.assets3d.materials,
-            "crabbyengine: create_skinned_mesh: that material wasn't made by this game"
+            "ponko: create_skinned_mesh: that material wasn't made by this game"
         );
         let rest = Skeleton::from_shared(skeleton.shared_joints().clone());
         let inverse_binds = (0..n).map(|j| rest.joint_matrix(j).inverse()).collect();
@@ -372,7 +371,7 @@ impl Ctx {
     /// change its `pose` to bend the model.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let fox = ctx.load_mesh("models/fox.glb");
     /// let skeleton = ctx.load_skeleton("models/fox.glb");
@@ -385,8 +384,7 @@ impl Ctx {
     /// With a clear message if the file is missing, can't be read or has
     /// no skins.
     pub fn load_skeleton(&mut self, path: &str) -> Skeleton {
-        self.try_load_skeleton(path)
-            .unwrap_or_else(|e| panic!("crabbyengine: {e}"))
+        self.try_load_skeleton(path).unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
     pub(crate) fn try_load_skeleton(&mut self, path: &str) -> Result<Skeleton, String> {
@@ -402,19 +400,18 @@ impl Ctx {
     /// Loads all animation clips from a glTF file, cached per file.
     /// Panics with the loading error if the file cannot be loaded.
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let clips = ctx.load_clips("models/character.glb");
     /// # }
     /// ```
     pub fn load_clips(&mut self, path: &str) -> Vec<AnimationClip> {
-        self.try_load_clips(path)
-            .unwrap_or_else(|e| panic!("crabbyengine: {e}"))
+        self.try_load_clips(path).unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
     /// Fallible clip loading; a file without skins or animations returns an error.
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let clips = ctx.try_load_clips("models/character.glb");
     /// # }
@@ -427,19 +424,18 @@ impl Ctx {
 
     /// Loads a named clip. Panics with available names if it is missing.
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let walk = ctx.load_clip("models/character.glb", "walk");
     /// # }
     /// ```
     pub fn load_clip(&mut self, path: &str, name: &str) -> AnimationClip {
-        self.try_load_clip(path, name)
-            .unwrap_or_else(|e| panic!("crabbyengine: {e}"))
+        self.try_load_clip(path, name).unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
     /// Fallible named clip loading; errors list available names.
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let walk = ctx.try_load_clip("models/character.glb", "walk");
     /// # }
@@ -461,7 +457,7 @@ impl Ctx {
     /// edits made with [`update_material`](Self::update_material).
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("Forest", 1280, 720).run(|ctx| {
     ///     let tree = ctx.load_mesh("models/tree.glb");
     ///     for i in 0..100 {
@@ -475,7 +471,7 @@ impl Ctx {
     ///
     /// With a clear message if the file is missing or can't be read.
     pub fn load_mesh(&mut self, path: &str) -> Mesh {
-        self.try_load_mesh(path).unwrap_or_else(|e| panic!("crabbyengine: {e}"))
+        self.try_load_mesh(path).unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
     pub(crate) fn try_load_mesh(&mut self, path: &str) -> Result<Mesh, String> {
@@ -578,7 +574,7 @@ impl Ctx {
     /// corners. Loads the file each call; keep the result.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) -> Result<(), String> {
     /// let wall = ctx.load_mesh_data("models/wall.glb")?;
     /// let hole = wall.decal(Mat4::from_scale(Vec3::splat(0.1)), 0.002);
@@ -652,7 +648,7 @@ impl Ctx {
     /// target (or was freed).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let mut quad = MeshData::plane(1.0);
     ///     let up = vec![vec3(0.0, 0.1, 0.0); quad.positions.len()];
@@ -674,7 +670,7 @@ impl Ctx {
     /// rest with [`Ctx::update_material`]. Models loaded later aren't in it.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// ctx.load_scene("town/Town.json").unwrap();
     /// let brick = ctx.load_shader("shaders/brick.wgsl");
@@ -695,7 +691,7 @@ impl Ctx {
     /// does nothing (until a new mesh takes its id).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let material = ctx.default_material();
     ///     let rock = ctx.create_mesh(&MeshData::cube(1.0), material);
@@ -752,7 +748,7 @@ impl Ctx {
     /// them into the shadow map costs as much as drawing them.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let material = ctx.default_material();
     ///     let tuft = ctx.create_mesh(&MeshData::cube(0.2), material);
@@ -779,7 +775,7 @@ impl Ctx {
     /// [`set_mesh_shadows`](Self::set_mesh_shadows)).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let material = ctx.default_material();
     ///     let house = ctx.create_mesh(&MeshData::cube(4.0), material);
@@ -794,7 +790,7 @@ impl Ctx {
     /// Whether `mesh` was made by this game and not freed.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let material = ctx.default_material();
     ///     let cube = ctx.create_mesh(&MeshData::cube(1.0), material);
@@ -809,7 +805,7 @@ impl Ctx {
     /// How many 3D models were drawn last frame: those the camera could see.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// println!("{} models on screen", ctx.models_drawn());
     /// # }
@@ -827,7 +823,7 @@ impl Ctx {
     /// turns sharply in one frame. Call this after teleporting objects too.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(1, |ctx| {
     ///     ctx.post.anti_aliasing = AntiAliasing::Taa;
     ///     ctx.camera3d.position = vec3(500.0, 2.0, 0.0);
@@ -923,7 +919,7 @@ impl Ctx {
     /// allocates, so call it now and then, not every frame. Empty headless.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// fn heaviest(ctx: &mut Ctx) {
     ///     for c in ctx.mesh_costs().iter().take(5) {
     ///         let name = c.name.as_deref().unwrap_or("(made in code)");
@@ -1042,7 +1038,7 @@ impl Ctx {
     /// attachments. Automatic animators call this each frame; call it after
     /// manual sampling. Unanimated weights retain their current values.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// Game::new("morph", 1, 1).run_headless(0, |ctx| ctx.write_animated_morphs());
     /// ```
     pub fn write_animated_morphs(&mut self) {

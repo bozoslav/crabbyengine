@@ -19,7 +19,7 @@ use super::linear;
 /// `ground_color`. One world unit is taken to be a meter.
 ///
 /// ```no_run
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
 /// // Late evening, a little hazy, with fog lying in the valleys.
 /// ctx.lighting.sun_direction = Sky::sun_direction_at(18.5);
@@ -107,7 +107,7 @@ impl Sky {
     /// noon (60° up, to the south, -Z) and sets in the west at 18.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert!(Sky::sun_direction_at(12.0).y < -0.8, "noon: from high up");
     /// assert!(Sky::sun_direction_at(0.0).y > 0.0, "midnight: from below the ground");
     /// ```

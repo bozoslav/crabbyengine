@@ -13,7 +13,7 @@ enum Op {
 /// query is running, since the query holds the world.
 ///
 /// ```
-/// # use crabby_ecs::*;
+/// # use ponko_ecs::*;
 /// struct Health(i32);
 ///
 /// let mut world = World::new();

@@ -180,7 +180,7 @@ pub struct PerfWarning {
 /// [`Game::profile_headless`](crate::Game::profile_headless) in a headless run.
 ///
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 ///
 /// fn spin(ctx: &mut Ctx) {
 ///     profile_scope!("spin/work");
@@ -318,7 +318,7 @@ impl PerfReport {
     /// any limit in `budget` is broken. For tests and CI.
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     ///
     /// let (_w, report) = Game::new("t", 1, 1).sim_system(|_: &mut Ctx| {}).profile_headless(0, 10, |_| {});
     /// report.assert_within(&Budget::new().frame_p99_ms(50.0));
@@ -346,7 +346,7 @@ impl PerfReport {
     /// than 0.05 ms (or one allocation), so noise in tiny numbers is ignored.
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// # let (_w, report) = Game::new("t", 1, 1).sim_system(|_: &mut Ctx| {}).profile_headless(0, 5, |_| {});
     /// # let baseline = report.clone();
     /// assert!(report.regressions(&baseline, 0.25).is_empty());
@@ -501,7 +501,7 @@ impl fmt::Display for PerfReport {
 /// "systems": {"movement": 0.5}}`), which is how C and C++ pass them.
 ///
 /// ```
-/// use crabbyengine::Budget;
+/// use ponko::Budget;
 /// let budget = Budget::new()
 ///     .frame_p99_ms(2.0)
 ///     .allocs_per_frame(0.0)

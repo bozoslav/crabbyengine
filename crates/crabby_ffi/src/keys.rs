@@ -1,10 +1,10 @@
 //! Keyboard keys, mouse buttons and gamepad inputs as C enums, in the same
 //! order as the Rust ones.
-use crabbyengine::{GamepadAxis, GamepadButton, Key, MouseButton};
+use ponko::{GamepadAxis, GamepadButton, Key, MouseButton};
 
 /// A keyboard key, by position on a US layout (`CRABBY_KEY_A`, ...).
 /// ```
-/// assert_eq!(crabby_ffi::CrabbyKey::CRABBY_KEY_A as u32, 0);
+/// assert_eq!(ponko_ffi::CrabbyKey::CRABBY_KEY_A as u32, 0);
 /// ```
 #[repr(C)]
 #[allow(non_camel_case_types)]
@@ -317,7 +317,7 @@ pub(crate) fn key(k: CrabbyKey) -> Key {
 
 /// A mouse button.
 /// ```
-/// assert_eq!(crabby_ffi::CrabbyMouseButton::CRABBY_MOUSE_LEFT as u32, 0);
+/// assert_eq!(ponko_ffi::CrabbyMouseButton::CRABBY_MOUSE_LEFT as u32, 0);
 /// ```
 #[repr(C)]
 #[allow(non_camel_case_types)]
@@ -363,7 +363,7 @@ pub(crate) fn button_from_c(b: u32) -> Option<MouseButton> {
 /// A gamepad button, by position (`CRABBY_GAMEPAD_SOUTH` is A on Xbox,
 /// Cross on PlayStation). See Rust's `GamepadButton`.
 /// ```
-/// assert_eq!(crabby_ffi::CrabbyGamepadButton::CRABBY_GAMEPAD_SOUTH as u32, 0);
+/// assert_eq!(ponko_ffi::CrabbyGamepadButton::CRABBY_GAMEPAD_SOUTH as u32, 0);
 /// ```
 #[repr(C)]
 #[allow(non_camel_case_types)]
@@ -405,7 +405,7 @@ pub enum CrabbyGamepadButton {
 
 /// A gamepad axis: sticks `-1..1` (y down is positive), triggers `0..1`.
 /// ```
-/// assert_eq!(crabby_ffi::CrabbyGamepadAxis::CRABBY_GAMEPAD_LEFT_STICK_X as u32, 0);
+/// assert_eq!(ponko_ffi::CrabbyGamepadAxis::CRABBY_GAMEPAD_LEFT_STICK_X as u32, 0);
 /// ```
 #[repr(C)]
 #[allow(non_camel_case_types)]
@@ -427,10 +427,10 @@ pub enum CrabbyGamepadAxis {
 
 /// How many gamepads the engine tracks: slots run `0..CRABBY_MAX_GAMEPADS`.
 /// ```
-/// assert_eq!(crabby_ffi::CRABBY_MAX_GAMEPADS as usize, crabbyengine::MAX_GAMEPADS);
+/// assert_eq!(ponko_ffi::CRABBY_MAX_GAMEPADS as usize, ponko::MAX_GAMEPADS);
 /// ```
 pub const CRABBY_MAX_GAMEPADS: u32 = 8;
-const _: () = assert!(CRABBY_MAX_GAMEPADS as usize == crabbyengine::MAX_GAMEPADS);
+const _: () = assert!(CRABBY_MAX_GAMEPADS as usize == ponko::MAX_GAMEPADS);
 
 /// The Rust buttons in `CrabbyGamepadButton` order.
 const GAMEPAD_BUTTONS: [GamepadButton; 16] = {

@@ -1,6 +1,6 @@
 [package]
-name = "crabby_mcp"
-version = "1.0.0"
+name = "ponko_mcp"
+version = "0.0.1"
 keywords = ["mcp", "gamedev", "agents", "ai"]
 categories = ["game-development", "development-tools"]
 edition.workspace = true
@@ -9,15 +9,15 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "MCP server that lets AI agents inspect and drive running Crabby Engine games"
+description = "MCP server that lets AI agents inspect and drive running Ponko games"
 
 [[bin]]
-name = "crabby-mcp"
+name = "ponko-mcp"
 path = "src/main.rs"
 
 [dependencies]
 serde_json = "1.0.154"
 
 [dev-dependencies]
-crabbyengine = { path = "../..", version = "1.0.0" }
+ponko = { path = "../..", version = "0.0.1" }
 serde = { version = "1.0.229", features = ["derive"] }

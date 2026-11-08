@@ -12,7 +12,7 @@ use crate::{CrabbyCtx, CrabbyStatus};
 /// the capsule that stands in for it, running to the joint's first child.
 /// Start from `crabby_ragdoll_bone` and change what you need.
 /// ```
-/// let b = crabby_ffi::crabby_ragdoll_bone(c"spine".as_ptr(), 0.1);
+/// let b = ponko_ffi::crabby_ragdoll_bone(c"spine".as_ptr(), 0.1);
 /// assert_eq!((b.radius, b.swing, b.twist, b.density), (0.1, 0.7, 0.3, 1000.0));
 /// ```
 #[repr(C)]
@@ -33,7 +33,7 @@ pub struct CrabbyRagdollBone {
 /// A ragdoll bone at `joint` with the given capsule radius and the default
 /// limits and density.
 /// ```
-/// let b = crabby_ffi::crabby_ragdoll_bone(c"hips".as_ptr(), 0.12);
+/// let b = ponko_ffi::crabby_ragdoll_bone(c"hips".as_ptr(), 0.12);
 /// assert_eq!(b.radius, 0.12);
 /// ```
 #[unsafe(no_mangle)]
@@ -59,7 +59,7 @@ pub extern "C" fn crabby_ragdoll_bone(joint: *const c_char, radius: f32) -> Crab
 /// `ctx` null or live, outside query callbacks; `bones` points to `count`
 /// bones whose `joint` are C strings.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_start_ragdoll(std::ptr::null_mut(), 0, std::ptr::null(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_start_ragdoll(std::ptr::null_mut(), 0, std::ptr::null(), 0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_start_ragdoll(
@@ -79,7 +79,7 @@ pub unsafe extern "C" fn crabby_ctx_start_ragdoll(
 /// # Safety
 /// `ctx` null or live, outside query callbacks.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_stop_ragdoll(std::ptr::null_mut(), 0, 0.0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_stop_ragdoll(std::ptr::null_mut(), 0, 0.0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_stop_ragdoll(ctx: *mut CrabbyCtx, entity: u64, seconds: f32) -> CrabbyStatus {
@@ -94,7 +94,7 @@ pub unsafe extern "C" fn crabby_ctx_stop_ragdoll(ctx: *mut CrabbyCtx, entity: u6
 /// # Safety
 /// `ctx` null or live; output writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ragdoll_body(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ragdoll_body(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_ragdoll_body(
@@ -113,7 +113,7 @@ pub unsafe extern "C" fn crabby_ctx_ragdoll_body(
 /// # Safety
 /// `ctx` null or live; outputs writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ragdoll_state(std::ptr::null_mut(), 0, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ragdoll_state(std::ptr::null_mut(), 0, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_ragdoll_state(
@@ -131,7 +131,7 @@ mod imp {
     use super::*;
     use crate::ctx::{ctx_access, out, text};
     use crate::{boundary, error, invalid, invalid_owned};
-    use crabbyengine::{Entity, Ragdoll3D, RagdollBone};
+    use ponko::{Entity, Ragdoll3D, RagdollBone};
 
     pub(super) unsafe fn start(
         ctx: *mut CrabbyCtx,
@@ -232,7 +232,7 @@ mod imp {
     use crate::{Failure, boundary, invalid};
 
     fn off() -> Result<(), Failure> {
-        Err(invalid("crabby_ffi was built without the `physics3d` feature"))
+        Err(invalid("ponko_ffi was built without the `physics3d` feature"))
     }
     pub(super) unsafe fn start(_: *mut CrabbyCtx, _: u64, _: *const CrabbyRagdollBone, _: usize) -> CrabbyStatus {
         boundary(off)

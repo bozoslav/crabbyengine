@@ -93,7 +93,7 @@ use crate::{Color, Texture};
 /// Position, rotation and scale of a 3D entity.
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// let crate_box = Transform3D::at(vec3(0.0, 0.5, -3.0)).rotated(Quat::from_rotation_y(0.3));
 /// # let _ = crate_box;
 /// ```
@@ -123,7 +123,7 @@ impl Transform3D {
     /// At `position`, not rotated, scale 1.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let t = Transform3D::at(vec3(1.0, 2.0, 3.0));
     /// assert_eq!(t.scale, Vec3::ONE);
     /// ```
@@ -138,7 +138,7 @@ impl Transform3D {
     /// The same, rotated by `rotation`.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let t = Transform3D::default().rotated(Quat::from_rotation_y(1.0));
     /// # let _ = t;
     /// ```
@@ -150,7 +150,7 @@ impl Transform3D {
     /// The same, scaled by `scale` on every axis.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert_eq!(Transform3D::default().scaled(2.0).scale, Vec3::splat(2.0));
     /// ```
     #[must_use]
@@ -164,7 +164,7 @@ impl Transform3D {
     /// The same, turned so its -Z axis points at `target` (with +Y as up).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let t = Transform3D::at(vec3(0.0, 0.0, 5.0)).looking_at(Vec3::ZERO);
     /// assert!((t.forward() - vec3(0.0, 0.0, -1.0)).length() < 1e-5);
     /// ```
@@ -179,7 +179,7 @@ impl Transform3D {
     /// The direction it faces: its -Z axis.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert_eq!(Transform3D::default().forward(), vec3(0.0, 0.0, -1.0));
     /// ```
     #[must_use]
@@ -190,7 +190,7 @@ impl Transform3D {
     /// The matrix from its local space to the world.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let m = Transform3D::at(vec3(1.0, 0.0, 0.0)).matrix();
     /// assert_eq!(m.transform_point3(Vec3::ZERO), vec3(1.0, 0.0, 0.0));
     /// ```
@@ -215,7 +215,7 @@ fn look_rotation(direction: Vec3) -> Quat {
 /// loaded with [`Ctx::load_mesh`](crate::Ctx::load_mesh); a cheap handle.
 ///
 /// ```no_run
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let tree: Mesh = ctx.load_mesh("tree.glb");
 /// ctx.world.spawn((Transform3D::default(), Model::new(tree)));
@@ -234,7 +234,7 @@ impl Mesh {
     /// becomes another mesh, since no mesh is ever made with its id.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let material = ctx.default_material();
     ///     let bush = ctx.create_mesh(&MeshData::cube(1.0), material);
@@ -270,7 +270,7 @@ pub struct MeshCost {
 /// [`Ctx::create_material`](crate::Ctx::create_material); a cheap handle.
 ///
 /// ```no_run
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let gold = ctx.create_material(MaterialDesc { metallic: 1.0, roughness: 0.3, ..MaterialDesc::color(Color::hex(0xFFC83D)) });
 /// # }
@@ -287,7 +287,7 @@ pub struct Material {
 /// the 3D chapter of the guide for what a shader can do.
 ///
 /// ```no_run
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let water = ctx.load_shader("shaders/water.wgsl");
 /// let lake = ctx.create_material(MaterialDesc { shader: Some(water), ..Default::default() });
@@ -335,7 +335,7 @@ pub enum Blend {
 /// What a [`Material`] is made from.
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// let grass = MaterialDesc { roughness: 0.9, ..MaterialDesc::color(Color::hex(0x4C8A3A)) };
 /// assert_eq!(grass.metallic, 0.0);
 /// ```
@@ -405,7 +405,7 @@ impl MaterialDesc {
     /// A plain material of one color.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let red = MaterialDesc::color(Color::rgb(0.8, 0.1, 0.1));
     /// # let _ = red;
     /// ```
@@ -421,7 +421,7 @@ impl MaterialDesc {
 /// Draws a [`Mesh`] where the entity's [`Transform3D`] is.
 ///
 /// ```no_run
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let white = ctx.default_material();
 /// let cube = ctx.create_mesh(&MeshData::cube(1.0), white);
@@ -460,7 +460,7 @@ pub struct Model {
 /// `{ "mesh": null }` for no shadow.
 ///
 /// ```no_run
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let tree = ctx.load_mesh("tree.glb");
 /// let blob = ctx.load_mesh("tree_shadow.glb"); // a few dozen triangles
@@ -474,7 +474,7 @@ impl Model {
     /// Draws `mesh` as it is.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let rock = ctx.load_mesh("rock.glb");
     /// ctx.world.spawn((Transform3D::default(), Model::new(rock)));
@@ -491,7 +491,7 @@ impl Model {
     /// The same, tinted with `color`.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, cube: Mesh) {
     /// let red_cube = Model::new(cube).with_color(Color::rgb(1.0, 0.2, 0.2));
     /// # }
@@ -506,7 +506,7 @@ impl Model {
 /// One per game, at [`Ctx::camera3d`](crate::Ctx::camera3d).
 ///
 /// ```no_run
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
 /// ctx.camera3d.position = vec3(0.0, 4.0, 10.0);
 /// ctx.camera3d.look_at(Vec3::ZERO);
@@ -558,7 +558,7 @@ impl Camera3D {
     /// Turns the camera to look at `target`, keeping +Y up.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, player: Vec3) {
     /// ctx.camera3d.position = player + vec3(0.0, 6.0, 8.0);
     /// ctx.camera3d.look_at(player);
@@ -571,7 +571,7 @@ impl Camera3D {
     /// The direction the camera looks.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let ahead = ctx.camera3d.position + ctx.camera3d.forward() * 5.0;
     /// # }
@@ -599,7 +599,7 @@ impl Camera3D {
     /// unit direction. For picking things in the world with the mouse.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let (from, dir) = ctx.camera3d.screen_ray(ctx.mouse_pos());
     /// // Where the mouse points on the ground (y = 0):
@@ -625,7 +625,7 @@ impl Camera3D {
 /// and ambient light from all around. At [`Ctx::lighting`](crate::Ctx::lighting).
 ///
 /// ```no_run
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
 /// // Evening: low, orange sun.
 /// ctx.lighting.sun_direction = vec3(-1.0, -0.3, -0.2);

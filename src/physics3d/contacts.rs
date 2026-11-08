@@ -20,7 +20,7 @@ use crate::{Entity, Vec3, World};
 /// Bodies with this component pay a little: their contacts are rebuilt every
 /// step instead of reused.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let mut world = World::new();
 /// // A platform you can jump up through, and a belt carrying things 2 m/s along +X.
 /// world.spawn((
@@ -68,7 +68,7 @@ impl Default for ContactModifier3D {
 impl ContactModifier3D {
     /// Solid only from the side `up` (local) points to.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert_eq!(ContactModifier3D::one_way(Vec3::Y).one_way, Some(Vec3::Y));
     /// ```
     #[must_use]
@@ -81,7 +81,7 @@ impl ContactModifier3D {
 
     /// A surface moving what touches it at `velocity` (local, m/s).
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert_eq!(ContactModifier3D::conveyor(Vec3::X).surface_velocity, Vec3::X);
     /// ```
     #[must_use]
@@ -94,7 +94,7 @@ impl ContactModifier3D {
 
     /// Contacts handed to the [`Physics3D::set_contact_hook`] closure.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert!(ContactModifier3D::hook().hook);
     /// ```
     #[must_use]

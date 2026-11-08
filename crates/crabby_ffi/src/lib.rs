@@ -11,7 +11,7 @@
 //! borrowed only until its callback returns.
 //!
 //! ```
-//! use crabby_ffi::{crabby_world_new, crabby_world_free, CrabbyStatus};
+//! use ponko_ffi::{crabby_world_new, crabby_world_free, CrabbyStatus};
 //! let world = crabby_world_new();
 //! assert!(!world.is_null());
 //! unsafe { assert_eq!(crabby_world_free(world), CrabbyStatus::CRABBY_OK); }
@@ -63,7 +63,7 @@ pub use animator::*;
 /// the engine makes. A Rust program that links this crate as a library and
 /// wants its own allocator should depend on the engine instead.
 #[global_allocator]
-static ALLOCATOR: crabbyengine::CountingAllocator = crabbyengine::CountingAllocator;
+static ALLOCATOR: ponko::CountingAllocator = ponko::CountingAllocator;
 
 pub use attach::*;
 pub use audio3d::*;
@@ -101,8 +101,8 @@ pub use ui_panel3d::*;
 pub use ui_retained::*;
 pub use vehicle3d::*;
 
-use crabby_ecs::{ComponentId, Entity, World};
-use crabbyengine::{Sprite, Transform2D, spatial_key};
+use ponko::{Sprite, Transform2D, spatial_key};
+use ponko_ecs::{ComponentId, Entity, World};
 use std::alloc::Layout;
 use std::any::TypeId;
 use std::cell::RefCell;
@@ -112,7 +112,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Result of an ABI operation. Inspect `crabby_last_error` on failure.
 /// ```
-/// assert_eq!(crabby_ffi::CrabbyStatus::CRABBY_OK as u32, 0);
+/// assert_eq!(ponko_ffi::CrabbyStatus::CRABBY_OK as u32, 0);
 /// ```
 #[repr(C)]
 #[allow(non_camel_case_types)]
@@ -133,8 +133,8 @@ use CrabbyStatus::*;
 
 /// Opaque world handle. Never copy, dereference, or free it yourself.
 /// ```
-/// let handle = crabby_ffi::crabby_world_new();
-/// unsafe { crabby_ffi::crabby_world_free(handle); }
+/// let handle = ponko_ffi::crabby_world_new();
+/// unsafe { ponko_ffi::crabby_world_free(handle); }
 /// ```
 pub struct CrabbyWorld {
     world: *mut World,
@@ -149,7 +149,7 @@ pub struct CrabbyWorld {
 /// A non-null readable pointer is required even for a zero-sized value.
 /// ```
 /// let byte = 1u8;
-/// let value = crabby_ffi::CrabbyValue { component: 0, data: (&byte as *const u8).cast(), size: 1 };
+/// let value = ponko_ffi::CrabbyValue { component: 0, data: (&byte as *const u8).cast(), size: 1 };
 /// assert_eq!(value.size, 1);
 /// ```
 #[repr(C)]
@@ -166,7 +166,7 @@ pub struct CrabbyValue {
 /// Borrowed archetype columns in query order. Valid only during the callback.
 /// Column elements are tightly packed with the registered size as their stride.
 /// ```
-/// assert!(std::mem::size_of::<crabby_ffi::CrabbyChunk>() >= 4 * std::mem::size_of::<usize>());
+/// assert!(std::mem::size_of::<ponko_ffi::CrabbyChunk>() >= 4 * std::mem::size_of::<usize>());
 /// ```
 #[repr(C)]
 pub struct CrabbyChunk {
@@ -187,7 +187,7 @@ pub struct CrabbyChunk {
 /// Callback invoked for each nonempty matching archetype (or slice of one,
 /// for `crabby_query_par`). Must return normally.
 /// ```
-/// let callback: crabby_ffi::CrabbyQueryFn = None;
+/// let callback: ponko_ffi::CrabbyQueryFn = None;
 /// assert!(callback.is_none());
 /// ```
 pub type CrabbyQueryFn = Option<unsafe extern "C" fn(*const CrabbyChunk, *mut c_void)>;
@@ -298,7 +298,7 @@ impl Kind {
         matches!(self, Kind::Plain)
     }
 }
-const _: () = assert!(!std::mem::needs_drop::<crabbyengine::Animation>());
+const _: () = assert!(!std::mem::needs_drop::<ponko::Animation>());
 
 /// A Rust component and the C struct that stands for it.
 pub(crate) trait CMirror: Sized + 'static {
@@ -376,28 +376,28 @@ pub(crate) fn component(world: &World, id: u32) -> Result<(ComponentId, Kind), F
         None if !info.needs_drop() => Kind::Plain,
         Some(t) if t == TypeId::of::<Transform2D>() => Kind::Plain,
         // repr(C), layout checked against CrabbyAttached; any bits are a valid value.
-        Some(t) if t == TypeId::of::<crabbyengine::Attached>() => Kind::Plain,
+        Some(t) if t == TypeId::of::<ponko::Attached>() => Kind::Plain,
         // repr(C), layout checked against CrabbyAnimation; `looping` must be 0 or 1.
-        Some(t) if t == TypeId::of::<crabbyengine::Animation>() => Kind::Plain,
+        Some(t) if t == TypeId::of::<ponko::Animation>() => Kind::Plain,
         Some(t) if t == TypeId::of::<Sprite>() => Kind::Mirror(&SPRITE),
         // repr(C), layout checked against CrabbyTransform3D / CrabbyModel;
         // any bits are a valid value (unknown meshes draw nothing).
-        Some(t) if t == TypeId::of::<crabbyengine::Transform3D>() => Kind::Plain,
-        Some(t) if t == TypeId::of::<crabbyengine::Model>() => Kind::Plain,
-        Some(t) if t == TypeId::of::<crabbyengine::PointLight3D>() => Kind::Plain,
-        Some(t) if t == TypeId::of::<crabbyengine::SpotLight3D>() => Kind::Plain,
+        Some(t) if t == TypeId::of::<ponko::Transform3D>() => Kind::Plain,
+        Some(t) if t == TypeId::of::<ponko::Model>() => Kind::Plain,
+        Some(t) if t == TypeId::of::<ponko::PointLight3D>() => Kind::Plain,
+        Some(t) if t == TypeId::of::<ponko::SpotLight3D>() => Kind::Plain,
         // repr(C), layout checked against CrabbyReflectionProbe3D; `content`
         // is checked when a bake or the renderer uses it, and non-finite
         // sizes or intensities give the probe no influence.
-        Some(t) if t == TypeId::of::<crabbyengine::ReflectionProbe3D>() => Kind::Plain,
+        Some(t) if t == TypeId::of::<ponko::ReflectionProbe3D>() => Kind::Plain,
         // repr(C), layouts checked against CrabbyDecal3D / CrabbyReceivesDecals;
         // any bits are valid (non-finite or empty values draw no decal, and
         // images outside the decal textures draw as flat color).
-        Some(t) if t == TypeId::of::<crabbyengine::Decal3D>() => Kind::Plain,
-        Some(t) if t == TypeId::of::<crabbyengine::ReceivesDecals>() => Kind::Plain,
+        Some(t) if t == TypeId::of::<ponko::Decal3D>() => Kind::Plain,
+        Some(t) if t == TypeId::of::<ponko::ReceivesDecals>() => Kind::Plain,
         // repr(C), layout checked against CrabbyTerrainTile; unknown meshes
         // draw nothing and every level index is clamped.
-        Some(t) if t == TypeId::of::<crabbyengine::TerrainTile>() => Kind::Plain,
+        Some(t) if t == TypeId::of::<ponko::TerrainTile>() => Kind::Plain,
         Some(t) => match crate::physics::kind(t)
             .or_else(|| crate::physics3d::kind3d(t))
             .or_else(|| crate::physics3d_stream::stream_kind(t))
@@ -449,8 +449,8 @@ fn present(found: bool) -> Result<(), Failure> {
 
 /// Creates an owned empty world; returns null if Rust panics.
 /// ```
-/// let world = crabby_ffi::crabby_world_new();
-/// unsafe { crabby_ffi::crabby_world_free(world); }
+/// let world = ponko_ffi::crabby_world_new();
+/// unsafe { ponko_ffi::crabby_world_free(world); }
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_world_new() -> *mut CrabbyWorld {
@@ -466,8 +466,8 @@ pub extern "C" fn crabby_world_new() -> *mut CrabbyWorld {
 /// # Safety
 /// `world` must be null or a live handle, used at most once after success.
 /// ```
-/// let w = crabby_ffi::crabby_world_new();
-/// unsafe { assert_eq!(crabby_ffi::crabby_world_free(w), crabby_ffi::CrabbyStatus::CRABBY_OK); }
+/// let w = ponko_ffi::crabby_world_new();
+/// unsafe { assert_eq!(ponko_ffi::crabby_world_free(w), ponko_ffi::CrabbyStatus::CRABBY_OK); }
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_world_free(world: *mut CrabbyWorld) -> CrabbyStatus {
@@ -496,7 +496,7 @@ pub unsafe extern "C" fn crabby_world_free(world: *mut CrabbyWorld) -> CrabbySta
 /// Last error on this thread; valid until the next failed ABI call on this thread.
 /// Successful calls leave it unchanged. Never free the returned pointer.
 /// ```
-/// assert!(!crabby_ffi::crabby_last_error().is_null());
+/// assert!(!ponko_ffi::crabby_last_error().is_null());
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_last_error() -> *const c_char {
@@ -505,7 +505,7 @@ pub extern "C" fn crabby_last_error() -> *const c_char {
 
 /// ABI version, currently 2.
 /// ```
-/// assert_eq!(crabby_ffi::crabby_abi_version(), 2);
+/// assert_eq!(ponko_ffi::crabby_abi_version(), 2);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_abi_version() -> u32 {
@@ -519,7 +519,7 @@ pub extern "C" fn crabby_abi_version() -> u32 {
 /// Live handle; valid readable name and writable output pointer.
 /// Component values must be memcpy-safe, thread-safe bytes without destructors.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// unsafe {
 /// let mut id = 0;
@@ -573,7 +573,7 @@ pub unsafe extern "C" fn crabby_component_register(
 /// # Safety
 /// Live handle and writable output.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// unsafe { let mut id = 99; assert_eq!(crabby_transform_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
 /// ```
@@ -588,7 +588,7 @@ pub unsafe extern "C" fn crabby_transform_component(world: *mut CrabbyWorld, out
 /// # Safety
 /// Live handle and writable output.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// unsafe { let mut id = 99; assert_eq!(crabby_sprite_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
 /// ```
@@ -598,7 +598,7 @@ pub unsafe extern "C" fn crabby_sprite_component(world: *mut CrabbyWorld, out_id
     unsafe { builtin::<Sprite>(world, out_id) }
 }
 
-pub(crate) unsafe fn builtin<T: crabby_ecs::Component>(world: *mut CrabbyWorld, out_id: *mut u32) -> CrabbyStatus {
+pub(crate) unsafe fn builtin<T: ponko_ecs::Component>(world: *mut CrabbyWorld, out_id: *mut u32) -> CrabbyStatus {
     boundary(|| {
         if out_id.is_null() {
             return Err(invalid("output is null"));
@@ -619,7 +619,7 @@ pub(crate) unsafe fn builtin<T: crabby_ecs::Component>(world: *mut CrabbyWorld, 
 /// Live handle, readable array of `count` values and their bytes, writable output.
 /// Inputs and output must not overlap world storage or one another.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// unsafe { let mut e = 0; assert_eq!(crabby_spawn(w, std::ptr::null(), 0, &mut e), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
 /// ```
@@ -685,7 +685,7 @@ pub(crate) unsafe fn spawn_values(w: &mut World, values: &[CrabbyValue]) -> Resu
 /// # Safety
 /// `world` must be null or a live handle.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// unsafe { assert_eq!(crabby_despawn(w, 42), CrabbyStatus::CRABBY_NOT_FOUND); crabby_world_free(w); }
 /// ```
@@ -699,7 +699,7 @@ pub unsafe extern "C" fn crabby_despawn(world: *mut CrabbyWorld, entity: u64) ->
 /// # Safety
 /// Live world and valid writable output, or null pointers.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// unsafe { let mut alive = true; crabby_is_alive(w, 42, &mut alive); assert!(!alive); crabby_world_free(w); }
 /// ```
@@ -723,7 +723,7 @@ pub unsafe extern "C" fn crabby_is_alive(world: *mut CrabbyWorld, entity: u64, o
 /// # Safety
 /// Live world and valid writable output, or null pointers.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// unsafe { let mut len = 1; crabby_world_len(w, &mut len); assert_eq!(len, 0); crabby_world_free(w); }
 /// ```
@@ -747,7 +747,7 @@ pub unsafe extern "C" fn crabby_world_len(world: *mut CrabbyWorld, out_len: *mut
 /// # Safety
 /// Live handle and valid writable, non-overlapping output bytes.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// unsafe { assert_eq!(crabby_get(std::ptr::null_mut(), 0, 0, std::ptr::null_mut(), 0), CrabbyStatus::CRABBY_INVALID_ARGUMENT); }
 /// ```
 #[unsafe(no_mangle)]
@@ -778,7 +778,7 @@ pub unsafe extern "C" fn crabby_get(
 /// # Safety
 /// Live handle and readable POD bytes, not overlapping world storage.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// unsafe { assert_eq!(crabby_set(std::ptr::null_mut(), 0, 0, std::ptr::null(), 0), CrabbyStatus::CRABBY_INVALID_ARGUMENT); }
 /// ```
 #[unsafe(no_mangle)]
@@ -824,7 +824,7 @@ pub(crate) unsafe fn insert_value(
 /// # Safety
 /// `world` must be null or a live handle.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// unsafe { assert_eq!(crabby_remove(std::ptr::null_mut(), 0, 0), CrabbyStatus::CRABBY_INVALID_ARGUMENT); }
 /// ```
 #[unsafe(no_mangle)]
@@ -845,7 +845,7 @@ pub unsafe extern "C" fn crabby_remove(world: *mut CrabbyWorld, entity: u64, id:
 /// # Safety
 /// `world` must be null or a live handle.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// unsafe { assert_eq!(crabby_world_sort_spatial(w, 32.0), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
 /// ```
@@ -906,7 +906,7 @@ fn query_input<'a>(components: *const u32, count: usize) -> Result<&'a [u32], Fa
 /// Live handle; readable ids; callback and user pointer remain valid.
 /// Callbacks must return normally and preserve valid POD values in all columns.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// unsafe extern "C" fn visit(_: *const CrabbyChunk, _: *mut std::ffi::c_void) {}
 /// let w = crabby_world_new();
 /// unsafe { assert_eq!(crabby_query(w, std::ptr::null(), 0, Some(visit), std::ptr::null_mut()), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
@@ -953,7 +953,7 @@ pub unsafe extern "C" fn crabby_query(
 /// As `crabby_query`, plus: `callback` and `user` must be safe to use from
 /// several threads at the same time.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// unsafe extern "C" fn visit(_: *const CrabbyChunk, _: *mut std::ffi::c_void) {}
 /// let w = crabby_world_new();
 /// unsafe { assert_eq!(crabby_query_par(w, std::ptr::null(), 0, Some(visit), std::ptr::null_mut()), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }

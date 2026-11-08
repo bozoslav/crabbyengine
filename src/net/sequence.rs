@@ -12,7 +12,7 @@ use super::PeerId;
 /// than half the range (32768) apart are ambiguous; that exact distance
 /// yields `i16::MIN`.
 /// ```
-/// use crabbyengine::seq_diff;
+/// use ponko::seq_diff;
 /// assert_eq!(seq_diff(5, 3), 2);
 /// assert_eq!(seq_diff(3, 5), -2);
 /// assert_eq!(seq_diff(1, 65535), 2); // wrapped
@@ -24,7 +24,7 @@ pub const fn seq_diff(a: u16, b: u16) -> i16 {
 /// Is `a` newer than `b`, with 16-bit wrap-around? Equal numbers are not
 /// newer. Exactly half the range apart (32768) is ambiguous: neither is newer.
 /// ```
-/// use crabbyengine::seq_newer;
+/// use ponko::seq_newer;
 /// assert!(seq_newer(2, 1));
 /// assert!(!seq_newer(1, 2));
 /// assert!(!seq_newer(7, 7));
@@ -40,7 +40,7 @@ pub const fn seq_newer(a: u16, b: u16) -> bool {
 /// A higher epoch always beats a lower one; within an epoch the newer `seq`
 /// wins.
 /// ```
-/// use crabbyengine::UpdateStamp;
+/// use ponko::UpdateStamp;
 /// let old = UpdateStamp { epoch: 1, seq: 65535 };
 /// assert!(UpdateStamp { epoch: 1, seq: 0 }.newer_than(old)); // wrapped
 /// assert!(UpdateStamp { epoch: 2, seq: 0 }.newer_than(old)); // handoff beats any seq
@@ -57,7 +57,7 @@ impl UpdateStamp {
     /// Is this strictly newer than `other`? Epochs compare with wrap-around
     /// like sequence numbers.
     /// ```
-    /// use crabbyengine::UpdateStamp;
+    /// use ponko::UpdateStamp;
     /// let a = UpdateStamp { epoch: 0, seq: 10 };
     /// assert!(!a.newer_than(a));
     /// ```
@@ -81,7 +81,7 @@ impl UpdateStamp {
 /// after a timeout.
 ///
 /// ```
-/// use crabbyengine::{LatestWins, UpdateStamp};
+/// use ponko::{LatestWins, UpdateStamp};
 /// let mut filter = LatestWins::new();
 /// assert!(filter.accept(7u64, UpdateStamp { epoch: 0, seq: 1 }));
 /// assert!(filter.accept(7, UpdateStamp { epoch: 0, seq: 3 }));
@@ -101,7 +101,7 @@ impl<K: Hash + Eq> Default for LatestWins<K> {
 impl<K: Hash + Eq> LatestWins<K> {
     /// An empty filter.
     /// ```
-    /// let f = crabbyengine::LatestWins::<u32>::new();
+    /// let f = ponko::LatestWins::<u32>::new();
     /// assert!(f.is_empty());
     /// ```
     pub fn new() -> Self {
@@ -112,7 +112,7 @@ impl<K: Hash + Eq> LatestWins<K> {
     /// last accepted one (or the first for this key); false if the update
     /// should be dropped.
     /// ```
-    /// use crabbyengine::{LatestWins, UpdateStamp};
+    /// use ponko::{LatestWins, UpdateStamp};
     /// let mut f = LatestWins::new();
     /// assert!(f.accept("crate", UpdateStamp::default()));
     /// assert!(!f.accept("crate", UpdateStamp::default()));
@@ -133,7 +133,7 @@ impl<K: Hash + Eq> LatestWins<K> {
 
     /// Like [`accept`](Self::accept) for streams without epochs (epoch 0).
     /// ```
-    /// let mut f = crabbyengine::LatestWins::new();
+    /// let mut f = ponko::LatestWins::new();
     /// assert!(f.accept_seq(1u32, 10));
     /// assert!(!f.accept_seq(1, 9));
     /// ```
@@ -143,7 +143,7 @@ impl<K: Hash + Eq> LatestWins<K> {
 
     /// The newest stamp accepted for `key`.
     /// ```
-    /// let mut f = crabbyengine::LatestWins::new();
+    /// let mut f = ponko::LatestWins::new();
     /// f.accept_seq(1u32, 4);
     /// assert_eq!(f.latest(&1).map(|s| s.seq), Some(4));
     /// ```
@@ -153,7 +153,7 @@ impl<K: Hash + Eq> LatestWins<K> {
 
     /// Forgets `key`: its next update is accepted whatever its stamp.
     /// ```
-    /// let mut f = crabbyengine::LatestWins::new();
+    /// let mut f = ponko::LatestWins::new();
     /// f.accept_seq(1u32, 4);
     /// f.forget(&1);
     /// assert!(f.accept_seq(1, 2));
@@ -164,7 +164,7 @@ impl<K: Hash + Eq> LatestWins<K> {
 
     /// Forgets every key.
     /// ```
-    /// let mut f = crabbyengine::LatestWins::new();
+    /// let mut f = ponko::LatestWins::new();
     /// f.accept_seq(1u32, 4);
     /// f.clear();
     /// assert!(f.is_empty());
@@ -175,7 +175,7 @@ impl<K: Hash + Eq> LatestWins<K> {
 
     /// Keeps only the keys for which `keep` is true.
     /// ```
-    /// let mut f = crabbyengine::LatestWins::new();
+    /// let mut f = ponko::LatestWins::new();
     /// f.accept_seq(1u32, 4);
     /// f.accept_seq(2, 4);
     /// f.retain(|k| *k == 2);
@@ -187,7 +187,7 @@ impl<K: Hash + Eq> LatestWins<K> {
 
     /// Number of keys remembered.
     /// ```
-    /// assert_eq!(crabbyengine::LatestWins::<u8>::new().len(), 0);
+    /// assert_eq!(ponko::LatestWins::<u8>::new().len(), 0);
     /// ```
     pub fn len(&self) -> usize {
         self.latest.len()
@@ -195,7 +195,7 @@ impl<K: Hash + Eq> LatestWins<K> {
 
     /// Whether no keys are remembered.
     /// ```
-    /// assert!(crabbyengine::LatestWins::<u8>::new().is_empty());
+    /// assert!(ponko::LatestWins::<u8>::new().is_empty());
     /// ```
     pub fn is_empty(&self) -> bool {
         self.latest.is_empty()
@@ -204,7 +204,7 @@ impl<K: Hash + Eq> LatestWins<K> {
 
 /// What to do with a state update, judged against an [`Authority`].
 /// ```
-/// use crabbyengine::AuthorityCheck;
+/// use ponko::AuthorityCheck;
 /// assert_ne!(AuthorityCheck::Accept, AuthorityCheck::Stale);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -237,7 +237,7 @@ pub enum AuthorityCheck {
 /// every peer converges on the same owner.
 ///
 /// ```
-/// use crabbyengine::{Authority, AuthorityCheck, PeerId};
+/// use ponko::{Authority, AuthorityCheck, PeerId};
 /// let host = PeerId::HOST;
 /// let guest = PeerId::from_bits(1);
 /// let mut car = Authority::new(host);
@@ -256,7 +256,7 @@ pub struct Authority {
 impl Authority {
     /// Owned by `owner`, epoch 0.
     /// ```
-    /// let a = crabbyengine::Authority::new(crabbyengine::PeerId::HOST);
+    /// let a = ponko::Authority::new(ponko::PeerId::HOST);
     /// assert_eq!(a.epoch(), 0);
     /// ```
     pub const fn new(owner: PeerId) -> Self {
@@ -265,7 +265,7 @@ impl Authority {
 
     /// Owned by `owner` under a known `epoch` (for a late joiner).
     /// ```
-    /// let a = crabbyengine::Authority::with_epoch(crabbyengine::PeerId::HOST, 9);
+    /// let a = ponko::Authority::with_epoch(ponko::PeerId::HOST, 9);
     /// assert_eq!(a.epoch(), 9);
     /// ```
     pub const fn with_epoch(owner: PeerId, epoch: u16) -> Self {
@@ -274,8 +274,8 @@ impl Authority {
 
     /// The peer whose updates are accepted.
     /// ```
-    /// let a = crabbyengine::Authority::new(crabbyengine::PeerId::HOST);
-    /// assert_eq!(a.owner(), crabbyengine::PeerId::HOST);
+    /// let a = ponko::Authority::new(ponko::PeerId::HOST);
+    /// assert_eq!(a.owner(), ponko::PeerId::HOST);
     /// ```
     pub const fn owner(&self) -> PeerId {
         self.owner
@@ -283,7 +283,7 @@ impl Authority {
 
     /// Counts handoffs (wrapping).
     /// ```
-    /// assert_eq!(crabbyengine::Authority::new(crabbyengine::PeerId::HOST).epoch(), 0);
+    /// assert_eq!(ponko::Authority::new(ponko::PeerId::HOST).epoch(), 0);
     /// ```
     pub const fn epoch(&self) -> u16 {
         self.epoch
@@ -292,7 +292,7 @@ impl Authority {
     /// Gives the entity to `owner` and returns the new epoch to announce.
     /// Handing it to the current owner still bumps the epoch.
     /// ```
-    /// use crabbyengine::{Authority, PeerId};
+    /// use ponko::{Authority, PeerId};
     /// let mut a = Authority::new(PeerId::HOST);
     /// assert_eq!(a.handoff(PeerId::from_bits(2)), 1);
     /// assert_eq!(a.owner(), PeerId::from_bits(2));
@@ -307,7 +307,7 @@ impl Authority {
     /// changed the record. Older epochs are ignored (a late announcement); the
     /// same epoch with a different owner is a race, won by the lower owner id.
     /// ```
-    /// use crabbyengine::{Authority, PeerId};
+    /// use ponko::{Authority, PeerId};
     /// let (a, b) = (PeerId::from_bits(1), PeerId::from_bits(2));
     /// let mut x = Authority::new(PeerId::HOST);
     /// assert!(x.adopt(b, 1));
@@ -331,7 +331,7 @@ impl Authority {
 
     /// Judges an update from `from` stamped with `epoch`.
     /// ```
-    /// use crabbyengine::{Authority, AuthorityCheck, PeerId};
+    /// use ponko::{Authority, AuthorityCheck, PeerId};
     /// let a = Authority::new(PeerId::HOST);
     /// assert_eq!(a.check(PeerId::from_bits(3), 0), AuthorityCheck::WrongOwner);
     /// assert_eq!(a.check(PeerId::HOST, 1), AuthorityCheck::Ahead);

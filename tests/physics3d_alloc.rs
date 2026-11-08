@@ -11,7 +11,7 @@ use std::rc::Rc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use crabbyengine::*;
+use ponko::*;
 use rapier3d::prelude as rp;
 
 struct Counting;

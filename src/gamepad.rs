@@ -18,7 +18,7 @@ impl Gamepads {
             Ok(gilrs) => Some(gilrs),
             Err(gilrs::Error::NotImplemented(gilrs)) => Some(gilrs),
             Err(e) => {
-                eprintln!("crabbyengine: gamepads unavailable ({e})");
+                eprintln!("ponko: gamepads unavailable ({e})");
                 None
             }
         };

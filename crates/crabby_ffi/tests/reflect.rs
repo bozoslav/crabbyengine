@@ -1,6 +1,6 @@
 //! Describing C components for reflection, and world save/load, through the C API.
-use crabby_ffi::CrabbyFieldType::*;
-use crabby_ffi::*;
+use ponko_ffi::CrabbyFieldType::*;
+use ponko_ffi::*;
 use std::ffi::{CStr, CString};
 use std::ptr::{null, null_mut};
 

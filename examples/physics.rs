@@ -7,7 +7,7 @@
 //!
 //! Keys: R starts over, Escape quits.
 
-use crabbyengine::*;
+use ponko::*;
 
 const W: f32 = 1000.0;
 const H: f32 = 700.0;

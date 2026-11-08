@@ -2,13 +2,13 @@
 //! and world save/load.
 use std::ffi::{CStr, c_char};
 
-use crabbyengine::{Field, FieldType, WorldReflect};
+use ponko::{Field, FieldType, WorldReflect};
 
 use crate::{CrabbyStatus, CrabbyWorld, Failure, access, boundary, component, invalid, invalid_owned};
 
 /// Field types for `CrabbyField::kind`, and how they look in JSON.
 /// ```
-/// assert_eq!(crabby_ffi::CrabbyFieldType::CRABBY_FIELD_COLOR as u32, 12);
+/// assert_eq!(ponko_ffi::CrabbyFieldType::CRABBY_FIELD_COLOR as u32, 12);
 /// ```
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -64,7 +64,7 @@ const TYPES: [FieldType; 14] = [
 /// One field of a C component: its JSON name, a `CrabbyFieldType`, and its
 /// byte offset (`offsetof`).
 /// ```
-/// let f = crabby_ffi::CrabbyField { name: c"hp".as_ptr(), kind: 0, offset: 0 };
+/// let f = ponko_ffi::CrabbyField { name: c"hp".as_ptr(), kind: 0, offset: 0 };
 /// assert_eq!(f.offset, 0);
 /// ```
 #[repr(C)]
@@ -128,11 +128,11 @@ pub(crate) fn check_fields(list: &[Field], size: usize, what: &str) -> Result<()
 }
 
 /// Makes a C component readable and writable as JSON by tools and agents
-/// (the control endpoint and `crabby-mcp`) and saved by `crabby_world_save`,
+/// (the control endpoint and `ponko-mcp`) and saved by `crabby_world_save`,
 /// by describing its fields. Bytes no field covers are zero in values made
 /// from JSON. Describing it again replaces the fields.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// unsafe {
 ///     let mut id = 0;
@@ -178,7 +178,7 @@ pub unsafe extern "C" fn crabby_component_reflect(
 /// not more than that, only an empty string is written: grow the buffer to
 /// `*out_len + 1` and call again.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// let mut len = 0;
 /// unsafe {
@@ -226,7 +226,7 @@ pub unsafe extern "C" fn crabby_world_save(
 /// with the same ids. Everything is checked first: on error the world is
 /// unchanged and `crabby_last_error()` says what was wrong.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// unsafe {
 ///     assert_eq!(crabby_world_load(w, c"{}".as_ptr()), CrabbyStatus::CRABBY_INVALID_ARGUMENT);

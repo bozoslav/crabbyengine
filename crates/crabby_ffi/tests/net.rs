@@ -1,5 +1,5 @@
 //! Lockstep from C: two games over UDP on localhost see the same inputs.
-use crabby_ffi::*;
+use ponko_ffi::*;
 use std::ffi::{CString, c_void};
 use std::ptr::null_mut;
 

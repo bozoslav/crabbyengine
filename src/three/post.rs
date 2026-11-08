@@ -23,7 +23,7 @@ pub enum Tonemap {
 /// Antialiasing of the 3D frame. FXAA and SMAA work on the tone mapped image
 /// before sprites/UI; [`Taa`](Self::Taa) works on the lit HDR frame.
 /// ```
-/// use crabbyengine::AntiAliasing;
+/// use ponko::AntiAliasing;
 /// assert_eq!(AntiAliasing::default(), AntiAliasing::None);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -55,8 +55,8 @@ pub enum AntiAliasing {
 
 /// Smallest and largest [`Post::render_scale`].
 /// ```
-/// assert_eq!(crabbyengine::MIN_RENDER_SCALE, 0.25);
-/// assert_eq!(crabbyengine::MAX_RENDER_SCALE, 2.0);
+/// assert_eq!(ponko::MIN_RENDER_SCALE, 0.25);
+/// assert_eq!(ponko::MAX_RENDER_SCALE, 2.0);
 /// ```
 pub const MIN_RENDER_SCALE: f32 = 0.25;
 /// See [`MIN_RENDER_SCALE`].
@@ -65,7 +65,7 @@ pub const MAX_RENDER_SCALE: f32 = 2.0;
 /// Ground-truth ambient occlusion. Radius is in world units; quality controls
 /// angular slices and horizon steps. Disabled by default to preserve scenes.
 /// ```
-/// use crabbyengine::AmbientOcclusion;
+/// use ponko::AmbientOcclusion;
 /// let ao = AmbientOcclusion { enabled: true, radius: 1.0, ..Default::default() };
 /// assert_eq!(ao.slices, 3);
 /// ```
@@ -99,7 +99,7 @@ impl Default for AmbientOcclusion {
 /// and UI drawn on top are not changed.
 ///
 /// ```no_run
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
 /// ctx.post.exposure = 0.5; // half a stop brighter
 /// ctx.post.bloom = 0.15;
@@ -151,7 +151,7 @@ pub struct Post {
     /// smooths its grain. Reflections use depth-aware filtered mips as roughness
     /// increases; the blur footprint is bounded in screen pixels. 0 (the default) is off.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// assert_eq!(Post::default().ssr, 0.0);
     /// let wet_street = Post { ssr: 1.0, ..Default::default() };
     /// assert_eq!(wet_street.ssr_max_distance, 30.0);
@@ -187,7 +187,7 @@ pub struct Post {
     /// Color fringes toward the edges, as a cheap lens splits red, green
     /// and blue apart, 0 to 1. Default 0.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let speed = Post { chromatic_aberration: 0.8, lens_distortion: -0.26, lens_scale: 1.04, ..Default::default() };
     /// assert_eq!(Post::default().chromatic_aberration, 0.0);
     /// # let _ = speed;
@@ -243,7 +243,7 @@ impl Post {
     /// as 1), at least 1 pixel and at most `limit` wide (0: no limit).
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let post = Post { render_scale: 0.5, ..Default::default() };
     /// assert_eq!(post.render_size((1920, 1080)), (960, 540));
     /// ```
@@ -256,7 +256,7 @@ impl Post {
     /// `n * n` wide and `n` high: the starting point for a [`Post::lut`].
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let (w, h, pixels) = Post::neutral_lut(32);
     /// ctx.post.lut = Some(ctx.create_texture(w, h, &pixels));

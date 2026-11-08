@@ -1,5 +1,5 @@
 //! CPU billboards: `cargo run --features 3d --example particles`.
-use crabbyengine::*;
+use ponko::*;
 
 // ANCHOR: particles
 fn setup(ctx: &mut Ctx) {

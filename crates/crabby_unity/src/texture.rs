@@ -9,8 +9,8 @@ use crate::{Error, UnityObject, Value};
 ///
 /// ```
 /// let text = "%YAML 1.1\n--- !u!28 &2800000\nTexture2D:\n  m_Name: Dot\n  m_Width: 1\n  m_Height: 2\n  m_TextureFormat: 3\n  image data: 6\n  _typelessdata: ff000000ff00\n";
-/// let file = crabby_unity::UnityFile::parse(text).unwrap();
-/// let t = crabby_unity::UnityTexture::from_object(&file.objects[0]).unwrap();
+/// let file = ponko_unity::UnityFile::parse(text).unwrap();
+/// let t = ponko_unity::UnityTexture::from_object(&file.objects[0]).unwrap();
 /// assert_eq!((t.width, t.height, t.layers), (1, 2, 1));
 /// assert_eq!(t.rgba, [0, 255, 0, 255, 255, 0, 0, 255], "green on top: the bottom row comes first in Unity");
 /// ```

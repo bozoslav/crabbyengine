@@ -54,11 +54,11 @@ cores of the same machine. Plan for tens of thousands of units on the web,
 rather than millions.
 
 **Measure time with the engine's `Instant`.** `std::time::Instant::now()`
-panics in browsers. `crabbyengine::Instant` is the same type on desktop and
+panics in browsers. `ponko::Instant` is the same type on desktop and
 works on the web:
 
 ```rust
-# use crabbyengine::*;
+# use ponko::*;
 let start = Instant::now();
 // ... work ...
 let ms = start.elapsed().as_secs_f64() * 1000.0;

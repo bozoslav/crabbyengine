@@ -333,7 +333,7 @@ impl Renderer {
         let instance = wgpu::Instance::new(descriptor);
         let surface = instance
             .create_surface(window.clone())
-            .unwrap_or_else(|e| panic!("crabbyengine: could not create a GPU surface: {e}"));
+            .unwrap_or_else(|e| panic!("ponko: could not create a GPU surface: {e}"));
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -342,11 +342,11 @@ impl Renderer {
                 ..Default::default()
             })
             .await
-            .unwrap_or_else(|e| panic!("crabbyengine: no compatible GPU found: {e}"));
+            .unwrap_or_else(|e| panic!("ponko: no compatible GPU found: {e}"));
 
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
-                label: Some("crabbyengine device"),
+                label: Some("ponko device"),
                 required_features: adapter.features()
                     & (wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES),
                 // The defaults ask for more than WebGL2 has; we need little.
@@ -366,7 +366,7 @@ impl Renderer {
                 ..Default::default()
             })
             .await
-            .unwrap_or_else(|e| panic!("crabbyengine: could not open the GPU device: {e}"));
+            .unwrap_or_else(|e| panic!("ponko: could not open the GPU device: {e}"));
 
         // The 3D frame's samples per pixel: the game's choice where this GPU
         // can multisample both 3D targets that much, else 4 (always works).
@@ -374,7 +374,7 @@ impl Renderer {
         let msaa = if super::gpu3d::multisamples(&adapter, msaa) {
             msaa
         } else {
-            eprintln!("crabbyengine: this GPU can't do {msaa}x multisampling here; using 4x");
+            eprintln!("ponko: this GPU can't do {msaa}x multisampling here; using 4x");
             4
         };
         #[cfg(not(feature = "3d"))]
@@ -387,7 +387,7 @@ impl Renderer {
         let size = window.inner_size();
         let mut config = surface
             .get_default_config(&adapter, size.width.max(1), size.height.max(1))
-            .expect("crabbyengine: the GPU can't draw to this window");
+            .expect("ponko: the GPU can't draw to this window");
         // Prefer an sRGB target so blending happens in linear light.
         let caps = surface.get_capabilities(&adapter);
         if let Some(srgb) = caps.formats.iter().copied().find(|f| f.is_srgb()) {
@@ -1091,7 +1091,7 @@ impl Renderer {
                 self.surface = self
                     .instance
                     .create_surface(self.window.clone())
-                    .unwrap_or_else(|e| panic!("crabbyengine: lost the GPU surface: {e}"));
+                    .unwrap_or_else(|e| panic!("ponko: lost the GPU surface: {e}"));
                 self.surface.configure(&self.device, &self.config);
                 (None, FrameStatus::Skipped)
             }

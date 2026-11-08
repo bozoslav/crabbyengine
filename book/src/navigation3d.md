@@ -141,7 +141,7 @@ Do not mix opted-out followers into a crowd and expect them to collide.
 <div>
 
 ```rust
-# use crabbyengine::*;
+# use ponko::*;
 let mut agent = NavAgent3D::default();
 agent.avoidance = true;
 agent.avoidance_weight = 2.0;
@@ -205,7 +205,7 @@ updates never rasterize source triangles again.
 <div class="lang-pair">
 
 ```rust,no_run
-# use crabbyengine::*;
+# use ponko::*;
 # fn add(ctx: &mut Ctx) {
 // Bake with layers: NavBakeSettings { carving: true, ..Default::default() }.
 let mut obstacle = NavObstacle3D::new(vec3(6.0, 1.0, 6.0), Vec3::ONE);

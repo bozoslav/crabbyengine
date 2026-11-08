@@ -1,5 +1,5 @@
 //! Events from C: crabby_ctx_send_event and crabby_ctx_read_events.
-use crabby_ffi::*;
+use ponko_ffi::*;
 use std::ffi::c_void;
 use std::ptr::{null, null_mut};
 

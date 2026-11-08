@@ -14,7 +14,7 @@ Use it for:
 <div>
 
 ```rust
-use crabbyengine::*;
+use ponko::*;
 
 struct Pos(f32);
 
@@ -69,7 +69,7 @@ and wgpu. Turn the `window` feature off and keep the rest:
 ```toml
 # Cargo.toml
 [dependencies]
-crabbyengine = { version = "1", default-features = false, features = ["audio"] }
+ponko = { version = "0.0.1", default-features = false, features = ["audio"] }
 ```
 
 </div>
@@ -77,7 +77,7 @@ crabbyengine = { version = "1", default-features = false, features = ["audio"] }
 
 ```sh
 # Build the C library without a window
-cargo build --release -p crabby_ffi \
+cargo build --release -p ponko_ffi \
   --no-default-features --features audio
 ```
 

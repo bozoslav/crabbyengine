@@ -1,6 +1,6 @@
 //! Scenes and prefabs: worlds and entities saved to files and loaded back.
 
-use crabbyengine::*;
+use ponko::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]

@@ -4,7 +4,7 @@
 //!   `cargo run --release --example headless`
 //!   `AGENTS=10000000 TICKS=300 cargo run --release --example headless`
 
-use crabbyengine::*;
+use ponko::*;
 
 struct Agent {
     heading: f32,

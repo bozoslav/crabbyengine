@@ -1,4 +1,4 @@
-use crabby_ffi::*;
+use ponko_ffi::*;
 use std::ptr::{null, null_mut};
 
 #[test]

@@ -4,7 +4,7 @@
 
 use std::time::Duration;
 
-use crabbyengine::{
+use ponko::{
     Authority, AuthorityCheck, Interest, InterestConfig, InterestEntity, InterestViewer, Lane, LatestWins,
     MessageEvent, NetMessages, PeerId, Pose, Quat, SnapshotConfig, SnapshotState, SnapshotStream, UpdateStamp, Vec3,
     vec3,
@@ -423,7 +423,7 @@ fn interest_decides_what_each_peer_is_sent() {
 #[cfg(feature = "3d")]
 #[test]
 fn net_pose_moves_a_transform_from_buffered_snapshots() {
-    use crabbyengine::{Game, NetPose, Transform3D, apply_net_poses};
+    use ponko::{Game, NetPose, Transform3D, apply_net_poses};
     // Snapshots a second apart; the headless run's clock advances 1/60 s per tick.
     let mut world = Game::new("remote", 1, 1)
         .fixed_hz(60)

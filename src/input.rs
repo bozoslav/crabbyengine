@@ -208,7 +208,7 @@ impl Gamepad {
     /// The pad's slot, `0..MAX_GAMEPADS`: a stable number for "player 1, 2, ...".
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// for pad in ctx.gamepads() {
     ///     println!("player {} is connected", pad.slot() + 1);
@@ -225,7 +225,7 @@ impl Gamepad {
     /// [`MAX_GAMEPADS`].
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let player_two = Gamepad::from_slot(1).unwrap();
     /// assert_eq!(player_two.slot(), 1);
     /// assert_eq!(Gamepad::from_slot(MAX_GAMEPADS), None);

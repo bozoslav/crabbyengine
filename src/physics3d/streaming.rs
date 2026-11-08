@@ -14,7 +14,7 @@ use crate::{Entity, Transform3D, Vec2, Vec3, World};
 /// it to [`Physics3D::add_mesh`] on the game's thread, which is quick.
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// Game::new("t", 1, 1).physics3d(Vec3::ZERO).run_headless(0, |ctx| {
 ///     let job = Job::spawn(|| CollisionMeshData::heightfield(&[0.0; 33 * 33], 64.0));
 ///     let ground = ctx.physics3d.add_mesh(&job.wait());
@@ -43,7 +43,7 @@ impl CollisionMeshData {
     /// along +Z, NaN for a hole), as [`Physics3D::heightfield`] makes it.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let ground = CollisionMeshData::heightfield(&[0.0, 1.0, 0.0, 1.0], 4.0);
     /// # let _ = ground;
     /// ```
@@ -104,7 +104,7 @@ impl CollisionMeshData {
     /// it. `None` if the points are all on one plane or not finite.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let corners = [vec3(0.0, 0.0, 0.0), vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, 1.0)];
     /// assert!(CollisionMeshData::convex_hull(&corners).is_some());
     /// ```
@@ -131,7 +131,7 @@ impl CollisionMeshData {
     /// triangles, an index is out of range or a vertex isn't finite.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let floor = CollisionMeshData::trimesh(&[Vec3::ZERO, Vec3::X, Vec3::Z], &[[0, 2, 1]]);
     /// assert!(floor.is_some());
     /// ```
@@ -164,7 +164,7 @@ impl CollisionMeshData {
 /// at the next physics step.
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// Game::new("t", 1, 1).physics3d(vec3(0.0, -9.81, 0.0)).run_headless(1, |ctx| {
 ///     let heights = [0.0; 33 * 33];
 ///     let ground = ctx.default_material();
@@ -190,7 +190,7 @@ impl TerrainCollider {
     /// The ground of `mesh`, with the default surface.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(mesh: CollisionMesh) {
     /// let ice = TerrainCollider::new(mesh).friction(0.05);
     /// # }
@@ -229,7 +229,7 @@ impl TerrainCollider {
 /// at the edge from coming and going as the focus moves back and forth.
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// let player = ColliderFocus::new(150.0, 200.0);
 /// assert_eq!(player.keep_radius, 200.0);
 /// ```
@@ -301,7 +301,7 @@ impl Physics3D {
     /// Ray casts and other queries only see colliders that are in.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("t", 1, 1).physics3d(vec3(0.0, -9.81, 0.0)).run_headless(1, |ctx| {
     ///     ctx.physics3d.stream_colliders(Some(16));
     ///     ctx.world.spawn((Transform3D::default(), Character3D::new(1.0, 0.3), ColliderFocus::new(150.0, 200.0)));
@@ -314,7 +314,7 @@ impl Physics3D {
     /// Whether collider streaming is on, and how many colliders may come in per step.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let mut physics = Physics3D::default();
     /// physics.stream_colliders(Some(8));
     /// assert_eq!(physics.collider_streaming(), Some(8));
@@ -330,7 +330,7 @@ impl Physics3D {
     /// streaming](Physics3D::stream_colliders) left out.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let physics = Physics3D::default();
     /// assert!(!physics.is_collider_active(Entity::from_bits(0)));
     /// ```
@@ -346,7 +346,7 @@ impl Physics3D {
     /// [`TerrainCollider`]. Quick: the data's shape is shared, not copied.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let mut physics = Physics3D::default();
     /// let rock = CollisionMeshData::convex_hull(&[Vec3::ZERO, Vec3::X, Vec3::Y, Vec3::Z]).unwrap();
     /// let mesh = physics.add_mesh(&rock);

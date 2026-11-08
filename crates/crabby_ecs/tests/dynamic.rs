@@ -3,7 +3,7 @@
 mod common;
 
 use common::*;
-use crabby_ecs::*;
+use ponko_ecs::*;
 
 #[test]
 fn dynamic_components_and_chunks() {

@@ -9,7 +9,7 @@ use yaml_rust2::scanner::Marker;
 /// A field's value.
 ///
 /// ```
-/// let file = crabby_unity::UnityFile::parse("--- !u!4 &1\nTransform:\n  m_LocalPosition: {x: 1, y: 2.5, z: -3}\n  m_Children: []\n").unwrap();
+/// let file = ponko_unity::UnityFile::parse("--- !u!4 &1\nTransform:\n  m_LocalPosition: {x: 1, y: 2.5, z: -3}\n  m_Children: []\n").unwrap();
 /// let t = &file.objects[0].body;
 /// assert_eq!(t["m_LocalPosition"].vec3(), Some([1.0, 2.5, -3.0]));
 /// assert_eq!(t["m_Children"].as_seq().map(<[_]>::len), Some(0));
@@ -55,7 +55,7 @@ impl Value {
     /// The value under `key`, if this is a map that has it.
     ///
     /// ```
-    /// let v = crabby_unity::UnityFile::parse("--- !u!1 &1\nGameObject:\n  m_Layer: 8\n").unwrap();
+    /// let v = ponko_unity::UnityFile::parse("--- !u!1 &1\nGameObject:\n  m_Layer: 8\n").unwrap();
     /// assert!(v.objects[0].body.get("m_Layer").is_some());
     /// ```
     #[must_use]
@@ -174,7 +174,7 @@ impl Value {
     /// one. A file id of 0 is a reference to nothing.
     ///
     /// ```
-    /// let f = crabby_unity::UnityFile::parse("--- !u!23 &1\nMeshRenderer:\n  m_Materials:\n  - {fileID: 2100000, guid: 0123abc, type: 2}\n").unwrap();
+    /// let f = ponko_unity::UnityFile::parse("--- !u!23 &1\nMeshRenderer:\n  m_Materials:\n  - {fileID: 2100000, guid: 0123abc, type: 2}\n").unwrap();
     /// let r = f.objects[0].body["m_Materials"][0].obj_ref().unwrap();
     /// assert_eq!((r.file_id, r.guid.as_deref()), (2100000, Some("0123abc")));
     /// ```

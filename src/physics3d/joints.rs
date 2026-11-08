@@ -3,7 +3,7 @@ use super::*;
 
 /// The six axes in the joint's local frames, translations followed by rotations.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// assert_eq!(JointAxis3D::AngularX as usize, 3);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -24,7 +24,7 @@ pub enum JointAxis3D {
 
 /// Freedom on one joint axis; distances are meters, angles radians.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let motion = JointMotion3D::Limited(-0.5, 0.5);
 /// assert_ne!(motion, JointMotion3D::Locked);
 /// ```
@@ -41,7 +41,7 @@ pub enum JointMotion3D {
 /// A spring/damper drive. Zero stiffness gives a velocity motor.
 /// Rapier's default acceleration motor model is used; targets use meters or radians.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let drive = JointDrive3D::velocity(2.0, 10.0);
 /// assert_eq!(drive.target_velocity, 2.0);
 /// ```
@@ -61,7 +61,7 @@ pub struct JointDrive3D {
 impl JointDrive3D {
     /// A velocity motor with damping controlling convergence.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// assert_eq!(JointDrive3D::velocity(3.0, 5.0).stiffness, 0.0);
     /// ```
     pub const fn velocity(target_velocity: f32, damping: f32) -> Self {
@@ -75,7 +75,7 @@ impl JointDrive3D {
     }
     /// A spring drive toward a position or angle with zero target speed.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// assert_eq!(JointDrive3D::spring(0.5, 100.0, 20.0).target_position, 0.5);
     /// ```
     pub const fn spring(target_position: f32, stiffness: f32, damping: f32) -> Self {
@@ -94,7 +94,7 @@ impl JointDrive3D {
 /// Missing endpoints are retried on later steps. Multiple joint entities may share bodies.
 /// Changing this component rebuilds its joint and wakes both endpoints.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let mut world = World::new();
 /// let a = world.spawn((RigidBody3D::fixed(),));
 /// let b = world.spawn((RigidBody3D::dynamic(),));
@@ -124,7 +124,7 @@ pub struct Joint3D {
 impl Joint3D {
     /// Six free axes, identity local frames, collisions disabled.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut w = World::new(); let a = w.spawn((RigidBody3D::dynamic(),)); let b = w.spawn((RigidBody3D::dynamic(),));
     /// assert_eq!(Joint3D::generic(a,b).axes, [JointMotion3D::Free; 6]);
     /// ```
@@ -142,7 +142,7 @@ impl Joint3D {
     }
     /// Locks all six axes.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut w = World::new(); let a = w.spawn((RigidBody3D::dynamic(),)); let b = w.spawn((RigidBody3D::dynamic(),));
     /// assert_eq!(Joint3D::fixed(a,b).axes, [JointMotion3D::Locked; 6]);
     /// ```
@@ -154,7 +154,7 @@ impl Joint3D {
     }
     /// Ball joint: locks translations, leaves rotations free.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut w = World::new(); let a = w.spawn((RigidBody3D::dynamic(),)); let b = w.spawn((RigidBody3D::dynamic(),));
     /// assert_eq!(Joint3D::spherical(a,b).axes[3], JointMotion3D::Free);
     /// ```
@@ -165,7 +165,7 @@ impl Joint3D {
     }
     /// Hinge around local X. Rotate the anchor frames for another axis.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut w = World::new(); let a = w.spawn((RigidBody3D::dynamic(),)); let b = w.spawn((RigidBody3D::dynamic(),));
     /// assert_eq!(Joint3D::revolute(a,b).axes[3], JointMotion3D::Free);
     /// ```
@@ -174,7 +174,7 @@ impl Joint3D {
     }
     /// Slider along local X.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut w = World::new(); let a = w.spawn((RigidBody3D::dynamic(),)); let b = w.spawn((RigidBody3D::dynamic(),));
     /// assert_eq!(Joint3D::prismatic(a,b).axes[0], JointMotion3D::Free);
     /// ```
@@ -183,7 +183,7 @@ impl Joint3D {
     }
     /// Sets freedom or limits on one axis.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut w = World::new(); let a = w.spawn((RigidBody3D::dynamic(),)); let b = w.spawn((RigidBody3D::dynamic(),));
     /// let j = Joint3D::revolute(a,b).motion(JointAxis3D::AngularX, JointMotion3D::Limited(-1.0,1.0));
     /// assert_eq!(j.axes[3], JointMotion3D::Limited(-1.0,1.0));
@@ -195,7 +195,7 @@ impl Joint3D {
     }
     /// Sets a drive on an unlocked axis.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut w = World::new(); let a = w.spawn((RigidBody3D::dynamic(),)); let b = w.spawn((RigidBody3D::dynamic(),));
     /// let j = Joint3D::revolute(a,b).drive(JointAxis3D::AngularX, JointDrive3D::spring(0.5,100.0,20.0));
     /// assert!(j.drives[3].is_some());
@@ -207,7 +207,7 @@ impl Joint3D {
     }
     /// Sets a circular swing cone; twist remains independently configurable.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut w = World::new(); let a = w.spawn((RigidBody3D::dynamic(),)); let b = w.spawn((RigidBody3D::dynamic(),));
     /// assert_eq!(Joint3D::spherical(a,b).swing_cone(0.5).swing_cone, Some(0.5));
     /// ```
@@ -310,7 +310,7 @@ pub(super) fn sync(physics: &mut Physics3D, world: &mut World) {
 impl Physics3D {
     /// Number of live impulse joints after the most recent physics step.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// assert_eq!(Physics3D::default().joint_count(), 0);
     /// ```
     pub fn joint_count(&self) -> usize {

@@ -96,7 +96,7 @@ time the player clicks or a target moves is fine. For many different
 destinations (each squad to its own target), keep one `FlowField` per
 destination, not one per unit.
 
-Measured in release on a MacBook Pro (M4 Max) (`cargo run --release -p crabby_bench -- flow`):
+Measured in release on a MacBook Pro (M4 Max) (`cargo run --release -p ponko_bench -- flow`):
 
 | What | Time |
 |---|---|

@@ -5,7 +5,7 @@ use crate::{Entity, Quat, Transform3D, Vec3};
 /// Distance gain curve. Keyed curves use normalized distance and linear gain;
 /// keys must be sorted by distance. Values outside the keys use the nearest key.
 /// ```
-/// use crabbyengine::AudioRolloff;
+/// use ponko::AudioRolloff;
 /// let curve = AudioRolloff::Keyed(&[(0.0, 1.0), (0.5, 0.3), (1.0, 0.0)]);
 /// ```
 #[derive(Clone, Copy, Debug, Default)]
@@ -22,7 +22,7 @@ pub enum AudioRolloff {
 /// Settings for a positional voice. Distances are in world units (metres for
 /// doppler); pitch is controlled by `sound.speed`. Invalid ranges are clamped.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let settings = AudioSettings3D { max_distance: 80.0, doppler: 0.0, ..Default::default() };
 /// ```
 #[derive(Clone, Copy, Debug)]
@@ -31,14 +31,14 @@ pub struct AudioSettings3D {
     pub sound: SoundParams,
     /// Routing bus, selected when playback starts. Defaults to `sfx`.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let settings = AudioSettings3D { bus: AudioBus::default(), ..Default::default() };
     /// ```
     pub bus: AudioBus,
     /// Initial per-voice low-pass and shared reverb send. Update live voices
     /// with `Ctx::set_sound_effects` (including positional voices).
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let settings = AudioSettings3D { effects: AudioEffects::default(), ..Default::default() };
     /// ```
     pub effects: AudioEffects,
@@ -69,7 +69,7 @@ impl Default for AudioSettings3D {
 /// [`Ctx::set_audio_listener`]. Velocity (for doppler) is estimated from frame
 /// to frame.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let listener = AudioListener3D { position: Vec3::ZERO, rotation: Quat::IDENTITY };
 /// ```
 #[derive(Clone, Copy, Debug, Default)]
@@ -84,7 +84,7 @@ pub struct AudioListener3D {
 /// itself and follows the entity every frame. Removing the component or the
 /// entity stops it. One-shots don't restart after they finish.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// # fn setup(ctx: &mut Ctx, sound: Sound) {
 /// ctx.world.spawn((Transform3D::default(), AudioSource3D::new(sound, AudioSettings3D::default())));
 /// # }
@@ -100,7 +100,7 @@ pub struct AudioSource3D {
 impl AudioSource3D {
     /// Creates an unstarted source. Looping follows `settings.sound.looping`.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// # fn f(sound: Sound) {
     /// let source = AudioSource3D::new(sound, AudioSettings3D::default());
     /// # }
@@ -179,7 +179,7 @@ impl Ctx {
     /// follow the listener every frame. A looping sound (`settings.sound.looping`)
     /// plays until `stop_sound`.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// # fn f(ctx: &mut Ctx, sound: Sound) {
     /// ctx.play_sound_at(&sound, vec3(3.0, 0.0, -5.0), AudioSettings3D::default());
     /// # }
@@ -217,7 +217,7 @@ impl Ctx {
     /// Puts the ears somewhere other than the camera, such as on the player in
     /// a third-person game. `None` goes back to following `ctx.camera3d`.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// # fn f(ctx: &mut Ctx, player: Vec3) {
     /// ctx.set_audio_listener(Some(AudioListener3D { position: player, rotation: Quat::IDENTITY }));
     /// # }
@@ -229,7 +229,7 @@ impl Ctx {
     /// Where the ears are: the listener set with [`Ctx::set_audio_listener`],
     /// or else the camera.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// # fn f(ctx: &Ctx) {
     /// let ears = ctx.audio_listener().position;
     /// # }

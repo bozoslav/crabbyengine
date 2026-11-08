@@ -11,7 +11,7 @@
 // R restart, Escape quit.
 //
 // Who's winning is a reflected `Score` resource: agents read it through
-// crabby-mcp (get_resource with "Score").
+// ponko-mcp (get_resource with "Score").
 #include "crabby.hpp"
 #include <algorithm>
 #include <array>
@@ -349,7 +349,7 @@ static void setup(crabby::ctx& ctx, Battle& b, std::size_t units, std::uint64_t 
     const float scale = std::sqrt(std::max(float(units) / UNITS_PER_MAP, 1.0f));
     make_map(b, std::uint32_t(MAP_W * scale), std::uint32_t(MAP_H * scale), seed);
     auto world = ctx.world();
-    // Reflected, so agents can read and change them through crabby-mcp.
+    // Reflected, so agents can read and change them through ponko-mcp.
     world.reflect<Unit>({
         crabby::field("team", &Unit::team), crabby::field("hp", &Unit::hp),
         crabby::field("vel", &Unit::vel), crabby::field("cooldown", &Unit::cooldown),

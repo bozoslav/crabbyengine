@@ -43,7 +43,7 @@ impl Chunk<'_> {
 /// global resources.
 ///
 /// ```
-/// use crabby_ecs::*;
+/// use ponko_ecs::*;
 ///
 /// struct Pos(f32, f32);
 /// struct Vel(f32, f32);
@@ -172,7 +172,7 @@ impl World {
     /// world already (old handles stay dead).
     ///
     /// ```
-    /// use crabby_ecs::{Entity, World};
+    /// use ponko_ecs::{Entity, World};
     ///
     /// let mut world = World::new();
     /// let saved = Entity::from_bits(7 | 3 << 32); // slot 7, generation 3
@@ -196,7 +196,7 @@ impl World {
     /// world's bookkeeping (per-slot generation, archetype index).
     ///
     /// ```
-    /// use crabby_ecs::World;
+    /// use ponko_ecs::World;
     ///
     /// struct Pos(f32, f32);
     /// let mut world = World::new();
@@ -211,7 +211,7 @@ impl World {
     /// Despawns every entity. Resources stay.
     ///
     /// ```
-    /// use crabby_ecs::World;
+    /// use ponko_ecs::World;
     ///
     /// let mut world = World::new();
     /// let e = world.spawn((1u8,));
@@ -237,7 +237,7 @@ impl World {
     /// [`clear`](Self::clear).
     ///
     /// ```
-    /// use crabby_ecs::World;
+    /// use ponko_ecs::World;
     ///
     /// let mut world = World::new();
     /// let e = world.spawn((1u8,));
@@ -371,7 +371,7 @@ impl World {
     /// neighbor queries hit the CPU cache instead of main memory.
     ///
     /// ```
-    /// # use crabby_ecs::*;
+    /// # use ponko_ecs::*;
     /// struct Pos(f32);
     /// let mut world = World::new();
     /// for x in [3.0, 1.0, 2.0] {
@@ -458,7 +458,7 @@ impl World {
     /// name. This is how C and C++ games keep global values.
     ///
     /// ```
-    /// use crabby_ecs::*;
+    /// use ponko_ecs::*;
     /// use std::alloc::Layout;
     ///
     /// let mut world = World::new();
@@ -592,7 +592,7 @@ impl World {
     /// The component with number `index` ([`ComponentId::index`]), if registered.
     ///
     /// ```
-    /// let mut world = crabby_ecs::World::new();
+    /// let mut world = ponko_ecs::World::new();
     /// world.spawn((1.5f32,));
     /// let id = world.component_id::<f32>().unwrap();
     /// assert_eq!(world.component_at(id.index()), Some(id));
@@ -627,7 +627,7 @@ impl World {
     /// The components entity `e` has (sorted by id), or `None` if it is dead.
     ///
     /// ```
-    /// # use crabby_ecs::*;
+    /// # use ponko_ecs::*;
     /// struct Pos(f32);
     /// struct Vel(f32);
     /// let mut world = World::new();
@@ -676,7 +676,7 @@ impl World {
     /// that slot is taken.
     ///
     /// ```
-    /// use crabby_ecs::{Entity, World};
+    /// use ponko_ecs::{Entity, World};
     ///
     /// let mut world = World::new();
     /// // SAFETY: f32 is plain bytes.

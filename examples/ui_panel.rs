@@ -1,5 +1,5 @@
 //! Retained UI on a screen in the 3D world: `cargo run --features 3d --example ui_panel`.
-use crabbyengine::*;
+use ponko::*;
 use ui_layout::prelude::*;
 
 /// A terminal with a button on it.

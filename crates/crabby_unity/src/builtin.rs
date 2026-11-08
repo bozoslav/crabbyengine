@@ -35,9 +35,9 @@ impl UnityMesh {
     /// and ids that aren't built-in meshes.
     ///
     /// ```
-    /// let cube = crabby_unity::UnityMesh::builtin(10202).unwrap();
+    /// let cube = ponko_unity::UnityMesh::builtin(10202).unwrap();
     /// assert_eq!((cube.name.as_str(), cube.positions.len()), ("Cube", 24));
-    /// assert!(crabby_unity::UnityMesh::builtin(10207).is_none(), "no Sphere yet");
+    /// assert!(ponko_unity::UnityMesh::builtin(10207).is_none(), "no Sphere yet");
     /// ```
     #[must_use]
     pub fn builtin(file_id: i64) -> Option<Self> {

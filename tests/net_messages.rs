@@ -1,4 +1,4 @@
-use crabbyengine::{Lane, MAX_MESSAGE_BYTES, MessageEvent, NetMessages, PeerId};
+use ponko::{Lane, MAX_MESSAGE_BYTES, MessageEvent, NetMessages, PeerId};
 use std::time::Duration;
 
 fn step(nets: &mut [NetMessages], rounds: usize) {

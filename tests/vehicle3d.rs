@@ -5,7 +5,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crabbyengine::*;
+use ponko::*;
 
 const GRAVITY: Vec3 = Vec3::new(0.0, -9.81, 0.0);
 /// The chassis's origin rests this high over flat ground: mount 0.3 m

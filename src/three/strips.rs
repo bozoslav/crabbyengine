@@ -21,7 +21,7 @@ use crate::{Color, Texture};
 /// don't record them.
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// Game::new("t", 64, 64).run_headless(0, |ctx| {
 ///     // A tracer: a thin, glowing ribbon a quarter second long.
 ///     let mut tracer = Trail3D::new(0.25, 0.05);
@@ -58,7 +58,7 @@ impl Trail3D {
     /// A ribbon `width` meters wide (narrowing to 0 at its end) whose points
     /// last `lifetime` seconds, white and alpha blended.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let t = Trail3D::new(0.5, 0.1);
     /// assert_eq!(t.width.sample(0.0), 0.1);
     /// assert_eq!(t.width.sample(1.0), 0.0);
@@ -80,7 +80,7 @@ impl Trail3D {
 
     /// How many points it keeps now.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert_eq!(Trail3D::new(1.0, 0.1).point_count(), 0);
     /// ```
     #[must_use]
@@ -90,7 +90,7 @@ impl Trail3D {
 
     /// Forgets every point: after a teleport, so no ribbon spans the jump.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let mut t = Trail3D::new(1.0, 0.1);
     /// t.clear();
     /// assert_eq!(t.point_count(), 0);
@@ -129,7 +129,7 @@ impl Trail3D {
 /// paths. Change `points` any time; it's rebuilt every frame it's seen.
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// Game::new("t", 64, 64).run_headless(0, |ctx| {
 ///     // A glowing beam 20 m forward.
 ///     let beam = Line3D::new(vec![Vec3::ZERO, vec3(0.0, 0.0, -20.0)], 0.02, Color::RED);
@@ -156,7 +156,7 @@ pub struct Line3D {
 impl Line3D {
     /// A `color` line `width` meters wide through `points`, alpha blended.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let l = Line3D::new(vec![Vec3::ZERO, Vec3::X], 0.1, Color::WHITE);
     /// assert_eq!(l.texture_length, 0.0);
     /// ```

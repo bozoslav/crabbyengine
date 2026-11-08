@@ -1,7 +1,7 @@
 //! Physics from C: body/collider/velocity components, the game setting,
 //! queries, impulses and collision events.
 #![cfg(feature = "physics")]
-use crabby_ffi::*;
+use ponko_ffi::*;
 use std::ffi::c_void;
 use std::ptr::{null, null_mut};
 

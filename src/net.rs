@@ -99,7 +99,7 @@ pub enum NetState {
 /// The peers' worlds stopped matching: from `tick` on, they're different games.
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// let d = Desync { tick: 120, player: 1, components: vec!["Transform2D".into()] };
 /// assert!(d.to_string().contains("Transform2D"));
 /// ```
@@ -128,7 +128,7 @@ impl std::fmt::Display for Desync {
 /// What a session has sent so far ([`Net::stats`]).
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// assert_eq!(Net::default().stats().bytes_sent, 0);
 /// ```
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -149,7 +149,7 @@ pub struct NetStats {
 /// and read everyone's with [`input`](Self::input) in simulation systems:
 ///
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// use serde::{Deserialize, Serialize};
 ///
 /// #[derive(Serialize, Deserialize)]
@@ -224,7 +224,7 @@ impl Net {
     /// [`local_addr`](Self::local_addr). The game starts once everyone joined.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let net = Net::host("127.0.0.1:0", 2).unwrap();
     /// assert!(net.local_addr().unwrap().port() != 0);
     /// ```
@@ -246,7 +246,7 @@ impl Net {
     /// sides must use the same [`Game::seed`](crate::Game::seed).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let net = Net::join("127.0.0.1:7777").unwrap();
     /// assert_eq!(net.state(), NetState::Connecting);
     /// ```
@@ -272,7 +272,7 @@ impl Net {
     /// tests, or bots in one process. Run each in its own game (and thread).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let nets = Net::loopback(2);
     /// assert_eq!(nets.len(), 2);
     /// ```
@@ -326,7 +326,7 @@ impl Net {
     /// 50 ms round trip. Set on the host.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let net = Net::host("127.0.0.1:0", 2).unwrap().input_delay(5);
     /// # let _ = net;
     /// ```
@@ -346,7 +346,7 @@ impl Net {
     /// number. Set on the host.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let net = Net::host("127.0.0.1:0", 2).unwrap().checksum_every(300);
     /// # let _ = net;
     /// ```
@@ -360,7 +360,7 @@ impl Net {
     /// becomes [`NetState::Lost`] and headless runs stop.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let net = Net::join("127.0.0.1:7777").unwrap().timeout(std::time::Duration::from_secs(3));
     /// # let _ = net;
     /// ```
@@ -424,7 +424,7 @@ impl Net {
     /// Like [`set_input`](Self::set_input), with bytes you encode yourself.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let mut net = Net::default();
     /// net.set_input_bytes(&[1, 2, 3]);
     /// ```
@@ -452,7 +452,7 @@ impl Net {
     /// `player`'s input for the current tick as bytes (empty if none).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert!(Net::default().input_bytes(0).is_empty());
     /// ```
     pub fn input_bytes(&self, player: usize) -> &[u8] {

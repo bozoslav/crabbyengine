@@ -8,7 +8,7 @@
 //! `SHOT=path.png` saves the second frame and quits; `HOUR=19` and `FOG=1`
 //! set the time and the fog.
 
-use crabbyengine::*;
+use ponko::*;
 
 /// One blade of grass: a thin quad, texture v from 0 at the root to 1 at the tip.
 fn blade() -> MeshData {

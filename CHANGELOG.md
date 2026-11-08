@@ -7,6 +7,14 @@ says what that covers.
 
 ## [Unreleased]
 
+## [0.0.1] - 2026-11-08
+
+### Changed
+- Rename the Rust packages to Ponko and start a new 0.0.1 release line.
+- Publish the Unity importer and benchmark packages alongside the engine.
+- Retain existing C/C++ symbols and source-directory paths.
+
+
 ### Added
 - Lens post effects: `Post::chromatic_aberration` (color fringes toward
   the edges), `lens_distortion` (barrel or pincushion) and `lens_scale`.
@@ -116,7 +124,7 @@ says what that covers.
   `Importer::vertex_colors(shader, f)` fills a mesh's vertex colors from
   any Unity channel (a second UV set, say) for such shaders. The
   importer is a Rust tool; run it once and keep the files it writes.
-- `crabby_unity` imports Unity scenes and prefabs into Crabby scene
+- `ponko_unity` imports Unity scenes and prefabs into Crabby scene
   files: a scene's tree in `crabby-world` JSON, a `.glb` per drawn mesh
   with glTF PBR materials (URP Lit, Simple Lit and Unlit, with an ORM map
   packed from Unity's metallic/smoothness/occlusion), PNG textures shared
@@ -124,7 +132,7 @@ says what that covers.
   `Model` is reflected (scenes save it by its mesh file, and loading a
   scene loads the meshes first); glTF loading shares images between files.
   New `scene_viewer` example.
-- `crabby_unity`, a workspace crate (not published yet): reads Unity
+- `ponko_unity`, a workspace crate (not published yet): reads Unity
   projects as the importer's ground — text serialized files parsed into a
   lossless map, editor/Unity 6 binary files through their type trees, and
   GUIDs mapped to files from the `.meta`s.
@@ -291,12 +299,12 @@ says what that covers.
 ## [1.0.0] - 2026-11-03
 
 The first release: a 2D engine for simulations with up to millions of
-entities, in Rust, C and C++. Install with `cargo add crabbyengine`; the C
+entities, in Rust, C and C++. Install with `cargo add ponko`; the C
 library and headers for Linux, macOS and Windows are attached to the
 GitHub release. Everything below is new.
 
 ### Simulation
-- Own archetype ECS (`crabby_ecs`): entities with generational ids, queries,
+- Own archetype ECS (`ponko_ecs`): entities with generational ids, queries,
   `par_for_each` over archetype chunks on all cores, commands, resources,
   and components registered at runtime (for C and C++).
 - Fixed-rate simulation clock: pause, step one tick, 1–64× speed, systems
@@ -318,7 +326,7 @@ GitHub release. Everything below is new.
 - Lockstep over Steam (feature `steam`): `Net::steam_host` / `steam_join`,
   friends-only lobbies, overlay invites, Steam's relays (no port
   forwarding). The Steam library is copied next to examples and tests. In C
-  and C++ with crabby_ffi's `steam` feature.
+  and C++ with ponko_ffi's `steam` feature.
 - Determinism: seeded randomness per (seed, tick, system, entity), the same
   with parallel queries. Save and load the whole world, keeping entity ids.
 - Headless runs (`Game::run_headless`) and an optional `window` feature for
@@ -343,7 +351,7 @@ GitHub release. Everything below is new.
 
 ### Tools and agents
 - Control endpoint (`CRABBY_CONTROL=1`): localhost, token-protected.
-- `crabby_mcp`: an MCP server for AI agents (launch, inspect, edit, step,
+- `ponko_mcp`: an MCP server for AI agents (launch, inspect, edit, step,
   events, logs, stats, screenshots, save and load).
 
 ### Web
@@ -351,7 +359,7 @@ GitHub release. Everything below is new.
   or WebGL2. Assets listed in `assets/index.json` are fetched before setup,
   sound plays through WebAudio, and the inspector opens with `?inspector=open`.
 - `web/build.sh` builds an example or a game's binary into a static site.
-- `crabbyengine::Instant`: an `Instant` that also works in browsers.
+- `ponko::Instant`: an `Instant` that also works in browsers.
 - The docs site publishes playable builds of the battle, flow and ants demos.
 
 ### API and stability
@@ -379,7 +387,7 @@ GitHub release. Everything below is new.
   `crabby_resource_*`, by name). The C++ battle keeps its score in one.
   `ctx.load_json<T>(path)` loads a data file into a resource, live.
 - Fixed: `ctx.load_json<T>(path, e)` failed for C++ types in a namespace.
-- C API (`crabby_ffi`) with a generated header, and a header-only C++17
+- C API (`ponko_ffi`) with a generated header, and a header-only C++17
   wrapper (`include/crabby.hpp`) covering nearly the whole engine.
 
 [Unreleased]: https://github.com/bozoslav/crabbyengine/compare/v1.0.0...HEAD

@@ -5,7 +5,7 @@
 //! be tested without a window. Edits work on reflected components only:
 //! they're what the editor can read, write and put back.
 
-use crabby_ecs::Entity;
+use ponko_ecs::Entity;
 use serde_json::{Value, json};
 
 use crate::{Ctx, Vec2, WorldReflect};

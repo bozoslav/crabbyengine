@@ -1,7 +1,7 @@
 //! Counting heap allocations per frame and per system. This file has its own
 //! process (and a single test), so nothing else allocates while it counts.
 
-use crabbyengine::*;
+use ponko::*;
 
 // ANCHOR: counting_allocator
 #[global_allocator]

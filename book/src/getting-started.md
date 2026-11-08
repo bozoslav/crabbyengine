@@ -34,7 +34,7 @@ Add the engine to a new project:
 
 ```sh
 cargo new my_game && cd my_game
-cargo add crabbyengine
+cargo add ponko
 ```
 
 Then in `src/main.rs` (Rust) or `main.cpp` (C++, see [C and C++](c-cpp.md)
@@ -44,7 +44,7 @@ for building):
 <div>
 
 ```rust
-use crabbyengine::*;
+use ponko::*;
 
 fn main() {
     Game::new("My Game", 800, 600).run(|ctx| {
@@ -78,5 +78,5 @@ create in `setup` and move into the closure are your game state. For small
 games that's all you need; when things grow, move to
 [entities and systems](ecs.md).
 
-Everything comes in with `use crabbyengine::*;`: `Game`, `Ctx`, `Vec2`,
+Everything comes in with `use ponko::*;`: `Game`, `Ctx`, `Vec2`,
 `Color`, `Key`, the ECS types and the built-in components.

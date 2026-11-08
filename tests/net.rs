@@ -2,7 +2,7 @@
 use std::thread;
 use std::time::Duration;
 
-use crabbyengine::*;
+use ponko::*;
 use serde::{Deserialize, Serialize};
 
 /// What a player does in a tick.

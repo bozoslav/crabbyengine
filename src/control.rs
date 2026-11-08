@@ -1,4 +1,4 @@
-//! The control endpoint: lets tools (agents through `crabby-mcp`, the
+//! The control endpoint: lets tools (agents through `ponko-mcp`, the
 //! inspector, scripts) look inside a running game and drive it.
 //!
 //! Off by default. Turned on with [`Game::control_endpoint`](crate::Game::control_endpoint)
@@ -22,8 +22,8 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crabby_ecs::Entity;
 use glam::Vec2;
+use ponko_ecs::Entity;
 use serde_json::{Value, json};
 
 use crate::ctx::Ctx;
@@ -130,10 +130,7 @@ impl Control {
             match write_registry(&dir, addr.port(), &info) {
                 Ok(path) => Some(path),
                 Err(e) => {
-                    eprintln!(
-                        "crabbyengine: control endpoint could not register in {}: {e}",
-                        dir.display()
-                    );
+                    eprintln!("ponko: control endpoint could not register in {}: {e}", dir.display());
                     None
                 }
             }
@@ -144,7 +141,7 @@ impl Control {
             .name("crabby-control".into())
             .spawn(move || accept_loop(listener, token, tx, stop))?;
         let logs = crate::logs::Capture::start();
-        eprintln!("crabbyengine: control endpoint on {addr}");
+        eprintln!("ponko: control endpoint on {addr}");
         Ok(Self {
             requests,
             addr,
@@ -291,7 +288,7 @@ impl<'a> Found<'a> {
 /// its archetype's component names, and a lookup of the JSON of the
 /// components named in conditions and fields.
 fn for_each_matching(
-    world: &crabby_ecs::World,
+    world: &ponko_ecs::World,
     params: &Value,
     fields: &[FieldPath],
     mut f: impl FnMut(Entity, &[&str], Found) -> Result<(), String>,

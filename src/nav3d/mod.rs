@@ -24,7 +24,7 @@ static NEXT_REVISION: AtomicU64 = AtomicU64::new(1);
 
 /// World-space, counter-clockwise triangle soup; include walls and ceilings too.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let source = NavSource::from_mesh(&MeshData::plane(20.0), Transform3D::default());
 /// assert_eq!(source.triangles.len(), 2);
 /// ```
@@ -32,7 +32,7 @@ static NEXT_REVISION: AtomicU64 = AtomicU64::new(1);
 pub struct NavSource {
     /// World-space triangles, facing up for walkable floors.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let source = NavSource { triangles: vec![[Vec3::ZERO, Vec3::Z, Vec3::X]] };
     /// assert_eq!(source.triangles.len(), 1);
     /// ```
@@ -42,7 +42,7 @@ impl NavSource {
     /// Transforms mesh triangles to world space, preserving winding under mirrors.
     /// Invalid indices are rejected later by returning an invalid source to `bake`.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let source = NavSource::from_mesh(&MeshData::plane(8.0), Transform3D::at(Vec3::Y));
     /// assert_eq!(source.triangles[0][0].y, 1.0);
     /// ```
@@ -76,7 +76,7 @@ impl NavSource {
 /// Bake clearances in world units, with slopes in degrees. +Y is up.
 /// Height/radius round up to cells; climb rounds down, so clearance is conservative.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let settings = NavBakeSettings { agent_radius: 0.4, ..Default::default() };
 /// assert!(settings.agent_height > 1.0);
 /// ```
@@ -84,37 +84,37 @@ impl NavSource {
 pub struct NavBakeSettings {
     /// Horizontal clearance; defaults to 0.3.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert_eq!(NavBakeSettings::default().agent_radius, 0.3);
     /// ```
     pub agent_radius: f32,
     /// Minimum free height; defaults to 1.8.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert_eq!(NavBakeSettings::default().agent_height, 1.8);
     /// ```
     pub agent_height: f32,
     /// Largest traversable step; defaults to 0.4.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert_eq!(NavBakeSettings::default().max_climb, 0.4);
     /// ```
     pub max_climb: f32,
     /// Maximum walkable slope in degrees, strictly below 90; defaults to 45.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert_eq!(NavBakeSettings::default().max_slope, 45.0);
     /// ```
     pub max_slope: f32,
     /// Horizontal voxel width; defaults to 0.2.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert_eq!(NavBakeSettings::default().cell_size, 0.2);
     /// ```
     pub cell_size: f32,
     /// Vertical voxel height; defaults to 0.1.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert_eq!(NavBakeSettings::default().cell_height, 0.1);
     /// ```
     pub cell_height: f32,
@@ -124,7 +124,7 @@ pub struct NavBakeSettings {
     /// need more (about 0.8 km square at the defaults, up to 6.5 km). Beyond that,
     /// raise `cell_size`.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert_eq!(NavBakeSettings::default().tile_size, 32);
     /// ```
     pub tile_size: u32,
@@ -137,7 +137,7 @@ pub struct NavBakeSettings {
     /// from the layer pipeline (no separate polygon bake), so a carving bake costs
     /// about one pass over the level, not two.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert!(!NavBakeSettings::default().carving);
     /// ```
     pub carving: bool,
@@ -159,7 +159,7 @@ impl Default for NavBakeSettings {
 
 /// Invalid input, resource limits or a Recast/Detour failure. No partial mesh is returned.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let error = NavMesh3D::bake(&[], NavBakeSettings::default()).err().unwrap();
 /// assert!(!error.to_string().is_empty());
 /// ```
@@ -215,7 +215,7 @@ struct PolygonBounds {
 /// Queries reject partial or truncated paths. Same ordered inputs yield the same
 /// results; the backend's `libm` feature removes platform libm differences.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let floor = NavSource::from_mesh(&MeshData::plane(20.0), Transform3D::default());
 /// let nav = NavMesh3D::bake(&[floor], NavBakeSettings::default()).unwrap();
 /// assert!(nav.find_path(Vec3::ZERO, Vec3::X).is_some());
@@ -250,7 +250,7 @@ impl NavMesh3D {
     /// Empty triangle soups and nonfinite inputs are errors; an entirely steep
     /// surface successfully produces an empty, unqueryable mesh.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let source = NavSource::from_mesh(&MeshData::plane(10.0), Transform3D::default());
     /// assert!(NavMesh3D::bake(&[source], NavBakeSettings::default()).is_ok());
     /// ```
@@ -259,7 +259,7 @@ impl NavMesh3D {
     }
     /// Nearest unblocked surface within a Euclidean distance, including Y.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// # let source = NavSource::from_mesh(&MeshData::plane(10.0), Transform3D::default());
     /// # let nav = NavMesh3D::bake(&[source], NavBakeSettings::default()).unwrap();
     /// assert!(nav.sample_position(Vec3::Y, 2.0).is_some());
@@ -272,7 +272,7 @@ impl NavMesh3D {
     /// surface horizontally and `max_climb + two cell heights` vertically.
     /// Unreachable endpoints return None instead of Detour's partial route.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// # let source = NavSource::from_mesh(&MeshData::plane(10.0), Transform3D::default());
     /// # let nav = NavMesh3D::bake(&[source], NavBakeSettings::default()).unwrap();
     /// assert!(nav.find_path(Vec3::ZERO, Vec3::X * 2.0).is_some());
@@ -287,7 +287,7 @@ impl NavMesh3D {
     /// instead queue cached-layer rebuilds; call `update_carving` to advance them.
     /// The sim system owns this list when registered: it gathers obstacle components.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// # let source = NavSource::from_mesh(&MeshData::plane(10.0), Transform3D::default());
     /// # let mut nav = NavMesh3D::bake(&[source], NavBakeSettings::default()).unwrap();
     /// nav.set_obstacles(&[NavObstacle3D::new(Vec3::ZERO, Vec3::splat(20.0))]);
@@ -302,7 +302,7 @@ impl NavMesh3D {
     /// Rebuilds at most `budget` cached layers; returns the number of update steps.
     /// Call once per frame for manually managed meshes. The sim system uses one.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let source = NavSource::from_mesh(&MeshData::plane(10.0), Transform3D::default());
     /// let mut nav = NavMesh3D::bake(&[source], NavBakeSettings::default()).unwrap();
     /// assert_eq!(nav.update_carving(1).unwrap(), 0);
@@ -312,7 +312,7 @@ impl NavMesh3D {
     }
     /// Whether queued carving updates remain.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let source = NavSource::from_mesh(&MeshData::plane(10.0), Transform3D::default());
     /// let nav = NavMesh3D::bake(&[source], NavBakeSettings::default()).unwrap();
     /// assert!(!nav.carving_pending());
@@ -557,7 +557,7 @@ impl NavState {
 
 /// World-space axis-aligned blocking box component; no Transform3D is needed.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let obstacle = NavObstacle3D::new(Vec3::ZERO, Vec3::ONE);
 /// assert_eq!(obstacle.center, Vec3::ZERO);
 /// ```
@@ -565,13 +565,13 @@ impl NavState {
 pub struct NavObstacle3D {
     /// Center in world space.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert_eq!(NavObstacle3D::new(Vec3::Y, Vec3::ONE).center, Vec3::Y);
     /// ```
     pub center: Vec3,
     /// Nonnegative half sizes along world X,Y,Z.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert_eq!(NavObstacle3D::new(Vec3::ZERO, Vec3::ONE).half_extents, Vec3::ONE);
     /// ```
     pub half_extents: Vec3,
@@ -579,7 +579,7 @@ pub struct NavObstacle3D {
     /// mesh baked with `NavBakeSettings::carving`; otherwise this blocks like any
     /// other obstacle.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert!(!NavObstacle3D::new(Vec3::ZERO, Vec3::ONE).carve);
     /// ```
     pub carve: bool,
@@ -587,7 +587,7 @@ pub struct NavObstacle3D {
 impl NavObstacle3D {
     /// Creates an axis-aligned world box. Invalid values block the entire mesh.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let obstacle = NavObstacle3D::new(Vec3::Y, Vec3::ONE);
     /// assert_eq!(obstacle.half_extents.y, 1.0);
     /// ```
@@ -606,7 +606,7 @@ impl NavObstacle3D {
 /// The original follower retains path storage and allocates only on replans.
 /// Crowd mode retains slots/corridors but the backend allocates query scratch.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let mut agent = NavAgent3D::default();
 /// agent.destination = Some(Vec3::X * 4.0);
 /// ```
@@ -614,45 +614,45 @@ impl NavObstacle3D {
 pub struct NavAgent3D {
     /// Maximum speed in world units per second. Nonpositive/nonfinite stops.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert!(NavAgent3D::default().speed > 0.0);
     /// ```
     pub speed: f32,
     /// Agent radius, no larger than the bake radius. Defaults to 0.3.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert_eq!(NavAgent3D::default().radius, 0.3);
     /// ```
     pub radius: f32,
     /// Maximum acceleration per second. The original follower turns without inertia.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert!(NavAgent3D::default().acceleration > 0.0);
     /// ```
     pub acceleration: f32,
     /// Requested feet position; changing it triggers a replan. None stops desired
     /// motion (crowd overlap correction may still displace a stopped agent).
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert!(NavAgent3D::default().destination.is_none());
     /// ```
     pub destination: Option<Vec3>,
     /// Opt into DetourCrowd. Disabled by default to preserve existing movement.
     /// Stopped opted-in agents remain neighbours; opted-out agents are ignored.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert!(!NavAgent3D::default().avoidance);
     /// ```
     pub avoidance: bool,
     /// Nonnegative separation steering weight (not a right-of-way priority).
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert_eq!(NavAgent3D::default().avoidance_weight, 2.0);
     /// ```
     pub avoidance_weight: f32,
     /// Neighbour and wall query distance, in world units; must be positive.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert_eq!(NavAgent3D::default().neighbour_distance, 3.6);
     /// ```
     pub neighbour_distance: f32,
@@ -692,7 +692,7 @@ impl Default for NavAgent3D {
 /// paths on mesh/obstacle/destination changes or teleports, then moves agents.
 /// Stalled agents retry when those inputs change. No window/GPU is required.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// Game::new("server", 1, 1).sim_system(step_navmesh3d).run_headless(1, |ctx| {
 ///     let source = NavSource::from_mesh(&MeshData::plane(20.0), Transform3D::default());
 ///     ctx.world.insert_resource(NavMesh3D::bake(&[source], NavBakeSettings::default()).unwrap());

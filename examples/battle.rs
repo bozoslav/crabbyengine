@@ -15,10 +15,10 @@
 //! Shows: flow fields shared by a whole army (`NavGrid`, `FlowField`), a
 //! spatial grid with data (the team of every unit) for targeting on all
 //! cores, decide-in-parallel then apply-in-order combat, deterministic
-//! seeded randomness, and reflection, so `crabby-mcp` agents can inspect a
+//! seeded randomness, and reflection, so `ponko-mcp` agents can inspect a
 //! running battle (the `Score` resource says who's winning) or change any unit.
 
-use crabbyengine::*;
+use ponko::*;
 use serde::{Deserialize, Serialize};
 
 /// World units per nav cell.
@@ -109,7 +109,7 @@ struct Battle {
     field_ms: f32,
 }
 
-/// Who's winning, reflected so tools can read it (`crabby-mcp`'s
+/// Who's winning, reflected so tools can read it (`ponko-mcp`'s
 /// `get_resource`, `watch`) and change it. Pairs are `[red, blue]`.
 #[derive(Serialize, Deserialize, Default)]
 struct Score {
@@ -129,7 +129,7 @@ impl Battle {
 }
 
 /// A unit died: sent by `resolve`, reflected so tools can watch the
-/// fighting (`crabby-mcp`'s `subscribe_events` / `take_events`).
+/// fighting (`ponko-mcp`'s `subscribe_events` / `take_events`).
 #[derive(Serialize)]
 struct Fallen {
     team: Team,

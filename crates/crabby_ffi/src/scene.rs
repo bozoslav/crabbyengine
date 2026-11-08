@@ -2,7 +2,7 @@
 //! `assets/` (see `Ctx::load_scene` and `Ctx::spawn_prefab` in Rust).
 use std::ffi::c_char;
 
-use crabby_ecs::Entity;
+use ponko_ecs::Entity;
 
 use crate::ctx::{CrabbyCtx, ctx_access, out, text};
 use crate::types::CrabbyVec2;
@@ -13,7 +13,7 @@ use crate::{CrabbyStatus, boundary, invalid_owned};
 /// # Safety
 /// Live ctx; `path` NUL-terminated.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_load_scene(std::ptr::null_mut(), c"a.json".as_ptr()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_load_scene(std::ptr::null_mut(), c"a.json".as_ptr()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_load_scene(ctx: *mut CrabbyCtx, path: *const c_char) -> CrabbyStatus {
@@ -26,7 +26,7 @@ pub unsafe extern "C" fn crabby_ctx_load_scene(ctx: *mut CrabbyCtx, path: *const
 /// # Safety
 /// Live ctx; `path` NUL-terminated.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_save_scene(std::ptr::null_mut(), c"a.json".as_ptr()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_save_scene(std::ptr::null_mut(), c"a.json".as_ptr()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_save_scene(ctx: *mut CrabbyCtx, path: *const c_char) -> CrabbyStatus {
@@ -40,7 +40,7 @@ pub unsafe extern "C" fn crabby_ctx_save_scene(ctx: *mut CrabbyCtx, path: *const
 /// Live ctx; `path` NUL-terminated; `out_entity` writable.
 /// ```
 /// let mut e = 0;
-/// let status = unsafe { crabby_ffi::crabby_ctx_spawn_prefab(std::ptr::null_mut(), c"a.json".as_ptr(), crabby_ffi::CrabbyVec2 { x: 0.0, y: 0.0 }, &mut e) };
+/// let status = unsafe { ponko_ffi::crabby_ctx_spawn_prefab(std::ptr::null_mut(), c"a.json".as_ptr(), ponko_ffi::CrabbyVec2 { x: 0.0, y: 0.0 }, &mut e) };
 /// assert_eq!(status as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
@@ -53,7 +53,7 @@ pub unsafe extern "C" fn crabby_ctx_spawn_prefab(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         let e = ctx_access(ctx, |c| {
-            c.spawn_prefab(text(path)?, crabbyengine::vec2(at.x, at.y))
+            c.spawn_prefab(text(path)?, ponko::vec2(at.x, at.y))
                 .map_err(invalid_owned)
         })?;
         out(out_entity, e.to_bits())
@@ -65,7 +65,7 @@ pub unsafe extern "C" fn crabby_ctx_spawn_prefab(
 /// # Safety
 /// Live ctx; `path` NUL-terminated.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_save_prefab(std::ptr::null_mut(), 0, c"a.json".as_ptr()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_save_prefab(std::ptr::null_mut(), 0, c"a.json".as_ptr()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_save_prefab(ctx: *mut CrabbyCtx, entity: u64, path: *const c_char) -> CrabbyStatus {

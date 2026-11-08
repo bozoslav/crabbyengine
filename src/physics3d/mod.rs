@@ -44,7 +44,7 @@ pub const PHYSICS3D_HZ: u32 = 50;
 /// [`Transform3D`].
 ///
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let crate_body = RigidBody3D::dynamic();
 /// let ground = RigidBody3D::fixed();
 /// assert_eq!(crate_body.gravity_scale, 1.0);
@@ -57,7 +57,7 @@ pub struct RigidBody3D {
     pub kind: BodyKind,
     /// Higher groups push lower groups without contact reaction; equal groups react normally.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// assert_eq!(RigidBody3D::dynamic().dominance(1).dominance, 1);
     /// ```
     pub dominance: i8,
@@ -91,7 +91,7 @@ impl Default for RigidBody3D {
 impl RigidBody3D {
     /// Sets contact dominance (default zero). Does not change joint reactions.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let body = RigidBody3D::dynamic().dominance(10);
     /// assert_eq!(body.dominance, 10);
     /// ```
@@ -135,7 +135,7 @@ impl RigidBody3D {
     /// Weighing `kg`, whatever its collider's density.
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let chassis = RigidBody3D::dynamic().mass(1200.0).center_of_mass(vec3(0.0, -0.4, 0.0));
     /// assert_eq!(chassis.mass, Some(1200.0));
     /// ```
@@ -214,7 +214,7 @@ pub enum Shape3D {
 /// Queries use the same test against [`QueryFilter3D::groups`].
 ///
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// const PLAYER: u32 = 1 << 0;
 /// const DEBRIS: u32 = 1 << 1;
 /// // Debris hits everything except other debris.
@@ -266,7 +266,7 @@ impl CollisionGroups {
 /// what it touches.
 ///
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let ball = Collider3D::sphere(0.5).restitution(0.8);
 /// let trigger = Collider3D::cuboid(vec3(4.0, 2.0, 4.0)).sensor();
 /// assert!(trigger.sensor);
@@ -335,7 +335,7 @@ impl Collider3D {
     /// A convex hull, triangle mesh or heightfield made by [`Physics3D`].
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// Game::new("t", 1, 1).physics3d(Vec3::ZERO).run_headless(1, |ctx| {
     ///     let ground = ctx.physics3d.heightfield(&[0.0; 3 * 3], 10.0);
     ///     ctx.world.spawn((Transform3D::default(), RigidBody3D::fixed(), Collider3D::mesh(ground)));
@@ -381,7 +381,7 @@ impl Collider3D {
 /// each axis. Read it after a step; write it to set the speed.
 ///
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let thrown = Velocity3D::linear(vec3(0.0, 4.0, -10.0));
 /// assert_eq!(thrown.angular, Vec3::ZERO);
 /// ```
@@ -608,7 +608,7 @@ impl Physics3D {
     /// physics step, so it sees only the [`ContactPair3D`]: capture what
     /// else it needs. Replaces an earlier hook.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut physics = Physics3D::new(Vec3::ZERO);
     /// // Ice: anything touching a hooked body slides.
     /// physics.set_contact_hook(|pair| pair.set_friction(0.0));
@@ -703,7 +703,7 @@ impl Physics3D {
     /// not finite.
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut physics = Physics3D::default();
     /// let corners = [vec3(0.0, 0.0, 0.0), vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, 1.0)];
     /// assert!(physics.convex_hull(&corners).is_some());
@@ -719,7 +719,7 @@ impl Physics3D {
     /// bounding box.
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut physics = Physics3D::default();
     /// let floor = physics.trimesh(
     ///     &[vec3(0.0, 0.0, 0.0), vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0), vec3(1.0, 0.0, 1.0)],
@@ -743,7 +743,7 @@ impl Physics3D {
     /// builds it on another thread.
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut physics = Physics3D::default();
     /// let heights = [0.0, 1.0, 2.0, 0.0, 1.0, 2.0, 0.0, 1.0, 2.0];
     /// let ground = physics.heightfield(&heights, 8.0);

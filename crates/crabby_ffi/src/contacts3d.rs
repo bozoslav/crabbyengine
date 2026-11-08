@@ -18,7 +18,7 @@ use crate::{CrabbyCtx, CrabbyStatus, CrabbyWorld};
 /// `crabby_contact_modifier3d_one_way`, `_conveyor`, `_hook` or `_default`.
 /// Not a query column.
 /// ```
-/// let m = crabby_ffi::crabby_contact_modifier3d_default();
+/// let m = ponko_ffi::crabby_contact_modifier3d_default();
 /// assert!(!m.has_one_way && !m.hook);
 /// assert_eq!(m.one_way_angle, 1.2);
 /// ```
@@ -46,7 +46,7 @@ pub struct CrabbyContactModifier3D {
 /// A modifier that does nothing: no one-way side (angle 1.2), no surface
 /// velocity, no hook.
 /// ```
-/// let m = crabby_ffi::crabby_contact_modifier3d_default();
+/// let m = ponko_ffi::crabby_contact_modifier3d_default();
 /// assert_eq!(m.surface_velocity.x, 0.0);
 /// ```
 #[unsafe(no_mangle)]
@@ -63,8 +63,8 @@ pub extern "C" fn crabby_contact_modifier3d_default() -> CrabbyContactModifier3D
 /// Solid only from the side `up` (a local direction) points to: things pass
 /// up through a platform like this and land on top.
 /// ```
-/// let up = crabby_ffi::CrabbyVec3 { x: 0.0, y: 1.0, z: 0.0 };
-/// let m = crabby_ffi::crabby_contact_modifier3d_one_way(up);
+/// let up = ponko_ffi::CrabbyVec3 { x: 0.0, y: 1.0, z: 0.0 };
+/// let m = ponko_ffi::crabby_contact_modifier3d_one_way(up);
 /// assert!(m.has_one_way && m.one_way.y == 1.0);
 /// ```
 #[unsafe(no_mangle)]
@@ -79,8 +79,8 @@ pub extern "C" fn crabby_contact_modifier3d_one_way(up: CrabbyVec3) -> CrabbyCon
 /// A surface moving what touches it at `velocity` (in its own frame, m/s),
 /// like a conveyor belt.
 /// ```
-/// let v = crabby_ffi::CrabbyVec3 { x: 2.0, y: 0.0, z: 0.0 };
-/// assert_eq!(crabby_ffi::crabby_contact_modifier3d_conveyor(v).surface_velocity.x, 2.0);
+/// let v = ponko_ffi::CrabbyVec3 { x: 2.0, y: 0.0, z: 0.0 };
+/// assert_eq!(ponko_ffi::crabby_contact_modifier3d_conveyor(v).surface_velocity.x, 2.0);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_contact_modifier3d_conveyor(velocity: CrabbyVec3) -> CrabbyContactModifier3D {
@@ -93,7 +93,7 @@ pub extern "C" fn crabby_contact_modifier3d_conveyor(velocity: CrabbyVec3) -> Cr
 /// A modifier whose contacts go to the hook set with
 /// `crabby_ctx_set_contact_hook3d`.
 /// ```
-/// assert!(crabby_ffi::crabby_contact_modifier3d_hook().hook);
+/// assert!(ponko_ffi::crabby_contact_modifier3d_hook().hook);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_contact_modifier3d_hook() -> CrabbyContactModifier3D {
@@ -108,7 +108,7 @@ pub extern "C" fn crabby_contact_modifier3d_hook() -> CrabbyContactModifier3D {
 /// # Safety
 /// Live handle and writable output.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// unsafe { let mut id = 99; assert_eq!(crabby_contact_modifier3d_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
 /// ```
@@ -126,7 +126,7 @@ pub unsafe extern "C" fn crabby_contact_modifier3d_component(
 /// it was passed to. Changes affect this step only; the hook runs again the
 /// next.
 /// ```
-/// let none: Option<&crabby_ffi::CrabbyContactPair3D> = None;
+/// let none: Option<&ponko_ffi::CrabbyContactPair3D> = None;
 /// assert!(none.is_none());
 /// ```
 pub struct CrabbyContactPair3D {
@@ -138,7 +138,7 @@ pub struct CrabbyContactPair3D {
 /// exceptions, no `longjmp`) and must not call any `crabby_ctx_*` or
 /// `crabby_world_*` function: it runs inside the physics step.
 /// ```
-/// let hook: crabby_ffi::CrabbyContactHook3D = None;
+/// let hook: ponko_ffi::CrabbyContactHook3D = None;
 /// assert!(hook.is_none());
 /// ```
 pub type CrabbyContactHook3D = Option<unsafe extern "C" fn(pair: *mut CrabbyContactPair3D, user: *mut c_void)>;
@@ -158,7 +158,7 @@ pub type CrabbyContactHook3D = Option<unsafe extern "C" fn(pair: *mut CrabbyCont
 /// `ctx` null or live, outside query callbacks. `hook` and `user` must stay
 /// valid until the hook is replaced or cleared, or the game ends.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_contact_hook3d(std::ptr::null_mut(), None, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_contact_hook3d(std::ptr::null_mut(), None, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_set_contact_hook3d(
@@ -175,7 +175,7 @@ pub unsafe extern "C" fn crabby_ctx_set_contact_hook3d(
 /// `pair` is the pointer a contact hook was just given; outputs writable.
 /// ```
 /// let p = std::ptr::null_mut();
-/// assert_eq!(unsafe { crabby_ffi::crabby_contact_pair3d_entities(p, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_contact_pair3d_entities(p, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_contact_pair3d_entities(
@@ -193,7 +193,7 @@ pub unsafe extern "C" fn crabby_contact_pair3d_entities(
 /// `pair` is the pointer a contact hook was just given; output writable.
 /// ```
 /// let p = std::ptr::null_mut();
-/// assert_eq!(unsafe { crabby_ffi::crabby_contact_pair3d_normal(p, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_contact_pair3d_normal(p, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_contact_pair3d_normal(
@@ -210,7 +210,7 @@ pub unsafe extern "C" fn crabby_contact_pair3d_normal(
 /// `pair` is the pointer a contact hook was just given; output writable.
 /// ```
 /// let p = std::ptr::null_mut();
-/// assert_eq!(unsafe { crabby_ffi::crabby_contact_pair3d_point_count(p, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_contact_pair3d_point_count(p, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_contact_pair3d_point_count(
@@ -228,7 +228,7 @@ pub unsafe extern "C" fn crabby_contact_pair3d_point_count(
 /// `pair` is the pointer a contact hook was just given; outputs writable.
 /// ```
 /// let p = std::ptr::null_mut();
-/// assert_eq!(unsafe { crabby_ffi::crabby_contact_pair3d_point(p, 0, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_contact_pair3d_point(p, 0, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_contact_pair3d_point(
@@ -246,7 +246,7 @@ pub unsafe extern "C" fn crabby_contact_pair3d_point(
 /// # Safety
 /// `pair` is the pointer a contact hook was just given.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_contact_pair3d_ignore(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_contact_pair3d_ignore(std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_contact_pair3d_ignore(pair: *mut CrabbyContactPair3D) -> CrabbyStatus {
@@ -259,7 +259,7 @@ pub unsafe extern "C" fn crabby_contact_pair3d_ignore(pair: *mut CrabbyContactPa
 /// # Safety
 /// `pair` is the pointer a contact hook was just given.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_contact_pair3d_remove_point(std::ptr::null_mut(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_contact_pair3d_remove_point(std::ptr::null_mut(), 0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_contact_pair3d_remove_point(
@@ -276,7 +276,7 @@ pub unsafe extern "C" fn crabby_contact_pair3d_remove_point(
 /// `pair` is the pointer a contact hook was just given; output writable.
 /// ```
 /// let p = std::ptr::null_mut();
-/// assert_eq!(unsafe { crabby_ffi::crabby_contact_pair3d_friction(p, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_contact_pair3d_friction(p, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_contact_pair3d_friction(
@@ -292,7 +292,7 @@ pub unsafe extern "C" fn crabby_contact_pair3d_friction(
 /// # Safety
 /// `pair` is the pointer a contact hook was just given.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_contact_pair3d_set_friction(std::ptr::null_mut(), 0.0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_contact_pair3d_set_friction(std::ptr::null_mut(), 0.0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_contact_pair3d_set_friction(
@@ -308,7 +308,7 @@ pub unsafe extern "C" fn crabby_contact_pair3d_set_friction(
 /// `pair` is the pointer a contact hook was just given; output writable.
 /// ```
 /// let p = std::ptr::null_mut();
-/// assert_eq!(unsafe { crabby_ffi::crabby_contact_pair3d_restitution(p, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_contact_pair3d_restitution(p, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_contact_pair3d_restitution(
@@ -324,7 +324,7 @@ pub unsafe extern "C" fn crabby_contact_pair3d_restitution(
 /// # Safety
 /// `pair` is the pointer a contact hook was just given.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_contact_pair3d_set_restitution(std::ptr::null_mut(), 0.0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_contact_pair3d_set_restitution(std::ptr::null_mut(), 0.0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_contact_pair3d_set_restitution(
@@ -341,8 +341,8 @@ pub unsafe extern "C" fn crabby_contact_pair3d_set_restitution(
 /// # Safety
 /// `pair` is the pointer a contact hook was just given.
 /// ```
-/// let v = crabby_ffi::CrabbyVec3::default();
-/// assert_eq!(unsafe { crabby_ffi::crabby_contact_pair3d_set_surface_velocity(std::ptr::null_mut(), v) } as u32, 1);
+/// let v = ponko_ffi::CrabbyVec3::default();
+/// assert_eq!(unsafe { ponko_ffi::crabby_contact_pair3d_set_surface_velocity(std::ptr::null_mut(), v) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_contact_pair3d_set_surface_velocity(
@@ -359,7 +359,7 @@ mod imp {
     use crate::ctx::{ctx_access, out};
     use crate::types::to_c;
     use crate::{CMirror, Failure, Kind, Mirror, boundary, builtin, error, invalid, mirror};
-    use crabbyengine::{ContactModifier3D, ContactPair3D, Vec3};
+    use ponko::{ContactModifier3D, ContactPair3D, Vec3};
 
     impl CMirror for ContactModifier3D {
         type C = CrabbyContactModifier3D;
@@ -580,7 +580,7 @@ mod imp {
     use crate::{Failure, boundary, invalid};
 
     fn off() -> Result<(), Failure> {
-        Err(invalid("crabby_ffi was built without the `physics3d` feature"))
+        Err(invalid("ponko_ffi was built without the `physics3d` feature"))
     }
     pub(crate) fn kind(_: std::any::TypeId) -> Option<crate::Kind> {
         None

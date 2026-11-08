@@ -15,7 +15,7 @@ use crate::{Error, UnityFile};
 /// std::fs::create_dir_all(dir.join("Assets")).unwrap();
 /// std::fs::write(dir.join("Assets/Rock.mat"), "").unwrap();
 /// std::fs::write(dir.join("Assets/Rock.mat.meta"), "fileFormatVersion: 2\nguid: 00ff\n").unwrap();
-/// let project = crabby_unity::Project::open(&dir).unwrap();
+/// let project = ponko_unity::Project::open(&dir).unwrap();
 /// assert_eq!(project.path_of("00ff"), Some(dir.join("Assets/Rock.mat").as_path()));
 /// assert_eq!(project.guid_of(&dir.join("Assets/Rock.mat")), Some("00ff"));
 /// ```

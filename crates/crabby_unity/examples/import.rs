@@ -1,6 +1,6 @@
 //! Imports Unity scenes or prefabs into a folder of a Crabby game's assets:
 //!
-//!   cargo run --release -p crabby_unity --example import -- \
+//!   cargo run --release -p ponko_unity --example import -- \
 //!       <Unity project> <out folder> <its asset name> <scene or prefab>...
 //!
 //! For example `... MyUnityGame my_game/assets/town town/ Assets/Scenes/Town.unity`
@@ -13,7 +13,7 @@
 use std::path::Path;
 use std::time::Instant;
 
-use crabby_unity::{Hierarchy, Importer, Project, UnityFile};
+use ponko_unity::{Hierarchy, Importer, Project, UnityFile};
 
 /// The scene's output name: its file name, or with the folders that tell it
 /// apart from the others when they share one.

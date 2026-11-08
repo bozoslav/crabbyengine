@@ -21,7 +21,7 @@ use crate::{Entity, Vec3, World};
 /// (to face where the player looks).
 ///
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let mut player = Character3D::new(1.8, 0.3);
 /// player.velocity.x = 4.0; // walk right at 4 m/s
 /// if player.grounded {

@@ -1,7 +1,7 @@
 //! Random numbers that keep simulations reproducible, even on all cores.
 
-use crabby_ecs::Entity;
 use glam::Vec2;
+use ponko_ecs::Entity;
 
 /// The seed games use unless [`Game::seed`](crate::Game::seed) sets one, so
 /// runs are reproducible by default.
@@ -24,7 +24,7 @@ fn mix(mut z: u64) -> u64 {
 /// setup code and tests.
 ///
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 ///
 /// let mut rng = Rng::new(42);
 /// let x = rng.range(-1.0, 1.0);
@@ -40,7 +40,7 @@ impl Rng {
     /// A generator seeded with `seed`.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let mut a = Rng::new(1);
     /// let mut b = Rng::new(2);
     /// assert_ne!(a.u64(), b.u64());
@@ -57,7 +57,7 @@ impl Rng {
     /// 64 random bits.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let bits = Rng::new(7).u64();
     /// # let _ = bits;
     /// ```
@@ -78,7 +78,7 @@ impl Rng {
     /// A number in `[0, 1)`.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let x = Rng::new(7).f32();
     /// assert!((0.0..1.0).contains(&x));
     /// ```
@@ -90,7 +90,7 @@ impl Rng {
     /// A number in `[low, high)`.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let speed = Rng::new(7).range(20.0, 40.0);
     /// assert!((20.0..40.0).contains(&speed));
     /// ```
@@ -102,7 +102,7 @@ impl Rng {
     /// A whole number in `0..n` (`0` when `n` is 0).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let pick = Rng::new(7).below(6); // a die roll, 0..=5
     /// assert!(pick < 6);
     /// ```
@@ -115,7 +115,7 @@ impl Rng {
     /// `true` with probability `p` (0 never, 1 always).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let mut rng = Rng::new(7);
     /// assert!(!rng.chance(0.0));
     /// assert!(rng.chance(1.0));
@@ -128,7 +128,7 @@ impl Rng {
     /// An angle in radians, `[0, TAU)`.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let heading = Rng::new(7).angle();
     /// assert!((0.0..std::f32::consts::TAU).contains(&heading));
     /// ```
@@ -140,7 +140,7 @@ impl Rng {
     /// A direction: a vector of length 1 at a random angle.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let dir = Rng::new(7).unit_vec2();
     /// assert!((dir.length() - 1.0).abs() < 1e-5);
     /// ```
@@ -172,7 +172,7 @@ impl Random {
     /// The random stream of `entity` for this tick and system.
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     ///
     /// struct Wander(f32);
     ///
@@ -194,7 +194,7 @@ impl Random {
     /// the same streams as [`of`](Self::of) and [`stream`](Self::stream).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let bits: u64 = ctx.random().to_bits();
     /// # let _ = bits;
@@ -209,7 +209,7 @@ impl Random {
     /// don't belong to one entity (where to spawn, which event fires).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let mut rng = ctx.random().stream(0);
     /// let spawn_at = vec2(rng.range(0.0, 800.0), rng.range(0.0, 600.0));

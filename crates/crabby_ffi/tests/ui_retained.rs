@@ -1,6 +1,6 @@
 //! The retained UI through the C API: building a tree, layout, input, events,
 //! screens, ids and errors, in headless runs (no window).
-use crabby_ffi::*;
+use ponko_ffi::*;
 use std::ffi::{CStr, c_char, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr::{null, null_mut};

@@ -1,5 +1,5 @@
 //! Shapes, UI widgets, fonts, sound, screenshots and turns through the C API.
-use crabby_ffi::*;
+use ponko_ffi::*;
 use std::ffi::{CStr, c_void};
 use std::ptr::{null, null_mut};
 

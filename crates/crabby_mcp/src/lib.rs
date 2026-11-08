@@ -1,11 +1,11 @@
-//! `crabby-mcp`: a [Model Context Protocol](https://modelcontextprotocol.io)
+//! `ponko-mcp`: a [Model Context Protocol](https://modelcontextprotocol.io)
 //! server that lets AI agents inspect and drive running Crabby Engine games.
 //!
 //! Agents launch it over stdio. It finds games through the instance registry
 //! (`~/.crabby/instances`) that every game with the control endpoint on
 //! writes to, and talks to each game's endpoint over localhost TCP. Every
 //! tool takes an `instance`, so several agents, each with its own
-//! `crabby-mcp`, can work with several games at once.
+//! `ponko-mcp`, can work with several games at once.
 //!
 //! The protocol logic is in [`Server::handle`], which maps one JSON-RPC
 //! message to its reply, so it can be tested without stdio.
@@ -33,7 +33,7 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(60);
 /// (`%LOCALAPPDATA%\crabby\instances` on Windows). Matches the engine.
 ///
 /// ```
-/// let dir = crabby_mcp::default_instances_dir();
+/// let dir = ponko_mcp::default_instances_dir();
 /// assert!(dir.is_none_or(|d| d.ends_with("instances") || std::env::var_os("CRABBY_INSTANCES_DIR").is_some()));
 /// ```
 pub fn default_instances_dir() -> Option<PathBuf> {
@@ -54,7 +54,7 @@ fn crabby_home() -> Option<PathBuf> {
 /// Server settings.
 ///
 /// ```
-/// let mut config = crabby_mcp::Config::from_env();
+/// let mut config = ponko_mcp::Config::from_env();
 /// config.read_only = true; // only tools that don't change games
 /// ```
 #[derive(Debug, Clone)]
@@ -576,7 +576,7 @@ fn tool_schema(t: &Tool) -> Value {
 /// The MCP server state. One per agent connection.
 ///
 /// ```
-/// use crabby_mcp::{Config, Server};
+/// use ponko_mcp::{Config, Server};
 /// use serde_json::json;
 ///
 /// let mut server = Server::new(Config::from_env());
@@ -631,7 +631,7 @@ impl Server {
         json!({
             "protocolVersion": version,
             "capabilities": { "tools": { "listChanged": false } },
-            "serverInfo": { "name": "crabby-mcp", "version": env!("CARGO_PKG_VERSION") },
+            "serverInfo": { "name": "ponko-mcp", "version": env!("CARGO_PKG_VERSION") },
             "instructions": "Tools for Crabby Engine games. Start with list_instances; if none is running, use launch (headless and paused by default). Then world_summary and list_entities to look around, run_ticks to advance the simulation, and get_entity / set_component to check and change state. Every tool except list_instances and launch takes `instance`, optional when only one game runs. Components must be reflected in the game (world.reflect::<T>()) to be read or written as JSON."
         })
     }
@@ -1005,7 +1005,7 @@ fn tail(path: &Path, lines: usize) -> String {
 /// Runs the server on stdin/stdout until stdin closes.
 ///
 /// ```no_run
-/// crabby_mcp::serve_stdio(crabby_mcp::Config::from_env()).unwrap();
+/// ponko_mcp::serve_stdio(ponko_mcp::Config::from_env()).unwrap();
 /// ```
 pub fn serve_stdio(config: Config) -> std::io::Result<()> {
     let mut server = Server::new(config);
@@ -1099,7 +1099,7 @@ mod tests {
 
     #[test]
     fn discovery_removes_dead_entries_and_nothing_else() {
-        let dir = std::env::temp_dir().join(format!("crabby-mcp-discover-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("ponko-mcp-discover-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         // Port 1 is never listening: a crashed game's entry.

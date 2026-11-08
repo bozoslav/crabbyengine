@@ -1,11 +1,11 @@
 //! Plain C structs shared with the engine. Most have the exact layout of the
 //! Rust type (checked at compile time), so values pass through without copies.
-use crabby_ecs::Entity;
-use crabbyengine::{Color, DrawParams, GridEntry, Rect, Sprite, Texture, Transform2D, Vec2};
+use ponko::{Color, DrawParams, GridEntry, Rect, Sprite, Texture, Transform2D, Vec2};
+use ponko_ecs::Entity;
 
 /// A 2D vector.
 /// ```
-/// let v = crabby_ffi::CrabbyVec2 { x: 1.0, y: 2.0 };
+/// let v = ponko_ffi::CrabbyVec2 { x: 1.0, y: 2.0 };
 /// assert_eq!(v.x + v.y, 3.0);
 /// ```
 #[repr(C)]
@@ -19,7 +19,7 @@ pub struct CrabbyVec2 {
 
 /// RGBA color, each channel 0..1 (same layout as Rust `Color`).
 /// ```
-/// let white = crabby_ffi::CrabbyColor { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
+/// let white = ponko_ffi::CrabbyColor { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
 /// assert_eq!(white.a, 1.0);
 /// ```
 #[repr(C)]
@@ -38,7 +38,7 @@ pub struct CrabbyColor {
 /// A texture handle from `crabby_ctx_load_texture` (same layout as Rust `Texture`).
 /// Never make one up: only use values the engine gave you.
 /// ```
-/// assert_eq!(std::mem::size_of::<crabby_ffi::CrabbyTexture>(), 12);
+/// assert_eq!(std::mem::size_of::<ponko_ffi::CrabbyTexture>(), 12);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -54,7 +54,7 @@ pub struct CrabbyTexture {
 /// Position, rotation (radians, clockwise) and scale; the built-in
 /// `Transform2D` component, same layout as in Rust.
 /// ```
-/// let t = crabby_ffi::CrabbyTransform2D::default();
+/// let t = ponko_ffi::CrabbyTransform2D::default();
 /// assert_eq!(t.scale.x, 1.0);
 /// ```
 #[repr(C)]
@@ -77,8 +77,8 @@ impl Default for CrabbyTransform2D {
 /// An entity as stored in query chunks. `crabby_entity_bits` (or
 /// `(uint64_t)generation << 32 | index`) gives the id other calls take.
 /// ```
-/// let e = crabby_ffi::CrabbyEntity { index: 3, generation: 1 };
-/// assert_eq!(crabby_ffi::crabby_entity_bits(e), (1u64 << 32) | 3);
+/// let e = ponko_ffi::CrabbyEntity { index: 3, generation: 1 };
+/// assert_eq!(ponko_ffi::crabby_entity_bits(e), (1u64 << 32) | 3);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -91,8 +91,8 @@ pub struct CrabbyEntity {
 
 /// The id of `entity` that other calls take.
 /// ```
-/// let e = crabby_ffi::CrabbyEntity { index: 7, generation: 0 };
-/// assert_eq!(crabby_ffi::crabby_entity_bits(e), 7);
+/// let e = ponko_ffi::CrabbyEntity { index: 7, generation: 0 };
+/// assert_eq!(ponko_ffi::crabby_entity_bits(e), 7);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_entity_bits(entity: CrabbyEntity) -> u64 {
@@ -101,7 +101,7 @@ pub extern "C" fn crabby_entity_bits(entity: CrabbyEntity) -> u64 {
 
 /// An axis-aligned rectangle from `min` (top-left) to `max`.
 /// ```
-/// let r = crabby_ffi::CrabbyRect { min: Default::default(), max: crabby_ffi::CrabbyVec2 { x: 16.0, y: 16.0 } };
+/// let r = ponko_ffi::CrabbyRect { min: Default::default(), max: ponko_ffi::CrabbyVec2 { x: 16.0, y: 16.0 } };
 /// assert_eq!(r.max.x, 16.0);
 /// ```
 #[repr(C)]
@@ -117,7 +117,7 @@ pub struct CrabbyRect {
 /// sprite component id like any component; it can't be a query column,
 /// because the engine stores it in a Rust layout.
 /// ```
-/// let s = crabby_ffi::CrabbySprite::default();
+/// let s = ponko_ffi::CrabbySprite::default();
 /// assert_eq!(s.pivot.x, 0.5);
 /// ```
 #[repr(C)]
@@ -149,7 +149,7 @@ impl Default for CrabbySprite {
 
 /// Options for `crabby_ctx_draw_ex`. Start from `crabby_draw_params_default()`.
 /// ```
-/// let p = crabby_ffi::crabby_draw_params_default();
+/// let p = ponko_ffi::crabby_draw_params_default();
 /// assert_eq!(p.scale.x, 1.0);
 /// ```
 #[repr(C)]
@@ -175,7 +175,7 @@ pub struct CrabbyDrawParams {
 
 /// Default draw options: no scale, rotation or tint, centered.
 /// ```
-/// assert!(!crabby_ffi::crabby_draw_params_default().screen);
+/// assert!(!ponko_ffi::crabby_draw_params_default().screen);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_draw_params_default() -> CrabbyDrawParams {
@@ -195,7 +195,7 @@ pub extern "C" fn crabby_draw_params_default() -> CrabbyDrawParams {
 
 /// A spatial-grid hit: an entity and its position.
 /// ```
-/// assert_eq!(std::mem::size_of::<crabby_ffi::CrabbyGridHit>(), 16);
+/// assert_eq!(std::mem::size_of::<ponko_ffi::CrabbyGridHit>(), 16);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -209,7 +209,7 @@ pub struct CrabbyGridHit {
 /// An item of a `CrabbyGrid`: entity, position and a number of your own
 /// (an index into your own arrays, for example).
 /// ```
-/// assert_eq!(std::mem::size_of::<crabby_ffi::CrabbyGridItem>(), 20);
+/// assert_eq!(std::mem::size_of::<ponko_ffi::CrabbyGridItem>(), 20);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -258,7 +258,7 @@ same_layout!(
     position = position,
     data = data
 );
-// Entity is repr(C) { index, generation }; its fields are private to crabby_ecs.
+// Entity is repr(C) { index, generation }; its fields are private to ponko_ecs.
 same_layout!(CrabbyEntity, Entity);
 const _: () = assert!(size_of::<CrabbyTexture>() == size_of::<Texture>());
 

@@ -3,12 +3,12 @@ use crate::ctx::{ctx_access, out, text};
 use crate::media::{font_from_c, font_to_c};
 use crate::types::to_c;
 use crate::{CrabbyColor, CrabbyCtx, CrabbyFont, CrabbyStatus, boundary, error, invalid};
-use crabbyengine::{Entity, Text3D, TextAlign3D};
+use ponko::{Entity, Text3D, TextAlign3D};
 use std::ffi::c_char;
 
 /// How lines line up inside a world text block.
 /// ```
-/// assert_eq!(crabby_ffi::CrabbyTextAlign3D::CRABBY_TEXT_ALIGN3D_CENTER as u32, 1);
+/// assert_eq!(ponko_ffi::CrabbyTextAlign3D::CRABBY_TEXT_ALIGN3D_CENTER as u32, 1);
 /// ```
 #[repr(u32)]
 #[derive(Clone, Copy, Debug)]
@@ -26,7 +26,7 @@ pub enum CrabbyTextAlign3D {
 /// per line; outline width and softness are fractions of a line, clamped
 /// by the renderer to about 0.12. Text needs a Transform3D to be drawn.
 /// ```
-/// let settings: crabby_ffi::CrabbyText3D = crabby_ffi::crabby_text3d_default();
+/// let settings: ponko_ffi::CrabbyText3D = ponko_ffi::crabby_text3d_default();
 /// assert!(!settings.billboard);
 /// ```
 #[repr(C)]
@@ -63,7 +63,7 @@ fn settings(t: &Text3D) -> CrabbyText3D {
 }
 /// Default settings: white, centered, quarter-meter lines, no outline.
 /// ```
-/// assert_eq!(crabby_ffi::crabby_text3d_default().size, 0.25);
+/// assert_eq!(ponko_ffi::crabby_text3d_default().size, 0.25);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_text3d_default() -> CrabbyText3D {
@@ -76,7 +76,7 @@ pub extern "C" fn crabby_text3d_default() -> CrabbyText3D {
 /// # Safety
 /// `ctx` null or live; `value` null or readable; `string` null or a C string.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_text3d(std::ptr::null_mut(), 0, c"Hi".as_ptr(), &crabby_ffi::crabby_text3d_default()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_text3d(std::ptr::null_mut(), 0, c"Hi".as_ptr(), &ponko_ffi::crabby_text3d_default()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_set_text3d(
@@ -133,7 +133,7 @@ pub unsafe extern "C" fn crabby_ctx_set_text3d(
 /// # Safety
 /// `ctx` null or live; output null or writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_text3d(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_text3d(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_text3d(
@@ -165,7 +165,7 @@ pub unsafe extern "C" fn crabby_ctx_text3d(
 /// `ctx` null or live; buffer writable for capacity bytes (null only with
 /// capacity 0); length null or writable. Outputs must not overlap.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_text3d_text(std::ptr::null_mut(), 0, std::ptr::null_mut(), 0, &mut 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_text3d_text(std::ptr::null_mut(), 0, std::ptr::null_mut(), 0, &mut 0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_text3d_text(
@@ -205,7 +205,7 @@ pub unsafe extern "C" fn crabby_ctx_text3d_text(
 /// # Safety
 /// `ctx` null or live.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_remove_text3d(std::ptr::null_mut(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_remove_text3d(std::ptr::null_mut(), 0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_remove_text3d(ctx: *mut CrabbyCtx, entity: u64) -> CrabbyStatus {

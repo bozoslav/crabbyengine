@@ -6,7 +6,7 @@
 //! - The small crab follows the mouse
 //! - Escape: quit
 
-use crabbyengine::*;
+use ponko::*;
 
 fn main() {
     Game::new("Crabby Engine: sprites", 800, 600).run(|ctx| {

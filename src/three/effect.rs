@@ -9,7 +9,7 @@ use crate::Ctx;
 /// [`ScreenEffect`] to [`Ctx::effects`](crate::Ctx::effects).
 ///
 /// ```no_run
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let underwater = ctx.load_effect("effects/underwater.wgsl");
 /// ctx.effects.push(ScreenEffect::new(underwater));
@@ -42,7 +42,7 @@ impl Effect {
 /// (`material.custom[0]` to `[3]`, `custom_texture0`, ...).
 ///
 /// ```no_run
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn f(ctx: &mut Ctx, tint: Effect) {
 /// let strength = ctx.create_material(MaterialDesc { custom: [vec4(0.5, 0.0, 0.0, 0.0), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO], ..Default::default() });
 /// ctx.effects.push(ScreenEffect::new(tint).with_material(strength));
@@ -61,7 +61,7 @@ impl ScreenEffect {
     /// Runs `effect` with no values of its own.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, e: Effect) {
     /// ctx.effects.push(ScreenEffect::new(e));
     /// # }
@@ -75,7 +75,7 @@ impl ScreenEffect {
     /// them with [`Ctx::update_material`] to animate the effect.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(e: Effect, m: Material) {
     /// let fx = ScreenEffect::new(e).with_material(m);
     /// # }
@@ -100,7 +100,7 @@ impl Ctx {
     /// file again returns the same effect.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let haze = ctx.load_effect("effects/haze.wgsl");
     /// ctx.effects.push(ScreenEffect::new(haze));
@@ -111,8 +111,7 @@ impl Ctx {
     ///
     /// If the file can't be read or doesn't compile (the message says where).
     pub fn load_effect(&mut self, path: &str) -> Effect {
-        self.try_load_effect(path)
-            .unwrap_or_else(|e| panic!("crabbyengine: {e}"))
+        self.try_load_effect(path).unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
     /// [`Ctx::load_effect`] that returns errors (for the C API).
@@ -134,7 +133,7 @@ impl Ctx {
     /// messages. See [`Ctx::load_effect`] for what it defines.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let grey = ctx.create_effect("grey", "
     ///     fn effect(p: Pixel) -> vec3<f32> {
@@ -149,7 +148,7 @@ impl Ctx {
     /// If it doesn't compile (the message says where).
     pub fn create_effect(&mut self, name: &str, source: &str) -> Effect {
         self.try_create_effect(name, source)
-            .unwrap_or_else(|e| panic!("crabbyengine: {e}"))
+            .unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
     /// [`Ctx::create_effect`] that returns errors (for the C API).

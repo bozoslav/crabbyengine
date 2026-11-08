@@ -3,14 +3,14 @@
 
 use std::ffi::c_char;
 
-use crabbyengine::{Budget, PerfReport, ProfileScope};
+use ponko::{Budget, PerfReport, ProfileScope};
 
 use crate::ctx::{ctx_access, out, text};
 use crate::{CrabbyCtx, CrabbyStatus, boundary, invalid, invalid_owned};
 
 /// Frame timing over the last few seconds (Rust `FrameStats`), in ms.
 /// ```
-/// let s = crabby_ffi::CrabbyFrameStats::default();
+/// let s = ponko_ffi::CrabbyFrameStats::default();
 /// assert_eq!((s.frames, s.gpu_ms), (0, -1.0));
 /// ```
 #[repr(C)]
@@ -61,8 +61,8 @@ impl Default for CrabbyFrameStats {
 /// Writes frame timing over the last few seconds to `*out_stats` (all zero
 /// in headless runs).
 /// ```
-/// let mut s = crabby_ffi::CrabbyFrameStats::default();
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_frame_stats(std::ptr::null(), &mut s) } as u32, 1);
+/// let mut s = ponko_ffi::CrabbyFrameStats::default();
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_frame_stats(std::ptr::null(), &mut s) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `out_stats` writable.
@@ -96,7 +96,7 @@ pub unsafe extern "C" fn crabby_ctx_frame_stats(
 /// Shows or hides the on-screen performance overlay (fps, frame-time
 /// percentiles, CPU and GPU time, the slowest GPU passes).
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_perf_hud(std::ptr::null_mut(), true) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_perf_hud(std::ptr::null_mut(), true) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live.
@@ -114,7 +114,7 @@ pub unsafe extern "C" fn crabby_ctx_set_perf_hud(ctx: *mut CrabbyCtx, on: bool) 
 /// Records the next `frames` frames as a Chrome/Perfetto trace at `path`
 /// (open it in <https://ui.perfetto.dev>). Does nothing in headless runs.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_record_trace(std::ptr::null_mut(), c"t.json".as_ptr(), 60) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_record_trace(std::ptr::null_mut(), c"t.json".as_ptr(), 60) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `path` NUL-terminated.
@@ -166,7 +166,7 @@ pub(crate) fn keep_report(json: String) {
 /// learn the size. The length is 0 if there was none.
 /// ```
 /// let mut len = 1usize;
-/// let s = unsafe { crabby_ffi::crabby_last_perf_report(std::ptr::null_mut(), 0, &mut len) };
+/// let s = unsafe { ponko_ffi::crabby_last_perf_report(std::ptr::null_mut(), 0, &mut len) };
 /// assert_eq!(s as u32, 0);
 /// ```
 /// # Safety
@@ -201,8 +201,8 @@ pub struct CrabbyProfileScope {
 /// `CRABBY_PROFILE_SCOPE` in `crabby.hpp` keeps it in a `static`. Null if
 /// `name` is null or not UTF-8.
 /// ```
-/// let a = unsafe { crabby_ffi::crabby_profile_scope(c"ai".as_ptr()) };
-/// let b = unsafe { crabby_ffi::crabby_profile_scope(c"ai".as_ptr()) };
+/// let a = unsafe { ponko_ffi::crabby_profile_scope(c"ai".as_ptr()) };
+/// let b = unsafe { ponko_ffi::crabby_profile_scope(c"ai".as_ptr()) };
 /// assert!(!a.is_null() && a == b);
 /// ```
 /// # Safety
@@ -211,7 +211,7 @@ pub struct CrabbyProfileScope {
 pub unsafe extern "C" fn crabby_profile_scope(name: *const c_char) -> *const CrabbyProfileScope {
     // SAFETY: forwarded caller contract.
     match unsafe { text(name) } {
-        Ok(name) => std::ptr::from_ref(crabbyengine::scope_named(name)).cast(),
+        Ok(name) => std::ptr::from_ref(ponko::scope_named(name)).cast(),
         Err(_) => std::ptr::null(),
     }
 }
@@ -220,9 +220,9 @@ pub unsafe extern "C" fn crabby_profile_scope(name: *const c_char) -> *const Cra
 /// atomic load (and returns 0) while profiling is off, and is safe to call
 /// from any thread.
 /// ```
-/// let scope = unsafe { crabby_ffi::crabby_profile_scope(c"work".as_ptr()) };
-/// let token = unsafe { crabby_ffi::crabby_profile_begin(scope) };
-/// unsafe { crabby_ffi::crabby_profile_end(scope, token) };
+/// let scope = unsafe { ponko_ffi::crabby_profile_scope(c"work".as_ptr()) };
+/// let token = unsafe { ponko_ffi::crabby_profile_begin(scope) };
+/// unsafe { ponko_ffi::crabby_profile_end(scope, token) };
 /// ```
 /// # Safety
 /// `scope` must be null or from `crabby_profile_scope`.
@@ -248,17 +248,17 @@ pub unsafe extern "C" fn crabby_profile_end(scope: *const CrabbyProfileScope, to
 /// allocator (`CRABBY_COUNT_CPP_ALLOCATIONS` in `crabby.hpp` calls this from
 /// `operator new`). Counted only while profiling is on.
 /// ```
-/// crabby_ffi::crabby_note_allocation(64);
+/// ponko_ffi::crabby_note_allocation(64);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_note_allocation(bytes: usize) {
-    crabbyengine::note_allocation(bytes);
+    ponko::note_allocation(bytes);
 }
 
 /// Turns the deeper profiling on or off: scopes are timed and allocations
 /// counted (the overlay switches it on by itself).
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_profiling(std::ptr::null_mut(), true) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_profiling(std::ptr::null_mut(), true) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live.
@@ -280,7 +280,7 @@ pub unsafe extern "C" fn crabby_ctx_set_profiling(ctx: *mut CrabbyCtx, on: bool)
 /// Print it with `crabby_perf_report_text`.
 /// ```
 /// let mut len = 0usize;
-/// let s = unsafe { crabby_ffi::crabby_ctx_perf_report(std::ptr::null(), std::ptr::null_mut(), 0, &mut len) };
+/// let s = unsafe { ponko_ffi::crabby_ctx_perf_report(std::ptr::null(), std::ptr::null_mut(), 0, &mut len) };
 /// assert_eq!(s as u32, 1);
 /// ```
 /// # Safety
@@ -339,7 +339,7 @@ unsafe fn report_text(
 /// Writes into `buffer` as `crabby_ctx_perf_report` does.
 /// ```
 /// let mut len = 0usize;
-/// let s = unsafe { crabby_ffi::crabby_perf_report_text(c"nope".as_ptr(), std::ptr::null_mut(), 0, &mut len) };
+/// let s = unsafe { ponko_ffi::crabby_perf_report_text(c"nope".as_ptr(), std::ptr::null_mut(), 0, &mut len) };
 /// assert_ne!(s as u32, 0, "not a report");
 /// ```
 /// # Safety
@@ -364,7 +364,7 @@ pub unsafe extern "C" fn crabby_perf_report_text(
 /// of that shape.
 /// ```
 /// let mut len = 1usize;
-/// let s = unsafe { crabby_ffi::crabby_perf_check(c"{}".as_ptr(), c"{}".as_ptr(), std::ptr::null_mut(), 0, &mut len) };
+/// let s = unsafe { ponko_ffi::crabby_perf_check(c"{}".as_ptr(), c"{}".as_ptr(), std::ptr::null_mut(), 0, &mut len) };
 /// assert_ne!(s as u32, 0, "an empty object is not a report");
 /// ```
 /// # Safety
@@ -396,7 +396,7 @@ pub unsafe extern "C" fn crabby_perf_check(
 /// into `buffer` as `crabby_perf_check` does.
 /// ```
 /// let mut len = 1usize;
-/// let s = unsafe { crabby_ffi::crabby_perf_compare(c"x".as_ptr(), c"y".as_ptr(), 0.2, std::ptr::null_mut(), 0, &mut len) };
+/// let s = unsafe { ponko_ffi::crabby_perf_compare(c"x".as_ptr(), c"y".as_ptr(), 0.2, std::ptr::null_mut(), 0, &mut len) };
 /// assert_ne!(s as u32, 0);
 /// ```
 /// # Safety

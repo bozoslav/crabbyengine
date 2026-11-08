@@ -32,8 +32,8 @@ pub enum Surface {
 ///
 /// ```
 /// let text = "%YAML 1.1\n--- !u!21 &2100000\nMaterial:\n  m_Name: Bark\n  m_Shader: {fileID: 4800000, guid: 933532a4fcc9baf4fa0491de14d08ed7, type: 3}\n  m_SavedProperties:\n    m_TexEnvs:\n    - _BaseMap:\n        m_Texture: {fileID: 2800000, guid: 0123abcd, type: 3}\n        m_Scale: {x: 2, y: 2}\n        m_Offset: {x: 0, y: 0}\n    m_Floats:\n    - _Smoothness: 0.25\n    m_Colors:\n    - _BaseColor: {r: 1, g: 0.5, b: 0.5, a: 1}\n";
-/// let file = crabby_unity::UnityFile::parse(text).unwrap();
-/// let m = crabby_unity::UnityMaterial::from_object(&file.objects[0]).unwrap();
+/// let file = ponko_unity::UnityFile::parse(text).unwrap();
+/// let m = ponko_unity::UnityMaterial::from_object(&file.objects[0]).unwrap();
 /// assert_eq!(m.base_map.unwrap().guid.as_deref(), Some("0123abcd"));
 /// assert_eq!(m.tiling, [2.0, 2.0]);
 /// assert_eq!(m.smoothness, 0.25);

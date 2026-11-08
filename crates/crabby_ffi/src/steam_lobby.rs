@@ -7,10 +7,10 @@ use std::ffi::c_char;
 /// Owned lobby handle. Free once with `crabby_steam_lobby_free`.
 pub struct CrabbySteamLobby {
     #[cfg(feature = "steam")]
-    lobby: crabbyengine::SteamLobby,
+    lobby: ponko::SteamLobby,
 }
 #[cfg(feature = "steam")]
-fn live<'a>(p: *mut CrabbySteamLobby) -> Result<&'a mut crabbyengine::SteamLobby, crate::Failure> {
+fn live<'a>(p: *mut CrabbySteamLobby) -> Result<&'a mut ponko::SteamLobby, crate::Failure> {
     // SAFETY: callers supply null or a live lobby handle.
     unsafe { p.as_mut() }
         .map(|p| &mut p.lobby)
@@ -21,7 +21,7 @@ fn live<'a>(p: *mut CrabbySteamLobby) -> Result<&'a mut crabbyengine::SteamLobby
 /// # Safety
 /// Writable output; set to null on failure.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_steam_lobby_create(480, 0, 2, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_steam_lobby_create(480, 0, 2, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_steam_lobby_create(
@@ -44,12 +44,12 @@ pub unsafe extern "C" fn crabby_steam_lobby_create(
         #[cfg(feature = "steam")]
         {
             let client = crate::steam::client::get(app_id)?;
-            let lobby = crabbyengine::SteamLobby::create(
+            let lobby = ponko::SteamLobby::create(
                 &client,
                 match visibility {
-                    0 => crabbyengine::SteamLobbyVisibility::FriendsOnly,
-                    1 => crabbyengine::SteamLobbyVisibility::Public,
-                    _ => crabbyengine::SteamLobbyVisibility::Private,
+                    0 => ponko::SteamLobbyVisibility::FriendsOnly,
+                    1 => ponko::SteamLobbyVisibility::Public,
+                    _ => ponko::SteamLobbyVisibility::Private,
                 },
                 max_members,
             )?;
@@ -59,7 +59,7 @@ pub unsafe extern "C" fn crabby_steam_lobby_create(
         #[cfg(not(feature = "steam"))]
         {
             let _ = (app_id, visibility, max_members);
-            Err(invalid("crabby_ffi was built without the `steam` feature"))
+            Err(invalid("ponko_ffi was built without the `steam` feature"))
         }
     })
 }
@@ -68,7 +68,7 @@ pub unsafe extern "C" fn crabby_steam_lobby_create(
 /// # Safety
 /// Writable output; set to null on failure.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_steam_lobby_join(480, 1, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_steam_lobby_join(480, 1, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_steam_lobby_join(
@@ -90,14 +90,14 @@ pub unsafe extern "C" fn crabby_steam_lobby_join(
         #[cfg(feature = "steam")]
         {
             let client = crate::steam::client::get(app_id)?;
-            let lobby = crabbyengine::SteamLobby::join(&client, crabbyengine::steamworks::LobbyId::from_raw(id))?;
+            let lobby = ponko::SteamLobby::join(&client, ponko::steamworks::LobbyId::from_raw(id))?;
             // SAFETY: forwarded caller contract.
             unsafe { out(output, Box::into_raw(Box::new(CrabbySteamLobby { lobby }))) }
         }
         #[cfg(not(feature = "steam"))]
         {
             let _ = (app_id, id);
-            Err(invalid("crabby_ffi was built without the `steam` feature"))
+            Err(invalid("ponko_ffi was built without the `steam` feature"))
         }
     })
 }
@@ -106,7 +106,7 @@ pub unsafe extern "C" fn crabby_steam_lobby_join(
 /// # Safety
 /// Null or a live owned lobby, never used again.
 /// ```
-/// unsafe { crabby_ffi::crabby_steam_lobby_free(std::ptr::null_mut()); }
+/// unsafe { ponko_ffi::crabby_steam_lobby_free(std::ptr::null_mut()); }
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_steam_lobby_free(lobby: *mut CrabbySteamLobby) {
@@ -123,7 +123,7 @@ pub unsafe extern "C" fn crabby_steam_lobby_free(lobby: *mut CrabbySteamLobby) {
 /// # Safety
 /// Live/null lobby, readable NUL-terminated strings, writable outputs and buffers of `capacity` elements.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_steam_lobby_poll(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_steam_lobby_poll(std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_steam_lobby_poll(lobby: *mut CrabbySteamLobby) -> CrabbyStatus {
@@ -137,7 +137,7 @@ pub unsafe extern "C" fn crabby_steam_lobby_poll(lobby: *mut CrabbySteamLobby) -
         #[cfg(not(feature = "steam"))]
         {
             let _ = lobby;
-            Err(invalid("crabby_ffi was built without the `steam` feature"))
+            Err(invalid("ponko_ffi was built without the `steam` feature"))
         }
     })
 }
@@ -149,7 +149,7 @@ pub unsafe extern "C" fn crabby_steam_lobby_poll(lobby: *mut CrabbySteamLobby) -
 /// # Safety
 /// Live/null lobby, readable NUL-terminated strings, writable outputs and buffers of `capacity` elements.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_steam_lobby_leave(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_steam_lobby_leave(std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_steam_lobby_leave(lobby: *mut CrabbySteamLobby) -> CrabbyStatus {
@@ -163,7 +163,7 @@ pub unsafe extern "C" fn crabby_steam_lobby_leave(lobby: *mut CrabbySteamLobby) 
         #[cfg(not(feature = "steam"))]
         {
             let _ = lobby;
-            Err(invalid("crabby_ffi was built without the `steam` feature"))
+            Err(invalid("ponko_ffi was built without the `steam` feature"))
         }
     })
 }
@@ -175,7 +175,7 @@ pub unsafe extern "C" fn crabby_steam_lobby_leave(lobby: *mut CrabbySteamLobby) 
 /// # Safety
 /// Live/null lobby, readable NUL-terminated strings, writable outputs and buffers of `capacity` elements.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_steam_lobby_id(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_steam_lobby_id(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_steam_lobby_id(lobby: *mut CrabbySteamLobby, output: *mut u64) -> CrabbyStatus {
@@ -188,7 +188,7 @@ pub unsafe extern "C" fn crabby_steam_lobby_id(lobby: *mut CrabbySteamLobby, out
         #[cfg(not(feature = "steam"))]
         {
             let _ = (lobby, output);
-            Err(invalid("crabby_ffi was built without the `steam` feature"))
+            Err(invalid("ponko_ffi was built without the `steam` feature"))
         }
     })
 }
@@ -200,7 +200,7 @@ pub unsafe extern "C" fn crabby_steam_lobby_id(lobby: *mut CrabbySteamLobby, out
 /// # Safety
 /// Live/null lobby, readable NUL-terminated strings, writable outputs and buffers of `capacity` elements.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_steam_lobby_invite(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_steam_lobby_invite(std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_steam_lobby_invite(lobby: *mut CrabbySteamLobby) -> CrabbyStatus {
@@ -214,7 +214,7 @@ pub unsafe extern "C" fn crabby_steam_lobby_invite(lobby: *mut CrabbySteamLobby)
         #[cfg(not(feature = "steam"))]
         {
             let _ = lobby;
-            Err(invalid("crabby_ffi was built without the `steam` feature"))
+            Err(invalid("ponko_ffi was built without the `steam` feature"))
         }
     })
 }
@@ -226,7 +226,7 @@ pub unsafe extern "C" fn crabby_steam_lobby_invite(lobby: *mut CrabbySteamLobby)
 /// # Safety
 /// Live/null lobby, readable NUL-terminated strings, writable outputs and buffers of `capacity` elements.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_steam_lobby_set_metadata(std::ptr::null_mut(), std::ptr::null(), std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_steam_lobby_set_metadata(std::ptr::null_mut(), std::ptr::null(), std::ptr::null()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_steam_lobby_set_metadata(
@@ -244,7 +244,7 @@ pub unsafe extern "C" fn crabby_steam_lobby_set_metadata(
         #[cfg(not(feature = "steam"))]
         {
             let _ = (lobby, key, value);
-            Err(invalid("crabby_ffi was built without the `steam` feature"))
+            Err(invalid("ponko_ffi was built without the `steam` feature"))
         }
     })
 }
@@ -256,7 +256,7 @@ pub unsafe extern "C" fn crabby_steam_lobby_set_metadata(
 /// # Safety
 /// Live/null lobby, readable NUL-terminated strings, writable outputs and buffers of `capacity` elements.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_steam_lobby_metadata(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_steam_lobby_metadata(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_steam_lobby_metadata(
@@ -275,7 +275,7 @@ pub unsafe extern "C" fn crabby_steam_lobby_metadata(
         #[cfg(not(feature = "steam"))]
         {
             let _ = (lobby, key, buffer, capacity, needed);
-            Err(invalid("crabby_ffi was built without the `steam` feature"))
+            Err(invalid("ponko_ffi was built without the `steam` feature"))
         }
     })
 }
@@ -287,7 +287,7 @@ pub unsafe extern "C" fn crabby_steam_lobby_metadata(
 /// # Safety
 /// Live/null lobby, readable NUL-terminated strings, writable outputs and buffers of `capacity` elements.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_steam_lobby_members(std::ptr::null_mut(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_steam_lobby_members(std::ptr::null_mut(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_steam_lobby_members(
@@ -305,14 +305,14 @@ pub unsafe extern "C" fn crabby_steam_lobby_members(
         #[cfg(not(feature = "steam"))]
         {
             let _ = (lobby, members, capacity, needed);
-            Err(invalid("crabby_ffi was built without the `steam` feature"))
+            Err(invalid("ponko_ffi was built without the `steam` feature"))
         }
     })
 }
 
 #[cfg(feature = "steam")]
 unsafe fn copy_members(
-    values: Vec<crabbyengine::steamworks::SteamId>,
+    values: Vec<ponko::steamworks::SteamId>,
     buffer: *mut u64,
     capacity: usize,
     needed: *mut usize,
@@ -366,7 +366,7 @@ unsafe fn copy_text(
 /// # Safety
 /// Live/null endpoint, readable NUL strings and writable outputs/buffers of `capacity` elements.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_net_messages_steam_lobby_id(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_net_messages_steam_lobby_id(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_net_messages_steam_lobby_id(
@@ -382,7 +382,7 @@ pub unsafe extern "C" fn crabby_net_messages_steam_lobby_id(
         #[cfg(not(feature = "steam"))]
         {
             let _ = (endpoint, output);
-            Err(invalid("crabby_ffi was built without the `steam` feature"))
+            Err(invalid("ponko_ffi was built without the `steam` feature"))
         }
     })
 }
@@ -392,7 +392,7 @@ pub unsafe extern "C" fn crabby_net_messages_steam_lobby_id(
 /// # Safety
 /// Live/null endpoint, readable NUL strings and writable outputs/buffers of `capacity` elements.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_net_messages_steam_lobby_invite(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_net_messages_steam_lobby_invite(std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_net_messages_steam_lobby_invite(
@@ -408,7 +408,7 @@ pub unsafe extern "C" fn crabby_net_messages_steam_lobby_invite(
         #[cfg(not(feature = "steam"))]
         {
             let _ = endpoint;
-            Err(invalid("crabby_ffi was built without the `steam` feature"))
+            Err(invalid("ponko_ffi was built without the `steam` feature"))
         }
     })
 }
@@ -418,7 +418,7 @@ pub unsafe extern "C" fn crabby_net_messages_steam_lobby_invite(
 /// # Safety
 /// Live/null endpoint, readable NUL strings and writable outputs/buffers of `capacity` elements.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_net_messages_steam_lobby_set_metadata(std::ptr::null_mut(), std::ptr::null(), std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_net_messages_steam_lobby_set_metadata(std::ptr::null_mut(), std::ptr::null(), std::ptr::null()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_net_messages_steam_lobby_set_metadata(
@@ -436,7 +436,7 @@ pub unsafe extern "C" fn crabby_net_messages_steam_lobby_set_metadata(
         #[cfg(not(feature = "steam"))]
         {
             let _ = (endpoint, key, value);
-            Err(invalid("crabby_ffi was built without the `steam` feature"))
+            Err(invalid("ponko_ffi was built without the `steam` feature"))
         }
     })
 }
@@ -446,7 +446,7 @@ pub unsafe extern "C" fn crabby_net_messages_steam_lobby_set_metadata(
 /// # Safety
 /// Live/null endpoint, readable NUL strings and writable outputs/buffers of `capacity` elements.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_net_messages_steam_lobby_metadata(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_net_messages_steam_lobby_metadata(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_net_messages_steam_lobby_metadata(
@@ -465,7 +465,7 @@ pub unsafe extern "C" fn crabby_net_messages_steam_lobby_metadata(
         #[cfg(not(feature = "steam"))]
         {
             let _ = (endpoint, key, buffer, capacity, needed);
-            Err(invalid("crabby_ffi was built without the `steam` feature"))
+            Err(invalid("ponko_ffi was built without the `steam` feature"))
         }
     })
 }
@@ -475,7 +475,7 @@ pub unsafe extern "C" fn crabby_net_messages_steam_lobby_metadata(
 /// # Safety
 /// Live/null endpoint, readable NUL strings and writable outputs/buffers of `capacity` elements.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_net_messages_steam_lobby_members(std::ptr::null_mut(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_net_messages_steam_lobby_members(std::ptr::null_mut(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_net_messages_steam_lobby_members(
@@ -493,13 +493,13 @@ pub unsafe extern "C" fn crabby_net_messages_steam_lobby_members(
         #[cfg(not(feature = "steam"))]
         {
             let _ = (endpoint, members, capacity, needed);
-            Err(invalid("crabby_ffi was built without the `steam` feature"))
+            Err(invalid("ponko_ffi was built without the `steam` feature"))
         }
     })
 }
 
 #[cfg(feature = "steam")]
-fn endpoint_lobby<'a>(endpoint: *mut crate::CrabbyNetMessages) -> Result<&'a crabbyengine::SteamLobby, crate::Failure> {
+fn endpoint_lobby<'a>(endpoint: *mut crate::CrabbyNetMessages) -> Result<&'a ponko::SteamLobby, crate::Failure> {
     // SAFETY: caller supplies null or live endpoint.
     let endpoint = unsafe { endpoint.as_ref() }.ok_or_else(|| invalid("endpoint is null"))?;
     endpoint
@@ -527,8 +527,8 @@ mod tests {
             assert!(copy_text(None, text_buffer.as_mut_ptr(), 4, &mut needed).is_ok());
             assert_eq!(needed, 0);
             let ids = vec![
-                crabbyengine::steamworks::SteamId::from_raw(7),
-                crabbyengine::steamworks::SteamId::from_raw(9),
+                ponko::steamworks::SteamId::from_raw(7),
+                ponko::steamworks::SteamId::from_raw(9),
             ];
             assert!(copy_members(ids.clone(), members.as_mut_ptr(), 1, &mut needed).is_err());
             assert_eq!(members, [0; 2]);

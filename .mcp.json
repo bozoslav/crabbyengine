@@ -2,7 +2,7 @@
   "mcpServers": {
     "crabby": {
       "command": "cargo",
-      "args": ["run", "--quiet", "--release", "-p", "crabby_mcp"]
+      "args": ["run", "--quiet", "--release", "-p", "ponko_mcp"]
     }
   }
 }

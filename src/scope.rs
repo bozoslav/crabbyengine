@@ -81,7 +81,7 @@ impl ProfileScope {
     /// (apart from one atomic load) while profiling is off.
     ///
     /// ```
-    /// use crabbyengine::ProfileScope;
+    /// use ponko::ProfileScope;
     /// static SCOPE: ProfileScope = ProfileScope::new("expensive");
     /// let _timing = SCOPE.enter();
     /// ```
@@ -157,7 +157,7 @@ pub fn scope_named(name: &str) -> &'static ProfileScope {
 /// scope inside another is part of it.
 ///
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 ///
 /// fn ai(ctx: &mut Ctx) {
 ///     profile_scope!("ai");

@@ -1,7 +1,7 @@
-//! Benchmarks: crabby_ecs and the M3 spike ECS vs bevy_ecs vs hecs, plus
+//! Benchmarks: ponko_ecs and the M3 spike ECS vs bevy_ecs vs hecs, plus
 //! simulation at scale.
 //!
-//! Run with: cargo run --release -p crabby_bench [-- filter]
+//! Run with: cargo run --release -p ponko_bench [-- filter]
 //! Each benchmark builds its state untimed, then times one operation; we report
 //! the median and minimum over several runs.
 
@@ -172,7 +172,7 @@ fn main() {
         },
     );
 
-    // ---- simulation at scale: single core vs all cores (crabby_ecs) ----------
+    // ---- simulation at scale: single core vs all cores (ponko_ecs) ----------
     /// Agent with heading; "heavy" work = steering with trig, like a real sim tick.
     #[derive(Clone, Copy)]
     struct Agent {
@@ -188,7 +188,7 @@ fn main() {
     }
     for &n in &[1_000_000usize, 10_000_000] {
         let world = |n: usize| {
-            let mut w = crabby_ecs::World::new();
+            let mut w = ponko_ecs::World::new();
             w.spawn_batch((0..n).map(|i| {
                 (
                     Pos {
@@ -260,12 +260,12 @@ fn main() {
     b.run("spawn/own-batch", 10, own::World::new, |w| {
         w.spawn_batch((0..N).map(ent))
     });
-    b.run("spawn/crabby", 10, crabby_ecs::World::new, |w| {
+    b.run("spawn/crabby", 10, ponko_ecs::World::new, |w| {
         for i in 0..N {
             w.spawn(ent(i));
         }
     });
-    b.run("spawn/crabby-batch", 10, crabby_ecs::World::new, |w| {
+    b.run("spawn/crabby-batch", 10, ponko_ecs::World::new, |w| {
         w.spawn_batch((0..N).map(ent))
     });
     b.run("spawn/hecs", 10, hecs::World::new, |w| {
@@ -306,7 +306,7 @@ fn main() {
         "iter/crabby",
         200,
         || {
-            let mut w = crabby_ecs::World::new();
+            let mut w = ponko_ecs::World::new();
             w.spawn_batch((0..N).map(ent));
             w
         },
@@ -322,7 +322,7 @@ fn main() {
         "iter/crabby-iter",
         200,
         || {
-            let mut w = crabby_ecs::World::new();
+            let mut w = ponko_ecs::World::new();
             w.spawn_batch((0..N).map(ent));
             w
         },
@@ -524,7 +524,7 @@ fn main() {
         "get-random/crabby",
         10,
         || {
-            let mut w = crabby_ecs::World::new();
+            let mut w = ponko_ecs::World::new();
             let es: Vec<_> = (0..N).map(|i| w.spawn(ent(i))).collect();
             let es: Vec<_> = order.iter().map(|&i| es[i]).collect();
             (w, es)
@@ -594,7 +594,7 @@ fn main() {
         "add-remove/crabby",
         10,
         || {
-            let mut w = crabby_ecs::World::new();
+            let mut w = ponko_ecs::World::new();
             let es: Vec<_> = (0..ADD_REMOVE_N).map(|i| w.spawn(ent(i))).collect();
             (w, es)
         },
@@ -661,7 +661,7 @@ fn main() {
         "despawn/crabby",
         10,
         || {
-            let mut w = crabby_ecs::World::new();
+            let mut w = ponko_ecs::World::new();
             let es: Vec<_> = (0..N).map(|i| w.spawn(ent(i))).collect();
             (w, es)
         },
@@ -704,8 +704,8 @@ fn main() {
 }
 
 /// A `side` × `side` map with about 20% of cells walls (blobs, like terrain).
-fn flow_map(side: u32) -> crabbyengine::NavGrid {
-    let mut nav = crabbyengine::NavGrid::new(side, side, 1.0);
+fn flow_map(side: u32) -> ponko::NavGrid {
+    let mut nav = ponko::NavGrid::new(side, side, 1.0);
     let mut s = 0x2545F4914F6CDD1Du64;
     for _ in 0..(side * side / 60) {
         s ^= s << 13;
@@ -715,7 +715,7 @@ fn flow_map(side: u32) -> crabbyengine::NavGrid {
         for dy in -3..=3i64 {
             for dx in -3..=3i64 {
                 if dx * dx + dy * dy <= 9 && cx + dx >= 0 && cy + dy >= 0 {
-                    nav.set_cost((cx + dx) as u32, (cy + dy) as u32, crabbyengine::NavGrid::WALL);
+                    nav.set_cost((cx + dx) as u32, (cy + dy) as u32, ponko::NavGrid::WALL);
                 }
             }
         }
@@ -724,7 +724,7 @@ fn flow_map(side: u32) -> crabbyengine::NavGrid {
 }
 
 fn flow_benches(b: &mut Bench) {
-    use crabbyengine::{FlowField, Vec2};
+    use ponko::{FlowField, Vec2};
     use rayon::prelude::*;
     for side in [256u32, 1024] {
         b.steady(
@@ -773,7 +773,7 @@ fn flow_benches(b: &mut Bench) {
             20,
             || (),
             |_| {
-                use crabbyengine::{Attached, Game, Transform2D, follow_attachments, vec2};
+                use ponko::{Attached, Game, Transform2D, follow_attachments, vec2};
                 let world = Game::new("bench", 1, 1)
                     .sim_system(|ctx| {
                         ctx.world
@@ -794,17 +794,16 @@ fn flow_benches(b: &mut Bench) {
     }
     // ---- events: 100k sent and read per tick, 10 ticks ------------------------
     #[derive(Clone, Copy)]
-    struct Hit(#[allow(dead_code)] crabbyengine::Entity, f32);
+    struct Hit(#[allow(dead_code)] ponko::Entity, f32);
     b.steady(
         "events/100k-per-tick-x10",
         20,
         || (),
         |_| {
-            let world = crabbyengine::Game::new("bench", 1, 1)
+            let world = ponko::Game::new("bench", 1, 1)
                 .sim_system(|ctx| {
                     for i in 0..100_000u32 {
-                        ctx.events
-                            .send(Hit(crabbyengine::Entity::from_bits(u64::from(i)), i as f32));
+                        ctx.events.send(Hit(ponko::Entity::from_bits(u64::from(i)), i as f32));
                     }
                 })
                 .sim_system(|ctx| {

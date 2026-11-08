@@ -4,7 +4,7 @@
 
 use std::ffi::{CStr, c_char};
 
-use crabbyengine::{AttachToJoint, Ctx, Entity, Joint, Skeleton, SkinOf, Transform3D};
+use ponko::{AttachToJoint, Ctx, Entity, Joint, Skeleton, SkinOf, Transform3D};
 
 use crate::ctx::{ctx_access, out, text};
 use crate::three::{
@@ -67,7 +67,7 @@ fn joint_index(s: &Skeleton, joint: usize) -> Result<usize, Failure> {
 /// # Safety
 /// `data` null or live; `joints` and `weights` hold `4 * count` values (null when 0).
 /// ```
-/// use crabby_ffi::{CrabbyStatus::*, *};
+/// use ponko_ffi::{CrabbyStatus::*, *};
 /// let d = crabby_mesh_data_plane(1.0);
 /// let (j, w) = ([0u16; 16], [1.0f32, 0.0, 0.0, 0.0].repeat(4));
 /// assert_eq!(unsafe { crabby_mesh_data_set_skin(d, j.as_ptr(), w.as_ptr(), 4) }, CRABBY_OK);
@@ -117,7 +117,7 @@ pub unsafe extern "C" fn crabby_mesh_data_set_skin(
 /// # Safety
 /// `ctx` null or live; `joints` holds `count` joints with valid names.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_skeleton(std::ptr::null_mut(), 0, std::ptr::null(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_skeleton(std::ptr::null_mut(), 0, std::ptr::null(), 0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_set_skeleton(
@@ -175,7 +175,7 @@ pub unsafe extern "C" fn crabby_ctx_set_skeleton(
 /// # Safety
 /// `ctx` null or live; `path` a C string.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_load_skeleton(std::ptr::null_mut(), 0, c"a.glb".as_ptr()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_load_skeleton(std::ptr::null_mut(), 0, c"a.glb".as_ptr()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_load_skeleton(
@@ -201,7 +201,7 @@ pub unsafe extern "C" fn crabby_ctx_load_skeleton(
 /// # Safety
 /// `ctx` null or live; `data` null or live; output writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_create_skinned_mesh(std::ptr::null_mut(), std::ptr::null(), Default::default(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_create_skinned_mesh(std::ptr::null_mut(), std::ptr::null(), Default::default(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_create_skinned_mesh(
@@ -242,7 +242,7 @@ pub unsafe extern "C" fn crabby_ctx_create_skinned_mesh(
 /// # Safety
 /// `ctx` null or live; output writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_joint_count(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_joint_count(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_joint_count(
@@ -260,7 +260,7 @@ pub unsafe extern "C" fn crabby_ctx_joint_count(
 /// # Safety
 /// `ctx` null or live; `name` a C string; outputs writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_find_joint(std::ptr::null_mut(), 0, c"hip".as_ptr(), std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_find_joint(std::ptr::null_mut(), 0, c"hip".as_ptr(), std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_find_joint(
@@ -292,7 +292,7 @@ pub unsafe extern "C" fn crabby_ctx_find_joint(
 /// # Safety
 /// `ctx` null or live; output writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_joint_pose(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_joint_pose(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_joint_pose(
@@ -317,7 +317,7 @@ pub unsafe extern "C" fn crabby_ctx_joint_pose(
 /// # Safety
 /// `ctx` null or live; `pose` null or readable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_joint_pose(std::ptr::null_mut(), 0, 0, std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_joint_pose(std::ptr::null_mut(), 0, 0, std::ptr::null()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_set_joint_pose(
@@ -349,7 +349,7 @@ pub unsafe extern "C" fn crabby_ctx_set_joint_pose(
 /// # Safety
 /// `ctx` null or live.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_reset_pose(std::ptr::null_mut(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_reset_pose(std::ptr::null_mut(), 0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_reset_pose(ctx: *mut CrabbyCtx, entity_bits: u64) -> CrabbyStatus {
@@ -367,7 +367,7 @@ pub unsafe extern "C" fn crabby_ctx_reset_pose(ctx: *mut CrabbyCtx, entity_bits:
 /// # Safety
 /// `ctx` null or live; `out_matrix` holds 16 floats.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_joint_matrix(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_joint_matrix(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_joint_matrix(
@@ -395,7 +395,7 @@ pub unsafe extern "C" fn crabby_ctx_joint_matrix(
 /// # Safety
 /// `ctx` null or live.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_skin_of(std::ptr::null_mut(), 0, 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_skin_of(std::ptr::null_mut(), 0, 0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_set_skin_of(
@@ -419,7 +419,7 @@ pub unsafe extern "C" fn crabby_ctx_set_skin_of(
 /// # Safety
 /// `ctx` null or live; `offset` null or readable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_attach_to_joint(std::ptr::null_mut(), 0, 0, 0, std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_attach_to_joint(std::ptr::null_mut(), 0, 0, 0, std::ptr::null()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_attach_to_joint(
@@ -451,7 +451,7 @@ pub unsafe extern "C" fn crabby_ctx_attach_to_joint(
 
 /// An animation clip (Rust `AnimationClip`): made with
 /// `crabby_ctx_load_clip`, freed with `crabby_clip_free`.
-pub struct CrabbyClip(pub(crate) crabbyengine::AnimationClip);
+pub struct CrabbyClip(pub(crate) ponko::AnimationClip);
 
 /// Loads the clip called `name` of a glTF file with skins (Rust
 /// `Ctx::load_clip`); free it with `crabby_clip_free`.
@@ -459,7 +459,7 @@ pub struct CrabbyClip(pub(crate) crabbyengine::AnimationClip);
 /// # Safety
 /// `ctx` null or live; `path` and `name` C strings; output writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_load_clip(std::ptr::null_mut(), c"a.glb".as_ptr(), c"walk".as_ptr(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_load_clip(std::ptr::null_mut(), c"a.glb".as_ptr(), c"walk".as_ptr(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_load_clip(
@@ -490,7 +490,7 @@ pub unsafe extern "C" fn crabby_ctx_load_clip(
 /// # Safety
 /// `clip` null or from `crabby_ctx_load_clip`, freed once.
 /// ```
-/// unsafe { crabby_ffi::crabby_clip_free(std::ptr::null_mut()) };
+/// unsafe { ponko_ffi::crabby_clip_free(std::ptr::null_mut()) };
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_clip_free(clip: *mut CrabbyClip) {
@@ -504,7 +504,7 @@ pub unsafe extern "C" fn crabby_clip_free(clip: *mut CrabbyClip) {
 /// # Safety
 /// `clip` null or live.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_clip_duration(std::ptr::null()) }, 0.0);
+/// assert_eq!(unsafe { ponko_ffi::crabby_clip_duration(std::ptr::null()) }, 0.0);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_clip_duration(clip: *const CrabbyClip) -> f32 {
@@ -519,7 +519,7 @@ pub unsafe extern "C" fn crabby_clip_duration(clip: *const CrabbyClip) -> f32 {
 /// # Safety
 /// `ctx` null or live; `clip` null or live.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_sample_clip(std::ptr::null_mut(), std::ptr::null(), 0, 0.0, 1.0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_sample_clip(std::ptr::null_mut(), std::ptr::null(), 0, 0.0, 1.0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_sample_clip(
@@ -550,8 +550,8 @@ pub unsafe extern "C" fn crabby_ctx_sample_clip(
 /// Out-of-reach targets get a straight chain pointing at them (Rust
 /// `two_bone_ik`). Use it in a late system, after animation.
 /// ```
-/// let v = crabby_ffi::CrabbyVec3 { x: 0.0, y: 0.0, z: 0.0 };
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_two_bone_ik(std::ptr::null_mut(), 0, 0, 1, 2, v, v, 1.0) } as u32, 1);
+/// let v = ponko_ffi::CrabbyVec3 { x: 0.0, y: 0.0, z: 0.0 };
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_two_bone_ik(std::ptr::null_mut(), 0, 0, 1, 2, v, v, 1.0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -576,7 +576,7 @@ pub unsafe extern "C" fn crabby_ctx_two_bone_ik(
             for j in [upper, middle, end] {
                 joint_index(s, j)?;
             }
-            crabbyengine::two_bone_ik(s, &model, [upper, middle, end], to_c(target), to_c(pole), weight);
+            ponko::two_bone_ik(s, &model, [upper, middle, end], to_c(target), to_c(pole), weight);
             Ok(())
         })
     })
@@ -587,8 +587,8 @@ pub unsafe extern "C" fn crabby_ctx_two_bone_ik(
 /// `weight` 0 to 1 (Rust `look_at_joint`). For a spine-neck-head chain, call
 /// it per joint from the root out with smaller weights.
 /// ```
-/// let v = crabby_ffi::CrabbyVec3 { x: 0.0, y: 0.0, z: 1.0 };
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_look_at_joint(std::ptr::null_mut(), 0, 0, v, v, 1.0, 1.0) } as u32, 1);
+/// let v = ponko_ffi::CrabbyVec3 { x: 0.0, y: 0.0, z: 1.0 };
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_look_at_joint(std::ptr::null_mut(), 0, 0, v, v, 1.0, 1.0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -609,7 +609,7 @@ pub unsafe extern "C" fn crabby_ctx_look_at_joint(
             let model = c.world.get::<Transform3D>(e).copied().unwrap_or_default();
             let s = skeleton_mut(c, entity_bits)?;
             joint_index(s, joint)?;
-            crabbyengine::look_at_joint(s, &model, joint, to_c(axis), to_c(target), max_angle, weight);
+            ponko::look_at_joint(s, &model, joint, to_c(axis), to_c(target), max_angle, weight);
             Ok(())
         })
     })
@@ -618,8 +618,8 @@ pub unsafe extern "C" fn crabby_ctx_look_at_joint(
 /// Draws `entity`'s bones this frame as lines from each joint to its
 /// parent, over the scene (no depth test).
 /// ```
-/// let white = crabby_ffi::CrabbyColor { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_draw_skeleton(std::ptr::null_mut(), 0, white) } as u32, 1);
+/// let white = ponko_ffi::CrabbyColor { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_draw_skeleton(std::ptr::null_mut(), 0, white) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.

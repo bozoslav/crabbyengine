@@ -16,8 +16,8 @@ const MAX_HEIGHT: f64 = 32766.0;
 ///
 /// ```
 /// let text = "%YAML 1.1\n--- !u!156 &1\nTerrainData:\n  m_Name: Hill\n  m_Heightmap:\n    m_Resolution: 2\n    m_Scale: {x: 10, y: 50, z: 10}\n    m_Heights: [0, 0, 32766, 16383]\n";
-/// let file = crabby_unity::UnityFile::parse(text).unwrap();
-/// let t = crabby_unity::UnityTerrain::from_object(&file.objects[0]).unwrap();
+/// let file = ponko_unity::UnityFile::parse(text).unwrap();
+/// let t = ponko_unity::UnityTerrain::from_object(&file.objects[0]).unwrap();
 /// assert_eq!((t.resolution, t.size, t.height), (2, 10.0, 50.0));
 /// assert_eq!(t.heights, [50.0, 25.0, 0.0, 0.0], "Unity's far row comes first");
 /// assert_eq!(t.corner([100.0, 0.0, 20.0]), [100.0, 0.0, -30.0]);

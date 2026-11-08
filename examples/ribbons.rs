@@ -1,5 +1,5 @@
 //! Ribbon trails, lines and decals: `cargo run --features 3d --example ribbons`.
-use crabbyengine::*;
+use ponko::*;
 
 /// Flies in a circle.
 struct Orbiting;

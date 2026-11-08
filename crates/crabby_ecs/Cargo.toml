@@ -1,16 +1,16 @@
 [package]
-name = "crabby_ecs"
-version = "1.0.0"
+name = "ponko_ecs"
+version = "0.0.1"
 keywords = ["ecs", "gamedev", "archetype", "simulation"]
 categories = ["game-development", "data-structures"]
-documentation = "https://bozoslav.github.io/crabbyengine/api/crabby_ecs/"
+documentation = "https://docs.rs/ponko_ecs/"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "The entity-component-system behind Crabby Engine: archetype storage, runtime-registered components."
+description = "The entity-component-system behind Ponko: archetype storage, runtime-registered components."
 
 [features]
 default = ["parallel"]

@@ -15,7 +15,7 @@ use crate::sheet::SpriteSheet;
 /// draws the tiles the camera can see, so maps can be huge.
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn setup(ctx: &mut Ctx, tiles: SpriteSheet) {
 /// let mut map = TileMap::new(tiles, 200, 100); // 200 × 100 tiles, all empty
 /// for x in 0..200 {
@@ -63,7 +63,7 @@ impl TileMap {
     /// Out-of-bounds positions are ignored.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(map: &mut TileMap) {
     /// map.set(3, 4, Some(7));
     /// map.set(3, 5, None);
@@ -78,7 +78,7 @@ impl TileMap {
     /// The frame at tile `(x, y)`, or `None` if empty or out of bounds.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(map: &TileMap) {
     /// let solid = map.get(10, 2).is_some();
     /// # }
@@ -96,7 +96,7 @@ impl TileMap {
     /// at `origin`; `None` outside the map.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn paint(ctx: &mut Ctx, map: &mut TileMap) {
     /// if let Some(tile) = map.tile_at(Vec2::ZERO, ctx.mouse_world()) {
     ///     map.set(tile.x, tile.y, Some(1));
@@ -116,7 +116,7 @@ impl TileMap {
 /// [`draw_sprites`](crate::draw_sprites).
 ///
 /// ```no_run
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// Game::new("No maps here", 800, 600).remove_system(draw_tilemaps).run(|_| {});
 /// ```
 pub fn draw_tilemaps(ctx: &mut Ctx) {

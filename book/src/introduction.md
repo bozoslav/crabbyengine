@@ -21,7 +21,7 @@ in Unity 6 ([the benchmark](performance.md#3d-crabby-vs-unity),
 [the 3D chapter](3d.md)).
 
 ```rust
-use crabbyengine::*;
+use ponko::*;
 
 struct Vel(Vec2);
 

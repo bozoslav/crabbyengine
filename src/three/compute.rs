@@ -10,7 +10,7 @@ use crate::{Ctx, Texture, Vec3};
 /// [`ComputePass`] to [`Ctx::compute_passes`](crate::Ctx::compute_passes).
 ///
 /// ```no_run
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let melt = ctx.load_compute("compute/melt.wgsl");
 /// let snow = ctx.create_render_target(512, 512);
@@ -44,7 +44,7 @@ impl Compute {
 /// values and textures it reads.
 ///
 /// ```no_run
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn f(ctx: &mut Ctx, trails: Compute, snow: Texture, player: Vec3) {
 /// let feet = ctx.create_material(MaterialDesc {
 ///     custom: [player.extend(0.5), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO],
@@ -71,7 +71,7 @@ impl ComputePass {
     /// Runs `fn update(i: u32)` once per buffer element, in groups of 64.
     /// The shader can read and write `items[i]` and read `frame` and `material`.
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, c: Compute) {
     /// let b = ctx.create_gpu_buffer(64, &[]);
     /// ctx.compute_passes.push(ComputePass::for_buffer(c, b));
@@ -88,7 +88,7 @@ impl ComputePass {
     /// Runs `compute` on `target` with no values of its own.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, c: Compute, t: Texture) {
     /// ctx.compute_passes.push(ComputePass::new(c, t));
     /// # }
@@ -107,7 +107,7 @@ impl ComputePass {
     /// them with [`Ctx::update_material`] to steer the simulation.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(c: Compute, t: Texture, m: Material) {
     /// let pass = ComputePass::new(c, t).with_material(m);
     /// # }
@@ -138,7 +138,7 @@ impl Ctx {
     /// and ordering. WebGL2 skips buffer passes and buffer-driven draws.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let ripples = ctx.load_compute("compute/ripples.wgsl");
     /// # }
@@ -148,8 +148,7 @@ impl Ctx {
     ///
     /// If the file can't be read or doesn't compile (the message says where).
     pub fn load_compute(&mut self, path: &str) -> Compute {
-        self.try_load_compute(path)
-            .unwrap_or_else(|e| panic!("crabbyengine: {e}"))
+        self.try_load_compute(path).unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
     /// [`Ctx::load_compute`] that returns errors (for the C API).
@@ -171,7 +170,7 @@ impl Ctx {
     /// messages. See [`Ctx::load_compute`] for what it defines.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     // Fades toward 0 by half a second.
     ///     let fade = ctx.create_compute("fade", "
@@ -188,7 +187,7 @@ impl Ctx {
     /// If it doesn't compile (the message says where).
     pub fn create_compute(&mut self, name: &str, source: &str) -> Compute {
         self.try_create_compute(name, source)
-            .unwrap_or_else(|e| panic!("crabbyengine: {e}"))
+            .unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
     /// [`Ctx::create_compute`] that returns errors (for the C API).
@@ -229,7 +228,7 @@ impl Ctx {
 
 /// A GPU array of `vec4<f32>`. Empty initial data creates zeroed elements.
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// Game::new("buffers", 1, 1).run_headless(0, |ctx| {
 ///     let b = ctx.create_gpu_buffer(128, &[]);
 ///     ctx.write_gpu_buffer(b, 0, &[Vec4::ONE]);
@@ -280,7 +279,7 @@ impl Ctx {
     }
     /// Number of elements, or `None` for an invalid or freed handle.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("b", 1, 1).run_headless(0, |ctx| {
     /// let b = ctx.create_gpu_buffer(2, &[]); assert_eq!(ctx.gpu_buffer_len(b), Some(2));
     /// });
@@ -299,7 +298,7 @@ impl Ctx {
     /// would reach that one. Freeing it again does nothing (until a new
     /// buffer takes its id).
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("b", 1, 1).run_headless(0, |ctx| {
     ///     let b = ctx.create_gpu_buffer(8, &[]);
     ///     ctx.free_gpu_buffer(b);
@@ -355,7 +354,7 @@ impl Ctx {
     /// shader-displaced geometry. Unsupported GPUs draw nothing. Panics for
     /// invalid handles or count.
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, mesh: Mesh) {
     /// let b = ctx.create_gpu_buffer(100, &[]);
     /// ctx.set_mesh_gpu_buffer(mesh, b, 100);
@@ -381,7 +380,7 @@ impl Ctx {
     /// again replaces the sphere. Panics for a freed mesh or a negative or
     /// non-finite radius.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("b", 1, 1).run_headless(0, |ctx| {
     ///     let material = ctx.default_material();
     ///     let mesh = ctx.create_mesh(&MeshData::cube(0.1), material);

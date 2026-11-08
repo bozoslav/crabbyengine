@@ -1,7 +1,7 @@
 //! Sprite sheets, the `Animation` component and tilemaps.
 use std::mem::offset_of;
 
-use crabbyengine::{Animation, Color, SpriteSheet, TextureFilter, TileMap, Vec2};
+use ponko::{Animation, Color, SpriteSheet, TextureFilter, TileMap, Vec2};
 
 use crate::ctx::{ctx_access, out};
 use crate::types::*;
@@ -10,7 +10,7 @@ use crate::{CrabbyCtx, CrabbyStatus, CrabbyWorld, Failure, access, boundary, bui
 /// Many same-size frames in one texture, numbered left to right, top to
 /// bottom. Make one with `crabby_sprite_sheet` (same layout as Rust `SpriteSheet`).
 /// ```
-/// assert_eq!(std::mem::size_of::<crabby_ffi::CrabbySpriteSheet>(), 28);
+/// assert_eq!(std::mem::size_of::<ponko_ffi::CrabbySpriteSheet>(), 28);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -30,7 +30,7 @@ pub struct CrabbySpriteSheet {
 /// `Animation`, so it works as a query column. `frames` must be at least 1
 /// and `looping` true or false.
 /// ```
-/// assert_eq!(std::mem::size_of::<crabby_ffi::CrabbyAnimation>(), 48);
+/// assert_eq!(std::mem::size_of::<ponko_ffi::CrabbyAnimation>(), 48);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -72,7 +72,7 @@ fn sheet_from_c(s: CrabbySpriteSheet) -> SpriteSheet {
 
 /// Splits `texture` into `frame_width` x `frame_height` frames.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let tex = CrabbyTexture { id: 0, width: 64, height: 32 };
 /// let mut sheet = std::mem::MaybeUninit::uninit();
 /// assert_eq!(unsafe { crabby_sprite_sheet(tex, 16, 16, sheet.as_mut_ptr()) }, CrabbyStatus::CRABBY_OK);
@@ -101,7 +101,7 @@ pub unsafe extern "C" fn crabby_sprite_sheet(
 /// The rectangle of frame `index` in texture pixels (wrapping past the end),
 /// for `CrabbySprite::region` or `CrabbyDrawParams::region`.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let sheet = CrabbySpriteSheet { texture: CrabbyTexture { id: 0, width: 64, height: 32 }, frame_size: CrabbyVec2 { x: 16.0, y: 16.0 }, columns: 4, len: 8 };
 /// assert_eq!(crabby_sprite_sheet_frame(sheet, 5).min, CrabbyVec2 { x: 16.0, y: 16.0 });
 /// ```
@@ -115,7 +115,7 @@ pub extern "C" fn crabby_sprite_sheet_frame(sheet: CrabbySpriteSheet, index: u32
 
 /// The id of the built-in `Animation` component (`CrabbyAnimation`).
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// unsafe { let mut id = 0; assert_eq!(crabby_animation_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
 /// ```
@@ -129,8 +129,8 @@ pub unsafe extern "C" fn crabby_animation_component(world: *mut CrabbyWorld, out
 
 /// Draws `texture` with square pixels (`nearest`, for pixel art) or smoothed (the default).
 /// ```
-/// let t = crabby_ffi::CrabbyTexture { id: 0, width: 1, height: 1 };
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_texture_filter(std::ptr::null_mut(), t, true) } as u32, 1);
+/// let t = ponko_ffi::CrabbyTexture { id: 0, width: 1, height: 1 };
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_texture_filter(std::ptr::null_mut(), t, true) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live.
@@ -159,7 +159,7 @@ pub unsafe extern "C" fn crabby_ctx_set_texture_filter(
 /// A tilemap on an entity, as `crabby_tilemap_get` sees it. The entity's
 /// `Transform2D` position is the map's top-left corner.
 /// ```
-/// assert_eq!(crabby_ffi::CRABBY_TILE_EMPTY, u16::MAX);
+/// assert_eq!(ponko_ffi::CRABBY_TILE_EMPTY, u16::MAX);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -194,7 +194,7 @@ unsafe fn tilemap_access<R>(
     // SAFETY: forwarded caller contract.
     unsafe {
         access(world, |w, _| {
-            let e = crabby_ecs::Entity::from_bits(entity);
+            let e = ponko_ecs::Entity::from_bits(entity);
             if !w.is_alive(e) {
                 return Err(error(CrabbyStatus::CRABBY_NOT_FOUND, "entity is not alive"));
             }
@@ -209,7 +209,7 @@ unsafe fn tilemap_access<R>(
 /// Gives `entity` an empty `width` x `height` tilemap of `sheet` frames
 /// (replacing any it had). Draw it by giving the entity a `Transform2D`.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// let sheet = CrabbySpriteSheet { texture: CrabbyTexture { id: 0, width: 16, height: 16 }, frame_size: CrabbyVec2 { x: 16.0, y: 16.0 }, columns: 1, len: 1 };
 /// unsafe {
@@ -239,7 +239,7 @@ pub unsafe extern "C" fn crabby_tilemap_add(
         // SAFETY: forwarded caller contract.
         unsafe {
             access(world, |w, _| {
-                let e = crabby_ecs::Entity::from_bits(entity);
+                let e = ponko_ecs::Entity::from_bits(entity);
                 if !w.is_alive(e) {
                     return Err(error(CrabbyStatus::CRABBY_NOT_FOUND, "entity is not alive"));
                 }
@@ -252,7 +252,7 @@ pub unsafe extern "C" fn crabby_tilemap_add(
 
 /// Reads `entity`'s tilemap, with a pointer to its tiles for changing them in place.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_tilemap_get(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_tilemap_get(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// Returns `CRABBY_NOT_FOUND` if the entity is dead or has no map.
 /// # Safety
@@ -292,7 +292,7 @@ pub unsafe extern "C" fn crabby_tilemap_get(
 /// Changes how `entity`'s tilemap is drawn: `sheet`, `tile_size`, `z` and
 /// `color` from `map` (its size and tiles are ignored; use the tiles pointer).
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_tilemap_update(std::ptr::null_mut(), 0, std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_tilemap_update(std::ptr::null_mut(), 0, std::ptr::null()) } as u32, 1);
 /// ```
 /// # Safety
 /// `world` must be null or live; `map` readable.

@@ -1,7 +1,7 @@
 //! 3D physics for big worlds from C: collision mesh data built on another
 //! thread, terrain colliders, and static colliders kept near a focus.
 #![cfg(feature = "physics3d")]
-use crabby_ffi::*;
+use ponko_ffi::*;
 use std::ffi::c_void;
 use std::ptr::{null, null_mut};
 

@@ -74,15 +74,15 @@ jobs:
           - name: profiling feature
             args: --features profiling
           - name: cross-platform deterministic physics
-            args: --features crabbyengine/physics-determinism
+            args: --features ponko/physics-determinism
           - name: steam
-            args: --features crabbyengine/steam,crabby_ffi/steam
+            args: --features ponko/steam,ponko_ffi/steam
           - name: ECS without parallel
-            args: -p crabby_ecs --no-default-features
+            args: -p ponko_ecs --no-default-features
           - name: engine without window or audio
-            args: -p crabbyengine --no-default-features
+            args: -p ponko --no-default-features
           - name: engine without window
-            args: -p crabbyengine --no-default-features --features audio
+            args: -p ponko --no-default-features --features audio
     steps:
       - uses: actions/checkout@v7
       - name: Install ALSA and udev headers (audio, gamepads)
@@ -112,7 +112,7 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           key: msrv
-      - run: cargo check --workspace --all-targets --features crabbyengine/physics,crabbyengine/steam
+      - run: cargo check --workspace --all-targets --features ponko/physics,ponko/steam
 
   # One job per OS: compiling is ~90% of the time, so build once and run
   # every test there. Each feature combination is its own step, and every
@@ -148,23 +148,23 @@ jobs:
           fi
       - name: Tests, ECS without rayon
         if: ${{ !cancelled() }}
-        run: cargo test -p crabby_ecs --tests --no-fail-fast --no-default-features
+        run: cargo test -p ponko_ecs --tests --no-fail-fast --no-default-features
       - name: Tests, engine without a window
         if: ${{ !cancelled() }}
-        run: cargo test -p crabbyengine --tests --no-fail-fast --no-default-features --features audio
+        run: cargo test -p ponko --tests --no-fail-fast --no-default-features --features audio
       # Systems called through subsecond's jump table (no dx attached) behave the same.
       - name: Tests, engine with hotpatch
         if: ${{ !cancelled() }}
-        run: cargo test -p crabbyengine --no-fail-fast --features hotpatch --test headless --test determinism --test events
+        run: cargo test -p ponko --no-fail-fast --features hotpatch --test headless --test determinism --test events
       # The same pile on every OS: rapier's cross-platform determinism.
       - name: Tests, physics with cross-platform determinism
         if: ${{ !cancelled() }}
-        run: cargo test -p crabbyengine --no-fail-fast --features physics-determinism --test physics
+        run: cargo test -p ponko --no-fail-fast --features physics-determinism --test physics
       # Steam itself isn't on the runners: this checks that the Steam library
       # links and loads on each OS, and the address mapping.
       - name: Tests, Steam transport
         if: ${{ !cancelled() }}
-        run: cargo test -p crabbyengine --no-fail-fast --features steam --lib net::steam
+        run: cargo test -p ponko --no-fail-fast --features steam --lib net::steam
       - name: Build examples
         if: ${{ !cancelled() }}
         run: cargo build --workspace --examples
@@ -220,7 +220,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: miri
-      - run: cargo miri test -p crabby_ecs --no-fail-fast ${{ matrix.args }}
+      - run: cargo miri test -p ponko_ecs --no-fail-fast ${{ matrix.args }}
 
   native:
     name: C and C++ (${{ matrix.os }})
@@ -243,7 +243,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p target
-          cargo run -p crabby_ffi --example generate_header > target/crabby.generated.h
+          cargo run -p ponko_ffi --example generate_header > target/crabby.generated.h
           python - <<'PYTHON'
           from pathlib import Path
           import difflib
@@ -254,7 +254,7 @@ jobs:
           sys.stdout.writelines(difflib.unified_diff(expected, actual, fromfile="checked in", tofile="generated"))
           sys.exit(expected != actual)
           PYTHON
-      - run: cargo build -p crabby_ffi --release
+      - run: cargo build -p ponko_ffi --release
       - run: cmake -S examples/cpp -B target/native -DCMAKE_BUILD_TYPE=Release -DCRABBY_LIBRARY_DIR=${{ github.workspace }}/target/release
       - run: cmake --build target/native --config Release
       - run: ctest --test-dir target/native -C Release --output-on-failure
@@ -274,7 +274,7 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           key: web
-      - run: cargo clippy -p crabbyengine --target wasm32-unknown-unknown --examples
+      - run: cargo clippy -p ponko --target wasm32-unknown-unknown --examples
       - name: Find the wasm-bindgen version in Cargo.lock
         run: echo "WASM_BINDGEN=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/version = |"/, ""); print }' Cargo.lock)" >> "$GITHUB_ENV"
       - uses: taiki-e/install-action@v2

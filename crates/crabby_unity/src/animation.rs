@@ -71,7 +71,7 @@ impl AnimationClip {
     /// (and compressed rotation curves) are decoded.
     ///
     /// ```
-    /// let clip = crabby_unity::AnimationClip::parse("--- !u!74 &1\nAnimationClip:\n  m_Name: Idle\n  m_SampleRate: 30\n").unwrap();
+    /// let clip = ponko_unity::AnimationClip::parse("--- !u!74 &1\nAnimationClip:\n  m_Name: Idle\n  m_SampleRate: 30\n").unwrap();
     /// ```
     /// # Errors
     /// Returns an error for binary text, malformed YAML or data, invalid timing,
@@ -89,7 +89,7 @@ impl AnimationClip {
     /// editor with type trees) into the same fields as the text format.
     ///
     /// ```
-    /// assert!(crabby_unity::AnimationClip::parse_binary(b"not a Unity file").is_err());
+    /// assert!(ponko_unity::AnimationClip::parse_binary(b"not a Unity file").is_err());
     /// ```
     /// # Errors
     /// As [`AnimationClip::parse`], and for data that is not a binary serialized file.
@@ -238,8 +238,8 @@ impl AnimationClip {
     /// Reads a `.anim` asset, text or binary serialized.
     ///
     /// ```no_run
-    /// let clip = crabby_unity::AnimationClip::read("Assets/Walk.anim")?;
-    /// # Ok::<(), crabby_unity::Error>(())
+    /// let clip = ponko_unity::AnimationClip::read("Assets/Walk.anim")?;
+    /// # Ok::<(), ponko_unity::Error>(())
     /// ```
     /// # Errors
     /// Reports file errors and what [`AnimationClip::parse`] does.
@@ -259,7 +259,7 @@ impl AnimationClip {
     /// `append_to_skin`.
     ///
     /// ```
-    /// # use crabby_unity::AnimationClip;
+    /// # use ponko_unity::AnimationClip;
     /// let clip = AnimationClip::parse("--- !u!74 &1\nAnimationClip: {}\n").unwrap();
     /// let named = clip.with_blend_shape_names(["Smile", "Blink"]);
     /// ```
@@ -286,7 +286,7 @@ impl AnimationClip {
     /// Export through `Importer::animation_clips` to apply the normal Z mirror.
     ///
     /// ```
-    /// # use crabby_unity::{AnimationClip, MeshSkin};
+    /// # use ponko_unity::{AnimationClip, MeshSkin};
     /// # let clip = AnimationClip::parse("--- !u!74 &1\nAnimationClip: {}\n").unwrap();
     /// let mut skin = MeshSkin::default();
     /// let diagnostics = clip.append_to_skin(&mut skin, 0);

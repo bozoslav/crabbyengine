@@ -7,7 +7,7 @@
 //!   clicking the UI).
 //! - Buttons: follow the orbiting crab, reset the camera.
 
-use crabbyengine::*;
+use ponko::*;
 
 struct Scene {
     crab: Texture,

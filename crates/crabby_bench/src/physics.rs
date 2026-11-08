@@ -1,7 +1,7 @@
 //! Physics: the same pile of boxes stepped through Crabby (`Game::physics`,
 //! components synced every tick) and through rapier directly. The gap is
 //! what Crabby's sync costs.
-use crabbyengine::{Collider, Game, RigidBody, Transform2D, vec2};
+use ponko::{Collider, Game, RigidBody, Transform2D, vec2};
 use rapier2d::prelude as rp;
 
 use crate::Bench;

@@ -5,7 +5,7 @@ use crate::{Color, Rng, Texture, Vec3, World};
 /// A piecewise linear size multiplier over normalized lifetime. Keys must be finite,
 /// strictly increasing, and in 0..=1; sampling clamps to the endpoints.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let curve = ParticleCurve::new(vec![(0.0, 1.0), (1.0, 0.0)]);
 /// assert_eq!(curve.sample(0.5), 0.5);
 /// ```
@@ -14,7 +14,7 @@ pub struct ParticleCurve(Vec<(f32, f32)>);
 impl ParticleCurve {
     /// Creates a curve; panics for empty, unordered or nonfinite keys/values.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let c = ParticleCurve::new(vec![(0.0, 2.0)]);
     /// assert_eq!(c.sample(1.0), 2.0);
     /// ```
@@ -28,7 +28,7 @@ impl ParticleCurve {
     }
     /// Evaluates the curve; NaN samples the start.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// assert_eq!(ParticleCurve::default().sample(0.5), 1.0);
     /// ```
     pub fn sample(&self, t: f32) -> f32 {
@@ -44,7 +44,7 @@ impl Default for ParticleCurve {
 
 /// A piecewise linear RGBA gradient, interpolated in the supplied color space.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let g = ParticleGradient::new(vec![(0.0, Color::WHITE), (1.0, Color::BLACK)]);
 /// assert_eq!(g.sample(0.5).r, 0.5);
 /// ```
@@ -53,7 +53,7 @@ pub struct ParticleGradient(Vec<(f32, Color)>);
 impl ParticleGradient {
     /// Creates a gradient; panics for empty, unordered or nonfinite keys/colors.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let g = ParticleGradient::new(vec![(0.0, Color::WHITE)]);
     /// assert_eq!(g.sample(1.0), Color::WHITE);
     /// ```
@@ -68,7 +68,7 @@ impl ParticleGradient {
     }
     /// Evaluates RGBA at normalized age, clamping beyond the keys.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// assert_eq!(ParticleGradient::default().sample(0.0), Color::WHITE);
     /// ```
     pub fn sample(&self, t: f32) -> Color {
@@ -109,7 +109,7 @@ fn segment<T: Copy>(keys: &[(f32, T)], t: f32) -> (T, T, f32) {
 
 /// Emission volume in the entity's coordinates; cone directions point along +Y.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let shape = ParticleShape3D::Cone { angle: 0.4 };
 /// # let _ = shape;
 /// ```
@@ -136,7 +136,7 @@ pub enum ParticleShape3D {
 }
 /// Particle compositing, always depth tested with depth writes disabled.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let blend = ParticleBlend3D::Additive;
 /// # let _ = blend;
 /// ```
@@ -150,7 +150,7 @@ pub enum ParticleBlend3D {
 }
 /// Whether existing particles follow the emitter's transform.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let space = ParticleSpace3D::Local;
 /// # let _ = space;
 /// ```
@@ -167,7 +167,7 @@ pub enum ParticleSpace3D {
 /// All numeric inputs must be finite; ranges must be ordered and nonnegative
 /// (rotation may be negative). Invalid settings panic in `ParticleEmitter3D::new`.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let settings = ParticleSettings3D { rate: 40.0, blend: ParticleBlend3D::Additive, ..Default::default() };
 /// let emitter = ParticleEmitter3D::new(settings);
 /// assert_eq!(emitter.live_count(), 0);
@@ -252,7 +252,7 @@ struct Particle {
 /// frame systems; no meshes are required. `run_headless` skips this visual frame phase.
 /// Cloning copies the live particles and RNG state. Capped emission is discarded.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let mut world = World::new();
 /// world.spawn((Transform3D::default(), ParticleEmitter3D::default()));
 /// ```
@@ -287,7 +287,7 @@ impl Default for ParticleEmitter3D {
 impl ParticleEmitter3D {
     /// Allocates the entire particle pool. Panics for invalid settings.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let e = ParticleEmitter3D::new(ParticleSettings3D { max_particles: 64, ..Default::default() });
     /// assert_eq!(e.live_count(), 0);
     /// ```
@@ -333,7 +333,7 @@ impl ParticleEmitter3D {
     }
     /// Queues particles for the next frame, capped at the pool size; works after a one-shot ends.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut e = ParticleEmitter3D::default();
     /// e.burst(20);
     /// ```
@@ -342,7 +342,7 @@ impl ParticleEmitter3D {
     }
     /// Number of currently living particles.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// assert_eq!(ParticleEmitter3D::default().live_count(), 0);
     /// ```
     pub fn live_count(&self) -> usize {

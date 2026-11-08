@@ -22,7 +22,7 @@ use crate::{Entity, Quat, Transform3D, Vec3, World};
 /// where the wheel points and where it goes.
 ///
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let grip = FrictionCurve::FORWARD;
 /// assert_eq!(grip.evaluate(0.0), 0.0);
 /// assert_eq!(grip.evaluate(grip.extremum_slip), 1.0); // the peak
@@ -118,7 +118,7 @@ impl FrictionCurve {
 /// [`target_position`](Self::target_position) of that travel.
 ///
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// // Front left wheel of a car whose chassis faces -Z.
 /// let mut wheel = Wheel3D::new(vec3(-0.8, -0.2, -1.3), 0.35);
 /// wheel.spring = 40_000.0;
@@ -248,7 +248,7 @@ impl Wheel3D {
     /// How fast the wheel spins, in revolutions per minute.
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut wheel = Wheel3D::new(Vec3::ZERO, 0.3);
     /// wheel.angular_velocity = std::f32::consts::TAU; // one turn a second
     /// assert!((wheel.rpm() - 60.0).abs() < 1e-3);
@@ -264,7 +264,7 @@ impl Wheel3D {
     /// the chassis does.
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let wheel = Wheel3D::new(vec3(1.0, 0.0, 0.0), 0.4);
     /// let pose = wheel.pose(&Transform3D::at(vec3(0.0, 2.0, 0.0)));
     /// // Hanging fully extended: 0.3 m below its mount.
@@ -293,7 +293,7 @@ impl Wheel3D {
 /// the game's.
 ///
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let mut car = Vehicle3D::new();
 /// for (x, z) in [(-0.8, -1.3), (0.8, -1.3), (-0.8, 1.3), (0.8, 1.3)] {
 ///     car = car.with_wheel(Wheel3D::new(vec3(x, -0.2, z), 0.35));

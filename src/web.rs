@@ -51,7 +51,7 @@ pub(crate) async fn fetch_assets() {
     };
     let names: Vec<String> = match bytes(window.fetch_with_str(INDEX)).await {
         Ok(json) => serde_json::from_slice(&json).unwrap_or_else(|e| {
-            log_error(&format!("crabbyengine: {INDEX} isn't a JSON list of file names: {e}"));
+            log_error(&format!("ponko: {INDEX} isn't a JSON list of file names: {e}"));
             Vec::new()
         }),
         Err(_) => return,
@@ -67,7 +67,7 @@ pub(crate) async fn fetch_assets() {
     for (name, request) in requests {
         match bytes(request).await {
             Ok(data) => crate::assets::insert_web_file(name, data),
-            Err(e) => log_error(&format!("crabbyengine: could not fetch assets/{name}: {e}")),
+            Err(e) => log_error(&format!("ponko: could not fetch assets/{name}: {e}")),
         }
     }
 }

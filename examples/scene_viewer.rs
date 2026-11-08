@@ -11,7 +11,7 @@
 
 use std::time::Instant;
 
-use crabbyengine::*;
+use ponko::*;
 
 /// The middle and size of where the scene's models are.
 fn extent(world: &mut World) -> (Vec3, f32) {

@@ -1,5 +1,5 @@
 //! Owned SDF text: round trips, validation, buffer boundaries and removal.
-use crabby_ffi::{CrabbyStatus::*, *};
+use ponko_ffi::{CrabbyStatus::*, *};
 use std::{ffi::c_void, ptr::null_mut};
 unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, _: *mut c_void) {
     // SAFETY: live callback context and local, correctly sized outputs.
