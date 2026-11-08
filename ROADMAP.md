@@ -115,7 +115,7 @@ A reference agent workflow should record build/features, launch/setup, determini
 
 Keep one obvious common API, useful errors, current Rust/C++ examples and small independently verifiable contributions. A lightweight inspector, scene viewer and debugger are welcome; a large editor is not a prerequisite. Keep external asset tools such as Blender practical through verified import examples.
 
-For each delivered feature, update the guide and supported native interface, document platform/feature requirements and test headless/fallback behavior where relevant. The packaging/reference-game track should expose missing deployment steps instead of treating a successful engine build as a shipped game. [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) define the review and validation workflow; [STABILITY.md](STABILITY.md) governs compatibility. Mobile support and C++ browser workflows require separate evidence and scope decisions rather than an implied commitment.
+Maintainers coordinate guide coverage, native interfaces and platform/feature requirements, with scoped follow-ups where needed; Rust-only contributions are welcome. Test headless/fallback behavior where relevant. The packaging/reference-game track should expose missing deployment steps instead of treating a successful engine build as a shipped game. [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) define the review and validation workflow; [STABILITY.md](STABILITY.md) governs compatibility. Mobile support and C++ browser workflows require separate evidence and scope decisions rather than an implied commitment.
 
 ## Backlog status and delivery gates
 
@@ -128,4 +128,4 @@ The practical dependency spine is:
 - Portability/observation: #151 plus trustworthy GPU profiling → #163; #134 instrumentation → #157; #153, #158 and #161 can make independent progress.
 - Research: #164–#166 require representative evidence and explicit keep/reject decisions; they do not hold up shipping core workflows.
 
-Before an item is called delivered, review its acceptance criteria against source and tests, preserve API/ABI/save/MCP compatibility, provide measurements for optimization claims and record runtime/platform gaps. Each implementation should carry its documentation and evidence in the same reviewable change. This roadmap creates no duplicate issues and changes no existing priority labels.
+Before an item is called delivered, review its acceptance criteria against source and tests, preserve API/ABI/save/MCP compatibility, provide measurements for optimization claims and record runtime/platform gaps. Each implementation should explain its behavior and evidence; broader guide/native coverage can be maintainer-owned follow-ups rather than work required from every contributor. This roadmap creates no duplicate issues and changes no existing priority labels.

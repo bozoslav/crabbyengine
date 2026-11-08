@@ -3,8 +3,25 @@
 Thanks for your interest! Bug reports, benchmarks on your hardware, docs
 fixes, examples and code are all welcome.
 
-The full rules for humans and coding agents are in [AGENTS.md](AGENTS.md).
-This page is the short version.
+## Start with what you know
+
+**Rust-only pull requests are welcome.** You do not need to know C or C++,
+write a guide chapter, or work on unrelated subsystems to contribute a Rust
+fix or feature. Small fixes, tests, examples and documentation are useful
+contributions on their own. No design proposal is needed for an isolated fix.
+
+Keep your change focused, explain the behavior in the PR, and run the checks
+relevant to it. Tests for changed behavior matter; a full integration checklist
+is not an entry requirement. If a check needs tools or hardware you do not
+have, say so and ask for help.
+
+Maintainers own the broader integration work: guide updates, native bindings,
+paired examples and the full CI matrix. They can help in the PR or record
+separate follow-ups without assigning that work to you. Compatibility of
+existing APIs and bindings still needs to be preserved.
+
+[AGENTS.md](AGENTS.md) contains the detailed workflow and maintainer/agent
+integration checklist; you only need the parts relevant to your contribution.
 
 ## Questions, bugs and ideas
 
@@ -71,31 +88,35 @@ C/C++ headers and runtime environment variable names are retained.
 ## Making a change
 
 1. Fork the repository and create a branch (`fix/<topic>`, `docs/<topic>`, ...).
-2. Make the change, with tests:
-   - New public behavior gets a test in the matching area file.
-   - Every public item gets a doctest.
-   - Bug fixes get a test that fails without the fix.
-3. If it changes how games are written, update the guide in `book/src/` in
-   the same pull request. Guide examples come in Rust and C++.
-4. If it's an engine feature games use, add it to the C API and the C++
-   wrapper too, or say in the pull request why not.
-5. Run the checks below, then open a pull request to `main`. Describe what
-   changed and how you checked it.
+2. Make one focused change. Add a regression test for a bug fix or a test of
+   new behavior where practical; explain any testing gap in the PR.
+3. Add or adjust nearby API comments when needed to explain the behavior.
+   Broader guide chapters, C/C++ bindings and paired examples are welcome but
+   **not required from every contributor**. Mention follow-up needs you notice;
+   maintainers will help identify and own the rest.
+4. Run relevant checks, then open a PR to `main` describing the change and
+   what you checked. It is fine to open a draft early for feedback.
 
-### Checks
+### Checks: start with your change
+
+For a Rust change, format it and run the affected package or test, for example:
 
 ```sh
 cargo fmt --all --check
-cargo build --workspace --examples
-cargo test --workspace
-cargo clippy --workspace --all-targets
-mdbook build book            # if you touched the guide
+cargo test -p ponko_ecs --test queries  # an ECS query change
+cargo test -p ponko --test headless    # a headless simulation change
 ```
 
-If you changed unsafe code in `crates/crabby_ecs`, also run the Miri
-commands in [AGENTS.md](AGENTS.md#before-every-commit). CI tests the desktop targets, checks feature combinations, builds the web target,
-and runs native C/C++ and documentation checks. The exact matrix is in
-[ci.yml](.github/workflows/ci.yml); local success is not proof of all platforms.
+For guide changes, run `mdbook build book` if mdBook is available. You do not
+need a C++ toolchain for an unrelated Rust change. Report checks you could not
+run; maintainers and CI cover the broader matrix before merging.
+
+Maintainers/agents use the full integration commands in
+[AGENTS.md](AGENTS.md#integration-checks), including workspace builds, tests,
+Clippy, relevant native checks and Miri for affected unsafe ECS code. Required
+CI must pass before merge; focused local checks do not waive compatibility,
+correctness, privacy or leak checks. The exact platform/feature matrix is in
+[ci.yml](.github/workflows/ci.yml).
 
 ### Performance changes
 

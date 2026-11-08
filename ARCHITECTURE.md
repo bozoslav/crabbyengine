@@ -94,6 +94,6 @@ The complete autonomous edit/build/observe/repair loop is a development directio
 
 ## Rust, C and C++ compatibility
 
-Rust applications use `ponko`; native applications call the FFI exports directly or through the header-only C++ wrapper. C++ callbacks and dynamic component columns bridge into the same world and loop. The headers retain existing ABI names. New game-facing APIs should include C/C++ support or explicitly document the gap; do not infer universal parity from the existence of the wrapper.
+Rust applications use `ponko`; native applications call the FFI exports directly or through the header-only C++ wrapper. C++ callbacks and dynamic component columns bridge into the same world and loop. The headers retain existing ABI names. Rust-only contributions may land independently. Maintainers coordinate native coverage and record follow-ups; existing binding compatibility must remain correct. Do not infer universal parity from the existence of the wrapper.
 
 [STABILITY.md](STABILITY.md) defines the versioning, saved-world, MSRV, determinism and MCP compatibility policy. Package renaming does not authorize changing ABI symbols, persisted format tags or established tool contracts. Architectural improvements must preserve these boundaries or undergo an explicit compatibility decision.

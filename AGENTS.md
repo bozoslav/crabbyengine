@@ -29,7 +29,7 @@ Where tests live:
 | Public API of a crate | `crates/<crate>/tests/<area>.rs`, one file per area | `crates/crabby_ecs/tests/queries.rs` |
 | Shared test helpers | `tests/common/mod.rs` next to them | components used by several ECS test files |
 | Private internals (clock math, schedule order) | `#[cfg(test)] mod tests` at the bottom of the file | `src/time.rs` |
-| Usage examples in docs | doctests on public items: every public item gets one | `World::spawn` |
+| Usage examples in docs | doctests for public usage and behavior where useful | `World::spawn` |
 | Engine and game logic | headless runs, no window or GPU (`Game::run_headless`) | `tests/` in the root crate |
 | Performance | `crates/crabby_bench` (`cargo run --release -p ponko_bench [-- filter]`) | `iter/crabby` |
 
@@ -40,7 +40,16 @@ Rules:
 - Benchmarks are not tests: never assert on timings in tests, except for coarse bounds such as "≥ 6 ms for three 2 ms steps".
 - Run one area locally with `cargo test -p ponko_ecs --test queries`.
 
-## Before every commit
+## Integration checks
+
+Contributors may submit focused Rust-only changes with relevant tests; do not
+require them to implement C/C++ bindings, write guide chapters, install unrelated
+toolchains or run the entire platform matrix. Help identify and own follow-ups.
+For docs-only changes, check Markdown, links and the book when affected; no
+workspace rebuild is needed unless executable examples or code changed.
+
+For code changes, maintainers and coding agents run the relevant full checks
+before declaring the PR ready to merge (not before every intermediate commit):
 
 ```sh
 cargo fmt --all --check
@@ -66,9 +75,23 @@ MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-ignore-leaks" cargo +nightly miri test --t
 - No per-frame heap allocations in steady state on hot paths.
 - Every `unsafe` block needs a test that exercises it.
 - Public API: simple first. One obvious way to do each thing.
-- Guide examples come in Rust and C++, side by side: wrap the pair in `<div class="lang-pair">` (see `book/theme/lang-pair.css`), with the C++ snippet pulled from `examples/cpp/guide.cpp` (compiled and run by the native CI job). If C++ can't do it yet, the chapter says so.
-- New engine features get a C API (`crates/crabby_ffi`) and a C++ wrapper (`include/crabby.hpp`) in the same PR, written to match the Rust API, when they're part of writing games, unless that's much bigger than the feature; then say so in the PR.
-- Docs ship with the feature: a PR that adds or changes how games are written updates the guide in `book/src/` in the same PR (check with `mdbook build book`). Code that the guide shows from examples is pulled in with `{{#include}}` anchors, so it can't go stale.
+- Rust-only contributions are welcome. Guide updates and C/C++ coverage are
+  project goals maintained collectively, not mandatory work for every author.
+  Maintainers may complete them in the PR or record and own scoped follow-ups;
+  do not make an unrelated language/toolchain a barrier to a focused contribution.
+- Add or update nearby Rust API documentation when needed to explain changed
+  behavior. A standalone Rust PR need not add a guide chapter, a doctest for
+  every public item, native bindings or paired guide examples.
+- When writing a paired guide example, use `<div class="lang-pair">` and pull
+  the C++ snippet from `examples/cpp/guide.cpp` so native CI compiles it. A
+  Rust-only guide example is acceptable; label native coverage gaps honestly.
+- Preserve existing Rust/C/C++ compatibility. If a change touches existing
+  bindings or layouts, maintainers must verify them before merging. New Rust
+  features may land before new bindings; record the coverage gap and owner.
+- Keep documentation accurate: correct claims invalidated by the change or
+  clearly note the limitation, with maintainer-owned follow-up for broader
+  guide coverage. Run `mdbook build book` when editing the guide. Reuse tested
+  examples through `{{#include}}` anchors where practical.
 
 ## Performance work
 
@@ -145,7 +168,7 @@ contracts before calling them; keep a reproducible code/test path alongside runt
 evidence. Do not describe proposed tools or planned scheduler features as shipped.
 
 Agents follow the same review, tests, privacy and leak checks as human contributors.
-Inspect generated changes, update public docs/examples with behavior changes, and
+Inspect generated changes, identify documentation/binding follow-ups, and
 report exact checks, failures, skips and remaining limitations. Never claim a build,
 visual result, CI success or completed issue without observing the evidence. Keep
 private projects, assets, screenshots and identifying details out of public changes,
