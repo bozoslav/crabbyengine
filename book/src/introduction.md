@@ -56,7 +56,7 @@ Every page is searchable: press `S` or click the magnifying glass.
 ## Status
 
 Crabby Engine 1.0 is out, and its API follows semver from here on:
-[STABILITY.md](https://github.com/bozoslav/crabbyengine/blob/main/STABILITY.md)
+[STABILITY.md](https://github.com/bozoslav/ponko/blob/main/STABILITY.md)
 says what is promised (the API, the minimum Rust version, the C ABI, saved
 worlds and determinism). Code in this book is kept in sync with the `main`
 branch.

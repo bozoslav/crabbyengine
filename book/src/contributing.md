@@ -1,8 +1,8 @@
 # Contributing
 
-Start with [`CONTRIBUTING.md`](https://github.com/bozoslav/crabbyengine/blob/main/CONTRIBUTING.md).
+Start with [`CONTRIBUTING.md`](https://github.com/bozoslav/ponko/blob/main/CONTRIBUTING.md).
 The full rules, the same for humans and coding agents, are in
-[`AGENTS.md`](https://github.com/bozoslav/crabbyengine/blob/main/AGENTS.md).
+[`AGENTS.md`](https://github.com/bozoslav/ponko/blob/main/AGENTS.md).
 In short:
 
 - Work on a branch, open a pull request to `main`, wait for CI.
@@ -26,6 +26,6 @@ Every page has an edit button (top right) that opens the file on GitHub.
 ## License
 
 Crabby Engine is dual licensed under
-[MIT](https://github.com/bozoslav/crabbyengine/blob/main/LICENSE-MIT) or
-[Apache-2.0](https://github.com/bozoslav/crabbyengine/blob/main/LICENSE-APACHE),
+[MIT](https://github.com/bozoslav/ponko/blob/main/LICENSE-MIT) or
+[Apache-2.0](https://github.com/bozoslav/ponko/blob/main/LICENSE-APACHE),
 at your option. Contributions are accepted under the same terms.

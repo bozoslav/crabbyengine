@@ -283,7 +283,7 @@ Run it yourself:
 - Crabby: `CUBES=100000 BENCH_SECONDS=10 cargo run --release --features 3d --example 3d`
   (fullscreen; `BENCH_WINDOWED=1` keeps the window).
 - Unity: the project and the steps are in
-  [`bench/unity`](https://github.com/bozoslav/crabbyengine/tree/main/bench/unity).
+  [`bench/unity`](https://github.com/bozoslav/ponko/tree/main/bench/unity).
 
 On macOS, a game in a window is shown at most once per display refresh
 even with vsync off. To measure past 120 FPS, run fullscreen

@@ -55,7 +55,7 @@ fn things_fall_ten_units_per_second() {
 
 The same game can run windowed or headless: the boids example does both
 (`HEADLESS=1 cargo run --release --example boids`), and
-[`examples/headless.rs`](https://github.com/bozoslav/crabbyengine/blob/main/examples/headless.rs)
+[`examples/headless.rs`](https://github.com/bozoslav/ponko/blob/main/examples/headless.rs)
 simulates a million agents this way.
 
 ## Builds without a window

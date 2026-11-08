@@ -390,5 +390,5 @@ GitHub release. Everything below is new.
 - C API (`ponko_ffi`) with a generated header, and a header-only C++17
   wrapper (`include/crabby.hpp`) covering nearly the whole engine.
 
-[Unreleased]: https://github.com/bozoslav/crabbyengine/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/bozoslav/crabbyengine/releases/tag/v1.0.0
+[Unreleased]: https://github.com/bozoslav/ponko/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/bozoslav/ponko/releases/tag/v1.0.0

@@ -8,7 +8,7 @@ This page is the short version.
 
 ## Questions, bugs and ideas
 
-- **Bugs:** open an [issue](https://github.com/bozoslav/crabbyengine/issues/new/choose)
+- **Bugs:** open an [issue](https://github.com/bozoslav/ponko/issues/new/choose)
   with the smallest code that shows the problem, your OS and GPU, and what
   you expected.
 - **Ideas and features:** open an issue first, so we can agree on the
@@ -24,7 +24,7 @@ ALSA and udev headers for audio and gamepads
 side, you need CMake and a C++17 compiler.
 
 ```sh
-git clone https://github.com/bozoslav/crabbyengine && cd crabbyengine
+git clone https://github.com/bozoslav/ponko && cd ponko
 cargo test --workspace
 cargo run --release --example battle
 ```
