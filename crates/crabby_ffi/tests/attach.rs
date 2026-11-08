@@ -1,5 +1,5 @@
 //! Attachments from C: CrabbyAttached and crabby_game_follow_attachments.
-use crabby_ffi::*;
+use ponko_ffi::*;
 use std::ffi::c_void;
 use std::ptr::null_mut;
 

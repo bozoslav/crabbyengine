@@ -14,7 +14,7 @@ Use it for:
 <div>
 
 ```rust
-use crabbyengine::*;
+use ponko::*;
 
 struct Pos(f32);
 
@@ -55,7 +55,7 @@ fn things_fall_ten_units_per_second() {
 
 The same game can run windowed or headless: the boids example does both
 (`HEADLESS=1 cargo run --release --example boids`), and
-[`examples/headless.rs`](https://github.com/bozoslav/crabbyengine/blob/main/examples/headless.rs)
+[`examples/headless.rs`](https://github.com/bozoslav/ponko/blob/main/examples/headless.rs)
 simulates a million agents this way.
 
 ## Builds without a window
@@ -69,7 +69,7 @@ and wgpu. Turn the `window` feature off and keep the rest:
 ```toml
 # Cargo.toml
 [dependencies]
-crabbyengine = { version = "1", default-features = false, features = ["audio"] }
+ponko = { version = "0.0.1", default-features = false, features = ["audio"] }
 ```
 
 </div>
@@ -77,7 +77,7 @@ crabbyengine = { version = "1", default-features = false, features = ["audio"] }
 
 ```sh
 # Build the C library without a window
-cargo build --release -p crabby_ffi \
+cargo build --release -p ponko_ffi \
   --no-default-features --features audio
 ```
 

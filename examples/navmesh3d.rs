@@ -1,5 +1,5 @@
 //! Headless navigation: compile with `--no-default-features --features navmesh`.
-use crabbyengine::*;
+use ponko::*;
 
 // ANCHOR: bake
 fn navigation() -> NavMesh3D {

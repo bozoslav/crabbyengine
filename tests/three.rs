@@ -2,7 +2,7 @@
 //! glTF loading, and transforms as JSON.
 #![cfg(feature = "3d")]
 
-use crabbyengine::*;
+use ponko::*;
 
 // ANCHOR: three_d
 /// Turns around its own Y axis, this many radians a second.

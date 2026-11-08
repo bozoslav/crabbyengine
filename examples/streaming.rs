@@ -11,7 +11,7 @@
 
 use std::collections::HashMap;
 
-use crabbyengine::*;
+use ponko::*;
 
 const N: usize = 129;
 const TILE: f32 = 256.0;

@@ -1,4 +1,4 @@
-use crabby_unity::{AnimationClip, MeshSkin, SkinNode};
+use ponko_unity::{AnimationClip, MeshSkin, SkinNode};
 
 #[test]
 fn relative_paths_walk_from_explicit_root_and_preserve_rest_components() {

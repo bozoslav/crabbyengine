@@ -5,7 +5,7 @@ use crate::{Ctx, Entity, Texture, Transform3D, Vec3};
 /// scale are ignored. Four baked environments can be resident; zero content
 /// falls back to sky lighting. Capture excludes transparent objects.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let probe = ReflectionProbe3D { size: vec3(12.0, 4.0, 8.0), ..Default::default() };
 /// assert_eq!(probe.intensity, 1.0);
 /// ```
@@ -38,7 +38,7 @@ impl Default for ReflectionProbe3D {
 impl ReflectionProbe3D {
     /// Influence at `point`, fading to zero at the boundary.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// assert_eq!(ReflectionProbe3D::default().weight(Vec3::ZERO, Vec3::ZERO), 1.0);
     /// ```
     pub fn weight(&self, center: Vec3, point: Vec3) -> f32 {
@@ -64,7 +64,7 @@ impl ReflectionProbe3D {
     /// Direction from the capture center to the ray's exit from this box.
     /// Returns the input direction outside the box or when correction is off.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let p = ReflectionProbe3D::default();
     /// assert_eq!(p.project(Vec3::ZERO, Vec3::ZERO, Vec3::Z), Vec3::Z * 5.0);
     /// ```
@@ -136,7 +136,7 @@ impl Ctx {
     /// frame. Calling again refreshes the same content. At most four captures
     /// can be allocated in a context. Headless simulation queues no GPU work.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// Game::new("probe", 1, 1).run_headless(0, |ctx| {
     ///     let e = ctx.world.spawn((Transform3D::default(), ReflectionProbe3D::default()));
     ///     ctx.bake_reflection_probe(e).unwrap();
@@ -190,7 +190,7 @@ impl Ctx {
     /// Pixels are linear radiance, with +Y at the top and +X at the center.
     /// The file must have a 2:1 aspect ratio. Filtering runs next rendered frame.
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn load(ctx: &mut Ctx, probe: Entity) -> Result<(), String> {
     /// ctx.load_reflection_probe(probe, "interior.exr")?;
     /// # Ok(()) }

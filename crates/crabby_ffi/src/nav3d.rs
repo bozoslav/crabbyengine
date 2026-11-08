@@ -3,9 +3,7 @@
 //! Gather walkable triangles in a `CrabbyNavSources`, bake them into the
 //! context's navmesh, then query paths or give entities agents.
 
-use crabbyengine::{
-    Ctx, Entity, NavAgent3D, NavBakeSettings, NavMesh3D, NavObstacle3D, NavSource, Vec3, step_navmesh3d,
-};
+use ponko::{Ctx, Entity, NavAgent3D, NavBakeSettings, NavMesh3D, NavObstacle3D, NavSource, Vec3, step_navmesh3d};
 
 use crate::ctx::{ctx_access, out};
 use crate::game::{build, ok};
@@ -21,7 +19,7 @@ pub struct CrabbyNavSources(Vec<NavSource>);
 /// How a navmesh is baked (Rust `NavBakeSettings`). Start from
 /// `crabby_nav_bake_settings_default()`.
 /// ```
-/// assert_eq!(crabby_ffi::crabby_nav_bake_settings_default().agent_height, 1.8);
+/// assert_eq!(ponko_ffi::crabby_nav_bake_settings_default().agent_height, 1.8);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -49,7 +47,7 @@ pub struct CrabbyNavBakeSettings {
 
 /// The default bake: a 0.3 m wide, 1.8 m tall agent on 45° slopes.
 /// ```
-/// assert_eq!(crabby_ffi::crabby_nav_bake_settings_default().max_slope, 45.0);
+/// assert_eq!(ponko_ffi::crabby_nav_bake_settings_default().max_slope, 45.0);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_nav_bake_settings_default() -> CrabbyNavBakeSettings {
@@ -99,8 +97,8 @@ fn navmesh(c: &Ctx) -> Result<&NavMesh3D, Failure> {
 
 /// An empty set of walkable geometry.
 /// ```
-/// let s = crabby_ffi::crabby_nav_sources_new();
-/// unsafe { crabby_ffi::crabby_nav_sources_free(s) };
+/// let s = ponko_ffi::crabby_nav_sources_new();
+/// unsafe { ponko_ffi::crabby_nav_sources_free(s) };
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_nav_sources_new() -> *mut CrabbyNavSources {
@@ -109,7 +107,7 @@ pub extern "C" fn crabby_nav_sources_new() -> *mut CrabbyNavSources {
 
 /// Frees sources. Null does nothing.
 /// ```
-/// unsafe { crabby_ffi::crabby_nav_sources_free(std::ptr::null_mut()) };
+/// unsafe { ponko_ffi::crabby_nav_sources_free(std::ptr::null_mut()) };
 /// ```
 /// # Safety
 /// `sources` null or live; not used afterwards.
@@ -124,9 +122,9 @@ pub unsafe extern "C" fn crabby_nav_sources_free(sources: *mut CrabbyNavSources)
 /// Adds `count` world-space triangles: `3 * count` corners at `corners`,
 /// counter-clockwise seen from above.
 /// ```
-/// let s = crabby_ffi::crabby_nav_sources_new();
-/// assert_eq!(unsafe { crabby_ffi::crabby_nav_sources_add_triangles(s, std::ptr::null(), 0) } as u32, 0);
-/// unsafe { crabby_ffi::crabby_nav_sources_free(s) };
+/// let s = ponko_ffi::crabby_nav_sources_new();
+/// assert_eq!(unsafe { ponko_ffi::crabby_nav_sources_add_triangles(s, std::ptr::null(), 0) } as u32, 0);
+/// unsafe { ponko_ffi::crabby_nav_sources_free(s) };
 /// ```
 /// # Safety
 /// `sources` null or live; `corners` readable for `3 * count` points.
@@ -160,8 +158,8 @@ pub unsafe extern "C" fn crabby_nav_sources_add_triangles(
 
 /// Adds a mesh's triangles placed by `transform` (e.g. the ground's model).
 /// ```
-/// let t = crabby_ffi::crabby_transform3d_at(Default::default());
-/// assert_eq!(unsafe { crabby_ffi::crabby_nav_sources_add_mesh(std::ptr::null_mut(), std::ptr::null(), t) } as u32, 1);
+/// let t = ponko_ffi::crabby_transform3d_at(Default::default());
+/// assert_eq!(unsafe { ponko_ffi::crabby_nav_sources_add_mesh(std::ptr::null_mut(), std::ptr::null(), t) } as u32, 1);
 /// ```
 /// # Safety
 /// `sources` null or live; `data` null or live mesh data.
@@ -184,7 +182,7 @@ pub unsafe extern "C" fn crabby_nav_sources_add_mesh(
 /// (agents replan). `settings` may be null for the defaults. Fails with the
 /// reason for empty or broken geometry.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_bake_navmesh(std::ptr::null_mut(), std::ptr::null(), std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_bake_navmesh(std::ptr::null_mut(), std::ptr::null(), std::ptr::null()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `sources` null or live; `settings` null or readable.
@@ -209,8 +207,8 @@ pub unsafe extern "C" fn crabby_ctx_bake_navmesh(
 /// The nearest walkable point within `max_distance` of `point`;
 /// `*out_found` is false when there is none.
 /// ```
-/// let p = crabby_ffi::CrabbyVec3::default();
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_navmesh_sample_position(std::ptr::null_mut(), p, 1.0, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// let p = ponko_ffi::CrabbyVec3::default();
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_navmesh_sample_position(std::ptr::null_mut(), p, 1.0, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; outputs writable.
@@ -244,8 +242,8 @@ pub unsafe extern "C" fn crabby_ctx_navmesh_sample_position(
 /// count to `*out_len` (call again with more room if it's larger).
 /// `*out_len` is 0 when there is no path.
 /// ```
-/// let p = crabby_ffi::CrabbyVec3::default();
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_navmesh_find_path(std::ptr::null_mut(), p, p, std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// let p = ponko_ffi::CrabbyVec3::default();
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_navmesh_find_path(std::ptr::null_mut(), p, p, std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `out_corners` writable for `capacity` points (or
@@ -279,7 +277,7 @@ pub unsafe extern "C" fn crabby_ctx_navmesh_find_path(
 /// agent radius). Keeps its destination if it already was one. Needs
 /// `crabby_game_navmesh3d` to move.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_nav_agent(std::ptr::null_mut(), 0, 3.0, 0.3, 10.0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_nav_agent(std::ptr::null_mut(), 0, 3.0, 0.3, 10.0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -314,7 +312,7 @@ pub unsafe extern "C" fn crabby_ctx_set_nav_agent(
 
 /// Sends `entity`'s agent to `destination`, or stops it when that is null.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_nav_destination(std::ptr::null_mut(), 0, std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_nav_destination(std::ptr::null_mut(), 0, std::ptr::null()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `destination` null or readable.
@@ -342,8 +340,8 @@ pub unsafe extern "C" fn crabby_ctx_set_nav_destination(
 /// that agents path around; the navmesh polygons it touches are blocked.
 /// Setting it again moves it.
 /// ```
-/// let v = crabby_ffi::CrabbyVec3::default();
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_nav_obstacle(std::ptr::null_mut(), 0, v, v) } as u32, 1);
+/// let v = ponko_ffi::CrabbyVec3::default();
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_nav_obstacle(std::ptr::null_mut(), 0, v, v) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -367,8 +365,8 @@ pub unsafe extern "C" fn crabby_ctx_set_nav_obstacle(
 /// Sets an axis-aligned carving obstacle. Tile updates run during simulation or
 /// through `crabby_ctx_navmesh_update_carving`.
 /// ```
-/// let v = crabby_ffi::CrabbyVec3::default();
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_nav_carve_obstacle(std::ptr::null_mut(), 0, v, v) } as u32, 1);
+/// let v = ponko_ffi::CrabbyVec3::default();
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_nav_carve_obstacle(std::ptr::null_mut(), 0, v, v) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -394,7 +392,7 @@ pub unsafe extern "C" fn crabby_ctx_set_nav_carve_obstacle(
 /// Runs at most `budget` tile-cache updates, reporting steps and pending work.
 /// Call after a simulation tick has gathered obstacle components.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_navmesh_update_carving(std::ptr::null_mut(), 1, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_navmesh_update_carving(std::ptr::null_mut(), 1, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; outputs null or writable.
@@ -422,7 +420,7 @@ pub unsafe extern "C" fn crabby_ctx_navmesh_update_carving(
 
 /// Takes `entity`'s agent and obstacle off (whichever it has).
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_remove_nav(std::ptr::null_mut(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_remove_nav(std::ptr::null_mut(), 0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -442,7 +440,7 @@ pub unsafe extern "C" fn crabby_ctx_remove_nav(ctx: *mut CrabbyCtx, entity_bits:
 /// Moves nav agents every simulation tick (adds Rust's `step_navmesh3d` as
 /// a sim system at this point in the order).
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_game_navmesh3d(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_game_navmesh3d(std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `game` null or live.
@@ -456,7 +454,7 @@ pub unsafe extern "C" fn crabby_game_navmesh3d(game: *mut CrabbyGame) -> CrabbyS
 /// neighbour distance. Disabled agents use the original follower and are ignored
 /// by the crowd. The collision time horizon is Detour's default 2.5 seconds.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_nav_avoidance(std::ptr::null_mut(), 0, true, 2.0, 3.6) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_nav_avoidance(std::ptr::null_mut(), 0, true, 2.0, 3.6) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.

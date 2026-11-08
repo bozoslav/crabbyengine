@@ -14,11 +14,11 @@
 
 use std::collections::HashSet;
 
-use crabby_ecs::{ComponentId, Entity, World};
 use egui::{
     Button, CollapsingHeader, Color32, DragValue, Key, RichText, ScrollArea, Sense, Stroke, TextEdit, Ui, vec2,
 };
 use glam::Vec2;
+use ponko_ecs::{ComponentId, Entity, World};
 use serde_json::Value;
 
 use crate::editor::Editor;

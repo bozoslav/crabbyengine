@@ -1,7 +1,7 @@
 [package]
-name = "crabby_ffi"
-version = "1.0.0"
-description = "C API for Crabby Engine; include/crabby.hpp wraps it for C++17."
+name = "ponko_ffi"
+version = "0.0.1"
+description = "C API for Ponko; include/crabby.hpp wraps it for C++17."
 keywords = ["gamedev", "ffi", "c", "cpp"]
 categories = ["game-engines", "api-bindings"]
 edition.workspace = true
@@ -18,28 +18,28 @@ crate-type = ["rlib", "staticlib", "cdylib"]
 default = ["audio", "window", "inspector", "gamepad", "physics", "physics3d"]
 # A window and GPU rendering. Off: crabby_game_run fails with an error and
 # only headless runs work, from a build half the size.
-window = ["crabbyengine/window"]
+window = ["ponko/window"]
 # Sound through the engine's audio feature. Off: sound calls succeed silently.
-audio = ["crabbyengine/audio"]
+audio = ["ponko/audio"]
 # The runtime inspector overlay (backquote key); see crabby_game_inspector.
-inspector = ["crabbyengine/inspector"]
+inspector = ["ponko/inspector"]
 # Gamepads (crabby_ctx_gamepad_*). Off: no pads are ever connected.
-gamepad = ["crabbyengine/gamepad"]
+gamepad = ["ponko/gamepad"]
 # 2D physics with rapier (crabby_game_physics, rigid bodies, colliders, rays).
 # Off: those calls fail with an error.
-physics = ["crabbyengine/physics"]
+physics = ["ponko/physics"]
 # 3D physics with rapier (crabby_game_physics3d, 3D bodies, colliders, a
 # character controller, ray and shape queries). Off: those calls fail with an
 # error.
-physics3d = ["crabbyengine/physics3d"]
+physics3d = ["ponko/physics3d"]
 # Networking and lobbies over Steam. Off by default: it
 # links libsteam_api, which then ships next to the game. Off: those calls
 # fail with an error.
-steam = ["crabbyengine/steam"]
+steam = ["ponko/steam"]
 
 [dependencies]
-crabbyengine = { path = "../..", version = "1.0.0", default-features = false, features = ["3d", "navmesh"] }
-crabby_ecs = { path = "../crabby_ecs", version = "1.0.0" }
+ponko = { path = "../..", version = "0.0.1", default-features = false, features = ["3d", "navmesh"] }
+ponko_ecs = { path = "../crabby_ecs", version = "0.0.1" }
 rayon = "1.12.0"
 serde_json = "1.0.154"
 

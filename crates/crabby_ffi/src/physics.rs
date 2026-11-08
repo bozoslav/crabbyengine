@@ -9,7 +9,7 @@ use crate::{CrabbyGame, CrabbyStatus, CrabbyWorld, Failure};
 
 /// How a body moves (`CrabbyRigidBody::kind`).
 /// ```
-/// assert_eq!(crabby_ffi::CrabbyBodyKind::CRABBY_BODY_FIXED as u32, 1);
+/// assert_eq!(ponko_ffi::CrabbyBodyKind::CRABBY_BODY_FIXED as u32, 1);
 /// ```
 #[repr(C)]
 #[allow(non_camel_case_types)]
@@ -25,7 +25,7 @@ pub enum CrabbyBodyKind {
 
 /// A collider's shape (`CrabbyCollider::shape`).
 /// ```
-/// assert_eq!(crabby_ffi::CrabbyShapeKind::CRABBY_SHAPE_RECT as u32, 1);
+/// assert_eq!(ponko_ffi::CrabbyShapeKind::CRABBY_SHAPE_RECT as u32, 1);
 /// ```
 #[repr(C)]
 #[allow(non_camel_case_types)]
@@ -48,7 +48,7 @@ pub enum CrabbyShapeKind {
 /// `crabby_rigid_body(kind)`. Checked on spawn/set: an unknown kind or
 /// negative damping is `CRABBY_INVALID_ARGUMENT`. Not a query column.
 /// ```
-/// let b = crabby_ffi::crabby_rigid_body(crabby_ffi::CrabbyBodyKind::CRABBY_BODY_DYNAMIC as u32);
+/// let b = ponko_ffi::crabby_rigid_body(ponko_ffi::CrabbyBodyKind::CRABBY_BODY_DYNAMIC as u32);
 /// assert_eq!(b.gravity_scale, 1.0);
 /// ```
 #[repr(C)]
@@ -73,7 +73,7 @@ pub struct CrabbyRigidBody {
 /// `_rect` or `_capsule`. Checked on spawn/set: sizes must be positive,
 /// density, friction and restitution not negative. Not a query column.
 /// ```
-/// let c = crabby_ffi::crabby_collider_circle(8.0);
+/// let c = ponko_ffi::crabby_collider_circle(8.0);
 /// assert_eq!((c.radius, c.density, c.friction), (8.0, 1.0, 0.5));
 /// ```
 #[repr(C)]
@@ -103,7 +103,7 @@ pub struct CrabbyCollider {
 /// read it after a step, write it to set the speed. A plain value (same
 /// layout as Rust's), so it works as a query column.
 /// ```
-/// assert_eq!(std::mem::size_of::<crabby_ffi::CrabbyVelocity>(), 12);
+/// assert_eq!(std::mem::size_of::<ponko_ffi::CrabbyVelocity>(), 12);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -116,7 +116,7 @@ pub struct CrabbyVelocity {
 
 /// What a ray hit (`crabby_ctx_cast_ray`).
 /// ```
-/// let h = crabby_ffi::CrabbyRayHit::default();
+/// let h = ponko_ffi::CrabbyRayHit::default();
 /// assert_eq!(h.distance, 0.0);
 /// ```
 #[repr(C)]
@@ -134,7 +134,7 @@ pub struct CrabbyRayHit {
 
 /// Two colliders that started or stopped touching (`crabby_ctx_collisions`).
 /// ```
-/// assert_eq!(std::mem::size_of::<crabby_ffi::CrabbyCollision>(), 20);
+/// assert_eq!(std::mem::size_of::<ponko_ffi::CrabbyCollision>(), 20);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -150,7 +150,7 @@ pub struct CrabbyCollision {
 /// A body of this kind with default settings (gravity scale 1, no damping).
 /// Unknown kinds give a dynamic body.
 /// ```
-/// let b = crabby_ffi::crabby_rigid_body(crabby_ffi::CrabbyBodyKind::CRABBY_BODY_FIXED as u32);
+/// let b = ponko_ffi::crabby_rigid_body(ponko_ffi::CrabbyBodyKind::CRABBY_BODY_FIXED as u32);
 /// assert_eq!(b.kind, 1);
 /// ```
 #[unsafe(no_mangle)]
@@ -185,7 +185,7 @@ fn collider(shape: CrabbyShapeKind) -> CrabbyCollider {
 
 /// A circle collider (density 1, friction 0.5, no bounce).
 /// ```
-/// assert_eq!(crabby_ffi::crabby_collider_circle(4.0).shape, 0);
+/// assert_eq!(ponko_ffi::crabby_collider_circle(4.0).shape, 0);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_collider_circle(radius: f32) -> CrabbyCollider {
@@ -197,7 +197,7 @@ pub extern "C" fn crabby_collider_circle(radius: f32) -> CrabbyCollider {
 
 /// A rectangle collider `size` wide and high.
 /// ```
-/// let c = crabby_ffi::crabby_collider_rect(crabby_ffi::CrabbyVec2 { x: 4.0, y: 2.0 });
+/// let c = ponko_ffi::crabby_collider_rect(ponko_ffi::CrabbyVec2 { x: 4.0, y: 2.0 });
 /// assert_eq!(c.size.y, 2.0);
 /// ```
 #[unsafe(no_mangle)]
@@ -210,7 +210,7 @@ pub extern "C" fn crabby_collider_rect(size: CrabbyVec2) -> CrabbyCollider {
 
 /// A vertical capsule collider (good for characters).
 /// ```
-/// assert_eq!(crabby_ffi::crabby_collider_capsule(20.0, 5.0).height, 20.0);
+/// assert_eq!(ponko_ffi::crabby_collider_capsule(20.0, 5.0).height, 20.0);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_collider_capsule(height: f32, radius: f32) -> CrabbyCollider {
@@ -228,7 +228,7 @@ pub extern "C" fn crabby_collider_capsule(height: f32, radius: f32) -> CrabbyCol
 /// # Safety
 /// Live world; `points` readable for `count` values.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let tri = [CrabbyVec2 { x: 0.0, y: 0.0 }, CrabbyVec2 { x: 10.0, y: 0.0 }, CrabbyVec2 { x: 0.0, y: 10.0 }];
 /// let status = unsafe { crabby_set_polygon_collider(std::ptr::null_mut(), 0, tri.as_ptr(), 3, crabby_collider_circle(1.0)) };
 /// assert_eq!(status, CrabbyStatus::CRABBY_INVALID_ARGUMENT); // no world
@@ -250,7 +250,7 @@ pub unsafe extern "C" fn crabby_set_polygon_collider(
 /// # Safety
 /// Live world; `out_points` writable for 8 values; writable `out_count`.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let mut points = [CrabbyVec2 { x: 0.0, y: 0.0 }; 8];
 /// let mut n = 0;
 /// let status = unsafe { crabby_collider_points(std::ptr::null_mut(), 0, points.as_mut_ptr(), &mut n) };
@@ -272,7 +272,7 @@ pub unsafe extern "C" fn crabby_collider_points(
 /// # Safety
 /// Live handle and writable output.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// unsafe { let mut id = 99; assert_eq!(crabby_rigid_body_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
 /// ```
@@ -287,7 +287,7 @@ pub unsafe extern "C" fn crabby_rigid_body_component(world: *mut CrabbyWorld, ou
 /// # Safety
 /// Live handle and writable output.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// unsafe { let mut id = 99; assert_eq!(crabby_collider_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
 /// ```
@@ -302,7 +302,7 @@ pub unsafe extern "C" fn crabby_collider_component(world: *mut CrabbyWorld, out_
 /// # Safety
 /// Live handle and writable output.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// unsafe { let mut id = 99; assert_eq!(crabby_velocity_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
 /// ```
@@ -319,7 +319,7 @@ pub unsafe extern "C" fn crabby_velocity_component(world: *mut CrabbyWorld, out_
 /// # Safety
 /// `game` must be null or a live game.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_game_physics(std::ptr::null_mut(), Default::default()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_game_physics(std::ptr::null_mut(), Default::default()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_game_physics(game: *mut CrabbyGame, gravity: CrabbyVec2) -> CrabbyStatus {
@@ -331,7 +331,7 @@ pub unsafe extern "C" fn crabby_game_physics(game: *mut CrabbyGame, gravity: Cra
 /// # Safety
 /// Live ctx, outside query callbacks.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_gravity(std::ptr::null_mut(), Default::default()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_gravity(std::ptr::null_mut(), Default::default()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_set_gravity(ctx: *mut crate::CrabbyCtx, gravity: CrabbyVec2) -> CrabbyStatus {
@@ -345,7 +345,7 @@ pub unsafe extern "C" fn crabby_ctx_set_gravity(ctx: *mut crate::CrabbyCtx, grav
 /// # Safety
 /// Live ctx, outside query callbacks; writable outputs.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let (mut found, mut hit) = (false, CrabbyRayHit::default());
 /// let s = unsafe { crabby_ctx_cast_ray(std::ptr::null_mut(), Default::default(), Default::default(), 1.0, &mut found, &mut hit) };
 /// assert_eq!(s, CrabbyStatus::CRABBY_INVALID_ARGUMENT);
@@ -370,7 +370,7 @@ pub unsafe extern "C" fn crabby_ctx_cast_ray(
 /// Live ctx, outside query callbacks; `out_entities` writable for `capacity`
 /// entities (may be null if 0); writable count.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_physics_at(std::ptr::null_mut(), Default::default(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_physics_at(std::ptr::null_mut(), Default::default(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_physics_at(
@@ -388,7 +388,7 @@ pub unsafe extern "C" fn crabby_ctx_physics_at(
 /// # Safety
 /// As `crabby_ctx_physics_at`.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_physics_in_circle(std::ptr::null_mut(), Default::default(), 1.0, std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_physics_in_circle(std::ptr::null_mut(), Default::default(), 1.0, std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_physics_in_circle(
@@ -409,7 +409,7 @@ pub unsafe extern "C" fn crabby_ctx_physics_in_circle(
 /// # Safety
 /// Live ctx, outside query callbacks.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_apply_impulse(std::ptr::null_mut(), 0, Default::default()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_apply_impulse(std::ptr::null_mut(), 0, Default::default()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_apply_impulse(
@@ -426,7 +426,7 @@ pub unsafe extern "C" fn crabby_ctx_apply_impulse(
 /// # Safety
 /// Live ctx, outside query callbacks; writable output.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_body_mass(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_body_mass(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_body_mass(
@@ -445,7 +445,7 @@ pub unsafe extern "C" fn crabby_ctx_body_mass(
 /// # Safety
 /// Live ctx; writable outputs.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_collisions(std::ptr::null_mut(), true, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_collisions(std::ptr::null_mut(), true, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_collisions(
@@ -462,8 +462,8 @@ pub unsafe extern "C" fn crabby_ctx_collisions(
 mod imp {
     use std::cell::RefCell;
 
-    use crabby_ecs::Entity;
-    use crabbyengine::{BodyKind, Collider, CollisionStarted, CollisionStopped, RigidBody, Shape, Vec2, Velocity};
+    use ponko::{BodyKind, Collider, CollisionStarted, CollisionStopped, RigidBody, Shape, Vec2, Velocity};
+    use ponko_ecs::Entity;
 
     use super::*;
     use crate::ctx::{collect, ctx_access, events, out};
@@ -613,7 +613,7 @@ mod imp {
     ) -> CrabbyStatus {
         boundary(|| {
             let count = count as usize;
-            if !(3..=crabbyengine::MAX_POLYGON_POINTS).contains(&count) {
+            if !(3..=ponko::MAX_POLYGON_POINTS).contains(&count) {
                 return Err(invalid("a polygon has 3 to 8 points"));
             }
             if points.is_null() {
@@ -854,7 +854,7 @@ mod imp {
     use crate::{CrabbyCtx, Kind, boundary, invalid};
 
     fn off() -> Result<(), Failure> {
-        Err(invalid("crabby_ffi was built without the `physics` feature"))
+        Err(invalid("ponko_ffi was built without the `physics` feature"))
     }
     pub(crate) fn kind(_: std::any::TypeId) -> Option<Kind> {
         None

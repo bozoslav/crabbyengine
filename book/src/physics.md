@@ -5,10 +5,10 @@ notice who walked in: 2D rigid-body physics, built on
 [rapier](https://rapier.rs). It's behind the `physics` feature:
 
 ```toml
-crabbyengine = { version = "1", features = ["physics"] }
+ponko = { version = "0.0.1", features = ["physics"] }
 ```
 
-(The C library, `crabby_ffi`, has it on by default.) For 3D bodies, terrain
+(The C library, `ponko_ffi`, has it on by default.) For 3D bodies, terrain
 and a walking character, see [3D physics](physics3d.md).
 
 Turn it on with gravity in pixels per second² (y is down) and add the
@@ -165,7 +165,7 @@ small speed cost.
 Bodies cost only where they exist: entities without a `RigidBody` are never
 looked at, so the million-entity paths stay as fast as before. Compared with
 calling rapier directly, Crabby's syncing adds about 3–8%
-(`cargo run --release -p crabby_bench -- physics`):
+(`cargo run --release -p ponko_bench -- physics`):
 
 | Boxes falling into a pile, 300 ticks | Crabby | rapier alone |
 |---|---|---|

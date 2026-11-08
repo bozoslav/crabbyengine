@@ -1,7 +1,7 @@
 //! Parsing Unity text files: documents, values, references, meshes and
 //! project GUIDs. The fixtures are written by hand for these tests.
 
-use crabby_unity::*;
+use ponko_unity::*;
 
 const PREFAB: &str = "%YAML 1.1
 %TAG !u! tag:unity3d.com,2011:

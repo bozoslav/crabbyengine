@@ -1,5 +1,5 @@
 //! Flow fields: shortest ways to goals over a cost grid.
-use crabbyengine::*;
+use ponko::*;
 
 /// Follows the field from `start` one cell at a time; returns the cells visited.
 fn walk(nav: &NavGrid, flow: &FlowField, start: Vec2, max_steps: usize) -> Vec<UVec2> {

@@ -1,5 +1,5 @@
 #![cfg(feature = "physics3d")]
-use crabbyengine::*;
+use ponko::*;
 use std::{cell::Cell, rc::Rc};
 
 fn body(ctx: &mut Ctx, position: Vec3, fixed: bool) -> Entity {

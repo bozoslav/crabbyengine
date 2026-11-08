@@ -205,7 +205,7 @@ impl Filters {
 /// A query over a [`World`], created by [`World::query`].
 ///
 /// ```
-/// # use crabby_ecs::*;
+/// # use ponko_ecs::*;
 /// struct Pos(f32);
 /// struct Vel(f32);
 /// struct Frozen;
@@ -295,7 +295,7 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     /// spawn or despawn, collect what you need and use commands afterwards.
     ///
     /// ```
-    /// # use crabby_ecs::*;
+    /// # use ponko_ecs::*;
     /// struct Pos(f32);
     /// struct Vel(f32);
     /// let mut world = World::new();
@@ -316,7 +316,7 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     /// slot, so the result comes out in a stable order.
     ///
     /// ```
-    /// # use crabby_ecs::*;
+    /// # use ponko_ecs::*;
     /// use std::sync::atomic::{AtomicU32, Ordering};
     ///
     /// struct Pos(f32);
@@ -384,7 +384,7 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     /// allocates nothing once it's big enough.
     ///
     /// ```
-    /// # use crabby_ecs::*;
+    /// # use ponko_ecs::*;
     /// struct Pos(f32);
     /// let mut world = World::new();
     /// world.spawn_batch((0..10_000).map(|i| (Pos(i as f32),)));

@@ -1,6 +1,6 @@
 //! Morph targets from C: shapes named on mesh data, weights on entities,
 //! finding a target by name.
-use crabby_ffi::*;
+use ponko_ffi::*;
 use std::ffi::c_void;
 use std::ptr::{null, null_mut};
 

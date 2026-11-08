@@ -35,7 +35,7 @@ pub enum TextAlign3D {
 /// after solid models; it casts no shadow.
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// Game::new("t", 1, 1).run_headless(0, |ctx| {
 ///     let label = Text3D {
 ///         size: 0.3,
@@ -75,7 +75,7 @@ pub struct Text3D {
 impl Text3D {
     /// `text` in the default font, a quarter meter per line, white.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let sign = Text3D::new("OPEN");
     /// assert_eq!(sign.size, 0.25);
     /// ```

@@ -5,7 +5,7 @@ mod common;
 use std::sync::Arc;
 
 use common::*;
-use crabby_ecs::*;
+use ponko_ecs::*;
 
 #[test]
 fn spawn_get_despawn() {

@@ -87,10 +87,10 @@ enum Job {
 /// Crabby game's `assets/`, sharing meshes and textures between them.
 ///
 /// ```no_run
-/// use crabby_unity::{Hierarchy, Importer, Project};
+/// use ponko_unity::{Hierarchy, Importer, Project};
 ///
 /// let project = Project::open("MyUnityGame").unwrap();
-/// let file = crabby_unity::UnityFile::read(project.root().join("Assets/Scenes/Town.unity")).unwrap();
+/// let file = ponko_unity::UnityFile::read(project.root().join("Assets/Scenes/Town.unity")).unwrap();
 /// let scene = Hierarchy::build(&file, &project).unwrap();
 /// let mut import = Importer::new(&project, "my_game/assets/town", "town/");
 /// let world = import.scene(&scene).unwrap();
@@ -142,10 +142,10 @@ impl<'p> Importer<'p> {
     /// Call before `scene`, since meshes are cached after export.
     ///
     /// ```no_run
-    /// # let project = crabby_unity::Project::open("Project")?;
-    /// let mut importer = crabby_unity::Importer::new(&project, "out", "");
-    /// importer.animation_clips([crabby_unity::AnimationClip::read("Assets/Walk.anim")?]);
-    /// # Ok::<(), crabby_unity::Error>(())
+    /// # let project = ponko_unity::Project::open("Project")?;
+    /// let mut importer = ponko_unity::Importer::new(&project, "out", "");
+    /// importer.animation_clips([ponko_unity::AnimationClip::read("Assets/Walk.anim")?]);
+    /// # Ok::<(), ponko_unity::Error>(())
     /// ```
     pub fn animation_clips(&mut self, clips: impl IntoIterator<Item = crate::AnimationClip>) {
         self.animation_clips.extend(clips);
@@ -188,8 +188,8 @@ impl<'p> Importer<'p> {
     /// that move (Unity's `Rigidbody`) are left as fixed ones too.
     ///
     /// ```no_run
-    /// # let project = crabby_unity::Project::open("MyUnityGame").unwrap();
-    /// let mut import = crabby_unity::Importer::new(&project, "my_game/assets/town", "town/");
+    /// # let project = ponko_unity::Project::open("MyUnityGame").unwrap();
+    /// let mut import = ponko_unity::Importer::new(&project, "my_game/assets/town", "town/");
     /// import.colliders(true);
     /// ```
     pub fn colliders(&mut self, on: bool) {
@@ -212,8 +212,8 @@ impl<'p> Importer<'p> {
     /// entity of its own, and the ones in far levels are left out.
     ///
     /// ```no_run
-    /// # let project = crabby_unity::Project::open("MyUnityGame").unwrap();
-    /// let mut import = crabby_unity::Importer::new(&project, "my_game/assets/town", "town/");
+    /// # let project = ponko_unity::Project::open("MyUnityGame").unwrap();
+    /// let mut import = ponko_unity::Importer::new(&project, "my_game/assets/town", "town/");
     /// import.lod_groups(false); // LOD 0 only
     /// ```
     pub fn lod_groups(&mut self, on: bool) {
@@ -247,8 +247,8 @@ impl<'p> Importer<'p> {
     /// (`s.color`). They're stored as 8 bits per channel, from 0 to 1.
     ///
     /// ```no_run
-    /// # let project = crabby_unity::Project::open("MyUnityGame").unwrap();
-    /// let mut import = crabby_unity::Importer::new(&project, "my_game/assets/town", "town/");
+    /// # let project = ponko_unity::Project::open("MyUnityGame").unwrap();
+    /// let mut import = ponko_unity::Importer::new(&project, "my_game/assets/town", "town/");
     /// // A river shader that reads its flow from UV set 1: speed up to 4, foam 0 to 1.
     /// import.vertex_colors("Assets/Shaders/River.shader", |mesh, v| {
     ///     let [speed, foam] = mesh.uvs[1].get(v).copied().unwrap_or_default();

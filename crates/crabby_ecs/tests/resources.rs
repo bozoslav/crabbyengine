@@ -1,6 +1,6 @@
 //! Global resources.
 
-use crabby_ecs::*;
+use ponko_ecs::*;
 
 #[test]
 fn resources() {

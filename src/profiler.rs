@@ -372,7 +372,7 @@ struct Trace {
 impl Trace {
     fn new(path: PathBuf, skip: u64, frames: usize) -> Self {
         eprintln!(
-            "crabbyengine: recording a {frames}-frame trace after frame {skip} into {}",
+            "ponko: recording a {frames}-frame trace after frame {skip} into {}",
             path.display()
         );
         Self {
@@ -436,10 +436,10 @@ impl Trace {
         let doc = serde_json::json!({ "traceEvents": std::mem::take(&mut self.events), "displayTimeUnit": "ms" });
         match std::fs::write(&self.path, doc.to_string()) {
             Ok(()) => eprintln!(
-                "crabbyengine: trace written to {} (open it in https://ui.perfetto.dev)",
+                "ponko: trace written to {} (open it in https://ui.perfetto.dev)",
                 self.path.display()
             ),
-            Err(e) => eprintln!("crabbyengine: could not write the trace {}: {e}", self.path.display()),
+            Err(e) => eprintln!("ponko: could not write the trace {}: {e}", self.path.display()),
         }
         true
     }
@@ -462,7 +462,7 @@ struct Bench {
 
 impl Bench {
     fn new(warmup: u64, frames: usize, out: Option<PathBuf>) -> Self {
-        eprintln!("crabbyengine: benchmark: {warmup} warm-up frames, then {frames} measured frames, vsync off");
+        eprintln!("ponko: benchmark: {warmup} warm-up frames, then {frames} measured frames, vsync off");
         Self {
             warmup,
             frames,
@@ -506,7 +506,7 @@ impl Bench {
         let mut passes = self.passes.clone();
         passes.sort_by(|a, b| b.1.total_cmp(&a.1));
         let mut report = String::new();
-        let _ = writeln!(report, "\n== crabbyengine benchmark: {} frames ==", s.frames);
+        let _ = writeln!(report, "\n== ponko benchmark: {} frames ==", s.frames);
         let _ = writeln!(
             report,
             "fps {:.1}   frame avg {:.2} ms   p50 {:.2}   p95 {:.2}   p99 {:.2}   max {:.2}",
@@ -563,7 +563,7 @@ impl Bench {
                 "systems": self.systems.iter().map(|(name, t)| serde_json::json!({ "name": name, "ms": t / n })).collect::<Vec<_>>(),
             });
             if let Err(e) = std::fs::write(path, serde_json::to_string_pretty(&json).unwrap_or_default()) {
-                eprintln!("crabbyengine: could not write {}: {e}", path.display());
+                eprintln!("ponko: could not write {}: {e}", path.display());
             }
         }
     }

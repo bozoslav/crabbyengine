@@ -29,7 +29,7 @@ where
     connect_hotpatch();
     let event_loop = EventLoop::<Ready>::with_user_event()
         .build()
-        .unwrap_or_else(|e| panic!("crabbyengine: could not start the event loop: {e}"));
+        .unwrap_or_else(|e| panic!("ponko: could not start the event loop: {e}"));
 
     let clock = Clock::new(game.fixed_hz);
     let mut ctx = Ctx::new(clock.fixed_dt(), Vec2::new(game.width as f32, game.height as f32));
@@ -81,7 +81,7 @@ where
 
     event_loop
         .run_app(&mut app)
-        .unwrap_or_else(|e| panic!("crabbyengine: the event loop stopped with an error: {e}"));
+        .unwrap_or_else(|e| panic!("ponko: the event loop stopped with an error: {e}"));
 }
 
 /// Starts the puffin server; the returned handle keeps it running.
@@ -91,11 +91,11 @@ fn start_profiler() -> Option<puffin_http::Server> {
     puffin::set_scopes_on(true);
     match puffin_http::Server::new(ADDR) {
         Ok(server) => {
-            eprintln!("crabbyengine: profiler running; view it with `puffin_viewer --url {ADDR}`");
+            eprintln!("ponko: profiler running; view it with `puffin_viewer --url {ADDR}`");
             Some(server)
         }
         Err(e) => {
-            eprintln!("crabbyengine: could not start the profiler on {ADDR}: {e}");
+            eprintln!("ponko: could not start the profiler on {ADDR}: {e}");
             None
         }
     }
@@ -133,7 +133,7 @@ fn print_mesh_costs(ctx: &Ctx) {
             ));
         }
         if let Err(e) = std::fs::write(&path, csv) {
-            eprintln!("crabbyengine: could not write {}: {e}", path.to_string_lossy());
+            eprintln!("ponko: could not write {}: {e}", path.to_string_lossy());
         }
     }
 }
@@ -336,7 +336,7 @@ where
         };
         let window = event_loop
             .create_window(attributes)
-            .unwrap_or_else(|e| panic!("crabbyengine: could not create the window: {e}"));
+            .unwrap_or_else(|e| panic!("ponko: could not create the window: {e}"));
         let window = Arc::new(window);
         self.window = Some(window.clone());
         let display = event_loop.owned_display_handle();

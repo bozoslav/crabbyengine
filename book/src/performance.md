@@ -5,7 +5,7 @@ every number here has a command next to it.
 
 ## ECS iteration
 
-`cargo run --release -p crabby_bench`
+`cargo run --release -p ponko_bench`
 
 | Benchmark (1M entities) | Crabby | bevy_ecs | hecs |
 |---|---|---|---|
@@ -46,7 +46,7 @@ pheromone sensing, trail laying, foraging, colony growth.
 
 ## Flow fields (pathfinding)
 
-`cargo run --release -p crabby_bench -- flow` for the field itself;
+`cargo run --release -p ponko_bench -- flow` for the field itself;
 `HEADLESS=1 AGENTS=<n> cargo run --release --example flow` for units
 following it around walls and mud, with a new goal every 2 seconds.
 
@@ -86,7 +86,7 @@ How it stays fast, in case your game needs the same tricks:
 
 ## Events and attachments
 
-`cargo run --release -p crabby_bench -- events` and `-- attach`:
+`cargo run --release -p ponko_bench -- events` and `-- attach`:
 
 | What | Per tick |
 |---|---|
@@ -125,7 +125,7 @@ What keeps the CPU side small:
 `ctx.render_stats()` tells you what drawing the last frame cost:
 
 ```rust
-# use crabbyengine::*;
+# use ponko::*;
 fn report(ctx: &mut Ctx) {
     let r = ctx.render_stats();
     println!(
@@ -283,7 +283,7 @@ Run it yourself:
 - Crabby: `CUBES=100000 BENCH_SECONDS=10 cargo run --release --features 3d --example 3d`
   (fullscreen; `BENCH_WINDOWED=1` keeps the window).
 - Unity: the project and the steps are in
-  [`bench/unity`](https://github.com/bozoslav/crabbyengine/tree/main/bench/unity).
+  [`bench/unity`](https://github.com/bozoslav/ponko/tree/main/bench/unity).
 
 On macOS, a game in a window is shown at most once per display refresh
 even with vsync off. To measure past 120 FPS, run fullscreen

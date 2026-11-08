@@ -4,7 +4,7 @@
 
 use std::ffi::c_char;
 
-use crabbyengine::{
+use ponko::{
     AudioBus, AudioEffects, AudioListener3D, AudioRolloff, AudioSettings3D, AudioSource3D, Ctx, Entity, SoundParams,
 };
 
@@ -20,7 +20,7 @@ use crate::{CrabbyCtx, CrabbyStatus, Failure, boundary, invalid};
 /// A mixer bus from `crabby_ctx_audio_bus` (Rust `AudioBus`). Zero is `sfx`,
 /// where ordinary sounds play.
 /// ```
-/// assert_eq!(crabby_ffi::CrabbyAudioBus::default().index, 0);
+/// assert_eq!(ponko_ffi::CrabbyAudioBus::default().index, 0);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -32,7 +32,7 @@ pub struct CrabbyAudioBus {
 /// A voice's low-pass filter and reverb send (Rust `AudioEffects`). Start
 /// from `crabby_audio_effects_default()`.
 /// ```
-/// assert_eq!(crabby_ffi::crabby_audio_effects_default().reverb, 0.0);
+/// assert_eq!(ponko_ffi::crabby_audio_effects_default().reverb, 0.0);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -45,7 +45,7 @@ pub struct CrabbyAudioEffects {
 
 /// No filtering, no reverb.
 /// ```
-/// assert_eq!(crabby_ffi::crabby_audio_effects_default().low_pass_hz, 20000.0);
+/// assert_eq!(ponko_ffi::crabby_audio_effects_default().low_pass_hz, 20000.0);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_audio_effects_default() -> CrabbyAudioEffects {
@@ -55,7 +55,7 @@ pub extern "C" fn crabby_audio_effects_default() -> CrabbyAudioEffects {
 /// How a positional sound fades with distance (Rust `AudioRolloff`; keyed
 /// curves are Rust-only for now).
 /// ```
-/// let _ = crabby_ffi::CrabbyAudioRolloff::CRABBY_ROLLOFF_LINEAR;
+/// let _ = ponko_ffi::CrabbyAudioRolloff::CRABBY_ROLLOFF_LINEAR;
 /// ```
 #[repr(C)]
 #[allow(non_camel_case_types)]
@@ -70,7 +70,7 @@ pub enum CrabbyAudioRolloff {
 /// Settings for a positional sound (Rust `AudioSettings3D`). Start from
 /// `crabby_audio_settings3d_default()`.
 /// ```
-/// assert_eq!(crabby_ffi::crabby_audio_settings3d_default().doppler, 1.0);
+/// assert_eq!(ponko_ffi::crabby_audio_settings3d_default().doppler, 1.0);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -93,7 +93,7 @@ pub struct CrabbyAudioSettings3D {
 
 /// The defaults: full volume within 1 unit, silent at 100, natural fade.
 /// ```
-/// assert_eq!(crabby_ffi::crabby_audio_settings3d_default().max_distance, 100.0);
+/// assert_eq!(ponko_ffi::crabby_audio_settings3d_default().max_distance, 100.0);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_audio_settings3d_default() -> CrabbyAudioSettings3D {
@@ -111,9 +111,9 @@ pub extern "C" fn crabby_audio_settings3d_default() -> CrabbyAudioSettings3D {
 
 /// Where the ears are (Rust `AudioListener3D`): +X is right, -Z forward.
 /// ```
-/// let l = crabby_ffi::CrabbyAudioListener3D {
-///     position: crabby_ffi::CrabbyVec3 { x: 0.0, y: 0.0, z: 0.0 },
-///     rotation: crabby_ffi::CrabbyQuat { x: 0.0, y: 0.0, z: 0.0, w: 1.0 },
+/// let l = ponko_ffi::CrabbyAudioListener3D {
+///     position: ponko_ffi::CrabbyVec3 { x: 0.0, y: 0.0, z: 0.0 },
+///     rotation: ponko_ffi::CrabbyQuat { x: 0.0, y: 0.0, z: 0.0, w: 1.0 },
 /// };
 /// assert_eq!(l.rotation.w, 1.0);
 /// ```
@@ -185,8 +185,8 @@ fn entity(c: &Ctx, bits: u64) -> Result<Entity, Failure> {
 /// The bus named `name`, made the first time it's asked for (Rust
 /// `Ctx::audio_bus`). Keep the handle: names are looked up only here.
 /// ```
-/// let mut bus = crabby_ffi::CrabbyAudioBus::default();
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_audio_bus(std::ptr::null_mut(), c"music".as_ptr(), &mut bus) } as u32, 1);
+/// let mut bus = ponko_ffi::CrabbyAudioBus::default();
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_audio_bus(std::ptr::null_mut(), c"music".as_ptr(), &mut bus) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `name` NUL-terminated; `out_bus` writable.
@@ -207,7 +207,7 @@ pub unsafe extern "C" fn crabby_ctx_audio_bus(
 
 /// Sets a bus's volume, 0 (silent) to 1 (as recorded) or more.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_audio_bus_volume(std::ptr::null_mut(), Default::default(), 0.5) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_audio_bus_volume(std::ptr::null_mut(), Default::default(), 0.5) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -228,7 +228,7 @@ pub unsafe extern "C" fn crabby_ctx_set_audio_bus_volume(
 
 /// Mutes or unmutes a bus, keeping its volume.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_mute_audio_bus(std::ptr::null_mut(), Default::default(), true) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_mute_audio_bus(std::ptr::null_mut(), Default::default(), true) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -250,9 +250,9 @@ pub unsafe extern "C" fn crabby_ctx_mute_audio_bus(
 /// Plays a sound on a bus with effects; `params` and `effects` may be null
 /// for the defaults. Writes the playback to `out_playing` unless that is null.
 /// ```
-/// let s = crabby_ffi::CrabbySound { id: 0, seconds: 0.0 };
+/// let s = ponko_ffi::CrabbySound { id: 0, seconds: 0.0 };
 /// let null = std::ptr::null_mut();
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_play_sound_on(null, s, std::ptr::null(), Default::default(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_play_sound_on(null, s, std::ptr::null(), Default::default(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `params` and `effects` null or readable; `out_playing` null or writable.
@@ -289,7 +289,7 @@ pub unsafe extern "C" fn crabby_ctx_play_sound_on(
 /// Changes a playing voice's low-pass and reverb, smoothly. Does nothing
 /// for one that has stopped.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_sound_effects(std::ptr::null_mut(), Default::default(), std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_sound_effects(std::ptr::null_mut(), Default::default(), std::ptr::null()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `effects` null (the defaults) or readable.
@@ -311,7 +311,7 @@ pub unsafe extern "C" fn crabby_ctx_set_sound_effects(
 /// Opens a long sound (music) from the assets folder to stream as it plays,
 /// instead of decoding it all up front. Play it like any sound.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_load_stream(std::ptr::null_mut(), c"a.ogg".as_ptr(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_load_stream(std::ptr::null_mut(), c"a.ogg".as_ptr(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `path` NUL-terminated; `out_sound` writable.
@@ -337,9 +337,9 @@ pub unsafe extern "C" fn crabby_ctx_load_stream(
 /// `settings` may be null for the defaults. Its volume, panning and doppler
 /// follow the listener every frame.
 /// ```
-/// let s = crabby_ffi::CrabbySound { id: 0, seconds: 0.0 };
-/// let at = crabby_ffi::CrabbyVec3 { x: 0.0, y: 0.0, z: 0.0 };
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_play_sound_at(std::ptr::null_mut(), s, at, std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// let s = ponko_ffi::CrabbySound { id: 0, seconds: 0.0 };
+/// let at = ponko_ffi::CrabbyVec3 { x: 0.0, y: 0.0, z: 0.0 };
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_play_sound_at(std::ptr::null_mut(), s, at, std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `settings` null or readable; `out_playing` null or writable.
@@ -367,8 +367,8 @@ pub unsafe extern "C" fn crabby_ctx_play_sound_at(
 /// (Rust `AudioSource3D`); `settings` may be null for the defaults. It starts
 /// on the next frame and follows the entity. Setting it again replaces it.
 /// ```
-/// let s = crabby_ffi::CrabbySound { id: 0, seconds: 0.0 };
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_audio_source3d(std::ptr::null_mut(), 0, s, std::ptr::null()) } as u32, 1);
+/// let s = ponko_ffi::CrabbySound { id: 0, seconds: 0.0 };
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_audio_source3d(std::ptr::null_mut(), 0, s, std::ptr::null()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `settings` null or readable.
@@ -393,7 +393,7 @@ pub unsafe extern "C" fn crabby_ctx_set_audio_source3d(
 /// Stops `entity`'s positional sound and takes it off. Does nothing if it
 /// has none.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_remove_audio_source3d(std::ptr::null_mut(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_remove_audio_source3d(std::ptr::null_mut(), 0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -412,7 +412,7 @@ pub unsafe extern "C" fn crabby_ctx_remove_audio_source3d(ctx: *mut CrabbyCtx, e
 /// Puts the ears somewhere other than the camera, such as on the player;
 /// null goes back to following the camera.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_audio_listener(std::ptr::null_mut(), std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_audio_listener(std::ptr::null_mut(), std::ptr::null()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `listener` null or readable.
@@ -436,7 +436,7 @@ pub unsafe extern "C" fn crabby_ctx_set_audio_listener(
 /// Where the ears are now: the listener set with
 /// `crabby_ctx_set_audio_listener`, or else the camera.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_audio_listener(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_audio_listener(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `out_listener` writable.

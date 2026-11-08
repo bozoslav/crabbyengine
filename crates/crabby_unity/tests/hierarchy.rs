@@ -1,7 +1,7 @@
 //! Flattening scenes with nested prefabs: overrides, removed and added
 //! objects, stripped stand-ins, and imported model instances.
 
-use crabby_unity::*;
+use ponko_unity::*;
 
 /// A lamp prefab: "Lamp" (light component 108) with a child "Bulb".
 const LAMP: &str = "%YAML 1.1

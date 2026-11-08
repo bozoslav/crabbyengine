@@ -3,19 +3,19 @@ use crate::ctx::{ctx_access, out};
 use crate::keys::{button_from_c, gamepad_axis_from_c, gamepad_button_from_c, key_from_c};
 use crate::types::{CrabbyVec2, to_c};
 use crate::{CrabbyCtx, CrabbyStatus, Failure, boundary, invalid, invalid_owned};
-use crabbyengine::{Action, ActionMap, Axis2Binding, AxisBinding, ButtonBinding, Gamepad, GamepadStick, InputEvent};
+use ponko::{Action, ActionMap, Axis2Binding, AxisBinding, ButtonBinding, Gamepad, GamepadStick, InputEvent};
 use std::ffi::{CStr, c_char};
 
 /// Owned binding configuration. Install a copy with `crabby_ctx_set_actions`.
 /// ```
-/// let map = crabby_ffi::crabby_action_map_new();
-/// unsafe { crabby_ffi::crabby_action_map_free(map); }
+/// let map = ponko_ffi::crabby_action_map_new();
+/// unsafe { ponko_ffi::crabby_action_map_free(map); }
 /// ```
 pub struct CrabbyActionMap(ActionMap);
 
 /// Source kinds for `CrabbyActionBinding::kind`.
 /// ```
-/// assert_eq!(crabby_ffi::CrabbyActionSource::CRABBY_ACTION_KEY as u32, 0);
+/// assert_eq!(ponko_ffi::CrabbyActionSource::CRABBY_ACTION_KEY as u32, 0);
 /// ```
 #[repr(u32)]
 #[derive(Debug, Clone, Copy)]
@@ -39,7 +39,7 @@ pub enum CrabbyActionSource {
 
 /// One source: initialize unused fields to zero. `pad` is a controller slot.
 /// ```
-/// let binding = crabby_ffi::CrabbyActionBinding { kind: 0, pad: 0, first: 0, second: 0, third: 0, fourth: 0, deadzone: 0.0 };
+/// let binding = ponko_ffi::CrabbyActionBinding { kind: 0, pad: 0, first: 0, second: 0, third: 0, fourth: 0, deadzone: 0.0 };
 /// assert_eq!(binding.kind, 0);
 /// ```
 #[repr(C)]
@@ -79,23 +79,23 @@ unsafe fn map_mut<'a>(map: *mut CrabbyActionMap) -> Result<&'a mut ActionMap, Fa
 fn pad(slot: u32) -> Result<Gamepad, Failure> {
     Gamepad::from_slot(slot as usize).ok_or_else(|| invalid("gamepad slot out of range"))
 }
-fn key(value: u32) -> Result<crabbyengine::Key, Failure> {
+fn key(value: u32) -> Result<ponko::Key, Failure> {
     key_from_c(value).ok_or_else(|| invalid("unknown key"))
 }
-fn mouse(value: u32) -> Result<crabbyengine::MouseButton, Failure> {
+fn mouse(value: u32) -> Result<ponko::MouseButton, Failure> {
     button_from_c(value).ok_or_else(|| invalid("unknown mouse button"))
 }
-fn button(value: u32) -> Result<crabbyengine::GamepadButton, Failure> {
+fn button(value: u32) -> Result<ponko::GamepadButton, Failure> {
     gamepad_button_from_c(value).ok_or_else(|| invalid("unknown gamepad button"))
 }
-fn axis(value: u32) -> Result<crabbyengine::GamepadAxis, Failure> {
+fn axis(value: u32) -> Result<ponko::GamepadAxis, Failure> {
     gamepad_axis_from_c(value).ok_or_else(|| invalid("unknown gamepad axis"))
 }
 
 /// Create an empty map. Free once with `crabby_action_map_free`.
 /// ```
-/// let m = crabby_ffi::crabby_action_map_new();
-/// unsafe { crabby_ffi::crabby_action_map_free(m); }
+/// let m = ponko_ffi::crabby_action_map_new();
+/// unsafe { ponko_ffi::crabby_action_map_free(m); }
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_action_map_new() -> *mut CrabbyActionMap {
@@ -109,7 +109,7 @@ pub extern "C" fn crabby_action_map_new() -> *mut CrabbyActionMap {
 
 /// Free a map; null is ignored.
 /// ```
-/// unsafe { crabby_ffi::crabby_action_map_free(std::ptr::null_mut()); }
+/// unsafe { ponko_ffi::crabby_action_map_free(std::ptr::null_mut()); }
 /// ```
 /// # Safety
 /// Handle must be null or owned, live, and not used afterwards.
@@ -124,7 +124,7 @@ pub unsafe extern "C" fn crabby_action_map_free(map: *mut CrabbyActionMap) {
 /// Replace a named action. `kind`: 0 button, 1 scalar, 2 vector.
 /// Sources must match the action kind. Invalid configuration leaves the map unchanged.
 /// ```
-/// assert_ne!(unsafe { crabby_ffi::crabby_action_map_set(std::ptr::null_mut(), c"jump".as_ptr(), 0, std::ptr::null(), 0) } as u32, 0);
+/// assert_ne!(unsafe { ponko_ffi::crabby_action_map_set(std::ptr::null_mut(), c"jump".as_ptr(), 0, std::ptr::null(), 0) } as u32, 0);
 /// ```
 /// # Safety
 /// Handle must be live or null, name NUL-terminated, bindings readable for count
@@ -200,7 +200,7 @@ pub unsafe extern "C" fn crabby_action_map_set(
 
 /// Remove a named action.
 /// ```
-/// assert_ne!(unsafe { crabby_ffi::crabby_action_map_remove(std::ptr::null_mut(), c"jump".as_ptr()) } as u32, 0);
+/// assert_ne!(unsafe { ponko_ffi::crabby_action_map_remove(std::ptr::null_mut(), c"jump".as_ptr()) } as u32, 0);
 /// ```
 /// # Safety
 /// Handle must be live or null, name readable NUL-terminated and non-overlapping.
@@ -215,7 +215,7 @@ pub unsafe extern "C" fn crabby_action_map_remove(map: *mut CrabbyActionMap, nam
 
 /// Load Rust-compatible JSON. Errors leave the map unchanged.
 /// ```
-/// assert_ne!(unsafe { crabby_ffi::crabby_action_map_load(std::ptr::null_mut(), c"{}".as_ptr()) } as u32, 0);
+/// assert_ne!(unsafe { ponko_ffi::crabby_action_map_load(std::ptr::null_mut(), c"{}".as_ptr()) } as u32, 0);
 /// ```
 /// # Safety
 /// Handle must be live or null, JSON readable NUL-terminated and non-overlapping.
@@ -233,7 +233,7 @@ pub unsafe extern "C" fn crabby_action_map_load(map: *mut CrabbyActionMap, json:
 /// string (if capacity > 0); allocate length+1 and call again. Null buffer is
 /// accepted only with capacity 0.
 /// ```
-/// assert_ne!(unsafe { crabby_ffi::crabby_action_map_save(std::ptr::null_mut(), std::ptr::null_mut(), 0, &mut 0) } as u32, 0);
+/// assert_ne!(unsafe { ponko_ffi::crabby_action_map_save(std::ptr::null_mut(), std::ptr::null_mut(), 0, &mut 0) } as u32, 0);
 /// ```
 /// # Safety
 /// Handle must be live or null; buffer writable for capacity bytes and out_len
@@ -269,7 +269,7 @@ pub unsafe extern "C" fn crabby_action_map_save(
 
 /// Install a copy of the bindings; rebinding generates no edges. Map remains owned by caller.
 /// ```
-/// assert_ne!(unsafe { crabby_ffi::crabby_ctx_set_actions(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 0);
+/// assert_ne!(unsafe { ponko_ffi::crabby_ctx_set_actions(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 0);
 /// ```
 /// # Safety
 /// Context must be live or null, map live, exclusively accessed and non-overlapping.
@@ -286,7 +286,7 @@ pub unsafe extern "C" fn crabby_ctx_set_actions(ctx: *mut CrabbyCtx, map: *mut C
 
 /// Copy current bindings into a map.
 /// ```
-/// assert_ne!(unsafe { crabby_ffi::crabby_ctx_actions(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 0);
+/// assert_ne!(unsafe { ponko_ffi::crabby_ctx_actions(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 0);
 /// ```
 /// # Safety
 /// Context and destination must be live or null, exclusively accessed, non-overlapping.
@@ -304,7 +304,7 @@ pub unsafe extern "C" fn crabby_ctx_actions(ctx: *mut CrabbyCtx, map: *mut Crabb
 /// Feed manual input: kind 0 key, 1 mouse, 2 gamepad button, 3 gamepad axis,
 /// 4 focus lost, 5 gamepad disconnected. Digital value is 0 released, nonzero held.
 /// ```
-/// assert_ne!(unsafe { crabby_ffi::crabby_ctx_feed_input(std::ptr::null_mut(), 0, 0, 0, 1.0) } as u32, 0);
+/// assert_ne!(unsafe { ponko_ffi::crabby_ctx_feed_input(std::ptr::null_mut(), 0, 0, 0, 1.0) } as u32, 0);
 /// ```
 /// # Safety
 /// Context must be live in its callback, or null.
@@ -335,7 +335,7 @@ pub unsafe extern "C" fn crabby_ctx_feed_input(
 
 /// Query a named action's down. Unknown/wrong-kind actions read zero.
 /// ```
-/// assert_ne!(unsafe { crabby_ffi::crabby_ctx_action_down(std::ptr::null_mut(), c"move".as_ptr(), &mut false) } as u32, 0);
+/// assert_ne!(unsafe { ponko_ffi::crabby_ctx_action_down(std::ptr::null_mut(), c"move".as_ptr(), &mut false) } as u32, 0);
 /// ```
 /// # Safety
 /// Context must be live or null, name NUL-terminated, output writable and non-overlapping.
@@ -356,7 +356,7 @@ pub unsafe extern "C" fn crabby_ctx_action_down(
 
 /// Query a named action's pressed. Unknown/wrong-kind actions read zero.
 /// ```
-/// assert_ne!(unsafe { crabby_ffi::crabby_ctx_action_pressed(std::ptr::null_mut(), c"move".as_ptr(), &mut false) } as u32, 0);
+/// assert_ne!(unsafe { ponko_ffi::crabby_ctx_action_pressed(std::ptr::null_mut(), c"move".as_ptr(), &mut false) } as u32, 0);
 /// ```
 /// # Safety
 /// Context must be live or null, name NUL-terminated, output writable and non-overlapping.
@@ -377,7 +377,7 @@ pub unsafe extern "C" fn crabby_ctx_action_pressed(
 
 /// Query a named action's released. Unknown/wrong-kind actions read zero.
 /// ```
-/// assert_ne!(unsafe { crabby_ffi::crabby_ctx_action_released(std::ptr::null_mut(), c"move".as_ptr(), &mut false) } as u32, 0);
+/// assert_ne!(unsafe { ponko_ffi::crabby_ctx_action_released(std::ptr::null_mut(), c"move".as_ptr(), &mut false) } as u32, 0);
 /// ```
 /// # Safety
 /// Context must be live or null, name NUL-terminated, output writable and non-overlapping.
@@ -398,7 +398,7 @@ pub unsafe extern "C" fn crabby_ctx_action_released(
 
 /// Query a named action's axis. Unknown/wrong-kind actions read zero.
 /// ```
-/// assert_ne!(unsafe { crabby_ffi::crabby_ctx_action_axis(std::ptr::null_mut(), c"move".as_ptr(), &mut 0.0) } as u32, 0);
+/// assert_ne!(unsafe { ponko_ffi::crabby_ctx_action_axis(std::ptr::null_mut(), c"move".as_ptr(), &mut 0.0) } as u32, 0);
 /// ```
 /// # Safety
 /// Context must be live or null, name NUL-terminated, output writable and non-overlapping.
@@ -419,7 +419,7 @@ pub unsafe extern "C" fn crabby_ctx_action_axis(
 
 /// Query a named action's axis2. Unknown/wrong-kind actions read zero.
 /// ```
-/// assert_ne!(unsafe { crabby_ffi::crabby_ctx_action_axis2(std::ptr::null_mut(), c"move".as_ptr(), &mut crabby_ffi::CrabbyVec2 { x: 0.0, y: 0.0 }) } as u32, 0);
+/// assert_ne!(unsafe { ponko_ffi::crabby_ctx_action_axis2(std::ptr::null_mut(), c"move".as_ptr(), &mut ponko_ffi::CrabbyVec2 { x: 0.0, y: 0.0 }) } as u32, 0);
 /// ```
 /// # Safety
 /// Context must be live or null, name NUL-terminated, output writable and non-overlapping.

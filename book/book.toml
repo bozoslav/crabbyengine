@@ -7,8 +7,8 @@ src = "src"
 
 [output.html]
 additional-css = ["theme/lang-pair.css"]
-git-repository-url = "https://github.com/bozoslav/crabbyengine"
-edit-url-template = "https://github.com/bozoslav/crabbyengine/edit/main/book/{path}"
+git-repository-url = "https://github.com/bozoslav/ponko"
+edit-url-template = "https://github.com/bozoslav/ponko/edit/main/book/{path}"
 site-url = "/crabbyengine/"
 
 [output.html.search]

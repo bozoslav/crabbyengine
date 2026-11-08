@@ -14,7 +14,7 @@ use crate::texture::Texture;
 /// [`Ctx::draw`]).
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// let t = Transform2D::at(vec2(100.0, 50.0)).rotated(0.5);
 /// assert_eq!(t.position, vec2(100.0, 50.0));
 /// ```
@@ -67,7 +67,7 @@ impl Transform2D {
 /// [`draw_sprites`] system.
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn setup(ctx: &mut Ctx) {
 /// let crab = ctx.load_texture("crab.png");
 /// ctx.world.spawn((
@@ -107,7 +107,7 @@ impl Sprite {
     /// Same sprite showing only `region` of its texture (texture pixels).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(tiles: Texture) {
     /// let grass = Sprite::new(tiles).with_region(Rect::new(16.0, 0.0, 16.0, 16.0));
     /// # }
@@ -145,7 +145,7 @@ impl Sprite {
 /// Replace it with your own renderer like this:
 ///
 /// ```no_run
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// fn my_draw(ctx: &mut Ctx) { /* ... */ }
 ///
 /// Game::new("Custom", 800, 600)

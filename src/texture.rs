@@ -10,7 +10,7 @@ use crate::color::Color;
 /// [`Ctx::create_texture`](crate::Ctx::create_texture).
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn setup(ctx: &mut Ctx) {
 /// let crab = ctx.load_texture("crab.png");
 /// println!("{} x {}", crab.width(), crab.height());
@@ -32,7 +32,7 @@ impl Texture {
     /// Width in pixels.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(tex: Texture) {
     /// let w = tex.width();
     /// # }
@@ -45,7 +45,7 @@ impl Texture {
     /// Height in pixels.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(tex: Texture) {
     /// let h = tex.height();
     /// # }
@@ -58,7 +58,7 @@ impl Texture {
     /// Size in pixels as a vector.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(tex: Texture) {
     /// let half = tex.size() / 2.0;
     /// # }
@@ -84,7 +84,7 @@ pub enum TextureFilter {
 /// Start from `DrawParams::default()` and change what you need.
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn update(ctx: &mut Ctx, tex: Texture) {
 /// ctx.draw_ex(&tex, vec2(100.0, 100.0), DrawParams {
 ///     rotation: 0.5,

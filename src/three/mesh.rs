@@ -8,7 +8,7 @@ use glam::{Vec2, Vec3};
 /// (counter-clockwise seen from the front).
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// // One triangle facing +Z.
 /// let tri = MeshData {
 ///     positions: vec![vec3(0.0, 0.0, 0.0), vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0)],
@@ -60,7 +60,7 @@ pub struct MeshData {
 /// per corner, how far it moves and how its normal changes at full weight.
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// let mut quad = MeshData::plane(1.0);
 /// // "raise": lifts the first corner 0.5 up.
 /// let mut up = vec![Vec3::ZERO; quad.positions.len()];
@@ -82,7 +82,7 @@ pub struct MorphTarget {
 /// stored at `channel` in MorphWeights; `target` selects this frame's deltas.
 /// Every participating target must belong to exactly one channel.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let frame = MorphFrame { channel: 0, target: 1, weight: 0.5 };
 /// assert_eq!(frame.weight, 0.5);
 /// ```
@@ -101,7 +101,7 @@ impl MeshData {
     /// coordinates covering the whole image.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let cube = MeshData::cube(2.0);
     /// assert_eq!(cube.indices.len(), 36);
     /// ```
@@ -135,7 +135,7 @@ impl MeshData {
     /// A flat square `size` wide on the XZ plane, facing up (+Y): ground.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let ground = MeshData::plane(100.0);
     /// assert!(ground.normals.iter().all(|n| *n == Vec3::Y));
     /// ```
@@ -165,7 +165,7 @@ impl MeshData {
     /// around and half as many from pole to pole (at least 3).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let ball = MeshData::sphere(0.5, 24);
     /// assert!(ball.positions.iter().all(|p| (p.length() - 0.5).abs() < 1e-5));
     /// ```
@@ -215,7 +215,7 @@ impl MeshData {
     /// drawn at different details.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// // 3 x 3 heights: a little hill in the middle of a 10-unit square.
     /// let hill = MeshData::heightfield(&[0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0], 10.0, 1);
     /// assert!(hill.positions.contains(&vec3(5.0, 2.0, 5.0)));
@@ -306,7 +306,7 @@ impl MeshData {
     /// numbers.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let broken = MeshData { positions: vec![Vec3::ZERO], indices: vec![0, 1, 2], ..Default::default() };
     /// let short = MeshData { positions: vec![Vec3::ZERO; 3], indices: vec![0, 1, 2], uvs1: vec![Vec2::ZERO], ..Default::default() };
     /// assert!(short.check().unwrap_err().contains("second texture coordinates"));

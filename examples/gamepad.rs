@@ -5,7 +5,7 @@
 //!
 //!   `cargo run --example gamepad`
 
-use crabbyengine::*;
+use ponko::*;
 
 /// The crab of the pad in `slot`, or of the keyboard (`slot: None`).
 struct Player {

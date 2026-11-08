@@ -1,6 +1,6 @@
 //! 3D from C: transforms and models as plain components and query columns,
 //! meshes and materials, the camera and the light.
-use crabby_ffi::*;
+use ponko_ffi::*;
 use std::ffi::c_void;
 use std::ptr::{null, null_mut};
 
@@ -45,7 +45,7 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
         let cube = crabby_mesh_data_cube(1.0);
         assert_eq!(crabby_ctx_create_mesh(ctx, cube, stone, &mut ids.mesh), CRABBY_OK);
         let mut batch = CrabbyInstanceBatch::default();
-        let matrices = [crabbyengine::Mat4::IDENTITY.to_cols_array()];
+        let matrices = [ponko::Mat4::IDENTITY.to_cols_array()];
         let options = CrabbyInstanceBatchOptions {
             cell_size: 32.0,
             max_distance: 100.0,

@@ -740,104 +740,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "crabby_bench"
-version = "0.0.0"
-dependencies = [
- "bevy_ecs",
- "crabby_ecs",
- "crabbyengine",
- "hecs",
- "rapier2d",
- "rapier3d",
- "rayon",
-]
-
-[[package]]
-name = "crabby_ecs"
-version = "1.0.0"
-dependencies = [
- "rayon",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "crabby_ffi"
-version = "1.0.0"
-dependencies = [
- "cbindgen",
- "crabby_ecs",
- "crabbyengine",
- "rayon",
- "serde_json",
-]
-
-[[package]]
-name = "crabby_mcp"
-version = "1.0.0"
-dependencies = [
- "crabbyengine",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "crabby_unity"
-version = "0.1.0"
-dependencies = [
- "glam 0.34.2",
- "gltf",
- "image",
- "rayon",
- "serde_json",
- "ufbx",
- "xxhash-rust",
- "yaml-rust2",
-]
-
-[[package]]
-name = "crabbyengine"
-version = "1.0.0"
-dependencies = [
- "bytemuck",
- "cpal",
- "crabby_ecs",
- "dioxus-devtools",
- "egui",
- "egui-wgpu",
- "egui-winit",
- "epaint_default_fonts",
- "fontdue",
- "gilrs",
- "glam 0.34.2",
- "gltf",
- "half",
- "image",
- "js-sys",
- "kira",
- "libc",
- "navmesh-rs",
- "pollster",
- "puffin",
- "puffin_http",
- "rapier2d",
- "rapier3d",
- "rayon",
- "renet",
- "serde",
- "serde_json",
- "steamworks",
- "subsecond",
- "taffy",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
- "web-time",
- "wgpu",
- "winit",
-]
-
-[[package]]
 name = "crc32fast"
 version = "1.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3089,6 +2991,104 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "50596ddc09eb5ad5f75cacd40209568e66df71baf86e1499a0e99c4cff12a5a6"
 dependencies = [
  "arrayvec",
+]
+
+[[package]]
+name = "ponko"
+version = "0.0.1"
+dependencies = [
+ "bytemuck",
+ "cpal",
+ "dioxus-devtools",
+ "egui",
+ "egui-wgpu",
+ "egui-winit",
+ "epaint_default_fonts",
+ "fontdue",
+ "gilrs",
+ "glam 0.34.2",
+ "gltf",
+ "half",
+ "image",
+ "js-sys",
+ "kira",
+ "libc",
+ "navmesh-rs",
+ "pollster",
+ "ponko_ecs",
+ "puffin",
+ "puffin_http",
+ "rapier2d",
+ "rapier3d",
+ "rayon",
+ "renet",
+ "serde",
+ "serde_json",
+ "steamworks",
+ "subsecond",
+ "taffy",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "web-time",
+ "wgpu",
+ "winit",
+]
+
+[[package]]
+name = "ponko_bench"
+version = "0.0.1"
+dependencies = [
+ "bevy_ecs",
+ "hecs",
+ "ponko",
+ "ponko_ecs",
+ "rapier2d",
+ "rapier3d",
+ "rayon",
+]
+
+[[package]]
+name = "ponko_ecs"
+version = "0.0.1"
+dependencies = [
+ "rayon",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "ponko_ffi"
+version = "0.0.1"
+dependencies = [
+ "cbindgen",
+ "ponko",
+ "ponko_ecs",
+ "rayon",
+ "serde_json",
+]
+
+[[package]]
+name = "ponko_mcp"
+version = "0.0.1"
+dependencies = [
+ "ponko",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "ponko_unity"
+version = "0.0.1"
+dependencies = [
+ "glam 0.34.2",
+ "gltf",
+ "image",
+ "rayon",
+ "serde_json",
+ "ufbx",
+ "xxhash-rust",
+ "yaml-rust2",
 ]
 
 [[package]]

@@ -14,7 +14,7 @@ use crate::{CrabbyCtx, CrabbyStatus, CrabbyWorld};
 /// game's with `crabby_ctx_physics3d_add_mesh`.
 pub struct CrabbyCollisionMeshData {
     #[cfg(feature = "physics3d")]
-    data: crabbyengine::CollisionMeshData,
+    data: ponko::CollisionMeshData,
 }
 
 /// The built-in `TerrainCollider` component: makes a terrain tile's entity
@@ -22,7 +22,7 @@ pub struct CrabbyCollisionMeshData {
 /// scaled with it). Start from `crabby_terrain_collider(mesh)`. Not a
 /// query column.
 /// ```
-/// let t = crabby_ffi::crabby_terrain_collider(crabby_ffi::CrabbyCollisionMesh { id: 3 });
+/// let t = ponko_ffi::crabby_terrain_collider(ponko_ffi::CrabbyCollisionMesh { id: 3 });
 /// assert_eq!((t.mesh.id, t.friction), (3, 0.5));
 /// ```
 #[repr(C)]
@@ -43,7 +43,7 @@ pub struct CrabbyTerrainCollider {
 /// they're beyond `keep_radius` of every focus, once collider streaming is
 /// on (`crabby_ctx_physics3d_stream_colliders`). Same layout as Rust's.
 /// ```
-/// let f = crabby_ffi::crabby_collider_focus(150.0, 200.0);
+/// let f = ponko_ffi::crabby_collider_focus(150.0, 200.0);
 /// assert_eq!(f.keep_radius, 200.0);
 /// ```
 #[repr(C)]
@@ -58,7 +58,7 @@ pub struct CrabbyColliderFocus {
 /// A terrain collider of `mesh` with the default surface (Rust
 /// `TerrainCollider::new`).
 /// ```
-/// let t = crabby_ffi::crabby_terrain_collider(Default::default());
+/// let t = ponko_ffi::crabby_terrain_collider(Default::default());
 /// assert_eq!(t.groups.memberships, u32::MAX);
 /// ```
 #[unsafe(no_mangle)]
@@ -74,7 +74,7 @@ pub extern "C" fn crabby_terrain_collider(mesh: CrabbyCollisionMesh) -> CrabbyTe
 /// A collider focus: colliders within `radius` come in, and go beyond
 /// `keep_radius` (Rust `ColliderFocus::new`).
 /// ```
-/// assert_eq!(crabby_ffi::crabby_collider_focus(1.0, 2.0).radius, 1.0);
+/// assert_eq!(ponko_ffi::crabby_collider_focus(1.0, 2.0).radius, 1.0);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_collider_focus(radius: f32, keep_radius: f32) -> CrabbyColliderFocus {
@@ -86,7 +86,7 @@ pub extern "C" fn crabby_collider_focus(radius: f32, keep_radius: f32) -> Crabby
 /// # Safety
 /// Live handle and writable output.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// unsafe { let mut id = 99; assert_eq!(crabby_terrain_collider_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
 /// ```
@@ -101,7 +101,7 @@ pub unsafe extern "C" fn crabby_terrain_collider_component(world: *mut CrabbyWor
 /// # Safety
 /// Live handle and writable output.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// unsafe { let mut id = 99; assert_eq!(crabby_collider_focus_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
 /// ```
@@ -116,10 +116,10 @@ pub unsafe extern "C" fn crabby_collider_focus_component(world: *mut CrabbyWorld
 /// Null (see `crabby_last_error`) for bad input.
 /// ```
 /// let h = [0.0f32; 9];
-/// let d = unsafe { crabby_ffi::crabby_collision_mesh_data_heightfield(h.as_ptr(), 9, 4.0) };
+/// let d = unsafe { ponko_ffi::crabby_collision_mesh_data_heightfield(h.as_ptr(), 9, 4.0) };
 /// assert!(!d.is_null());
-/// unsafe { crabby_ffi::crabby_collision_mesh_data_free(d) };
-/// assert!(unsafe { crabby_ffi::crabby_collision_mesh_data_heightfield(h.as_ptr(), 8, 4.0) }.is_null());
+/// unsafe { ponko_ffi::crabby_collision_mesh_data_free(d) };
+/// assert!(unsafe { ponko_ffi::crabby_collision_mesh_data_heightfield(h.as_ptr(), 8, 4.0) }.is_null());
 /// ```
 /// # Safety
 /// `heights` holds `count` floats.
@@ -138,7 +138,7 @@ pub unsafe extern "C" fn crabby_collision_mesh_data_heightfield(
 /// call from any thread. Null for no triangles, an index out of range or a
 /// vertex that isn't finite.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let v = [CrabbyVec3 { x: 0.0, y: 0.0, z: 0.0 }, CrabbyVec3 { x: 1.0, y: 0.0, z: 0.0 }, CrabbyVec3 { x: 0.0, y: 0.0, z: 1.0 }];
 /// let d = unsafe { crabby_collision_mesh_data_trimesh(v.as_ptr(), 3, [0u32, 2, 1].as_ptr(), 3) };
 /// assert!(!d.is_null());
@@ -161,7 +161,7 @@ pub unsafe extern "C" fn crabby_collision_mesh_data_trimesh(
 /// `crabby_ctx_physics3d_convex_hull` does. Safe to call from any thread.
 /// Null if they're flat or not finite.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let p = [CrabbyVec3 { x: 0.0, y: 0.0, z: 0.0 }, CrabbyVec3 { x: 1.0, y: 0.0, z: 0.0 }, CrabbyVec3 { x: 0.0, y: 1.0, z: 0.0 }];
 /// assert!(unsafe { crabby_collision_mesh_data_convex_hull(p.as_ptr(), 3) }.is_null(), "flat");
 /// ```
@@ -178,7 +178,7 @@ pub unsafe extern "C" fn crabby_collision_mesh_data_convex_hull(
 
 /// Frees collision mesh data. Null is ignored.
 /// ```
-/// unsafe { crabby_ffi::crabby_collision_mesh_data_free(std::ptr::null_mut()) };
+/// unsafe { ponko_ffi::crabby_collision_mesh_data_free(std::ptr::null_mut()) };
 /// ```
 /// # Safety
 /// `data` must be null or live, and not used afterwards.
@@ -196,7 +196,7 @@ pub unsafe extern "C" fn crabby_collision_mesh_data_free(data: *mut CrabbyCollis
 /// # Safety
 /// `ctx` null or live; `data` live; output writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_physics3d_add_mesh(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_physics3d_add_mesh(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_physics3d_add_mesh(
@@ -215,7 +215,7 @@ pub unsafe extern "C" fn crabby_ctx_physics3d_add_mesh(
 /// # Safety
 /// `ctx` null or live.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_physics3d_stream_colliders(std::ptr::null_mut(), true, 8) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_physics3d_stream_colliders(std::ptr::null_mut(), true, 8) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_physics3d_stream_colliders(
@@ -234,7 +234,7 @@ pub unsafe extern "C" fn crabby_ctx_physics3d_stream_colliders(
 /// `ctx` null or live; output writable.
 /// ```
 /// let mut active = true;
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_physics3d_is_collider_active(std::ptr::null_mut(), 0, &mut active) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_physics3d_is_collider_active(std::ptr::null_mut(), 0, &mut active) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_physics3d_is_collider_active(
@@ -250,8 +250,8 @@ pub unsafe extern "C" fn crabby_ctx_physics3d_is_collider_active(
 mod imp {
     use std::mem::offset_of;
 
-    use crabby_ecs::Entity;
-    use crabbyengine::{ColliderFocus, CollisionGroups, CollisionMesh, CollisionMeshData, TerrainCollider, Vec3};
+    use ponko::{ColliderFocus, CollisionGroups, CollisionMesh, CollisionMeshData, TerrainCollider, Vec3};
+    use ponko_ecs::Entity;
 
     use super::*;
     use crate::ctx::{ctx_access, out};
@@ -433,7 +433,7 @@ mod imp {
     use crate::{Failure, Kind, boundary, invalid};
 
     fn off() -> Result<(), Failure> {
-        Err(invalid("crabby_ffi was built without the `physics3d` feature"))
+        Err(invalid("ponko_ffi was built without the `physics3d` feature"))
     }
     pub(crate) fn kind(_: std::any::TypeId) -> Option<Kind> {
         None

@@ -1,5 +1,5 @@
 #![cfg(feature = "3d")]
-use crabbyengine::*;
+use ponko::*;
 
 #[test]
 fn entity_lights_roundtrip_and_spots_follow_forward() {

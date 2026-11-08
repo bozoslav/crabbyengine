@@ -1,6 +1,6 @@
 //! Ragdolls (feature `physics3d`): a skeleton handed over to physics.
 #![cfg(feature = "physics3d")]
-use crabbyengine::*;
+use ponko::*;
 
 const GRAVITY: Vec3 = Vec3::new(0.0, -9.81, 0.0);
 

@@ -1,7 +1,7 @@
 //! [`Ctx`]: everything game code talks to each frame.
 
-use crabby_ecs::{Commands, Entity, World};
 use glam::{Mat4, Vec2};
+use ponko_ecs::{Commands, Entity, World};
 use std::collections::HashMap;
 
 use crate::assets;
@@ -82,7 +82,7 @@ type DataLoader = Box<dyn Fn(&mut World, &str) -> Result<(), String>>;
 /// `fn(&mut Ctx)`.
 ///
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// fn spin(ctx: &mut Ctx) {
 ///     let dt = ctx.dt();
 ///     for t in ctx.world.query::<&mut Transform2D>().iter() {
@@ -95,7 +95,7 @@ pub struct Ctx {
     /// All entities, components and resources.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// struct Vel(Vec2);
     ///
     /// fn movement(ctx: &mut Ctx) {
@@ -111,7 +111,7 @@ pub struct Ctx {
     /// every system.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// struct Health(i32);
     ///
     /// fn deaths(ctx: &mut Ctx) {
@@ -145,7 +145,7 @@ pub struct Ctx {
     /// A separate field, so you can read events while changing the world.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// struct Scored(u32);
     /// struct Score(u32);
     ///
@@ -206,7 +206,7 @@ pub struct Ctx {
     /// it follow something; see [`Camera2D`].
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// ctx.camera.zoom = 2.0;
     /// ctx.camera.look_at(vec2(1000.0, 1000.0));
@@ -216,7 +216,7 @@ pub struct Ctx {
     /// The 3D camera (feature `3d`): position, rotation, field of view.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// ctx.camera3d.position = vec3(0.0, 5.0, 10.0);
     /// ctx.camera3d.look_at(Vec3::ZERO);
@@ -227,7 +227,7 @@ pub struct Ctx {
     /// The 3D world's sun and ambient light (feature `3d`).
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// ctx.lighting.sun_intensity = 1.0; // overcast
     /// # }
@@ -239,7 +239,7 @@ pub struct Ctx {
     /// or off.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// ctx.lod.bias = 1.5; // keep detail up to 50% farther
     /// # }
@@ -250,7 +250,7 @@ pub struct Ctx {
     /// `3d`): exposure, bloom, color grading, tone mapping.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// ctx.post.bloom = 0.2;
     /// ctx.post.vignette = 0.3;
@@ -263,7 +263,7 @@ pub struct Ctx {
     /// one before it left.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let haze = ctx.load_effect("effects/haze.wgsl");
     /// ctx.effects.push(ScreenEffect::new(haze));
@@ -276,7 +276,7 @@ pub struct Ctx {
     /// cameras. See [`TargetCamera`](crate::TargetCamera).
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let lake = ctx.create_render_target(960, 540);
     /// ctx.target_cameras.push(TargetCamera::reflection(ctx.camera3d, lake, 0.0));
@@ -289,7 +289,7 @@ pub struct Ctx {
     /// texel. See [`ComputePass`](crate::ComputePass).
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let ripples = ctx.load_compute("compute/ripples.wgsl");
     /// let water = ctx.create_render_target(256, 256);
@@ -302,7 +302,7 @@ pub struct Ctx {
     /// `3d`): a physical sky lit by the sun, by default.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// ctx.lighting.sun_direction = Sky::sun_direction_at(7.0); // morning
     /// ctx.sky.fog_density = 0.01;
@@ -322,7 +322,7 @@ pub struct Ctx {
     pub(crate) ui: UiState,
     /// Retained widget tree and screen stack. Processed before frame systems.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// # fn setup(ctx: &mut Ctx) {
     /// let root = ctx.ui_retained.add(UiWidget::Panel, ui_layout::Style::default());
     /// ctx.ui_retained.push_screen(root, false);
@@ -334,7 +334,7 @@ pub struct Ctx {
     /// Colors and sizes of [`ui_button`](Self::ui_button) and friends.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn setup(ctx: &mut Ctx) {
     /// ctx.ui_style.text_size = 20.0;
     /// # }
@@ -501,7 +501,7 @@ impl Ctx {
                     }
                     None => {
                         if let Err(e) = result {
-                            eprintln!("crabbyengine: {e}");
+                            eprintln!("ponko: {e}");
                         }
                     }
                 }
@@ -522,12 +522,12 @@ impl Ctx {
     pub(crate) fn renderer(&mut self) -> &mut Renderer {
         self.renderer
             .as_mut()
-            .expect("crabbyengine: textures can only be created once the game is running (in setup or update)")
+            .expect("ponko: textures can only be created once the game is running (in setup or update)")
     }
 
     /// Current binding configuration.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn example(ctx: &Ctx) {
     /// let value = ctx.actions();
     /// # }
@@ -538,7 +538,7 @@ impl Ctx {
 
     /// Whether a named button is held.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn example(ctx: &Ctx) {
     /// let value = ctx.action_down("move");
     /// # }
@@ -549,7 +549,7 @@ impl Ctx {
 
     /// Whether a named button became held this frame.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn example(ctx: &Ctx) {
     /// let value = ctx.action_pressed("move");
     /// # }
@@ -560,7 +560,7 @@ impl Ctx {
 
     /// Whether all sources of a named button were released this frame.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn example(ctx: &Ctx) {
     /// let value = ctx.action_released("move");
     /// # }
@@ -571,7 +571,7 @@ impl Ctx {
 
     /// A named scalar axis, or zero.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn example(ctx: &Ctx) {
     /// let value = ctx.action_axis("move");
     /// # }
@@ -582,7 +582,7 @@ impl Ctx {
 
     /// A named vector axis, or zero.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn example(ctx: &Ctx) {
     /// let value = ctx.action_axis2("move");
     /// # }
@@ -594,7 +594,7 @@ impl Ctx {
     /// Replace bindings at runtime. Held sources establish a baseline;
     /// rebinding itself generates no pressed/released edges.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn example(ctx: &mut Ctx) {
     /// ctx.set_actions(ActionMap::default());
     /// # }
@@ -609,7 +609,7 @@ impl Ctx {
     /// Feed input by hand for tests/replay; live input uses the same state.
     /// Edges clear after each headless or windowed frame.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn example(ctx: &mut Ctx) {
     /// ctx.feed_input(InputEvent::Key(Key::Space, true));
     /// # }
@@ -664,7 +664,7 @@ impl Ctx {
     /// first). For finding what's slow; the inspector will graph these.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// fn print_slow_systems(ctx: &mut Ctx) {
     ///     for t in ctx.system_timings() {
     ///         if t.avg_ms > 1.0 {
@@ -682,7 +682,7 @@ impl Ctx {
     /// Stops simulation systems from running (frame systems and drawing go on).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// fn controls(ctx: &mut Ctx) {
     ///     if ctx.key_pressed(Key::Space) {
     ///         if ctx.is_paused() { ctx.resume() } else { ctx.pause() }
@@ -721,7 +721,7 @@ impl Ctx {
     /// If `speed` is negative, NaN or infinite.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// ctx.set_sim_speed(16.0); // fast-forward
     /// # }
@@ -744,7 +744,7 @@ impl Ctx {
     /// tick, or to timestamp events deterministically.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// fn slow_ai(ctx: &mut Ctx) {
     ///     if ctx.sim_tick() % 10 != 0 {
     ///         return; // think 6 times per second instead of 60
@@ -782,7 +782,7 @@ impl Ctx {
     /// Tools find it in the instance registry; this is for tests and logs.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let mut addr = None;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| addr = ctx.control_addr());
     /// assert_eq!(addr, None); // off unless enabled
@@ -816,7 +816,7 @@ impl Ctx {
     /// [seed](crate::Game::seed) gives the same results.
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     ///
     /// struct Pos(f32);
     ///
@@ -843,7 +843,7 @@ impl Ctx {
     /// the query; it is `Copy`, so it works in `par_for_each` too.
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     ///
     /// struct Brain { plans: u32 }
     ///
@@ -921,7 +921,7 @@ impl Ctx {
     /// Sets the background color. It stays until you change it.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn setup(ctx: &mut Ctx) {
     /// ctx.clear(Color::hex(0x203040));
     /// # }
@@ -938,7 +938,7 @@ impl Ctx {
     /// you want visible.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn update(ctx: &mut Ctx, crab: Texture) {
     /// ctx.draw(&crab, vec2(400.0, 300.0));
     /// # }
@@ -960,7 +960,7 @@ impl Ctx {
     /// Draws `texture` with rotation, scale, tint, draw order or pivot.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn update(ctx: &mut Ctx, crab: Texture) {
     /// ctx.draw_ex(&crab, vec2(400.0, 300.0), DrawParams {
     ///     rotation: ctx.time() as f32,
@@ -993,7 +993,7 @@ impl Ctx {
     /// pixels. `\n` starts a new line.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn hud(ctx: &mut Ctx) {
     /// let fps = ctx.fps();
     /// ctx.draw_text(&format!("{fps:.0} FPS"), vec2(10.0, 10.0), 18.0, Color::WHITE);
@@ -1014,7 +1014,7 @@ impl Ctx {
     /// [`draw_text`](Self::draw_text) with a font and draw order.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn hud(ctx: &mut Ctx, title: Font) {
     /// ctx.draw_text_ex("Colony", vec2(20.0, 20.0), TextParams {
     ///     font: title,
@@ -1071,7 +1071,7 @@ impl Ctx {
     /// `size`, in window pixels. Works headless too.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn centered(ctx: &mut Ctx) {
     /// let label = "Paused";
     /// let size = ctx.measure_text(label, 32.0);
@@ -1086,7 +1086,7 @@ impl Ctx {
     /// [`measure_text`](Self::measure_text) for another font.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, title: Font) {
     /// let width = ctx.measure_text_ex("Colony", title, 40.0).x;
     /// # }
@@ -1100,7 +1100,7 @@ impl Ctx {
     /// art and tilesets; the default is smooth.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn setup(ctx: &mut Ctx) {
     /// let tiles = ctx.load_texture("crab.png");
     /// ctx.set_texture_filter(&tiles, TextureFilter::Nearest);
@@ -1119,23 +1119,22 @@ impl Ctx {
     /// With a clear message if the file is missing or isn't a font.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn setup(ctx: &mut Ctx) {
     /// let title = ctx.load_font("fonts/Title.ttf");
     /// # let _ = title;
     /// # }
     /// ```
     pub fn load_font(&mut self, path: &str) -> Font {
-        let file = assets::resolve(path).unwrap_or_else(|e| panic!("crabbyengine: {e}"));
+        let file = assets::resolve(path).unwrap_or_else(|e| panic!("ponko: {e}"));
         if let Some(&id) = self.loaded.get(&(file.clone(), AssetKind::Font)) {
             return Font(id as u32);
         }
-        let bytes =
-            assets::read(&file).unwrap_or_else(|e| panic!("crabbyengine: could not read {}: {e}", file.display()));
+        let bytes = assets::read(&file).unwrap_or_else(|e| panic!("ponko: could not read {}: {e}", file.display()));
         let font = self
             .text
             .add_font(&bytes)
-            .unwrap_or_else(|e| panic!("crabbyengine: {}: {e}", file.display()));
+            .unwrap_or_else(|e| panic!("ponko: {}: {e}", file.display()));
         self.loaded.insert((file.clone(), AssetKind::Font), u64::from(font.0));
         self.watcher.watch(path, file, Asset::Font(font.0));
         font
@@ -1146,7 +1145,7 @@ impl Ctx {
     /// id); [`Text3D`](crate::Text3D) would panic when drawn with one.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     assert!(ctx.has_font(Font::DEFAULT));
     /// });
@@ -1166,15 +1165,14 @@ impl Ctx {
     /// With a clear message if the file is missing or isn't a valid image.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("Crabs", 800, 600).run(|ctx| {
     ///     let crab = ctx.load_texture("crab.png");
     ///     move |ctx: &mut Ctx| ctx.draw(&crab, vec2(400.0, 300.0))
     /// });
     /// ```
     pub fn load_texture(&mut self, path: &str) -> Texture {
-        self.try_load_texture(path)
-            .unwrap_or_else(|e| panic!("crabbyengine: {e}"))
+        self.try_load_texture(path).unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
     /// [`load_texture`](Self::load_texture) with errors as values; also
@@ -1234,7 +1232,7 @@ impl Ctx {
     /// column).
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// #[derive(serde::Deserialize)]
     /// struct Rules {
     ///     speed: f32,
@@ -1258,7 +1256,7 @@ impl Ctx {
                 Ok(())
             }),
         );
-        loaded.unwrap_or_else(|e| panic!("crabbyengine: {e}"));
+        loaded.unwrap_or_else(|e| panic!("ponko: {e}"));
     }
 
     /// Loads a JSON file into reflected component `component` of `entity`
@@ -1305,7 +1303,7 @@ impl Ctx {
     /// to redo work that depends on them.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// if ctx.reloaded_files().iter().any(|f| f == "map.json") {
     ///     println!("map changed: rebuilding the flow fields");
@@ -1322,7 +1320,7 @@ impl Ctx {
     /// anything you computed from an image, such as a level read from its pixels.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, level: Texture) {
     /// if ctx.reloaded_textures().contains(&level) {
     ///     println!("level image changed: rebuilding the map");
@@ -1336,10 +1334,10 @@ impl Ctx {
     fn report_reload(&mut self, name: String, applied: Result<(), String>) {
         match applied {
             Ok(()) => {
-                eprintln!("crabbyengine: reloaded {name}");
+                eprintln!("ponko: reloaded {name}");
                 self.watcher.reloaded_files.push(name);
             }
-            Err(e) => eprintln!("crabbyengine: could not reload {name} (keeping the old one): {e}"),
+            Err(e) => eprintln!("ponko: could not reload {name} (keeping the old one): {e}"),
         }
     }
 
@@ -1399,17 +1397,17 @@ impl Ctx {
                     self.update_texture(&texture, &image.rgba);
                     self.watcher.reloaded.push(texture);
                     self.watcher.reloaded_files.push(name.clone());
-                    eprintln!("crabbyengine: reloaded {name}");
+                    eprintln!("ponko: reloaded {name}");
                 }
                 Ok(image) => eprintln!(
-                    "crabbyengine: {name} is now {} x {} (was {} x {}); restart the game to use the new size",
+                    "ponko: {name} is now {} x {} (was {} x {}); restart the game to use the new size",
                     image.width,
                     image.height,
                     texture.width(),
                     texture.height()
                 ),
                 // Often a file caught halfway through saving; the next save reloads it.
-                Err(e) => eprintln!("crabbyengine: could not reload {name}: {e}"),
+                Err(e) => eprintln!("ponko: could not reload {name}: {e}"),
             }
         }
         self.watcher.pending = changed;
@@ -1423,7 +1421,7 @@ impl Ctx {
     /// than the GPU supports.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn setup(ctx: &mut Ctx) {
     /// // A 2x2 checkerboard.
     /// let w = [255, 255, 255, 255];
@@ -1435,13 +1433,13 @@ impl Ctx {
     pub fn create_texture(&mut self, width: u32, height: u32, rgba: &[u8]) -> Texture {
         assert!(
             width > 0 && height > 0,
-            "crabbyengine: texture size must not be zero (got {width} x {height})"
+            "ponko: texture size must not be zero (got {width} x {height})"
         );
         let expected = width as usize * height as usize * 4;
         assert_eq!(
             rgba.len(),
             expected,
-            "crabbyengine: a {width} x {height} texture needs {expected} bytes of RGBA, got {}",
+            "ponko: a {width} x {height} texture needs {expected} bytes of RGBA, got {}",
             rgba.len()
         );
         if self.headless {
@@ -1453,7 +1451,7 @@ impl Ctx {
         let max = renderer.max_texture_size();
         assert!(
             width <= max && height <= max,
-            "crabbyengine: {width} x {height} is larger than this GPU's maximum texture size ({max})"
+            "ponko: {width} x {height} is larger than this GPU's maximum texture size ({max})"
         );
         let id = renderer.create_texture(width, height, rgba);
         Texture::new(id, width, height)
@@ -1465,7 +1463,7 @@ impl Ctx {
     /// do every frame for textures up to a few megapixels.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let mut pixels = vec![0u8; 64 * 64 * 4];
     /// let heat = ctx.create_texture(64, 64, &pixels);
@@ -1483,13 +1481,13 @@ impl Ctx {
         assert_eq!(
             rgba.len(),
             expected,
-            "crabbyengine: a {w} x {h} texture needs {expected} bytes of RGBA, got {}",
+            "ponko: a {w} x {h} texture needs {expected} bytes of RGBA, got {}",
             rgba.len()
         );
         #[cfg(feature = "3d")]
         assert!(
             !self.is_render_target(*texture),
-            "crabbyengine: a render target is drawn by its target camera, not updated with pixels"
+            "ponko: a render target is drawn by its target camera, not updated with pixels"
         );
         if self.headless {
             return;
@@ -1500,7 +1498,7 @@ impl Ctx {
     /// How many sprites have been drawn so far this frame.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn update(ctx: &mut Ctx) {
     /// println!("{} sprites", ctx.sprite_count());
     /// # }
@@ -1513,7 +1511,7 @@ impl Ctx {
     /// Does nothing in headless runs (there is no frame). Errors are printed.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// fn photo_mode(ctx: &mut Ctx) {
     ///     if ctx.key_pressed(Key::F12) {
     ///         ctx.save_screenshot("screenshot.png");
@@ -1539,7 +1537,7 @@ impl Ctx {
     /// and GPU time. All zero (and `gpu_ms` is `None`) in headless runs.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// fn overlay(ctx: &mut Ctx) {
     ///     let stats = ctx.render_stats();
     ///     if let Some(gpu) = stats.gpu_ms {
@@ -1558,7 +1556,7 @@ impl Ctx {
     /// times a second. All zero in headless runs.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// fn report(ctx: &mut Ctx) {
     ///     let s = ctx.frame_stats();
     ///     if s.p99_ms > 2.0 * s.p50_ms {
@@ -1577,7 +1575,7 @@ impl Ctx {
     /// queries.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// fn slowest_pass(ctx: &mut Ctx) {
     ///     if let Some(p) = ctx.gpu_passes().iter().max_by(|a, b| a.ms.total_cmp(&b.ms)) {
     ///         println!("slowest GPU pass: {} ({:.2} ms)", p.name, p.ms);
@@ -1594,7 +1592,7 @@ impl Ctx {
     /// `CRABBY_HUD=1` shows it from the start.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// fn toggle_hud(ctx: &mut Ctx) {
     ///     if ctx.key_pressed(Key::F3) {
     ///         let on = ctx.perf_hud();
@@ -1610,7 +1608,7 @@ impl Ctx {
     /// Whether the performance HUD is showing.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let on = ctx.perf_hud();
     /// # }
@@ -1625,7 +1623,7 @@ impl Ctx {
     /// in headless runs.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// fn capture(ctx: &mut Ctx) {
     ///     if ctx.key_pressed(Key::F4) {
     ///         ctx.record_trace("frames.json", 120);
@@ -1647,7 +1645,7 @@ impl Ctx {
     /// it is off, scopes cost one atomic load.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// fn debug_keys(ctx: &mut Ctx) {
     ///     if ctx.key_pressed(Key::F5) {
     ///         let on = !ctx.profiling();
@@ -1664,7 +1662,7 @@ impl Ctx {
     /// Whether scopes are being timed and allocations counted right now.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// if ctx.profiling() { /* build an expensive debug string */ }
     /// # }
@@ -1678,7 +1676,7 @@ impl Ctx {
     /// code: this looks the name up each time). Times add up across calls.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// fn ai(ctx: &mut Ctx) {
     ///     let target = ctx.profile("ai/pathing", |_ctx| 42);
     ///     assert_eq!(target, 42);
@@ -1700,7 +1698,7 @@ impl Ctx {
     /// first ran. Empty while profiling is off.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// fn report(ctx: &mut Ctx) {
     ///     for s in ctx.scope_timings() {
     ///         println!("{}: {:.2} ms in {} calls", s.name, s.last_ms, s.calls);
@@ -1720,7 +1718,7 @@ impl Ctx {
     /// [`set_profiling`](Self::set_profiling)).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// fn dump(ctx: &mut Ctx) {
     ///     if ctx.key_pressed(Key::F6) {
     ///         println!("{}", ctx.perf_report());
@@ -1796,10 +1794,7 @@ impl Ctx {
             if let Some(path) = std::env::var_os("CRABBY_BENCH_REPORT")
                 && let Err(e) = report.save(&path)
             {
-                eprintln!(
-                    "crabbyengine: could not write {}: {e}",
-                    std::path::Path::new(&path).display()
-                );
+                eprintln!("ponko: could not write {}: {e}", std::path::Path::new(&path).display());
             }
         }
         quit
@@ -1853,7 +1848,7 @@ impl Ctx {
     /// that many fixed steps.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn update(ctx: &mut Ctx, pos: &mut Vec2) {
     /// pos.x += 200.0 * ctx.dt(); // 200 pixels per second
     /// # }
@@ -1874,7 +1869,7 @@ impl Ctx {
     /// [`Game::fixed_hz`](crate::Game::fixed_hz) (default 60).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn update(ctx: &mut Ctx, vel: &mut Vec2, pos: &mut Vec2) {
     /// for _ in 0..ctx.fixed_steps() {
     ///     vel.y += 980.0 * ctx.fixed_dt(); // gravity
@@ -1889,7 +1884,7 @@ impl Ctx {
     /// Length of one fixed step in seconds (e.g. `1.0 / 60.0`).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn update(ctx: &mut Ctx) {
     /// let steps_per_second = 1.0 / ctx.fixed_dt();
     /// # }
@@ -1903,7 +1898,7 @@ impl Ctx {
     /// rendering of fixed-step objects.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn update(ctx: &mut Ctx, prev: Vec2, curr: Vec2) {
     /// let draw_pos = prev.lerp(curr, ctx.fixed_alpha());
     /// # }
@@ -1915,7 +1910,7 @@ impl Ctx {
     /// Seconds of game time since the game started (sum of all `dt`s).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn update(ctx: &mut Ctx) {
     /// let blink_on = (ctx.time() * 2.0) as u64 % 2 == 0;
     /// # }
@@ -1927,7 +1922,7 @@ impl Ctx {
     /// Number of frames since the game started. The first frame is `1`.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn update(ctx: &mut Ctx) {
     /// if ctx.frame() % 60 == 0 { println!("fps: {:.0}", ctx.fps()); }
     /// # }
@@ -1939,7 +1934,7 @@ impl Ctx {
     /// Smoothed frames per second.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn update(ctx: &mut Ctx) {
     /// println!("{:.0} fps", ctx.fps());
     /// # }
@@ -1953,7 +1948,7 @@ impl Ctx {
     /// `true` while `key` is held down.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn update(ctx: &mut Ctx, pos: &mut Vec2) {
     /// if ctx.key_down(Key::Right) { pos.x += 200.0 * ctx.dt(); }
     /// # }
@@ -1965,7 +1960,7 @@ impl Ctx {
     /// `true` only on the frame `key` went down. Good for jumps, menus, toggles.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn update(ctx: &mut Ctx, paused: &mut bool) {
     /// if ctx.key_pressed(Key::P) { *paused = !*paused; }
     /// # }
@@ -1977,7 +1972,7 @@ impl Ctx {
     /// `true` only on the frame `key` was let go.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn update(ctx: &mut Ctx, charging: &mut bool) {
     /// if ctx.key_released(Key::Space) { *charging = false; }
     /// # }
@@ -1991,7 +1986,7 @@ impl Ctx {
     /// `true` while `button` is held down.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn update(ctx: &mut Ctx) {
     /// let dragging = ctx.mouse_down(MouseButton::Left);
     /// # }
@@ -2003,7 +1998,7 @@ impl Ctx {
     /// `true` only on the frame `button` went down.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn update(ctx: &mut Ctx) {
     /// if ctx.mouse_pressed(MouseButton::Left) { println!("click at {}", ctx.mouse_pos()); }
     /// # }
@@ -2015,7 +2010,7 @@ impl Ctx {
     /// `true` only on the frame `button` was let go.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn update(ctx: &mut Ctx) {
     /// if ctx.mouse_released(MouseButton::Left) { println!("drop"); }
     /// # }
@@ -2028,7 +2023,7 @@ impl Ctx {
     /// `y` grows downward.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn update(ctx: &mut Ctx) {
     /// let target = ctx.mouse_pos();
     /// # }
@@ -2041,7 +2036,7 @@ impl Ctx {
     /// through the [`camera`](Self::camera).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// if ctx.mouse_pressed(MouseButton::Left) {
     ///     println!("clicked the world at {}", ctx.mouse_world());
@@ -2055,7 +2050,7 @@ impl Ctx {
     /// How far the mouse moved since the previous frame, in window pixels.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn update(ctx: &mut Ctx, camera: &mut Vec2) {
     /// if ctx.mouse_down(MouseButton::Right) { *camera -= ctx.mouse_delta(); }
     /// # }
@@ -2070,7 +2065,7 @@ impl Ctx {
     /// locked and at the window's edge: use it to turn a first-person camera.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn look(ctx: &mut Ctx, yaw: &mut f32, pitch: &mut f32) {
     /// let turn = ctx.mouse_motion() * 0.002; // radians per unit
     /// *yaw -= turn.x;
@@ -2088,7 +2083,7 @@ impl Ctx {
     /// when focus comes back. Headless runs only remember the setting.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(1, |ctx| {
     ///     ctx.set_cursor_locked(true);
     ///     assert!(ctx.cursor_locked());
@@ -2111,7 +2106,7 @@ impl Ctx {
     /// the user. Roughly one unit per wheel notch.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn update(ctx: &mut Ctx, zoom: &mut f32) {
     /// *zoom *= 1.1_f32.powf(ctx.mouse_wheel().y);
     /// # }
@@ -2126,7 +2121,7 @@ impl Ctx {
     /// are plugged in, in headless runs, and without the `gamepad` feature.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn update(ctx: &mut Ctx, pos: &mut Vec2) {
     /// if let Some(&pad) = ctx.gamepads().first() {
     ///     *pos += ctx.gamepad_stick(pad, GamepadStick::Left) * 300.0 * ctx.dt();
@@ -2140,7 +2135,7 @@ impl Ctx {
     /// `true` while `button` is held on `pad`.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn update(ctx: &mut Ctx, pad: Gamepad) {
     /// let running = ctx.gamepad_down(pad, GamepadButton::West);
     /// # }
@@ -2152,7 +2147,7 @@ impl Ctx {
     /// `true` only on the frame `button` went down on `pad`.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn update(ctx: &mut Ctx, pad: Gamepad) {
     /// if ctx.gamepad_pressed(pad, GamepadButton::South) { println!("jump"); }
     /// # }
@@ -2165,7 +2160,7 @@ impl Ctx {
     /// unplugged while it was held).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn update(ctx: &mut Ctx, pad: Gamepad) {
     /// if ctx.gamepad_released(pad, GamepadButton::RightTrigger) { println!("fire!"); }
     /// # }
@@ -2179,7 +2174,7 @@ impl Ctx {
     /// movements around the center read as `0.0`.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn update(ctx: &mut Ctx, pad: Gamepad) {
     /// let throttle = ctx.gamepad_axis(pad, GamepadAxis::RightTrigger);
     /// # }
@@ -2192,7 +2187,7 @@ impl Ctx {
     /// add it to a position to move that way.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn update(ctx: &mut Ctx, pad: Gamepad, aim: &mut Vec2) {
     /// let stick = ctx.gamepad_stick(pad, GamepadStick::Right);
     /// if stick.length() > 0.5 { *aim = stick.normalize(); }
@@ -2212,7 +2207,7 @@ impl Ctx {
     /// on high-DPI screens).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn update(ctx: &mut Ctx) {
     /// let center = ctx.window_size() / 2.0;
     /// # }
@@ -2224,7 +2219,7 @@ impl Ctx {
     /// Closes the window and ends the game after this frame.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn update(ctx: &mut Ctx) {
     /// if ctx.key_pressed(Key::Escape) { ctx.quit(); }
     /// # }
@@ -2309,21 +2304,21 @@ impl Turns {
     /// `true` if `entity`'s turn is this tick.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, e: Entity) {
     /// if ctx.turns(8).includes(e) { /* expensive update */ }
     /// # }
     /// ```
     #[inline]
     #[must_use]
-    pub fn includes(self, entity: crabby_ecs::Entity) -> bool {
+    pub fn includes(self, entity: ponko_ecs::Entity) -> bool {
         entity.index() % self.every == self.now
     }
 
     /// Time since an entity's previous turn: `every` times `ctx.dt()`.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let turn = ctx.turns(4);
     /// assert_eq!(turn.dt(), ctx.dt() * 4.0);

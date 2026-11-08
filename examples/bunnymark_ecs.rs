@@ -12,7 +12,7 @@
 //! Vsync is off. `SECONDS=10` quits after that long (for scripted runs).
 //! Movement runs once per frame (not on the fixed tick) to match `bunnymark`.
 
-use crabbyengine::*;
+use ponko::*;
 
 struct Vel(Vec2);
 

@@ -36,7 +36,7 @@ and when someone represents the project in public.
 ## Reporting
 
 Report unacceptable behavior to the maintainers privately through GitHub's
-[private vulnerability reporting](https://github.com/bozoslav/crabbyengine/security/advisories/new)
+[private vulnerability reporting](https://github.com/bozoslav/ponko/security/advisories/new)
 form, marking it as a conduct report. Every report is reviewed promptly and
 handled confidentially.
 

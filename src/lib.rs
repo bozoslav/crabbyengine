@@ -3,7 +3,7 @@
 //! A fast 2D engine for games with huge numbers of things on screen.
 //!
 //! ```no_run
-//! use crabbyengine::*;
+//! use ponko::*;
 //!
 //! fn main() {
 //!     Game::new("My Game", 800, 600).run(|ctx| {
@@ -20,7 +20,7 @@
 //! }
 //! ```
 //!
-//! Everything you need comes in with `use crabbyengine::*;`.
+//! Everything you need comes in with `use ponko::*;`.
 //!
 //! ## Features
 //!
@@ -168,7 +168,7 @@ pub use stream::CellStreamer;
 pub use stream::Job;
 /// Flex/grid/absolute layout types used by retained UI.
 /// ```
-/// use crabbyengine::ui_layout::Style;
+/// use ponko::ui_layout::Style;
 /// let style: Style = Style::default();
 /// ```
 pub use taffy as ui_layout;
@@ -195,10 +195,10 @@ pub use ui::UiPanel3D;
 pub use ui::{Ui, UiEvent, UiId, UiInput, UiPaint, UiStyle, UiTextAlign, UiWidget};
 
 /// The ECS: entities, components, queries, resources, commands.
-pub use crabby_ecs::{Commands, Component, ComponentId, Entity, Query, World};
+pub use ponko_ecs::{Commands, Component, ComponentId, Entity, Query, World};
 
 /// The full ECS crate, for advanced use (C path, chunks, archetypes).
-pub use crabby_ecs as ecs_core;
+pub use ponko_ecs as ecs_core;
 
 /// 3D and 4D vectors, rotation and 4x4 matrix, for 3D (re-exported from `glam`).
 #[cfg(feature = "3d")]
@@ -220,7 +220,7 @@ pub use serde_json::{self, Value, json};
 /// `web-time`.
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// let nav = NavGrid::new(256, 256, 8.0);
 /// let mut field = FlowField::new();
 /// let start = Instant::now();

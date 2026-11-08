@@ -11,7 +11,7 @@ use crate::Color;
 /// transform.
 ///
 /// ```no_run
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let trunk = ctx.load_mesh("trunk.glb");
 /// // A mesh 2 m up the group's own Y axis, tinted.
@@ -35,7 +35,7 @@ impl LodRenderer {
     /// `mesh` at the group's origin.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let renderer = LodRenderer::new(ctx.load_mesh("tree.glb"));
     /// # }
@@ -52,7 +52,7 @@ impl LodRenderer {
     /// The same, placed at `offset` in the group's space.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(mesh: Mesh) {
     /// let high = LodRenderer::new(mesh).with_offset(Transform3D::at(vec3(0.0, 1.0, 0.0)));
     /// # }
@@ -65,7 +65,7 @@ impl LodRenderer {
     /// The same, tinted with `color`.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(mesh: Mesh) {
     /// let red = LodRenderer::new(mesh).with_color(Color::rgb(1.0, 0.2, 0.2));
     /// # }
@@ -94,7 +94,7 @@ pub enum LodShadow {
 /// least `screen_height` tall on screen.
 ///
 /// ```no_run
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn f(near: Mesh, far: Mesh) {
 /// let levels = [
 ///     LodLevel::new(0.30, vec![LodRenderer::new(near)]),
@@ -125,7 +125,7 @@ impl LodLevel {
     /// at once to the next, casting its own shadow.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let level = LodLevel::new(0.25, vec![]);
     /// assert_eq!(level.fade_width, 0.0);
     /// ```
@@ -146,7 +146,7 @@ impl LodLevel {
     /// distance, as many games do.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// // Switches to the next level at 40 m, seen with a 60 degree lens.
     /// let level = LodLevel::at_distance(40.0, 8.0, 60f32.to_radians(), vec![]);
     /// assert!((level.screen_height - 0.1732).abs() < 1e-3);
@@ -160,7 +160,7 @@ impl LodLevel {
     /// [`fade_width`](Self::fade_width)).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let level = LodLevel::new(0.25, vec![]).with_fade(0.3);
     /// assert_eq!(level.fade_width, 0.3);
     /// ```
@@ -175,7 +175,7 @@ impl LodLevel {
     /// The same, with `shadow` casting the shadow.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let level = LodLevel::new(0.05, vec![]).with_shadow(LodShadow::Casters(vec![]));
     /// assert_eq!(level.shadow, LodShadow::Casters(vec![]));
     /// ```
@@ -189,7 +189,7 @@ impl LodLevel {
 /// a graphics quality setting changes.
 ///
 /// ```no_run
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
 /// ctx.lod.bias = 0.5; // low quality: switch to cheaper levels twice as soon
 /// # }
@@ -258,7 +258,7 @@ pub enum LodPick {
 /// "renderers": [{ "mesh": "tree_high.glb" }] }, ...] }`.
 ///
 /// ```no_run
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let high = ctx.load_mesh("tree_high.glb");
 /// let low = ctx.load_mesh("tree_low.glb");
@@ -291,7 +291,7 @@ impl LodGroup {
     /// A group of world `size` with `levels`.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let group = LodGroup::new(4.0, vec![LodLevel::new(0.1, vec![])]);
     /// assert_eq!(group.levels.len(), 1);
     /// ```
@@ -307,7 +307,7 @@ impl LodGroup {
     /// The same, measuring distance to `center` (in the group's space).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let group = LodGroup::new(4.0, vec![]).with_center(vec3(0.0, 2.0, 0.0));
     /// assert_eq!(group.center.y, 2.0);
     /// ```
@@ -322,7 +322,7 @@ impl LodGroup {
     /// To turn distances into thresholds.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// // At 10 m a 60 degree lens sees 11.5 m of height: 2 m is 17% of it.
     /// let h = LodGroup::screen_height_at(2.0, 10.0, 60f32.to_radians());
     /// assert!((h - 0.1732).abs() < 1e-3);
@@ -336,7 +336,7 @@ impl LodGroup {
     /// the screen: the inverse of [`screen_height_at`](Self::screen_height_at).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let fov = 60f32.to_radians();
     /// let d = LodGroup::distance_at(2.0, 0.1732, fov);
     /// assert!((d - 10.0).abs() < 0.01);
@@ -350,7 +350,7 @@ impl LodGroup {
     /// `camera` with the group at `transform`, before any bias.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let group = LodGroup::new(2.0, vec![]);
     ///     ctx.camera3d.position = vec3(0.0, 0.0, 10.0);
@@ -370,7 +370,7 @@ impl LodGroup {
     /// `settings`.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let group = LodGroup::new(1.0, vec![LodLevel::new(0.5, vec![]), LodLevel::new(0.1, vec![])]);
     /// let settings = LodSettings::default();
     /// assert_eq!(group.pick(0.7, &settings), LodPick::Level(0));
@@ -410,7 +410,7 @@ impl LodGroup {
     /// [`pick`](Self::pick) for this group at `transform`, seen from `camera`.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let group = LodGroup::new(2.0, vec![LodLevel::new(0.1, vec![])]);
     ///     // The camera starts 8 m from the origin, looking at it.

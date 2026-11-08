@@ -1,7 +1,7 @@
 //! [`SpatialGrid`]: fast "who is near this point?" queries for huge numbers of entities.
 
-use crabby_ecs::{Entity, World};
 use glam::Vec2;
+use ponko_ecs::{Entity, World};
 
 use crate::ctx::Ctx;
 use crate::ecs::Transform2D;
@@ -29,7 +29,7 @@ pub struct GridEntry<T = ()> {
 /// (parallel) query:
 ///
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 ///
 /// struct Unit;
 /// struct Crowded(bool);
@@ -72,7 +72,7 @@ pub struct GridEntry<T = ()> {
 /// such a grid in your system's closure:
 ///
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 ///
 /// struct Vel(Vec2);
 ///
@@ -357,7 +357,7 @@ impl<T: Copy + Send + Sync> SpatialGrid<T> {
     /// returns `true` (use it to skip yourself or pick a team), if any.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(grid: &SpatialGrid, me: Entity, pos: Vec2) {
     /// let target = grid.nearest(pos, 200.0, |e| e.entity != me);
     /// # }
@@ -390,7 +390,7 @@ fn cell_of(p: Vec2, inv_cell: f32) -> (i32, i32) {
 /// neighbors sit next to each other in memory:
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
 /// ctx.world.sort_by::<Transform2D>(|t| spatial_key(t.position, 32.0));
 /// # }

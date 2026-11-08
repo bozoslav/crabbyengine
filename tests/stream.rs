@@ -4,7 +4,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crabbyengine::*;
+use ponko::*;
 
 #[test]
 fn jobs_run_off_the_calling_thread() {

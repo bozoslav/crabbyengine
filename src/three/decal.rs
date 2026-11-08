@@ -38,7 +38,7 @@ impl MeshData {
     /// It's empty when the box misses the mesh.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// // A 4 x 4 m floor facing up.
     /// let floor = MeshData::plane(4.0);
     /// // A 0.5 m scorch mark at (1, 0, 0), projected from above (the box's

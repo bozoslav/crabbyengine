@@ -10,7 +10,7 @@
 //! `HEADLESS=1` drives it by script instead, without a window, and checks
 //! that it speeds up, turns and stops.
 
-use crabbyengine::*;
+use ponko::*;
 
 const N: usize = 129;
 const SIZE: f32 = 512.0;

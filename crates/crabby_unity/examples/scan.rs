@@ -1,11 +1,11 @@
 //! Parses every Unity text asset of a project and reports what failed:
 //!
-//!   cargo run --release -p crabby_unity --example scan -- <project folder>
+//!   cargo run --release -p ponko_unity --example scan -- <project folder>
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use crabby_unity::{Hierarchy, Project, UnityFile, UnityMesh, Value};
+use ponko_unity::{Hierarchy, Project, UnityFile, UnityMesh, Value};
 
 fn files(dir: &Path, out: &mut Vec<PathBuf>) {
     for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {

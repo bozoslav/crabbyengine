@@ -32,15 +32,15 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev libudev-dev
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build --release -p crabby_ffi
+      - run: cargo build --release -p ponko_ffi
       - name: Package
         shell: bash
         run: |
-          dir="crabby-${GITHUB_REF_NAME}-${{ matrix.name }}"
+          dir="ponko-${GITHUB_REF_NAME}-${{ matrix.name }}"
           mkdir -p "$dir/include" "$dir/lib"
           cp include/crabby.h include/crabby.hpp "$dir/include/"
           cp LICENSE-MIT LICENSE-APACHE NOTICE "$dir/"
-          for f in libcrabby_ffi.a libcrabby_ffi.so libcrabby_ffi.dylib crabby_ffi.lib crabby_ffi.dll crabby_ffi.dll.lib; do
+          for f in libponko_ffi.a libponko_ffi.so libponko_ffi.dylib ponko_ffi.lib ponko_ffi.dll ponko_ffi.dll.lib; do
             if [ -f "target/release/$f" ]; then cp "target/release/$f" "$dir/lib/"; fi
           done
           ls -R "$dir"
@@ -52,7 +52,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
-          path: crabby-*.*z*
+          path: ponko-*.*z*
 
   github-release:
     name: GitHub release
@@ -74,7 +74,7 @@ jobs:
             on { print }
           ' CHANGELOG.md > notes.md
           test -s notes.md || { echo "CHANGELOG.md has no section for $version"; exit 1; }
-      - run: gh release create "$GITHUB_REF_NAME" dist/* --title "Crabby Engine ${GITHUB_REF_NAME#v}" --notes-file notes.md
+      - run: gh release create "$GITHUB_REF_NAME" dist/* --title "Ponko ${GITHUB_REF_NAME#v}" --notes-file notes.md
         env:
           GH_TOKEN: ${{ github.token }}
 

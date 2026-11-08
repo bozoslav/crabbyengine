@@ -2,7 +2,7 @@
 //! input as bytes, read everyone's.
 use std::ffi::{c_char, c_void};
 
-use crabbyengine::{Net, NetState};
+use ponko::{Net, NetState};
 
 use crate::ctx::{CrabbyCtx, ctx_access, out, text};
 use crate::game::build;
@@ -10,7 +10,7 @@ use crate::{CrabbyGame, CrabbyStatus, Failure, boundary, invalid};
 
 /// Where a lockstep session is (`crabby_ctx_net_state`).
 /// ```
-/// assert_eq!(crabby_ffi::CrabbyNetState::CRABBY_NET_RUNNING as u32, 2);
+/// assert_eq!(ponko_ffi::CrabbyNetState::CRABBY_NET_RUNNING as u32, 2);
 /// ```
 #[repr(C)]
 #[allow(non_camel_case_types)]
@@ -46,7 +46,7 @@ unsafe fn session(game: *mut CrabbyGame, net: Option<Net>, status: CrabbyStatus)
 /// # Safety
 /// Live game; `addr` NUL-terminated; `out_port` null or writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_game_lockstep_host(std::ptr::null_mut(), c"127.0.0.1:0".as_ptr(), 2, 3, 60, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_game_lockstep_host(std::ptr::null_mut(), c"127.0.0.1:0".as_ptr(), 2, 3, 60, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_game_lockstep_host(
@@ -86,7 +86,7 @@ pub unsafe extern "C" fn crabby_game_lockstep_host(
 /// # Safety
 /// Live game; `addr` NUL-terminated.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_game_lockstep_join(std::ptr::null_mut(), c"127.0.0.1:7777".as_ptr()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_game_lockstep_join(std::ptr::null_mut(), c"127.0.0.1:7777".as_ptr()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_game_lockstep_join(game: *mut CrabbyGame, addr: *const c_char) -> CrabbyStatus {
@@ -114,7 +114,7 @@ impl From<std::io::Error> for Failure {
 /// # Safety
 /// Live ctx; writable outputs.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_net_player(std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_net_player(std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_net_player(
@@ -139,7 +139,7 @@ pub unsafe extern "C" fn crabby_ctx_net_player(
 /// # Safety
 /// Live ctx; writable output.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_net_state(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_net_state(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_net_state(ctx: *mut CrabbyCtx, out_state: *mut u32) -> CrabbyStatus {
@@ -166,12 +166,12 @@ pub unsafe extern "C" fn crabby_ctx_net_state(ctx: *mut CrabbyCtx, out_state: *m
 /// # Safety
 /// Live ctx; `data` readable for `size` bytes.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_input(std::ptr::null_mut(), std::ptr::null(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_input(std::ptr::null_mut(), std::ptr::null(), 0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_set_input(ctx: *mut CrabbyCtx, data: *const c_void, size: usize) -> CrabbyStatus {
     boundary(|| {
-        if size > crabbyengine::MAX_INPUT_BYTES {
+        if size > ponko::MAX_INPUT_BYTES {
             return Err(invalid("input is over 1024 bytes"));
         }
         if data.is_null() && size != 0 {
@@ -198,7 +198,7 @@ pub unsafe extern "C" fn crabby_ctx_set_input(ctx: *mut CrabbyCtx, data: *const 
 /// # Safety
 /// Live ctx; writable outputs.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_input(std::ptr::null_mut(), 0, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_input(std::ptr::null_mut(), 0, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_input(
@@ -230,7 +230,7 @@ pub unsafe extern "C" fn crabby_ctx_input(
 /// # Safety
 /// Live ctx; writable outputs.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_net_desync(std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_net_desync(std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_net_desync(

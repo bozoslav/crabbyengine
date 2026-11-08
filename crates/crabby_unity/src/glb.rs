@@ -260,7 +260,7 @@ pub(crate) fn write(
         w.bin.push(0);
     }
     let mut doc = json!({
-        "asset": { "version": "2.0", "generator": "crabby_unity" },
+        "asset": { "version": "2.0", "generator": "ponko_unity" },
         "scene": 0,
         "scenes": [{ "nodes": [0] }],
         "nodes": [{ "mesh": 0, "name": name }],

@@ -17,9 +17,9 @@
 //! systems at reduced rates (`sim_system_every`), entities taking turns
 //! (`ctx.turns`), components that refer to other entities (`Ant::home`),
 //! and reflection, so agents can inspect and save a running colony through
-//! `crabby-mcp`.
+//! `ponko-mcp`.
 
-use crabbyengine::*;
+use ponko::*;
 use serde::{Deserialize, Serialize};
 
 /// Ants per colony at the start; the world has one nest per this many ants.

@@ -1,5 +1,5 @@
 //! Nav grids and flow fields through the C API.
-use crabby_ffi::*;
+use ponko_ffi::*;
 use std::mem::MaybeUninit;
 use std::ptr::{null, null_mut};
 

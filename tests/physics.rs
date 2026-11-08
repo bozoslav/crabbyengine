@@ -1,7 +1,7 @@
 //! 2D physics (feature `physics`): bodies, colliders, events, queries.
 #![cfg(feature = "physics")]
 
-use crabbyengine::*;
+use ponko::*;
 
 const GRAVITY: Vec2 = Vec2::new(0.0, 980.0);
 

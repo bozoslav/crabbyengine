@@ -12,7 +12,7 @@
 //! Shows: `NavGrid` and `FlowField` (one search shared by every agent),
 //! looked up from `par_for_each`, recomputed when the goal moves.
 
-use crabbyengine::*;
+use ponko::*;
 use serde::{Deserialize, Serialize};
 
 /// World units per grid cell.

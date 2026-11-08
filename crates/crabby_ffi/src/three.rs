@@ -3,7 +3,7 @@
 //! the sun.
 use std::ffi::c_char;
 
-use crabbyengine::{
+use ponko::{
     AmbientOcclusion, AntiAliasing, Blend, Camera3D, Color, Compute, ComputePass, Decal3D, Effect, GlobalIllumination,
     GpuBuffer, GraphicsQuality, Lighting, LodGroup, LodLevel, LodPick, LodRenderer, LodSettings, LodShadow,
     MAX_GI_PROBES_PER_FRAME, MAX_LIGHT_SHADOW_VIEWS, MAX_RENDER_SCALE, MIN_RENDER_SCALE, Material, MaterialDesc, Mesh,
@@ -18,7 +18,7 @@ use crate::{CrabbyCtx, CrabbyStatus, CrabbyWorld, boundary, builtin, invalid, in
 
 /// A point or direction in 3D: right-handed, +Y up.
 /// ```
-/// let up = crabby_ffi::CrabbyVec3 { x: 0.0, y: 1.0, z: 0.0 };
+/// let up = ponko_ffi::CrabbyVec3 { x: 0.0, y: 1.0, z: 0.0 };
 /// assert_eq!(up.y, 1.0);
 /// ```
 #[repr(C)]
@@ -35,7 +35,7 @@ pub struct CrabbyVec3 {
 /// A rotation (unit quaternion). `{0, 0, 0, 1}` is none; make others with
 /// `crabby_quat_from_axis_angle`.
 /// ```
-/// let none = crabby_ffi::crabby_quat_identity();
+/// let none = ponko_ffi::crabby_quat_identity();
 /// assert_eq!(none.w, 1.0);
 /// ```
 #[repr(C)]
@@ -55,7 +55,7 @@ pub struct CrabbyQuat {
 /// last 8 unused): a plain value and a query column. Start from
 /// `crabby_transform3d_at`.
 /// ```
-/// let t = crabby_ffi::crabby_transform3d_at(Default::default());
+/// let t = ponko_ffi::crabby_transform3d_at(Default::default());
 /// assert_eq!((t.scale.x, t.rotation.w), (1.0, 1.0));
 /// ```
 #[repr(C)]
@@ -74,7 +74,7 @@ pub struct CrabbyTransform3D {
 /// Entity PointLight3D: position from its transform; spots point along local -Z.
 /// Angles are half angles in radians. Range ignores transform scale.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// assert!(std::mem::size_of::<CrabbyPointLight3D>() >= 24);
 /// ```
 #[repr(C)]
@@ -98,7 +98,7 @@ pub struct CrabbyPointLight3D {
 /// Entity SpotLight3D: position from its transform; spots point along local -Z.
 /// Angles are half angles in radians. Range ignores transform scale.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// assert!(std::mem::size_of::<CrabbySpotLight3D>() >= 24);
 /// ```
 #[repr(C)]
@@ -123,7 +123,7 @@ pub struct CrabbySpotLight3D {
 
 /// A mesh on the GPU (`crabby_ctx_create_mesh`, `crabby_ctx_load_mesh`).
 /// ```
-/// let m = crabby_ffi::CrabbyMesh { id: 0 };
+/// let m = ponko_ffi::CrabbyMesh { id: 0 };
 /// assert_eq!(m.id, 0);
 /// ```
 #[repr(C)]
@@ -136,13 +136,13 @@ pub struct CrabbyMesh {
 /// `CrabbyMesh` id of no mesh (Rust `Mesh::NONE`): a model showing it draws
 /// nothing, and no mesh is ever made with it, unlike a freed mesh's id.
 /// ```
-/// assert_eq!(crabby_ffi::CRABBY_MESH_NONE, u32::MAX);
+/// assert_eq!(ponko_ffi::CRABBY_MESH_NONE, u32::MAX);
 /// ```
 pub const CRABBY_MESH_NONE: u32 = u32::MAX;
 
 /// A material (`crabby_ctx_create_material`).
 /// ```
-/// let m = crabby_ffi::CrabbyMaterial { id: 0 };
+/// let m = ponko_ffi::CrabbyMaterial { id: 0 };
 /// assert_eq!(m.id, 0);
 /// ```
 #[repr(C)]
@@ -156,7 +156,7 @@ pub struct CrabbyMaterial {
 /// `CrabbyTransform3D` is, its materials' colors times `color`. A plain
 /// value and a query column. Start from `crabby_model`.
 /// ```
-/// let m = crabby_ffi::crabby_model(crabby_ffi::CrabbyMesh { id: 3 });
+/// let m = ponko_ffi::crabby_model(ponko_ffi::CrabbyMesh { id: 3 });
 /// assert_eq!((m.mesh.id, m.color.r), (3, 1.0));
 /// ```
 #[repr(C)]
@@ -173,8 +173,8 @@ pub struct CrabbyModel {
 /// `CrabbyTransform3D` at its corner instead of a `CrabbyModel`. Made with
 /// `crabby_ctx_create_terrain_tile`.
 /// ```
-/// let t = crabby_ffi::CrabbyTerrainTile { lods: [crabby_ffi::CrabbyMesh { id: 0 }; 4], lod_distance: 256.0 };
-/// assert_eq!(t.lods.len(), crabby_ffi::CRABBY_TERRAIN_LODS);
+/// let t = ponko_ffi::CrabbyTerrainTile { lods: [ponko_ffi::CrabbyMesh { id: 0 }; 4], lod_distance: 256.0 };
+/// assert_eq!(t.lods.len(), ponko_ffi::CRABBY_TERRAIN_LODS);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -193,7 +193,7 @@ const _: () = assert!(CRABBY_TERRAIN_LODS == TERRAIN_LODS);
 
 /// A compute pass shader (`crabby_ctx_load_compute`, `crabby_ctx_create_compute`).
 /// ```
-/// let c = crabby_ffi::CrabbyCompute { id: 0 };
+/// let c = ponko_ffi::CrabbyCompute { id: 0 };
 /// assert_eq!(c.id, 0);
 /// ```
 #[repr(C)]
@@ -207,10 +207,10 @@ pub struct CrabbyCompute {
 /// render target it updates, and the material its custom values and
 /// textures come from (the default material without one).
 /// ```
-/// let p = crabby_ffi::CrabbyComputePass {
+/// let p = ponko_ffi::CrabbyComputePass {
 ///     has_buffer: false, buffer: Default::default(),
-///     compute: crabby_ffi::CrabbyCompute { id: 0 },
-///     target: crabby_ffi::CrabbyTexture { id: 0, width: 8, height: 8 },
+///     compute: ponko_ffi::CrabbyCompute { id: 0 },
+///     target: ponko_ffi::CrabbyTexture { id: 0, width: 8, height: 8 },
 ///     has_material: false,
 ///     material: Default::default(),
 /// };
@@ -235,7 +235,7 @@ pub struct CrabbyComputePass {
 
 /// A screen effect shader (`crabby_ctx_load_effect`, `crabby_ctx_create_effect`).
 /// ```
-/// let e = crabby_ffi::CrabbyEffect { id: 0 };
+/// let e = ponko_ffi::CrabbyEffect { id: 0 };
 /// assert_eq!(e.id, 0);
 /// ```
 #[repr(C)]
@@ -249,7 +249,7 @@ pub struct CrabbyEffect {
 /// its shader, and the material its custom values and textures come from
 /// (the default material without one).
 /// ```
-/// let s = crabby_ffi::CrabbyScreenEffect { effect: crabby_ffi::CrabbyEffect { id: 0 }, has_material: false, material: Default::default() };
+/// let s = ponko_ffi::CrabbyScreenEffect { effect: ponko_ffi::CrabbyEffect { id: 0 }, has_material: false, material: Default::default() };
 /// assert!(!s.has_material);
 /// ```
 #[repr(C)]
@@ -268,9 +268,9 @@ pub struct CrabbyScreenEffect {
 /// the normal, `w` the offset: kept where `normal . p + w >= 0`) is drawn,
 /// when `has_clip_plane`.
 /// ```
-/// let t = crabby_ffi::CrabbyTargetCamera {
-///     camera: crabby_ffi::CrabbyCamera3D { position: Default::default(), rotation: crabby_ffi::crabby_quat_identity(), fov_y: 1.0, near: 0.1, far: 100.0 },
-///     target: crabby_ffi::CrabbyTexture { id: 0, width: 64, height: 64 },
+/// let t = ponko_ffi::CrabbyTargetCamera {
+///     camera: ponko_ffi::CrabbyCamera3D { position: Default::default(), rotation: ponko_ffi::crabby_quat_identity(), fov_y: 1.0, near: 0.1, far: 100.0 },
+///     target: ponko_ffi::CrabbyTexture { id: 0, width: 64, height: 64 },
 ///     has_clip_plane: false,
 ///     clip_plane: [0.0; 4],
 /// };
@@ -291,7 +291,7 @@ pub struct CrabbyTargetCamera {
 
 /// A material shader (`crabby_ctx_load_shader`, `crabby_ctx_create_shader`).
 /// ```
-/// let s = crabby_ffi::CrabbyShader { id: 0 };
+/// let s = ponko_ffi::CrabbyShader { id: 0 };
 /// assert_eq!(s.id, 0);
 /// ```
 #[repr(C)]
@@ -305,7 +305,7 @@ pub struct CrabbyShader {
 /// `crabby_material_desc`. Each texture is used when its `has_` flag is set.
 /// `blend`: 0 opaque, 1 transparent.
 /// ```
-/// let d = crabby_ffi::crabby_material_desc(crabby_ffi::CrabbyColor { r: 1.0, g: 0.0, b: 0.0, a: 1.0 });
+/// let d = ponko_ffi::crabby_material_desc(ponko_ffi::CrabbyColor { r: 1.0, g: 0.0, b: 0.0, a: 1.0 });
 /// assert_eq!((d.roughness, d.metallic, d.has_texture, d.normal_strength), (0.6, 0.0, false, 1.0));
 /// ```
 #[repr(C)]
@@ -360,7 +360,7 @@ pub struct CrabbyMaterialDesc {
 /// Several images of the same size in one texture (Rust `TextureArray`),
 /// from `crabby_ctx_create_texture_array` or `crabby_ctx_load_texture_array`.
 /// ```
-/// let a = crabby_ffi::CrabbyTextureArray { id: 0, width: 64, height: 64, layers: 3 };
+/// let a = ponko_ffi::CrabbyTextureArray { id: 0, width: 64, height: 64, layers: 3 };
 /// assert_eq!(a.layers, 3);
 /// ```
 #[repr(C)]
@@ -379,8 +379,8 @@ pub struct CrabbyTextureArray {
 /// What a terrain material is made from (Rust `TerrainMaterialDesc`):
 /// ground layers and a weight map. Start from `crabby_terrain_material_desc`.
 /// ```
-/// let a = crabby_ffi::CrabbyTextureArray::default();
-/// let d = crabby_ffi::crabby_terrain_material_desc(a, a, Default::default(), crabby_ffi::CrabbyVec2 { x: 256.0, y: 256.0 });
+/// let a = ponko_ffi::CrabbyTextureArray::default();
+/// let d = ponko_ffi::crabby_terrain_material_desc(a, a, Default::default(), ponko_ffi::CrabbyVec2 { x: 256.0, y: 256.0 });
 /// assert_eq!(d.roughness, 0.9);
 /// ```
 #[repr(C)]
@@ -419,7 +419,7 @@ const _: () =
 
 /// The 3D camera (Rust `ctx.camera3d`).
 /// ```
-/// let c = crabby_ffi::CrabbyCamera3D { position: Default::default(), rotation: crabby_ffi::crabby_quat_identity(), fov_y: 1.0, near: 0.1, far: 100.0 };
+/// let c = ponko_ffi::CrabbyCamera3D { position: Default::default(), rotation: ponko_ffi::crabby_quat_identity(), fov_y: 1.0, near: 0.1, far: 100.0 };
 /// assert!(c.near < c.far);
 /// ```
 #[repr(C)]
@@ -439,8 +439,8 @@ pub struct CrabbyCamera3D {
 
 /// The sun and the sky's light (Rust `ctx.lighting`).
 /// ```
-/// let mut l = std::mem::MaybeUninit::<crabby_ffi::CrabbyLighting>::uninit();
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_lighting(std::ptr::null_mut(), l.as_mut_ptr()) } as u32, 1);
+/// let mut l = std::mem::MaybeUninit::<ponko_ffi::CrabbyLighting>::uninit();
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_lighting(std::ptr::null_mut(), l.as_mut_ptr()) } as u32, 1);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -504,8 +504,8 @@ pub struct CrabbyLighting {
 /// The sky behind the 3D world and the fog in front of it (Rust
 /// `ctx.sky`, `Sky`).
 /// ```
-/// let mut s = std::mem::MaybeUninit::<crabby_ffi::CrabbySky>::uninit();
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_sky(std::ptr::null_mut(), s.as_mut_ptr()) } as u32, 1);
+/// let mut s = std::mem::MaybeUninit::<ponko_ffi::CrabbySky>::uninit();
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_sky(std::ptr::null_mut(), s.as_mut_ptr()) } as u32, 1);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -544,7 +544,7 @@ pub struct CrabbySky {
 /// (Rust `Sky::sun_direction_at`): rising in the east (+X) at 6, highest
 /// at noon, setting in the west at 18.
 /// ```
-/// assert!(crabby_ffi::crabby_sun_direction_at(12.0).y < -0.8);
+/// assert!(ponko_ffi::crabby_sun_direction_at(12.0).y < -0.8);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_sun_direction_at(hour: f32) -> CrabbyVec3 {
@@ -555,8 +555,8 @@ pub extern "C" fn crabby_sun_direction_at(hour: f32) -> CrabbyVec3 {
 /// `ctx.post`). `tonemap`: 0 ACES (default), 1 AgX, 2 Khronos PBR Neutral,
 /// 3 none. `lut` is used when `has_lut`.
 /// ```
-/// let mut p = std::mem::MaybeUninit::<crabby_ffi::CrabbyPost>::uninit();
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_post(std::ptr::null_mut(), p.as_mut_ptr()) } as u32, 1);
+/// let mut p = std::mem::MaybeUninit::<ponko_ffi::CrabbyPost>::uninit();
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_post(std::ptr::null_mut(), p.as_mut_ptr()) } as u32, 1);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -630,7 +630,7 @@ pub struct CrabbyMeshData(pub(crate) MeshData);
 /// A read-only look at a `CrabbyMeshData`'s arrays, valid until it's freed.
 /// `normals` and `uvs` are null when it has none.
 /// ```
-/// let v = crabby_ffi::CrabbyMeshView { positions: std::ptr::null(), normals: std::ptr::null(), uvs: std::ptr::null(), vertex_count: 0, indices: std::ptr::null(), index_count: 0 };
+/// let v = ponko_ffi::CrabbyMeshView { positions: std::ptr::null(), normals: std::ptr::null(), uvs: std::ptr::null(), vertex_count: 0, indices: std::ptr::null(), index_count: 0 };
 /// assert_eq!(v.index_count, 0);
 /// ```
 #[repr(C)]
@@ -699,7 +699,7 @@ pub(crate) fn transform_from_c(t: CrabbyTransform3D) -> Transform3D {
 
 /// No rotation.
 /// ```
-/// assert_eq!(crabby_ffi::crabby_quat_identity().w, 1.0);
+/// assert_eq!(ponko_ffi::crabby_quat_identity().w, 1.0);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_quat_identity() -> CrabbyQuat {
@@ -709,7 +709,7 @@ pub extern "C" fn crabby_quat_identity() -> CrabbyQuat {
 /// A rotation of `angle` radians around `axis` (counter-clockwise looking
 /// down the axis). A zero axis gives no rotation.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let q = crabby_quat_from_axis_angle(CrabbyVec3 { x: 0.0, y: 1.0, z: 0.0 }, 0.5);
 /// assert!((q.y - 0.25f32.sin()).abs() < 1e-6);
 /// ```
@@ -723,7 +723,7 @@ pub extern "C" fn crabby_quat_from_axis_angle(axis: CrabbyVec3, angle: f32) -> C
 
 /// `a` after `b`: rotating by the result is rotating by `b`, then by `a`.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let y = CrabbyVec3 { x: 0.0, y: 1.0, z: 0.0 };
 /// let q = crabby_quat_mul(crabby_quat_from_axis_angle(y, 0.2), crabby_quat_from_axis_angle(y, 0.3));
 /// assert!((q.y - crabby_quat_from_axis_angle(y, 0.5).y).abs() < 1e-6);
@@ -735,7 +735,7 @@ pub extern "C" fn crabby_quat_mul(a: CrabbyQuat, b: CrabbyQuat) -> CrabbyQuat {
 
 /// `v` rotated by `q`.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let q = crabby_quat_from_axis_angle(CrabbyVec3 { x: 0.0, y: 1.0, z: 0.0 }, std::f32::consts::FRAC_PI_2);
 /// let v = crabby_quat_rotate(q, CrabbyVec3 { x: 1.0, y: 0.0, z: 0.0 });
 /// assert!((v.z + 1.0).abs() < 1e-6);
@@ -747,7 +747,7 @@ pub extern "C" fn crabby_quat_rotate(q: CrabbyQuat, v: CrabbyVec3) -> CrabbyVec3
 
 /// A transform at `position`, not rotated, scale 1 (Rust `Transform3D::at`).
 /// ```
-/// let t = crabby_ffi::crabby_transform3d_at(crabby_ffi::CrabbyVec3 { x: 1.0, y: 2.0, z: 3.0 });
+/// let t = ponko_ffi::crabby_transform3d_at(ponko_ffi::CrabbyVec3 { x: 1.0, y: 2.0, z: 3.0 });
 /// assert_eq!(t.position.z, 3.0);
 /// ```
 #[unsafe(no_mangle)]
@@ -758,7 +758,7 @@ pub extern "C" fn crabby_transform3d_at(position: CrabbyVec3) -> CrabbyTransform
 /// `t` turned so its -Z axis points at `target`, +Y up
 /// (Rust `Transform3D::looking_at`).
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let t = crabby_transform3d_looking_at(crabby_transform3d_at(CrabbyVec3 { x: 0.0, y: 0.0, z: 5.0 }), Default::default());
 /// assert!((crabby_transform3d_forward(t).z + 1.0).abs() < 1e-5);
 /// ```
@@ -769,7 +769,7 @@ pub extern "C" fn crabby_transform3d_looking_at(t: CrabbyTransform3D, target: Cr
 
 /// The direction `t` faces: its -Z axis.
 /// ```
-/// let f = crabby_ffi::crabby_transform3d_forward(crabby_ffi::crabby_transform3d_at(Default::default()));
+/// let f = ponko_ffi::crabby_transform3d_forward(ponko_ffi::crabby_transform3d_at(Default::default()));
 /// assert_eq!(f.z, -1.0);
 /// ```
 #[unsafe(no_mangle)]
@@ -779,7 +779,7 @@ pub extern "C" fn crabby_transform3d_forward(t: CrabbyTransform3D) -> CrabbyVec3
 
 /// A model of `mesh` in its own colors (Rust `Model::new`).
 /// ```
-/// assert_eq!(crabby_ffi::crabby_model(crabby_ffi::CrabbyMesh { id: 1 }).color.a, 1.0);
+/// assert_eq!(ponko_ffi::crabby_model(ponko_ffi::CrabbyMesh { id: 1 }).color.a, 1.0);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_model(mesh: CrabbyMesh) -> CrabbyModel {
@@ -789,7 +789,7 @@ pub extern "C" fn crabby_model(mesh: CrabbyMesh) -> CrabbyModel {
 /// A plain material of one color (Rust `MaterialDesc::color`): roughness
 /// 0.6, not metallic, no texture, no glow.
 /// ```
-/// let d = crabby_ffi::crabby_material_desc(crabby_ffi::CrabbyColor { r: 1.0, g: 1.0, b: 1.0, a: 1.0 });
+/// let d = ponko_ffi::crabby_material_desc(ponko_ffi::CrabbyColor { r: 1.0, g: 1.0, b: 1.0, a: 1.0 });
 /// assert_eq!(d.emissive.r, 0.0);
 /// ```
 #[unsafe(no_mangle)]
@@ -804,7 +804,7 @@ fn material_to_c(d: &MaterialDesc) -> CrabbyMaterialDesc {
         width: 0,
         height: 0,
     };
-    let map = |t: Option<crabbyengine::Texture>| (t.is_some(), t.map_or(none, texture_to_c));
+    let map = |t: Option<ponko::Texture>| (t.is_some(), t.map_or(none, texture_to_c));
     let (has_texture, texture) = map(d.texture);
     let (has_normal_map, normal_map) = map(d.normal_map);
     let (has_orm_map, orm_map) = map(d.orm_map);
@@ -849,7 +849,7 @@ fn material_to_c(d: &MaterialDesc) -> CrabbyMaterialDesc {
 }
 
 /// A C material description as Rust's, checked.
-fn material_from_c(c: &crabbyengine::Ctx, d: &CrabbyMaterialDesc) -> Result<MaterialDesc, crate::Failure> {
+fn material_from_c(c: &ponko::Ctx, d: &CrabbyMaterialDesc) -> Result<MaterialDesc, crate::Failure> {
     if !((0.0..=1.0).contains(&d.roughness) && (0.0..=1.0).contains(&d.metallic)) {
         return Err(invalid("roughness and metallic go from 0 to 1"));
     }
@@ -917,8 +917,8 @@ fn array_to_c(a: TextureArray) -> CrabbyTextureArray {
 /// lying over `size` world units from `corner`, no normal maps, each layer
 /// repeating every 4 units, roughness 0.9.
 /// ```
-/// let a = crabby_ffi::CrabbyTextureArray::default();
-/// let d = crabby_ffi::crabby_terrain_material_desc(a, a, Default::default(), crabby_ffi::CrabbyVec2 { x: 1.0, y: 1.0 });
+/// let a = ponko_ffi::CrabbyTextureArray::default();
+/// let d = ponko_ffi::crabby_terrain_material_desc(a, a, Default::default(), ponko_ffi::CrabbyVec2 { x: 1.0, y: 1.0 });
 /// assert_eq!(d.layer_size[7], 4.0);
 /// ```
 #[unsafe(no_mangle)]
@@ -949,7 +949,7 @@ pub extern "C" fn crabby_terrain_material_desc(
 /// # Safety
 /// `ctx` null or live; `rgba` holds `len` bytes; output writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_create_texture_array(std::ptr::null_mut(), 1, 1, std::ptr::null(), 0, 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_create_texture_array(std::ptr::null_mut(), 1, 1, std::ptr::null(), 0, 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_create_texture_array(
@@ -990,7 +990,7 @@ pub unsafe extern "C" fn crabby_ctx_create_texture_array(
 /// # Safety
 /// `ctx` null or live; `paths` holds `count` NUL-terminated strings; output writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_load_texture_array(std::ptr::null_mut(), std::ptr::null(), 0, 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_load_texture_array(std::ptr::null_mut(), std::ptr::null(), 0, 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_load_texture_array(
@@ -1032,7 +1032,7 @@ fn kind_from_c(kind: u32) -> Result<TextureKind, crate::Failure> {
 /// # Safety
 /// `ctx` null or live; `desc` readable; output writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_create_terrain_material(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_create_terrain_material(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_create_terrain_material(
@@ -1072,7 +1072,7 @@ pub unsafe extern "C" fn crabby_ctx_create_terrain_material(
 /// # Safety
 /// Live handle and writable output.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// unsafe { let mut id = 99; assert_eq!(crabby_transform3d_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
 /// ```
@@ -1087,7 +1087,7 @@ pub unsafe extern "C" fn crabby_transform3d_component(world: *mut CrabbyWorld, o
 /// # Safety
 /// Live handle and writable output.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// unsafe { let mut id = 99; assert_eq!(crabby_model_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
 /// ```
@@ -1102,7 +1102,7 @@ pub unsafe extern "C" fn crabby_model_component(world: *mut CrabbyWorld, out_id:
 /// # Safety
 /// Live handle and writable output.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// unsafe { let mut id = 99; assert_eq!(crabby_terrain_tile_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
 /// ```
@@ -1126,7 +1126,7 @@ fn boxed(data: MeshData) -> *mut CrabbyMeshData {
 /// # Safety
 /// Non-null arrays hold the stated counts.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let p = [CrabbyVec3 { x: 0.0, y: 0.0, z: 0.0 }, CrabbyVec3 { x: 1.0, y: 0.0, z: 0.0 }, CrabbyVec3 { x: 0.0, y: 1.0, z: 0.0 }];
 /// let d = unsafe { crabby_mesh_data_new(p.as_ptr(), std::ptr::null(), std::ptr::null(), 3, [0, 1, 2].as_ptr(), 3) };
 /// assert!(!d.is_null());
@@ -1185,8 +1185,8 @@ pub unsafe extern "C" fn crabby_mesh_data_new(
 
 /// A cube `size` wide around the origin (Rust `MeshData::cube`).
 /// ```
-/// let d = crabby_ffi::crabby_mesh_data_cube(1.0);
-/// unsafe { crabby_ffi::crabby_mesh_data_free(d) };
+/// let d = ponko_ffi::crabby_mesh_data_cube(1.0);
+/// unsafe { ponko_ffi::crabby_mesh_data_free(d) };
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_mesh_data_cube(size: f32) -> *mut CrabbyMeshData {
@@ -1195,8 +1195,8 @@ pub extern "C" fn crabby_mesh_data_cube(size: f32) -> *mut CrabbyMeshData {
 
 /// A flat square `size` wide on the XZ plane, facing up (Rust `MeshData::plane`).
 /// ```
-/// let d = crabby_ffi::crabby_mesh_data_plane(10.0);
-/// unsafe { crabby_ffi::crabby_mesh_data_free(d) };
+/// let d = ponko_ffi::crabby_mesh_data_plane(10.0);
+/// unsafe { ponko_ffi::crabby_mesh_data_free(d) };
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_mesh_data_plane(size: f32) -> *mut CrabbyMeshData {
@@ -1206,8 +1206,8 @@ pub extern "C" fn crabby_mesh_data_plane(size: f32) -> *mut CrabbyMeshData {
 /// A sphere of `radius` from `segments` slices around (at least 3; Rust
 /// `MeshData::sphere`).
 /// ```
-/// let d = crabby_ffi::crabby_mesh_data_sphere(0.5, 24);
-/// unsafe { crabby_ffi::crabby_mesh_data_free(d) };
+/// let d = ponko_ffi::crabby_mesh_data_sphere(0.5, 24);
+/// unsafe { ponko_ffi::crabby_mesh_data_free(d) };
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_mesh_data_sphere(radius: f32, segments: u32) -> *mut CrabbyMeshData {
@@ -1228,10 +1228,10 @@ pub(crate) fn square_grid(count: usize) -> bool {
 /// `heights` holds `count` floats.
 /// ```
 /// let h = [0.0f32, 0.0, 0.0, 1.0];
-/// let d = unsafe { crabby_ffi::crabby_mesh_data_heightfield(h.as_ptr(), 4, 2.0, 1) };
+/// let d = unsafe { ponko_ffi::crabby_mesh_data_heightfield(h.as_ptr(), 4, 2.0, 1) };
 /// assert!(!d.is_null());
-/// assert!(unsafe { crabby_ffi::crabby_mesh_data_heightfield(h.as_ptr(), 3, 2.0, 1) }.is_null());
-/// unsafe { crabby_ffi::crabby_mesh_data_free(d) };
+/// assert!(unsafe { ponko_ffi::crabby_mesh_data_heightfield(h.as_ptr(), 3, 2.0, 1) }.is_null());
+/// unsafe { ponko_ffi::crabby_mesh_data_free(d) };
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_mesh_data_heightfield(
@@ -1254,7 +1254,7 @@ pub unsafe extern "C" fn crabby_mesh_data_heightfield(
 /// # Safety
 /// `data` null or live; `colors` holds `count` colors (may be null when 0).
 /// ```
-/// use crabby_ffi::{CrabbyStatus::*, *};
+/// use ponko_ffi::{CrabbyStatus::*, *};
 /// let d = crabby_mesh_data_plane(1.0);
 /// let red = [CrabbyColor { r: 1.0, g: 0.0, b: 0.0, a: 1.0 }; 4];
 /// assert_eq!(unsafe { crabby_mesh_data_set_colors(d, red.as_ptr(), 4) }, CRABBY_OK);
@@ -1298,7 +1298,7 @@ pub unsafe extern "C" fn crabby_mesh_data_set_colors(
 /// # Safety
 /// `data` must be null or live, and not used afterwards.
 /// ```
-/// unsafe { crabby_ffi::crabby_mesh_data_free(std::ptr::null_mut()) };
+/// unsafe { ponko_ffi::crabby_mesh_data_free(std::ptr::null_mut()) };
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_mesh_data_free(data: *mut CrabbyMeshData) {
@@ -1312,7 +1312,7 @@ pub unsafe extern "C" fn crabby_mesh_data_free(data: *mut CrabbyMeshData) {
 /// # Safety
 /// `data` live; `out_view` writable.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let d = crabby_mesh_data_cube(1.0);
 /// let mut v = std::mem::MaybeUninit::<CrabbyMeshView>::uninit();
 /// assert_eq!(unsafe { crabby_mesh_data_view(d, v.as_mut_ptr()) }, CrabbyStatus::CRABBY_OK);
@@ -1364,7 +1364,7 @@ pub unsafe extern "C" fn crabby_mesh_data_view(
 /// # Safety
 /// `ctx` null or live; pointers valid.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_create_material(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_create_material(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_create_material(
@@ -1391,8 +1391,8 @@ pub unsafe extern "C" fn crabby_ctx_create_material(
 /// # Safety
 /// `ctx` null or live; `desc` valid.
 /// ```
-/// let m = crabby_ffi::CrabbyMaterial { id: 0 };
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_update_material(std::ptr::null_mut(), m, std::ptr::null()) } as u32, 1);
+/// let m = ponko_ffi::CrabbyMaterial { id: 0 };
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_update_material(std::ptr::null_mut(), m, std::ptr::null()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_update_material(
@@ -1425,7 +1425,7 @@ pub unsafe extern "C" fn crabby_ctx_update_material(
 /// # Safety
 /// `ctx` null or live; `name` a C string; the outputs writable for `capacity` entries.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_loaded_materials(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_loaded_materials(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_loaded_materials(
@@ -1463,7 +1463,7 @@ pub unsafe extern "C" fn crabby_ctx_loaded_materials(
 /// # Safety
 /// `ctx` null or live; `path` a C string; output writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_load_shader(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_load_shader(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_load_shader(
@@ -1489,7 +1489,7 @@ pub unsafe extern "C" fn crabby_ctx_load_shader(
 /// # Safety
 /// `ctx` null or live; `name` and `source` C strings; output writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_create_shader(std::ptr::null_mut(), std::ptr::null(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_create_shader(std::ptr::null_mut(), std::ptr::null(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_create_shader(
@@ -1518,7 +1518,7 @@ pub unsafe extern "C" fn crabby_ctx_create_shader(
 /// # Safety
 /// `ctx` null or live; `path` a NUL-terminated string; output writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_load_compute(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_load_compute(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_load_compute(
@@ -1544,7 +1544,7 @@ pub unsafe extern "C" fn crabby_ctx_load_compute(
 /// # Safety
 /// `ctx` null or live; `name` and `source` NUL-terminated strings; output writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_create_compute(std::ptr::null_mut(), std::ptr::null(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_create_compute(std::ptr::null_mut(), std::ptr::null(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_create_compute(
@@ -1572,7 +1572,7 @@ pub unsafe extern "C" fn crabby_ctx_create_compute(
 /// # Safety
 /// `ctx` null or live; `passes` holds `count` values (may be null when 0).
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_compute_passes(std::ptr::null_mut(), std::ptr::null(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_compute_passes(std::ptr::null_mut(), std::ptr::null(), 0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_set_compute_passes(
@@ -1629,7 +1629,7 @@ pub unsafe extern "C" fn crabby_ctx_set_compute_passes(
 /// `ctx` null or live; `out_passes` holds `capacity` values (may be null
 /// when 0); `out_count` writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_compute_passes(std::ptr::null_mut(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_compute_passes(std::ptr::null_mut(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_compute_passes(
@@ -1667,7 +1667,7 @@ pub unsafe extern "C" fn crabby_ctx_compute_passes(
 /// # Safety
 /// `ctx` null or live; `path` a NUL-terminated string; output writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_load_effect(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_load_effect(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_load_effect(
@@ -1693,7 +1693,7 @@ pub unsafe extern "C" fn crabby_ctx_load_effect(
 /// # Safety
 /// `ctx` null or live; `name` and `source` NUL-terminated strings; output writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_create_effect(std::ptr::null_mut(), std::ptr::null(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_create_effect(std::ptr::null_mut(), std::ptr::null(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_create_effect(
@@ -1721,7 +1721,7 @@ pub unsafe extern "C" fn crabby_ctx_create_effect(
 /// # Safety
 /// `ctx` null or live; `effects` holds `count` values (may be null when 0).
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_effects(std::ptr::null_mut(), std::ptr::null(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_effects(std::ptr::null_mut(), std::ptr::null(), 0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_set_effects(
@@ -1764,7 +1764,7 @@ pub unsafe extern "C" fn crabby_ctx_set_effects(
 /// `ctx` null or live; `out_effects` holds `capacity` values (may be null
 /// when 0); `out_count` writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_effects(std::ptr::null_mut(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_effects(std::ptr::null_mut(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_effects(
@@ -1795,7 +1795,7 @@ pub unsafe extern "C" fn crabby_ctx_effects(
 /// # Safety
 /// `ctx` null or live; output writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_default_material(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_default_material(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_default_material(
@@ -1811,7 +1811,7 @@ pub unsafe extern "C" fn crabby_ctx_default_material(
 /// # Safety
 /// `ctx` null or live; `data` live; output writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_create_mesh(std::ptr::null_mut(), std::ptr::null(), Default::default(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_create_mesh(std::ptr::null_mut(), std::ptr::null(), Default::default(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_create_mesh(
@@ -1846,7 +1846,7 @@ pub unsafe extern "C" fn crabby_ctx_create_mesh(
 /// # Safety
 /// `ctx` null or live; `heights` holds `count` floats; output writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_create_terrain_tile(std::ptr::null_mut(), std::ptr::null(), 0, 1.0, Default::default(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_create_terrain_tile(std::ptr::null_mut(), std::ptr::null(), 0, 1.0, Default::default(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_create_terrain_tile(
@@ -1885,7 +1885,7 @@ pub unsafe extern "C" fn crabby_ctx_create_terrain_tile(
 /// # Safety
 /// `ctx` null or live; `path` a NUL-terminated string; output writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_load_mesh(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_load_mesh(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_load_mesh(
@@ -1909,7 +1909,7 @@ pub unsafe extern "C" fn crabby_ctx_load_mesh(
 /// # Safety
 /// `ctx` null or live; output writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_models_drawn(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_models_drawn(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_models_drawn(ctx: *mut CrabbyCtx, out_count: *mut usize) -> CrabbyStatus {
@@ -1963,7 +1963,7 @@ fn target_camera_to_c(t: &TargetCamera) -> CrabbyTargetCamera {
 /// # Safety
 /// `ctx` null or live; output writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_create_render_target(std::ptr::null_mut(), 64, 64, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_create_render_target(std::ptr::null_mut(), 64, 64, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_create_render_target(
@@ -1991,7 +1991,7 @@ pub unsafe extern "C" fn crabby_ctx_create_render_target(
 /// # Safety
 /// `ctx` null or live; `camera` valid; output writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_reflection_camera(std::ptr::null_mut(), std::ptr::null(), crabby_ffi::CrabbyTexture { id: 0, width: 1, height: 1 }, 0.0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_reflection_camera(std::ptr::null_mut(), std::ptr::null(), ponko_ffi::CrabbyTexture { id: 0, width: 1, height: 1 }, 0.0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_reflection_camera(
@@ -2026,7 +2026,7 @@ pub unsafe extern "C" fn crabby_ctx_reflection_camera(
 /// # Safety
 /// `ctx` null or live; `cameras` holds `count` values (may be null when 0).
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_target_cameras(std::ptr::null_mut(), std::ptr::null(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_target_cameras(std::ptr::null_mut(), std::ptr::null(), 0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_set_target_cameras(
@@ -2074,7 +2074,7 @@ pub unsafe extern "C" fn crabby_ctx_set_target_cameras(
 /// `ctx` null or live; `out_cameras` holds `capacity` values (may be null
 /// when 0); `out_count` writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_target_cameras(std::ptr::null_mut(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_target_cameras(std::ptr::null_mut(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_target_cameras(
@@ -2101,7 +2101,7 @@ pub unsafe extern "C" fn crabby_ctx_target_cameras(
 /// # Safety
 /// `ctx` null or live; output writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_camera3d(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_camera3d(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_camera3d(ctx: *mut CrabbyCtx, out_camera: *mut CrabbyCamera3D) -> CrabbyStatus {
@@ -2114,7 +2114,7 @@ pub unsafe extern "C" fn crabby_ctx_camera3d(ctx: *mut CrabbyCtx, out_camera: *m
 /// # Safety
 /// `ctx` null or live; `camera` valid.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_camera3d(std::ptr::null_mut(), std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_camera3d(std::ptr::null_mut(), std::ptr::null()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_set_camera3d(ctx: *mut CrabbyCtx, camera: *const CrabbyCamera3D) -> CrabbyStatus {
@@ -2138,7 +2138,7 @@ pub unsafe extern "C" fn crabby_ctx_set_camera3d(ctx: *mut CrabbyCtx, camera: *c
 /// # Safety
 /// `ctx` null or live.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_occlusion_culling(std::ptr::null_mut(), true) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_occlusion_culling(std::ptr::null_mut(), true) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_set_occlusion_culling(ctx: *mut CrabbyCtx, on: bool) -> CrabbyStatus {
@@ -2155,7 +2155,7 @@ pub unsafe extern "C" fn crabby_ctx_set_occlusion_culling(ctx: *mut CrabbyCtx, o
 /// # Safety
 /// `ctx` null or live; output writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_occlusion_culling(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_occlusion_culling(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_occlusion_culling(ctx: *mut CrabbyCtx, out_on: *mut bool) -> CrabbyStatus {
@@ -2167,7 +2167,7 @@ pub unsafe extern "C" fn crabby_ctx_occlusion_culling(ctx: *mut CrabbyCtx, out_o
 /// # Safety
 /// `ctx` null or live.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_camera3d_look_at(std::ptr::null_mut(), Default::default()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_camera3d_look_at(std::ptr::null_mut(), Default::default()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_camera3d_look_at(ctx: *mut CrabbyCtx, target: CrabbyVec3) -> CrabbyStatus {
@@ -2186,7 +2186,7 @@ pub unsafe extern "C" fn crabby_ctx_camera3d_look_at(ctx: *mut CrabbyCtx, target
 /// # Safety
 /// `ctx` null or live; outputs writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_screen_ray(std::ptr::null_mut(), Default::default(), std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_screen_ray(std::ptr::null_mut(), Default::default(), std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_screen_ray(
@@ -2256,7 +2256,7 @@ pub unsafe extern "C" fn crabby_ctx_lighting(ctx: *mut CrabbyCtx, out_lighting: 
 /// # Safety
 /// `ctx` null or live; `lighting` valid.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_lighting(std::ptr::null_mut(), std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_lighting(std::ptr::null_mut(), std::ptr::null()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_set_lighting(ctx: *mut CrabbyCtx, lighting: *const CrabbyLighting) -> CrabbyStatus {
@@ -2373,7 +2373,7 @@ pub unsafe extern "C" fn crabby_ctx_sky(ctx: *mut CrabbyCtx, out_sky: *mut Crabb
 /// # Safety
 /// `ctx` null or live; `sky` valid.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_sky(std::ptr::null_mut(), std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_sky(std::ptr::null_mut(), std::ptr::null()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_set_sky(ctx: *mut CrabbyCtx, sky: *const CrabbySky) -> CrabbyStatus {
@@ -2495,7 +2495,7 @@ pub unsafe extern "C" fn crabby_ctx_post(ctx: *mut CrabbyCtx, out_post: *mut Cra
 /// # Safety
 /// `ctx` null or live; `post` valid.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_post(std::ptr::null_mut(), std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_post(std::ptr::null_mut(), std::ptr::null()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_set_post(ctx: *mut CrabbyCtx, post: *const CrabbyPost) -> CrabbyStatus {
@@ -2606,8 +2606,8 @@ pub unsafe extern "C" fn crabby_ctx_set_post(ctx: *mut CrabbyCtx, post: *const C
 /// Every field is also a field of `CrabbyPost` or `CrabbyLighting`; applying
 /// this writes those and leaves their other fields alone.
 /// ```
-/// let mut q = std::mem::MaybeUninit::<crabby_ffi::CrabbyGraphicsQuality>::uninit();
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_graphics_quality(std::ptr::null_mut(), q.as_mut_ptr()) } as u32, 1);
+/// let mut q = std::mem::MaybeUninit::<ponko_ffi::CrabbyGraphicsQuality>::uninit();
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_graphics_quality(std::ptr::null_mut(), q.as_mut_ptr()) } as u32, 1);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -2751,10 +2751,10 @@ fn quality_from_c(q: &CrabbyGraphicsQuality) -> Result<GraphicsQuality, crate::F
 /// # Safety
 /// `out_quality` writable.
 /// ```
-/// let mut q = std::mem::MaybeUninit::<crabby_ffi::CrabbyGraphicsQuality>::uninit();
-/// assert_eq!(unsafe { crabby_ffi::crabby_graphics_quality_preset(0, q.as_mut_ptr()) } as u32, 0);
+/// let mut q = std::mem::MaybeUninit::<ponko_ffi::CrabbyGraphicsQuality>::uninit();
+/// assert_eq!(unsafe { ponko_ffi::crabby_graphics_quality_preset(0, q.as_mut_ptr()) } as u32, 0);
 /// assert_eq!(unsafe { q.assume_init() }.shadow_cascades, 2);
-/// assert_eq!(unsafe { crabby_ffi::crabby_graphics_quality_preset(4, q.as_mut_ptr()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_graphics_quality_preset(4, q.as_mut_ptr()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_graphics_quality_preset(
@@ -2782,7 +2782,7 @@ pub unsafe extern "C" fn crabby_graphics_quality_preset(
 /// # Safety
 /// `quality` valid; `out_level` writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_graphics_quality_level(std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_graphics_quality_level(std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_graphics_quality_level(
@@ -2819,7 +2819,7 @@ pub unsafe extern "C" fn crabby_ctx_graphics_quality(
 /// # Safety
 /// `ctx` null or live; `quality` valid.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_graphics_quality(std::ptr::null_mut(), std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_graphics_quality(std::ptr::null_mut(), std::ptr::null()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_set_graphics_quality(
@@ -2844,7 +2844,7 @@ pub unsafe extern "C" fn crabby_ctx_set_graphics_quality(
 /// # Safety
 /// `ctx` null or live.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_reset_temporal_history(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_reset_temporal_history(std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_reset_temporal_history(ctx: *mut CrabbyCtx) -> CrabbyStatus {
@@ -2859,17 +2859,17 @@ pub unsafe extern "C" fn crabby_ctx_reset_temporal_history(ctx: *mut CrabbyCtx) 
 
 /// A terrain tile's heights for finding the ground on the CPU (Rust
 /// `Heightfield`). Make it with `crabby_heightfield_new`.
-pub struct CrabbyHeightfield(crabbyengine::Heightfield);
+pub struct CrabbyHeightfield(ponko::Heightfield);
 
 /// Makes a heightfield `size` wide from `count` heights (n x n, as
 /// `crabby_ctx_create_terrain_tile` takes them). Returns null (see
 /// `crabby_last_error`) for bad input.
 /// ```
 /// let h = [0.0f32; 9];
-/// let g = unsafe { crabby_ffi::crabby_heightfield_new(h.as_ptr(), 9, 4.0) };
+/// let g = unsafe { ponko_ffi::crabby_heightfield_new(h.as_ptr(), 9, 4.0) };
 /// assert!(!g.is_null());
-/// unsafe { crabby_ffi::crabby_heightfield_free(g) };
-/// assert!(unsafe { crabby_ffi::crabby_heightfield_new(h.as_ptr(), 8, 4.0) }.is_null());
+/// unsafe { ponko_ffi::crabby_heightfield_free(g) };
+/// assert!(unsafe { ponko_ffi::crabby_heightfield_new(h.as_ptr(), 8, 4.0) }.is_null());
 /// ```
 /// # Safety
 /// `heights` holds `count` floats.
@@ -2892,9 +2892,7 @@ pub unsafe extern "C" fn crabby_heightfield_new(
         }
         // SAFETY: caller supplies `count` floats.
         let heights = unsafe { std::slice::from_raw_parts(heights, count) };
-        made = Box::into_raw(Box::new(CrabbyHeightfield(crabbyengine::Heightfield::new(
-            heights, size,
-        ))));
+        made = Box::into_raw(Box::new(CrabbyHeightfield(ponko::Heightfield::new(heights, size))));
         Ok(())
     });
     if status == CrabbyStatus::CRABBY_OK {
@@ -2906,7 +2904,7 @@ pub unsafe extern "C" fn crabby_heightfield_new(
 
 /// Frees a heightfield. Null is ignored.
 /// ```
-/// unsafe { crabby_ffi::crabby_heightfield_free(std::ptr::null_mut()) };
+/// unsafe { ponko_ffi::crabby_heightfield_free(std::ptr::null_mut()) };
 /// ```
 /// # Safety
 /// `ground` must be null or live, and not used afterwards.
@@ -2923,7 +2921,7 @@ pub unsafe extern "C" fn crabby_heightfield_free(ground: *mut CrabbyHeightfield)
 /// over a hole (the others are then left alone). `out_normal` may be null.
 /// Safe from any thread at once.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let h = [0.0f32, 2.0, 0.0, 2.0];
 /// let (mut found, mut y, mut n) = (false, 0.0, CrabbyVec3::default());
 /// unsafe {
@@ -2979,7 +2977,7 @@ pub unsafe extern "C" fn crabby_heightfield_at(
 /// # Safety
 /// `ctx` null or live.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_shadow_mesh(std::ptr::null_mut(), 0, Default::default(), false) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_shadow_mesh(std::ptr::null_mut(), 0, Default::default(), false) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_set_shadow_mesh(
@@ -2991,12 +2989,11 @@ pub unsafe extern "C" fn crabby_ctx_set_shadow_mesh(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            let entity = crabbyengine::Entity::from_bits(entity);
+            let entity = ponko::Entity::from_bits(entity);
             if !c.world.is_alive(entity) {
                 return Err(invalid("no such entity"));
             }
-            c.world
-                .insert(entity, crabbyengine::ShadowMesh(casts.then(|| to_c(mesh))));
+            c.world.insert(entity, ponko::ShadowMesh(casts.then(|| to_c(mesh))));
             Ok(())
         })
     })
@@ -3008,7 +3005,7 @@ pub unsafe extern "C" fn crabby_ctx_set_shadow_mesh(
 /// # Safety
 /// `ctx` null or live.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_mesh_shadows(std::ptr::null_mut(), Default::default(), false) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_mesh_shadows(std::ptr::null_mut(), Default::default(), false) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_set_mesh_shadows(
@@ -3030,7 +3027,7 @@ pub unsafe extern "C" fn crabby_ctx_set_mesh_shadows(
 /// `ctx` null or live; output writable.
 /// ```
 /// let mut casts = false;
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_mesh_shadows(std::ptr::null_mut(), Default::default(), &mut casts) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_mesh_shadows(std::ptr::null_mut(), Default::default(), &mut casts) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_mesh_shadows(
@@ -3056,7 +3053,7 @@ same_layout!(
 /// # Safety
 /// Live world and writable output.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// unsafe { let mut id = 0; assert_eq!(crabby_point_light3d_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
 /// ```
@@ -3082,7 +3079,7 @@ same_layout!(
 /// # Safety
 /// Live world and writable output.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// unsafe { let mut id = 0; assert_eq!(crabby_spot_light3d_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
 /// ```
@@ -3094,7 +3091,7 @@ pub unsafe extern "C" fn crabby_spot_light3d_component(world: *mut CrabbyWorld, 
 
 /// Axis-aligned local reflection volume. Zero content falls back to sky IBL.
 /// ```
-/// let p = crabby_ffi::crabby_reflection_probe3d_default();
+/// let p = ponko_ffi::crabby_reflection_probe3d_default();
 /// assert!(p.box_projection);
 /// ```
 #[repr(C)]
@@ -3123,7 +3120,7 @@ same_layout!(
 
 /// Default 10-unit box, 1-unit blend, intensity 1, box projection enabled.
 /// ```
-/// assert_eq!(crabby_ffi::crabby_reflection_probe3d_default().content, 0);
+/// assert_eq!(ponko_ffi::crabby_reflection_probe3d_default().content, 0);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_reflection_probe3d_default() -> CrabbyReflectionProbe3D {
@@ -3144,7 +3141,7 @@ pub extern "C" fn crabby_reflection_probe3d_default() -> CrabbyReflectionProbe3D
 /// # Safety
 /// Live world and writable output.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// unsafe { let mut id = 0; assert_eq!(crabby_reflection_probe3d_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
 /// ```
@@ -3161,8 +3158,8 @@ pub unsafe extern "C" fn crabby_reflection_probe3d_component(
 /// `Decal3D`). The entity's transform places it; the image is projected
 /// along its -Z. Start from `crabby_decal3d_default`.
 /// ```
-/// let d = crabby_ffi::crabby_decal3d_default();
-/// assert_eq!((d.image, d.normal_image), (0, crabby_ffi::CRABBY_DECAL_NO_IMAGE));
+/// let d = ponko_ffi::crabby_decal3d_default();
+/// assert_eq!((d.image, d.normal_image), (0, ponko_ffi::CRABBY_DECAL_NO_IMAGE));
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -3226,7 +3223,7 @@ pub const CRABBY_DECAL_NO_IMAGE: u32 = u32::MAX;
 
 /// A 1 x 1 x 1 white decal from image 0, no normal map, all layers (Rust `Decal3D::default`).
 /// ```
-/// let d = crabby_ffi::crabby_decal3d_default();
+/// let d = ponko_ffi::crabby_decal3d_default();
 /// assert_eq!((d.opacity, d.layers), (1.0, 0xFFFF));
 /// ```
 #[unsafe(no_mangle)]
@@ -3239,7 +3236,7 @@ pub extern "C" fn crabby_decal3d_default() -> CrabbyDecal3D {
 /// # Safety
 /// Live world and writable output.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// unsafe { let mut id = 0; assert_eq!(crabby_decal3d_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
 /// ```
@@ -3252,7 +3249,7 @@ pub unsafe extern "C" fn crabby_decal3d_component(world: *mut CrabbyWorld, out_i
 /// Which decal layers a model takes (Rust `ReceivesDecals`); the low 16
 /// bits count. Models without the component take every decal.
 /// ```
-/// assert_eq!(std::mem::size_of::<crabby_ffi::CrabbyReceivesDecals>(), 4);
+/// assert_eq!(std::mem::size_of::<ponko_ffi::CrabbyReceivesDecals>(), 4);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -3266,7 +3263,7 @@ same_layout!(CrabbyReceivesDecals, ReceivesDecals);
 /// # Safety
 /// Live world and writable output.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// unsafe { let mut id = 0; assert_eq!(crabby_receives_decals_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
 /// ```
@@ -3282,8 +3279,8 @@ pub unsafe extern "C" fn crabby_receives_decals_component(world: *mut CrabbyWorl
 /// # Safety
 /// `ctx` null or live.
 /// ```
-/// let a = crabby_ffi::CrabbyTextureArray::default();
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_decal_textures(std::ptr::null_mut(), a) } as u32, 1);
+/// let a = ponko_ffi::CrabbyTextureArray::default();
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_decal_textures(std::ptr::null_mut(), a) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_set_decal_textures(ctx: *mut CrabbyCtx, array: CrabbyTextureArray) -> CrabbyStatus {
@@ -3300,7 +3297,7 @@ pub unsafe extern "C" fn crabby_ctx_set_decal_textures(ctx: *mut CrabbyCtx, arra
 /// # Safety
 /// `ctx` null or live.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_clear_decal_textures(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_clear_decal_textures(std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_clear_decal_textures(ctx: *mut CrabbyCtx) -> CrabbyStatus {
@@ -3319,7 +3316,7 @@ pub unsafe extern "C" fn crabby_ctx_clear_decal_textures(ctx: *mut CrabbyCtx) ->
 /// `ctx` null or live; output writable.
 /// ```
 /// let mut yes = true;
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_supports_decals(std::ptr::null_mut(), &mut yes) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_supports_decals(std::ptr::null_mut(), &mut yes) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_supports_decals(ctx: *mut CrabbyCtx, out_supported: *mut bool) -> CrabbyStatus {
@@ -3331,14 +3328,14 @@ pub unsafe extern "C" fn crabby_ctx_supports_decals(ctx: *mut CrabbyCtx, out_sup
 /// # Safety
 /// Context is null or a live callback context.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_bake_reflection_probe(std::ptr::null_mut(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_bake_reflection_probe(std::ptr::null_mut(), 0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_bake_reflection_probe(ctx: *mut CrabbyCtx, entity: u64) -> CrabbyStatus {
     // SAFETY: forwarded context contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.bake_reflection_probe(crabbyengine::Entity::from_bits(entity))
+            c.bake_reflection_probe(ponko::Entity::from_bits(entity))
                 .map_err(invalid_owned)
         })
     })
@@ -3348,7 +3345,7 @@ pub unsafe extern "C" fn crabby_ctx_bake_reflection_probe(ctx: *mut CrabbyCtx, e
 /// # Safety
 /// Context is null or live; name is a null-terminated UTF-8 string.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_load_reflection_probe(std::ptr::null_mut(), 0, std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_load_reflection_probe(std::ptr::null_mut(), 0, std::ptr::null()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_load_reflection_probe(
@@ -3359,7 +3356,7 @@ pub unsafe extern "C" fn crabby_ctx_load_reflection_probe(
     // SAFETY: forwarded context and string contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.load_reflection_probe(crabbyengine::Entity::from_bits(entity), text(name)?)
+            c.load_reflection_probe(ponko::Entity::from_bits(entity), text(name)?)
                 .map_err(invalid_owned)
         })
     })
@@ -3370,7 +3367,7 @@ pub unsafe extern "C" fn crabby_ctx_load_reflection_probe(
 /// One mesh of a LOD level (Rust `LodRenderer`), placed by `offset` in the
 /// group's space and tinted by `color` (white: no change).
 /// ```
-/// let r = crabby_ffi::crabby_lod_renderer(Default::default());
+/// let r = ponko_ffi::crabby_lod_renderer(Default::default());
 /// assert_eq!((r.color.r, r.offset.scale.x), (1.0, 1.0));
 /// ```
 #[repr(C)]
@@ -3386,7 +3383,7 @@ pub struct CrabbyLodRenderer {
 
 /// `mesh` at the group's origin, untinted.
 /// ```
-/// let r = crabby_ffi::crabby_lod_renderer(crabby_ffi::CrabbyMesh { id: 4 });
+/// let r = ponko_ffi::crabby_lod_renderer(ponko_ffi::CrabbyMesh { id: 4 });
 /// assert_eq!(r.mesh.id, 4);
 /// ```
 #[unsafe(no_mangle)]
@@ -3424,7 +3421,7 @@ pub struct CrabbyLodLevel {
 
 /// Global LOD settings (Rust `ctx.lod`).
 /// ```
-/// let s = crabby_ffi::CrabbyLodSettings { bias: 1.0, crossfade: true };
+/// let s = ponko_ffi::CrabbyLodSettings { bias: 1.0, crossfade: true };
 /// assert!(s.crossfade);
 /// ```
 #[repr(C)]
@@ -3479,7 +3476,7 @@ unsafe fn lod_renderers(list: *const CrabbyLodRenderer, count: usize) -> Result<
 /// `ctx` null or live; `levels` holds `count` values (may be null when 0),
 /// each pointing at as many renderers as it says.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_lod_group(std::ptr::null_mut(), 0, 1.0, Default::default(), std::ptr::null(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_lod_group(std::ptr::null_mut(), 0, 1.0, Default::default(), std::ptr::null(), 0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_set_lod_group(
@@ -3493,7 +3490,7 @@ pub unsafe extern "C" fn crabby_ctx_set_lod_group(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            let entity = crabbyengine::Entity::from_bits(entity);
+            let entity = ponko::Entity::from_bits(entity);
             if !c.world.is_alive(entity) {
                 return Err(invalid("no such entity"));
             }
@@ -3532,7 +3529,7 @@ pub unsafe extern "C" fn crabby_ctx_set_lod_group(
 /// `ctx` null or live; output writable.
 /// ```
 /// let mut pick = Default::default();
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_lod_pick(std::ptr::null_mut(), 0, &mut pick) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_lod_pick(std::ptr::null_mut(), 0, &mut pick) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_lod_pick(
@@ -3543,7 +3540,7 @@ pub unsafe extern "C" fn crabby_ctx_lod_pick(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            let entity = crabbyengine::Entity::from_bits(entity);
+            let entity = ponko::Entity::from_bits(entity);
             let (Some(group), Some(transform)) = (c.world.get::<LodGroup>(entity), c.world.get::<Transform3D>(entity))
             else {
                 return Err(invalid("that entity has no LOD group and transform"));
@@ -3572,8 +3569,8 @@ pub unsafe extern "C" fn crabby_ctx_lod_pick(
 /// # Safety
 /// `ctx` null or live; output writable.
 /// ```
-/// let mut s = crabby_ffi::CrabbyLodSettings { bias: 0.0, crossfade: false };
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_lod_settings(std::ptr::null_mut(), &mut s) } as u32, 1);
+/// let mut s = ponko_ffi::CrabbyLodSettings { bias: 0.0, crossfade: false };
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_lod_settings(std::ptr::null_mut(), &mut s) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_lod_settings(
@@ -3599,8 +3596,8 @@ pub unsafe extern "C" fn crabby_ctx_lod_settings(
 /// # Safety
 /// `ctx` null or live.
 /// ```
-/// let s = crabby_ffi::CrabbyLodSettings { bias: 1.0, crossfade: true };
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_lod_settings(std::ptr::null_mut(), s) } as u32, 1);
+/// let s = ponko_ffi::CrabbyLodSettings { bias: 1.0, crossfade: true };
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_lod_settings(std::ptr::null_mut(), s) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_set_lod_settings(ctx: *mut CrabbyCtx, settings: CrabbyLodSettings) -> CrabbyStatus {
@@ -3623,7 +3620,7 @@ pub unsafe extern "C" fn crabby_ctx_set_lod_settings(ctx: *mut CrabbyCtx, settin
 /// `distance` from a camera with vertical field of view `fov_y` (radians):
 /// to turn distances into thresholds.
 /// ```
-/// let h = crabby_ffi::crabby_lod_screen_height_at(2.0, 10.0, 60f32.to_radians());
+/// let h = ponko_ffi::crabby_lod_screen_height_at(2.0, 10.0, 60f32.to_radians());
 /// assert!((h - 0.1732).abs() < 1e-3);
 /// ```
 #[unsafe(no_mangle)]
@@ -3634,7 +3631,7 @@ pub extern "C" fn crabby_lod_screen_height_at(size: f32, distance: f32, fov_y: f
 /// The distance at which something `size` tall covers `height` of the
 /// screen: the inverse of `crabby_lod_screen_height_at`.
 /// ```
-/// let d = crabby_ffi::crabby_lod_distance_at(2.0, 0.1732, 60f32.to_radians());
+/// let d = ponko_ffi::crabby_lod_distance_at(2.0, 0.1732, 60f32.to_radians());
 /// assert!((d - 10.0).abs() < 0.01);
 /// ```
 #[unsafe(no_mangle)]
@@ -3644,7 +3641,7 @@ pub extern "C" fn crabby_lod_distance_at(size: f32, height: f32, fov_y: f32) -> 
 
 /// A GPU array of four-float elements.
 /// ```
-/// let b = crabby_ffi::CrabbyGpuBuffer { id: 0 }; assert_eq!(b.id, 0);
+/// let b = ponko_ffi::CrabbyGpuBuffer { id: 0 }; assert_eq!(b.id, 0);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -3833,16 +3830,16 @@ pub unsafe extern "C" fn crabby_ctx_create_instance_batch(
             } else {
                 std::slice::from_raw_parts(matrices, count)
                     .iter()
-                    .map(crabbyengine::Mat4::from_cols_array)
+                    .map(ponko::Mat4::from_cols_array)
                     .collect::<Vec<_>>()
             };
-            if data.iter().any(|m| !m.is_finite() || m.row(3) != crabbyengine::Vec4::W) {
+            if data.iter().any(|m| !m.is_finite() || m.row(3) != ponko::Vec4::W) {
                 return Err(invalid("invalid instance transform"));
             }
             let b = c.create_instance_batch(
                 to_c(mesh),
                 &data,
-                crabbyengine::InstanceBatchOptions {
+                ponko::InstanceBatchOptions {
                     cell_size: options.cell_size,
                     max_distance: options.max_distance,
                     cast_shadows: options.cast_shadows,
@@ -3866,7 +3863,7 @@ pub unsafe extern "C" fn crabby_ctx_update_instance_batch(
     // SAFETY: caller supplies the described matrix array.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            let b = crabbyengine::InstanceBatch::from_id(batch.id);
+            let b = ponko::InstanceBatch::from_id(batch.id);
             if c.instance_batch_len(b).is_none() || count > 16_777_216 || (count > 0 && matrices.is_null()) {
                 return Err(invalid("invalid instance batch update"));
             }
@@ -3875,10 +3872,10 @@ pub unsafe extern "C" fn crabby_ctx_update_instance_batch(
             } else {
                 std::slice::from_raw_parts(matrices, count)
                     .iter()
-                    .map(crabbyengine::Mat4::from_cols_array)
+                    .map(ponko::Mat4::from_cols_array)
                     .collect::<Vec<_>>()
             };
-            if data.iter().any(|m| !m.is_finite() || m.row(3) != crabbyengine::Vec4::W) {
+            if data.iter().any(|m| !m.is_finite() || m.row(3) != ponko::Vec4::W) {
                 return Err(invalid("invalid instance transform"));
             }
             if !c.update_instance_batch(b, &data) {
@@ -3899,7 +3896,7 @@ pub unsafe extern "C" fn crabby_ctx_free_instance_batch(
     // SAFETY: forwarded context contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.free_instance_batch(crabbyengine::InstanceBatch::from_id(batch.id));
+            c.free_instance_batch(ponko::InstanceBatch::from_id(batch.id));
             Ok(())
         })
     })

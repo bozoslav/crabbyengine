@@ -14,7 +14,7 @@ use crate::color::Color;
 /// [`Font::DEFAULT`] is always there.
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn hud(ctx: &mut Ctx) {
 /// ctx.draw_text_ex("Score: 120", vec2(16.0, 16.0), TextParams {
 ///     font: Font::DEFAULT,
@@ -36,7 +36,7 @@ impl Font {
 /// Optional settings for [`Ctx::draw_text_ex`](crate::Ctx::draw_text_ex).
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// let title = TextParams { size: 48.0, color: Color::hex(0xffcc00), ..Default::default() };
 /// # let _ = title;
 /// ```

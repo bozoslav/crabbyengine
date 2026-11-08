@@ -18,7 +18,7 @@ use crate::{Ctx, Entity, Transform2D, Vec2, World};
 /// [`Transform2D`].
 ///
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let crate_body = RigidBody::dynamic();
 /// let wall = RigidBody::fixed();
 /// assert_eq!(crate_body.gravity_scale, 1.0);
@@ -119,7 +119,7 @@ impl Shape {
     /// A polygon's corners (empty for other shapes).
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let wedge = Collider::polygon(&[vec2(0.0, 0.0), vec2(40.0, 0.0), vec2(0.0, -20.0)]);
     /// assert_eq!(wedge.shape.points().len(), 3);
     /// assert!(Collider::circle(5.0).shape.points().is_empty());
@@ -136,7 +136,7 @@ impl Shape {
 /// The solid shape of a body, and how it touches others.
 ///
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let ball = Collider::circle(8.0).restitution(0.9);
 /// let trigger = Collider::rect(vec2(64.0, 64.0)).sensor();
 /// assert!(trigger.sensor);
@@ -202,7 +202,7 @@ impl Collider {
     /// For a concave shape, put convex pieces on separate bodies.
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let ramp = Collider::polygon(&[vec2(-50.0, 10.0), vec2(50.0, 10.0), vec2(50.0, -10.0)]);
     /// assert_eq!(ramp.shape.points().len(), 3);
     /// ```
@@ -261,7 +261,7 @@ impl Collider {
 /// write it to set the speed (a jump, a thrown crate, a moving platform).
 ///
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let v = Velocity::linear(vec2(0.0, -300.0)); // a jump, y is down
 /// assert_eq!(v.angular, 0.0);
 /// ```
@@ -385,7 +385,7 @@ impl Physics {
     /// within `max_distance`. Up to date as of the last physics step.
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let world = Game::new("t", 1, 1).physics(Vec2::ZERO).run_headless(1, |ctx| {
     ///     ctx.world.spawn((Transform2D::at(vec2(100.0, 0.0)), RigidBody::fixed(), Collider::circle(10.0)));
     /// });

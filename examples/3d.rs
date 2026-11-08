@@ -9,7 +9,7 @@
 //!   3 second warmup, prints the averages as JSON and quits (the same
 //!   measurement as the Unity version of this scene).
 
-use crabbyengine::*;
+use ponko::*;
 
 /// Turns around its own Y axis.
 struct Spin(f32);

@@ -1,5 +1,5 @@
 //! Argument validation never initializes the real Steam API.
-use crabby_ffi::*;
+use ponko_ffi::*;
 #[test]
 fn steam_message_and_lobby_arguments_fail_before_initialization() {
     let mut endpoint = std::ptr::null_mut();

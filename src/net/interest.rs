@@ -14,7 +14,7 @@ pub const MAX_INTEREST_TIERS: usize = 8;
 /// One ring of interest: entities up to `radius` from a viewer (and beyond
 /// the previous, smaller ring) are sent every `every` ticks.
 /// ```
-/// let near = crabbyengine::InterestTier { radius: 40.0, every: 1 };
+/// let near = ponko::InterestTier { radius: 40.0, every: 1 };
 /// assert_eq!(near.every, 1);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -31,7 +31,7 @@ pub struct InterestTier {
 /// Defaults: everything within 40 units every tick, within 120 units every
 /// 4th tick, a hysteresis of 5 units, sends spread over ticks.
 /// ```
-/// let c = crabbyengine::InterestConfig::default();
+/// let c = ponko::InterestConfig::default();
 /// assert_eq!(c.tiers.len(), 2);
 /// assert_eq!(c.hysteresis, 5.0);
 /// ```
@@ -70,7 +70,7 @@ impl InterestConfig {
     /// `every` of at least 1, and a hysteresis from 0 up to (not including)
     /// the first radius.
     /// ```
-    /// use crabbyengine::InterestConfig;
+    /// use ponko::InterestConfig;
     /// assert!(InterestConfig::default().validate().is_ok());
     /// assert!(InterestConfig { tiers: vec![], ..Default::default() }.validate().is_err());
     /// ```
@@ -99,7 +99,7 @@ impl InterestConfig {
 /// several (split screen, a camera apart from its avatar); an entity counts
 /// by its nearest.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let v = InterestViewer { peer: PeerId::HOST, position: Vec3::ZERO };
 /// assert_eq!(v.peer, PeerId::HOST);
 /// ```
@@ -114,7 +114,7 @@ pub struct InterestViewer {
 /// An entity in the world, for [`Interest::update`]. The id is yours (a
 /// network id), unique within one update.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let e = InterestEntity { id: 7, position: vec3(1.0, 2.0, 3.0) };
 /// assert_eq!(e.id, 7);
 /// ```
@@ -128,7 +128,7 @@ pub struct InterestEntity {
 
 /// One entity a peer is interested in, from [`Interest::entries`].
 /// ```
-/// let e = crabbyengine::InterestEntry { entity: 1, tier: 0, distance: 3.0, send: true };
+/// let e = ponko::InterestEntry { entity: 1, tier: 0, distance: 3.0, send: true };
 /// assert!(e.send);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -146,7 +146,7 @@ pub struct InterestEntry {
 
 /// Whether an entity entered or left a peer's interest.
 /// ```
-/// assert_ne!(crabbyengine::InterestChangeKind::Entered, crabbyengine::InterestChangeKind::Left);
+/// assert_ne!(ponko::InterestChangeKind::Entered, ponko::InterestChangeKind::Left);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InterestChangeKind {
@@ -160,7 +160,7 @@ pub enum InterestChangeKind {
 /// An entity entering or leaving a peer's interest, from
 /// [`Interest::changes`].
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let c = InterestChange { peer: PeerId::HOST, entity: 3, kind: InterestChangeKind::Left };
 /// assert_eq!(c.entity, 3);
 /// ```
@@ -192,7 +192,7 @@ struct PeerState {
 /// and [`changes`](Self::changes) for who needs a spawn or despawn.
 ///
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let mut interest = Interest::new(InterestConfig::default());
 /// let me = PeerId::HOST;
 /// let viewers = [InterestViewer { peer: me, position: Vec3::ZERO }];
@@ -240,7 +240,7 @@ impl Interest {
     /// [`MAX_INTEREST_TIERS`], radii not positive and increasing, an `every`
     /// of 0, or a hysteresis that is negative or not below the first radius.
     /// ```
-    /// let interest = crabbyengine::Interest::new(Default::default());
+    /// let interest = ponko::Interest::new(Default::default());
     /// assert_eq!(interest.config().tiers.len(), 2);
     /// ```
     pub fn new(config: InterestConfig) -> Self {
@@ -262,7 +262,7 @@ impl Interest {
 
     /// The settings it was made with.
     /// ```
-    /// assert_eq!(crabbyengine::Interest::new(Default::default()).config().hysteresis, 5.0);
+    /// assert_eq!(ponko::Interest::new(Default::default()).config().hysteresis, 5.0);
     /// ```
     pub fn config(&self) -> &InterestConfig {
         &self.config
@@ -305,7 +305,7 @@ impl Interest {
     /// allocation once warmed up (apart from peers and entities coming and
     /// going).
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut i = Interest::new(Default::default());
     /// let v = [InterestViewer { peer: PeerId::HOST, position: Vec3::ZERO }];
     /// let e = [InterestEntity { id: 1, position: vec3(5.0, 0.0, 0.0) }];
@@ -440,7 +440,7 @@ impl Interest {
     /// Everything `peer` is interested in as of the last update, nearest ring
     /// first within the order the entities were given. Empty for unknown peers.
     /// ```
-    /// assert!(crabbyengine::Interest::new(Default::default()).entries(crabbyengine::PeerId::HOST).is_empty());
+    /// assert!(ponko::Interest::new(Default::default()).entries(ponko::PeerId::HOST).is_empty());
     /// ```
     pub fn entries(&self, peer: PeerId) -> &[InterestEntry] {
         self.peers.get(&peer).map_or(&[], |s| &s.entries)
@@ -448,7 +448,7 @@ impl Interest {
 
     /// What to send `peer` this tick: its entries with `send` set.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut i = Interest::new(Default::default());
     /// let v = [InterestViewer { peer: PeerId::HOST, position: Vec3::ZERO }];
     /// let e = [InterestEntity { id: 1, position: vec3(5.0, 0.0, 0.0) }];
@@ -463,7 +463,7 @@ impl Interest {
     /// first for each peer (in id order) those that entered, in the order
     /// given, then those that left, by id.
     /// ```
-    /// assert!(crabbyengine::Interest::new(Default::default()).changes().is_empty());
+    /// assert!(ponko::Interest::new(Default::default()).changes().is_empty());
     /// ```
     pub fn changes(&self) -> &[InterestChange] {
         &self.changes
@@ -471,7 +471,7 @@ impl Interest {
 
     /// Peers with a viewer in the last update.
     /// ```
-    /// assert_eq!(crabbyengine::Interest::new(Default::default()).peers().count(), 0);
+    /// assert_eq!(ponko::Interest::new(Default::default()).peers().count(), 0);
     /// ```
     pub fn peers(&self) -> impl Iterator<Item = PeerId> + '_ {
         self.peers.keys().copied()
@@ -480,8 +480,8 @@ impl Interest {
     /// Forgets a peer (it disconnected) without reporting its entities as
     /// left. Unknown peers are ignored.
     /// ```
-    /// let mut i = crabbyengine::Interest::new(Default::default());
-    /// i.remove_peer(crabbyengine::PeerId::HOST);
+    /// let mut i = ponko::Interest::new(Default::default());
+    /// i.remove_peer(ponko::PeerId::HOST);
     /// ```
     pub fn remove_peer(&mut self, peer: PeerId) {
         self.peers.remove(&peer);

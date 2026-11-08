@@ -15,10 +15,10 @@ pub(crate) mod client {
     use super::*;
     use std::sync::Mutex;
 
-    static CLIENT: Mutex<Option<(u32, crabbyengine::steamworks::Client)>> = Mutex::new(None);
+    static CLIENT: Mutex<Option<(u32, ponko::steamworks::Client)>> = Mutex::new(None);
 
     /// The process's Steam client for `app_id`, started on first use.
-    pub(crate) fn get(app_id: u32) -> Result<crabbyengine::steamworks::Client, Failure> {
+    pub(crate) fn get(app_id: u32) -> Result<ponko::steamworks::Client, Failure> {
         let mut c = CLIENT.lock().map_err(|_| invalid("steam client lock poisoned"))?;
         if let Some((id, client)) = c.as_ref() {
             if *id != app_id {
@@ -28,7 +28,7 @@ pub(crate) mod client {
             }
             return Ok(client.clone());
         }
-        let client = crabbyengine::steamworks::Client::init_app(app_id)
+        let client = ponko::steamworks::Client::init_app(app_id)
             .map_err(|e| invalid_owned(format!("could not start Steam (is it running and logged in?): {e}")))?;
         *c = Some((app_id, client.clone()));
         Ok(client)
@@ -37,7 +37,7 @@ pub(crate) mod client {
 
 #[cfg(not(feature = "steam"))]
 fn off<T>() -> Result<T, crate::Failure> {
-    Err(invalid("crabby_ffi was built without the `steam` feature"))
+    Err(invalid("ponko_ffi was built without the `steam` feature"))
 }
 
 /// Hosts a lockstep session for `players` (2-8) over Steam: starts Steam
@@ -48,7 +48,7 @@ fn off<T>() -> Result<T, crate::Failure> {
 /// # Safety
 /// Live game.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_game_lockstep_steam_host(std::ptr::null_mut(), 480, 2, 3, 60) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_game_lockstep_steam_host(std::ptr::null_mut(), 480, 2, 3, 60) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_game_lockstep_steam_host(
@@ -58,12 +58,12 @@ pub unsafe extern "C" fn crabby_game_lockstep_steam_host(
     input_delay: u32,
     checksum_every: u32,
 ) -> CrabbyStatus {
-    let mut net: Option<crabbyengine::Net> = None;
+    let mut net: Option<ponko::Net> = None;
     let status = boundary(|| {
         if game.is_null() {
             return Err(invalid("game is null"));
         }
-        if !(2..=crabbyengine::MAX_PLAYERS as u32).contains(&players) {
+        if !(2..=ponko::MAX_PLAYERS as u32).contains(&players) {
             return Err(invalid("2 to 8 players"));
         }
         if input_delay > 64 {
@@ -73,7 +73,7 @@ pub unsafe extern "C" fn crabby_game_lockstep_steam_host(
         {
             let client = client::get(app_id)?;
             net = Some(
-                crabbyengine::Net::steam_host(&client, players as usize)
+                ponko::Net::steam_host(&client, players as usize)
                     .input_delay(input_delay)
                     .checksum_every(checksum_every),
             );
@@ -98,7 +98,7 @@ pub unsafe extern "C" fn crabby_game_lockstep_steam_host(
 /// # Safety
 /// Live game.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_game_lockstep_steam_join(std::ptr::null_mut(), 480, 1) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_game_lockstep_steam_join(std::ptr::null_mut(), 480, 1) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_game_lockstep_steam_join(
@@ -106,7 +106,7 @@ pub unsafe extern "C" fn crabby_game_lockstep_steam_join(
     app_id: u32,
     lobby: u64,
 ) -> CrabbyStatus {
-    let mut net: Option<crabbyengine::Net> = None;
+    let mut net: Option<ponko::Net> = None;
     let status = boundary(|| {
         if game.is_null() {
             return Err(invalid("game is null"));
@@ -114,8 +114,8 @@ pub unsafe extern "C" fn crabby_game_lockstep_steam_join(
         #[cfg(feature = "steam")]
         {
             let client = client::get(app_id)?;
-            let lobby = crabbyengine::steamworks::LobbyId::from_raw(lobby);
-            net = Some(crabbyengine::Net::steam_join(&client, lobby));
+            let lobby = ponko::steamworks::LobbyId::from_raw(lobby);
+            net = Some(ponko::Net::steam_join(&client, lobby));
             Ok(())
         }
         #[cfg(not(feature = "steam"))]
@@ -139,7 +139,7 @@ pub unsafe extern "C" fn crabby_game_lockstep_steam_join(
 /// Writable output.
 /// ```
 /// let mut lobby = 7;
-/// let status = unsafe { crabby_ffi::crabby_steam_lobby_from_args(&mut lobby) };
+/// let status = unsafe { ponko_ffi::crabby_steam_lobby_from_args(&mut lobby) };
 /// # #[cfg(feature = "steam")]
 /// assert_eq!((status as u32, lobby), (0, 0));
 /// ```
@@ -151,7 +151,7 @@ pub unsafe extern "C" fn crabby_steam_lobby_from_args(out_lobby: *mut u64) -> Cr
         }
         #[cfg(feature = "steam")]
         {
-            let lobby = crabbyengine::steam_lobby_from_args().map_or(0, |l| l.raw());
+            let lobby = ponko::steam_lobby_from_args().map_or(0, |l| l.raw());
             // SAFETY: checked non-null; caller supplies writable storage.
             unsafe { out(out_lobby, lobby) }
         }
@@ -166,7 +166,7 @@ pub unsafe extern "C" fn crabby_steam_lobby_from_args(out_lobby: *mut u64) -> Cr
 /// # Safety
 /// Writable output.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_steam_wait_for_invite(480, 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_steam_wait_for_invite(480, 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_steam_wait_for_invite(
@@ -182,7 +182,7 @@ pub unsafe extern "C" fn crabby_steam_wait_for_invite(
         {
             let client = client::get(app_id)?;
             let wait = std::time::Duration::from_millis(timeout_ms.into());
-            let lobby = crabbyengine::steam_wait_for_invite(&client, wait).map_or(0, |l| l.raw());
+            let lobby = ponko::steam_wait_for_invite(&client, wait).map_or(0, |l| l.raw());
             // SAFETY: checked non-null; caller supplies writable storage.
             unsafe { out(out_lobby, lobby) }
         }
@@ -198,7 +198,7 @@ pub unsafe extern "C" fn crabby_steam_wait_for_invite(
 /// # Safety
 /// Live ctx; writable output.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_steam_lobby(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_steam_lobby(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_steam_lobby(ctx: *mut CrabbyCtx, out_lobby: *mut u64) -> CrabbyStatus {
@@ -225,7 +225,7 @@ pub unsafe extern "C" fn crabby_ctx_steam_lobby(ctx: *mut CrabbyCtx, out_lobby: 
 /// # Safety
 /// Live ctx.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_steam_invite(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_steam_invite(std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_steam_invite(ctx: *mut CrabbyCtx) -> CrabbyStatus {

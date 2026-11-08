@@ -1,5 +1,5 @@
 //! A regression check for the steady-state action input path.
-use crabbyengine::*;
+use ponko::*;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 

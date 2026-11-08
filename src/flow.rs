@@ -15,7 +15,7 @@ use rayon::prelude::*;
 /// `origin` in world units.
 ///
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let mut nav = NavGrid::new(64, 64, 16.0); // 64 × 64 cells of 16 units
 /// nav.set_cost(10, 3, NavGrid::WALL);
 /// nav.set_cost(11, 3, 4); // mud: 4 times slower
@@ -88,7 +88,7 @@ impl NavGrid {
     /// Every cell's cost, row by row, for filling a map at once.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let mut nav = NavGrid::new(4, 4, 1.0);
     /// nav.costs_mut()[..4].fill(NavGrid::WALL); // top row
     /// assert_eq!(nav.cost(2, 0), Some(NavGrid::WALL));
@@ -151,7 +151,7 @@ const UNREACHED: u32 = u32::MAX;
 /// cut through them.
 ///
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let mut nav = NavGrid::new(32, 32, 10.0);
 /// for y in 0..30 { nav.set_cost(16, y, NavGrid::WALL); } // a wall with a gap at the bottom
 ///

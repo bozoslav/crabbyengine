@@ -1,6 +1,6 @@
 //! Procedural tentacles: `cargo run --example skinning --features 3d`.
 //! Escape quits. All visible geometry is built in code.
-use crabbyengine::*;
+use ponko::*;
 
 const JOINTS: usize = 8;
 const STEP: f32 = 0.5;

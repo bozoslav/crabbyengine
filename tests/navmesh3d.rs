@@ -1,5 +1,5 @@
 #![cfg(feature = "navmesh")]
-use crabbyengine::*;
+use ponko::*;
 
 fn source(mesh: MeshData, position: Vec3) -> NavSource {
     NavSource::from_mesh(&mesh, Transform3D::at(position))

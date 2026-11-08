@@ -1,5 +1,5 @@
 #![cfg(feature = "3d")]
-use crabbyengine::*;
+use ponko::*;
 
 #[test]
 fn probe_weights_fade_inside_box_and_projection_hits_wall() {

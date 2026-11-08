@@ -1,5 +1,5 @@
 //! Attachments from C: `CrabbyAttached` and the system that places them.
-use crabbyengine::Attached;
+use ponko::Attached;
 
 use crate::types::{CrabbyEntity, CrabbyVec2};
 use crate::{CrabbyGame, CrabbyStatus, CrabbyWorld, builtin};
@@ -10,7 +10,7 @@ use crate::{CrabbyGame, CrabbyStatus, CrabbyWorld, builtin};
 /// column. Placed by the system `crabby_game_follow_attachments` adds; when
 /// `to` is despawned, the attached entity is too.
 /// ```
-/// assert_eq!(std::mem::size_of::<crabby_ffi::CrabbyAttached>(), 20);
+/// assert_eq!(std::mem::size_of::<ponko_ffi::CrabbyAttached>(), 20);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -36,7 +36,7 @@ const _: () = {
 /// # Safety
 /// Live handle and writable output.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// unsafe { let mut id = 99; assert_eq!(crabby_attached_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
 /// ```
@@ -50,16 +50,12 @@ pub unsafe extern "C" fn crabby_attached_component(world: *mut CrabbyWorld, out_
 /// a simulation system at this point in the order: add it after the
 /// systems that move things.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_game_follow_attachments(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_game_follow_attachments(std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `game` must be null or a live game.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_game_follow_attachments(game: *mut CrabbyGame) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    unsafe {
-        crate::game::build(game, |g| {
-            crate::game::ok(g.sim_system(crabbyengine::follow_attachments))
-        })
-    }
+    unsafe { crate::game::build(game, |g| crate::game::ok(g.sim_system(ponko::follow_attachments))) }
 }

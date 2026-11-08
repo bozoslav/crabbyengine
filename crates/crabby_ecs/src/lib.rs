@@ -1,4 +1,4 @@
-//! # crabby_ecs
+//! # ponko_ecs
 //!
 //! The entity-component-system behind Crabby Engine, built for simulations
 //! with millions of entities.
@@ -12,7 +12,7 @@
 //! - **Commands** record changes to apply after a query finishes.
 //!
 //! ```
-//! use crabby_ecs::*;
+//! use ponko_ecs::*;
 //!
 //! struct Pos(f32, f32);
 //! struct Vel(f32, f32);

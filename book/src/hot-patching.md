@@ -23,10 +23,10 @@ Give your game a `hotpatch` feature that turns on the engine's:
 
 ```toml
 [dependencies]
-crabbyengine = "1"
+ponko = "0.0.1"
 
 [features]
-hotpatch = ["crabbyengine/hotpatch"]
+hotpatch = ["ponko/hotpatch"]
 ```
 
 Then start the game through `dx` instead of `cargo run`:
@@ -36,7 +36,7 @@ dx serve --hot-patch --features hotpatch
 ```
 
 Edit any system in your game's crate and save. The console says
-`Hot-patching: src/main.rs took 349ms`, then `crabbyengine: code patched`,
+`Hot-patching: src/main.rs took 349ms`, then `ponko: code patched`,
 and the system runs its new code.
 
 ## Try it

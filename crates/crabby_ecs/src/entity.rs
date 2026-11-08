@@ -41,7 +41,7 @@ impl Entity {
 /// to entities can be saved and loaded (with the `serde` feature).
 ///
 /// ```
-/// use crabby_ecs::Entity;
+/// use ponko_ecs::Entity;
 ///
 /// let e = Entity::from_bits(5 | 2 << 32);
 /// let json = serde_json::to_string(&e).unwrap();

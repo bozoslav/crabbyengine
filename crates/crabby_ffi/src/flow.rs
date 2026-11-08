@@ -1,6 +1,6 @@
 //! Flow fields from C: `CrabbyNavGrid` (walking costs) and `CrabbyFlowField`
 //! (the way to the nearest goal from every cell).
-use crabbyengine::{FlowField, NavGrid, Vec2};
+use ponko::{FlowField, NavGrid, Vec2};
 
 use crate::ctx::out;
 use crate::types::*;
@@ -20,7 +20,7 @@ const _: () = assert!(CRABBY_NAV_WALL == NavGrid::WALL);
 /// A read-only view of a flow field for inline lookups (crabby.hpp's
 /// `flow_view`). Valid until the field is computed again or freed.
 /// ```
-/// assert_eq!(std::mem::size_of::<crabby_ffi::CrabbyFlowView>() % std::mem::size_of::<usize>(), 0);
+/// assert_eq!(std::mem::size_of::<ponko_ffi::CrabbyFlowView>() % std::mem::size_of::<usize>(), 0);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -46,10 +46,10 @@ pub struct CrabbyFlowView {
 /// world units wide. Returns null (see `crabby_last_error`) if a side is 0,
 /// it has more than 2^28 cells, or `cell_size` isn't positive.
 /// ```
-/// let nav = crabby_ffi::crabby_nav_new(16, 16, 8.0);
+/// let nav = ponko_ffi::crabby_nav_new(16, 16, 8.0);
 /// assert!(!nav.is_null());
-/// unsafe { crabby_ffi::crabby_nav_free(nav); }
-/// assert!(crabby_ffi::crabby_nav_new(0, 16, 8.0).is_null());
+/// unsafe { ponko_ffi::crabby_nav_free(nav); }
+/// assert!(ponko_ffi::crabby_nav_new(0, 16, 8.0).is_null());
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_nav_new(width: u32, height: u32, cell_size: f32) -> *mut CrabbyNavGrid {
@@ -73,7 +73,7 @@ pub extern "C" fn crabby_nav_new(width: u32, height: u32, cell_size: f32) -> *mu
 
 /// Frees a nav grid. Null is ignored.
 /// ```
-/// unsafe { crabby_ffi::crabby_nav_free(std::ptr::null_mut()); }
+/// unsafe { ponko_ffi::crabby_nav_free(std::ptr::null_mut()); }
 /// ```
 /// # Safety
 /// `nav` must be null or live, and not used afterwards.
@@ -94,7 +94,7 @@ unsafe fn nav_mut<'a>(nav: *mut CrabbyNavGrid) -> Result<&'a mut NavGrid, Failur
 
 /// Moves the grid: `origin` is where cell (0, 0)'s top-left corner is in the world.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_nav_set_origin(std::ptr::null_mut(), Default::default()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_nav_set_origin(std::ptr::null_mut(), Default::default()) } as u32, 1);
 /// ```
 /// # Safety
 /// `nav` must be null or live.
@@ -110,7 +110,7 @@ pub unsafe extern "C" fn crabby_nav_set_origin(nav: *mut CrabbyNavGrid, origin: 
 /// The grid's costs, row by row (`width * height` bytes), writable in place.
 /// Valid until the grid is freed.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let nav = crabby_nav_new(4, 2, 1.0);
 /// let (mut costs, mut len) = (std::ptr::null_mut(), 0);
 /// unsafe {
@@ -144,8 +144,8 @@ pub unsafe extern "C" fn crabby_nav_costs(
 
 /// An empty flow field (every direction zero until computed).
 /// ```
-/// let f = crabby_ffi::crabby_flow_new();
-/// unsafe { crabby_ffi::crabby_flow_free(f); }
+/// let f = ponko_ffi::crabby_flow_new();
+/// unsafe { ponko_ffi::crabby_flow_free(f); }
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_flow_new() -> *mut CrabbyFlowField {
@@ -154,7 +154,7 @@ pub extern "C" fn crabby_flow_new() -> *mut CrabbyFlowField {
 
 /// Frees a flow field. Null is ignored.
 /// ```
-/// unsafe { crabby_ffi::crabby_flow_free(std::ptr::null_mut()); }
+/// unsafe { ponko_ffi::crabby_flow_free(std::ptr::null_mut()); }
 /// ```
 /// # Safety
 /// `flow` must be null or live, and not used afterwards.
@@ -169,7 +169,7 @@ pub unsafe extern "C" fn crabby_flow_free(flow: *mut CrabbyFlowField) {
 /// Recomputes `flow` for `count` goals (world points; ones outside the grid
 /// or on walls are skipped). Reuses its memory. Views taken before expire.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let (nav, flow) = (crabby_nav_new(8, 8, 1.0), crabby_flow_new());
 /// let goal = CrabbyVec2 { x: 7.5, y: 0.5 };
 /// unsafe {
@@ -211,7 +211,7 @@ pub unsafe extern "C" fn crabby_flow_compute(
 /// Unit direction toward the nearest goal from `pos`, or zero (at a goal,
 /// on a wall, outside, unreachable, or for a null field).
 /// ```
-/// let d = unsafe { crabby_ffi::crabby_flow_direction(std::ptr::null(), Default::default()) };
+/// let d = unsafe { ponko_ffi::crabby_flow_direction(std::ptr::null(), Default::default()) };
 /// assert_eq!(d, Default::default());
 /// ```
 /// # Safety
@@ -229,7 +229,7 @@ pub unsafe extern "C" fn crabby_flow_direction(flow: *const CrabbyFlowField, pos
 /// ground counts as longer). `CRABBY_NOT_FOUND` if no goal can be reached.
 /// ```
 /// let mut d = 0.0;
-/// assert_eq!(unsafe { crabby_ffi::crabby_flow_distance(std::ptr::null(), Default::default(), &mut d) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_flow_distance(std::ptr::null(), Default::default(), &mut d) } as u32, 1);
 /// ```
 /// # Safety
 /// `flow` must be null or live, and not being computed; `out_distance` writable.
@@ -255,7 +255,7 @@ pub unsafe extern "C" fn crabby_flow_distance(
 
 /// A view for inline lookups; see `CrabbyFlowView`.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let flow = crabby_flow_new();
 /// let mut v = std::mem::MaybeUninit::uninit();
 /// unsafe {

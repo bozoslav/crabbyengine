@@ -1,6 +1,6 @@
 //! Reflection: components read and written by name, as JSON.
 
-use crabbyengine::*;
+use ponko::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]

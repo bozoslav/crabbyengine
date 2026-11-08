@@ -3,7 +3,7 @@ use super::{Ctx, Playing, Sound, SoundParams};
 /// Named mixer bus, created once with [`Ctx::audio_bus`]. Handles belong to
 /// their creating context. The default handle selects the `sfx` bus.
 /// ```
-/// use crabbyengine::AudioBus;
+/// use ponko::AudioBus;
 /// let bus = AudioBus::default();
 /// ```
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -13,20 +13,20 @@ pub struct AudioBus(pub(super) usize);
 /// Per-voice Kira low-pass and shared reverb send settings. Invalid values
 /// become defaults; cutoff is clamped to 20–20,000 Hz and send to 0–1.
 /// ```
-/// use crabbyengine::AudioEffects;
+/// use ponko::AudioEffects;
 /// let underwater = AudioEffects { low_pass_hz: 800.0, reverb: 0.3 };
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AudioEffects {
     /// Low-pass cutoff in Hz. Default 20,000.
     /// ```
-    /// # use crabbyengine::AudioEffects;
+    /// # use ponko::AudioEffects;
     /// assert_eq!(AudioEffects::default().low_pass_hz, 20_000.0);
     /// ```
     pub low_pass_hz: f32,
     /// Linear send gain to a shared, fully wet Kira reverb. Default zero.
     /// ```
-    /// # use crabbyengine::AudioEffects;
+    /// # use ponko::AudioEffects;
     /// assert_eq!(AudioEffects::default().reverb, 0.0);
     /// ```
     pub reverb: f32,
@@ -106,7 +106,7 @@ impl Ctx {
     /// Gets or creates a named bus. Lookup allocates only for a new name;
     /// save the returned handle. This never opens an audio device.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// Game::new("audio", 1, 1).run_headless(0, |ctx| {
     ///     assert_eq!(ctx.audio_bus("music"), ctx.audio_bus("music"));
     /// });
@@ -118,7 +118,7 @@ impl Ctx {
     /// Changes a bus's linear gain, preserving its mute state. Negative or
     /// nonfinite values become silence. Finished reverb tails decay naturally.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let music = ctx.audio_bus("music");
     /// ctx.set_audio_bus_volume(music, 0.5);
@@ -134,7 +134,7 @@ impl Ctx {
     /// Mutes or unmutes a bus without losing its configured volume. Existing
     /// reverb tails decay naturally; new input to reverb is muted immediately.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let music = ctx.audio_bus("music");
     /// ctx.mute_audio_bus(music, true);
@@ -150,7 +150,7 @@ impl Ctx {
     /// Plays a decoded or streamed sound on a bus with per-voice effects.
     /// Ordinary `play_sound` and `play_sound_ex` use `sfx` and default effects.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, sound: Sound) {
     /// let music = ctx.audio_bus("music");
     /// ctx.play_sound_on(&sound, SoundParams::default(), music, AudioEffects::default());
@@ -171,7 +171,7 @@ impl Ctx {
     /// Changes a playing voice's low-pass cutoff and reverb send with Kira
     /// smoothing. Does nothing for stopped or headless voices.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, voice: Playing) {
     /// ctx.set_sound_effects(voice, AudioEffects { low_pass_hz: 700.0, reverb: 0.4 });
     /// # }
@@ -188,18 +188,15 @@ impl Ctx {
     /// # Panics
     /// If the asset is missing or its header cannot be decoded (with audio enabled).
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let music = ctx.load_stream("music.ogg");
     /// ctx.play_sound_ex(&music, SoundParams { looping: true, ..Default::default() });
     /// # }
     /// ```
     pub fn load_stream(&mut self, path: &str) -> Sound {
-        let file = crate::assets::resolve(path).unwrap_or_else(|e| panic!("crabbyengine: {e}"));
-        let (id, seconds) = self
-            .audio
-            .stream(file)
-            .unwrap_or_else(|e| panic!("crabbyengine: {path}: {e}"));
+        let file = crate::assets::resolve(path).unwrap_or_else(|e| panic!("ponko: {e}"));
+        let (id, seconds) = self.audio.stream(file).unwrap_or_else(|e| panic!("ponko: {path}: {e}"));
         Sound { id, seconds }
     }
 }

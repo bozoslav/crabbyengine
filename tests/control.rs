@@ -1,5 +1,5 @@
 //! The control endpoint, end to end: a headless game driven over TCP, the
-//! way `crabby-mcp` drives it.
+//! way `ponko-mcp` drives it.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpStream};
@@ -8,7 +8,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crabbyengine::*;
+use ponko::*;
 
 fn registry_file(addr: SocketAddr) -> PathBuf {
     let dir = match std::env::var_os("CRABBY_INSTANCES_DIR") {

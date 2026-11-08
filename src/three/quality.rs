@@ -11,7 +11,7 @@ use crate::Ctx;
 
 /// Which of the [`GraphicsQuality`] presets some settings are.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// assert_eq!(GraphicsQuality::high().level(), QualityLevel::High);
 /// let tweaked = GraphicsQuality { shadow_cascades: 2, ..GraphicsQuality::high() };
 /// assert_eq!(tweaked.level(), QualityLevel::Custom);
@@ -34,7 +34,7 @@ pub enum QualityLevel {
 impl QualityLevel {
     /// The preset's settings, or `None` for [`Custom`](Self::Custom).
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// assert_eq!(QualityLevel::Low.quality(), Some(GraphicsQuality::low()));
     /// assert_eq!(QualityLevel::Custom.quality(), None);
     /// ```
@@ -83,7 +83,7 @@ impl QualityLevel {
 /// | `anti_aliasing` | none | FXAA | SMAA | SMAA |
 ///
 /// ```no_run
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
 /// ctx.set_graphics_quality(GraphicsQuality::medium());
 /// // Then change one thing: sharper shadows, the rest as it was.
@@ -181,7 +181,7 @@ impl GraphicsQuality {
     /// (the far one redrawn every fourth frame),
     /// point and spot lights cast no shadows, no AO, no post antialiasing.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let q = GraphicsQuality::low();
     /// assert_eq!((q.render_scale, q.shadow_cascades, q.light_shadow_views), (0.67, 2, 0));
     /// ```
@@ -214,7 +214,7 @@ impl GraphicsQuality {
     /// views of up to 512² for point and spot lights in a 2048² atlas, FXAA,
     /// no AO.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let q = GraphicsQuality::medium();
     /// assert_eq!((q.render_scale, q.anti_aliasing), (1.0, AntiAliasing::Fxaa));
     /// ```
@@ -247,7 +247,7 @@ impl GraphicsQuality {
     /// point and spot lights in a 4096² atlas, light AO (2 slices, 4
     /// steps), screen-space reflections, SMAA.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let q = GraphicsQuality::high();
     /// assert!(q.ambient_occlusion && q.ssr == 1.0 && q.anti_aliasing == AntiAliasing::Smaa);
     /// ```
@@ -282,7 +282,7 @@ impl GraphicsQuality {
     /// (another 256 MB), finer AO (4 slices, 8 steps), screen-space
     /// reflections, global illumination, SMAA.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let q = GraphicsQuality::ultra();
     /// assert_eq!((q.shadow_resolution, q.ao_steps, q.gi), (4096, 8, true));
     /// ```
@@ -314,7 +314,7 @@ impl GraphicsQuality {
     /// Which preset these are, or [`Custom`](QualityLevel::Custom). Values
     /// outside the allowed ranges are compared as they would be applied.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// assert_eq!(GraphicsQuality::ultra().level(), QualityLevel::Ultra);
     /// assert_eq!(GraphicsQuality::default().level(), QualityLevel::Custom);
     /// ```
@@ -336,7 +336,7 @@ impl GraphicsQuality {
     /// [`Ctx::set_graphics_quality`] applies them); a NaN becomes the
     /// [default](Self::default).
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let q = GraphicsQuality { render_scale: 9.0, shadow_cascades: 0, ..Default::default() }.clamped();
     /// assert_eq!((q.render_scale, q.shadow_cascades), (2.0, 1));
     /// ```
@@ -381,7 +381,7 @@ impl Ctx {
     /// preset it is.
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// Game::new("quality", 64, 64).run_headless(0, |ctx| {
     ///     ctx.set_graphics_quality(GraphicsQuality::medium());
     ///     assert_eq!(ctx.graphics_quality().level(), QualityLevel::Medium);
@@ -422,7 +422,7 @@ impl Ctx {
     /// drawn from stale targets.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// ctx.set_graphics_quality(GraphicsQuality::low());
     /// ctx.post.ambient_occlusion.radius = 2.0; // a tweak on top

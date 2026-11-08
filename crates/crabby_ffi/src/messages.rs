@@ -5,7 +5,7 @@
 use std::ffi::{CString, c_char};
 use std::time::Duration;
 
-use crabbyengine::{Lane, MessageEvent, NetMessages, PeerId};
+use ponko::{Lane, MessageEvent, NetMessages, PeerId};
 
 use crate::ctx::{out, text};
 use crate::{CrabbyStatus, Failure, boundary, invalid, invalid_owned};
@@ -26,7 +26,7 @@ pub struct CrabbyNetMessages {
 
 /// Which lane a message travels on (Rust `Lane`).
 /// ```
-/// let _ = crabby_ffi::CrabbyLane::CRABBY_LANE_RELIABLE;
+/// let _ = ponko_ffi::CrabbyLane::CRABBY_LANE_RELIABLE;
 /// ```
 #[repr(C)]
 #[allow(non_camel_case_types)]
@@ -42,7 +42,7 @@ pub enum CrabbyLane {
 
 /// What a `CrabbyMessageEvent` is.
 /// ```
-/// let _ = crabby_ffi::CrabbyMessageEventKind::CRABBY_MESSAGE;
+/// let _ = ponko_ffi::CrabbyMessageEventKind::CRABBY_MESSAGE;
 /// ```
 #[repr(C)]
 #[allow(non_camel_case_types)]
@@ -59,7 +59,7 @@ pub enum CrabbyMessageEventKind {
 /// One event from `crabby_net_messages_next_event`. `bytes` and `reason`
 /// stay valid until the next call on the same endpoint (or its free).
 /// ```
-/// let e = crabby_ffi::CrabbyMessageEvent::default();
+/// let e = ponko_ffi::CrabbyMessageEvent::default();
 /// assert_eq!(e.len, 0);
 /// ```
 #[repr(C)]
@@ -93,7 +93,7 @@ impl Default for CrabbyMessageEvent {
 
 /// Traffic counters (Rust `MessageStats`).
 /// ```
-/// assert_eq!(crabby_ffi::CrabbyMessageStats::default().bytes_sent, 0);
+/// assert_eq!(ponko_ffi::CrabbyMessageStats::default().bytes_sent, 0);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -142,7 +142,7 @@ unsafe fn payload<'a>(bytes: *const u8, len: usize) -> Result<&'a [u8], Failure>
 /// Hosts at `addr` (e.g. "0.0.0.0:7777"; port 0 picks a free one) for up to
 /// `max_clients` clients. Plain UDP: not authenticated or encrypted.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_net_messages_host(c"127.0.0.1:0".as_ptr(), 4, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_net_messages_host(c"127.0.0.1:0".as_ptr(), 4, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `addr` NUL-terminated; `out_endpoint` writable.
@@ -165,7 +165,7 @@ pub unsafe extern "C" fn crabby_net_messages_host(
 /// Joins a host at `addr` (e.g. "192.168.1.5:7777"). `CRABBY_MESSAGE_CONNECTED`
 /// for peer 0 (the host) arrives once it answers.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_net_messages_join(c"127.0.0.1:7777".as_ptr(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_net_messages_join(c"127.0.0.1:7777".as_ptr(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `addr` NUL-terminated; `out_endpoint` writable.
@@ -189,8 +189,8 @@ pub unsafe extern "C" fn crabby_net_messages_join(
 /// each one.
 /// ```
 /// let mut e = [std::ptr::null_mut(); 2];
-/// assert_eq!(unsafe { crabby_ffi::crabby_net_messages_loopback(2, e.as_mut_ptr()) } as u32, 0);
-/// for p in e { unsafe { crabby_ffi::crabby_net_messages_free(p) } }
+/// assert_eq!(unsafe { ponko_ffi::crabby_net_messages_loopback(2, e.as_mut_ptr()) } as u32, 0);
+/// for p in e { unsafe { ponko_ffi::crabby_net_messages_free(p) } }
 /// ```
 /// # Safety
 /// `out_endpoints` writable for `players` pointers.
@@ -217,7 +217,7 @@ pub unsafe extern "C" fn crabby_net_messages_loopback(
 /// Closes an endpoint (without telling peers; disconnect them first for
 /// that). Null does nothing.
 /// ```
-/// unsafe { crabby_ffi::crabby_net_messages_free(std::ptr::null_mut()) };
+/// unsafe { ponko_ffi::crabby_net_messages_free(std::ptr::null_mut()) };
 /// ```
 /// # Safety
 /// `endpoint` null or live; not used afterwards.
@@ -231,7 +231,7 @@ pub unsafe extern "C" fn crabby_net_messages_free(endpoint: *mut CrabbyNetMessag
 
 /// How long a silent peer may stay connected, in milliseconds.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_net_messages_set_timeout(std::ptr::null_mut(), 5000) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_net_messages_set_timeout(std::ptr::null_mut(), 5000) } as u32, 1);
 /// ```
 /// # Safety
 /// `endpoint` null or live.
@@ -251,7 +251,7 @@ fn placeholder() -> NetMessages {
 
 /// The UDP port this endpoint listens on (0 for loopback ones).
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_net_messages_local_port(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_net_messages_local_port(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `endpoint` null or live; `out_port` writable.
@@ -271,8 +271,8 @@ pub unsafe extern "C" fn crabby_net_messages_local_port(
 /// Sends `len` bytes (at most 1 MiB) to `peer` on `lane`. Clients send to
 /// the host, peer 0.
 /// ```
-/// use crabby_ffi::CrabbyLane::CRABBY_LANE_RELIABLE;
-/// assert_eq!(unsafe { crabby_ffi::crabby_net_messages_send(std::ptr::null_mut(), 0, CRABBY_LANE_RELIABLE, std::ptr::null(), 0) } as u32, 1);
+/// use ponko_ffi::CrabbyLane::CRABBY_LANE_RELIABLE;
+/// assert_eq!(unsafe { ponko_ffi::crabby_net_messages_send(std::ptr::null_mut(), 0, CRABBY_LANE_RELIABLE, std::ptr::null(), 0) } as u32, 1);
 /// ```
 /// # Safety
 /// `endpoint` null or live; `bytes` readable for `len` bytes.
@@ -294,8 +294,8 @@ pub unsafe extern "C" fn crabby_net_messages_send(
 
 /// Sends `len` bytes to every connected peer on `lane`.
 /// ```
-/// use crabby_ffi::CrabbyLane::CRABBY_LANE_UNRELIABLE;
-/// assert_eq!(unsafe { crabby_ffi::crabby_net_messages_send_to_all(std::ptr::null_mut(), CRABBY_LANE_UNRELIABLE, std::ptr::null(), 0) } as u32, 1);
+/// use ponko_ffi::CrabbyLane::CRABBY_LANE_UNRELIABLE;
+/// assert_eq!(unsafe { ponko_ffi::crabby_net_messages_send_to_all(std::ptr::null_mut(), CRABBY_LANE_UNRELIABLE, std::ptr::null(), 0) } as u32, 1);
 /// ```
 /// # Safety
 /// `endpoint` null or live; `bytes` readable for `len` bytes.
@@ -317,7 +317,7 @@ pub unsafe extern "C" fn crabby_net_messages_send_to_all(
 /// Sends what's queued and receives what arrived. Call it once a frame,
 /// then read events until there are none.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_net_messages_poll(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_net_messages_poll(std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `endpoint` null or live.
@@ -331,7 +331,7 @@ pub unsafe extern "C" fn crabby_net_messages_poll(endpoint: *mut CrabbyNetMessag
 /// ```
 /// let mut e = Default::default();
 /// let mut found = true;
-/// assert_eq!(unsafe { crabby_ffi::crabby_net_messages_next_event(std::ptr::null_mut(), &mut e, &mut found) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_net_messages_next_event(std::ptr::null_mut(), &mut e, &mut found) } as u32, 1);
 /// ```
 /// # Safety
 /// `endpoint` null or live; outputs writable.
@@ -382,7 +382,7 @@ pub unsafe extern "C" fn crabby_net_messages_next_event(
 
 /// Disconnects `peer`, telling it so.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_net_messages_disconnect(std::ptr::null_mut(), 1) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_net_messages_disconnect(std::ptr::null_mut(), 1) } as u32, 1);
 /// ```
 /// # Safety
 /// `endpoint` null or live.
@@ -393,7 +393,7 @@ pub unsafe extern "C" fn crabby_net_messages_disconnect(endpoint: *mut CrabbyNet
 
 /// Traffic so far.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_net_messages_stats(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_net_messages_stats(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `endpoint` null or live; `out_stats` writable.
@@ -423,7 +423,7 @@ pub unsafe extern "C" fn crabby_net_messages_stats(
 /// # Safety
 /// `out_endpoint` writable. On failure it is set to null.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_net_messages_steam_host(480, 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_net_messages_steam_host(480, 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_net_messages_steam_host(
@@ -452,7 +452,7 @@ pub unsafe extern "C" fn crabby_net_messages_steam_host(
         #[cfg(not(feature = "steam"))]
         {
             let _ = (app_id, max_clients);
-            Err(invalid("crabby_ffi was built without the `steam` feature"))
+            Err(invalid("ponko_ffi was built without the `steam` feature"))
         }
     })
 }
@@ -461,7 +461,7 @@ pub unsafe extern "C" fn crabby_net_messages_steam_host(
 /// # Safety
 /// `out_endpoint` writable. On failure it is set to null.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_net_messages_steam_join(480, 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_net_messages_steam_join(480, 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_net_messages_steam_join(
@@ -483,15 +483,14 @@ pub unsafe extern "C" fn crabby_net_messages_steam_join(
         #[cfg(feature = "steam")]
         {
             let client = crate::steam::client::get(app_id)?;
-            let net =
-                NetMessages::steam_join(&client, crabbyengine::steamworks::LobbyId::from_raw(lobby)).map_err(io)?;
+            let net = NetMessages::steam_join(&client, ponko::steamworks::LobbyId::from_raw(lobby)).map_err(io)?;
             // SAFETY: forwarded caller contract.
             unsafe { out(out_endpoint, wrap(net)) }
         }
         #[cfg(not(feature = "steam"))]
         {
             let _ = (app_id, lobby);
-            Err(invalid("crabby_ffi was built without the `steam` feature"))
+            Err(invalid("ponko_ffi was built without the `steam` feature"))
         }
     })
 }
@@ -500,7 +499,7 @@ pub unsafe extern "C" fn crabby_net_messages_steam_join(
 /// # Safety
 /// Live/null endpoint; writable output.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_net_messages_steam_peer(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_net_messages_steam_peer(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_net_messages_steam_peer(

@@ -122,7 +122,7 @@ relays get through any router, with no port forwarding and no addresses
 to type. The lockstep itself is the same, so nothing else in the game changes.
 
 ```toml
-crabbyengine = { version = "1", features = ["steam"] }
+ponko = { version = "0.0.1", features = ["steam"] }
 ```
 
 The host makes the lobby and invites; a friend either launches the game
@@ -156,7 +156,7 @@ test app "Spacewar", works for development) and Valve's `libsteam_api`
 library next to the executable (`libsteam_api.dylib`, `libsteam_api.so`
 or `steam_api64.dll`). Cargo puts it there for `cargo run`, examples and
 tests; when you package the game, copy it from `target/<profile>/`. For C
-and C++, build crabby_ffi with `--features steam`.
+and C++, build ponko_ffi with `--features steam`.
 
 Try it with two Steam accounts on two machines:
 `cargo run --example lockstep --features steam -- steam` on one, press I
@@ -175,7 +175,7 @@ ends identical:
 
 ## Cost
 
-Measured with `cargo run --release -p crabby_bench -- net`: 10,000 ticks of
+Measured with `cargo run --release -p ponko_bench -- net`: 10,000 ticks of
 a small input-driven sim take 2 ms offline and 8.5 ms as two loopback
 peers in two threads (under 1 µs extra per tick, mostly waiting for the
 other thread). The guest sends about 48 bytes per tick. At 60 ticks per
@@ -278,7 +278,7 @@ application messages. Host migration requires creating a new endpoint.
 <div class="lang-rust">
 
 ```rust,no_run
-use crabbyengine::*;
+use ponko::*;
 let client = steamworks::Client::init_app(480).unwrap();
 let lobby_id = steam_lobby_from_args();
 let mut net = match lobby_id {
@@ -319,7 +319,7 @@ application (or the C API's first call with an app id), never by fake relay test
 <div class="lang-rust">
 
 ```rust,no_run
-use crabbyengine::*;
+use ponko::*;
 let client = steamworks::Client::init_app(480).unwrap();
 let mut lobby = SteamLobby::create(&client, SteamLobbyVisibility::Public, 4)?;
 lobby.poll()?;

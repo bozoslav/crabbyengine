@@ -7,7 +7,7 @@
 //! (`CRABBY_UI_SCREEN` is the screen's own UI). The mouse works on the nearest
 //! panel its ray hits, in the panel's pixels, unless the screen's UI has it.
 
-use crabbyengine::{Ctx, Model, UiPanel3D, Vec3};
+use ponko::{Ctx, Model, UiPanel3D, Vec3};
 
 use crate::ctx::{ctx_access, out};
 use crate::particles::entity;
@@ -29,8 +29,8 @@ fn panel(c: &mut Ctx, bits: u64) -> Result<&mut UiPanel3D, Failure> {
 /// the `crabby_ctx_ui_*` calls, giving the entity as their `target`. Writes the
 /// panel's texture (a render target) to `out_texture` unless it is null.
 /// ```
-/// let size = crabby_ffi::CrabbyVec2 { x: 1.0, y: 0.5 };
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_create_ui_panel(std::ptr::null_mut(), 0, 256, 128, size, std::ptr::null_mut()) } as u32, 1);
+/// let size = ponko_ffi::CrabbyVec2 { x: 1.0, y: 0.5 };
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_create_ui_panel(std::ptr::null_mut(), 0, 256, 128, size, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `out_texture` null or writable.
@@ -47,7 +47,7 @@ pub unsafe extern "C" fn crabby_ctx_create_ui_panel(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             let e = entity(c, entity_bits)?;
-            let size: crabbyengine::Vec2 = to_c(size);
+            let size: ponko::Vec2 = to_c(size);
             let (panel, model): (UiPanel3D, Model) =
                 c.try_create_ui_panel(width, height, size).map_err(invalid_owned)?;
             let texture = panel.texture;
@@ -65,7 +65,7 @@ pub unsafe extern "C" fn crabby_ctx_create_ui_panel(
 /// Removes `entity`'s UI panel and its UI. Its model stays: despawn the entity
 /// or remove the model to hide the quad.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_remove_ui_panel(std::ptr::null_mut(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_remove_ui_panel(std::ptr::null_mut(), 0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -83,7 +83,7 @@ pub unsafe extern "C" fn crabby_ctx_remove_ui_panel(ctx: *mut CrabbyCtx, entity_
 
 /// Whether the mouse and keyboard can use `entity`'s panel (on by default).
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_ui_panel_interactive(std::ptr::null_mut(), 0, false) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_ui_panel_interactive(std::ptr::null_mut(), 0, false) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -107,7 +107,7 @@ pub unsafe extern "C" fn crabby_ctx_set_ui_panel_interactive(
 /// `out_pixel` is the spot in the panel's pixels (zero when it isn't).
 /// ```
 /// let (mut over, mut at) = (false, Default::default());
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_panel_pointer(std::ptr::null_mut(), 0, &mut over, &mut at) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_panel_pointer(std::ptr::null_mut(), 0, &mut over, &mut at) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; outputs writable.
@@ -139,8 +139,8 @@ pub unsafe extern "C" fn crabby_ctx_ui_panel_pointer(
 /// in VR. Clear it with `crabby_ctx_clear_ui_pointer_ray`. A zero or
 /// non-finite `direction` fails with `CRABBY_INVALID_ARGUMENT`.
 /// ```
-/// let v = crabby_ffi::CrabbyVec3 { x: 0.0, y: 0.0, z: -1.0 };
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_ui_pointer_ray(std::ptr::null_mut(), Default::default(), v) } as u32, 1);
+/// let v = ponko_ffi::CrabbyVec3 { x: 0.0, y: 0.0, z: -1.0 };
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_ui_pointer_ray(std::ptr::null_mut(), Default::default(), v) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -165,7 +165,7 @@ pub unsafe extern "C" fn crabby_ctx_set_ui_pointer_ray(
 
 /// Goes back to the camera's ray through the mouse for panels.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_clear_ui_pointer_ray(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_clear_ui_pointer_ray(std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.

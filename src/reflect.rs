@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
-use crabby_ecs::{Component, ComponentId, Entity, World};
+use ponko_ecs::{Component, ComponentId, Entity, World};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -17,7 +17,7 @@ use serde_json::Value;
 /// Why a reflection call failed.
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// let world = World::new();
 /// let e = Entity::from_bits(0);
 /// let err = world.get_json(e, "Health").unwrap_err();
@@ -211,7 +211,7 @@ fn merge(base: &mut Value, patch: Value) {
 /// in JSON.
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// assert_eq!(FieldType::Vec2.size(), 8);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -265,7 +265,7 @@ impl FieldType {
 /// One field of a component described with [`WorldReflect::reflect_fields`].
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// let f = Field::new("speed", FieldType::F32, 8);
 /// assert_eq!((f.name.as_str(), f.offset), ("speed", 8));
 /// ```
@@ -446,7 +446,7 @@ fn write_field(f: &Field, v: &Value, at: &mut [u8]) -> Result<(), String> {
 
 /// Reflection methods on [`World`]: read and write components by name as JSON.
 ///
-/// Comes in with `use crabbyengine::*;`.
+/// Comes in with `use ponko::*;`.
 pub trait WorldReflect {
     /// Makes component `T` visible to reflection under its type name without
     /// the module path (`my_game::Health` becomes `"Health"`).
@@ -457,7 +457,7 @@ pub trait WorldReflect {
     /// `Transform3D` and `Model` too (a model with its mesh's file name).
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// use serde::{Deserialize, Serialize};
     ///
     /// #[derive(Serialize, Deserialize)]
@@ -480,7 +480,7 @@ pub trait WorldReflect {
     /// Describing the same component again replaces its fields.
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     ///
     /// let mut world = World::new();
     /// // A C struct { float current; uint32_t max; }.
@@ -510,7 +510,7 @@ pub trait WorldReflect {
     /// Names of all reflected components, in registration order.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let mut world = World::new();
     /// world.reflect::<Transform2D>();
     /// assert_eq!(world.reflected_components(), ["Transform2D"]);
@@ -520,7 +520,7 @@ pub trait WorldReflect {
     /// Component `name` of entity `e`, as JSON.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let mut world = World::new();
     /// world.reflect::<Transform2D>();
     /// let e = world.spawn((Transform2D::at(vec2(1.0, 2.0)),));
@@ -542,7 +542,7 @@ pub trait WorldReflect {
     /// give every field (or the ones the type has `#[serde(default)]` for).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # use serde_json::json;
     /// let mut world = World::new();
     /// world.reflect::<Transform2D>();
@@ -560,7 +560,7 @@ pub trait WorldReflect {
     /// Removes component `name` from entity `e`. Returns whether it had it.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let mut world = World::new();
     /// world.reflect::<Transform2D>();
     /// let e = world.spawn((Transform2D::default(),));
@@ -577,7 +577,7 @@ pub trait WorldReflect {
     /// component name. Components that aren't reflected are left out.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let mut world = World::new();
     /// world.reflect::<Transform2D>();
     /// let e = world.spawn((Transform2D::default(),));
@@ -594,7 +594,7 @@ pub trait WorldReflect {
     /// is left spawned.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # use serde_json::json;
     /// let mut world = World::new();
     /// world.reflect::<Transform2D>();
@@ -617,7 +617,7 @@ pub trait WorldReflect {
     /// are saved under `"resources"`; others are not.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let mut world = World::new();
     /// world.reflect::<Transform2D>();
     /// world.spawn((Transform2D::at(vec2(1.0, 2.0)),));
@@ -636,7 +636,7 @@ pub trait WorldReflect {
     /// take over), which is the point.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let mut world = World::new();
     /// world.reflect::<Transform2D>();
     /// let e = world.spawn((Transform2D::at(vec2(1.0, 2.0)),));
@@ -656,12 +656,12 @@ pub trait WorldReflect {
 
     /// Makes resource `R` visible to reflection under its type name without
     /// the module path, like [`reflect`](Self::reflect) does for components.
-    /// Tools (agents through `crabby-mcp`, the control endpoint) can then
+    /// Tools (agents through `ponko-mcp`, the control endpoint) can then
     /// read and change it, and world saves include it.
     /// Registering the same type again does nothing.
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// use serde::{Deserialize, Serialize};
     ///
     /// #[derive(Serialize, Deserialize)]
@@ -681,7 +681,7 @@ pub trait WorldReflect {
     /// not they're in the world right now).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # #[derive(serde::Serialize, serde::Deserialize)] struct Score(u32);
     /// let mut world = World::new();
     /// world.reflect_resource::<Score>();
@@ -692,7 +692,7 @@ pub trait WorldReflect {
     /// A reflected resource as JSON.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # #[derive(serde::Serialize, serde::Deserialize)] struct Score(u32);
     /// let mut world = World::new();
     /// world.reflect_resource::<Score>();
@@ -711,7 +711,7 @@ pub trait WorldReflect {
     /// has, like [`set_json`](Self::set_json).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # use serde_json::json;
     /// # #[derive(serde::Serialize, serde::Deserialize)] struct Score { red: u32, blue: u32 }
     /// let mut world = World::new();
@@ -734,7 +734,7 @@ pub trait WorldReflect {
     /// Describing it again replaces the fields.
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// use std::alloc::Layout;
     ///
     /// let mut world = World::new();

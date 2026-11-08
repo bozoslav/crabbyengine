@@ -1,6 +1,6 @@
 //! Profiling: frame statistics, the performance overlay and traces.
 
-use crabbyengine::*;
+use ponko::*;
 
 // ANCHOR: profiling
 /// F3 shows the performance overlay; F4 records the next 300 frames as a

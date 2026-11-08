@@ -5,7 +5,7 @@ name: the agent bridge (MCP), the inspector, and save/load all use it. It's
 opt-in per type and built on [serde](https://serde.rs).
 
 ```rust
-use crabbyengine::*;
+use ponko::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -29,7 +29,7 @@ Add `serde = { version = "1", features = ["derive"] }` to your `Cargo.toml`.
 
 C++ has no serde, so a C++ component lists its fields with
 `world.reflect<T>`. From then on it is a reflected component like any other:
-agents read and write it through `crabby-mcp`, and saves include it, under
+agents read and write it through `ponko-mcp`, and saves include it, under
 the type's name (`Unit`, or `game::Unit` in a namespace) or the one you pass
 first: `world.reflect<Unit>("Soldier", {...})`.
 
@@ -77,7 +77,7 @@ world.set_resource_json("Score", json!({ "blue": 3 }))?; // only blue changes
 </div>
 </div>
 
-Reflected resources show up in `crabby-mcp` (`list_resources`,
+Reflected resources show up in `ponko-mcp` (`list_resources`,
 `get_resource`, `set_resource`) and are part of [world saves](determinism.md#saving-and-loading-the-world).
 Resources hold whatever Rust type you like, so the ones that can't be JSON
 (a nav grid, a GPU handle) just stay unreflected. A C++ resource is saved
@@ -98,7 +98,7 @@ left out of saves.
 
 ## The methods
 
-All of them come from `WorldReflect`, which `use crabbyengine::*;` brings in.
+All of them come from `WorldReflect`, which `use ponko::*;` brings in.
 
 | Method | Does |
 |---|---|

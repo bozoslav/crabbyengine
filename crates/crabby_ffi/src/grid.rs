@@ -1,6 +1,6 @@
 //! `CrabbyGrid`: a spatial grid owned by C, with a `uint32_t` of your own per
 //! item (an index into your arrays), like Rust's `SpatialGrid::with_data`.
-use crabbyengine::SpatialGrid;
+use ponko::SpatialGrid;
 
 use crate::types::*;
 use crate::{CrabbyStatus, Failure, boundary, ctx::collect, invalid};
@@ -12,8 +12,8 @@ pub struct CrabbyGrid(SpatialGrid<u32>);
 /// Makes a grid with square cells of `cell_size` (about the query radius).
 /// Returns null if `cell_size` isn't positive.
 /// ```
-/// let g = crabby_ffi::crabby_grid_new(32.0);
-/// unsafe { crabby_ffi::crabby_grid_free(g); }
+/// let g = ponko_ffi::crabby_grid_new(32.0);
+/// unsafe { ponko_ffi::crabby_grid_free(g); }
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_grid_new(cell_size: f32) -> *mut CrabbyGrid {
@@ -36,7 +36,7 @@ pub extern "C" fn crabby_grid_new(cell_size: f32) -> *mut CrabbyGrid {
 /// # Safety
 /// `grid` must be null or a live grid, not used afterwards.
 /// ```
-/// unsafe { crabby_ffi::crabby_grid_free(std::ptr::null_mut()); }
+/// unsafe { ponko_ffi::crabby_grid_free(std::ptr::null_mut()); }
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_grid_free(grid: *mut CrabbyGrid) {
@@ -64,7 +64,7 @@ unsafe fn grid_ref<'a>(grid: *const CrabbyGrid) -> Result<&'a SpatialGrid<u32>, 
 /// # Safety
 /// Live grid not queried meanwhile; readable items.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let g = crabby_grid_new(32.0);
 /// let item = CrabbyGridItem { entity: CrabbyEntity { index: 0, generation: 0 }, position: CrabbyVec2 { x: 5.0, y: 5.0 }, data: 7 };
 /// unsafe {
@@ -95,7 +95,7 @@ pub unsafe extern "C" fn crabby_grid_rebuild(
             unsafe { std::slice::from_raw_parts(items, count) }
         };
         grid.rebuild_with_data(items.iter().map(|i| {
-            let e: crabbyengine::GridEntry<u32> = to_c(*i);
+            let e: ponko::GridEntry<u32> = to_c(*i);
             (e.entity, e.position, e.data)
         }));
         Ok(())
@@ -107,7 +107,7 @@ pub unsafe extern "C" fn crabby_grid_rebuild(
 /// # Safety
 /// Live grid; writable `capacity` items (null if 0); writable count.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_grid_radius(std::ptr::null(), Default::default(), 1.0, std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_grid_radius(std::ptr::null(), Default::default(), 1.0, std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_grid_radius(
@@ -135,7 +135,7 @@ pub unsafe extern "C" fn crabby_grid_radius(
 /// # Safety
 /// `grid` must be null or live.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_grid_len(std::ptr::null()) }, 0);
+/// assert_eq!(unsafe { ponko_ffi::crabby_grid_len(std::ptr::null()) }, 0);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_grid_len(grid: *const CrabbyGrid) -> usize {
@@ -152,7 +152,7 @@ pub unsafe extern "C" fn crabby_grid_len(grid: *const CrabbyGrid) -> usize {
 /// `cx = floor(x * inv_cell)` saturated to int32. Bucket `b` holds entries
 /// `starts[b] .. starts[b + 1]`; see crabby.hpp for the cell-to-bucket hash.
 /// ```
-/// let v = crabby_ffi::CrabbyGridView::default();
+/// let v = ponko_ffi::CrabbyGridView::default();
 /// assert_eq!(v.len, 0);
 /// ```
 #[repr(C)]
@@ -201,7 +201,7 @@ pub(crate) fn view_of<T: Copy + Send + Sync>(grid: &SpatialGrid<T>) -> CrabbyGri
     let raw = grid.raw_view();
     CrabbyGridView {
         entries: raw.entries.as_ptr().cast(),
-        entry_size: size_of::<crabbyengine::GridEntry<T>>(),
+        entry_size: size_of::<ponko::GridEntry<T>>(),
         cells: raw.cells.as_ptr(),
         starts: raw.starts.as_ptr(),
         len: raw.entries.len(),
@@ -217,7 +217,7 @@ pub(crate) fn view_of<T: Copy + Send + Sync>(grid: &SpatialGrid<T>) -> CrabbyGri
 /// # Safety
 /// Live grid; writable output.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let g = crabby_grid_new(8.0);
 /// let mut v = CrabbyGridView::default();
 /// unsafe { assert_eq!(crabby_grid_view(g, &mut v), CrabbyStatus::CRABBY_OK); crabby_grid_free(g); }

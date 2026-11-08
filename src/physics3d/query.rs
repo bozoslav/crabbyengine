@@ -24,7 +24,7 @@ pub struct Hit3D {
 /// and no sensors.
 ///
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// # let player = Entity::from_bits(1);
 /// const TERRAIN: u32 = 1 << 2;
 /// let ground_only = QueryFilter3D::default().groups(CollisionGroups::new(u32::MAX, TERRAIN));
@@ -80,7 +80,7 @@ impl Physics3D {
     /// within `max_distance`. Up to date as of the last physics step.
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// fn look_down(ctx: &mut Ctx) {
     ///     let filter = QueryFilter3D::default();
     ///     if let Some(hit) = ctx.physics3d.cast_ray(vec3(0.0, 5.0, 0.0), Vec3::NEG_Y, 100.0, filter) {
@@ -112,7 +112,7 @@ impl Physics3D {
     /// `out` (cleared first; reuse it so casts don't allocate).
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let physics = Physics3D::default();
     /// let mut hits = Vec::new();
     /// physics.cast_ray_all(Vec3::ZERO, Vec3::X, 50.0, QueryFilter3D::default(), &mut hits);
@@ -182,7 +182,7 @@ impl Physics3D {
     /// rays: bullets with size, "is there room to walk there").
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let physics = Physics3D::default();
     /// assert!(physics.cast_sphere(Vec3::ZERO, 0.5, Vec3::Z, 10.0, QueryFilter3D::default()).is_none());
     /// ```
@@ -209,7 +209,7 @@ impl Physics3D {
     /// and returns the first collider it touches within `max_distance`.
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let physics = Physics3D::default();
     /// assert!(physics.cast_capsule(Vec3::ZERO, 1.2, 0.3, Vec3::X, 10.0, QueryFilter3D::default()).is_none());
     /// ```
@@ -242,7 +242,7 @@ impl Physics3D {
     /// Every entity whose collider overlaps the ball, into `out` (cleared first).
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let physics = Physics3D::default();
     /// let mut near = Vec::new();
     /// physics.overlap_sphere(Vec3::ZERO, 5.0, QueryFilter3D::default(), &mut near);
@@ -257,7 +257,7 @@ impl Physics3D {
     /// `center` and turned by `rotation`, into `out` (cleared first).
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let physics = Physics3D::default();
     /// let mut inside = Vec::new();
     /// physics.overlap_box(Vec3::ZERO, Vec3::ONE, Quat::IDENTITY, QueryFilter3D::default(), &mut inside);
@@ -273,7 +273,7 @@ impl Physics3D {
     /// `center`, into `out` (cleared first). Can a character stand up here?
     ///
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let physics = Physics3D::default();
     /// let mut blocking = Vec::new();
     /// physics.overlap_capsule(Vec3::ZERO, 1.2, 0.3, QueryFilter3D::default(), &mut blocking);

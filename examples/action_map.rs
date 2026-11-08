@@ -1,5 +1,5 @@
 //! Named actions, shared by keyboard and gamepad. Runs without a window.
-use crabbyengine::*;
+use ponko::*;
 
 // ANCHOR: action_map
 fn main() {

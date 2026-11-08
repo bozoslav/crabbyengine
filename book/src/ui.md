@@ -65,8 +65,8 @@ CSS escapes; reserved CSS keywords and names starting with digits are rejected.
 <div>
 
 ```rust
-use crabbyengine::{Ui, UiWidget, ui_layout::*};
-use crabbyengine::ui_layout::style_helpers::*;
+use ponko::{Ui, UiWidget, ui_layout::*};
+use ponko::ui_layout::style_helpers::*;
 let mut tree = Ui::default();
 let dashboard = tree.add(UiWidget::Panel, Style {
     display: Display::Grid,

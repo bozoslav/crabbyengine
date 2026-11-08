@@ -19,7 +19,7 @@ pub const TERRAIN_LAYERS: usize = 8;
 /// [`layer_size`](Self::layer_size) world units.
 ///
 /// ```no_run
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let ground = ctx.load_texture_array(&["grass.png", "dirt.png", "rock.png"], TextureKind::Color);
 /// // One RGBA weight map for the whole 512 m: red grass, green dirt, blue rock.
@@ -61,7 +61,7 @@ impl TerrainMaterialDesc {
     /// units from `corner`; everything else as by default.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ground: TextureArray, weights: TextureArray) {
     /// let desc = TerrainMaterialDesc { roughness: 0.8, ..TerrainMaterialDesc::new(ground, weights, Vec2::ZERO, vec2(256.0, 256.0)) };
     /// # }
@@ -133,7 +133,7 @@ pub const TERRAIN_LODS: usize = 4;
 /// different detail meet.
 ///
 /// ```no_run
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let grass = ctx.create_material(MaterialDesc { roughness: 0.95, ..MaterialDesc::color(Color::hex(0x5A8A3C)) });
 /// // 65 x 65 heights, 2 m apart: a 128 m tile with gentle hills.
@@ -160,7 +160,7 @@ impl TerrainTile {
     /// camera (measured to the nearest point of the tile's bounds).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(tile: TerrainTile) {
     /// assert_eq!(tile.lod(0.0), 0);
     /// assert_eq!(tile.lod(tile.lod_distance * 10.0), 3);
@@ -187,7 +187,7 @@ impl Ctx {
     /// it to [`Ctx::create_terrain_tile`], or to any mesh.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, desc: TerrainMaterialDesc, heights: &[f32]) {
     /// let ground = ctx.create_terrain_material(&desc);
     /// let tile = ctx.create_terrain_tile(heights, 256.0, ground);
@@ -201,7 +201,7 @@ impl Ctx {
     /// another game.
     pub fn create_terrain_material(&mut self, desc: &TerrainMaterialDesc) -> Material {
         self.try_create_terrain_material(desc)
-            .unwrap_or_else(|e| panic!("crabbyengine: create_terrain_material: {e}"))
+            .unwrap_or_else(|e| panic!("ponko: create_terrain_material: {e}"))
     }
 
     /// [`Ctx::create_terrain_material`] that returns errors (for the C API).
@@ -253,7 +253,7 @@ impl Ctx {
     /// `size` further on.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, heights: &[f32], ground: Material) {
     /// let tile = ctx.create_terrain_tile(heights, 256.0, ground);
     /// ctx.world.spawn((Transform3D::at(vec3(256.0, 0.0, 0.0)), tile));
@@ -273,7 +273,7 @@ impl Ctx {
     /// for tiles streamed in while the game runs.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let ground = ctx.default_material();
     ///     let job = Job::spawn(|| TerrainTileData::new(&[0.0; 33 * 33], 64.0));
@@ -297,7 +297,7 @@ impl Ctx {
     /// [`Ctx::free_mesh`]); despawn its entity too.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let ground = ctx.default_material();
     ///     let tile = ctx.create_terrain_tile(&[0.0; 9 * 9], 16.0, ground);
@@ -317,7 +317,7 @@ impl Ctx {
 /// then [`Ctx::upload_terrain_tile`] on the game's.
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// let data = TerrainTileData::new(&[0.0; 5 * 5], 8.0);
 /// assert_eq!(data.size(), 8.0);
 /// ```
@@ -332,7 +332,7 @@ impl TerrainTileData {
     /// [`Ctx::create_terrain_tile`] takes them.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let flat = TerrainTileData::new(&[1.0; 3 * 3], 4.0);
     /// assert_eq!(flat.size(), 4.0);
     /// ```
@@ -344,7 +344,7 @@ impl TerrainTileData {
     pub fn new(heights: &[f32], size: f32) -> Self {
         assert!(
             size > 0.0 && size.is_finite(),
-            "crabbyengine: create_terrain_tile: size must be above 0 (got {size})"
+            "ponko: create_terrain_tile: size must be above 0 (got {size})"
         );
         Self {
             lods: std::array::from_fn(|i| MeshData::heightfield(heights, size, 1 << i)),
@@ -355,7 +355,7 @@ impl TerrainTileData {
     /// How wide the tile is.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert_eq!(TerrainTileData::new(&[0.0; 4], 2.0).size(), 2.0);
     /// ```
     #[must_use]
@@ -367,7 +367,7 @@ impl TerrainTileData {
     /// when the meshes go to the GPU).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let data = TerrainTileData::new(&[3.0; 3 * 3], 4.0);
     /// assert_eq!(data.heightfield().height_at(1.0, 1.0), Some(3.0));
     /// ```
@@ -384,7 +384,7 @@ impl TerrainTileData {
 /// Coordinates are from the tile's corner, X and Z from 0 to its size.
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// // 3 x 3 heights over 10 m: a ridge along Z in the middle.
 /// let ground = Heightfield::new(&[0.0, 4.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0, 0.0], 10.0);
 /// assert_eq!(ground.height_at(5.0, 3.0), Some(4.0));
@@ -403,7 +403,7 @@ impl Heightfield {
     /// [`Ctx::create_terrain_tile`] takes them (NaN for a hole).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let flat = Heightfield::new(&[1.0; 4], 2.0);
     /// assert_eq!(flat.size(), 2.0);
     /// ```
@@ -416,12 +416,12 @@ impl Heightfield {
         let n = (heights.len() as f64).sqrt() as usize;
         assert!(
             n >= 2 && n * n == heights.len(),
-            "crabbyengine: Heightfield: {} heights isn't a square grid of at least 2 x 2",
+            "ponko: Heightfield: {} heights isn't a square grid of at least 2 x 2",
             heights.len()
         );
         assert!(
             size > 0.0 && size.is_finite(),
-            "crabbyengine: Heightfield: size must be above 0 (got {size})"
+            "ponko: Heightfield: size must be above 0 (got {size})"
         );
         Self {
             heights: heights.to_vec(),
@@ -433,7 +433,7 @@ impl Heightfield {
     /// How wide the tile is.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert_eq!(Heightfield::new(&[0.0; 9], 8.0).size(), 8.0);
     /// ```
     #[must_use]
@@ -444,7 +444,7 @@ impl Heightfield {
     /// The heights it was made from.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert_eq!(Heightfield::new(&[0.0; 9], 8.0).heights().len(), 9);
     /// ```
     #[must_use]
@@ -483,7 +483,7 @@ impl Heightfield {
     /// the tile or over a hole.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let slope = Heightfield::new(&[0.0, 2.0, 0.0, 2.0], 1.0);
     /// assert_eq!(slope.height_at(0.5, 0.0), Some(1.0));
     /// ```
@@ -501,7 +501,7 @@ impl Heightfield {
     /// there tilts to.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let flat = Heightfield::new(&[5.0; 4], 1.0);
     /// assert_eq!(flat.normal_at(0.5, 0.5), Some(Vec3::Y));
     /// ```

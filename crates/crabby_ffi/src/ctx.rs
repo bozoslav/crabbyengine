@@ -8,8 +8,8 @@
 use std::ffi::{CStr, c_char, c_void};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crabby_ecs::{Commands, Entity};
-use crabbyengine::{Ctx, Gamepad, GamepadButton, SpatialGrid};
+use ponko::{Ctx, Gamepad, GamepadButton, SpatialGrid};
+use ponko_ecs::{Commands, Entity};
 
 use crate::keys::{button_from_c, gamepad_axis_from_c, gamepad_button_from_c, key_from_c};
 use crate::types::*;
@@ -121,7 +121,7 @@ unsafe fn commands<R>(
 /// Events, usable inside `crabby_query` callbacks like commands.
 pub(crate) unsafe fn events<R>(
     handle: *const CrabbyCtx,
-    f: impl FnOnce(&mut crabbyengine::Events) -> Result<R, Failure>,
+    f: impl FnOnce(&mut ponko::Events) -> Result<R, Failure>,
 ) -> Result<R, Failure> {
     if handle.is_null() {
         return Err(invalid("ctx is null"));
@@ -179,7 +179,7 @@ pub(crate) unsafe fn text<'a>(ptr: *const c_char) -> Result<&'a str, Failure> {
 
 /// Seconds this system covers: the fixed step in sim systems, the frame time otherwise.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_dt(std::ptr::null()) }, 0.0);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_dt(std::ptr::null()) }, 0.0);
 /// ```
 /// Returns 0 for a null ctx. Safe to call from any thread during the callback.
 /// # Safety
@@ -194,7 +194,7 @@ pub unsafe extern "C" fn crabby_ctx_dt(ctx: *const CrabbyCtx) -> f32 {
 }
 /// Simulation ticks completed so far.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_sim_tick(std::ptr::null()) }, 0);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_sim_tick(std::ptr::null()) }, 0);
 /// ```
 /// Returns 0 for a null ctx. Safe to call from any thread during the callback.
 /// # Safety
@@ -209,7 +209,7 @@ pub unsafe extern "C" fn crabby_ctx_sim_tick(ctx: *const CrabbyCtx) -> u64 {
 }
 /// Simulated seconds so far (exact: ticks × fixed step).
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_sim_time(std::ptr::null()) }, 0.0);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_sim_time(std::ptr::null()) }, 0.0);
 /// ```
 /// Returns 0 for a null ctx. Safe to call from any thread during the callback.
 /// # Safety
@@ -224,7 +224,7 @@ pub unsafe extern "C" fn crabby_ctx_sim_time(ctx: *const CrabbyCtx) -> f64 {
 }
 /// Wall-clock seconds since the game started.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_time(std::ptr::null()) }, 0.0);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_time(std::ptr::null()) }, 0.0);
 /// ```
 /// Returns 0 for a null ctx. Safe to call from any thread during the callback.
 /// # Safety
@@ -239,7 +239,7 @@ pub unsafe extern "C" fn crabby_ctx_time(ctx: *const CrabbyCtx) -> f64 {
 }
 /// Frames drawn so far.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_frame(std::ptr::null()) }, 0);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_frame(std::ptr::null()) }, 0);
 /// ```
 /// Returns 0 for a null ctx. Safe to call from any thread during the callback.
 /// # Safety
@@ -254,7 +254,7 @@ pub unsafe extern "C" fn crabby_ctx_frame(ctx: *const CrabbyCtx) -> u64 {
 }
 /// Frames per second, averaged.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_fps(std::ptr::null()) }, 0.0);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_fps(std::ptr::null()) }, 0.0);
 /// ```
 /// Returns 0 for a null ctx. Safe to call from any thread during the callback.
 /// # Safety
@@ -270,7 +270,7 @@ pub unsafe extern "C" fn crabby_ctx_fps(ctx: *const CrabbyCtx) -> f32 {
 /// Base of this tick and system's random streams (Rust `ctx.random().to_bits()`).
 /// The C++ header's `crabby::rng` derives the same numbers as Rust from it.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_random_bits(std::ptr::null()) }, 0);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_random_bits(std::ptr::null()) }, 0);
 /// ```
 /// Returns 0 for a null ctx. Safe to call from any thread during the callback.
 /// # Safety
@@ -285,7 +285,7 @@ pub unsafe extern "C" fn crabby_ctx_random_bits(ctx: *const CrabbyCtx) -> u64 {
 }
 /// Window size in pixels.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_window_size(std::ptr::null()) }.x, 0.0);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_window_size(std::ptr::null()) }.x, 0.0);
 /// ```
 /// Returns 0 for a null ctx. Safe to call from any thread during the callback.
 /// # Safety
@@ -303,7 +303,7 @@ pub unsafe extern "C" fn crabby_ctx_window_size(ctx: *const CrabbyCtx) -> Crabby
 /// # Safety
 /// `ctx` must be null or live.
 /// ```
-/// assert!(unsafe { crabby_ffi::crabby_ctx_world(std::ptr::null_mut()) }.is_null());
+/// assert!(unsafe { ponko_ffi::crabby_ctx_world(std::ptr::null_mut()) }.is_null());
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_world(ctx: *mut CrabbyCtx) -> *mut CrabbyWorld {
@@ -316,7 +316,7 @@ pub unsafe extern "C" fn crabby_ctx_world(ctx: *mut CrabbyCtx) -> *mut CrabbyWor
 
 /// Ends the game after this frame (or the headless run after this tick).
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// assert_eq!(unsafe { crabby_ctx_quit(std::ptr::null_mut()) }, CrabbyStatus::CRABBY_INVALID_ARGUMENT);
 /// ```
 /// # Safety
@@ -333,7 +333,7 @@ pub unsafe extern "C" fn crabby_ctx_quit(ctx: *mut CrabbyCtx) -> CrabbyStatus {
 }
 /// Pauses the simulation (frame systems keep running).
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_pause(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_pause(std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
@@ -349,7 +349,7 @@ pub unsafe extern "C" fn crabby_ctx_pause(ctx: *mut CrabbyCtx) -> CrabbyStatus {
 }
 /// Resumes a paused simulation.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_resume(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_resume(std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
@@ -365,7 +365,7 @@ pub unsafe extern "C" fn crabby_ctx_resume(ctx: *mut CrabbyCtx) -> CrabbyStatus 
 }
 /// Runs one simulation tick while paused.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_step(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_step(std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
@@ -381,7 +381,7 @@ pub unsafe extern "C" fn crabby_ctx_step(ctx: *mut CrabbyCtx) -> CrabbyStatus {
 }
 /// Simulation speed multiplier (1..64); results don't depend on it.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_sim_speed(std::ptr::null_mut(), 2.0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_sim_speed(std::ptr::null_mut(), 2.0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
@@ -400,7 +400,7 @@ pub unsafe extern "C" fn crabby_ctx_set_sim_speed(ctx: *mut CrabbyCtx, speed: f3
 }
 /// Current simulation speed.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_sim_speed(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_sim_speed(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
@@ -411,7 +411,7 @@ pub unsafe extern "C" fn crabby_ctx_sim_speed(ctx: *mut CrabbyCtx, out_speed: *m
 }
 /// Whether the simulation is paused.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_is_paused(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_is_paused(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
@@ -423,7 +423,7 @@ pub unsafe extern "C" fn crabby_ctx_is_paused(ctx: *mut CrabbyCtx, out_paused: *
 
 /// Whether a key (`CrabbyKey`) is held.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_key_down(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_key_down(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `out_state` writable.
@@ -439,7 +439,7 @@ pub unsafe extern "C" fn crabby_ctx_key_down(ctx: *mut CrabbyCtx, input: u32, ou
 }
 /// Whether a key went down this frame.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_key_pressed(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_key_pressed(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `out_state` writable.
@@ -455,7 +455,7 @@ pub unsafe extern "C" fn crabby_ctx_key_pressed(ctx: *mut CrabbyCtx, input: u32,
 }
 /// Whether a key went up this frame.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_key_released(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_key_released(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `out_state` writable.
@@ -475,7 +475,7 @@ pub unsafe extern "C" fn crabby_ctx_key_released(
 }
 /// Whether a mouse button (`CrabbyMouseButton`) is held.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_mouse_down(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_mouse_down(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `out_state` writable.
@@ -491,7 +491,7 @@ pub unsafe extern "C" fn crabby_ctx_mouse_down(ctx: *mut CrabbyCtx, input: u32, 
 }
 /// Whether a mouse button went down this frame.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_mouse_pressed(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_mouse_pressed(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `out_state` writable.
@@ -511,7 +511,7 @@ pub unsafe extern "C" fn crabby_ctx_mouse_pressed(
 }
 /// Whether a mouse button went up this frame.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_mouse_released(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_mouse_released(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `out_state` writable.
@@ -531,7 +531,7 @@ pub unsafe extern "C" fn crabby_ctx_mouse_released(
 }
 /// How many gamepads are connected; read each with `crabby_ctx_gamepad_at`.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_gamepad_count(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_gamepad_count(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `out_count` writable.
@@ -543,7 +543,7 @@ pub unsafe extern "C" fn crabby_ctx_gamepad_count(ctx: *mut CrabbyCtx, out_count
 /// The slot of the `index`th connected gamepad (`0..count`), by slot order:
 /// the number every other gamepad call takes as `pad`.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_gamepad_at(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_gamepad_at(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `out_pad` writable.
@@ -569,7 +569,7 @@ fn gamepad_args(pad: u32, button: u32) -> Result<(Gamepad, GamepadButton), Failu
 
 /// Whether `button` (`CrabbyGamepadButton`) is held on gamepad `pad` (a slot).
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_gamepad_down(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_gamepad_down(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `out_state` writable.
@@ -590,7 +590,7 @@ pub unsafe extern "C" fn crabby_ctx_gamepad_down(
 }
 /// Whether `button` went down on `pad` this frame.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_gamepad_pressed(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_gamepad_pressed(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `out_state` writable.
@@ -611,7 +611,7 @@ pub unsafe extern "C" fn crabby_ctx_gamepad_pressed(
 }
 /// Whether `button` went up on `pad` this frame.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_gamepad_released(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_gamepad_released(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `out_state` writable.
@@ -633,7 +633,7 @@ pub unsafe extern "C" fn crabby_ctx_gamepad_released(
 /// One axis (`CrabbyGamepadAxis`) of gamepad `pad`: sticks `-1..1` (y down),
 /// triggers `0..1`.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_gamepad_axis(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_gamepad_axis(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `out_value` writable.
@@ -655,7 +655,7 @@ pub unsafe extern "C" fn crabby_ctx_gamepad_axis(
 }
 /// Mouse position in window pixels.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_mouse_pos(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_mouse_pos(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
@@ -666,7 +666,7 @@ pub unsafe extern "C" fn crabby_ctx_mouse_pos(ctx: *mut CrabbyCtx, out_pos: *mut
 }
 /// Mouse position in world units (through the camera).
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_mouse_world(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_mouse_world(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
@@ -677,7 +677,7 @@ pub unsafe extern "C" fn crabby_ctx_mouse_world(ctx: *mut CrabbyCtx, out_pos: *m
 }
 /// Scroll this frame (lines; positive y = away from the user).
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_mouse_wheel(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_mouse_wheel(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
@@ -689,7 +689,7 @@ pub unsafe extern "C" fn crabby_ctx_mouse_wheel(ctx: *mut CrabbyCtx, out_wheel: 
 /// How far the mouse moved this frame, in raw device units (+y = down),
 /// even while the cursor is locked: for mouse look.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_mouse_motion(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_mouse_motion(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
@@ -701,7 +701,7 @@ pub unsafe extern "C" fn crabby_ctx_mouse_motion(ctx: *mut CrabbyCtx, out_motion
 /// Locks (hides and holds) the cursor in the window, or lets it go. Takes
 /// effect after this frame.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_cursor_locked(std::ptr::null_mut(), true) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_cursor_locked(std::ptr::null_mut(), true) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live.
@@ -717,7 +717,7 @@ pub unsafe extern "C" fn crabby_ctx_set_cursor_locked(ctx: *mut CrabbyCtx, locke
 }
 /// Whether the game asked for the cursor to be locked.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_cursor_locked(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_cursor_locked(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
@@ -730,7 +730,7 @@ pub unsafe extern "C" fn crabby_ctx_cursor_locked(ctx: *mut CrabbyCtx, out_locke
 /// Loads a PNG/JPEG texture (cached by path). Headless runs return a
 /// size-only handle. Errors (missing file) come back as a failed status.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_load_texture(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_load_texture(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
@@ -759,7 +759,7 @@ pub unsafe extern "C" fn crabby_ctx_load_texture(
 /// # Safety
 /// `ctx` must be null or live; `path` a NUL-terminated string.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_load_json(std::ptr::null_mut(), std::ptr::null(), 0, 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_load_json(std::ptr::null_mut(), std::ptr::null(), 0, 0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_load_json(
@@ -779,7 +779,7 @@ pub unsafe extern "C" fn crabby_ctx_load_json(
             // C components are reflected under their full name ("game::Rules"),
             // Rust ones under their short name.
             let full = c.world.component_info(id).name();
-            let name = if crabbyengine::WorldReflect::reflected_components(&c.world).contains(&full) {
+            let name = if ponko::WorldReflect::reflected_components(&c.world).contains(&full) {
                 full.to_string()
             } else {
                 full.rsplit("::").next().unwrap_or(full).to_string()
@@ -796,8 +796,8 @@ pub unsafe extern "C" fn crabby_ctx_load_json(
 /// # Safety
 /// `ctx` must be null or live; `path` and `name` NUL-terminated strings.
 /// ```
-/// let status = unsafe { crabby_ffi::crabby_ctx_load_resource_json(std::ptr::null_mut(), std::ptr::null(), std::ptr::null()) };
-/// assert_eq!(status, crabby_ffi::CrabbyStatus::CRABBY_INVALID_ARGUMENT);
+/// let status = unsafe { ponko_ffi::crabby_ctx_load_resource_json(std::ptr::null_mut(), std::ptr::null(), std::ptr::null()) };
+/// assert_eq!(status, ponko_ffi::CrabbyStatus::CRABBY_INVALID_ARGUMENT);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_load_resource_json(
@@ -820,7 +820,7 @@ pub unsafe extern "C" fn crabby_ctx_load_resource_json(
 /// # Safety
 /// `ctx` must be null or live; `path` a NUL-terminated string; `out` writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_was_reloaded(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_was_reloaded(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_was_reloaded(
@@ -838,7 +838,7 @@ pub unsafe extern "C" fn crabby_ctx_was_reloaded(
 }
 /// Makes a texture from `width * height * 4` RGBA bytes.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_create_texture(std::ptr::null_mut(), 1, 1, std::ptr::null(), 4, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_create_texture(std::ptr::null_mut(), 1, 1, std::ptr::null(), 4, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
@@ -864,7 +864,7 @@ pub unsafe extern "C" fn crabby_ctx_create_texture(
 }
 /// Replaces a texture's pixels (same size, `width * height * 4` bytes).
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let t = CrabbyTexture { id: 0, width: 1, height: 1 };
 /// assert_eq!(unsafe { crabby_ctx_update_texture(std::ptr::null_mut(), t, std::ptr::null(), 4) } as u32, 1);
 /// ```
@@ -900,7 +900,7 @@ fn pixels<'a>(width: u32, height: u32, rgba: *const u8, len: usize) -> Result<&'
 
 /// Background color for this frame.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let black = CrabbyColor { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
 /// assert_eq!(unsafe { crabby_ctx_clear(std::ptr::null_mut(), black) } as u32, 1);
 /// ```
@@ -918,7 +918,7 @@ pub unsafe extern "C" fn crabby_ctx_clear(ctx: *mut CrabbyCtx, color: CrabbyColo
 }
 /// Draws a texture centered at `pos` (world units) this frame.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let t = CrabbyTexture { id: 0, width: 1, height: 1 };
 /// assert_eq!(unsafe { crabby_ctx_draw(std::ptr::null_mut(), t, CrabbyVec2::default()) } as u32, 1);
 /// ```
@@ -936,7 +936,7 @@ pub unsafe extern "C" fn crabby_ctx_draw(ctx: *mut CrabbyCtx, texture: CrabbyTex
 }
 /// Draws a texture with options (start from `crabby_draw_params_default()`).
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let t = CrabbyTexture { id: 0, width: 1, height: 1 };
 /// assert_eq!(unsafe { crabby_ctx_draw_ex(std::ptr::null_mut(), t, CrabbyVec2::default(), std::ptr::null()) } as u32, 1);
 /// ```
@@ -962,7 +962,7 @@ pub unsafe extern "C" fn crabby_ctx_draw_ex(
 }
 /// Draws UTF-8 text with its top-left at `pos`, `size` pixels tall, in window pixels.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let white = CrabbyColor { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
 /// assert_eq!(unsafe { crabby_ctx_draw_text(std::ptr::null_mut(), c"hi".as_ptr(), CrabbyVec2::default(), 16.0, white) } as u32, 1);
 /// ```
@@ -986,7 +986,7 @@ pub unsafe extern "C" fn crabby_ctx_draw_text(
 }
 /// Size in pixels that `crabby_ctx_draw_text` would cover.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_measure_text(std::ptr::null_mut(), c"hi".as_ptr(), 16.0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_measure_text(std::ptr::null_mut(), c"hi".as_ptr(), 16.0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
@@ -1012,7 +1012,7 @@ pub unsafe extern "C" fn crabby_ctx_measure_text(
 /// The camera: which world point is at the window's top-left, and the zoom
 /// (window pixels per world unit).
 /// ```
-/// let cam = crabby_ffi::CrabbyCamera { position: Default::default(), zoom: 1.0 };
+/// let cam = ponko_ffi::CrabbyCamera { position: Default::default(), zoom: 1.0 };
 /// assert_eq!(cam.zoom, 1.0);
 /// ```
 #[repr(C)]
@@ -1026,7 +1026,7 @@ pub struct CrabbyCamera {
 
 /// Reads the camera.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_camera(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_camera(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
@@ -1047,7 +1047,7 @@ pub unsafe extern "C" fn crabby_ctx_camera(ctx: *mut CrabbyCtx, out_camera: *mut
 }
 /// Moves or zooms the camera. Zoom must be positive.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_camera(std::ptr::null_mut(), std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_camera(std::ptr::null_mut(), std::ptr::null()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
@@ -1116,7 +1116,7 @@ fn report(what: &str, failure: Failure) {
 
 /// Despawns `entity` after this system (stale entities are ignored).
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_despawn_later(std::ptr::null_mut(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_despawn_later(std::ptr::null_mut(), 0) } as u32, 1);
 /// ```
 /// Works inside `crabby_query` callbacks (not `crabby_query_par`).
 /// Applied after the system returns.
@@ -1135,7 +1135,7 @@ pub unsafe extern "C" fn crabby_ctx_despawn_later(ctx: *mut CrabbyCtx, entity: u
 /// Spawns an entity with copies of `values` after this system. Values
 /// are checked when applied; bad ones skip the spawn with a message on stderr.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_spawn_later(std::ptr::null_mut(), std::ptr::null(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_spawn_later(std::ptr::null_mut(), std::ptr::null(), 0) } as u32, 1);
 /// ```
 /// Works inside `crabby_query` callbacks (not `crabby_query_par`).
 /// Applied after the system returns.
@@ -1170,7 +1170,7 @@ pub unsafe extern "C" fn crabby_ctx_spawn_later(
 }
 /// Adds or replaces a component of `entity` after this system.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_later(std::ptr::null_mut(), 0, std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_later(std::ptr::null_mut(), 0, std::ptr::null()) } as u32, 1);
 /// ```
 /// Works inside `crabby_query` callbacks (not `crabby_query_par`).
 /// Applied after the system returns.
@@ -1204,7 +1204,7 @@ pub unsafe extern "C" fn crabby_ctx_set_later(
 }
 /// Removes a component of `entity` after this system.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_remove_later(std::ptr::null_mut(), 0, 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_remove_later(std::ptr::null_mut(), 0, 0) } as u32, 1);
 /// ```
 /// Works inside `crabby_query` callbacks (not `crabby_query_par`).
 /// Applied after the system returns.
@@ -1236,7 +1236,7 @@ pub unsafe extern "C" fn crabby_ctx_remove_later(ctx: *mut CrabbyCtx, entity: u6
 /// # Safety
 /// Live ctx; `data` readable for `size` bytes.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_send_event(std::ptr::null_mut(), 0, std::ptr::null(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_send_event(std::ptr::null_mut(), 0, std::ptr::null(), 0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_send_event(
@@ -1269,7 +1269,7 @@ pub unsafe extern "C" fn crabby_ctx_send_event(
 /// # Safety
 /// Live ctx; writable outputs.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_read_events(std::ptr::null_mut(), 0, 0, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_read_events(std::ptr::null_mut(), 0, 0, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_read_events(
@@ -1299,7 +1299,7 @@ pub unsafe extern "C" fn crabby_ctx_read_events(
 /// # Safety
 /// Live ctx; `out_hits` writable for `capacity` hits (may be null if 0); writable count.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_spatial_radius(std::ptr::null(), Default::default(), 1.0, std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_spatial_radius(std::ptr::null(), Default::default(), 1.0, std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_spatial_radius(
@@ -1327,7 +1327,7 @@ pub unsafe extern "C" fn crabby_ctx_spatial_radius(
 /// # Safety
 /// As `crabby_ctx_spatial_radius`.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_spatial_rect(std::ptr::null(), Default::default(), Default::default(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_spatial_rect(std::ptr::null(), Default::default(), Default::default(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_spatial_rect(
@@ -1357,7 +1357,7 @@ pub unsafe extern "C" fn crabby_ctx_spatial_rect(
 /// # Safety
 /// Live ctx and writable output.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_spatial_nearest(std::ptr::null(), Default::default(), 1.0, 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_spatial_nearest(std::ptr::null(), Default::default(), 1.0, 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_spatial_nearest(
@@ -1386,7 +1386,7 @@ pub unsafe extern "C" fn crabby_ctx_spatial_nearest(
 /// # Safety
 /// Live ctx; writable output.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_spatial_view(std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_spatial_view(std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_spatial_view(

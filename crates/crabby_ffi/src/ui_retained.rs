@@ -18,13 +18,13 @@
 //! Text insertion and keyboard capture are context-wide input operations.
 use std::ffi::c_char;
 
-use crabbyengine::ui_layout::{
+use ponko::ui_layout::{
     AlignContent, AlignItems, Dimension, Display, FlexDirection, FlexWrap, GridPlacement, GridTemplateArea,
     GridTemplateAreas, GridTemplateComponent, GridTemplateRepetition, LengthPercentage, LengthPercentageAuto, Line,
     Position, Rect as Edges, RepetitionCount, Size, Style, TrackSizingFunction,
     style_helpers::{TaffyGridLine, TaffyGridSpan},
 };
-use crabbyengine::{Color, Entity, Ui, UiEvent, UiId, UiPaint, UiPanel3D, UiTextAlign, UiWidget};
+use ponko::{Color, Entity, Ui, UiEvent, UiId, UiPaint, UiPanel3D, UiTextAlign, UiWidget};
 
 use crate::ctx::{ctx_access, out, text};
 use crate::media::{font_from_c, font_to_c};
@@ -34,7 +34,7 @@ use crate::{CrabbyCtx, CrabbyFont, CrabbyStatus, Failure, boundary, error, inval
 /// The id that means "no node" (a missing parent, an empty screen stack, no
 /// focus).
 /// ```
-/// assert_eq!(crabby_ffi::CRABBY_UI_NONE, u64::MAX);
+/// assert_eq!(ponko_ffi::CRABBY_UI_NONE, u64::MAX);
 /// ```
 pub const CRABBY_UI_NONE: u64 = u64::MAX;
 
@@ -43,13 +43,13 @@ pub const CRABBY_UI_NONE: u64 = u64::MAX;
 /// whose UI the call works on instead. Node ids are local to a UI: always use
 /// the target that created them. The same numeric id can exist in several UIs.
 /// ```
-/// assert_eq!(crabby_ffi::CRABBY_UI_SCREEN, u64::MAX);
+/// assert_eq!(ponko_ffi::CRABBY_UI_SCREEN, u64::MAX);
 /// ```
 pub const CRABBY_UI_SCREEN: u64 = u64::MAX;
 
 /// Which layout algorithm a node uses (`CrabbyUiLayout::display`).
 /// ```
-/// assert_eq!(crabby_ffi::CrabbyUiDisplay::CRABBY_UI_DISPLAY_GRID as u32, 1);
+/// assert_eq!(ponko_ffi::CrabbyUiDisplay::CRABBY_UI_DISPLAY_GRID as u32, 1);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,7 +66,7 @@ const DISPLAYS: [Display; 3] = [Display::Flex, Display::Grid, Display::None];
 
 /// How a node is positioned (`CrabbyUiLayout::position`).
 /// ```
-/// assert_eq!(crabby_ffi::CrabbyUiPosition::CRABBY_UI_POSITION_ABSOLUTE as u32, 2);
+/// assert_eq!(ponko_ffi::CrabbyUiPosition::CRABBY_UI_POSITION_ABSOLUTE as u32, 2);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -92,7 +92,7 @@ const POSITIONS: [Position; 4] = [
 
 /// Main axis of a flex container (`CrabbyUiLayout::flex_direction`).
 /// ```
-/// assert_eq!(crabby_ffi::CrabbyUiFlexDirection::CRABBY_UI_FLEX_COLUMN as u32, 1);
+/// assert_eq!(ponko_ffi::CrabbyUiFlexDirection::CRABBY_UI_FLEX_COLUMN as u32, 1);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -116,7 +116,7 @@ const DIRECTIONS: [FlexDirection; 4] = [
 
 /// Whether flex items wrap onto more lines (`CrabbyUiLayout::flex_wrap`).
 /// ```
-/// assert_eq!(crabby_ffi::CrabbyUiFlexWrap::CRABBY_UI_FLEX_WRAP as u32, 1);
+/// assert_eq!(ponko_ffi::CrabbyUiFlexWrap::CRABBY_UI_FLEX_WRAP as u32, 1);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -135,7 +135,7 @@ const WRAPS: [FlexWrap; 3] = [FlexWrap::NoWrap, FlexWrap::Wrap, FlexWrap::WrapRe
 /// `justify_items`, `justify_self`). For the `_self` fields, `NORMAL` means
 /// "use the parent's setting".
 /// ```
-/// assert_eq!(crabby_ffi::CrabbyUiAlign::CRABBY_UI_ALIGN_CENTER as u32, 5);
+/// assert_eq!(ponko_ffi::CrabbyUiAlign::CRABBY_UI_ALIGN_CENTER as u32, 5);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -171,7 +171,7 @@ const ALIGNS: [AlignItems; 8] = [
 
 /// Distribution of lines or items (`align_content`, `justify_content`).
 /// ```
-/// assert_eq!(crabby_ffi::CrabbyUiAlignContent::CRABBY_UI_ALIGN_CONTENT_SPACE_BETWEEN as u32, 7);
+/// assert_eq!(ponko_ffi::CrabbyUiAlignContent::CRABBY_UI_ALIGN_CONTENT_SPACE_BETWEEN as u32, 7);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -213,7 +213,7 @@ const CONTENT_ALIGNS: [AlignContent; 10] = [
 
 /// How a `CrabbyUiLength` is read (`CrabbyUiLength::kind`).
 /// ```
-/// assert_eq!(crabby_ffi::CrabbyUiLengthKind::CRABBY_UI_LENGTH_PERCENT as u32, 2);
+/// assert_eq!(ponko_ffi::CrabbyUiLengthKind::CRABBY_UI_LENGTH_PERCENT as u32, 2);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -229,7 +229,7 @@ pub enum CrabbyUiLengthKind {
 
 /// How a `CrabbyUiTrack` is read (`CrabbyUiTrack::kind`).
 /// ```
-/// assert_eq!(crabby_ffi::CrabbyUiTrackKind::CRABBY_UI_TRACK_FR as u32, 3);
+/// assert_eq!(ponko_ffi::CrabbyUiTrackKind::CRABBY_UI_TRACK_FR as u32, 3);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -251,7 +251,7 @@ pub enum CrabbyUiTrackKind {
 
 /// Where a grid item starts or ends (`CrabbyUiGridLine::kind`).
 /// ```
-/// assert_eq!(crabby_ffi::CrabbyUiGridLineKind::CRABBY_UI_GRID_SPAN as u32, 2);
+/// assert_eq!(ponko_ffi::CrabbyUiGridLineKind::CRABBY_UI_GRID_SPAN as u32, 2);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -267,7 +267,7 @@ pub enum CrabbyUiGridLineKind {
 
 /// How text lines line up inside a node (`CrabbyUiPaint::align`).
 /// ```
-/// assert_eq!(crabby_ffi::CrabbyUiTextAlign::CRABBY_UI_TEXT_ALIGN_CENTER as u32, 1);
+/// assert_eq!(ponko_ffi::CrabbyUiTextAlign::CRABBY_UI_TEXT_ALIGN_CENTER as u32, 1);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -284,7 +284,7 @@ const TEXT_ALIGNS: [UiTextAlign; 3] = [UiTextAlign::Start, UiTextAlign::Center, 
 
 /// Which kind of event a `CrabbyUiEvent` is.
 /// ```
-/// assert_eq!(crabby_ffi::CrabbyUiEventKind::CRABBY_UI_EVENT_SCREEN_POPPED as u32, 3);
+/// assert_eq!(ponko_ffi::CrabbyUiEventKind::CRABBY_UI_EVENT_SCREEN_POPPED as u32, 3);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -303,7 +303,7 @@ pub enum CrabbyUiEventKind {
 
 /// A layout length. `kind` is a `CrabbyUiLengthKind`.
 /// ```
-/// let l = crabby_ffi::CrabbyUiLength { kind: crabby_ffi::CrabbyUiLengthKind::CRABBY_UI_LENGTH_POINTS as u32, value: 12.0 };
+/// let l = ponko_ffi::CrabbyUiLength { kind: ponko_ffi::CrabbyUiLengthKind::CRABBY_UI_LENGTH_POINTS as u32, value: 12.0 };
 /// assert_eq!(l.value, 12.0);
 /// ```
 #[repr(C)]
@@ -317,7 +317,7 @@ pub struct CrabbyUiLength {
 
 /// One length per side of a box.
 /// ```
-/// let s = crabby_ffi::crabby_ui_layout_default().padding;
+/// let s = ponko_ffi::crabby_ui_layout_default().padding;
 /// assert_eq!(s.left.value, 0.0);
 /// ```
 #[repr(C)]
@@ -335,7 +335,7 @@ pub struct CrabbyUiSides {
 
 /// Space between rows and columns of children.
 /// ```
-/// let g = crabby_ffi::crabby_ui_layout_default().gap;
+/// let g = ponko_ffi::crabby_ui_layout_default().gap;
 /// assert_eq!(g.row.value, 0.0);
 /// ```
 #[repr(C)]
@@ -349,7 +349,7 @@ pub struct CrabbyUiGap {
 
 /// One grid row or column. `kind` is a `CrabbyUiTrackKind`.
 /// ```
-/// let t = crabby_ffi::CrabbyUiTrack { kind: crabby_ffi::CrabbyUiTrackKind::CRABBY_UI_TRACK_FR as u32, value: 1.0 };
+/// let t = ponko_ffi::CrabbyUiTrack { kind: ponko_ffi::CrabbyUiTrackKind::CRABBY_UI_TRACK_FR as u32, value: 1.0 };
 /// assert_eq!(t.value, 1.0);
 /// ```
 #[repr(C)]
@@ -364,7 +364,7 @@ pub struct CrabbyUiTrack {
 /// A template component: one track, or a non-nested repeat of tracks.
 /// `repetition`: 0 = single (`track`), 1 = count, 2 = auto-fill, 3 = auto-fit.
 /// ```
-/// assert!(std::mem::size_of::<crabby_ffi::CrabbyUiTemplateTrack>() > 0);
+/// assert!(std::mem::size_of::<ponko_ffi::CrabbyUiTemplateTrack>() > 0);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -388,8 +388,8 @@ pub struct CrabbyUiTemplateTrack {
 /// Where a grid item starts or ends on one axis. `kind` is a
 /// `CrabbyUiGridLineKind`.
 /// ```
-/// let l = crabby_ffi::crabby_ui_layout_default().grid_column_start;
-/// assert_eq!(l.kind, crabby_ffi::CrabbyUiGridLineKind::CRABBY_UI_GRID_AUTO as u32);
+/// let l = ponko_ffi::crabby_ui_layout_default().grid_column_start;
+/// assert_eq!(l.kind, ponko_ffi::CrabbyUiGridLineKind::CRABBY_UI_GRID_AUTO as u32);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -406,7 +406,7 @@ pub struct CrabbyUiGridLine {
 /// read during the call that takes the layout; a null array with a count of 0
 /// means "none".
 /// ```
-/// let l = crabby_ffi::crabby_ui_layout_default();
+/// let l = ponko_ffi::crabby_ui_layout_default();
 /// assert_eq!(l.flex_shrink, 1.0);
 /// ```
 #[repr(C)]
@@ -510,7 +510,7 @@ pub struct CrabbyUiLayout {
 
 /// A node's looks, independent of layout (Rust `UiPaint`).
 /// ```
-/// let p = crabby_ffi::crabby_ui_paint_default();
+/// let p = ponko_ffi::crabby_ui_paint_default();
 /// assert_eq!(p.font_size, 18.0);
 /// ```
 #[repr(C)]
@@ -548,7 +548,7 @@ pub struct CrabbyUiPaint {
 
 /// One thing that happened, from `crabby_ctx_ui_next_event`.
 /// ```
-/// let e = crabby_ffi::CrabbyUiEvent { kind: crabby_ffi::CrabbyUiEventKind::CRABBY_UI_EVENT_CLICKED, id: 3 };
+/// let e = ponko_ffi::CrabbyUiEvent { kind: ponko_ffi::CrabbyUiEventKind::CRABBY_UI_EVENT_CLICKED, id: 3 };
 /// assert_eq!(e.id, 3);
 /// ```
 #[repr(C)]
@@ -563,7 +563,7 @@ pub struct CrabbyUiEvent {
 /// One frame of input in logical window coordinates, for `crabby_ctx_ui_frame`.
 /// Start from `crabby_ui_input_default()`.
 /// ```
-/// let i = crabby_ffi::crabby_ui_input_default();
+/// let i = ponko_ffi::crabby_ui_input_default();
 /// assert!(!i.pressed && i.text.is_null());
 /// ```
 #[repr(C)]
@@ -631,8 +631,8 @@ const NO_LINE: CrabbyUiGridLine = CrabbyUiGridLine {
 /// The default layout: a flex row, static, automatic size, no spacing (same
 /// as Rust's `Style::default()`).
 /// ```
-/// let l = crabby_ffi::crabby_ui_layout_default();
-/// assert_eq!(l.display, crabby_ffi::CrabbyUiDisplay::CRABBY_UI_DISPLAY_FLEX as u32);
+/// let l = ponko_ffi::crabby_ui_layout_default();
+/// assert_eq!(l.display, ponko_ffi::CrabbyUiDisplay::CRABBY_UI_DISPLAY_FLEX as u32);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_ui_layout_default() -> CrabbyUiLayout {
@@ -693,8 +693,8 @@ pub extern "C" fn crabby_ui_layout_default() -> CrabbyUiLayout {
 /// The default paint (same as Rust's `UiPaint::default()`): the engine's UI
 /// colors, the built-in font at 18 units, no border or image.
 /// ```
-/// let p = crabby_ffi::crabby_ui_paint_default();
-/// assert_eq!(p.align, crabby_ffi::CrabbyUiTextAlign::CRABBY_UI_TEXT_ALIGN_START as u32);
+/// let p = ponko_ffi::crabby_ui_paint_default();
+/// assert_eq!(p.align, ponko_ffi::CrabbyUiTextAlign::CRABBY_UI_TEXT_ALIGN_START as u32);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_ui_paint_default() -> CrabbyUiPaint {
@@ -703,7 +703,7 @@ pub extern "C" fn crabby_ui_paint_default() -> CrabbyUiPaint {
 
 /// Input with nothing pressed: no pointer movement, keys or text.
 /// ```
-/// assert_eq!(crabby_ffi::crabby_ui_input_default().pointer.x, 0.0);
+/// assert_eq!(ponko_ffi::crabby_ui_input_default().pointer.x, 0.0);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_ui_input_default() -> CrabbyUiInput {
@@ -781,7 +781,7 @@ fn edges<T>(s: CrabbyUiSides, f: impl Fn(CrabbyUiLength) -> Result<T, Failure>) 
 }
 
 fn track(t: CrabbyUiTrack) -> Result<TrackSizingFunction, Failure> {
-    use crabbyengine::ui_layout::style_helpers as h;
+    use ponko::ui_layout::style_helpers as h;
     Ok(match pick(&TRACKS, t.kind, "unknown UI track kind")? {
         CrabbyUiTrackKind::CRABBY_UI_TRACK_AUTO => h::auto(),
         CrabbyUiTrackKind::CRABBY_UI_TRACK_POINTS => h::length(num(t.value)?),
@@ -1211,8 +1211,8 @@ fn existing(ui: &Ui, id: u64) -> Result<UiId, Failure> {
 
 /// Fails for a font the engine doesn't know, which would otherwise panic
 /// later, when the UI is laid out.
-fn check_font(c: &mut crabbyengine::Ctx, font: crabbyengine::Font) -> Result<(), Failure> {
-    if font == crabbyengine::Font::DEFAULT {
+fn check_font(c: &mut ponko::Ctx, font: ponko::Font) -> Result<(), Failure> {
+    if font == ponko::Font::DEFAULT {
         return Ok(());
     }
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.measure_text_ex("", font, 1.0)))
@@ -1226,7 +1226,7 @@ fn id_to_c(id: Option<UiId>) -> u64 {
 
 /// The UI a `target` names: the screen's, or the one of the world-space panel
 /// on an entity.
-pub(crate) fn ui_of(c: &mut crabbyengine::Ctx, target: u64) -> Result<&mut Ui, Failure> {
+pub(crate) fn ui_of(c: &mut ponko::Ctx, target: u64) -> Result<&mut Ui, Failure> {
     if target == CRABBY_UI_SCREEN {
         return Ok(&mut c.ui_retained);
     }
@@ -1313,7 +1313,7 @@ fn plain(text: &str) -> Start<'_> {
 /// under, or `CRABBY_UI_NONE` for a detached root (to push as a screen). A null
 /// `layout` is the default. Writes the new id to `out_id`.
 /// ```
-/// let status = unsafe { crabby_ffi::crabby_ctx_ui_add_panel(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, crabby_ffi::CRABBY_UI_NONE, std::ptr::null(), std::ptr::null_mut()) };
+/// let status = unsafe { ponko_ffi::crabby_ctx_ui_add_panel(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, ponko_ffi::CRABBY_UI_NONE, std::ptr::null(), std::ptr::null_mut()) };
 /// assert_eq!(status as u32, 1);
 /// ```
 /// # Safety
@@ -1333,7 +1333,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_add_panel(
 /// Adds a label showing `text` (null for none). See `crabby_ctx_ui_add_panel`
 /// for `parent`, `layout` and `out_id`.
 /// ```
-/// let status = unsafe { crabby_ffi::crabby_ctx_ui_add_label(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, crabby_ffi::CRABBY_UI_NONE, c"Hi".as_ptr(), std::ptr::null(), std::ptr::null_mut()) };
+/// let status = unsafe { ponko_ffi::crabby_ctx_ui_add_label(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, ponko_ffi::CRABBY_UI_NONE, c"Hi".as_ptr(), std::ptr::null(), std::ptr::null_mut()) };
 /// assert_eq!(status as u32, 1);
 /// ```
 /// # Safety
@@ -1364,7 +1364,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_add_label(
 /// Adds a button labelled `text` (null for none). Activating it queues
 /// `CRABBY_UI_EVENT_CLICKED`. See `crabby_ctx_ui_add_panel` for the rest.
 /// ```
-/// let status = unsafe { crabby_ffi::crabby_ctx_ui_add_button(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, crabby_ffi::CRABBY_UI_NONE, c"Buy".as_ptr(), std::ptr::null(), std::ptr::null_mut()) };
+/// let status = unsafe { ponko_ffi::crabby_ctx_ui_add_button(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, ponko_ffi::CRABBY_UI_NONE, c"Buy".as_ptr(), std::ptr::null(), std::ptr::null_mut()) };
 /// assert_eq!(status as u32, 1);
 /// ```
 /// # Safety
@@ -1396,8 +1396,8 @@ pub unsafe extern "C" fn crabby_ctx_ui_add_button(
 /// looks later with `crabby_ctx_ui_set_paint`. See `crabby_ctx_ui_add_panel`
 /// for the rest.
 /// ```
-/// let t = crabby_ffi::CrabbyTexture { id: 0, width: 1, height: 1 };
-/// let status = unsafe { crabby_ffi::crabby_ctx_ui_add_image(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, crabby_ffi::CRABBY_UI_NONE, t, std::ptr::null(), std::ptr::null_mut()) };
+/// let t = ponko_ffi::CrabbyTexture { id: 0, width: 1, height: 1 };
+/// let status = unsafe { ponko_ffi::crabby_ctx_ui_add_image(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, ponko_ffi::CRABBY_UI_NONE, t, std::ptr::null(), std::ptr::null_mut()) };
 /// assert_eq!(status as u32, 1);
 /// ```
 /// # Safety
@@ -1439,7 +1439,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_add_image(
 /// by dragging, and with a bar on the right. Give it a bounded size. See
 /// `crabby_ctx_ui_add_panel` for the rest.
 /// ```
-/// let status = unsafe { crabby_ffi::crabby_ctx_ui_add_scroll(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, crabby_ffi::CRABBY_UI_NONE, std::ptr::null(), std::ptr::null_mut()) };
+/// let status = unsafe { ponko_ffi::crabby_ctx_ui_add_scroll(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, ponko_ffi::CRABBY_UI_NONE, std::ptr::null(), std::ptr::null_mut()) };
 /// assert_eq!(status as u32, 1);
 /// ```
 /// # Safety
@@ -1460,7 +1460,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_add_scroll(
 /// queues `CRABBY_UI_EVENT_CHANGED`, Enter `CRABBY_UI_EVENT_SUBMITTED`. See
 /// `crabby_ctx_ui_add_panel` for the rest.
 /// ```
-/// let status = unsafe { crabby_ffi::crabby_ctx_ui_add_text_input(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, crabby_ffi::CRABBY_UI_NONE, std::ptr::null(), std::ptr::null(), std::ptr::null_mut()) };
+/// let status = unsafe { ponko_ffi::crabby_ctx_ui_add_text_input(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, ponko_ffi::CRABBY_UI_NONE, std::ptr::null(), std::ptr::null(), std::ptr::null_mut()) };
 /// assert_eq!(status as u32, 1);
 /// ```
 /// # Safety
@@ -1492,7 +1492,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_add_text_input(
 /// Toggling it queues `CRABBY_UI_EVENT_CHANGED`. See `crabby_ctx_ui_add_panel`
 /// for the rest.
 /// ```
-/// let status = unsafe { crabby_ffi::crabby_ctx_ui_add_toggle(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, crabby_ffi::CRABBY_UI_NONE, std::ptr::null(), true, std::ptr::null(), std::ptr::null_mut()) };
+/// let status = unsafe { ponko_ffi::crabby_ctx_ui_add_toggle(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, ponko_ffi::CRABBY_UI_NONE, std::ptr::null(), true, std::ptr::null(), std::ptr::null_mut()) };
 /// assert_eq!(status as u32, 1);
 /// ```
 /// # Safety
@@ -1522,7 +1522,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_add_toggle(
 /// left and right keys, queues `CRABBY_UI_EVENT_CHANGED`. See
 /// `crabby_ctx_ui_add_panel` for the rest.
 /// ```
-/// let status = unsafe { crabby_ffi::crabby_ctx_ui_add_slider(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, crabby_ffi::CRABBY_UI_NONE, 0.5, std::ptr::null(), std::ptr::null_mut()) };
+/// let status = unsafe { ponko_ffi::crabby_ctx_ui_add_slider(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, ponko_ffi::CRABBY_UI_NONE, 0.5, std::ptr::null(), std::ptr::null_mut()) };
 /// assert_eq!(status as u32, 1);
 /// ```
 /// # Safety
@@ -1550,7 +1550,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_add_slider(
 /// Removes a node and everything under it, and drops it from the screen stack.
 /// Its ids stay invalid: later calls with them fail with `CRABBY_NOT_FOUND`.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_remove(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_remove(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, 0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -1570,7 +1570,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_remove(ctx: *mut CrabbyCtx, target: u64, 
 
 /// Replaces a node's layout. A null `layout` restores the default.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_set_layout(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_set_layout(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, 0, std::ptr::null()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `layout` null or readable, with valid descriptor arrays and NUL-terminated UTF-8 strings.
@@ -1616,7 +1616,7 @@ unsafe fn update_style(
 
 /// Replaces area rows; count zero clears them. Invalid/non-rectangular templates leave the layout unchanged.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_set_grid_template_areas(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, std::ptr::null(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_set_grid_template_areas(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, 0, std::ptr::null(), 0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` is null or live. All string pointers are readable NUL-terminated UTF-8;
@@ -1641,7 +1641,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_set_grid_template_areas(
 
 /// Replaces space-separated line name sets on an axis (0 columns, 1 rows). Empty strings denote unnamed lines. With repeats, sets correspond to template component boundaries.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_set_grid_line_names(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, 0, std::ptr::null(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_set_grid_line_names(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, 0, 0, std::ptr::null(), 0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` is null or live. All string pointers are readable NUL-terminated UTF-8;
@@ -1671,7 +1671,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_set_grid_line_names(
 
 /// Places all four edges by an area name. Empty string restores automatic placement. Unknown names follow taffy implicit-line resolution.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_set_grid_area(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_set_grid_area(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, 0, std::ptr::null()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` is null or live. All string pointers are readable NUL-terminated UTF-8;
@@ -1692,7 +1692,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_set_grid_area(
 
 /// Places one named edge: axis 0 columns/1 rows; end false start/true end. Occurrence 0 uses area-aware resolution, positive/negative count matching named lines.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_set_grid_named_line(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, 0, false, std::ptr::null(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_set_grid_named_line(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, 0, 0, false, std::ptr::null(), 0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` is null or live. All string pointers are readable NUL-terminated UTF-8;
@@ -1732,7 +1732,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_set_grid_named_line(
 /// Replaces a node's paint. A null `paint` restores the default. Fonts must
 /// come from `crabby_ctx_load_font`; an unknown one is an error.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_set_paint(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_set_paint(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, 0, std::ptr::null()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `paint` null or readable.
@@ -1762,7 +1762,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_set_paint(
 /// Sets the text of a label, button, toggle or text input (null for empty).
 /// Text inputs drop control characters. No event is queued.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_set_text(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, c"x".as_ptr()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_set_text(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, 0, c"x".as_ptr()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `text` null or NUL-terminated.
@@ -1789,7 +1789,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_set_text(
 /// writes an empty string (if capacity > 0): allocate length + 1 and call
 /// again. A null buffer is accepted only with capacity 0.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_text(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, std::ptr::null_mut(), 0, &mut 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_text(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, 0, std::ptr::null_mut(), 0, &mut 0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `buffer` writable for `capacity` bytes (or null with
@@ -1827,7 +1827,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_text(
 /// Enables or disables a node and everything under it. Disabled controls take
 /// no input and draw with the paint's `disabled` color.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_set_enabled(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, false) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_set_enabled(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, 0, false) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -1851,7 +1851,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_set_enabled(
 /// Sets a slider's value (0 to 1, clamped) or a toggle's (0 off, 1 on). No
 /// event is queued.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_set_value(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, 0.5) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_set_value(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, 0, 0.5) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -1875,7 +1875,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_set_value(
 /// Reads a slider's or toggle's value; read it after a
 /// `CRABBY_UI_EVENT_CHANGED` event.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_value(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, &mut 0.0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_value(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, 0, &mut 0.0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `out_value` writable.
@@ -1898,7 +1898,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_value(
 /// Scrolls a scroll area to `offset` (logical units, unscaled); layout clamps
 /// it to the content.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_set_scroll(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, crabby_ffi::CrabbyVec2 { x: 0.0, y: 40.0 }) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_set_scroll(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, 0, ponko_ffi::CrabbyVec2 { x: 0.0, y: 40.0 }) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -1921,7 +1921,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_set_scroll(
 
 /// Reads a scroll area's offset as of the last layout.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_scroll(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, &mut Default::default()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_scroll(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, 0, &mut Default::default()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `out_offset` writable.
@@ -1948,7 +1948,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_scroll(
 /// its rectangle. Fails with `CRABBY_INVALID_ARGUMENT` if the node has a parent
 /// or is already a screen.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_push_screen(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, true) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_push_screen(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, 0, true) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -1979,7 +1979,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_push_screen(
 /// when the stack was empty). The nodes stay, so it can be pushed again. The
 /// previous screen's focus comes back.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_pop_screen(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, &mut 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_pop_screen(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, &mut 0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `out_root` writable.
@@ -2000,7 +2000,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_pop_screen(
 
 /// Writes the top screen's root to `out_root` (`CRABBY_UI_NONE` for none).
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_top_screen(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, &mut 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_top_screen(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, &mut 0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `out_root` writable.
@@ -2017,7 +2017,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_top_screen(
 /// Writes the focused node (keyboard and gamepad) to `out_id`
 /// (`CRABBY_UI_NONE` for none).
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_focus(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, &mut 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_focus(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, &mut 0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `out_id` writable.
@@ -2030,7 +2030,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_focus(ctx: *mut CrabbyCtx, target: u64, o
 /// Sets a user scale on top of the window's DPI scale (clamped to 0.25..8).
 /// Geometry, text and hit testing all use it.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_set_scale(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 1.25) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_set_scale(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, 1.25) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -2047,7 +2047,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_set_scale(ctx: *mut CrabbyCtx, target: u6
 
 /// Reads a node's rectangle in logical window coordinates, as of the last layout.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_rect(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, 0, &mut Default::default()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_rect(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, 0, &mut Default::default()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `out_rect` writable.
@@ -2070,7 +2070,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_rect(
 /// Writes the topmost enabled node at `point` on the top screen to `out_id`
 /// (`CRABBY_UI_NONE` for none), as of the last layout.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_hit_test(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, Default::default(), &mut 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_hit_test(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, Default::default(), &mut 0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `out_id` writable.
@@ -2088,7 +2088,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_hit_test(
 /// Whether the pointer belongs to the UI (over a control, dragging, or a modal
 /// screen is open). Check it before acting on clicks in the world.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_wants_pointer(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, &mut false) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_wants_pointer(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, &mut false) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `out_wanted` writable.
@@ -2105,7 +2105,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_wants_pointer(
 /// Whether the keyboard and gamepad belong to the UI (a screen is open).
 /// Check it before acting on keys in the game.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_wants_keyboard(std::ptr::null_mut(), &mut false) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_wants_keyboard(std::ptr::null_mut(), &mut false) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `out_wanted` writable.
@@ -2121,7 +2121,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_wants_keyboard(ctx: *mut CrabbyCtx, out_w
 /// `CRABBY_NOT_FOUND` when none are left. Unread events expire at the next UI
 /// frame, so drain them every frame. Removing a node drops its events.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_next_event(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, &mut crabby_ffi::CrabbyUiEvent { kind: Default::default(), id: 0 }) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_next_event(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, &mut ponko_ffi::CrabbyUiEvent { kind: Default::default(), id: 0 }) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `out_event` writable.
@@ -2155,7 +2155,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_next_event(
 /// processing input. The engine does this every frame; call it to read fresh
 /// rectangles right after changing the tree.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_layout(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, Default::default()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_layout(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, Default::default()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -2176,7 +2176,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_layout(ctx: *mut CrabbyCtx, target: u64, 
 /// by dropping unread events. Call it yourself to drive the UI in headless
 /// tests or from a custom host.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_frame(std::ptr::null_mut(), crabby_ffi::CRABBY_UI_SCREEN, Default::default(), std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_frame(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, Default::default(), std::ptr::null()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `input` null or readable, its `text` null or NUL-terminated.
@@ -2190,7 +2190,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_frame(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         let input = match input.as_ref() {
-            Some(i) => crabbyengine::UiInput {
+            Some(i) => ponko::UiInput {
                 pointer: to_c(i.pointer),
                 pressed: i.pressed,
                 held: i.held,
@@ -2209,7 +2209,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_frame(
                 end: i.end,
                 text: optional_text(i.text)?.to_owned(),
             },
-            None => crabbyengine::UiInput::default(),
+            None => ponko::UiInput::default(),
         };
         with_ui(ctx, target, |ui| {
             ui.frame(to_c(viewport), &input);
@@ -2221,7 +2221,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_frame(
 /// Feeds typed text to the next UI frame, for tests and custom hosts. Native
 /// windows forward typed characters on their own.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_ui_insert_text(std::ptr::null_mut(), c"Hi".as_ptr()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_insert_text(std::ptr::null_mut(), c"Hi".as_ptr()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `text` NUL-terminated.

@@ -1,13 +1,13 @@
 # Importing from Unity
 
-`crabby_unity` reads a Unity project and turns its scenes and prefabs into
+`ponko_unity` reads a Unity project and turns its scenes and prefabs into
 Crabby [scenes](scenes.md): every drawn mesh becomes a `.glb` with its
 materials, its textures become PNGs, and the scene is a `crabby-world`
 file of `Transform3D` and `Model` entities that `load_scene` loads. It
 runs once, as a tool, and writes into your game's `assets/`.
 
 ```sh
-cargo run --release -p crabby_unity --example import -- \
+cargo run --release -p ponko_unity --example import -- \
     MyUnityGame my_game/assets/town town/ Assets/Scenes/Town.unity
 ```
 
@@ -166,7 +166,7 @@ retain the unresolved model bones while applying the resolved scene bones.
 Standalone `.anim` clips (text or binary serialized) also import:
 
 ```rust
-let clips = [crabby_unity::AnimationClip::read("Assets/Walk.anim")?];
+let clips = [ponko_unity::AnimationClip::read("Assets/Walk.anim")?];
 import.animation_clips(clips); // before importing scenes / exporting cached meshes
 ```
 
@@ -232,9 +232,9 @@ ready for a [terrain tile](3d.md), and the layers painted on it with
 their weight maps.
 
 ```rust
-let file = crabby_unity::UnityFile::read("MyUnityGame/Assets/Terrain/Hills.asset")?;
+let file = ponko_unity::UnityFile::read("MyUnityGame/Assets/Terrain/Hills.asset")?;
 let data = file.of_class(156).next().expect("a TerrainData");
-let hills = crabby_unity::UnityTerrain::from_object(data)?;
+let hills = ponko_unity::UnityTerrain::from_object(data)?;
 // In the game (or written to a file the game reads):
 let tile = ctx.create_terrain_tile(&hills.heights, hills.size, ground);
 let [x, y, z] = hills.corner([0.0, 0.0, 0.0]); // the Unity Terrain's position

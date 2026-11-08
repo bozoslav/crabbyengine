@@ -1,5 +1,5 @@
 #![cfg(feature = "physics3d")]
-use crabbyengine::*;
+use ponko::*;
 
 #[test]
 fn guide_joint_and_dominance_snippets_compile_and_step() {

@@ -3,7 +3,7 @@
 use std::alloc::Layout;
 use std::ffi::{CStr, c_char, c_void};
 
-use crabbyengine::WorldReflect;
+use ponko::WorldReflect;
 
 use crate::{CrabbyField, check_fields, fields_from_c};
 use crate::{CrabbyStatus, CrabbyWorld, Failure, access, boundary, error, invalid};
@@ -30,7 +30,7 @@ fn resource_layout(size: usize, alignment: usize) -> Result<Layout, Failure> {
     Ok(layout)
 }
 
-fn same_layout(world: &crabbyengine::World, name: &str, layout: Layout) -> Result<(), Failure> {
+fn same_layout(world: &ponko::World, name: &str, layout: Layout) -> Result<(), Failure> {
     match world.resource_layout_dynamic(name) {
         Some(existing) if existing != layout => Err(invalid("resource exists with a different size or alignment")),
         _ => Ok(()),
@@ -40,7 +40,7 @@ fn same_layout(world: &crabbyengine::World, name: &str, layout: Layout) -> Resul
 /// Sets the resource called `name` to a copy of `size` bytes at `data`,
 /// adding it if the world has none. A resource keeps its size and alignment.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// let score: u32 = 7;
 /// let mut out: u32 = 0;
@@ -84,7 +84,7 @@ pub unsafe extern "C" fn crabby_resource_set(
 /// Copies the resource called `name` into `out` (`size` bytes, which must be
 /// its size). `CRABBY_NOT_FOUND` if the world has none.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// let mut out: u32 = 0;
 /// unsafe {
@@ -128,7 +128,7 @@ pub unsafe extern "C" fn crabby_resource_get(
 
 /// Removes the resource called `name`; `CRABBY_NOT_FOUND` if there is none.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// let seed: u64 = 42;
 /// unsafe {
@@ -163,7 +163,7 @@ pub unsafe extern "C" fn crabby_resource_remove(world: *mut CrabbyWorld, name: *
 /// field covers zero. Describing it again replaces the fields. A name a
 /// Rust resource is reflected under returns `CRABBY_PANIC`, saying so.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// let field = CrabbyField { name: c"red".as_ptr(), kind: CrabbyFieldType::CRABBY_FIELD_U32 as u32, offset: 0 };
 /// unsafe {

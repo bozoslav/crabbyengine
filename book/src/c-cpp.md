@@ -8,10 +8,10 @@ next to the Rust one.
 - `include/crabby.hpp`: the C++17 wrapper, header-only. `crabby::game`,
   `crabby::ctx` and `crabby::world_view` mirror Rust's `Game`, `Ctx` and
   `World`.
-- `include/crabby.h`: the C API underneath, generated from the `crabby_ffi`
+- `include/crabby.h`: the C API underneath, generated from the `ponko_ffi`
   crate with cbindgen.
-- One shared library, `crabby_ffi` (`libcrabby_ffi.dylib`/`.so`,
-  `crabby_ffi.dll`).
+- One shared library, `ponko_ffi` (`libponko_ffi.dylib`/`.so`,
+  `ponko_ffi.dll`).
 
 Loops over entities run in your C++ code, over **whole component arrays**,
 so a million entities never mean a million calls across the language
@@ -22,7 +22,7 @@ boundary, and `each_par` runs them on all cores.
 From the repository root, with Rust, CMake, a C11 compiler and a C++17 compiler:
 
 ```sh
-cargo build -p crabby_ffi --release
+cargo build -p ponko_ffi --release
 cmake -S examples/cpp -B target/native -DCMAKE_BUILD_TYPE=Release -DCRABBY_LIBRARY_DIR="$PWD/target/release"
 cmake --build target/native --config Release
 ctest --test-dir target/native -C Release --output-on-failure
@@ -37,7 +37,7 @@ forward slashes; Visual Studio builds use `--config Release` and put programs
 in `target/native/Release/`.
 
 For your own game, copy the recipe in `examples/cpp/CMakeLists.txt`: include
-the two headers, link `crabby_ffi`, ship its shared library next to your
+the two headers, link `ponko_ffi`, ship its shared library next to your
 executable, and put your textures in an `assets/` folder next to it (the
 example copies the repository's `assets/`). `crabby_abi_version()` returns `2`;
 rebuild against the matching header when you update the engine.

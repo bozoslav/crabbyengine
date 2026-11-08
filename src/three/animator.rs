@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 /// Parameter defaults; indices in the graph identify parameters.
 /// ```
-/// use crabbyengine::AnimationParameter;
+/// use ponko::AnimationParameter;
 /// let speed = AnimationParameter::Float(0.0);
 /// ```
 #[derive(Debug, Clone, Copy)]
@@ -24,7 +24,7 @@ pub enum AnimationParameter {
 /// that child (the first if points coincide). Quaternion blends use ordered
 /// incremental slerp, so child order matters for more than two rotations.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let clip = AnimationClip::new("idle", &Skeleton::new(vec![]), vec![]);
 /// let motion = Motion::Clip(clip);
 /// ```
@@ -52,7 +52,7 @@ pub enum Motion {
 
 /// A motion inside a tree; positive time scale multiplies seconds.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let child = MotionChild { motion: Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])), time_scale: 1.0 };
 /// ```
 #[derive(Debug, Clone)]
@@ -65,7 +65,7 @@ pub struct MotionChild {
 
 /// A named event on a state's normalized clock.
 /// ```
-/// use crabbyengine::AnimationEvent;
+/// use ponko::AnimationEvent;
 /// let step = AnimationEvent { time: 0.5, name: "step".into() };
 /// ```
 #[derive(Debug, Clone)]
@@ -78,7 +78,7 @@ pub struct AnimationEvent {
 
 /// State playback settings. Use [`AnimationState::new`] for looping defaults.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
 /// assert!(s.looping);
 /// ```
@@ -98,7 +98,7 @@ pub struct AnimationState {
 impl AnimationState {
     /// Loop a motion at normal speed, without events.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
     /// assert_eq!(s.speed, 1.0);
     /// ```
@@ -115,7 +115,7 @@ impl AnimationState {
 
 /// Transition predicates, all of which must hold.
 /// ```
-/// use crabbyengine::AnimationCondition;
+/// use ponko::AnimationCondition;
 /// let moving = AnimationCondition::Greater(0, 0.05);
 /// ```
 #[derive(Debug, Clone, Copy)]
@@ -135,7 +135,7 @@ pub enum AnimationCondition {
 /// not reenter their current target. Exit time is a minimum on the state's
 /// unwrapped normalized clock, checked against the end of this update.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let t = AnimationTransition { from: Some(0), to: 1, conditions: vec![], exit_time: Some(1.0), duration: 0.12, offset: 0.0 };
 /// ```
 #[derive(Debug, Clone)]
@@ -156,7 +156,7 @@ pub struct AnimationTransition {
 
 /// Immutable graph shared by animators with independent parameters and clocks.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let state = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
 /// let graph = AnimationGraph::new(vec![], vec![state], vec![], 0);
 /// let animator = Animator::new(graph.clone());
@@ -172,7 +172,7 @@ impl AnimationGraph {
     /// Validate indices, parameter types, finite clocks and nonempty trees.
     /// Panics with `AnimationGraph` in the message for invalid definitions.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
     /// let graph = AnimationGraph::new(vec![], vec![s], vec![], 0);
     /// ```
@@ -499,7 +499,7 @@ struct Fade {
 
 /// How a layer combines with the lower pose.
 /// ```
-/// use crabbyengine::LayerBlend;
+/// use ponko::LayerBlend;
 /// let mode = LayerBlend::Additive;
 /// assert_ne!(mode, LayerBlend::Override);
 /// ```
@@ -513,7 +513,7 @@ pub enum LayerBlend {
 
 /// Joint indices selected for one skeleton layout. Build once, reuse each frame.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let mask = JointMask::new(vec![0, 2]);
 /// assert!(mask.contains(2));
 /// ```
@@ -522,7 +522,7 @@ pub struct JointMask(Vec<usize>);
 impl JointMask {
     /// Select explicit joint indices (duplicates are removed).
     /// ```
-    /// use crabbyengine::JointMask;
+    /// use ponko::JointMask;
     /// assert!(JointMask::new(vec![3, 3]).contains(3));
     /// ```
     pub fn new(mut joints: Vec<usize>) -> Self {
@@ -532,7 +532,7 @@ impl JointMask {
     }
     /// Select the named joint and every descendant; None if the name is absent.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// assert!(JointMask::descendants(&Skeleton::new(vec![]), "arm").is_none());
     /// ```
     pub fn descendants(skeleton: &Skeleton, name: &str) -> Option<Self> {
@@ -547,7 +547,7 @@ impl JointMask {
     }
     /// Whether the joint index is selected.
     /// ```
-    /// use crabbyengine::JointMask;
+    /// use ponko::JointMask;
     /// assert!(!JointMask::new(vec![1]).contains(0));
     /// ```
     pub fn contains(&self, joint: usize) -> bool {
@@ -559,7 +559,7 @@ impl JointMask {
 /// at weight zero. Configure parameters/commands through `animator`; base-layer
 /// commands remain on the parent Animator. Nested layers are supported.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let s = Skeleton::new(vec![]);
 /// let state = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &s, vec![])));
 /// let mut layer = AnimationLayer::new(AnimationGraph::new(vec![], vec![state], vec![], 0));
@@ -584,7 +584,7 @@ pub struct AnimationLayer {
 impl AnimationLayer {
     /// Make a full-weight override layer, without a mask or explicit reference.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let s = Skeleton::new(vec![]);
     /// let state = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &s, vec![])));
     /// let layer = AnimationLayer::new(AnimationGraph::new(vec![], vec![state], vec![], 0));
@@ -663,7 +663,7 @@ impl AnimationLayer {
 /// Vertical motion and pitch/roll stay in the pose. Apply translation using the
 /// entity's pre-update orientation, then postmultiply its rotation.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let delta = RootMotion::default();
 /// assert_eq!(delta.position, Vec3::ZERO);
 /// assert_eq!(delta.rotation, Quat::IDENTITY);
@@ -702,7 +702,7 @@ fn angle_delta(a: f32, b: f32) -> f32 {
 /// emits events and tests transitions. Events accumulate until drained, up to
 /// 64 entries; excess events are dropped, retaining the earliest events.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let mut s = Skeleton::new(vec![]);
 /// let state = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &s, vec![])));
 /// let mut a = Animator::new(AnimationGraph::new(vec![], vec![state], vec![], 0));
@@ -735,7 +735,7 @@ pub struct Animator {
 impl Animator {
     /// Start at the graph's initial state with its default parameters.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
     /// let a = Animator::new(AnimationGraph::new(vec![], vec![s], vec![], 0));
     /// assert_eq!(a.state(), 0);
@@ -760,7 +760,7 @@ impl Animator {
     }
     /// Append an overlay, returning its zero-based overlay index (base excluded).
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let s = Skeleton::new(vec![]);
     /// let state = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &s, vec![])));
     /// let g = AnimationGraph::new(vec![], vec![state], vec![], 0);
@@ -774,7 +774,7 @@ impl Animator {
     }
     /// Edit an overlay by index; panics for an invalid index.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// # let s = Skeleton::new(vec![]);
     /// # let state = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &s, vec![])));
     /// # let g = AnimationGraph::new(vec![], vec![state], vec![], 0);
@@ -787,7 +787,7 @@ impl Animator {
     }
     /// Number of overlays added with [`add_layer`](Self::add_layer).
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// # let s = Skeleton::new(vec![]);
     /// # let state = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &s, vec![])));
     /// let a = Animator::new(AnimationGraph::new(vec![], vec![state], vec![], 0));
@@ -801,7 +801,7 @@ impl Animator {
     /// Ordinary crossfades blend deltas using the end-of-update fade weight;
     /// interrupted fades blend from zero velocity (their pose source is frozen).
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// # let s = Skeleton::new(vec![]);
     /// # let state = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &s, vec![])));
     /// # let mut a = Animator::new(AnimationGraph::new(vec![], vec![state], vec![], 0));
@@ -813,7 +813,7 @@ impl Animator {
     }
     /// Set a float by index. Panics on a wrong type/index or non-finite value.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
     /// # let mut a = Animator::new(AnimationGraph::new(vec![AnimationParameter::Float(0.)],vec![s],vec![],0));
     /// a.set_float(0, 1.5);
@@ -827,7 +827,7 @@ impl Animator {
     }
     /// Set a persistent bool by index; panics on a wrong type/index.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
     /// # let mut a = Animator::new(AnimationGraph::new(vec![AnimationParameter::Bool(false)],vec![s],vec![],0));
     /// a.set_bool(0, true);
@@ -840,7 +840,7 @@ impl Animator {
     }
     /// Set or reset a trigger by index; panics on a wrong type/index.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
     /// # let mut a = Animator::new(AnimationGraph::new(vec![AnimationParameter::Trigger(false)],vec![s],vec![],0));
     /// a.set_trigger(0, true);
@@ -853,7 +853,7 @@ impl Animator {
     }
     /// Destination state index, including while crossfading.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
     /// # let a = Animator::new(AnimationGraph::new(vec![],vec![s],vec![],0));
     /// assert_eq!(a.state(), 0);
@@ -863,7 +863,7 @@ impl Animator {
     }
     /// Unwrapped normalized destination clock (clamped for non-looping states).
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
     /// # let a = Animator::new(AnimationGraph::new(vec![],vec![s],vec![],0));
     /// assert_eq!(a.normalized_time(), 0.0);
@@ -874,7 +874,7 @@ impl Animator {
     }
     /// Destination weight; one when no crossfade is active.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
     /// # let a = Animator::new(AnimationGraph::new(vec![],vec![s],vec![],0));
     /// assert_eq!(a.fade_weight(), 1.0);
@@ -886,7 +886,7 @@ impl Animator {
     /// Multiple commands before an update use the last command. Panics for
     /// invalid state, negative/non-finite duration or normalized offset.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
     /// # let mut a = Animator::new(AnimationGraph::new(vec![],vec![s],vec![],0));
     /// a.crossfade(0, 0.12, 0.0);
@@ -904,7 +904,7 @@ impl Animator {
     }
     /// Queue an immediate state change at a normalized time; applied on update.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
     /// # let mut a = Animator::new(AnimationGraph::new(vec![],vec![s],vec![],0));
     /// a.play(0, 0.5);
@@ -915,7 +915,7 @@ impl Animator {
     /// Takes the oldest unread event, if any (for reading events one at a
     /// time, as the C API does; [`drain_events`](Self::drain_events) takes all).
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
     /// # let mut a = Animator::new(AnimationGraph::new(vec![],vec![s],vec![],0));
     /// while let Some(name) = a.next_event() { println!("{name}"); }
@@ -925,7 +925,7 @@ impl Animator {
     }
     /// Drain retained event names, preserving the buffer's allocation.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
     /// # let mut a = Animator::new(AnimationGraph::new(vec![],vec![s],vec![],0));
     /// for name in a.drain_events() { println!("{name}"); }
@@ -954,7 +954,7 @@ impl Animator {
     /// transitions but emit no events. Warm up once with each skeleton layout
     /// before allocation-sensitive gameplay (clip name binding also warms up).
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let mut skeleton = Skeleton::new(vec![]);
     /// let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &skeleton, vec![])));
     /// let mut a = Animator::new(AnimationGraph::new(vec![],vec![s],vec![],0));

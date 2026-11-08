@@ -3,7 +3,7 @@
 //! bytes per tick is what it would send over the network.
 use std::thread;
 
-use crabbyengine::{Ctx, Game, Net};
+use ponko::{Ctx, Game, Net};
 
 use crate::Bench;
 

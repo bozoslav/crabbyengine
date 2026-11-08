@@ -1,6 +1,6 @@
 # Working with AI agents (MCP)
 
-`crabby-mcp` is a [Model Context Protocol](https://modelcontextprotocol.io)
+`ponko-mcp` is a [Model Context Protocol](https://modelcontextprotocol.io)
 server. It lets an AI coding agent (Claude Code, Cursor, Codex, ...) start
 your game, look inside it while it runs, change it, and step the simulation,
 instead of guessing from source code and print statements.
@@ -16,12 +16,12 @@ approve it).
 For your own game, install the binary and add it to your agent:
 
 ```sh
-cargo install crabby_mcp
-claude mcp add crabby -- crabby-mcp            # Claude Code
-claude mcp add crabby-view -- crabby-mcp --read-only
+cargo install ponko_mcp
+claude mcp add ponko -- ponko-mcp            # Claude Code
+claude mcp add ponko-view -- ponko-mcp --read-only
 ```
 
-Other clients take the same command (`crabby-mcp`, stdio transport) in their
+Other clients take the same command (`ponko-mcp`, stdio transport) in their
 MCP config.
 
 Then make the components you want agents to see reflected:
@@ -68,9 +68,9 @@ ctx.world.reflect::<Health>();
 ## Several agents, several games
 
 Every game with the endpoint on registers itself in `~/.crabby/instances/`,
-and every `crabby-mcp` reads that registry. So:
+and every `ponko-mcp` reads that registry. So:
 
-- each agent runs its own `crabby-mcp`, and all of them see all games;
+- each agent runs its own `ponko-mcp`, and all of them see all games;
 - every tool takes `instance` (the id, pid, port or name from
   `list_instances`), optional when only one game runs;
 - the game applies requests between ticks, one at a time, so agents never

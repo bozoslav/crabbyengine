@@ -3,8 +3,8 @@
 //! streamed, dense, constant or compressed data Unity bakes.
 //! Every fixture is built here, byte by byte.
 
-use crabby_unity::{AnimationClip, MeshSkin, SkinNode};
 use glam::{Mat4, Quat, Vec3};
+use ponko_unity::{AnimationClip, MeshSkin, SkinNode};
 
 /// Standard CRC-32, the hash Unity binds paths and properties with.
 fn crc32(text: &str) -> u32 {

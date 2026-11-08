@@ -7,7 +7,7 @@
 use std::ffi::c_char;
 use std::sync::Arc;
 
-use crabbyengine::{
+use ponko::{
     AnimationCondition, AnimationEvent, AnimationGraph, AnimationLayer, AnimationParameter, AnimationState,
     AnimationTransition, Animator, Ctx, Entity, JointMask, LayerBlend, Motion, MotionChild, Skeleton, Vec2,
 };
@@ -38,7 +38,7 @@ pub struct CrabbyAnimationGraph(Arc<AnimationGraph>);
 
 /// What a transition condition tests (Rust `AnimationCondition`).
 /// ```
-/// let _ = crabby_ffi::CrabbyAnimationCondition::CRABBY_CONDITION_TRIGGER;
+/// let _ = ponko_ffi::CrabbyAnimationCondition::CRABBY_CONDITION_TRIGGER;
 /// ```
 #[repr(C)]
 #[allow(non_camel_case_types)]
@@ -100,7 +100,7 @@ fn animator(c: &mut Ctx, bits: u64) -> Result<&mut Animator, Failure> {
 
 /// A motion that plays `clip` (copied; the clip stays yours).
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_motion_clip(std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_motion_clip(std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `clip` null or live; `out_motion` writable.
@@ -120,8 +120,8 @@ pub unsafe extern "C" fn crabby_motion_clip(
 /// `crabby_motion_blend1d_add`, in increasing threshold order.
 /// ```
 /// let mut m = std::ptr::null_mut();
-/// assert_eq!(unsafe { crabby_ffi::crabby_motion_blend1d(0, &mut m) } as u32, 0);
-/// unsafe { crabby_ffi::crabby_motion_free(m) };
+/// assert_eq!(unsafe { ponko_ffi::crabby_motion_blend1d(0, &mut m) } as u32, 0);
+/// unsafe { ponko_ffi::crabby_motion_free(m) };
 /// ```
 /// # Safety
 /// `out_motion` writable.
@@ -142,8 +142,8 @@ pub unsafe extern "C" fn crabby_motion_blend1d(parameter: usize, out_motion: *mu
 /// with `crabby_motion_blend2d_add`.
 /// ```
 /// let mut m = std::ptr::null_mut();
-/// assert_eq!(unsafe { crabby_ffi::crabby_motion_blend2d(0, 1, &mut m) } as u32, 0);
-/// unsafe { crabby_ffi::crabby_motion_free(m) };
+/// assert_eq!(unsafe { ponko_ffi::crabby_motion_blend2d(0, 1, &mut m) } as u32, 0);
+/// unsafe { ponko_ffi::crabby_motion_free(m) };
 /// ```
 /// # Safety
 /// `out_motion` writable.
@@ -164,7 +164,7 @@ pub unsafe extern "C" fn crabby_motion_blend2d(x: usize, y: usize, out_motion: *
 /// Adds `child` to a 1D tree at `threshold`, its clock scaled by
 /// `time_scale` (1 for as recorded). Takes `child` over, even on failure.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_motion_blend1d_add(std::ptr::null_mut(), 0.0, std::ptr::null_mut(), 1.0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_motion_blend1d_add(std::ptr::null_mut(), 0.0, std::ptr::null_mut(), 1.0) } as u32, 1);
 /// ```
 /// # Safety
 /// `tree` null or a live motion; `child` null or a motion nothing else owns.
@@ -198,7 +198,7 @@ pub unsafe extern "C" fn crabby_motion_blend1d_add(
 /// Adds `child` to a 2D tree at point (`x`, `y`), its clock scaled by
 /// `time_scale`. Takes `child` over, even on failure.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_motion_blend2d_add(std::ptr::null_mut(), 0.0, 0.0, std::ptr::null_mut(), 1.0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_motion_blend2d_add(std::ptr::null_mut(), 0.0, 0.0, std::ptr::null_mut(), 1.0) } as u32, 1);
 /// ```
 /// # Safety
 /// `tree` null or a live motion; `child` null or a motion nothing else owns.
@@ -232,7 +232,7 @@ pub unsafe extern "C" fn crabby_motion_blend2d_add(
 
 /// Frees a motion that wasn't handed over. Null does nothing.
 /// ```
-/// unsafe { crabby_ffi::crabby_motion_free(std::ptr::null_mut()) };
+/// unsafe { ponko_ffi::crabby_motion_free(std::ptr::null_mut()) };
 /// ```
 /// # Safety
 /// `motion` null or a motion nothing else owns; not used afterwards.
@@ -248,8 +248,8 @@ pub unsafe extern "C" fn crabby_motion_free(motion: *mut CrabbyMotion) {
 
 /// Starts a graph with no parameters, states or transitions.
 /// ```
-/// let b = crabby_ffi::crabby_animation_graph_builder_new();
-/// unsafe { crabby_ffi::crabby_animation_graph_builder_free(b) };
+/// let b = ponko_ffi::crabby_animation_graph_builder_new();
+/// unsafe { ponko_ffi::crabby_animation_graph_builder_free(b) };
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_animation_graph_builder_new() -> *mut CrabbyAnimationGraphBuilder {
@@ -258,7 +258,7 @@ pub extern "C" fn crabby_animation_graph_builder_new() -> *mut CrabbyAnimationGr
 
 /// Frees a builder that wasn't built. Null does nothing.
 /// ```
-/// unsafe { crabby_ffi::crabby_animation_graph_builder_free(std::ptr::null_mut()) };
+/// unsafe { ponko_ffi::crabby_animation_graph_builder_free(std::ptr::null_mut()) };
 /// ```
 /// # Safety
 /// `builder` null or live; not used afterwards.
@@ -273,11 +273,11 @@ pub unsafe extern "C" fn crabby_animation_graph_builder_free(builder: *mut Crabb
 /// Adds a float parameter starting at `value`; its index goes to `out_index`
 /// (parameters are numbered from 0 in the order added, whatever their kind).
 /// ```
-/// let b = crabby_ffi::crabby_animation_graph_builder_new();
+/// let b = ponko_ffi::crabby_animation_graph_builder_new();
 /// let mut i = 9;
-/// assert_eq!(unsafe { crabby_ffi::crabby_animation_graph_add_float(b, 0.0, &mut i) } as u32, 0);
+/// assert_eq!(unsafe { ponko_ffi::crabby_animation_graph_add_float(b, 0.0, &mut i) } as u32, 0);
 /// assert_eq!(i, 0);
-/// unsafe { crabby_ffi::crabby_animation_graph_builder_free(b) };
+/// unsafe { ponko_ffi::crabby_animation_graph_builder_free(b) };
 /// ```
 /// # Safety
 /// `builder` null or live; `out_index` null or writable.
@@ -292,7 +292,7 @@ pub unsafe extern "C" fn crabby_animation_graph_add_float(
 
 /// Adds a bool parameter starting at `value`.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_animation_graph_add_bool(std::ptr::null_mut(), false, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_animation_graph_add_bool(std::ptr::null_mut(), false, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `builder` null or live; `out_index` null or writable.
@@ -307,7 +307,7 @@ pub unsafe extern "C" fn crabby_animation_graph_add_bool(
 
 /// Adds a trigger parameter: a one-shot flag a transition consumes.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_animation_graph_add_trigger(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_animation_graph_add_trigger(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `builder` null or live; `out_index` null or writable.
@@ -332,7 +332,7 @@ fn add_parameter(b: *mut CrabbyAnimationGraphBuilder, p: AnimationParameter, out
 /// `speed_parameter` unless that is -1. Looping states wrap; others hold
 /// their last frame. Its index goes to `out_index` (states count from 0).
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_animation_graph_add_state(std::ptr::null_mut(), std::ptr::null_mut(), 1.0, -1, true, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_animation_graph_add_state(std::ptr::null_mut(), std::ptr::null_mut(), 1.0, -1, true, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `builder` null or live; `motion` null or a motion nothing else owns;
@@ -362,7 +362,7 @@ pub unsafe extern "C" fn crabby_animation_graph_add_state(
 /// Adds an event named `name` to `state` at normalized time `time` (0 to
 /// 1); animators report it when their clock passes it.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_animation_graph_add_event(std::ptr::null_mut(), 0, 0.5, c"step".as_ptr()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_animation_graph_add_event(std::ptr::null_mut(), 0, 0.5, c"step".as_ptr()) } as u32, 1);
 /// ```
 /// # Safety
 /// `builder` null or live; `name` NUL-terminated.
@@ -395,7 +395,7 @@ pub unsafe extern "C" fn crabby_animation_graph_add_event(
 /// waits until the state's normalized time reaches it. With no conditions
 /// it always fires. The first matching transition, in the order added, wins.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_animation_graph_add_transition(std::ptr::null_mut(), 0, 1, -1.0, 0.2, 0.0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_animation_graph_add_transition(std::ptr::null_mut(), 0, 1, -1.0, 0.2, 0.0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `builder` null or live; `out_index` null or writable.
@@ -425,8 +425,8 @@ pub unsafe extern "C" fn crabby_animation_graph_add_transition(
 
 /// Adds a condition to `transition`; all of them must hold for it to fire.
 /// ```
-/// use crabby_ffi::CrabbyAnimationCondition::CRABBY_CONDITION_GREATER;
-/// assert_eq!(unsafe { crabby_ffi::crabby_animation_graph_add_condition(std::ptr::null_mut(), 0, CRABBY_CONDITION_GREATER, 0, 0.1) } as u32, 1);
+/// use ponko_ffi::CrabbyAnimationCondition::CRABBY_CONDITION_GREATER;
+/// assert_eq!(unsafe { ponko_ffi::crabby_animation_graph_add_condition(std::ptr::null_mut(), 0, CRABBY_CONDITION_GREATER, 0, 0.1) } as u32, 1);
 /// ```
 /// # Safety
 /// `builder` null or live.
@@ -458,7 +458,7 @@ pub unsafe extern "C" fn crabby_animation_graph_add_condition(
 /// the builder (even on failure). Fails with the reason when a state,
 /// parameter or clock is out of range.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_animation_graph_build(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_animation_graph_build(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `builder` null or live, not used afterwards; `out_graph` writable.
@@ -487,7 +487,7 @@ pub unsafe extern "C" fn crabby_animation_graph_build(
 /// Frees your share of a graph. Animators made from it keep theirs. Null
 /// does nothing.
 /// ```
-/// unsafe { crabby_ffi::crabby_animation_graph_free(std::ptr::null_mut()) };
+/// unsafe { ponko_ffi::crabby_animation_graph_free(std::ptr::null_mut()) };
 /// ```
 /// # Safety
 /// `graph` null or live; not used afterwards.
@@ -505,7 +505,7 @@ pub unsafe extern "C" fn crabby_animation_graph_free(graph: *mut CrabbyAnimation
 /// its initial state (Rust `Animator`). The engine advances it every frame
 /// after the frame systems. Setting it again starts over.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_animator(std::ptr::null_mut(), 0, std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_animator(std::ptr::null_mut(), 0, std::ptr::null()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `graph` null or live.
@@ -531,7 +531,7 @@ pub unsafe extern "C" fn crabby_ctx_set_animator(
 
 /// Sets float parameter `parameter` of `entity`'s animator.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_animator_set_float(std::ptr::null_mut(), 0, 0, 1.0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_animator_set_float(std::ptr::null_mut(), 0, 0, 1.0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -553,7 +553,7 @@ pub unsafe extern "C" fn crabby_ctx_animator_set_float(
 
 /// Sets bool parameter `parameter` of `entity`'s animator.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_animator_set_bool(std::ptr::null_mut(), 0, 0, true) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_animator_set_bool(std::ptr::null_mut(), 0, 0, true) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -576,7 +576,7 @@ pub unsafe extern "C" fn crabby_ctx_animator_set_bool(
 /// Sets (or clears) trigger parameter `parameter` of `entity`'s animator;
 /// the transition it fires clears it.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_animator_set_trigger(std::ptr::null_mut(), 0, 0, true) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_animator_set_trigger(std::ptr::null_mut(), 0, 0, true) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -599,7 +599,7 @@ pub unsafe extern "C" fn crabby_ctx_animator_set_trigger(
 /// The state `entity`'s animator is in (or fading to), and how far through
 /// it is (normalized: 1 is one full play). Either output may be null.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_animator_state(std::ptr::null_mut(), 0, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_animator_state(std::ptr::null_mut(), 0, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; outputs null or writable.
@@ -626,7 +626,7 @@ pub unsafe extern "C" fn crabby_ctx_animator_state(
 /// Crossfades `entity`'s animator to `state` over `duration` seconds (0
 /// jumps), starting it at normalized time `offset`, on its next update.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_animator_crossfade(std::ptr::null_mut(), 0, 0, 0.2, 0.0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_animator_crossfade(std::ptr::null_mut(), 0, 0, 0.2, 0.0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -650,7 +650,7 @@ pub unsafe extern "C" fn crabby_ctx_animator_crossfade(
 /// Turns the engine's automatic update of `entity`'s animator off (`true`)
 /// or back on; while off, pose it with `crabby_ctx_animator_update`.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_animator_set_manual(std::ptr::null_mut(), 0, true) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_animator_set_manual(std::ptr::null_mut(), 0, true) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -671,7 +671,7 @@ pub unsafe extern "C" fn crabby_ctx_animator_set_manual(
 
 /// Advances `entity`'s animator by `dt` seconds and poses its skeleton now.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_animator_update(std::ptr::null_mut(), 0, 0.016) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_animator_update(std::ptr::null_mut(), 0, 0.016) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -700,7 +700,7 @@ pub unsafe extern "C" fn crabby_ctx_animator_update(ctx: *mut CrabbyCtx, entity_
 /// (NUL-terminated, cut to fit) into `buffer` of `capacity` bytes.
 /// `*out_found` is false when there are none left; call it until then.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_animator_next_event(std::ptr::null_mut(), 0, std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_animator_next_event(std::ptr::null_mut(), 0, std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `buffer` writable for `capacity` bytes (or null with
@@ -740,7 +740,7 @@ pub unsafe extern "C" fn crabby_ctx_animator_next_event(
 
 /// How an animation layer combines with the layers under it.
 /// ```
-/// assert_eq!(crabby_ffi::CrabbyLayerBlend::CRABBY_LAYER_ADDITIVE as u32, 1);
+/// assert_eq!(ponko_ffi::CrabbyLayerBlend::CRABBY_LAYER_ADDITIVE as u32, 1);
 /// ```
 #[repr(C)]
 #[allow(non_camel_case_types)]
@@ -754,7 +754,7 @@ pub enum CrabbyLayerBlend {
 
 /// What an animator does with its root joint's horizontal movement and turning.
 /// ```
-/// assert_eq!(crabby_ffi::CrabbyRootMotion::CRABBY_ROOT_MOTION_APPLY as u32, 2);
+/// assert_eq!(ponko_ffi::CrabbyRootMotion::CRABBY_ROOT_MOTION_APPLY as u32, 2);
 /// ```
 #[repr(C)]
 #[allow(non_camel_case_types)]
@@ -781,7 +781,7 @@ fn layer(c: &mut Ctx, bits: u64, index: usize) -> Result<&mut Animator, Failure>
 /// `mask_joint` limits it to that joint and its children (null: every joint).
 /// Writes its index (0 for the first layer) to `out_layer`, which may be null.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_animator_add_layer(std::ptr::null_mut(), 0, std::ptr::null(), 0, std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_animator_add_layer(std::ptr::null_mut(), 0, std::ptr::null(), 0, std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `graph` null or live; `mask_joint` null or a
@@ -832,7 +832,7 @@ pub unsafe extern "C" fn crabby_ctx_animator_add_layer(
 
 /// Sets how strongly layer `layer` of `entity`'s animator shows, 0 to 1.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_animator_set_layer_weight(std::ptr::null_mut(), 0, 0, 0.5) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_animator_set_layer_weight(std::ptr::null_mut(), 0, 0, 0.5) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -861,7 +861,7 @@ pub unsafe extern "C" fn crabby_ctx_animator_set_layer_weight(
 
 /// Sets float parameter `parameter` of layer `layer`'s own graph.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_animator_layer_set_float(std::ptr::null_mut(), 0, 0, 0, 1.0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_animator_layer_set_float(std::ptr::null_mut(), 0, 0, 0, 1.0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -884,7 +884,7 @@ pub unsafe extern "C" fn crabby_ctx_animator_layer_set_float(
 
 /// Sets bool parameter `parameter` of layer `layer`'s own graph.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_animator_layer_set_bool(std::ptr::null_mut(), 0, 0, 0, true) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_animator_layer_set_bool(std::ptr::null_mut(), 0, 0, 0, true) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -907,7 +907,7 @@ pub unsafe extern "C" fn crabby_ctx_animator_layer_set_bool(
 
 /// Sets (or clears) trigger parameter `parameter` of layer `layer`'s own graph.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_animator_layer_set_trigger(std::ptr::null_mut(), 0, 0, 0, true) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_animator_layer_set_trigger(std::ptr::null_mut(), 0, 0, 0, true) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -931,7 +931,7 @@ pub unsafe extern "C" fn crabby_ctx_animator_layer_set_trigger(
 /// Crossfades layer `layer` to `state` of its own graph (like
 /// `crabby_ctx_animator_crossfade`).
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_animator_layer_crossfade(std::ptr::null_mut(), 0, 0, 0, 0.2, 0.0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_animator_layer_crossfade(std::ptr::null_mut(), 0, 0, 0, 0.2, 0.0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -956,7 +956,7 @@ pub unsafe extern "C" fn crabby_ctx_animator_layer_crossfade(
 /// Sets what `entity`'s animator does with joint `root_joint`'s horizontal
 /// movement and turning: `mode` is a `CrabbyRootMotion`.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_animator_set_root_motion(std::ptr::null_mut(), 0, 2, 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_animator_set_root_motion(std::ptr::null_mut(), 0, 2, 0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -987,7 +987,7 @@ pub unsafe extern "C" fn crabby_ctx_animator_set_root_motion(
 /// that `entity`'s animator took out of the pose in its latest update.
 /// Either output may be null.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_animator_root_motion(std::ptr::null_mut(), 0, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_animator_root_motion(std::ptr::null_mut(), 0, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; outputs null or writable.

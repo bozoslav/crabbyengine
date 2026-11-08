@@ -15,7 +15,7 @@ use crate::{Ctx, Texture};
 /// view's shadows. Transparent models aren't drawn into it.
 ///
 /// ```no_run
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let screen = ctx.create_render_target(512, 512);
 /// let mut camera = ctx.camera3d;
@@ -47,7 +47,7 @@ impl TargetCamera {
     /// `camera` drawing into `target`, with no clip plane.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let target = ctx.create_render_target(256, 256);
     /// ctx.target_cameras.push(TargetCamera::new(ctx.camera3d, target));
@@ -68,7 +68,7 @@ impl TargetCamera {
     /// `vec2(uv.x, 1.0 - uv.y)`.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("lake", 640, 360).run_headless(0, |ctx| {
     ///     let reflection = ctx.create_render_target(640, 360);
     ///     ctx.camera3d.position = vec3(0.0, 5.0, 0.0);
@@ -129,7 +129,7 @@ impl Ctx {
     /// Use it in a material like any texture; it holds linear HDR light.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let mirror = ctx.create_render_target(512, 512);
     /// assert_eq!(mirror.width(), 512);
@@ -141,7 +141,7 @@ impl Ctx {
     /// If the size is zero or larger than the GPU takes.
     pub fn create_render_target(&mut self, width: u32, height: u32) -> Texture {
         self.try_create_render_target(width, height)
-            .unwrap_or_else(|e| panic!("crabbyengine: {e}"))
+            .unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
     /// [`Ctx::create_render_target`] that returns errors (for the C API).
@@ -170,7 +170,7 @@ impl Ctx {
     /// Whether `texture` is a render target made by this game.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let target = ctx.create_render_target(64, 64);
     ///     assert!(ctx.is_render_target(target));

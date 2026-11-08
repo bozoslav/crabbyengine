@@ -9,7 +9,7 @@
 //!
 //! Nothing is drawn yet; rendering arrives in M2. Watch the terminal.
 
-use crabbyengine::*;
+use ponko::*;
 
 fn main() {
     Game::new("Crabby Engine: window", 800, 600).run(|ctx| {

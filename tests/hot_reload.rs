@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crabbyengine::*;
+use ponko::*;
 
 fn write_png(path: &Path, w: u32, h: u32, rgba: [u8; 4]) {
     let img = image::RgbaImage::from_pixel(w, h, image::Rgba(rgba));

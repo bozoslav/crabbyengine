@@ -10,7 +10,7 @@
 //! so the example needs no image files. Only tiles the camera can see are
 //! drawn, so the map size barely affects the frame time.
 
-use crabbyengine::*;
+use ponko::*;
 
 const TILE: u32 = 16;
 /// Tile frames in the generated tileset.

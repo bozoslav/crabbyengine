@@ -2,7 +2,7 @@
 //! (`Game::physics3d`, components synced every tick) and through rapier3d
 //! directly, plus characters walking and cars driving over heightfield
 //! terrain.
-use crabbyengine::{Character3D, Collider3D, Game, RigidBody3D, Transform3D, Vec3, Vehicle3D, Wheel3D, vec3};
+use ponko::{Character3D, Collider3D, Game, RigidBody3D, Transform3D, Vec3, Vehicle3D, Wheel3D, vec3};
 use rapier3d::prelude as rp;
 
 use crate::Bench;
@@ -113,7 +113,7 @@ pub fn run(b: &mut Bench) {
             || (),
             |_| {
                 let world = Game::new("bench", 1, 1)
-                    .sim_system(|ctx: &mut crabbyengine::Ctx| {
+                    .sim_system(|ctx: &mut ponko::Ctx| {
                         let t = ctx.sim_tick() as f32 * 0.02;
                         ctx.world.query::<&mut Character3D>().for_each(|c| {
                             let a = t + c.radius * 100.0;
@@ -158,7 +158,7 @@ pub fn run(b: &mut Bench) {
             || (),
             |_| {
                 let world = Game::new("bench", 1, 1)
-                    .sim_system(|ctx: &mut crabbyengine::Ctx| {
+                    .sim_system(|ctx: &mut ponko::Ctx| {
                         ctx.world.query::<&mut Vehicle3D>().for_each(|v| {
                             for (i, w) in v.wheels_mut().iter_mut().enumerate() {
                                 if i < 2 {

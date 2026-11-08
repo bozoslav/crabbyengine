@@ -1,7 +1,7 @@
 //! Sprite sheets, animation and tilemaps, checked headless. The built-in
 //! drawing systems are plain functions, so tests call them directly.
 
-use crabbyengine::*;
+use ponko::*;
 
 fn in_tick(f: impl FnMut(&mut Ctx) + 'static) {
     Game::new("tiles", 800, 600).sim_system(f).run_headless(1, |_| {});

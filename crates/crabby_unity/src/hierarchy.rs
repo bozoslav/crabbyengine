@@ -15,8 +15,8 @@ const PREFAB_INSTANCE: i32 = 1001;
 ///
 /// ```
 /// let text = "--- !u!1 &1\nGameObject:\n  m_Name: Lamp\n  m_IsActive: 1\n--- !u!4 &2\nTransform:\n  m_GameObject: {fileID: 1}\n  m_LocalPosition: {x: 1, y: 2, z: 3}\n  m_Father: {fileID: 0}\n";
-/// let file = crabby_unity::UnityFile::parse(text).unwrap();
-/// let scene = crabby_unity::Hierarchy::build(&file, &crabby_unity::Project::default()).unwrap();
+/// let file = ponko_unity::UnityFile::parse(text).unwrap();
+/// let scene = ponko_unity::Hierarchy::build(&file, &ponko_unity::Project::default()).unwrap();
 /// assert_eq!(scene.objects[0].name, "Lamp");
 /// assert_eq!(scene.objects[0].local_position(), [1.0, 2.0, 3.0]);
 /// ```

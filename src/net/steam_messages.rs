@@ -34,7 +34,7 @@ fn complete(pending: &Pending, value: Result<LobbyId, String>, leave: impl FnOnc
 
 /// Visibility of a Steam lobby (feature `steam`).
 /// ```
-/// let visibility = crabbyengine::SteamLobbyVisibility::FriendsOnly;
+/// let visibility = ponko::SteamLobbyVisibility::FriendsOnly;
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SteamLobbyVisibility {
@@ -130,7 +130,7 @@ impl SteamApi for Real {
 /// `id` is `None` until Steam completes the request. Drop or `leave` leaves it.
 /// Metadata is cached by Steam; remote changes become visible after callbacks.
 /// ```no_run
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let client = steamworks::Client::init_app(480).unwrap();
 /// let mut lobby = SteamLobby::create(&client, SteamLobbyVisibility::FriendsOnly, 4).unwrap();
 /// lobby.poll().unwrap();
@@ -157,7 +157,7 @@ impl SteamLobby {
     }
     /// Create a lobby for 1..=250 members, including its owner.
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # let client = steamworks::Client::init_app(480).unwrap();
     /// let lobby = SteamLobby::create(&client, SteamLobbyVisibility::Private, 2)?;
     /// # Ok::<(), std::io::Error>(())
@@ -175,7 +175,7 @@ impl SteamLobby {
     }
     /// Join by lobby id; completion/errors arrive through `poll`.
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # let client = steamworks::Client::init_app(480).unwrap();
     /// let lobby = SteamLobby::join(&client, steamworks::LobbyId::from_raw(1))?;
     /// # Ok::<(), std::io::Error>(())
@@ -193,7 +193,7 @@ impl SteamLobby {
     }
     /// Run callbacks and report asynchronous errors. Never blocks.
     /// ```no_run
-    /// # fn f(lobby: &crabbyengine::SteamLobby) { let _ = lobby.poll(); }
+    /// # fn f(lobby: &ponko::SteamLobby) { let _ = lobby.poll(); }
     /// ```
     pub fn poll(&self) -> io::Result<()> {
         self.api.pump();
@@ -204,7 +204,7 @@ impl SteamLobby {
     }
     /// Current id, or `None` while pending/after leaving.
     /// ```no_run
-    /// # fn f(lobby: &crabbyengine::SteamLobby) { let _ = lobby.id(); }
+    /// # fn f(lobby: &ponko::SteamLobby) { let _ = lobby.id(); }
     /// ```
     pub fn id(&self) -> Option<LobbyId> {
         if self.left {
@@ -225,14 +225,14 @@ impl SteamLobby {
     }
     /// Current members, as Steam identities; empty while pending.
     /// ```no_run
-    /// # fn f(lobby: &crabbyengine::SteamLobby) { let _ = lobby.members(); }
+    /// # fn f(lobby: &ponko::SteamLobby) { let _ = lobby.members(); }
     /// ```
     pub fn members(&self) -> Vec<SteamId> {
         self.id().map_or_else(Vec::new, |id| self.api.members(id))
     }
     /// Read cached lobby metadata; missing keys return `None`.
     /// ```no_run
-    /// # fn f(lobby: &crabbyengine::SteamLobby) { let _ = lobby.metadata("version"); }
+    /// # fn f(lobby: &ponko::SteamLobby) { let _ = lobby.metadata("version"); }
     /// ```
     pub fn metadata(&self, key: &str) -> Option<String> {
         if !valid_key(key) {
@@ -243,7 +243,7 @@ impl SteamLobby {
     /// Set metadata (owner only). Keys are 1..=254 bytes, values at most
     /// 8191 bytes; neither may contain NUL. Check version compatibility before play.
     /// ```no_run
-    /// # fn f(lobby: &crabbyengine::SteamLobby) { let _ = lobby.set_metadata("version", "1"); }
+    /// # fn f(lobby: &ponko::SteamLobby) { let _ = lobby.set_metadata("version", "1"); }
     /// ```
     pub fn set_metadata(&self, key: &str, value: &str) -> io::Result<()> {
         if !valid_key(key) || value.len() > 8191 || value.contains('\0') {
@@ -257,7 +257,7 @@ impl SteamLobby {
     /// Open the overlay invite dialog. Existing invite argument/wait helpers
     /// also work for these lobbies.
     /// ```no_run
-    /// # fn f(lobby: &crabbyengine::SteamLobby) { let _ = lobby.invite(); }
+    /// # fn f(lobby: &ponko::SteamLobby) { let _ = lobby.invite(); }
     /// ```
     pub fn invite(&self) -> io::Result<()> {
         self.api.invite(self.ready()?);
@@ -265,7 +265,7 @@ impl SteamLobby {
     }
     /// Leave once. A pending request must finish first (returns `WouldBlock`).
     /// ```no_run
-    /// # fn f(lobby: &mut crabbyengine::SteamLobby) { let _ = lobby.leave(); }
+    /// # fn f(lobby: &mut ponko::SteamLobby) { let _ = lobby.leave(); }
     /// ```
     pub fn leave(&mut self) -> io::Result<()> {
         self.poll()?;
@@ -378,7 +378,7 @@ impl NetMessages {
     /// lobby. `max_clients` is 1..=249 (Steam permits 250 lobby members).
     /// Use one message endpoint per Steam client; lockstep uses a separate channel.
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let client = steamworks::Client::init_app(480).unwrap();
     /// let mut host = NetMessages::steam_host(&client, 3)?;
     /// host.poll()?;
@@ -394,7 +394,7 @@ impl NetMessages {
     /// Join a message host by lobby id. Poll until `Connected`; lobby failures
     /// are returned by `poll`. Host migration requires a new endpoint.
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # let client = steamworks::Client::init_app(480).unwrap();
     /// let net = NetMessages::steam_join(&client, steamworks::LobbyId::from_raw(1))?;
     /// # Ok::<(), std::io::Error>(())
@@ -417,14 +417,14 @@ impl NetMessages {
     /// This endpoint's lobby, for metadata, membership and overlay invites.
     /// Returns `None` for UDP and loopback endpoints.
     /// ```
-    /// assert!(crabbyengine::NetMessages::loopback(2)[0].steam_lobby().is_none());
+    /// assert!(ponko::NetMessages::loopback(2)[0].steam_lobby().is_none());
     /// ```
     pub fn steam_lobby(&self) -> Option<&SteamLobby> {
         self.transport_lobby()
     }
     /// Steam identity corresponding to a connected session-local peer.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert!(NetMessages::loopback(2)[0].steam_peer(PeerId::HOST).is_none());
     /// ```
     pub fn steam_peer(&self, peer: PeerId) -> Option<SteamId> {

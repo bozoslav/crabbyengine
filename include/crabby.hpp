@@ -1080,7 +1080,7 @@ public:
 
     // ---- reflection and saves ----
     /// Describes `T`'s fields, so tools and agents can read and write it as
-    /// JSON (`crabby-mcp`) and `save()` includes it. It's saved under its
+    /// JSON (`ponko-mcp`) and `save()` includes it. It's saved under its
     /// C++ type name, or under `name` (call this before `T` is first used).
     template<class T> void reflect(std::initializer_list<field_info<T>> fields) { reflect<T>(nullptr, fields); }
     template<class T> void reflect(const char* name, std::initializer_list<field_info<T>> fields) {
@@ -3766,7 +3766,7 @@ public:
     }
     /// Joins the lockstep session hosted at `addr` ("192.168.1.20:7777").
     game& lockstep_join(const char* addr) { return check(crabby_game_lockstep_join(raw_, addr)); }
-    /// Hosts a lockstep session over Steam (crabby_ffi feature `steam`):
+    /// Hosts a lockstep session over Steam (ponko_ffi feature `steam`):
     /// starts Steam for `app_id` (480: Valve's test app) and opens a
     /// friends-only lobby; friends join through invites (ctx::steam_invite).
     game& lockstep_steam_host(std::uint32_t app_id, std::uint32_t players, std::uint32_t input_delay = 3,
@@ -3791,7 +3791,7 @@ public:
     template<class F> game& late_system(F fn, const char* name = nullptr) {
         return check(crabby_game_late_system(raw_, name, trampoline, keep(std::move(fn))));
     }
-    /// Removes systems by name, e.g. "crabbyengine::ecs::draw_sprites".
+    /// Removes systems by name, e.g. "ponko::ecs::draw_sprites".
     game& remove_system(const char* name) { return check(crabby_game_remove_system(raw_, name)); }
 
     /// Opens the window and runs until quit. `setup(ctx&)` runs once first.

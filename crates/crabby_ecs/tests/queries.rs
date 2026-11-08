@@ -3,7 +3,7 @@
 mod common;
 
 use common::*;
-use crabby_ecs::*;
+use ponko_ecs::*;
 
 #[test]
 fn query_matches_across_archetypes() {

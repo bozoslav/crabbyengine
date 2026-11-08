@@ -1,5 +1,5 @@
 //! Positional procedural audio. Build only in CI; running opens audio/window.
-use crabbyengine::*;
+use ponko::*;
 
 // ANCHOR: sound3d
 fn setup(ctx: &mut Ctx) {

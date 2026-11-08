@@ -27,7 +27,7 @@ impl Sound {
     /// Length in seconds.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(sound: Sound) {
     /// println!("{:.1} s", sound.seconds());
     /// # }
@@ -47,7 +47,7 @@ pub struct Playing(u64);
 /// Optional settings for [`Ctx::play_sound_ex`](crate::Ctx::play_sound_ex).
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn f(ctx: &mut Ctx, music: Sound) {
 /// ctx.play_sound_ex(&music, SoundParams { volume: 0.5, looping: true, ..Default::default() });
 /// # }
@@ -437,24 +437,24 @@ impl Ctx {
     /// With a clear message if the file is missing or can't be decoded.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn setup(ctx: &mut Ctx) {
     /// let hit = ctx.load_sound("hit.ogg");
     /// ctx.play_sound(&hit);
     /// # }
     /// ```
     pub fn load_sound(&mut self, path: &str) -> Sound {
-        let file = crate::assets::resolve(path).unwrap_or_else(|e| panic!("crabbyengine: {e}"));
+        let file = crate::assets::resolve(path).unwrap_or_else(|e| panic!("ponko: {e}"));
         let key = (file, crate::ctx::AssetKind::Sound);
         if let Some(&i) = self.loaded.get(&key) {
             return self.cached_sounds[i as usize];
         }
-        let bytes = crate::assets::read(&key.0)
-            .unwrap_or_else(|e| panic!("crabbyengine: could not read {}: {e}", key.0.display()));
+        let bytes =
+            crate::assets::read(&key.0).unwrap_or_else(|e| panic!("ponko: could not read {}: {e}", key.0.display()));
         let (id, seconds) = self
             .audio
             .load(bytes)
-            .unwrap_or_else(|e| panic!("crabbyengine: {}: {e}", key.0.display()));
+            .unwrap_or_else(|e| panic!("ponko: {}: {e}", key.0.display()));
         let sound = Sound { id, seconds };
         self.loaded.insert(key.clone(), self.cached_sounds.len() as u64);
         self.cached_sounds.push(sound);
@@ -466,7 +466,7 @@ impl Ctx {
     /// generated effects.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn setup(ctx: &mut Ctx) {
     /// // A short 880 Hz beep that fades out.
     /// let rate = 44_100;
@@ -486,7 +486,7 @@ impl Ctx {
     ///
     /// If `sample_rate` is 0.
     pub fn create_sound(&mut self, sample_rate: u32, samples: &[f32]) -> Sound {
-        assert!(sample_rate > 0, "crabbyengine: the sample rate must not be zero");
+        assert!(sample_rate > 0, "ponko: the sample rate must not be zero");
         let (id, seconds) = self.audio.create(sample_rate, samples);
         Sound { id, seconds }
     }
@@ -494,7 +494,7 @@ impl Ctx {
     /// Plays `sound` once at full volume. Silent in headless runs.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, click: Sound) {
     /// if ctx.mouse_pressed(MouseButton::Left) {
     ///     ctx.play_sound(&click);
@@ -508,7 +508,7 @@ impl Ctx {
     /// Plays `sound` with a volume, speed, or looping.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, step: Sound) {
     /// let speed = 0.9 + ctx.random().stream(0).f32() * 0.2; // vary the pitch a little
     /// ctx.play_sound_ex(&step, SoundParams { volume: 0.4, speed, ..Default::default() });
@@ -525,7 +525,7 @@ impl Ctx {
     /// short fade). Does nothing if it already finished.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, music: Sound) {
     /// let song = ctx.play_sound_ex(&music, SoundParams { looping: true, ..Default::default() });
     /// // ... later

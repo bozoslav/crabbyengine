@@ -1,7 +1,7 @@
 //! Contact modification (feature `physics3d`): one-way surfaces, conveyor
 //! belts and the custom contact hook.
 #![cfg(feature = "physics3d")]
-use crabbyengine::*;
+use ponko::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 

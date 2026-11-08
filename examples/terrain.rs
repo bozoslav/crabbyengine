@@ -9,7 +9,7 @@
 //! `VIEW=high|low|under|cliff` picks where the camera starts, `HOUR=18.5` the
 //! time of day. `BENCH=1` prints the frame's cost after 300 frames and quits.
 
-use crabbyengine::*;
+use ponko::*;
 
 const TILES: i32 = 5;
 const N: usize = 129;

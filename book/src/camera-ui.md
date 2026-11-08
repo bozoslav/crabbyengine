@@ -18,7 +18,7 @@ until you move it, world units are window pixels.
 
 ## The camera
 
-`ctx.camera` is a [`Camera2D`](api/crabbyengine/struct.Camera2D.html) (C++:
+`ctx.camera` is a [`Camera2D`](api/ponko/struct.Camera2D.html) (C++:
 `ctx.camera()` / `ctx.set_camera(c)` with the same two fields):
 `position` (the world point at the window's top-left) and `zoom` (window
 pixels per world unit). Its methods do the usual jobs:
@@ -170,6 +170,6 @@ The whole scene from `cargo run --release --example ui`:
 
 ## For agents
 
-The control endpoint has `camera.get` and `camera.set`, and `crabby-mcp`
+The control endpoint has `camera.get` and `camera.set`, and `ponko-mcp`
 has a `set_camera` tool. Combined with `screenshot`, an agent can look at
 any part of a running world.

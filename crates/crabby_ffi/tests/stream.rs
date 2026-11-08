@@ -1,6 +1,6 @@
 //! Streaming through the C API: the cell streamer, tile data built on
 //! another thread, and freeing meshes and terrain tiles.
-use crabby_ffi::*;
+use ponko_ffi::*;
 use std::ffi::c_void;
 use std::ptr::{null, null_mut};
 

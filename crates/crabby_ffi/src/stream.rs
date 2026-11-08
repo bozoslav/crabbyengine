@@ -2,7 +2,7 @@
 //! thread, far terrain beyond them, and freeing meshes and tiles. Background work itself is the
 //! game's (C++ has `std::async` and threads); Rust's `Job` has no C API.
 
-use crabbyengine::{CellStreamer, FarTerrain, TerrainTileData, vec3};
+use ponko::{CellStreamer, FarTerrain, TerrainTileData, vec3};
 
 use crate::ctx::{ctx_access, out};
 use crate::three::{CrabbyMaterial, CrabbyMesh, CrabbyTerrainTile, CrabbyVec3, square_grid};
@@ -13,7 +13,7 @@ use crate::{CrabbyCtx, CrabbyStatus, boundary, invalid, invalid_owned};
 /// One cell of a `CrabbyCellStreamer`'s grid: it covers `x * cell_size`
 /// to `(x + 1) * cell_size` along X, and the same along Z.
 /// ```
-/// let c = crabby_ffi::CrabbyCell { x: 2, z: -1 };
+/// let c = ponko_ffi::CrabbyCell { x: 2, z: -1 };
 /// assert_eq!(c.z, -1);
 /// ```
 #[repr(C)]
@@ -38,10 +38,10 @@ pub struct CrabbyCellStreamer {
 /// Returns null (see `crabby_last_error`) if `cell_size` isn't above 0 or
 /// a radius is negative.
 /// ```
-/// let s = crabby_ffi::crabby_cells_new(256.0, 600.0, 800.0);
+/// let s = ponko_ffi::crabby_cells_new(256.0, 600.0, 800.0);
 /// assert!(!s.is_null());
-/// unsafe { crabby_ffi::crabby_cells_free(s) };
-/// assert!(crabby_ffi::crabby_cells_new(0.0, 1.0, 1.0).is_null());
+/// unsafe { ponko_ffi::crabby_cells_free(s) };
+/// assert!(ponko_ffi::crabby_cells_new(0.0, 1.0, 1.0).is_null());
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_cells_new(cell_size: f32, load_radius: f32, keep_radius: f32) -> *mut CrabbyCellStreamer {
@@ -69,7 +69,7 @@ pub extern "C" fn crabby_cells_new(cell_size: f32, load_radius: f32, keep_radius
 
 /// Frees a cell streamer. Null is ignored.
 /// ```
-/// unsafe { crabby_ffi::crabby_cells_free(std::ptr::null_mut()) };
+/// unsafe { ponko_ffi::crabby_cells_free(std::ptr::null_mut()) };
 /// ```
 /// # Safety
 /// `cells` must be null or live, and not used afterwards.
@@ -91,7 +91,7 @@ unsafe fn cells_mut<'a>(cells: *mut CrabbyCellStreamer) -> Result<&'a mut Crabby
 /// `CellStreamer::update`). Read them with `crabby_cells_to_load` and
 /// `crabby_cells_to_drop`.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let s = crabby_cells_new(1.0, 0.4, 0.4);
 /// let (mut cells, mut len) = (std::ptr::null(), 0);
 /// unsafe {
@@ -146,7 +146,7 @@ unsafe fn cell_list(
 /// first. Valid until the next update or free.
 /// ```
 /// let (mut c, mut n) = (std::ptr::null(), 0);
-/// assert_eq!(unsafe { crabby_ffi::crabby_cells_to_load(std::ptr::null_mut(), &mut c, &mut n) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_cells_to_load(std::ptr::null_mut(), &mut c, &mut n) } as u32, 1);
 /// ```
 /// # Safety
 /// `cells` must be null or live; outputs writable.
@@ -163,7 +163,7 @@ pub unsafe extern "C" fn crabby_cells_to_load(
 /// The cells the last `crabby_cells_update` dropped, in grid order. Valid
 /// until the next update or free.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let s = crabby_cells_new(1.0, 0.4, 0.4);
 /// let (mut cells, mut len) = (std::ptr::null(), 0);
 /// unsafe {
@@ -189,7 +189,7 @@ pub unsafe extern "C" fn crabby_cells_to_drop(
 /// Whether `cell` is loaded (or being loaded), and how many are.
 /// `out_count` may be null.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let s = crabby_cells_new(1.0, 0.4, 0.4);
 /// let (mut loaded, mut count) = (false, 0);
 /// unsafe {
@@ -224,7 +224,7 @@ pub unsafe extern "C" fn crabby_cells_is_loaded(
 
 /// Forgets every cell, as if none were loaded.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_cells_clear(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_cells_clear(std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `cells` must be null or live.
@@ -251,10 +251,10 @@ pub struct CrabbyTerrainTileData(TerrainTileData);
 /// (see `crabby_last_error`) for bad input.
 /// ```
 /// let h = [0.0f32; 9];
-/// let d = unsafe { crabby_ffi::crabby_terrain_tile_data_new(h.as_ptr(), 9, 4.0) };
+/// let d = unsafe { ponko_ffi::crabby_terrain_tile_data_new(h.as_ptr(), 9, 4.0) };
 /// assert!(!d.is_null());
-/// unsafe { crabby_ffi::crabby_terrain_tile_data_free(d) };
-/// assert!(unsafe { crabby_ffi::crabby_terrain_tile_data_new(h.as_ptr(), 8, 4.0) }.is_null());
+/// unsafe { ponko_ffi::crabby_terrain_tile_data_free(d) };
+/// assert!(unsafe { ponko_ffi::crabby_terrain_tile_data_new(h.as_ptr(), 8, 4.0) }.is_null());
 /// ```
 /// # Safety
 /// `heights` holds `count` floats.
@@ -289,7 +289,7 @@ pub unsafe extern "C" fn crabby_terrain_tile_data_new(
 
 /// Frees tile data. Null is ignored.
 /// ```
-/// unsafe { crabby_ffi::crabby_terrain_tile_data_free(std::ptr::null_mut()) };
+/// unsafe { ponko_ffi::crabby_terrain_tile_data_free(std::ptr::null_mut()) };
 /// ```
 /// # Safety
 /// `data` must be null or live, and not used afterwards.
@@ -306,7 +306,7 @@ pub unsafe extern "C" fn crabby_terrain_tile_data_free(data: *mut CrabbyTerrainT
 /// # Safety
 /// `ctx` null or live; `data` live; output writable.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_upload_terrain_tile(std::ptr::null_mut(), std::ptr::null(), Default::default(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_upload_terrain_tile(std::ptr::null_mut(), std::ptr::null(), Default::default(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_upload_terrain_tile(
@@ -334,7 +334,7 @@ pub unsafe extern "C" fn crabby_ctx_upload_terrain_tile(
 /// # Safety
 /// `ctx` null or live.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_free_mesh(std::ptr::null_mut(), Default::default()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_free_mesh(std::ptr::null_mut(), Default::default()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_free_mesh(ctx: *mut CrabbyCtx, mesh: CrabbyMesh) -> CrabbyStatus {
@@ -352,7 +352,7 @@ pub unsafe extern "C" fn crabby_ctx_free_mesh(ctx: *mut CrabbyCtx, mesh: CrabbyM
 /// `ctx` null or live; output writable.
 /// ```
 /// let mut live = true;
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_is_mesh_live(std::ptr::null_mut(), Default::default(), &mut live) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_is_mesh_live(std::ptr::null_mut(), Default::default(), &mut live) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_is_mesh_live(
@@ -369,8 +369,8 @@ pub unsafe extern "C" fn crabby_ctx_is_mesh_live(
 /// # Safety
 /// `ctx` null or live.
 /// ```
-/// let t = crabby_ffi::CrabbyTerrainTile { lods: [Default::default(); 4], lod_distance: 1.0 };
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_free_terrain_tile(std::ptr::null_mut(), t) } as u32, 1);
+/// let t = ponko_ffi::CrabbyTerrainTile { lods: [Default::default(); 4], lod_distance: 1.0 };
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_free_terrain_tile(std::ptr::null_mut(), t) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_free_terrain_tile(ctx: *mut CrabbyCtx, tile: CrabbyTerrainTile) -> CrabbyStatus {
@@ -387,7 +387,7 @@ pub unsafe extern "C" fn crabby_ctx_free_terrain_tile(ctx: *mut CrabbyCtx, tile:
 /// (Rust `FarTerrain`). Make it with `crabby_far_terrain_new`.
 pub struct CrabbyFarTerrain {
     far: FarTerrain,
-    material: crabbyengine::Material,
+    material: ponko::Material,
 }
 
 /// Makes far ground from `count` heights, `columns` per row (row after row
@@ -397,7 +397,7 @@ pub struct CrabbyFarTerrain {
 /// `corner` lie on the grid of `spacing`s. Nothing is made until
 /// `crabby_far_terrain_update`. Null (see `crabby_last_error`) for bad input.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let h = [0.0f32; 16];
 /// let f = unsafe { crabby_far_terrain_new(h.as_ptr(), 16, 4, CrabbyVec2::default(), 10.0, 20.0, Default::default()) };
 /// assert!(!f.is_null());
@@ -439,7 +439,7 @@ pub unsafe extern "C" fn crabby_far_terrain_new(
 /// Frees a far terrain. Null is ignored. Its entities and meshes stay in
 /// the world: `crabby_far_terrain_clear` them first.
 /// ```
-/// unsafe { crabby_ffi::crabby_far_terrain_free(std::ptr::null_mut()) };
+/// unsafe { ponko_ffi::crabby_far_terrain_free(std::ptr::null_mut()) };
 /// ```
 /// # Safety
 /// `far` must be null or live, and not used afterwards.
@@ -460,7 +460,7 @@ unsafe fn far_mut<'a>(far: *mut CrabbyFarTerrain) -> Result<&'a mut CrabbyFarTer
 /// shown, or fills it in again (`cut` false) when the tile goes (Rust
 /// `FarTerrain::cut` and `uncut`). Takes effect at the next update.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_far_terrain_cut(std::ptr::null_mut(), Default::default(), true) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_far_terrain_cut(std::ptr::null_mut(), Default::default(), true) } as u32, 1);
 /// ```
 /// # Safety
 /// `far` must be null or live.
@@ -485,7 +485,7 @@ pub unsafe extern "C" fn crabby_far_terrain_cut(
 /// Whether `cell` is cut away, and how many meshes the far ground has in
 /// the world. `out_meshes` may be null.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let h = [0.0f32; 16];
 /// let f = unsafe { crabby_far_terrain_new(h.as_ptr(), 16, 4, CrabbyVec2::default(), 10.0, 10.0, Default::default()) };
 /// let (mut cut, mut meshes) = (false, 9);
@@ -524,7 +524,7 @@ pub unsafe extern "C" fn crabby_far_terrain_is_cut(
 /// # Safety
 /// `far` and `ctx` null or live.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_far_terrain_update(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_far_terrain_update(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_far_terrain_update(far: *mut CrabbyFarTerrain, ctx: *mut CrabbyCtx) -> CrabbyStatus {
@@ -549,7 +549,7 @@ pub unsafe extern "C" fn crabby_far_terrain_update(far: *mut CrabbyFarTerrain, c
 /// # Safety
 /// `far` and `ctx` null or live.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_far_terrain_clear(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_far_terrain_clear(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_far_terrain_clear(far: *mut CrabbyFarTerrain, ctx: *mut CrabbyCtx) -> CrabbyStatus {

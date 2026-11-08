@@ -1,5 +1,5 @@
 //! Sprite sheets, the Animation component and tilemaps through the C API.
-use crabby_ffi::*;
+use ponko_ffi::*;
 use std::ffi::CStr;
 use std::mem::MaybeUninit;
 use std::ptr::{null, null_mut};

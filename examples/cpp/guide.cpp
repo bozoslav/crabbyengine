@@ -155,7 +155,7 @@ struct Spawner {
     auto my_draw = [](crabby::ctx&) {};
 // ANCHOR: remove_system
 crabby::game("t", 800, 600)
-    .remove_system("crabbyengine::ecs::draw_sprites")   // draw your own way
+    .remove_system("ponko::ecs::draw_sprites")   // draw your own way
     .system(my_draw, "my_draw");
 // ANCHOR_END: remove_system
 }
@@ -640,7 +640,7 @@ static void obey_orders(crabby::ctx& ctx) {
 
 [[maybe_unused]] static void steam_multiplayer(bool hosting) {
     // ANCHOR: steam_setup
-    // crabby_ffi built with --features steam; 480 is Valve's test app.
+    // ponko_ffi built with --features steam; 480 is Valve's test app.
     crabby::game game("RTS", 1280, 720);
     if (std::uint64_t lobby = crabby::steam_lobby_from_args())   // launched from an invite
         game.lockstep_steam_join(480, lobby);
@@ -711,7 +711,7 @@ struct Unit {
 };
 
 static void reflect_units(crabby::world_view world) {
-    // Tools and agents (crabby-mcp) now see {"current", "max", "home", "target", "angry"}.
+    // Tools and agents (ponko-mcp) now see {"current", "max", "home", "target", "angry"}.
     world.reflect<Unit>({
         crabby::field("current", &Unit::current),
         crabby::field("max", &Unit::max),

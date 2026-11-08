@@ -14,7 +14,7 @@ use crate::{Entity, World};
 /// pose).
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// let shoulder = Joint { name: "shoulder".into(), parent: None, rest: Transform3D::default() };
 /// let elbow = Joint { name: "elbow".into(), parent: Some(0), rest: Transform3D::at(vec3(0.0, -0.3, 0.0)) };
 /// let arm = Skeleton::new(vec![shoulder, elbow]);
@@ -42,7 +42,7 @@ pub struct Joint {
 /// A skinned model without a skeleton draws in the pose it was modelled in.
 ///
 /// ```no_run
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let body = ctx.load_mesh("models/fox.glb");
 /// let skeleton = ctx.load_skeleton("models/fox.glb");
@@ -69,7 +69,7 @@ impl Skeleton {
     /// A skeleton of `joints`, at rest.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let root = Joint { name: "root".into(), parent: None, rest: Transform3D::at(vec3(0.0, 1.0, 0.0)) };
     /// let s = Skeleton::new(vec![root]);
     /// assert_eq!(s.joint_matrix(0), Mat4::from_translation(vec3(0.0, 1.0, 0.0)));
@@ -109,7 +109,7 @@ impl Skeleton {
     /// The joints, in order (parents before children).
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let s = Skeleton::new(vec![Joint { name: "hip".into(), parent: None, rest: Transform3D::default() }]);
     /// assert_eq!(s.joints()[0].name, "hip");
     /// ```
@@ -121,7 +121,7 @@ impl Skeleton {
     /// The first joint called `name`.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let s = Skeleton::new(vec![Joint { name: "hip".into(), parent: None, rest: Transform3D::default() }]);
     /// assert_eq!(s.find("hip"), Some(0));
     /// assert_eq!(s.find("tail"), None);
@@ -134,7 +134,7 @@ impl Skeleton {
     /// Puts every joint back in its rest pose.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let mut s = Skeleton::new(vec![Joint { name: "hip".into(), parent: None, rest: Transform3D::default() }]);
     /// s.pose[0].position.y = 3.0;
     /// s.reset_pose();
@@ -150,7 +150,7 @@ impl Skeleton {
     /// Call after manual clip sampling or Animator::update. Automatic animators
     /// write the model's component themselves, including SkinOf attachments.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let s = Skeleton::new(vec![]);
     /// let mut weights = MorphWeights(vec![0.5]);
     /// s.write_morph_weights(&["smile".into()], &mut weights);
@@ -165,7 +165,7 @@ impl Skeleton {
     /// [`Transform3D::matrix`] for the world.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let root = Joint { name: "root".into(), parent: None, rest: Transform3D::at(vec3(0.0, 1.0, 0.0)) };
     /// let tip = Joint { name: "tip".into(), parent: Some(0), rest: Transform3D::at(vec3(0.0, 2.0, 0.0)) };
     /// let mut s = Skeleton::new(vec![root, tip]);
@@ -226,7 +226,7 @@ impl Skeleton {
 /// [`Transform3D`] of its own.
 ///
 /// ```no_run
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let body = ctx.load_mesh("people/body.glb");
 /// let hat = ctx.load_mesh("people/hat.glb");
@@ -244,7 +244,7 @@ pub struct SkinOf(pub Entity);
 /// last frame's place; [`Skeleton::joint_matrix`] gives this frame's.
 ///
 /// ```no_run
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn f(ctx: &mut Ctx, person: Entity, cup: Mesh) {
 /// let hand = ctx.world.get::<Skeleton>(person).unwrap().find("hand_r").unwrap();
 /// ctx.world.spawn((
@@ -319,7 +319,7 @@ impl MeshSkin {
 /// file, else none). Animation clips with weight tracks set it.
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// Game::new("t", 1, 1).run_headless(0, |ctx| {
 ///     let mut quad = MeshData::plane(1.0);
 ///     let mut up = vec![Vec3::ZERO; quad.positions.len()];
@@ -339,7 +339,7 @@ pub struct MorphWeights(pub Vec<f32>);
 impl MorphWeights {
     /// Target `target`'s weight (0 when not set).
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// assert_eq!(MorphWeights(vec![0.25]).get(0), 0.25);
     /// assert_eq!(MorphWeights::default().get(3), 0.0);
     /// ```
@@ -350,7 +350,7 @@ impl MorphWeights {
 
     /// Sets target `target`'s weight, growing the list as needed.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// let mut w = MorphWeights::default();
     /// w.set(2, 1.0);
     /// assert_eq!(w.0, [0.0, 0.0, 1.0]);

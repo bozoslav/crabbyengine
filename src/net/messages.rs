@@ -15,7 +15,7 @@ use serde::{Serialize, de::DeserializeOwned};
 
 /// Maximum application payload, in either lane (1 MiB).
 /// ```
-/// assert_eq!(crabbyengine::MAX_MESSAGE_BYTES, 1024 * 1024);
+/// assert_eq!(ponko::MAX_MESSAGE_BYTES, 1024 * 1024);
 /// ```
 pub const MAX_MESSAGE_BYTES: usize = 1024 * 1024;
 const CHANNEL_MEMORY: usize = 4 * MAX_MESSAGE_BYTES;
@@ -32,7 +32,7 @@ const EVENT_LIMIT: usize = 4096;
 
 /// Delivery policy; ordering is independent in each direction and peer.
 /// ```
-/// use crabbyengine::Lane;
+/// use ponko::Lane;
 /// assert_ne!(Lane::Reliable, Lane::Unreliable);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,18 +40,18 @@ pub enum Lane {
     /// Retransmitted until acknowledged, delivered exactly once in send order
     /// while the connection survives.
     /// ```
-    /// let lane = crabbyengine::Lane::Reliable;
+    /// let lane = ponko::Lane::Reliable;
     /// ```
     Reliable,
     /// Reliable delivery without ordering between messages.
     /// ```
-    /// let lane = crabbyengine::Lane::ReliableUnordered;
+    /// let lane = ponko::Lane::ReliableUnordered;
     /// ```
     ReliableUnordered,
     /// Never retransmitted; messages older than the newest delivered message
     /// are discarded. A fragmented message is lost if any fragment is lost.
     /// ```
-    /// let lane = crabbyengine::Lane::Unreliable;
+    /// let lane = ponko::Lane::Unreliable;
     /// ```
     Unreliable,
 }
@@ -68,21 +68,21 @@ impl Lane {
 /// Opaque, session-local peer identifier. Clients address the host as `HOST`;
 /// hosts obtain client identifiers from connection events. IDs are not reused.
 /// ```
-/// let host = crabbyengine::PeerId::HOST;
-/// assert_eq!(host, crabbyengine::PeerId::HOST);
+/// let host = ponko::PeerId::HOST;
+/// assert_eq!(host, ponko::PeerId::HOST);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PeerId(u64);
 impl PeerId {
     /// Destination for a joining client's messages.
     /// ```
-    /// let peer = crabbyengine::PeerId::HOST;
+    /// let peer = ponko::PeerId::HOST;
     /// ```
     pub const HOST: Self = Self(0);
 
     /// The id as a number, for language bindings and logs.
     /// ```
-    /// assert_eq!(crabbyengine::PeerId::HOST.to_bits(), 0);
+    /// assert_eq!(ponko::PeerId::HOST.to_bits(), 0);
     /// ```
     pub const fn to_bits(self) -> u64 {
         self.0
@@ -91,7 +91,7 @@ impl PeerId {
     /// An id from [`to_bits`](Self::to_bits). Sending to one that never
     /// connected fails; it isn't unsafe.
     /// ```
-    /// use crabbyengine::PeerId;
+    /// use ponko::PeerId;
     /// assert_eq!(PeerId::from_bits(0), PeerId::HOST);
     /// ```
     pub const fn from_bits(bits: u64) -> Self {
@@ -101,37 +101,37 @@ impl PeerId {
 
 /// Connection changes and owned application payloads. Drain events every poll.
 /// ```
-/// use crabbyengine::{MessageEvent, PeerId};
+/// use ponko::{MessageEvent, PeerId};
 /// assert!(matches!(MessageEvent::Connected(PeerId::HOST), MessageEvent::Connected(_)));
 /// ```
 #[derive(Debug, PartialEq, Eq)]
 pub enum MessageEvent {
     /// A peer can now receive messages.
     /// ```
-    /// let event = crabbyengine::MessageEvent::Connected(crabbyengine::PeerId::HOST);
+    /// let event = ponko::MessageEvent::Connected(ponko::PeerId::HOST);
     /// ```
     Connected(PeerId),
     /// A peer left, timed out, was refused, or violated protocol/channel limits.
     /// The reason is intended for diagnostics, not machine parsing.
     /// ```
-    /// let event = crabbyengine::MessageEvent::Disconnected(crabbyengine::PeerId::HOST, "timeout".into());
+    /// let event = ponko::MessageEvent::Disconnected(ponko::PeerId::HOST, "timeout".into());
     /// ```
     Disconnected(PeerId, String),
     /// One complete application message.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let event = MessageEvent::Message { peer: PeerId::HOST, lane: Lane::Reliable, bytes: vec![1] };
     /// ```
     Message {
         /// Sender, as in `Connected`.
         /// ```
-        /// # use crabbyengine::*;
+        /// # use ponko::*;
         /// let peer = PeerId::HOST;
         /// ```
         peer: PeerId,
         /// Delivery policy used by the sender.
         /// ```
-        /// let lane = crabbyengine::Lane::Reliable;
+        /// let lane = ponko::Lane::Reliable;
         /// ```
         lane: Lane,
         /// Complete payload, without transport or sequence headers.
@@ -145,7 +145,7 @@ impl MessageEvent {
     /// Decode a JSON message sent with `send_serde`; `None` for other events
     /// or a payload that does not match `T`.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let event = MessageEvent::Message { peer: PeerId::HOST, lane: Lane::Reliable, bytes: b"42".to_vec() };
     /// assert_eq!(event.decode::<u32>(), Some(42));
     /// ```
@@ -159,28 +159,28 @@ impl MessageEvent {
 
 /// Cumulative transport counters, including handshake, heartbeat and resends.
 /// ```
-/// assert_eq!(crabbyengine::MessageStats::default().bytes_sent, 0);
+/// assert_eq!(ponko::MessageStats::default().bytes_sent, 0);
 /// ```
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MessageStats {
     /// Successfully submitted datagrams (including simulated loss).
     /// ```
-    /// assert_eq!(crabbyengine::MessageStats::default().packets_sent, 0);
+    /// assert_eq!(ponko::MessageStats::default().packets_sent, 0);
     /// ```
     pub packets_sent: u64,
     /// Submitted datagram bytes, including framing.
     /// ```
-    /// assert_eq!(crabbyengine::MessageStats::default().bytes_sent, 0);
+    /// assert_eq!(ponko::MessageStats::default().bytes_sent, 0);
     /// ```
     pub bytes_sent: u64,
     /// Received datagrams, including ignored packets.
     /// ```
-    /// assert_eq!(crabbyengine::MessageStats::default().packets_received, 0);
+    /// assert_eq!(ponko::MessageStats::default().packets_received, 0);
     /// ```
     pub packets_received: u64,
     /// Received datagram bytes.
     /// ```
-    /// assert_eq!(crabbyengine::MessageStats::default().bytes_received, 0);
+    /// assert_eq!(ponko::MessageStats::default().bytes_received, 0);
     /// ```
     pub bytes_received: u64,
 }
@@ -339,7 +339,7 @@ fn invalid(message: &str) -> io::Error {
 /// Renet also allocates outgoing packet batches. Queues are bounded.
 ///
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let mut host = NetMessages::host("127.0.0.1:0", 8).unwrap();
 /// host.poll().unwrap();
 /// for event in host.events() { println!("{event:?}"); }
@@ -401,7 +401,7 @@ impl NetMessages {
     /// Bind a nonblocking UDP host. `max_clients` is 1..=1024, excluding host.
     /// Port zero chooses an available port. Socket/configuration errors are returned.
     /// ```
-    /// let host = crabbyengine::NetMessages::host("127.0.0.1:0", 4).unwrap();
+    /// let host = ponko::NetMessages::host("127.0.0.1:0", 4).unwrap();
     /// ```
     pub fn host(addr: impl ToSocketAddrs, max_clients: usize) -> io::Result<Self> {
         if !(1..=1024).contains(&max_clients) {
@@ -414,7 +414,7 @@ impl NetMessages {
     /// Start joining a UDP host. Poll both sides until `Connected` or
     /// `Disconnected`; address resolution/bind errors are returned immediately.
     /// ```
-    /// let client = crabbyengine::NetMessages::join("127.0.0.1:7777").unwrap();
+    /// let client = ponko::NetMessages::join("127.0.0.1:7777").unwrap();
     /// ```
     pub fn join(addr: impl ToSocketAddrs) -> io::Result<Self> {
         let addr = addr
@@ -431,7 +431,7 @@ impl NetMessages {
     /// In-memory star topology: first endpoint hosts. Packets arrive newest
     /// first to exercise reordering. Panics unless `players` is 2..=1025.
     /// ```
-    /// assert_eq!(crabbyengine::NetMessages::loopback(3).len(), 3);
+    /// assert_eq!(ponko::NetMessages::loopback(3).len(), 3);
     /// ```
     pub fn loopback(players: usize) -> Vec<Self> {
         Self::loopback_lossy(players, 0)
@@ -439,7 +439,7 @@ impl NetMessages {
     /// Like `loopback`, dropping every `drop_one_in`th outgoing datagram per
     /// endpoint (zero disables loss). A value of one drops all packets.
     /// ```
-    /// let nets = crabbyengine::NetMessages::loopback_lossy(2, 5);
+    /// let nets = ponko::NetMessages::loopback_lossy(2, 5);
     /// assert_eq!(nets.len(), 2);
     /// ```
     pub fn loopback_lossy(players: usize, drop_one_in: u32) -> Vec<Self> {
@@ -467,7 +467,7 @@ impl NetMessages {
     }
     /// Set silence/connection timeout (default ten seconds). Must be positive.
     /// ```
-    /// let net = crabbyengine::NetMessages::loopback(2).remove(0)
+    /// let net = ponko::NetMessages::loopback(2).remove(0)
     ///     .timeout(std::time::Duration::from_secs(3));
     /// ```
     pub fn timeout(mut self, timeout: Duration) -> Self {
@@ -477,7 +477,7 @@ impl NetMessages {
     }
     /// Local UDP address (`None` for in-memory sessions).
     /// ```
-    /// assert!(crabbyengine::NetMessages::loopback(2)[0].local_addr().is_none());
+    /// assert!(ponko::NetMessages::loopback(2)[0].local_addr().is_none());
     /// ```
     pub fn local_addr(&self) -> Option<SocketAddr> {
         match self.wire {
@@ -489,7 +489,7 @@ impl NetMessages {
     /// joining peers, `InvalidInput` above 1 MiB and `WouldBlock` when the lane's
     /// 4 MiB send budget is exhausted. Reliable messages remain queued until acked.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut nets = NetMessages::loopback(2);
     /// assert!(nets[1].send(PeerId::HOST, Lane::Reliable, b"hi").is_err());
     /// ```
@@ -521,7 +521,7 @@ impl NetMessages {
     /// Serialize JSON and queue it as bytes. Serialization and send errors are
     /// returned; the application may use `MessageEvent::decode` to receive it.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut nets = NetMessages::loopback(2);
     /// let _ = nets[1].send_serde(PeerId::HOST, Lane::Reliable, &42u32);
     /// ```
@@ -532,7 +532,7 @@ impl NetMessages {
     /// Queue a message for all connected peers. Stops on the first error;
     /// earlier peers may already have it. Hosts do not implicitly relay messages.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// NetMessages::loopback(2)[0].send_to_all(Lane::Reliable, b"hello").unwrap();
     /// ```
     pub fn send_to_all(&mut self, lane: Lane, bytes: &[u8]) -> io::Result<()> {
@@ -556,7 +556,7 @@ impl NetMessages {
     /// incoming datagrams per call. Errors from UDP are returned. If events are
     /// full, returns `WouldBlock`: drain `events()` and continue polling.
     /// ```
-    /// let mut nets = crabbyengine::NetMessages::loopback(2);
+    /// let mut nets = ponko::NetMessages::loopback(2);
     /// nets[0].poll().unwrap();
     /// ```
     pub fn poll(&mut self) -> io::Result<()> {
@@ -566,7 +566,7 @@ impl NetMessages {
     /// Poll with an explicit elapsed duration for deterministic tests or a
     /// caller-owned clock. Do not mix with `poll` in one clock interval.
     /// ```
-    /// let mut nets = crabbyengine::NetMessages::loopback(2);
+    /// let mut nets = ponko::NetMessages::loopback(2);
     /// nets[0].poll_elapsed(std::time::Duration::from_millis(16)).unwrap();
     /// ```
     pub fn poll_elapsed(&mut self, elapsed: Duration) -> io::Result<()> {
@@ -735,7 +735,7 @@ impl NetMessages {
     /// Takes the oldest event, if any: [`events`](Self::events) one at a time
     /// (dropping that iterator early discards the rest; this doesn't).
     /// ```
-    /// use crabbyengine::NetMessages;
+    /// use ponko::NetMessages;
     /// let mut peers = NetMessages::loopback(2);
     /// while let Some(event) = peers[0].next_event() { println!("{event:?}"); }
     /// ```
@@ -749,7 +749,7 @@ impl NetMessages {
     /// Drain pending events. Dropping the iterator discards its remaining
     /// events. Backpressure limits undrained events to about 5 MiB/4096 entries.
     /// ```
-    /// let mut nets = crabbyengine::NetMessages::loopback(2);
+    /// let mut nets = ponko::NetMessages::loopback(2);
     /// assert_eq!(nets[0].events().count(), 0);
     /// ```
     pub fn events(&mut self) -> impl Iterator<Item = MessageEvent> + '_ {
@@ -760,7 +760,7 @@ impl NetMessages {
     /// notifications; if all are lost the remote reports a timeout. A local
     /// `Disconnected` event is queued even if the socket returns an error.
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let mut nets = NetMessages::loopback(2);
     /// nets[1].disconnect(PeerId::HOST).unwrap();
     /// ```
@@ -778,7 +778,7 @@ impl NetMessages {
     }
     /// Cumulative datagram counters for this endpoint.
     /// ```
-    /// let nets = crabbyengine::NetMessages::loopback(2);
+    /// let nets = ponko::NetMessages::loopback(2);
     /// assert_eq!(nets[0].stats().packets_sent, 0);
     /// ```
     pub fn stats(&self) -> MessageStats {

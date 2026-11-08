@@ -9,7 +9,7 @@
 
 use std::ffi::c_char;
 
-use crabbyengine::{Color, Line3D, Mat4, MeshData, Trail3D, Vec3};
+use ponko::{Color, Line3D, Mat4, MeshData, Trail3D, Vec3};
 
 use crate::ctx::{ctx_access, out, text};
 use crate::particles::{
@@ -26,7 +26,7 @@ use crate::{CrabbyCtx, CrabbyStatus, Failure, boundary, invalid, invalid_owned};
 /// during the call that takes the trail; null with a count of 0 keeps the
 /// default curve.
 /// ```
-/// let t = crabby_ffi::crabby_trail3d_new(0.5, 0.1);
+/// let t = ponko_ffi::crabby_trail3d_new(0.5, 0.1);
 /// assert_eq!(t.max_points, 64);
 /// ```
 #[repr(C)]
@@ -66,7 +66,7 @@ pub struct CrabbyTrail3D {
 /// A ribbon `width` meters wide (narrowing to 0 at its end) whose points last
 /// `lifetime` seconds, white and alpha blended (Rust `Trail3D::new`).
 /// ```
-/// let t = crabby_ffi::crabby_trail3d_new(0.25, 0.05);
+/// let t = ponko_ffi::crabby_trail3d_new(0.25, 0.05);
 /// assert_eq!((t.lifetime, t.width, t.emitting), (0.25, 0.05, true));
 /// ```
 #[unsafe(no_mangle)]
@@ -128,7 +128,7 @@ unsafe fn trail_from_c(t: &CrabbyTrail3D) -> Result<Trail3D, Failure> {
     Ok(trail)
 }
 
-fn trail(c: &mut crabbyengine::Ctx, bits: u64) -> Result<&mut Trail3D, Failure> {
+fn trail(c: &mut ponko::Ctx, bits: u64) -> Result<&mut Trail3D, Failure> {
     let e = entity(c, bits)?;
     c.world
         .get_mut::<Trail3D>(e)
@@ -138,8 +138,8 @@ fn trail(c: &mut crabbyengine::Ctx, bits: u64) -> Result<&mut Trail3D, Failure> 
 /// Gives `entity` (which needs a 3D transform to draw) a new ribbon trail,
 /// replacing any it had along with its points.
 /// ```
-/// let t = crabby_ffi::crabby_trail3d_new(0.5, 0.1);
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_trail3d(std::ptr::null_mut(), 0, &t) } as u32, 1);
+/// let t = ponko_ffi::crabby_trail3d_new(0.5, 0.1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_trail3d(std::ptr::null_mut(), 0, &t) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `trail` null or valid, its key pointers as documented.
@@ -165,7 +165,7 @@ pub unsafe extern "C" fn crabby_ctx_set_trail3d(
 /// Trails only record in visual frames, which headless runs skip.
 /// ```
 /// let mut n = 0;
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_trail3d_point_count(std::ptr::null_mut(), 0, &mut n) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_trail3d_point_count(std::ptr::null_mut(), 0, &mut n) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `out_count` writable.
@@ -187,7 +187,7 @@ pub unsafe extern "C" fn crabby_ctx_trail3d_point_count(
 /// Forgets every point of `entity`'s trail (Rust `Trail3D::clear`): after a
 /// teleport, so no ribbon spans the jump.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_clear_trail3d(std::ptr::null_mut(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_clear_trail3d(std::ptr::null_mut(), 0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -205,7 +205,7 @@ pub unsafe extern "C" fn crabby_ctx_clear_trail3d(ctx: *mut CrabbyCtx, entity_bi
 /// Starts or stops `entity`'s trail adding points (Rust `Trail3D::emitting`);
 /// while it's off, the ribbon fades out.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_trail3d_emitting(std::ptr::null_mut(), 0, false) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_trail3d_emitting(std::ptr::null_mut(), 0, false) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -226,7 +226,7 @@ pub unsafe extern "C" fn crabby_ctx_set_trail3d_emitting(
 
 /// Removes `entity`'s trail and its points.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_remove_trail3d(std::ptr::null_mut(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_remove_trail3d(std::ptr::null_mut(), 0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -248,7 +248,7 @@ pub unsafe extern "C" fn crabby_ctx_remove_trail3d(ctx: *mut CrabbyCtx, entity_b
 /// entity with `crabby_ctx_set_line3d`, which copies the points; call it
 /// again any time to change them.
 /// ```
-/// let l = crabby_ffi::crabby_line3d_new(0.1, crabby_ffi::CrabbyColor { r: 1.0, g: 0.0, b: 0.0, a: 1.0 });
+/// let l = ponko_ffi::crabby_line3d_new(0.1, ponko_ffi::CrabbyColor { r: 1.0, g: 0.0, b: 0.0, a: 1.0 });
 /// assert_eq!(l.point_count, 0);
 /// ```
 #[repr(C)]
@@ -277,7 +277,7 @@ pub struct CrabbyLine3D {
 /// A `color` line `width` meters wide, alpha blended, with no points yet
 /// (Rust `Line3D::new`).
 /// ```
-/// let l = crabby_ffi::crabby_line3d_new(0.1, crabby_ffi::CrabbyColor { r: 1.0, g: 1.0, b: 1.0, a: 1.0 });
+/// let l = ponko_ffi::crabby_line3d_new(0.1, ponko_ffi::CrabbyColor { r: 1.0, g: 1.0, b: 1.0, a: 1.0 });
 /// assert_eq!((l.width, l.texture_length), (0.1, 0.0));
 /// ```
 #[unsafe(no_mangle)]
@@ -301,8 +301,8 @@ pub extern "C" fn crabby_line3d_new(width: f32, color: CrabbyColor) -> CrabbyLin
 /// Gives `entity` (which needs a 3D transform to draw) a line, replacing any
 /// it had. The points are copied.
 /// ```
-/// let l = crabby_ffi::crabby_line3d_new(0.1, crabby_ffi::CrabbyColor { r: 1.0, g: 1.0, b: 1.0, a: 1.0 });
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_set_line3d(std::ptr::null_mut(), 0, &l) } as u32, 1);
+/// let l = ponko_ffi::crabby_line3d_new(0.1, ponko_ffi::CrabbyColor { r: 1.0, g: 1.0, b: 1.0, a: 1.0 });
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_line3d(std::ptr::null_mut(), 0, &l) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `line` null or valid, its `points` null or holding `point_count` points.
@@ -345,7 +345,7 @@ pub unsafe extern "C" fn crabby_ctx_set_line3d(
 
 /// Removes `entity`'s line.
 /// ```
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_remove_line3d(std::ptr::null_mut(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_remove_line3d(std::ptr::null_mut(), 0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -379,7 +379,7 @@ pub unsafe extern "C" fn crabby_ctx_remove_line3d(ctx: *mut CrabbyCtx, entity_bi
 /// # Safety
 /// `data` null or live; `projector` null or holds 16 floats.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let floor = crabby_mesh_data_plane(4.0);
 /// // A 0.5 m mark projected along the floor's -Y (box +Z turned up), 0.2 m deep.
 /// let down = [0.5, 0.0, 0.0, 0.0,  0.0, 0.0, -0.2, 0.0,  0.0, 0.5, 0.0, 0.0,  1.0, 0.0, 0.0, 1.0];
@@ -424,7 +424,7 @@ pub unsafe extern "C" fn crabby_mesh_data_decal(
 /// `ctx` null or live; `path` a NUL-terminated string; `out_data` writable.
 /// ```
 /// let mut d = std::ptr::null_mut();
-/// assert_eq!(unsafe { crabby_ffi::crabby_ctx_load_mesh_data(std::ptr::null_mut(), c"a.glb".as_ptr(), &mut d) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_load_mesh_data(std::ptr::null_mut(), c"a.glb".as_ptr(), &mut d) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_load_mesh_data(

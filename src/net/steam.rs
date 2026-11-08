@@ -167,7 +167,7 @@ impl Net {
     /// achievements and the rest of Steam). Feature `steam`.
     ///
     /// ```no_run
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let client = steamworks::Client::init_app(480).expect("is Steam running?"); // 480: Valve's test app
     /// Game::new("RTS", 1280, 720)
     ///     .lockstep(Net::steam_host(&client, 2))
@@ -199,7 +199,7 @@ impl Net {
     /// shown by the host. Feature `steam`.
     ///
     /// ```no_run
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let client = steamworks::Client::init_app(480).expect("is Steam running?");
     /// let net = match steam_lobby_from_args() {
     ///     Some(lobby) => Net::steam_join(&client, lobby), // accepted an invite
@@ -243,7 +243,7 @@ impl Net {
 ///
 /// ```
 /// // Not launched from an invite here.
-/// assert!(crabbyengine::steam_lobby_from_args().is_none());
+/// assert!(ponko::steam_lobby_from_args().is_none());
 /// ```
 pub fn steam_lobby_from_args() -> Option<LobbyId> {
     let args: Vec<String> = std::env::args().collect();
@@ -258,7 +258,7 @@ pub fn steam_lobby_from_args() -> Option<LobbyId> {
 /// wasn't running. Feature `steam`.
 ///
 /// ```no_run
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let client = steamworks::Client::init_app(480).expect("is Steam running?");
 /// println!("accept your friend's invite in Steam...");
 /// if let Some(lobby) = steam_wait_for_invite(&client, std::time::Duration::from_secs(120)) {

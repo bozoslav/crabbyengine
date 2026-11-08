@@ -8,7 +8,7 @@ This page is the short version.
 
 ## Questions, bugs and ideas
 
-- **Bugs:** open an [issue](https://github.com/bozoslav/crabbyengine/issues/new/choose)
+- **Bugs:** open an [issue](https://github.com/bozoslav/ponko/issues/new/choose)
   with the smallest code that shows the problem, your OS and GPU, and what
   you expected.
 - **Ideas and features:** open an issue first, so we can agree on the
@@ -24,7 +24,7 @@ ALSA and udev headers for audio and gamepads
 side, you need CMake and a C++17 compiler.
 
 ```sh
-git clone https://github.com/bozoslav/crabbyengine && cd crabbyengine
+git clone https://github.com/bozoslav/ponko && cd ponko
 cargo test --workspace
 cargo run --release --example battle
 ```
@@ -33,12 +33,12 @@ cargo run --release --example battle
 
 | Path | What's there |
 |---|---|
-| `src/` | The engine (`crabbyengine` crate) |
+| `src/` | The engine (`ponko` crate) |
 | `crates/crabby_ecs` | The ECS, usable on its own |
 | `crates/crabby_ffi` | The C API; `include/crabby.h` is generated from it |
 | `include/crabby.hpp` | The header-only C++ wrapper |
 | `crates/crabby_mcp` | The MCP server for AI agents |
-| `crates/crabby_bench` | Benchmarks (`cargo run --release -p crabby_bench [-- filter]`) |
+| `crates/crabby_bench` | Benchmarks (`cargo run --release -p ponko_bench [-- filter]`) |
 | `examples/`, `examples/cpp/` | Rust and C++ examples |
 | `tests/`, `crates/*/tests/` | Tests, one file per area |
 | `book/` | The guide ([mdBook](https://rust-lang.github.io/mdBook/)) |

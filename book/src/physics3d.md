@@ -8,10 +8,10 @@ rigid-body physics on [rapier](https://rapier.rs), designed like the
 on `3d`):
 
 ```toml
-crabbyengine = { version = "1", features = ["physics3d"] }
+ponko = { version = "0.0.1", features = ["physics3d"] }
 ```
 
-(The C library, `crabby_ffi`, has it on by default.)
+(The C library, `ponko_ffi`, has it on by default.)
 
 Turn it on with gravity in m/s² (+Y is up):
 
@@ -275,7 +275,7 @@ a car on a dynamic raft pushes the raft. C++ sees the component as
 `wheels[0..wheel_count]`.
 
 Cost: a car on heightfield terrain adds about 2 µs to a physics step,
-its chassis body included (`cargo run --release -p crabby_bench --
+its chassis body included (`cargo run --release -p ponko_bench --
 vehicles`, M4 Max):
 
 | Cars driving, 250 steps | Total | Per step, over the terrain alone |
@@ -332,7 +332,7 @@ won't see them yet.
 Bodies cost only where they exist, and steady-state steps add no
 allocations of their own on top of rapier's. Compared with calling rapier
 directly, the engine's syncing adds 13–25%
-(`cargo run --release -p crabby_bench -- physics3d`, M4 Max):
+(`cargo run --release -p ponko_bench -- physics3d`, M4 Max):
 
 | Boxes falling into a pit, 250 ticks | Crabby | rapier alone |
 |---|---|---|

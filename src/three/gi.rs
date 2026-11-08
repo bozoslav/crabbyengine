@@ -58,7 +58,7 @@ pub const MAX_GI_PROBES_PER_FRAME: u32 = 16;
 /// per shader (any desktop or laptop GPU); elsewhere (WebGL2) it's off and
 /// the ambient light is unchanged.
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let mut lighting = Lighting::default();
 /// assert!(!lighting.gi.enabled);
 /// lighting.gi.enabled = true;
@@ -111,7 +111,7 @@ impl GlobalIllumination {
     /// 1`, 2 to 64 each, fewer when that's more than [`MAX_GI_PROBES`] in
     /// all (the grid shrinks; the spacing stays).
     /// ```
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// let gi = GlobalIllumination { extent: vec3(8.0, 4.0, 8.0), spacing: 1.0, ..Default::default() };
     /// assert_eq!(gi.probe_counts(), [9, 5, 9]);
     /// let huge = GlobalIllumination { extent: Vec3::splat(1000.0), ..Default::default() };

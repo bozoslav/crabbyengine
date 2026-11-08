@@ -5,7 +5,7 @@
 //!
 //! ```
 //! let text = "%YAML 1.1\n%TAG !u! tag:unity3d.com,2011:\n--- !u!1 &100\nGameObject:\n  m_Name: Lamp\n";
-//! let file = crabby_unity::UnityFile::parse(text).unwrap();
+//! let file = ponko_unity::UnityFile::parse(text).unwrap();
 //! assert_eq!(file.objects[0].type_name, "GameObject");
 //! assert_eq!(file.objects[0].body["m_Name"].as_str(), Some("Lamp"));
 //! ```
@@ -88,7 +88,7 @@ impl UnityFile {
     /// Parses a Unity text file (a scene, prefab, material, `.asset`).
     ///
     /// ```
-    /// let file = crabby_unity::UnityFile::parse("--- !u!4 &7 stripped\nTransform:\n  m_PrefabInstance: {fileID: 9}\n").unwrap();
+    /// let file = ponko_unity::UnityFile::parse("--- !u!4 &7 stripped\nTransform:\n  m_PrefabInstance: {fileID: 9}\n").unwrap();
     /// assert!(file.objects[0].stripped);
     /// assert_eq!(file.objects[0].body["m_PrefabInstance"].obj_ref().unwrap().file_id, 9);
     /// ```
@@ -160,7 +160,7 @@ impl UnityFile {
     /// The object with this file id.
     ///
     /// ```
-    /// let file = crabby_unity::UnityFile::parse("--- !u!1 &5\nGameObject:\n  m_Name: A\n").unwrap();
+    /// let file = ponko_unity::UnityFile::parse("--- !u!1 &5\nGameObject:\n  m_Name: A\n").unwrap();
     /// assert_eq!(file.get(5).unwrap().type_name, "GameObject");
     /// assert!(file.get(6).is_none());
     /// ```
@@ -172,7 +172,7 @@ impl UnityFile {
     /// Every object of one class (see [`UnityObject::class_id`]).
     ///
     /// ```
-    /// let file = crabby_unity::UnityFile::parse("--- !u!1 &5\nGameObject: {}\n--- !u!4 &6\nTransform: {}\n").unwrap();
+    /// let file = ponko_unity::UnityFile::parse("--- !u!1 &5\nGameObject: {}\n--- !u!4 &6\nTransform: {}\n").unwrap();
     /// assert_eq!(file.of_class(4).count(), 1);
     /// ```
     pub fn of_class(&self, class_id: i32) -> impl Iterator<Item = &UnityObject> {

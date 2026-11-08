@@ -23,7 +23,7 @@ pub enum TextureKind {
 /// it gets mipmaps.
 ///
 /// ```no_run
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let ground = ctx.load_texture_array(&["grass.png", "dirt.png", "rock.png"], TextureKind::Color);
 /// assert_eq!(ground.layers(), 3);
@@ -42,7 +42,7 @@ impl TextureArray {
     /// Width of each image, in pixels.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(a: TextureArray) { let _ = a.width(); }
     /// ```
     #[must_use]
@@ -53,7 +53,7 @@ impl TextureArray {
     /// Height of each image, in pixels.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(a: TextureArray) { let _ = a.height(); }
     /// ```
     #[must_use]
@@ -64,7 +64,7 @@ impl TextureArray {
     /// How many images it holds.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(a: TextureArray) { let _ = a.layers(); }
     /// ```
     #[must_use]
@@ -78,7 +78,7 @@ impl Ctx {
     /// pixels (4 bytes each), one per layer.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let red = [255, 0, 0, 255].repeat(4);
     /// let blue = [0, 0, 255, 255].repeat(4);
@@ -99,7 +99,7 @@ impl Ctx {
         kind: TextureKind,
     ) -> TextureArray {
         self.try_create_texture_array(width, height, layers, kind)
-            .unwrap_or_else(|e| panic!("crabbyengine: {e}"))
+            .unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
     /// [`Ctx::create_texture_array`] that returns errors (for the C API).
@@ -155,7 +155,7 @@ impl Ctx {
     /// same size. Each call makes a new array.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let normals = ctx.load_texture_array(&["grass_n.png", "rock_n.png"], TextureKind::Data);
     /// # }
@@ -167,7 +167,7 @@ impl Ctx {
     /// sizes differ.
     pub fn load_texture_array(&mut self, paths: &[&str], kind: TextureKind) -> TextureArray {
         self.try_load_texture_array(paths, kind)
-            .unwrap_or_else(|e| panic!("crabbyengine: {e}"))
+            .unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
     /// [`Ctx::load_texture_array`] that returns errors (for the C API).
@@ -217,7 +217,7 @@ impl Ctx {
     /// them.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let images = ctx.load_texture_array(&["blood.png", "tyre.png", "tyre_n.png"], TextureKind::Data);
     /// ctx.set_decal_textures(Some(images));
@@ -229,7 +229,7 @@ impl Ctx {
     /// If the array wasn't made by this context or isn't `TextureKind::Data`.
     pub fn set_decal_textures(&mut self, array: Option<TextureArray>) {
         self.try_set_decal_textures(array)
-            .unwrap_or_else(|e| panic!("crabbyengine: {e}"))
+            .unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
     /// [`Ctx::set_decal_textures`] that returns errors (for the C API).
@@ -252,7 +252,7 @@ impl Ctx {
     /// The texture array decals draw their images from, if one is set.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &Ctx) { assert!(ctx.decal_textures().is_none()); }
     /// ```
     #[must_use]
@@ -266,7 +266,7 @@ impl Ctx {
     /// skipped and everything else draws as usual. False in headless runs.
     ///
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &Ctx) { let _ = ctx.supports_decals(); }
     /// ```
     #[must_use]

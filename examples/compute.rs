@@ -7,7 +7,7 @@
 //! Click the water to drop a stone in. `SHOT=path.png` saves frame 120
 //! and quits.
 
-use crabbyengine::*;
+use ponko::*;
 
 /// The wave equation on a grid: each texel moves toward the average of
 /// its neighbours, overshooting like water does, and calms slowly.

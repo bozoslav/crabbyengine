@@ -12,7 +12,7 @@ use crate::{CrabbyStatus, CrabbyWorld};
 /// `(asymptote_slip, asymptote_value)` and staying there. The value times
 /// `stiffness` times the wheel's load is the tyre's force.
 /// ```
-/// let c = crabby_ffi::crabby_friction_curve_forward();
+/// let c = ponko_ffi::crabby_friction_curve_forward();
 /// assert_eq!((c.extremum_slip, c.asymptote_value), (0.4, 0.5));
 /// ```
 #[repr(C)]
@@ -35,7 +35,7 @@ pub struct CrabbyFrictionCurve {
 /// `crabby_wheel3d(position, radius)`. The suspension hangs down the
 /// chassis's -Y from `position` (the wheel's center at full compression).
 /// ```
-/// let w = crabby_ffi::crabby_wheel3d(Default::default(), 0.35);
+/// let w = ponko_ffi::crabby_wheel3d(Default::default(), 0.35);
 /// assert_eq!((w.radius, w.spring, w.target_position), (0.35, 35000.0, 0.5));
 /// ```
 #[repr(C)]
@@ -103,7 +103,7 @@ pub struct CrabbyWheel3D {
 /// Start from `crabby_vehicle3d()` and `crabby_vehicle3d_add_wheel`. A plain
 /// value (same layout as Rust's), so it also works as a query column.
 /// ```
-/// let v = crabby_ffi::crabby_vehicle3d();
+/// let v = ponko_ffi::crabby_vehicle3d();
 /// assert_eq!((v.wheel_count, v.groups.filter), (0, u32::MAX));
 /// ```
 #[repr(C)]
@@ -121,7 +121,7 @@ pub struct CrabbyVehicle3D {
 
 /// The usual forward (rolling) grip: peak 1 at slip 0.4, sliding 0.5 from 0.8.
 /// ```
-/// assert_eq!(crabby_ffi::crabby_friction_curve_forward().stiffness, 1.0);
+/// assert_eq!(ponko_ffi::crabby_friction_curve_forward().stiffness, 1.0);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_friction_curve_forward() -> CrabbyFrictionCurve {
@@ -136,7 +136,7 @@ pub extern "C" fn crabby_friction_curve_forward() -> CrabbyFrictionCurve {
 
 /// The usual sideways grip: peak 1 at 0.2 rad, sliding 0.75 from 0.5 rad.
 /// ```
-/// assert_eq!(crabby_ffi::crabby_friction_curve_sideways().extremum_slip, 0.2);
+/// assert_eq!(ponko_ffi::crabby_friction_curve_sideways().extremum_slip, 0.2);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_friction_curve_sideways() -> CrabbyFrictionCurve {
@@ -151,8 +151,8 @@ pub extern "C" fn crabby_friction_curve_sideways() -> CrabbyFrictionCurve {
 
 /// The grip of `curve` at `slip` (either sign), stiffness included.
 /// ```
-/// let c = crabby_ffi::crabby_friction_curve_forward();
-/// assert_eq!(crabby_ffi::crabby_friction_curve_evaluate(c, -0.4), 1.0);
+/// let c = ponko_ffi::crabby_friction_curve_forward();
+/// assert_eq!(ponko_ffi::crabby_friction_curve_evaluate(c, -0.4), 1.0);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_friction_curve_evaluate(curve: CrabbyFrictionCurve, slip: f32) -> f32 {
@@ -163,7 +163,7 @@ pub extern "C" fn crabby_friction_curve_evaluate(curve: CrabbyFrictionCurve, sli
 /// the chassis's frame) with the usual suspension (0.3 m travel, 35 000
 /// N/m, 4 500 N·s/m, resting halfway), 20 kg and the usual tyres.
 /// ```
-/// let w = crabby_ffi::crabby_wheel3d(crabby_ffi::CrabbyVec3 { x: 1.0, y: 0.0, z: 0.0 }, 0.4);
+/// let w = ponko_ffi::crabby_wheel3d(ponko_ffi::CrabbyVec3 { x: 1.0, y: 0.0, z: 0.0 }, 0.4);
 /// assert_eq!(w.local_position.y, -0.3);
 /// ```
 #[unsafe(no_mangle)]
@@ -210,7 +210,7 @@ pub extern "C" fn crabby_wheel3d(position: CrabbyVec3, radius: f32) -> CrabbyWhe
 
 /// A vehicle with no wheels yet, rolling on everything.
 /// ```
-/// assert_eq!(crabby_ffi::crabby_vehicle3d().wheels[7].radius, 0.5);
+/// assert_eq!(ponko_ffi::crabby_vehicle3d().wheels[7].radius, 0.5);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_vehicle3d() -> CrabbyVehicle3D {
@@ -227,7 +227,7 @@ pub extern "C" fn crabby_vehicle3d() -> CrabbyVehicle3D {
 /// # Safety
 /// `vehicle` must be null or writable.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let mut v = crabby_vehicle3d();
 /// let w = crabby_wheel3d(Default::default(), 0.3);
 /// for _ in 0..8 { assert_eq!(unsafe { crabby_vehicle3d_add_wheel(&mut v, w) }, CrabbyStatus::CRABBY_OK); }
@@ -258,7 +258,7 @@ pub unsafe extern "C" fn crabby_vehicle3d_add_wheel(
 /// # Safety
 /// `wheel` must be null (gives `chassis` back) or readable.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_wheel3d(CrabbyVec3 { x: 1.0, y: 0.0, z: 0.0 }, 0.4);
 /// let p = unsafe { crabby_wheel3d_pose(&w, crabby_transform3d_at(CrabbyVec3 { x: 0.0, y: 2.0, z: 0.0 })) };
 /// assert!((p.position.y - 1.7).abs() < 1e-5);
@@ -268,7 +268,7 @@ pub unsafe extern "C" fn crabby_wheel3d_pose(
     wheel: *const CrabbyWheel3D,
     chassis: CrabbyTransform3D,
 ) -> CrabbyTransform3D {
-    use crabbyengine::{Quat, Vec3};
+    use ponko::{Quat, Vec3};
     // SAFETY: caller supplies null or a readable wheel.
     let Some(w) = (unsafe { wheel.as_ref() }) else {
         return chassis;
@@ -287,7 +287,7 @@ pub unsafe extern "C" fn crabby_wheel3d_pose(
 /// # Safety
 /// Live handle and writable output.
 /// ```
-/// use crabby_ffi::*;
+/// use ponko_ffi::*;
 /// let w = crabby_world_new();
 /// unsafe { let mut id = 99; assert_eq!(crabby_vehicle3d_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
 /// ```
@@ -301,7 +301,7 @@ pub unsafe extern "C" fn crabby_vehicle3d_component(world: *mut CrabbyWorld, out
 mod imp {
     use std::mem::offset_of;
 
-    use crabbyengine::{FrictionCurve, Vehicle3D, Wheel3D};
+    use ponko::{FrictionCurve, Vehicle3D, Wheel3D};
 
     use super::*;
     use crate::builtin;
@@ -394,6 +394,6 @@ mod imp {
         }
     }
     pub(super) unsafe fn component(_: *mut CrabbyWorld, _: *mut u32) -> CrabbyStatus {
-        boundary(|| Err(invalid("crabby_ffi was built without the `physics3d` feature")))
+        boundary(|| Err(invalid("ponko_ffi was built without the `physics3d` feature")))
     }
 }

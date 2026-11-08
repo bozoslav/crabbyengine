@@ -47,7 +47,7 @@ fn rotate_toward(s: &mut Skeleton, j: usize, from: Vec3, to: Vec3, w: f32, max: 
 /// No allocations are made. Apply after animation with [`crate::Game::late_system`].
 ///
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let mut s = Skeleton::new(vec![]);
 /// two_bone_ik(&mut s, &Transform3D::default(), [0, 1, 2], Vec3::Y, Vec3::Z, 1.0);
 /// ```
@@ -112,7 +112,7 @@ pub fn two_bone_ik(s: &mut Skeleton, model: &Transform3D, chain: [usize; 3], tar
 /// joint scales/shear make the angular limit approximate in world space.
 ///
 /// ```
-/// use crabbyengine::*;
+/// use ponko::*;
 /// let mut s = Skeleton::new(vec![Joint { name: "head".into(), parent: None, rest: Transform3D::default() }]);
 /// look_at_joint(&mut s, &Transform3D::default(), 0, Vec3::Z, Vec3::X, 1.0, 0.5);
 /// ```
@@ -156,7 +156,7 @@ impl crate::Ctx {
     /// the near/far plane are clipped. Missing components are ignored.
     ///
     /// ```no_run
-    /// use crabbyengine::*;
+    /// use ponko::*;
     /// fn debug(ctx: &mut Ctx, entity: Entity) { ctx.draw_skeleton(entity, Color::RED); }
     /// ```
     pub fn draw_skeleton(&mut self, entity: crate::Entity, color: crate::Color) {

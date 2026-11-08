@@ -20,7 +20,7 @@ use crate::{Ctx, Entity, MouseButton, Texture, Transform3D};
 /// [`Ctx::create_ui_panel`] makes the texture, material and mesh at once.
 ///
 /// ```
-/// # use crabbyengine::*;
+/// # use ponko::*;
 /// Game::new("t", 1, 1).run_headless(0, |ctx| {
 ///     // A 1.2 x 0.8 m terminal, 600 x 400 pixels.
 ///     let (mut panel, model) = ctx.create_ui_panel(600, 400, vec2(1.2, 0.8));
@@ -58,7 +58,7 @@ impl UiPanel3D {
     /// A panel drawn into `texture` (a render target), `size` meters in the
     /// world. Show `texture` on [`mesh`](Self::mesh) with a material.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let screen = ctx.create_render_target(512, 256);
     ///     let panel = UiPanel3D::new(screen, vec2(1.0, 0.5));
@@ -79,7 +79,7 @@ impl UiPanel3D {
     /// The quad it's shown on: `size` in the XY plane, centered, facing +Z,
     /// with the texture's top-left corner at the top left.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(screen: Texture) {
     /// let panel = UiPanel3D::new(screen, vec2(2.0, 1.0));
     /// let quad = panel.mesh();
@@ -107,7 +107,7 @@ impl UiPanel3D {
     /// Where the mouse is on it this frame, in its pixels; `None` when it
     /// isn't over it.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(panel: &UiPanel3D) {
     /// if let Some(at) = panel.pointer() {
     ///     println!("hovering at {at}");
@@ -170,7 +170,7 @@ impl Ctx {
     /// glowing, alpha-blended material, so it reads in the dark and its
     /// clear parts let the world through. Spawn both on one entity.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let (panel, model) = ctx.create_ui_panel(256, 256, vec2(0.5, 0.5));
     ///     assert_eq!(panel.texture.width(), 256);
@@ -217,7 +217,7 @@ impl Ctx {
     /// through the mouse: for a locked cursor, use the camera's forward
     /// ray; for VR, a controller's. `None` goes back to the mouse.
     /// ```
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn update(ctx: &mut Ctx) {
     /// // Aim with the screen's center while the cursor is locked.
     /// let (origin, forward) = (ctx.camera3d.position, ctx.camera3d.forward());

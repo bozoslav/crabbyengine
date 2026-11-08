@@ -19,7 +19,7 @@ impl Ctx {
     /// between them hold. Components must be [reflected](WorldReflect::reflect).
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// Game::new("Crabs", 800, 600).run(|ctx| {
     ///     ctx.world.reflect::<Transform2D>();
     ///     ctx.load_scene("levels/beach.json").expect("level");
@@ -42,7 +42,7 @@ impl Ctx {
     /// in `assets/<path>`, over the file if it exists. Not in web builds.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// ctx.save_scene("levels/beach.json").expect("saved");
     /// # }
@@ -60,7 +60,7 @@ impl Ctx {
     /// rotation and scale as saved). The file is read once, then kept.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// for x in 0..10 {
     ///     ctx.spawn_prefab("prefabs/palm.json", vec2(x as f32 * 64.0, 400.0)).expect("palm");
@@ -91,7 +91,7 @@ impl Ctx {
     /// position isn't kept: each spawn says where. Not in web builds.
     ///
     /// ```no_run
-    /// # use crabbyengine::*;
+    /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, palm: Entity) {
     /// ctx.save_prefab(palm, "prefabs/palm.json").expect("saved");
     /// # }

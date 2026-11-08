@@ -1,5 +1,5 @@
 //! Profiling from C: scopes, the performance report, budgets.
-use crabby_ffi::*;
+use ponko_ffi::*;
 use std::ffi::{CStr, c_char, c_void};
 use std::ptr::null_mut;
 
