@@ -1,10 +1,10 @@
 [package]
 name = "ponko"
 version = "0.0.1"
-description = "A fast 2D game engine for simulating millions of things: ECS on all cores, hot reload, an in-game inspector, AI-agent control, and a C++ API."
-keywords = ["gamedev", "engine", "2d", "ecs", "simulation"]
+description = "A code-first 2D and 3D game engine with integrated simulation, C++ bindings, and tools for AI-assisted development."
+keywords = ["gamedev", "engine", "2d", "3d", "ecs"]
 categories = ["game-engines", "game-development", "simulation"]
-readme = "PONKO.md"
+readme = "README.md"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -154,7 +154,7 @@ edition = "2024"
 rust-version = "1.95"
 license = "MIT OR Apache-2.0"
 authors = ["Leon Mamić and Ponko contributors"]
-repository = "https://github.com/bozoslav/ponko"
+repository = "https://github.com/ponkoengine/ponko"
 homepage = "https://ponko.dev/"
 
 # Debug builds with light optimization: games and tests run 5-6x faster

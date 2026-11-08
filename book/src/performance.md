@@ -3,6 +3,13 @@
 Numbers from a MacBook Pro (M4 Max), release builds. Reproduce them yourself;
 every number here has a command next to it.
 
+These are historical measurements made under the Crabby name, retained
+without rerunning them for the Ponko documentation update. They are specific
+workload results, not current-version guarantees or proof of overall engine
+superiority. See [the engine comparison](comparison.md) and baseline issues
+[#132](https://github.com/ponkoengine/ponko/issues/132) and
+[#134](https://github.com/ponkoengine/ponko/issues/134) for measurement scope.
+
 ## ECS iteration
 
 `cargo run --release -p ponko_bench`
@@ -154,8 +161,8 @@ goes, in a running game:
   frame-time percentiles, CPU and GPU time, and the slowest GPU passes.
 - **`ctx.frame_stats()`**: the same numbers over the last few seconds:
   fps, average, p50, p95, p99 and worst frame time, CPU time in systems,
-  in rendering and waiting on the display, and GPU time. A large display
-  wait means the GPU (or vsync) is the limit.
+  in rendering and waiting on the display, and GPU time. Display wait
+  includes pacing; use measured GPU/CPU work to identify the bottleneck.
 - **`ctx.gpu_passes()`**: GPU time per pass (each shadow cascade, depth
   prepass, opaque, transparent, screen effects, bloom, post), measured
   with timestamp queries. On GPUs that draw in tiles, passes overlap, so
@@ -265,8 +272,8 @@ that culls them, groups them by mesh and uploads them (28 draw calls).
 
 To be fair to Unity:
 
-- URP's extras that Crabby doesn't have are off: SSAO, post-processing
-  and HDR.
+- SSAO, post-processing and HDR were disabled in this historical
+  comparison. The current engine has additional rendering features.
 - The cubes share 64 tinted materials. Giving each its own color, as
   Crabby does for free, would break Unity's batching.
 - Crabby's fullscreen frame is 3% smaller: macOS keeps the strip by the
@@ -275,15 +282,16 @@ To be fair to Unity:
   would make the `Update()` calls somewhat faster.
 - Each run started 10 seconds after the last one ended, so neither engine
   inherited the other's fullscreen exit.
-- Unity's DOTS (its separate ECS) is built for this case and would close
-  much of the gap. This compares the way most Unity games are written.
+- Unity Entities/DOTS, Jobs and Burst were not measured. The result applies
+  to this GameObject/Mono workload; its performance gap cannot be generalized
+  to Unity's optimized data-oriented workflows.
 
 Run it yourself:
 
 - Crabby: `CUBES=100000 BENCH_SECONDS=10 cargo run --release --features 3d --example 3d`
   (fullscreen; `BENCH_WINDOWED=1` keeps the window).
 - Unity: the project and the steps are in
-  [`bench/unity`](https://github.com/bozoslav/ponko/tree/main/bench/unity).
+  [`bench/unity`](https://github.com/ponkoengine/ponko/tree/main/bench/unity).
 
 On macOS, a game in a window is shown at most once per display refresh
 even with vsync off. To measure past 120 FPS, run fullscreen

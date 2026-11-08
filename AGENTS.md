@@ -31,18 +31,19 @@ Where tests live:
 | Private internals (clock math, schedule order) | `#[cfg(test)] mod tests` at the bottom of the file | `src/time.rs` |
 | Usage examples in docs | doctests on public items: every public item gets one | `World::spawn` |
 | Engine and game logic | headless runs, no window or GPU (`Game::run_headless`) | `tests/` in the root crate |
-| Performance | `crates/crabby_bench` (`cargo run --release -p crabby_bench [-- filter]`) | `iter/crabby` |
+| Performance | `crates/crabby_bench` (`cargo run --release -p ponko_bench [-- filter]`) | `iter/crabby` |
 
 Rules:
 - New public behavior gets a test in the matching area file. A new area is just a new file: CI's `test` job runs `cargo test --workspace` on each OS, so it picks the file up. Only a new feature combination needs its own step in `.github/workflows/ci.yml`.
 - Test names say what must hold: `stale_handles_stay_dead`, not `test_entity_2`.
 - Panics that are part of the API get `#[should_panic(expected = "...")]` tests, so the message stays helpful.
 - Benchmarks are not tests: never assert on timings in tests, except for coarse bounds such as "≥ 6 ms for three 2 ms steps".
-- Run one area locally with `cargo test -p crabby_ecs --test queries`.
+- Run one area locally with `cargo test -p ponko_ecs --test queries`.
 
 ## Before every commit
 
 ```sh
+cargo fmt --all --check
 cargo build --workspace --examples
 cargo test --workspace
 cargo clippy --workspace --all-targets
@@ -89,6 +90,63 @@ Measure first, in release builds; the book's "Profiling a frame"
   `record_trace` and `perf_hud`.
 - CPU hot spots: `sample <pid> 5` on macOS, or `--features profiling` with
   puffin_viewer.
-- Read the numbers before changing anything: a large display wait means the
-  GPU is the limit; then the pass list says which pass, and `render_stats`
-  whether it's triangles (camera or shadows) or pixels.
+- Read the numbers before changing anything: separate display pacing/wait from
+  CPU and GPU work. Use GPU pass timings and `render_stats` to investigate
+  triangles (camera or shadows) and pixel cost; do not infer a GPU bottleneck
+  from display wait alone.
+
+## Architecture and scope
+
+Read [PROJECT_VISION.md](PROJECT_VISION.md), [ARCHITECTURE.md](ARCHITECTURE.md),
+[ROADMAP.md](ROADMAP.md) and [STABILITY.md](STABILITY.md) before architectural
+work. Inspect the affected implementation and tests; a roadmap item describes
+future work, not proof that an API exists. Discuss major design changes in an
+issue before implementing them, and deliver small, independently verifiable steps.
+
+- Preserve the integrated public workflow (`Game::new()`, `.sim_system()`,
+  `.physics()`, `.run()`) and current compatibility promises: Rust APIs, C ABI,
+  saved worlds, determinism and MCP contracts. Document conflicts separately;
+  prefer additive designs rather than weakening stability guarantees.
+- Keep ownership and dependencies explicit within each subsystem. Change the
+  narrowest responsible module; avoid unrelated ECS, renderer, networking or UI
+  rewrites. Separate internal responsibilities before extracting public crates.
+- Before adding a crate, dependency, trait, interface or plugin abstraction,
+  explain the concrete need, why existing modules are insufficient, the benefit
+  to performance/testing/maintenance/extensibility, its complexity and platform
+  costs, and the smaller alternative considered. Avoid dependency cycles,
+  hidden hot-path allocations and speculative replacement frameworks.
+- Preserve compile-time feature selection and headless builds. Optional tooling
+  must not impose GPU, window or audio dependencies on minimal configurations.
+  Common operations need sensible defaults; advanced extension points stay optional.
+- Keep archetype storage and the wgpu renderer. Proposed system scheduling is
+  optional and requires sound access metadata, explicit ordering, deferred-command
+  and event barriers, and documented determinism tradeoffs. Never share arbitrary
+  mutable `Ctx` or `World` access concurrently to implement parallel systems.
+- Renderer refactors preserve resource ownership, lifetimes and pass ordering.
+  Establish regression and performance baselines first; prefer small pass
+  dependencies and targeted extension points over a full renderer rewrite.
+
+## Evidence and agent responsibility
+
+Measure representative release workloads before and after performance changes.
+Record commands, revision, toolchain, features, hardware, workload and warm-up;
+include CPU/GPU cost, memory, allocations and frame-time percentiles where relevant.
+Mark unavailable metrics explicitly. A microbenchmark does not establish overall
+engine superiority, and correctness must be verified separately from throughput.
+
+For GPU changes, inspect comparable before/after images as well as test results.
+Record adapter/backend, driver, resolution and quality settings; validate supported
+capabilities and fallbacks. An unsupported adapter skip or headless test is not
+visual proof. Preserve desktop and web behavior and report untested platforms.
+
+Use existing MCP/runtime inspection, screenshots, headless stepping and profiling
+when appropriate to reproduce and validate behavior. Verify tool availability and
+contracts before calling them; keep a reproducible code/test path alongside runtime
+evidence. Do not describe proposed tools or planned scheduler features as shipped.
+
+Agents follow the same review, tests, privacy and leak checks as human contributors.
+Inspect generated changes, update public docs/examples with behavior changes, and
+report exact checks, failures, skips and remaining limitations. Never claim a build,
+visual result, CI success or completed issue without observing the evidence. Keep
+private projects, assets, screenshots and identifying details out of public changes,
+issue text, benchmark artifacts and external services.

@@ -1,15 +1,15 @@
 [book]
-title = "Crabby Engine"
-description = "A fast 2D engine in Rust for games with huge numbers of simulated things."
-authors = ["Crabby Engine contributors"]
+title = "Ponko"
+description = "A code-first 2D and 3D game engine with integrated simulation and AI-assisted development tools."
+authors = ["Ponko contributors"]
 language = "en"
 src = "src"
 
 [output.html]
 additional-css = ["theme/lang-pair.css"]
-git-repository-url = "https://github.com/bozoslav/ponko"
-edit-url-template = "https://github.com/bozoslav/ponko/edit/main/book/{path}"
-site-url = "/crabbyengine/"
+git-repository-url = "https://github.com/ponkoengine/ponko"
+edit-url-template = "https://github.com/ponkoengine/ponko/edit/main/book/{path}"
+site-url = "/ponko/"
 
 [output.html.search]
 enable = true

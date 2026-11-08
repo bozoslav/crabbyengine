@@ -1,6 +1,17 @@
 # Stability
 
-What Crabby Engine promises from 1.0 on, and what it doesn't.
+The compatibility contract inherited from Crabby Engine 1.0.
+
+## Ponko rename and compatibility continuity
+
+Ponko's package metadata starts a new version line at `0.0.1`. That naming
+and numbering change does **not** revoke the compatibility commitments
+below for inherited APIs, Cargo features, C/C++ layouts and symbols, saved
+worlds, or MCP tools. The existing 1.x policy remains the reference for
+compatible evolution. Any proposal that conflicts with it needs an explicit
+migration and major-version decision; a 0.x number is not permission for an
+undocumented break. Directory names, `crabby_*` C symbols and saved-format
+identifiers can remain unchanged across the rename.
 
 ## Semantic versioning
 
@@ -21,14 +32,13 @@ From 1.0.0, the public API of these crates follows [semver](https://semver.org):
 
 Enums that will grow are `#[non_exhaustive]` (`NetState`, `BodyKind`,
 `Shape`, `FieldType`, `ReflectError`, `Key`, `MouseButton`, `GamepadButton`,
-`GamepadAxis`): matches on them need a `_` arm, so new variants (polygon
-colliders are planned for `Shape`) can arrive in a minor release.
+`GamepadAxis`): matches on them need a `_` arm, so new variants can arrive in a minor release.
 
 Not covered, and allowed to change in any release:
 
 - `#[doc(hidden)]` items: test helpers such as `Net::loopback_lossy` and
   macro internals.
-- `ponko_bench`, which is not published.
+- `ponko_bench`, the published benchmark executable; its output is not a stable engine API.
 - Error message text, log output, the inspector's look, and the exact
   frames rendered: tests should check behavior, not strings or pixels.
 - Performance. Regressions are bugs, and benchmark numbers go in PRs, but
@@ -43,7 +53,7 @@ CHANGELOG lists every deprecation.
 
 ## Minimum Rust version (MSRV)
 
-Crabby builds with **Rust 1.95** and newer (`rust-version` in Cargo.toml;
+Ponko builds with **Rust 1.95** and newer (`rust-version` in Cargo.toml;
 CI checks it). Raising it is allowed in a **minor** release, never in a
 patch release, and the CHANGELOG says so. It follows the dependencies
 (wgpu, egui, rapier) and stays at least a few releases behind stable.

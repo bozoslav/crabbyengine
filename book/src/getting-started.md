@@ -9,7 +9,7 @@ headers for sound and gamepads: `sudo apt-get install libasound2-dev libudev-dev
 Clone the repository and run any example:
 
 ```sh
-git clone https://github.com/bozoslav/ponko
+git clone https://github.com/ponkoengine/ponko
 cd ponko
 cargo run --release --example boids
 ```

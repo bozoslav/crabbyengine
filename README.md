@@ -1,337 +1,267 @@
-<div align="center">
+# Ponko
 
-# 🦀 Crabby Engine
+**A general-purpose, performance-oriented 2D/3D game engine with a code-first workflow.**
 
-**A fast 2D and 3D game engine for simulating millions of things.**
+Ponko aims to provide the power of a serious game engine through clear APIs,
+measured performance, and first-class support for AI-assisted development.
+Large simulations are a strength, alongside ordinary 2D and 3D games.
+Rust is the primary API; C and C++ bindings support native integrations.
+No large visual editor is required.
 
-Colonies, crowds, armies, ecosystems, factories: games where the number of
-simulated things is the point. Written in Rust, with a C++ API at close to
-the same speed.
+[**Project vision**](PROJECT_VISION.md) · [**Roadmap**](ROADMAP.md) ·
+[**Architecture**](ARCHITECTURE.md) · [**Contribute**](CONTRIBUTING.md) ·
+[**Guide source**](book/src/introduction.md) · [**API**](https://docs.rs/ponko/)
 
-[![CI](https://github.com/bozoslav/crabbyengine/actions/workflows/ci.yml/badge.svg)](https://github.com/bozoslav/crabbyengine/actions/workflows/ci.yml)
-[![Guide](https://img.shields.io/badge/guide-read-orange)](https://bozoslav.github.io/crabbyengine/)
-[![API docs](https://img.shields.io/badge/api-docs-blue)](https://bozoslav.github.io/crabbyengine/api/crabbyengine/)
-[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-green)](#license)
-![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
+Formerly Crabby Engine. The package is `ponko`; source folders still use
+`crabby_*`, and the C/C++ headers and ABI retain their existing names.
+The current package version is **0.0.1**. Read [STABILITY.md](STABILITY.md)
+for the published compatibility contracts; the rename does not authorize
+weakening those contracts.
 
-[**▶ Play in your browser**](https://bozoslav.github.io/crabbyengine/play/battle/) ·
-[**Guide**](https://bozoslav.github.io/crabbyengine/) ·
-[**Examples**](#examples) ·
-[**Benchmarks**](https://bozoslav.github.io/crabbyengine/performance.html) ·
-[**C and C++**](https://bozoslav.github.io/crabbyengine/c-cpp.html) ·
-[**AI agents**](https://bozoslav.github.io/crabbyengine/agents.html)
+## Why Ponko instead of Bevy or Unity?
 
-<img src="book/src/images/battle.jpg" alt="The battle demo: two armies of 10,000 units each march around rocks and mud on flow fields and meet in two fronts" width="100%">
+The difference is the combination of choices and workflow. Individual features
+such as parallel ECS queries, inspection, or AI integration are not exclusive.
 
-<sub>The battle demo: 20,000 units on flow fields, 0.8 ms of simulation per frame.
-It runs a million units headless at 19 ms per tick.</sub>
+| Area | Ponko today and direction | Bevy | Unity |
+|---|---|---|---|
+| Primary language and API | Rust `Game`/`Ctx`; C ABI and C++17 wrapper | Rust, ECS-oriented `App` and systems | C# gameplay API; native engine |
+| Architectural philosophy | Integrated defaults; modular internals with gradual boundary improvements planned | Modular plugins with standard defaults | Integrated editor and modular packages |
+| ECS and scheduling | Archetype ECS, parallel queries; dependency-aware parallel system scheduling planned | ECS with automatic scheduling of compatible systems in parallel | GameObjects and optional high-performance Entities/DOTS |
+| Rendering | Custom wgpu 2D/3D renderer; ongoing maintenance and capability work | Extensible 2D/3D renderer and render graph | Multiple render pipelines and extensive graphics tooling |
+| Workflow and editor | Code-first; optional runtime inspector and external asset tools | Code-first; no large editor required | Primarily visual-editor-centered, with code and CLI workflows |
+| AI-assisted development | MCP for launch, state, stepping, screenshots and diagnostics | Remote protocol can support external tools and agents | Official Assistant and CLI MCP integration |
+| Inspection and debugging | Reflected components, runtime inspector, logs, traces and profiling | Remote ECS inspection and mutation, diagnostics | Editor inspection, debugging and profiling tools |
+| Headless simulation | Fixed-tick runs without a window or GPU; optional dependencies | Headless applications supported | Dedicated Server and batch workflows |
+| Networking | Built-in lockstep and message APIs; application-specific validation required | Ecosystem networking integrations | Official multiplayer packages and services |
+| Extensibility | Gameplay systems, WGSL materials and compute; narrower rendering boundaries planned | Plugins, systems, shaders and render extensions | Packages, scripting, native plugins and render extensions |
+| Ecosystem maturity | Smaller contributor base and integration surface; verify your game's requirements | Larger Rust ecosystem and community | Much broader platform, asset, tooling and shipped-game experience |
 
-</div>
+Choose Ponko when its `Game`/`Ctx` model, integrated simulation tools, C++ API,
+and inspect–step–measure loop fit your project, and you can help validate a
+younger engine. It aims to become a compelling alternative to Bevy; it does
+not claim overall superiority or feature parity.
 
-## Why Crabby Engine
+Bevy may be a better fit for its established Rust ecosystem, plugin integrations,
+and mature parallel scheduling. Unity may be a better fit for editor-led teams,
+production tooling, platform coverage, asset workflows, and deployment experience.
+Neither requires giving up performance-oriented ECS or runtime tooling.
 
-- **Built for scale.** Its own archetype ECS runs queries on every CPU
-  core: 10 million agents tick in 8.7 ms headless, and a million small
-  sprites render at 120 FPS. A fixed-rate simulation clock runs separately from
-  drawing, so the simulation can pause, step one tick, run at up to 64×, or
-  run with no window at all.
-- **A full 3D renderer on the same ECS.** Behind the `3d` feature: PBR
-  materials and custom WGSL shaders, glTF meshes, a physically based sky
-  with fog, cascaded sun shadows, clustered point and spot lights,
-  heightfield terrain streamed around the camera, compute passes, screen
-  effects, and 3D physics with a walking character and raycast-wheel
-  vehicles. Unity scenes, prefabs and colliders import through
-  `crabby_unity`.
-- **Fast iteration.** Images, sounds, fonts and JSON data files reload while
-  the game runs, and so does game code (`dx serve --hot-patch`), with all
-  game state kept. Press `` ` `` for an in-game inspector that lists every
-  entity and edits components live.
-- **Agents can play it.** An [MCP](https://modelcontextprotocol.io) server
-  lets AI coding agents launch your game, inspect and edit entities, step
-  the simulation, watch events, read logs, and take screenshots.
-- **Runs in the browser.** The same game builds for the web (WebGPU, with
-  WebGL2 as a fallback): [play the battle demo](https://bozoslav.github.io/crabbyengine/play/battle/).
-- **Rust or C++.** A header-only C++17 wrapper over a C API covers nearly the
-  whole engine. The C++ version of the battle demo is within 6% of the Rust
-  speed.
-- **Simple, replaceable parts.** One obvious way to do each thing. Everything
-  the engine does on its own (drawing sprites, camera controls, attachments)
-  is a plain system you can remove or replace.
+[Full technical comparison and sources](book/src/comparison.md).
+Last reviewed **2026-11-08** against official [Bevy features](https://bevy.org/),
+[Bevy Remote](https://docs.rs/bevy/latest/bevy/remote/index.html),
+[Unity Entities](https://docs.unity3d.com/Packages/com.unity.entities@1.4/manual/index.html),
+[Unity AI](https://unity.com/features/ai), and
+[Unity CLI MCP](https://docs.unity.com/en-us/unity-cli/replace-mcp-server-unity-cli).
+Unity's CLI MCP replaces the deprecated in-editor Assistant MCP server.
 
-## A first look
+## Start with an ordinary game
 
-<table>
-<tr><th>Rust</th><th>C++</th></tr>
-<tr>
-<td>
+Use a recent stable Rust meeting the MSRV in `Cargo.toml`. On Linux, default
+audio and gamepad features need the development headers described in the
+[getting-started guide](book/src/getting-started.md).
+
+```sh
+cargo new my_game
+cd my_game
+cargo add ponko
+```
+
+Put `crab.png` in the project's `assets/` folder, then use this in `src/main.rs`:
 
 ```rust
-use crabbyengine::*;
+use ponko::*;
 
-struct Vel(Vec2);
+fn main() {
+    Game::new("My Game", 800, 600).run(|ctx| {
+        let sprite = ctx.load_texture("crab.png");
+        let mut position = vec2(400.0, 300.0);
+        move |ctx: &mut Ctx| {
+            if ctx.key_down(Key::Right) { position.x += 200.0 * ctx.dt(); }
+            if ctx.key_down(Key::Left) { position.x -= 200.0 * ctx.dt(); }
+            if ctx.key_pressed(Key::Escape) { ctx.quit(); }
+            ctx.draw(&sprite, position);
+        }
+    });
+}
+```
+
+Setup runs once and returns the per-frame closure. Grow into entities and
+fixed-step systems when the game needs them. See the paired Rust/C++ examples
+in [Getting started](book/src/getting-started.md) and the
+[C/C++ guide](book/src/c-cpp.md). The native headers remain `crabby.h` and
+`crabby.hpp`, with the `crabby` C++ namespace.
+
+## Scale simulation separately
+
+Large workloads use the same engine API. This separate example moves one
+million entities for 600 fixed ticks without opening a window:
+
+```rust
+use ponko::*;
+
+struct Velocity(Vec2);
 
 fn movement(ctx: &mut Ctx) {
     let dt = ctx.dt();
-    ctx.world
-        .query::<(&mut Transform2D, &Vel)>()
-        .par_for_each(|(t, v)| t.position += v.0 * dt);
+    ctx.world.query::<(&mut Transform2D, &Velocity)>()
+        .par_for_each(|(transform, velocity)| transform.position += velocity.0 * dt);
 }
 
 fn main() {
-    Game::new("Crabs", 1280, 720)
+    let world = Game::new("Simulation", 1, 1)
         .sim_system(movement)
-        .run(|ctx| {
-            let crab = ctx.load_texture("crab.png");
-            for i in 0..100_000 {
-                let pos = vec2((i % 1280) as f32, (i / 1280) as f32 * 8.0);
-                ctx.world.spawn((
-                    Transform2D::at(pos),
-                    Sprite::new(crab),
-                    Vel(vec2(20.0, 0.0)),
-                ));
-            }
+        .run_headless(600, |ctx| {
+            ctx.world.spawn_batch((0..1_000_000).map(|i| (
+                Transform2D::at(vec2(i as f32, 0.0)),
+                Velocity(vec2(1.0, 0.0)),
+            )));
         });
+    assert_eq!(world.len(), 1_000_000);
 }
 ```
 
-</td>
-<td>
+Use `default-features = false` for a minimal headless dependency. Running
+headless alone does not disable compiled dependencies. Parallel query iteration
+is implemented; parallel scheduling of independent `Ctx` systems is future
+work. Determinism depends on game code, build/version, math and physics settings:
+see [the contract](STABILITY.md#determinism).
 
-```cpp
-#include "crabby.hpp"
-using namespace crabby;
+## Current capabilities
 
-struct Vel { vec2 v; };
+- **2D and 3D:** sprites, tilemaps, text, cameras, PBR meshes, glTF, animation,
+  custom WGSL materials, shadows, clustered lights, terrain and post effects.
+  Enable `3d` for 3D and `physics`/`physics3d` for Rapier integration.
+- **Game systems:** fixed-step simulation, resources, events, scenes and
+  prefabs, save/load, input/action maps, UI, audio, physics and networking.
+  These are available building blocks; complete genre and platform readiness
+  still needs validation for each game.
+- **Iteration:** runtime inspection, reflected state, asset reload, optional
+  code hot patching, structured control endpoints, traces and profiling.
+- **Build choices:** Cargo features select windowing, audio, inspection,
+  gamepads, 3D, physics and other optional integrations. Desktop CI covers
+  Windows, macOS and Linux; web builds target WebGPU/WebGL2 with feature limits.
 
-void movement(ctx& ctx) {
-    const float dt = ctx.dt();
-    ctx.world().each_par([dt](transform2d& t, const Vel& v) {
-        t.position += v.v * dt;
-    });
-}
+The renderer already exists. Clearer resource, pipeline, scene and pass
+boundaries, incremental updates, and broader validation are planned evolution,
+not a renderer replacement. See [current status and gaps](ROADMAP.md).
 
-int main() {
-    game("Crabs", 1280, 720)
-        .sim_system(movement)
-        .run([](ctx& ctx) {
-            auto crab = ctx.load_texture("crab.png");
-            for (int i = 0; i < 100000; ++i) {
-                vec2 pos{float(i % 1280), float(i / 1280) * 8};
-                ctx.world().spawn(transform_at(pos), sprite_of(crab),
-                                  Vel{{20, 0}});
-            }
-        });
-}
-```
+## AI-assisted development with evidence
 
-</td>
-</tr>
-</table>
-
-## Getting started
-
-You need a recent stable Rust (`rustup update stable`). Add the engine to a
-new project:
+Install and connect the runtime tools to an MCP client:
 
 ```sh
-cargo new my_game && cd my_game
-cargo add crabbyengine
+cargo install ponko_mcp
+# Example for a client supporting this command:
+claude mcp add ponko -- ponko-mcp
 ```
 
-Then follow [Getting started](https://bozoslav.github.io/crabbyengine/getting-started.html)
-in the guide. For C++, build `crabby_ffi` and include `include/crabby.hpp`:
-see [C and C++](https://bozoslav.github.io/crabbyengine/c-cpp.html).
+A concrete workflow is to edit code, use `launch` to build/start a headless
+paused example, inspect `world_summary` and reflected components, run exactly
+600 ticks with `run_ticks`, then compare `entity_stats` and `system_timings`.
+For visual evidence, launch with `headless: false` and use `screenshot`;
+headless instances do not produce screenshots. Use `perf_report` and
+`record_trace` to investigate frame cost, then rerun the same scenario.
+Reflected components/resources and explicit seeds make that loop useful.
+
+These runtime tools exist today. Reliable autonomous creation of complete
+games, broader machine-readable capability discovery, and systematic agent
+acceptance suites remain development goals. See
+[Working with AI agents](book/src/agents.md), [control](book/src/control.md),
+and [profiling](book/src/profiling.md).
 
 ## Examples
 
 ```sh
-git clone https://github.com/bozoslav/crabbyengine && cd crabbyengine
-cargo run --release --example battle     # two armies, 20k units; click to rally
-cargo run --release --example terrain --features 3d   # hills, grass, a lake
+git clone https://github.com/ponkoengine/ponko
+cd ponko
+cargo run --release --example window
+cargo run --release --example terrain --features 3d
+AGENTS=1000000 TICKS=600 cargo run --release --example headless
 ```
 
-| Example | What it shows |
+| Example | What it demonstrates |
 |---|---|
-| [`battle`](examples/battle.rs) | The flagship demo: two armies on flow fields, spatial grids, fights and reinforcements. `HEADLESS=1 UNITS=1000000` for a million units |
-| [`flow`](examples/flow.rs) | Flow-field pathfinding: 20,000 agents find their way around walls and mud to a goal you click |
-| [`ants`](examples/ants.rs) | Ant colonies with pheromone trails, foraging and growth, up to millions of ants |
-| [`boids`](examples/boids.rs) | Flocking with spatial queries on all cores |
-| [`hotpatch`](examples/hotpatch.rs) | Edit a system while the game runs |
-| [`ui`](examples/ui.rs) | Camera, shapes, text, panels and buttons |
-| [`tiles`](examples/tiles.rs) | A big tilemap (up to 16 million tiles) with animated sprites |
-| [`headless`](examples/headless.rs) | A million agents with no window or GPU |
-| [`examples/cpp`](examples/cpp) | Boids and the battle in C++ |
+| [window](examples/window.rs) / [ui](examples/ui.rs) | Input, drawing and interface basics |
+| [battle](examples/battle.rs) / [boids](examples/boids.rs) | Large simulations and spatial queries |
+| [headless](examples/headless.rs) | Simulation without window or GPU |
+| [terrain](examples/terrain.rs) / [shaders](examples/shaders.rs) | 3D terrain and custom materials |
+| [physics3d](examples/physics3d.rs) / [vehicle](examples/vehicle.rs) | Characters and raycast-wheel vehicles |
+| [C++ examples](examples/cpp) | Native wrapper usage |
 
-<table>
-<tr>
-<td width="33%"><img src="book/src/images/flow.jpg" alt="Flow fields: 20,000 yellow agents stream along branching paths around rocks toward one goal"></td>
-<td width="33%"><img src="book/src/images/ants.jpg" alt="Ant colony: ants spread out from a nest, laying green pheromone trails to food"></td>
-<td width="33%"><img src="book/src/images/inspector.jpg" alt="The inspector panel next to the battle, listing entities, resources and system timings"></td>
-</tr>
-<tr>
-<td align="center"><sub>Flow fields, 20k agents</sub></td>
-<td align="center"><sub>Ant colonies</sub></td>
-<td align="center"><sub>The inspector</sub></td>
-</tr>
-</table>
+![The battle example: two armies moving around terrain](book/src/images/battle.jpg)
 
-### In 3D
-
-The 3D examples need `--features 3d`, the physics ones
-`--features physics3d`, added to any command below. This is the same ECS
-and the same systems, not a second engine: 3D models sit next to sprites
-if you like, and simulate with the same fixed-rate clock.
-
-| Example | What it shows |
-|---|---|
-| [`3d`](examples/3d.rs) | Meshes and glTF models, a sun, thousands of instanced cubes; `BENCH_SECONDS=8` runs the Unity-comparison benchmark |
-| [`terrain`](examples/terrain.rs) | Heightfield terrain in 5 × 5 tiles with four LODs, grass, dirt and rock blended by a weight map, a lake and an underwater effect |
-| [`shaders`](examples/shaders.rs) | Custom material shaders in WGSL: lake waves, grass in the wind, a procedural pattern, post-processing |
-| [`lights`](examples/lights.rs) | 1,000 clustered point and spot lights (`LIGHTS` to change the count) |
-| [`streaming`](examples/streaming.rs) | An endless landscape built on worker threads and streamed in around the camera |
-| [`compute`](examples/compute.rs) | A compute pass running a wave simulation on the GPU: rain bending a pond's normals |
-| [`physics3d`](examples/physics3d.rs) | Walk on hilly terrain in first person, climb steps, push crates |
-| [`vehicle`](examples/vehicle.rs) | Drive a raycast-wheel car over terrain |
-| [`scene_viewer`](examples/scene_viewer.rs) | Fly around a scene file, like the Unity importer writes |
-
-<table>
-<tr>
-<td width="33%"><img src="book/src/images/terrain.jpg" alt="Heightfield terrain: hills of grass, dirt and rock around a lake, drawn coarser in the distance"></td>
-<td width="33%"><img src="book/src/images/shaders.jpg" alt="Custom material shaders: grass swaying in the wind beside a lake with its own wave shader"></td>
-<td width="33%"><img src="book/src/images/lights.jpg" alt="A dark scene lit by one thousand colored point and spot lights"></td>
-</tr>
-<tr>
-<td align="center"><sub>Terrain tiles with LOD, streamed by distance</sub></td>
-<td align="center"><sub>Custom WGSL shaders, hot reloaded</sub></td>
-<td align="center"><sub>1,000 clustered lights</sub></td>
-</tr>
-</table>
+The existing browser demo sources remain in `web/`. Follow the
+[web build guide](book/src/web.md) to build them locally; public hosting is
+being reconfigured during the rename. The source guide and API links above
+remain the starting points until the new website is deployed.
 
 ## Performance
 
-Native release builds on a MacBook Pro (M4 Max); web builds run on one thread and are slower. Every number has a command to
-reproduce it on the [benchmarks page](https://bozoslav.github.io/crabbyengine/performance.html).
+Historical measurements retained from the existing documentation (then named
+Crabby Engine), not rerun for this update. Native release builds on a MacBook
+Pro (M4 Max); web builds run on one thread and are slower. Reproduction commands
+and workload context are on the [benchmarks page](book/src/performance.md).
 
 | Workload | Time |
 |---|---|
-| ECS iteration, 1M entities: Crabby / bevy_ecs / hecs | **0.15** / 0.36 / 1.77 ms |
+| ECS iteration, 1M entities: Ponko / bevy_ecs / hecs | **0.15** / 0.36 / 1.77 ms |
 | Headless simulation, 10M agents | 8.7 ms per tick |
 | Battle, 1M units: flow fields, spatial grids, fighting | 18.9 ms per tick |
 | Ant colonies, 1M ants | 15 ms per tick |
 | Boids, 1M, with neighbor search | ~33 ms per tick |
 | 100k events sent and read | 0.42 ms per tick |
 | 1M moving sprites (1.6 px), rendered | 120 FPS (display cap) |
-| 3D, 100k spinning cubes with shadows: Crabby / Unity 6 ([details](https://bozoslav.github.io/crabbyengine/performance.html#3d-crabby-vs-unity)) | **402** / 54 FPS (7.5x) |
+| 3D, 100k spinning cubes with shadows: Ponko / Unity 6 ([details](book/src/performance.md#3d-crabby-vs-unity)) | **402** / 54 FPS (7.5x) |
 | Memory per entity, 1M agents | 76 bytes |
 
-### 3D: Crabby vs Unity 6
+### 3D: Ponko vs Unity 6
 
-The same scene in both: N spinning, tinted cubes, 12 PBR spheres, a sun
-with soft shadows and 4x MSAA. Unity is built the normal way (one
-GameObject with an `Update()` script per cube, URP). Fullscreen, native
-resolution, vsync off, M4 Max, median of three 10-second runs.
+The documented workload uses N spinning, tinted cubes, 12 PBR spheres, a sun
+with soft shadows and 4x MSAA. The Unity implementation uses one GameObject
+with an `Update()` script per cube and URP. Fullscreen, native resolution,
+vsync off, M4 Max, median of three 10-second runs. Implementation and rendering
+differences are detailed in the linked notes.
 
-| Spinning cubes | Unity 6 | Crabby | CPU per frame: Unity / Crabby |
+| Spinning cubes | Unity 6 | Ponko | CPU per frame: Unity / Ponko |
 |---|---|---|---|
 | 1,000 | 728 FPS | **750 FPS** | 0.65 / **0.17** ms |
 | 10,000 | 398 FPS | **724 FPS** (1.8x) | 2.51 / **0.43** ms |
 | 100,000 | 54 FPS | **402 FPS (7.5x)** | 18.7 / **2.48** ms |
 
 What's not equal, and how to rerun both sides, is on the
-[benchmarks page](https://bozoslav.github.io/crabbyengine/performance.html#3d-crabby-vs-unity).
+[benchmarks page](book/src/performance.md#3d-crabby-vs-unity).
 
-## Features
+The measurements above are retained from the existing documentation, not
+rerun for this documentation update. The Unity comparison uses GameObjects
+with per-object `Update`, not Entities/DOTS; it does not establish a general
+engine ranking. GPU feature parity, scene differences, dependency versions,
+and workload details matter. Consult the linked reproduction notes before
+using a number to choose an engine.
 
-**Simulation**
-- Own archetype ECS: queries, `par_for_each` on all cores, commands, resources, runtime-registered components
-- Fixed-rate sim clock: pause, step, 1–64× speed, systems that run only every N ticks
-- Spatial grids (radius, rectangle, nearest), flow-field pathfinding, events between systems, attachments
-- Lockstep multiplayer for 2–8 players over UDP or Steam (lobbies, invites, relays): only inputs cross the network (~50 bytes/tick), desyncs reported by component
-- 2D physics (rapier, `physics` feature): rigid bodies and colliders as components, collision events, rays, impulses; optionally bit-identical across platforms
-- Deterministic: seeded randomness per (seed, tick, system, entity), even in parallel; save and load the whole world
-- Headless runs for tests, servers and batch simulations; the build without a window has about half as many crates
-- Web builds: WebGPU or WebGL2, assets fetched before setup, sound through WebAudio ([guide](https://bozoslav.github.io/crabbyengine/web.html))
+## Modular internals, integrated experience
 
-**3D** (`3d` feature, `physics3d` adds physics)
-- PBR meshes: instanced per mesh and culled to the view, from glTF, your
-  own triangles or Unity scenes; custom `vertex`/`surface` shaders in WGSL
-  (hot reloaded), with render targets (mirrors), compute passes and screen
-  effects; depth prepass, HDR, 2 or 4× MSAA, bloom and tone mapping
-- A physically based sky with a day-night cycle, height and distance fog;
-  cascaded sun shadows; clustered point and spot lights; per-mesh shadow
-  switches (`ShadowMesh`, `set_mesh_shadows`)
-- Heightfield terrain: tiles with four LODs, up to 8 ground layers blended
-  by a weight map, triplanar on cliffs, streamed in on worker threads
-  (`CellStreamer`) and freed behind the camera
-- 3D physics (rapier3d, `physics3d`): rigid bodies, heightfield colliders,
-  ray and shape queries, a kinematic walking character, raycast-wheel
-  vehicles
-- Scenes and prefabs: `ctx.load_scene`, `ctx.spawn_prefab`; the
-  `crabby_unity` importer brings Unity projects (scenes, prefabs,
-  materials, colliders) into Crabby scene files
+Common things should work immediately. Advanced things should be customizable.
+Neither should require understanding the entire engine. Existing Cargo features
+provide compile-time choices; internal module boundaries and selective extension
+APIs should improve maintainability without a mandatory plugin assembly step.
+New crates and abstractions need concrete benefits. This is an architectural
+direction, not a claim that every subsystem is already decoupled.
 
-**Drawing, sound, input**
-- wgpu sprite batcher: instancing, z-order, tint, rotation, scale
-- 2D camera (pan, zoom, follow), text, shapes, simple UI (panels, buttons, labels)
-- Sprite sheets, animation, tilemaps; sound through kira
-- Keyboard, mouse and gamepads (Xbox, PlayStation, Switch, hot-plugged),
-  named action maps all of them feed; CPU and GPU timings per frame
+## Contributing and compatibility
 
-**Iteration and tools**
-- Hot reload of images, sounds, fonts and JSON data files; hot-patching of game code
-- Runtime inspector (egui): entities, live component editing, level
-  editing (drag, scene save and load, prefabs) while paused, resources,
-  system timings, sim controls
-- Reflection: components and resources as JSON, used by the inspector, save files and agents
-- Control endpoint and MCP server for AI agents and external tools
-- Per-system timings always on; frame stats, per-pass GPU timings, a
-  performance HUD, Perfetto traces and an offscreen benchmark mode
-  (`CRABBY_BENCH`); puffin profiler behind a feature
+Start with [CONTRIBUTING.md](CONTRIBUTING.md), [the roadmap](ROADMAP.md),
+and [coding-agent rules](AGENTS.md). Performance changes need representative
+measurements; correctness and compatibility come first. The
+[published stability commitments](STABILITY.md) cover API/ABI, saved worlds,
+MCP contracts and determinism within their stated scope.
 
-**C and C++**
-- C API (`crabby_ffi`) with a generated header, plus a header-only C++17 wrapper (`include/crabby.hpp`)
-- C++ components are plain structs found by type; `world.each([](transform2d& t, const Vel& v) {...})` loops inline over component arrays, as fast as Rust, with no per-entity calls across the language boundary
-
-## Working with AI agents
-
-The repository ships an MCP server, so coding agents (Claude Code, Cursor,
-Codex, ...) can run the game and look inside it instead of guessing from
-source code:
-
-```sh
-cargo install crabby_mcp
-claude mcp add crabby -- crabby-mcp
-```
-
-An agent can then launch a game headless, run 600 ticks, ask "how many
-units per team, and how hurt are they?", change a component, and take a
-screenshot. See [Working with AI agents](https://bozoslav.github.io/crabbyengine/agents.html).
-
-## Status
-
-Crabby Engine is tested on Windows, macOS and Linux on every change, and
-the guide is kept in sync with `main`. From 1.0 the API follows semver:
-[STABILITY.md](STABILITY.md) says what is promised (the API, the minimum
-Rust version, the C ABI, saved worlds, determinism) and what isn't. See
-the [changelog](CHANGELOG.md) for what changed.
-
-## Contributing
-
-Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) to get
-started. The full rules for humans and coding agents are in
-[AGENTS.md](AGENTS.md). Please follow the [code of conduct](CODE_OF_CONDUCT.md).
-Report security issues privately, as described in [SECURITY.md](SECURITY.md).
+Follow the [code of conduct](CODE_OF_CONDUCT.md). Report vulnerabilities through
+[SECURITY.md](SECURITY.md).
 
 ## License
 
-Crabby Engine is created by Leon Mamić (see [NOTICE](NOTICE)). It's licensed under either of
-
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
-- MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
-
-at your option.
-
-Unless you explicitly state otherwise, any contribution intentionally
-submitted for inclusion in the work by you, as defined in the Apache-2.0
-license, shall be dual licensed as above, without any additional terms or
-conditions.
+Created by Leon Mamić and contributors; see [NOTICE](NOTICE).
+Dual licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option.
+Unless explicitly stated otherwise, contributions intentionally submitted for
+inclusion are licensed under both on the same terms.
