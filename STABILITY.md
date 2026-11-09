@@ -97,6 +97,13 @@ version (currently 1). Every 1.x release loads saves from every earlier 1.x
 release. Your own components are yours to migrate: give a component
 `#[serde(default)]` and saves written before you added a field still load.
 
+`World::load` refuses entity ids whose index is far beyond what the save
+needs (the exact bound is in its docs), so a corrupt or hostile file can't
+make the world allocate a huge entity table. Saves the engine writes stay
+within it unless the world once had over 4 million entities alive and was
+saved with under an eighth of them; such a save still loads back into the
+world that wrote it.
+
 ## Determinism
 
 What gives the same world from the same seed and inputs:

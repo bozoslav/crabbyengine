@@ -512,7 +512,11 @@ fn output_printed_right_before_exit_still_reaches_the_terminal() {
 
 #[test]
 fn scenes_and_prefabs_are_saved_and_loaded_over_tcp() {
-    let names = ["test-control-prefab.json", "test-control-scene.json"];
+    let names = [
+        "test-control-prefab.json",
+        "test-control-scene.json",
+        "test-control-huge-id.json",
+    ];
     let assets = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets");
     let (addr_tx, addr_rx) = mpsc::channel();
     let game = thread::spawn(move || {
@@ -548,6 +552,16 @@ fn scenes_and_prefabs_are_saved_and_loaded_over_tcp() {
     let loaded = c.call("scene.load", json!({ "path": names[1] })).unwrap();
     assert_eq!(loaded["entities"], 2);
     assert!(c.call("entity.get", json!({ "entity": a })).is_ok(), "same id back");
+
+    // A scene with a huge entity id is refused and changes nothing.
+    let mut scene: Value = serde_json::from_str(&std::fs::read_to_string(assets.join(names[1])).unwrap()).unwrap();
+    scene["entities"][1]["entity"] = json!(50_000_000u64);
+    std::fs::write(assets.join(names[2]), scene.to_string()).unwrap();
+    let huge = c.call("scene.load", json!({ "path": names[2] })).unwrap_err();
+    assert!(huge.contains("may only use indices below"), "{huge}");
+    let summary = c.call("world.summary", json!({})).unwrap();
+    assert_eq!(summary["entities"], 2);
+    assert!(c.call("entity.get", json!({ "entity": a })).is_ok());
     let missing = c.call(
         "prefab.spawn",
         json!({ "path": "test-control-missing.json", "at": [0, 0] }),
