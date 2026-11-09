@@ -65,6 +65,7 @@ it even when you add it before calling `.physics()` or `.physics3d()`.
 Logic that must affect the current tick's step goes in `BeforePhysics`:
 
 ```rust
+# fn steer(_: &mut Ctx) {} fn score(_: &mut Ctx) {}
 Game::new("Drive", 1280, 720)
     .add(Phase::BeforePhysics, steer) // the step below sees this tick's input
     .physics3d(vec3(0.0, -9.81, 0.0))
