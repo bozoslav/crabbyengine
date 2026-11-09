@@ -2,6 +2,9 @@
 //! glTF loading, and transforms as JSON.
 #![cfg(feature = "3d")]
 
+mod common;
+
+use common::TempAsset;
 use ponko::*;
 
 // ANCHOR: three_d
@@ -952,10 +955,8 @@ fn the_guide_ground_streams_in_and_out() {
 
 #[test]
 fn models_of_loaded_meshes_save_and_load_by_file_name() {
-    let file = "test-three-scene.json";
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("assets")
-        .join(file);
+    let temp = TempAsset::new("three-scene.json");
+    let file = temp.name();
     Game::new("t", 1, 1).run_headless(0, |ctx| {
         let house = ctx.load_mesh("models/house.glb");
         let red = Color::rgb(1.0, 0.0, 0.0);
@@ -984,7 +985,7 @@ fn models_of_loaded_meshes_save_and_load_by_file_name() {
             assert_eq!(models[0].0.position, vec3(1.0, 2.0, 3.0));
         });
     });
-    let _ = std::fs::remove_file(path);
+    drop(temp);
     result.unwrap();
 }
 
@@ -1086,10 +1087,8 @@ fn lod_groups_pick_levels_by_screen_height() {
 
 #[test]
 fn lod_groups_of_loaded_meshes_save_and_load_by_file_name() {
-    let file = "test-lod-scene.json";
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("assets")
-        .join(file);
+    let temp = TempAsset::new("lod-scene.json");
+    let file = temp.name();
     let group = |house: Mesh| {
         LodGroup::new(
             8.0,
@@ -1124,7 +1123,7 @@ fn lod_groups_of_loaded_meshes_save_and_load_by_file_name() {
             assert_eq!(groups, vec![group(house)], "loaded with the scene, its mesh with it");
         });
     });
-    let _ = std::fs::remove_file(path);
+    drop(temp);
     result.unwrap();
     Game::new("t", 1, 1).run_headless(0, |ctx| {
         let e = ctx.world.spawn((Transform3D::default(),));

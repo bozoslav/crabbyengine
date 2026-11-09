@@ -1,4 +1,8 @@
-//! One test process keeps allocation measurements isolated.
+//! The steady-state allocations of `resource_scope` and a query.
+//!
+//! A single test in its own binary: `CountingAllocator` counts every thread
+//! in the process (profiling relies on that), so nothing else may run, or
+//! allocate on another thread, while this one measures.
 use ponko::*;
 
 #[global_allocator]

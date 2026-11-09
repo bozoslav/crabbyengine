@@ -1,4 +1,8 @@
 //! A regression check for the steady-state action input path.
+//!
+//! One test per binary, and a thread-local counter: only the thread running
+//! the game counts, so other threads in the process can't disturb the
+//! zero-allocation assertion.
 use ponko::*;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;

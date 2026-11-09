@@ -5,6 +5,9 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
+mod common;
+
+use common::TempAsset;
 use ponko::*;
 
 const GRAVITY: Vec3 = Vec3::new(0.0, -9.81, 0.0);
@@ -800,22 +803,10 @@ fn turning_a_character_is_not_a_teleport() {
     assert!((p.x - 1.0).abs() < 0.05, "{p}");
 }
 
-/// A scene file under `assets/` that is deleted when the test ends.
-struct TempScene(&'static str);
-impl Drop for TempScene {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("assets")
-                .join(self.0),
-        );
-    }
-}
-
 #[test]
 fn scenes_make_mesh_colliders_from_mesh_files_and_save_them_by_file() {
-    let file = TempScene("test-mesh-collider.json");
-    let saved = TempScene("test-mesh-collider-saved.json");
+    let file = TempAsset::new("test-mesh-collider.json");
+    let saved = TempAsset::new("test-mesh-collider-saved.json");
     let collider = |convex: bool, x: f32| {
         serde_json::json!({
             "Transform3D": { "position": [x, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
@@ -833,16 +824,14 @@ fn scenes_make_mesh_colliders_from_mesh_files_and_save_them_by_file() {
         ],
         "resources": {},
     });
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("assets")
-        .join(file.0);
-    std::fs::write(&path, serde_json::to_string(&scene).unwrap()).unwrap();
+    file.write(&serde_json::to_string(&scene).unwrap());
+    let (file_name, saved_name) = (file.name().to_string(), saved.name().to_string());
     let (tops, meshes) = query_after(
         1,
         Vec3::ZERO,
-        |ctx| {
-            ctx.load_scene(file.0).unwrap();
-            ctx.save_scene(saved.0).unwrap();
+        move |ctx| {
+            ctx.load_scene(&file_name).unwrap();
+            ctx.save_scene(&saved_name).unwrap();
         },
         |ctx| {
             let top = |x: f32| {
@@ -871,13 +860,7 @@ fn scenes_make_mesh_colliders_from_mesh_files_and_save_them_by_file() {
         2,
         "the triangle mesh is made once and shared, the hull is another: {meshes:?}"
     );
-    let text = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("assets")
-            .join(saved.0),
-    )
-    .unwrap();
-    let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&saved.read()).unwrap();
     let shapes: Vec<_> = json["entities"]
         .as_array()
         .unwrap()
