@@ -4,10 +4,10 @@
 //! the same pixels with fewer pipeline and bind group changes. Skips
 //! without a GPU.
 use super::gpu::GpuTexture;
+use super::gpu3d::StateChanges;
 use super::gpu3d::*;
 use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight};
 use crate::*;
-use super::gpu3d::StateChanges;
 
 const SIZE: u32 = 256;
 
@@ -249,7 +249,6 @@ impl Rig {
     }
 }
 
-
 /// Built-in and custom shaders, solid, cut-out, double-sided and
 /// transparent materials, on `meshes` meshes whose ids go round the
 /// materials so that neighbouring meshes rarely share one, each drawn a few
@@ -259,7 +258,8 @@ fn many_materials(rig: &mut Rig, meshes: usize) {
     let tints = ["0.8", "1.2", "0.6"];
     let mut shaders = vec![None];
     for (i, tint) in tints.iter().enumerate() {
-        let source = format!("fn surface(s: Surface) -> Surface {{ var o = s; o.color = s.color * {tint}; return o; }}");
+        let source =
+            format!("fn surface(s: Surface) -> Surface {{ var o = s; o.color = s.color * {tint}; return o; }}");
         shaders.push(Some(rig.shader(&format!("tint{i}"), &source)));
     }
     let mut materials = Vec::new();
@@ -321,9 +321,13 @@ fn many_materials(rig: &mut Rig, meshes: usize) {
         let pane = rig.mesh(&MeshData::cube(1.0), m);
         for j in 0..4 {
             let at = vec3(-3.0 + j as f32 * 2.0 + k as f32 * 0.6, 2.0, 4.0 + k as f32 * 0.5);
-            rig.ctx
-                .world
-                .spawn((Transform3D { scale: vec3(3.0, 3.0, 0.2), ..Transform3D::at(at) }, Model::new(pane)));
+            rig.ctx.world.spawn((
+                Transform3D {
+                    scale: vec3(3.0, 3.0, 0.2),
+                    ..Transform3D::at(at)
+                },
+                Model::new(pane),
+            ));
         }
     }
     rig.ctx.camera3d.position = vec3(0.0, 18.0, 26.0);
@@ -345,7 +349,12 @@ fn sorted_runs_draw_the_same_pixels_with_fewer_state_changes() {
         assert_eq!(before, again, "a settled frame repeats");
         let (after, sorted) = rig.settled(true);
         eprintln!("prepass {solid_prepass}: mesh order {unsorted:?}, sorted {sorted:?}");
-        let lit = before.as_chunks::<4>().0.iter().filter(|p| p[0] > 20 || p[1] > 20).count();
+        let lit = before
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|p| p[0] > 20 || p[1] > 20)
+            .count();
         assert!(lit > (SIZE * SIZE / 2) as usize, "the scene fills the view ({lit} lit)");
         let differ = before.iter().zip(&after).filter(|(a, b)| a != b).count();
         assert_eq!(differ, 0, "the same pixels (prepass {solid_prepass})");
