@@ -697,6 +697,9 @@ fn rotation_animation_writes_motion_away_from_the_pivot() {
     assert!((motion.1 - (b.y - a.y) * 0.5).abs() < 0.002);
 }
 
+/// A change to make before a frame, and the history reset it should cause.
+type Step = (&'static str, fn(&mut Rig), HistoryReset);
+
 /// The history reset each kind of change makes, frame by frame: the target
 /// changes (resize, render scale, effect switches) and camera cuts reset
 /// once, and the frame after each keeps its history again.
@@ -720,7 +723,7 @@ fn each_history_trigger_resets_once_and_steady_frames_keep_the_history() {
         requested: true,
         ..none
     };
-    let steps: [(&str, fn(&mut Rig), HistoryReset); 14] = [
+    let steps: [Step; 14] = [
         ("the first frame", |_| {}, targets),
         ("a resize", |r| r.resize(SIZE * 2), targets),
         ("a resize back", |r| r.resize(SIZE), targets),
