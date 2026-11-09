@@ -478,7 +478,9 @@ pub(crate) fn wrap<F>(name: &'static str, access: SystemAccess, mut f: F) -> imp
 where
     F: FnMut(&mut SystemView<'_>) + 'static,
 {
-    let mut state = ViewState::new(access.world_access().clone()).labeled(name);
+    // Made once per registered system, for panic messages.
+    let label: &'static str = Box::leak(format!("system `{name}`").into_boxed_str());
+    let mut state = ViewState::new(access.world_access().clone()).labeled(label);
     move |ctx: &mut Ctx| {
         let clock = Clock {
             dt: ctx.dt(),

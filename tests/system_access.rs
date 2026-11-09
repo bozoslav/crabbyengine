@@ -283,3 +283,102 @@ mod violations {
         run_one(SystemAccess::new(), sneaky);
     }
 }
+
+// ---- declarations by name (the C and C++ path) ---------------------------------------
+
+mod named {
+    use super::*;
+    use std::alloc::Layout;
+
+    fn store(ctx: &mut Ctx) {
+        let value = 5u32;
+        // SAFETY: four readable bytes for a 4-byte layout.
+        unsafe {
+            ctx.world
+                .insert_resource_dynamic("lives", Layout::new::<u32>(), (&raw const value).cast());
+        }
+    }
+
+    #[test]
+    fn named_components_resources_and_raw_events_cover_their_use() {
+        let world = Game::new("access", 320, 240)
+            .add_with_access(
+                Phase::AfterPhysics,
+                SystemAccess::new()
+                    .write_named(std::any::type_name::<Pos>())
+                    .read_resource_named("lives")
+                    .send_raw_events(7)
+                    .read_raw_events(7),
+                |ctx| {
+                    ctx.world.query::<&mut Pos>().for_each(|p| p.0 += 1.0);
+                    let lives = ctx.world.get_resource_dynamic("lives").unwrap();
+                    // SAFETY: stored as a u32 in setup.
+                    let n = unsafe { *lives.cast::<u32>() };
+                    ctx.events.send_raw(7, &n.to_ne_bytes()).unwrap();
+                    let (_, count) = ctx.events.read_raw(7, 4).unwrap();
+                    assert_eq!(count, 1);
+                },
+            )
+            .run_headless(1, |ctx| {
+                store(ctx);
+                ctx.world.spawn((Pos(0.0),));
+            });
+        let mut world = world;
+        assert_eq!(world.query::<&Pos>().iter().next().unwrap().0, 1.0);
+    }
+
+    #[test]
+    fn named_declarations_conflict_by_name() {
+        let a = SystemAccess::new().write_named("pos");
+        let b = SystemAccess::new().read_named("pos");
+        assert_eq!(a.conflicts_with(&b), [AccessConflict::Component("pos")]);
+        assert!(a.conflicts_with(&SystemAccess::new().read_named("vel")).is_empty());
+        let r = SystemAccess::new().write_resource_named("lives");
+        assert_eq!(
+            r.conflicts_with(&SystemAccess::new().read_resource_named("lives")),
+            [AccessConflict::Resource("lives")]
+        );
+        let send = SystemAccess::new().send_raw_events(3);
+        let read = SystemAccess::new().read_raw_events(3);
+        assert_eq!(send.conflicts_before(&read).len(), 1);
+        assert!(read.conflicts_before(&send).is_empty());
+        assert!(send.conflicts_with(&SystemAccess::new().read_raw_events(4)).is_empty());
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "uses resource `lives`, which has no Rust type")]
+    fn an_undeclared_dynamic_resource_panics() {
+        Game::new("access", 320, 240)
+            .add_with_access(Phase::AfterPhysics, SystemAccess::new(), |ctx| {
+                let _ = ctx.world.get_resource_dynamic("lives");
+            })
+            .run_headless(1, store);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "sends events of foreign type 7")]
+    fn undeclared_raw_events_panic() {
+        Game::new("access", 320, 240)
+            .add_with_access(Phase::AfterPhysics, SystemAccess::new().read_raw_events(7), |ctx| {
+                ctx.events.send_raw(7, &[1, 2, 3, 4]).unwrap();
+            })
+            .run_headless(1, |_| {});
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "writes component `system_access::Pos`")]
+    fn a_named_read_does_not_cover_a_write() {
+        Game::new("access", 320, 240)
+            .add_with_access(
+                Phase::AfterPhysics,
+                SystemAccess::new().read_named(std::any::type_name::<Pos>()),
+                |ctx| ctx.world.query::<&mut Pos>().for_each(|p| p.0 = 2.0),
+            )
+            .run_headless(1, |ctx| {
+                ctx.world.spawn((Pos(0.0),));
+            });
+    }
+}
