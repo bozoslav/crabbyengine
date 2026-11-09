@@ -35,10 +35,6 @@ pub(crate) fn screen_projection(size: Vec2) -> Mat4 {
     )
 }
 
-/// The game's handle to the engine, passed to your systems and update closure.
-///
-/// Use it to draw, read input, check timing and window info, and reach the
-/// ECS [`World`] through `ctx.world`.
 /// Which loader a cached file went through.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum AssetKind {
@@ -47,16 +43,46 @@ pub(crate) enum AssetKind {
     Sound,
 }
 
-/// What every system gets: the world, commands, events, input, drawing,
-/// the clock, sound, the camera, physics and the network session. Systems are
+/// What every system gets: the world and the engine's services. Systems are
 /// `fn(&mut Ctx)`.
+///
+/// `Ctx` is a set of public fields, one per area, so two areas can be used
+/// at the same time: a sound plays while a `ctx.world` query is alive, UI
+/// events are read while entities change.
+///
+/// | Field | What it is |
+/// |---|---|
+/// | [`world`](Self::world), [`commands`](Self::commands), [`events`](Self::events) | Entities, components and resources; deferred changes; messages between systems. |
+/// | [`time`](Self::time) | [`Time`]: frame and simulation clocks, pause, speed. |
+/// | [`input`](Self::input) | [`Input`]: keyboard, mouse, gamepads, named actions, typed text. |
+/// | [`gfx`](Self::gfx) | [`Graphics`](crate::Graphics): drawing, textures, fonts, screenshots and, with `3d`, everything on the GPU. |
+/// | [`audio`](Self::audio) | [`Audio`](crate::Audio): sounds, music, buses, the 3D listener. |
+/// | [`ui`](Self::ui) | [`Ui`](crate::Ui): the retained widget tree and the immediate debug widgets. |
+/// | [`assets`](Self::assets) | [`Assets`](crate::Assets): asset sources, data files, saving scenes and prefabs, hot reload. |
+/// | [`perf`](Self::perf) | [`Perf`](crate::Perf): timings, the HUD, traces, profiling reports. |
+/// | [`camera`](Self::camera), `camera3d`, `lighting`, `sky`, `post`, `lod` | What the renderer reads when the frame is drawn. |
+/// | [`spatial`](Self::spatial), `physics`, `physics3d`, [`net`](Self::net) | Neighbor queries, the physics worlds, the lockstep session. |
+///
+/// The calls nearly every system makes are also methods here:
+/// [`dt`](Self::dt), [`key_down`](Self::key_down),
+/// [`key_pressed`](Self::key_pressed), [`key_released`](Self::key_released),
+/// [`mouse_pos`](Self::mouse_pos), [`draw`](Self::draw),
+/// [`draw_text`](Self::draw_text), [`load_texture`](Self::load_texture),
+/// [`load_sound`](Self::load_sound), [`play_sound`](Self::play_sound) and
+/// [`quit`](Self::quit). They forward to their service. The other methods
+/// that stay on `Ctx` need more than one area at once: handles
+/// ([`free`](Self::free), [`is_live`](Self::is_live)), loading a scene or
+/// spawning a prefab (the world, textures and sounds together),
+/// [`random`](Self::random) (the seed and the running system),
+/// [`mouse_world`](Self::mouse_world) (the mouse through the camera).
 ///
 /// ```
 /// use ponko::*;
 /// fn spin(ctx: &mut Ctx) {
-///     let dt = ctx.dt();
+///     // `ctx.time` and `ctx.world` are separate fields: read the clock
+///     // inside the query.
 ///     for t in ctx.world.query::<&mut Transform2D>().iter() {
-///         t.rotation += dt;
+///         t.rotation += ctx.time.dt();
 ///     }
 /// }
 /// Game::new("Spin", 800, 600).sim_system(spin).run_headless(10, |_| {});

@@ -556,13 +556,25 @@ pub(crate) fn decode_image(bytes: &[u8]) -> Result<Image, String> {
 /// How to apply a loaded data file's text to the world (kept for reloads).
 pub(crate) type DataLoader = Box<dyn Fn(&mut World, &str) -> Result<(), String>>;
 
-/// Asset files as `ctx.assets`: where they come from, data files, saving
-/// scenes and prefabs, and what hot reload changed. See the
-/// [module docs](self) for what lives here, when to call it and what it
-/// needs.
+/// Asset files: `ctx.assets`.
 ///
-/// A plain struct that owns its state, so it borrows apart from `ctx.world`
-/// and the other services; the calls that read or write the world take it.
+/// - **What lives here:** where named assets are read from
+///   ([`add_source`](Self::add_source)), your own asset types
+///   ([`load_with`](Self::load_with)), data files that fill resources and
+///   components and follow their files, saving scenes and prefabs, and
+///   what hot reload changed this frame. Textures, fonts, meshes and
+///   shaders load through `ctx.gfx` and sounds through `ctx.audio`, from
+///   the same sources. [`Ctx::load_scene`](crate::Ctx::load_scene) and
+///   [`Ctx::spawn_prefab`](crate::Ctx::spawn_prefab) stay on `Ctx`: they
+///   load through every service.
+/// - **When to call it:** add sources first, in setup; load data files in
+///   setup too (with hot reload on they are applied again when their files
+///   change, at the start of a frame). Read what was reloaded from any
+///   system, and save from any system.
+/// - **What it needs:** no window, GPU or audio device. Saving writes to
+///   `assets/` and isn't available in web builds. The calls that read or
+///   write entities and resources take the world (`&mut ctx.world`), so
+///   `ctx.assets` borrows apart from it.
 #[derive(Default)]
 pub struct Assets {
     /// Asset sources added with `add_source`, asked before `assets/`.

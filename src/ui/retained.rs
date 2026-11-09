@@ -429,8 +429,25 @@ enum Drag {
     Text(UiId),
 }
 
-/// Owned UI tree and screen stack. Build once, then mutate node properties.
-/// Draining events avoids callbacks borrowing the game and UI together.
+/// The screen's UI: `ctx.ui`. An owned widget tree and screen stack: build
+/// once, then mutate node properties. Draining events avoids callbacks
+/// borrowing the game and UI together.
+///
+/// - **What lives here:** the retained widget tree with its screen stack,
+///   focus and queued events; who has the pointer and the keyboard
+///   ([`wants_pointer`](Self::wants_pointer),
+///   [`wants_keyboard`](Self::wants_keyboard)); and the immediate widgets
+///   for debug overlays, [`immediate`](Self::immediate).
+/// - **When to call it:** build the tree in setup, then change text, values
+///   and screens from any system. The engine lays it out and feeds it input
+///   before the frame's systems, so [`events`](Self::events) queued this
+///   frame are read in a frame or simulation system. Immediate widgets are
+///   drawn the frame they are called.
+/// - **What it needs:** nothing to build and query (tests drive it with
+///   [`frame`](Self::frame)); drawing needs a window. It borrows apart from
+///   the world and the other services: read its events while playing
+///   sounds or changing entities.
+///
 /// ```
 /// use ponko::*;
 /// let mut ui = Ui::default();

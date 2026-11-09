@@ -523,6 +523,17 @@ pub(crate) use backend::Audio as Backend;
 /// `ctx.load_sound` and `ctx.play_sound` are shortcuts for
 /// [`load`](Self::load) and [`play`](Self::play); everything else is here.
 ///
+/// - **What lives here:** loading and creating sounds, playing them (also
+///   at a point in the 3D world), the handles of what is playing, mixer
+///   buses and the 3D listener.
+/// - **When to call it:** load in setup and keep the [`Sound`] handles;
+///   play, stop and mix from any system. It borrows only `ctx.audio`, so a
+///   sound can play while `ctx.ui.events()` or a `ctx.world` query is
+///   being read.
+/// - **What it needs:** the `audio` feature and an output device to be
+///   heard. Without them, and in headless runs, every call still works and
+///   is silent. Positional sound needs the `3d` feature.
+///
 /// ```
 /// use ponko::*;
 ///

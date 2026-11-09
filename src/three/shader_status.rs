@@ -108,7 +108,7 @@ pub struct ShaderStatus {
     pub outcome: ShaderOutcome,
     /// How many times an edit of its file was reloaded successfully.
     pub reloads: u32,
-    /// The frame ([`Time::frame`]) this happened in.
+    /// The frame ([`Time::frame`](crate::Time::frame)) this happened in.
     pub frame: u64,
     /// The errors of the last compile; empty when it worked.
     pub diagnostics: Vec<ShaderDiagnostic>,

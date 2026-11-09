@@ -39,6 +39,17 @@ pub struct SystemTiming {
 
 /// Timings, statistics and profiling switches: `ctx.perf`.
 ///
+/// - **What lives here:** each system's time, the last frame's drawing cost
+///   and GPU passes, frame-time statistics, the on-screen HUD, Perfetto
+///   traces, the profiling switch with named scopes, and the report that
+///   sums it all up.
+/// - **When to call it:** reads work in any system and describe the frame
+///   (or headless tick) before the current one. Switches (`set_hud`,
+///   `set_profiling`, `record_trace`) apply from the next frame.
+/// - **What it needs:** system timings, scopes and the report work
+///   headless. Render statistics, GPU passes, frame statistics, the HUD and
+///   traces need a window; without one they are zero, empty or do nothing.
+///
 /// ```
 /// use ponko::*;
 ///

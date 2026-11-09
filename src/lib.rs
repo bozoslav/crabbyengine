@@ -123,7 +123,7 @@ mod web;
 pub use alloc_count::{AllocCounts, CountingAllocator, alloc_counts, note_allocation};
 pub use assets::{AssetSource, Assets, MemorySource};
 pub use attach::{Attached, follow_attachments};
-pub use audio::{AudioBus, AudioEffects, Playing, Sound, SoundParams};
+pub use audio::{Audio, AudioBus, AudioEffects, Playing, Sound, SoundParams};
 #[cfg(feature = "3d")]
 pub use audio::{AudioListener3D, AudioRolloff, AudioSettings3D, AudioSource3D};
 pub use camera::{Camera2D, Rect, camera_controls};
@@ -221,8 +221,8 @@ pub use time::{Time, Turns};
 #[cfg(feature = "3d")]
 pub use ui::UiPanel3D;
 pub use ui::{
-    Ui, UiAccessNode, UiAccessTree, UiAccessValue, UiBuilder, UiEvent, UiId, UiInput, UiLayout, UiPaint, UiRole,
-    UiStyle, UiTextAlign, UiTheme, UiWidget,
+    Ui, UiAccessNode, UiAccessTree, UiAccessValue, UiBuilder, UiEvent, UiId, UiImmediate, UiInput, UiLayout, UiPaint,
+    UiRole, UiStyle, UiTextAlign, UiTheme, UiWidget,
 };
 
 /// The ECS: entities, components, queries, resources, commands.

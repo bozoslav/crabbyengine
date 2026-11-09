@@ -919,7 +919,7 @@ impl Game {
     /// Feeds scheduled input into the game by simulation tick, for
     /// reproducible tests (off unless called). Before the simulation systems
     /// of each tick run, the scenario's steps for that tick go through
-    /// [`Input::feed`], so [named actions](crate::ActionMap) and raw input
+    /// [`Input::feed`](crate::Input::feed), so [named actions](crate::ActionMap) and raw input
     /// queries see them exactly like live input. Calling it again replaces
     /// the previous scenario.
     ///
@@ -1064,7 +1064,7 @@ impl Game {
     }
 
     /// Sets how many fixed updates run per second (default 60).
-    /// See [`Time::fixed_steps`].
+    /// See [`Time::fixed_steps`](crate::Time::fixed_steps).
     ///
     /// # Panics
     /// If `hz` is 0.

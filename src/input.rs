@@ -315,6 +315,17 @@ impl<const N: usize> ButtonStates<N> {
 /// (`ctx.key_down`, `ctx.key_pressed`, `ctx.key_released`, `ctx.mouse_pos`);
 /// everything else is here.
 ///
+/// - **What lives here:** what is held (`key_down`, `mouse_down`,
+///   `gamepad_down`), what changed this frame (`*_pressed`, `*_released`),
+///   the pointer, gamepad axes, the [`ActionMap`](crate::ActionMap) and its
+///   queries, text typed this frame and the cursor lock.
+/// - **When to call it:** in any system. Edges last one frame; a simulation
+///   system that runs several ticks in a frame sees the same edges in each.
+///   Install bindings with [`set_actions`](Self::set_actions) in setup.
+/// - **What it needs:** a window for live input (feature `window`) and the
+///   `gamepad` feature for controllers. Headless it is silent unless you
+///   [`feed`](Self::feed) it, which is how tests and replays drive a game.
+///
 /// ```
 /// use ponko::*;
 ///

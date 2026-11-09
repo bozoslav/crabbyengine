@@ -11,12 +11,14 @@ struct Pos(f32);
 
 #[test]
 fn time_reads_while_a_world_query_is_alive() {
+    // ANCHOR: time_borrow
     fn fall(ctx: &mut Ctx) {
         // The query borrows `ctx.world`; the clock is another field.
         for p in ctx.world.query::<&mut Pos>().iter() {
             p.0 += ctx.time.dt();
         }
     }
+    // ANCHOR_END: time_borrow
     let mut world = Game::new("t", 1, 1)
         .fixed_hz(10)
         .sim_system(fall)
@@ -340,6 +342,7 @@ fn sized(w: f32, h: f32) -> ui_layout::Style {
 #[test]
 fn ui_events_are_read_while_sounds_play() {
     struct Clicks(Vec<UiId>);
+    // ANCHOR: ui_borrow
     fn menu(ctx: &mut Ctx) {
         let click = ctx.world.resource::<Beep>().0;
         // `ctx.ui.events()` borrows the UI; `ctx.audio` and `ctx.world` are other fields.
@@ -351,6 +354,7 @@ fn ui_events_are_read_while_sounds_play() {
             }
         }
     }
+    // ANCHOR_END: ui_borrow
     let mut button = None;
     let world = Game::new("t", 800, 600).sim_system(menu).run_headless(2, |ctx| {
         let beep = ctx.audio.create(8000, &[0.0; 80]);
@@ -602,5 +606,82 @@ mod three {
             assert!(!ctx.is_live(material) && !ctx.is_live(mesh));
             assert!(!ctx.gfx.has_material(material));
         });
+    }
+}
+
+/// The public methods of `Ctx` that rustdoc shows: every `pub fn` in an
+/// `impl Ctx` block of the engine's source that isn't `#[doc(hidden)]`.
+fn visible_ctx_methods() -> Vec<String> {
+    fn rust_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                rust_files(&path, out);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                out.push(path);
+            }
+        }
+    }
+    let mut files = Vec::new();
+    rust_files(
+        &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+        &mut files,
+    );
+    let mut methods = Vec::new();
+    for file in files {
+        let text = std::fs::read_to_string(&file).unwrap();
+        let mut in_ctx = false;
+        // Attributes and doc comments since the last item or blank line.
+        let mut hidden = false;
+        for line in text.lines() {
+            if !in_ctx {
+                in_ctx = line == "impl Ctx {" || line == "impl crate::Ctx {";
+                continue;
+            }
+            if line == "}" {
+                in_ctx = false;
+            } else if line.trim() == "#[doc(hidden)]" {
+                hidden = true;
+            } else if let Some(rest) = line.strip_prefix("    pub fn ") {
+                if !hidden {
+                    let name = rest.split(['(', '<']).next().unwrap();
+                    methods.push(name.to_string());
+                }
+                hidden = false;
+            } else if line.trim().is_empty() || line == "    }" {
+                hidden = false;
+            }
+        }
+    }
+    methods.sort();
+    methods
+}
+
+#[test]
+fn ctx_keeps_fewer_than_forty_documented_methods() {
+    let methods = visible_ctx_methods();
+    assert!(
+        methods.len() < 40,
+        "`Ctx` has {} documented methods; a new call belongs on a service (`ctx.gfx`, `ctx.audio`, ...): {methods:?}",
+        methods.len()
+    );
+    // The shortcuts the guide names are among them.
+    for shortcut in [
+        "dt",
+        "key_down",
+        "key_pressed",
+        "key_released",
+        "mouse_pos",
+        "draw",
+        "draw_text",
+        "quit",
+        "load_texture",
+        "load_sound",
+        "play_sound",
+    ] {
+        assert!(
+            methods.iter().any(|m| m == shortcut),
+            "`Ctx::{shortcut}` is a documented shortcut"
+        );
     }
 }

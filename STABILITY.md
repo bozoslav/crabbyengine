@@ -60,8 +60,9 @@ Fallible calls follow one convention, introduced with `ponko::Error`:
 
 Texture, mesh, skeleton, sound and font loading and material and mesh
 creation follow it. Older calls that return `Result<_, String>` keep their
-signatures; they move to `ponko::Error` as the grouped `Ctx` services land,
-and `String: From<ponko::Error>` keeps them interoperable meanwhile.
+signatures on the `Ctx` services (`ctx.gfx`, `ctx.assets`); they move to
+`ponko::Error` service by service, and `String: From<ponko::Error>` keeps
+them interoperable meanwhile.
 
 ## Deprecation
 

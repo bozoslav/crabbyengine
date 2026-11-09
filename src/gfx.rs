@@ -75,11 +75,45 @@ enum Layer {
     Screen,
 }
 
-/// Drawing and GPU assets: `ctx.gfx`. See the [module docs](self) for what
-/// lives here, when to call it and what it needs.
+/// Drawing and GPU assets: `ctx.gfx`.
 ///
-/// A plain struct that owns its state, so it borrows apart from
-/// `ctx.world` and the other services.
+/// `ctx.draw`, `ctx.draw_text` and `ctx.load_texture` are shortcuts for
+/// [`draw`](Self::draw), [`draw_text`](Self::draw_text) and
+/// [`load_texture`](Self::load_texture); everything else is here.
+///
+/// - **What lives here:** the frame's draw queues (sprites, text, shapes),
+///   textures, fonts and screenshots, and with the `3d` feature meshes,
+///   materials, shaders, effects, compute shaders, GPU buffers, instance
+///   batches, terrain, render targets, texture arrays and reflection
+///   probes. Cameras, lights, sky and post-processing are plain fields of
+///   [`Ctx`](crate::Ctx).
+/// - **When to call it:** load and create in setup (or any system: a file
+///   is read once, then cached by name). Draw calls queue work for the
+///   current frame, so make them every frame from a frame system; a draw
+///   queued in a simulation system is drawn once per step.
+/// - **What it needs:** a window for anything to appear. Headless, loading
+///   and creating still give working handles with the right sizes, draws
+///   are dropped and nothing touches a GPU. The few calls that read or
+///   write entities take `&mut World`, so `ctx.gfx` borrows apart from
+///   `ctx.world`.
+///
+/// ```
+/// use ponko::*;
+///
+/// struct Crab(Texture);
+///
+/// fn draw(ctx: &mut Ctx) {
+///     // `ctx.gfx` is its own field: draw while a query borrows the world.
+///     for (crab, at) in ctx.world.query::<(&Crab, &Transform2D)>().iter() {
+///         ctx.gfx.draw(&crab.0, at.position);
+///     }
+/// }
+///
+/// Game::new("gfx", 320, 240).sim_system(draw).run_headless(1, |ctx| {
+///     let pixel = ctx.gfx.create_texture(1, 1, &[255; 4]);
+///     ctx.world.spawn((Crab(pixel), Transform2D::at(vec2(10.0, 20.0))));
+/// });
+/// ```
 pub struct Graphics {
     /// No window and no GPU: handles are made up, draws are dropped.
     pub(crate) headless: bool,

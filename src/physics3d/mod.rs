@@ -1093,7 +1093,7 @@ fn step(physics: &mut Physics3D, world: &mut World, events: &mut Events, dt: f32
 
 /// Draws moving bodies smoothly: between two physics steps, sets each
 /// moving body's [`Transform3D`] to a blend of its last two poses, by how
-/// far the frame is between them ([`Time::fixed_alpha`]). Added as the first
+/// far the frame is between them ([`Time::fixed_alpha`](crate::Time::fixed_alpha)). Added as the first
 /// frame system by [`Game::physics3d`](crate::Game::physics3d), so camera
 /// code sees the blended pose too. Does nothing in headless runs, where
 /// frames and ticks line up. Transforms you changed since the last step are

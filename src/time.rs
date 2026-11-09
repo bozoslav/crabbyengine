@@ -106,6 +106,16 @@ struct SimClock {
 /// fixed steps ([`fixed_dt`](Self::fixed_dt)), zero or more per frame, so a
 /// simulation gives the same result on every machine.
 ///
+/// - **What lives here:** the frame clock (`frame_dt`, `elapsed`, `frame`,
+///   `fps`), the simulation clock (`sim_dt`, `sim_tick`, `sim_time`,
+///   `fixed_dt`, `fixed_steps`, `fixed_alpha`), its controls (`pause`,
+///   `resume`, `step`, `set_speed`) and [`turns`](Self::turns).
+/// - **When to call it:** in setup, simulation systems and frame systems.
+///   `dt()` follows the kind of system that is running; `frame_dt()` and
+///   `sim_dt()` say which one they mean. Controls apply from the next frame.
+/// - **What it needs:** nothing; it works headless and borrows only
+///   `ctx.time`.
+///
 /// ```
 /// use ponko::*;
 ///
