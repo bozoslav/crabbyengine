@@ -100,32 +100,161 @@
 use std::any::TypeId;
 use std::fmt;
 
-use ponko_ecs::{AccessLog, Component, World};
+use ponko_ecs::{AccessLog, Component, ViewAccess, World};
 
 #[cfg(debug_assertions)]
 use crate::Ctx;
 use crate::Phase;
 
+/// An engine service on [`Ctx`](crate::Ctx) that a system can declare,
+/// beside its components, resources, events and commands.
+///
+/// Names follow the service fields of `Ctx`. Two declarations conflict on
+/// a service when both use it and at least one writes it. View systems
+/// ([`Game::add_view`](crate::Game::add_view)) can use the services marked
+/// "view" below, through [`SystemView`](crate::SystemView); the others
+/// hold state that belongs to the window, renderer or asset tables, so a
+/// system that needs them keeps `&mut Ctx` (declared with
+/// [`Game::add_with_access`](crate::Game::add_with_access), or exclusive).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Service {
+    /// Keys, mouse, gamepads and named actions (`ctx.input`). View: read.
+    Input,
+    /// Frame and simulation clocks: `dt`, ticks, pause and speed
+    /// (`ctx.time`). View: read.
+    Time,
+    /// The system's random stream (`ctx.random()`). Only read: each
+    /// system's stream depends on the seed, tick and system alone. View: read.
+    Random,
+    /// Drawing, textures, meshes, materials and render settings (`ctx.gfx`).
+    Gfx,
+    /// Sounds, buses and the listener (`ctx.audio`). View: write (play sounds).
+    Audio,
+    /// Hot reload, data files, prefabs and scenes (`ctx.assets`).
+    Assets,
+    /// The retained UI tree, style and input capture (`ctx.ui`).
+    Ui,
+    /// Profiling, statistics, the HUD and traces (`ctx.perf`).
+    Perf,
+    /// The 2D and 3D cameras (`ctx.camera`, `ctx.camera3d`). View: read and write.
+    Camera,
+    /// The spatial grid (`ctx.spatial`). View: read.
+    Spatial,
+    /// The 2D physics world (`ctx.physics`). View: read and write.
+    Physics,
+    /// The 3D physics world (`ctx.physics3d`). View: read and write.
+    Physics3D,
+    /// Lockstep networking (`ctx.net`). View: read and write.
+    Net,
+}
+
+impl Service {
+    /// Every service, in the order of their C numbers (`CRABBY_SERVICE_*`).
+    pub const ALL: [Service; 13] = [
+        Service::Input,
+        Service::Time,
+        Service::Random,
+        Service::Gfx,
+        Service::Audio,
+        Service::Assets,
+        Service::Ui,
+        Service::Perf,
+        Service::Camera,
+        Service::Spatial,
+        Service::Physics,
+        Service::Physics3D,
+        Service::Net,
+    ];
+
+    /// The service's field name on `Ctx`, e.g. `"input"`.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Service::Input => "input",
+            Service::Time => "time",
+            Service::Random => "random",
+            Service::Gfx => "gfx",
+            Service::Audio => "audio",
+            Service::Assets => "assets",
+            Service::Ui => "ui",
+            Service::Perf => "perf",
+            Service::Camera => "camera",
+            Service::Spatial => "spatial",
+            Service::Physics => "physics",
+            Service::Physics3D => "physics3d",
+            Service::Net => "net",
+        }
+    }
+
+    /// What a [`SystemView`](crate::SystemView) offers: `None` if nothing,
+    /// else whether it can also write.
+    pub(crate) fn in_view(self) -> Option<bool> {
+        match self {
+            Service::Input | Service::Time | Service::Random | Service::Spatial => Some(false),
+            Service::Audio | Service::Camera | Service::Physics | Service::Physics3D | Service::Net => Some(true),
+            Service::Gfx | Service::Assets | Service::Ui | Service::Perf => None,
+        }
+    }
+}
+
+impl fmt::Display for Service {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+/// How a declared item is identified.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Key {
+    /// A Rust type.
+    Type(TypeId),
+    /// A component or resource registered by name (C and C++), matched by
+    /// the item's name.
+    Named,
+    /// An event type without a Rust type (C and C++ use component ids).
+    Raw(u32),
+}
+
 /// One declared component, resource or event type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Item {
-    id: TypeId,
+    key: Key,
     name: &'static str,
     /// Written (components, resources) or sent (events).
     write: bool,
 }
 
+impl Item {
+    fn same(&self, other: &Item) -> bool {
+        match (self.key, other.key) {
+            (Key::Named, Key::Named) => self.name == other.name,
+            (a, b) => a == b,
+        }
+    }
+}
+
 fn item<T: 'static>(write: bool) -> Item {
     Item {
-        id: TypeId::of::<T>(),
+        key: Key::Type(TypeId::of::<T>()),
         name: std::any::type_name::<T>(),
+        write,
+    }
+}
+
+/// A name that lives as long as the program: declarations of C and C++
+/// systems are made once, at registration.
+fn named(name: &str, write: bool) -> Item {
+    Item {
+        key: Key::Named,
+        name: Box::leak(name.to_owned().into_boxed_str()),
         write,
     }
 }
 
 /// Adds `it`, a write replacing a read of the same type.
 fn add(items: &mut Vec<Item>, it: Item) {
-    match items.iter_mut().find(|i| i.id == it.id) {
+    match items.iter_mut().find(|i| i.same(&it)) {
         Some(i) => i.write |= it.write,
         None => items.push(it),
     }
@@ -134,7 +263,7 @@ fn add(items: &mut Vec<Item>, it: Item) {
 /// Adds event right `it`: sending and reading are separate rights, kept
 /// as separate entries.
 fn add_event(items: &mut Vec<Item>, it: Item) {
-    if !items.contains(&it) {
+    if !items.iter().any(|i| i.same(&it) && i.write == it.write) {
         items.push(it);
     }
 }
@@ -143,11 +272,14 @@ fn add_event(items: &mut Vec<Item>, it: Item) {
 ///
 /// Two declared systems in the same [`Phase`](crate::Phase) conflict (and
 /// keep their order) when either is exclusive, both touch the same
-/// component or resource and one writes it, one sends an event type the
-/// other reads or both send it, or either records commands while the other
-/// touches anything. In builds with debug assertions, each declared system
-/// runs with access recording on and panics on anything it used without
-/// declaring it.
+/// component, resource or [`Service`] and one writes it, one sends an event
+/// type the other reads or both send it, or either records commands while
+/// the other touches anything. [`conflicts_before`](Self::conflicts_before)
+/// has the finer rules for a known order. In builds with debug assertions,
+/// each declared `Ctx` system runs with access recording on and panics on
+/// any component, resource, event or command it used without declaring
+/// it; a view system ([`Game::add_view`](crate::Game::add_view)) can't
+/// reach anything undeclared at all.
 ///
 /// [`SystemAccess::new`] declares nothing; chain the builder methods to add
 /// to it. Declaring a write also covers reading the same type.
@@ -171,11 +303,15 @@ pub struct SystemAccess {
     resources: Vec<Item>,
     events: Vec<Item>,
     commands: bool,
+    /// Declared services and whether each is written.
+    services: Vec<(Service, bool)>,
+    /// The typed components and resources, as the ECS view takes them.
+    world: ViewAccess,
 }
 
 impl SystemAccess {
     /// A declaration of nothing: such a system touches no components,
-    /// resources or events and records no commands.
+    /// resources, events or services and records no commands.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -195,6 +331,7 @@ impl SystemAccess {
     #[must_use]
     pub fn read<T: Component>(mut self) -> Self {
         add(&mut self.components, item::<T>(false));
+        self.world = self.world.read::<T>();
         self
     }
 
@@ -202,6 +339,7 @@ impl SystemAccess {
     #[must_use]
     pub fn write<T: Component>(mut self) -> Self {
         add(&mut self.components, item::<T>(true));
+        self.world = self.world.write::<T>();
         self
     }
 
@@ -209,6 +347,7 @@ impl SystemAccess {
     #[must_use]
     pub fn read_resource<R: Send + Sync + 'static>(mut self) -> Self {
         add(&mut self.resources, item::<R>(false));
+        self.world = self.world.read_resource::<R>();
         self
     }
 
@@ -216,6 +355,7 @@ impl SystemAccess {
     #[must_use]
     pub fn write_resource<R: Send + Sync + 'static>(mut self) -> Self {
         add(&mut self.resources, item::<R>(true));
+        self.world = self.world.write_resource::<R>();
         self
     }
 
@@ -242,22 +382,190 @@ impl SystemAccess {
         self
     }
 
+    /// Reads `service` (asks it questions without changing it).
+    #[must_use]
+    pub fn read_service(mut self, service: Service) -> Self {
+        self.add_service(service, false);
+        self
+    }
+
+    /// Reads and changes `service`.
+    #[must_use]
+    pub fn write_service(mut self, service: Service) -> Self {
+        self.add_service(service, true);
+        self
+    }
+
+    fn add_service(&mut self, service: Service, write: bool) {
+        match self.services.iter_mut().find(|(s, _)| *s == service) {
+            Some((_, w)) => *w |= write,
+            None => self.services.push((service, write)),
+        }
+    }
+
+    /// Reads the component registered under `name` (C and C++ components,
+    /// or any component looked up by name).
+    #[must_use]
+    pub fn read_named(mut self, name: &str) -> Self {
+        add(&mut self.components, named(name, false));
+        self
+    }
+
+    /// Reads and writes the component registered under `name`.
+    #[must_use]
+    pub fn write_named(mut self, name: &str) -> Self {
+        add(&mut self.components, named(name, true));
+        self
+    }
+
+    /// Reads the resource stored under `name` without a Rust type (the C
+    /// and C++ path). Such resources are reached through raw pointers, so
+    /// the debug check can't tell reads from writes: declare
+    /// [`write_resource_named`](Self::write_resource_named) if the system
+    /// changes it.
+    #[must_use]
+    pub fn read_resource_named(mut self, name: &str) -> Self {
+        add(&mut self.resources, named(name, false));
+        self
+    }
+
+    /// Reads and writes the resource stored under `name` without a Rust type.
+    #[must_use]
+    pub fn write_resource_named(mut self, name: &str) -> Self {
+        add(&mut self.resources, named(name, true));
+        self
+    }
+
+    /// Reads events of foreign type `id` (C and C++).
+    #[doc(hidden)]
+    #[must_use]
+    pub fn read_raw_events(mut self, id: u32) -> Self {
+        add_event(&mut self.events, raw_event(id, false));
+        self
+    }
+
+    /// Sends events of foreign type `id` (C and C++).
+    #[doc(hidden)]
+    #[must_use]
+    pub fn send_raw_events(mut self, id: u32) -> Self {
+        add_event(&mut self.events, raw_event(id, true));
+        self
+    }
+
     /// `true` for [`exclusive`](Self::exclusive) access.
     #[must_use]
     pub fn is_exclusive(&self) -> bool {
         self.exclusive
     }
 
-    /// Why this system and `other` can't run together; empty if they could.
+    /// `Some(written)` if `service` is declared, `None` if not.
+    #[must_use]
+    pub fn service(&self, service: Service) -> Option<bool> {
+        self.services.iter().find(|(s, _)| *s == service).map(|&(_, w)| w)
+    }
+
+    /// `true` if the system records commands.
+    #[must_use]
+    pub fn records_commands(&self) -> bool {
+        self.commands
+    }
+
+    /// `true` if `E` events may be read.
+    pub(crate) fn reads_events(&self, id: TypeId) -> bool {
+        self.events.iter().any(|i| i.key == Key::Type(id) && !i.write)
+    }
+
+    /// `true` if `E` events may be sent.
+    pub(crate) fn sends_events(&self, id: TypeId) -> bool {
+        self.events.iter().any(|i| i.key == Key::Type(id) && i.write)
+    }
+
+    /// The typed component and resource part, for an ECS view.
+    pub(crate) fn world_access(&self) -> &ViewAccess {
+        &self.world
+    }
+
+    /// Why a view system can't have this declaration, if it can't.
+    pub(crate) fn view_problem(&self) -> Option<String> {
+        if self.exclusive {
+            return Some("is exclusive; register it with `add` instead".into());
+        }
+        let untyped = |items: &[Item]| items.iter().find(|i| !matches!(i.key, Key::Type(_))).map(|i| i.name);
+        if let Some(name) = untyped(&self.components)
+            .or_else(|| untyped(&self.resources))
+            .or_else(|| untyped(&self.events))
+        {
+            return Some(format!("declares `{name}`, which has no Rust type"));
+        }
+        for &(s, write) in &self.services {
+            match s.in_view() {
+                None => {
+                    return Some(format!(
+                        "declares service `{s}`, which a view doesn't offer; use `add_with_access`"
+                    ));
+                }
+                Some(false) if write => {
+                    return Some(format!(
+                        "declares writing service `{s}`, which a view only reads; use `add_with_access`"
+                    ));
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    /// Why this system and `other` can't run together in either order;
+    /// empty if they could. The conservative, symmetric rules: see
+    /// [`conflicts_before`](Self::conflicts_before) for a known order.
     #[must_use]
     pub fn conflicts_with(&self, other: &SystemAccess) -> Vec<AccessConflict> {
+        self.conflicts(other, false)
+    }
+
+    /// Why this system, registered (and so sequentially run) **before**
+    /// `later` in the same phase, can't share a parallel batch with it;
+    /// empty if it can.
+    ///
+    /// The finer barrier rules assume the batch contract a parallel
+    /// executor must keep: commands recorded in a batch apply when the batch
+    /// ends, in registration order, and events sent in it become visible
+    /// when it ends, in registration order. Then, unlike
+    /// [`conflicts_with`](Self::conflicts_with):
+    ///
+    /// - two systems that send the same event type don't conflict (their
+    ///   events are published in the sequential order);
+    /// - a reader before a sender doesn't conflict (sequentially it only
+    ///   sees those events on its next run anyway); a sender before a
+    ///   reader does;
+    /// - a system that records commands conflicts only with a **later**
+    ///   system that touches components or resources (which would see the
+    ///   applied commands sequentially); two recorders don't conflict.
+    ///
+    /// Components, resources and services conflict as in `conflicts_with`.
+    ///
+    /// ```
+    /// use ponko::*;
+    /// struct Hit;
+    /// let send = SystemAccess::new().send_events::<Hit>();
+    /// let read = SystemAccess::new().read_events::<Hit>();
+    /// assert!(!read.conflicts_before(&send).is_empty() == false); // reader first: fine
+    /// assert_eq!(send.conflicts_before(&read).len(), 1); // sender first: the reader would see it
+    /// assert!(send.conflicts_before(&send.clone()).is_empty()); // published in order
+    /// ```
+    #[must_use]
+    pub fn conflicts_before(&self, later: &SystemAccess) -> Vec<AccessConflict> {
+        self.conflicts(later, true)
+    }
+
+    fn conflicts(&self, other: &SystemAccess, ordered: bool) -> Vec<AccessConflict> {
         if self.exclusive || other.exclusive {
             return vec![AccessConflict::Exclusive];
         }
         let mut out = Vec::new();
         let data = |items: &[Item], others: &[Item], out: &mut Vec<AccessConflict>, make: fn(&'static str) -> _| {
             for a in items {
-                if others.iter().any(|b| a.id == b.id && (a.write || b.write)) {
+                if others.iter().any(|b| a.same(b) && (a.write || b.write)) {
                     out.push(make(a.name));
                 }
             }
@@ -265,16 +573,35 @@ impl SystemAccess {
         data(&self.components, &other.components, &mut out, AccessConflict::Component);
         data(&self.resources, &other.resources, &mut out, AccessConflict::Resource);
         for a in &self.events {
-            // Send/read or send/send of one type; read/read is fine.
-            let clash = other.events.iter().any(|b| a.id == b.id && (a.write || b.write));
+            let clash = other.events.iter().any(|b| {
+                a.same(b)
+                    && if ordered {
+                        // Only an earlier send seen by a later read.
+                        a.write && !b.write
+                    } else {
+                        // Send/read or send/send of one type; read/read is fine.
+                        a.write || b.write
+                    }
+            });
             let name = AccessConflict::Event(a.name);
             if clash && !out.contains(&name) {
                 out.push(name);
             }
         }
-        let touches_world = |s: &SystemAccess| s.commands || !s.components.is_empty() || !s.resources.is_empty();
-        if (self.commands && touches_world(other)) || (other.commands && touches_world(self)) {
+        let touches_world = |s: &SystemAccess| !s.components.is_empty() || !s.resources.is_empty();
+        let commands = if ordered {
+            self.commands && touches_world(other)
+        } else {
+            let uses = |s: &SystemAccess| s.commands || touches_world(s);
+            (self.commands && uses(other)) || (other.commands && uses(self))
+        };
+        if commands {
             out.push(AccessConflict::Commands);
+        }
+        for &(s, w) in &self.services {
+            if other.services.iter().any(|&(t, v)| s == t && (w || v)) {
+                out.push(AccessConflict::Service(s));
+            }
         }
         out
     }
@@ -287,35 +614,48 @@ impl SystemAccess {
             return Vec::new();
         }
         let mut out = Vec::new();
-        let covers = |items: &[Item], id: Option<TypeId>, write: bool| {
-            id.is_some_and(|id| items.iter().any(|i| i.id == id && (i.write || !write)))
+        let covers = |items: &[Item], id: Option<TypeId>, name: &str, write: bool| {
+            items.iter().any(|i| {
+                let same = match i.key {
+                    Key::Type(t) => id == Some(t),
+                    Key::Named => i.name == name,
+                    Key::Raw(_) => false,
+                };
+                same && (i.write || !write)
+            })
         };
         let verb = |write| if write { "writes" } else { "reads" };
         for &(c, write) in &used.components {
             let info = world.component_info(c);
-            if !covers(&self.components, info.type_id(), write) {
+            if !covers(&self.components, info.type_id(), info.name(), write) {
                 out.push(format!("{} component `{}`", verb(write), info.name()));
             }
         }
         for &(id, name, write) in &used.resources {
-            if !covers(&self.resources, Some(id), write) {
+            if !covers(&self.resources, Some(id), name, write) {
                 out.push(format!("{} resource `{name}`", verb(write)));
             }
         }
         for name in &used.dynamic_resources {
-            out.push(format!("uses resource `{name}`, which has no Rust type"));
+            // Raw pointers can't tell reads from writes: any declaration covers use.
+            if !covers(&self.resources, None, name, false) {
+                out.push(format!("uses resource `{name}`, which has no Rust type"));
+            }
         }
         if used.structural {
             out.push("changes the world's structure directly (spawn, despawn, insert or remove); use commands".into());
         }
         for &(id, name, sent) in &events.used {
-            if !self.events.iter().any(|i| i.id == id && i.write == sent) {
+            if !self.events.iter().any(|i| i.key == Key::Type(id) && i.write == sent) {
                 let what = if sent { "sends" } else { "reads" };
                 out.push(format!("{what} events `{name}`"));
             }
         }
-        if events.raw {
-            out.push("uses events without a Rust type".into());
+        for &(id, sent) in &events.raw {
+            if !self.events.iter().any(|i| i.key == Key::Raw(id) && i.write == sent) {
+                let what = if sent { "sends" } else { "reads" };
+                out.push(format!("{what} events of foreign type {id}"));
+            }
         }
         if commands && !self.commands {
             out.push("records commands".into());
@@ -324,9 +664,18 @@ impl SystemAccess {
     }
 }
 
+fn raw_event(id: u32, write: bool) -> Item {
+    Item {
+        key: Key::Raw(id),
+        name: Box::leak(format!("foreign event {id}").into_boxed_str()),
+        write,
+    }
+}
+
 /// Why two systems can't run together: from
 /// [`SystemAccess::conflicts_with`] and [`AccessReport`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum AccessConflict {
     /// At least one of them is exclusive (or undeclared).
     Exclusive,
@@ -338,6 +687,8 @@ pub enum AccessConflict {
     Event(&'static str),
     /// One records commands and the other touches components, resources or commands.
     Commands,
+    /// Both use this service and at least one writes it.
+    Service(Service),
 }
 
 impl fmt::Display for AccessConflict {
@@ -348,6 +699,7 @@ impl fmt::Display for AccessConflict {
             AccessConflict::Resource(n) => write!(f, "resource `{n}`"),
             AccessConflict::Event(n) => write!(f, "events `{n}`"),
             AccessConflict::Commands => f.write_str("commands"),
+            AccessConflict::Service(s) => write!(f, "service `{s}`"),
         }
     }
 }
@@ -358,8 +710,8 @@ impl fmt::Display for AccessConflict {
 pub(crate) struct EventUse {
     /// Type, name, sent (else read). One entry per (type, sent).
     pub(crate) used: Vec<(TypeId, &'static str, bool)>,
-    /// Used events without a Rust type (the C/C++ path).
-    pub(crate) raw: bool,
+    /// Events without a Rust type (the C/C++ path): id, sent.
+    pub(crate) raw: Vec<(u32, bool)>,
 }
 
 #[cfg_attr(not(debug_assertions), allow(dead_code))]
@@ -367,6 +719,12 @@ impl EventUse {
     pub(crate) fn note(&mut self, id: TypeId, name: &'static str, sent: bool) {
         if !self.used.iter().any(|&(i, _, s)| i == id && s == sent) {
             self.used.push((id, name, sent));
+        }
+    }
+
+    pub(crate) fn note_raw(&mut self, id: u32, sent: bool) {
+        if !self.raw.contains(&(id, sent)) {
+            self.raw.push((id, sent));
         }
     }
 }
@@ -403,6 +761,11 @@ pub struct ReportedSystem {
     pub phase: Phase,
     /// Its declaration; `None` means undeclared, which counts as exclusive.
     pub access: Option<SystemAccess>,
+    /// `true` for a view system ([`Game::add_view`](crate::Game::add_view)):
+    /// it can reach nothing beyond its declaration, so a parallel executor
+    /// may trust it. Declared `&mut Ctx` systems (`add_with_access`) are
+    /// only checked in debug builds and must stay sequential.
+    pub enforced: bool,
 }
 
 /// Two systems in the same phase and whether they conflict.
@@ -412,7 +775,8 @@ pub struct ReportedPair {
     pub first: usize,
     /// Index of the later system (same phase).
     pub second: usize,
-    /// Why they can't run together; empty if they could.
+    /// Why they can't share a parallel batch, by the ordered rules of
+    /// [`SystemAccess::conflicts_before`]; empty if they could.
     pub conflicts: Vec<AccessConflict>,
 }
 
@@ -443,7 +807,7 @@ impl AccessReport {
                     pairs.push(ReportedPair {
                         first: i,
                         second: j,
-                        conflicts: aa.conflicts_with(ba),
+                        conflicts: aa.conflicts_before(ba),
                     });
                 }
             }
@@ -451,11 +815,20 @@ impl AccessReport {
         AccessReport { systems, pairs }
     }
 
-    /// Names of the pairs that could run together.
+    /// Names of the pairs whose declarations don't conflict.
     pub fn compatible_pairs(&self) -> impl Iterator<Item = (&'static str, &'static str)> + '_ {
         self.pairs
             .iter()
             .filter(|p| p.conflicts.is_empty())
+            .map(|p| (self.systems[p.first].name, self.systems[p.second].name))
+    }
+
+    /// Names of the compatible pairs where both are view systems, the only
+    /// ones a parallel executor may run together.
+    pub fn parallel_pairs(&self) -> impl Iterator<Item = (&'static str, &'static str)> + '_ {
+        self.pairs
+            .iter()
+            .filter(|p| p.conflicts.is_empty() && self.systems[p.first].enforced && self.systems[p.second].enforced)
             .map(|p| (self.systems[p.first].name, self.systems[p.second].name))
     }
 }
@@ -464,8 +837,11 @@ impl fmt::Display for AccessReport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for p in &self.pairs {
             let (a, b) = (self.systems[p.first].name, self.systems[p.second].name);
-            if p.conflicts.is_empty() {
+            let enforced = self.systems[p.first].enforced && self.systems[p.second].enforced;
+            if p.conflicts.is_empty() && enforced {
                 writeln!(f, "{a} + {b}: could run together")?;
+            } else if p.conflicts.is_empty() {
+                writeln!(f, "{a} + {b}: no conflict, but a `Ctx` system stays sequential")?;
             } else {
                 let why: Vec<String> = p.conflicts.iter().map(ToString::to_string).collect();
                 writeln!(f, "{a} + {b}: conflict on {}", why.join(", "))?;
@@ -487,6 +863,9 @@ mod tests {
         let a = SystemAccess::new().read::<Pos>().write::<Pos>().read::<Pos>();
         assert_eq!(a.components.len(), 1);
         assert!(a.components[0].write);
+        let n = SystemAccess::new().read_named("pos").write_named("pos");
+        assert_eq!(n.components.len(), 1);
+        assert!(n.components[0].write);
     }
 
     #[test]
@@ -513,7 +892,7 @@ mod tests {
             ..AccessLog::default()
         };
         let events = EventUse {
-            raw: true,
+            raw: vec![(7, true)],
             ..EventUse::default()
         };
         assert!(

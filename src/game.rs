@@ -289,8 +289,10 @@ struct System {
     phase: u32,
     /// Unique per system: its read position for events.
     id: u32,
-    /// Declared access from `add_with_access`; `None` is exclusive.
+    /// Declared access from `add_with_access` or `add_view`; `None` is exclusive.
     access: Option<crate::SystemAccess>,
+    /// A view system (`add_view`): it can't reach anything undeclared.
+    enforced: bool,
 }
 
 /// Ids for [`System::id`]; 0 means "outside any system".
@@ -325,13 +327,17 @@ fn run_one(s: &mut System, ctx: &mut Ctx, timing_index: usize) {
     let start = Instant::now();
     ctx.system_index = timing_index;
     ctx.events.reader = s.id;
+    // View systems can't reach anything undeclared; only `Ctx` systems
+    // with a declaration need the recorder.
     #[cfg(debug_assertions)]
-    if s.access.is_some() {
+    let check = s.access.as_ref().filter(|_| !s.enforced);
+    #[cfg(debug_assertions)]
+    if check.is_some() {
         crate::access::begin_check(ctx);
     }
     (s.run)(ctx);
     #[cfg(debug_assertions)]
-    if let Some(access) = &s.access {
+    if let Some(access) = check {
         crate::access::end_check(ctx, s.name, access);
     }
     ctx.events.reader = 0;
@@ -356,6 +362,7 @@ impl System {
             phase: 0,
             id,
             access: None,
+            enforced: false,
         }
     }
 }
@@ -505,6 +512,80 @@ impl Game {
         self
     }
 
+    /// Registers a view system: it declares what it reads and writes, and
+    /// gets a [`SystemView`](crate::SystemView) that offers exactly that,
+    /// instead of the whole `Ctx`. Anything undeclared is unreachable (its
+    /// accessors panic, in every build), so the declaration is enforced by
+    /// the view, not trusted. Systems still run one at a time, in order;
+    /// view systems are the only ones a future parallel executor may run
+    /// together. See [`SystemAccess`](crate::SystemAccess) and the guide's
+    /// "Declared system access" chapter.
+    ///
+    /// ```
+    /// use ponko::*;
+    /// struct Pos(f32);
+    /// struct Vel(f32);
+    ///
+    /// fn movement(sys: &mut SystemView) {
+    ///     let dt = sys.dt();
+    ///     sys.world.query::<(&mut Pos, &Vel)>().for_each(|(p, v)| p.0 += v.0 * dt);
+    /// }
+    ///
+    /// let world = Game::new("view", 1, 1)
+    ///     .add_view(
+    ///         Phase::AfterPhysics,
+    ///         SystemAccess::new().write::<Pos>().read::<Vel>().read_service(Service::Time),
+    ///         movement,
+    ///     )
+    ///     .run_headless(60, |ctx| {
+    ///         ctx.world.spawn((Pos(0.0), Vel(1.0)));
+    ///     });
+    /// # let _ = world;
+    /// ```
+    ///
+    /// # Panics
+    /// If `access` can't be a view's: exclusive, items without a Rust type
+    /// (the C/C++ path), or a service the view doesn't offer (`gfx`, `ui`,
+    /// `assets`, `perf`, or writing `input`, `time` or `spatial`). Those
+    /// systems take `&mut Ctx`: use [`add_with_access`](Self::add_with_access).
+    #[track_caller]
+    pub fn add_view(
+        mut self,
+        phase: Phase,
+        access: crate::SystemAccess,
+        system: impl FnMut(&mut crate::SystemView<'_>) + 'static,
+    ) -> Self {
+        let name = crate::system_view::name_of(&system);
+        if let Some(problem) = access.view_problem() {
+            panic!("Game::add_view: system `{name}` {problem}");
+        }
+        let mut s = System::new(crate::system_view::wrap(name, access.clone(), system));
+        s.name = name;
+        s.builtin = None;
+        s.access = Some(access);
+        s.enforced = true;
+        self.insert_system(phase, s);
+        self
+    }
+
+    /// For language bindings (the C API): `named_add` with a declaration
+    /// (checked in debug builds, like [`add_with_access`](Self::add_with_access)).
+    #[doc(hidden)]
+    #[track_caller]
+    pub fn named_add_with_access(
+        mut self,
+        phase: Phase,
+        name: &'static str,
+        ticks: u32,
+        access: crate::SystemAccess,
+        system: impl FnMut(&mut Ctx) + 'static,
+    ) -> Self {
+        let mut s = self.build_named_system(phase, name, ticks, system);
+        s.access = Some(access);
+        self.insert_system(phase, s);
+        self
+    }
+
     /// Every system in run order with its declared access, and which
     /// declared systems in the same phase could run together.
     #[must_use]
@@ -517,6 +598,7 @@ impl Game {
                 name: s.name,
                 phase: s.stage,
                 access: s.access.clone(),
+                enforced: s.enforced,
             })
             .collect();
         crate::AccessReport::new(systems)
@@ -534,6 +616,19 @@ impl Game {
         ticks: u32,
         system: impl FnMut(&mut Ctx) + 'static,
     ) -> Self {
+        let s = self.build_named_system(phase, name, ticks, system);
+        self.insert_system(phase, s);
+        self
+    }
+
+    #[track_caller]
+    fn build_named_system(
+        &self,
+        phase: Phase,
+        name: &'static str,
+        ticks: u32,
+        system: impl FnMut(&mut Ctx) + 'static,
+    ) -> System {
         assert!(ticks > 0, "Game::named_add: the interval must be at least 1 tick");
         assert!(
             ticks == 1 || phase <= Phase::SimLast,
@@ -546,8 +641,7 @@ impl Game {
             s.every = ticks;
             s.phase = same % ticks;
         }
-        self.insert_system(phase, s);
-        self
+        s
     }
 
     fn insert_system(&mut self, phase: Phase, mut s: System) -> SystemId {

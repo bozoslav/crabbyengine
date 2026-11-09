@@ -76,11 +76,12 @@ mod handle;
 mod hot_reload;
 mod input;
 mod inventory;
-pub use access::{AccessConflict, AccessReport, ReportedPair, ReportedSystem, SystemAccess};
+pub use access::{AccessConflict, AccessReport, ReportedPair, ReportedSystem, Service, SystemAccess};
 pub use actions::{
     Action, ActionId, ActionMap, ActionRef, Axis2Binding, AxisBinding, ButtonBinding, InputEvent, InputScenario,
     UnknownAction,
 };
+pub use system_view::{SystemView, ViewEvents};
 #[cfg(feature = "inspector")]
 mod inspector;
 mod logs;
@@ -107,6 +108,7 @@ mod scope;
 mod sheet;
 mod spatial;
 mod stream;
+mod system_view;
 mod text;
 mod texture;
 #[cfg(feature = "3d")]
@@ -220,7 +222,9 @@ pub use ui::{
 };
 
 /// The ECS: entities, components, queries, resources, commands.
-pub use ponko_ecs::{Commands, Component, ComponentId, Entity, Or, Query, QueryFilter, With, Without, World};
+pub use ponko_ecs::{
+    Commands, Component, ComponentId, Entity, Or, Query, QueryFilter, ViewQuery, With, Without, World, WorldView,
+};
 
 /// The full ECS crate, for advanced use (C path, chunks, archetypes).
 pub use ponko_ecs as ecs_core;
