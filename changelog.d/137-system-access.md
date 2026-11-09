@@ -14,9 +14,9 @@
 - Declarations by registered name for C and C++ systems:
   `SystemAccess::read_named` / `write_named` / `read_resource_named` /
   `write_resource_named` / `read_events_named` / `send_events_named`.
-- C API: `crabby_access_*` (`ponko_access_*`), `CrabbyService`,
-  `crabby_game_add_system_with_access`, `crabby_access_conflicts` and
-  `crabby_game_access_report`; C++ `crabby::access`, `crabby::service`,
+- C API: `ponko_access_*`, `PonkoService`,
+  `ponko_game_add_system_with_access`, `ponko_access_conflicts` and
+  `ponko_game_access_report`; C++ `ponko::access`, `ponko::service`,
   `game::add(phase, access, fn)` and `game::access_report()`.
 - `ponko_ecs`: `ViewAccess`, `ViewState` and `WorldView`, restricted world
   views that non-overlapping systems can share across threads.

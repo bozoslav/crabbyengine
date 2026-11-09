@@ -207,9 +207,9 @@ let game = Game::new("named", 1, 1).add_with_access(
 <div>
 
 ```cpp
-// crabby_access_new / crabby_access_write_component("Health") /
-// crabby_access_send_events("Died") / crabby_access_commands, then
-// crabby_game_add_system_with_access. In C++:
+// ponko_access_new / ponko_access_write_component("Health") /
+// ponko_access_send_events("Died") / ponko_access_commands, then
+// ponko_game_add_system_with_access. In C++:
 game.add(ponko::phase::after_physics,
          ponko::access().write<Health>().send_events<Died>().commands(),
          hurt, "hurt");
@@ -223,7 +223,7 @@ like `add_with_access` systems; a violation stops the run with an error
 naming the system. Raw C access can't tell reads from writes, so a
 component or resource declared by name covers any use of it: declare a
 write when the system changes it, so the report shows the conflict.
-`crabby_access_conflicts` and `crabby_game_access_report` expose the rules
+`ponko_access_conflicts` and `ponko_game_access_report` expose the rules
 and the report. C and C++ systems always stay sequential.
 
 ## Design: the soundness strategy (RFC)

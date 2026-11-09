@@ -148,7 +148,7 @@ pub enum Service {
 }
 
 impl Service {
-    /// Every service, in the order of their C numbers (`CRABBY_SERVICE_*`).
+    /// Every service, in the order of their C numbers (`PONKO_SERVICE_*`).
     pub const ALL: [Service; 13] = [
         Service::Input,
         Service::Time,
