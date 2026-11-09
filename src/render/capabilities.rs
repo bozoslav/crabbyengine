@@ -355,12 +355,14 @@ impl std::str::FromStr for GpuTier {
 #[cfg(feature = "window")]
 impl GpuTier {
     /// The limits to open a device with when this tier is forced, given the
-    /// ones the engine would ask for: `engine` itself for `Desktop`.
-    pub(crate) fn device_limits(self, engine: wgpu::Limits) -> wgpu::Limits {
+    /// ones that would be asked for: each no better than the tier's floor
+    /// (and never raised: a request below the floor stays as it is);
+    /// `requested` itself for `Desktop`.
+    pub(crate) fn device_limits(self, requested: wgpu::Limits) -> wgpu::Limits {
         match self {
-            GpuTier::WebGl2 => wgpu::Limits::downlevel_webgl2_defaults(),
-            GpuTier::Baseline => wgpu::Limits::downlevel_defaults(),
-            GpuTier::Desktop => engine,
+            GpuTier::WebGl2 => requested.or_worse_values_from(&wgpu::Limits::downlevel_webgl2_defaults()),
+            GpuTier::Baseline => requested.or_worse_values_from(&wgpu::Limits::downlevel_defaults()),
+            GpuTier::Desktop => requested,
         }
     }
 
@@ -825,6 +827,17 @@ mod tests {
         }
         let all = wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
         assert_eq!(GpuTier::Desktop.device_features(all), all);
+        // Forcing never raises a limit a request already lowered.
+        let lowered = wgpu::Limits {
+            max_compute_workgroups_per_dimension: 0,
+            ..engine.clone()
+        };
+        assert_eq!(
+            GpuTier::Baseline
+                .device_limits(lowered)
+                .max_compute_workgroups_per_dimension,
+            0
+        );
         assert_eq!(
             GpuTier::Baseline.device_features(all),
             wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
