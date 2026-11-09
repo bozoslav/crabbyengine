@@ -9,11 +9,11 @@
 - `GraphicsQuality::for_tier`, `GraphicsQuality::recommended` and
   `GraphicsQuality::fitted_to`: quality presets that ask for nothing the GPU
   lacks.
-- C/C++: `crabby_ctx_gpu_capabilities` (the report as JSON),
-  `crabby_ctx_gpu_tier`, `crabby_ctx_gpu_feature`,
-  `crabby_ctx_recommended_graphics_quality`, `crabby_gpu_tier_report`,
-  `crabby_gpu_tier_feature`, `crabby_graphics_quality_for_tier`, the
-  `CrabbyGpuTier` and `CrabbyGpuFeature` enums (`ponko_*` aliases), and the
+- C/C++: `ponko_ctx_gpu_capabilities` (the report as JSON),
+  `ponko_ctx_gpu_tier`, `ponko_ctx_gpu_feature`,
+  `ponko_ctx_recommended_graphics_quality`, `ponko_gpu_tier_report`,
+  `ponko_gpu_tier_feature`, `ponko_graphics_quality_for_tier`, the
+  `PonkoGpuTier` and `PonkoGpuFeature` enums, and the
   C++ `gpu_tier`, `gpu_feature` and `ctx` wrappers.
 
 ### Fixed
