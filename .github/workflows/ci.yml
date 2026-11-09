@@ -94,9 +94,9 @@ jobs:
           RANGE: ${{ format('{0}..{1}', github.event.merge_group.base_sha, github.event.merge_group.head_sha) }}
         run: |
           set -eu
-          # The group's ref is gh-readonly-queue/<base>/pr-<number>-<sha>,
+          # The group's ref is [refs/heads/]gh-readonly-queue/<base>/pr-<number>-<sha>,
           # naming its newest pull request.
-          newest=$(printf '%s\n' "$HEAD_REF" | sed -n 's|^gh-readonly-queue/.*/pr-\([0-9][0-9]*\)-[0-9a-f]*$|\1|p')
+          newest=$(printf '%s\n' "$HEAD_REF" | sed -n 's|^\(refs/heads/\)\{0,1\}gh-readonly-queue/.*/pr-\([0-9][0-9]*\)-[0-9a-f]*$|\2|p')
           if [ -z "$newest" ]; then
             echo "::error::No pull request number in merge group ref $HEAD_REF"
             exit 1
