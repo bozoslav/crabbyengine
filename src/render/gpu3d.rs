@@ -241,11 +241,22 @@ struct StorageBuffer {
 struct GpuMaterial {
     buffer: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
+    bindings: MaterialBindings,
     shader: u32,
     transparent: bool,
     /// Whether its depth passes cut out pixels by alpha ([`Blend::Cutout`]).
     cutout: bool,
     double_sided: bool,
+}
+
+// Keep the resource identities as well as the requested handles: mip generation
+// and reloads can replace a texture in place. Comparing these fixed arrays does
+// not allocate or create views on uniform-only updates.
+struct MaterialBindings {
+    maps: MaterialTextures,
+    array_ids: [Option<u32>; 3],
+    textures: [wgpu::Texture; 6],
+    arrays: [wgpu::TextureView; 3],
 }
 
 /// One material shader's pipelines, for one-sided and double-sided surfaces.
@@ -1888,22 +1899,58 @@ impl Renderer3D {
         Ok(())
     }
 
+    fn material_texture<'a>(&self, map: Option<u32>, textures: &'a [GpuTexture]) -> &'a wgpu::Texture {
+        let id = map.filter(|&t| (t as usize) < textures.len()).unwrap_or(self.white);
+        &textures[id as usize].texture
+    }
+
+    fn material_array(&self, id: Option<u32>) -> &wgpu::TextureView {
+        id.and_then(|id| self.arrays.get(id as usize))
+            .unwrap_or(&self.white_array)
+    }
+
+    fn material_bindings(&self, desc: &GpuMaterialDesc, textures: &[GpuTexture]) -> MaterialBindings {
+        MaterialBindings {
+            maps: desc.textures,
+            array_ids: desc.arrays,
+            textures: std::array::from_fn(|i| self.material_texture(desc.textures[i], textures).clone()),
+            arrays: std::array::from_fn(|i| self.material_array(desc.arrays[i]).clone()),
+        }
+    }
+
+    fn material_bindings_match(
+        &self,
+        bindings: &MaterialBindings,
+        desc: &GpuMaterialDesc,
+        textures: &[GpuTexture],
+    ) -> bool {
+        bindings.maps == desc.textures
+            && bindings.array_ids == desc.arrays
+            && bindings
+                .textures
+                .iter()
+                .zip(desc.textures)
+                .all(|(texture, id)| texture == self.material_texture(id, textures))
+            && bindings
+                .arrays
+                .iter()
+                .zip(desc.arrays)
+                .all(|(view, id)| view == self.material_array(id))
+    }
+
     fn material_bind_group(
         &self,
         device: &wgpu::Device,
         buffer: &wgpu::Buffer,
-        maps: &MaterialTextures,
-        arrays: &[Option<u32>; 3],
-        textures: &[GpuTexture],
+        bindings: &MaterialBindings,
     ) -> wgpu::BindGroup {
         // Normal and ORM maps hold data, not colors: read them without sRGB decoding.
         let linear = [false, true, true, false, false, false];
-        let views: Vec<wgpu::TextureView> = maps
+        let views: Vec<wgpu::TextureView> = bindings
+            .textures
             .iter()
             .zip(linear)
-            .map(|(map, linear)| {
-                let id = map.filter(|&t| (t as usize) < textures.len()).unwrap_or(self.white);
-                let texture = &textures[id as usize].texture;
+            .map(|(texture, linear)| {
                 // Render targets (HDR) are read as they are.
                 let image = texture.format() == wgpu::TextureFormat::Rgba8UnormSrgb;
                 texture.create_view(&wgpu::TextureViewDescriptor {
@@ -1932,10 +1979,7 @@ impl Renderer3D {
                 resource: wgpu::BindingResource::TextureView(view),
             });
         }
-        for (i, array) in arrays.iter().enumerate() {
-            let view = array
-                .and_then(|id| self.arrays.get(id as usize))
-                .unwrap_or(&self.white_array);
+        for (i, view) in bindings.arrays.iter().enumerate() {
             entries.push(wgpu::BindGroupEntry {
                 binding: 8 + i as u32,
                 resource: wgpu::BindingResource::TextureView(view),
@@ -1954,10 +1998,12 @@ impl Renderer3D {
             contents: bytemuck::bytes_of(&desc.uniform),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
-        let bind_group = self.material_bind_group(device, &buffer, &desc.textures, &desc.arrays, textures);
+        let bindings = self.material_bindings(desc, textures);
+        let bind_group = self.material_bind_group(device, &buffer, &bindings);
         self.materials.push(GpuMaterial {
             buffer,
             bind_group,
+            bindings,
             shader: desc.shader.min(self.shaders.len() as u32 - 1),
             transparent: desc.transparent,
             cutout: desc.cutout,
@@ -1979,10 +2025,15 @@ impl Renderer3D {
             return;
         };
         queue.write_buffer(&material.buffer, 0, bytemuck::bytes_of(&desc.uniform));
-        let bind_group = self.material_bind_group(device, &material.buffer, &desc.textures, &desc.arrays, textures);
+        if !self.material_bindings_match(&material.bindings, desc, textures) {
+            let bindings = self.material_bindings(desc, textures);
+            let bind_group = self.material_bind_group(device, &material.buffer, &bindings);
+            let material = &mut self.materials[id as usize];
+            material.bind_group = bind_group;
+            material.bindings = bindings;
+        }
         let shader = desc.shader.min(self.shaders.len() as u32 - 1);
         let material = &mut self.materials[id as usize];
-        material.bind_group = bind_group;
         material.shader = shader;
         material.transparent = desc.transparent;
         material.cutout = desc.cutout;
@@ -4875,3 +4926,7 @@ mod tests {
         assert!(e.contains("water.wgsl"), "{e}");
     }
 }
+
+#[cfg(test)]
+#[path = "material_render_test.rs"]
+mod material_render_test;
