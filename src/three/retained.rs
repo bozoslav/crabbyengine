@@ -45,7 +45,7 @@
 
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 use glam::{Quat, Vec3};
 
@@ -174,6 +174,11 @@ impl Lists {
                 view.blocks.clear();
             }
         }
+    }
+
+    /// Room for `more` ids without growing further than that.
+    pub fn reserve(&mut self, more: usize) {
+        self.applied.reserve_exact(more.saturating_sub(self.free.len()));
     }
 
     /// A new id, drawn nowhere.
@@ -396,8 +401,8 @@ fn roomy(n: usize) -> usize {
     (n * 2).max(4)
 }
 
-/// What a [`Model`] is collected from: compared byte for byte with the
-/// copy kept from the frame before.
+/// What a [`Model`] is collected from. A 64-bit digest of it is kept per
+/// model, to tell when it changed.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct Source {
@@ -417,6 +422,11 @@ struct Source {
     /// Whether it has a [`Skeleton`].
     skeleton: u32,
 }
+
+/// The first words of a [`Source`]: what its instance is made from
+/// (rotation, position, scale, tint, decal layers).
+const KEPT: usize = 15;
+const SOURCE_WORDS: usize = size_of::<Source>() / size_of::<u32>();
 
 const OWN_SHADOW: u32 = u32::MAX;
 const NO_SHADOW: u32 = u32::MAX - 1;
@@ -457,6 +467,22 @@ impl Source {
         }
     }
 
+    fn words(&self) -> &[u32; SOURCE_WORDS] {
+        bytemuck::cast_ref(self)
+    }
+
+    /// A digest of every field, never zero: two sources that differ have
+    /// the same one once in 2^63 times (then the change shows with the
+    /// model's next one).
+    fn digest(&self) -> u64 {
+        let mut h = 0x9E37_79B9_7F4A_7C15u64;
+        for pair in self.words().chunks(2) {
+            let word = u64::from(pair[0]) | u64::from(pair.get(1).copied().unwrap_or(0)) << 32;
+            h = (h.rotate_left(5) ^ word).wrapping_mul(0x517C_C1B7_2722_0A95);
+        }
+        h | 1
+    }
+
     fn transform(&self) -> Transform3D {
         Transform3D {
             rotation: Quat::from_array(self.rotation),
@@ -464,17 +490,23 @@ impl Source {
             scale: Vec3::from_array(self.scale),
         }
     }
+}
 
-    /// The model as the GPU reads it. The matrix's fourth row is always
-    /// (0, 0, 0, 1): its first slot holds the decal layers the model takes.
-    fn instance(&self) -> Instance3D {
-        let mut model = self.transform().matrix().to_cols_array_2d();
-        model[0][3] = self.receives;
-        let [r, g, b, a] = self.color;
-        Instance3D {
-            model,
-            color: linear(crate::Color { r, g, b, a }),
-        }
+/// The model as the GPU reads it, from the first [`KEPT`] words of its
+/// [`Source`]. The matrix's fourth row is always (0, 0, 0, 1): its first
+/// slot holds the decal layers the model takes.
+fn instance_of(kept: [f32; KEPT]) -> Instance3D {
+    let [qx, qy, qz, qw, px, py, pz, sx, sy, sz, r, g, b, a, receives] = kept;
+    let transform = Transform3D {
+        rotation: Quat::from_xyzw(qx, qy, qz, qw),
+        position: Vec3::new(px, py, pz),
+        scale: Vec3::new(sx, sy, sz),
+    };
+    let mut model = transform.matrix().to_cols_array_2d();
+    model[0][3] = receives;
+    Instance3D {
+        model,
+        color: linear(crate::Color { r, g, b, a }),
     }
 }
 
@@ -535,9 +567,10 @@ fn derive(source: &Source, assets: &Assets3D, overrides: &Overrides<'_>) -> Deri
     let world = |(center, radius): (Vec3, f32)| matrix.transform_point3(center).extend(radius * scale).to_array();
     // The model's own mesh, wherever it is drawn (not a separate
     // `ShadowMesh`), takes the override.
-    let own = match overrides.index.get(&(source.mesh, source.material)) {
-        Some(&k) if source.material != NONE => overrides.base + k,
-        _ => source.mesh,
+    let own = if source.material == NONE {
+        source.mesh
+    } else {
+        (overrides.index.get(&(source.mesh, source.material))).map_or(source.mesh, |k| overrides.base + k)
     };
     Derived {
         sphere: world(bounds),
@@ -550,55 +583,57 @@ fn derive(source: &Source, assets: &Assets3D, overrides: &Overrides<'_>) -> Deri
     }
 }
 
-/// A buffer's start, shared with the tasks of a parallel query: each task
-/// writes only the elements it has claimed.
-struct Shared<T>(*mut T);
-impl<T> Clone for Shared<T> {
-    fn clone(&self) -> Self {
-        *self
-    }
+/// What is kept of a model besides its digest and spheres. Like them it is
+/// atomic, so the tasks of the parallel compare can write the models they
+/// find changed in place (plain loads and stores: every model is found by
+/// one task).
+struct Cold {
+    kept: [AtomicU32; KEPT],
+    /// See [`Derived`].
+    mesh: AtomicU32,
+    caster: AtomicU32,
+    /// The views that see it, as last worked out.
+    pending: AtomicU32,
 }
-impl<T> Copy for Shared<T> {}
-impl<T> Shared<T> {
-    /// A method, so closures capture the whole `Shared` (which is `Sync`),
-    /// not its raw pointer field.
-    fn at(self, i: usize) -> *mut T {
-        self.0.wrapping_add(i)
-    }
+
+fn zeroes<const N: usize>() -> [AtomicU32; N] {
+    std::array::from_fn(|_| AtomicU32::new(0))
 }
-// SAFETY: the pointer is only dereferenced by the task that claimed the
-// element (see `Tracked::sync`), and `T` may be sent between threads.
-unsafe impl<T: Send> Send for Shared<T> {}
-unsafe impl<T: Send> Sync for Shared<T> {}
+
+fn load<const N: usize>(words: &[AtomicU32; N]) -> [f32; N] {
+    std::array::from_fn(|i| f32::from_bits(words[i].load(Ordering::Relaxed)))
+}
 
 /// In `Tracked::results`: nothing to do for the model.
 const UNCHANGED: u32 = u32::MAX;
 /// In `Tracked::results`: the model isn't tracked yet.
 const NEW: u32 = u32::MAX - 1;
 const DEAD: u64 = u64::MAX;
+/// More new models than this in a frame are worked out on all cores.
+const MANY_NEW: usize = 512;
 
 /// Every plain [`Model`] in the world: see the module docs.
 #[derive(Default)]
 pub(crate) struct Tracked {
-    /// By entity index: the entity's object, or [`NONE`]. An entry can be
-    /// stale (its entity gone, the index reused): `entities` tells.
-    slot_of: Vec<u32>,
+    /// By entity index: the entity's generation (high half) and object, or
+    /// [`DEAD`].
+    slot_of: Vec<u64>,
     /// By object, like everything below: the entity's bits, or [`DEAD`].
     entities: Vec<u64>,
-    sources: Vec<Source>,
-    derived: Vec<Derived>,
-    /// The views that see it, as last worked out.
-    pending: Vec<u32>,
+    /// Its [`Source::digest`].
+    digests: Vec<AtomicU64>,
+    /// Its [`Derived`] spheres: own, then caster's.
+    spheres: Vec<[AtomicU32; 8]>,
+    cold: Vec<Cold>,
     /// The views that draw it in the lists.
     applied: Vec<u32>,
     /// Its id in the lists.
     ids: Vec<u32>,
-    /// The frame that last found the object's entity in the world. Claimed
-    /// atomically: the task that sets it to this frame owns the object.
-    stamps: Vec<AtomicU32>,
+    /// The sweep that last found its entity in the world (see `sweep`).
+    stamps: Vec<u32>,
     free: Vec<u32>,
     live: usize,
-    frame: u32,
+    sweeps: u32,
     /// Per model, in query order: [`UNCHANGED`], [`NEW`], or the object
     /// whose lists need bringing up to date.
     results: Vec<u32>,
@@ -606,6 +641,67 @@ pub(crate) struct Tracked {
     facts: Vec<Fact>,
     overrides: (u32, Vec<(u32, u32)>),
     view: Vec<f32>,
+}
+
+/// What the parallel compare reads and (through atomics) writes.
+struct Pass<'a> {
+    slot_of: &'a [u64],
+    digests: &'a [AtomicU64],
+    spheres: &'a [[AtomicU32; 8]],
+    cold: &'a [Cold],
+    applied: &'a [u32],
+    assets: &'a Assets3D,
+    culler: &'a Culler<'a>,
+    overrides: &'a Overrides<'a>,
+    /// Work every model out again.
+    force: bool,
+    /// Cull every model again.
+    cull: bool,
+}
+
+impl Pass<'_> {
+    /// One model: compared with its digest; worked out again if it
+    /// differs, and culled again if it or the views changed. Returns what
+    /// goes into `Tracked::results`.
+    fn check(&self, (entity, t, m, shadow, skeleton, receives, material): ModelItem<'_>) -> u32 {
+        let bits = entity.to_bits();
+        let k = match self.slot_of.get(entity.index() as usize) {
+            Some(&slot) if slot >> 32 == bits >> 32 && (slot as u32 as usize) < self.digests.len() => {
+                slot as u32 as usize
+            }
+            _ => return NEW,
+        };
+        let source = Source::of(t, m, shadow, skeleton, receives, material);
+        let digest = source.digest();
+        // With ECS change ticks, this compare is what a tick test replaces.
+        if self.force || self.digests[k].load(Ordering::Relaxed) != digest {
+            let cold = &self.cold[k];
+            let derived = derive(&source, self.assets, self.overrides);
+            for (kept, &word) in cold.kept.iter().zip(source.words()) {
+                kept.store(word, Ordering::Relaxed);
+            }
+            let spheres = derived.sphere.into_iter().chain(derived.caster_sphere);
+            for (kept, value) in self.spheres[k].iter().zip(spheres) {
+                kept.store(value.to_bits(), Ordering::Relaxed);
+            }
+            cold.mesh.store(derived.mesh, Ordering::Relaxed);
+            cold.caster.store(derived.caster, Ordering::Relaxed);
+            self.digests[k].store(digest, Ordering::Relaxed);
+            let flags = self.culler.classify_spheres(derived.sphere, derived.caster_sphere);
+            cold.pending.store(flags, Ordering::Relaxed);
+            if flags != 0 || self.applied[k] != 0 {
+                return k as u32;
+            }
+        } else if self.cull {
+            let [x, y, z, r, cx, cy, cz, cr] = load(&self.spheres[k]);
+            let flags = self.culler.classify_spheres([x, y, z, r], [cx, cy, cz, cr]);
+            if flags != self.applied[k] {
+                self.cold[k].pending.store(flags, Ordering::Relaxed);
+                return k as u32;
+            }
+        }
+        UNCHANGED
+    }
 }
 
 impl Tracked {
@@ -648,155 +744,196 @@ impl Tracked {
             force = true;
         }
         // Everything is culled again when the views changed.
-        let mut view = std::mem::take(&mut self.view);
-        let cull = culler.changed_since(&mut view);
-        self.view = view;
+        let cull = culler.changed_since(&mut self.view);
 
-        self.frame = self.frame.wrapping_add(1).max(1);
-        let frame = self.frame;
-        let len = self.sources.len();
-        let (slot_of, entities, applied, stamps) = (&self.slot_of, &self.entities, &self.applied, &self.stamps);
-        let sources = Shared(self.sources.as_mut_ptr());
-        let derived = Shared(self.derived.as_mut_ptr());
-        let pending = Shared(self.pending.as_mut_ptr());
-        // On all cores: each model is compared with its copy; one that
-        // differs is worked out again, and culled like every model is when
-        // the views changed.
-        world.query::<ModelItem<'_>>().without::<SkinOf>().par_collect_into(
-            &mut self.results,
-            |(entity, t, m, shadow, skeleton, receives, material)| {
-                let k = match slot_of.get(entity.index() as usize) {
-                    Some(&k) if (k as usize) < len && entities[k as usize] == entity.to_bits() => k as usize,
-                    _ => return NEW,
-                };
-                if stamps[k].swap(frame, Ordering::Relaxed) == frame {
-                    return UNCHANGED; // already claimed (an entity is found once)
-                }
-                // SAFETY: `k < len`, the length of the three buffers, and
-                // the swap above lets one task per frame get here with
-                // `k`: nothing else reads or writes these elements
-                // until the query is over.
-                let (kept, derived, pending) =
-                    unsafe { (&mut *sources.at(k), &mut *derived.at(k), &mut *pending.at(k)) };
-                let source = Source::of(t, m, shadow, skeleton, receives, material);
-                // With ECS change ticks, this compare is what a tick
-                // test replaces.
-                let changed = force || bytemuck::bytes_of(kept) != bytemuck::bytes_of(&source);
-                if changed {
-                    *kept = source;
-                    *derived = derive(&source, assets, overrides);
-                }
-                if changed || cull {
-                    let flags = culler.classify_spheres(derived.sphere, derived.caster_sphere);
-                    *pending = flags;
-                    if flags != applied[k] || (changed && flags != 0) {
-                        return k as u32;
-                    }
-                }
-                UNCHANGED
-            },
-        );
+        // On all cores: each model is compared with what is kept of it.
+        let mut results = std::mem::take(&mut self.results);
+        let pass = |tracked: &Self, results: &mut Vec<u32>, world: &mut World, force| {
+            let pass = Pass {
+                slot_of: &tracked.slot_of,
+                digests: &tracked.digests,
+                spheres: &tracked.spheres,
+                cold: &tracked.cold,
+                applied: &tracked.applied,
+                assets,
+                culler,
+                overrides,
+                force,
+                cull,
+            };
+            world
+                .query::<ModelItem<'_>>()
+                .without::<SkinOf>()
+                .par_collect_into(results, |item| pass.check(item));
+        };
+        pass(self, &mut results, world, force);
         let mut new = 0;
-        for at in 0..self.results.len() {
-            match self.results[at] {
+        for &result in &results {
+            match result {
                 UNCHANGED => {}
                 NEW => new += 1,
                 k => self.apply(k as usize, lists, arena, motion),
             }
         }
-        let found = self.results.len() - new;
+        let found = results.len() - new;
         if new > 0 {
-            // New models: found again in order, each given an object.
+            // New models: found again in order, each given an object. A
+            // few are worked out here; many, on all cores like the rest.
+            self.reserve(new, lists);
+            let many = new > MANY_NEW;
             let mut at = 0;
-            let results = std::mem::take(&mut self.results);
             world.query::<ModelItem<'_>>().without::<SkinOf>().for_each(
                 |(entity, t, m, shadow, skeleton, receives, material)| {
                     at += 1;
                     if results[at - 1] != NEW {
                         return;
                     }
-                    let source = Source::of(t, m, shadow, skeleton, receives, material);
-                    let derived = derive(&source, assets, overrides);
-                    let flags = culler.classify_spheres(derived.sphere, derived.caster_sphere);
-                    let k = self.add(entity, source, derived, flags, lists);
-                    self.apply(k, lists, arena, motion);
+                    let k = self.add(entity, lists);
+                    if many {
+                        return; // its digest matches nothing yet
+                    }
+                    let pass = Pass {
+                        slot_of: &self.slot_of,
+                        digests: &self.digests,
+                        spheres: &self.spheres,
+                        cold: &self.cold,
+                        applied: &self.applied,
+                        assets,
+                        culler,
+                        overrides,
+                        force: true,
+                        cull,
+                    };
+                    if pass.check((entity, t, m, shadow, skeleton, receives, material)) == k as u32 {
+                        self.apply(k, lists, arena, motion);
+                    }
                 },
             );
-            self.results = results;
-        }
-        if found != self.live {
-            // Some tracked models are gone from the world (despawned, or
-            // without the components now): out of the lists.
-            for k in 0..self.entities.len() {
-                if self.entities[k] != DEAD && *self.stamps[k].get_mut() != frame {
-                    lists.clear(arena, self.ids[k]);
-                    self.applied[k] = 0;
-                    let index = self.entities[k] as u32 as usize;
-                    if self.slot_of[index] == k as u32 {
-                        self.slot_of[index] = NONE;
+            if many {
+                pass(self, &mut results, world, false);
+                for &result in &results {
+                    if result < NEW {
+                        self.apply(result as usize, lists, arena, motion);
                     }
-                    self.entities[k] = DEAD;
-                    self.free.push(k as u32);
                 }
             }
         }
+        if found != self.live {
+            self.sweep(world, lists, arena);
+        }
         self.live = found + new;
+        self.results = results;
     }
 
-    /// A new object for `entity`.
-    fn add(&mut self, entity: crate::Entity, source: Source, derived: Derived, flags: u32, lists: &mut Lists) -> usize {
+    /// Room for `new` more objects, without growing the buffers further
+    /// than that.
+    fn reserve(&mut self, new: usize, lists: &mut Lists) {
+        let more = new.saturating_sub(self.free.len());
+        self.entities.reserve_exact(more);
+        self.digests.reserve_exact(more);
+        self.spheres.reserve_exact(more);
+        self.cold.reserve_exact(more);
+        self.applied.reserve_exact(more);
+        self.ids.reserve_exact(more);
+        self.stamps.reserve_exact(more);
+        lists.reserve(more);
+    }
+
+    /// A new object for `entity`, with a digest that isn't its source's.
+    fn add(&mut self, entity: crate::Entity, lists: &mut Lists) -> usize {
         let k = match self.free.pop() {
             Some(k) => k as usize,
             None => {
                 self.entities.push(DEAD);
-                self.sources.push(source);
-                self.derived.push(derived);
-                self.pending.push(0);
+                self.digests.push(AtomicU64::new(0));
+                self.spheres.push(zeroes());
+                self.cold.push(Cold {
+                    kept: zeroes(),
+                    mesh: AtomicU32::new(0),
+                    caster: AtomicU32::new(0),
+                    pending: AtomicU32::new(0),
+                });
                 self.applied.push(0);
                 self.ids.push(lists.alloc());
-                self.stamps.push(AtomicU32::new(0));
+                self.stamps.push(0);
                 self.entities.len() - 1
             }
         };
         self.entities[k] = entity.to_bits();
-        self.sources[k] = source;
-        self.derived[k] = derived;
-        self.pending[k] = flags;
-        *self.stamps[k].get_mut() = self.frame;
+        *self.digests[k].get_mut() = 0; // no source's
+        self.applied[k] = 0;
+        *self.cold[k].pending.get_mut() = 0;
         let index = entity.index() as usize;
         if self.slot_of.len() <= index {
-            self.slot_of.resize(index + 1, NONE);
+            self.slot_of.resize(index + 1, DEAD);
         }
-        self.slot_of[index] = k as u32;
+        self.slot_of[index] = entity.to_bits() & !0xFFFF_FFFF | k as u64;
         k
     }
 
     /// Brings the lists up to date with object `k`.
     fn apply(&mut self, k: usize, lists: &mut Lists, arena: &mut Vec<Instance3D>, motion: &mut Motion) {
-        let (flags, was, id) = (self.pending[k], self.applied[k], self.ids[k]);
+        let cold = &self.cold[k];
+        let (flags, was, id) = (cold.pending.load(Ordering::Relaxed), self.applied[k], self.ids[k]);
         if flags == 0 {
             if was != 0 {
                 lists.clear(arena, id);
             }
         } else {
-            let derived = self.derived[k];
-            let instance = self.sources[k].instance();
+            let instance = instance_of(load(&cold.kept));
+            let (mesh, caster) = (cold.mesh.load(Ordering::Relaxed), cold.caster.load(Ordering::Relaxed));
             if was & flags & 1 != 0 && motion.tracking() {
                 let before = arena[lists.slot(0, id)].model;
-                motion.moved(derived.mesh, &instance, before);
+                motion.moved(mesh, &instance, before);
             }
-            let mut meshes = [derived.caster; 1 + MAX_CASCADES];
-            meshes[0] = derived.mesh;
+            let mut meshes = [caster; 1 + MAX_CASCADES];
+            meshes[0] = mesh;
             lists.set(arena, id, &meshes, flags, &instance);
         }
         self.applied[k] = flags;
     }
 
+    /// Some tracked models are gone from the world (despawned, or without
+    /// the components now): finds which, and takes them out of the lists.
+    fn sweep(&mut self, world: &mut World, lists: &mut Lists, arena: &mut Vec<Instance3D>) {
+        self.sweeps = self.sweeps.wrapping_add(1).max(1);
+        let sweep = self.sweeps;
+        let (slot_of, stamps) = (&self.slot_of, &mut self.stamps);
+        world
+            .query::<ModelItem<'_>>()
+            .without::<SkinOf>()
+            .for_each(|(entity, ..)| {
+                let bits = entity.to_bits();
+                if let Some(&slot) = slot_of.get(entity.index() as usize)
+                    && slot >> 32 == bits >> 32
+                    && let Some(stamp) = stamps.get_mut(slot as u32 as usize)
+                {
+                    *stamp = sweep;
+                }
+            });
+        for k in 0..self.entities.len() {
+            if self.entities[k] != DEAD && self.stamps[k] != sweep {
+                lists.clear(arena, self.ids[k]);
+                self.applied[k] = 0;
+                let index = self.entities[k] as u32 as usize;
+                if self.slot_of[index] == self.entities[k] & !0xFFFF_FFFF | k as u64 {
+                    self.slot_of[index] = DEAD;
+                }
+                self.entities[k] = DEAD;
+                self.free.push(k as u32);
+            }
+        }
+    }
+
     /// Bytes kept between frames.
     pub fn bytes(&self) -> usize {
-        let per_object = size_of::<u64>() + size_of::<Source>() + size_of::<Derived>() + 4 * size_of::<u32>();
-        self.entities.capacity() * per_object
-            + (self.slot_of.capacity() + self.free.capacity() + self.results.capacity()) * size_of::<u32>()
+        self.entities.capacity() * size_of::<u64>()
+            + self.digests.capacity() * size_of::<AtomicU64>()
+            + self.spheres.capacity() * size_of::<[AtomicU32; 8]>()
+            + self.cold.capacity() * size_of::<Cold>()
+            + (self.applied.capacity() + self.ids.capacity() + self.stamps.capacity()) * size_of::<u32>()
+            + self.slot_of.capacity() * size_of::<u64>()
+            + (self.free.capacity() + self.results.capacity()) * size_of::<u32>()
             + self.facts.capacity() * size_of::<Fact>()
             + self.overrides.1.capacity() * size_of::<(u32, u32)>()
             + self.view.capacity() * size_of::<f32>()
