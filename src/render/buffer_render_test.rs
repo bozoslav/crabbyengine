@@ -222,8 +222,7 @@ impl Rig {
         self.queue.submit([encoder.finish()]);
         readback.map_async(wgpu::MapMode::Read, .., |r| r.unwrap());
         self.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-        let pixels = readback.get_mapped_range(..).unwrap().to_vec();
-        pixels
+        readback.get_mapped_range(..).unwrap().to_vec()
     }
 }
 
@@ -819,5 +818,119 @@ fn instance_levels_select_boundary_meshes_and_colors_on_gpu_and_fallback() {
             )
             .unwrap();
         }
+    }
+}
+
+#[test]
+fn instance_levels_overlap_exactly_without_copying_source_records() {
+    let Some(mut rig) = Rig::new() else {
+        return;
+    };
+    let mesh = rig.mesh(
+        &MeshData::cube(1.0),
+        MaterialDesc {
+            emissive: Color::WHITE,
+            ..Default::default()
+        },
+    );
+    rig.ctx.camera3d.position = Vec3::ZERO;
+    rig.ctx.camera3d.look_at(-Vec3::Z);
+    rig.ctx.lighting.shadows = false;
+    let levels =
+        [(0.0, 10.0), (10.0, 20.0), (9.0, 11.0), (30.0, 40.0)].map(|(min_distance, max_distance)| InstanceLevel {
+            mesh,
+            min_distance,
+            max_distance,
+            camera: true,
+            shadows: false,
+        });
+    let b = rig.ctx.create_instance_batch_levels(
+        &levels,
+        &[Mat4::from_translation(vec3(0.0, 0.0, -10.0))],
+        &[],
+        Default::default(),
+    );
+    rig.renderer.set_instance_batch(
+        &rig.device,
+        b.id(),
+        rig.ctx.assets3d.instance_batches[b.id() as usize].as_ref(),
+    );
+    rig.draw();
+    let batch = rig.renderer.static_batches[b.id() as usize].as_ref().unwrap();
+    assert_eq!(
+        batch.vertices.size(),
+        96 + 16 + 32,
+        "one shared source record, including bounds"
+    );
+    assert_eq!(batch.views.len(), 3, "distant level and shadow views allocate nothing");
+    let read = rig.device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: 60,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut encoder = rig.device.create_command_encoder(&Default::default());
+    for (i, v) in batch.views.iter().enumerate() {
+        encoder.copy_buffer_to_buffer(&v.args, 0, &read, (i * 20) as u64, 20);
+    }
+    rig.queue.submit([encoder.finish()]);
+    read.map_async(wgpu::MapMode::Read, .., |r| r.unwrap());
+    rig.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    let bytes = read.get_mapped_range(..).unwrap();
+    let counts: Vec<_> = (0..3)
+        .map(|i| u32::from_le_bytes(bytes[i * 20 + 4..i * 20 + 8].try_into().unwrap()))
+        .collect();
+    assert_eq!(
+        counts,
+        [0, 1, 1],
+        "the exclusive boundary and intentional overlap are evaluated per instance"
+    );
+}
+
+#[test]
+fn instance_levels_keep_off_center_meshes_and_hide_shadow_only_geometry() {
+    let Some(mut rig) = Rig::new() else {
+        return;
+    };
+    let mut data = MeshData::cube(1.0);
+    for p in &mut data.positions {
+        *p += vec3(0.0, 0.0, -10.0);
+    }
+    let mesh = rig.mesh(
+        &data,
+        MaterialDesc {
+            emissive: Color::WHITE,
+            ..Default::default()
+        },
+    );
+    rig.ctx.camera3d.position = Vec3::ZERO;
+    rig.ctx.camera3d.look_at(-Vec3::Z);
+    rig.ctx.lighting.shadows = false;
+    for camera in [true, false] {
+        let b = rig.ctx.create_instance_batch_levels(
+            &[InstanceLevel {
+                mesh,
+                min_distance: 0.0,
+                max_distance: 1.0,
+                camera,
+                shadows: true,
+            }],
+            &[Mat4::IDENTITY],
+            &[],
+            Default::default(),
+        );
+        rig.renderer.set_instance_batch(
+            &rig.device,
+            b.id(),
+            rig.ctx.assets3d.instance_batches[b.id() as usize].as_ref(),
+        );
+        let pixels = rig.draw();
+        let i = ((SIZE / 2 * SIZE + SIZE / 2) * 4) as usize;
+        assert_eq!(
+            pixels[i] > 150,
+            camera,
+            "origin bands must ignore an off-centre mesh's sphere distance, and honour camera flags"
+        );
+        rig.renderer.set_instance_batch(&rig.device, b.id(), None);
     }
 }

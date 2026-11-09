@@ -2299,6 +2299,22 @@ void persistent_instances(ponko::ctx& ctx, ponko::mesh mesh) {
 }
 // ANCHOR_END: gpu_instances
 
+// ANCHOR: instance_levels
+void leveled_instances(ponko::ctx& ctx, ponko::mesh near_mesh, ponko::mesh far_mesh) {
+    std::vector<ponko::instance_level> levels = {
+        {near_mesh, 0, 25, true, false},
+        {far_mesh, 25, 100, true, true},
+        {far_mesh, 0, 25, false, true},
+    };
+    std::vector<std::array<float,16>> transforms = {{
+        1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1
+    }};
+    auto batch = ctx.create_instance_batch_levels(levels, transforms, {ponko::colors::red});
+    ctx.update_instance_batch_colors(batch, transforms, {ponko::colors::blue});
+    ctx.free_instance_batch(batch);
+}
+// ANCHOR_END: instance_levels
+
 // ANCHOR: handles
 void stream_out(ponko::ctx& ctx) {
     auto before = ctx.live_counts();

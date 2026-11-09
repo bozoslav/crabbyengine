@@ -1,11 +1,10 @@
 struct Cell { lo:vec4<f32>, hi:vec4<f32> };
 struct View { planes:array<vec4<f32>,6>, camera:vec4<f32>, occlusion:vec4<f32>, band:vec4<f32> };
 @group(0) @binding(0) var<storage,read> data:array<vec4<f32>>;
-@group(0) @binding(1) var<storage,read> cells:array<Cell>;
+@group(0) @binding(1) var<storage,read_write> indices:array<u32>;
 @group(0) @binding(2) var<storage,read_write> args:array<atomic<u32>>;
 @group(0) @binding(3) var<uniform> view:View;
 @group(0) @binding(4) var<storage,read> depth:array<f32>;
-@group(0) @binding(5) var<storage,read_write> indices:array<u32>;
 fn hidden(center:vec3<f32>, radius:f32) -> bool {
     if view.occlusion.x == 0.0 || depth[3] == 0.0 {return false;}
     let vp=mat4x4<f32>(vec4<f32>(depth[4],depth[5],depth[6],depth[7]),vec4<f32>(depth[8],depth[9],depth[10],depth[11]),vec4<f32>(depth[12],depth[13],depth[14],depth[15]),vec4<f32>(depth[16],depth[17],depth[18],depth[19]));
@@ -32,8 +31,9 @@ fn visible(center:vec3<f32>, radius:f32) -> bool {
 @compute @workgroup_size(64)
 fn main(@builtin(workgroup_id) group:vec3<u32>, @builtin(local_invocation_index) lane:u32) {
     let cell_index=group.x+group.y*256u;
-    if cell_index >= arrayLength(&cells) {return;}
-    let cell=cells[cell_index];
+    if cell_index >= u32(data[0].y) {return;}
+    let base=1u+u32(data[0].x)*6u+cell_index*2u;
+    let cell=Cell(data[base],data[base+1u]);
     if !visible((cell.lo.xyz+cell.hi.xyz)*0.5,length(cell.hi.xyz-cell.lo.xyz)*0.5) {return;}
     let start=bitcast<u32>(cell.lo.w); let end=start+bitcast<u32>(cell.hi.w);
     for(var i=start+lane;i<end;i+=64u) {

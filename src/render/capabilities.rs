@@ -167,7 +167,7 @@ pub struct GpuFeatureStatus {
 /// decals: the 16 WebGL2 and WebGPU's defaults allow, and the decal images.
 pub(crate) const DECAL_SAMPLED_TEXTURES: u32 = 17;
 /// Storage buffers the per-instance culling pass binds at once.
-const CULLING_STORAGE_BUFFERS: u32 = 5;
+const CULLING_STORAGE_BUFFERS: u32 = 4;
 /// Storage buffers the skinning pass binds at once (see `skinning.rs`).
 const SKINNING_STORAGE_BUFFERS: u32 = 6;
 
@@ -467,7 +467,7 @@ mod tests {
     #[test]
     fn few_storage_buffers_turn_off_skinning_before_culling() {
         let limits = GpuLimits {
-            max_storage_buffers_per_shader_stage: 5,
+            max_storage_buffers_per_shader_stage: 4,
             ..webgpu(16)
         };
         let r = caps(limits, false);
@@ -476,7 +476,7 @@ mod tests {
         assert!(!skinning.available);
         assert_eq!(
             skinning.reason.as_deref(),
-            Some("max_storage_buffers_per_shader_stage is 5; 6 are needed")
+            Some("max_storage_buffers_per_shader_stage is 4; 6 are needed")
         );
         assert!(!r.available(GpuFeature::Timestamps));
     }

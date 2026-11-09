@@ -4630,7 +4630,7 @@ impl Renderer3D {
                 if self.meshes.get(l.mesh.id as usize).is_none_or(|m| m.buffers.is_none()) {
                     continue;
                 }
-                let visible = if batch.gpu_cells.is_some() {
+                let visible = if batch.compute {
                     batch.view(view, level).is_some()
                 } else {
                     batch
