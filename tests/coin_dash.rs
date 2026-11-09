@@ -55,7 +55,7 @@ fn coin_layout(world: &mut World) -> Vec<Vec2> {
 fn collecting_every_coin_wins_the_round() {
     let mut world = script(chase_nearest_coin).run_headless(ROUND_SECONDS as u64 * HZ, setup);
     let round = world.resource::<Round>().clone();
-    assert_eq!(round.phase, Phase::Won);
+    assert_eq!(round.phase, RoundState::Won);
     assert_eq!((round.collected, round.number), (COINS, 1));
     assert!(round.time_left > 0.0, "won with time to spare, got {}", round.time_left);
     assert_eq!(world.query::<&Coin>().iter().count(), 0);
@@ -68,13 +68,13 @@ fn a_finished_round_stays_finished_until_restart() {
         chase_nearest_coin(ctx);
         // Once won, keep "walking" and let the clock run: nothing may change.
         let round = ctx.world.resource::<Round>().clone();
-        if round.phase == Phase::Won {
+        if round.phase == RoundState::Won {
             let seen = (round.collected, round.time_left);
             assert_eq!(*frozen.get_or_insert(seen), seen, "state changed after winning");
         }
     })
     .run_headless(ROUND_SECONDS as u64 * HZ, setup);
-    assert_eq!(world.resource::<Round>().phase, Phase::Won);
+    assert_eq!(world.resource::<Round>().phase, RoundState::Won);
     assert_eq!(world.query::<&Player>().iter().count(), 1);
 }
 
@@ -83,7 +83,7 @@ fn running_out_of_time_loses_the_round() {
     let ticks = ROUND_SECONDS as u64 * HZ + 10; // a few spare ticks for rounding
     let world = script(|_| {}).run_headless(ticks, setup);
     let round = world.resource::<Round>();
-    assert_eq!(round.phase, Phase::Lost);
+    assert_eq!(round.phase, RoundState::Lost);
     assert_eq!((round.collected, round.time_left), (0, 0.0));
 }
 
@@ -91,7 +91,7 @@ fn running_out_of_time_loses_the_round() {
 /// is over, and stops on that tick.
 fn restart_when_over(mut play: impl FnMut(&mut Ctx) + 'static) -> impl FnMut(&mut Ctx) + 'static {
     move |ctx| {
-        if ctx.world.resource::<Round>().phase == Phase::Playing {
+        if ctx.world.resource::<Round>().phase == RoundState::Playing {
             play(ctx);
         } else {
             ctx.world.resource_mut::<Intent>().restart = true;
@@ -102,7 +102,7 @@ fn restart_when_over(mut play: impl FnMut(&mut Ctx) + 'static) -> impl FnMut(&mu
 
 fn assert_fresh_round(world: &mut World, number: u32) {
     let round = world.resource::<Round>().clone();
-    assert_eq!(round.phase, Phase::Playing);
+    assert_eq!(round.phase, RoundState::Playing);
     assert_eq!((round.number, round.collected), (number, 0));
     assert_eq!(round.time_left, ROUND_SECONDS);
     assert_eq!(world.query::<&Coin>().iter().count(), COINS);
@@ -149,7 +149,7 @@ fn the_restarted_round_can_be_won_too() {
     let mut restarted = false;
     let mut world = script(move |ctx| {
         let round = ctx.world.resource::<Round>().clone();
-        if round.phase == Phase::Won && round.number == 1 && !restarted {
+        if round.phase == RoundState::Won && round.number == 1 && !restarted {
             restarted = true;
             ctx.world.resource_mut::<Intent>().restart = true;
         }
@@ -157,7 +157,10 @@ fn the_restarted_round_can_be_won_too() {
     })
     .run_headless(2 * ROUND_SECONDS as u64 * HZ, setup);
     let round = world.resource::<Round>().clone();
-    assert_eq!((round.phase, round.number, round.collected), (Phase::Won, 2, COINS));
+    assert_eq!(
+        (round.phase, round.number, round.collected),
+        (RoundState::Won, 2, COINS)
+    );
     assert_eq!(world.query::<&Coin>().iter().count(), 0);
 }
 
