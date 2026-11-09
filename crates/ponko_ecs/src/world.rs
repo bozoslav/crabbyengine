@@ -17,8 +17,9 @@ struct BundleInfo {
     columns: Box<[usize]>,
 }
 
-/// One chunk of entities handed to [`World::for_each_chunk`]: `len` entities
-/// and one column pointer per requested component, in request order.
+/// One chunk of entities handed to [`World::for_each_chunk`] or
+/// [`World::query_chunks`]: `len` entities and one column pointer per
+/// requested component, in request order.
 pub struct Chunk<'a> {
     /// The entities in this chunk; row `i` of each column belongs to `entities[i]`.
     pub entities: &'a [Entity],

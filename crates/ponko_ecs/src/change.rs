@@ -40,7 +40,7 @@ use crate::bundle::Component;
 use crate::entity::Entity;
 use crate::query::{Filters, OrTerm, QueryData, QueryFilter};
 use crate::storage::{Archetype, ComponentId, ComponentInfo};
-use crate::world::World;
+use crate::world::{Chunk, World};
 
 /// A point in a world's change history, from [`World::change_tick`] or
 /// [`World::advance_change_tick`].
@@ -311,6 +311,13 @@ impl Runs<'_> {
     /// The next run `start..end` of passing rows, stamped as changed for
     /// every tracked component `Q` may write.
     pub(crate) fn next<Q: QueryData>(&mut self, ids: &Q::Ids) -> Option<(usize, usize)> {
+        let (start, end) = self.next_run()?;
+        mark::<Q>(self.arch, ids, self.rows.clock.now, start, end);
+        Some((start, end))
+    }
+
+    /// The next run `start..end` of passing rows.
+    fn next_run(&mut self) -> Option<(usize, usize)> {
         let len = self.arch.len();
         let mut start = self.next;
         while start < len && !self.rows.passes(start) {
@@ -326,7 +333,6 @@ impl Runs<'_> {
         }
         // Row `end` (if any) failed: skip it next time.
         self.next = (end + 1).min(len);
-        mark::<Q>(self.arch, ids, self.rows.clock.now, start, end);
         Some((start, end))
     }
 }
@@ -335,12 +341,21 @@ impl Runs<'_> {
 /// component `Q` may write.
 fn mark<Q: QueryData>(arch: &Archetype, ids: &Q::Ids, stamp: u32, start: usize, end: usize) {
     Q::access(ids, &mut |id, mutable, _| {
-        if mutable && let Some(changed) = arch.changed_stamps(id) {
-            // SAFETY: `start..end` are live rows, one stamp each. The query
-            // borrows the world mutably, so nothing else reads them now.
-            unsafe { std::slice::from_raw_parts_mut(changed.add(start), end - start).fill(stamp) };
+        if mutable {
+            mark_rows(arch, id, stamp, start, end);
         }
     });
+}
+
+/// Stamps rows `start..end` of component `id` in `arch` as changed, if the
+/// component is there and tracked. The rows must be live, and the caller
+/// must hold the world mutably (nothing else reads the stamps meanwhile).
+fn mark_rows(arch: &Archetype, id: ComponentId, stamp: u32, start: usize, end: usize) {
+    debug_assert!(start <= end && end <= arch.len());
+    if let Some(changed) = arch.changed_stamps(id) {
+        // SAFETY: `start..end` are live rows, with one stamp each.
+        unsafe { std::slice::from_raw_parts_mut(changed.add(start), end - start).fill(stamp) };
+    }
 }
 
 /// Prepares a query's pass over tracked archetype `arch`. Without a row
@@ -386,12 +401,52 @@ pub(crate) fn count(arch: &Archetype, filters: &Filters, clock: Clock) -> usize 
     }
 }
 
-/// Stamps every row of the tracked columns `ids` of `arch` as changed.
+/// Stamps every row of the tracked columns `ids` of `arch` as changed. The
+/// caller must hold the world mutably.
 pub(crate) fn mark_columns(arch: &Archetype, ids: &[ComponentId], stamp: u32) {
     for &id in ids {
-        if let Some(changed) = arch.changed_stamps(id) {
-            // SAFETY: one stamp per live row; the caller borrows the world mutably.
-            unsafe { std::slice::from_raw_parts_mut(changed, arch.len()).fill(stamp) };
+        mark_rows(arch, id, stamp, 0, arch.len());
+    }
+}
+
+/// A chunk query that says which columns it writes and which rows it wants:
+/// what a typed query's `&T`/`&mut T` and [`Added`]/[`Changed`] filters say,
+/// for components known only by id (the C/C++ path). Run it with
+/// [`World::query_chunks`].
+///
+/// Bit `i` of each mask is about `ids[i]`.
+#[derive(Clone, Copy, Debug)]
+pub struct ChunkQuery<'a> {
+    /// The components to visit; every entity visited has all of them.
+    pub ids: &'a [ComponentId],
+    /// Columns the callback may write. Their rows count as changed, written
+    /// or not; the other columns must only be read.
+    pub writes: u32,
+    /// Only visit rows where these columns changed after `since`.
+    pub changed: u32,
+    /// Only visit rows where these columns were added after `since`. At most
+    /// 8 `changed` and `added` bits together.
+    pub added: u32,
+    /// `false`: a row must pass every `changed` and `added` bit. `true`: one
+    /// of them is enough.
+    pub any: bool,
+    /// The reader's tick; `None` for the world's
+    /// [`changes_since`](World::changes_since).
+    pub since: Option<Tick>,
+}
+
+impl<'a> ChunkQuery<'a> {
+    /// Every row of every archetype with all of `ids`, with every column
+    /// writable: what [`World::for_each_chunk`] does.
+    #[must_use]
+    pub fn new(ids: &'a [ComponentId]) -> Self {
+        ChunkQuery {
+            ids,
+            writes: u32::MAX,
+            changed: 0,
+            added: 0,
+            any: false,
+            since: None,
         }
     }
 }
@@ -666,6 +721,123 @@ impl World {
         }
         let first = log.ticks.partition_point(|&tick| tick <= since.0);
         &log.entities[first..]
+    }
+
+    /// [`for_each_chunk`](Self::for_each_chunk) with per-column access and
+    /// change filters: only the columns in `query.writes` count as changed,
+    /// and with `query.changed` or `query.added` set, `f` gets the runs of
+    /// consecutive rows that pass instead of whole archetypes. A filter
+    /// starts tracking its component, as [`Changed`] does.
+    ///
+    /// ```
+    /// # use ponko_ecs::*;
+    /// let mut world = World::new();
+    /// // SAFETY: f32 is plain bytes.
+    /// let speed = unsafe { world.register_component("Speed", 4, 4, None) };
+    /// world.track_changes_dynamic(speed);
+    /// let spawn = |world: &mut World, value: f32| {
+    ///     // SAFETY: points to a valid f32, which needs no drop.
+    ///     unsafe { world.spawn_dynamic(&[(speed, (&value as *const f32).cast())]) }
+    /// };
+    /// let (a, b) = (spawn(&mut world, 1.0), spawn(&mut world, 2.0));
+    /// let seen = world.advance_change_tick();
+    /// assert!(world.mark_changed_dynamic(b, speed));
+    ///
+    /// // Read-only, and only the rows whose `Speed` changed after `seen`.
+    /// let ids = [speed];
+    /// let query = ChunkQuery { writes: 0, changed: 1, since: Some(seen), ..ChunkQuery::new(&ids) };
+    /// let mut changed = Vec::new();
+    /// world.query_chunks(query, |chunk| changed.extend_from_slice(chunk.entities));
+    /// assert_eq!(changed, [b]);
+    /// # let _ = a;
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// With more than 32 component ids, or more than 8 `changed` and
+    /// `added` bits together.
+    pub fn query_chunks(&mut self, query: ChunkQuery<'_>, mut f: impl FnMut(Chunk<'_>)) {
+        const MAX: usize = 32;
+        let ids = query.ids;
+        assert!(ids.len() <= MAX, "query_chunks: at most {MAX} components");
+        let used = if ids.len() == MAX {
+            u32::MAX
+        } else {
+            (1 << ids.len()) - 1
+        };
+        assert!(
+            (query.changed & used).count_ones() + (query.added & used).count_ones() <= MAX_CLAUSES as u32,
+            "query_chunks: at most {MAX_CLAUSES} `changed` and `added` filters"
+        );
+        let bit = |mask: u32, i: usize| mask >> i & 1 != 0;
+        self.recorder.note(|l| {
+            for (i, &id) in ids.iter().enumerate() {
+                l.component(id, bit(query.writes, i));
+            }
+        });
+        let mut filtered = false;
+        for (i, &id) in ids.iter().enumerate() {
+            if bit(query.changed | query.added, i) {
+                self.track_changes_dynamic(id);
+                filtered = true;
+            }
+        }
+        let clock = Clock::new(self.change_tick(), query.since.unwrap_or(self.changes_since()));
+        let stamp = self.changes.stamp();
+        let mut cols = [0; MAX];
+        let mut ptrs = [std::ptr::null_mut(); MAX];
+        'arch: for arch in self.archetypes.iter() {
+            if arch.is_empty() {
+                continue;
+            }
+            for (i, &id) in ids.iter().enumerate() {
+                match arch.column_index(id) {
+                    Some(col) => cols[i] = col,
+                    None => continue 'arch,
+                }
+            }
+            // `None`: every row. A filtered column is tracked and present,
+            // so its archetype is tracked.
+            let mut runs = (filtered && arch.tracked()).then(|| {
+                let mut rows = RowFilter::new(clock);
+                for (i, &id) in ids.iter().enumerate() {
+                    for (mask, added) in [(query.added, true), (query.changed, false)] {
+                        if bit(mask, i) {
+                            rows.term(arch.read_stamps(id, added).expect("a filtered column is tracked"));
+                            if !query.any {
+                                rows.close();
+                            }
+                        }
+                    }
+                }
+                if query.any {
+                    rows.close();
+                }
+                Runs { arch, rows, next: 0 }
+            });
+            let (mut start, mut end) = (0, arch.len());
+            loop {
+                if let Some(runs) = &mut runs {
+                    match runs.next_run() {
+                        Some(run) => (start, end) = run,
+                        None => break,
+                    }
+                }
+                for (i, &id) in ids.iter().enumerate() {
+                    if arch.tracked() && bit(query.writes, i) {
+                        mark_rows(arch, id, stamp, start, end);
+                    }
+                    ptrs[i] = arch.columns[cols[i]].ptr(start);
+                }
+                f(Chunk {
+                    entities: &arch.entities[start..end],
+                    columns: &ptrs[..ids.len()],
+                });
+                if runs.is_none() {
+                    break;
+                }
+            }
+        }
     }
 
     /// Drops removals logged at or before `tick`: call it with the oldest

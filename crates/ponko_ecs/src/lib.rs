@@ -49,7 +49,7 @@ mod world;
 
 pub use access::AccessLog;
 pub use bundle::{Bundle, Component};
-pub use change::{Added, Changed, Tick};
+pub use change::{Added, Changed, ChunkQuery, Tick};
 pub use commands::Commands;
 pub use entity::Entity;
 pub use query::{Or, OrTerm, OrTerms, Query, QueryData, QueryFilter, QueryIter, With, Without};

@@ -1027,6 +1027,167 @@ mod dynamic {
         let _ = b;
     }
 
+    /// The entities a chunk query visits, and the chunk sizes it used.
+    fn chunks(w: &mut World, query: ChunkQuery<'_>) -> (Vec<Entity>, Vec<usize>) {
+        let (mut entities, mut sizes) = (Vec::new(), Vec::new());
+        w.query_chunks(query, |chunk| {
+            assert_eq!(chunk.columns.len(), query.ids.len());
+            assert!(!chunk.is_empty());
+            entities.extend_from_slice(chunk.entities);
+            sizes.push(chunk.len());
+        });
+        (entities, sizes)
+    }
+
+    #[test]
+    fn chunk_queries_mark_only_the_columns_they_write() {
+        let mut w = World::new();
+        let speed = w.track_changes::<Speed>();
+        let health = w.track_changes::<Health>();
+        let a = w.spawn((Speed(1.0), Health(1)));
+        let b = w.spawn((Speed(2.0), Health(2), Player));
+        let seen = w.advance_change_tick();
+        let ids = [speed, health];
+        // Read-only: nothing changes.
+        let all = chunks(
+            &mut w,
+            ChunkQuery {
+                writes: 0,
+                ..ChunkQuery::new(&ids)
+            },
+        );
+        assert_eq!(all, (vec![a, b], vec![1, 1]));
+        assert_eq!(changed::<Speed>(&mut w, seen), []);
+        assert_eq!(changed::<Health>(&mut w, seen), []);
+        // Writing the second column only.
+        chunks(
+            &mut w,
+            ChunkQuery {
+                writes: 0b10,
+                ..ChunkQuery::new(&ids)
+            },
+        );
+        assert_eq!(changed::<Speed>(&mut w, seen), []);
+        assert_eq!(changed::<Health>(&mut w, seen), [a, b]);
+        // The default writes everything, like `for_each_chunk`.
+        let seen = w.advance_change_tick();
+        chunks(&mut w, ChunkQuery::new(&ids));
+        assert_eq!(changed::<Speed>(&mut w, seen), [a, b]);
+        assert_eq!(changed::<Health>(&mut w, seen), [a, b]);
+    }
+
+    #[test]
+    fn chunk_queries_visit_runs_of_changed_rows_with_matching_columns() {
+        let mut w = World::new();
+        let speed = w.track_changes::<Speed>();
+        let es: Vec<Entity> = (0..10).map(|i| w.spawn((Speed(i as f32), Health(i)))).collect();
+        let health = w.component_id::<Health>().unwrap();
+        let seen = w.advance_change_tick();
+        for i in [1, 2, 3, 7, 9] {
+            assert!(w.mark_changed::<Speed>(es[i]));
+        }
+        let ids = [speed, health];
+        let query = ChunkQuery {
+            writes: 0,
+            changed: 0b01,
+            since: Some(seen),
+            ..ChunkQuery::new(&ids)
+        };
+        // Three runs: rows 1..4, 7 and 9.
+        let mut rows = Vec::new();
+        let mut sizes = Vec::new();
+        w.query_chunks(query, |chunk| {
+            // SAFETY: each column holds `len` live values of its component,
+            // starting at the chunk's first row.
+            let (speeds, healths) = unsafe {
+                (
+                    std::slice::from_raw_parts(chunk.columns[0].cast::<Speed>(), chunk.len()),
+                    std::slice::from_raw_parts(chunk.columns[1].cast::<Health>(), chunk.len()),
+                )
+            };
+            for ((e, s), h) in chunk.entities.iter().zip(speeds).zip(healths) {
+                rows.push((*e, s.0 as i32, h.0));
+            }
+            sizes.push(chunk.len());
+        });
+        assert_eq!(sizes, [3, 1, 1]);
+        let expected: Vec<_> = [1, 2, 3, 7, 9].iter().map(|&i| (es[i], i as i32, i as i32)).collect();
+        assert_eq!(rows, expected);
+        // Reading didn't mark anything: a second look sees the same rows.
+        assert_eq!(chunks(&mut w, query).0.len(), 5);
+        // Writing through a filtered query marks only the rows it visited.
+        let later = w.advance_change_tick();
+        chunks(&mut w, ChunkQuery { writes: 0b01, ..query });
+        assert_eq!(changed::<Speed>(&mut w, later).len(), 5);
+        // `since` defaults to the world's tick.
+        w.set_changes_since(w.change_tick());
+        assert_eq!(chunks(&mut w, ChunkQuery { since: None, ..query }).0, []);
+    }
+
+    #[test]
+    fn chunk_query_filters_combine_as_all_or_any_and_start_tracking() {
+        let mut w = World::new();
+        let speed = w.register::<Speed>();
+        let health = w.register::<Health>();
+        let both = w.spawn((Speed(1.0), Health(1)));
+        let fast = w.spawn((Speed(2.0), Health(2)));
+        let hurt = w.spawn((Speed(3.0), Health(3)));
+        let idle = w.spawn((Speed(4.0), Health(4)));
+        let ids = [speed, health];
+        let filter = ChunkQuery {
+            writes: 0,
+            changed: 0b11,
+            ..ChunkQuery::new(&ids)
+        };
+        // The first use starts tracking: everything counts as changed.
+        assert_eq!(chunks(&mut w, filter).0.len(), 4);
+        assert!(w.component_info(speed).tracks_changes() && w.component_info(health).tracks_changes());
+        let seen = Some(w.advance_change_tick());
+        for e in [both, fast] {
+            w.get_mut::<Speed>(e).unwrap().0 += 1.0;
+        }
+        for e in [both, hurt] {
+            w.get_mut::<Health>(e).unwrap().0 += 1;
+        }
+        let fresh = w.spawn((Speed(5.0), Health(5)));
+        let all = ChunkQuery { since: seen, ..filter };
+        assert_eq!(chunks(&mut w, all).0, [both, fresh]);
+        let any = ChunkQuery { any: true, ..all };
+        assert_eq!(chunks(&mut w, any), (vec![both, fast, hurt, fresh], vec![3, 1]));
+        let added = ChunkQuery {
+            changed: 0,
+            added: 0b10,
+            ..all
+        };
+        assert_eq!(chunks(&mut w, added).0, [fresh]);
+        // Bits past the last column are ignored.
+        let stray = ChunkQuery {
+            changed: 0b01 | 1 << 20,
+            added: 1 << 31,
+            ..all
+        };
+        assert_eq!(chunks(&mut w, stray).0, [both, fast, fresh]);
+        let _ = idle;
+    }
+
+    #[test]
+    #[should_panic(expected = "at most 8 `changed` and `added` filters")]
+    fn too_many_chunk_query_filters_panic() {
+        let mut w = World::new();
+        let ids: Vec<ComponentId> = (0..5)
+            .map(|i| {
+                // SAFETY: plain bytes.
+                unsafe { w.register_component(&format!("C{i}"), 4, 4, None) }
+            })
+            .collect();
+        let query = ChunkQuery {
+            changed: 0b11111,
+            added: 0b01111,
+            ..ChunkQuery::new(&ids)
+        };
+        w.query_chunks(query, |_| {});
+    }
+
     #[test]
     #[should_panic(expected = "removals of `Mass` aren't tracked")]
     fn removals_of_an_untracked_runtime_component_panic() {
