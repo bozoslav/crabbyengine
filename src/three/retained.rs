@@ -482,12 +482,29 @@ impl Source {
 
     /// A digest of every field, never zero: two sources that differ have
     /// the same one once in 2^63 times (then the change shows with the
-    /// model's next one).
+    /// model's next one). Each pair of 64-bit words is mixed on its own (a
+    /// 128-bit product folded in half), so the pairs don't wait for each
+    /// other.
     fn digest(&self) -> u64 {
-        let mut h = 0x9E37_79B9_7F4A_7C15u64;
-        for pair in self.words().chunks(2) {
-            let word = u64::from(pair[0]) | u64::from(pair.get(1).copied().unwrap_or(0)) << 32;
-            h = (h.rotate_left(5) ^ word).wrapping_mul(0x517C_C1B7_2722_0A95);
+        const KEYS: [u64; 10] = [
+            0x9E37_79B9_7F4A_7C15,
+            0xBF58_476D_1CE4_E5B9,
+            0x94D0_49BB_1331_11EB,
+            0x2545_F491_4F6C_DD1D,
+            0xD6E8_FEB8_6659_FD93,
+            0xA076_1D64_78BD_642F,
+            0xE703_7ED1_A0B4_28DB,
+            0x8EBC_6AF0_9C88_C6E3,
+            0x5899_65CC_7537_4CC3,
+            0x1D8E_4E27_C47D_124F,
+        ];
+        let words = self.words();
+        let word = |i: usize| u64::from(words[2 * i]) | u64::from(words.get(2 * i + 1).copied().unwrap_or(0)) << 32;
+        let mut h = 0u64;
+        for pair in 0..KEYS.len() / 2 {
+            let (a, b) = (word(2 * pair) ^ KEYS[2 * pair], word(2 * pair + 1) ^ KEYS[2 * pair + 1]);
+            let product = u128::from(a) * u128::from(b);
+            h = h.wrapping_add(product as u64 ^ (product >> 64) as u64);
         }
         h | 1
     }
@@ -637,11 +654,14 @@ pub(crate) struct Tracked {
     applied: Vec<u32>,
     /// Its id in the lists.
     ids: Vec<u32>,
-    /// The sweep that last found its entity in the world (see `sweep`).
+    /// The frame (of those with spawns or despawns: `sweeps`) that last
+    /// found its entity among the models.
     stamps: Vec<u32>,
     free: Vec<u32>,
     live: usize,
     sweeps: u32,
+    /// The objects a frame added, with their entities.
+    fresh: Vec<(u32, crate::Entity)>,
     /// Per model, in query order: [`UNCHANGED`], [`NEW`], or the object
     /// whose lists need bringing up to date.
     results: Vec<u32>,
@@ -810,39 +830,53 @@ impl Tracked {
             }
         }
         let found = if nothing { 0 } else { results.len() - new };
-        if new > 0 {
-            // New models: found again in order, each given an object. A
-            // few are worked out here; many, on all cores like the rest.
+        let gone = found != self.live;
+        if new > 0 || gone {
+            // Models were spawned or despawned, or got or lost a component:
+            // they are gone through once more, by entity alone, to give the
+            // new ones an object and to mark the tracked ones still there.
+            self.sweeps = self.sweeps.wrapping_add(1).max(1);
             self.reserve(new, lists);
-            let many = new > MANY_NEW;
+            let mut fresh = std::mem::take(&mut self.fresh);
+            fresh.clear();
             let mut at = 0;
-            world.query::<ModelItem<'_>>().without::<SkinOf>().for_each(
-                |(entity, t, m, shadow, skeleton, receives, material)| {
+            world
+                .query::<crate::Entity>()
+                .with::<Transform3D>()
+                .with::<Model>()
+                .without::<SkinOf>()
+                .for_each(|entity| {
                     at += 1;
-                    if !nothing && results[at - 1] != NEW {
-                        return;
+                    if nothing || results[at - 1] == NEW {
+                        fresh.push((self.add(entity) as u32, entity));
+                    } else if gone {
+                        self.mark(entity);
                     }
-                    let k = self.add(entity, lists);
-                    if many {
-                        return; // its digest matches nothing yet
-                    }
-                    let pass = self.pass(assets, culler, overrides, cull);
-                    if pass.check((entity, t, m, shadow, skeleton, receives, material)) == k as u32 {
-                        self.apply(k, lists, arena, motion);
-                    }
-                },
-            );
-            if many {
+                });
+            debug_assert!(nothing || at == results.len(), "both queries find the same models");
+            self.grow(lists);
+            if new > MANY_NEW {
+                // Many: worked out on all cores, like the rest (their
+                // digests match nothing yet).
                 pass(self, &mut results, world);
                 for &result in &results {
                     if result < NEW {
                         self.apply(result as usize, lists, arena, motion);
                     }
                 }
+            } else {
+                let mut models = world.query::<ModelItem<'_>>().without::<SkinOf>();
+                for &(k, entity) in &fresh {
+                    let Some(item) = models.get(entity) else { continue };
+                    if self.pass(assets, culler, overrides, cull).check(item) == k {
+                        self.apply(k as usize, lists, arena, motion);
+                    }
+                }
             }
-        }
-        if found != self.live {
-            self.sweep(world, lists, arena);
+            self.fresh = fresh;
+            if gone {
+                self.sweep(lists, arena);
+            }
         }
         self.live = found + new;
         self.results = results;
@@ -893,35 +927,59 @@ impl Tracked {
     }
 
     /// A new object for `entity`, with a digest that isn't its source's.
-    fn add(&mut self, entity: crate::Entity, lists: &mut Lists) -> usize {
+    /// [`grow`](Self::grow) follows, before the object is used.
+    fn add(&mut self, entity: crate::Entity) -> usize {
+        let bits = entity.to_bits();
         let k = match self.free.pop() {
-            Some(k) => k as usize,
+            Some(k) => {
+                let k = k as usize;
+                self.entities[k] = bits;
+                self.stamps[k] = self.sweeps;
+                *self.digests[k].get_mut() = 0; // no source's
+                self.applied[k] = 0;
+                *self.cold[k].pending.get_mut() = 0;
+                k
+            }
             None => {
-                self.entities.push(DEAD);
-                self.digests.push(AtomicU64::new(0));
-                self.spheres.push(zeroes());
-                self.cold.push(Cold {
-                    kept: zeroes(),
-                    mesh: AtomicU32::new(0),
-                    caster: AtomicU32::new(0),
-                    pending: AtomicU32::new(0),
-                });
-                self.applied.push(0);
-                self.ids.push(lists.alloc());
-                self.stamps.push(0);
+                self.entities.push(bits);
+                self.stamps.push(self.sweeps);
                 self.entities.len() - 1
             }
         };
-        self.entities[k] = entity.to_bits();
-        *self.digests[k].get_mut() = 0; // no source's
-        self.applied[k] = 0;
-        *self.cold[k].pending.get_mut() = 0;
         let index = entity.index() as usize;
         if self.slot_of.len() <= index {
             self.slot_of.resize(index + 1, DEAD);
         }
-        self.slot_of[index] = entity.to_bits() & !0xFFFF_FFFF | k as u64;
+        self.slot_of[index] = bits & !0xFFFF_FFFF | k as u64;
         k
+    }
+
+    /// Gives the objects added since the last call the rest of what is
+    /// kept of them, all at once.
+    fn grow(&mut self, lists: &mut Lists) {
+        let n = self.entities.len();
+        self.digests.resize_with(n, || AtomicU64::new(0));
+        self.spheres.resize_with(n, zeroes);
+        self.cold.resize_with(n, || Cold {
+            kept: zeroes(),
+            mesh: AtomicU32::new(0),
+            caster: AtomicU32::new(0),
+            pending: AtomicU32::new(0),
+        });
+        self.applied.resize(n, 0);
+        while self.ids.len() < n {
+            self.ids.push(lists.alloc());
+        }
+    }
+
+    /// Notes that `entity`, if tracked, is still a model in the world.
+    fn mark(&mut self, entity: crate::Entity) {
+        if let Some(&slot) = self.slot_of.get(entity.index() as usize)
+            && slot >> 32 == entity.to_bits() >> 32
+            && let Some(stamp) = self.stamps.get_mut(slot as u32 as usize)
+        {
+            *stamp = self.sweeps;
+        }
     }
 
     /// Brings the lists up to date with object `k`.
@@ -947,25 +1005,11 @@ impl Tracked {
     }
 
     /// Some tracked models are gone from the world (despawned, or without
-    /// the components now): finds which, and takes them out of the lists.
-    fn sweep(&mut self, world: &mut World, lists: &mut Lists, arena: &mut Vec<Instance3D>) {
-        self.sweeps = self.sweeps.wrapping_add(1).max(1);
-        let sweep = self.sweeps;
-        let (slot_of, stamps) = (&self.slot_of, &mut self.stamps);
-        world
-            .query::<ModelItem<'_>>()
-            .without::<SkinOf>()
-            .for_each(|(entity, ..)| {
-                let bits = entity.to_bits();
-                if let Some(&slot) = slot_of.get(entity.index() as usize)
-                    && slot >> 32 == bits >> 32
-                    && let Some(stamp) = stamps.get_mut(slot as u32 as usize)
-                {
-                    *stamp = sweep;
-                }
-            });
+    /// the components now): the ones not marked this frame. Takes them out
+    /// of the lists.
+    fn sweep(&mut self, lists: &mut Lists, arena: &mut Vec<Instance3D>) {
         for k in 0..self.entities.len() {
-            if self.entities[k] != DEAD && self.stamps[k] != sweep {
+            if self.entities[k] != DEAD && self.stamps[k] != self.sweeps {
                 lists.clear(arena, self.ids[k]);
                 self.applied[k] = 0;
                 let index = self.entities[k] as u32 as usize;
@@ -989,6 +1033,7 @@ impl Tracked {
             + (self.free.capacity() + self.results.capacity()) * size_of::<u32>()
             + self.facts.capacity() * size_of::<Fact>()
             + self.stale.capacity()
+            + self.fresh.capacity() * size_of::<(u32, crate::Entity)>()
             + self.overrides.1.capacity() * size_of::<(u32, u32)>()
             + self.view.capacity() * size_of::<f32>()
     }
