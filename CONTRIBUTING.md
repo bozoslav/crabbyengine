@@ -159,6 +159,15 @@ when affected. Record skipped tests and unsupported adapters; a headless logic
 test does not establish rendering correctness. If hardware is unavailable, say
 which validation is missing in the PR so reviewers can help.
 
+The offscreen GPU suites live in `src/render/*_render_test.rs`. Their shared
+conventions (getting the adapter with a logged skip reason, tolerance-based image
+comparison and semantic pixel checks, reference images with metadata under
+`tests/fixtures/render/`) are documented in `src/render/render_test_support.rs`.
+Run them with `cargo test -p ponko --lib --features 3d render_test -- --nocapture`
+and report which ran and which logged `render test SKIPPED`. Reference images are
+only rewritten with `PONKO_UPDATE_REFERENCES=1` (refused in CI); a regenerated
+reference needs the before/after images in the PR.
+
 Performance PRs should record the revision, commands, toolchain, features, hardware,
 workload, warm-up and comparable before/after results. Include CPU and GPU times,
 frame-time percentiles, memory and allocations where relevant, and identify metrics

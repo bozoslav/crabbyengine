@@ -1,7 +1,8 @@
 //! Light shafts: the fog's sun glow stops where the fog is in shadow.
-//! Skips without a GPU.
+//! Skips without a GPU (see `render_test_support`).
 use super::gpu::GpuTexture;
 use super::gpu3d::*;
+use super::render_test_support::*;
 use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight};
 use crate::*;
 
@@ -21,95 +22,9 @@ struct Rig {
 impl Rig {
     /// `None` without a GPU.
     fn new() -> Option<Self> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-        let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-            eprintln!("no GPU adapter: skipped");
-            return None;
-        };
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) else {
-            eprintln!("no GPU device: skipped");
-            return None;
-        };
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: None,
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
-        let white = device.create_texture(&wgpu::TextureDescriptor {
-            label: None,
-            size: wgpu::Extent3d {
-                width: 1,
-                height: 1,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
-        });
-        queue.write_texture(
-            white.as_image_copy(),
-            &[255; 4],
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(4),
-                rows_per_image: None,
-            },
-            white.size(),
-        );
-        let sampler = device.create_sampler(&Default::default());
-        let view = white.create_view(&Default::default());
-        let textures = vec![GpuTexture {
-            texture: white.clone(),
-            nearest: false,
-            mips: None,
-            bind_group: device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&sampler),
-                    },
-                ],
-            }),
-        }];
-        let output = device.create_texture(&wgpu::TextureDescriptor {
-            label: None,
-            size: wgpu::Extent3d {
-                width: SIZE,
-                height: SIZE,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-        });
+        let TestGpu { device, queue, .. } = gpu()?;
+        let (layout, white, textures) = white_textures(&device, &queue);
+        let output = target(&device, (SIZE, SIZE), wgpu::TextureFormat::Rgba8UnormSrgb);
         let target = output.create_view(&Default::default());
         let renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
@@ -176,29 +91,7 @@ impl Rig {
             .renderer
             .draw(&self.device, &self.target, wgpu::Color::BLACK, &self.textures, None);
         self.queue.submit(buffers);
-        let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            size: u64::from(SIZE * SIZE * 4),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-        let mut encoder = self.device.create_command_encoder(&Default::default());
-        encoder.copy_texture_to_buffer(
-            self.output.as_image_copy(),
-            wgpu::TexelCopyBufferInfo {
-                buffer: &readback,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(SIZE * 4),
-                    rows_per_image: None,
-                },
-            },
-            self.output.size(),
-        );
-        self.queue.submit([encoder.finish()]);
-        readback.map_async(wgpu::MapMode::Read, .., |r| r.unwrap());
-        self.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-        readback.get_mapped_range(..).unwrap().to_vec()
+        read_texture(&self.device, &self.queue, &self.output)
     }
 }
 
