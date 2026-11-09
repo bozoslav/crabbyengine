@@ -217,11 +217,11 @@ where
             event_loop.exit();
             return;
         }
-        if self.ctx.cursor_lock_changed
+        if self.ctx.input.cursor_lock_changed
             && let Some(window) = &self.window
         {
-            self.ctx.cursor_lock_changed = false;
-            apply_cursor_lock(window, self.ctx.cursor_locked());
+            self.ctx.input.cursor_lock_changed = false;
+            apply_cursor_lock(window, self.ctx.input.cursor_locked());
         }
 
         // With vsync, presenting blocks until the display is ready, which
@@ -420,7 +420,7 @@ where
             WindowEvent::Focused(false) => self.ctx.input.release_all(),
 
             // The system lets go of the cursor while the window is away.
-            WindowEvent::Focused(true) if self.ctx.cursor_locked() => apply_cursor_lock(&window, true),
+            WindowEvent::Focused(true) if self.ctx.input.cursor_locked() => apply_cursor_lock(&window, true),
 
             WindowEvent::Ime(winit::event::Ime::Commit(text)) => self.ctx.input.add_text(&text),
             WindowEvent::KeyboardInput { event, .. } => {

@@ -5,7 +5,7 @@ use ponko::*;
 struct Orbiting;
 
 fn fly(ctx: &mut Ctx) {
-    let t = ctx.time() as f32;
+    let t = ctx.time.elapsed() as f32;
     ctx.world.query::<(&mut Transform3D, &Orbiting)>().for_each(|(at, _)| {
         at.position = vec3(t.cos() * 3.0, 1.0 + (t * 2.0).sin() * 0.5, t.sin() * 3.0);
     });

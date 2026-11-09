@@ -2230,7 +2230,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_insert_text(ctx: *mut CrabbyCtx, text: *c
     boundary(|| unsafe {
         let value = crate::ctx::text(text)?;
         ctx_access(ctx, |c| {
-            c.ui_insert_text(value);
+            c.input.insert_text(value);
             Ok(())
         })
     })

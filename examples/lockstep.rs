@@ -99,7 +99,7 @@ fn draw(ctx: &mut Ctx) {
             "you are player {} ({}), tick {}{}",
             net.player() + 1,
             ["red", "blue"][net.player() % 2],
-            ctx.sim_tick(),
+            ctx.time.sim_tick(),
             net.desync().map_or(String::new(), |d| format!("  DESYNC: {d}"))
         ),
         NetState::Lost => format!("connection lost: {}", net.error().unwrap_or("?")),

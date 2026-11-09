@@ -134,7 +134,7 @@ struct Drag {
 impl Panels {
     /// Draws the inspector into `ui` and applies what was changed in it to `ctx`.
     pub fn show(&mut self, ui: &mut Ui, ctx: &mut Ctx) {
-        self.editing = ctx.is_paused();
+        self.editing = ctx.time.is_paused();
         self.record_frame(ctx.dt() * 1000.0);
         self.reflected.clear();
         self.reflected
@@ -434,7 +434,7 @@ impl Panels {
 
     fn sim_controls(&mut self, ui: &mut Ui, ctx: &mut Ctx) {
         ui.horizontal(|ui| {
-            if ctx.is_paused() {
+            if ctx.time.is_paused() {
                 let tip = if self.editor.playing() {
                     "Resume"
                 } else {
@@ -444,7 +444,7 @@ impl Panels {
                     self.editor.play(ctx);
                 }
             } else if ui.button("Pause").clicked() {
-                ctx.pause();
+                ctx.time.pause();
             }
             if self.editor.playing() {
                 let stop = ui
@@ -464,19 +464,19 @@ impl Panels {
                 }
             }
             if ui.button("Step").on_hover_text("Run one tick (pauses)").clicked() {
-                ctx.pause();
-                ctx.step();
+                ctx.time.pause();
+                ctx.time.step();
             }
-            let mut speed = ctx.sim_speed();
+            let mut speed = ctx.time.speed();
             let drag = DragValue::new(&mut speed).range(0.0..=16.0).speed(0.02).suffix("×");
             if ui.add(drag).on_hover_text("Simulation speed").changed() {
-                ctx.set_sim_speed(speed);
+                ctx.time.set_speed(speed);
             }
         });
         ui.label(format!(
             "tick {}   {:.0} fps   {} entities",
-            ctx.sim_tick(),
-            ctx.fps(),
+            ctx.time.sim_tick(),
+            ctx.time.fps(),
             ctx.world.len()
         ));
     }
@@ -1049,7 +1049,7 @@ mod tests {
     }
     fn edit_scene() -> (egui::Context, Panels, Ctx, Entity) {
         let (mut ctx, _) = game();
-        ctx.pause();
+        ctx.time.pause();
         let e = ctx.world.spawn((
             Transform2D::at(Vec2::new(300.0, 300.0)),
             Health { current: 1.0, max: 1 },
@@ -1111,7 +1111,7 @@ mod tests {
     #[test]
     fn running_the_world_clicks_go_to_the_game() {
         let (egui, mut panels, mut ctx, e) = edit_scene();
-        ctx.resume();
+        ctx.time.resume();
         frame(
             &egui,
             &mut panels,

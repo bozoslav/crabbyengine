@@ -226,8 +226,8 @@ fn fight() -> impl FnMut(&mut Ctx) {
     let mut far = [SpatialGrid::new(SIGHT), SpatialGrid::new(SIGHT)];
     let mut positions: Vec<(Entity, Vec2, Team)> = Vec::new();
     move |ctx: &mut Ctx| {
-        let (dt, random, look) = (ctx.dt(), ctx.random(), ctx.turns(4));
-        let crowding = ctx.sim_tick().is_multiple_of(2);
+        let (dt, random, look) = (ctx.dt(), ctx.random(), ctx.time.turns(4));
+        let crowding = ctx.time.sim_tick().is_multiple_of(2);
         ctx.world
             .query::<(Entity, &Transform2D, &Unit)>()
             .par_collect_into(&mut positions, |(e, t, u)| (e, t.position, u.team));
@@ -471,7 +471,7 @@ fn setup(ctx: &mut Ctx, units: usize, seed: u64, sprite: Option<Texture>) {
 
 /// Both armies at full strength around their bases, bases repaired.
 fn start_round(ctx: &mut Ctx) {
-    let mut rng = ctx.random().stream(ctx.sim_tick());
+    let mut rng = ctx.random().stream(ctx.time.sim_tick());
     let cmds = &mut ctx.commands;
     ctx.world.query::<(Entity, &Unit)>().for_each(|(e, _)| cmds.despawn(e));
     ctx.world.query::<&mut Base>().for_each(|b| b.hp = b.max_hp);
@@ -516,7 +516,7 @@ fn keep_neighbors_close(ctx: &mut Ctx) {
 
 fn controls(ctx: &mut Ctx) {
     let home = ctx.world.resource::<Battle>().bases;
-    let rally = if ctx.mouse_pressed(MouseButton::Left) && !ctx.mouse_over_ui() {
+    let rally = if ctx.input.mouse_pressed(MouseButton::Left) && !ctx.mouse_over_ui() {
         Some(ctx.mouse_world())
     } else if ctx.key_pressed(Key::A) {
         Some(home[1])
@@ -535,11 +535,15 @@ fn controls(ctx: &mut Ctx) {
         start_round(ctx);
     }
     if ctx.key_pressed(Key::Space) {
-        if ctx.is_paused() { ctx.resume() } else { ctx.pause() }
+        if ctx.time.is_paused() {
+            ctx.time.resume()
+        } else {
+            ctx.time.pause()
+        }
     }
     for (key, speed) in [(Key::Num1, 1.0), (Key::Num2, 2.0), (Key::Num3, 4.0)] {
         if ctx.key_pressed(key) {
-            ctx.set_sim_speed(speed);
+            ctx.time.set_speed(speed);
         }
     }
     if ctx.key_pressed(Key::Escape) {
@@ -605,10 +609,10 @@ fn hud(ctx: &mut Ctx) {
     let s = ctx.world.resource::<Score>();
     let (alive, won, winner) = (s.alive, s.rounds_won, s.winner);
     let sim_ms: f32 = ctx.system_timings().iter().filter(|t| t.sim).map(|t| t.avg_ms).sum();
-    let speed = if ctx.is_paused() {
+    let speed = if ctx.time.is_paused() {
         "paused".to_string()
     } else {
-        format!("{}x", ctx.sim_speed())
+        format!("{}x", ctx.time.speed())
     };
     let panel = Rect::new(12.0, 12.0, 300.0, 150.0);
     ctx.ui_panel(panel);
@@ -619,7 +623,7 @@ fn hud(ctx: &mut Ctx) {
         alive[1],
         won[0],
         won[1],
-        ctx.fps()
+        ctx.time.fps()
     );
     ctx.ui_label(at, &text);
     if let Some(team) = winner {
@@ -646,7 +650,7 @@ fn main() {
                 if ctx.world.resource::<Score>().winner.is_some() {
                     start_round(ctx);
                 }
-                if ctx.sim_tick().is_multiple_of(120) {
+                if ctx.time.sim_tick().is_multiple_of(120) {
                     let b = ctx.world.resource::<Score>();
                     let timings: Vec<String> = ctx
                         .system_timings()
@@ -656,7 +660,7 @@ fn main() {
                         .collect();
                     println!(
                         "tick {}: red {} blue {}, rounds {}-{}  [{}]",
-                        ctx.sim_tick(),
+                        ctx.time.sim_tick(),
                         b.alive[0],
                         b.alive[1],
                         b.rounds_won[0],

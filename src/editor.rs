@@ -51,13 +51,13 @@ impl Editor {
         if self.played_from.is_none() {
             self.played_from = Some((ctx.world.save(), self.undo.len()));
         }
-        ctx.resume();
+        ctx.time.resume();
     }
 
     /// Pauses and puts the world back as it was when Play was pressed.
     /// Components that aren't reflected can't be saved, so aren't put back.
     pub fn stop(&mut self, ctx: &mut Ctx) -> Result<(), String> {
-        ctx.pause();
+        ctx.time.pause();
         let Some((save, steps)) = self.played_from.take() else {
             return Ok(());
         };
@@ -266,15 +266,15 @@ mod tests {
         let mut ed = Editor::default();
         let e = ed.spawn_empty(&mut ctx, vec2(1.0, 2.0));
         ed.play(&mut ctx);
-        assert!(ed.playing() && !ctx.is_paused());
+        assert!(ed.playing() && !ctx.time.is_paused());
         // The game runs: things move, spawn and die; the editor edits too.
         ctx.world.get_mut::<Transform2D>(e).unwrap().position = vec2(50.0, 50.0);
         ctx.world.spawn((Transform2D::default(),));
         ed.set(&mut ctx, e, "Hp", json!(1.0)).unwrap();
-        ctx.pause();
+        ctx.time.pause();
         ed.play(&mut ctx); // resume: still from the first Play
         ed.stop(&mut ctx).unwrap();
-        assert!(ctx.is_paused() && !ed.playing());
+        assert!(ctx.time.is_paused() && !ed.playing());
         assert_eq!(ctx.world.len(), 1);
         assert_eq!((at(&ctx, e), ctx.world.get::<Hp>(e)), (vec2(1.0, 2.0), None));
         // Undo steps from before Play still apply; those from playing are gone.

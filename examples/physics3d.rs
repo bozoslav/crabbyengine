@@ -151,21 +151,21 @@ fn shove(ctx: &mut Ctx) {
 /// cursor is locked) and the camera sits at the walker's eyes. A click
 /// locks the mouse, Escape frees it.
 fn eyes(ctx: &mut Ctx) {
-    if ctx.mouse_pressed(MouseButton::Left) {
-        if ctx.cursor_locked() {
+    if ctx.input.mouse_pressed(MouseButton::Left) {
+        if ctx.input.cursor_locked() {
             shove(ctx);
         } else {
-            ctx.set_cursor_locked(true);
+            ctx.input.set_cursor_locked(true);
         }
     } else if ctx.key_pressed(Key::Escape) {
-        if ctx.cursor_locked() {
-            ctx.set_cursor_locked(false);
+        if ctx.input.cursor_locked() {
+            ctx.input.set_cursor_locked(false);
         } else {
             ctx.quit();
         }
     }
-    let turn = if ctx.cursor_locked() {
-        ctx.mouse_motion() * 0.003
+    let turn = if ctx.input.cursor_locked() {
+        ctx.input.mouse_motion() * 0.003
     } else {
         Vec2::ZERO
     };

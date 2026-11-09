@@ -32,7 +32,7 @@
 //! - `inspector` (default): the in-game inspector overlay (egui), opened
 //!   with the backquote key. On in debug builds; see `Game::inspector`.
 //! - `gamepad` (default): gamepads through gilrs; without it
-//!   `Ctx::gamepads` is always empty. On Linux it needs libudev headers.
+//!   `Input::gamepads` is always empty. On Linux it needs libudev headers.
 //! - `profiling`: per-system scopes for `puffin_viewer`. (Not needed for
 //!   [`profile_scope!`], [`Ctx::perf_report`] or [`CountingAllocator`], which
 //!   are always built in and cost one atomic load while profiling is off.)
@@ -62,6 +62,7 @@ mod collision;
 mod color;
 mod control;
 mod ctx;
+mod ctx_compat;
 mod diagnostics;
 mod ecs;
 #[cfg(feature = "inspector")]
@@ -127,7 +128,7 @@ pub use camera::{Camera2D, Rect, camera_controls};
 #[cfg(any(feature = "physics", feature = "physics3d"))]
 pub use collision::{BodyKind, CollisionStarted, CollisionStopped};
 pub use color::Color;
-pub use ctx::{Ctx, SystemTiming, Turns};
+pub use ctx::{Ctx, SystemTiming};
 pub use diagnostics::{
     ArchetypeDiagnostics, ComponentDiagnostics, ECS_DIAGNOSTICS_VERSION, EcsDiagnostics, MatchCount, SystemDiagnostics,
 };
@@ -139,7 +140,7 @@ pub use flow::RawFlowView;
 pub use flow::{FlowField, NavGrid};
 pub use game::{ConfiguredGame, Game, Phase, Plugin, SetupResult, SystemId, Systems};
 pub use handle::{Handle, LiveCounts};
-pub use input::{Gamepad, GamepadAxis, GamepadButton, GamepadStick, Key, MAX_GAMEPADS, MouseButton};
+pub use input::{Gamepad, GamepadAxis, GamepadButton, GamepadStick, Input, Key, MAX_GAMEPADS, MouseButton};
 pub use inventory::{AssetClass, AssetCount, AssetGrowth, AssetInventory, GpuResidency};
 pub use net::{
     Authority, AuthorityCheck, ClockSync, Interest, InterestChange, InterestChangeKind, InterestConfig, InterestEntity,
@@ -212,6 +213,7 @@ pub use three::{
     two_bone_ik,
 };
 pub use tilemap::{TileMap, draw_tilemaps};
+pub use time::{Time, Turns};
 #[cfg(feature = "3d")]
 pub use ui::UiPanel3D;
 pub use ui::{

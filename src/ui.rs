@@ -220,7 +220,7 @@ impl Ctx {
     /// ```
     /// # use ponko::*;
     /// # fn select(ctx: &mut Ctx) {
-    /// if ctx.mouse_pressed(MouseButton::Left) && !ctx.mouse_over_ui() {
+    /// if ctx.input.mouse_pressed(MouseButton::Left) && !ctx.mouse_over_ui() {
     ///     let at = ctx.mouse_world();
     ///     # let _ = at;
     /// }
@@ -288,19 +288,19 @@ impl Ctx {
     /// # use ponko::*;
     /// # fn controls(ctx: &mut Ctx) {
     /// if ctx.ui_button(Rect::new(20.0, 20.0, 100.0, 32.0), "Pause") {
-    ///     ctx.pause();
+    ///     ctx.time.pause();
     /// }
     /// # }
     /// ```
     pub fn ui_button(&mut self, rect: Rect, label: &str) -> bool {
         let style = self.ui_style;
         let mouse = self.mouse_pos();
-        if self.mouse_pressed(MouseButton::Left) {
+        if self.input.mouse_pressed(MouseButton::Left) {
             self.ui_press_at = mouse;
         }
         let hovered = rect.contains(mouse);
-        let held = hovered && self.mouse_down(MouseButton::Left);
-        let clicked = hovered && self.mouse_released(MouseButton::Left) && rect.contains(self.ui_press_at);
+        let held = hovered && self.input.mouse_down(MouseButton::Left);
+        let clicked = hovered && self.input.mouse_released(MouseButton::Left) && rect.contains(self.ui_press_at);
         let fill = if held {
             style.button_pressed
         } else if hovered {

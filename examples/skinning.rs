@@ -60,7 +60,7 @@ fn tube(bottom: f32, top: f32, radius: f32) -> MeshData {
 
 // ANCHOR: skin_pose
 fn sway(ctx: &mut Ctx) {
-    let time = ctx.time() as f32;
+    let time = ctx.time.elapsed() as f32;
     ctx.world.query::<(&mut Skeleton, &Sway)>().for_each(|(s, phase)| {
         for (i, pose) in s.pose.iter_mut().enumerate() {
             pose.rotation = Quat::from_rotation_z((time * 1.5 + phase.0 - i as f32 * 0.45).sin() * 0.16);
@@ -124,7 +124,7 @@ fn play_clips(ctx: &mut Ctx) {
     let mut skeleton = ctx.load_skeleton("models/character.glb");
     let walk = ctx.load_clip("models/character.glb", "walk");
     let run = ctx.load_clip("models/character.glb", "run");
-    let time = ctx.time() as f32;
+    let time = ctx.time.elapsed() as f32;
     let loop_time = |clip: &AnimationClip| {
         if clip.duration() > 0.0 {
             time.rem_euclid(clip.duration())

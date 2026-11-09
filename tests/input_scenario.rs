@@ -15,7 +15,7 @@ struct Seen {
 fn jump_bindings(ctx: &mut Ctx) {
     let mut map = ActionMap::default();
     map.set("jump", Action::Button(vec![ButtonBinding::Key(Key::Space)]));
-    ctx.set_actions(map);
+    ctx.input.set_actions(map);
 }
 
 /// Runs `ticks` headless ticks with `scenario` and records the jump action per tick.
@@ -25,10 +25,10 @@ fn record(scenario: InputScenario, ticks: u64) -> Vec<Seen> {
     Game::new("scenario", 1, 1)
         .sim_system(move |ctx: &mut Ctx| {
             log.borrow_mut().push(Seen {
-                tick: ctx.sim_tick(),
-                pressed: ctx.action_pressed("jump"),
-                down: ctx.action_down("jump"),
-                released: ctx.action_released("jump"),
+                tick: ctx.time.sim_tick(),
+                pressed: ctx.input.action_pressed("jump"),
+                down: ctx.input.action_down("jump"),
+                released: ctx.input.action_released("jump"),
             });
         })
         .input_scenario(scenario)
@@ -105,7 +105,7 @@ struct Body {
 
 fn jump_and_fall(ctx: &mut Ctx) {
     let dt = ctx.dt();
-    let jump = ctx.action_pressed("jump");
+    let jump = ctx.input.action_pressed("jump");
     let drift = ctx.random().stream(0).range(-0.01, 0.01);
     ctx.world.query::<&mut Body>().for_each(|b| {
         if jump && b.y <= 0.0 {

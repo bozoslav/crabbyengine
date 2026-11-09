@@ -95,21 +95,21 @@ fn laser(ctx: &mut Ctx) -> Option<RayHit> {
 
 fn drop_things(ctx: &mut Ctx) {
     let at = ctx.mouse_world();
-    if ctx.mouse_pressed(MouseButton::Left) {
+    if ctx.input.mouse_pressed(MouseButton::Left) {
         ctx.world.spawn((
             Transform2D::at(at),
             RigidBody::dynamic(),
             Collider::rect(vec2(30.0, 30.0)).friction(0.8),
         ));
     }
-    if ctx.mouse_pressed(MouseButton::Right) {
+    if ctx.input.mouse_pressed(MouseButton::Right) {
         ctx.world.spawn((
             Transform2D::at(at),
             RigidBody::dynamic(),
             Collider::circle(12.0).restitution(0.6),
         ));
     }
-    if ctx.mouse_pressed(MouseButton::Middle) {
+    if ctx.input.mouse_pressed(MouseButton::Middle) {
         let rock: Vec<Vec2> = (0..5)
             .map(|i| Vec2::from_angle(i as f32 * std::f32::consts::TAU / 5.0) * 18.0)
             .collect();

@@ -32,7 +32,7 @@ fn regen(ctx: &mut Ctx) {
     ctx.world
         .query::<&mut Health>()
         .for_each(|h| h.current = (h.current + 1.0).min(h.max));
-    let tick = ctx.sim_tick();
+    let tick = ctx.time.sim_tick();
     ctx.events.send(Regen { tick });
     ctx.world.resource_mut::<Rules>().round += 1;
 }
@@ -49,7 +49,7 @@ fn start_game(name: &'static str) -> (u16, thread::JoinHandle<World>) {
                 ctx.events.reflect::<Regen>();
                 ctx.world.reflect_resource::<Rules>();
                 ctx.world.insert_resource(Rules { regen: 1.0, round: 0 });
-                ctx.pause();
+                ctx.time.pause();
                 tx.send(ctx.control_addr().unwrap().port()).unwrap();
             })
     });

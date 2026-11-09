@@ -238,7 +238,11 @@ mod tests {
         assert_eq!(method(&w, "capabilities")["available"], true);
         // Reading capabilities changes nothing.
         assert_eq!(
-            (headless.world.len(), headless.sim_tick(), headless.is_paused()),
+            (
+                headless.world.len(),
+                headless.time.sim_tick(),
+                headless.time.is_paused()
+            ),
             (0, 0, false)
         );
     }

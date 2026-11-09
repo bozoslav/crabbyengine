@@ -93,7 +93,7 @@ fn bounce(ctx: &mut Ctx) {
 }
 
 fn report(ctx: &mut Ctx) {
-    if ctx.mouse_down(MouseButton::Left) {
+    if ctx.input.mouse_down(MouseButton::Left) {
         let at = ctx.mouse_pos();
         spawn(ctx, 1000, at);
     }
@@ -105,7 +105,7 @@ fn report(ctx: &mut Ctx) {
         .filter(|t| !t.name.ends_with("report"))
         .map(|t| t.avg_ms)
         .sum();
-    let (time, count, render) = (ctx.time(), ctx.world.len(), ctx.render_stats());
+    let (time, count, render) = (ctx.time.elapsed(), ctx.world.len(), ctx.render_stats());
     let b = ctx.world.resource_mut::<Bench>();
     let now = Instant::now();
     let frame_ms = now.duration_since(b.frame_start).as_secs_f32() * 1000.0;

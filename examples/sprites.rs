@@ -28,7 +28,7 @@ fn main() {
         let mut player = ctx.window_size() / 2.0;
 
         move |ctx: &mut Ctx| {
-            let t = ctx.time() as f32;
+            let t = ctx.time.elapsed() as f32;
 
             let mut dir = Vec2::ZERO;
             if ctx.key_down(Key::Left) || ctx.key_down(Key::A) {

@@ -11,13 +11,13 @@ running normally.
 # fn ants(_: &mut Ctx) {}
 fn controls(ctx: &mut Ctx) {
     if ctx.key_pressed(Key::Space) {
-        if ctx.is_paused() { ctx.resume() } else { ctx.pause() }
+        if ctx.time.is_paused() { ctx.time.resume() } else { ctx.time.pause() }
     }
     if ctx.key_pressed(Key::Period) {
-        ctx.step();              // one tick while paused
+        ctx.time.step();              // one tick while paused
     }
     if ctx.key_pressed(Key::Num4) {
-        ctx.set_sim_speed(64.0); // fast-forward
+        ctx.time.set_speed(64.0); // fast-forward
     }
 }
 
@@ -44,7 +44,7 @@ paused.
   ticks run per frame, so a run at 64× gives the same result as one at 1×.
 - **The game stays responsive.** At most 64 ticks run per frame. If the sim
   can't keep up, it runs as fast as it can instead of freezing the window.
-- `ctx.sim_tick()` counts ticks; `ctx.sim_time()` is simulated seconds as an
+- `ctx.time.sim_tick()` counts ticks; `ctx.time.sim_time()` is simulated seconds as an
   `f64` (no drift after hours of simulated time).
 
 ## Doing work less often
@@ -89,7 +89,7 @@ expensive part.
 # struct Brain;
 # impl Brain { fn decide(&mut self, _dt: f32) {} }
 fn think(ctx: &mut Ctx) {
-    let turn = ctx.turns(8); // each ant thinks every 8th tick
+    let turn = ctx.time.turns(8); // each ant thinks every 8th tick
     ctx.world.query::<(Entity, &mut Brain)>().par_for_each(|(e, brain)| {
         if turn.includes(e) {
             brain.decide(turn.dt()); // time since this ant's last turn
@@ -113,6 +113,6 @@ works in `par_for_each` (C++: `each_par`).
 
 ## Smooth motion between ticks
 
-If the sim rate is lower than the frame rate, `ctx.fixed_alpha()` (0..1)
+If the sim rate is lower than the frame rate, `ctx.time.fixed_alpha()` (0..1)
 tells a frame system how far it is between the last tick and the next, for
 interpolating positions when drawing.

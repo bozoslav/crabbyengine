@@ -97,7 +97,7 @@ fn a_failed_reload_keeps_the_old_shader_and_a_fix_reloads() {
         .sim_system(move |ctx: &mut Ctx| {
             let status = ctx.shader_status().iter().find(|s| s.kind == ShaderKind::Material);
             log.lock().unwrap().push(status.unwrap().clone());
-            let edit = match ctx.sim_tick() {
+            let edit = match ctx.time.sim_tick() {
                 1 => Some(BROKEN),
                 3 => Some(GOOD),
                 _ => None,

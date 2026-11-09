@@ -108,7 +108,7 @@ pub struct ShaderStatus {
     pub outcome: ShaderOutcome,
     /// How many times an edit of its file was reloaded successfully.
     pub reloads: u32,
-    /// The frame ([`Ctx::frame`]) this happened in.
+    /// The frame ([`Time::frame`]) this happened in.
     pub frame: u64,
     /// The errors of the last compile; empty when it worked.
     pub diagnostics: Vec<ShaderDiagnostic>,
@@ -152,7 +152,7 @@ impl Ctx {
         reload: bool,
         result: Result<(), Box<ShaderDiagnostic>>,
     ) -> Result<(), String> {
-        let frame = self.frame();
+        let frame = self.time.frame();
         let list = &mut self.assets3d.shader_status;
         let at = match list.iter().position(|s| s.shader == name && s.kind == kind) {
             Some(at) => at,

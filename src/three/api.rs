@@ -1399,7 +1399,7 @@ impl Ctx {
         {
             return; // no drawable 3D scene
         }
-        let time = (self.time() as f32, self.dt());
+        let time = (self.time.elapsed() as f32, self.dt());
         self.assets3d.decals_supported = self.supports_decals();
         self.assets3d.gi_supported = self.renderer.as_ref().is_some_and(|r| r.supports_gi());
         let fallback = if self.effects.iter().any(|e| e.material.is_none())

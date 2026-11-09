@@ -18,7 +18,7 @@ struct Scene {
 
 // ANCHOR: scene
 fn scene(ctx: &mut Ctx) {
-    let t = ctx.time() as f32;
+    let t = ctx.time.elapsed() as f32;
 
     // The world: a grid of tiles, a few shapes, a crab in orbit.
     for y in 0..20 {
@@ -49,7 +49,7 @@ fn scene(ctx: &mut Ctx) {
     if ctx.world.resource::<Scene>().follow {
         ctx.camera.look_at(orbit);
     }
-    if ctx.mouse_pressed(MouseButton::Left) && !ctx.mouse_over_ui() {
+    if ctx.input.mouse_pressed(MouseButton::Left) && !ctx.mouse_over_ui() {
         let at = ctx.mouse_world();
         ctx.world.spawn((Transform2D::at(at), Sprite::new(crab)));
         let plop = ctx.world.resource::<Scene>().plop;
@@ -72,7 +72,7 @@ fn hud(ctx: &mut Ctx) {
     ctx.ui_panel(panel);
     let mut at = panel.min + ctx.ui_style.padding;
     let (zoom, dropped) = (ctx.camera.zoom, ctx.world.resource::<Scene>().dropped);
-    let lines = format!("zoom {zoom:.2}x\ncrabs dropped: {dropped}\n{:.0} FPS", ctx.fps());
+    let lines = format!("zoom {zoom:.2}x\ncrabs dropped: {dropped}\n{:.0} FPS", ctx.time.fps());
     at.y += ctx.ui_label(at, &lines).y + 8.0;
 
     let follow = ctx.world.resource::<Scene>().follow;

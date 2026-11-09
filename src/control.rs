@@ -385,9 +385,11 @@ fn camera_json(ctx: &Ctx) -> Value {
 /// The `path` param, or a fresh file in the temp dir.
 fn screenshot_path(ctx: &Ctx, params: &Value) -> Result<PathBuf, String> {
     match params.get("path") {
-        None | Some(Value::Null) => {
-            Ok(std::env::temp_dir().join(format!("ponko-screenshot-{}-{}.png", std::process::id(), ctx.frame())))
-        }
+        None | Some(Value::Null) => Ok(std::env::temp_dir().join(format!(
+            "ponko-screenshot-{}-{}.png",
+            std::process::id(),
+            ctx.time.frame()
+        ))),
         Some(Value::String(p)) => Ok(PathBuf::from(p)),
         Some(_) => Err("`path` must be a string".into()),
     }
@@ -754,14 +756,14 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
         "info" => json!({
             "pid": std::process::id(),
             "headless": ctx.headless,
-            "tick": ctx.sim_tick(),
-            "sim_time": ctx.sim_time(),
-            "paused": ctx.is_paused(),
-            "speed": ctx.sim_speed(),
-            "fixed_dt": ctx.fixed_dt(),
+            "tick": ctx.time.sim_tick(),
+            "sim_time": ctx.time.sim_time(),
+            "paused": ctx.time.is_paused(),
+            "speed": ctx.time.speed(),
+            "fixed_dt": ctx.time.fixed_dt(),
             // Headless games have no frames, so no frame rate.
-            "fps": if ctx.headless { Value::Null } else { json!(ctx.fps()) },
-            "frame": if ctx.headless { Value::Null } else { json!(ctx.frame()) },
+            "fps": if ctx.headless { Value::Null } else { json!(ctx.time.fps()) },
+            "frame": if ctx.headless { Value::Null } else { json!(ctx.time.frame()) },
             "entities": ctx.world.len(),
             "render": if ctx.headless { Value::Null } else {
                 let r = ctx.render_stats();
@@ -885,7 +887,7 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
                 "resources": save["resources"].as_object().map_or(0, |r| r.len()),
                 "bytes": text.len(),
                 "not_saved": save["not_saved"],
-                "tick": ctx.sim_tick(),
+                "tick": ctx.time.sim_tick(),
             })
         }
         "scene.save" => {
@@ -919,28 +921,28 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
             json!({ "path": path, "entities": ctx.world.len() })
         }
         "sim.pause" => {
-            ctx.pause();
-            json!({ "paused": true, "tick": ctx.sim_tick() })
+            ctx.time.pause();
+            json!({ "paused": true, "tick": ctx.time.sim_tick() })
         }
         "sim.resume" => {
-            ctx.resume();
-            json!({ "paused": false, "tick": ctx.sim_tick() })
+            ctx.time.resume();
+            json!({ "paused": false, "tick": ctx.time.sim_tick() })
         }
         "sim.step" => {
             let ticks = usize_param(params, "ticks", 1)?;
             let ticks = u32::try_from(ticks).map_err(|_| "`ticks` is too large")?;
             for _ in 0..ticks {
-                ctx.step();
+                ctx.time.step();
             }
-            json!({ "queued_ticks": ticks, "tick": ctx.sim_tick() })
+            json!({ "queued_ticks": ticks, "tick": ctx.time.sim_tick() })
         }
         "sim.speed" => {
             let speed = param(params, "speed")?
                 .as_f64()
                 .filter(|s| s.is_finite() && *s >= 0.0)
                 .ok_or("`speed` must be a finite number >= 0")?;
-            ctx.set_sim_speed(speed as f32);
-            json!({ "speed": ctx.sim_speed() })
+            ctx.time.set_speed(speed as f32);
+            json!({ "speed": ctx.time.speed() })
         }
         "systems.timings" => Value::Array(
             ctx.system_timings()
@@ -968,10 +970,12 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
             let frames = usize_param(params, "frames", 120)?.clamp(1, 10_000);
             let path = match params.get("path").and_then(Value::as_str) {
                 Some(p) => PathBuf::from(p),
-                None => std::env::temp_dir().join(format!("ponko-trace-{}-{}.json", std::process::id(), ctx.frame())),
+                None => {
+                    std::env::temp_dir().join(format!("ponko-trace-{}-{}.json", std::process::id(), ctx.time.frame()))
+                }
             };
             ctx.record_trace(path.clone(), frames);
-            json!({ "path": path, "frames": frames, "written_after_frame": ctx.frame() + frames as u64 })
+            json!({ "path": path, "frames": frames, "written_after_frame": ctx.time.frame() + frames as u64 })
         }
         "perf.hud" => {
             let on = param(params, "on")?.as_bool().ok_or("`on` must be true or false")?;
@@ -1152,11 +1156,11 @@ mod tests {
     fn sim_methods_drive_the_clock() {
         let mut ctx = ctx();
         handle(&mut ctx, "sim.pause", &json!({})).unwrap();
-        assert!(ctx.is_paused());
+        assert!(ctx.time.is_paused());
         handle(&mut ctx, "sim.step", &json!({ "ticks": 3 })).unwrap();
         assert_eq!(ctx.take_pending_steps(), 3);
         handle(&mut ctx, "sim.speed", &json!({ "speed": 4.0 })).unwrap();
-        assert_eq!(ctx.sim_speed(), 4.0);
+        assert_eq!(ctx.time.speed(), 4.0);
         assert!(handle(&mut ctx, "sim.speed", &json!({ "speed": -1.0 })).is_err());
     }
 

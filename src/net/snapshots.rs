@@ -670,7 +670,7 @@ impl ClockSync {
 /// entity. Push each decoded snapshot with the sender's timestamp and our
 /// clock; sample with our clock, once a frame.
 ///
-/// The clock is yours (`Ctx::time`, an `Instant`, ...) but must be the same
+/// The clock is yours (`Time::elapsed`, an `Instant`, ...) but must be the same
 /// for `push` and `sample`. Entities of one sender share its clock, so they
 /// all see the same offset estimate; each stream still keeps its own, which
 /// is cheap.
@@ -820,7 +820,7 @@ impl<T: Interpolate> SnapshotStream<T> {
 
 /// Component: a remote entity's incoming [`Pose`] snapshots, applied to its
 /// [`Transform3D`](crate::Transform3D) by [`apply_net_poses`]. Push each
-/// decoded update from your message handler with `ctx.time()` as the
+/// decoded update from your message handler with `ctx.time.elapsed()` as the
 /// arrival time.
 ///
 /// ```
@@ -844,10 +844,10 @@ pub struct NetPose {
 
 /// System: sets the [`Transform3D`](crate::Transform3D) position and rotation
 /// of every entity with a [`NetPose`] from its stream, sampled at
-/// `ctx.time()` (scale is left alone). Entities without snapshots stay
+/// `ctx.time.elapsed()` (scale is left alone). Entities without snapshots stay
 /// where they are. Add it with [`Game::system`](crate::Game::system), so entities
 /// move every frame whatever the simulation does; the stream's timestamps are matched against
-/// `ctx.time()`, so push with that clock.
+/// `ctx.time.elapsed()`, so push with that clock.
 ///
 /// ```
 /// use ponko::*;
@@ -855,7 +855,7 @@ pub struct NetPose {
 /// ```
 #[cfg(feature = "3d")]
 pub fn apply_net_poses(ctx: &mut crate::Ctx) {
-    let now = ctx.time();
+    let now = ctx.time.elapsed();
     ctx.world
         .query::<(&NetPose, &mut crate::Transform3D)>()
         .for_each(|(pose, transform)| {

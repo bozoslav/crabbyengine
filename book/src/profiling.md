@@ -236,7 +236,7 @@ runs each tick. C++: reuse a `std::vector` and `reserve`.
 **One system dominates.** Wrap its halves in scopes to see which. Then, in
 order of effort: iterate with `for_each` / `par_for_each` instead of
 `iter()` ([ECS](ecs.md)); do the work for a quarter of the entities per tick
-with `ctx.turns(4)`; run it less often with `sim_system_every`
+with `ctx.time.turns(4)`; run it less often with `sim_system_every`
 ([The simulation clock](sim-clock.md)); use a spatial grid or flow field
 instead of checking every pair ([Spatial queries](spatial.md)).
 

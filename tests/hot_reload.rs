@@ -31,9 +31,9 @@ fn run(path: &Path, hot_reload: bool, edit: impl Fn() + 'static) -> (Texture, Ve
         .sim_system(move |ctx: &mut Ctx| {
             let reloaded = ctx.reloaded_textures().to_vec();
             if !reloaded.is_empty() {
-                log.lock().unwrap().push((ctx.sim_tick(), reloaded));
+                log.lock().unwrap().push((ctx.time.sim_tick(), reloaded));
             }
-            if ctx.sim_tick() == 2 {
+            if ctx.time.sim_tick() == 2 {
                 // Windows file times move in ~16 ms steps, and headless ticks
                 // are much faster: without this, an edit of the same length can
                 // land on the same time as the first write and look unchanged.
@@ -101,7 +101,7 @@ fn run_rules(path: &Path, edit: &'static str) -> Vec<(f32, Vec<String>)> {
         .sim_system(move |ctx: &mut Ctx| {
             let speed = ctx.world.resource::<Rules>().speed;
             log.lock().unwrap().push((speed, ctx.reloaded_files().to_vec()));
-            if ctx.sim_tick() == 2 {
+            if ctx.time.sim_tick() == 2 {
                 std::thread::sleep(Duration::from_millis(50)); // see `run`
                 std::fs::write(&file, edit).unwrap();
                 std::thread::sleep(Duration::from_millis(400));
@@ -189,9 +189,9 @@ fn reload_ticks(name: &str, before: &[u8], after: Vec<u8>, load: fn(&mut Ctx, &s
         .hot_reload(true)
         .sim_system(move |ctx: &mut Ctx| {
             if ctx.reloaded_files().contains(&watched) {
-                log.lock().unwrap().push(ctx.sim_tick());
+                log.lock().unwrap().push(ctx.time.sim_tick());
             }
-            if ctx.sim_tick() == 1 {
+            if ctx.time.sim_tick() == 1 {
                 std::thread::sleep(Duration::from_millis(50)); // see `run`
                 std::fs::write(&path, &after).unwrap();
                 std::thread::sleep(Duration::from_millis(400));

@@ -42,7 +42,7 @@ fn commands_queued_before_a_load_are_dropped_and_later_ones_apply() {
     let mut kept = None;
     let mut world = Game::new("t", 1, 1)
         .sim_system(move |ctx: &mut Ctx| {
-            if ctx.sim_tick() != 1 {
+            if ctx.time.sim_tick() != 1 {
                 return;
             }
             let e = ctx.world.query::<(Entity, &Tag)>().iter().next().unwrap().0;
@@ -83,7 +83,7 @@ fn events_sent_before_a_load_can_still_be_read() {
     let seen = got.clone();
     Game::new("t", 1, 1)
         .sim_system(|ctx: &mut Ctx| {
-            if ctx.sim_tick() == 1 {
+            if ctx.time.sim_tick() == 1 {
                 ctx.events.send(Ping(7));
                 ctx.load_scene("test-lifecycle-events.json").unwrap();
             }
@@ -221,7 +221,7 @@ mod physics {
             .physics(GRAVITY)
             .sim_system(|ctx: &mut Ctx| {
                 // Half a second of falling, then the next scene.
-                if ctx.sim_tick() == 30 {
+                if ctx.time.sim_tick() == 30 {
                     ctx.load_scene("test-lifecycle-fall-b.json").unwrap();
                 }
             })
@@ -243,7 +243,7 @@ mod physics {
         let mut world = Game::new("t", 1, 1)
             .physics(GRAVITY)
             .sim_system(|ctx: &mut Ctx| {
-                if ctx.sim_tick() == 30 {
+                if ctx.time.sim_tick() == 30 {
                     let text = std::fs::read_to_string(
                         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/test-lifecycle-raw-b.json"),
                     )
@@ -270,7 +270,7 @@ mod physics {
             .physics(Vec2::ZERO)
             .sim_system(move |ctx: &mut Ctx| {
                 let hit = |ctx: &Ctx| ctx.physics.cast_ray(vec2(-100.0, 0.0), Vec2::X, 1000.0);
-                match ctx.sim_tick() {
+                match ctx.time.sim_tick() {
                     5 => {
                         let before = hit(ctx).expect("scene A's ball");
                         assert!((before.point.x + 10.0).abs() < 0.5, "{:?}", before.point);
@@ -312,7 +312,7 @@ mod physics {
         );
         Game::new("t", 1, 1)
             .physics(GRAVITY)
-            .sim_system(|ctx: &mut Ctx| match ctx.sim_tick() {
+            .sim_system(|ctx: &mut Ctx| match ctx.time.sim_tick() {
                 2 => {
                     ctx.physics.set_gravity(vec2(0.0, -50.0));
                     assert!(ctx.load_scene("test-lifecycle-gravity-bad.json").is_err());
@@ -350,7 +350,7 @@ mod physics3d {
         let mut world = Game::new("t", 1, 1)
             .physics3d(vec3(0.0, -9.81, 0.0))
             .sim_system(|ctx: &mut Ctx| {
-                if ctx.sim_tick() == 30 {
+                if ctx.time.sim_tick() == 30 {
                     ctx.load_scene("test-lifecycle-fall3d-b.json").unwrap();
                 }
             })

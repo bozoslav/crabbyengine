@@ -82,7 +82,7 @@ With a window, 20k units run at the display's 120 FPS with 1.2 ms of
 simulation per frame.
 
 How it stays fast, in case your game needs the same tricks:
-- Marching units look for enemies only on their turn (`ctx.turns(4)`),
+- Marching units look for enemies only on their turn (`ctx.time.turns(4)`),
   units in a fight every tick.
 - Separation uses a fine grid of friends, every other tick; enemy search
   a coarse grid of enemies, at melee reach first and full sight only if
@@ -353,7 +353,7 @@ component set costs. Agents get both from the control endpoint's
 - Prefer `for_each`/`par_for_each` over `iter()` for big queries.
 - Spawn with `spawn_batch`.
 - Run expensive logic at a reduced rate with `sim_system_every(n, system)`,
-  or spread per-entity work over ticks with `ctx.turns(n)` (see
+  or spread per-entity work over ticks with `ctx.time.turns(n)` (see
   [The simulation clock](sim-clock.md)).
 
 ## C++

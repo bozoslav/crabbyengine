@@ -15,32 +15,6 @@ impl Ctx {
         self.ui_retained.wants_keyboard()
     }
 
-    /// Feed committed Unicode text from a custom host or headless test. Native
-    /// hosts should forward character events, rather than mapping physical keys.
-    /// ```
-    /// use ponko::*;
-    /// # fn update(ctx: &mut Ctx) {
-    /// ctx.ui_insert_text("Hello");
-    /// # }
-    /// ```
-    pub fn ui_insert_text(&mut self, text: &str) {
-        self.input.add_text(text);
-    }
-
-    /// Committed Unicode typed this frame, also readable when UI has focus.
-    /// Cleared with other input after frame systems. Does not include IME
-    /// composition/preedit. Physical keys remain separate.
-    /// ```
-    /// use ponko::*;
-    /// # fn update(ctx: &mut Ctx) {
-    /// let text = ctx.typed_text();
-    /// # let _ = text;
-    /// # }
-    /// ```
-    pub fn typed_text(&self) -> &str {
-        self.input.typed_text()
-    }
-
     pub(crate) fn update_retained_ui(&mut self) {
         let text = std::mem::take(&mut self.ui.retained_input_text);
         let input = self.retained_input(&self.ui_retained, text);
@@ -55,9 +29,9 @@ impl Ctx {
     /// gamepads give it; `text` (emptied) receives the typed text.
     pub(super) fn retained_input(&self, ui: &crate::Ui, mut text: String) -> crate::UiInput {
         text.clear();
-        text.push_str(self.typed_text());
+        text.push_str(self.input.typed_text());
         let pressed = |key| self.key_pressed(key);
-        let pad = |b| self.gamepads().iter().any(|&p| self.gamepad_pressed(p, b));
+        let pad = |b| self.input.gamepads().iter().any(|&p| self.input.gamepad_pressed(p, b));
         let shift = self.key_down(Key::LeftShift) || self.key_down(Key::RightShift);
         let ctrl = self.key_down(Key::LeftCtrl)
             || self.key_down(Key::RightCtrl)
@@ -65,10 +39,10 @@ impl Ctx {
             || self.key_down(Key::RightSuper);
         crate::UiInput {
             pointer: self.mouse_pos(),
-            pressed: self.mouse_pressed(MouseButton::Left),
-            held: self.mouse_down(MouseButton::Left),
-            released: self.mouse_released(MouseButton::Left),
-            wheel: -self.mouse_wheel() * 40.0,
+            pressed: self.input.mouse_pressed(MouseButton::Left),
+            held: self.input.mouse_down(MouseButton::Left),
+            released: self.input.mouse_released(MouseButton::Left),
+            wheel: -self.input.mouse_wheel() * 40.0,
             next: pressed(Key::Tab) && !shift,
             previous: pressed(Key::Tab) && shift,
             direction: Vec2::new(

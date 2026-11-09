@@ -499,7 +499,7 @@ pub const SPATIAL_SORT_EVERY: u64 = 32;
 /// in every simulation tick, and every [`SPATIAL_SORT_EVERY`] ticks it also
 /// sorts entities by cell so neighbor queries stay cache-friendly.
 pub fn rebuild_spatial_grid(ctx: &mut Ctx) {
-    if ctx.sim_tick().is_multiple_of(SPATIAL_SORT_EVERY) {
+    if ctx.time.sim_tick().is_multiple_of(SPATIAL_SORT_EVERY) {
         let cell = ctx.spatial.cell_size();
         ctx.world.sort_by::<Transform2D>(|t| spatial_key(t.position, cell));
     }

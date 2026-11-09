@@ -209,8 +209,8 @@ Enter, Space or gamepad South activates the focused control. Text inputs reserve
 left/right, Home/End, Backspace/Delete, Shift-selection and Ctrl/Cmd-A for editing;
 Enter submits. Clicking/dragging selects text. Text is UTF-8 with scalar-boundary
 editing; grapheme-cluster editing, clipboard and IME composition are not provided.
-Native committed Unicode is available to both UI and games as `ctx.typed_text()`.
-Custom hosts/tests can supply it through `ctx.ui_insert_text()`.
+Native committed Unicode is available to both UI and games as `ctx.input.typed_text()`.
+Custom hosts/tests can supply it through `ctx.input.insert_text()`.
 
 `ctx.mouse_over_ui()` includes immediate and retained UI, including captured
 drags. `ctx.ui_wants_keyboard()` reports retained keyboard/gamepad ownership

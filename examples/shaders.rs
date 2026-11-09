@@ -59,12 +59,12 @@ fn main() {
             ctx.lighting.sun_direction = Sky::sun_direction_at(hour);
             ctx.sky.fog_density = if fog { 0.02 } else { 0.0 };
             ctx.sky.fog_falloff = 8.0;
-            if ctx.frame() == 2
+            if ctx.time.frame() == 2
                 && let Ok(path) = std::env::var("SHOT")
             {
                 ctx.save_screenshot(path);
             }
-            if ctx.frame() == 4 && std::env::var("SHOT").is_ok() {
+            if ctx.time.frame() == 4 && std::env::var("SHOT").is_ok() {
                 ctx.quit();
             }
         })

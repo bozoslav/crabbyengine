@@ -604,7 +604,7 @@ impl Ctx {
     /// ```
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, click: Sound) {
-    /// if ctx.mouse_pressed(MouseButton::Left) {
+    /// if ctx.input.mouse_pressed(MouseButton::Left) {
     ///     ctx.play_sound(&click);
     /// }
     /// # }

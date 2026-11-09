@@ -207,7 +207,7 @@ fn draw_map(ctx: &mut Ctx) -> impl FnMut(&mut Ctx) + use<> {
 }
 
 fn click_to_move_goal(ctx: &mut Ctx) {
-    if ctx.mouse_pressed(MouseButton::Left) && !ctx.mouse_over_ui() {
+    if ctx.input.mouse_pressed(MouseButton::Left) && !ctx.mouse_over_ui() {
         let at = ctx.mouse_world();
         let paths = ctx.world.resource_mut::<Paths>();
         if paths.nav.walkable(at) {
@@ -215,7 +215,11 @@ fn click_to_move_goal(ctx: &mut Ctx) {
         }
     }
     if ctx.key_pressed(Key::Space) {
-        if ctx.is_paused() { ctx.resume() } else { ctx.pause() }
+        if ctx.time.is_paused() {
+            ctx.time.resume()
+        } else {
+            ctx.time.pause()
+        }
     }
     if ctx.key_pressed(Key::Escape) {
         ctx.quit();
@@ -230,7 +234,7 @@ fn hud(ctx: &mut Ctx) {
     let ms = ctx.world.resource::<Paths>().compute_ms;
     let text = format!(
         "{agents} agents, {:.0} FPS\nfield: {}x{} cells, {ms:.2} ms\nclick: new goal   H: distances",
-        ctx.fps(),
+        ctx.time.fps(),
         MAP.x,
         MAP.y
     );
@@ -248,7 +252,7 @@ fn main() {
             .sim_system(steer)
             .sim_system(move |ctx: &mut Ctx| {
                 // A new goal every 2 seconds, like a player clicking around.
-                let tick = ctx.sim_tick();
+                let tick = ctx.time.sim_tick();
                 if tick % 120 == 119 {
                     let paths = ctx.world.resource_mut::<Paths>();
                     let goal = walkable_point(&paths.nav, &mut rng);

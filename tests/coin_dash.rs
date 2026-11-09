@@ -182,7 +182,7 @@ fn restart_works_in_the_middle_of_a_round_too() {
     let seen = taken_before_restart.clone();
     let mut world = script(move |ctx| {
         chase_nearest_coin(ctx);
-        if ctx.sim_tick() == 2 * HZ {
+        if ctx.time.sim_tick() == 2 * HZ {
             seen.set(ctx.world.resource::<Round>().collected);
             intent(ctx).restart = true;
             ctx.quit();
@@ -270,7 +270,7 @@ fn the_game_starts_on_an_empty_title_screen_that_ignores_movement() {
 #[test]
 fn confirm_on_the_title_screen_starts_round_one() {
     let mut world = script(|ctx| {
-        if ctx.sim_tick() == 3 {
+        if ctx.time.sim_tick() == 3 {
             intent(ctx).confirm = true;
             ctx.quit();
         }
@@ -297,7 +297,7 @@ fn pause_or_back_on_the_title_screen_quits_the_game() {
         let counted = ticks.clone();
         script(move |ctx| {
             counted.set(counted.get() + 1);
-            if ctx.sim_tick() == 2 {
+            if ctx.time.sim_tick() == 2 {
                 press(intent(ctx));
             }
         })
@@ -312,7 +312,7 @@ fn pausing_freezes_the_round_and_resuming_continues_it() {
     let at_pause = Rc::new(RefCell::new(None));
     let record = at_pause.clone();
     let mut world = script(move |ctx| {
-        let tick = ctx.sim_tick();
+        let tick = ctx.time.sim_tick();
         if tick == HZ {
             intent(ctx).pause = true;
         }
@@ -353,7 +353,7 @@ fn pause_toggles_with_the_pause_button_and_confirm_resumes() {
     let log = seen.clone();
     script(move |ctx| {
         log.borrow_mut().push(screen(&ctx.world));
-        match ctx.sim_tick() {
+        match ctx.time.sim_tick() {
             1 | 5 => intent(ctx).pause = true, // pause ...
             3 => intent(ctx).confirm = true,   // ... resume with confirm
             7 => intent(ctx).pause = true,     // ... resume with pause
@@ -376,7 +376,7 @@ fn pause_toggles_with_the_pause_button_and_confirm_resumes() {
 #[test]
 fn restart_from_the_pause_screen_starts_a_fresh_round_and_back_returns_to_the_title() {
     let mut world = script(|ctx| {
-        match ctx.sim_tick() {
+        match ctx.time.sim_tick() {
             HZ => intent(ctx).pause = true,
             n if n == HZ + 2 => {
                 intent(ctx).restart = true;
@@ -389,7 +389,7 @@ fn restart_from_the_pause_screen_starts_a_fresh_round_and_back_returns_to_the_ti
     .run_headless(5 * HZ, setup_playing);
     assert_fresh_round(&mut world, 2);
 
-    let world = script(|ctx| match ctx.sim_tick() {
+    let world = script(|ctx| match ctx.time.sim_tick() {
         5 => intent(ctx).pause = true,
         7 => {
             intent(ctx).back = true;
@@ -469,7 +469,7 @@ fn each_screen_shows_its_own_text() {
     );
 
     let paused = script(|ctx| {
-        if ctx.sim_tick() == 1 {
+        if ctx.time.sim_tick() == 1 {
             intent(ctx).pause = true;
         }
     })
@@ -598,7 +598,7 @@ fn a_missing_save_file_is_a_first_run_and_is_only_written_when_a_round_ends() {
     );
 
     // Quitting a round halfway (back to the title) doesn't count either.
-    let quit_midway = script(|ctx| match ctx.sim_tick() {
+    let quit_midway = script(|ctx| match ctx.time.sim_tick() {
         0 => intent(ctx).confirm = true,
         30 => intent(ctx).pause = true,
         32 => intent(ctx).back = true,
@@ -762,7 +762,7 @@ fn a_whole_session_can_be_played_from_key_presses() {
             // Same as holding the keys for the direction: written where read_input leaves it.
             intent(ctx).direction = nearest.map_or(Vec2::ZERO, |c| (c - player).normalize_or_zero());
         }
-        log.borrow_mut().push((ctx.sim_tick(), screen(&ctx.world)));
+        log.borrow_mut().push((ctx.time.sim_tick(), screen(&ctx.world)));
     })
     .run_headless(1800, {
         let path = path.clone();
@@ -794,26 +794,28 @@ fn keys_and_gamepad_map_to_the_same_intent() {
     Game::new("t", 800, 600).run_headless(0, |ctx| {
         setup_playing(ctx);
         // Keyboard: A is left, S is down.
-        ctx.feed_input(InputEvent::Key(Key::A, true));
-        ctx.feed_input(InputEvent::Key(Key::S, true));
+        ctx.input.feed(InputEvent::Key(Key::A, true));
+        ctx.input.feed(InputEvent::Key(Key::S, true));
         read_input(ctx);
         let d = ctx.world.resource::<Intent>().direction;
         assert!(d.x < 0.0 && d.y > 0.0, "left and down, got {d}");
-        ctx.feed_input(InputEvent::Key(Key::A, false));
-        ctx.feed_input(InputEvent::Key(Key::S, false));
+        ctx.input.feed(InputEvent::Key(Key::A, false));
+        ctx.input.feed(InputEvent::Key(Key::S, false));
 
         // Arrow keys do the same as WASD.
-        ctx.feed_input(InputEvent::Key(Key::Right, true));
+        ctx.input.feed(InputEvent::Key(Key::Right, true));
         read_input(ctx);
         assert!(ctx.world.resource::<Intent>().direction.x > 0.0);
-        ctx.feed_input(InputEvent::Key(Key::Right, false));
+        ctx.input.feed(InputEvent::Key(Key::Right, false));
 
         // The left stick, past its dead zone, pushes up.
         let pad = Gamepad::from_slot(0).unwrap();
-        ctx.feed_input(InputEvent::GamepadAxis(pad, GamepadAxis::LeftStickY, -1.0));
+        ctx.input
+            .feed(InputEvent::GamepadAxis(pad, GamepadAxis::LeftStickY, -1.0));
         read_input(ctx);
         assert!(ctx.world.resource::<Intent>().direction.y < 0.0, "stick up");
-        ctx.feed_input(InputEvent::GamepadAxis(pad, GamepadAxis::LeftStickY, 0.0));
+        ctx.input
+            .feed(InputEvent::GamepadAxis(pad, GamepadAxis::LeftStickY, 0.0));
 
         // Nothing held: standing still.
         read_input(ctx);
@@ -853,9 +855,9 @@ fn every_button_binding_sets_its_own_request_which_the_sim_takes_once() {
             Game::new("t", 800, 600).run_headless(0, |ctx| {
                 setup_with(ctx, None);
                 assert!(!flag(ctx.world.resource::<Intent>()), "{name}: not pressed yet");
-                ctx.feed_input(press);
+                ctx.input.feed(press);
                 read_input(ctx);
-                ctx.feed_input(release);
+                ctx.input.feed(release);
                 // A frame without a sim tick must not lose it.
                 assert!(flag(ctx.world.resource::<Intent>()), "{press:?} sets {name}");
                 // Only that one button: the others are untouched.

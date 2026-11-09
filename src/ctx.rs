@@ -12,7 +12,7 @@ use crate::color::Color;
 use crate::ecs::{Sprite, Transform2D};
 use crate::events::Events;
 use crate::hot_reload::Asset;
-use crate::input::{Gamepad, GamepadAxis, GamepadButton, GamepadStick, Input, Key, MouseButton};
+use crate::input::{Input, Key};
 use crate::reflect::WorldReflect;
 use crate::render::batch::{DrawList, SpriteInstance};
 use crate::render::batch::{FULL_UV, uv_region};
@@ -20,21 +20,11 @@ use crate::render::{FrameStatus, RenderStats, Renderer, Screenshot};
 use crate::spatial::SpatialGrid;
 use crate::text::{Font, Text, TextParams};
 use crate::texture::{DrawParams, Texture, TextureFilter};
-use crate::time::FrameTiming;
+use crate::time::{FrameTiming, Time};
 use crate::ui::{UiState, UiStyle};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
-
-/// Simulation clock state: speed, pause, single steps, tick count.
-struct SimClock {
-    speed: f32,
-    paused: bool,
-    pending_steps: u32,
-    tick: u64,
-    /// Fixed step in seconds, full precision.
-    step: f64,
-}
 
 /// How long one system took. See [`Ctx::system_timings`].
 #[derive(Debug, Clone, PartialEq)]
@@ -176,15 +166,10 @@ pub struct Ctx {
     /// }
     /// ```
     pub events: Events,
-    /// `true` while simulation systems run: `dt()` then returns the fixed step.
-    in_sim: bool,
-    /// Fixed steps the running sim system covers (`sim_system_every`).
-    sim_steps: u32,
     /// Seed for `random()`.
     pub(crate) seed: u64,
     /// Index of the running system, so systems get different random streams.
     pub(crate) system_index: usize,
-    sim: SimClock,
     /// No window or GPU (`Game::run_headless`): textures are size-only handles.
     pub(crate) headless: bool,
     /// Where the control endpoint listens, if it's on.
@@ -215,18 +200,27 @@ pub struct Ctx {
     pub(crate) timings: Vec<SystemTiming>,
     /// Each timed system's place in the schedule, parallel to `timings`.
     pub(crate) schedule: Vec<crate::diagnostics::ScheduleSlot>,
-    pub(crate) input: Input,
-    timing: FrameTiming,
-    fixed_dt: f32,
-    time: f64,
-    frame: u64,
-    fps: f32,
+    /// Keyboard, mouse, gamepads and named actions: see [`Input`].
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// if ctx.input.mouse_pressed(MouseButton::Left) { /* ... */ }
+    /// # }
+    /// ```
+    pub input: Input,
+    /// The frame and simulation clocks: see [`Time`].
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// let seconds = ctx.time.elapsed();
+    /// ctx.time.set_speed(2.0);
+    /// # }
+    /// ```
+    pub time: Time,
     window_size: Vec2,
     quit_requested: bool,
-    /// The cursor is hidden and held in the window (`set_cursor_locked`).
-    cursor_locked: bool,
-    /// `cursor_locked` changed since the window last applied it.
-    pub(crate) cursor_lock_changed: bool,
     pub(crate) renderer: Option<Renderer>,
     /// Screenshots waiting for the next drawn frame.
     screenshots: Vec<ScreenshotRequest>,
@@ -433,17 +427,8 @@ impl Ctx {
             physics3d: crate::Physics3D::default(),
             net: crate::Net::default(),
             events: Events::default(),
-            in_sim: false,
-            sim_steps: 1,
             seed: crate::random::DEFAULT_SEED,
             system_index: 0,
-            sim: SimClock {
-                speed: 1.0,
-                paused: false,
-                pending_steps: 0,
-                tick: 0,
-                step: fixed_dt,
-            },
             headless: false,
             control_addr: None,
             headless_textures: 0,
@@ -461,19 +446,9 @@ impl Ctx {
             timings: Vec::new(),
             schedule: Vec::new(),
             input: Input::new(),
-            timing: FrameTiming {
-                dt: 0.0,
-                fixed_steps: 0,
-                alpha: 0.0,
-            },
-            fixed_dt: fixed_dt as f32,
-            time: 0.0,
-            frame: 0,
-            fps: 0.0,
+            time: Time::new(fixed_dt),
             window_size,
             quit_requested: false,
-            cursor_locked: false,
-            cursor_lock_changed: false,
             renderer: None,
             screenshots: Vec::new(),
             draw_list: DrawList::default(),
@@ -588,175 +563,12 @@ impl Ctx {
             .expect("ponko: textures can only be created once the game is running (in setup or update)")
     }
 
-    /// Current binding configuration.
-    /// ```
-    /// # use ponko::*;
-    /// # fn example(ctx: &Ctx) {
-    /// let value = ctx.actions();
-    /// # }
-    /// ```
-    pub fn actions(&self) -> &crate::ActionMap {
-        &self.input.actions
-    }
-
-    /// Resolves an action name once into a `Copy` [`ActionId`](crate::ActionId)
-    /// for the queries below, which then skip the string lookup. An unknown
-    /// name logs an error (naming the known actions) and gives
-    /// [`ActionId::NONE`](crate::ActionId::NONE), which reads false/zero.
-    /// Resolve in setup, after installing the bindings with
-    /// [`set_actions`](Self::set_actions); later rebinding keeps the id valid.
-    ///
-    /// The queries take an id or a `&str` name. They are meant to move to the
-    /// `ctx.input` service of the API-friction work (#195).
-    /// ```
-    /// # use ponko::*;
-    /// # fn example(ctx: &Ctx) {
-    /// let jump = ctx.action_id("jump");
-    /// if ctx.action_pressed(jump) { /* ... */ }
-    /// # }
-    /// ```
-    pub fn action_id(&self, name: &str) -> crate::ActionId {
-        match self.input.actions.resolve(name) {
-            Ok(id) => id,
-            Err(e) => {
-                eprintln!("ponko: {e}");
-                crate::ActionId::NONE
-            }
-        }
-    }
-
-    /// Like [`action_id`](Self::action_id), but returns the error instead of
-    /// logging it.
-    /// ```
-    /// # use ponko::*;
-    /// # fn example(ctx: &Ctx) {
-    /// let jump = ctx.try_action_id("jump");
-    /// # }
-    /// ```
-    pub fn try_action_id(&self, name: &str) -> Result<crate::ActionId, crate::UnknownAction> {
-        self.input.actions.resolve(name)
-    }
-
-    /// Resolves several actions at once; see also [`actions!`](crate::actions!),
-    /// which keeps the names in one declaration.
-    /// ```
-    /// # use ponko::*;
-    /// # fn example(ctx: &Ctx) {
-    /// let [jump, fire] = ctx.action_ids(&["jump", "fire"]);
-    /// # }
-    /// ```
-    pub fn action_ids<const N: usize>(&self, names: &[&str; N]) -> [crate::ActionId; N] {
-        names.map(|n| self.action_id(n))
-    }
-
-    /// Whether a named button is held. Takes a name or an
-    /// [`ActionId`](crate::ActionId) from [`action_id`](Self::action_id).
-    /// ```
-    /// # use ponko::*;
-    /// # fn example(ctx: &Ctx) {
-    /// let value = ctx.action_down("move");
-    /// # }
-    /// ```
-    pub fn action_down(&self, action: impl crate::ActionRef) -> bool {
-        self.input.actions.down(action)
-    }
-
-    /// Whether a named button became held this frame.
-    /// ```
-    /// # use ponko::*;
-    /// # fn example(ctx: &Ctx) {
-    /// let value = ctx.action_pressed("move");
-    /// # }
-    /// ```
-    pub fn action_pressed(&self, action: impl crate::ActionRef) -> bool {
-        self.input.actions.pressed(action)
-    }
-
-    /// Whether all sources of a named button were released this frame.
-    /// ```
-    /// # use ponko::*;
-    /// # fn example(ctx: &Ctx) {
-    /// let value = ctx.action_released("move");
-    /// # }
-    /// ```
-    pub fn action_released(&self, action: impl crate::ActionRef) -> bool {
-        self.input.actions.released(action)
-    }
-
-    /// A named scalar axis, or zero.
-    /// ```
-    /// # use ponko::*;
-    /// # fn example(ctx: &Ctx) {
-    /// let value = ctx.action_axis("move");
-    /// # }
-    /// ```
-    pub fn action_axis(&self, action: impl crate::ActionRef) -> f32 {
-        self.input.actions.axis(action)
-    }
-
-    /// A named vector axis, or zero.
-    /// ```
-    /// # use ponko::*;
-    /// # fn example(ctx: &Ctx) {
-    /// let value = ctx.action_axis2("move");
-    /// # }
-    /// ```
-    pub fn action_axis2(&self, action: impl crate::ActionRef) -> Vec2 {
-        self.input.actions.axis2(action)
-    }
-
-    /// Replace bindings at runtime. Held sources establish a baseline;
-    /// rebinding itself generates no pressed/released edges.
-    /// ```
-    /// # use ponko::*;
-    /// # fn example(ctx: &mut Ctx) {
-    /// ctx.set_actions(ActionMap::default());
-    /// # }
-    /// ```
-    pub fn set_actions(&mut self, mut actions: crate::ActionMap) {
-        actions.prepare_after(&self.input.actions);
-        self.input.actions = actions;
-        self.input.refresh_actions();
-        self.input.actions.end_frame();
-    }
-
-    /// Feed input by hand for tests/replay; live input uses the same state.
-    /// Edges clear after each headless or windowed frame.
-    /// ```
-    /// # use ponko::*;
-    /// # fn example(ctx: &mut Ctx) {
-    /// ctx.feed_input(InputEvent::Key(Key::Space, true));
-    /// # }
-    /// ```
-    pub fn feed_input(&mut self, event: crate::InputEvent) {
-        use crate::InputEvent;
-        match event {
-            InputEvent::Key(k, down) => self.input.set_key(k, down),
-            InputEvent::Mouse(b, down) => self.input.set_mouse_button(b, down),
-            InputEvent::GamepadButton(p, b, down) => self.input.set_gamepad_button(p, b, down),
-            InputEvent::GamepadAxis(p, a, value) => self.input.set_gamepad_axis(p, a, value),
-            InputEvent::FocusLost => self.input.release_all(),
-            InputEvent::GamepadDisconnected(p) => self.input.disconnect_gamepad(p),
-        }
-    }
-
     /// Engine side: start a new frame with fresh timing.
     pub(crate) fn begin_frame(&mut self, timing: FrameTiming) {
-        self.timing = timing;
-        self.time += f64::from(timing.dt);
-        self.frame += 1;
-        self.events.begin_frame(self.frame, self.sim.tick);
+        self.time.begin_frame(timing);
+        self.events.begin_frame(self.time.frame(), self.time.sim_tick());
         self.text.begin_frame();
         self.ui.begin_frame();
-        if timing.dt > 0.0 {
-            let instant = 1.0 / timing.dt;
-            // Exponential smoothing so the number is readable, seeded by the first sample.
-            self.fps = if self.fps == 0.0 {
-                instant
-            } else {
-                self.fps + (instant - self.fps) * 0.05
-            };
-        }
     }
 
     pub(crate) fn set_scale_factor(&mut self, scale: f32) {
@@ -817,107 +629,6 @@ impl Ctx {
         crate::diagnostics::snapshot(self)
     }
 
-    // ------------------------------------------------------- simulation clock
-
-    /// Stops simulation systems from running (frame systems and drawing go on).
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// fn controls(ctx: &mut Ctx) {
-    ///     if ctx.key_pressed(Key::Space) {
-    ///         if ctx.is_paused() { ctx.resume() } else { ctx.pause() }
-    ///     }
-    ///     if ctx.key_pressed(Key::Period) {
-    ///         ctx.step(); // advance one tick while paused
-    ///     }
-    /// }
-    /// ```
-    pub fn pause(&mut self) {
-        self.sim.paused = true;
-    }
-
-    /// Lets simulation systems run again after [`pause`](Self::pause).
-    pub fn resume(&mut self) {
-        self.sim.paused = false;
-    }
-
-    /// `true` while the simulation is paused.
-    pub fn is_paused(&self) -> bool {
-        self.sim.paused
-    }
-
-    /// Runs exactly one extra simulation tick next frame. Meant for stepping
-    /// through a paused simulation; each call adds one tick.
-    pub fn step(&mut self) {
-        self.sim.pending_steps = self.sim.pending_steps.saturating_add(1);
-    }
-
-    /// Sets how fast simulated time runs: `1.0` real time, `4.0` four times
-    /// as fast, `0.5` half speed. Ticks stay the same length (the fixed step),
-    /// so results don't depend on speed; only how many ticks run per frame
-    /// changes. If the simulation can't keep up, it runs as fast as it can.
-    ///
-    /// # Panics
-    /// If `speed` is negative, NaN or infinite.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn f(ctx: &mut Ctx) {
-    /// ctx.set_sim_speed(16.0); // fast-forward
-    /// # }
-    /// ```
-    #[track_caller]
-    pub fn set_sim_speed(&mut self, speed: f32) {
-        assert!(
-            speed.is_finite() && speed >= 0.0,
-            "Ctx::set_sim_speed: speed must be a finite number >= 0 (got {speed})"
-        );
-        self.sim.speed = speed;
-    }
-
-    /// Current simulation speed (see [`set_sim_speed`](Self::set_sim_speed)).
-    pub fn sim_speed(&self) -> f32 {
-        self.sim.speed
-    }
-
-    /// Number of simulation ticks run so far. Use it to do work every Nth
-    /// tick, or to timestamp events deterministically.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// fn slow_ai(ctx: &mut Ctx) {
-    ///     if ctx.sim_tick() % 10 != 0 {
-    ///         return; // think 6 times per second instead of 60
-    ///     }
-    ///     // ...
-    /// }
-    /// ```
-    pub fn sim_tick(&self) -> u64 {
-        self.sim.tick
-    }
-
-    /// Simulated seconds so far: `sim_tick() * fixed_dt()`.
-    pub fn sim_time(&self) -> f64 {
-        self.sim.tick as f64 * self.sim.step
-    }
-
-    /// Engine side: speed to feed the clock this frame (0 while paused).
-    pub(crate) fn effective_sim_speed(&self) -> f64 {
-        if self.sim.paused {
-            0.0
-        } else {
-            f64::from(self.sim.speed)
-        }
-    }
-
-    /// Engine side: single steps requested since the last frame.
-    /// Uses up one requested single step; `false` if none was pending.
-    pub(crate) fn take_one_step(&mut self) -> bool {
-        let had = self.sim.pending_steps > 0;
-        self.sim.pending_steps = self.sim.pending_steps.saturating_sub(1);
-        had
-    }
-
     /// The address of this game's control endpoint, or `None` if it's off.
     /// Tools find it in the instance registry; this is for tests and logs.
     ///
@@ -931,23 +642,37 @@ impl Ctx {
         self.control_addr
     }
 
+    /// Engine side: speed to feed the clock this frame (0 while paused).
+    pub(crate) fn effective_sim_speed(&self) -> f64 {
+        self.time.effective_sim_speed()
+    }
+
+    /// Engine side: uses up one requested single step; `false` if none was pending.
+    pub(crate) fn take_one_step(&mut self) -> bool {
+        self.time.take_one_step()
+    }
+
     pub(crate) fn take_pending_steps(&mut self) -> u32 {
-        std::mem::take(&mut self.sim.pending_steps)
+        self.time.take_pending_steps()
     }
 
     pub(crate) fn advance_tick(&mut self) {
-        self.sim.tick += 1;
-        self.events.set_tick(self.sim.tick);
+        self.time.advance_tick();
+        self.events.set_tick(self.time.sim_tick());
+    }
+
+    pub(crate) fn set_sim_steps(&mut self, steps: u32) {
+        self.time.set_sim_steps(steps);
+    }
+
+    pub(crate) fn set_in_sim(&mut self, in_sim: bool) {
+        self.time.set_in_sim(in_sim);
     }
 
     /// Engine side: forget queued draws (headless runs never render).
     pub(crate) fn discard_draws(&mut self) {
         self.draw_list.clear();
         self.ui_list.clear();
-    }
-
-    pub(crate) fn set_sim_steps(&mut self, steps: u32) {
-        self.sim_steps = steps;
     }
 
     /// Random numbers for this system and tick: `ctx.random().of(entity)`
@@ -974,48 +699,7 @@ impl Ctx {
     /// assert_eq!(run(), run()); // same seed, same result
     /// ```
     pub fn random(&self) -> crate::Random {
-        crate::Random::new(self.seed, self.sim_tick(), self.system_index)
-    }
-
-    /// Splits per-entity work over `every` ticks: entities take turns, so
-    /// each tick updates 1/`every` of them. For costly logic that's fine at
-    /// a lower rate per entity (path planning, AI decisions). Take it before
-    /// the query; it is `Copy`, so it works in `par_for_each` too.
-    ///
-    /// ```
-    /// use ponko::*;
-    ///
-    /// struct Brain { plans: u32 }
-    ///
-    /// fn plan(ctx: &mut Ctx) {
-    ///     let turn = ctx.turns(4);
-    ///     ctx.world.query::<(Entity, &mut Brain)>().par_for_each(|(e, b)| {
-    ///         if turn.includes(e) {
-    ///             b.plans += 1; // each entity plans every 4th tick
-    ///         }
-    ///     });
-    /// }
-    ///
-    /// let mut world = Game::new("t", 1, 1).sim_system(plan).run_headless(40, |ctx| {
-    ///     for _ in 0..10 { ctx.world.spawn((Brain { plans: 0 },)); }
-    /// });
-    /// assert!(world.query::<&Brain>().iter().all(|b| b.plans == 10));
-    /// ```
-    ///
-    /// # Panics
-    /// If `every` is 0.
-    #[track_caller]
-    pub fn turns(&self, every: u32) -> Turns {
-        assert!(every > 0, "Ctx::turns: `every` must be at least 1");
-        Turns {
-            every,
-            now: (self.sim_tick() % u64::from(every)) as u32,
-            dt: self.dt() * every as f32,
-        }
-    }
-
-    pub(crate) fn set_in_sim(&mut self, in_sim: bool) {
-        self.in_sim = in_sim;
+        crate::Random::new(self.seed, self.time.sim_tick(), self.system_index)
     }
 
     /// Engine side: apply commands recorded by the system that just ran.
@@ -1103,7 +787,7 @@ impl Ctx {
     /// # use ponko::*;
     /// # fn update(ctx: &mut Ctx, crab: Texture) {
     /// ctx.draw_ex(&crab, vec2(400.0, 300.0), DrawParams {
-    ///     rotation: ctx.time() as f32,
+    ///     rotation: ctx.time.elapsed() as f32,
     ///     color: Color::RED.with_alpha(0.5),
     ///     z: 1.0, // on top of everything at z = 0
     ///     ..Default::default()
@@ -1135,7 +819,7 @@ impl Ctx {
     /// ```
     /// # use ponko::*;
     /// # fn hud(ctx: &mut Ctx) {
-    /// let fps = ctx.fps();
+    /// let fps = ctx.time.fps();
     /// ctx.draw_text(&format!("{fps:.0} FPS"), vec2(10.0, 10.0), 18.0, Color::WHITE);
     /// # }
     /// ```
@@ -2224,7 +1908,8 @@ impl Ctx {
     // ---------------------------------------------------------------- timing
 
     /// Seconds since the previous frame. Multiply speeds by this for smooth,
-    /// frame-rate independent movement.
+    /// frame-rate independent movement. A shortcut for
+    /// [`ctx.time.dt()`](crate::Time::dt).
     ///
     /// Clamped to at most 0.25 s so a hiccup never teleports objects.
     ///
@@ -2234,6 +1919,11 @@ impl Ctx {
     /// with [`Game::sim_system_every`](crate::Game::sim_system_every) it is
     /// that many fixed steps.
     ///
+    /// The meaning follows the running system. To say which clock you mean,
+    /// use the explicit pair: [`ctx.time.frame_dt()`](crate::Time::frame_dt)
+    /// is always the frame's delta, and
+    /// [`ctx.time.sim_dt()`](crate::Time::sim_dt) is always the simulation's.
+    ///
     /// ```
     /// # use ponko::*;
     /// # fn update(ctx: &mut Ctx, pos: &mut Vec2) {
@@ -2241,93 +1931,7 @@ impl Ctx {
     /// # }
     /// ```
     pub fn dt(&self) -> f32 {
-        if self.in_sim {
-            self.fixed_dt * self.sim_steps as f32
-        } else {
-            self.timing.dt
-        }
-    }
-
-    /// How many fixed-rate updates to run this frame (often 0, 1 or 2).
-    ///
-    /// Use this for logic that must behave identically on every machine,
-    /// such as physics or deterministic simulations. Each step lasts exactly
-    /// [`fixed_dt`](Self::fixed_dt) seconds. The rate is set with
-    /// [`Game::fixed_hz`](crate::Game::fixed_hz) (default 60).
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn update(ctx: &mut Ctx, vel: &mut Vec2, pos: &mut Vec2) {
-    /// for _ in 0..ctx.fixed_steps() {
-    ///     vel.y += 980.0 * ctx.fixed_dt(); // gravity
-    ///     *pos += *vel * ctx.fixed_dt();
-    /// }
-    /// # }
-    /// ```
-    pub fn fixed_steps(&self) -> u32 {
-        self.timing.fixed_steps
-    }
-
-    /// Length of one fixed step in seconds (e.g. `1.0 / 60.0`).
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn update(ctx: &mut Ctx) {
-    /// let steps_per_second = 1.0 / ctx.fixed_dt();
-    /// # }
-    /// ```
-    pub fn fixed_dt(&self) -> f32 {
-        self.fixed_dt
-    }
-
-    /// How far (0.0 to 1.0) the current frame is between the last fixed step
-    /// and the next. Use it to interpolate positions for perfectly smooth
-    /// rendering of fixed-step objects.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn update(ctx: &mut Ctx, prev: Vec2, curr: Vec2) {
-    /// let draw_pos = prev.lerp(curr, ctx.fixed_alpha());
-    /// # }
-    /// ```
-    pub fn fixed_alpha(&self) -> f32 {
-        self.timing.alpha
-    }
-
-    /// Seconds of game time since the game started (sum of all `dt`s).
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn update(ctx: &mut Ctx) {
-    /// let blink_on = (ctx.time() * 2.0) as u64 % 2 == 0;
-    /// # }
-    /// ```
-    pub fn time(&self) -> f64 {
-        self.time
-    }
-
-    /// Number of frames since the game started. The first frame is `1`.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn update(ctx: &mut Ctx) {
-    /// if ctx.frame() % 60 == 0 { println!("fps: {:.0}", ctx.fps()); }
-    /// # }
-    /// ```
-    pub fn frame(&self) -> u64 {
-        self.frame
-    }
-
-    /// Smoothed frames per second.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn update(ctx: &mut Ctx) {
-    /// println!("{:.0} fps", ctx.fps());
-    /// # }
-    /// ```
-    pub fn fps(&self) -> f32 {
-        self.fps
+        self.time.dt()
     }
 
     // ---------------------------------------------------------------- keyboard
@@ -2370,42 +1974,6 @@ impl Ctx {
 
     // ---------------------------------------------------------------- mouse
 
-    /// `true` while `button` is held down.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn update(ctx: &mut Ctx) {
-    /// let dragging = ctx.mouse_down(MouseButton::Left);
-    /// # }
-    /// ```
-    pub fn mouse_down(&self, button: MouseButton) -> bool {
-        self.input.mouse_down(button)
-    }
-
-    /// `true` only on the frame `button` went down.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn update(ctx: &mut Ctx) {
-    /// if ctx.mouse_pressed(MouseButton::Left) { println!("click at {}", ctx.mouse_pos()); }
-    /// # }
-    /// ```
-    pub fn mouse_pressed(&self, button: MouseButton) -> bool {
-        self.input.mouse_pressed(button)
-    }
-
-    /// `true` only on the frame `button` was let go.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn update(ctx: &mut Ctx) {
-    /// if ctx.mouse_released(MouseButton::Left) { println!("drop"); }
-    /// # }
-    /// ```
-    pub fn mouse_released(&self, button: MouseButton) -> bool {
-        self.input.mouse_released(button)
-    }
-
     /// Mouse position in window pixels. `(0, 0)` is the top-left corner,
     /// `y` grows downward.
     ///
@@ -2425,7 +1993,7 @@ impl Ctx {
     /// ```
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// if ctx.mouse_pressed(MouseButton::Left) {
+    /// if ctx.input.mouse_pressed(MouseButton::Left) {
     ///     println!("clicked the world at {}", ctx.mouse_world());
     /// }
     /// # }
@@ -2434,159 +2002,7 @@ impl Ctx {
         self.camera.screen_to_world(self.mouse_pos())
     }
 
-    /// How far the mouse moved since the previous frame, in window pixels.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn update(ctx: &mut Ctx, camera: &mut Vec2) {
-    /// if ctx.mouse_down(MouseButton::Right) { *camera -= ctx.mouse_delta(); }
-    /// # }
-    /// ```
-    pub fn mouse_delta(&self) -> Vec2 {
-        self.input.mouse_delta()
-    }
-
-    /// How far the mouse itself moved this frame, in the system's raw
-    /// mouse units (about a pixel each, without pointer acceleration). Unlike
-    /// [`mouse_delta`](Self::mouse_delta) it keeps coming while the cursor is
-    /// locked and at the window's edge: use it to turn a first-person camera.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn look(ctx: &mut Ctx, yaw: &mut f32, pitch: &mut f32) {
-    /// let turn = ctx.mouse_motion() * 0.002; // radians per unit
-    /// *yaw -= turn.x;
-    /// *pitch = (*pitch - turn.y).clamp(-1.5, 1.5);
-    /// # }
-    /// ```
-    pub fn mouse_motion(&self) -> Vec2 {
-        self.input.mouse_motion()
-    }
-
-    /// Hides the cursor and holds it in the window (`true`), for mouse-look,
-    /// or shows and frees it again (`false`). Applied after the frame; read
-    /// the movement with [`mouse_motion`](Self::mouse_motion). The system
-    /// frees the cursor while the window isn't focused, and it's held again
-    /// when focus comes back. Headless runs only remember the setting.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// Game::new("t", 1, 1).run_headless(1, |ctx| {
-    ///     ctx.set_cursor_locked(true);
-    ///     assert!(ctx.cursor_locked());
-    /// });
-    /// ```
-    pub fn set_cursor_locked(&mut self, locked: bool) {
-        if self.cursor_locked != locked {
-            self.cursor_locked = locked;
-            self.cursor_lock_changed = true;
-        }
-    }
-
-    /// Whether the cursor is locked, as set with
-    /// [`set_cursor_locked`](Self::set_cursor_locked).
-    pub fn cursor_locked(&self) -> bool {
-        self.cursor_locked
-    }
-
-    /// Scroll wheel movement this frame. `y > 0` means scrolled up / away from
-    /// the user. Roughly one unit per wheel notch.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn update(ctx: &mut Ctx, zoom: &mut f32) {
-    /// *zoom *= 1.1_f32.powf(ctx.mouse_wheel().y);
-    /// # }
-    /// ```
-    pub fn mouse_wheel(&self) -> Vec2 {
-        self.input.mouse_wheel()
-    }
-
     // ---------------------------------------------------------------- gamepads
-
-    /// The connected gamepads, by slot (player one first). Empty when none
-    /// are plugged in, in headless runs, and without the `gamepad` feature.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn update(ctx: &mut Ctx, pos: &mut Vec2) {
-    /// if let Some(&pad) = ctx.gamepads().first() {
-    ///     *pos += ctx.gamepad_stick(pad, GamepadStick::Left) * 300.0 * ctx.dt();
-    /// }
-    /// # }
-    /// ```
-    pub fn gamepads(&self) -> &[Gamepad] {
-        self.input.gamepads()
-    }
-
-    /// `true` while `button` is held on `pad`.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn update(ctx: &mut Ctx, pad: Gamepad) {
-    /// let running = ctx.gamepad_down(pad, GamepadButton::West);
-    /// # }
-    /// ```
-    pub fn gamepad_down(&self, pad: Gamepad, button: GamepadButton) -> bool {
-        self.input.gamepad_down(pad, button)
-    }
-
-    /// `true` only on the frame `button` went down on `pad`.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn update(ctx: &mut Ctx, pad: Gamepad) {
-    /// if ctx.gamepad_pressed(pad, GamepadButton::South) { println!("jump"); }
-    /// # }
-    /// ```
-    pub fn gamepad_pressed(&self, pad: Gamepad, button: GamepadButton) -> bool {
-        self.input.gamepad_pressed(pad, button)
-    }
-
-    /// `true` only on the frame `button` was let go on `pad` (or `pad` was
-    /// unplugged while it was held).
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn update(ctx: &mut Ctx, pad: Gamepad) {
-    /// if ctx.gamepad_released(pad, GamepadButton::RightTrigger) { println!("fire!"); }
-    /// # }
-    /// ```
-    pub fn gamepad_released(&self, pad: Gamepad, button: GamepadButton) -> bool {
-        self.input.gamepad_released(pad, button)
-    }
-
-    /// One axis of `pad`: sticks from `-1.0` to `1.0` (y down is positive,
-    /// like screen coordinates), triggers from `0.0` to `1.0`. Small
-    /// movements around the center read as `0.0`.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn update(ctx: &mut Ctx, pad: Gamepad) {
-    /// let throttle = ctx.gamepad_axis(pad, GamepadAxis::RightTrigger);
-    /// # }
-    /// ```
-    pub fn gamepad_axis(&self, pad: Gamepad, axis: GamepadAxis) -> f32 {
-        self.input.gamepad_axis(pad, axis)
-    }
-
-    /// A stick of `pad` as a vector, each part from `-1.0` to `1.0`, y down:
-    /// add it to a position to move that way.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn update(ctx: &mut Ctx, pad: Gamepad, aim: &mut Vec2) {
-    /// let stick = ctx.gamepad_stick(pad, GamepadStick::Right);
-    /// if stick.length() > 0.5 { *aim = stick.normalize(); }
-    /// # }
-    /// ```
-    pub fn gamepad_stick(&self, pad: Gamepad, stick: GamepadStick) -> Vec2 {
-        let (x, y) = match stick {
-            GamepadStick::Left => (GamepadAxis::LeftStickX, GamepadAxis::LeftStickY),
-            GamepadStick::Right => (GamepadAxis::RightStickX, GamepadAxis::RightStickY),
-        };
-        Vec2::new(self.gamepad_axis(pad, x), self.gamepad_axis(pad, y))
-    }
 
     // ---------------------------------------------------------------- window
 
@@ -2676,44 +2092,6 @@ pub(crate) fn region(texture: &Texture, region: Option<Rect>) -> (Vec2, [u16; 4]
             let t = texture.size().max(Vec2::ONE);
             (r.size(), uv_region((r.min / t).into(), (r.size() / t).into()))
         }
-    }
-}
-
-/// Which entities update this tick, from [`Ctx::turns`].
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Turns {
-    every: u32,
-    now: u32,
-    dt: f32,
-}
-
-impl Turns {
-    /// `true` if `entity`'s turn is this tick.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn f(ctx: &mut Ctx, e: Entity) {
-    /// if ctx.turns(8).includes(e) { /* expensive update */ }
-    /// # }
-    /// ```
-    #[inline]
-    #[must_use]
-    pub fn includes(self, entity: ponko_ecs::Entity) -> bool {
-        entity.index() % self.every == self.now
-    }
-
-    /// Time since an entity's previous turn: `every` times `ctx.dt()`.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn f(ctx: &mut Ctx) {
-    /// let turn = ctx.turns(4);
-    /// assert_eq!(turn.dt(), ctx.dt() * 4.0);
-    /// # }
-    /// ```
-    #[must_use]
-    pub fn dt(self) -> f32 {
-        self.dt
     }
 }
 
@@ -2833,20 +2211,20 @@ mod tests {
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(800.0, 600.0));
         ctx.begin_frame(timing(0.5));
         ctx.begin_frame(timing(0.25));
-        assert_eq!(ctx.frame(), 2);
+        assert_eq!(ctx.time.frame(), 2);
         assert_eq!(ctx.dt(), 0.25);
-        assert!((ctx.time() - 0.75).abs() < 1e-9);
-        assert_eq!(ctx.fixed_steps(), 1);
-        assert_eq!(ctx.fixed_alpha(), 0.25);
+        assert!((ctx.time.elapsed() - 0.75).abs() < 1e-9);
+        assert_eq!(ctx.time.fixed_steps(), 1);
+        assert_eq!(ctx.time.fixed_alpha(), 0.25);
     }
 
     #[test]
     fn fps_is_seeded_then_smoothed() {
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::ZERO);
         ctx.begin_frame(timing(1.0 / 60.0));
-        assert!((ctx.fps() - 60.0).abs() < 0.01);
+        assert!((ctx.time.fps() - 60.0).abs() < 0.01);
         ctx.begin_frame(timing(1.0 / 30.0));
-        assert!(ctx.fps() > 30.0 && ctx.fps() < 60.0);
+        assert!(ctx.time.fps() > 30.0 && ctx.time.fps() < 60.0);
     }
 
     #[test]

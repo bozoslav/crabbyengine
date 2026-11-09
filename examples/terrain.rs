@@ -236,15 +236,15 @@ fn main() {
             if ctx.key_pressed(Key::U) {
                 std::mem::swap(&mut ctx.effects, &mut parked);
             }
-            if ctx.frame() == 3
+            if ctx.time.frame() == 3
                 && let Ok(path) = std::env::var("SHOT")
             {
                 ctx.save_screenshot(path);
             }
-            if ctx.frame() == 5 && std::env::var("SHOT").is_ok() {
+            if ctx.time.frame() == 5 && std::env::var("SHOT").is_ok() {
                 ctx.quit();
             }
-            if ctx.frame() == 300 {
+            if ctx.time.frame() == 300 {
                 let stats = ctx.render_stats();
                 println!("{stats:?} models drawn: {}", ctx.models_drawn());
                 if bench {

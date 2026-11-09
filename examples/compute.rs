@@ -64,7 +64,7 @@ fn main() {
                 next_drop = 0.05 + random() * 0.2;
                 drop = vec4(random(), random(), 0.3 + random() * 0.4, 0.0);
             }
-            if ctx.mouse_pressed(MouseButton::Left) {
+            if ctx.input.mouse_pressed(MouseButton::Left) {
                 let (from, dir) = ctx.camera3d.screen_ray(ctx.mouse_pos());
                 if dir.y < 0.0 {
                     let at = from + dir * (-from.y / dir.y);
@@ -78,12 +78,12 @@ fn main() {
                     ..Default::default()
                 },
             );
-            if ctx.frame() == 120
+            if ctx.time.frame() == 120
                 && let Ok(path) = std::env::var("SHOT")
             {
                 ctx.save_screenshot(path);
             }
-            if ctx.frame() == 122 && std::env::var("SHOT").is_ok() {
+            if ctx.time.frame() == 122 && std::env::var("SHOT").is_ok() {
                 ctx.quit();
             }
         })

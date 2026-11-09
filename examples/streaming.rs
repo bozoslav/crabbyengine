@@ -164,15 +164,15 @@ fn main() {
                 }
             }
 
-            if ctx.frame() == 400
+            if ctx.time.frame() == 400
                 && let Some(path) = &shot
             {
                 ctx.save_screenshot(path);
             }
-            if ctx.frame() == 402 && shot.is_some() {
+            if ctx.time.frame() == 402 && shot.is_some() {
                 ctx.quit();
             }
-            if bench && ctx.frame() == 3000 {
+            if bench && ctx.time.frame() == 3000 {
                 let live = tiles.values().filter(|t| matches!(t, Tile::Live(..))).count();
                 println!(
                     "{uploaded} tiles uploaded ({:.2} ms each, worst {worst_upload:.2} ms), {freed} freed, {live} live; {:?}",

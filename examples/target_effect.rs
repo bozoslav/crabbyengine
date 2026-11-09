@@ -32,12 +32,12 @@ fn main() {
             if ctx.key_pressed(Key::Escape) {
                 ctx.quit();
             }
-            if ctx.frame() == 60
+            if ctx.time.frame() == 60
                 && let Ok(path) = std::env::var("SHOT")
             {
                 ctx.save_screenshot(path);
             }
-            if ctx.frame() == 62 && std::env::var("SHOT").is_ok() {
+            if ctx.time.frame() == 62 && std::env::var("SHOT").is_ok() {
                 ctx.quit();
             }
         })

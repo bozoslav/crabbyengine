@@ -13,7 +13,7 @@ fn fall(ctx: &mut Ctx) {
 }
 
 fn record_tick(ctx: &mut Ctx) {
-    let t = ctx.sim_tick();
+    let t = ctx.time.sim_tick();
     ctx.world.resource_mut::<Ticks>().0.push(t);
 }
 
@@ -41,7 +41,7 @@ fn dt_is_the_fixed_step() {
 fn sim_time_counts_ticks() {
     struct Seen(f64);
     fn see(ctx: &mut Ctx) {
-        let t = ctx.sim_time();
+        let t = ctx.time.sim_time();
         ctx.world.resource_mut::<Seen>().0 = t;
     }
     let world = Game::new("t", 1, 1)
@@ -58,7 +58,7 @@ fn sim_time_counts_ticks() {
 fn quit_stops_early() {
     fn quit_at_3(ctx: &mut Ctx) {
         record_tick(ctx);
-        if ctx.sim_tick() == 3 {
+        if ctx.time.sim_tick() == 3 {
             ctx.quit();
         }
     }
@@ -110,7 +110,7 @@ fn textures_load_without_a_gpu() {
 #[test]
 fn sim_speed_rejects_negative() {
     let result = std::panic::catch_unwind(|| {
-        Game::new("t", 1, 1).run_headless(0, |ctx| ctx.set_sim_speed(-1.0));
+        Game::new("t", 1, 1).run_headless(0, |ctx| ctx.time.set_speed(-1.0));
     });
     assert!(result.is_err());
 }
@@ -122,7 +122,7 @@ struct Log(Vec<(&'static str, u64, f32)>);
 
 fn logger(name: &'static str) -> impl FnMut(&mut Ctx) {
     move |ctx| {
-        let (tick, dt) = (ctx.sim_tick(), ctx.dt());
+        let (tick, dt) = (ctx.time.sim_tick(), ctx.dt());
         ctx.world.resource_mut::<Log>().0.push((name, tick, dt));
     }
 }
@@ -175,7 +175,7 @@ fn every_zero_ticks_panics() {
 struct Turned(u32);
 
 fn take_turns(ctx: &mut Ctx) {
-    let turn = ctx.turns(5);
+    let turn = ctx.time.turns(5);
     ctx.world.query::<(Entity, &mut Turned)>().par_for_each(|(e, t)| {
         if turn.includes(e) {
             t.0 += 1;
@@ -195,7 +195,7 @@ fn each_entity_takes_one_turn_per_interval() {
 #[should_panic(expected = "`every` must be at least 1")]
 fn turns_of_zero_panics() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        ctx.turns(0);
+        ctx.time.turns(0);
     });
 }
 

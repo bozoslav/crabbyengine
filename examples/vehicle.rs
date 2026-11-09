@@ -222,7 +222,7 @@ fn grass(ctx: &mut Ctx) -> Material {
 /// The script for `HEADLESS=1`: full throttle for 4 s, then steer right
 /// for 2 s, then brake to a stop and hold it with the handbrake.
 fn autopilot(ctx: &mut Ctx) {
-    let t = ctx.sim_tick() as f32 * ctx.dt();
+    let t = ctx.time.sim_tick() as f32 * ctx.dt();
     let car = ctx.world.resource::<Player>().car;
     let rolling = forward_speed(&ctx.world, car) > 0.3;
     *ctx.world.resource_mut::<Controls>() = Controls {
@@ -243,7 +243,7 @@ fn autopilot(ctx: &mut Ctx) {
 struct Log(Vec<(f32, Vec3)>);
 
 fn record(ctx: &mut Ctx) {
-    if ctx.sim_tick().is_multiple_of(50) {
+    if ctx.time.sim_tick().is_multiple_of(50) {
         let car = ctx.world.resource::<Player>().car;
         let speed = speed_of(&ctx.world, car);
         let facing = ctx.world.get::<Transform3D>(car).map_or(Vec3::NEG_Z, |t| t.forward());

@@ -961,7 +961,7 @@ pub(crate) fn analyze(report: &mut PerfReport) {
                 cpu_ms
             ),
             hint: "Wrap parts of it in profile_scope! to see where the time goes. Then: iterate with for_each / \
-                   par_for_each, spread per-entity work over frames with ctx.turns(n), or run it less often with \
+                   par_for_each, spread per-entity work over frames with ctx.time.turns(n), or run it less often with \
                    sim_system_every."
                 .into(),
         });
@@ -984,7 +984,7 @@ pub(crate) fn analyze(report: &mut PerfReport) {
             ),
             hint: "Spikes come from allocation bursts, loading assets, spawning many entities at once, or a system \
                    that sometimes does a lot (path searches, rebuilds). Spread such work over frames with \
-                   ctx.turns(n), or do it ahead of time. ctx.record_trace shows a slow frame on a timeline."
+                   ctx.time.turns(n), or do it ahead of time. ctx.record_trace shows a slow frame on a timeline."
                 .into(),
         });
     }

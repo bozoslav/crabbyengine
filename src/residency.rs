@@ -331,7 +331,7 @@ impl crate::Ctx {
 
     /// The frame and tick now, which residency protects assets asked for in.
     pub(crate) fn residency_now(&self) -> (u64, u64) {
-        (self.frame(), self.sim_tick())
+        (self.time.frame(), self.time.sim_tick())
     }
 
     /// Evicts what `kind`'s budget needs gone.

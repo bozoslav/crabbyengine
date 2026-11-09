@@ -14,7 +14,7 @@ fn perf_keys(ctx: &mut Ctx) {
         ctx.record_trace("trace.json", 300);
     }
     let stats = ctx.frame_stats();
-    if stats.frames > 0 && stats.p99_ms > 20.0 && ctx.frame().is_multiple_of(600) {
+    if stats.frames > 0 && stats.p99_ms > 20.0 && ctx.time.frame().is_multiple_of(600) {
         // Display wait includes pacing; inspect measured CPU/GPU work separately.
         println!("slow: p99 {:.1} ms, gpu {:?} ms", stats.p99_ms, stats.gpu_ms);
         for pass in ctx.gpu_passes() {

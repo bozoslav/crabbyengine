@@ -131,7 +131,7 @@ pub fn setup(ctx: &mut Ctx) {
 /// [`setup`] with an explicit save file (`None`: don't keep progress).
 pub fn setup_with(ctx: &mut Ctx, save: Option<PathBuf>) {
     ctx.clear(Color::hex(0x14181f));
-    ctx.set_actions(bindings());
+    ctx.input.set_actions(bindings());
     let disc = disc(ctx);
     ctx.world.insert_resource(Art { disc });
     ctx.world.insert_resource(Act::resolve(ctx));
@@ -230,11 +230,11 @@ pub fn bindings() -> ActionMap {
 /// Frame system: named actions to [`Intent`]. Runs once per rendered frame.
 pub fn read_input(ctx: &mut Ctx) {
     let act = *ctx.world.resource::<Act>();
-    let direction = ctx.action_axis2(act.movement);
-    let confirm = ctx.action_pressed(act.confirm);
-    let restart = ctx.action_pressed(act.restart);
-    let pause = ctx.action_pressed(act.pause);
-    let back = ctx.action_pressed(act.back);
+    let direction = ctx.input.action_axis2(act.movement);
+    let confirm = ctx.input.action_pressed(act.confirm);
+    let restart = ctx.input.action_pressed(act.restart);
+    let pause = ctx.input.action_pressed(act.pause);
+    let back = ctx.input.action_pressed(act.back);
     let intent = ctx.world.resource_mut::<Intent>();
     intent.direction = direction;
     intent.confirm |= confirm;

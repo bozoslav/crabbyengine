@@ -34,10 +34,10 @@ fn move_players(ctx: &mut Ctx) {
     let mut sticks = [Vec2::ZERO; MAX_GAMEPADS];
     let mut spins = [false; MAX_GAMEPADS];
     let mut grow = [0.0; MAX_GAMEPADS];
-    for &pad in ctx.gamepads() {
-        sticks[pad.slot()] = ctx.gamepad_stick(pad, GamepadStick::Left);
-        spins[pad.slot()] = ctx.gamepad_pressed(pad, GamepadButton::South);
-        grow[pad.slot()] = ctx.gamepad_axis(pad, GamepadAxis::RightTrigger);
+    for &pad in ctx.input.gamepads() {
+        sticks[pad.slot()] = ctx.input.gamepad_stick(pad, GamepadStick::Left);
+        spins[pad.slot()] = ctx.input.gamepad_pressed(pad, GamepadButton::South);
+        grow[pad.slot()] = ctx.input.gamepad_axis(pad, GamepadAxis::RightTrigger);
     }
     for (t, player) in ctx.world.query::<(&mut Transform2D, &mut Player)>().iter() {
         let Some(slot) = player.slot else { continue };
@@ -78,7 +78,7 @@ fn move_keyboard_player(ctx: &mut Ctx) {
 /// One crab per connected pad: spawn on plug-in, despawn on unplug.
 fn join_and_leave(ctx: &mut Ctx) {
     let mut connected = [false; MAX_GAMEPADS];
-    for pad in ctx.gamepads() {
+    for pad in ctx.input.gamepads() {
         connected[pad.slot()] = true;
     }
     let mut has_crab = [false; MAX_GAMEPADS];
@@ -117,7 +117,7 @@ fn spin(ctx: &mut Ctx) {
 }
 
 fn hud(ctx: &mut Ctx) {
-    let pads = ctx.gamepads().len();
+    let pads = ctx.input.gamepads().len();
     let text = match pads {
         0 => "No gamepad: plug one in, or use the arrow keys and Space".to_string(),
         n => format!("{n} gamepad(s): left stick moves, A/Cross spins, right trigger grows"),

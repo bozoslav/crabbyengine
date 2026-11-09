@@ -41,10 +41,10 @@ fn main() {
             let mut frames = 0u64;
             move |ctx: &mut Ctx| {
                 frames += 1;
-                if case == "stall" && ticks.get() >= STALL_AFTER && !ctx.is_paused() {
-                    ctx.pause();
+                if case == "stall" && ticks.get() >= STALL_AFTER && !ctx.time.is_paused() {
+                    ctx.time.pause();
                 }
-                if ctx.mouse_pressed(MouseButton::Left) {
+                if ctx.input.mouse_pressed(MouseButton::Left) {
                     clicks += 1;
                 }
                 // The background changes with each click, so a click shows.

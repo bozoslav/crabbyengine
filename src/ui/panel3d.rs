@@ -261,7 +261,7 @@ impl Ctx {
                 nearest = Some((e, distance, pixel));
             }
         }
-        if self.mouse_pressed(MouseButton::Left) {
+        if self.input.mouse_pressed(MouseButton::Left) {
             self.ui.panels.active = nearest.map(|n| n.0);
         }
         let active = self.ui.panels.active;

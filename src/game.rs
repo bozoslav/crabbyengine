@@ -303,7 +303,7 @@ fn next_system_id() -> u32 {
 }
 
 /// This frame's timing: the clock at the current sim speed (0 while
-/// paused), plus any single steps requested with `ctx.step()`.
+/// paused), plus any single steps requested with `ctx.time.step()`.
 fn frame_timing(clock: &mut Clock, ctx: &mut Ctx, frame_dt: f64) -> FrameTiming {
     let mut timing = clock.advance(frame_dt, ctx.effective_sim_speed());
     timing.fixed_steps += ctx.take_pending_steps();
@@ -917,7 +917,7 @@ impl Game {
     /// Feeds scheduled input into the game by simulation tick, for
     /// reproducible tests (off unless called). Before the simulation systems
     /// of each tick run, the scenario's steps for that tick go through
-    /// [`Ctx::feed_input`], so [named actions](crate::ActionMap) and raw input
+    /// [`Input::feed`], so [named actions](crate::ActionMap) and raw input
     /// queries see them exactly like live input. Calling it again replaces
     /// the previous scenario.
     ///
@@ -932,7 +932,7 @@ impl Game {
     /// struct Jumps(u32);
     ///
     /// fn jump(ctx: &mut Ctx) {
-    ///     if ctx.action_pressed("jump") {
+    ///     if ctx.input.action_pressed("jump") {
     ///         ctx.world.query::<&mut Jumps>().for_each(|j| j.0 += 1);
     ///     }
     /// }
@@ -946,7 +946,7 @@ impl Game {
     ///     .run_headless(10, |ctx| {
     ///         let mut actions = ActionMap::default();
     ///         actions.set("jump", Action::Button(vec![ButtonBinding::Key(Key::Space)]));
-    ///         ctx.set_actions(actions);
+    ///         ctx.input.set_actions(actions);
     ///         ctx.world.spawn((Jumps(0),));
     ///     });
     /// assert_eq!(world.query::<&Jumps>().iter().next().unwrap().0, 1);
@@ -1026,7 +1026,7 @@ impl Game {
     /// Starts the control endpoint if it's enabled, and applies `PONKO_START_PAUSED`.
     fn start_control(&self, ctx: &mut Ctx, headless: bool) -> Option<Control> {
         if control::env_flag(control::ENV_START_PAUSED) {
-            ctx.pause();
+            ctx.time.pause();
         }
         if !self.control {
             return None;
@@ -1062,7 +1062,7 @@ impl Game {
     }
 
     /// Sets how many fixed updates run per second (default 60).
-    /// See [`Ctx::fixed_steps`].
+    /// See [`Time::fixed_steps`].
     ///
     /// # Panics
     /// If `hz` is 0.
@@ -1135,7 +1135,7 @@ impl Game {
         ctx.set_in_sim(true);
         for _ in 0..fixed_steps {
             // Lockstep: a tick waits for everyone's input; the frame goes on.
-            if !ctx.net.ready(ctx.sim_tick()) {
+            if !ctx.net.ready(ctx.time.sim_tick()) {
                 break;
             }
             self.run_sim_tick(ctx);
@@ -1164,7 +1164,7 @@ impl Game {
 
     /// One simulation tick: every sim system once, then the tick counter.
     fn run_sim_tick(&mut self, ctx: &mut Ctx) {
-        let tick = ctx.sim_tick();
+        let tick = ctx.time.sim_tick();
         if let Some(scenario) = &mut self.input_scenario {
             scenario.apply(ctx, tick);
         }
@@ -1364,12 +1364,12 @@ impl Game {
                     break;
                 }
                 // A paused game runs only the ticks tools ask for.
-                if ctx.is_paused() && !ctx.take_one_step() {
+                if ctx.time.is_paused() && !ctx.take_one_step() {
                     control.wait(&mut ctx, Duration::from_millis(50));
                     continue;
                 }
             }
-            if !ctx.net.ready(ctx.sim_tick()) {
+            if !ctx.net.ready(ctx.time.sim_tick()) {
                 if !ctx.net.wait() {
                     break;
                 }
@@ -1404,7 +1404,7 @@ impl Game {
     /// the systems). Variables created in `setup` and moved into that closure
     /// are your game state; no structs or traits required.
     ///
-    /// Each frame runs: simulation systems (`ctx.fixed_steps()` times), then
+    /// Each frame runs: simulation systems (`ctx.time.fixed_steps()` times), then
     /// frame systems, then the closure from `setup`, then the built-in
     /// [`draw_sprites`], then rendering.
     ///
@@ -1413,7 +1413,7 @@ impl Game {
     /// Game::new("Counter", 800, 600).run(|_ctx| {
     ///     let mut clicks = 0;
     ///     move |ctx: &mut Ctx| {
-    ///         if ctx.mouse_pressed(MouseButton::Left) {
+    ///         if ctx.input.mouse_pressed(MouseButton::Left) {
     ///             clicks += 1;
     ///             println!("clicks: {clicks}");
     ///         }
@@ -1641,10 +1641,10 @@ mod tests {
         let mut clock = Clock::new(60);
         let mut ctx = ctx();
         let frame = 1.0 / 60.0;
-        ctx.pause();
+        ctx.time.pause();
         assert_eq!(frame_timing(&mut clock, &mut ctx, frame).fixed_steps, 0);
-        ctx.step();
-        ctx.step();
+        ctx.time.step();
+        ctx.time.step();
         assert_eq!(
             frame_timing(&mut clock, &mut ctx, frame).fixed_steps,
             2,
@@ -1655,8 +1655,8 @@ mod tests {
             0,
             "steps are used up"
         );
-        ctx.resume();
-        ctx.set_sim_speed(4.0);
+        ctx.time.resume();
+        ctx.time.set_speed(4.0);
         let steps: u32 = (0..60)
             .map(|_| frame_timing(&mut clock, &mut ctx, frame).fixed_steps)
             .sum();

@@ -30,17 +30,21 @@ fn spin(ctx: &mut Ctx) {
 
 fn orbit(ctx: &mut Ctx) {
     if ctx.key_pressed(Key::Space) {
-        if ctx.is_paused() { ctx.resume() } else { ctx.pause() }
+        if ctx.time.is_paused() {
+            ctx.time.resume()
+        } else {
+            ctx.time.pause()
+        }
     }
     if ctx.key_pressed(Key::Escape) {
         ctx.quit();
     }
-    let drag = if ctx.mouse_down(MouseButton::Left) {
-        ctx.mouse_delta()
+    let drag = if ctx.input.mouse_down(MouseButton::Left) {
+        ctx.input.mouse_delta()
     } else {
         Vec2::ZERO
     };
-    let wheel = ctx.mouse_wheel().y;
+    let wheel = ctx.input.mouse_wheel().y;
     let o = ctx.world.resource_mut::<Orbit>();
     o.yaw -= drag.x * 0.005;
     o.pitch = (o.pitch + drag.y * 0.005).clamp(0.05, 1.5);
