@@ -175,6 +175,20 @@ mod backend {
         pub fn load(&mut self, bytes: Vec<u8>) -> Result<(u32, f32), String> {
             Ok(self.add(decode(bytes)?))
         }
+        /// Sounds made, and the bytes of their decoded samples (streamed
+        /// ones are read from their file as they play: 0).
+        pub fn inventory(&self) -> (usize, u64) {
+            let bytes = self
+                .sounds
+                .iter()
+                .map(|clip| match clip {
+                    Clip::Static(data) => (data.frames.len() * std::mem::size_of::<Frame>()) as u64,
+                    #[cfg(not(target_arch = "wasm32"))]
+                    Clip::Stream(_) => 0,
+                })
+                .sum();
+            (self.sounds.len(), bytes)
+        }
         pub fn replace(&mut self, id: u32, bytes: Vec<u8>) -> Result<(), String> {
             self.sounds[id as usize] = Clip::Static(Box::new(decode(bytes)?));
             Ok(())
@@ -413,6 +427,10 @@ mod backend {
         pub fn load(&mut self, _bytes: Vec<u8>) -> Result<(u32, f32), String> {
             self.count += 1;
             Ok((self.count - 1, 0.0))
+        }
+        /// Sounds made; nothing is decoded without the `audio` feature.
+        pub fn inventory(&self) -> (usize, u64) {
+            (self.count as usize, 0)
         }
         pub fn stream(&mut self, _path: std::path::PathBuf) -> Result<(u32, f32), String> {
             self.load(Vec::new())

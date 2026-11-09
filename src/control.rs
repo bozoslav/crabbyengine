@@ -493,7 +493,7 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
     ),
     (
         "perf.get",
-        "frame timing over the last few seconds (fps; avg, p50, p95, p99, max ms; CPU split into systems, render and waiting on the display; GPU ms), GPU ms per pass, what was drawn (draw calls; 3D models and triangles for the camera and the shadows; render CPU split into collect, record, submit), the slowest systems; params: meshes? (list the n meshes drawing the most triangles, default 0), profiling? (true turns on scope timing and allocation counting, false turns it off). While profiling is on, the answer also has `report`: frame percentiles, every system and profile_scope with time and allocations per frame, the slowest frames and what was in them, and warnings with advice",
+        "frame timing over the last few seconds (fps; avg, p50, p95, p99, max ms; CPU split into systems, render and waiting on the display; GPU ms), GPU ms per pass, what was drawn (draw calls; 3D models and triangles for the camera and the shadows; render CPU split into collect, record, submit), the slowest systems, live asset handles by class with estimated bytes (`assets`: textures, meshes, materials, sounds, ...; with what the GPU holds); params: meshes? (list the n meshes drawing the most triangles, default 0), profiling? (true turns on scope timing and allocation counting, false turns it off). While profiling is on, the answer also has `report`: frame percentiles, every system and profile_scope with time and allocations per frame, the slowest frames and what was in them, and warnings with advice",
     ),
     (
         "perf.trace",
@@ -824,6 +824,7 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
                 ctx.set_profiling(on.as_bool().ok_or("`profiling` must be true or false")?);
             }
             let mut out = perf_json(ctx, usize_param(params, "meshes", 0)?);
+            out["assets"] = serde_json::to_value(ctx.asset_inventory()).unwrap_or_default();
             if ctx.profiling() {
                 let report = ctx.perf_report();
                 out["report"] = serde_json::to_value(&report).unwrap_or_default();
@@ -1023,7 +1024,7 @@ mod tests {
             .map(|s| s["name"].clone())
             .collect();
         assert_eq!(names, [json!("slow"), json!("middle"), json!("fast")]);
-        for key in ["fps", "frame_ms", "cpu_ms", "gpu_passes", "render"] {
+        for key in ["fps", "frame_ms", "cpu_ms", "gpu_passes", "render", "assets"] {
             assert!(perf.get(key).is_some(), "{key} missing from {perf}");
         }
         assert!(handle(&mut ctx, "perf.hud", &json!({ "on": true })).unwrap() == json!(true));

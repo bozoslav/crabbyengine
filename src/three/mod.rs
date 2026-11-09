@@ -776,6 +776,16 @@ pub(crate) struct Scene3D<'a> {
     pub occlusion: bool,
 }
 
+/// Bytes of one mesh corner in the renderer's vertex buffer (position,
+/// normal, uv, color, second uv).
+pub(crate) const MESH_VERTEX_BYTES: u64 = 44;
+
+/// Estimated GPU bytes of a mesh made from `data`: its vertex and index
+/// buffers as the renderer lays them out.
+pub(crate) fn mesh_gpu_bytes(data: &MeshData) -> u64 {
+    data.positions.len() as u64 * MESH_VERTEX_BYTES + data.indices.len() as u64 * 4
+}
+
 /// What the engine keeps about each mesh and material on the CPU side: for
 /// culling, and for headless runs, which have no GPU.
 #[derive(Default)]
@@ -786,6 +796,8 @@ pub(crate) struct Assets3D {
     pub bounds: Vec<(Vec3, f32)>,
     /// Freed meshes' ids, for the next meshes made.
     pub free_meshes: Vec<u32>,
+    /// Each mesh's estimated GPU bytes (`asset_inventory`), by id; 0 once freed.
+    pub mesh_bytes: Vec<u64>,
     pub probes: probe::ProbeAssets,
     /// How each skinned mesh binds to joints, by mesh id; shorter than
     /// `bounds` when the last ones aren't skinned.
@@ -852,6 +864,37 @@ pub(crate) struct Assets3D {
 }
 
 impl Assets3D {
+    /// Live 3D handles by class, counted from the tables that decide
+    /// whether each handle is live (`Ctx::asset_inventory`).
+    pub(crate) fn inventory(&self) -> [crate::AssetCount; 8] {
+        use crate::inventory::{AssetClass, mip_chain_bytes};
+        let count = |class, live: usize, bytes: u64| crate::AssetCount { class, live, bytes };
+        // Render targets are linear HDR: 8 bytes a pixel.
+        let targets: u64 = self
+            .render_targets
+            .iter()
+            .map(|t| u64::from(t.width()) * u64::from(t.height()) * 8)
+            .sum();
+        let arrays: u64 = self
+            .arrays
+            .iter()
+            .map(|a| mip_chain_bytes(a.width, a.height, 4) * u64::from(a.layers))
+            .sum();
+        let meshes = self.bounds.iter().filter(|&&(_, r)| r >= 0.0).count();
+        let buffers = self.gpu_buffers.iter().filter(|&&len| len > 0).count();
+        let buffer_bytes: u64 = self.gpu_buffers.iter().map(|&len| u64::from(len) * 16).sum();
+        [
+            count(AssetClass::RenderTarget, self.render_targets.len(), targets),
+            count(AssetClass::TextureArray, self.arrays.len(), arrays),
+            count(AssetClass::Material, self.materials as usize, 0),
+            count(AssetClass::Shader, self.shaders as usize, 0),
+            count(AssetClass::Mesh, meshes, self.mesh_bytes.iter().sum()),
+            count(AssetClass::GpuBuffer, buffers, buffer_bytes),
+            count(AssetClass::Effect, self.effects as usize, 0),
+            count(AssetClass::Compute, self.computes as usize, 0),
+        ]
+    }
+
     /// Mesh `id`'s bounds, unless there's no such mesh or it was freed.
     pub(crate) fn live_bounds(&self, id: u32) -> Option<(Vec3, f32)> {
         self.bounds.get(id as usize).copied().filter(|&(_, r)| r >= 0.0)

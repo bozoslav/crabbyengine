@@ -800,6 +800,19 @@ impl Renderer {
         self.display_wait_ms
     }
 
+    /// What this renderer holds on the GPU, counted from its own tables
+    /// (`Ctx::asset_inventory`).
+    pub fn residency(&self) -> Option<crate::GpuResidency> {
+        let mut r = crate::GpuResidency::default();
+        r.textures = self.textures.len();
+        r.texture_bytes = self.textures.iter().map(|t| texture_bytes(&t.texture)).sum();
+        #[cfg(feature = "3d")]
+        if let Some(three) = &self.three {
+            (r.meshes, r.mesh_bytes, r.gpu_buffers, r.gpu_buffer_bytes) = three.residency();
+        }
+        Some(r)
+    }
+
     pub fn max_texture_size(&self) -> u32 {
         self.device.limits().max_texture_dimension_2d
     }
@@ -1489,4 +1502,20 @@ impl Renderer {
             }
         }
     }
+}
+
+/// Bytes `texture` takes on the GPU, every mipmap level and layer.
+fn texture_bytes(texture: &wgpu::Texture) -> u64 {
+    let block = u64::from(texture.format().block_copy_size(None).unwrap_or(4));
+    let layers = u64::from(texture.depth_or_array_layers());
+    let samples = u64::from(texture.sample_count());
+    (0..texture.mip_level_count())
+        .map(|level| {
+            let w = u64::from((texture.width() >> level).max(1));
+            let h = u64::from((texture.height() >> level).max(1));
+            w * h * block
+        })
+        .sum::<u64>()
+        * layers
+        * samples
 }

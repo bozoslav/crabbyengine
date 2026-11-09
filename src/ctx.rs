@@ -170,6 +170,8 @@ pub struct Ctx {
     /// Where the control endpoint listens, if it's on.
     pub(crate) control_addr: Option<std::net::SocketAddr>,
     pub(crate) headless_textures: u32,
+    /// Tallies for `asset_inventory` of handles without a table of their own.
+    pub(crate) asset_ledger: crate::inventory::Ledger,
     /// Asset hot reload: which files textures came from.
     pub(crate) watcher: crate::hot_reload::Watcher,
     /// How to apply each loaded data file's text (`load_resource`).
@@ -398,6 +400,7 @@ impl Ctx {
             headless: false,
             control_addr: None,
             headless_textures: 0,
+            asset_ledger: Default::default(),
             watcher: Default::default(),
             data_loaders: Vec::new(),
             prefabs: HashMap::new(),
@@ -1603,6 +1606,8 @@ impl Ctx {
             "ponko: a {width} x {height} texture needs {expected} bytes of RGBA, got {}",
             rgba.len()
         );
+        self.asset_ledger.textures += 1;
+        self.asset_ledger.texture_bytes += crate::inventory::rgba8_bytes(width, height);
         if self.headless {
             // No GPU: a handle that remembers its size, so game logic still works.
             self.headless_textures += 1;
