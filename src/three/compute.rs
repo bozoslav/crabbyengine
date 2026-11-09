@@ -193,29 +193,51 @@ impl Ctx {
     /// [`Ctx::create_compute`] that returns errors (for the C API).
     #[doc(hidden)]
     pub fn try_create_compute(&mut self, name: &str, source: &str) -> Result<Compute, String> {
-        #[cfg(feature = "window")]
-        crate::render::check_shader(name, &crate::render::compose_compute(source))?;
         let id = self.assets3d.computes;
-        if let Some(renderer) = self.renderer.as_mut()
-            && !self.headless
-        {
-            let gpu_id = renderer.create_compute(name, source)?;
-            debug_assert_eq!(gpu_id, id);
-        }
+        let compiled = self.compile_compute(name, source, None);
+        self.record_shader(name, super::ShaderKind::Compute, false, compiled)?;
         self.assets3d.computes += 1;
         Ok(Compute { id })
     }
 
-    /// Recompiles a compute pass whose file changed (hot reload).
-    pub(crate) fn reload_compute(&mut self, id: u32, name: &str, source: &str) -> Result<(), String> {
+    /// Checks compute `source` and builds its pipeline, as `replace` or as the next one.
+    fn compile_compute(
+        &mut self,
+        name: &str,
+        source: &str,
+        replace: Option<u32>,
+    ) -> Result<(), super::ShaderDiagnostic> {
         #[cfg(feature = "window")]
-        crate::render::check_shader(name, &crate::render::compose_compute(source))?;
+        crate::render::diagnose(
+            name,
+            super::ShaderKind::Compute,
+            crate::render::COMPUTE_VARIANT,
+            &crate::render::compose_compute(source),
+        )?;
         if let Some(renderer) = self.renderer.as_mut()
             && !self.headless
         {
-            renderer.replace_compute(id, name, source)?;
+            let built = match replace {
+                Some(id) => renderer.replace_compute(id, name, source),
+                None => renderer
+                    .create_compute(name, source)
+                    .map(|gpu_id| debug_assert_eq!(gpu_id, self.assets3d.computes)),
+            };
+            #[cfg(feature = "window")]
+            built.map_err(|e| {
+                crate::render::without_location(name, super::ShaderKind::Compute, crate::render::COMPUTE_VARIANT, e)
+            })?;
+            #[cfg(not(feature = "window"))]
+            let _ = built;
         }
+        let _ = (name, source, replace);
         Ok(())
+    }
+
+    /// Recompiles a compute pass whose file changed (hot reload).
+    pub(crate) fn reload_compute(&mut self, id: u32, name: &str, source: &str) -> Result<(), String> {
+        let compiled = self.compile_compute(name, source, Some(id));
+        self.record_shader(name, super::ShaderKind::Compute, true, compiled)
     }
 
     /// Whether this game made `compute` (for the C API, which takes ids).

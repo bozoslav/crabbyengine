@@ -240,28 +240,47 @@ impl Ctx {
     /// [`Ctx::create_shader`] that returns errors (for the C API).
     #[doc(hidden)]
     pub fn try_create_shader(&mut self, name: &str, source: &str) -> Result<Shader, String> {
-        #[cfg(feature = "window")]
-        crate::render::check_shader(name, &crate::render::compose_shader(source))?;
         let id = self.assets3d.shaders;
-        if let Some(renderer) = self.renderer.as_mut()
-            && !self.headless
-        {
-            let gpu_id = renderer.create_shader(name, source)?;
-            debug_assert_eq!(gpu_id, id + 1);
-        }
+        let compiled = self.compile_shader(name, source, None);
+        self.record_shader(name, super::ShaderKind::Material, false, compiled)?;
         self.assets3d.shaders += 1;
         Ok(Shader { id })
     }
 
-    /// Recompiles a shader whose file changed (hot reload).
+    /// Recompiles a shader whose file changed (hot reload). On an error the
+    /// last good version stays in use.
     pub(crate) fn reload_shader(&mut self, id: u32, name: &str, source: &str) -> Result<(), String> {
+        let compiled = self.compile_shader(name, source, Some(id));
+        self.record_shader(name, super::ShaderKind::Material, true, compiled)
+    }
+
+    /// Checks material shader `source` and builds its pipelines, as shader
+    /// `replace` or as the next one.
+    fn compile_shader(
+        &mut self,
+        name: &str,
+        source: &str,
+        replace: Option<u32>,
+    ) -> Result<(), super::ShaderDiagnostic> {
         #[cfg(feature = "window")]
-        crate::render::check_shader(name, &crate::render::compose_shader(source))?;
+        crate::render::diagnose(
+            name,
+            super::ShaderKind::Material,
+            crate::render::FULL_MATERIAL_VARIANT,
+            &crate::render::compose_shader(source),
+        )?;
         if let Some(renderer) = self.renderer.as_mut()
             && !self.headless
         {
-            renderer.replace_shader(id + 1, name, source)?;
+            match replace {
+                Some(id) => renderer.replace_shader(id + 1, name, source)?,
+                None => {
+                    let gpu_id = renderer.create_shader(name, source)?;
+                    debug_assert_eq!(gpu_id, self.assets3d.shaders + 1);
+                }
+            }
         }
+        let _ = (name, source, replace);
         Ok(())
     }
 

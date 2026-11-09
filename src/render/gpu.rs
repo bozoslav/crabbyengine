@@ -739,13 +739,13 @@ impl Renderer {
 
     /// Compiles a material shader; its index, or the compiler's message.
     #[cfg(feature = "3d")]
-    pub fn create_shader(&mut self, name: &str, source: &str) -> Result<u32, String> {
+    pub fn create_shader(&mut self, name: &str, source: &str) -> Result<u32, crate::ShaderDiagnostic> {
         let device = self.device.clone();
         self.three().create_shader(&device, name, source)
     }
 
     #[cfg(feature = "3d")]
-    pub fn replace_shader(&mut self, id: u32, name: &str, source: &str) -> Result<(), String> {
+    pub fn replace_shader(&mut self, id: u32, name: &str, source: &str) -> Result<(), crate::ShaderDiagnostic> {
         let device = self.device.clone();
         self.three().replace_shader(&device, id, name, source)
     }

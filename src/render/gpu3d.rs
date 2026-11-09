@@ -118,6 +118,7 @@ use crate::three::{
     MeshData, PostUniform, linear, scaled_size, shadow_views,
 };
 use crate::three::{Frame3D, Scene3D};
+use crate::three::{ShaderDiagnostic, ShaderKind};
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 /// The lit frame before tone mapping: light brighter than white survives.
@@ -490,6 +491,23 @@ pub(crate) fn check_shader(name: &str, source: &str) -> Result<(), String> {
         .validate(&module)
         .map_err(|e| e.emit_to_string_with_path(source, name))?;
     Ok(())
+}
+
+/// The variant the engine checks every material shader against first:
+/// every optional part on.
+pub(crate) const FULL_MATERIAL_VARIANT: &str = "material shader with decals, global illumination and instance storage";
+pub(crate) const EFFECT_VARIANT: &str = "screen effect";
+pub(crate) const COMPUTE_VARIANT: &str = "compute pass";
+
+/// The material shader variant this device compiles.
+fn material_variant(decals: bool, gi: bool, storage: bool) -> String {
+    let on = |b: bool| if b { "on" } else { "off" };
+    format!(
+        "material shader on this GPU: decals {}, global illumination {}, instance storage {}",
+        on(decals),
+        on(gi),
+        on(storage)
+    )
 }
 
 /// Whether `device` runs compute passes: WebGL2 has no compute shaders
@@ -1884,49 +1902,45 @@ impl Renderer3D {
     }
 
     /// Compiles a material shader from the game's WGSL; returns its index.
-    pub fn create_shader(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, String> {
-        let source = compose_shader_storage(
-            user,
-            self.frame_sources.decals,
-            self.frame_sources.gi,
-            self.storage_read.is_some(),
-        );
-        let source = if self.storage_read.is_none() && user.contains("items") {
-            compose_shader_storage("", self.frame_sources.decals, self.frame_sources.gi, false)
-        } else {
-            source
-        };
-        check_shader(name, &source)?;
-        let mut pipelines = build_pipelines(
-            device,
-            &self.layout,
-            &self.shadow_pipeline_layout,
-            name,
-            &source,
-            self.samples,
-        );
-        pipelines.reads_scene = reads_scene(user);
-        if self.warm_variants {
-            pipelines.warm();
-        }
+    pub fn create_shader(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, ShaderDiagnostic> {
+        let pipelines = self.material_pipelines(device, name, user)?;
         self.shaders.push(pipelines);
         Ok(self.shaders.len() as u32 - 1)
     }
 
     /// Recompiles shader `id` (hot reload). On an error the old one stays.
-    pub fn replace_shader(&mut self, device: &wgpu::Device, id: u32, name: &str, user: &str) -> Result<(), String> {
-        let source = compose_shader_storage(
-            user,
-            self.frame_sources.decals,
-            self.frame_sources.gi,
-            self.storage_read.is_some(),
-        );
-        let source = if self.storage_read.is_none() && user.contains("items") {
-            compose_shader_storage("", self.frame_sources.decals, self.frame_sources.gi, false)
+    pub fn replace_shader(
+        &mut self,
+        device: &wgpu::Device,
+        id: u32,
+        name: &str,
+        user: &str,
+    ) -> Result<(), ShaderDiagnostic> {
+        let pipelines = self.material_pipelines(device, name, user)?;
+        self.shaders[id as usize] = pipelines;
+        Ok(())
+    }
+
+    /// Checks and builds a material shader's pipelines for this device's
+    /// variant. Pipeline errors (a binding the layout doesn't have) come
+    /// back as an error instead of breaking the device.
+    fn material_pipelines(
+        &self,
+        device: &wgpu::Device,
+        name: &str,
+        user: &str,
+    ) -> Result<ShaderPipelines, ShaderDiagnostic> {
+        let storage = self.storage_read.is_some();
+        let (decals, gi) = (self.frame_sources.decals, self.frame_sources.gi);
+        let variant = material_variant(decals, gi, storage);
+        let source = if !storage && user.contains("items") {
+            compose_shader_storage("", decals, gi, false)
         } else {
-            source
+            compose_shader_storage(user, decals, gi, storage)
         };
-        check_shader(name, &source)?;
+        super::diagnose(name, ShaderKind::Material, &variant, &source)?;
+        #[cfg(not(target_arch = "wasm32"))]
+        let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let mut pipelines = build_pipelines(
             device,
             &self.layout,
@@ -1939,8 +1953,16 @@ impl Renderer3D {
         if self.warm_variants {
             pipelines.warm();
         }
-        self.shaders[id as usize] = pipelines;
-        Ok(())
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(error) = pollster::block_on(scope.pop()) {
+            return Err(super::without_location(
+                name,
+                ShaderKind::Material,
+                &variant,
+                format!("the GPU rejected its pipelines: {error}"),
+            ));
+        }
+        Ok(pipelines)
     }
 
     fn material_texture<'a>(&self, map: Option<u32>, textures: &'a [GpuTexture]) -> &'a wgpu::Texture {
