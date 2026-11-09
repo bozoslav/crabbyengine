@@ -296,13 +296,18 @@ where
             let frame_fn = setup(&mut self.ctx).into_frame_fn();
             self.ctx.apply_commands();
             if let Some(f) = frame_fn {
-                self.config.systems.push(System {
-                    name: "setup closure",
-                    run: f,
-                    every: 1,
-                    phase: 0,
-                    id: next_system_id(),
-                });
+                let index = self.config.systems.partition_point(|s| s.stage <= Phase::Frame);
+                self.config.systems.insert(
+                    index,
+                    System {
+                        name: "setup closure",
+                        stage: Phase::Frame,
+                        run: f,
+                        every: 1,
+                        phase: 0,
+                        id: next_system_id(),
+                    },
+                );
             }
             self.started = true;
         }
