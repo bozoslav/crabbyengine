@@ -16,7 +16,9 @@
 # the concurrency group, cancel) a whole run, and a lighter run publishing
 # its own "CI passed" on the same commit could stand in for a failed one.
 # pr-events.yml re-checks edited PR text for leaks and, when `full-ci` is
-# added, starts this workflow on the branch with workflow_dispatch.
+# added, starts this workflow on the branch with workflow_dispatch. That
+# check isn't required, so the leaks job here re-reads the current PR text
+# in the merge queue: an edited-in leak still blocks the merge.
 
 name: CI
 
@@ -51,6 +53,10 @@ jobs:
   leaks:
     name: Leak check
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Reads the title and description of each pull request in a merge group.
+      pull-requests: read
     steps:
       - uses: actions/checkout@v7
         with:
@@ -73,6 +79,35 @@ jobs:
         run: |
           printf '%s\n%s\n' "$TITLE" "$BODY" > "$RUNNER_TEMP/pr.txt"
           scripts/leak-check.sh text "$RUNNER_TEMP/pr.txt"
+      # The title and description can change after the pull request's CI ran
+      # (edits only re-run pr-events.yml, which isn't required). The merge
+      # queue re-reads the current text of every pull request in the group,
+      # so an edited-in leak blocks the merge. It fails closed: if it can't
+      # name the pull requests or read one of them, the job fails.
+      - name: Merge group pull request titles and descriptions
+        if: github.event_name == 'merge_group'
+        env:
+          LEAK_WORDS: ${{ secrets.LEAK_WORDS }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_REF: ${{ github.event.merge_group.head_ref }}
+          RANGE: ${{ format('{0}..{1}', github.event.merge_group.base_sha, github.event.merge_group.head_sha) }}
+        run: |
+          set -eu
+          # The group's ref is gh-readonly-queue/<base>/pr-<number>-<sha>,
+          # naming its newest pull request.
+          newest=$(printf '%s\n' "$HEAD_REF" | sed -n 's|^gh-readonly-queue/.*/pr-\([0-9][0-9]*\)-[0-9a-f]*$|\1|p')
+          if [ -z "$newest" ]; then
+            echo "::error::No pull request number in merge group ref $HEAD_REF"
+            exit 1
+          fi
+          # Pull requests batched ahead of it: their squash commits end in (#<number>).
+          earlier=$(git log --format=%s "$RANGE" | sed -n 's/.*(#\([0-9][0-9]*\))$/\1/p')
+          for pr in $(printf '%s\n' "$newest" $earlier | sort -un); do
+            echo "Pull request #$pr"
+            gh api "repos/$REPO/pulls/$pr" --jq '.title, (.body // "")' > "$RUNNER_TEMP/pr-$pr.txt"
+            scripts/leak-check.sh text "$RUNNER_TEMP/pr-$pr.txt"
+          done
 
   fmt:
     name: Format
