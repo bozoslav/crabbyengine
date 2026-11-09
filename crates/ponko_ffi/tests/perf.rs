@@ -152,7 +152,7 @@ fn json(run: &Run) -> serde_json::Value {
 fn a_profiled_run_reports_its_ticks_systems_and_scopes() {
     let run = run(profiling_on);
     let report = json(&run);
-    assert!(report["frames"].as_u64().unwrap() >= u64::from(TICKS) - 1, "{report}");
+    assert!(report["frames"].as_u64().unwrap() >= TICKS - 1, "{report}");
     let systems = report["systems"].as_array().unwrap();
     assert!(systems.iter().any(|s| s["name"] == "work"), "{systems:?}");
     let scopes = report["scopes"].as_array().unwrap();
