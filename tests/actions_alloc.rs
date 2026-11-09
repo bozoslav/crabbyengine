@@ -41,8 +41,11 @@ static ALLOCATOR: CountingAllocator = CountingAllocator;
 #[test]
 fn input_events_and_action_queries_allocate_nothing_after_installation() {
     let mut frames = 0;
+    let mut ids = None;
     Game::new("allocations", 1, 1)
         .sim_system(move |ctx: &mut Ctx| {
+            // Resolved once (it may allocate), before tracking starts.
+            let [jump, throttle, movement] = *ids.get_or_insert_with(|| ctx.action_ids(&["jump", "throttle", "move"]));
             if frames == 0 {
                 ALLOCS.set(0);
                 TRACK.set(true);
@@ -57,6 +60,11 @@ fn input_events_and_action_queries_allocate_nothing_after_installation() {
                 std::hint::black_box(ctx.action_released("jump"));
                 std::hint::black_box(ctx.action_axis("throttle"));
                 std::hint::black_box(ctx.action_axis2("move"));
+                std::hint::black_box(ctx.action_down(jump));
+                std::hint::black_box(ctx.action_pressed(jump));
+                std::hint::black_box(ctx.action_released(jump));
+                std::hint::black_box(ctx.action_axis(throttle));
+                std::hint::black_box(ctx.action_axis2(movement));
             }
             frames += 1;
             if frames == 3 {

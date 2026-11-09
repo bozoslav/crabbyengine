@@ -29,6 +29,9 @@ for optional fields). In C and C++ the resource is a plain struct described
 with `reflect_resource`, and the file's fields merge into it, so the file
 may list only some of them (C: `ponko_ctx_load_resource_json`). C++ can
 also load a file into a component of one entity: `ctx.load_json<T>(path, e)`.
+Rust has the same merging forms for reflected types, with the name taken from
+the type: `ctx.load_resource_json::<T>(path)` and
+`ctx.load_component_json::<T>(path, entity)`.
 
 - Loading fails with a clear message: a missing file lists the folders
   searched, and bad JSON says the line and column.

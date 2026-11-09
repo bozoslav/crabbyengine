@@ -5,6 +5,7 @@
 //! Each benchmark builds its state untimed, then times one operation; we report
 //! the median and minimum over several runs.
 
+mod actions;
 mod archetypes;
 mod net;
 #[allow(dead_code)] // spike: API surface kept for the M3 port
@@ -164,6 +165,7 @@ fn main() {
     physics::run(&mut b);
     physics3d::run(&mut b);
     net::run(&mut b);
+    actions::run(&mut b);
 
     // ---- baseline: plain Vecs (upper bound for iteration) -------------------
     b.steady(

@@ -63,6 +63,14 @@ Use `action_down`, `action_pressed`, `action_released`, `action_axis` and
 return false or zero. Names are case-sensitive. Queries borrow their names
 and allocate nothing.
 
+In Rust, resolve each name once and keep the `Copy` `ActionId`: queries by id
+are an array index instead of a name lookup, and an unknown name is an error
+logged when you resolve it, not a silent `false` every frame. `ctx.action_id("jump")`
+resolves one, `ctx.action_ids(&["jump", "fire"])` several, and the `actions!`
+macro (as in the example above) declares the names in one place. Ids stay
+valid when you rebind with `set_actions`. The queries accept an id or a name,
+so both spellings work. C and C++ keep the name forms for now.
+
 To rebind, copy `ctx.actions()`, call `set` or `remove`, then install it with
 `ctx.set_actions`. Rust uses `.clone()` to copy the map; C++ returns an owned
 map. Installation resets action edges and uses currently held inputs as the
