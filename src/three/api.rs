@@ -910,12 +910,17 @@ impl Ctx {
         self.frame3d.instances.len()
     }
 
-    /// Makes TAA and temporal ambient occlusion forget the
-    /// frames before this one: call it when the camera cuts to somewhere
-    /// else (a teleport, a new scene), so the old view does not blend into
-    /// the new one. The engine resets by itself on a window resize, when
-    /// temporal antialiasing is turned on, and when the camera jumps far or
-    /// turns sharply in one frame. Call this after teleporting objects too.
+    /// Makes TAA, temporal ambient occlusion and screen-space reflections
+    /// forget the frames before this one: call it when the camera cuts to
+    /// somewhere else (a teleport, a new scene), so the old view does not
+    /// blend into the new one. Call this after teleporting objects too:
+    /// on this frame no model has motion (the old position is not its past).
+    ///
+    /// The engine resets by itself on a window resize or render scale
+    /// change, when temporal antialiasing or another screen effect is
+    /// turned on or off, and when the camera jumps far or turns sharply in
+    /// one frame. A reset asked for on a frame that draws nothing applies
+    /// to the next frame that does.
     ///
     /// ```
     /// # use ponko::*;

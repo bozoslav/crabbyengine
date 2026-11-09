@@ -269,11 +269,6 @@ impl Ssr {
         );
     }
 
-    /// The camera the history was drawn with, if it holds the last frame.
-    pub fn previous(&self) -> Option<Mat4> {
-        self.previous
-    }
-
     /// Targets for frames of `size`: `depth` the prepass's, `lit` the image
     /// the opaque pass resolves into; `ao` whether GTAO writes `ao`.
     pub fn targets(

@@ -73,6 +73,11 @@ impl Motion {
         }
         std::mem::swap(&mut self.last, &mut self.now);
         self.now.clear();
+        // After a reset the last frame is no past of this one: a model
+        // teleported with it has no motion.
+        if self.reset {
+            self.last.clear();
+        }
     }
 
     /// Notes that the camera sees model `key` as `instance`, drawing `mesh`.
@@ -159,6 +164,28 @@ mod tests {
         assert_eq!(motion.instances.len(), 1);
         assert_eq!(motion.instances[0].previous, first.model);
         assert_eq!(motion.instances[0].instance.model, rotated.model);
+    }
+
+    #[test]
+    fn a_reset_frame_lists_no_motion_and_the_next_does_again() {
+        let mut motion = Motion {
+            enabled: true,
+            ..Default::default()
+        };
+        // (where the model is, whether the frame resets, whether it moved)
+        for (x, reset, moved) in [
+            (0.0, false, false),
+            (1.0, false, true),
+            (5.0, true, false),
+            (6.0, false, true),
+        ] {
+            motion.reset = reset;
+            motion.begin();
+            motion.note(1, 0, &at(x));
+            motion.finish();
+            assert_eq!(!motion.runs.is_empty(), moved, "x {x}, reset {reset}");
+        }
+        assert_eq!(motion.instances[0].previous[3][0], 5.0);
     }
 
     #[test]
