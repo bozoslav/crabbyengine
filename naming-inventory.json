@@ -607,6 +607,12 @@
       "category": "public compatibility",
       "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
     },
+    "examples/coin_dash/CONTENT-NOTICES.txt": {
+      "occurrences": 2,
+      "path_occurrences": 0,
+      "category": "intentional history",
+      "reason": "Pre-existing project instructions, README text, release history or legal attribution."
+    },
     "examples/cpp/CMakeLists.txt": {
       "occurrences": 4,
       "path_occurrences": 0,

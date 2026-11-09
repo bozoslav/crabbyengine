@@ -1757,3 +1757,22 @@ fn the_content_notice_names_every_file_the_game_ships() {
     }
     assert!(notice.contains(game::COIN_ASSET));
 }
+
+#[test]
+fn the_content_notice_uses_the_license_files_copyright_holder() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let license = std::fs::read_to_string(root.join("LICENSE-MIT")).unwrap();
+    let holder = license
+        .lines()
+        .find_map(|l| l.strip_prefix("Copyright (c) "))
+        .expect("LICENSE-MIT has a copyright line");
+    let notice = std::fs::read_to_string(root.join("examples/coin_dash/CONTENT-NOTICES.txt")).unwrap();
+    let lines: Vec<&str> = notice.lines().filter(|l| l.contains("Copyright (c)")).collect();
+    assert!(!lines.is_empty());
+    for line in lines {
+        assert!(
+            line.contains(holder.trim_end_matches('.')),
+            "the notice's copyright line {line:?} differs from LICENSE-MIT's {holder:?}"
+        );
+    }
+}

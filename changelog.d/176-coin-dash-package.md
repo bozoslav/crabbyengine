@@ -7,7 +7,8 @@
   the OS save folder and a missing-assets failure. The new `package-smoke` CI job
   runs it on Linux, macOS and Windows.
 - `coin_dash` gains a settings screen on the retained UI: UI scale, volume and
-  rebindable keys and gamepad buttons, saved beside the progress with the same
+  rebindable keys and gamepad buttons (Escape, Tab, East and the d-pad stay with
+  the menus), saved beside the progress with the same
   recovery, plus sound effects made in code, a coin picture loaded from
   `assets/coin_dash/`, and `--smoke headless|window` to play itself.
 - `coin_dash` builds for the web (`web/build.sh coin_dash`) and runs in the

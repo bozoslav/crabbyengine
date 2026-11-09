@@ -53,7 +53,11 @@ crate's source, including the fonts' (`OFL.txt`, `UFL.txt`) in
 `epaint_default_fonts`. Identical texts are printed once, with the libraries
 that use them. `tests/coin_dash.rs` fails if a file under `assets/coin_dash/` is
 not named in `CONTENT-NOTICES.txt`, and the smoke test fails if it is not in the
-package's copy either.
+package's copy either. A library that declares no `license` (or `license_file`)
+fails the packaging by name instead of being listed as "unknown", and so does a
+dev-dependency of `ponko` that this platform would link without the notice
+listing it; `python3 scripts/package-coin-dash.py selftest` checks both with
+made-up crates, plus the exit-code decisions below.
 
 ## The smoke test
 
@@ -85,12 +89,17 @@ checks:
 
 `--mode window` repeats step 2 in a real window. Exit codes: 0 passed, 1 a
 check failed, 2 unsupported (no display or GPU, only without
-`--allow-unsupported`), 3 no package.
+`--allow-unsupported`), 3 no package. "Unsupported" means the engine's own
+message that it found no GPU or could not open a window ("ponko: no compatible
+GPU found" and the like); any other crash, such as a platform error, is a
+failure, and under GitHub Actions a skipped window run prints a warning
+annotation.
 
 CI (`package-smoke`, in the merge queue and with the `full-ci` label) runs both
-modes on Linux, macOS and Windows. Linux runs the window under a virtual
-display with software Vulkan and passes as "unsupported" if the runner still
-can't open one; macOS and Windows must open the window. It packages the dev
+modes on Linux, macOS and Windows, and the window run must open a window on
+all three: Linux under a virtual display with software Vulkan, Windows with
+DirectX 12 only (WARP, the software renderer) where the runner has no GPU. It
+packages the dev
 profile (same layout and notices, and the dependencies the other jobs already
 built); a release package is the command above. Locally, the window mode needs
 a display, and the headless mode is what runs anywhere.
@@ -174,11 +183,18 @@ result screens show the current keys.
 
 ### Limitations
 
-- **Rebinding**: one key and one gamepad button per control, for the first
-  gamepad only; the left stick, the arrow keys, Space and P are fixed; Escape,
-  Tab and the gamepad's East button are reserved for the menus; there are no
-  mouse bindings; a key or button another control uses is refused (swap in two
-  steps) rather than swapped. Key names are physical positions on a US layout
+- **Rebinding**: one key and one gamepad button per control, read by the
+  game from the first gamepad slot (the prompt listens on every slot, but the
+  binding is made for slot 0); the left stick, the arrow keys, Space and P are
+  fixed; there are no mouse bindings; a key or button another control uses is
+  refused (swap in two steps) rather than swapped.
+  **Reserved for the menus**: Escape and Tab on the keyboard, and East and the
+  four d-pad directions on the gamepad. They can't be bound to a control
+  (the prompt, the model and a hand-edited `settings.json` all refuse them),
+  because the retained UI navigates with them and a screen that rebinds its own
+  navigation keys could lock the player out. The one exception is Pause: it
+  starts on Escape, and once moved elsewhere **Reset to defaults** is the only
+  way to give it Escape back. Key names are physical positions on a US layout
   (`Key::Q` is where Q is on QWERTY, whatever is printed on the key). The
   gamepad prompt was exercised only with synthetic events: there is no
   controller on the build machines.
@@ -205,7 +221,7 @@ index, or a new one):
 | Gap | Where it is tracked |
 |---|---|
 | No query for "which key or button was pressed this frame": the rebinding prompt lists the keys it offers itself, because the engine can only answer "is this one pressed". | Input service of [#195](https://github.com/ponkoengine/ponko/issues/195) |
-| `ActionMap` can't be read back (no `get` or iteration), so a rebinding UI keeps its own `Controls` and rebuilds the map. | No issue; fits [#207](https://github.com/ponkoengine/ponko/issues/207) |
+| `ActionMap` can't be read back (no `get` or iteration), so a rebinding UI keeps its own `Controls` and rebuilds the map. | [#281](https://github.com/ponkoengine/ponko/issues/281), part of [#207](https://github.com/ponkoengine/ponko/issues/207) |
 | `run_headless` runs no frame systems and no UI frame, so screens built on the retained UI are tested by hand-feeding `Ui::frame`. | Phases: [#198](https://github.com/ponkoengine/ponko/issues/198); scripted input: [#179](https://github.com/ponkoengine/ponko/issues/179) |
 | No native screen-reader adapter for the retained UI. | [#183](https://github.com/ponkoengine/ponko/issues/183) |
 | Immediate-mode text and UI don't follow the retained UI's scale; the theme and builders are the retained UI's only. | [#203](https://github.com/ponkoengine/ponko/issues/203) |
@@ -213,4 +229,4 @@ index, or a new one):
 | The web build keeps nothing (no storage backend), and the browser matrix is Chromium on SwiftShader WebGL2 only (no real-GPU WebGPU, Firefox, Safari or mobile). | [#173](https://github.com/ponkoengine/ponko/issues/173) |
 | The window smoke proves "a window opens and frames are drawn", not what they look like; no image regression for a whole game. | [#135](https://github.com/ponkoengine/ponko/issues/135) |
 | The C and C++ bindings have no counterpart of this game (it is Rust only). | [#262](https://github.com/ponkoengine/ponko/issues/262) |
-| Packages aren't attached to a release, signed or notarized, and there is no installer; the third-party notice is generated by a short script (on macOS, 33 of the 188 linked libraries ship no license file in their published source, so only their declared license and authors are listed; the package says which) rather than by a license-policy tool. | No issue (outside this exercise's non-goals: platform expansion) |
+| Packages aren't attached to a release, signed or notarized, and there is no installer; the third-party notice is generated by a short script (on macOS, 33 of the 188 linked libraries ship no license file in their published source, so only their declared license and authors are listed; the package says which) rather than by a license-policy tool. | [#282](https://github.com/ponkoengine/ponko/issues/282) |
