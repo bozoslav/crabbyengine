@@ -7,5 +7,5 @@
   "features": "default",
   "generated_by": "PONKO_MCP_FIXTURE_OUT=<path> cargo test -p ponko_mcp --test contract -- --ignored --exact write_v1_fixture",
   "date": "2026-11-09",
-  "baseline": "First retained MCP contract: the 38 tools, their parameters and required lists, the read-only hints, the negotiated protocol versions and the server name as of this revision of the engine's main branch, not a published release. Descriptions are left out on purpose: wording is not part of the contract."
+  "baseline": "First retained MCP contract: the 39 tools, their parameters and required lists, the read-only hints, the negotiated protocol versions and the server name as of this revision of the engine's main branch, not a published release. Descriptions are left out on purpose: wording is not part of the contract."
 }

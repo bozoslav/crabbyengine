@@ -25,10 +25,21 @@ fn fixture_path(name: &str) -> PathBuf {
         .join(name)
 }
 
-fn baseline() -> Value {
-    let path = fixture_path("tools_v1.json");
+fn load_fixture(name: &str) -> Value {
+    let path = fixture_path(name);
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("can't read {}: {e}", path.display()));
-    serde_json::from_str(&text).expect("tools_v1.json is JSON")
+    serde_json::from_str(&text).unwrap_or_else(|e| panic!("{name} is not JSON: {e}"))
+}
+
+/// The first retained baseline: tools, parameters, required lists, hints.
+fn baseline() -> Value {
+    load_fixture("tools_v1.json")
+}
+
+/// The second: the same, plus each tool's other top-level `inputSchema`
+/// keywords (`type`, `additionalProperties`, ...), which v1 did not record.
+fn baseline_v2() -> Value {
+    load_fixture("tools_v2.json")
 }
 
 fn server(read_only: bool) -> Server {
@@ -65,10 +76,20 @@ fn contract_of_tool(t: &Value) -> Value {
     for (name, schema) in t["inputSchema"]["properties"].as_object().expect("properties") {
         properties.insert(name.clone(), strip_descriptions(schema));
     }
+    // Every other keyword of the tool's own input schema: `additionalProperties: false`
+    // there would reject arguments that were accepted before.
+    let schema: Map<String, Value> = t["inputSchema"]
+        .as_object()
+        .expect("inputSchema")
+        .iter()
+        .filter(|(k, _)| !matches!(k.as_str(), "properties" | "required" | "description"))
+        .map(|(k, v)| (k.clone(), strip_descriptions(v)))
+        .collect();
     json!({
         "name": t["name"],
         "required": t["inputSchema"]["required"],
         "properties": properties,
+        "schema": schema,
         "read_only": t["annotations"]["readOnlyHint"],
     })
 }
@@ -99,6 +120,25 @@ fn type_set(schema: &Value) -> BTreeSet<String> {
 const LOWER_BOUNDS: &[&str] = &["minimum", "exclusiveMinimum", "minLength", "minItems"];
 /// Keywords where a smaller value in the new schema accepts less.
 const UPPER_BOUNDS: &[&str] = &["maximum", "exclusiveMaximum", "maxLength", "maxItems"];
+
+/// `additionalProperties` widening and narrowing. Absent and `true` both accept
+/// any extra key; `false` accepts none; a schema accepts values it allows.
+fn additional_properties(path: &str, old: Option<&Value>, new: Option<&Value>, out: &mut Vec<String>) {
+    let open = |v: Option<&Value>| matches!(v, None | Some(Value::Bool(true)));
+    let closed = |v: Option<&Value>| matches!(v, Some(Value::Bool(false)));
+    if open(new) || closed(old) {
+        return; // accepts everything it accepted, or nothing was accepted before
+    }
+    if closed(new) {
+        out.push(format!(
+            "{path}: extra properties are no longer accepted (additionalProperties: false)"
+        ));
+    } else if open(old) {
+        out.push(format!("{path}: extra properties are now restricted by a schema"));
+    } else if let (Some(o), Some(n)) = (old, new) {
+        narrowing(&format!("{path} (extra properties)"), o, n, out);
+    }
+}
 
 /// Reasons why `new` accepts something `old` accepted but no longer does.
 /// Accepting more (a wider type list, a larger enum, a looser bound) is fine.
@@ -149,8 +189,17 @@ fn narrowing(path: &str, old: &Value, new: &Value, out: &mut Vec<String>) {
         _ => {}
     }
 
+    // Extra keys of an object: absent or `true` accepts anything, `false` accepts none,
+    // a schema accepts what it describes.
+    additional_properties(
+        path,
+        old.get("additionalProperties"),
+        new.get("additionalProperties"),
+        out,
+    );
+
     // Any other constraint keyword may only stay as it was or disappear.
-    let known = ["type", "enum", "items", "description"];
+    let known = ["type", "enum", "items", "description", "additionalProperties"];
     let mut constraints = BTreeSet::new();
     for schema in [old, new] {
         for k in schema.as_object().into_iter().flat_map(|m| m.keys()) {
@@ -210,6 +259,15 @@ fn incompatibilities(old: &Value, new: &Value) -> Vec<String> {
                 ),
             }
         }
+        // The tool's own input schema, where the baseline recorded it (v2 on).
+        if let Some(old_schema) = old_tool.get("schema") {
+            narrowing(
+                &format!("tool `{name}`: input schema"),
+                old_schema,
+                &new_tool["schema"],
+                &mut out,
+            );
+        }
         if old_tool["read_only"] == true && new_tool["read_only"] != true {
             out.push(format!("tool `{name}` was read-only and now changes the game"));
         }
@@ -237,14 +295,16 @@ fn expect_one(found: Vec<String>, fragment: &str) {
 
 #[test]
 fn server_still_offers_every_baseline_tool_and_parameter() {
-    let found = incompatibilities(&baseline(), &current_contract(false));
-    assert!(
-        found.is_empty(),
-        "the MCP tool contract changed incompatibly with the retained baseline \
-         (tests/fixtures/tools_v1.json); fix the server, or make an explicit \
-         compatibility decision (STABILITY.md), never edit the fixture:\n  {}",
-        found.join("\n  ")
-    );
+    for (file, base) in [("tools_v1.json", baseline()), ("tools_v2.json", baseline_v2())] {
+        let found = incompatibilities(&base, &current_contract(false));
+        assert!(
+            found.is_empty(),
+            "the MCP tool contract changed incompatibly with the retained baseline \
+             (tests/fixtures/{file}); fix the server, or make an explicit \
+             compatibility decision (STABILITY.md), never edit the fixture:\n  {}",
+            found.join("\n  ")
+        );
+    }
 }
 
 #[test]
@@ -446,14 +506,119 @@ fn widening_an_enum_is_compatible() {
     assert!(incompatibilities(&old, &now).is_empty());
 }
 
+#[test]
+fn baseline_v2_records_every_tools_input_schema() {
+    let b = baseline_v2();
+    for t in b["tools"].as_array().unwrap() {
+        assert_eq!(
+            t["schema"]["type"], "object",
+            "{} lost its input schema record",
+            t["name"]
+        );
+    }
+    // v2 holds everything v1 held.
+    assert!(incompatibilities(&baseline(), &b).is_empty());
+}
+
+#[test]
+fn a_tool_that_stops_accepting_extra_arguments_is_incompatible() {
+    let mut now = baseline_v2();
+    tool_mut(&mut now, "get_entity")["schema"]["additionalProperties"] = json!(false);
+    expect_one(
+        incompatibilities(&baseline_v2(), &now),
+        "tool `get_entity`: input schema: extra properties are no longer accepted",
+    );
+    let mut now = baseline_v2();
+    tool_mut(&mut now, "get_entity")["schema"]["additionalProperties"] = json!({ "type": "string" });
+    expect_one(
+        incompatibilities(&baseline_v2(), &now),
+        "input schema: extra properties are now restricted by a schema",
+    );
+    let mut now = baseline_v2();
+    tool_mut(&mut now, "get_entity")["schema"]["type"] = json!("array");
+    expect_one(
+        incompatibilities(&baseline_v2(), &now),
+        "input schema: no longer accepts type `object`",
+    );
+}
+
+#[test]
+fn a_tool_that_accepts_more_extra_arguments_is_compatible() {
+    let mut old = baseline_v2();
+    tool_mut(&mut old, "get_entity")["schema"]["additionalProperties"] = json!(false);
+    let mut now = baseline_v2();
+    tool_mut(&mut now, "get_entity")["schema"]["additionalProperties"] = json!(true);
+    assert!(incompatibilities(&old, &now).is_empty(), "false -> true widens");
+    assert!(
+        incompatibilities(&old, &baseline_v2()).is_empty(),
+        "false -> absent widens"
+    );
+}
+
+/// `launch.env` maps names to strings: an object with `additionalProperties`.
+fn with_env_extra(mut contract: Value, extra: Option<Value>) -> Value {
+    let env = &mut tool_mut(&mut contract, "launch")["properties"]["env"];
+    match extra {
+        Some(v) => env["additionalProperties"] = v,
+        None => {
+            env.as_object_mut().unwrap().remove("additionalProperties");
+        }
+    }
+    contract
+}
+
+#[test]
+fn widening_additional_properties_is_compatible() {
+    let string = Some(json!({ "type": "string" }));
+    let old = with_env_extra(baseline(), string.clone());
+    for wider in [
+        None,
+        Some(json!(true)),
+        Some(json!({ "type": ["string", "integer"] })),
+        string,
+    ] {
+        let now = with_env_extra(baseline(), wider.clone());
+        assert_eq!(incompatibilities(&old, &now), Vec::<String>::new(), "-> {wider:?}");
+    }
+    // A closed object accepting nothing extra can open up in any way.
+    let closed = with_env_extra(baseline(), Some(json!(false)));
+    for any in [None, Some(json!(true)), Some(json!({ "type": "integer" }))] {
+        let now = with_env_extra(baseline(), any.clone());
+        assert_eq!(
+            incompatibilities(&closed, &now),
+            Vec::<String>::new(),
+            "false -> {any:?}"
+        );
+    }
+}
+
+#[test]
+fn narrowing_additional_properties_is_incompatible() {
+    let old = with_env_extra(baseline(), Some(json!({ "type": "string" })));
+    let closed = with_env_extra(baseline(), Some(json!(false)));
+    expect_one(
+        incompatibilities(&old, &closed),
+        "parameter `env`: extra properties are no longer accepted",
+    );
+    let integers = with_env_extra(baseline(), Some(json!({ "type": "integer" })));
+    expect_one(
+        incompatibilities(&old, &integers),
+        "parameter `env` (extra properties): no longer accepts type `string`",
+    );
+    let free = with_env_extra(baseline(), None);
+    let restricted = with_env_extra(baseline(), Some(json!({ "type": "string" })));
+    expect_one(
+        incompatibilities(&free, &restricted),
+        "parameter `env`: extra properties are now restricted by a schema",
+    );
+}
+
 // ---------------------------------------------------------------- generator
 
-/// Writes `tools_v1.json` from the server at the checked-out revision. Run it
-/// only to retain a new baseline (see tests/fixtures/README.md), never to
-/// update an existing one.
-#[test]
-#[ignore = "writes a fixture file; see crates/ponko_mcp/tests/fixtures/README.md"]
-fn write_v1_fixture() {
+/// Writes a baseline file from the server at the checked-out revision, to the
+/// path in `PONKO_MCP_FIXTURE_OUT`; refuses to overwrite. Only for retaining a
+/// new baseline (see tests/fixtures/README.md), never to update an existing one.
+fn write_fixture(with_schema: bool) {
     let out = std::env::var("PONKO_MCP_FIXTURE_OUT").expect("set PONKO_MCP_FIXTURE_OUT to the file to write");
     let out = std::path::Path::new(&out);
     assert!(
@@ -463,6 +628,12 @@ fn write_v1_fixture() {
     );
     let init = rpc(&mut server(false), "initialize", json!({}));
     let mut contract = current_contract(false);
+    if !with_schema {
+        // v1 predates the record of each tool's own input schema.
+        for t in contract["tools"].as_array_mut().unwrap() {
+            t.as_object_mut().unwrap().remove("schema");
+        }
+    }
     contract["server_name"] = init["serverInfo"]["name"].clone();
     // Every version the server negotiates: ask for each known one.
     let versions: Vec<Value> = ["2025-06-18", "2025-03-26", "2024-11-05"]
@@ -472,4 +643,18 @@ fn write_v1_fixture() {
         .collect();
     contract["protocol_versions"] = Value::Array(versions);
     std::fs::write(out, serde_json::to_string_pretty(&contract).unwrap() + "\n").unwrap();
+}
+
+/// Writes `tools_v1.json` (without the top-level schema record).
+#[test]
+#[ignore = "writes a fixture file; see crates/ponko_mcp/tests/fixtures/README.md"]
+fn write_v1_fixture() {
+    write_fixture(false);
+}
+
+/// Writes `tools_v2.json`: v1's content plus each tool's other `inputSchema` keywords.
+#[test]
+#[ignore = "writes a fixture file; see crates/ponko_mcp/tests/fixtures/README.md"]
+fn write_v2_fixture() {
+    write_fixture(true);
 }
