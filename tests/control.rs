@@ -651,7 +651,9 @@ fn scenario_status(c: &mut Client) -> Value {
 fn tools_cannot_inject_input_unless_the_game_allows_it() {
     let (mut c, game) = scenario_game(false);
     let scenario = json!({ "version": 1, "steps": [{ "tick": 0, "type": "key", "key": "Space", "down": true }] });
-    let refused = c.call("input.scenario.load", json!({ "scenario": scenario })).unwrap_err();
+    let refused = c
+        .call("input.scenario.load", json!({ "scenario": scenario }))
+        .unwrap_err();
     assert!(refused.contains("input injection is off"), "{refused}");
     // The refusal is reported before a tool tries, and nothing was installed.
     let caps = c.call("capabilities", json!({})).unwrap();
@@ -664,7 +666,10 @@ fn tools_cannot_inject_input_unless_the_game_allows_it() {
     assert_eq!(method["available"], false, "{method}");
     assert_eq!(scenario_status(&mut c), Value::Null);
     step(&mut c, 2);
-    assert_eq!(c.call("resource.get", json!({ "resource": "SpaceHeld" })).unwrap(), json!(false));
+    assert_eq!(
+        c.call("resource.get", json!({ "resource": "SpaceHeld" })).unwrap(),
+        json!(false)
+    );
     c.call("game.quit", json!({})).unwrap();
     game.join().unwrap();
 }
@@ -687,8 +692,14 @@ fn a_scenario_started_by_a_tool_drives_the_game_and_reports_a_failed_check() {
     assert_eq!(loaded["bound_to_connection"], false);
     step(&mut c, 2);
     let status = scenario_status(&mut c);
-    assert_eq!((status["status"].clone(), status["ticks_run"].clone()), (json!("running"), json!(2)));
-    assert_eq!(c.call("resource.get", json!({ "resource": "Jumps" })).unwrap(), json!(1));
+    assert_eq!(
+        (status["status"].clone(), status["ticks_run"].clone()),
+        (json!("running"), json!(2))
+    );
+    assert_eq!(
+        c.call("resource.get", json!({ "resource": "Jumps" })).unwrap(),
+        json!(1)
+    );
     step(&mut c, 2);
     let status = scenario_status(&mut c);
     assert_eq!(status["status"], "failed", "{status}");
@@ -703,7 +714,10 @@ fn a_scenario_started_by_a_tool_drives_the_game_and_reports_a_failed_check() {
     let loaded = c.call("input.scenario.load", json!({ "scenario": again })).unwrap();
     assert_eq!(loaded["report"]["start_tick"], 4);
     step(&mut c, 1);
-    assert_eq!(c.call("resource.get", json!({ "resource": "Jumps" })).unwrap(), json!(2));
+    assert_eq!(
+        c.call("resource.get", json!({ "resource": "Jumps" })).unwrap(),
+        json!(2)
+    );
 
     // Malformed files are refused with the reason, and leave the run alone.
     let bad = json!({ "version": 1, "steps": [{ "tick": 0, "type": "key", "key": "Spacee", "down": true }] });
@@ -724,14 +738,22 @@ fn cancelling_a_tool_started_scenario_releases_its_input() {
     });
     c.call("input.scenario.load", json!({ "scenario": scenario })).unwrap();
     step(&mut c, 2);
-    assert_eq!(c.call("resource.get", json!({ "resource": "SpaceHeld" })).unwrap(), json!(true));
-    let cancelled = c.call("input.scenario.cancel", json!({ "reason": "test is done" })).unwrap();
+    assert_eq!(
+        c.call("resource.get", json!({ "resource": "SpaceHeld" })).unwrap(),
+        json!(true)
+    );
+    let cancelled = c
+        .call("input.scenario.cancel", json!({ "reason": "test is done" }))
+        .unwrap();
     assert_eq!(cancelled["cancelled"], true);
     assert_eq!(cancelled["report"]["status"], "cancelled");
     assert_eq!(cancelled["report"]["cancel_reason"], "test is done");
     assert_eq!(cancelled["report"]["released"], 1);
     step(&mut c, 1);
-    assert_eq!(c.call("resource.get", json!({ "resource": "SpaceHeld" })).unwrap(), json!(false));
+    assert_eq!(
+        c.call("resource.get", json!({ "resource": "SpaceHeld" })).unwrap(),
+        json!(false)
+    );
     let again = c.call("input.scenario.cancel", json!({})).unwrap();
     assert_eq!(again["cancelled"], false, "nothing left to cancel");
     c.call("game.quit", json!({})).unwrap();
@@ -750,7 +772,9 @@ fn a_scenario_bound_to_its_connection_is_cancelled_when_the_client_disconnects()
     // A scenario not bound to a connection survives its client.
     {
         let mut short_lived = connect(addr);
-        short_lived.call("input.scenario.load", json!({ "scenario": scenario })).unwrap();
+        short_lived
+            .call("input.scenario.load", json!({ "scenario": scenario }))
+            .unwrap();
     }
     step(&mut c, 1);
     assert_eq!(scenario_status(&mut c)["status"], "running");
@@ -759,11 +783,17 @@ fn a_scenario_bound_to_its_connection_is_cancelled_when_the_client_disconnects()
     {
         let mut owner = connect(addr);
         let loaded = owner
-            .call("input.scenario.load", json!({ "scenario": scenario, "bind_connection": true }))
+            .call(
+                "input.scenario.load",
+                json!({ "scenario": scenario, "bind_connection": true }),
+            )
             .unwrap();
         assert_eq!(loaded["bound_to_connection"], true);
         step(&mut c, 1);
-        assert_eq!(c.call("resource.get", json!({ "resource": "SpaceHeld" })).unwrap(), json!(true));
+        assert_eq!(
+            c.call("resource.get", json!({ "resource": "SpaceHeld" })).unwrap(),
+            json!(true)
+        );
     }
     let deadline = Instant::now() + Duration::from_secs(10);
     while scenario_status(&mut c)["status"] != "cancelled" {
@@ -772,9 +802,66 @@ fn a_scenario_bound_to_its_connection_is_cancelled_when_the_client_disconnects()
     }
     let status = scenario_status(&mut c);
     assert_eq!(status["released"], 1);
-    assert!(status["cancel_reason"].as_str().unwrap().contains("disconnected"), "{status}");
+    assert!(
+        status["cancel_reason"].as_str().unwrap().contains("disconnected"),
+        "{status}"
+    );
     step(&mut c, 1);
-    assert_eq!(c.call("resource.get", json!({ "resource": "SpaceHeld" })).unwrap(), json!(false));
+    assert_eq!(
+        c.call("resource.get", json!({ "resource": "SpaceHeld" })).unwrap(),
+        json!(false)
+    );
+    c.call("game.quit", json!({})).unwrap();
+    game.join().unwrap();
+}
+
+#[test]
+fn a_paused_game_does_not_advance_a_scenario_and_resuming_continues_it() {
+    let (mut c, game) = scenario_game(true);
+    let scenario = json!({
+        "version": 1,
+        "duration": 8,
+        "release_when_done": true,
+        "steps": [
+            { "tick": 1, "type": "key", "key": "Space", "down": true },
+            { "tick": 6, "type": "expect_resource", "resource": "SpaceHeld", "equals": true }
+        ]
+    });
+    c.call("input.scenario.load", json!({ "scenario": scenario })).unwrap();
+    step(&mut c, 3);
+    // Paused for a while: the scenario stays where it was.
+    thread::sleep(Duration::from_millis(100));
+    let status = scenario_status(&mut c);
+    assert_eq!(
+        (status["status"].clone(), status["ticks_run"].clone()),
+        (json!("running"), json!(3))
+    );
+    assert_eq!(
+        c.call("resource.get", json!({ "resource": "SpaceHeld" })).unwrap(),
+        json!(true)
+    );
+    // Resumed: it runs to its end by itself and releases its input there.
+    c.call("sim.resume", json!({})).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while scenario_status(&mut c)["status"] == "running" {
+        assert!(Instant::now() < deadline, "the scenario never finished");
+        thread::sleep(Duration::from_millis(5));
+    }
+    let status = scenario_status(&mut c);
+    assert_eq!(
+        (
+            status["status"].clone(),
+            status["ticks_run"].clone(),
+            status["released"].clone()
+        ),
+        (json!("passed"), json!(8), json!(1))
+    );
+    c.call("sim.pause", json!({})).unwrap();
+    step(&mut c, 1);
+    assert_eq!(
+        c.call("resource.get", json!({ "resource": "SpaceHeld" })).unwrap(),
+        json!(false)
+    );
     c.call("game.quit", json!({})).unwrap();
     game.join().unwrap();
 }

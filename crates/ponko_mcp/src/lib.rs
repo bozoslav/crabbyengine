@@ -1019,7 +1019,10 @@ impl Server {
     fn run_input_scenario(&self, args: &Value) -> Result<Value, String> {
         let max_ticks = args["max_ticks"].as_u64().unwrap_or(MAX_SCENARIO_TICKS);
         let deadline = Instant::now() + Duration::from_secs(args["timeout_secs"].as_u64().unwrap_or(120));
-        let scenario = args.get("scenario").filter(|s| s.is_object()).ok_or("`scenario` must be an object")?;
+        let scenario = args
+            .get("scenario")
+            .filter(|s| s.is_object())
+            .ok_or("`scenario` must be an object")?;
         let i = self.instance(args)?;
         paused_tick(&i)?; // refuses a running game, so the ticks are exactly the run's
         let loaded = i.call("input.scenario.load", json!({ "scenario": scenario }))?;
@@ -1029,7 +1032,9 @@ impl Server {
                 return Err("the scenario has no steps, so there is nothing to run".to_string());
             }
             if duration > max_ticks {
-                return Err(format!("the scenario runs {duration} ticks, more than `max_ticks` ({max_ticks})"));
+                return Err(format!(
+                    "the scenario runs {duration} ticks, more than `max_ticks` ({max_ticks})"
+                ));
             }
             // Step the whole run at once: a failed check makes the game drop
             // the steps still queued, so it stops at the failing tick.
@@ -1052,7 +1057,10 @@ impl Server {
             Ok(report) => Ok(json!({ "passed": report["status"] == "passed", "report": report })),
             Err(e) => {
                 // Don't leave the game holding keys because this call gave up.
-                let _ = i.call("input.scenario.cancel", json!({ "reason": "the run_input_scenario call failed" }));
+                let _ = i.call(
+                    "input.scenario.cancel",
+                    json!({ "reason": "the run_input_scenario call failed" }),
+                );
                 Err(e)
             }
         }

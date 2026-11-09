@@ -993,7 +993,10 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
         }
         "input.scenario.status" => json!(ctx.input_scenario_report()),
         "input.scenario.cancel" => {
-            let reason = params.get("reason").and_then(Value::as_str).unwrap_or("cancelled by a tool");
+            let reason = params
+                .get("reason")
+                .and_then(Value::as_str)
+                .unwrap_or("cancelled by a tool");
             let owner = params.get("connection").and_then(Value::as_u64);
             let cancelled = ctx.cancel_scenario(reason, owner);
             json!({ "cancelled": cancelled, "report": ctx.input_scenario_report() })

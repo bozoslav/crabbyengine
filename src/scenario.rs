@@ -548,7 +548,11 @@ impl Ctx {
     /// ```
     pub fn start_input_scenario(&mut self, scenario: InputScenario) {
         // A system runs inside a tick, so its scenario's tick 0 is the next one.
-        let start = if self.is_in_sim() { self.sim_tick() + 1 } else { self.sim_tick() };
+        let start = if self.is_in_sim() {
+            self.sim_tick() + 1
+        } else {
+            self.sim_tick()
+        };
         self.install_scenario(scenario, start, None);
     }
 

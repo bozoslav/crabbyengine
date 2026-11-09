@@ -363,11 +363,11 @@ fn agents_drive_several_games_through_mcp() {
         .unwrap();
     assert_eq!(spawn["available"], false);
     assert!(spawn["reason"].as_str().unwrap().contains("read-only"));
-    assert!(
-        !names
-            .iter()
-            .any(|n| n == "spawn_entity" || n == "launch" || n == "run_ticks" || n == "watch" || n == "run_input_scenario")
-    );
+    assert!(!names.iter().any(|n| n == "spawn_entity"
+        || n == "launch"
+        || n == "run_ticks"
+        || n == "watch"
+        || n == "run_input_scenario"));
     let listed = viewer
         .tool("list_entities", json!({ "instance": port_a, "with": ["Health"] }))
         .unwrap();
@@ -478,7 +478,10 @@ fn agents_drive_several_games_through_mcp() {
     let (_, plain) = start_game_with("plain", false);
     let scenario = json!({ "version": 1, "steps": [{ "tick": 0, "type": "key", "key": "Space", "down": true }] });
     let refused = agent
-        .tool("run_input_scenario", json!({ "instance": "plain", "scenario": scenario }))
+        .tool(
+            "run_input_scenario",
+            json!({ "instance": "plain", "scenario": scenario }),
+        )
         .unwrap_err();
     assert!(refused.contains("input injection is off"), "{refused}");
     agent.tool("quit_instance", json!({ "instance": "plain" })).unwrap();
@@ -499,7 +502,13 @@ fn agents_drive_several_games_through_mcp() {
         .tool("run_input_scenario", json!({ "instance": "pad", "scenario": passing }))
         .unwrap();
     assert_eq!(run["passed"], true, "{run}");
-    assert_eq!((run["report"]["ticks_run"].clone(), run["report"]["checks_passed"].clone()), (json!(4), json!(2)));
+    assert_eq!(
+        (
+            run["report"]["ticks_run"].clone(),
+            run["report"]["checks_passed"].clone()
+        ),
+        (json!(4), json!(2))
+    );
     let failing = json!({
         "version": 1,
         "duration": 500,
@@ -514,15 +523,27 @@ fn agents_drive_several_games_through_mcp() {
     assert_eq!(run["passed"], false);
     let failure = &run["report"]["failure"];
     assert_eq!((failure["step"].clone(), failure["tick"].clone()), (json!(1), json!(2)));
-    assert_eq!((failure["expected"].clone(), failure["actual"].clone()), (json!(99), json!(7)));
+    assert_eq!(
+        (failure["expected"].clone(), failure["actual"].clone()),
+        (json!(99), json!(7))
+    );
     assert_eq!(run["report"]["released"], 1, "the failed run let go of Space");
     let info = agent.tool("instance_info", json!({ "instance": "pad" })).unwrap();
-    assert_eq!(info["tick"], 4 + 3, "the run stopped at the failing tick, not at its 500 ticks");
+    assert_eq!(
+        info["tick"],
+        4 + 3,
+        "the run stopped at the failing tick, not at its 500 ticks"
+    );
     let too_long = agent
-        .tool("run_input_scenario", json!({ "instance": "pad", "scenario": failing, "max_ticks": 100 }))
+        .tool(
+            "run_input_scenario",
+            json!({ "instance": "pad", "scenario": failing, "max_ticks": 100 }),
+        )
         .unwrap_err();
     assert!(too_long.contains("more than `max_ticks`"), "{too_long}");
-    let cancelled = agent.tool("cancel_input_scenario", json!({ "instance": "pad" })).unwrap();
+    let cancelled = agent
+        .tool("cancel_input_scenario", json!({ "instance": "pad" }))
+        .unwrap();
     assert_eq!(cancelled["cancelled"], false, "the limit error already cancelled it");
     assert!(
         viewer

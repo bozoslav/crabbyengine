@@ -80,8 +80,8 @@ fn input_steps_land_on_their_own_tick_when_a_frame_runs_several_ticks() {
         trace(&mut ctx),
         [
             seen(0, false, false, false),
-            seen(1, true, true, false), // fed before tick 1's systems
-            seen(2, true, true, false), // edges last to the end of the frame, as with live input
+            seen(1, true, true, false),  // fed before tick 1's systems
+            seen(2, true, true, false),  // edges last to the end of the frame, as with live input
             seen(3, false, true, false), // the next frame starts clean; the key is still held
             seen(4, false, false, true), // fed before tick 4's systems
             seen(5, false, false, true),

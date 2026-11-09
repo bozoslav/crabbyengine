@@ -117,10 +117,6 @@ mod ui;
 #[cfg(all(target_arch = "wasm32", feature = "window"))]
 mod web;
 
-pub use scenario::{
-    InputScenario, MAX_SCENARIO_STEPS, MAX_SCENARIO_TICKS, SCENARIO_VERSION, ScenarioCheck, ScenarioError,
-    ScenarioFailure, ScenarioReport, ScenarioStatus,
-};
 pub use alloc_count::{AllocCounts, CountingAllocator, alloc_counts, note_allocation};
 pub use assets::{AssetSource, MemorySource};
 pub use attach::{Attached, follow_attachments};
@@ -176,6 +172,10 @@ pub use random::{DEFAULT_SEED, Random, Rng};
 pub use reflect::{Field, FieldType, ReflectError, WorldReflect};
 pub use render::{GpuAdapter, GpuCapabilities, GpuFeature, GpuFeatureStatus, GpuLimits, GpuUploads, RenderStats};
 pub use residency::{ResidencyKind, ResidencyStats};
+pub use scenario::{
+    InputScenario, MAX_SCENARIO_STEPS, MAX_SCENARIO_TICKS, SCENARIO_VERSION, ScenarioCheck, ScenarioError,
+    ScenarioFailure, ScenarioReport, ScenarioStatus,
+};
 pub use schema::ValueSchema;
 pub use scope::{ProfileScope, ScopeGuard, ScopeTiming, scope_named};
 pub use sheet::{Animation, SpriteSheet, animate_sprites};

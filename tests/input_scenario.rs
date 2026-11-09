@@ -215,7 +215,11 @@ fn a_deliberately_wrong_check_fails_with_its_step_and_tick() {
     assert_eq!(failure.check, "action jump");
     assert_eq!(failure.expected, serde_json::json!({ "pressed": true }));
     assert_eq!(failure.actual, serde_json::json!({ "pressed": false }));
-    assert!(failure.message.contains("pressed: expected true, saw false"), "{}", failure.message);
+    assert!(
+        failure.message.contains("pressed: expected true, saw false"),
+        "{}",
+        failure.message
+    );
     let panic = std::panic::catch_unwind(|| report.assert_passed()).unwrap_err();
     let text = panic.downcast_ref::<String>().unwrap();
     assert!(text.contains("step 3 (tick 12)"), "{text}");
@@ -225,7 +229,10 @@ fn a_deliberately_wrong_check_fails_with_its_step_and_tick() {
 fn checks_on_actions_resources_and_counts_hold_after_the_systems_ran() {
     let scenario = InputScenario::new()
         .at(10, InputEvent::Key(Key::Space, true))
-        .expect(10, ScenarioCheck::action("jump").pressed(true).down(true).released(false))
+        .expect(
+            10,
+            ScenarioCheck::action("jump").pressed(true).down(true).released(false),
+        )
         .expect(10, ScenarioCheck::resource("Progress", "/jumps", 1))
         .expect(11, ScenarioCheck::action("jump").pressed(false).down(true))
         .at(12, InputEvent::Key(Key::Space, false))
@@ -234,7 +241,10 @@ fn checks_on_actions_resources_and_counts_hold_after_the_systems_ran() {
         .duration(15);
     let (_world, report) = run_jump_game(scenario);
     report.assert_passed();
-    assert_eq!((report.ticks_run, report.checks_passed, report.inputs_applied), (15, 5, 2));
+    assert_eq!(
+        (report.ticks_run, report.checks_passed, report.inputs_applied),
+        (15, 5, 2)
+    );
 }
 
 #[test]
@@ -277,7 +287,11 @@ fn cancelling_releases_the_inputs_the_scenario_holds() {
         .at(2, InputEvent::Key(Key::Enter, false))
         .duration(10);
     let (held, report) = held_trace(scenario, 6, Some(3));
-    assert_eq!(held, [false, true, true, false, false, false], "released on the cancel tick");
+    assert_eq!(
+        held,
+        [false, true, true, false, false, false],
+        "released on the cancel tick"
+    );
     assert_eq!(report.status, ScenarioStatus::Cancelled);
     assert_eq!(report.released, 1, "Enter was already up");
     assert_eq!(report.cancel_reason.as_deref(), Some("cancelled"));
@@ -317,11 +331,19 @@ fn a_replaced_scenario_releases_what_the_old_one_held() {
             }
             log.borrow_mut().push(ctx.key_down(Key::Space));
         })
-        .input_scenario(InputScenario::new().named("first").at(0, InputEvent::Key(Key::Space, true)).duration(10))
+        .input_scenario(
+            InputScenario::new()
+                .named("first")
+                .at(0, InputEvent::Key(Key::Space, true))
+                .duration(10),
+        )
         .run_headless(6, |_| {});
     assert_eq!(*trace.borrow(), [true, true, false, false, false, false]);
     let report = world.resource::<ScenarioReport>();
-    assert_eq!((report.id.as_deref(), report.status), (Some("second"), ScenarioStatus::Passed));
+    assert_eq!(
+        (report.id.as_deref(), report.status),
+        (Some("second"), ScenarioStatus::Passed)
+    );
     assert_eq!(report.start_tick, 3, "started during tick 2, so it begins on tick 3");
 }
 
@@ -363,18 +385,27 @@ fn a_json_scenario_runs_like_the_one_built_in_code() {
     assert_eq!((report.ticks_run, report.checks_passed), (120, 2));
     let by_hand = play(two_jumps());
     let body = *world.query::<&Body>().iter().next().unwrap();
-    assert_eq!((body.y.to_bits(), body.vy.to_bits(), body.jumps), (by_hand.y.to_bits(), by_hand.vy.to_bits(), 2));
+    assert_eq!(
+        (body.y.to_bits(), body.vy.to_bits(), body.jumps),
+        (by_hand.y.to_bits(), by_hand.vy.to_bits(), 2)
+    );
 }
 
 #[test]
 fn a_scenario_survives_a_round_trip_through_json_with_steps_in_file_order() {
     let scenario = InputScenario::from_json(JUMP_JSON).unwrap();
     let json = scenario.to_json();
-    assert_eq!(json["steps"][0]["tick"], 20, "step 0 stays first although it is at tick 20");
+    assert_eq!(
+        json["steps"][0]["tick"], 20,
+        "step 0 stays first although it is at tick 20"
+    );
     assert_eq!(json["steps"][2]["type"], "expect_action");
     let again = InputScenario::from_value(&json).unwrap();
     assert_eq!(again.to_json(), json);
-    assert_eq!((again.ticks(), again.step_count(), again.id()), (120, 6, Some("jump-twice")));
+    assert_eq!(
+        (again.ticks(), again.step_count(), again.id()),
+        (120, 6, Some("jump-twice"))
+    );
 }
 
 #[test]
@@ -394,7 +425,9 @@ fn a_json_scenario_that_could_silently_do_nothing_is_refused() {
     assert!(bad(&format!("{key} }}"), r#""duration": 1,"#).contains("outside the scenario's 1 ticks"));
     assert!(bad("", r#""duration": 99999999999,"#).contains("too long"));
     assert!(bad("", r#""colour": 1,"#).contains("unknown field `colour`"));
-    let newer = InputScenario::from_json(r#"{ "version": 2, "steps": [] }"#).unwrap_err().to_string();
+    let newer = InputScenario::from_json(r#"{ "version": 2, "steps": [] }"#)
+        .unwrap_err()
+        .to_string();
     assert!(newer.contains("unsupported scenario version 2"), "{newer}");
     assert!(InputScenario::from_json("not json").is_err());
 }
