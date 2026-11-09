@@ -94,6 +94,11 @@ MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-ignore-leaks" cargo +nightly miri test --t
   clearly note the limitation, with maintainer-owned follow-up for broader
   guide coverage. Run `mdbook build book` when editing the guide. Reuse tested
   examples through `{{#include}}` anchors where practical.
+- Inline Rust snippets in the book compile in CI (run
+  `python3 scripts/check-book-snippets.py` when you edit the guide). Give a
+  snippet the context it needs on hidden `# ` lines; `ignore` is a last resort
+  (at most three in the book) and needs a `// ignore: <reason>` comment. See
+  "Rust snippets compile" in `book/src/contributing.md`.
 
 ## Performance work
 

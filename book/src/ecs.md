@@ -46,6 +46,9 @@ passes the components straight to `spawn`.
 <div>
 
 ```rust
+# struct Health(f32);
+# struct Enemy;
+# let e = ctx.world.spawn((Health(10.0), Enemy));
 if let Some(h) = ctx.world.get_mut::<Health>(e) {
     h.0 -= 5.0;
 }
@@ -71,6 +74,8 @@ assert!(!ctx.world.is_alive(e));   // old handles stay dead, even if the slot is
 <div>
 
 ```rust
+# struct Health(f32);
+# struct Enemy;
 ctx.world
     .query::<(&mut Transform2D, &Health)>()
     .without::<Enemy>()
@@ -139,6 +144,7 @@ the world. Record the change in `ctx.commands` instead:
 <div>
 
 ```rust
+# struct Health(f32);
 fn die(ctx: &mut Ctx) {
     let cmds = &mut ctx.commands;
     ctx.world.query::<(Entity, &Health)>().for_each(|(e, h)| {

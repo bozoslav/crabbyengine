@@ -75,6 +75,8 @@ a level with a renderer set to Off or Shadows Only casts the shadow of
 the right meshes, not the ones it shows.
 
 ```rust
+# let project = ponko_unity::Project::open("Project")?;
+# let mut import = ponko_unity::Importer::new(&project, "out", "");
 import.lod_groups(false); // LOD 0 only, the far levels left out
 ```
 
@@ -100,6 +102,8 @@ them with a Ponko [shader](3d.md) of your own, tell the importer which
 shaders those are:
 
 ```rust
+# let project = ponko_unity::Project::open("Project")?;
+# let mut import = ponko_unity::Importer::new(&project, "out", "");
 import.custom_shader("Assets/Shaders/Wall.shader"); // as the report lists it
 ```
 
@@ -137,6 +141,8 @@ can have it put in the vertex colors instead, which is what Ponko's
 shaders get per vertex besides one UV set:
 
 ```rust
+# let project = ponko_unity::Project::open("Project")?;
+# let mut import = ponko_unity::Importer::new(&project, "out", "");
 // A river shader with its flow in UV set 1: speed up to 4, foam 0 to 1.
 import.vertex_colors("Assets/Shaders/River.shader", |mesh, v| {
     let [speed, foam] = mesh.uvs[1].get(v).copied().unwrap_or_default();
@@ -166,6 +172,8 @@ retain the unresolved model bones while applying the resolved scene bones.
 Standalone `.anim` clips (text or binary serialized) also import:
 
 ```rust
+# let project = ponko_unity::Project::open("Project")?;
+# let mut import = ponko_unity::Importer::new(&project, "out", "");
 let clips = [ponko_unity::AnimationClip::read("Assets/Walk.anim")?];
 import.animation_clips(clips); // before importing scenes / exporting cached meshes
 ```
@@ -232,6 +240,7 @@ ready for a [terrain tile](3d.md), and the layers painted on it with
 their weight maps.
 
 ```rust
+# let ground = ctx.default_material();
 let file = ponko_unity::UnityFile::read("MyUnityGame/Assets/Terrain/Hills.asset")?;
 let data = file.of_class(156).next().expect("a TerrainData");
 let hills = ponko_unity::UnityTerrain::from_object(data)?;
