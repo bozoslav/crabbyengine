@@ -319,6 +319,46 @@ fn main() {
         w.spawn_batch((0..N).map(ent));
     });
 
+    // ---- deferred commands: record, then apply (one reused Commands) ---------
+    // A system that queues a component change for many entities every frame.
+    b.steady(
+        "commands/insert-remove",
+        50,
+        || {
+            let mut w = ponko_ecs::World::new();
+            let es: Vec<_> = (0..ADD_REMOVE_N).map(|i| w.spawn(ent(i))).collect();
+            (w, es, ponko_ecs::Commands::new())
+        },
+        |(w, es, cmd)| {
+            for &e in es.iter() {
+                cmd.insert(e, Tag);
+            }
+            w.apply(cmd);
+            for &e in es.iter() {
+                cmd.remove::<Tag>(e);
+            }
+            w.apply(cmd);
+        },
+    );
+    // Spawns and despawns through commands: pooled particles, streamed cells.
+    b.steady(
+        "commands/spawn-despawn",
+        50,
+        || (ponko_ecs::World::new(), Vec::new(), ponko_ecs::Commands::new()),
+        |(w, es, cmd)| {
+            for i in 0..ADD_REMOVE_N {
+                cmd.spawn(ent(i));
+            }
+            w.apply(cmd);
+            es.clear();
+            w.query::<ponko_ecs::Entity>().for_each(|e| es.push(e));
+            for &e in es.iter() {
+                cmd.despawn(e);
+            }
+            w.apply(cmd);
+        },
+    );
+
     // ---- iterate: pos += vel * dt over 1M entities, one archetype -------------
     b.steady(
         "iter/own",
