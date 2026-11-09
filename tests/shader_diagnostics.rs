@@ -224,3 +224,27 @@ fn without_hot_reload_a_shader_file_that_fails_is_an_error() {
         assert_eq!(ctx.live_counts().shaders, 0, "no handle was made");
     });
 }
+
+// ANCHOR: shader_errors
+/// Prints every shader whose last compile or edit didn't take effect, with
+/// where in its WGSL the error is; returns how many there are.
+fn report_shader_errors(ctx: &Ctx) -> usize {
+    let mut broken = 0;
+    for status in ctx.shader_status().iter().filter(|s| !s.is_ok()) {
+        broken += 1;
+        for error in &status.diagnostics {
+            eprintln!("{error}"); // water.wgsl:3:12: error: ...
+        }
+    }
+    broken
+}
+// ANCHOR_END: shader_errors
+
+#[test]
+fn the_guide_reports_the_shader_that_failed() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        ctx.create_shader("tint.wgsl", GOOD);
+        assert!(ctx.try_create_shader("water.wgsl", BROKEN).is_err());
+        assert_eq!(report_shader_errors(ctx), 1);
+    });
+}

@@ -191,6 +191,9 @@ impl Ctx {
     /// # Panics
     ///
     /// If the file can't be read or doesn't compile (the message says where).
+    /// With hot reload on, a file that doesn't compile doesn't panic: it
+    /// gets a stand-in and stays watched until a saved fix compiles
+    /// ([`ShaderOutcome::Failed`](crate::ShaderOutcome::Failed), [`Ctx::shader_status`]).
     pub fn load_effect(&mut self, path: &str) -> Effect {
         self.try_load_effect(path).unwrap_or_else(|e| panic!("ponko: {e}"))
     }
