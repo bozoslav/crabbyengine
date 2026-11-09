@@ -50,6 +50,7 @@
 // Without a window, the code that only the window loop calls is unused.
 #![cfg_attr(not(feature = "window"), allow(dead_code))]
 
+mod access;
 mod actions;
 mod alloc_count;
 mod assets;
@@ -71,6 +72,7 @@ mod game;
 mod gamepad;
 mod hot_reload;
 mod input;
+pub use access::{AccessConflict, AccessReport, ReportedPair, ReportedSystem, SystemAccess};
 pub use actions::{
     Action, ActionId, ActionMap, ActionRef, Axis2Binding, AxisBinding, ButtonBinding, InputEvent, InputScenario,
     UnknownAction,

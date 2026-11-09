@@ -4,6 +4,7 @@ use std::alloc::Layout;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 
+use crate::access::{AccessLog, Recorder};
 use crate::bundle::{Bundle, Component};
 use crate::commands::Commands;
 use crate::entity::{Entities, Entity, Location};
@@ -72,6 +73,8 @@ pub struct World {
     /// Resources without a Rust type (the C and C++ path), by name.
     dynamic_resources: HashMap<String, RawValue>,
     scratch_ids: Vec<ComponentId>,
+    /// Access recording for declared-access checks (debug builds only).
+    pub(crate) recorder: Recorder,
 }
 
 // Own the existing box so scoped access needs neither unsafe code nor a new
@@ -153,6 +156,7 @@ impl World {
             resources: TypeMap::default(),
             dynamic_resources: HashMap::new(),
             scratch_ids: Vec::new(),
+            recorder: Recorder::default(),
         };
         w.archetype_for(&[]); // archetype 0: entities with no components
         w
@@ -165,6 +169,7 @@ impl World {
     /// Components come as a tuple; note the trailing comma for one component:
     /// `world.spawn((Health(10),))`.
     pub fn spawn<B: Bundle>(&mut self, bundle: B) -> Entity {
+        self.recorder.note(|l| l.structural = true);
         let a = self.bundle_archetype::<B>();
         let e = self.entities.alloc();
         self.spawn_in::<B>(a, bundle, e)
@@ -172,6 +177,7 @@ impl World {
 
     /// Spawns many entities of the same shape. Faster than calling `spawn` in a loop.
     pub fn spawn_batch<B: Bundle>(&mut self, bundles: impl IntoIterator<Item = B>) {
+        self.recorder.note(|l| l.structural = true);
         let iter = bundles.into_iter();
         let a = self.bundle_archetype::<B>();
         self.archetypes[a].reserve(iter.size_hint().0);
@@ -198,6 +204,7 @@ impl World {
     /// assert_ne!(fresh, saved);
     /// ```
     pub fn spawn_at<B: Bundle>(&mut self, e: Entity, bundle: B) -> bool {
+        self.recorder.note(|l| l.structural = true);
         if !self.entities.alloc_at(e) {
             return false;
         }
@@ -234,6 +241,7 @@ impl World {
     /// assert!(world.is_empty() && !world.is_alive(e));
     /// ```
     pub fn clear(&mut self) {
+        self.recorder.note(|l| l.structural = true);
         let all: Vec<Entity> = self
             .archetypes
             .iter()
@@ -260,6 +268,7 @@ impl World {
     /// assert!(world.spawn_at(e, (2u8,))); // the id is free again
     /// ```
     pub fn reset(&mut self) {
+        self.recorder.note(|l| l.structural = true);
         self.clear();
         self.entities = Default::default();
     }
@@ -290,6 +299,7 @@ impl World {
     /// Removes an entity and drops its components. Returns `false` if it was
     /// already gone.
     pub fn despawn(&mut self, e: Entity) -> bool {
+        self.recorder.note(|l| l.structural = true);
         let Some(loc) = self.entities.get(e) else { return false };
         // Free the slot first: if a component's drop panics, the entity is already gone.
         self.entities.free(e);
@@ -323,26 +333,30 @@ impl World {
     /// Component `T` of entity `e`, or `None` if `e` is dead or doesn't have one.
     #[must_use]
     pub fn get<T: Component>(&self, e: Entity) -> Option<&T> {
-        let ptr = self.get_dynamic(e, self.component_id::<T>()?)?;
+        let id = self.component_id::<T>()?;
+        self.recorder.note(|l| l.component(id, false));
+        let ptr = self.locate(e, id)?;
         Some(unsafe { &*ptr.cast::<T>() })
     }
 
     /// Mutable version of [`get`](Self::get).
     pub fn get_mut<T: Component>(&mut self, e: Entity) -> Option<&mut T> {
-        let ptr = self.get_dynamic(e, self.component_id::<T>()?)?;
+        let id = self.component_id::<T>()?;
+        self.recorder.note(|l| l.component(id, true));
+        let ptr = self.locate(e, id)?;
         Some(unsafe { &mut *ptr.cast::<T>() })
     }
 
     /// `true` if `e` is alive and has component `T`.
     #[must_use]
     pub fn has<T: Component>(&self, e: Entity) -> bool {
-        self.component_id::<T>()
-            .is_some_and(|id| self.get_dynamic(e, id).is_some())
+        self.component_id::<T>().is_some_and(|id| self.locate(e, id).is_some())
     }
 
     /// Adds component `value` to `e`, replacing any existing `T`.
     /// Returns `false` (and drops `value`) if `e` is dead.
     pub fn insert<T: Component>(&mut self, e: Entity, value: T) -> bool {
+        self.recorder.note(|l| l.structural = true);
         let id = self.register::<T>();
         let value = std::mem::ManuallyDrop::new(value);
         let ok = unsafe { self.insert_dynamic(e, id, (&*value as *const T).cast()) };
@@ -354,6 +368,7 @@ impl World {
 
     /// Takes component `T` off `e` and returns it.
     pub fn remove<T: Component>(&mut self, e: Entity) -> Option<T> {
+        self.recorder.note(|l| l.structural = true);
         let id = self.component_id::<T>()?;
         let loc = self.entities.get(e)?;
         let arch = &self.archetypes[loc.archetype as usize];
@@ -397,6 +412,7 @@ impl World {
     /// assert_eq!(order, [1.0, 2.0, 3.0]);
     /// ```
     pub fn sort_by<T: Component>(&mut self, key: impl Fn(&T) -> u64 + Sync) {
+        self.recorder.note(|l| l.structural = true);
         let Some(id) = self.component_id::<T>() else { return };
         let mut keyed: Vec<(u64, u32)> = Vec::new();
         for a in 0..self.archetypes.len() {
@@ -427,6 +443,7 @@ impl World {
     /// Stores a global value (game settings, a random generator, the score...),
     /// replacing any existing value of the same type.
     pub fn insert_resource<R: Send + Sync + 'static>(&mut self, value: R) {
+        self.note_resource::<R>(true);
         self.resources.insert(TypeId::of::<R>(), Box::new(value));
     }
 
@@ -477,6 +494,7 @@ impl World {
     /// destructor panics during unwinding causes an abort.
     #[track_caller]
     pub fn resource_scope<R: Send + Sync + 'static, T>(&mut self, f: impl FnOnce(&mut Self, &mut R) -> T) -> T {
+        self.note_resource::<R>(true);
         let id = TypeId::of::<R>();
         let value = self.resources.remove(&id).unwrap_or_else(|| missing_resource::<R>());
         let mut scope = ResourceScope {
@@ -490,6 +508,7 @@ impl World {
     /// The resource of type `R`, if there is one.
     #[must_use]
     pub fn get_resource<R: Send + Sync + 'static>(&self) -> Option<&R> {
+        self.note_resource::<R>(false);
         self.resources
             .get(&TypeId::of::<R>())
             .map(|r| r.downcast_ref().unwrap())
@@ -497,6 +516,7 @@ impl World {
 
     /// Mutable version of [`get_resource`](Self::get_resource).
     pub fn get_resource_mut<R: Send + Sync + 'static>(&mut self) -> Option<&mut R> {
+        self.note_resource::<R>(true);
         self.resources
             .get_mut(&TypeId::of::<R>())
             .map(|r| r.downcast_mut().unwrap())
@@ -504,6 +524,7 @@ impl World {
 
     /// Removes and returns the resource of type `R`.
     pub fn remove_resource<R: Send + Sync + 'static>(&mut self) -> Option<R> {
+        self.note_resource::<R>(true);
         self.resources
             .remove(&TypeId::of::<R>())
             .map(|r| *r.downcast().unwrap())
@@ -533,6 +554,7 @@ impl World {
     /// If a resource of that name exists with a different layout.
     #[track_caller]
     pub unsafe fn insert_resource_dynamic(&mut self, name: &str, layout: Layout, value: *const u8) {
+        self.recorder.note(|l| l.dynamic_resource(name));
         if let Some(old) = self.dynamic_resources.get(name) {
             assert!(
                 old.layout == layout,
@@ -549,6 +571,7 @@ impl World {
     /// It stays valid until the resource is replaced or removed.
     #[must_use]
     pub fn get_resource_dynamic(&self, name: &str) -> Option<*mut u8> {
+        self.recorder.note(|l| l.dynamic_resource(name));
         self.dynamic_resources.get(name).map(|r| r.ptr.as_ptr())
     }
 
@@ -560,7 +583,54 @@ impl World {
 
     /// Removes resource `name`; `false` if there was none.
     pub fn remove_resource_dynamic(&mut self, name: &str) -> bool {
+        self.recorder.note(|l| l.dynamic_resource(name));
         self.dynamic_resources.remove(name).is_some()
+    }
+
+    /// Records resource `R` as read or written, while recording.
+    #[inline]
+    fn note_resource<R: 'static>(&self, write: bool) {
+        self.recorder
+            .note(|l| l.resource(TypeId::of::<R>(), std::any::type_name::<R>(), write));
+    }
+
+    // ---- access recording ---------------------------------------------------------
+
+    /// Starts recording which components and resources this world hands
+    /// out, and whether its structure changes, until
+    /// [`take_access_log`](Self::take_access_log). A new call restarts the log.
+    ///
+    /// Used to check that systems stay within the access they declare.
+    /// Recording exists only in builds with debug assertions; in release
+    /// builds this does nothing.
+    ///
+    /// ```
+    /// # use ponko_ecs::*;
+    /// struct Pos(f32);
+    /// struct Score(u32);
+    /// let mut world = World::new();
+    /// world.spawn((Pos(0.0),));
+    /// world.insert_resource(Score(0));
+    ///
+    /// world.record_access();
+    /// world.query::<&mut Pos>().for_each(|p| p.0 += 1.0);
+    /// let _ = world.resource::<Score>().0;
+    /// if let Some(log) = world.take_access_log() {
+    ///     let pos = world.component_id::<Pos>().unwrap();
+    ///     assert_eq!(log.components, [(pos, true)]);
+    ///     assert_eq!(log.resources.len(), 1);
+    ///     assert!(!log.structural);
+    /// }
+    /// ```
+    pub fn record_access(&mut self) {
+        self.recorder.start();
+    }
+
+    /// Stops recording and returns what was accessed since
+    /// [`record_access`](Self::record_access). `None` if the world wasn't
+    /// recording, and always in release builds.
+    pub fn take_access_log(&mut self) -> Option<AccessLog> {
+        self.recorder.stop()
     }
 
     // ---- commands --------------------------------------------------------------
@@ -568,6 +638,7 @@ impl World {
     /// Applies commands recorded while the world was busy (e.g. during a query).
     /// Leaves `commands` empty and ready to reuse.
     pub fn apply(&mut self, commands: &mut Commands) {
+        self.recorder.note(|l| l.structural = true);
         commands.apply(self);
     }
 
@@ -705,6 +776,13 @@ impl World {
     /// Pointer to component `id` of entity `e`, or `None`.
     #[must_use]
     pub fn get_dynamic(&self, e: Entity, id: ComponentId) -> Option<*mut u8> {
+        // The pointer allows writing: count it as a write.
+        self.recorder.note(|l| l.component(id, true));
+        self.locate(e, id)
+    }
+
+    /// Where component `id` of `e` lives, without recording an access.
+    fn locate(&self, e: Entity, id: ComponentId) -> Option<*mut u8> {
         let loc = self.entities.get(e)?;
         let arch = &self.archetypes[loc.archetype as usize];
         let col = arch.column_index(id)?;
@@ -720,6 +798,7 @@ impl World {
     /// # Panics
     /// If a component id appears twice.
     pub unsafe fn spawn_dynamic(&mut self, components: &[(ComponentId, *const u8)]) -> Entity {
+        self.recorder.note(|l| l.structural = true);
         let a = self.dynamic_archetype(components, "spawn_dynamic");
         let e = self.entities.alloc();
         // SAFETY: forwarded caller contract; `e` was just allocated.
@@ -752,6 +831,7 @@ impl World {
     /// # Panics
     /// If a component id appears twice.
     pub unsafe fn spawn_at_dynamic(&mut self, e: Entity, components: &[(ComponentId, *const u8)]) -> bool {
+        self.recorder.note(|l| l.structural = true);
         let a = self.dynamic_archetype(components, "spawn_at_dynamic");
         if !self.entities.alloc_at(e) {
             return false;
@@ -805,6 +885,7 @@ impl World {
     /// `value` must point to a valid value of component `id`; on success the
     /// world takes ownership of it.
     pub unsafe fn insert_dynamic(&mut self, e: Entity, id: ComponentId, value: *const u8) -> bool {
+        self.recorder.note(|l| l.structural = true);
         let Some(loc) = self.entities.get(e) else { return false };
         let src = loc.archetype as usize;
         if let Some(col) = self.archetypes[src].column_index(id) {
@@ -840,6 +921,7 @@ impl World {
     /// Removes component `id` from `e`, dropping the value. Returns `false` if
     /// `e` is dead or didn't have it.
     pub fn remove_dynamic(&mut self, e: Entity, id: ComponentId) -> bool {
+        self.recorder.note(|l| l.structural = true);
         let Some(loc) = self.entities.get(e) else { return false };
         let arch = &self.archetypes[loc.archetype as usize];
         let Some(col) = arch.column_index(id) else { return false };
@@ -867,6 +949,7 @@ impl World {
     pub fn for_each_chunk(&mut self, ids: &[ComponentId], mut f: impl FnMut(Chunk<'_>)) {
         const MAX: usize = 32;
         assert!(ids.len() <= MAX, "for_each_chunk: at most {MAX} components");
+        self.recorder.note(|l| ids.iter().for_each(|&id| l.component(id, true)));
         let mut ptrs = [std::ptr::null_mut(); MAX];
         'arch: for arch in self.archetypes.iter() {
             if arch.is_empty() {
