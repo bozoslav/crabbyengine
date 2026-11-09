@@ -101,3 +101,61 @@ fn spawn_at_dynamic_rejects_duplicate_components() {
     let v = (&v as *const i32).cast();
     unsafe { w.spawn_at_dynamic(Entity::from_bits(3), &[(hp, v), (hp, v)]) };
 }
+
+/// Structural changes map every source column to its place in the destination
+/// archetype; with many components, adding or removing one at the start, in the
+/// middle or at the end must leave every other value where it belongs.
+#[test]
+fn structural_changes_keep_values_in_wide_archetypes() {
+    const WIDE: u32 = 40;
+    let mut w = World::new();
+    let ids: Vec<ComponentId> = (0..WIDE)
+        .map(|i| unsafe { w.register_component(&format!("wide{i}"), 4, 4, None) })
+        .collect();
+    // The value of component `c` on entity `n` is `c * 100 + n`.
+    let value = |c: u32, n: u32| c * 100 + n;
+    let set = |w: &mut World, n: u32, e: Entity, c: u32| {
+        let v = value(c, n);
+        assert!(unsafe { w.insert_dynamic(e, ids[c as usize], (&raw const v).cast()) });
+    };
+    let check = |w: &World, es: &[Entity], has: &dyn Fn(u32) -> bool| {
+        for (n, &e) in es.iter().enumerate() {
+            for c in 0..WIDE {
+                let got = w.get_dynamic(e, ids[c as usize]).map(|p| unsafe { *p.cast::<u32>() });
+                assert_eq!(got, has(c).then(|| value(c, n as u32)), "entity {n} component {c}");
+            }
+        }
+    };
+
+    // Three entities share the archetype, so rows are swapped when one leaves.
+    let es: Vec<Entity> = (0..3).map(|_| w.spawn((Pos(0.0, 0.0),))).collect();
+    // Insert in a scrambled order; the archetype's columns are sorted by id regardless.
+    let initial = |c: u32| c.is_multiple_of(2) && c != 20;
+    let order: Vec<u32> = (0..WIDE).filter(|&c| initial(c)).rev().collect();
+    for (n, &e) in es.iter().enumerate() {
+        for &c in &order {
+            set(&mut w, n as u32, e, c);
+        }
+    }
+    check(&w, &es, &initial);
+
+    // Add at the start, in the middle (a gap) and at the end, then remove them again.
+    for extra in [1, 20, WIDE - 1] {
+        for (n, &e) in es.iter().enumerate() {
+            set(&mut w, n as u32, e, extra);
+        }
+        check(&w, &es, &|c| initial(c) || c == extra);
+        for &e in &es {
+            assert!(w.remove_dynamic(e, ids[extra as usize]));
+        }
+        check(&w, &es, &initial);
+    }
+
+    // Remove from the start, the middle and the end of the original set, middle entity first.
+    for gone in [0, 22, 38] {
+        for &i in &[1, 0, 2] {
+            assert!(w.remove_dynamic(es[i], ids[gone as usize]));
+        }
+    }
+    check(&w, &es, &|c| initial(c) && ![0, 22, 38].contains(&c));
+}

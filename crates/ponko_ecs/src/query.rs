@@ -1,5 +1,6 @@
 //! Queries: loop over every entity that has a set of components.
 
+use std::collections::HashMap;
 use std::marker::PhantomData;
 
 use crate::bundle::Component;
@@ -186,7 +187,7 @@ pub(crate) fn check_aliasing<Q: QueryData>(world: &World, ids: &Q::Ids) {
 
 /// Filters added with [`Query::with`] / [`Query::without`]. Inline storage, so
 /// running a filtered query doesn't allocate.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
 struct Filters {
     with: [ComponentId; 4],
     without: [ComponentId; 4],
@@ -199,6 +200,50 @@ impl Filters {
     fn matches(&self, arch: &Archetype) -> bool {
         self.with[..self.n_with as usize].iter().all(|&id| arch.has(id))
             && !self.without[..self.n_without as usize].iter().any(|&id| arch.has(id))
+    }
+}
+
+// Cache candidates, never QueryData::State: column buffers and the archetype
+// Vec may move between queries. Q::state is still resolved under the live borrow.
+// Bounds cap signature memory; saturated caches fall back without eviction churn.
+const CACHE_MIN_ARCHETYPES: usize = 128;
+const CACHE_MAX_SIGNATURES: usize = 128;
+
+#[derive(PartialEq, Eq, Hash)]
+struct MatchKey {
+    required: [ComponentId; 32],
+    n_required: usize,
+    filters: Filters,
+}
+
+#[derive(Default)]
+pub(crate) struct MatchCache(HashMap<MatchKey, MatchEntry>);
+
+#[derive(Default)]
+struct MatchEntry {
+    // Archetypes are append-only: their count is a non-wrapping generation.
+    // Empty layouts must stay cached: later spawns can populate them again.
+    generation: usize,
+    indices: Vec<usize>,
+}
+
+struct Archetypes<'a> {
+    all: &'a [Archetype],
+    indices: Option<std::slice::Iter<'a, usize>>,
+    next: usize,
+}
+
+impl<'a> Iterator for Archetypes<'a> {
+    type Item = &'a Archetype;
+    fn next(&mut self) -> Option<Self::Item> {
+        let index = if let Some(indices) = &mut self.indices {
+            *indices.next()?
+        } else {
+            let index = self.next;
+            self.next += 1;
+            index
+        };
+        self.all.get(index)
     }
 }
 
@@ -224,6 +269,7 @@ pub struct Query<'w, Q: QueryData> {
     world: &'w mut World,
     ids: Q::Ids,
     filters: Filters,
+    cached: bool,
 }
 
 impl<'w, Q: QueryData> Query<'w, Q> {
@@ -234,7 +280,76 @@ impl<'w, Q: QueryData> Query<'w, Q> {
             world,
             ids,
             filters: Filters::default(),
+            cached: false,
         }
+    }
+
+    fn archetypes(&mut self) -> Archetypes<'_> {
+        let world = &mut self.world;
+        if !self.cached || world.archetypes.len() < CACHE_MIN_ARCHETYPES {
+            return Archetypes {
+                all: &world.archetypes,
+                indices: None,
+                next: 0,
+            };
+        }
+        let mut key = MatchKey {
+            required: [ComponentId(0); 32],
+            n_required: 0,
+            filters: self.filters,
+        };
+        Q::access(&self.ids, &mut |id, _, required| {
+            if required {
+                key.required[key.n_required] = id;
+                key.n_required += 1;
+            }
+        });
+        key.required[..key.n_required].sort_unstable();
+        key.filters.with[..key.filters.n_with as usize].sort_unstable();
+        key.filters.without[..key.filters.n_without as usize].sort_unstable();
+        let cache = &mut world.query_matches.0;
+        if cache.len() >= CACHE_MAX_SIGNATURES && !cache.contains_key(&key) {
+            return Archetypes {
+                all: &world.archetypes,
+                indices: None,
+                next: 0,
+            };
+        }
+        let required = key.required;
+        let n_required = key.n_required;
+        let entry = cache.entry(key).or_default();
+        // Only newly created layouts need matching; existing membership cannot
+        // change. Registration alone doesn't change any existing layout.
+        for (index, arch) in world.archetypes.iter().enumerate().skip(entry.generation) {
+            if self.filters.matches(arch) && required[..n_required].iter().all(|&id| arch.has(id)) {
+                entry.indices.push(index);
+            }
+        }
+        entry.generation = world.archetypes.len();
+        Archetypes {
+            all: &world.archetypes,
+            indices: Some(entry.indices.iter()),
+            next: 0,
+        }
+    }
+
+    /// Reuse a world-owned matching-archetype list for repeated queries with
+    /// this required-component and `with`/`without` signature.
+    ///
+    /// This is opt-in: selective queries over many layouts benefit most; dense
+    /// queries can lose to a direct scan. Worlds with fewer than 128 archetypes
+    /// use the direct scan. At most 128 signatures are retained per world;
+    /// further signatures also scan directly. Cold matching and newly created
+    /// archetypes may allocate; steady-state repeated queries do not.
+    ///
+    /// Only archetype indices are retained, never component pointers. New
+    /// layouts are matched before traversal; empty matching layouts remain
+    /// eligible when populated again. Optional components and mutability do
+    /// not affect the signature. Custom [`QueryData::state`] is still called
+    /// for each candidate under the query's live world borrow.
+    pub fn cached(mut self) -> Self {
+        self.cached = true;
+        self
     }
 
     /// Only match entities that also have component `T` (without fetching it).
@@ -271,12 +386,14 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     /// Runs `f` for every matching entity. The fastest way to loop.
     #[inline]
     pub fn for_each(&mut self, mut f: impl FnMut(Q::Item<'_>)) {
-        for arch in self.world.archetypes.iter() {
+        let ids = self.ids;
+        let filters = self.filters;
+        for arch in self.archetypes() {
             let len = arch.len();
-            if len == 0 || !self.filters.matches(arch) {
+            if len == 0 || !filters.matches(arch) {
                 continue;
             }
-            let Some(state) = Q::state(arch, &self.ids) else {
+            let Some(state) = Q::state(arch, &ids) else {
                 continue;
             };
             for row in 0..len {
@@ -351,12 +468,14 @@ impl<'w, Q: QueryData> Query<'w, Q> {
 
         // Position of the archetype's first row in the whole query.
         let mut base = 0;
-        for arch in self.world.archetypes.iter() {
+        let ids = self.ids;
+        let filters = self.filters;
+        for arch in self.archetypes() {
             let len = arch.len();
-            if len == 0 || !self.filters.matches(arch) {
+            if len == 0 || !filters.matches(arch) {
                 continue;
             }
-            let Some(state) = Q::state(arch, &self.ids) else {
+            let Some(state) = Q::state(arch, &ids) else {
                 continue;
             };
             let chunk = (len / (threads * 4)).clamp(MIN_CHUNK, MAX_CHUNK);
@@ -527,11 +646,12 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     /// on tight math loops (the compiler can't vectorize across archetypes).
     /// Use `for_each` for per-tick simulation work.
     pub fn iter(&mut self) -> QueryIter<'_, Q> {
+        let ids = self.ids;
+        let filters = self.filters;
         QueryIter {
-            archetypes: &self.world.archetypes,
-            ids: self.ids,
-            filters: self.filters,
-            next_arch: 0,
+            archetypes: self.archetypes(),
+            ids,
+            filters,
             state: None,
             row: 0,
             len: 0,
@@ -541,32 +661,33 @@ impl<'w, Q: QueryData> Query<'w, Q> {
 
     /// Number of matching entities (doesn't visit them one by one).
     pub fn count(&mut self) -> usize {
-        self.world
-            .archetypes
-            .iter()
-            .filter(|a| !a.is_empty() && self.filters.matches(a) && Q::state(a, &self.ids).is_some())
+        let ids = self.ids;
+        let filters = self.filters;
+        self.archetypes()
+            .filter(|a| !a.is_empty() && filters.matches(a) && Q::state(a, &ids).is_some())
             .map(|a| a.len())
             .sum()
     }
 
     /// The query's item for one entity, or `None` if it's dead or doesn't match.
     pub fn get(&mut self, e: Entity) -> Option<Q::Item<'_>> {
+        let ids = self.ids;
+        let filters = self.filters;
         let loc = self.world.entities.get(e)?;
         let arch = &self.world.archetypes[loc.archetype as usize];
-        if !self.filters.matches(arch) {
+        if !filters.matches(arch) {
             return None;
         }
-        let state = Q::state(arch, &self.ids)?;
+        let state = Q::state(arch, &ids)?;
         Some(unsafe { Q::fetch(state, loc.row as usize) })
     }
 }
 
 /// Iterator returned by [`Query::iter`].
 pub struct QueryIter<'a, Q: QueryData> {
-    archetypes: &'a [Archetype],
+    archetypes: Archetypes<'a>,
     ids: Q::Ids,
     filters: Filters,
-    next_arch: usize,
     state: Option<Q::State>,
     row: usize,
     len: usize,
@@ -586,8 +707,7 @@ impl<'a, Q: QueryData> Iterator for QueryIter<'a, Q> {
                 self.row += 1;
                 return Some(unsafe { Q::fetch(state, row) });
             }
-            let arch = self.archetypes.get(self.next_arch)?;
-            self.next_arch += 1;
+            let arch = self.archetypes.next()?;
             self.state = if arch.is_empty() || !self.filters.matches(arch) {
                 None
             } else {
@@ -596,5 +716,45 @@ impl<'a, Q: QueryData> Iterator for QueryIter<'a, Q> {
             self.row = 0;
             self.len = arch.len();
         }
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+
+    #[test]
+    fn signatures_are_bounded_and_filter_order_is_canonical() {
+        let mut world = World::new();
+        // Empty, immutable layouts isolate cache bookkeeping from entity storage.
+        for _ in 0..CACHE_MIN_ARCHETYPES {
+            world.archetypes.push(Archetype::new(Box::new([]), &[]));
+        }
+        world
+            .query::<Entity>()
+            .cached()
+            .without::<u8>()
+            .without::<u16>()
+            .count();
+        world
+            .query::<Entity>()
+            .without::<u16>()
+            .cached()
+            .without::<u8>()
+            .count();
+        assert_eq!(world.query_matches.0.len(), 1);
+        for id in 0..CACHE_MAX_SIGNATURES as u32 {
+            let mut q = world.query::<Entity>().cached();
+            q.filters.without[0] = ComponentId(id);
+            q.filters.n_without = 1;
+            assert_eq!(q.count(), 0);
+        }
+        assert_eq!(world.query_matches.0.len(), CACHE_MAX_SIGNATURES);
+        let mut q = world.query::<Entity>().cached();
+        q.filters.with[0] = ComponentId(1000);
+        q.filters.n_with = 1;
+        assert!(q.archetypes().indices.is_none());
+        assert_eq!(q.count(), 0);
+        assert_eq!(world.query_matches.0.len(), CACHE_MAX_SIGNATURES);
     }
 }

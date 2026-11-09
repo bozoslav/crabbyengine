@@ -207,5 +207,6 @@ fn main() {
         .system(drop_things)
         .system(blast)
         .system(draw)
-        .run(build_level);
+        .setup(build_level)
+        .run();
 }
