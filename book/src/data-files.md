@@ -43,3 +43,6 @@ the type: `ctx.load_resource_json::<T>(path)` and
   `ctx.was_reloaded("map.json")` (C: `ponko_ctx_was_reloaded`).
 - Headless runs reload too, so an agent or a test can change a file
   between ticks.
+- Files can also come from somewhere other than `assets/` (embedded in the
+  executable, say); see [Asset sources](asset-sources.md). Those are not
+  hot reloaded.

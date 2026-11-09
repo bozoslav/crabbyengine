@@ -36,6 +36,18 @@ pub struct Art {
     disc: Texture,
 }
 
+// ANCHOR: controls
+actions! {
+    /// The action names from [`bindings`], resolved once at startup. Queries by
+    /// `ActionId` are an array index, and a name that `bindings` doesn't define
+    /// is logged once when resolved instead of silently reading false forever.
+    pub struct Controls {
+        movement = "move",
+        restart = "restart",
+    }
+}
+// ANCHOR_END: controls
+
 /// Where the round stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RoundState {
@@ -84,6 +96,8 @@ pub fn install(game: Game) -> Game {
 pub fn setup(ctx: &mut Ctx) {
     ctx.clear(Color::hex(0x14181f));
     ctx.set_actions(bindings());
+    let controls = Controls::resolve(ctx);
+    ctx.world.insert_resource(controls);
     let disc = disc(ctx);
     ctx.world.insert_resource(Art { disc });
     ctx.world.insert_resource(Intent::default());
@@ -155,17 +169,20 @@ pub fn bindings() -> ActionMap {
     map
 }
 
+// ANCHOR: read_input
 /// Frame system: named actions to [`Intent`]. Runs once per rendered frame.
 pub fn read_input(ctx: &mut Ctx) {
     if ctx.key_pressed(Key::Escape) {
         ctx.quit();
     }
-    let direction = ctx.action_axis2("move");
-    let restart = ctx.action_pressed("restart");
+    let controls = *ctx.world.resource::<Controls>();
+    let direction = ctx.action_axis2(controls.movement);
+    let restart = ctx.action_pressed(controls.restart);
     let intent = ctx.world.resource_mut::<Intent>();
     intent.direction = direction;
     intent.restart |= restart;
 }
+// ANCHOR_END: read_input
 
 /// Starts round `number`: clears the field, then places the player in the
 /// middle and the coins at random spots. The spots come from the context's

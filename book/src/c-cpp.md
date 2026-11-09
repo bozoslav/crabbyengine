@@ -177,5 +177,21 @@ normally; never let a C++ exception or `longjmp` cross them.
 ## Still Rust-only
 
 C and C++ resources and components are plain structs (no `std::string`
-or `std::vector` inside), copied in and out. Everything else in this guide
-works from C++, and each chapter shows both.
+or `std::vector` inside), copied in and out.
+
+Most chapters show Rust and C++ side by side. These features exist only in
+Rust today; the chapters say so where they use them, and
+[#262](https://github.com/ponkoengine/ponko/issues/262) tracks the bindings:
+
+| Rust feature | Where | From C and C++ |
+|---|---|---|
+| `ActionId` and the `actions!` macro | [Named input actions](actions.md) | Query actions by name |
+| `InputScenario`, `Game::input_scenario` | [Named input actions](actions.md) | Feed events yourself with `feed_input` |
+| `AssetSource`, `MemorySource`, `Ctx::add_asset_source` | [Asset sources](asset-sources.md) | Files in `assets/` only |
+| `UiTheme`, `ui.set_theme` | [Retained game UI](ui.md) | Set each node's paint |
+| Named grid spans in UI layouts | [Retained game UI](ui.md) | Named lines and areas, no named spans |
+| `World::resource_scope` | [Entities, components, queries](ecs.md) | The existing resource calls |
+| `ponko::Error` and the `try_` loaders | [Getting started](getting-started.md) | `ponko_last_error()` |
+
+System phases (`Phase`, `Game::add`) are not on this list: see
+[Systems and the frame](systems.md#phases) for the C and C++ calls.
