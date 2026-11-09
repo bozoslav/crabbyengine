@@ -178,6 +178,7 @@ fn a_reload_invalidates_only_the_reloaded_shaders_variants() {
     );
     // The reloaded shader starts with only its plain sets again.
     assert!(!renderer.shader_warm(blue));
+    assert_builds_add_up(&after);
 }
 
 #[test]
@@ -224,6 +225,17 @@ fn failed_reloads_invalidate_nothing_and_are_timed() {
         after.material_shaders, before.material_shaders,
         "rejected code isn't kept"
     );
+    assert_eq!(
+        after.builds, before.builds,
+        "rejected code's sets aren't counted as builds"
+    );
+    assert_eq!(after.build_ms, before.build_ms);
+    assert_builds_add_up(&after);
+    // Warming then builds only sets in use, and the identity still holds.
+    renderer.warm_pipelines();
+    let warm = renderer.pipeline_stats();
+    assert!(warm.builds > after.builds);
+    assert_builds_add_up(&warm);
     assert!(after.last_compile_ms > 0.0 && after.slowest_compile_ms >= after.last_compile_ms);
 }
 
@@ -281,6 +293,32 @@ fn pipeline_creation_and_reload_stalls_are_measured() {
     );
     assert!(s.builds >= 7 && s.slowest_build_ms > 0.0);
     assert!(shared < create, "sharing skips the compile");
+}
+
+/// Every set built is either still in use or was invalidated.
+fn assert_builds_add_up(s: &crate::PipelineStats) {
+    assert_eq!(s.builds, s.variant_sets as u64 + s.invalidated, "{s:?}");
+}
+
+#[test]
+fn reloading_unchanged_code_keeps_its_set_and_shares_nothing() {
+    let Some((device, mut renderer)) = rig() else {
+        return;
+    };
+    let red = renderer.create_shader(&device, "red.wgsl", RED).unwrap();
+    let (kept, before) = (pipelines(&renderer, red), renderer.pipeline_stats());
+    renderer.replace_shader(&device, red, "red.wgsl", RED).unwrap();
+    let after = renderer.pipeline_stats();
+    assert_eq!(pipelines(&renderer, red), kept, "its own set, untouched");
+    assert_eq!(after.shared, before.shared, "its own set is not shared");
+    assert_eq!(
+        (after.compiles, after.builds, after.invalidated),
+        (before.compiles, before.builds, before.invalidated)
+    );
+    assert_builds_add_up(&after);
+    // A second shader with that code does share it.
+    renderer.create_shader(&device, "red again.wgsl", RED).unwrap();
+    assert_eq!(renderer.pipeline_stats().shared, before.shared + 1);
 }
 
 const FX_GREY: &str = "fn effect(p: Pixel) -> vec3<f32> {\n    return vec3<f32>(dot(p.color, vec3<f32>(0.3)));\n}\n";

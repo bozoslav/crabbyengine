@@ -122,6 +122,21 @@ impl Counters {
         self.frame_misses.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// A shader got another shader's set instead of compiling.
+    pub fn shared(&self) {
+        self.shared.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Adds the builds counted in `other` (a set that is now in use).
+    pub fn add_builds(&self, other: &Counters) {
+        self.builds
+            .fetch_add(other.builds.load(Ordering::Relaxed), Ordering::Relaxed);
+        self.build_ns
+            .fetch_add(other.build_ns.load(Ordering::Relaxed), Ordering::Relaxed);
+        self.slowest_build_ns
+            .fetch_max(other.slowest_build_ns.load(Ordering::Relaxed), Ordering::Relaxed);
+    }
+
     /// A variant set took `took` to build.
     pub fn built(&self, took: Duration) {
         let ns = nanos(took);
@@ -171,11 +186,10 @@ impl MaterialCache {
         }
     }
 
-    /// The set some shader already built for `key`, counted as shared.
+    /// The set some shader already built for `key`. The caller counts it
+    /// as shared ([`Counters::shared`]) unless it is the asking shader's own.
     pub fn get(&self, key: &SetKey) -> Option<Arc<ShaderPipelines>> {
-        let set = self.sets.get(key)?.upgrade()?;
-        self.counters.shared.fetch_add(1, Ordering::Relaxed);
-        Some(set)
+        self.sets.get(key)?.upgrade()
     }
 
     /// Keeps `set` for shaders made from `key` later.
