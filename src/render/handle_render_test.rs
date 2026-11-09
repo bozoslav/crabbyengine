@@ -75,7 +75,7 @@ impl Rig {
         let renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
         // No renderer of its own: this test hands the GPU work to `renderer`.
-        ctx.headless = true;
+        ctx.set_headless(true);
         ctx.sky.atmosphere = false;
         let mut rig = Self {
             device,
@@ -335,7 +335,7 @@ fn models_whose_texture_material_or_mesh_was_freed_draw_the_default() {
 #[test]
 fn freed_effects_compute_passes_and_targets_are_left_out_of_the_frame() {
     let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(64.0, 64.0));
-    ctx.headless = true;
+    ctx.set_headless(true);
     let effect = ctx.create_effect("e", "fn effect(p: Pixel) -> vec3<f32> { return p.color; }");
     let compute = ctx.create_compute("c", "fn compute(c: Cell) -> vec4<f32> { return c.value; }");
     let target = ctx.create_render_target(8, 8);

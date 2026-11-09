@@ -59,7 +59,7 @@ fn limited(ctx: &Ctx, method: &str) -> Option<&'static str> {
 /// before the game loop has listed its systems (no frame or tick yet).
 #[cfg(any(feature = "physics", feature = "physics3d"))]
 fn scheduled(ctx: &Ctx, name: &str) -> Option<bool> {
-    let t = ctx.system_timings();
+    let t = ctx.perf.system_timings();
     (!t.is_empty()).then(|| t.iter().any(|s| s.sim && s.name == name))
 }
 
@@ -144,7 +144,7 @@ fn subsystems(ctx: &Ctx) -> Value {
             "transports": { "udp": true, "steam": cfg!(feature = "steam") },
         },
         "profiling": {
-            "scope_timing": ctx.profiling(),
+            "scope_timing": ctx.perf.profiling(),
             "puffin_feature": cfg!(feature = "profiling"),
         },
         // Whoever reads this reached it through the endpoint.
@@ -325,9 +325,10 @@ mod tests {
             last_ms: 0.0,
             avg_ms: 0.0,
         };
-        ctx.timings = vec![timing("game::tick")];
+        ctx.perf.timings = vec![timing("game::tick")];
         assert_eq!(report(&ctx)["subsystems"]["physics"]["active"], false);
-        ctx.timings
+        ctx.perf
+            .timings
             .push(timing(std::any::type_name_of_val(&crate::step_physics)));
         assert_eq!(report(&ctx)["subsystems"]["physics"]["active"], true);
     }

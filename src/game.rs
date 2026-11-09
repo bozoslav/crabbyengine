@@ -11,8 +11,9 @@ use ponko_ecs::World;
 mod window;
 
 use crate::control::{self, Control};
-use crate::ctx::{Ctx, SystemTiming};
+use crate::ctx::Ctx;
 use crate::ecs::draw_sprites;
+use crate::perf::SystemTiming;
 use crate::sheet::animate_sprites;
 use crate::spatial::rebuild_spatial_grid;
 use crate::tilemap::draw_tilemaps;
@@ -311,7 +312,7 @@ fn frame_timing(clock: &mut Clock, ctx: &mut Ctx, frame_dt: f64) -> FrameTiming 
 }
 
 fn end_timings(ctx: &mut Ctx) {
-    for t in &mut ctx.timings {
+    for t in &mut ctx.perf.timings {
         t.avg_ms += (t.last_ms - t.avg_ms) * 0.05;
     }
 }
@@ -321,7 +322,7 @@ fn end_timings(ctx: &mut Ctx) {
 fn run_one(s: &mut System, ctx: &mut Ctx, timing_index: usize) {
     #[cfg(feature = "profiling")]
     puffin::profile_scope!("system", s.name);
-    let allocs_before = ctx.perf.on.then(crate::alloc_counts);
+    let allocs_before = ctx.perf.state.on.then(crate::alloc_counts);
     let start = Instant::now();
     ctx.system_index = timing_index;
     ctx.events.reader = s.id;
@@ -336,10 +337,10 @@ fn run_one(s: &mut System, ctx: &mut Ctx, timing_index: usize) {
     }
     ctx.events.reader = 0;
     ctx.apply_commands();
-    ctx.timings[timing_index].last_ms += start.elapsed().as_secs_f32() * 1000.0;
+    ctx.perf.timings[timing_index].last_ms += start.elapsed().as_secs_f32() * 1000.0;
     if let Some(before) = allocs_before {
         let made = crate::alloc_counts().count.saturating_sub(before.count);
-        ctx.perf.add_system_allocs(timing_index, made);
+        ctx.perf.state.add_system_allocs(timing_index, made);
     }
 }
 
@@ -1198,10 +1199,10 @@ impl Game {
 
     /// Makes sure there's one timing slot per system, and zeroes this frame's times.
     fn begin_timings(&self, ctx: &mut Ctx) {
-        if ctx.timings.len()
+        if ctx.perf.timings.len()
             != self.sim_systems.len() + self.systems.len() + self.late_systems.len() + self.draw_systems.len()
         {
-            ctx.timings = (self.sim_systems.iter().map(|s| (s, true)))
+            ctx.perf.timings = (self.sim_systems.iter().map(|s| (s, true)))
                 .chain(
                     self.systems
                         .iter()
@@ -1216,13 +1217,13 @@ impl Game {
                     avg_ms: 0.0,
                 })
                 .collect();
-            ctx.schedule = self.schedule_slots();
+            ctx.perf.schedule = self.schedule_slots();
         }
-        for t in &mut ctx.timings {
+        for t in &mut ctx.perf.timings {
             t.last_ms = 0.0;
         }
         ctx.sync_profiling();
-        ctx.perf.begin_frame(ctx.timings.len());
+        ctx.perf.state.begin_frame(ctx.perf.timings.len());
         ctx.events.keep_ticks = self.sim_systems.iter().map(|s| s.every).max().unwrap_or(1);
     }
 
@@ -1321,7 +1322,7 @@ impl Game {
         let fixed_dt = Clock::new(self.fixed_hz).fixed_dt();
         let mut ctx = Ctx::new(fixed_dt, Vec2::new(self.width as f32, self.height as f32));
         ctx.seed = self.seed;
-        ctx.headless = true;
+        ctx.set_headless(true);
         ctx.watcher.on = crate::hot_reload::enabled(self.hot_reload);
         if let Some(cell) = self.spatial_cell {
             ctx.spatial = crate::SpatialGrid::new(cell);
@@ -1350,8 +1351,8 @@ impl Game {
             alpha: 0.0,
         };
         if warmup.is_some() {
-            ctx.perf.collector = crate::perf_report::Collector::new(crate::perf_report::HEADLESS_HISTORY);
-            ctx.set_profiling(true);
+            ctx.perf.state.collector = crate::perf_report::Collector::new(crate::perf_report::HEADLESS_HISTORY);
+            ctx.perf.set_profiling(true);
         }
         let total = ticks + warmup.unwrap_or(0);
         let mut ran = 0;
@@ -1386,14 +1387,14 @@ impl Game {
             end_timings(&mut ctx);
             ctx.discard_draws();
             ctx.input.end_frame();
-            if ctx.perf.on {
+            if ctx.perf.state.on {
                 ctx.end_perf_frame(tick_start.elapsed().as_secs_f32() * 1000.0);
                 if warmup == Some(ran) {
-                    ctx.perf.collector.clear();
+                    ctx.perf.state.collector.clear();
                 }
             }
         }
-        let report = warmup.map(|_| ctx.perf_report());
+        let report = warmup.map(|_| ctx.perf.report());
         (std::mem::take(&mut ctx.world), report)
     }
 
@@ -1522,8 +1523,8 @@ mod tests {
             ctx.world.resource::<Log>().0,
             ["frame_b dt=0.0000", "late dt=0.0000", "draw dt=0.0000"]
         );
-        assert_eq!(ctx.system_timings().len(), 3);
-        assert!(ctx.system_timings()[1].name.ends_with("::late"));
+        assert_eq!(ctx.perf.system_timings().len(), 3);
+        assert!(ctx.perf.system_timings()[1].name.ends_with("::late"));
         let game = game.remove_system(late);
         assert!(game.late_systems.is_empty());
     }
@@ -1671,7 +1672,7 @@ mod tests {
         let mut game = bare(Game::new("t", 1, 1).sim_system(slow)).system(frame_b);
         let mut ctx = ctx();
         game.run_systems(&mut ctx, 3);
-        let t = ctx.system_timings();
+        let t = ctx.perf.system_timings();
         assert_eq!(t.len(), 2, "{t:?}");
         assert!(t[0].sim && !t[1].sim);
         assert!(t[0].name.ends_with("slow"), "{}", t[0].name);
@@ -1689,7 +1690,7 @@ mod tests {
         let mut game = Game::new("t", 1, 1).system(move_right);
         let mut ctx = ctx();
         game.run_systems(&mut ctx, 0);
-        let order: Vec<_> = ctx.system_timings().iter().map(|t| t.name).collect();
+        let order: Vec<_> = ctx.perf.system_timings().iter().map(|t| t.name).collect();
         assert!(
             order[0].ends_with("move_right") && order.last().unwrap().ends_with("draw_sprites"),
             "{order:?}"

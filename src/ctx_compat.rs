@@ -68,6 +68,12 @@ impl Ctx {
     }
 
     #[doc(hidden)]
+    #[deprecated(note = "use `ctx.perf.display_wait_ms`")]
+    pub fn display_wait_ms(&self) -> f32 {
+        self.perf.display_wait_ms()
+    }
+
+    #[doc(hidden)]
     #[deprecated(note = "use `ctx.input.feed`")]
     pub fn feed_input(&mut self, event: crate::InputEvent) {
         self.input.feed(event)
@@ -104,6 +110,12 @@ impl Ctx {
     }
 
     #[doc(hidden)]
+    #[deprecated(note = "use `ctx.perf.frame_stats`")]
+    pub fn frame_stats(&self) -> crate::FrameStats {
+        self.perf.frame_stats()
+    }
+
+    #[doc(hidden)]
     #[deprecated(note = "use `ctx.input.gamepad_axis`")]
     pub fn gamepad_axis(&self, pad: Gamepad, axis: GamepadAxis) -> f32 {
         self.input.gamepad_axis(pad, axis)
@@ -137,6 +149,12 @@ impl Ctx {
     #[deprecated(note = "use `ctx.input.gamepads`")]
     pub fn gamepads(&self) -> &[Gamepad] {
         self.input.gamepads()
+    }
+
+    #[doc(hidden)]
+    #[deprecated(note = "use `ctx.perf.gpu_passes`")]
+    pub fn gpu_passes(&self) -> &[crate::GpuPass] {
+        self.perf.gpu_passes()
     }
 
     #[doc(hidden)]
@@ -188,9 +206,52 @@ impl Ctx {
     }
 
     #[doc(hidden)]
+    #[deprecated(note = "use `ctx.perf.hud`")]
+    pub fn perf_hud(&self) -> bool {
+        self.perf.hud()
+    }
+
+    #[doc(hidden)]
+    #[deprecated(note = "use `ctx.perf.report`")]
+    pub fn perf_report(&self) -> crate::PerfReport {
+        self.perf.report()
+    }
+
+    #[doc(hidden)]
+    #[deprecated(note = "use `let _timing = ctx.perf.scope(name);`")]
+    pub fn profile<R>(&mut self, name: &str, f: impl FnOnce(&mut Ctx) -> R) -> R {
+        let _timing = self.perf.scope(name);
+        f(self)
+    }
+
+    #[doc(hidden)]
+    #[deprecated(note = "use `ctx.perf.profiling`")]
+    pub fn profiling(&self) -> bool {
+        self.perf.profiling()
+    }
+
+    #[doc(hidden)]
+    #[deprecated(note = "use `ctx.perf.record_trace`")]
+    pub fn record_trace(&mut self, path: impl Into<PathBuf>, frames: usize) {
+        self.perf.record_trace(path, frames)
+    }
+
+    #[doc(hidden)]
+    #[deprecated(note = "use `ctx.perf.render_stats`")]
+    pub fn render_stats(&self) -> RenderStats {
+        self.perf.render_stats()
+    }
+
+    #[doc(hidden)]
     #[deprecated(note = "use `ctx.time.resume`")]
     pub fn resume(&mut self) {
         self.time.resume()
+    }
+
+    #[doc(hidden)]
+    #[deprecated(note = "use `ctx.perf.scope_timings`")]
+    pub fn scope_timings(&self) -> &[crate::ScopeTiming] {
+        self.perf.scope_timings()
     }
 
     #[doc(hidden)]
@@ -203,6 +264,18 @@ impl Ctx {
     #[deprecated(note = "use `ctx.input.set_cursor_locked`")]
     pub fn set_cursor_locked(&mut self, locked: bool) {
         self.input.set_cursor_locked(locked)
+    }
+
+    #[doc(hidden)]
+    #[deprecated(note = "use `ctx.perf.set_hud`")]
+    pub fn set_perf_hud(&mut self, on: bool) {
+        self.perf.set_hud(on)
+    }
+
+    #[doc(hidden)]
+    #[deprecated(note = "use `ctx.perf.set_profiling`")]
+    pub fn set_profiling(&mut self, on: bool) {
+        self.perf.set_profiling(on)
     }
 
     #[doc(hidden)]
@@ -234,6 +307,12 @@ impl Ctx {
     #[deprecated(note = "use `ctx.time.step`")]
     pub fn step(&mut self) {
         self.time.step()
+    }
+
+    #[doc(hidden)]
+    #[deprecated(note = "use `ctx.perf.system_timings`")]
+    pub fn system_timings(&self) -> &[SystemTiming] {
+        self.perf.system_timings()
     }
 
     #[doc(hidden)]

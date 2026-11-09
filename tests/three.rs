@@ -1018,7 +1018,7 @@ fn occlusion_culling_is_off_until_turned_on() {
         ctx.world.spawn((Transform3D::default(), Model::new(mesh)));
         ctx.camera3d.position = vec3(0.0, 0.0, 5.0);
         ctx.camera3d.look_at(Vec3::ZERO);
-        assert_eq!(ctx.render_stats().occluded, 0);
+        assert_eq!(ctx.perf.render_stats().occluded, 0);
     });
 }
 

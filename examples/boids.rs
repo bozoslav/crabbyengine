@@ -148,7 +148,13 @@ fn main() {
             move |ctx: &mut Ctx| {
                 if ctx.time.elapsed() >= next {
                     next += 1.0;
-                    let sim_ms: f32 = ctx.system_timings().iter().filter(|t| t.sim).map(|t| t.avg_ms).sum();
+                    let sim_ms: f32 = ctx
+                        .perf
+                        .system_timings()
+                        .iter()
+                        .filter(|t| t.sim)
+                        .map(|t| t.avg_ms)
+                        .sum();
                     println!(
                         "boids: {}  fps: {:.0}  sim: {:.2} ms/frame  tick: {}",
                         ctx.world.len(),

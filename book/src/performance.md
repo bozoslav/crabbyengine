@@ -129,12 +129,12 @@ What keeps the CPU side small:
 
 ### Is it the CPU or the GPU?
 
-`ctx.render_stats()` tells you what drawing the last frame cost:
+`ctx.perf.render_stats()` tells you what drawing the last frame cost:
 
 ```rust
 # use ponko::*;
 fn report(ctx: &mut Ctx) {
-    let r = ctx.render_stats();
+    let r = ctx.perf.render_stats();
     println!(
         "{} sprites in {} draw calls: {:.2} ms CPU, GPU {:?} ms",
         r.sprites, r.draw_calls, r.cpu_ms, r.gpu_ms
@@ -146,7 +146,7 @@ fn report(ctx: &mut Ctx) {
 the window shows (which the compositor can cap or smooth) can't fool it.
 If `gpu_ms` is close to the frame time, the GPU is the limit: draw fewer
 or smaller sprites. If `cpu_ms` plus your systems' time
-(`ctx.system_timings()`) is close to it, the CPU is. Agents
+(`ctx.perf.system_timings()`) is close to it, the CPU is. Agents
 get the same numbers from the control endpoint's `info` method.
 
 ## Profiling a frame
@@ -157,17 +157,17 @@ A frame takes about as long as the slower of the CPU (systems, then
 recording draws) and the GPU. The profiler shows which, and where the time
 goes, in a running game:
 
-- **The overlay** (`ctx.set_perf_hud(true)`, or `PONKO_HUD=1`): fps,
+- **The overlay** (`ctx.perf.set_hud(true)`, or `PONKO_HUD=1`): fps,
   frame-time percentiles, CPU and GPU time, and the slowest GPU passes.
-- **`ctx.frame_stats()`**: the same numbers over the last few seconds:
+- **`ctx.perf.frame_stats()`**: the same numbers over the last few seconds:
   fps, average, p50, p95, p99 and worst frame time, CPU time in systems,
   in rendering and waiting on the display, and GPU time. Display wait
   includes pacing; use measured GPU/CPU work to identify the bottleneck.
-- **`ctx.gpu_passes()`**: GPU time per pass (each shadow cascade, depth
+- **`ctx.perf.gpu_passes()`**: GPU time per pass (each shadow cascade, depth
   prepass, opaque, transparent, screen effects, bloom, post), measured
   with timestamp queries. On GPUs that draw in tiles, passes overlap, so
   each is counted from the end of the one before.
-- **`ctx.render_stats()`**: draw calls; 3D models and triangles drawn for
+- **`ctx.perf.render_stats()`**: draw calls; 3D models and triangles drawn for
   the camera and, separately, for the shadow maps; and the render CPU
   time split into culling (`collect_ms`), recording (`record_ms`, all
   cores) and submitting. `uploads` counts the bytes sent to the GPU that
@@ -177,7 +177,7 @@ goes, in a running game:
   no uploads; only the changed parts of the model list are sent.
 - **`ctx.mesh_costs()`**: per mesh, how many models and triangles it drew
   for the camera and the shadows last frame, heaviest first.
-- **Traces**: `ctx.record_trace(path, frames)` (or `PONKO_TRACE=path`)
+- **Traces**: `ctx.perf.record_trace(path, frames)` (or `PONKO_TRACE=path`)
   writes the next frames as a Chrome trace: every system, rendering,
   display waits and the GPU passes on a timeline. Open it in
   [Perfetto](https://ui.perfetto.dev) to see what's in a hitch.

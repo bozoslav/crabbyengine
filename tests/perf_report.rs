@@ -10,9 +10,10 @@ fn steering(ctx: &mut Ctx) {
         profile_scope!("steering/neighbors");
         std::hint::black_box((0..2000).map(|i| (i as f32).sqrt()).sum::<f32>());
     }
-    ctx.profile("steering/avoid", |ctx| {
+    {
+        let _timing = ctx.perf.scope("steering/avoid");
         ctx.world.query::<&mut Transform2D>().for_each(|t| t.position.x += 1.0);
-    });
+    }
 }
 // ANCHOR_END: profile_scopes
 
@@ -55,11 +56,11 @@ fn nested(ctx: &mut Ctx) {
 /// the last half minute went.
 fn perf_keys(ctx: &mut Ctx) {
     if ctx.key_pressed(Key::F5) {
-        let on = !ctx.profiling();
-        ctx.set_profiling(on);
+        let on = !ctx.perf.profiling();
+        ctx.perf.set_profiling(on);
     }
     if ctx.key_pressed(Key::F6) {
-        println!("{}", ctx.perf_report());
+        println!("{}", ctx.perf.report());
     }
 }
 // ANCHOR_END: profile_live

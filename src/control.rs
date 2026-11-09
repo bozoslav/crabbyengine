@@ -522,7 +522,7 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
 /// `perf.get`'s `render_inspector`: the last frame's rendering cost in a
 /// versioned schema (see `control/inspector.rs`).
 fn render_inspector_json(ctx: &Ctx) -> Value {
-    let source = match (ctx.headless, ctx.last_render_detail) {
+    let source = match (ctx.headless, ctx.perf.last_render_detail) {
         (true, _) => inspector::Source::Headless,
         (false, None) => inspector::Source::NotDrawn,
         (false, Some(detail)) => inspector::Source::Drawn(detail),
@@ -533,8 +533,8 @@ fn render_inspector_json(ctx: &Ctx) -> Value {
     let quality = None;
     inspector::render_inspector(&inspector::Inputs {
         source,
-        stats: ctx.render_stats(),
-        passes: ctx.gpu_passes(),
+        stats: ctx.perf.render_stats(),
+        passes: ctx.perf.gpu_passes(),
         quality,
     })
 }
@@ -545,10 +545,10 @@ fn perf_json(ctx: &Ctx, meshes: usize) -> Value {
         let slowest = slowest_systems(ctx);
         return json!({ "headless": true, "systems": slowest, "residency": residency_json(ctx), "render_inspector": render_inspector_json(ctx) });
     }
-    let f = ctx.frame_stats();
-    let r = ctx.render_stats();
+    let f = ctx.perf.frame_stats();
+    let r = ctx.perf.render_stats();
     let passes: Vec<Value> = {
-        let mut p: Vec<_> = ctx.gpu_passes().to_vec();
+        let mut p: Vec<_> = ctx.perf.gpu_passes().to_vec();
         p.sort_by(|a, b| b.ms.total_cmp(&a.ms));
         p.iter().map(|p| json!({ "name": p.name, "ms": p.ms })).collect()
     };
@@ -705,7 +705,12 @@ fn residency_json(ctx: &Ctx) -> Value {
 
 /// The 10 systems with the most average time.
 fn slowest_systems(ctx: &Ctx) -> Value {
-    let mut t: Vec<_> = ctx.system_timings().iter().filter(|t| t.sim || !ctx.headless).collect();
+    let mut t: Vec<_> = ctx
+        .perf
+        .system_timings()
+        .iter()
+        .filter(|t| t.sim || !ctx.headless)
+        .collect();
     t.sort_by(|a, b| b.avg_ms.total_cmp(&a.avg_ms));
     t.iter()
         .take(10)
@@ -766,7 +771,7 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
             "frame": if ctx.headless { Value::Null } else { json!(ctx.time.frame()) },
             "entities": ctx.world.len(),
             "render": if ctx.headless { Value::Null } else {
-                let r = ctx.render_stats();
+                let r = ctx.perf.render_stats();
                 json!({ "sprites": r.sprites, "draw_calls": r.draw_calls, "cpu_ms": r.cpu_ms, "gpu_ms": r.gpu_ms })
             },
         }),
@@ -945,7 +950,8 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
             json!({ "speed": ctx.time.speed() })
         }
         "systems.timings" => Value::Array(
-            ctx.system_timings()
+            ctx.perf
+                .system_timings()
                 .iter()
                 // Headless games run only simulation systems.
                 .filter(|t| t.sim || !ctx.headless)
@@ -955,12 +961,13 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
         "ecs.diagnostics" => ecs_diagnostics_json(ctx, params)?,
         "perf.get" => {
             if let Some(on) = params.get("profiling") {
-                ctx.set_profiling(on.as_bool().ok_or("`profiling` must be true or false")?);
+                ctx.perf
+                    .set_profiling(on.as_bool().ok_or("`profiling` must be true or false")?);
             }
             let mut out = perf_json(ctx, usize_param(params, "meshes", 0)?);
             out["assets"] = serde_json::to_value(ctx.asset_inventory()).unwrap_or_default();
-            if ctx.profiling() {
-                let report = ctx.perf_report();
+            if ctx.perf.profiling() {
+                let report = ctx.perf.report();
                 out["report"] = serde_json::to_value(&report).unwrap_or_default();
                 out["report_text"] = json!(report.to_string());
             }
@@ -974,12 +981,12 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
                     std::env::temp_dir().join(format!("ponko-trace-{}-{}.json", std::process::id(), ctx.time.frame()))
                 }
             };
-            ctx.record_trace(path.clone(), frames);
+            ctx.perf.record_trace(path.clone(), frames);
             json!({ "path": path, "frames": frames, "written_after_frame": ctx.time.frame() + frames as u64 })
         }
         "perf.hud" => {
             let on = param(params, "on")?.as_bool().ok_or("`on` must be true or false")?;
-            ctx.set_perf_hud(on);
+            ctx.perf.set_hud(on);
             json!(on)
         }
         "game.quit" => {
@@ -1167,7 +1174,7 @@ mod tests {
     #[test]
     fn perf_reports_put_the_slowest_systems_first() {
         let mut ctx = ctx();
-        ctx.timings = ["fast", "slow", "middle"]
+        ctx.perf.timings = ["fast", "slow", "middle"]
             .iter()
             .zip([0.1, 3.0, 1.0])
             .map(|(&name, avg_ms)| crate::SystemTiming {
@@ -1204,19 +1211,19 @@ mod tests {
             "{inspector}"
         );
         assert!(handle(&mut ctx, "perf.hud", &json!({ "on": true })).unwrap() == json!(true));
-        assert!(ctx.perf_hud());
+        assert!(ctx.perf.hud());
         assert!(handle(&mut ctx, "perf.hud", &json!({})).is_err(), "`on` is required");
         assert!(perf.get("report").is_none(), "the deep report needs profiling on");
         let deep = handle(&mut ctx, "perf.get", &json!({ "profiling": true })).unwrap();
-        assert!(ctx.profiling() && deep["report"].is_object(), "{deep}");
+        assert!(ctx.perf.profiling() && deep["report"].is_object(), "{deep}");
         assert!(handle(&mut ctx, "perf.get", &json!({ "profiling": 3 })).is_err());
-        ctx.set_profiling(false);
+        ctx.perf.set_profiling(false);
     }
 
     #[test]
     fn headless_games_cant_trace_frames() {
         let mut ctx = ctx();
-        ctx.headless = true;
+        ctx.set_headless(true);
         let err = handle(&mut ctx, "perf.trace", &json!({})).unwrap_err();
         assert!(err.contains("headless"), "{err}");
         let perf = handle(&mut ctx, "perf.get", &json!({})).unwrap();
@@ -1240,8 +1247,8 @@ mod tests {
     #[test]
     fn headless_games_report_no_frames_and_only_sim_timings() {
         let mut ctx = ctx();
-        ctx.headless = true;
-        ctx.timings = vec![
+        ctx.set_headless(true);
+        ctx.perf.timings = vec![
             crate::SystemTiming {
                 name: "sim",
                 sim: true,
@@ -1260,7 +1267,7 @@ mod tests {
         let timings = handle(&mut ctx, "systems.timings", &json!({})).unwrap();
         assert_eq!(timings.as_array().unwrap().len(), 1);
         assert_eq!(timings[0]["name"], "sim");
-        ctx.headless = false;
+        ctx.set_headless(false);
         assert!(handle(&mut ctx, "info", &json!({})).unwrap()["fps"].is_number());
         assert_eq!(
             handle(&mut ctx, "systems.timings", &json!({}))

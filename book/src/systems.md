@@ -216,7 +216,7 @@ Game::new("t", 800, 600)
 
 ## Timings
 
-`ctx.system_timings()` lists every system with its last and average time in
+`ctx.perf.system_timings()` lists every system with its last and average time in
 milliseconds, so a game can show its own profiler overlay. For a full
 timeline, build with `--features profiling` and open
 [puffin_viewer](https://github.com/EmbarkStudios/puffin) on `127.0.0.1:8585`.

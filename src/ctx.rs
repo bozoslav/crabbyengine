@@ -16,7 +16,7 @@ use crate::input::{Input, Key};
 use crate::reflect::WorldReflect;
 use crate::render::batch::{DrawList, SpriteInstance};
 use crate::render::batch::{FULL_UV, uv_region};
-use crate::render::{FrameStatus, RenderStats, Renderer, Screenshot};
+use crate::render::{FrameStatus, Renderer, Screenshot};
 use crate::spatial::SpatialGrid;
 use crate::text::{Font, Text, TextParams};
 use crate::texture::{DrawParams, Texture, TextureFilter};
@@ -25,20 +25,6 @@ use crate::ui::{UiState, UiStyle};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
-
-/// How long one system took. See [`Ctx::system_timings`].
-#[derive(Debug, Clone, PartialEq)]
-pub struct SystemTiming {
-    /// The system's function name, e.g. `my_game::movement`.
-    pub name: &'static str,
-    /// `true` for simulation systems (they may run several times per frame).
-    pub sim: bool,
-    /// Time spent in the system during the last frame (all fixed steps
-    /// together), in milliseconds.
-    pub last_ms: f32,
-    /// Smoothed average of `last_ms`.
-    pub avg_ms: f32,
-}
 
 /// Maps window pixels ((0, 0) top-left, y down) to wgpu clip space
 /// (x right, y up, both -1..1).
@@ -197,9 +183,6 @@ pub struct Ctx {
     /// Textures and sounds loaded from files, indexed by `loaded` values.
     pub(crate) cached_textures: Vec<Texture>,
     pub(crate) cached_sounds: Vec<crate::Sound>,
-    pub(crate) timings: Vec<SystemTiming>,
-    /// Each timed system's place in the schedule, parallel to `timings`.
-    pub(crate) schedule: Vec<crate::diagnostics::ScheduleSlot>,
     /// Keyboard, mouse, gamepads and named actions: see [`Input`].
     ///
     /// ```
@@ -383,16 +366,17 @@ pub struct Ctx {
     /// ```
     pub ui_style: UiStyle,
     pub(crate) audio: Audio,
-    pub(crate) last_render_stats: RenderStats,
-    /// The renderer's extra numbers for the last drawn frame, `None`
-    /// before the first frame and without a renderer.
-    pub(crate) last_render_detail: Option<crate::render::RenderDetail>,
-    /// Frame statistics, the HUD, traces and benchmark runs.
-    pub(crate) profiler: crate::profiler::Profiler,
-    /// Scopes, allocation counts and the history behind `perf_report`.
-    pub(crate) perf: crate::perf_report::PerfState,
-    /// The renderer's per-pass GPU times, copied after every frame.
-    gpu_passes: Vec<crate::GpuPass>,
+    /// Where the time goes: system timings, frame and render statistics,
+    /// GPU passes, the HUD, traces and the report. See [`Perf`](crate::Perf).
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// ctx.perf.set_hud(true);
+    /// let draw_calls = ctx.perf.render_stats().draw_calls;
+    /// # }
+    /// ```
+    pub perf: crate::Perf,
 }
 
 impl Ctx {
@@ -443,8 +427,6 @@ impl Ctx {
             loaded: HashMap::new(),
             cached_textures: Vec::new(),
             cached_sounds: Vec::new(),
-            timings: Vec::new(),
-            schedule: Vec::new(),
             input: Input::new(),
             time: Time::new(fixed_dt),
             window_size,
@@ -484,11 +466,7 @@ impl Ctx {
             ui_press_at: Vec2::splat(f32::NAN),
             ui_style: UiStyle::default(),
             audio: Audio::default(),
-            last_render_stats: RenderStats::default(),
-            last_render_detail: None,
-            profiler: crate::profiler::Profiler::new(),
-            perf: crate::perf_report::PerfState::new(),
-            gpu_passes: Vec::new(),
+            perf: crate::Perf::new(),
             clear_color: Color::PONKO_DARK,
         }
     }
@@ -522,11 +500,12 @@ impl Ctx {
         self.assets3d
             .probes
             .settle(!matches!(status, FrameStatus::Occluded | FrameStatus::Skipped));
-        self.last_render_stats = self.renderer.as_ref().map(Renderer::stats).unwrap_or_default();
-        self.last_render_detail = self.renderer.as_ref().map(Renderer::detail);
+        self.perf.last_render_stats = self.renderer.as_ref().map(Renderer::stats).unwrap_or_default();
+        self.perf.last_render_detail = self.renderer.as_ref().map(Renderer::detail);
         if let Some(renderer) = &self.renderer {
-            self.gpu_passes.clear();
-            self.gpu_passes.extend_from_slice(renderer.gpu_passes());
+            self.perf.gpu_passes.clear();
+            self.perf.gpu_passes.extend_from_slice(renderer.gpu_passes());
+            self.perf.display_wait_ms = renderer.display_wait_ms();
         }
         self.draw_list.clear();
         self.ui_list.clear();
@@ -584,23 +563,6 @@ impl Ctx {
 
     pub(crate) fn quit_requested(&self) -> bool {
         self.quit_requested
-    }
-
-    /// How long each system took, in the order they run (simulation systems
-    /// first). For finding what's slow; the inspector will graph these.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// fn print_slow_systems(ctx: &mut Ctx) {
-    ///     for t in ctx.system_timings() {
-    ///         if t.avg_ms > 1.0 {
-    ///             println!("{}: {:.2} ms", t.name, t.avg_ms);
-    ///         }
-    ///     }
-    /// }
-    /// ```
-    pub fn system_timings(&self) -> &[SystemTiming] {
-        &self.timings
     }
 
     /// A snapshot of the ECS for tools and tests: every archetype with its
@@ -707,6 +669,7 @@ impl Ctx {
         if !self.commands.is_empty() {
             self.world.apply(&mut self.commands);
         }
+        self.perf.entities = self.world.len();
     }
 
     /// Queues every `(Transform2D, Sprite)` entity for drawing.
@@ -1586,31 +1549,6 @@ impl Ctx {
         }
     }
 
-    /// How long the last frame waited for the display (ms): idle time, not
-    /// work. For benchmarks that subtract it from the frame time.
-    #[doc(hidden)]
-    #[must_use]
-    pub fn display_wait_ms(&self) -> f32 {
-        self.renderer.as_ref().map_or(0.0, Renderer::display_wait_ms)
-    }
-
-    /// What drawing the previous frame cost: sprites, draw calls, CPU time
-    /// and GPU time. All zero (and `gpu_ms` is `None`) in headless runs.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// fn overlay(ctx: &mut Ctx) {
-    ///     let stats = ctx.render_stats();
-    ///     if let Some(gpu) = stats.gpu_ms {
-    ///         println!("{} sprites: {:.2} ms CPU, {gpu:.2} ms GPU", stats.sprites, stats.cpu_ms);
-    ///     }
-    /// }
-    /// # Game::new("t", 1, 1).system(overlay).run_headless(1, |_| {});
-    /// ```
-    pub fn render_stats(&self) -> RenderStats {
-        self.last_render_stats
-    }
-
     /// What the GPU can do: the adapter, its main limits, and for each
     /// device-dependent renderer feature (compute passes, TAA, SSR, global
     /// illumination, GPU timestamps, ...) whether it's available and, if
@@ -1621,272 +1559,48 @@ impl Ctx {
         self.renderer.as_ref().map(Renderer::capabilities)
     }
 
-    /// Frame-time statistics over the last few seconds: frames per second,
-    /// average and percentile frame times, and where the time went (systems,
-    /// drawing on the CPU, waiting for the display, the GPU). Refreshed four
-    /// times a second. All zero in headless runs.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// fn report(ctx: &mut Ctx) {
-    ///     let s = ctx.frame_stats();
-    ///     if s.p99_ms > 2.0 * s.p50_ms {
-    ///         println!("stutter: p99 {:.1} ms vs median {:.1} ms", s.p99_ms, s.p50_ms);
-    ///     }
-    /// }
-    /// # Game::new("t", 1, 1).system(report).run_headless(1, |_| {});
-    /// ```
-    pub fn frame_stats(&self) -> crate::FrameStats {
-        self.profiler.stats()
-    }
-
-    /// The GPU time of each pass of the last frames (shadow cascades, depth
-    /// prepass, opaque, transparent, bloom, post, ...), smoothed, in the
-    /// order they run. Empty in headless runs and on GPUs without timestamp
-    /// queries.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// fn slowest_pass(ctx: &mut Ctx) {
-    ///     if let Some(p) = ctx.gpu_passes().iter().max_by(|a, b| a.ms.total_cmp(&b.ms)) {
-    ///         println!("slowest GPU pass: {} ({:.2} ms)", p.name, p.ms);
-    ///     }
-    /// }
-    /// # Game::new("t", 1, 1).system(slowest_pass).run_headless(1, |_| {});
-    /// ```
-    pub fn gpu_passes(&self) -> &[crate::GpuPass] {
-        &self.gpu_passes
-    }
-
-    /// Shows or hides the performance HUD: frame times, CPU and GPU time,
-    /// the slowest GPU passes and systems, drawn in the top-left corner.
-    /// `PONKO_HUD=1` shows it from the start.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// fn toggle_hud(ctx: &mut Ctx) {
-    ///     if ctx.key_pressed(Key::F3) {
-    ///         let on = ctx.perf_hud();
-    ///         ctx.set_perf_hud(!on);
-    ///     }
-    /// }
-    /// # Game::new("t", 1, 1).system(toggle_hud).run_headless(1, |_| {});
-    /// ```
-    pub fn set_perf_hud(&mut self, on: bool) {
-        self.profiler.hud = on;
-    }
-
-    /// Whether the performance HUD is showing.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn f(ctx: &mut Ctx) {
-    /// let on = ctx.perf_hud();
-    /// # }
-    /// ```
-    pub fn perf_hud(&self) -> bool {
-        self.profiler.hud
-    }
-
-    /// Records the next `frames` frames as a Chrome trace at `path`: each
-    /// frame's systems, drawing and display wait on one track, and the GPU
-    /// passes on another. Open it in <https://ui.perfetto.dev>. Does nothing
-    /// in headless runs.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// fn capture(ctx: &mut Ctx) {
-    ///     if ctx.key_pressed(Key::F4) {
-    ///         ctx.record_trace("frames.json", 120);
-    ///     }
-    /// }
-    /// # Game::new("t", 1, 1).system(capture).run_headless(1, |_| {});
-    /// ```
-    pub fn record_trace(&mut self, path: impl Into<PathBuf>, frames: usize) {
-        if !self.headless {
-            self.profiler.start_trace(path.into(), frames.max(1));
-        }
-    }
-
-    /// Turns on the deeper profiling: your [`profile_scope!`](crate::profile_scope)
-    /// scopes and [`Ctx::profile`] calls are timed, allocations are counted
-    /// (if [`CountingAllocator`](crate::CountingAllocator) is installed), and
-    /// [`perf_report`](Self::perf_report) has numbers. The overlay
-    /// (`set_perf_hud`) and `PONKO_BENCH` switch it on by themselves. While
-    /// it is off, scopes cost one atomic load.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// fn debug_keys(ctx: &mut Ctx) {
-    ///     if ctx.key_pressed(Key::F5) {
-    ///         let on = !ctx.profiling();
-    ///         ctx.set_profiling(on);
-    ///     }
-    /// }
-    /// # Game::new("t", 1, 1).system(debug_keys).run_headless(1, |_| {});
-    /// ```
-    pub fn set_profiling(&mut self, on: bool) {
-        self.perf.explicit = on;
-        self.sync_profiling();
-    }
-
-    /// Whether scopes are being timed and allocations counted right now.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn f(ctx: &mut Ctx) {
-    /// if ctx.profiling() { /* build an expensive debug string */ }
-    /// # }
-    /// ```
-    pub fn profiling(&self) -> bool {
-        self.perf.on
-    }
-
-    /// Times `f` as a scope called `name` (see
-    /// [`profile_scope!`](crate::profile_scope), which is cheaper in hot
-    /// code: this looks the name up each time). Times add up across calls.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// fn ai(ctx: &mut Ctx) {
-    ///     let target = ctx.profile("ai/pathing", |_ctx| 42);
-    ///     assert_eq!(target, 42);
-    /// }
-    /// # Game::new("t", 1, 1).sim_system(ai).run_headless(1, |_| {});
-    /// ```
-    pub fn profile<R>(&mut self, name: &str, f: impl FnOnce(&mut Ctx) -> R) -> R {
-        if !crate::scope::active() {
-            return f(self);
-        }
-        let scope = crate::scope_named(name);
-        let token = scope.begin();
-        let out = f(self);
-        scope.end(token);
-        out
-    }
-
-    /// Each profiling scope's time in the last frame, in the order they
-    /// first ran. Empty while profiling is off.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// fn report(ctx: &mut Ctx) {
-    ///     for s in ctx.scope_timings() {
-    ///         println!("{}: {:.2} ms in {} calls", s.name, s.last_ms, s.calls);
-    ///     }
-    /// }
-    /// # Game::new("t", 1, 1).system(report).run_headless(1, |_| {});
-    /// ```
-    pub fn scope_timings(&self) -> &[crate::ScopeTiming] {
-        &self.perf.scopes.timings
-    }
-
-    /// Where time and allocations went over the last frames (about half a
-    /// minute in a window; every tick of a [`Game::profile_headless`](crate::Game::profile_headless) run):
-    /// frame-time percentiles, systems, scopes, allocations, the slowest
-    /// frames and what was in them, drawing stats, and warnings with advice.
-    /// `println!("{report}")` prints it. Empty until profiling is on (see
-    /// [`set_profiling`](Self::set_profiling)).
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// fn dump(ctx: &mut Ctx) {
-    ///     if ctx.key_pressed(Key::F6) {
-    ///         println!("{}", ctx.perf_report());
-    ///     }
-    /// }
-    /// # Game::new("t", 1, 1).system(dump).run_headless(1, |_| {});
-    /// ```
-    pub fn perf_report(&self) -> crate::PerfReport {
-        let mut report = self.perf.collector.report();
-        report.entities = self.world.len();
-        if !self.headless && report.frames > 0 {
-            let f = self.profiler.stats();
-            let r = self.last_render_stats;
-            let mut passes: Vec<_> = self
-                .gpu_passes
-                .iter()
-                .map(|p| crate::PassReport {
-                    name: p.name.into(),
-                    ms: p.ms,
-                })
-                .collect();
-            passes.sort_by(|a, b| b.ms.total_cmp(&a.ms));
-            report.render = Some(crate::RenderReport {
-                systems_ms: f.systems_ms,
-                render_cpu_ms: f.render_cpu_ms,
-                display_wait_ms: f.display_wait_ms,
-                gpu_ms: f.gpu_ms,
-                draw_calls: r.draw_calls,
-                sprites: r.sprites,
-                models: r.instances,
-                triangles: r.triangles,
-                shadow_models: r.shadow_instances,
-                shadow_triangles: r.shadow_triangles,
-                occluded: r.occluded,
-                gpu_passes: passes,
-            });
-        }
-        crate::perf_report::analyze(&mut report);
-        report
-    }
-
-    /// Starts or stops the deeper profiling to match what's wanted: the
-    /// overlay, a benchmark run, or `set_profiling`.
-    pub(crate) fn sync_profiling(&mut self) {
-        let wanted = self.perf.explicit || self.profiler.hud || self.profiler.benchmarking();
-        self.perf.sync(wanted);
-    }
-
-    /// Ends a frame (or headless tick) that took `ms` for the report.
-    pub(crate) fn end_perf_frame(&mut self, ms: f32) {
-        self.perf.end_frame(ms, &self.timings);
-    }
-
     /// Hands one frame's timings to the profiler. `true` when a benchmark
     /// run is done and the game should quit.
     pub(crate) fn record_frame(&mut self, sample: crate::profiler::FrameSample) -> bool {
         let gpu_frame = self.renderer.as_ref().and_then(Renderer::gpu_frame);
-        let quit = self.profiler.record(
-            sample,
-            &self.timings,
-            &self.gpu_passes,
-            gpu_frame,
-            self.last_render_stats,
-        );
-        self.end_perf_frame(sample.frame_ms);
-        if self.profiler.warmup_ends_now() {
-            // A benchmark's report covers the measured frames only.
-            self.perf.collector.clear();
-        }
-        if quit {
-            let report = self.perf_report();
-            eprint!("{report}");
-            if let Some(path) = crate::environment::var_os("PONKO_BENCH_REPORT")
-                && let Err(e) = report.save(&path)
-            {
-                eprintln!("ponko: could not write {}: {e}", std::path::Path::new(&path).display());
-            }
-        }
-        quit
+        self.perf.entities = self.world.len();
+        self.perf.record_frame(sample, gpu_frame)
+    }
+
+    /// Starts or stops the deeper profiling to match what's wanted.
+    pub(crate) fn sync_profiling(&mut self) {
+        self.perf.sync_profiling();
+    }
+
+    /// Ends a frame (or headless tick) that took `ms` for the report.
+    pub(crate) fn end_perf_frame(&mut self, ms: f32) {
+        self.perf.entities = self.world.len();
+        self.perf.end_frame(ms);
+    }
+
+    /// Engine side: this context has no window or GPU.
+    pub(crate) fn set_headless(&mut self, headless: bool) {
+        self.headless = headless;
+        self.perf.headless = headless;
     }
 
     /// Queues the HUD's drawing for this frame (the game loop calls it
     /// before rendering).
     pub(crate) fn draw_perf_hud(&mut self) {
-        if !self.profiler.hud || self.profiler.hud_text().is_empty() {
+        if !self.perf.profiler.hud || self.perf.profiler.hud_text().is_empty() {
             return;
         }
-        if self.perf.on && self.perf.hud_due() {
+        if self.perf.state.on && self.perf.state.hud_due() {
             let before = crate::alloc_counts();
-            let report = self.perf_report();
-            crate::perf_report::hud_lines(&mut self.perf.hud_extra, &report);
+            self.perf.entities = self.world.len();
+            let report = self.perf.report();
+            crate::perf_report::hud_lines(&mut self.perf.state.hud_extra, &report);
             // Building the overlay isn't the game's allocation.
-            self.perf.forgive_allocs(before);
+            self.perf.state.forgive_allocs(before);
         }
-        let mut text = std::mem::take(self.profiler.hud_text_mut());
+        let mut text = std::mem::take(self.perf.profiler.hud_text_mut());
         let base = text.len();
-        text.push_str(&self.perf.hud_extra);
+        text.push_str(&self.perf.state.hud_extra);
         let lines = text.lines().count() as f32;
         let (size, pad) = (14.0, 8.0);
         let panel = crate::Rect::new(4.0, 4.0, 420.0, lines * size * 1.25 + pad * 2.0);
@@ -1902,7 +1616,7 @@ impl Ctx {
             },
         );
         text.truncate(base);
-        *self.profiler.hud_text_mut() = text;
+        *self.perf.profiler.hud_text_mut() = text;
     }
 
     // ---------------------------------------------------------------- timing
@@ -2118,7 +1832,7 @@ mod tests {
     #[test]
     fn source_assets_are_cached_by_source_and_never_watched() {
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::ZERO);
-        ctx.headless = true;
+        ctx.set_headless(true);
         ctx.watcher.on = true;
         // An absolute name resolves as itself in the default source.
         let dir = std::env::temp_dir().join(format!("ponko-source-test-{}", std::process::id()));
@@ -2167,7 +1881,7 @@ mod tests {
     #[test]
     fn sounds_from_sources_are_cached_by_source_and_never_watched() {
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::ZERO);
-        ctx.headless = true;
+        ctx.set_headless(true);
         ctx.watcher.on = true;
         let dir = std::env::temp_dir().join(format!("ponko-source-sound-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -2189,7 +1903,7 @@ mod tests {
     fn shaders_from_sources_are_cached_by_source_and_never_watched() {
         let wgsl = "fn surface(s: Surface) -> Surface { return s; }";
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::ZERO);
-        ctx.headless = true;
+        ctx.set_headless(true);
         ctx.watcher.on = true;
         let dir = std::env::temp_dir().join(format!("ponko-source-shader-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();

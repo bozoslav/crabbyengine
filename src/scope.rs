@@ -1,8 +1,8 @@
 //! Profiling scopes: time a piece of your own code and see it next to the
-//! systems in the overlay, the benchmark reports and `ctx.perf_report()`.
+//! systems in the overlay, the benchmark reports and `ctx.perf.report()`.
 //!
 //! A scope costs one relaxed atomic load while profiling is off (see
-//! [`Ctx::set_profiling`](crate::Ctx::set_profiling)), and two clock reads
+//! [`Perf::set_profiling`](crate::Perf::set_profiling)), and two clock reads
 //! and two atomic adds while it is on. Scopes may be used from any thread
 //! (rayon workers included): their times add up, so a scope that runs on four
 //! threads at once reports four times the wall time.
@@ -130,6 +130,14 @@ pub struct ScopeGuard {
     token: u64,
 }
 
+impl ScopeGuard {
+    /// A guard that times nothing, for when profiling is off.
+    pub(crate) fn off() -> Self {
+        static OFF: ProfileScope = ProfileScope::new("off");
+        Self { scope: &OFF, token: 0 }
+    }
+}
+
 impl Drop for ScopeGuard {
     #[inline]
     fn drop(&mut self) {
@@ -152,7 +160,7 @@ pub fn scope_named(name: &str) -> &'static ProfileScope {
 /// Times the rest of the block as a scope called `$name`.
 ///
 /// It shows up next to the systems in the performance overlay, in
-/// `PONKO_BENCH` reports and in [`Ctx::perf_report`](crate::Ctx::perf_report).
+/// `PONKO_BENCH` reports and in [`Perf::report`](crate::Perf::report).
 /// While profiling is off it costs one atomic load. Times are inclusive: a
 /// scope inside another is part of it.
 ///
@@ -179,7 +187,7 @@ macro_rules! profile_scope {
     };
 }
 
-/// One scope's times, from [`Ctx::scope_timings`](crate::Ctx::scope_timings).
+/// One scope's times, from [`Perf::scope_timings`](crate::Perf::scope_timings).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ScopeTiming {
     /// The scope's name.

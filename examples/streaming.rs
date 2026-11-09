@@ -177,7 +177,7 @@ fn main() {
                 println!(
                     "{uploaded} tiles uploaded ({:.2} ms each, worst {worst_upload:.2} ms), {freed} freed, {live} live; {:?}",
                     upload_time / uploaded.max(1) as f64,
-                    ctx.render_stats()
+                    ctx.perf.render_stats()
                 );
                 ctx.quit();
             }

@@ -71,9 +71,9 @@ struct Bench {
 
 fn bench(ctx: &mut Ctx) {
     let now = std::time::Instant::now();
-    let cpu = ctx.render_stats().cpu_ms as f64;
-    let gpu = ctx.render_stats().gpu_ms.unwrap_or(0.0) as f64;
-    let wait = ctx.display_wait_ms() as f64;
+    let cpu = ctx.perf.render_stats().cpu_ms as f64;
+    let gpu = ctx.perf.render_stats().gpu_ms.unwrap_or(0.0) as f64;
+    let wait = ctx.perf.display_wait_ms() as f64;
     let b = ctx.world.resource_mut::<Bench>();
     let start = *b.start.get_or_insert(now);
     let elapsed = now.duration_since(start).as_secs_f64();

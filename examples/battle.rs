@@ -608,7 +608,13 @@ fn hud(ctx: &mut Ctx) {
     let field_ms = ctx.world.resource::<Battle>().field_ms;
     let s = ctx.world.resource::<Score>();
     let (alive, won, winner) = (s.alive, s.rounds_won, s.winner);
-    let sim_ms: f32 = ctx.system_timings().iter().filter(|t| t.sim).map(|t| t.avg_ms).sum();
+    let sim_ms: f32 = ctx
+        .perf
+        .system_timings()
+        .iter()
+        .filter(|t| t.sim)
+        .map(|t| t.avg_ms)
+        .sum();
     let speed = if ctx.time.is_paused() {
         "paused".to_string()
     } else {
@@ -653,6 +659,7 @@ fn main() {
                 if ctx.time.sim_tick().is_multiple_of(120) {
                     let b = ctx.world.resource::<Score>();
                     let timings: Vec<String> = ctx
+                        .perf
                         .system_timings()
                         .iter()
                         .filter(|t| t.sim && t.avg_ms >= 0.01)

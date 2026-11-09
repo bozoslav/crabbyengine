@@ -34,7 +34,7 @@
 //! - `gamepad` (default): gamepads through gilrs; without it
 //!   `Input::gamepads` is always empty. On Linux it needs libudev headers.
 //! - `profiling`: per-system scopes for `puffin_viewer`. (Not needed for
-//!   [`profile_scope!`], [`Ctx::perf_report`] or [`CountingAllocator`], which
+//!   [`profile_scope!`], [`Perf::report`] or [`CountingAllocator`], which
 //!   are always built in and cost one atomic load while profiling is off.)
 //! - `hotpatch`: change system code while the game runs, with
 //!   `dx serve --hot-patch --features hotpatch`.
@@ -90,6 +90,7 @@ mod nav3d;
 mod net;
 #[cfg(feature = "navmesh")]
 pub use nav3d::{NavAgent3D, NavBakeError, NavBakeSettings, NavMesh3D, NavObstacle3D, NavSource, step_navmesh3d};
+mod perf;
 mod perf_report;
 #[cfg(feature = "physics")]
 mod physics;
@@ -128,7 +129,7 @@ pub use camera::{Camera2D, Rect, camera_controls};
 #[cfg(any(feature = "physics", feature = "physics3d"))]
 pub use collision::{BodyKind, CollisionStarted, CollisionStopped};
 pub use color::Color;
-pub use ctx::{Ctx, SystemTiming};
+pub use ctx::Ctx;
 pub use diagnostics::{
     ArchetypeDiagnostics, ComponentDiagnostics, ECS_DIAGNOSTICS_VERSION, EcsDiagnostics, MatchCount, SystemDiagnostics,
 };
@@ -155,6 +156,7 @@ pub use net::{
 pub use net::{NetPose, apply_net_poses};
 #[cfg(feature = "steam")]
 pub use net::{SteamLobby, SteamLobbyVisibility, steam_lobby_from_args, steam_wait_for_invite};
+pub use perf::{Perf, SystemTiming};
 pub use perf_report::{
     AllocReport, Budget, BudgetViolation, Contributor, FrameTimes, PassReport, PerfReport, PerfWarning, Regression,
     RenderReport, ScopeReport, SystemReport, WarningKind, WorstFrame,

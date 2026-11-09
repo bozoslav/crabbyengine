@@ -2,7 +2,7 @@
 //! worst frames, warnings with advice, budgets for tests and CI, and
 //! comparing two runs.
 //!
-//! A [`PerfReport`] comes from [`Ctx::perf_report`](crate::Ctx::perf_report)
+//! A [`PerfReport`] comes from [`Perf::report`](crate::Perf::report)
 //! in a running game and from [`Game::profile_headless`](crate::Game::profile_headless)
 //! for a headless run; `PONKO_BENCH` prints one, and the control endpoint's
 //! `perf.get` returns one as JSON.
@@ -14,7 +14,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::alloc_count::{self, AllocCounts};
-use crate::ctx::SystemTiming;
+use crate::perf::SystemTiming;
 use crate::profiler::percentile;
 use crate::scope::{self, ScopeState, ScopeTiming};
 
@@ -176,7 +176,7 @@ pub struct PerfWarning {
 }
 
 /// Where a game's time and allocations go, over its last frames. It comes
-/// from [`Ctx::perf_report`](crate::Ctx::perf_report) in a running game and
+/// from [`Perf::report`](crate::Perf::report) in a running game and
 /// [`Game::profile_headless`](crate::Game::profile_headless) in a headless run.
 ///
 /// ```
@@ -822,7 +822,7 @@ impl Collector {
 pub(crate) struct PerfState {
     /// Profiling is running (scopes and allocation counting count).
     pub on: bool,
-    /// `Ctx::set_profiling(true)` was called.
+    /// `Perf::set_profiling(true)` was called.
     pub explicit: bool,
     pub scopes: ScopeState,
     pub collector: Collector,

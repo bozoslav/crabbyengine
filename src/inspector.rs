@@ -842,7 +842,7 @@ fn edit_number(ui: &mut Ui, n: &mut serde_json::Number) -> bool {
 
 /// Each system's time this frame, slowest first.
 fn systems(ui: &mut Ui, ctx: &Ctx) {
-    let timings = ctx.system_timings();
+    let timings = ctx.perf.system_timings();
     if timings.is_empty() {
         ui.label(RichText::new("no systems").weak());
         return;

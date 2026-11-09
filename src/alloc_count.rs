@@ -2,7 +2,7 @@
 //!
 //! Install [`CountingAllocator`] as the global allocator and the profiler
 //! counts allocations per frame and per system (the overlay, benchmark
-//! reports and [`Ctx::perf_report`](crate::Ctx::perf_report) show them). It
+//! reports and [`Perf::report`](crate::Perf::report) show them). It
 //! counts only while profiling is on, so a game that leaves it installed pays
 //! one relaxed atomic load per allocation.
 //!

@@ -136,7 +136,7 @@ fn paint(ctx: &mut Ctx) {
 // ANCHOR_END: paint
 
 fn hud(ctx: &mut Ctx) {
-    let r = ctx.render_stats();
+    let r = ctx.perf.render_stats();
     let text = format!(
         "{} sprites drawn ({} draw calls)\nzoom {:.2}x, {:.0} FPS\nleft mouse: paint, right drag: pan, wheel: zoom",
         r.sprites,

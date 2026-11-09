@@ -245,7 +245,7 @@ fn main() {
                 ctx.quit();
             }
             if ctx.time.frame() == 300 {
-                let stats = ctx.render_stats();
+                let stats = ctx.perf.render_stats();
                 println!("{stats:?} models drawn: {}", ctx.models_drawn());
                 if bench {
                     ctx.quit();

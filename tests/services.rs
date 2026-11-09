@@ -121,37 +121,60 @@ fn input_edges_and_the_cursor_lock_live_on_the_input_service() {
     });
 }
 
-/// The flat spellings from before the services stay for one deprecation
-/// cycle: each forwards to its service.
 #[test]
-#[allow(deprecated)]
-fn the_flat_time_and_input_spellings_still_forward() {
-    Game::new("t", 1, 1).run_headless(0, |ctx| {
-        ctx.set_sim_speed(2.0);
-        assert_eq!(ctx.sim_speed(), ctx.time.speed());
-        assert_eq!(ctx.time(), ctx.time.elapsed());
-        assert_eq!(ctx.frame(), ctx.time.frame());
-        assert_eq!(ctx.fps(), ctx.time.fps());
-        assert_eq!(ctx.sim_tick(), ctx.time.sim_tick());
-        assert_eq!(ctx.fixed_dt(), ctx.time.fixed_dt());
-        assert_eq!(ctx.fixed_steps(), ctx.time.fixed_steps());
-        assert_eq!(ctx.fixed_alpha(), ctx.time.fixed_alpha());
-        ctx.pause();
-        assert!(ctx.is_paused() && ctx.time.is_paused());
-        ctx.resume();
-        ctx.step();
-        assert_eq!(ctx.turns(4), ctx.time.turns(4));
-
-        ctx.feed_input(InputEvent::Key(Key::Space, true));
-        assert!(ctx.input.key_pressed(Key::Space));
-        ctx.set_cursor_locked(true);
-        assert!(ctx.cursor_locked() && ctx.input.cursor_locked());
-        ctx.ui_insert_text("x");
-        assert_eq!(ctx.typed_text(), "x");
-        assert_eq!(ctx.mouse_delta(), ctx.input.mouse_delta());
-        assert_eq!(ctx.mouse_wheel(), ctx.input.mouse_wheel());
-        assert_eq!(ctx.gamepads().len(), ctx.input.gamepads().len());
-        ctx.set_actions(ActionMap::default());
-        assert!(!ctx.action_down("jump"));
+fn perf_reads_while_a_world_query_is_alive_and_scopes_borrow_nothing() {
+    fn work(ctx: &mut Ctx) {
+        // The guard holds no borrow of `ctx`, so the timed code may use all of it.
+        let _timing = ctx.perf.scope("services/work");
+        for p in ctx.world.query::<&mut Pos>().iter() {
+            p.0 += ctx.perf.system_timings().len() as f32;
+        }
+        ctx.commands.spawn((Pos(0.0),));
+    }
+    let mut world = Game::new("t", 1, 1).sim_system(work).run_headless(2, |ctx| {
+        ctx.perf.set_profiling(true);
+        ctx.world.spawn((Pos(0.0),));
     });
+    assert_eq!(world.query::<&Pos>().count(), 3);
+}
+
+#[test]
+fn the_report_counts_the_entities_left_by_the_last_system() {
+    fn grow(ctx: &mut Ctx) {
+        ctx.commands.spawn((Pos(0.0),));
+    }
+    struct Seen(Vec<usize>);
+    fn look(ctx: &mut Ctx) {
+        let entities = ctx.perf.report().entities;
+        ctx.world.resource_mut::<Seen>().0.push(entities);
+    }
+    let world = Game::new("t", 1, 1)
+        .sim_system(grow)
+        .sim_system(look)
+        .run_headless(3, |ctx| ctx.world.insert_resource(Seen(Vec::new())));
+    assert_eq!(world.resource::<Seen>().0, [1, 2, 3]);
+}
+
+#[test]
+fn the_hud_switch_turns_profiling_on_and_scopes_get_timed() {
+    fn timed(ctx: &mut Ctx) {
+        let _timing = ctx.perf.scope("services/timed");
+        std::hint::black_box((0..1000).sum::<u64>());
+    }
+    struct Names(Vec<&'static str>);
+    fn read(ctx: &mut Ctx) {
+        let names: Vec<_> = ctx.perf.scope_timings().iter().map(|s| s.name).collect();
+        ctx.world.resource_mut::<Names>().0 = names;
+    }
+    let world = Game::new("t", 1, 1)
+        .sim_system(timed)
+        .sim_system(read)
+        .run_headless(3, |ctx| {
+            ctx.world.insert_resource(Names(Vec::new()));
+            assert!(!ctx.perf.profiling());
+            ctx.perf.set_hud(true);
+            assert!(ctx.perf.hud());
+            assert!(ctx.perf.profiling(), "the overlay needs the deeper numbers");
+        });
+    assert!(world.resource::<Names>().0.contains(&"services/timed"));
 }

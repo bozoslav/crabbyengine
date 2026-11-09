@@ -46,7 +46,7 @@ pub(crate) use none::Renderer;
 #[cfg(all(feature = "window", feature = "3d"))]
 pub(crate) use shader_diagnostics::{diagnose, without_location};
 
-/// What drawing the last frame cost, from [`Ctx::render_stats`](crate::Ctx::render_stats).
+/// What drawing the last frame cost, from [`Perf::render_stats`](crate::Perf::render_stats).
 ///
 /// Compare `cpu_ms` and `gpu_ms` with the frame time to see what limits the
 /// frame rate: if `gpu_ms` is close to the frame time, the GPU is the

@@ -51,9 +51,9 @@ where
     }
     ctx.net.begin(ctx.seed);
     let control = game.start_control(&mut ctx, false);
-    ctx.profiler = crate::profiler::Profiler::from_env();
+    ctx.perf.profiler = crate::profiler::Profiler::from_env();
     // A benchmark measures how fast the game can run, not the display.
-    if ctx.profiler.benchmarking() {
+    if ctx.perf.profiler.benchmarking() {
         game.vsync = false;
     }
     match crate::environment::var("PONKO_VSYNC").as_deref() {
@@ -240,8 +240,8 @@ where
             systems_ms,
             render_start_ms: since_start(render_start),
             render_ms,
-            wait_ms: self.ctx.display_wait_ms(),
-            gpu_ms: self.ctx.last_render_stats.gpu_ms,
+            wait_ms: self.ctx.perf.display_wait_ms(),
+            gpu_ms: self.ctx.perf.last_render_stats.gpu_ms,
             presented: matches!(status, FrameStatus::Presented | FrameStatus::Offscreen),
         };
         if self.ctx.record_frame(sample) {
@@ -274,7 +274,7 @@ where
         // refresh, so above that rate presenting stalls now and then.
         // PONKO_BENCH_PRESENT=1 draws to the window when it can take a frame.
         let present = crate::environment::var("PONKO_BENCH_PRESENT").is_ok_and(|v| v == "1");
-        let benchmarking = self.ctx.profiler.benchmarking();
+        let benchmarking = self.ctx.perf.profiler.benchmarking();
         renderer.set_draw_hidden(benchmarking, benchmarking && !present);
         self.ctx.renderer = Some(renderer);
         self.ctx.set_window_size(Self::logical_window_size(&window));
@@ -411,7 +411,7 @@ where
 
             WindowEvent::Occluded(occluded) => {
                 // A benchmark draws offscreen while hidden and keeps going.
-                self.occluded = occluded && !self.ctx.profiler.benchmarking();
+                self.occluded = occluded && !self.ctx.perf.profiler.benchmarking();
                 if !occluded {
                     window.request_redraw();
                 }
