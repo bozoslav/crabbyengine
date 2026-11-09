@@ -166,3 +166,42 @@ fn a_scene_saved_from_c_loads_back() {
         crabby_world_free(world);
     }
 }
+
+unsafe extern "C" fn huge_id_setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
+    unsafe {
+        let run = &mut *user.cast::<Run>();
+        run.errors.push(crabby_ctx_load_scene(ctx, run.file.unwrap().as_ptr()));
+    }
+}
+
+#[test]
+fn scenes_with_huge_entity_ids_are_refused_from_c() {
+    let file = TempAsset(c"test-ffi-huge-id.json");
+    let assets = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets");
+    std::fs::create_dir_all(&assets).unwrap();
+    std::fs::write(
+        assets.join(file.0.to_str().unwrap()),
+        r#"{ "format": "crabby-world", "version": 1, "entities": [ { "entity": 2147483648,
+  "components": { "Transform2D": { "position": [0.0, 0.0], "rotation": 0.0, "scale": [1.0, 1.0] } } } ] }"#,
+    )
+    .unwrap();
+    let mut run = Run {
+        file: Some(file.0),
+        ..Default::default()
+    };
+    unsafe {
+        let mut world = null_mut();
+        let game = crabby_game_new(c"scenes".as_ptr(), 1, 1);
+        assert_eq!(
+            crabby_game_run_headless(game, 0, Some(huge_id_setup), (&raw mut run).cast(), &mut world),
+            CRABBY_OK
+        );
+        assert_eq!(run.errors, [CRABBY_INVALID_ARGUMENT]);
+        let message = CStr::from_ptr(crabby_last_error()).to_string_lossy().into_owned();
+        assert!(message.contains("may only use indices below"), "{message}");
+        let mut n = 1;
+        assert_eq!(crabby_world_len(world, &mut n), CRABBY_OK);
+        assert_eq!(n, 0);
+        crabby_world_free(world);
+    }
+}

@@ -129,18 +129,20 @@ impl Entities {
         if e.index == u32::MAX {
             return false;
         }
-        while self.slots.len() <= index {
-            let i = self.slots.len() as u32;
-            self.slots.push(Slot {
-                generation: 0,
-                loc: Location {
-                    archetype: DEAD,
-                    row: 0,
+        if self.slots.len() <= index {
+            // Grow in one step; the skipped slots go on the free list.
+            let first_new = self.slots.len() as u32;
+            self.slots.resize(
+                index + 1,
+                Slot {
+                    generation: 0,
+                    loc: Location {
+                        archetype: DEAD,
+                        row: 0,
+                    },
                 },
-            });
-            if i != e.index {
-                self.free.push(i);
-            }
+            );
+            self.free.extend(first_new..e.index);
         }
         let slot = &mut self.slots[index];
         if slot.loc.archetype != DEAD || e.generation < slot.generation {
@@ -182,5 +184,10 @@ impl Entities {
 
     pub(crate) fn len(&self) -> usize {
         self.alive
+    }
+
+    /// Size of the slot table: one past the highest index ever handed out.
+    pub(crate) fn slots(&self) -> usize {
+        self.slots.len()
     }
 }

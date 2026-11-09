@@ -86,6 +86,11 @@ type SpawnAtFn = Arc<dyn Fn(&mut World, Entity, Value) -> Result<bool, String> +
 const SAVE_FORMAT: &str = "crabby-world";
 /// Version of the save layout; bumped when it changes incompatibly.
 const SAVE_VERSION: u64 = 1;
+/// Entity slots a save may use beyond its own entities, for the gaps that
+/// despawns leave: 2^22 slots, about 64 MiB of slot table and free list at worst.
+const LOAD_SPARE_SLOTS: usize = 1 << 22;
+/// Entity slots a save may use per entity it holds, on top of the spare ones.
+const LOAD_SLOTS_PER_ENTITY: usize = 8;
 
 /// What reflection knows about one component type.
 #[derive(Clone)]
@@ -658,6 +663,18 @@ pub trait WorldReflect {
     /// If `save` isn't a world save this version reads, names a component or
     /// resource that isn't reflected, or has a value that doesn't fit its
     /// type. Everything is checked first: on an error the world is unchanged.
+    ///
+    /// Also if an entity id's index is out of bounds, so that a corrupt or
+    /// hostile file can't make the world allocate a huge entity table. Saved
+    /// ids are kept, and the world's slot table grows to the highest index,
+    /// so indices must be below the largest of: this world's current
+    /// [`entity_slots`](World::entity_slots), or 8 × the number of entities in
+    /// the save; plus 4,194,304 (2^22) spare slots for the gaps despawns
+    /// leave. A world saved by the engine reuses freed slots, so its highest
+    /// index is below the most entities it ever had alive at once: its saves
+    /// always load in the same session, and in any session unless it once had
+    /// over 4 million entities alive and was then saved with less than an
+    /// eighth of them.
     fn load(&mut self, save: &Value) -> Result<(), ReflectError>;
 
     /// Makes resource `R` visible to reflection under its type name without
@@ -1205,6 +1222,7 @@ impl WorldReflect for World {
         // Check everything first, so a bad save leaves the world as it was.
         let mut plan = Vec::with_capacity(list.len());
         let mut seen = std::collections::HashSet::with_capacity(list.len());
+        let mut highest: Option<u64> = None;
         for item in list {
             let id = item["entity"]
                 .as_u64()
@@ -1225,6 +1243,24 @@ impl WorldReflect for World {
                 parts.push((c, value.clone()));
             }
             plan.push((Entity::from_bits(id), parts));
+            if highest.is_none_or(|h| Entity::from_bits(h).index() < Entity::from_bits(id).index()) {
+                highest = Some(id);
+            }
+        }
+        // Bound the slot table the ids would grow (see the docs of `load`).
+        let allowed = self
+            .entity_slots()
+            .max(list.len().saturating_mul(LOAD_SLOTS_PER_ENTITY))
+            .saturating_add(LOAD_SPARE_SLOTS);
+        if let Some(id) = highest
+            && Entity::from_bits(id).index() as usize >= allowed
+        {
+            return Err(bad(format!(
+                "entity id {id} has index {}, but a save of {} entities may only use indices below {allowed}; \
+                 the file is corrupt or not a world save",
+                Entity::from_bits(id).index(),
+                list.len()
+            )));
         }
         // Saves from before resources were saved have none.
         let mut resource_plan = Vec::new();
