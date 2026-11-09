@@ -201,9 +201,10 @@ pub(crate) fn check_aliasing<Q: QueryData>(world: &World, ids: &Q::Ids) {
 /// bit `i` of `any_has` is set, absence otherwise.
 ///
 /// `Added` and `Changed` filters also pick rows inside a matching archetype
-/// (see [`Filters::row_filter`]). The ones that must all hold are `ticks`
-/// (each also a `with`); inside an `Or`, bit `i` of `any_added` or
-/// `any_changed` marks term `i` (which then asks for presence too).
+/// (see [`Filters::row_filter`]). One that must hold is a `with` whose bit
+/// is set in `with_added` or `with_changed`; inside an `Or`, bit `i` of
+/// `any_added` or `any_changed` marks term `i` (which then asks for presence
+/// too).
 ///
 /// Public but not exported: it can't be named outside this crate, which
 /// seals [`QueryFilter`], [`OrTerm`] and [`OrTerms`].
@@ -219,10 +220,8 @@ pub struct Filters {
     any_end: [u8; MAX_OR],
     n_any: u8,
     n_terms: u8,
-    ticks: [ComponentId; MAX_TICKS],
-    n_ticks: u8,
-    /// Bit `i` set: `ticks[i]` is an `Added` filter, else a `Changed` one.
-    tick_added: u8,
+    with_added: u8,
+    with_changed: u8,
     any_added: u16,
     any_changed: u16,
 }
@@ -295,19 +294,22 @@ impl Filters {
     /// must hold; the component must be tracked.
     pub(crate) fn add_tick(&mut self, id: ComponentId, added: bool) {
         self.add_with(id);
-        let n = self.n_ticks as usize;
-        if (0..n).any(|i| self.ticks[i] == id && (self.tick_added >> i & 1 != 0) == added) {
+        let n = self.n_with as usize;
+        let i = self.with[..n].iter().position(|&with| with == id).expect("just added");
+        let filters = self.with_added.count_ones() + self.with_changed.count_ones();
+        let mask = if added {
+            &mut self.with_added
+        } else {
+            &mut self.with_changed
+        };
+        if *mask >> i & 1 != 0 {
             return;
         }
         assert!(
-            n < MAX_TICKS,
+            filters < MAX_TICKS as u32,
             "at most {MAX_TICKS} `Added`/`Changed` filters per query outside `Or`"
         );
-        self.ticks[n] = id;
-        if added {
-            self.tick_added |= 1 << n;
-        }
-        self.n_ticks += 1;
+        *mask |= 1 << i;
     }
 
     /// Adds an `Added` (`added`) or `Changed` term on component `id` to the
@@ -328,14 +330,18 @@ impl Filters {
     #[inline]
     pub(crate) fn row_filter(&self, arch: &Archetype, clock: Clock) -> Option<RowFilter> {
         let in_or = self.any_added | self.any_changed;
-        if self.n_ticks == 0 && in_or == 0 {
+        if self.with_added | self.with_changed == 0 && in_or == 0 {
             return None;
         }
         let mut rows = RowFilter::new(clock);
-        for i in 0..self.n_ticks as usize {
-            let stamps = arch.read_stamps(self.ticks[i], self.tick_added >> i & 1 != 0);
-            rows.term(stamps.expect("an `Added`/`Changed` filter's component is present and tracked"));
-            rows.close();
+        for i in 0..self.n_with as usize {
+            for (mask, added) in [(self.with_added, true), (self.with_changed, false)] {
+                if mask >> i & 1 != 0 {
+                    let stamps = arch.read_stamps(self.with[i], added);
+                    rows.term(stamps.expect("an `Added`/`Changed` filter's component is present and tracked"));
+                    rows.close();
+                }
+            }
         }
         let mut start = 0;
         for &end in &self.any_end[..self.n_any as usize] {
@@ -1135,13 +1141,8 @@ impl<'a, Q: QueryData> Iterator for QueryIter<'a, Q> {
                 self.row += 1;
                 return Some(unsafe { Q::fetch(state, row) });
             }
-            if let Some(runs) = &mut self.runs {
-                if let Some((start, end)) = runs.next::<Q>(&self.ids) {
-                    self.row = start;
-                    self.len = end;
-                    continue;
-                }
-                self.runs = None;
+            if self.runs.is_some() && self.next_run() {
+                continue;
             }
             let arch = self.archetypes.next()?;
             self.state = if arch.is_empty() || !self.filters.matches(arch) {
@@ -1151,13 +1152,41 @@ impl<'a, Q: QueryData> Iterator for QueryIter<'a, Q> {
             };
             self.row = 0;
             self.len = arch.len();
-            if self.state.is_some() && arch.tracked() {
-                self.runs = change::visit::<Q>(arch, &self.ids, &self.filters, self.clock);
-                if self.runs.is_some() {
-                    // The rows come from the runs.
-                    self.len = 0;
-                }
+            if arch.tracked() && self.state.is_some() {
+                self.enter_tracked(arch);
             }
+        }
+    }
+}
+
+impl<'a, Q: QueryData> QueryIter<'a, Q> {
+    /// Moves to the current archetype's next run of rows that pass the
+    /// `Added`/`Changed` filters; `false` once it has none left.
+    #[inline(never)]
+    fn next_run(&mut self) -> bool {
+        let run = self.runs.as_mut().and_then(|runs| runs.next::<Q>(&self.ids));
+        match run {
+            Some((start, end)) => {
+                self.row = start;
+                self.len = end;
+                true
+            }
+            None => {
+                self.runs = None;
+                false
+            }
+        }
+    }
+
+    /// Enters an archetype that tracks changes: stamps what the query may
+    /// write, and takes the rows from runs if a filter picks rows. Kept out
+    /// of `next` so worlds that track nothing iterate as before.
+    #[inline(never)]
+    fn enter_tracked(&mut self, arch: &'a Archetype) {
+        self.runs = change::visit::<Q>(arch, &self.ids, &self.filters, self.clock);
+        if self.runs.is_some() {
+            // The rows come from the runs.
+            self.len = 0;
         }
     }
 }

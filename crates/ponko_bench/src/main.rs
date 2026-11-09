@@ -491,21 +491,28 @@ fn main() {
         );
     }
     // Reading a tracked component marks nothing.
-    b.steady(
-        "changes/ponko-iter-read-tracked",
-        200,
-        || {
-            let mut w = ponko_ecs::World::new();
-            w.track_changes::<Pos>();
-            w.spawn_batch((0..N).map(ent));
-            w
-        },
-        |w| {
-            let mut sum = 0.0;
-            w.query::<(&Pos, &Vel)>().for_each(|(p, v)| sum += p.x + v.x);
-            black_box(sum);
-        },
-    );
+    for (name, tracked) in [
+        ("changes/ponko-iter-read-untracked", false),
+        ("changes/ponko-iter-read-tracked", true),
+    ] {
+        b.steady(
+            name,
+            200,
+            || {
+                let mut w = ponko_ecs::World::new();
+                if tracked {
+                    w.track_changes::<Pos>();
+                }
+                w.spawn_batch((0..N).map(ent));
+                w
+            },
+            |w| {
+                let mut sum = 0.0;
+                w.query::<(&Pos, &Vel)>().for_each(|(p, v)| sum += p.x + v.x);
+                black_box(sum);
+            },
+        );
+    }
     // A `Changed` filter over a world where nothing, 1% or everything changed
     // since the reader last looked.
     for (name, every) in [
