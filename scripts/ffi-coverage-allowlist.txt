@@ -13,9 +13,8 @@ crabby_ctx_draw_ex                 # queues a sprite with options; same
 crabby_ctx_draw_text               # headless runs skip text layout entirely (no font atlas without a GPU)
 crabby_ctx_warm_render_pipelines   # builds GPU pipelines; does nothing without a renderer
 
-# A real window or socket.
+# A real window.
 crabby_game_run                    # opens the window and blocks until it closes
-crabby_game_control_endpoint       # opens a TCP control socket for tools; there is no C call to observe it
 
 # Needs a running Steam client and a live lobby (the calls that fail without
 # one are tested in tests/game_setup.rs and tests/steam_messages.rs).

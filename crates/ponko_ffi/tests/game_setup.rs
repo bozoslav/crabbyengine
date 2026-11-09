@@ -1,7 +1,7 @@
 //! Game setup calls that only matter once a window opens (frame and late
 //! systems, camera controls, MSAA, vsync, fullscreen) and Steam calls, as far
 //! as they can run in a headless build without a Steam client. What opens a
-//! window or a socket is on the allowlist of `scripts/check-ffi-coverage.py`.
+//! window is on the allowlist of `scripts/check-ffi-coverage.py`.
 use ponko_ffi::*;
 use std::ffi::c_void;
 use std::ptr::{null, null_mut};
