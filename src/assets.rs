@@ -1,6 +1,226 @@
 //! Finding and decoding asset files.
+//!
+//! Loading a named asset has three steps, kept apart here and in
+//! [`Ctx`](crate::Ctx):
+//! 1. **Acquire** its bytes by name: from the [`AssetSource`]s a game added,
+//!    in order, then from the default source (the `assets/` folders on
+//!    desktop, the files fetched from `assets/index.json` in a browser).
+//! 2. **Decode** them on the CPU ([`decode_image`]): no GPU, any thread.
+//! 3. **Create** the GPU resource on the game thread (`Ctx::create_texture`).
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+/// A place named assets can be read from, other than the `assets/` folder:
+/// bytes embedded in the game, a pack file, a test fixture in memory.
+///
+/// Add one with [`Ctx::add_asset_source`](crate::Ctx::add_asset_source).
+/// Sources are asked in the order they were added, before the default
+/// `assets/` search; a source that doesn't have a name says so with an
+/// error of kind [`std::io::ErrorKind::NotFound`], and the next one is
+/// asked. Any other error stops the search and is reported.
+///
+/// [`MemorySource`] is a ready-made one.
+///
+/// # Names, caching and hot reload
+///
+/// Names are the same logical names the default source uses
+/// (`"sprites/crab.png"`, `/`-separated), and scenes and prefabs refer to
+/// assets by them. A loaded asset is cached by its source's
+/// [`id`](Self::id) and its name, so the same name in two sources is two
+/// assets, and loading a name again returns the first handle without
+/// reading the source again. Assets from added sources are not hot
+/// reloaded: only the default source on desktop watches files.
+///
+/// `read` runs on the game thread, inside the load call that needs it.
+pub trait AssetSource: 'static {
+    /// A short name for this source, unique among the sources added to a
+    /// game: part of every cache key and error message.
+    fn id(&self) -> &str;
+
+    /// The bytes of asset `name`, or an error of kind
+    /// [`NotFound`](std::io::ErrorKind::NotFound) if this source doesn't
+    /// have it.
+    ///
+    /// # Errors
+    ///
+    /// `NotFound` lets the next source try; any other error is reported to
+    /// the caller of the load.
+    fn read(&self, name: &str) -> std::io::Result<Vec<u8>>;
+}
+
+/// An [`AssetSource`] holding its files in memory: assets embedded with
+/// `include_bytes!`, generated at startup, or made up in a test.
+///
+/// ```
+/// # use ponko::*;
+/// Game::new("t", 1, 1).run_headless(0, |ctx| {
+///     let mut pixel = Vec::new();
+///     image::RgbaImage::from_pixel(1, 1, image::Rgba([255, 0, 0, 255]))
+///         .write_to(&mut std::io::Cursor::new(&mut pixel), image::ImageFormat::Png)
+///         .unwrap();
+///     ctx.add_asset_source(MemorySource::new("embedded").with("red.png", pixel));
+///     let red = ctx.load_texture("red.png");
+///     assert_eq!((red.width(), red.height()), (1, 1));
+/// });
+/// ```
+#[derive(Clone, Default)]
+pub struct MemorySource {
+    id: String,
+    files: HashMap<String, Arc<[u8]>>,
+}
+
+impl MemorySource {
+    /// An empty source called `id`.
+    pub fn new(id: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            files: HashMap::new(),
+        }
+    }
+
+    /// Adds (or replaces) file `name`, builder style.
+    #[must_use]
+    pub fn with(mut self, name: impl Into<String>, bytes: impl Into<Vec<u8>>) -> Self {
+        self.insert(name, bytes);
+        self
+    }
+
+    /// Adds (or replaces) file `name`.
+    pub fn insert(&mut self, name: impl Into<String>, bytes: impl Into<Vec<u8>>) {
+        self.files.insert(name.into(), bytes.into().into());
+    }
+}
+
+impl AssetSource for MemorySource {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn read(&self, name: &str) -> std::io::Result<Vec<u8>> {
+        self.files.get(name).map(|b| b.to_vec()).ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("\"{name}\" is not in memory source \"{}\"", self.id),
+            )
+        })
+    }
+}
+
+/// Where a loaded asset came from; with its kind, the cache key.
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+pub(crate) enum Origin {
+    /// The default source: the file [`resolve`] found (on the web, the
+    /// fetched copy's name). The only kind hot reload watches.
+    File(PathBuf),
+    /// An added [`AssetSource`], by its id, and the logical name.
+    Source { source: String, name: String },
+}
+
+impl Origin {
+    /// `name` for error messages, with where it came from.
+    pub(crate) fn describe(&self, name: &str) -> String {
+        match self {
+            Origin::File(_) => format!("\"{name}\""),
+            Origin::Source { source, .. } => format!("\"{name}\" (from asset source \"{source}\")"),
+        }
+    }
+}
+
+/// A named asset that was found: where, and its bytes if reading it was
+/// how it was found (added sources).
+pub(crate) struct Found {
+    pub origin: Origin,
+    bytes: Option<Vec<u8>>,
+}
+
+impl Found {
+    /// The asset's bytes, reading the file now if it came from the default source.
+    pub(crate) fn into_bytes(self) -> Result<Vec<u8>, String> {
+        match (self.bytes, &self.origin) {
+            (Some(bytes), _) => Ok(bytes),
+            (None, Origin::File(path)) => read(path).map_err(|e| format!("could not read {}: {e}", path.display())),
+            (None, Origin::Source { .. }) => unreachable!("sources hand over their bytes when found"),
+        }
+    }
+
+    /// The asset as UTF-8 text; `name` is for messages.
+    pub(crate) fn into_text(self, name: &str) -> Result<String, String> {
+        let origin = self.origin.clone();
+        let bytes = self.into_bytes()?;
+        String::from_utf8(bytes).map_err(|e| format!("{} is not UTF-8 text: {e}", origin.describe(name)))
+    }
+}
+
+/// The asset sources a game added, asked before the default one.
+#[derive(Default)]
+pub(crate) struct Sources {
+    list: Vec<Box<dyn AssetSource>>,
+}
+
+impl Sources {
+    /// Adds `source` after the others.
+    ///
+    /// # Panics
+    /// If its id is empty or another source already has it.
+    pub(crate) fn add(&mut self, source: Box<dyn AssetSource>) {
+        let id = source.id();
+        assert!(!id.is_empty(), "ponko: an asset source needs a non-empty id");
+        assert!(
+            self.list.iter().all(|s| s.id() != id),
+            "ponko: an asset source called \"{id}\" was already added"
+        );
+        self.list.push(source);
+    }
+
+    /// The cache keys `name` would have in each added source, in order.
+    pub(crate) fn origins<'a>(&'a self, name: &'a str) -> impl Iterator<Item = Origin> + 'a {
+        self.list.iter().map(move |s| Origin::Source {
+            source: s.id().to_string(),
+            name: name.to_string(),
+        })
+    }
+
+    /// Finds asset `name`: in the added sources in order, then the default one.
+    ///
+    /// # Errors
+    /// If no source has it (naming every place searched), or a source
+    /// failed to read it.
+    pub(crate) fn find(&self, name: &str) -> Result<Found, String> {
+        for source in &self.list {
+            match source.read(name) {
+                Ok(bytes) => {
+                    return Ok(Found {
+                        origin: Origin::Source {
+                            source: source.id().to_string(),
+                            name: name.to_string(),
+                        },
+                        bytes: Some(bytes),
+                    });
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => {
+                    return Err(format!(
+                        "asset source \"{}\" could not read \"{name}\": {e}",
+                        source.id()
+                    ));
+                }
+            }
+        }
+        match resolve(name) {
+            Ok(path) => Ok(Found {
+                origin: Origin::File(path),
+                bytes: None,
+            }),
+            Err(e) if self.list.is_empty() => Err(e),
+            Err(e) => {
+                let ids: Vec<String> = self.list.iter().map(|s| format!("\"{}\"", s.id())).collect();
+                Err(format!("{e}\nAsset sources searched first: {}", ids.join(", ")))
+            }
+        }
+    }
+}
 
 /// Folders we look in for `assets/`, in order:
 /// 1. next to `Cargo.toml` when started with `cargo run` (`CARGO_MANIFEST_DIR`)
@@ -181,6 +401,29 @@ mod tests {
         let err = resolve("definitely-not-here.png").unwrap_err();
         assert!(err.contains("\"definitely-not-here.png\" not found in assets/"));
         assert!(err.contains("assets"));
+    }
+
+    #[test]
+    fn sources_are_asked_in_order_and_say_not_found() {
+        let mut sources = Sources::default();
+        sources.add(Box::new(MemorySource::new("a").with("x", *b"from a")));
+        sources.add(Box::new(
+            MemorySource::new("b").with("x", *b"from b").with("y", *b"only b"),
+        ));
+        let x = sources.find("x").unwrap();
+        assert_eq!(
+            x.origin,
+            Origin::Source {
+                source: "a".into(),
+                name: "x".into()
+            }
+        );
+        assert_eq!(x.into_bytes().unwrap(), b"from a");
+        assert_eq!(sources.find("y").unwrap().into_text("y").unwrap(), "only b");
+        let missing = MemorySource::new("a").read("z").unwrap_err();
+        assert_eq!(missing.kind(), std::io::ErrorKind::NotFound);
+        let err = sources.find("definitely-not-here.png").err().unwrap();
+        assert!(err.ends_with("Asset sources searched first: \"a\", \"b\""), "{err}");
     }
 
     #[test]

@@ -17,6 +17,8 @@ impl Ctx {
     /// [`save_scene`](Self::save_scene), the editor, or
     /// [`WorldReflect::save`]). Entities keep their ids, so references
     /// between them hold. Components must be [reflected](WorldReflect::reflect).
+    /// The scene and the textures it names may also come from an
+    /// [asset source](Ctx::add_asset_source).
     ///
     /// ```no_run
     /// # use ponko::*;
@@ -31,8 +33,7 @@ impl Ctx {
     /// If the file is missing or isn't a scene, or names a component that
     /// isn't reflected. The world is unchanged then.
     pub fn load_scene(&mut self, path: &str) -> Result<(), String> {
-        let file = assets::resolve(path)?;
-        let text = assets::read_to_string(&file)?;
+        let (_, text) = self.read_asset_text(path)?;
         let scene: Value = serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
         self.load_scene_assets(&scene).map_err(|e| format!("{path}: {e}"))?;
         self.world.load(&scene).map_err(|e| format!("{path}: {e}"))
@@ -74,8 +75,7 @@ impl Ctx {
     /// reflected or doesn't fit; nothing is spawned then.
     pub fn spawn_prefab(&mut self, path: &str, at: Vec2) -> Result<Entity, String> {
         if !self.prefabs.contains_key(path) {
-            let file = assets::resolve(path)?;
-            let text = assets::read_to_string(&file)?;
+            let (_, text) = self.read_asset_text(path)?;
             let prefab: Value = serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
             let components = components_of(&prefab).map_err(|e| format!("{path}: {e}"))?;
             self.load_scene_assets(&components)
