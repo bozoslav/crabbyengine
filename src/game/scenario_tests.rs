@@ -154,3 +154,56 @@ fn a_scenario_ending_mid_frame_stops_applying_for_the_rest_of_the_frame() {
     assert_eq!((report.status, report.ticks_run), (ScenarioStatus::Passed, 2));
     assert_eq!(report.released, 0, "already released by its own step");
 }
+
+#[test]
+fn a_failed_check_takes_back_only_the_steps_the_scenario_queued_itself() {
+    use crate::scenario::RunOrigin;
+    let scenario = InputScenario::new()
+        .expect(1, ScenarioCheck::count("Nothing", 0)) // fails on tick 1
+        .duration(10);
+    let (mut game, mut ctx) = game(InputScenario::new());
+    ctx.pause();
+    // Another client queued three ticks, then a tool queued the run's ten.
+    for _ in 0..3 {
+        ctx.step();
+    }
+    ctx.install_scenario(
+        scenario,
+        0,
+        RunOrigin {
+            owner: None,
+            tool: true,
+            queue_ticks: true,
+        },
+    );
+    // A paused game uses one queued step per tick, as the headless loop does.
+    for _ in 0..2 {
+        assert!(ctx.take_one_step());
+        frame(&mut game, &mut ctx, 1);
+    }
+    let report = ctx.input_scenario_report().unwrap();
+    assert_eq!(report.status, ScenarioStatus::Failed);
+    // 13 queued - 2 run = 11; the 8 unrun ticks of the scenario are gone, the 3 others stay.
+    assert_eq!(ctx.take_pending_steps(), 3);
+}
+
+#[test]
+fn cancelling_takes_back_the_unrun_ticks_the_scenario_queued() {
+    use crate::scenario::RunOrigin;
+    let (mut game, mut ctx) = game(InputScenario::new());
+    ctx.pause();
+    ctx.step();
+    ctx.install_scenario(
+        InputScenario::new().duration(10),
+        0,
+        RunOrigin {
+            owner: None,
+            tool: true,
+            queue_ticks: true,
+        },
+    );
+    assert!(ctx.take_one_step());
+    frame(&mut game, &mut ctx, 1);
+    assert!(ctx.cancel_input_scenario());
+    assert_eq!(ctx.take_pending_steps(), 1, "only the other client's step is left");
+}

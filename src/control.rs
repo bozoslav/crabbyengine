@@ -496,7 +496,7 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
     ("sim.speed", "set simulation speed; params: speed"),
     (
         "input.scenario.load",
-        "start a tick-indexed input scenario (versioned JSON: input steps fed through the real input path, and checks), replacing a running one; its tick 0 is the next simulation tick; params: scenario (the object), bind_connection? (cancel it when this connection closes). Refused unless the game allows input injection (PONKO_INPUT_INJECTION=1 or Game::input_injection). Returns the report",
+        "start a tick-indexed input scenario (versioned JSON: input steps fed through the real input path, and checks), replacing a running one; its tick 0 is the next simulation tick; params: scenario (the object), bind_connection? (cancel it when this connection closes), keep_input_when_done? (by default the keys it holds are released when it ends; with this they stay held, owned by the scenario's owner until cancelled), max_ticks? (refuse a longer scenario before touching the running one), queue_ticks? (paused games: queue the scenario's own ticks as steps; a failed check or a cancel takes back only those that haven't run). Refused unless the game allows input injection (PONKO_INPUT_INJECTION=1 or Game::input_injection). Returns the report",
     ),
     (
         "input.scenario.status",
@@ -982,14 +982,42 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
             json!({ "speed": ctx.sim_speed() })
         }
         "input.scenario.load" => {
-            let scenario = crate::InputScenario::from_value(param(params, "scenario")?).map_err(|e| e.to_string())?;
-            let bind = match params.get("bind_connection") {
-                None | Some(Value::Null) => false,
-                Some(v) => v.as_bool().ok_or("`bind_connection` must be true or false")?,
+            let mut scenario =
+                crate::InputScenario::from_value(param(params, "scenario")?).map_err(|e| e.to_string())?;
+            let flag = |name: &str| -> Result<bool, String> {
+                match params.get(name) {
+                    None | Some(Value::Null) => Ok(false),
+                    Some(v) => v.as_bool().ok_or_else(|| format!("`{name}` must be true or false")),
+                }
             };
+            let (bind, keep, queue) = (flag("bind_connection")?, flag("keep_input_when_done")?, flag("queue_ticks")?);
+            // Checked before anything is installed: a refused scenario leaves a running one alone.
+            let ticks = scenario.ticks();
+            if ticks == 0 {
+                return Err("the scenario has no steps, so there is nothing to run".into());
+            }
+            if let Some(max) = params.get("max_ticks").filter(|v| !v.is_null()) {
+                let max = max.as_u64().ok_or("`max_ticks` must be a whole number")?;
+                if ticks > max {
+                    return Err(format!("the scenario runs {ticks} ticks, more than `max_ticks` ({max})"));
+                }
+            }
+            if queue && !ctx.is_paused() {
+                return Err("`queue_ticks` needs a paused game (call sim.pause first)".into());
+            }
+            // A tool's scenario lets go of its input when it ends, unless told to keep it.
+            scenario.release_unless_kept(keep);
             let owner = params.get("_connection").and_then(Value::as_u64).filter(|_| bind);
             let start = ctx.sim_tick();
-            ctx.install_scenario(scenario, start, owner);
+            ctx.install_scenario(
+                scenario,
+                start,
+                crate::scenario::RunOrigin {
+                    owner,
+                    tool: true,
+                    queue_ticks: queue,
+                },
+            );
             json!({ "report": ctx.input_scenario_report(), "bound_to_connection": owner.is_some() })
         }
         "input.scenario.status" => json!(ctx.input_scenario_report()),

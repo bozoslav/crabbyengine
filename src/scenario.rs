@@ -221,11 +221,20 @@ impl InputScenario {
     }
 
     /// Releases the inputs still held when the run finishes normally
-    /// (cancelled and failed runs always release them).
+    /// (cancelled and failed runs always release them). A scenario a tool
+    /// loads through the control endpoint does this by default; see
+    /// `keep_input_when_done` there.
     #[must_use]
     pub fn release_when_done(mut self) -> Self {
         self.release_when_done = true;
         self
+    }
+
+    /// For tool-loaded scenarios: release at the end unless `keep` says not to.
+    pub(crate) fn release_unless_kept(&mut self, keep: bool) {
+        if !keep {
+            self.release_when_done = true;
+        }
     }
 
     /// The scenario's name, if it has one.
@@ -463,6 +472,11 @@ pub struct ScenarioReport {
     pub failure: Option<ScenarioFailure>,
     /// How many held inputs the run released when it ended early or failed.
     pub released: usize,
+    /// How many inputs a run that finished normally left held (a tool that
+    /// loaded it with `keep_input_when_done`); a cancel or the owner's
+    /// disconnect still releases them.
+    #[serde(default)]
+    pub still_held: usize,
     /// Why it was cancelled.
     pub cancel_reason: Option<String>,
 }
@@ -481,6 +495,7 @@ impl ScenarioReport {
             checks_passed: 0,
             failure: None,
             released: 0,
+            still_held: 0,
             cancel_reason: None,
         }
     }
@@ -520,12 +535,44 @@ pub(crate) struct ScenarioRun {
     next_check: usize,
     /// The control connection that owns it, if it's bound to one.
     pub(crate) owner: Option<u64>,
+    /// Loaded by a tool: input left held at the end stays owned (see [`Leftover`]).
+    tool: bool,
+    /// Simulation ticks the run queued as steps for itself (a paused game).
+    own_steps: u64,
+    /// Ticks of the run that have finished.
+    ticks_done: u64,
+}
+
+impl ScenarioRun {
+    /// Queued steps of its own that have not been used yet.
+    fn remaining_own(&self) -> u64 {
+        self.own_steps.saturating_sub(self.ticks_done)
+    }
+}
+
+/// How a scenario was started.
+#[derive(Default, Clone, Copy)]
+pub(crate) struct RunOrigin {
+    /// The control connection it is bound to, if any.
+    pub(crate) owner: Option<u64>,
+    /// Loaded by a tool through the control endpoint.
+    pub(crate) tool: bool,
+    /// Queue the run's own ticks as steps (needs a paused game).
+    pub(crate) queue_ticks: bool,
+}
+
+/// Input a finished tool scenario left held on purpose. It stays owned, so a
+/// cancel or the owner's disconnect still releases it.
+pub(crate) struct Leftover {
+    held: Vec<InputEvent>,
+    owner: Option<u64>,
 }
 
 /// What a [`Ctx`] keeps for scenarios.
 #[derive(Default)]
 pub(crate) struct Scenarios {
     pub(crate) run: Option<ScenarioRun>,
+    pub(crate) leftover: Option<Leftover>,
     /// Whether tools may load scenarios through the control endpoint.
     pub(crate) injection: bool,
 }
@@ -537,14 +584,24 @@ impl Ctx {
     /// with the game.
     /// ```
     /// use ponko::*;
-    /// let mut game = Game::new("t", 1, 1).sim_system(|ctx: &mut Ctx| {
-    ///     if ctx.sim_tick() == 3 {
-    ///         // Tick 3 is over: the scenario's tick 0 is tick 4.
-    ///         ctx.start_input_scenario(InputScenario::new().at(0, InputEvent::Key(Key::Space, true)));
-    ///     }
-    /// });
-    /// let world = game.run_headless(6, |_| {});
+    /// struct PressedOn(Option<u64>);
+    ///
+    /// let game = Game::new("t", 1, 1)
+    ///     .sim_system(|ctx: &mut Ctx| {
+    ///         if ctx.sim_tick() == 3 {
+    ///             // Started during tick 3, so the scenario's tick 0 is tick 4.
+    ///             ctx.start_input_scenario(InputScenario::new().at(0, InputEvent::Key(Key::Space, true)));
+    ///         }
+    ///     })
+    ///     .sim_system(|ctx: &mut Ctx| {
+    ///         if ctx.key_pressed(Key::Space) {
+    ///             let tick = ctx.sim_tick();
+    ///             ctx.world.resource_mut::<PressedOn>().0 = Some(tick);
+    ///         }
+    ///     });
+    /// let world = game.run_headless(6, |ctx| ctx.world.insert_resource(PressedOn(None)));
     /// assert_eq!(world.resource::<ScenarioReport>().start_tick, 4);
+    /// assert_eq!(world.resource::<PressedOn>().0, Some(4), "fed before tick 4's systems");
     /// ```
     pub fn start_input_scenario(&mut self, scenario: InputScenario) {
         // A system runs inside a tick, so its scenario's tick 0 is the next one.
@@ -553,12 +610,17 @@ impl Ctx {
         } else {
             self.sim_tick()
         };
-        self.install_scenario(scenario, start, None);
+        self.install_scenario(scenario, start, RunOrigin::default());
     }
 
     /// Ends the running scenario, releasing the keys, buttons and axes it
     /// still holds. Returns whether one was running. The report says
     /// `cancelled`.
+    ///
+    /// The input state is one shared set of held keys, with no record of
+    /// which device holds one, so a key the scenario pressed is released even
+    /// if a player is physically holding it too: it reads as up until its
+    /// next key event. Only what the scenario itself left held is released.
     /// ```
     /// use ponko::*;
     /// let mut game = Game::new("t", 1, 1).sim_system(|ctx: &mut Ctx| {
@@ -585,23 +647,31 @@ impl Ctx {
         self.scenarios.injection
     }
 
-    pub(crate) fn install_scenario(&mut self, scenario: InputScenario, start: u64, owner: Option<u64>) {
+    pub(crate) fn install_scenario(&mut self, scenario: InputScenario, start: u64, origin: RunOrigin) {
         self.cancel_scenario("replaced by another scenario", None);
+        self.release_leftover("replaced by another scenario", None);
+        let ticks = scenario.ticks();
         self.world.insert_resource(ScenarioReport::new(&scenario, start));
+        let own_steps = if origin.queue_ticks { ticks } else { 0 };
+        self.queue_steps(own_steps);
         self.scenarios.run = Some(ScenarioRun {
             scenario,
             start,
             next_input: 0,
             next_check: 0,
-            owner,
+            owner: origin.owner,
+            tool: origin.tool,
+            own_steps,
+            ticks_done: 0,
         });
     }
 
-    /// Cancels the run if `only_owner` is `None` or owns it. Returns whether
-    /// a run was cancelled.
+    /// Cancels the run if `only_owner` is `None` or owns it. Without a run,
+    /// releases what a finished tool scenario left held. Returns whether
+    /// anything was cancelled or released.
     pub(crate) fn cancel_scenario(&mut self, reason: &str, only_owner: Option<u64>) -> bool {
         match (&self.scenarios.run, only_owner) {
-            (None, _) => return false,
+            (None, _) => return self.release_leftover(reason, only_owner),
             (Some(run), Some(owner)) if run.owner != Some(owner) => return false,
             _ => {}
         }
@@ -609,9 +679,32 @@ impl Ctx {
             return false;
         };
         let released = self.release_held(&run);
+        self.drop_pending_steps(run.remaining_own());
         if let Some(report) = self.world.get_resource_mut::<ScenarioReport>() {
             report.status = ScenarioStatus::Cancelled;
             report.released = released;
+            report.cancel_reason = Some(reason.to_string());
+        }
+        true
+    }
+
+    /// Releases the input a finished tool scenario left held, if `only_owner`
+    /// is `None` or owns it.
+    fn release_leftover(&mut self, reason: &str, only_owner: Option<u64>) -> bool {
+        match (&self.scenarios.leftover, only_owner) {
+            (None, _) => return false,
+            (Some(left), Some(owner)) if left.owner != Some(owner) => return false,
+            _ => {}
+        }
+        let Some(left) = self.scenarios.leftover.take() else {
+            return false;
+        };
+        for &event in &left.held {
+            self.feed_input(event);
+        }
+        if let Some(report) = self.world.get_resource_mut::<ScenarioReport>() {
+            report.released = left.held.len();
+            report.still_held = 0;
             report.cancel_reason = Some(reason.to_string());
         }
         true
@@ -631,7 +724,12 @@ impl Ctx {
         let Some(mut run) = self.scenarios.run.take() else {
             return;
         };
-        let rel = self.sim_tick().saturating_sub(run.start);
+        // Started by a system during an earlier tick: tick 0 is still to come.
+        if self.sim_tick() < run.start {
+            self.scenarios.run = Some(run);
+            return;
+        }
+        let rel = self.sim_tick() - run.start;
         let mut fed = 0;
         while let Some(&(tick, _, event)) = run.scenario.inputs.get(run.next_input) {
             if tick > rel {
@@ -655,7 +753,12 @@ impl Ctx {
             return;
         };
         let sim_tick = self.sim_tick();
-        let rel = sim_tick.saturating_sub(run.start);
+        if sim_tick < run.start {
+            self.scenarios.run = Some(run);
+            return;
+        }
+        let rel = sim_tick - run.start;
+        run.ticks_done += 1;
         let mut passed = 0;
         let mut failure = None;
         while let Some((tick, step, check)) = run.scenario.checks.get(run.next_check) {
@@ -678,15 +781,30 @@ impl Ctx {
         let done = rel + 1 >= run.scenario.ticks();
         let release = failure.is_some() || (done && run.scenario.release_when_done);
         let released = if release { self.release_held(&run) } else { 0 };
+        // A tool's scenario that finished and kept its input: stays owned.
+        let left = if done && !release && run.tool {
+            held_inputs(&run.scenario.inputs[..run.next_input])
+        } else {
+            Vec::new()
+        };
+        let still_held = left.len();
+        if still_held > 0 {
+            self.scenarios.leftover = Some(Leftover {
+                held: left,
+                owner: run.owner,
+            });
+        }
         if let Some(report) = self.world.get_resource_mut::<ScenarioReport>() {
             report.ticks_run = rel + 1;
             report.checks_passed += passed;
             report.released = released;
+            report.still_held = still_held;
             if failure.is_some() {
                 report.status = ScenarioStatus::Failed;
                 report.failure = failure.take();
-                // A tool that stepped a paused game for the whole run stops here.
-                let _ = self.take_pending_steps();
+                // Only the steps this run queued for itself are dropped, not
+                // ticks another client asked for.
+                self.drop_pending_steps(run.remaining_own());
             } else if done {
                 report.status = ScenarioStatus::Passed;
             }

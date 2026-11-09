@@ -1223,7 +1223,7 @@ impl Game {
     fn run_sim_tick(&mut self, ctx: &mut Ctx) {
         let tick = ctx.sim_tick();
         if let Some(scenario) = self.input_scenario.take() {
-            ctx.install_scenario(scenario, 0, None);
+            ctx.install_scenario(scenario, 0, crate::scenario::RunOrigin::default());
         }
         ctx.scenario_begin_tick();
         for (i, s) in self.sim_systems.iter_mut().enumerate() {

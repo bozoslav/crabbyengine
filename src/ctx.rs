@@ -934,6 +934,18 @@ impl Ctx {
         self.control_addr
     }
 
+    /// Queues `n` single steps for a paused game.
+    pub(crate) fn queue_steps(&mut self, n: u64) {
+        let n = u32::try_from(n).unwrap_or(u32::MAX);
+        self.sim.pending_steps = self.sim.pending_steps.saturating_add(n);
+    }
+
+    /// Takes back up to `n` queued steps.
+    pub(crate) fn drop_pending_steps(&mut self, n: u64) {
+        let n = u32::try_from(n).unwrap_or(u32::MAX);
+        self.sim.pending_steps = self.sim.pending_steps.saturating_sub(n);
+    }
+
     pub(crate) fn take_pending_steps(&mut self) -> u32 {
         std::mem::take(&mut self.sim.pending_steps)
     }

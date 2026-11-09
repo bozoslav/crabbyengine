@@ -458,7 +458,7 @@ fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "run_input_scenario",
-            description: "Run a tick-indexed input scenario against a paused game that allows input injection (launched with `launch`, or started with PONKO_INPUT_INJECTION=1) and wait for it to end. The scenario is a versioned JSON object: input steps (key, mouse, gamepad_button, gamepad_axis, focus_lost, gamepad_disconnected) fed through the game's real input path before the tick's systems run, and checks (expect_action, expect_resource, expect_count) evaluated after them; tick 0 is the next simulation tick. Returns the report: status passed/failed/cancelled, ticks run, and for a failed check its step, tick, expected and actual values. The run stops at the first failed check. Held inputs are released when the run fails, is cancelled (also on a timeout or error here), or when `release_when_done` is set.",
+            description: "Run a tick-indexed input scenario against a paused game that allows input injection (launched with `launch`, or started with PONKO_INPUT_INJECTION=1) and wait for it to end. The scenario is a versioned JSON object: input steps (key, mouse, gamepad_button, gamepad_axis, focus_lost, gamepad_disconnected) fed through the game's real input path before the tick's systems run, and checks (expect_action, expect_resource, expect_count) evaluated after them; tick 0 is the next simulation tick. Returns the report: status passed/failed/cancelled, ticks run, and for a failed check its step, tick, expected and actual values. The run stops at the first failed check. Held inputs are released when the run ends, fails or is cancelled (also on a timeout or error here), unless `keep_input_when_done` is set; then cancel_input_scenario releases them. A failed check or a cancel takes back only the ticks this run queued, not ticks someone else asked for.",
             writes: true,
             params: || {
                 json!({
@@ -466,7 +466,8 @@ fn tools() -> Vec<Tool> {
                         "type": "object",
                         "description": "{\"version\": 1, \"id\"?, \"duration\"?, \"release_when_done\"?, \"steps\": [{\"tick\": 10, \"type\": \"key\", \"key\": \"Space\", \"down\": true}, {\"tick\": 10, \"type\": \"expect_action\", \"action\": \"jump\", \"pressed\": true}, {\"tick\": 12, \"type\": \"expect_resource\", \"resource\": \"Score\", \"pointer\": \"/points\", \"equals\": 3}, {\"tick\": 12, \"type\": \"expect_count\", \"component\": \"Coin\", \"equals\": 2}]}"
                     },
-                    "max_ticks": { "type": "integer", "minimum": 1, "description": "Refuse scenarios longer than this (default 100000)" },
+                    "max_ticks": { "type": "integer", "minimum": 1, "description": "Refuse scenarios longer than this (default 100000), before the running one is touched" },
+                    "keep_input_when_done": { "type": "boolean", "description": "Leave the keys the scenario holds pressed when it ends (default: release them). They stay owned by the scenario: cancel_input_scenario releases them" },
                     "timeout_secs": { "type": "integer", "minimum": 1, "description": "How long to wait (default 120)" }
                 })
             },
@@ -1004,7 +1005,7 @@ impl Server {
             .as_u64()
             .filter(|t| *t > 0)
             .ok_or("`ticks` must be a positive integer")?;
-        let deadline = Instant::now() + Duration::from_secs(args["timeout_secs"].as_u64().unwrap_or(120));
+        let deadline = deadline_after(args["timeout_secs"].as_u64().unwrap_or(120));
         let i = self.instance(args)?;
         let start = paused_tick(&i)?;
         let begun = Instant::now();
@@ -1018,40 +1019,39 @@ impl Server {
 
     fn run_input_scenario(&self, args: &Value) -> Result<Value, String> {
         let max_ticks = args["max_ticks"].as_u64().unwrap_or(MAX_SCENARIO_TICKS);
-        let deadline = Instant::now() + Duration::from_secs(args["timeout_secs"].as_u64().unwrap_or(120));
+        let deadline = deadline_after(args["timeout_secs"].as_u64().unwrap_or(120));
         let scenario = args
             .get("scenario")
             .filter(|s| s.is_object())
             .ok_or("`scenario` must be an object")?;
+        let keep = args["keep_input_when_done"].as_bool().unwrap_or(false);
         let i = self.instance(args)?;
         paused_tick(&i)?; // refuses a running game, so the ticks are exactly the run's
-        let loaded = i.call("input.scenario.load", json!({ "scenario": scenario }))?;
+        // The game checks the length and the steps before it touches a running
+        // scenario, queues the run's own ticks, takes back the ones a failed
+        // check leaves unrun, and releases the input when the run ends.
+        let loaded = i.call(
+            "input.scenario.load",
+            json!({
+                "scenario": scenario,
+                "max_ticks": max_ticks,
+                "queue_ticks": true,
+                "keep_input_when_done": keep,
+            }),
+        )?;
         let duration = loaded["report"]["duration"].as_u64().unwrap_or(0);
-        let outcome = (|| {
-            if duration == 0 {
-                return Err("the scenario has no steps, so there is nothing to run".to_string());
+        let outcome = (|| loop {
+            let status = i.call("input.scenario.status", json!({}))?;
+            if !matches!(status["status"].as_str(), Some("pending" | "running")) {
+                return Ok(status);
             }
-            if duration > max_ticks {
+            if Instant::now() > deadline {
                 return Err(format!(
-                    "the scenario runs {duration} ticks, more than `max_ticks` ({max_ticks})"
+                    "the scenario ran {} of {duration} ticks within the timeout",
+                    status["ticks_run"]
                 ));
             }
-            // Step the whole run at once: a failed check makes the game drop
-            // the steps still queued, so it stops at the failing tick.
-            i.call("sim.step", json!({ "ticks": duration }))?;
-            loop {
-                let status = i.call("input.scenario.status", json!({}))?;
-                if !matches!(status["status"].as_str(), Some("pending" | "running")) {
-                    return Ok(status);
-                }
-                if Instant::now() > deadline {
-                    return Err(format!(
-                        "the scenario ran {} of {duration} ticks within the timeout",
-                        status["ticks_run"]
-                    ));
-                }
-                std::thread::sleep(Duration::from_millis(2));
-            }
+            std::thread::sleep(Duration::from_millis(2));
         })();
         match outcome {
             Ok(report) => Ok(json!({ "passed": report["status"] == "passed", "report": report })),
@@ -1091,7 +1091,7 @@ impl Server {
             }
         };
         let (resources, count) = (names("resources")?, names("count")?);
-        let deadline = Instant::now() + Duration::from_secs(args["timeout_secs"].as_u64().unwrap_or(300));
+        let deadline = deadline_after(args["timeout_secs"].as_u64().unwrap_or(300));
         let i = self.instance(args)?;
         let mut tick = paused_tick(&i)?;
         let end = tick + ticks;
@@ -1192,7 +1192,7 @@ impl Server {
             .map_err(|e| format!("could not run cargo: {e}"))?;
         self.launched.insert(launch_id.clone(), log_path.clone());
 
-        let deadline = Instant::now() + Duration::from_secs(args["timeout_secs"].as_u64().unwrap_or(600));
+        let deadline = deadline_after(args["timeout_secs"].as_u64().unwrap_or(600));
         loop {
             if let Some(i) = discover(&self.config.instances_dir)
                 .into_iter()
@@ -1307,6 +1307,15 @@ fn base64(bytes: &[u8]) -> String {
 
 /// Most samples one `watch` call returns.
 const MAX_SAMPLES: u64 = 1000;
+/// The longest a tool call may wait, whatever `timeout_secs` asks for (a year).
+const MAX_WAIT_SECS: u64 = 365 * 24 * 3600;
+
+/// When a call that may wait `secs` seconds must give up. Huge values are
+/// clamped: adding them to `Instant::now()` would overflow and panic.
+fn deadline_after(secs: u64) -> Instant {
+    let now = Instant::now();
+    now.checked_add(Duration::from_secs(secs.min(MAX_WAIT_SECS))).unwrap_or(now)
+}
 /// The longest scenario `run_input_scenario` accepts unless told otherwise.
 const MAX_SCENARIO_TICKS: u64 = 100_000;
 

@@ -455,3 +455,60 @@ fn every_input_kind_round_trips_through_the_file_format() {
     assert_eq!(InputScenario::from_value(&json).unwrap().to_json(), json);
     assert_eq!(json["steps"][3]["axis"], "LeftStickX");
 }
+
+// ------------------------------------------- scenarios started by a system
+
+/// Runs a game whose first system starts `scenario` during tick 3, and
+/// records what the second system saw of the jump action on each tick.
+fn started_on_tick_3(scenario: InputScenario, ticks: u64) -> (Vec<Seen>, ScenarioReport) {
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let log = seen.clone();
+    let mut scenario = Some(scenario);
+    let world = Game::new("started", 1, 1)
+        .sim_system(move |ctx: &mut Ctx| {
+            if ctx.sim_tick() == 3 {
+                ctx.start_input_scenario(scenario.take().unwrap());
+            }
+        })
+        .sim_system(move |ctx: &mut Ctx| {
+            log.borrow_mut().push(Seen {
+                tick: ctx.sim_tick(),
+                pressed: ctx.action_pressed("jump"),
+                down: ctx.action_down("jump"),
+                released: ctx.action_released("jump"),
+            });
+        })
+        .run_headless(ticks, jump_bindings);
+    let report = world.resource::<ScenarioReport>().clone();
+    (Rc::try_unwrap(seen).unwrap().into_inner(), report)
+}
+
+#[test]
+fn a_scenario_started_by_a_system_begins_on_the_next_tick_and_checks_wait_for_it() {
+    let scenario = InputScenario::new()
+        .at(0, InputEvent::Key(Key::Space, true))
+        // Tick 0 of the scenario is sim tick 4: the press is fed first, then
+        // the check runs, so it holds. Run a tick early it would fail.
+        .expect(0, ScenarioCheck::action("jump").pressed(true))
+        .at(1, InputEvent::Key(Key::Space, false))
+        .expect(1, ScenarioCheck::action("jump").released(true))
+        .duration(3);
+    let (seen, report) = started_on_tick_3(scenario, 8);
+    report.assert_passed();
+    assert_eq!(report.start_tick, 4);
+    assert_eq!((report.ticks_run, report.checks_passed, report.inputs_applied), (3, 2, 2));
+    assert!(seen[..4].iter().all(|s| !s.down && !s.pressed), "nothing before tick 4: {seen:?}");
+    assert_eq!(seen[4], Seen { tick: 4, pressed: true, down: true, released: false });
+    assert_eq!(seen[5], Seen { tick: 5, pressed: false, down: false, released: true });
+}
+
+#[test]
+fn a_one_tick_scenario_started_by_a_system_feeds_its_input_to_the_next_tick() {
+    let scenario = InputScenario::new().at(0, InputEvent::Key(Key::Space, true));
+    assert_eq!(scenario.ticks(), 1);
+    let (seen, report) = started_on_tick_3(scenario, 7);
+    report.assert_passed();
+    assert_eq!((report.start_tick, report.ticks_run, report.inputs_applied), (4, 1, 1));
+    assert_eq!(seen[3], Seen { tick: 3, pressed: false, down: false, released: false });
+    assert_eq!(seen[4], Seen { tick: 4, pressed: true, down: true, released: false });
+}
