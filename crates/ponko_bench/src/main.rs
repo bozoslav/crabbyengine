@@ -285,6 +285,37 @@ fn main() {
         );
     }
 
+    // Reuse output capacity; cover both trivially dropped and owning results.
+    for &n in &[256usize, 1_000_000] {
+        for &owning in &[false, true] {
+            let kind = if owning { "owning" } else { "plain" };
+            b.steady(
+                &format!("par-collect-{n}/{kind}"),
+                200,
+                || {
+                    let mut w = ponko_ecs::World::new();
+                    w.spawn_batch((0..n).map(ent));
+                    (w, Vec::with_capacity(n), Vec::with_capacity(n))
+                },
+                |(w, plain, owned)| {
+                    if owning {
+                        // A nontrivial destructor without per-element allocations.
+                        struct Owned(f32);
+                        impl Drop for Owned {
+                            fn drop(&mut self) {
+                                black_box(self.0);
+                            }
+                        }
+                        w.query::<&Pos>()
+                            .par_collect_into(owned, |p| Owned(p.x * black_box(2.0)));
+                    } else {
+                        w.query::<&Pos>().par_collect_into(plain, |p| p.x * black_box(2.0));
+                    }
+                },
+            );
+        }
+    }
+
     // ---- spawn ------------------------------------------------------------------
     b.run("spawn/own", 10, own::World::new, |w| {
         for i in 0..N {
