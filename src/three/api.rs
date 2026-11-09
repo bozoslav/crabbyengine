@@ -718,6 +718,13 @@ impl Ctx {
             shared.contains_key(source)
         })
         .map_err(|e| crate::Error::decode(path, e))?;
+        Ok((self.mesh_from_loaded(path, file.clone(), loaded), file))
+    }
+
+    /// Makes the mesh, materials and textures of a decoded glTF file
+    /// `path` found at `file`, and caches it (the game-thread half of
+    /// `load_mesh_from`; streaming decodes on a worker first).
+    pub(crate) fn mesh_from_loaded(&mut self, path: &str, file: assets::Origin, loaded: gltf::Loaded) -> Mesh {
         let materials = if let Some(materials) = self.assets3d.file_materials.get(&file) {
             materials.clone()
         } else {
@@ -793,7 +800,7 @@ impl Ctx {
             names.by_id.insert(mesh.id, path.to_string());
             names.by_name.insert(path.to_string(), mesh);
         }
-        Ok((mesh, file))
+        mesh
     }
 
     /// A glTF file's mesh on the CPU (all its parts in one, placed as in
@@ -831,7 +838,14 @@ impl Ctx {
     ) -> Mesh {
         // A freed mesh's id first, so streaming meshes in and out doesn't
         // grow the tables (and the per-frame sort, which spans every id).
-        let id = match self.assets3d.free_meshes.pop() {
+        // A resident mesh coming back after eviction takes its old id, so
+        // handles the game kept stay good.
+        let id = match self
+            .assets3d
+            .reuse_mesh_id
+            .take()
+            .or_else(|| self.assets3d.free_meshes.pop())
+        {
             Some(id) => {
                 self.assets3d.gpu_mesh_bounds.remove(&id);
                 self.assets3d.bounds[id as usize] = data.bounds();

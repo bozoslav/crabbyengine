@@ -206,6 +206,8 @@ pub struct Ctx {
     pub(crate) asset_sources: assets::Sources,
     /// Assets loaded under residency budgets (`resident_mesh`), by kind.
     pub(crate) residency: crate::residency::Residency,
+    /// The upload queue and streamed assets (`stream_texture`, `stream_mesh`).
+    pub(crate) streaming: crate::streaming::Streaming,
     /// Assets already loaded, by origin (resolved path, or source and
     /// name): loading one again returns the same handle.
     pub(crate) loaded: HashMap<(assets::Origin, AssetKind), u64>,
@@ -455,6 +457,7 @@ impl Ctx {
             prefabs: HashMap::new(),
             asset_sources: assets::Sources::default(),
             residency: Default::default(),
+            streaming: Default::default(),
             loaded: HashMap::new(),
             cached_textures: Vec::new(),
             cached_sounds: Vec::new(),
@@ -1866,7 +1869,21 @@ impl Ctx {
             "ponko: a render target is drawn by its target camera, not updated with pixels"
         );
         // A freed texture (or `Texture::NONE`) has no pixels of its own.
-        if self.headless || !self.textures_live.contains(texture.id) {
+        if !self.textures_live.contains(texture.id) {
+            return;
+        }
+        // A streamed texture at less than full resolution: back to full.
+        if self.streaming.reduced_size(texture.id).is_some() {
+            self.asset_ledger
+                .textures
+                .insert(texture.id, crate::inventory::rgba8_bytes(w, h));
+            if !self.headless {
+                self.renderer().replace_texture(texture.id, w, h, rgba);
+            }
+            self.streamed_texture_restored(texture.id);
+            return;
+        }
+        if self.headless {
             return;
         }
         self.renderer().update_texture(texture.id, w, h, rgba);

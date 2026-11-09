@@ -12,7 +12,7 @@
 //! [`CellStreamer`](crate::CellStreamer); the budget then caps the memory
 //! however many cells are near.
 
-// Only meshes use the sets so far, and meshes need the `3d` feature.
+// Without the `3d` feature only textures use the sets.
 #![cfg_attr(not(feature = "3d"), allow(dead_code, unused_variables))]
 
 use std::collections::BTreeMap;
@@ -25,23 +25,30 @@ pub enum ResidencyKind {
     /// Meshes loaded from files with [`Ctx::resident_mesh`](crate::Ctx::resident_mesh):
     /// their vertex and index buffers.
     Mesh,
+    /// Images loaded with [`Ctx::resident_texture`](crate::Ctx::resident_texture)
+    /// or [`Ctx::stream_texture`](crate::Ctx::stream_texture): the pixels of
+    /// the resolution each one is at now. Evicted textures keep a small
+    /// stand-in (at most 32 pixels a side) that the budget doesn't count.
+    Texture,
 }
 
 impl ResidencyKind {
     /// Every kind, in a fixed order.
-    pub const ALL: [ResidencyKind; 1] = [ResidencyKind::Mesh];
+    pub const ALL: [ResidencyKind; 2] = [ResidencyKind::Mesh, ResidencyKind::Texture];
 
-    /// Its name in reports: `"mesh"`.
+    /// Its name in reports: `"mesh"` or `"texture"`.
     #[must_use]
     pub fn name(self) -> &'static str {
         match self {
             ResidencyKind::Mesh => "mesh",
+            ResidencyKind::Texture => "texture",
         }
     }
 
     fn index(self) -> usize {
         match self {
             ResidencyKind::Mesh => 0,
+            ResidencyKind::Texture => 1,
         }
     }
 }
@@ -211,6 +218,27 @@ impl ResidentSet {
         Some(e)
     }
 
+    /// Changes `name`'s bytes (a texture streamed to another resolution).
+    pub fn set_bytes(&mut self, name: &str, bytes: u64) {
+        if let Some(e) = self.entries.get_mut(name) {
+            self.resident_bytes = self.resident_bytes - e.bytes + bytes;
+            e.bytes = bytes;
+        }
+    }
+
+    /// The names resident now, in order.
+    pub fn names(&self) -> impl Iterator<Item = &String> {
+        self.entries.keys()
+    }
+
+    pub fn budget(&self) -> Option<u64> {
+        self.budget
+    }
+
+    pub fn resident_bytes(&self) -> u64 {
+        self.resident_bytes
+    }
+
     pub fn set_pinned(&mut self, name: &str, pinned: bool) {
         if let Some(e) = self.entries.get_mut(name) {
             e.pinned = pinned;
@@ -284,6 +312,9 @@ impl ResidentSet {
 #[derive(Default)]
 pub(crate) struct Residency {
     sets: [ResidentSet; ResidencyKind::ALL.len()],
+    /// The ids of evicted resident meshes, by name: they come back under
+    /// them, so handles the game kept stay good.
+    pub reserved_meshes: BTreeMap<String, u32>,
 }
 
 impl Residency {
@@ -326,6 +357,11 @@ impl crate::Ctx {
             ResidencyKind::Mesh => self.live_resident_mesh(name).is_some(),
             #[cfg(not(feature = "3d"))]
             ResidencyKind::Mesh => false,
+            ResidencyKind::Texture => self
+                .residency
+                .set(kind)
+                .get(name)
+                .is_some_and(|e| self.textures_live.contains(e.handle)),
         }
     }
 
@@ -345,6 +381,7 @@ impl crate::Ctx {
             ResidencyKind::Mesh => self.evict_meshes(now),
             #[cfg(not(feature = "3d"))]
             ResidencyKind::Mesh => {}
+            ResidencyKind::Texture => self.evict_textures(now),
         }
     }
 }

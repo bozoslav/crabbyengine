@@ -920,6 +920,37 @@ impl Renderer {
         (self.textures.len() - 1) as u32
     }
 
+    /// Replaces texture `id` with `rgba` at a new size (resolution
+    /// streaming): the same id, sampling and mipmap kind, so sprites and
+    /// materials showing it see the new pixels at once.
+    pub fn replace_texture(&mut self, id: u32, width: u32, height: u32, rgba: &[u8]) {
+        let Some(old) = self.textures.get(id as usize) else {
+            return;
+        };
+        let nearest = old.nearest;
+        #[cfg(feature = "3d")]
+        let mips = old.mips;
+        let texture = self.upload_texture(width, height, rgba);
+        let bind_group = self.sprite_bind_group(&texture, nearest);
+        self.textures[id as usize] = GpuTexture {
+            bind_group,
+            texture,
+            nearest,
+            #[cfg(feature = "3d")]
+            mips: None,
+        };
+        #[cfg(feature = "3d")]
+        {
+            if let Some(linear) = mips {
+                self.ensure_mips(id, linear);
+            }
+            if let Some(three) = &mut self.three {
+                three.texture_changed(id);
+                three.rebind_materials(&self.device, &self.queue, &self.textures, Some(id), None);
+            }
+        }
+    }
+
     /// Frees texture `id`: its slot shows a 1x1 white texture from now on,
     /// so sprites and materials still showing it draw white, and target
     /// cameras and compute passes let go of it if it was a render target.

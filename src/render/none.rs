@@ -60,6 +60,9 @@ impl Renderer {
     pub fn update_texture_region(&mut self, _id: u32, _at: [u32; 2], _size: [u32; 2], _rgba: &[u8]) {
         match *self {}
     }
+    pub fn replace_texture(&mut self, _id: u32, _width: u32, _height: u32, _rgba: &[u8]) {
+        match *self {}
+    }
     pub fn free_texture(&mut self, _id: u32) {
         match *self {}
     }
