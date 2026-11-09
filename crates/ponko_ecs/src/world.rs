@@ -353,12 +353,12 @@ impl World {
     pub fn insert<T: Component>(&mut self, e: Entity, value: T) -> bool {
         // Keep typed replacement on the stack rather than allocating a
         // runtime-layout temporary as insert_dynamic must.
-        if std::mem::needs_drop::<T>() {
-            if let Some(current) = self.get_mut::<T>(e) {
-                let old = std::mem::replace(current, value);
-                drop(old);
-                return true;
-            }
+        if std::mem::needs_drop::<T>()
+            && let Some(current) = self.get_mut::<T>(e)
+        {
+            let old = std::mem::replace(current, value);
+            drop(old);
+            return true;
         }
         let id = self.register::<T>();
         let value = std::mem::ManuallyDrop::new(value);

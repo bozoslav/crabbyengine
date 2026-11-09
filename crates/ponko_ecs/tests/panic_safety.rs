@@ -114,3 +114,20 @@ fn dynamic_replacement_and_removal_publish_before_drop_panics() {
     drop(w);
     assert_eq!(drops.load(Ordering::SeqCst), 2);
 }
+
+#[test]
+fn rejected_duplicate_bundle_drops_inputs_without_creating_a_row() {
+    let drops = Arc::new(AtomicUsize::new(0));
+    let mut w = World::new();
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| {
+            w.spawn((tracked(&drops, false), tracked(&drops, false)));
+        }))
+        .is_err()
+    );
+    assert_eq!(drops.load(Ordering::SeqCst), 2);
+    assert_eq!(w.query::<&Tracked>().count(), 0);
+    let a = w.spawn((tracked(&drops, false),));
+    assert!(w.despawn(a));
+    assert_eq!(drops.load(Ordering::SeqCst), 3);
+}
