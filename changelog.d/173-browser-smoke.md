@@ -25,5 +25,11 @@
   request in `web-smoke-runner`; the `web` job lints the 3D examples for wasm.
 
 ### Fixed
+- 3D games start in a browser that has only WebGL2: the 3D frame drew into
+  multisampled textures, which WebGL2 can't make (it panicked at startup), and
+  read a sprite texture through a linear view, which it can't make either. On
+  WebGL2 the frame now has one sample (`Multisampling` is reported as a
+  fallback; use FXAA or SMAA for smooth edges) and reads the default white image
+  through its own format. Found by the new 3D smoke fixture.
 - `GpuAdapter::backend` is documented as `webgpu`, not `browser_webgpu`, for the
   browser's WebGPU: that is what the engine reports.
