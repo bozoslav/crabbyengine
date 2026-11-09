@@ -361,6 +361,11 @@ pub(super) fn tile_clear_pipeline(device: &wgpu::Device) -> wgpu::RenderPipeline
 
 #[cfg(test)]
 impl Renderer3D {
+    /// Number of sun cascade passes actually redrawn after both cache layers.
+    pub fn shadow_cascades_redrawn(&self) -> u32 {
+        self.redrawn.count_ones()
+    }
+
     /// The shadow views the last prepared frame kept (bit `v`: view `v`).
     pub fn shadow_views_kept(&self) -> u32 {
         self.shadow_cache.kept
