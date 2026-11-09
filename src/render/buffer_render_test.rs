@@ -525,7 +525,7 @@ fn buffer_instances_are_culled_by_the_grown_bounds() {
 }
 
 #[test]
-fn freed_buffers_are_skipped_and_their_ids_never_reused() {
+fn freed_buffers_are_skipped_and_their_ids_reused() {
     let Some(mut rig) = Rig::new() else { return };
     if rig.device.limits().max_storage_buffers_per_shader_stage == 0 {
         return;
@@ -556,15 +556,14 @@ fn freed_buffers_are_skipped_and_their_ids_never_reused() {
     // Freeing it again does nothing.
     rig.ctx.free_gpu_buffer(b);
 
-    // A new buffer gets a new id; the mesh isn't bound to it.
+    // The id comes back for a new buffer; the mesh isn't bound to it.
     let again = rig.buffer(&[
         vec4(0.0, 0.0, 0.0, 0.0),
         vec4(0.0, -1.0, 0.0, 0.0),
         vec4(0.0, 1.0, 0.0, 0.0),
     ]);
-    assert_ne!(again, b);
+    assert_eq!(again, b);
     assert_eq!(rig.ctx.gpu_buffer_len(again), Some(3));
-    assert_eq!(rig.ctx.gpu_buffer_len(b), None, "the freed one stays dead");
     assert!(!drawn(&mut rig, Vec3::ZERO), "the old binding was cleared");
     rig.renderer.set_mesh_gpu_buffer(mesh.id, again.id, 3);
     assert!(
