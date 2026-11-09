@@ -1,6 +1,6 @@
 ### Added
-- Retained compatibility baselines for the MCP tool contract and the native
-  ABI, with tests that compare the current server, header and struct layouts
+- Retained compatibility baselines for the MCP tool contract, the native ABI
+  and prefab files (the world save is loaded as a scene too), with tests that compare the current server, header and struct layouts
   against them. New MCP tools, optional parameters, C functions and enum
   constants pass; a removed or changed tool, parameter, function or struct
   layout, a new required parameter, or a parameter that accepts fewer values

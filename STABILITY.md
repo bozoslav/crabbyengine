@@ -115,7 +115,7 @@ promised and do not claim anything about earlier binary releases.
 
 | Contract | Baseline | Check |
 |---|---|---|
-| Saved worlds | `tests/fixtures/saves/` | `tests/save_compat.rs` |
+| Saved worlds, scenes and prefabs | `tests/fixtures/saves/` | `tests/save_compat.rs`, `tests/prefab_compat.rs` |
 | MCP tools and parameters | `crates/ponko_mcp/tests/fixtures/` | `crates/ponko_mcp/tests/contract.rs` |
 | C ABI header and layouts | `crates/ponko_ffi/tests/fixtures/abi/` | `crates/ponko_ffi/tests/abi_compat.rs`, `examples/cpp/abi_baseline.c` |
 

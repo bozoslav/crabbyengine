@@ -836,7 +836,7 @@
       "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
     },
     "tests/fixtures/saves/README.md": {
-      "occurrences": 1,
+      "occurrences": 2,
       "path_occurrences": 0,
       "category": "intentional history",
       "reason": "Pre-existing project instructions, README text, release history or legal attribution."
@@ -1020,6 +1020,24 @@
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
+    },
+    "tests/fixtures/saves/prefab_v1.json": {
+      "occurrences": 1,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
+    },
+    "tests/fixtures/saves/prefab_v1.provenance.json": {
+      "occurrences": 1,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
+    },
+    "tests/prefab_compat.rs": {
+      "occurrences": 2,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
     }
   }
 }
