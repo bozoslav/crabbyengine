@@ -803,6 +803,37 @@ static void streaming() {
     });
 }
 
+static void asset_streaming() {
+    ponko::game("streaming", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
+        ctx.set_deterministic_uploads(true);
+        ctx.set_upload_budget(std::nullopt);
+        CHECK(!ctx.stream_texture("crab.png"));
+        CHECK(ctx.asset_state(ponko::residency_kind::texture, "crab.png") == ponko::asset_state::loading);
+        ctx.finish_uploads();
+        auto crab = ctx.stream_texture("crab.png");
+        CHECK(crab && crab->width > 0 && ctx.is_live(*crab));
+        CHECK(ctx.asset_state(ponko::residency_kind::texture, "crab.png") == ponko::asset_state::resident);
+        CHECK(!ctx.upload_stats().has_budget && ctx.upload_stats().pending == 0);
+        CHECK(ctx.resident_texture("crab.png").id == crab->id);
+        CHECK(ctx.is_resident(ponko::residency_kind::texture, "crab.png"));
+        ctx.set_residency_budget(ponko::residency_kind::texture, 1);
+        auto r = ctx.residency(ponko::residency_kind::texture);
+        CHECK(r.has_budget && r.budget == 1 && r.resident == 1 && r.over_budget_bytes > 0);  // asked for this tick
+        auto house = ctx.resident_mesh("models/house.glb", true);
+        CHECK(ctx.is_live(house) && ctx.residency(ponko::residency_kind::mesh).pinned == 1);
+        ctx.unpin_resident(ponko::residency_kind::mesh, "models/house.glb");
+        CHECK(!ctx.stream_mesh("models/nope.glb"));
+        ctx.finish_uploads();
+        CHECK(ctx.asset_state(ponko::residency_kind::mesh, "models/nope.glb") == ponko::asset_state::failed);
+        CHECK(ctx.asset_error(ponko::residency_kind::mesh, "models/nope.glb").find("nope.glb") != std::string::npos);
+        CHECK(ctx.asset_error(ponko::residency_kind::mesh, "models/house.glb").empty());
+        auto e = ctx.world().spawn(ponko::transform3d_at({0, 0, 0}));
+        ctx.set_lod_group(e, 4, {ponko::lod_level{0.0f, 0, {ponko::lod_renderer_of(ponko::mesh_none)}}});
+        ctx.set_streamed_lod(e, {"models/house.glb"});
+        throws([] { ponko::detail::check(ponko_ctx_set_streamed_lod(nullptr, 0, nullptr, 0)); });
+    });
+}
+
 static void handle_lifecycle() {
     ponko::game("handles", 64, 64).run_headless(0, [](ponko::ctx& ctx) {
         auto before = ctx.live_counts();
@@ -1815,6 +1846,7 @@ int main() {
     streaming();
     streamed_worlds();
     handle_lifecycle();
+    asset_streaming();
     parallel_queries();
     games();
     attachments();

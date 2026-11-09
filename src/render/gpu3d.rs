@@ -2243,6 +2243,24 @@ impl Renderer3D {
         }
     }
 
+    /// Binds the materials that read texture `texture` again, keeping their
+    /// maps on: its pixels moved to a new GPU texture (a streamed texture
+    /// at another resolution). `rebind_materials` is for freed ones.
+    pub fn texture_replaced(&mut self, device: &wgpu::Device, textures: &[GpuTexture], texture: u32) {
+        for i in 0..self.materials.len() {
+            let material = &self.materials[i];
+            let (maps, array_ids) = (material.bindings.maps, material.bindings.array_ids);
+            if !maps.contains(&Some(texture)) {
+                continue;
+            }
+            let bindings = self.bindings_for(maps, array_ids, textures);
+            let bind_group = self.material_bind_group(device, &material.buffer, &bindings);
+            let material = &mut self.materials[i];
+            material.bind_group = bind_group;
+            material.bindings = bindings;
+        }
+    }
+
     fn material_bindings_match(
         &self,
         bindings: &MaterialBindings,

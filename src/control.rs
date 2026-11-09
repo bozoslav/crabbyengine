@@ -504,7 +504,7 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
     ),
     (
         "perf.get",
-        "frame timing over the last few seconds (fps; avg, p50, p95, p99, max ms; CPU split into systems, render and waiting on the display; GPU ms), GPU ms per pass, what was drawn (draw calls; 3D models and triangles for the camera and the shadows; render CPU split into collect, record, submit), the slowest systems, live asset handles by class with estimated bytes (`assets`: textures, meshes, materials, sounds, ...; with what the GPU holds), residency budgets per asset kind (`residency`: budget, resident and pinned counts and bytes, loads, reloads, evictions, evicted bytes); params: meshes? (list the n meshes drawing the most triangles, default 0), profiling? (true turns on scope timing and allocation counting, false turns it off). While profiling is on, the answer also has `report`: frame percentiles, every system and profile_scope with time and allocations per frame, the slowest frames and what was in them, and warnings with advice. Always has `render_inspector` (schema 1, also when headless): the last frame's CPU time split into extract, prepare, encode, submit and other ms; GPU ms per frame and per pass; draw calls, models, triangles, occluded models, pipelines built; upload and memory bytes; the active graphics quality preset and settings. A metric that can't be measured (no timestamp queries, headless, not counted yet) is null and `unavailable` gives the reason; GPU times are never guessed",
+        "frame timing over the last few seconds (fps; avg, p50, p95, p99, max ms; CPU split into systems, render and waiting on the display; GPU ms), GPU ms per pass, what was drawn (draw calls; 3D models and triangles for the camera and the shadows; render CPU split into collect, record, submit), the slowest systems, live asset handles by class with estimated bytes (`assets`: textures, meshes, materials, sounds, ...; with what the GPU holds), residency budgets per asset kind (`residency`: budget, resident and pinned counts and bytes, loads, reloads, evictions, evicted bytes), streaming (`streaming`: the upload queue's budget, pending count, bytes and uploads last frame and in total, oversized steps, decode waits, uploads held by a budget, failures, last and longest step ms; and `assets`, every streamed or resident asset with kind, name, state (loading, uploading, streaming, resident, evicted, failed), id and GPU size); params: meshes? (list the n meshes drawing the most triangles, default 0), profiling? (true turns on scope timing and allocation counting, false turns it off). While profiling is on, the answer also has `report`: frame percentiles, every system and profile_scope with time and allocations per frame, the slowest frames and what was in them, and warnings with advice. Always has `render_inspector` (schema 1, also when headless): the last frame's CPU time split into extract, prepare, encode, submit and other ms; GPU ms per frame and per pass; draw calls, models, triangles, occluded models, pipelines built; upload and memory bytes; the active graphics quality preset and settings. A metric that can't be measured (no timestamp queries, headless, not counted yet) is null and `unavailable` gives the reason; GPU times are never guessed",
     ),
     (
         "perf.trace",
@@ -541,7 +541,7 @@ fn render_inspector_json(ctx: &Ctx) -> Value {
 fn perf_json(ctx: &Ctx, meshes: usize) -> Value {
     if ctx.headless {
         let slowest = slowest_systems(ctx);
-        return json!({ "headless": true, "systems": slowest, "residency": residency_json(ctx), "render_inspector": render_inspector_json(ctx) });
+        return json!({ "headless": true, "systems": slowest, "residency": residency_json(ctx), "streaming": streaming_json(ctx), "render_inspector": render_inspector_json(ctx) });
     }
     let f = ctx.frame_stats();
     let r = ctx.render_stats();
@@ -572,6 +572,7 @@ fn perf_json(ctx: &Ctx, meshes: usize) -> Value {
         },
         "systems": slowest_systems(ctx),
         "residency": residency_json(ctx),
+        "streaming": streaming_json(ctx),
         "render_inspector": render_inspector_json(ctx),
         "hint": "frame time is about max(CPU, GPU): when display_wait is large the GPU (or vsync) is the limit; gpu_passes says which pass",
     });
@@ -675,6 +676,41 @@ fn ecs_diagnostics_json(ctx: &Ctx, params: &Value) -> Result<Value, String> {
         out["matching"] = json!({ "with": with, "archetypes": m.archetypes, "entities": m.entities });
     }
     Ok(out)
+}
+
+/// The upload queue and every streamed asset's state.
+fn streaming_json(ctx: &Ctx) -> Value {
+    let u = ctx.upload_stats();
+    let assets: Vec<Value> = ctx
+        .streamed_assets()
+        .into_iter()
+        .map(|a| {
+            json!({
+                "kind": a.kind.name(),
+                "name": a.name,
+                "state": a.state.name(),
+                "id": a.id,
+                "size": a.size,
+            })
+        })
+        .collect();
+    json!({
+        "uploads": {
+            "budget": u.budget,
+            "pending": u.pending,
+            "frame_bytes": u.frame_bytes,
+            "frame_uploads": u.frame_uploads,
+            "total_bytes": u.total_bytes,
+            "total_uploads": u.total_uploads,
+            "oversized": u.oversized,
+            "decode_waits": u.decode_waits,
+            "held_by_budget": u.held_by_budget,
+            "failures": u.failures,
+            "step_ms": u.step_ms,
+            "max_step_ms": u.max_step_ms,
+        },
+        "assets": assets,
+    })
 }
 
 /// Residency budgets and counters, by kind name.
@@ -1231,6 +1267,17 @@ mod tests {
         let perf = handle(&mut ctx, "perf.get", &json!({})).unwrap();
         assert_eq!(perf["residency"]["mesh"]["budget"], 1024, "{perf}");
         assert_eq!(perf["residency"]["mesh"]["evictions"], 0, "{perf}");
+        assert_eq!(perf["residency"]["texture"]["evictions"], 0, "{perf}");
+        assert_eq!(perf["streaming"]["uploads"]["pending"], 0, "{perf}");
+        ctx.stream_texture("missing.png");
+        let perf = handle(&mut ctx, "perf.get", &json!({})).unwrap();
+        let asset = &perf["streaming"]["assets"][0];
+        assert_eq!(
+            (asset["kind"].as_str(), asset["state"].as_str()),
+            (Some("texture"), Some("loading")),
+            "{perf}"
+        );
+        assert_eq!(perf["streaming"]["uploads"]["pending"], 1, "{perf}");
     }
 
     #[test]

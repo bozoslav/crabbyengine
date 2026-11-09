@@ -946,7 +946,7 @@ impl Renderer {
             }
             if let Some(three) = &mut self.three {
                 three.texture_changed(id);
-                three.rebind_materials(&self.device, &self.queue, &self.textures, Some(id), None);
+                three.texture_replaced(&self.device, &self.textures, id);
             }
         }
     }

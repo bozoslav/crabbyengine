@@ -430,6 +430,41 @@ fn the_inventory_counts_streamed_textures_at_their_gpu_resolution() {
     run(setup_deterministic, steps);
 }
 
+#[test]
+fn hot_reload_gives_a_streamed_texture_the_edited_pixels_at_full_resolution() {
+    let dir = std::env::temp_dir().join(format!("ponko-streaming-hot-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("wall.png");
+    std::fs::write(&path, png(256, 256, 10)).unwrap();
+    let name = path.to_str().unwrap().to_string();
+    let reloaded = Rc::new(RefCell::new(Vec::new()));
+    let log = reloaded.clone();
+    Game::new("hot", 1, 1)
+        .hot_reload(true)
+        .sim_system(move |ctx: &mut Ctx| {
+            ctx.set_deterministic_uploads(true);
+            let t = ctx.stream_texture(&name);
+            match ctx.sim_tick() {
+                1 => assert_eq!(gpu_size(ctx, &name), [32, 32]),
+                2 => {
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    std::fs::write(&path, png(256, 256, 200)).unwrap();
+                    std::thread::sleep(std::time::Duration::from_millis(400));
+                }
+                3 => {
+                    assert_eq!(ctx.reloaded_textures(), &[t.unwrap()]);
+                    assert_eq!(gpu_size(ctx, &name), [256, 256]);
+                    assert_eq!(ctx.asset_state(ResidencyKind::Texture, &name), AssetState::Resident);
+                    assert_eq!(ctx.residency(ResidencyKind::Texture).resident_bytes, bytes(256));
+                    log.borrow_mut().push(ctx.sim_tick());
+                }
+                _ => {}
+            }
+        })
+        .run_headless(5, |_| {});
+    assert_eq!(*reloaded.borrow(), [3]);
+}
+
 #[cfg(feature = "3d")]
 mod meshes {
     use super::*;

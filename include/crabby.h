@@ -34,7 +34,7 @@
  * for that panel's UI.
  *
  * Enums (CrabbyKey, CrabbyMouseButton, CrabbyGamepadButton, CrabbyGamepadAxis,
- * CrabbyTextAlign3D, CrabbyBodyKind, CrabbyShapeKind, CrabbyShape3DKind, CrabbyNetState, CrabbyPhase, CrabbyHandleKind, and the
+ * CrabbyTextAlign3D, CrabbyBodyKind, CrabbyShapeKind, CrabbyShape3DKind, CrabbyNetState, CrabbyPhase, CrabbyHandleKind, CrabbyResidencyKind, CrabbyAssetState, and the
  * CrabbyUi* layout and paint enums) are passed as uint32_t.
  * Last-error text is thread-local, borrowed until the next failed call;
  * successful calls leave it unchanged.
@@ -189,6 +189,21 @@ typedef enum CrabbyHandleKind {
   CRABBY_HANDLE_INSTANCE_BATCH = 9,
   CRABBY_HANDLE_TEXTURE_ARRAY = 10,
 } CrabbyHandleKind;
+
+typedef enum CrabbyResidencyKind {
+  CRABBY_RESIDENCY_MESH = 0,
+  CRABBY_RESIDENCY_TEXTURE = 1,
+} CrabbyResidencyKind;
+
+typedef enum CrabbyAssetState {
+  CRABBY_ASSET_UNKNOWN = 0,
+  CRABBY_ASSET_LOADING = 1,
+  CRABBY_ASSET_UPLOADING = 2,
+  CRABBY_ASSET_STREAMING = 3,
+  CRABBY_ASSET_RESIDENT = 4,
+  CRABBY_ASSET_EVICTED = 5,
+  CRABBY_ASSET_FAILED = 6,
+} CrabbyAssetState;
 
 typedef enum CrabbyKey {
   CRABBY_KEY_A,
@@ -1056,6 +1071,36 @@ typedef struct CrabbyInterestChange {
   uint64_t entity;
   enum CrabbyInterestChangeKind kind;
 } CrabbyInterestChange;
+
+typedef struct CrabbyResidencyStats {
+  bool has_budget;
+  uint64_t budget;
+  size_t resident;
+  uint64_t resident_bytes;
+  uint64_t over_budget_bytes;
+  size_t pinned;
+  uint64_t pinned_bytes;
+  uint64_t loads;
+  uint64_t reloads;
+  uint64_t evictions;
+  uint64_t evicted_bytes;
+} CrabbyResidencyStats;
+
+typedef struct CrabbyUploadStats {
+  bool has_budget;
+  uint64_t budget;
+  size_t pending;
+  uint64_t frame_bytes;
+  uint32_t frame_uploads;
+  uint64_t total_bytes;
+  uint64_t total_uploads;
+  uint64_t oversized;
+  uint64_t decode_waits;
+  uint64_t held_by_budget;
+  uint64_t failures;
+  float step_ms;
+  float max_step_ms;
+} CrabbyUploadStats;
 
 typedef struct CrabbyJoint {
   const char *name;
@@ -2975,6 +3020,70 @@ enum CrabbyStatus crabby_interest_changes(const struct CrabbyInterest *i,
                                           size_t *out_count);
 
 enum CrabbyStatus crabby_interest_remove_peer(struct CrabbyInterest *i, uint64_t peer);
+
+enum CrabbyStatus crabby_ctx_set_residency_budget(struct CrabbyCtx *ctx,
+                                                  uint32_t kind,
+                                                  bool has_budget,
+                                                  uint64_t bytes);
+
+enum CrabbyStatus crabby_ctx_residency(struct CrabbyCtx *ctx,
+                                       uint32_t kind,
+                                       struct CrabbyResidencyStats *out_stats);
+
+enum CrabbyStatus crabby_ctx_is_resident(struct CrabbyCtx *ctx,
+                                         uint32_t kind,
+                                         const char *name,
+                                         bool *out_resident);
+
+enum CrabbyStatus crabby_ctx_asset_state(struct CrabbyCtx *ctx,
+                                         uint32_t kind,
+                                         const char *name,
+                                         uint32_t *out_state);
+
+enum CrabbyStatus crabby_ctx_asset_error(struct CrabbyCtx *ctx,
+                                         uint32_t kind,
+                                         const char *name,
+                                         char *buffer,
+                                         size_t capacity,
+                                         size_t *out_len);
+
+enum CrabbyStatus crabby_ctx_resident_texture(struct CrabbyCtx *ctx,
+                                              const char *path,
+                                              bool pin,
+                                              struct CrabbyTexture *out_texture);
+
+enum CrabbyStatus crabby_ctx_resident_mesh(struct CrabbyCtx *ctx,
+                                           const char *path,
+                                           bool pin,
+                                           struct CrabbyMesh *out_mesh);
+
+enum CrabbyStatus crabby_ctx_unpin_resident(struct CrabbyCtx *ctx, uint32_t kind, const char *path);
+
+enum CrabbyStatus crabby_ctx_stream_texture(struct CrabbyCtx *ctx,
+                                            const char *path,
+                                            struct CrabbyTexture *out_texture,
+                                            bool *out_ready);
+
+enum CrabbyStatus crabby_ctx_stream_mesh(struct CrabbyCtx *ctx,
+                                         const char *path,
+                                         struct CrabbyMesh *out_mesh,
+                                         bool *out_ready);
+
+enum CrabbyStatus crabby_ctx_set_upload_budget(struct CrabbyCtx *ctx,
+                                               bool has_budget,
+                                               uint64_t bytes);
+
+enum CrabbyStatus crabby_ctx_set_deterministic_uploads(struct CrabbyCtx *ctx, bool on);
+
+enum CrabbyStatus crabby_ctx_upload_stats(struct CrabbyCtx *ctx,
+                                          struct CrabbyUploadStats *out_stats);
+
+enum CrabbyStatus crabby_ctx_finish_uploads(struct CrabbyCtx *ctx);
+
+enum CrabbyStatus crabby_ctx_set_streamed_lod(struct CrabbyCtx *ctx,
+                                              uint64_t entity,
+                                              const char *const *files,
+                                              size_t count);
 
 enum CrabbyStatus crabby_resource_set(struct CrabbyWorld *world,
                                       const char *name,
