@@ -12,7 +12,9 @@ use std::sync::Arc;
 use ponko_ecs::{Component, ComponentId, Entity, World};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use serde_json::Value;
+use serde_json::{Value, json};
+
+use crate::schema::{SchemaSource, ValueSchema, schema_json};
 
 /// Why a reflection call failed.
 ///
@@ -122,6 +124,10 @@ struct Registry {
     /// Field layouts of components described with `reflect_fields`, by id:
     /// how tools read C events of those types.
     layouts: HashMap<ComponentId, Arc<FieldLayout>>,
+    /// Known schemas of reflected components, by name (opt-in; see `crate::schema`).
+    schemas: HashMap<String, (ValueSchema, SchemaSource)>,
+    /// Known schemas of reflected resources, by name.
+    resource_schemas: HashMap<String, (ValueSchema, SchemaSource)>,
 }
 
 /// The name of foreign component `id`, if it's described with `reflect_fields`.
@@ -759,6 +765,67 @@ pub trait WorldReflect {
     /// If a field doesn't fit, two fields share a name, or a Rust resource
     /// is reflected under the same name.
     unsafe fn reflect_resource_fields(&mut self, name: &str, layout: std::alloc::Layout, fields: &[Field]);
+
+    /// Tells tools the JSON shape of reflected component `name`, so they can
+    /// see its fields before reading or writing it (the control endpoint's
+    /// `capabilities`). Optional: without it a component registered with
+    /// [`reflect`](Self::reflect) is reported as opaque, because Serde can't
+    /// say what a type serializes to. Components described with
+    /// [`reflect_fields`](Self::reflect_fields) get theirs from the fields.
+    /// Describing again replaces the schema. Nothing checks it against the
+    /// type: keep it accurate.
+    ///
+    /// ```
+    /// use ponko::*;
+    /// # #[derive(serde::Serialize, serde::Deserialize)] struct Health { current: f32, max: f32 }
+    /// let mut world = World::new();
+    /// world.reflect::<Health>();
+    /// world
+    ///     .describe_component("Health", ValueSchema::object([
+    ///         ("current", ValueSchema::Number),
+    ///         ("max", ValueSchema::Number),
+    ///     ]))
+    ///     .unwrap();
+    /// ```
+    ///
+    /// # Errors
+    /// If no component named `name` is reflected.
+    fn describe_component(&mut self, name: &str, schema: ValueSchema) -> Result<(), ReflectError>;
+
+    /// [`describe_component`](Self::describe_component) for a reflected resource.
+    ///
+    /// # Errors
+    /// If no resource named `name` is reflected.
+    fn describe_resource(&mut self, name: &str, schema: ValueSchema) -> Result<(), ReflectError>;
+}
+
+/// `Transform2D`'s JSON shape (all fields optional: it has `#[serde(default)]`).
+pub(crate) fn describe_transform2d(world: &mut World) {
+    let schema = ValueSchema::object([
+        ("position", ValueSchema::Vec2),
+        ("rotation", ValueSchema::Number),
+        ("scale", ValueSchema::Vec2),
+    ]);
+    let _ = world.describe_component("Transform2D", schema);
+}
+
+/// Every reflected component and resource with its schema status, for the
+/// control endpoint's `capabilities`.
+pub(crate) fn reflected_schemas(world: &World) -> (Vec<Value>, Vec<Value>) {
+    let Some(reg) = registry(world) else {
+        return (Vec::new(), Vec::new());
+    };
+    let components = reg
+        .list
+        .iter()
+        .map(|c| json!({ "name": c.name, "schema": schema_json(reg.schemas.get(&c.name)) }))
+        .collect();
+    let resources = reg
+        .resources
+        .iter()
+        .map(|r| json!({ "name": r.name, "schema": schema_json(reg.resource_schemas.get(&r.name)) }))
+        .collect();
+    (components, resources)
 }
 
 fn find_resource(world: &World, name: &str) -> Result<ReflectedResource, ReflectError> {
@@ -829,6 +896,8 @@ impl WorldReflect for World {
         }
         let reg = self.resource_mut::<Registry>();
         reg.layouts.insert(id, layout.clone());
+        reg.schemas
+            .insert(name.clone(), (ValueSchema::from_fields(fields), SchemaSource::Fields));
         let entry = |name: &str| {
             let (l, g, k, st) = (layout.clone(), layout.clone(), layout.clone(), layout.clone());
             let sa = layout.clone();
@@ -1013,6 +1082,7 @@ impl WorldReflect for World {
 
     #[track_caller]
     unsafe fn reflect_resource_fields(&mut self, name: &str, layout: std::alloc::Layout, fields: &[Field]) {
+        let schema = ValueSchema::from_fields(fields);
         let fields = Arc::new(FieldLayout::new(name, layout.size(), fields));
         if self.get_resource::<Registry>().is_none() {
             self.insert_resource(Registry::default());
@@ -1047,6 +1117,27 @@ impl WorldReflect for World {
                 reg.resources.push(entry);
             }
         }
+        reg.resource_schemas
+            .insert(name.to_string(), (schema, SchemaSource::Fields));
+    }
+
+    fn describe_component(&mut self, name: &str, schema: ValueSchema) -> Result<(), ReflectError> {
+        let reg = self
+            .get_resource_mut::<Registry>()
+            .filter(|r| r.by_name.contains_key(name))
+            .ok_or_else(|| ReflectError::UnknownComponent(name.to_string()))?;
+        reg.schemas.insert(name.to_string(), (schema, SchemaSource::Described));
+        Ok(())
+    }
+
+    fn describe_resource(&mut self, name: &str, schema: ValueSchema) -> Result<(), ReflectError> {
+        let reg = self
+            .get_resource_mut::<Registry>()
+            .filter(|r| r.resource_by_name.contains_key(name))
+            .ok_or_else(|| ReflectError::UnknownResource(name.to_string()))?;
+        reg.resource_schemas
+            .insert(name.to_string(), (schema, SchemaSource::Described));
+        Ok(())
     }
 
     fn save(&self) -> Value {
