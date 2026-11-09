@@ -139,8 +139,15 @@ fn add_event(items: &mut Vec<Item>, it: Item) {
     }
 }
 
-/// What a system declares it reads and writes. See the [module docs](self)
-/// for the conflict rules and how declarations are checked.
+/// What a system declares it reads and writes.
+///
+/// Two declared systems in the same [`Phase`](crate::Phase) conflict (and
+/// keep their order) when either is exclusive, both touch the same
+/// component or resource and one writes it, one sends an event type the
+/// other reads or both send it, or either records commands while the other
+/// touches anything. In builds with debug assertions, each declared system
+/// runs with access recording on and panics on anything it used without
+/// declaring it.
 ///
 /// [`SystemAccess::new`] declares nothing; chain the builder methods to add
 /// to it. Declaring a write also covers reading the same type.
