@@ -318,6 +318,18 @@ fn tools() -> Vec<Tool> {
             required: &[],
         },
         Tool {
+            name: "ecs_diagnostics",
+            description: "Why the ECS costs what it does, built only when asked: archetypes (full component names, entity count, bytes per entity, allocated bytes), each component type's size and how many entities and bytes it has, and every system in run order with its phase (Input, BeforePhysics, Physics, AfterPhysics, SimLast, Frame, Animate, Late, Draw), tick interval, access and last/average ms. Every system is `exclusive` today: it runs alone with commands applied right after it. Pass `with` to count the archetypes and entities a query for those components visits. Field names are stable; `version` changes only if one is renamed or removed.",
+            writes: false,
+            params: || {
+                json!({
+                    "with": { "type": "array", "items": { "type": "string" }, "description": "Component names (short like \"Health\" or full type names): adds `matching` with the archetypes and entities that have them all" },
+                    "limit": { "type": "integer", "minimum": 0, "description": "Most archetypes to list (non-empty ones, world order; default 100)" }
+                })
+            },
+            required: &[],
+        },
+        Tool {
             name: "perf_report",
             description: "Where a windowed game's frame time goes, over the last few seconds: fps and frame-time percentiles; CPU time in systems, rendering and waiting on the display; GPU time per pass (shadows, opaque, bloom, ...); draw calls and the 3D models and triangles drawn for the camera and the shadows; the slowest systems; optionally the meshes drawing the most triangles. Start here for any performance question: a large display wait means the GPU is the limit. For exact numbers, run the game with PONKO_BENCH=<frames> instead (a fixed-length, vsync-off run that prints a report and quits). Pass profiling=true to also time the game's own profile_scope!/CRABBY_PROFILE_SCOPE scopes and count allocations per system; ask again a few seconds later and the answer has `report` with the slowest frames and warnings with advice. The answer always has `render_inspector` (versioned `schema`): the renderer's CPU ms split into extract, prepare, encode, submit and other; GPU ms per frame and per pass; draw/model/triangle/occlusion counts; the active graphics quality preset and settings. A metric that can't be measured is null, never 0, and `unavailable` says why (for example a GPU without timestamp queries).",
             writes: false,
@@ -603,6 +615,7 @@ fn tool_methods(name: &str) -> Option<&'static [&'static str]> {
         "get_resource" => &["resource.get"],
         "set_resource" => &["resource.set"],
         "system_timings" => &["systems.timings"],
+        "ecs_diagnostics" => &["ecs.diagnostics"],
         "perf_report" => &["perf.get"],
         "shader_status" => &["shaders.status"],
         "record_trace" => &["perf.trace"],
@@ -840,6 +853,7 @@ impl Server {
                 .call("entities.stats", pass(&["fields", "with", "where"])),
             "get_entity" => self.instance(args)?.call("entity.get", pass(&["entity"])),
             "system_timings" => self.instance(args)?.call("systems.timings", json!({})),
+            "ecs_diagnostics" => self.instance(args)?.call("ecs.diagnostics", pass(&["with", "limit"])),
             "perf_report" => self.instance(args)?.call("perf.get", pass(&["meshes", "profiling"])),
             "shader_status" => self.instance(args)?.call("shaders.status", json!({})),
             "record_trace" => self.instance(args)?.call("perf.trace", pass(&["frames", "path"])),

@@ -1133,6 +1133,22 @@ impl Game {
         ctx.advance_tick();
     }
 
+    /// Each system's phase and interval, in timing order, for diagnostics.
+    /// Late and draw systems report their list's phase (bindings add them
+    /// without setting `stage`).
+    fn schedule_slots(&self) -> Vec<crate::diagnostics::ScheduleSlot> {
+        let slot = |s: &System, phase| crate::diagnostics::ScheduleSlot {
+            phase,
+            every: s.every,
+            offset: s.phase,
+        };
+        (self.sim_systems.iter().map(|s| slot(s, s.stage)))
+            .chain(self.systems.iter().map(|s| slot(s, s.stage)))
+            .chain(self.late_systems.iter().map(|s| slot(s, Phase::Late)))
+            .chain(self.draw_systems.iter().map(|s| slot(s, Phase::Draw)))
+            .collect()
+    }
+
     /// Makes sure there's one timing slot per system, and zeroes this frame's times.
     fn begin_timings(&self, ctx: &mut Ctx) {
         if ctx.timings.len()
@@ -1153,6 +1169,7 @@ impl Game {
                     avg_ms: 0.0,
                 })
                 .collect();
+            ctx.schedule = self.schedule_slots();
         }
         for t in &mut ctx.timings {
             t.last_ms = 0.0;

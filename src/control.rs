@@ -27,6 +27,8 @@ use ponko_ecs::Entity;
 use serde_json::{Value, json};
 
 use crate::ctx::Ctx;
+// `crate::units::Health` → `Health`, for archetype listings.
+use crate::diagnostics::short_name as short;
 use crate::reflect::WorldReflect;
 
 mod capabilities;
@@ -468,6 +470,10 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
     ("sim.speed", "set simulation speed; params: speed"),
     ("systems.timings", "each system's last and average time in ms"),
     (
+        "ecs.diagnostics",
+        "the ECS as stable, versioned data, built only when asked: entities and allocated bytes; archetypes (index, full component names, entities, bytes_per_entity, allocated_bytes); components (name, short_name, size, align, archetypes, entities, bytes); systems in run order (name, phase, order, sim, every, offset, access, last_ms, avg_ms). params: with? (component names: adds `matching`, the archetypes and entities a query for them visits), limit? (archetypes listed, non-empty ones in world order, default 100; `archetypes_total` counts all)",
+    ),
+    (
         "events.list",
         "reflected event types (ctx.events.reflect, or C events whose type is a reflected component) and how many are kept now",
     ),
@@ -646,6 +652,30 @@ fn shader_status_json(_ctx: &Ctx) -> Value {
     json!({ "shaders": [], "note": "built without the `3d` feature: no custom shaders" })
 }
 
+/// `ecs.diagnostics`: [`Ctx::ecs_diagnostics`] as JSON, with the
+/// archetype list capped and an optional query match count.
+fn ecs_diagnostics_json(ctx: &Ctx, params: &Value) -> Result<Value, String> {
+    let limit = usize_param(params, "limit", 100)?.min(MAX_LIST);
+    let with: Option<Vec<String>> = match params.get("with") {
+        None | Some(Value::Null) => None,
+        Some(v) => Some(serde_json::from_value(v.clone()).map_err(|_| "`with` must be a list of component names")?),
+    };
+    let mut d = ctx.ecs_diagnostics();
+    let matching = match &with {
+        Some(with) => Some(d.matching(&with.iter().map(String::as_str).collect::<Vec<_>>())?),
+        None => None,
+    };
+    let total = d.archetypes.len();
+    d.archetypes.retain(|a| a.entities > 0);
+    d.archetypes.truncate(limit);
+    let mut out = serde_json::to_value(&d).map_err(|e| e.to_string())?;
+    out["archetypes_total"] = json!(total);
+    if let (Some(with), Some(m)) = (with, matching) {
+        out["matching"] = json!({ "with": with, "archetypes": m.archetypes, "entities": m.entities });
+    }
+    Ok(out)
+}
+
 /// The 10 systems with the most average time.
 fn slowest_systems(ctx: &Ctx) -> Value {
     let mut t: Vec<_> = ctx.system_timings().iter().filter(|t| t.sim || !ctx.headless).collect();
@@ -681,12 +711,6 @@ fn usize_param(params: &Value, name: &str, default: usize) -> Result<usize, Stri
             .map(|n| n as usize)
             .ok_or_else(|| format!("`{name}` must be a non-negative integer")),
     }
-}
-
-/// `crate::units::Health` → `Health`, for archetype listings.
-fn short(type_name: &str) -> &str {
-    let end = type_name.find('<').unwrap_or(type_name.len());
-    type_name[..end].rfind("::").map_or(type_name, |i| &type_name[i + 2..])
 }
 
 pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Value, String> {
@@ -901,6 +925,7 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
                 .map(|t| json!({ "name": t.name, "sim": t.sim, "last_ms": t.last_ms, "avg_ms": t.avg_ms }))
                 .collect(),
         ),
+        "ecs.diagnostics" => ecs_diagnostics_json(ctx, params)?,
         "perf.get" => {
             if let Some(on) = params.get("profiling") {
                 ctx.set_profiling(on.as_bool().ok_or("`profiling` must be true or false")?);
@@ -1204,6 +1229,28 @@ mod tests {
                 .len(),
             2
         );
+    }
+
+    #[test]
+    fn ecs_diagnostics_list_archetypes_and_count_matches() {
+        let mut ctx = ctx();
+        ctx.world.spawn((Transform2D::at(vec2(1.0, 2.0)),));
+        ctx.world.spawn((Transform2D::default(), 5u32));
+        let d = handle(&mut ctx, "ecs.diagnostics", &json!({ "with": ["Transform2D"] })).unwrap();
+        assert_eq!(d["version"], crate::ECS_DIAGNOSTICS_VERSION);
+        assert_eq!(d["entities"], 2);
+        assert_eq!(
+            d["matching"],
+            json!({ "with": ["Transform2D"], "archetypes": 2, "entities": 2 })
+        );
+        assert!(d["archetypes"].as_array().unwrap().iter().all(|a| a["entities"] != 0));
+        assert!(d["archetypes_total"].as_u64().unwrap() >= 2);
+        let one = handle(&mut ctx, "ecs.diagnostics", &json!({ "limit": 1 })).unwrap();
+        assert_eq!(one["archetypes"].as_array().unwrap().len(), 1);
+        assert!(one.get("matching").is_none());
+        let err = handle(&mut ctx, "ecs.diagnostics", &json!({ "with": ["Nope"] })).unwrap_err();
+        assert!(err.contains("unknown component `Nope`"), "{err}");
+        assert!(handle(&mut ctx, "ecs.diagnostics", &json!({ "with": 3 })).is_err());
     }
 
     #[test]
