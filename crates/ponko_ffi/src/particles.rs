@@ -213,6 +213,7 @@ pub(crate) fn curve_from_c(keys: &[CrabbyParticleKey]) -> Result<Option<Particle
     if !keys.iter().all(|k| finite(&[k.t, k.value])) {
         return Err(invalid("particle curve keys must be finite"));
     }
+    ordered(keys.iter().map(|k| k.t))?;
     Ok((!keys.is_empty()).then(|| ParticleCurve::new(keys.iter().map(|k| (k.t, k.value)).collect())))
 }
 
@@ -224,8 +225,19 @@ pub(crate) fn gradient_from_c(keys: &[CrabbyParticleColorKey]) -> Result<Option<
     {
         return Err(invalid("particle curve keys must be finite"));
     }
+    ordered(keys.iter().map(|k| k.t))?;
     Ok((!keys.is_empty())
         .then(|| ParticleGradient::new(keys.iter().map(|k| (k.t, to_c::<_, Color>(k.color))).collect())))
+}
+
+/// Key times the engine accepts: inside 0..=1 and strictly increasing (it panics otherwise).
+fn ordered(times: impl Iterator<Item = f32>) -> Result<(), Failure> {
+    let times: Vec<f32> = times.collect();
+    if times.iter().all(|t| (0.0..=1.0).contains(t)) && times.windows(2).all(|w| w[0] < w[1]) {
+        Ok(())
+    } else {
+        Err(invalid("particle key times must be in 0..=1 and increasing"))
+    }
 }
 
 pub(crate) fn finite(values: &[f32]) -> bool {

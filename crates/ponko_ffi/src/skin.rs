@@ -188,7 +188,7 @@ pub unsafe extern "C" fn crabby_ctx_load_skeleton(
         ctx_access(ctx, |c| {
             let e = entity(c, entity_bits)?;
             let path = text(path)?;
-            let s = c.load_skeleton(path);
+            let s = c.try_load_skeleton(path).map_err(|e| invalid_owned(e.to_string()))?;
             c.world.insert(e, s);
             Ok(())
         })

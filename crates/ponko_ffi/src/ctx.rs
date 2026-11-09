@@ -390,8 +390,8 @@ pub unsafe extern "C" fn crabby_ctx_set_sim_speed(ctx: *mut CrabbyCtx, speed: f3
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            if !speed.is_finite() {
-                return Err(invalid("speed must be finite"));
+            if !speed.is_finite() || speed < 0.0 {
+                return Err(invalid("speed must be finite and not negative"));
             }
             c.set_sim_speed(speed);
             Ok(())

@@ -403,6 +403,12 @@
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
+    "crates/ponko_ffi/tests/clock.rs": {
+      "occurrences": 91,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
     "crates/ponko_ffi/tests/contacts3d.rs": {
       "occurrences": 127,
       "path_occurrences": 0,
@@ -427,6 +433,12 @@
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
+    "crates/ponko_ffi/tests/joints.rs": {
+      "occurrences": 172,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
     "crates/ponko_ffi/tests/media.rs": {
       "occurrences": 194,
       "path_occurrences": 0,
@@ -441,6 +453,18 @@
     },
     "crates/ponko_ffi/tests/net.rs": {
       "occurrences": 42,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
+    "crates/ponko_ffi/tests/particles.rs": {
+      "occurrences": 77,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
+    "crates/ponko_ffi/tests/perf.rs": {
+      "occurrences": 45,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
@@ -469,6 +493,12 @@
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
+    "crates/ponko_ffi/tests/ragdoll.rs": {
+      "occurrences": 80,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
     "crates/ponko_ffi/tests/reflect.rs": {
       "occurrences": 78,
       "path_occurrences": 0,
@@ -483,6 +513,12 @@
     },
     "crates/ponko_ffi/tests/scenes.rs": {
       "occurrences": 56,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
+    "crates/ponko_ffi/tests/skin.rs": {
+      "occurrences": 190,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
