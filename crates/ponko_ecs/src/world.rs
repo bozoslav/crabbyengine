@@ -64,7 +64,9 @@ pub struct World {
     infos: Vec<ComponentInfo>,
     by_type: TypeMap<ComponentId>,
     by_name: HashMap<String, ComponentId>,
+    // Append-only: query matching caches use indices and len() as a generation.
     pub(crate) archetypes: Vec<Archetype>,
+    pub(crate) query_matches: crate::query::MatchCache,
     archetype_by_ids: HashMap<Box<[ComponentId]>, usize>,
     pub(crate) entities: Entities,
     bundles: TypeMap<BundleInfo>,
@@ -147,6 +149,7 @@ impl World {
             by_type: TypeMap::default(),
             by_name: HashMap::new(),
             archetypes: Vec::new(),
+            query_matches: Default::default(),
             archetype_by_ids: HashMap::new(),
             entities: Entities::default(),
             bundles: TypeMap::default(),

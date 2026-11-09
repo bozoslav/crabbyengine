@@ -33,35 +33,57 @@ fn world(layouts: usize) -> World {
 }
 
 pub fn run(b: &mut Bench) {
-    for layouts in [1, 8, 32, 64, 256, 1024] {
-        for frequency in [1, 100, 1000] {
-            for mode in ["count", "each", "iter"] {
-                b.steady(
-                    &format!("query-cache/{layouts}/{frequency}/{mode}"),
-                    100,
-                    || world(layouts),
-                    |w| {
-                        for _ in 0..frequency {
-                            let mut q = w
-                                .query::<&Value>()
-                                .with::<Marker<0>>()
-                                .with::<Marker<1>>()
-                                .without::<Marker<2>>()
-                                .without::<Marker<3>>();
-                            match mode {
-                                "count" => {
-                                    black_box(q.count());
-                                }
-                                "each" => q.for_each(|v| {
-                                    black_box(v.0);
-                                }),
-                                _ => {
-                                    black_box(q.iter().map(|v| v.0).sum::<u64>());
+    for layouts in [1, 8, 32, 64, 128, 256, 1024] {
+        for cached in [false, true] {
+            let strategy = if cached { "cached" } else { "scan" };
+            b.run(
+                &format!("query-cache/{layouts}/cold/{strategy}"),
+                100,
+                || world(layouts),
+                |w| {
+                    let q = w
+                        .query::<&Value>()
+                        .with::<Marker<0>>()
+                        .with::<Marker<1>>()
+                        .without::<Marker<2>>()
+                        .without::<Marker<3>>();
+                    let mut q = if cached { q.cached() } else { q };
+                    black_box(q.count());
+                },
+            );
+            for frequency in [1, 100, 1000] {
+                for mode in ["count", "each", "iter", "dense"] {
+                    b.steady(
+                        &format!("query-cache/{layouts}/{frequency}/{mode}/{strategy}"),
+                        100,
+                        || world(layouts),
+                        |w| {
+                            for _ in 0..frequency {
+                                let q = w.query::<&Value>();
+                                let q = if mode == "dense" {
+                                    q
+                                } else {
+                                    q.with::<Marker<0>>()
+                                        .with::<Marker<1>>()
+                                        .without::<Marker<2>>()
+                                        .without::<Marker<3>>()
+                                };
+                                let mut q = if cached { q.cached() } else { q };
+                                match mode {
+                                    "count" | "dense" => {
+                                        black_box(q.count());
+                                    }
+                                    "each" => q.for_each(|v| {
+                                        black_box(v.0);
+                                    }),
+                                    _ => {
+                                        black_box(q.iter().map(|v| v.0).sum::<u64>());
+                                    }
                                 }
                             }
-                        }
-                    },
-                );
+                        },
+                    );
+                }
             }
         }
     }
