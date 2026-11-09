@@ -19,7 +19,9 @@ use ponko::*;
 use std::cell::Cell;
 use std::rc::Rc;
 
-/// Ticks a `stall` run simulates before pausing.
+/// Ticks a `stall` run simulates before pausing. Keep it well below the
+/// smoke harness's `MIN_PROGRESS_TICKS` (`web/smoke/smoke.mjs`), so the stall
+/// is caught however early the harness first sees the state.
 const STALL_AFTER: u64 = 20;
 
 fn main() {

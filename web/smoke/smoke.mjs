@@ -32,6 +32,8 @@ const CASES = {
   panic: "panic",
   stall: "stall",
 };
+// Ticks the simulation must advance in the 3 s progress window (step 3).
+const MIN_PROGRESS_TICKS = 60;
 
 function usage(message) {
   console.error(`smoke: ${message}`);
@@ -389,8 +391,10 @@ async function main() {
       throw new Failure("asset", `crab.png decoded as ${JSON.stringify(snapshot.state.asset)}, not 32x32`);
     }
 
-    // 3. Progress: the fixed-step simulation keeps ticking (a coarse bound,
-    //    not a frame-rate assertion: 60 Hz for 3 s should give far more).
+    // 3. Progress: the fixed-step simulation keeps ticking. The bound is
+    //    coarse, not a frame-rate assertion: 60 Hz for 3 s gives ~180 ticks,
+    //    and the bound must stay above STALL_AFTER in examples/web_smoke.rs,
+    //    since a `stall` run seen early (at tick 1) still advances that far.
     const before = snapshot.state;
     await sleep(3000);
     snapshot = await smokeState(page);
@@ -401,7 +405,7 @@ async function main() {
     if (snapshot.state.frames <= before.frames) {
       throw new Failure("stall", `frames stopped at ${before.frames}`);
     }
-    if (snapshot.state.ticks < before.ticks + 10) {
+    if (snapshot.state.ticks < before.ticks + MIN_PROGRESS_TICKS) {
       throw new Failure("stall", `the simulation stalled: ${before.ticks} -> ${snapshot.state.ticks} ticks in 3s`);
     }
 
