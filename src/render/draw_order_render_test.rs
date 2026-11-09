@@ -381,46 +381,66 @@ fn a_one_material_scene_draws_as_before() {
 }
 
 /// CPU time and state changes of the many-material scene, mesh order vs
-/// sorted. Run in release:
-/// `cargo test --release --lib draw_order -- --ignored --nocapture`.
+/// sorted, alternating in rounds so that load on the machine hits both
+/// alike. Run in release:
+/// `cargo test --release --lib --features 3d bench_draw_order -- --ignored --nocapture`.
 #[test]
 #[ignore = "benchmark"]
 fn bench_draw_order() {
-    for meshes in [300, 2000] {
+    let ms = |d: std::time::Duration| d.as_secs_f64() * 1e3;
+    for meshes in [1, 300, 2000] {
         let Some(mut rig) = Rig::new(true) else {
             return;
         };
-        many_materials(&mut rig, meshes);
-        for group in [false, true] {
-            rig.renderer.group_draws = group;
-            for _ in 0..20 {
-                rig.render();
+        if meshes == 1 {
+            let material = rig.material(MaterialDesc::default());
+            let cube = rig.mesh(&MeshData::cube(1.0), material);
+            for i in 0..100 {
+                let at = vec3((i % 10) as f32 * 1.5 - 7.0, 0.5, (i / 10) as f32 * -1.5);
+                rig.ctx.world.spawn((Transform3D::at(at), Model::new(cube)));
             }
-            rig.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-            rig.renderer.take_state_changes();
-            let frames = 200;
-            let mut times = Vec::new();
-            for _ in 0..frames {
-                times.push(rig.render());
+            rig.ctx.camera3d.position = vec3(0.0, 6.0, 12.0);
+            rig.ctx.camera3d.look_at(Vec3::ZERO);
+        } else {
+            many_materials(&mut rig, meshes);
+        }
+        let mut times: [Vec<[f64; 2]>; 2] = Default::default();
+        let mut changes = [StateChanges::default(); 2];
+        let (rounds, frames) = (10, 50);
+        for _ in 0..rounds {
+            for (i, group) in [false, true].into_iter().enumerate() {
+                rig.renderer.group_draws = group;
+                for _ in 0..5 {
+                    rig.render();
+                }
                 rig.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+                rig.renderer.take_state_changes();
+                for _ in 0..frames {
+                    let [prepare, record] = rig.render();
+                    times[i].push([ms(prepare), ms(record)]);
+                    rig.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+                }
+                changes[i] = rig.renderer.take_state_changes();
             }
-            let changes = rig.renderer.take_state_changes();
-            let median = |i: usize| {
-                let mut t: Vec<f64> = times.iter().map(|t| t[i].as_secs_f64() * 1e3).collect();
+        }
+        for (i, group) in [false, true].into_iter().enumerate() {
+            let stats = |k: usize| {
+                let mut t: Vec<f64> = times[i].iter().map(|t| t[k]).collect();
                 t.sort_by(f64::total_cmp);
-                (t[t.len() / 2], t[t.len() * 95 / 100])
+                (t[0], t[t.len() / 2], t[t.len() * 95 / 100])
             };
-            let per = |n: u32| n / frames;
+            let (c, per) = (changes[i], frames);
             eprintln!(
-                "{meshes} meshes, sorted {group}: prepare {:.3?} ms (p50, p95), record {:.3?} ms; per frame: \
-                 {} pipelines, {} bind groups, {} vertex buffers, {} index buffers, {} draws",
-                median(0),
-                median(1),
-                per(changes.pipelines),
-                per(changes.bind_groups),
-                per(changes.vertex_buffers),
-                per(changes.index_buffers),
-                per(changes.draws),
+                "{meshes} meshes, sorted {group}: prepare {:.3?} ms, record {:.3?} ms (min, p50, p95 of {}); \
+                 per frame: {} pipelines, {} bind groups, {} vertex buffers, {} index buffers, {} draws",
+                stats(0),
+                stats(1),
+                times[i].len(),
+                c.pipelines / per,
+                c.bind_groups / per,
+                c.vertex_buffers / per,
+                c.index_buffers / per,
+                c.draws / per,
             );
         }
     }
