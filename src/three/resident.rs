@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use super::{LodGroup, LodShadow, Mesh, Model, ShadowMesh};
-use crate::{Ctx, ResidencyKind, assets};
+use crate::{Ctx, ResidencyKind};
 
 impl Ctx {
     /// The mesh in file `path`, loaded now if it isn't resident, under the
@@ -86,9 +86,10 @@ impl Ctx {
         // Freed by the game (or never loaded): load it, noting whether the
         // game already holds it from `load_mesh`.
         self.residency.set_mut(ResidencyKind::Mesh).forget(path);
-        let file = assets::resolve(path).map_err(|e| crate::Error::not_found(path, e))?;
-        let shared = self.assets3d.loaded.contains_key(&file);
-        let mesh = self.try_load_mesh(path)?;
+        // Already in the load cache: the game holds it from `load_mesh`.
+        let cached = self.assets3d.loaded.len();
+        let (mesh, file) = self.load_mesh_from(path)?;
+        let shared = self.assets3d.loaded.len() == cached;
         let bytes = self.assets3d.mesh_bytes.get(mesh.id as usize).copied().unwrap_or(0);
         self.residency
             .set_mut(ResidencyKind::Mesh)
