@@ -34,7 +34,7 @@
  * for that panel's UI.
  *
  * Enums (CrabbyKey, CrabbyMouseButton, CrabbyGamepadButton, CrabbyGamepadAxis,
- * CrabbyTextAlign3D, CrabbyBodyKind, CrabbyShapeKind, CrabbyShape3DKind, CrabbyNetState, and the
+ * CrabbyTextAlign3D, CrabbyBodyKind, CrabbyShapeKind, CrabbyShape3DKind, CrabbyNetState, CrabbyHandleKind, and the
  * CrabbyUi* layout and paint enums) are passed as uint32_t.
  * Last-error text is thread-local, borrowed until the next failed call;
  * successful calls leave it unchanged.
@@ -53,6 +53,8 @@
 #include <stdlib.h>
 
 #define CRABBY_NAV_WALL 0
+
+#define CRABBY_HANDLE_NONE UINT32_MAX
 
 #define CRABBY_MAX_GAMEPADS 8
 
@@ -173,6 +175,20 @@ enum CrabbyActionSource
 #ifndef __cplusplus
 typedef uint32_t CrabbyActionSource;
 #endif // __cplusplus
+
+typedef enum CrabbyHandleKind {
+  CRABBY_HANDLE_TEXTURE = 0,
+  CRABBY_HANDLE_SOUND = 1,
+  CRABBY_HANDLE_FONT = 2,
+  CRABBY_HANDLE_MESH = 3,
+  CRABBY_HANDLE_MATERIAL = 4,
+  CRABBY_HANDLE_SHADER = 5,
+  CRABBY_HANDLE_COMPUTE = 6,
+  CRABBY_HANDLE_EFFECT = 7,
+  CRABBY_HANDLE_GPU_BUFFER = 8,
+  CRABBY_HANDLE_INSTANCE_BATCH = 9,
+  CRABBY_HANDLE_TEXTURE_ARRAY = 10,
+} CrabbyHandleKind;
 
 typedef enum CrabbyKey {
   CRABBY_KEY_A,
@@ -685,6 +701,21 @@ typedef struct CrabbyGridItem {
   struct CrabbyVec2 position;
   uint32_t data;
 } CrabbyGridItem;
+
+typedef struct CrabbyLiveCounts {
+  size_t textures;
+  size_t render_targets;
+  size_t meshes;
+  size_t materials;
+  size_t shaders;
+  size_t computes;
+  size_t effects;
+  size_t gpu_buffers;
+  size_t instance_batches;
+  size_t texture_arrays;
+  size_t sounds;
+  size_t fonts;
+} CrabbyLiveCounts;
 
 typedef struct CrabbyFont {
   uint32_t id;
@@ -2234,6 +2265,16 @@ enum CrabbyStatus crabby_grid_radius(const struct CrabbyGrid *grid,
 size_t crabby_grid_len(const struct CrabbyGrid *grid);
 
 enum CrabbyStatus crabby_grid_view(const struct CrabbyGrid *grid, struct CrabbyGridView *out_view);
+
+enum CrabbyStatus crabby_ctx_handle_is_live(struct CrabbyCtx *ctx,
+                                            uint32_t kind,
+                                            uint32_t id,
+                                            bool *out_live);
+
+enum CrabbyStatus crabby_ctx_handle_free(struct CrabbyCtx *ctx, uint32_t kind, uint32_t id);
+
+enum CrabbyStatus crabby_ctx_live_counts(struct CrabbyCtx *ctx,
+                                         struct CrabbyLiveCounts *out_counts);
 
 struct CrabbyTextParams crabby_text_params_default(void);
 

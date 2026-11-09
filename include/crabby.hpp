@@ -95,9 +95,14 @@ struct joint {
     transform3d rest{{0, 0, 0, 1}, {0, 0, 0}, {1, 1, 1}, {0, 0}};
 };
 using model = CrabbyModel;
-/// No mesh (Rust `Mesh::NONE`): a model showing it draws nothing, and it
-/// never becomes another mesh, unlike a freed one.
+/// No mesh (Rust `Mesh::NONE`): a model showing it draws nothing, and no
+/// mesh is ever made with its id.
 constexpr CrabbyMesh mesh_none{CRABBY_MESH_NONE};
+/// No resource of handle type `H` (Rust `Handle::NONE`): never live, and
+/// freeing it does nothing. `none<mesh>()` is `mesh_none`.
+template<class H> constexpr H none() { H h{}; h.id = CRABBY_HANDLE_NONE; return h; }
+/// How many handles of each kind are live (Rust `LiveCounts`).
+using live_counts = CrabbyLiveCounts;
 /// One mesh of a LOD level, placed and tinted (Rust `LodRenderer`).
 using lod_renderer = CrabbyLodRenderer;
 inline lod_renderer lod_renderer_of(CrabbyMesh m) { return crabby_lod_renderer(m); }
@@ -571,6 +576,19 @@ namespace detail {
 inline void check(CrabbyStatus status) {
     if (status != CRABBY_OK) throw std::runtime_error(crabby_last_error());
 }
+/// The `CrabbyHandleKind` of each handle type, for `ctx::is_live` and `ctx::free`.
+template<class H> struct handle_kind;
+template<> struct handle_kind<CrabbyTexture> { static constexpr std::uint32_t value = CRABBY_HANDLE_TEXTURE; };
+template<> struct handle_kind<CrabbySound> { static constexpr std::uint32_t value = CRABBY_HANDLE_SOUND; };
+template<> struct handle_kind<CrabbyFont> { static constexpr std::uint32_t value = CRABBY_HANDLE_FONT; };
+template<> struct handle_kind<CrabbyMesh> { static constexpr std::uint32_t value = CRABBY_HANDLE_MESH; };
+template<> struct handle_kind<CrabbyMaterial> { static constexpr std::uint32_t value = CRABBY_HANDLE_MATERIAL; };
+template<> struct handle_kind<CrabbyShader> { static constexpr std::uint32_t value = CRABBY_HANDLE_SHADER; };
+template<> struct handle_kind<CrabbyCompute> { static constexpr std::uint32_t value = CRABBY_HANDLE_COMPUTE; };
+template<> struct handle_kind<CrabbyEffect> { static constexpr std::uint32_t value = CRABBY_HANDLE_EFFECT; };
+template<> struct handle_kind<CrabbyGpuBuffer> { static constexpr std::uint32_t value = CRABBY_HANDLE_GPU_BUFFER; };
+template<> struct handle_kind<CrabbyInstanceBatch> { static constexpr std::uint32_t value = CRABBY_HANDLE_INSTANCE_BATCH; };
+template<> struct handle_kind<CrabbyTextureArray> { static constexpr std::uint32_t value = CRABBY_HANDLE_TEXTURE_ARRAY; };
 template<class T> constexpr bool pod = std::is_trivially_copyable<T>::value &&
     std::is_trivially_destructible<T>::value && std::is_standard_layout<T>::value;
 template<class T> using bare = typename std::remove_cv<typename std::remove_reference<T>::type>::type;
@@ -2805,7 +2823,7 @@ public:
         detail::check(crabby_ctx_write_gpu_buffer(raw_, b, offset, reinterpret_cast<const float (*)[4]>(data.data()), data.size()));
     }
     /// Frees a GPU buffer; its compute passes are removed and meshes using
-    /// it draw nothing. The next buffer made reuses its id: drop the handle.
+    /// it draw nothing. Its id is never reused, so the handle stays dead.
     void free_gpu_buffer(gpu_buffer b) { detail::check(crabby_ctx_free_gpu_buffer(raw_, b)); }
     /// Draws `count` instances of a mesh from a GPU buffer, each at its
     /// entity's transform and tint (`items[v.instance_index]` in the shader).
@@ -3184,6 +3202,24 @@ public:
     bool mesh_shadows(mesh m) const { bool casts = true; detail::check(crabby_ctx_mesh_shadows(raw_, m, &casts)); return casts; }
     /// Whether this game made `m` and hasn't freed it.
     bool is_mesh_live(mesh m) const { bool live = false; detail::check(crabby_ctx_is_mesh_live(raw_, m, &live)); return live; }
+    /// Whether handle `h` (a texture, sound, font, mesh, material, shader,
+    /// compute, effect, gpu_buffer, instance_batch or texture_array) names
+    /// something this game made and hasn't freed (Rust `Ctx::is_live`).
+    template<class H> bool is_live(H h) const {
+        bool live = false;
+        detail::check(crabby_ctx_handle_is_live(raw_, detail::handle_kind<H>::value, h.id, &live));
+        return live;
+    }
+    /// Frees handle `h` (Rust `Ctx::free`): its id is never reused, so `h`
+    /// stays dead, and whatever still uses it draws the default (nothing for
+    /// a mesh, white for a texture, the default material, the built-in font).
+    template<class H> void free(H h) {
+        detail::check(crabby_ctx_handle_free(raw_, detail::handle_kind<H>::value, h.id));
+    }
+    /// How many handles of each kind are live now (Rust `Ctx::live_counts`).
+    crabby::live_counts live_counts() const {
+        crabby::live_counts c{}; detail::check(crabby_ctx_live_counts(raw_, &c)); return c;
+    }
     /// How many 3D models were drawn last frame.
     std::size_t models_drawn() const { std::size_t n = 0; detail::check(crabby_ctx_models_drawn(raw_, &n)); return n; }
     crabby::camera3d camera3d() const { crabby::camera3d c{}; detail::check(crabby_ctx_camera3d(raw_, &c)); return c; }
