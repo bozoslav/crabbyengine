@@ -381,7 +381,8 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     /// Replaces the contents of `out` with `f` of every matching entity,
     /// computed on all cores, in the same order as [`for_each`](Self::for_each).
     /// `out` keeps its memory between calls, so collecting every tick
-    /// allocates nothing once it's big enough.
+    /// allocates nothing once it's big enough. If `f` panics, completed results
+    /// are dropped and `out` is left empty with its allocation available for reuse.
     ///
     /// ```
     /// # use ponko_ecs::*;
@@ -419,14 +420,104 @@ impl<'w, Q: QueryData> Query<'w, Q> {
         let n = self.count();
         out.reserve(n);
         let slots = Slots(out.as_mut_ptr());
-        self.par_for_each_indexed(|i, item| {
-            debug_assert!(i < n);
-            // SAFETY: `i < n <= capacity`, and every index in `0..n` is
-            // visited exactly once, so no slot is written twice.
-            unsafe { slots.at(i).write(f(item)) };
-        });
-        // SAFETY: all `n` slots were written above. (If `f` panicked we
-        // never get here: the written values leak, nothing is read.)
+        if !std::mem::needs_drop::<R>() {
+            self.par_for_each_indexed(|i, item| {
+                debug_assert!(i < n);
+                // SAFETY: every index in the reserved buffer is written once.
+                // On panic these values need no cleanup and `out.len()` stays 0.
+                unsafe { slots.at(i).write(f(item)) };
+            });
+        } else {
+            /// Owns only the initialized prefix of a disjoint output range.
+            struct Initialized<R> {
+                slots: Slots<R>,
+                len: usize,
+            }
+            impl<R> Drop for Initialized<R> {
+                fn drop(&mut self) {
+                    // SAFETY: only this guard owns these initialized values;
+                    // sibling tasks write disjoint ranges. Vec's length is 0.
+                    unsafe { std::ptr::drop_in_place(std::ptr::slice_from_raw_parts_mut(self.slots.at(0), self.len)) };
+                }
+            }
+
+            // Return ownership of completed ranges through `join`: if either
+            // branch panics, rayon waits for its sibling and drops its result.
+            // No shared counter, bitmap, or per-call allocation is needed.
+            fn fill<R: Send>(
+                mut initialized: Initialized<R>,
+                start: usize,
+                len: usize,
+                chunk: usize,
+                f: &(impl Fn(usize) -> R + Sync),
+            ) -> Initialized<R> {
+                if len > chunk {
+                    let mid = (len.div_ceil(chunk) / 2) * chunk;
+                    let right = Initialized {
+                        slots: Slots(initialized.slots.at(mid)),
+                        len: 0,
+                    };
+                    let (mut left, mut right) = rayon::join(
+                        || fill(initialized, start, mid, chunk, f),
+                        || fill(right, start + mid, len - mid, chunk, f),
+                    );
+                    // Both adjacent ranges are complete; transfer ownership.
+                    left.len += right.len;
+                    right.len = 0;
+                    left
+                } else {
+                    for row in 0..len {
+                        // SAFETY: this task exclusively owns these reserved
+                        // slots. Record each write before calling `f` again.
+                        unsafe { initialized.slots.at(row).write(f(start + row)) };
+                        initialized.len += 1;
+                    }
+                    initialized
+                }
+            }
+
+            struct SharedState<S>(S);
+            impl<S: Copy> SharedState<S> {
+                fn get(&self) -> S {
+                    self.0
+                }
+            }
+            // SAFETY: as in par_for_each_indexed, query access is validated and
+            // workers fetch disjoint rows of Send + Sync component columns.
+            unsafe impl<S> Send for SharedState<S> {}
+            unsafe impl<S> Sync for SharedState<S> {}
+
+            let threads = rayon::current_num_threads().max(1);
+            let min_chunk = if cfg!(miri) { 64 } else { 512 };
+            let max_chunk = if cfg!(miri) { 64 } else { 8192 };
+            let mut initialized = Initialized { slots, len: 0 };
+            for arch in self.world.archetypes.iter() {
+                let len = arch.len();
+                if len == 0 || !self.filters.matches(arch) {
+                    continue;
+                }
+                let Some(state) = Q::state(arch, &self.ids) else {
+                    continue;
+                };
+                let state = SharedState(state);
+                let chunk = (len / (threads * 4)).clamp(min_chunk, max_chunk);
+                let mut completed = fill(
+                    Initialized {
+                        slots: Slots(initialized.slots.at(initialized.len)),
+                        len: 0,
+                    },
+                    0,
+                    len,
+                    chunk,
+                    &|row| f(unsafe { Q::fetch(state.get(), row) }),
+                );
+                initialized.len += completed.len;
+                completed.len = 0;
+            }
+            // All results now belong to `out`; disarm before setting its length.
+            initialized.len = 0;
+        }
+        // SAFETY: both paths wrote all n slots; unwinding never reaches here.
         unsafe { out.set_len(n) };
     }
 

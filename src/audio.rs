@@ -466,19 +466,19 @@ impl Ctx {
     /// ```
     pub fn try_load_sound(&mut self, path: &str) -> Result<Sound, crate::Error> {
         let file = crate::assets::resolve(path).map_err(|e| crate::Error::not_found(path, e))?;
-        let key = (file, crate::ctx::AssetKind::Sound);
+        let key = (crate::assets::Origin::File(file.clone()), crate::ctx::AssetKind::Sound);
         if let Some(&i) = self.loaded.get(&key) {
             return Ok(self.cached_sounds[i as usize]);
         }
-        let bytes = crate::assets::read(&key.0).map_err(|e| crate::Error::io(path, &key.0, &e))?;
+        let bytes = crate::assets::read(&file).map_err(|e| crate::Error::io(path, &file, &e))?;
         let (id, seconds) = self
             .audio
             .load(bytes)
-            .map_err(|e| crate::Error::decode(path, format!("{}: {e}", key.0.display())))?;
+            .map_err(|e| crate::Error::decode(path, format!("{}: {e}", file.display())))?;
         let sound = Sound { id, seconds };
-        self.loaded.insert(key.clone(), self.cached_sounds.len() as u64);
+        self.loaded.insert(key, self.cached_sounds.len() as u64);
         self.cached_sounds.push(sound);
-        self.watcher.watch(path, key.0, crate::hot_reload::Asset::Sound(id));
+        self.watcher.watch(path, file, crate::hot_reload::Asset::Sound(id));
         Ok(sound)
     }
 

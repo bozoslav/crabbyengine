@@ -1,123 +1,54 @@
 //! A retained shop: item grid, scrolling, input and modal confirmation.
 use ponko::*;
-use ui_layout::prelude::*;
 
-fn fixed(width: f32, height: f32) -> Style {
-    Style {
-        size: Size {
-            width: length(width),
-            height: length(height),
-        },
-        flex_shrink: 0.0,
-        ..Default::default()
-    }
-}
 fn main() {
     Game::new("Shop", 900, 700).run(|ctx| {
         // ANCHOR: shop_tree
         let ui = &mut ctx.ui_retained;
-        let root = ui.add(
-            UiWidget::Panel,
-            Style {
-                size: Size {
-                    width: percent(1.0),
-                    height: percent(1.0),
-                },
-                flex_direction: FlexDirection::Column,
-                padding: ui_layout::Rect::length(24.0),
-                gap: Size::length(12.0),
-                ..Default::default()
-            },
-        );
-        let title = ui.add_child(root, UiWidget::Label, fixed(400.0, 32.0));
-        ui.set_text(title, "General store — choose an item");
-        let search = ui.add_child(root, UiWidget::TextInput, fixed(360.0, 36.0));
-        ui.set_text(search, "Your order note");
-        let scroll = ui.add_child(
-            root,
-            UiWidget::Scroll,
-            Style {
-                size: Size {
-                    width: percent(1.0),
-                    height: length(360.0),
-                },
-                min_size: Size::length(0.0),
-                flex_shrink: 1.0,
-                ..Default::default()
-            },
-        );
-        let grid = ui.add_child(
-            scroll,
-            UiWidget::Panel,
-            Style {
-                display: Display::Grid,
-                size: Size {
-                    width: percent(0.95),
-                    height: auto(),
-                },
-                grid_template_columns: vec![fr(1.0), fr(1.0), fr(1.0)],
-                grid_auto_rows: vec![length(76.0)],
-                gap: Size::length(8.0),
-                flex_shrink: 0.0,
-                ..Default::default()
-            },
-        );
-        let mut items = Vec::new();
-        for i in 0..36 {
-            let item = ui.add_child(
-                grid,
-                UiWidget::Button,
-                Style {
-                    min_size: Size::length(0.0),
-                    padding: ui_layout::Rect::length(8.0),
-                    ..Default::default()
-                },
-            );
-            ui.set_text(item, format!("Item {}\n{} coins", i + 1, (i + 1) * 3));
-            ui.set_paint(
-                item,
-                UiPaint {
-                    wrap: true,
-                    border_width: 1.0,
-                    ..Default::default()
-                },
-            );
-            items.push(item);
-        }
-        let gift = ui.add_child(root, UiWidget::Toggle, fixed(220.0, 28.0));
-        ui.set_text(gift, "Gift wrap");
-        let buy = ui.add_child(root, UiWidget::Button, fixed(220.0, 40.0));
-        ui.set_text(buy, "Buy selected item");
-        ui.set_enabled(buy, false);
+        let root = ui.root().layout(UiLayout::fill().padding(24.0).gap(12.0)).id();
+        let title = ui
+            .label(root, "General store — choose an item")
+            .layout(UiLayout::fixed(400.0, 32.0))
+            .id();
+        ui.text_input(root)
+            .text("Your order note")
+            .layout(UiLayout::fixed(360.0, 36.0));
+        let scroll = ui.scroll_area(root).layout(UiLayout::fill().height(360.0)).id();
+        // 95% wide, so the scrollbar doesn't cover the last column.
+        let grid = ui
+            .panel(scroll)
+            .layout(UiLayout::grid(3, 76.0).gap(8.0).width_fraction(0.95))
+            .id();
+        let items: Vec<UiId> = (1..=36)
+            .map(|i| {
+                ui.button(grid, format!("Item {i}\n{} coins", i * 3))
+                    .layout(UiLayout::auto().padding(8.0))
+                    .wrap()
+                    .border_width(1.0)
+                    .id()
+            })
+            .collect();
+        ui.toggle(root, "Gift wrap").layout(UiLayout::fixed(220.0, 28.0));
+        let buy = ui
+            .button(root, "Buy selected item")
+            .layout(UiLayout::fixed(220.0, 40.0))
+            .enabled(false)
+            .id();
         ui.push_screen(root, false);
         // ANCHOR_END: shop_tree
 
         // ANCHOR: shop_dialog
         // A detached screen can be reused after it is popped.
-        let dialog = ui.add(
-            UiWidget::Panel,
-            Style {
-                size: Size {
-                    width: length(360.0),
-                    height: length(180.0),
-                },
-                margin: ui_layout::Rect {
-                    left: auto(),
-                    right: auto(),
-                    top: length(180.0),
-                    bottom: auto(),
-                },
-                padding: ui_layout::Rect::length(20.0),
-                flex_direction: FlexDirection::Column,
-                gap: Size::length(12.0),
-                ..Default::default()
-            },
-        );
-        let message = ui.add_child(dialog, UiWidget::Label, fixed(320.0, 40.0));
-        let confirm = ui.add_child(dialog, UiWidget::Button, fixed(240.0, 36.0));
-        ui.set_text(confirm, "Confirm purchase");
-        let cancel = ui.add_child(dialog, UiWidget::Button, fixed(240.0, 30.0));
-        ui.set_text(cancel, "Back");
+        let dialog = ui
+            .root()
+            .layout(UiLayout::centered(360.0, 180.0).padding(20.0).gap(12.0))
+            .id();
+        let message = ui.label(dialog, "").layout(UiLayout::fixed(320.0, 40.0)).id();
+        let confirm = ui
+            .button(dialog, "Confirm purchase")
+            .layout(UiLayout::fixed(240.0, 36.0))
+            .id();
+        let cancel = ui.button(dialog, "Back").layout(UiLayout::fixed(240.0, 30.0)).id();
         // ANCHOR_END: shop_dialog
 
         let mut selected = None;

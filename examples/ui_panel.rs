@@ -1,6 +1,5 @@
 //! Retained UI on a screen in the 3D world: `cargo run --features 3d --example ui_panel`.
 use ponko::*;
-use ui_layout::prelude::*;
 
 /// A terminal with a button on it.
 struct Terminal {
@@ -17,32 +16,8 @@ fn setup(ctx: &mut Ctx) {
     // ANCHOR: panel_create
     // A 1.2 x 0.8 m terminal, 600 x 400 pixels, with a button.
     let (mut panel, model) = ctx.create_ui_panel(600, 400, vec2(1.2, 0.8));
-    let root = panel.ui.add(
-        UiWidget::Panel,
-        Style {
-            size: Size {
-                width: percent(1.0),
-                height: percent(1.0),
-            },
-            flex_direction: FlexDirection::Column,
-            padding: ui_layout::Rect::length(20.0),
-            gap: Size::length(12.0),
-            ..Default::default()
-        },
-    );
-    let buy = panel.ui.add_child(
-        root,
-        UiWidget::Button,
-        Style {
-            size: Size {
-                width: length(200.0),
-                height: length(60.0),
-            },
-            flex_shrink: 0.0,
-            ..Default::default()
-        },
-    );
-    panel.ui.set_text(buy, "Buy");
+    let root = panel.ui.root().layout(UiLayout::fill().padding(20.0).gap(12.0)).id();
+    let buy = panel.ui.button(root, "Buy").layout(UiLayout::fixed(200.0, 60.0)).id();
     panel.ui.push_screen(root, false);
     ctx.world
         .spawn((Transform3D::at(vec3(0.0, 1.5, -2.0)), model, panel, Terminal { buy }));

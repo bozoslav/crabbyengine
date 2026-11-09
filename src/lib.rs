@@ -108,6 +108,7 @@ mod ui;
 mod web;
 
 pub use alloc_count::{AllocCounts, CountingAllocator, alloc_counts, note_allocation};
+pub use assets::{AssetSource, MemorySource};
 pub use attach::{Attached, follow_attachments};
 pub use audio::{AudioBus, AudioEffects, Playing, Sound, SoundParams};
 #[cfg(feature = "3d")]
@@ -194,7 +195,7 @@ pub use three::{
 pub use tilemap::{TileMap, draw_tilemaps};
 #[cfg(feature = "3d")]
 pub use ui::UiPanel3D;
-pub use ui::{Ui, UiEvent, UiId, UiInput, UiPaint, UiStyle, UiTextAlign, UiWidget};
+pub use ui::{Ui, UiBuilder, UiEvent, UiId, UiInput, UiLayout, UiPaint, UiStyle, UiTextAlign, UiTheme, UiWidget};
 
 /// The ECS: entities, components, queries, resources, commands.
 pub use ponko_ecs::{Commands, Component, ComponentId, Entity, Query, World};

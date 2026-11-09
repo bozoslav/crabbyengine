@@ -335,10 +335,12 @@ impl Ctx {
     }
 }
 
+mod build;
 #[cfg(feature = "3d")]
 mod panel3d;
 mod retained;
 mod retained_draw;
+pub use build::{UiBuilder, UiLayout, UiTheme};
 #[cfg(feature = "3d")]
 pub use panel3d::UiPanel3D;
 pub use retained::{Ui, UiEvent, UiId, UiInput, UiPaint, UiTextAlign, UiWidget};

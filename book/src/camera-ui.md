@@ -133,7 +133,9 @@ In C++, `draw_text(text, pos, params)` is `draw_text_ex`, with
 
 ## UI
 
-A few immediate-mode widgets, drawn in window pixels. Call them every frame:
+A few immediate-mode widgets, drawn in window pixels, for debug overlays and
+quick prototypes; a game's menus and HUD belong in the [retained UI](ui.md).
+Call them every frame:
 
 <div class="lang-pair">
 <div>
