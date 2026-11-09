@@ -91,6 +91,7 @@ impl Culling {
 }
 impl Renderer3D {
     pub fn set_instance_batch(&mut self, device: &wgpu::Device, id: u32, batch: Option<&Batch>) {
+        self.shadow_cache.invalidate();
         while self.static_batches.len() <= id as usize {
             self.static_batches.push(None);
         }
@@ -317,7 +318,8 @@ impl Renderer3D {
                 if v > 0
                     && v < 1 + MAX_CASCADES + self.light_views
                     && (!batch.options.cast_shadows
-                        || (v <= MAX_CASCADES && (v > self.cascades || self.redrawn & (1 << (v - 1)) == 0)))
+                        || (v <= MAX_CASCADES && (v > self.cascades || self.redrawn & (1 << (v - 1)) == 0))
+                        || (v > MAX_CASCADES && self.shadow_cache.light_kept & (1 << (v - 1 - MAX_CASCADES)) != 0))
                 {
                     continue;
                 }
