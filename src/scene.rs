@@ -9,6 +9,14 @@ use serde_json::{Value, json};
 
 use crate::{Ctx, Entity, Transform2D, Vec2, WorldReflect, assets};
 
+/// A field of a reflected component that names an asset, and how to load
+/// it (`Ctx::scene_asset_field`).
+pub(crate) struct SceneAssetField {
+    component: String,
+    field: String,
+    load: std::rc::Rc<dyn Fn(&mut Ctx, &str) -> Result<(), String>>,
+}
+
 const PREFAB_FORMAT: &str = "crabby-prefab";
 const PREFAB_VERSION: u64 = 1;
 
@@ -150,6 +158,117 @@ impl Ctx {
         assets::write(path, text.as_bytes())?;
         self.prefabs.insert(path.to_string(), components);
         Ok(())
+    }
+}
+
+impl Ctx {
+    /// Says that field `field` of reflected component `T` names an asset,
+    /// and how to load it: before a scene or prefab is spawned
+    /// ([`load_scene`](Self::load_scene), [`spawn_prefab`](Self::spawn_prefab),
+    /// the editor and the control endpoint), `load` is called with every
+    /// name found there, the way the textures of `Sprite`s and meshes of
+    /// `Model`s are loaded first.
+    ///
+    /// The component keeps the asset's name (a `String`, or a list of
+    /// them), not a handle: scenes save it as written, and a system gets
+    /// the handle by loading the name again, which returns the cached one.
+    /// `load` decides what the name means, so it covers your own asset
+    /// types too ([`load_asset_with`](Self::load_asset_with) into a
+    /// resource). Names are found through the [asset
+    /// sources](Self::add_asset_source) like any other load.
+    ///
+    /// The field may hold a name or a list of names; other values are
+    /// skipped (the component's own deserialization reports them). A
+    /// failing `load` fails the scene load before any entity changes, with
+    /// the component, field and name in the message. Calling this again
+    /// for the same component and field replaces its loader.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// /// A shop item: its icon is an image, saved by name.
+    /// #[derive(Clone, serde::Serialize, serde::Deserialize)]
+    /// struct ShopItem {
+    ///     icon: String,
+    /// }
+    ///
+    /// # let mut red = Vec::new();
+    /// # image::RgbaImage::from_pixel(1, 1, image::Rgba([255, 0, 0, 255]))
+    /// #     .write_to(&mut std::io::Cursor::new(&mut red), image::ImageFormat::Png)
+    /// #     .unwrap();
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     ctx.world.reflect::<ShopItem>();
+    ///     ctx.scene_asset_field::<ShopItem>("icon", |ctx, name| {
+    ///         ctx.try_load_texture(name).map(|_| ()).map_err(|e| e.to_string())
+    ///     });
+    ///     // A scene with one shop item, kept in memory with its icon.
+    ///     ctx.world.spawn((ShopItem { icon: "icons/apple.png".into() },));
+    ///     let shop = serde_json::to_string(&ctx.world.save()).unwrap();
+    ///     ctx.add_asset_source(MemorySource::new("shop").with("shop.json", shop).with("icons/apple.png", red));
+    ///
+    ///     ctx.load_scene("shop.json").unwrap(); // loads "icons/apple.png" first
+    ///     let item = ctx.world.query::<&ShopItem>().iter().next().unwrap().clone();
+    ///     let icon = ctx.load_texture(&item.icon); // the cached texture
+    ///     assert_eq!(icon.width(), 1);
+    /// });
+    /// ```
+    pub fn scene_asset_field<T: 'static>(
+        &mut self,
+        field: &str,
+        load: impl Fn(&mut Ctx, &str) -> Result<(), String> + 'static,
+    ) {
+        let component = crate::reflect::short_name(std::any::type_name::<T>());
+        let entry = SceneAssetField {
+            component,
+            field: field.to_string(),
+            load: std::rc::Rc::new(load),
+        };
+        match self
+            .scene_asset_fields
+            .iter_mut()
+            .find(|f| f.component == entry.component && f.field == entry.field)
+        {
+            Some(existing) => *existing = entry,
+            None => self.scene_asset_fields.push(entry),
+        }
+    }
+
+    /// Loads the assets that fields registered with
+    /// [`scene_asset_field`](Self::scene_asset_field) name anywhere in `json`.
+    pub(crate) fn load_scene_asset_fields(&mut self, json: &Value) -> Result<(), String> {
+        for i in 0..self.scene_asset_fields.len() {
+            let f = &self.scene_asset_fields[i];
+            let (component, field, load) = (f.component.clone(), f.field.clone(), f.load.clone());
+            let mut names = Vec::new();
+            field_names(json, &component, &field, &mut names);
+            names.sort_unstable();
+            names.dedup();
+            for name in names {
+                load(self, &name).map_err(|e| format!("{component}.{field} \"{name}\": {e}"))?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The names (a string, or the strings of a list) under `component`
+/// objects' `field` anywhere in `json`.
+fn field_names(json: &Value, component: &str, field: &str, out: &mut Vec<String>) {
+    match json {
+        Value::Object(map) => {
+            for (k, value) in map {
+                if k == component && value.is_object() {
+                    match value.get(field) {
+                        Some(Value::String(name)) => out.push(name.clone()),
+                        Some(Value::Array(list)) => out.extend(list.iter().filter_map(Value::as_str).map(String::from)),
+                        _ => {}
+                    }
+                } else {
+                    field_names(value, component, field, out);
+                }
+            }
+        }
+        Value::Array(list) => list.iter().for_each(|v| field_names(v, component, field, out)),
+        _ => {}
     }
 }
 

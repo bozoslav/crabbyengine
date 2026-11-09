@@ -116,7 +116,7 @@ mod backend {
     enum Clip {
         Static(Box<StaticSoundData>),
         #[cfg(not(target_arch = "wasm32"))]
-        Stream(PathBuf),
+        Stream(StreamFrom),
         /// Freed: plays nothing, and its id is never reused.
         Freed,
     }
@@ -165,6 +165,25 @@ mod backend {
             }
         }
     }
+    /// Where a streamed sound's encoded bytes are: each playback opens its
+    /// own decoder over them.
+    #[cfg(not(target_arch = "wasm32"))]
+    enum StreamFrom {
+        /// A file, opened for each playback.
+        File(PathBuf),
+        /// Encoded bytes an asset source handed over, kept (not decoded) in
+        /// memory and shared by every playback.
+        Memory(Arc<[u8]>),
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    impl StreamFrom {
+        fn open(&self) -> Result<StreamingSoundData<FromFileError>, FromFileError> {
+            match self {
+                Self::File(path) => StreamingSoundData::from_file(path),
+                Self::Memory(bytes) => StreamingSoundData::from_cursor(std::io::Cursor::new(bytes.clone())),
+            }
+        }
+    }
     #[derive(Default)]
     pub struct Audio {
         manager: Option<Option<AudioManager<DefaultBackend>>>,
@@ -193,8 +212,9 @@ mod backend {
         pub fn load(&mut self, bytes: Vec<u8>) -> Result<(u32, f32), String> {
             Ok(self.add(decode(bytes)?))
         }
-        /// Sounds made and not freed, and the bytes of their decoded samples
-        /// (streamed ones are read from their file as they play: 0).
+        /// Sounds made and not freed, and the bytes they hold: decoded
+        /// samples, or for a sound streamed from memory its encoded bytes
+        /// (one streamed from a file is read as it plays: 0).
         pub fn inventory(&self) -> (usize, u64) {
             let live = self.sounds.iter().filter(|clip| !matches!(clip, Clip::Freed));
             let bytes = live
@@ -202,7 +222,9 @@ mod backend {
                 .map(|clip| match clip {
                     Clip::Static(data) => (data.frames.len() * std::mem::size_of::<Frame>()) as u64,
                     #[cfg(not(target_arch = "wasm32"))]
-                    Clip::Stream(_) => 0,
+                    Clip::Stream(StreamFrom::File(_)) => 0,
+                    #[cfg(not(target_arch = "wasm32"))]
+                    Clip::Stream(StreamFrom::Memory(bytes)) => bytes.len() as u64,
                     Clip::Freed => 0,
                 })
                 .sum();
@@ -232,7 +254,7 @@ mod backend {
             if let Some(index) = self
                 .sounds
                 .iter()
-                .position(|clip| matches!(clip, Clip::Stream(p) if *p == path))
+                .position(|clip| matches!(clip, Clip::Stream(StreamFrom::File(p)) if *p == path))
             {
                 let seconds = StreamingSoundData::from_file(&path)
                     .map_err(|e| e.to_string())?
@@ -242,13 +264,31 @@ mod backend {
             }
             let data = StreamingSoundData::from_file(&path).map_err(|e| e.to_string())?;
             let seconds = data.duration().as_secs_f32();
-            self.sounds.push(Clip::Stream(path));
+            self.sounds.push(Clip::Stream(StreamFrom::File(path)));
             Ok(((self.sounds.len() - 1) as u32, seconds))
         }
-        /// The web can't stream from files: read the whole file and decode it.
+        /// A sound streamed from encoded `bytes` held in memory (an asset
+        /// source's): only the header is decoded now, the samples as it plays.
+        #[cfg(not(target_arch = "wasm32"))]
+        pub fn stream_bytes(&mut self, bytes: Vec<u8>) -> Result<(u32, f32), String> {
+            let from = StreamFrom::Memory(bytes.into());
+            let seconds = from
+                .open()
+                .map_err(|e| format!("could not decode the sound: {e}"))?
+                .duration()
+                .as_secs_f32();
+            self.sounds.push(Clip::Stream(from));
+            Ok(((self.sounds.len() - 1) as u32, seconds))
+        }
+        /// The web can't stream from files: read the fetched copy and decode it whole.
         #[cfg(target_arch = "wasm32")]
         pub fn stream(&mut self, path: PathBuf) -> Result<(u32, f32), String> {
-            self.load(std::fs::read(&path).map_err(|e| e.to_string())?)
+            self.load(crate::assets::read(&path).map_err(|e| e.to_string())?)
+        }
+        /// The web decodes streamed sounds whole (no decoder thread).
+        #[cfg(target_arch = "wasm32")]
+        pub fn stream_bytes(&mut self, bytes: Vec<u8>) -> Result<(u32, f32), String> {
+            self.load(bytes)
         }
         pub fn create(&mut self, sample_rate: u32, samples: &[f32]) -> (u32, f32) {
             let frames: Arc<[Frame]> = samples.iter().map(|&s| Frame::from_mono(s)).collect();
@@ -318,8 +358,8 @@ mod backend {
                     track.play(data).ok().map(Handle::Static)
                 }
                 #[cfg(not(target_arch = "wasm32"))]
-                Clip::Stream(path) => {
-                    let Ok(data) = StreamingSoundData::from_file(path) else {
+                Clip::Stream(from) => {
+                    let Ok(data) = from.open() else {
                         return id;
                     };
                     let mut data = data.volume(volume).playback_rate(speed);
@@ -475,6 +515,9 @@ mod backend {
             ((self.count - self.freed) as usize, 0)
         }
         pub fn stream(&mut self, _path: std::path::PathBuf) -> Result<(u32, f32), String> {
+            self.load(Vec::new())
+        }
+        pub fn stream_bytes(&mut self, _bytes: Vec<u8>) -> Result<(u32, f32), String> {
             self.load(Vec::new())
         }
         pub fn replace(&mut self, _id: u32, _bytes: Vec<u8>) -> Result<(), String> {
@@ -635,8 +678,10 @@ impl Ctx {
             return;
         }
         let cached = &self.cached_sounds;
-        self.loaded
-            .retain(|(_, kind), i| *kind != crate::ctx::AssetKind::Sound || cached[*i as usize].id != id);
+        self.loaded.retain(|(_, kind), i| {
+            !matches!(kind, crate::ctx::AssetKind::Sound | crate::ctx::AssetKind::Stream)
+                || cached[*i as usize].id != id
+        });
         self.watcher
             .forget(|a| matches!(a, crate::hot_reload::Asset::Sound(s) if *s == id));
         self.audio.free(id);

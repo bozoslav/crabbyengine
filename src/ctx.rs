@@ -72,6 +72,9 @@ pub(crate) enum AssetKind {
     Texture,
     Font,
     Sound,
+    /// A sound loaded with `load_stream`: the same name can also be a
+    /// `load_sound`, decoded whole, and the two are different sounds.
+    Stream,
 }
 
 /// Applies a data file's text to the world.
@@ -202,6 +205,9 @@ pub struct Ctx {
     data_loaders: Vec<DataLoader>,
     /// Parsed prefab files, by name (`spawn_prefab`).
     pub(crate) prefabs: HashMap<String, serde_json::Value>,
+    /// Fields of reflected components that name assets, and how to load
+    /// them before a scene or prefab is spawned (`scene_asset_field`).
+    pub(crate) scene_asset_fields: Vec<crate::scene::SceneAssetField>,
     /// Asset sources added with `add_asset_source`, asked before `assets/`.
     pub(crate) asset_sources: assets::Sources,
     /// Assets loaded under residency budgets (`resident_mesh`), by kind.
@@ -453,6 +459,7 @@ impl Ctx {
             watcher: Default::default(),
             data_loaders: Vec::new(),
             prefabs: HashMap::new(),
+            scene_asset_fields: Vec::new(),
             asset_sources: assets::Sources::default(),
             residency: Default::default(),
             loaded: HashMap::new(),
@@ -1510,7 +1517,7 @@ impl Ctx {
         }
         #[cfg(feature = "physics3d")]
         self.load_collider_files(json)?;
-        Ok(())
+        self.load_scene_asset_fields(json)
     }
 
     /// Loads resource `R` from a JSON file in `assets/`. With [hot

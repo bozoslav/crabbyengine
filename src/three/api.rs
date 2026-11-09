@@ -5,7 +5,8 @@ use std::ops::Range;
 use glam::Vec3;
 
 use super::{
-    AnimationClip, Blend, Material, MaterialDesc, Mesh, MeshData, MeshMorph, MeshSkin, Shader, Skeleton, gltf, linear,
+    AnimationClip, Blend, Material, MaterialDesc, Mesh, MeshData, MeshMorph, MeshSkin, Shader, SharedImage, Skeleton,
+    gltf, linear,
 };
 use crate::{Ctx, assets};
 
@@ -714,23 +715,37 @@ impl Ctx {
         let bytes = found.into_bytes().map_err(|e| e.with_path(path))?;
         let shared = &self.assets3d.shared_images;
         let sources = &self.asset_sources;
+        // Each image file's key: where it is found, so the same name in two
+        // sources is two images. Worked out once per file.
+        let keys = std::cell::RefCell::new(std::collections::HashMap::<String, Option<SharedImage>>::new());
+        let key_of = |source: &str| {
+            keys.borrow_mut()
+                .entry(source.to_string())
+                .or_insert_with(|| SharedImage::of(sources, source))
+                .clone()
+        };
         let loaded = gltf::load(path, &bytes, &mut |name| sources.read(name), &|source| {
-            shared.contains_key(source)
+            key_of(source).is_some_and(|key| shared.contains_key(&key))
         })
         .map_err(|e| crate::Error::decode(path, e))?;
+        let image_keys: Vec<Option<SharedImage>> = loaded
+            .image_sources
+            .iter()
+            .map(|source| source.as_deref().and_then(key_of))
+            .collect();
         let materials = if let Some(materials) = self.assets3d.file_materials.get(&file) {
             materials.clone()
         } else {
             let textures: Vec<crate::Texture> = loaded
                 .images
                 .iter()
-                .zip(&loaded.image_sources)
-                .map(|((w, h, rgba), source)| match source {
-                    Some(s) => match self.assets3d.shared_images.get(s) {
+                .zip(image_keys)
+                .map(|((w, h, rgba), key)| match key {
+                    Some(key) => match self.assets3d.shared_images.get(&key) {
                         Some(&t) => t,
                         None => {
                             let t = self.create_texture(*w, *h, rgba);
-                            self.assets3d.shared_images.insert(s.clone(), t);
+                            self.assets3d.shared_images.insert(key, t);
                             t
                         }
                     },

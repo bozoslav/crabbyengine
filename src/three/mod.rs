@@ -915,9 +915,10 @@ pub(crate) struct Assets3D {
     /// Material handles survive geometry eviction; reloading must preserve
     /// user shader edits and must not allocate another material/texture set.
     pub file_materials: std::collections::HashMap<crate::assets::Origin, Vec<Material>>,
-    /// Images that glTF files take from files of their own, by asset name
-    /// (see `gltf::Loaded::image_sources`): many models share them.
-    pub shared_images: std::collections::HashMap<String, crate::Texture>,
+    /// Images that glTF files take from files of their own, by where those
+    /// files were found (see `gltf::Loaded::image_sources`): many models
+    /// share them, and the same name in two asset sources is two images.
+    pub shared_images: std::collections::HashMap<SharedImage, crate::Texture>,
     /// Materials loaded from glTF files, by their name in the file, with
     /// what they were made from (`Ctx::loaded_materials`).
     pub loaded_materials: std::collections::HashMap<String, Vec<(Material, MaterialDesc)>>,
@@ -1032,5 +1033,40 @@ mod tests {
             ndc.x.abs() < 1e-4 && ndc.y.abs() < 1e-4 && (0.0..1.0).contains(&ndc.z),
             "{ndc}"
         );
+    }
+}
+
+/// Where a glTF image shared between models came from: the cache key of
+/// `Assets3d::shared_images`.
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+pub(crate) enum SharedImage {
+    /// An image file of its own.
+    Image(crate::assets::Origin),
+    /// An ORM image made from a metallic-roughness and an occlusion image
+    /// (either can be missing).
+    Orm(Option<crate::assets::Origin>, Option<crate::assets::Origin>),
+}
+
+impl SharedImage {
+    /// The key of a glTF image source (`gltf::Loaded::image_sources`): an
+    /// asset name, or `orm:<name>|<name>` with an empty name for a missing
+    /// image. Each name is keyed by the source that has it, so a model from
+    /// one source shares images only with models whose images came from
+    /// the same place. `None` if a name is in no source.
+    pub(crate) fn of(sources: &crate::assets::Sources, image_source: &str) -> Option<Self> {
+        let locate = |name: &str| sources.locate(name);
+        match image_source.strip_prefix("orm:").and_then(|rest| rest.split_once('|')) {
+            Some((m, o)) => {
+                let part = |name: &str| {
+                    if name.is_empty() {
+                        Some(None)
+                    } else {
+                        locate(name).map(Some)
+                    }
+                };
+                Some(Self::Orm(part(m)?, part(o)?))
+            }
+            None => locate(image_source).map(Self::Image),
+        }
     }
 }

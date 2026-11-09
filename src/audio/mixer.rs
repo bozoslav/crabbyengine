@@ -180,13 +180,18 @@ impl Ctx {
         self.audio.effects(playing.0, effects.validated());
     }
 
-    /// Loads a streaming file from `assets/`, returning the same kind of handle
-    /// as `load_sound`. Each playback opens an independent decoder; samples
-    /// are decoded on Kira's worker thread rather than held fully in memory.
-    /// Native filesystem assets only; streams are not hot reloaded.
+    /// Loads music to stream, from an [added asset
+    /// source](Ctx::add_asset_source) or `assets/`, returning the same kind
+    /// of handle as `load_sound`. Each playback opens its own decoder:
+    /// samples are decoded on Kira's worker thread as they play rather than
+    /// held decoded in memory. A file from `assets/` is read as it plays; a
+    /// source's bytes are kept in memory, still encoded. Loading the same
+    /// name again returns the same handle. Streams are never hot reloaded.
+    /// In a browser the sound is decoded whole when loaded.
     ///
     /// # Panics
-    /// If the asset is missing or its header cannot be decoded (with audio enabled).
+    /// If the asset is missing or its header cannot be decoded (with audio
+    /// enabled); [`try_load_stream`](Self::try_load_stream) returns the error.
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
@@ -195,10 +200,49 @@ impl Ctx {
     /// # }
     /// ```
     pub fn load_stream(&mut self, path: &str) -> Sound {
-        let file = crate::assets::resolve(path).unwrap_or_else(|e| panic!("ponko: {e}"));
-        let (id, seconds) = self.audio.stream(file).unwrap_or_else(|e| panic!("ponko: {path}: {e}"));
+        self.try_load_stream(path).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// [`load_stream`](Self::load_stream) with errors as values:
+    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if no source has
+    /// it, [`Io`](crate::ErrorKind::Io) if it can't be read, or (with the
+    /// `audio` feature) [`Decode`](crate::ErrorKind::Decode) if its header
+    /// can't be decoded.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let music = ctx.try_load_stream("music/theme.ogg");
+    ///     assert_eq!(music.unwrap_err().kind(), ErrorKind::NotFound);
+    /// });
+    /// ```
+    pub fn try_load_stream(&mut self, path: &str) -> Result<Sound, crate::Error> {
+        use crate::assets::{Lookup, Origin};
+        let kind = crate::ctx::AssetKind::Stream;
+        let found = match self.asset_sources.lookup(path, |origin| {
+            let key = (origin.clone(), kind);
+            self.loaded.get(&key).map(|&i| self.cached_sounds[i as usize])
+        })? {
+            Lookup::Cached(_, sound) => return Ok(sound),
+            Lookup::Found(found) => found,
+        };
+        let origin = found.origin.clone();
+        let streamed = match &origin {
+            Origin::File(file) => self.audio.stream(file.clone()),
+            Origin::Source { .. } => {
+                let bytes = found.into_bytes().map_err(|e| e.with_path(path))?;
+                self.audio.stream_bytes(bytes)
+            }
+        };
+        let (id, seconds) = streamed.map_err(|e| match &origin {
+            Origin::File(file) => crate::Error::decode(path, format!("{}: {e}", file.display())),
+            Origin::Source { .. } => crate::Error::decode(path, format!("{}: {e}", origin.describe(path))),
+        })?;
+        let sound = Sound { id, seconds };
         self.sounds_live.insert(id);
-        Sound { id, seconds }
+        self.loaded.insert((origin, kind), self.cached_sounds.len() as u64);
+        self.cached_sounds.push(sound);
+        Ok(sound)
     }
 }
 

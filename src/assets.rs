@@ -58,6 +58,18 @@ pub trait AssetSource: 'static {
     /// `NotFound` lets the next source try; any other error is reported to
     /// the caller of the load.
     fn read(&self, name: &str) -> std::io::Result<Vec<u8>>;
+
+    /// Whether this source has asset `name`, without handing over its
+    /// bytes. Used to tell which source a file a model refers to comes
+    /// from, so it is shared with what was loaded from that source before
+    /// instead of read again.
+    ///
+    /// The default reads it and checks the error is not
+    /// [`NotFound`](std::io::ErrorKind::NotFound); override it when that is
+    /// cheaper to answer (an index lookup).
+    fn contains(&self, name: &str) -> bool {
+        !matches!(self.read(name), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
+    }
 }
 
 /// An [`AssetSource`] holding its files in memory: assets embedded with
@@ -106,6 +118,10 @@ impl MemorySource {
 impl AssetSource for MemorySource {
     fn id(&self) -> &str {
         &self.id
+    }
+
+    fn contains(&self, name: &str) -> bool {
+        self.files.contains_key(name)
     }
 
     fn read(&self, name: &str) -> std::io::Result<Vec<u8>> {
@@ -248,6 +264,20 @@ impl Sources {
     #[cfg_attr(not(feature = "3d"), allow(dead_code))]
     pub(crate) fn read(&self, name: &str) -> Result<Vec<u8>, String> {
         Ok(self.find(name)?.into_bytes()?)
+    }
+
+    /// Where asset `name` would be found, without reading it: the first
+    /// added source that [has](AssetSource::contains) it, else the default
+    /// source's file. `None` if nothing has it.
+    #[cfg_attr(not(feature = "3d"), allow(dead_code))]
+    pub(crate) fn locate(&self, name: &str) -> Option<Origin> {
+        match self.list.iter().find(|s| s.contains(name)) {
+            Some(source) => Some(Origin::Source {
+                source: source.id().to_string(),
+                name: name.to_string(),
+            }),
+            None => resolve(name).ok().map(Origin::File),
+        }
     }
 
     /// Finds asset `name`: in the added sources in order, then the default one.
