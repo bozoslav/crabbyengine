@@ -8,6 +8,9 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+mod common;
+
+use common::TempAsset;
 use ponko::*;
 
 fn registry_file(addr: SocketAddr) -> PathBuf {
@@ -512,8 +515,9 @@ fn output_printed_right_before_exit_still_reaches_the_terminal() {
 
 #[test]
 fn scenes_and_prefabs_are_saved_and_loaded_over_tcp() {
-    let names = ["test-control-prefab.json", "test-control-scene.json"];
-    let assets = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets");
+    let prefab = TempAsset::new("control-prefab.json");
+    let scene = TempAsset::new("control-scene.json");
+    let names = [prefab.name().to_string(), scene.name().to_string()];
     let (addr_tx, addr_rx) = mpsc::channel();
     let game = thread::spawn(move || {
         Game::new("scenes-test", 1, 1)
@@ -550,13 +554,10 @@ fn scenes_and_prefabs_are_saved_and_loaded_over_tcp() {
     assert!(c.call("entity.get", json!({ "entity": a })).is_ok(), "same id back");
     let missing = c.call(
         "prefab.spawn",
-        json!({ "path": "test-control-missing.json", "at": [0, 0] }),
+        json!({ "path": "control-missing.json", "at": [0, 0] }),
     );
     assert!(missing.unwrap_err().contains("not found"));
 
     c.call("game.quit", json!({})).unwrap();
     game.join().unwrap();
-    for name in names {
-        let _ = std::fs::remove_file(assets.join(name));
-    }
 }

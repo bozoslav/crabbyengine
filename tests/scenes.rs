@@ -1,5 +1,8 @@
 //! Scenes and prefabs: worlds and entities saved to files and loaded back.
 
+mod common;
+
+use common::TempAsset;
 use ponko::*;
 use serde::{Deserialize, Serialize};
 
@@ -8,17 +11,6 @@ struct Palm {
     height: f32,
 }
 
-/// A file under `assets/` that is deleted when the test ends, pass or fail.
-struct TempAsset(&'static str);
-impl Drop for TempAsset {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("assets")
-                .join(self.0),
-        );
-    }
-}
 
 fn game() -> Game {
     Game::new("scenes", 1, 1)
@@ -26,18 +18,18 @@ fn game() -> Game {
 
 #[test]
 fn a_saved_scene_loads_back_with_the_same_entities() {
-    let file = TempAsset("test-scene-roundtrip.json");
+    let file = TempAsset::new("test-scene-roundtrip.json");
     let mut first = None;
     game().run_headless(0, |ctx| {
         ctx.world.reflect::<Palm>();
         first = Some(ctx.world.spawn((Transform2D::at(vec2(1.0, 2.0)), Palm { height: 3.0 })));
         ctx.world.spawn((Transform2D::at(vec2(5.0, 6.0)),));
-        ctx.save_scene(file.0).unwrap();
+        ctx.save_scene(file.name()).unwrap();
     });
     let world = game().run_headless(0, |ctx| {
         ctx.world.reflect::<Palm>();
         ctx.world.spawn((Transform2D::default(),)); // replaced by the scene
-        ctx.load_scene(file.0).unwrap();
+        ctx.load_scene(file.name()).unwrap();
     });
     assert_eq!(world.len(), 2);
     let e = first.unwrap();
@@ -47,16 +39,16 @@ fn a_saved_scene_loads_back_with_the_same_entities() {
 
 #[test]
 fn prefabs_spawn_where_asked_with_their_saved_components() {
-    let file = TempAsset("test-prefab-palm.json");
+    let file = TempAsset::new("test-prefab-palm.json");
     let mut world = game().run_headless(0, |ctx| {
         ctx.world.reflect::<Palm>();
         let model = ctx
             .world
             .spawn((Transform2D::at(vec2(70.0, 80.0)).rotated(0.5), Palm { height: 9.0 }));
-        ctx.save_prefab(model, file.0).unwrap();
+        ctx.save_prefab(model, file.name()).unwrap();
         ctx.world.despawn(model);
         for x in 0..3 {
-            ctx.spawn_prefab(file.0, vec2(x as f32 * 10.0, 100.0)).unwrap();
+            ctx.spawn_prefab(file.name(), vec2(x as f32 * 10.0, 100.0)).unwrap();
         }
     });
     let mut palms: Vec<(Vec2, f32, f32)> = world
@@ -77,18 +69,18 @@ fn prefabs_spawn_where_asked_with_their_saved_components() {
 
 #[test]
 fn a_prefab_without_a_transform_gets_one() {
-    let file = TempAsset("test-prefab-bare.json");
+    let file = TempAsset::new("test-prefab-bare.json");
     std::fs::write(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("assets")
-            .join(file.0),
+            .join(file.name()),
         r#"{ "format": "crabby-prefab", "version": 1, "components": { "Palm": { "height": 2 } } }"#,
     )
     .unwrap();
     let mut spawned = None;
     let world = game().run_headless(0, |ctx| {
         ctx.world.reflect::<Palm>();
-        spawned = Some(ctx.spawn_prefab(file.0, vec2(4.0, 5.0)).unwrap());
+        spawned = Some(ctx.spawn_prefab(file.name(), vec2(4.0, 5.0)).unwrap());
     });
     assert_eq!(
         world.get::<Transform2D>(spawned.unwrap()).unwrap().position,
@@ -98,18 +90,12 @@ fn a_prefab_without_a_transform_gets_one() {
 
 #[test]
 fn bad_files_are_errors_that_change_nothing() {
-    let file = TempAsset("test-not-a-prefab.json");
-    std::fs::write(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("assets")
-            .join(file.0),
-        r#"{ "format": "crabby-world", "version": 1, "entities": [] }"#,
-    )
-    .unwrap();
+    let file = TempAsset::new("test-not-a-prefab.json");
+    file.write(r#"{ "format": "crabby-world", "version": 1, "entities": [] }"#);
     game().run_headless(0, |ctx| {
         let missing = ctx.load_scene("test-no-such-scene.json").unwrap_err();
         assert!(missing.contains("not found in assets/"), "{missing}");
-        let wrong = ctx.spawn_prefab(file.0, Vec2::ZERO).unwrap_err();
+        let wrong = ctx.spawn_prefab(file.name(), Vec2::ZERO).unwrap_err();
         assert!(wrong.contains("not a prefab"), "{wrong}");
         assert_eq!(ctx.world.len(), 0);
         let dead = ctx.world.spawn((Transform2D::default(),));
@@ -140,24 +126,19 @@ fn the_guide_beach_has_five_palms() {
 
 #[test]
 fn sprites_are_saved_by_their_image_name_and_load_it() {
-    let file = TempAsset("test-prefab-crab.json");
+    let file = TempAsset::new("test-prefab-crab.json");
     game().run_headless(0, |ctx| {
         let crab = ctx.load_texture("crab.png");
         let mut sprite = Sprite::new(crab);
         sprite.z = 3.0;
         let model = ctx.world.spawn((Transform2D::default(), sprite));
-        ctx.save_prefab(model, file.0).unwrap();
+        ctx.save_prefab(model, file.name()).unwrap();
     });
-    let text = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("assets")
-            .join(file.0),
-    )
-    .unwrap();
+    let text = file.read();
     assert!(text.contains(r#""texture": "crab.png""#), "{text}");
     // A new game hasn't loaded crab.png: spawning the prefab loads it.
     game().run_headless(0, |ctx| {
-        let e = ctx.spawn_prefab(file.0, vec2(5.0, 5.0)).unwrap();
+        let e = ctx.spawn_prefab(file.name(), vec2(5.0, 5.0)).unwrap();
         let sprite = *ctx.world.get::<Sprite>(e).unwrap();
         assert_eq!(sprite.z, 3.0);
         assert_eq!(sprite.texture, ctx.load_texture("crab.png"), "the same handle");
