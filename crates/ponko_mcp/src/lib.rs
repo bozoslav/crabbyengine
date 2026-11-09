@@ -1168,7 +1168,6 @@ impl Server {
             .env("PONKO_START_PAUSED", if flag("paused") { "1" } else { "0" })
             .env("CRABBY_START_PAUSED", if flag("paused") { "1" } else { "0" })
             .env("PONKO_INPUT_INJECTION", "1")
-            .env("CRABBY_INPUT_INJECTION", "1")
             .env("CRABBY_CONTROL", "1")
             .env("CRABBY_LAUNCH_ID", &launch_id)
             .env("CRABBY_INSTANCES_DIR", &self.config.instances_dir);

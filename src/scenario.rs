@@ -670,7 +670,7 @@ impl Ctx {
                     f.step = *step;
                     f.tick = *tick;
                     f.sim_tick = sim_tick;
-                    failure = Some(f);
+                    failure = Some(*f);
                     break;
                 }
             }
@@ -734,8 +734,8 @@ fn held_inputs(applied: &[(u64, usize, InputEvent)]) -> Vec<InputEvent> {
     held
 }
 
-fn failure(check: impl Into<String>, expected: Value, actual: Value, message: String) -> ScenarioFailure {
-    ScenarioFailure {
+fn failure(check: impl Into<String>, expected: Value, actual: Value, message: String) -> Box<ScenarioFailure> {
+    Box::new(ScenarioFailure {
         step: 0,
         tick: 0,
         sim_tick: 0,
@@ -743,7 +743,7 @@ fn failure(check: impl Into<String>, expected: Value, actual: Value, message: St
         expected,
         actual,
         message,
-    }
+    })
 }
 
 /// Compares JSON, numbers by value (`3` equals `3.0`).
@@ -759,7 +759,7 @@ fn json_eq(a: &Value, b: &Value) -> bool {
 }
 
 /// `Ok` if `check` holds now. The failure's step and ticks are filled in by the caller.
-fn evaluate(ctx: &Ctx, check: &ScenarioCheck) -> Result<(), ScenarioFailure> {
+fn evaluate(ctx: &Ctx, check: &ScenarioCheck) -> Result<(), Box<ScenarioFailure>> {
     match check {
         ScenarioCheck::Action {
             name,
