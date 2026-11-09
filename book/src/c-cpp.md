@@ -101,6 +101,11 @@ other world or context calls throw (C: return `PONKO_BUSY`), except
 on all cores at once. It must only touch its own entity and read shared
 data; that is the same rule as Rust's `par_for_each`.
 
+To visit only the entities whose component changed, name a filter:
+`world.each<ponko::changed<Health>>(fn)`. A parameter taken as `T&` counts
+as a change, `const T&` doesn't; see
+[Change detection](ecs.md#change-detection).
+
 `each` is as fast as a hand-written loop over the arrays: 1M entities,
 `position += velocity`, take 0.15 ms either way
 (`examples/cpp/bench.cpp`).

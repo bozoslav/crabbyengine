@@ -105,6 +105,7 @@ barrier**: within a phase, across phases, and between ticks.
 | An event, to a system earlier in the order | on that system's next run (the next tick for simulation systems) |
 | Events from simulation ticks, to frame systems | in the same frame, all ticks of it |
 | Events from frame systems, to simulation systems | on the next tick that runs |
+| A change to a tracked component, to `Changed<T>`, `Added<T>` and `removed::<T>()` | to every other system, the next time it runs; never to the system that made it (see [Change detection](ecs.md#change-detection)) |
 
 Commands apply in the order they were recorded: a closure from
 `commands.add` sees the ones before it, and an `insert` after a `despawn` of

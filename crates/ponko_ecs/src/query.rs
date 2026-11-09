@@ -427,7 +427,8 @@ impl<'a> Iterator for Archetypes<'a> {
 }
 
 /// A typed query filter for [`Query::filter`]: [`With<T>`], [`Without<T>`],
-/// [`Or`], or a tuple of filters that must all hold (up to 8).
+/// [`Added<T>`](crate::Added), [`Changed<T>`](crate::Changed), [`Or`], or a
+/// tuple of filters that must all hold (up to 8).
 ///
 /// Name a filter you reuse across systems:
 ///
@@ -455,7 +456,8 @@ pub trait QueryFilter {
     fn add(world: &mut World, filters: &mut Filters);
 }
 
-/// A term of an [`Or`] filter: [`With<T>`], [`Without<T>`] or a nested `Or`.
+/// A term of an [`Or`] filter: [`With<T>`], [`Without<T>`],
+/// [`Added<T>`](crate::Added), [`Changed<T>`](crate::Changed) or a nested `Or`.
 pub trait OrTerm {
     #[doc(hidden)]
     fn add_term(world: &mut World, filters: &mut Filters);
@@ -474,9 +476,9 @@ pub struct With<T>(PhantomData<fn() -> T>);
 pub struct Without<T>(PhantomData<fn() -> T>);
 
 /// Filter: at least one of the terms holds, for example
-/// `Or<(With<Player>, With<Enemy>)>`. The terms are [`With`], [`Without`]
-/// or nested `Or`s; for "both A and B", put the filters in a tuple outside
-/// the `Or` instead.
+/// `Or<(With<Player>, With<Enemy>)>`. The terms are [`With`], [`Without`],
+/// [`Added`](crate::Added), [`Changed`](crate::Changed) or nested `Or`s; for
+/// "both A and B", put the filters in a tuple outside the `Or` instead.
 ///
 /// A query takes at most 4 `Or` filters with 16 terms between them.
 ///
@@ -704,9 +706,11 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     }
 
     /// Only match entities that pass the typed filter `F`: [`With`],
-    /// [`Without`], [`Or`], or a tuple of them that must all hold. Calls
-    /// combine with each other and with [`with`](Self::with) /
-    /// [`without`](Self::without): every filter must hold.
+    /// [`Without`], [`Added`](crate::Added), [`Changed`](crate::Changed),
+    /// [`Or`], or a tuple of them that must all hold. Calls combine with
+    /// each other and with [`with`](Self::with) / [`without`](Self::without):
+    /// every filter must hold. `Added` and `Changed` pick single entities
+    /// (see [`World::track_changes`]); the others pick whole archetypes.
     ///
     /// ```
     /// # use ponko_ecs::*;
@@ -725,7 +729,8 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     /// # Panics
     ///
     /// With more than 8 different `With` or `Without` components, more than
-    /// 4 `Or` filters, or more than 16 terms across the `Or` filters.
+    /// 4 `Or` filters, more than 16 terms across the `Or` filters, or more
+    /// than 4 `Added`/`Changed` filters outside an `Or`.
     pub fn filter<F: QueryFilter>(mut self) -> Self {
         F::add(self.world, &mut self.filters);
         self
