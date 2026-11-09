@@ -70,7 +70,7 @@ fn sphere_mesh_data_has_every_corner_on_the_sphere_and_unit_normals() {
     let sphere = crabby_mesh_data_sphere(2.5, 16);
     assert!(!sphere.is_null());
     let v = view(sphere);
-    assert!(v.vertex_count > 16 && v.index_count > 0 && v.index_count % 3 == 0);
+    assert!(v.vertex_count > 16 && v.index_count > 0 && v.index_count.is_multiple_of(3));
     for (i, p) in positions(&v).iter().enumerate() {
         let r = (p.x * p.x + p.y * p.y + p.z * p.z).sqrt();
         assert!((r - 2.5).abs() < 1e-4, "corner {i} is {r} from the center");
