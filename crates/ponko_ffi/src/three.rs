@@ -134,7 +134,7 @@ pub struct CrabbyMesh {
 }
 
 /// `CrabbyMesh` id of no mesh (Rust `Mesh::NONE`): a model showing it draws
-/// nothing, and no mesh is ever made with it, unlike a freed mesh's id.
+/// nothing, and no mesh is ever made with it. The same as `CRABBY_HANDLE_NONE`.
 /// ```
 /// assert_eq!(ponko_ffi::CRABBY_MESH_NONE, u32::MAX);
 /// ```
@@ -3732,8 +3732,9 @@ pub unsafe extern "C" fn crabby_ctx_write_gpu_buffer(
     })
 }
 /// Frees a GPU buffer's memory; its compute passes are removed from the
-/// context's list and meshes using it draw nothing. Its id is reused by
-/// the next buffer made. An invalid or already freed buffer is an error.
+/// context's list and meshes using it draw nothing. Its id is never
+/// reused. An invalid or already freed buffer is an error (unlike
+/// `crabby_ctx_handle_free`, which ignores it).
 /// # Safety
 /// `ctx` is live or null.
 #[unsafe(no_mangle)]

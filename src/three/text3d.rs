@@ -200,7 +200,7 @@ impl Ctx {
             Some(t) => t,
             None => {
                 let side = Text::ATLAS_SIZE;
-                let t = self.create_texture(side, side, &vec![0; (side * side * 4) as usize]);
+                let t = self.make_texture(side, side, &vec![0; (side * side * 4) as usize]);
                 self.frame3d.particles.texts.atlas = Some(t);
                 t
             }

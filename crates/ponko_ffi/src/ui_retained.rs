@@ -1209,15 +1209,14 @@ fn existing(ui: &Ui, id: u64) -> Result<UiId, Failure> {
     }
 }
 
-/// Fails for a font the engine doesn't know, which would otherwise panic
-/// later, when the UI is laid out.
+/// Fails for a font the engine doesn't know (or that was freed), which
+/// would otherwise be laid out in the built-in font without a word.
 fn check_font(c: &mut ponko::Ctx, font: ponko::Font) -> Result<(), Failure> {
-    if font == ponko::Font::DEFAULT {
-        return Ok(());
+    if c.has_font(font) {
+        Ok(())
+    } else {
+        Err(invalid("unknown font"))
     }
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.measure_text_ex("", font, 1.0)))
-        .map(drop)
-        .map_err(|_| invalid("unknown font"))
 }
 
 fn id_to_c(id: Option<UiId>) -> u64 {

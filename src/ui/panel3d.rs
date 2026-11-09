@@ -321,6 +321,13 @@ impl Ctx {
             else {
                 continue;
             };
+            // A freed render target is drawn into no more.
+            if !self.is_render_target(texture) {
+                if let Some(panel) = self.world.get_mut::<UiPanel3D>(e) {
+                    panel.ui = ui;
+                }
+                continue;
+            }
             let used = self.ui.panels.used;
             if used == self.ui.panels.draws.len() {
                 self.ui.panels.draws.push(PanelDraw::default());

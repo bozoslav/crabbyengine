@@ -60,6 +60,18 @@
 #define PONKO_GAMEPAD_SOUTH CRABBY_GAMEPAD_SOUTH
 #define PONKO_GAMEPAD_START CRABBY_GAMEPAD_START
 #define PONKO_GAMEPAD_WEST CRABBY_GAMEPAD_WEST
+#define PONKO_HANDLE_COMPUTE CRABBY_HANDLE_COMPUTE
+#define PONKO_HANDLE_EFFECT CRABBY_HANDLE_EFFECT
+#define PONKO_HANDLE_FONT CRABBY_HANDLE_FONT
+#define PONKO_HANDLE_GPU_BUFFER CRABBY_HANDLE_GPU_BUFFER
+#define PONKO_HANDLE_INSTANCE_BATCH CRABBY_HANDLE_INSTANCE_BATCH
+#define PONKO_HANDLE_MATERIAL CRABBY_HANDLE_MATERIAL
+#define PONKO_HANDLE_MESH CRABBY_HANDLE_MESH
+#define PONKO_HANDLE_NONE CRABBY_HANDLE_NONE
+#define PONKO_HANDLE_SHADER CRABBY_HANDLE_SHADER
+#define PONKO_HANDLE_SOUND CRABBY_HANDLE_SOUND
+#define PONKO_HANDLE_TEXTURE CRABBY_HANDLE_TEXTURE
+#define PONKO_HANDLE_TEXTURE_ARRAY CRABBY_HANDLE_TEXTURE_ARRAY
 #define PONKO_INTEREST_ENTERED CRABBY_INTEREST_ENTERED
 #define PONKO_INTEREST_LEFT CRABBY_INTEREST_LEFT
 #define PONKO_INVALID_ARGUMENT CRABBY_INVALID_ARGUMENT
@@ -344,6 +356,7 @@
 #define PonkoGridHit CrabbyGridHit
 #define PonkoGridItem CrabbyGridItem
 #define PonkoGridView CrabbyGridView
+#define PonkoHandleKind CrabbyHandleKind
 #define PonkoHeightfield CrabbyHeightfield
 #define PonkoHit3D CrabbyHit3D
 #define PonkoInstanceBatch CrabbyInstanceBatch
@@ -367,6 +380,7 @@
 #define PonkoLayerBlend CrabbyLayerBlend
 #define PonkoLighting CrabbyLighting
 #define PonkoLine3D CrabbyLine3D
+#define PonkoLiveCounts CrabbyLiveCounts
 #define PonkoLodLevel CrabbyLodLevel
 #define PonkoLodPick CrabbyLodPick
 #define PonkoLodRenderer CrabbyLodRenderer
@@ -639,6 +653,8 @@
 #define ponko_ctx_gamepad_pressed crabby_ctx_gamepad_pressed
 #define ponko_ctx_gamepad_released crabby_ctx_gamepad_released
 #define ponko_ctx_graphics_quality crabby_ctx_graphics_quality
+#define ponko_ctx_handle_free crabby_ctx_handle_free
+#define ponko_ctx_handle_is_live crabby_ctx_handle_is_live
 #define ponko_ctx_input crabby_ctx_input
 #define ponko_ctx_is_mesh_live crabby_ctx_is_mesh_live
 #define ponko_ctx_is_paused crabby_ctx_is_paused
@@ -649,6 +665,7 @@
 #define ponko_ctx_key_pressed crabby_ctx_key_pressed
 #define ponko_ctx_key_released crabby_ctx_key_released
 #define ponko_ctx_lighting crabby_ctx_lighting
+#define ponko_ctx_live_counts crabby_ctx_live_counts
 #define ponko_ctx_load_clip crabby_ctx_load_clip
 #define ponko_ctx_load_compute crabby_ctx_load_compute
 #define ponko_ctx_load_effect crabby_ctx_load_effect

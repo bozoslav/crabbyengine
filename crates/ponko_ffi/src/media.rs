@@ -426,7 +426,8 @@ pub unsafe extern "C" fn crabby_ctx_load_font(
     })
 }
 
-/// Draws text in screen space with a font, size, color and z.
+/// Draws text in screen space with a font, size, color and z. An unknown or
+/// freed font is an invalid argument.
 /// ```
 /// let p = ponko_ffi::crabby_text_params_default();
 /// assert_eq!(unsafe { ponko_ffi::crabby_ctx_draw_text_ex(std::ptr::null_mut(), c"hi".as_ptr(), Default::default(), &p) } as u32, 1);
@@ -448,6 +449,9 @@ pub unsafe extern "C" fn crabby_ctx_draw_text_ex(
                 return Err(invalid("params is null"));
             }
             let p = *params;
+            if !c.has_font(font_from_c(p.font)) {
+                return Err(invalid("unknown or freed font"));
+            }
             c.draw_text_ex(
                 string,
                 to_c(pos),
@@ -463,7 +467,8 @@ pub unsafe extern "C" fn crabby_ctx_draw_text_ex(
     })
 }
 
-/// Size in pixels that `crabby_ctx_draw_text_ex` would cover with `font` and `size`.
+/// Size in pixels that `crabby_ctx_draw_text_ex` would cover with `font` and
+/// `size`. An unknown or freed font is an invalid argument.
 /// ```
 /// assert_eq!(unsafe { ponko_ffi::crabby_ctx_measure_text_ex(std::ptr::null_mut(), c"hi".as_ptr(), Default::default(), 16.0, std::ptr::null_mut()) } as u32, 1);
 /// ```
@@ -483,6 +488,9 @@ pub unsafe extern "C" fn crabby_ctx_measure_text_ex(
             let string = text(string)?;
             if out_size.is_null() {
                 return Err(invalid("output is null"));
+            }
+            if !c.has_font(font_from_c(font)) {
+                return Err(invalid("unknown or freed font"));
             }
             out(out_size, to_c(c.measure_text_ex(string, font_from_c(font), size)))
         })

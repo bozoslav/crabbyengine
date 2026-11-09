@@ -61,7 +61,7 @@ pub use animator::{
 };
 pub(crate) use api::GpuMaterialDesc;
 #[cfg(feature = "window")]
-pub(crate) use api::MaterialTextures;
+pub(crate) use api::{MaterialTextures, MaterialUniform};
 pub use clip::{AnimationClip, AnimationTrack, Interpolation, JointAnimation, MorphAnimation};
 pub(crate) mod motion;
 #[cfg(feature = "window")]
@@ -230,8 +230,8 @@ pub struct Mesh {
 impl Mesh {
     /// No mesh: a [`Model`] showing it draws nothing and casts no shadow, at
     /// almost no cost. For models that are sometimes hidden, such as
-    /// plants beyond their draw distance. Unlike a freed mesh, it never
-    /// becomes another mesh, since no mesh is ever made with its id.
+    /// plants beyond their draw distance. No mesh is ever made with its
+    /// id. The same value as [`Handle::NONE`](crate::Handle::NONE).
     ///
     /// ```
     /// # use ponko::*;
@@ -849,6 +849,13 @@ pub(crate) struct Assets3D {
     /// shorter than `bounds` when the last ones cast.
     pub shadowless: Vec<bool>,
     pub materials: u32,
+    /// Which materials, shaders, compute passes, effects and texture
+    /// arrays are live (made and not freed), by id.
+    pub materials_live: crate::handle::LiveSet,
+    pub shaders_live: crate::handle::LiveSet,
+    pub computes_live: crate::handle::LiveSet,
+    pub effects_live: crate::handle::LiveSet,
+    pub arrays_live: crate::handle::LiveSet,
     /// Texture arrays made so far, by id.
     pub arrays: Vec<TextureArray>,
     /// Whether each was made as `TextureKind::Data`, by id.

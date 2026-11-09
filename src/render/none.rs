@@ -51,6 +51,25 @@ impl Renderer {
     pub fn update_texture_region(&mut self, _id: u32, _at: [u32; 2], _size: [u32; 2], _rgba: &[u8]) {
         match *self {}
     }
+    pub fn free_texture(&mut self, _id: u32) {
+        match *self {}
+    }
+    #[cfg(feature = "3d")]
+    pub fn free_material(&mut self, _id: u32) {
+        match *self {}
+    }
+    #[cfg(feature = "3d")]
+    pub fn free_shader(&mut self, _id: u32) {
+        match *self {}
+    }
+    #[cfg(feature = "3d")]
+    pub fn free_compute(&mut self, _id: u32) {
+        match *self {}
+    }
+    #[cfg(feature = "3d")]
+    pub fn free_texture_array(&mut self, _id: u32) {
+        match *self {}
+    }
     #[cfg(feature = "3d")]
     pub fn create_material(&mut self, _desc: &crate::three::GpuMaterialDesc) -> u32 {
         match *self {}

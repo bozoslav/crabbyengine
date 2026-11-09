@@ -147,6 +147,14 @@ impl Ctx {
     /// [`Ctx::create_render_target`] that returns errors (for the C API).
     #[doc(hidden)]
     pub fn try_create_render_target(&mut self, width: u32, height: u32) -> Result<Texture, String> {
+        let texture = self.make_render_target(width, height)?;
+        self.textures_live.insert(texture.id);
+        Ok(texture)
+    }
+
+    /// [`Ctx::try_create_render_target`] for the engine's own targets
+    /// (reflection probe faces): not the game's to free or count.
+    pub(crate) fn make_render_target(&mut self, width: u32, height: u32) -> Result<Texture, String> {
         if width == 0 || height == 0 {
             return Err(format!("render target size must not be zero (got {width} x {height})"));
         }
@@ -167,7 +175,8 @@ impl Ctx {
         Ok(texture)
     }
 
-    /// Whether `texture` is a render target made by this game.
+    /// Whether `texture` is a render target made by this game and not freed.
+    /// Only its id is compared.
     ///
     /// ```
     /// # use ponko::*;
@@ -180,7 +189,7 @@ impl Ctx {
     /// ```
     #[must_use]
     pub fn is_render_target(&self, texture: Texture) -> bool {
-        self.assets3d.render_targets.contains(&texture)
+        self.assets3d.render_targets.iter().any(|t| t.id == texture.id)
     }
 }
 

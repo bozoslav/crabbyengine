@@ -2299,6 +2299,28 @@ void persistent_instances(ponko::ctx& ctx, ponko::mesh mesh) {
 }
 // ANCHOR_END: gpu_instances
 
+// ANCHOR: handles
+void stream_out(ponko::ctx& ctx) {
+    auto before = ctx.live_counts();
+    const std::uint8_t brick[4] = {200, 80, 60, 255};
+    auto bricks = ctx.create_texture(1, 1, brick, sizeof brick);
+    ponko::material_desc desc = ponko::material_of(ponko::colors::white);
+    desc.texture = bricks;
+    desc.has_texture = true;
+    auto wall = ctx.create_material(desc);
+    auto block = ctx.create_mesh(ponko::mesh_data::cube(1.0f), wall);
+    ctx.world().spawn(ponko::transform3d_at({0, 0, 0}), ponko::model_of(block));
+    // Going out of range: free what the cell made. The model still draws
+    // (untextured), until its entity is despawned too.
+    ctx.free(bricks);
+    ctx.free(wall);
+    ctx.free(block);
+    bool dead = !ctx.is_live(bricks) && !ctx.is_live(wall) && !ctx.is_live(block);
+    bool none = !ctx.is_live(ponko::none<ponko::texture>());
+    if (!dead || !none || ctx.live_counts().meshes != before.meshes) std::abort();
+}
+// ANCHOR_END: handles
+
 int main() {
     steering_stays_within_budget();
     navigation_guide();
@@ -2442,6 +2464,7 @@ int main() {
     (void)&my_game;
     (void)&controls;
     ponko::game("gpu buffers", 1, 1).run_headless(0, gpu_particles);
+    ponko::game("handles", 1, 1).run_headless(0, stream_out);
     world_text_snippet();
     action_map_snippet();
     ponko::game("static instances",1,1).run_headless(0,[](ponko::ctx& ctx) {

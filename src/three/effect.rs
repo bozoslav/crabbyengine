@@ -164,11 +164,15 @@ impl Ctx {
             debug_assert_eq!(gpu_id, id);
         }
         self.assets3d.effects += 1;
+        self.assets3d.effects_live.insert(id);
         Ok(Effect { id })
     }
 
     /// Recompiles an effect whose file changed (hot reload).
     pub(crate) fn reload_effect(&mut self, id: u32, name: &str, source: &str) -> Result<(), String> {
+        if !self.assets3d.effects_live.contains(id) {
+            return Ok(());
+        }
         #[cfg(feature = "window")]
         crate::render::check_shader(name, &crate::render::compose_effect(source))?;
         if let Some(renderer) = self.renderer.as_mut()
@@ -179,10 +183,22 @@ impl Ctx {
         Ok(())
     }
 
-    /// Whether this game made `effect` (for the C API, which takes ids).
+    /// Whether this game made `effect` and hasn't freed it (for the C API,
+    /// which takes ids): [`Ctx::is_live`].
     #[doc(hidden)]
     #[must_use]
     pub fn has_effect(&self, effect: Effect) -> bool {
-        effect.id < self.assets3d.effects
+        self.is_live(effect)
+    }
+
+    /// Frees screen effect `id` (see [`Ctx::free`]): entries of
+    /// [`Ctx::effects`] showing it are skipped from now on.
+    pub(crate) fn free_effect_id(&mut self, id: u32) {
+        if !self.assets3d.effects_live.remove(id) {
+            return;
+        }
+        self.assets3d.loaded_effects.retain(|_, e| e.id != id);
+        self.watcher
+            .forget(|a| matches!(a, crate::hot_reload::Asset::Effect(e) if *e == id));
     }
 }

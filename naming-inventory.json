@@ -146,7 +146,7 @@
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
     "crates/ponko_ffi/cbindgen.toml": {
-      "occurrences": 77,
+      "occurrences": 79,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
@@ -207,6 +207,12 @@
     },
     "crates/ponko_ffi/src/grid.rs": {
       "occurrences": 59,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
+    "crates/ponko_ffi/src/handles.rs": {
+      "occurrences": 54,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
@@ -350,7 +356,7 @@
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
     "crates/ponko_ffi/src/three.rs": {
-      "occurrences": 842,
+      "occurrences": 844,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
@@ -423,6 +429,12 @@
     },
     "crates/ponko_ffi/tests/game.rs": {
       "occurrences": 270,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
+    "crates/ponko_ffi/tests/handles.rs": {
+      "occurrences": 58,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
@@ -620,19 +632,19 @@
       "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
     },
     "include/crabby.h": {
-      "occurrences": 3001,
+      "occurrences": 3028,
       "path_occurrences": 1,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
     "include/crabby.hpp": {
-      "occurrences": 1282,
+      "occurrences": 1312,
       "path_occurrences": 1,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
     "include/ponko.h": {
-      "occurrences": 1093,
+      "occurrences": 1110,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
@@ -815,7 +827,7 @@
       "occurrences": 1,
       "path_occurrences": 0,
       "category": "public compatibility",
-      "reason": "Uses the retained prefab format identifier in a test fixture."
+      "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
     },
     "tests/control.rs": {
       "occurrences": 3,
@@ -826,8 +838,8 @@
     "tests/fixtures/saves/README.md": {
       "occurrences": 1,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Names the retained saved-world format identifier of the compatibility fixtures."
+      "category": "intentional history",
+      "reason": "Pre-existing project instructions, README text, release history or legal attribution."
     },
     "tests/fixtures/saves/world_v1.json": {
       "occurrences": 1,

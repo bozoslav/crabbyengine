@@ -43,6 +43,20 @@ static void setup(PonkoCtx* ctx, void* user) {
     CHECK(ponko_ctx_free_gpu_buffer(ctx, buffer) == PONKO_OK);
     CHECK(ponko_ctx_free_gpu_buffer(ctx, buffer) == PONKO_INVALID_ARGUMENT);
     CHECK(ponko_ctx_write_gpu_buffer(ctx, buffer, 0, items, 1) == PONKO_INVALID_ARGUMENT);
+    /* One lifecycle for every handle kind: a kind and an id. */
+    bool live = true;
+    CHECK(ponko_ctx_handle_is_live(ctx, PONKO_HANDLE_GPU_BUFFER, buffer.id, &live) == PONKO_OK && !live);
+    CHECK(ponko_ctx_handle_is_live(ctx, PONKO_HANDLE_MESH, batch_mesh.id, &live) == PONKO_OK && live);
+    PonkoLiveCounts counts;
+    CHECK(ponko_ctx_live_counts(ctx, &counts) == PONKO_OK && counts.gpu_buffers == 0);
+    size_t meshes = counts.meshes;
+    CHECK(ponko_ctx_handle_free(ctx, PONKO_HANDLE_MESH, batch_mesh.id) == PONKO_OK);
+    CHECK(ponko_ctx_handle_free(ctx, PONKO_HANDLE_MESH, batch_mesh.id) == PONKO_OK);
+    CHECK(ponko_ctx_handle_is_live(ctx, PONKO_HANDLE_MESH, batch_mesh.id, &live) == PONKO_OK && !live);
+    CHECK(ponko_ctx_live_counts(ctx, &counts) == PONKO_OK && counts.meshes == meshes - 1);
+    CHECK(ponko_ctx_handle_is_live(ctx, PONKO_HANDLE_TEXTURE, PONKO_HANDLE_NONE, &live) == PONKO_OK && !live);
+    CHECK(ponko_ctx_handle_free(ctx, PONKO_HANDLE_MATERIAL, PONKO_HANDLE_NONE) == PONKO_OK);
+    CHECK(ponko_ctx_handle_free(ctx, 99, 0) == PONKO_INVALID_ARGUMENT);
     bool culling = true;
     CHECK(ponko_ctx_occlusion_culling(ctx, &culling) == PONKO_OK && !culling);
     CHECK(ponko_ctx_set_occlusion_culling(ctx, true) == PONKO_OK);

@@ -147,6 +147,7 @@ impl Ctx {
         };
         self.assets3d.arrays.push(array);
         self.assets3d.array_data.push(kind == TextureKind::Data);
+        self.assets3d.arrays_live.insert(id);
         Ok(array)
     }
 
@@ -196,12 +197,29 @@ impl Ctx {
         self.try_create_texture_array(width, height, &layers, kind)
     }
 
-    /// Whether this game made `array`, as it is (for the C API, which takes
-    /// ids and sizes).
+    /// Whether this game made `array`, as it is, and hasn't freed it (for
+    /// the C API, which takes ids and sizes): [`Ctx::is_live`], with the
+    /// size checked too.
     #[doc(hidden)]
     #[must_use]
     pub fn has_texture_array(&self, array: TextureArray) -> bool {
-        self.assets3d.arrays.get(array.id as usize) == Some(&array)
+        self.is_live(array) && self.assets3d.arrays.get(array.id as usize) == Some(&array)
+    }
+
+    /// Frees texture array `id` (see [`Ctx::free`]): materials reading it
+    /// see a white one, and decals lose their images if it was theirs.
+    pub(crate) fn free_texture_array_id(&mut self, id: u32) {
+        if !self.assets3d.arrays_live.remove(id) {
+            return;
+        }
+        if self.assets3d.decal_array.is_some_and(|a| a.id == id) {
+            self.assets3d.decal_array = None;
+        }
+        if let Some(renderer) = self.renderer.as_mut()
+            && !self.headless
+        {
+            renderer.free_texture_array(id);
+        }
     }
 
     /// Sets the texture array [`Decal3D`](crate::Decal3D)s take their images

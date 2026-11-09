@@ -111,10 +111,12 @@ impl Ctx {
         self.check_material(&desc)?;
         let id = self.assets3d.materials;
         self.assets3d.materials += 1;
+        self.assets3d.materials_live.insert(id);
+        let gpu = self.gpu_material(&desc);
         if let Some(renderer) = self.renderer.as_mut()
             && !self.headless
         {
-            let gpu_id = renderer.create_material(&GpuMaterialDesc::new(&desc));
+            let gpu_id = renderer.create_material(&gpu);
             debug_assert_eq!(gpu_id, id);
         }
         Ok(Material { id })
@@ -133,17 +135,108 @@ impl Ctx {
     ///
     /// # Panics
     ///
-    /// As [`Ctx::create_material`], or if the material comes from another game.
+    /// As [`Ctx::create_material`], or if the material comes from another
+    /// game. Updating a freed material does nothing: it stays freed.
     pub fn update_material(&mut self, material: Material, desc: MaterialDesc) {
         assert!(
             material.id < self.assets3d.materials,
             "ponko: update_material: that material wasn't made by this game"
         );
         self.check_material(&desc).unwrap_or_else(|e| panic!("{e}"));
+        if !self.assets3d.materials_live.contains(material.id) {
+            return;
+        }
+        let gpu = self.gpu_material(&desc);
         if let Some(renderer) = self.renderer.as_mut()
             && !self.headless
         {
-            renderer.update_material(material.id, &GpuMaterialDesc::new(&desc));
+            renderer.update_material(material.id, &gpu);
+        }
+    }
+
+    /// What the GPU makes of `desc`: freed shaders, textures and arrays
+    /// are left out, so it looks as it would without them.
+    fn gpu_material(&self, desc: &MaterialDesc) -> GpuMaterialDesc {
+        let mut gpu = GpuMaterialDesc::new(desc);
+        if desc.shader.is_some_and(|s| !self.assets3d.shaders_live.contains(s.id)) {
+            gpu.shader = 0;
+        }
+        let freed = |id: u32| self.textures_live.was_made(id) && !self.textures_live.contains(id);
+        for (slot, texture) in gpu.textures.iter_mut().enumerate() {
+            if texture.is_some_and(freed) {
+                *texture = None;
+                // Slots 1 to 3 (normal, ORM, emissive) have flags.
+                if (1..=3).contains(&slot) {
+                    gpu.uniform.maps[slot - 1] = 0;
+                }
+            }
+        }
+        for array in &mut gpu.arrays {
+            if array.is_some_and(|a| !self.assets3d.arrays_live.contains(a)) {
+                *array = None;
+            }
+        }
+        gpu
+    }
+
+    /// Adds the live 3D handles to `counts` (see [`Ctx::live_counts`]).
+    pub(crate) fn count_live_3d(&self, counts: &mut crate::LiveCounts) {
+        let a = &self.assets3d;
+        counts.render_targets = a
+            .render_targets
+            .iter()
+            .filter(|t| self.textures_live.contains(t.id))
+            .count();
+        counts.meshes = a.bounds.iter().filter(|&&(_, r)| r >= 0.0).count();
+        counts.materials = a.materials_live.len();
+        counts.shaders = a.shaders_live.len();
+        counts.computes = a.computes_live.len();
+        counts.effects = a.effects_live.len();
+        counts.gpu_buffers = a.gpu_buffers.iter().filter(|&&len| len > 0).count();
+        counts.instance_batches = a.instance_batches.iter().flatten().count();
+        counts.texture_arrays = a.arrays_live.len();
+    }
+
+    /// Frees material `id` (see [`Ctx::free`]): mesh parts made with it
+    /// draw with the default material's look from now on.
+    pub(crate) fn free_material_id(&mut self, id: u32) {
+        if !self.assets3d.materials_live.remove(id) {
+            return;
+        }
+        if self.assets3d.default_material == Some(Material { id }) {
+            self.assets3d.default_material = None;
+        }
+        for materials in self.assets3d.loaded_materials.values_mut() {
+            materials.retain(|(m, _)| m.id != id);
+        }
+        self.assets3d.loaded_materials.retain(|_, m| !m.is_empty());
+        // A file whose material was freed makes fresh ones when reloaded.
+        self.assets3d
+            .file_materials
+            .retain(|_, materials| !materials.contains(&Material { id }));
+        if let Some(renderer) = self.renderer.as_mut()
+            && !self.headless
+        {
+            renderer.free_material(id);
+        }
+    }
+
+    /// Frees material shader `id` (see [`Ctx::free`]): its materials draw
+    /// with the built-in shader from now on.
+    pub(crate) fn free_shader_id(&mut self, id: u32) {
+        if !self.assets3d.shaders_live.remove(id) {
+            return;
+        }
+        self.assets3d.loaded_shaders.retain(|_, s| s.id != id);
+        if self.assets3d.terrain_shader == Some(Shader { id }) {
+            self.assets3d.terrain_shader = None;
+        }
+        self.watcher
+            .forget(|a| matches!(a, crate::hot_reload::Asset::Shader(s) if *s == id));
+        if let Some(renderer) = self.renderer.as_mut()
+            && !self.headless
+        {
+            renderer.free_shader(id + 1);
         }
     }
 
@@ -183,13 +276,14 @@ impl Ctx {
                 ),
             ));
         }
+        // Freed handles are allowed: they draw as the default.
         if let Some(shader) = desc.shader
             && shader.id >= self.assets3d.shaders
         {
             return Err(Error::new(ErrorKind::BadHandle, "that shader wasn't made by this game"));
         }
         for array in desc.custom_arrays.into_iter().flatten() {
-            if !self.has_texture_array(array) {
+            if self.assets3d.arrays.get(array.id as usize) != Some(&array) {
                 return Err(Error::new(
                     ErrorKind::BadHandle,
                     "that texture array wasn't made by this game",
@@ -272,11 +366,15 @@ impl Ctx {
             debug_assert_eq!(gpu_id, id + 1);
         }
         self.assets3d.shaders += 1;
+        self.assets3d.shaders_live.insert(id);
         Ok(Shader { id })
     }
 
     /// Recompiles a shader whose file changed (hot reload).
     pub(crate) fn reload_shader(&mut self, id: u32, name: &str, source: &str) -> Result<(), String> {
+        if !self.assets3d.shaders_live.contains(id) {
+            return Ok(());
+        }
         #[cfg(feature = "window")]
         crate::render::check_shader(name, &crate::render::compose_shader(source))?;
         if let Some(renderer) = self.renderer.as_mut()
@@ -287,18 +385,20 @@ impl Ctx {
         Ok(())
     }
 
-    /// Whether this game made `material` (for the C API, which takes ids).
+    /// Whether this game made `material` and hasn't freed it (for the C
+    /// API, which takes ids): [`Ctx::is_live`].
     #[doc(hidden)]
     #[must_use]
     pub fn has_material(&self, material: Material) -> bool {
-        material.id < self.assets3d.materials
+        self.is_live(material)
     }
 
-    /// Whether this game made `shader` (for the C API, which takes ids).
+    /// Whether this game made `shader` and hasn't freed it (for the C API,
+    /// which takes ids): [`Ctx::is_live`].
     #[doc(hidden)]
     #[must_use]
     pub fn has_shader(&self, shader: Shader) -> bool {
-        shader.id < self.assets3d.shaders
+        self.is_live(shader)
     }
 
     /// A plain white material, made once and shared.
@@ -705,7 +805,7 @@ impl Ctx {
         morph_defaults: Vec<f32>,
     ) -> Mesh {
         // A freed mesh's id first, so streaming meshes in and out doesn't
-        // grow the tables.
+        // grow the tables (and the per-frame sort, which spans every id).
         let id = match self.assets3d.free_meshes.pop() {
             Some(id) => {
                 self.assets3d.gpu_mesh_bounds.remove(&id);
@@ -780,10 +880,11 @@ impl Ctx {
     }
 
     /// Frees `mesh`'s GPU memory, for worlds streamed in and out. Models
-    /// still showing it draw nothing; despawn them too, and drop the handle:
-    /// the next mesh made takes its id, and old handles would show that one.
-    /// A mesh loaded from a file loads afresh next time. Freeing it again
-    /// does nothing (until a new mesh takes its id).
+    /// still showing it draw nothing; despawn them too. Drop the handle: the
+    /// next mesh made takes its id, so streaming doesn't grow the mesh
+    /// tables, and an old handle would reach that one. A mesh loaded from a file loads
+    /// afresh next time. Freeing it again does nothing. The same as
+    /// [`Ctx::free`] with a mesh.
     ///
     /// ```
     /// # use ponko::*;
@@ -882,7 +983,8 @@ impl Ctx {
         self.assets3d.casts_shadows(mesh.id)
     }
 
-    /// Whether `mesh` was made by this game and not freed.
+    /// Whether `mesh` was made by this game and not freed: [`Ctx::is_live`]
+    /// with a mesh.
     ///
     /// ```
     /// # use ponko::*;
@@ -984,7 +1086,7 @@ impl Ctx {
             .target_cameras
             .iter()
             .chain(capture_cameras.iter())
-            .filter(|c| targets.contains(&c.target));
+            .filter(|c| targets.iter().any(|t| t.id == c.target.id));
         let count = cameras.clone().count();
         let views = &mut self.frame3d.views;
         views.resize_with(count, Default::default);
@@ -1201,6 +1303,42 @@ impl Ctx {
         self.assets3d.morph_entities = entities;
     }
 
+    /// The screen effects and compute passes this frame runs (with their
+    /// materials, `fallback` for none): freed ones, and passes into a freed
+    /// target or buffer, are left out.
+    pub(crate) fn collect_passes(&mut self, fallback: Option<Material>) {
+        self.frame3d.effects.clear();
+        let effects_live = &self.assets3d.effects_live;
+        self.frame3d.effects.extend(self.effects.iter().filter_map(|e| {
+            // A freed effect is skipped.
+            if !effects_live.contains(e.effect.id) {
+                return None;
+            }
+            let material = e.material.or(fallback)?;
+            Some((e.effect.id, material.id))
+        }));
+        let targets = &self.assets3d.render_targets;
+        self.frame3d.computes.clear();
+        let computes_live = &self.assets3d.computes_live;
+        self.frame3d.computes.extend(self.compute_passes.iter().filter_map(|c| {
+            // A freed pass is skipped.
+            if !computes_live.contains(c.compute.id) {
+                return None;
+            }
+            let material = c.material.or(fallback)?;
+            if let Some(b) = c.buffer {
+                // A freed buffer's passes do nothing.
+                self.assets3d.gpu_buffers.get(b.id as usize).filter(|&&len| len > 0)?;
+                Some((c.compute.id, b.id | (1 << 31), material.id))
+            } else {
+                targets
+                    .iter()
+                    .any(|t| t.id == c.target.id)
+                    .then_some((c.compute.id, c.target.id, material.id))
+            }
+        }));
+    }
+
     pub(crate) fn prepare_3d(&mut self) {
         if self.renderer.is_none()
             || (self.assets3d.bounds.is_empty()
@@ -1225,29 +1363,11 @@ impl Ctx {
         } else {
             None
         };
-        self.frame3d.effects.clear();
-        self.frame3d.effects.extend(self.effects.iter().filter_map(|e| {
-            let material = e.material.or(fallback)?;
-            Some((e.effect.id, material.id))
-        }));
+        self.collect_passes(fallback);
         let start = web_time::Instant::now();
         let mut skins = std::mem::take(&mut self.frame3d.skins);
         skins.collect(&mut self.world, &self.assets3d);
         self.collect_views(&skins);
-        let targets = &self.assets3d.render_targets;
-        self.frame3d.computes.clear();
-        self.frame3d.computes.extend(self.compute_passes.iter().filter_map(|c| {
-            let material = c.material.or(fallback)?;
-            if let Some(b) = c.buffer {
-                // A freed buffer's passes do nothing.
-                self.assets3d.gpu_buffers.get(b.id as usize).filter(|&&len| len > 0)?;
-                Some((c.compute.id, b.id | (1 << 31), material.id))
-            } else {
-                targets
-                    .contains(&c.target)
-                    .then_some((c.compute.id, c.target.id, material.id))
-            }
-        }));
         self.collect_text3d();
         let Some(renderer) = self.renderer.as_mut() else {
             return;

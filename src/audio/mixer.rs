@@ -197,6 +197,7 @@ impl Ctx {
     pub fn load_stream(&mut self, path: &str) -> Sound {
         let file = crate::assets::resolve(path).unwrap_or_else(|e| panic!("ponko: {e}"));
         let (id, seconds) = self.audio.stream(file).unwrap_or_else(|e| panic!("ponko: {path}: {e}"));
+        self.sounds_live.insert(id);
         Sound { id, seconds }
     }
 }

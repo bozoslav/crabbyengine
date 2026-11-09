@@ -2000,11 +2000,107 @@ impl Renderer3D {
     }
 
     fn material_bindings(&self, desc: &GpuMaterialDesc, textures: &[GpuTexture]) -> MaterialBindings {
+        self.bindings_for(desc.textures, desc.arrays, textures)
+    }
+
+    fn bindings_for(
+        &self,
+        maps: crate::three::MaterialTextures,
+        array_ids: [Option<u32>; 3],
+        textures: &[GpuTexture],
+    ) -> MaterialBindings {
         MaterialBindings {
-            maps: desc.textures,
-            array_ids: desc.arrays,
-            textures: std::array::from_fn(|i| self.material_texture(desc.textures[i], textures).clone()),
-            arrays: std::array::from_fn(|i| self.material_array(desc.arrays[i]).clone()),
+            maps,
+            array_ids,
+            textures: std::array::from_fn(|i| self.material_texture(maps[i], textures).clone()),
+            arrays: std::array::from_fn(|i| self.material_array(array_ids[i]).clone()),
+        }
+    }
+
+    /// Material `id` was freed: it draws as the default material from now
+    /// on, and lets go of its textures.
+    pub fn free_material(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, id: u32, textures: &[GpuTexture]) {
+        let default = GpuMaterialDesc::new(&crate::three::MaterialDesc::default());
+        self.update_material(device, queue, id, &default, textures);
+    }
+
+    /// Material shader `id` (an index into `shaders`) was freed: its
+    /// materials draw with the built-in shader from now on.
+    pub fn free_shader(&mut self, id: u32) {
+        if id == 0 {
+            return;
+        }
+        for material in &mut self.materials {
+            if material.shader == id {
+                material.shader = 0;
+            }
+        }
+    }
+
+    /// Compute pass `id` was freed: its pipeline goes, and passes naming it
+    /// are skipped.
+    pub fn free_compute(&mut self, id: u32) {
+        if let Some(pipeline) = self.compute_pipelines.get_mut(id as usize) {
+            *pipeline = None;
+        }
+    }
+
+    /// Render target `id` was freed: target cameras and compute passes let
+    /// go of it and of what they made for it.
+    pub fn free_render_target(&mut self, id: u32) {
+        self.render_targets.retain(|&(t, _)| t != id);
+        self.view_targets.retain(|&(t, _)| t != id);
+        self.compute_states.retain(|&(t, _)| t != id);
+    }
+
+    /// Texture array `id` was freed: it reads as the white one from now on.
+    pub fn free_texture_array(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, id: u32, textures: &[GpuTexture]) {
+        let Some(view) = self.arrays.get_mut(id as usize) else {
+            return;
+        };
+        *view = self.white_array.clone();
+        if self.decal_array == Some(id) {
+            self.decal_array = None;
+            self.frame_sources.decal_view = self.no_decal_view.clone();
+            self.rebind_frames(device);
+        }
+        self.rebind_materials(device, queue, textures, None, Some(id));
+    }
+
+    /// Binds again the materials that read texture `texture` (whose slot in
+    /// `textures` now holds the white stand-in) or texture array `array`
+    /// (now the white one). A freed normal, ORM or emissive map is switched
+    /// off, so the material looks as it would without one.
+    pub fn rebind_materials(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        textures: &[GpuTexture],
+        texture: Option<u32>,
+        array: Option<u32>,
+    ) {
+        for i in 0..self.materials.len() {
+            let material = &self.materials[i];
+            let maps = material.bindings.maps;
+            let array_ids = material.bindings.array_ids;
+            let reads_texture = texture.is_some_and(|t| maps.contains(&Some(t)));
+            if !reads_texture && !array.is_some_and(|a| array_ids.contains(&Some(a))) {
+                continue;
+            }
+            if reads_texture {
+                // Slots 1 to 3 (normal, ORM, emissive) have flags in `maps`.
+                for (slot, &map) in maps.iter().enumerate().take(4).skip(1) {
+                    if map == texture {
+                        let offset = std::mem::offset_of!(crate::three::MaterialUniform, maps) + 4 * (slot - 1);
+                        queue.write_buffer(&material.buffer, offset as u64, &0u32.to_le_bytes());
+                    }
+                }
+            }
+            let bindings = self.bindings_for(maps, array_ids, textures);
+            let bind_group = self.material_bind_group(device, &material.buffer, &bindings);
+            let material = &mut self.materials[i];
+            material.bind_group = bind_group;
+            material.bindings = bindings;
         }
     }
 
@@ -2447,7 +2543,11 @@ impl Renderer3D {
                 }
                 continue;
             }
-            if (compute as usize) < self.compute_pipelines.len()
+            // A freed pass has no pipeline.
+            if self
+                .compute_pipelines
+                .get(compute as usize)
+                .is_some_and(Option::is_some)
                 && (material as usize) < self.materials.len()
                 && let Some(state) = self.compute_state(device, target)
             {

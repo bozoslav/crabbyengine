@@ -253,7 +253,7 @@ static void three_d() {
         ctx.free_gpu_buffer(spare);
         throws([&] { ctx.free_gpu_buffer(spare); });
         throws([&] { ctx.write_gpu_buffer(spare, 0, {{1, 2, 3, 4}}); });
-        CHECK(ctx.create_gpu_buffer(3).id == spare.id);
+        CHECK(ctx.create_gpu_buffer(3).id == spare.id);  // a freed buffer's id is taken again
         auto update = ctx.create_compute("update", "fn update(i: u32) { items[i].x += frame.time.y; }");
         ctx.set_compute_passes({ponko::buffer_compute_pass(update, buffer)});
         CHECK(ctx.compute_passes()[0].has_buffer && ctx.compute_passes()[0].buffer.id == buffer.id);
@@ -800,6 +800,37 @@ static void streaming() {
         ctx.free_mesh(cube);
         ctx.free_mesh(cube);
         CHECK(!ctx.is_mesh_live(cube));
+    });
+}
+
+static void handle_lifecycle() {
+    ponko::game("handles", 64, 64).run_headless(0, [](ponko::ctx& ctx) {
+        auto before = ctx.live_counts();
+        const std::uint8_t px[4] = {255, 255, 255, 255};
+        auto t = ctx.create_texture(1, 1, px, sizeof px);
+        auto m = ctx.create_material(ponko::material_of(ponko::colors::white));
+        auto mesh = ctx.create_mesh(ponko::mesh_data::cube(1), m);
+        auto target = ctx.create_render_target(8, 8);
+        CHECK(ctx.is_live(t) && ctx.is_live(m) && ctx.is_live(mesh) && ctx.is_live(target));
+        CHECK(ctx.live_counts().textures == before.textures + 2 && ctx.live_counts().render_targets == 1);
+        ctx.free(t);
+        ctx.free(m);
+        ctx.free(mesh);
+        ctx.free(target);
+        ctx.free(t);  // again: nothing
+        CHECK(!ctx.is_live(t) && !ctx.is_live(m) && !ctx.is_live(mesh) && !ctx.is_live(target));
+        CHECK(!ctx.is_mesh_live(mesh));
+        auto again = ctx.create_texture(1, 1, px, sizeof px);
+        CHECK(again.id != t.id && ctx.is_live(again));
+        ctx.free(again);
+        CHECK(!ctx.is_live(ponko::none<ponko::texture>()) && !ctx.is_live(ponko::mesh_none));
+        CHECK(ponko::none<ponko::mesh>().id == ponko::mesh_none.id);
+        CHECK(ctx.is_live(ponko::font{}));  // the built-in font
+        ctx.free(ponko::font{});
+        CHECK(ctx.is_live(ponko::font{}));
+        auto after = ctx.live_counts();
+        CHECK(after.textures == before.textures && after.meshes == before.meshes && after.materials == before.materials);
+        throws([] { ponko::detail::check(ponko_ctx_handle_free(nullptr, PONKO_HANDLE_MESH, 0)); });
     });
 }
 
@@ -1783,6 +1814,7 @@ int main() {
     inverse_kinematics();
     streaming();
     streamed_worlds();
+    handle_lifecycle();
     parallel_queries();
     games();
     attachments();

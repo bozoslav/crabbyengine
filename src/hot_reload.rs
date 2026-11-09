@@ -121,6 +121,12 @@ impl Watcher {
         });
     }
 
+    /// Stops watching the files of assets `matches` picks (freed ones).
+    pub(crate) fn forget(&mut self, matches: impl Fn(&Asset) -> bool) {
+        self.files.retain(|f| !matches(&f.asset));
+        self.pending.retain(|(a, _, _)| !matches(a));
+    }
+
     /// Files that changed since they were loaded (or last checked), at most
     /// every [`CHECK_EVERY`]. Each comes back once per change.
     pub(crate) fn changed(&mut self, now: Instant, out: &mut Vec<(Asset, PathBuf, String)>) {

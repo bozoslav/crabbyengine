@@ -170,6 +170,10 @@ pub struct Ctx {
     /// Where the control endpoint listens, if it's on.
     pub(crate) control_addr: Option<std::net::SocketAddr>,
     pub(crate) headless_textures: u32,
+    /// The game's textures (not the engine's own), by id, live or freed.
+    pub(crate) textures_live: crate::handle::LiveSet,
+    /// The game's sounds, by id, live or freed.
+    pub(crate) sounds_live: crate::handle::LiveSet,
     /// Asset hot reload: which files textures came from.
     pub(crate) watcher: crate::hot_reload::Watcher,
     /// How to apply each loaded data file's text (`load_resource`).
@@ -182,7 +186,7 @@ pub struct Ctx {
     /// name): loading one again returns the same handle.
     pub(crate) loaded: HashMap<(assets::Origin, AssetKind), u64>,
     /// Textures and sounds loaded from files, indexed by `loaded` values.
-    cached_textures: Vec<Texture>,
+    pub(crate) cached_textures: Vec<Texture>,
     pub(crate) cached_sounds: Vec<crate::Sound>,
     pub(crate) timings: Vec<SystemTiming>,
     pub(crate) input: Input,
@@ -398,6 +402,8 @@ impl Ctx {
             headless: false,
             control_addr: None,
             headless_textures: 0,
+            textures_live: Default::default(),
+            sounds_live: Default::default(),
             watcher: Default::default(),
             data_loaders: Vec::new(),
             prefabs: HashMap::new(),
@@ -1088,7 +1094,7 @@ impl Ctx {
             Some(t) => t,
             None => {
                 let side = Text::ATLAS_SIZE;
-                let t = self.create_texture(side, side, &vec![0; (side * side * 4) as usize]);
+                let t = self.make_texture(side, side, &vec![0; (side * side * 4) as usize]);
                 self.font_atlas = Some(t);
                 t
             }
@@ -1163,6 +1169,9 @@ impl Ctx {
     /// # }
     /// ```
     pub fn set_texture_filter(&mut self, texture: &Texture, filter: TextureFilter) {
+        if !self.textures_live.contains(texture.id) {
+            return;
+        }
         if let Some(r) = self.renderer.as_mut() {
             r.set_filter(texture.id, filter == TextureFilter::Nearest);
         }
@@ -1270,9 +1279,9 @@ impl Ctx {
         Ok((origin, found.into_text(name)?))
     }
 
-    /// Whether `font` is the built-in font or one this context loaded. Only
-    /// foreign callers can hold a handle that isn't (C code passing a made-up
-    /// id); [`Text3D`](crate::Text3D) would panic when drawn with one.
+    /// Whether `font` is the built-in font or one this context loaded and
+    /// hasn't freed: the same as [`is_live`](Self::is_live). Text in a font
+    /// that isn't uses the built-in one.
     ///
     /// ```
     /// # use ponko::*;
@@ -1625,6 +1634,15 @@ impl Ctx {
     /// # }
     /// ```
     pub fn create_texture(&mut self, width: u32, height: u32, rgba: &[u8]) -> Texture {
+        let texture = self.make_texture(width, height, rgba);
+        self.textures_live.insert(texture.id);
+        texture
+    }
+
+    /// [`create_texture`](Self::create_texture) for the engine's own
+    /// textures (UI shapes, glyph atlases): not the game's to free, and not
+    /// counted by [`live_counts`](Self::live_counts).
+    pub(crate) fn make_texture(&mut self, width: u32, height: u32, rgba: &[u8]) -> Texture {
         assert!(
             width > 0 && height > 0,
             "ponko: texture size must not be zero (got {width} x {height})"
@@ -1649,6 +1667,43 @@ impl Ctx {
         );
         let id = renderer.create_texture(width, height, rgba);
         Texture::new(id, width, height)
+    }
+
+    /// Frees game texture `id` (see [`Ctx::free`]): what still shows it
+    /// sees the renderer's white stand-in.
+    pub(crate) fn free_texture_id(&mut self, id: u32) {
+        if !self.textures_live.remove(id) {
+            return;
+        }
+        let cached = &self.cached_textures;
+        self.loaded
+            .retain(|(_, kind), i| *kind != AssetKind::Texture || cached[*i as usize].id != id);
+        self.watcher.forget(|a| matches!(a, Asset::Texture(t) if t.id == id));
+        if let Some(names) = self.world.get_resource_mut::<crate::reflect::TextureNames>()
+            && let Some(name) = names.by_id.remove(&id)
+        {
+            names.by_name.remove(&name);
+        }
+        #[cfg(feature = "3d")]
+        {
+            self.assets3d.render_targets.retain(|t| t.id != id);
+            self.assets3d.shared_images.retain(|_, t| t.id != id);
+        }
+        if let Some(renderer) = self.renderer.as_mut()
+            && !self.headless
+        {
+            renderer.free_texture(id);
+        }
+    }
+
+    /// Frees game font `id` (see [`Ctx::free`]); never the built-in one.
+    pub(crate) fn free_font_id(&mut self, id: u32) {
+        if !self.text.free_font(Font(id)) {
+            return;
+        }
+        self.loaded
+            .retain(|(_, kind), v| *kind != AssetKind::Font || *v != u64::from(id));
+        self.watcher.forget(|a| matches!(a, Asset::Font(f) if *f == id));
     }
 
     /// Replaces every pixel of `texture` with `rgba` (same size as it was
@@ -1683,7 +1738,8 @@ impl Ctx {
             !self.is_render_target(*texture),
             "ponko: a render target is drawn by its target camera, not updated with pixels"
         );
-        if self.headless {
+        // A freed texture (or `Texture::NONE`) has no pixels of its own.
+        if self.headless || !self.textures_live.contains(texture.id) {
             return;
         }
         self.renderer().update_texture(texture.id, w, h, rgba);

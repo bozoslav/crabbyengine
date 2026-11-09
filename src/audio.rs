@@ -18,12 +18,26 @@ pub use spatial::*;
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct Sound {
-    id: u32,
+    pub(crate) id: u32,
     /// Length in seconds.
     seconds: f32,
 }
 
+// A sound's length is never NaN, so equality is an equivalence.
+impl Eq for Sound {}
+
+impl std::hash::Hash for Sound {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Equal sounds have equal ids; the length comes with the id.
+        self.id.hash(state);
+    }
+}
+
 impl Sound {
+    pub(crate) const fn new(id: u32, seconds: f32) -> Self {
+        Self { id, seconds }
+    }
+
     /// Length in seconds.
     ///
     /// ```
@@ -103,6 +117,8 @@ mod backend {
         Static(Box<StaticSoundData>),
         #[cfg(not(target_arch = "wasm32"))]
         Stream(PathBuf),
+        /// Freed: plays nothing, and its id is never reused.
+        Freed,
     }
     enum Handle {
         Static(StaticSoundHandle),
@@ -110,6 +126,8 @@ mod backend {
         Stream(StreamingSoundHandle<FromFileError>),
     }
     struct Voice {
+        /// The sound it plays.
+        sound: u32,
         handle: Handle,
         track: TrackHandle,
         filter: FilterHandle,
@@ -176,8 +194,23 @@ mod backend {
             Ok(self.add(decode(bytes)?))
         }
         pub fn replace(&mut self, id: u32, bytes: Vec<u8>) -> Result<(), String> {
-            self.sounds[id as usize] = Clip::Static(Box::new(decode(bytes)?));
+            let data = decode(bytes)?;
+            if let Some(clip) = self.sounds.get_mut(id as usize)
+                && !matches!(clip, Clip::Freed)
+            {
+                *clip = Clip::Static(Box::new(data));
+            }
             Ok(())
+        }
+        /// Drops sound `id`'s data and stops its voices.
+        pub fn free(&mut self, id: u32) {
+            if let Some(clip) = self.sounds.get_mut(id as usize) {
+                *clip = Clip::Freed;
+            }
+            for voice in self.playing.values_mut().filter(|v| v.sound == id) {
+                voice.handle.stop();
+            }
+            self.playing.retain(|_, v| v.sound != id);
         }
         #[cfg(not(target_arch = "wasm32"))]
         pub fn stream(&mut self, path: PathBuf) -> Result<(u32, f32), String> {
@@ -257,7 +290,11 @@ mod backend {
             };
             let volume = volume_db(p.volume);
             let speed = f64::from(finite(p.speed, 1.0).max(0.01));
-            let handle = match &self.sounds[sound as usize] {
+            let Some(clip) = self.sounds.get(sound as usize) else {
+                return id;
+            };
+            let handle = match clip {
+                Clip::Freed => return id,
                 Clip::Static(data) => {
                     let mut data = (**data).clone().volume(volume).playback_rate(speed);
                     if p.looping {
@@ -281,6 +318,7 @@ mod backend {
                 self.playing.insert(
                     id,
                     Voice {
+                        sound,
                         handle,
                         track,
                         filter,
@@ -420,6 +458,7 @@ mod backend {
         pub fn replace(&mut self, _id: u32, _bytes: Vec<u8>) -> Result<(), String> {
             Ok(())
         }
+        pub fn free(&mut self, _id: u32) {}
         pub fn create(&mut self, sample_rate: u32, samples: &[f32]) -> (u32, f32) {
             self.count += 1;
             (self.count - 1, samples.len() as f32 / sample_rate.max(1) as f32)
@@ -488,6 +527,7 @@ impl Ctx {
             .load(bytes)
             .map_err(|e| crate::Error::decode(path, format!("{}: {e}", file.display())))?;
         let sound = Sound { id, seconds };
+        self.sounds_live.insert(id);
         self.loaded.insert(key, self.cached_sounds.len() as u64);
         self.cached_sounds.push(sound);
         self.watcher.watch(path, file, crate::hot_reload::Asset::Sound(id));
@@ -520,6 +560,7 @@ impl Ctx {
     pub fn create_sound(&mut self, sample_rate: u32, samples: &[f32]) -> Sound {
         assert!(sample_rate > 0, "ponko: the sample rate must not be zero");
         let (id, seconds) = self.audio.create(sample_rate, samples);
+        self.sounds_live.insert(id);
         Sound { id, seconds }
     }
 
@@ -551,6 +592,19 @@ impl Ctx {
             return Playing(0);
         }
         Playing(self.audio.play(sound.id, params))
+    }
+
+    /// Frees sound `id` (see [`Ctx::free`]).
+    pub(crate) fn free_sound_id(&mut self, id: u32) {
+        if !self.sounds_live.remove(id) {
+            return;
+        }
+        let cached = &self.cached_sounds;
+        self.loaded
+            .retain(|(_, kind), i| *kind != crate::ctx::AssetKind::Sound || cached[*i as usize].id != id);
+        self.watcher
+            .forget(|a| matches!(a, crate::hot_reload::Asset::Sound(s) if *s == id));
+        self.audio.free(id);
     }
 
     /// Stops a sound started with [`play_sound`](Self::play_sound) (with a

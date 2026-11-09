@@ -203,11 +203,15 @@ impl Ctx {
             debug_assert_eq!(gpu_id, id);
         }
         self.assets3d.computes += 1;
+        self.assets3d.computes_live.insert(id);
         Ok(Compute { id })
     }
 
     /// Recompiles a compute pass whose file changed (hot reload).
     pub(crate) fn reload_compute(&mut self, id: u32, name: &str, source: &str) -> Result<(), String> {
+        if !self.assets3d.computes_live.contains(id) {
+            return Ok(());
+        }
         #[cfg(feature = "window")]
         crate::render::check_shader(name, &crate::render::compose_compute(source))?;
         if let Some(renderer) = self.renderer.as_mut()
@@ -218,11 +222,28 @@ impl Ctx {
         Ok(())
     }
 
-    /// Whether this game made `compute` (for the C API, which takes ids).
+    /// Whether this game made `compute` and hasn't freed it (for the C API,
+    /// which takes ids): [`Ctx::is_live`].
     #[doc(hidden)]
     #[must_use]
     pub fn has_compute(&self, compute: Compute) -> bool {
-        compute.id < self.assets3d.computes
+        self.is_live(compute)
+    }
+
+    /// Frees compute pass `id` (see [`Ctx::free`]): entries of
+    /// [`Ctx::compute_passes`] running it are skipped from now on.
+    pub(crate) fn free_compute_id(&mut self, id: u32) {
+        if !self.assets3d.computes_live.remove(id) {
+            return;
+        }
+        self.assets3d.loaded_computes.retain(|_, c| c.id != id);
+        self.watcher
+            .forget(|a| matches!(a, crate::hot_reload::Asset::Compute(c) if *c == id));
+        if let Some(renderer) = self.renderer.as_mut()
+            && !self.headless
+        {
+            renderer.free_compute(id);
+        }
     }
 }
 
@@ -296,7 +317,7 @@ impl Ctx {
     /// from it draw nothing (they can be bound to another buffer again).
     /// Drop the handle: the next buffer made takes its id, and an old handle
     /// would reach that one. Freeing it again does nothing (until a new
-    /// buffer takes its id).
+    /// buffer takes its id). The same as [`Ctx::free`] with a buffer.
     /// ```
     /// # use ponko::*;
     /// Game::new("b", 1, 1).run_headless(0, |ctx| {
