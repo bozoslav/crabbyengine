@@ -196,6 +196,15 @@
 #define PONKO_PARTICLES_POINT CRABBY_PARTICLES_POINT
 #define PONKO_PARTICLES_SPHERE CRABBY_PARTICLES_SPHERE
 #define PONKO_PARTICLES_WORLD CRABBY_PARTICLES_WORLD
+#define PONKO_PHASE_AFTER_PHYSICS CRABBY_PHASE_AFTER_PHYSICS
+#define PONKO_PHASE_ANIMATE CRABBY_PHASE_ANIMATE
+#define PONKO_PHASE_BEFORE_PHYSICS CRABBY_PHASE_BEFORE_PHYSICS
+#define PONKO_PHASE_DRAW CRABBY_PHASE_DRAW
+#define PONKO_PHASE_FRAME CRABBY_PHASE_FRAME
+#define PONKO_PHASE_INPUT CRABBY_PHASE_INPUT
+#define PONKO_PHASE_LATE CRABBY_PHASE_LATE
+#define PONKO_PHASE_PHYSICS CRABBY_PHASE_PHYSICS
+#define PONKO_PHASE_SIM_LAST CRABBY_PHASE_SIM_LAST
 #define PONKO_ROLLOFF_LINEAR CRABBY_ROLLOFF_LINEAR
 #define PONKO_ROLLOFF_LOGARITHMIC CRABBY_ROLLOFF_LOGARITHMIC
 #define PONKO_ROOT_MOTION_APPLY CRABBY_ROOT_MOTION_APPLY
@@ -384,6 +393,7 @@
 #define PonkoParticleSettings3D CrabbyParticleSettings3D
 #define PonkoParticleShape3D CrabbyParticleShape3D
 #define PonkoParticleSpace3D CrabbyParticleSpace3D
+#define PonkoPhase CrabbyPhase
 #define PonkoPlaying CrabbyPlaying
 #define PonkoPointLight3D CrabbyPointLight3D
 #define PonkoPose CrabbyPose
@@ -871,6 +881,7 @@
 #define ponko_friction_curve_evaluate crabby_friction_curve_evaluate
 #define ponko_friction_curve_forward crabby_friction_curve_forward
 #define ponko_friction_curve_sideways crabby_friction_curve_sideways
+#define ponko_game_add_system crabby_game_add_system
 #define ponko_game_camera_controls crabby_game_camera_controls
 #define ponko_game_control_endpoint crabby_game_control_endpoint
 #define ponko_game_fixed_hz crabby_game_fixed_hz

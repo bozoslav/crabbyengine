@@ -62,3 +62,48 @@ fn physics_builder_placement_does_not_change_observed_tick() {
     assert_eq!(a, run(false));
     assert!(a[0] < 10.0 && a[2] < a[1]);
 }
+
+/// The contract since physics moved into its own phase: `BeforePhysics`
+/// feeds the current tick's step; a plain `sim_system` runs after it, even
+/// when it was registered before `.physics3d()`.
+#[cfg(feature = "physics3d")]
+#[test]
+fn before_physics_feeds_the_same_tick_and_sim_system_sees_the_result() {
+    use ponko::*;
+    #[derive(Default)]
+    struct Seen(Vec<(&'static str, f32)>);
+    fn x(ctx: &mut Ctx) -> f32 {
+        ctx.world.query::<&Transform3D>().iter().next().unwrap().position.x
+    }
+    fn push(ctx: &mut Ctx, who: &'static str) {
+        let x = x(ctx);
+        ctx.world.resource_mut::<Seen>().0.push((who, x));
+    }
+    fn kick(ctx: &mut Ctx) {
+        if ctx.sim_tick() == 0 {
+            ctx.world
+                .query::<&mut Velocity3D>()
+                .for_each(|v| v.linear = vec3(5.0, 0.0, 0.0));
+        }
+    }
+    let world = Game::new("phases", 1, 1)
+        .fixed_hz(50)
+        .sim_system(|ctx: &mut Ctx| push(ctx, "sim_system"))
+        .add(Phase::BeforePhysics, kick)
+        .add(Phase::BeforePhysics, |ctx: &mut Ctx| push(ctx, "before"))
+        .physics3d(Vec3::ZERO)
+        .run_headless(1, |ctx| {
+            ctx.world.insert_resource(Seen::default());
+            ctx.world.spawn((
+                Transform3D::at(Vec3::ZERO),
+                RigidBody3D::dynamic(),
+                Collider3D::sphere(0.5),
+                Velocity3D::default(),
+            ));
+        });
+    let seen = &world.resource::<Seen>().0;
+    assert_eq!(seen[0], ("before", 0.0), "{seen:?}");
+    assert_eq!(seen[1].0, "sim_system");
+    // The kick from this tick's BeforePhysics moved the body in this tick's step.
+    assert!((seen[1].1 - 5.0 / 50.0).abs() < 1e-3, "{seen:?}");
+}

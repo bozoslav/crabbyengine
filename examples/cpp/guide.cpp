@@ -592,9 +592,11 @@ static void drive(ponko::ctx& ctx) {
 // ANCHOR_END: vehicle3d_drive
 
 static bool vehicle3d_snippets() {
+    // ANCHOR: vehicle3d_setup
     auto world = ponko::game("vehicles", 1280, 720)
-        .sim_system(drive, "drive")
+        .add(ponko::phase::before_physics, drive, "drive") // sets the wheels' inputs for this tick's step
         .physics3d({0, -9.81f, 0})
+        // ANCHOR_END: vehicle3d_setup
         .run_headless(100, [](ponko::ctx& ctx) {
             ctx.world().spawn(ponko::transform3d_at({0, -0.5f, 0}), ponko::fixed_body3d(),
                               ponko::box_collider({100, 1, 100}));

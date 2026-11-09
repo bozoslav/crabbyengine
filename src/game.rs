@@ -357,8 +357,38 @@ impl Game {
     ///     .run_headless(1, |_| {});
     /// assert!(world.is_empty());
     /// ```
-    pub fn add(mut self, phase: Phase, system: impl FnMut(&mut Ctx) + 'static) -> Self {
+    pub fn add(self, phase: Phase, system: impl FnMut(&mut Ctx) + 'static) -> Self {
+        self.insert(phase, System::new(system))
+    }
+
+    /// For language bindings (the C API): `add` with a name for timings and
+    /// tools, and an interval in ticks for fixed-tick phases (like
+    /// `sim_system_every`). Frame phases need `ticks == 1`.
+    #[doc(hidden)]
+    #[track_caller]
+    pub fn named_add(
+        self,
+        phase: Phase,
+        name: &'static str,
+        ticks: u32,
+        system: impl FnMut(&mut Ctx) + 'static,
+    ) -> Self {
+        assert!(ticks > 0, "Game::named_add: the interval must be at least 1 tick");
+        assert!(
+            ticks == 1 || phase <= Phase::SimLast,
+            "Game::named_add: only fixed-tick phases take an interval"
+        );
         let mut s = System::new(system);
+        s.name = name;
+        if ticks > 1 {
+            let same = self.sim_systems.iter().filter(|s| s.every == ticks).count() as u32;
+            s.every = ticks;
+            s.phase = same % ticks;
+        }
+        self.insert(phase, s)
+    }
+
+    fn insert(mut self, phase: Phase, mut s: System) -> Self {
         s.stage = phase;
         let systems = match phase {
             Phase::Input | Phase::BeforePhysics | Phase::Physics | Phase::AfterPhysics | Phase::SimLast => {

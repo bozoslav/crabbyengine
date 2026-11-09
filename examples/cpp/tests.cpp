@@ -673,13 +673,35 @@ static void physics() {
     throws([&] { w.set(floor, flat); });
 }
 
+static void phases() {
+    // add(phase::before_physics) feeds this tick's step; a sim_system, even
+    // one added before physics3d, runs after the step (as tests/phases.rs).
+    ponko::entity ball = 0;
+    float before = -1, after = -1;
+    ponko::game("t", 1, 1)
+        .fixed_hz(50)
+        .sim_system([&](ponko::ctx& ctx) { after = ctx.world().get<ponko::transform3d>(ball).position.x; }, "watch")
+        .add(ponko::phase::before_physics, [&](ponko::ctx& ctx) {
+            before = ctx.world().get<ponko::transform3d>(ball).position.x;
+            ctx.world().set(ball, ponko::velocity3d{{5, 0, 0}, {0, 0, 0}});
+        }, "kick")
+        .physics3d({0, 0, 0})
+        .run_headless(1, [&](ponko::ctx& ctx) {
+            ball = ctx.world().spawn(ponko::transform3d_at({0, 0, 0}), ponko::dynamic_body3d(),
+                                     ponko::sphere_collider(0.5f), ponko::velocity3d{{0, 0, 0}, {0, 0, 0}});
+        });
+    CHECK(before == 0);
+    CHECK(std::fabs(after - 5.0f / 50.0f) < 1e-3f);
+    throws([] { ponko::game("t", 1, 1).add(ponko::phase::frame, [](ponko::ctx&) {}, "bad", 2); });
+}
+
 static void vehicles() {
     // A box car on raycast wheels settles on its suspension, then drives
     // off; the vehicle is a query column (as tests/vehicle3d.rs).
     ponko::entity car = 0;
     std::optional<ponko::vec3> center;
     auto w = ponko::game("t", 1, 1)
-        .sim_system([](ponko::ctx& ctx) {
+        .add(ponko::phase::before_physics, [](ponko::ctx& ctx) {
             if (ctx.sim_tick() < 100) return;
             ctx.world().each([](ponko::vehicle3d& v) {
                 v.wheels[2].motor_torque = v.wheels[3].motor_torque = 500;
@@ -1767,6 +1789,7 @@ int main() {
     physics();
     joints3d();
     vehicles();
+    phases();
     lockstep();
     messages();
     replication();

@@ -2,7 +2,8 @@
 
 A **system** is a function `fn(&mut Ctx)` (or a closure); in C++, anything
 callable as `void(ponko::ctx&)`, with an optional name for timings and tools. You add systems to
-the `Game` and they run in the order you added them.
+the `Game`; each runs in a [phase](#phases), and systems in the same phase run
+in the order you added them.
 
 <div class="lang-pair">
 <div>
@@ -37,9 +38,47 @@ Game::new("Sim", 1280, 720)
 Change the rate with `.fixed_hz(120)`. In C++, `sim_system(f, name, every)`
 also takes the interval of `sim_system_every`.
 
+## Phases
+
+Every system belongs to a `Phase`. Phases always run in this order, whatever
+order the builder calls come in; within a phase, systems run in the order
+you added them. `Game::add(phase, f)` (C++: `game::add(ponko::phase::..., f)`,
+C: `ponko_game_add_system`) puts a system in any phase.
+
+| Phase | Runs | Filled by |
+|---|---|---|
+| `Input` | each fixed tick, first | `spatial_grid`'s rebuild |
+| `BeforePhysics` | each fixed tick | your systems that feed the physics step (forces, velocities, wheel inputs) |
+| `Physics` | each fixed tick | `physics` / `physics3d`'s step |
+| `AfterPhysics` | each fixed tick | `sim_system`, `sim_system_every` |
+| `SimLast` | each fixed tick, last | |
+| `Frame` | each rendered frame | `system`, the closure returned from setup |
+| `Animate` | each rendered frame | |
+| `Late` | each rendered frame | `late_system` |
+| `Draw` | each rendered frame | built-in draw systems such as `draw_sprites` |
+
+Headless runs (`run_headless`) run the fixed-tick phases only.
+
+The physics step always runs in `Physics`, so a `sim_system` runs *after*
+it even when you add it before calling `.physics()` or `.physics3d()`.
+Logic that must affect the current tick's step goes in `BeforePhysics`:
+
+```rust
+Game::new("Drive", 1280, 720)
+    .add(Phase::BeforePhysics, steer) // the step below sees this tick's input
+    .physics3d(vec3(0.0, -9.81, 0.0))
+    .sim_system(score)                // sees the result of the step
+    .run(|ctx| { /* spawn things */ });
+```
+
+Code written when the step ran where `.physics()` was called, with
+simulation logic added before it, should move that logic to
+`.add(Phase::BeforePhysics, logic)`; otherwise it acts one tick late.
+
 ## One frame, in order
 
-1. Simulation systems, `ctx.fixed_steps()` times (each tick runs all of them once).
+1. Simulation ticks, `ctx.fixed_steps()` times; each tick runs the
+   `Input`, `BeforePhysics`, `Physics`, `AfterPhysics` and `SimLast` phases.
 2. Frame systems.
 3. The closure returned from `setup`, if any.
 4. With `3d`, animator and particle updates.
