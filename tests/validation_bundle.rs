@@ -385,7 +385,13 @@ fn redacted_bundles_keep_their_reproduction_metadata_and_stay_consistent() {
     assert_eq!(m["build"]["commit"], "abc1234");
     assert_eq!(m["redaction"]["path_placeholders"].as_array().unwrap().len(), 3);
     let exe = m["commands"][1]["argv"][0].as_str().unwrap();
-    assert!(exe.starts_with("<CWD>/") || exe.starts_with("<HOME>/"), "{exe}");
+    // The separator after the placeholder is the platform's own (`\` on Windows).
+    assert!(
+        ["<CWD>/", "<CWD>\\", "<HOME>/", "<HOME>\\"]
+            .iter()
+            .any(|p| exe.starts_with(p)),
+        "{exe}"
+    );
     assert!(
         exe.contains("validation_bundle"),
         "the rest of the path survives: {exe}"
