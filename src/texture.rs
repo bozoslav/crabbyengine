@@ -25,7 +25,7 @@ pub struct Texture {
 }
 
 impl Texture {
-    pub(crate) fn new(id: u32, width: u32, height: u32) -> Self {
+    pub(crate) const fn new(id: u32, width: u32, height: u32) -> Self {
         Self { id, width, height }
     }
 

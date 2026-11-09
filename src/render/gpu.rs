@@ -50,6 +50,10 @@ pub(crate) struct Renderer {
     sampler: wgpu::Sampler,
     nearest_sampler: wgpu::Sampler,
     textures: Vec<GpuTexture>,
+    /// A 1x1 white texture freed textures' slots show (made on first use).
+    blank: Option<wgpu::Texture>,
+    /// Ids of freed textures (their slots show `blank`).
+    freed_textures: std::collections::HashSet<u32>,
 
     instance_buffer: wgpu::Buffer,
     /// Capacity of `instance_buffer`, in sprites.
@@ -508,6 +512,8 @@ impl Renderer {
             sampler,
             nearest_sampler,
             textures: Vec::new(),
+            blank: None,
+            freed_textures: Default::default(),
             instance_buffer,
             instance_capacity: INITIAL_INSTANCE_CAPACITY,
             timer,
@@ -785,7 +791,10 @@ impl Renderer {
         // A lookup table must be a strip of n squares of n x n.
         let lut = scene.post.lut.filter(|t| {
             let n = t.height();
-            (2..=64).contains(&n) && t.width() == n * n && (t.id as usize) < self.textures.len()
+            (2..=64).contains(&n)
+                && t.width() == n * n
+                && (t.id as usize) < self.textures.len()
+                && !self.freed_textures.contains(&t.id)
         });
         if let Some(three) = &mut self.three {
             let lut = lut.map(|t| (t.id, t.height()));
@@ -843,6 +852,84 @@ impl Renderer {
 
     /// Uploads RGBA8 (sRGB) pixels and returns the texture's id.
     pub fn create_texture(&mut self, width: u32, height: u32, rgba: &[u8]) -> u32 {
+        let texture = self.upload_texture(width, height, rgba);
+        let bind_group = self.sprite_bind_group(&texture, false);
+        self.textures.push(GpuTexture {
+            bind_group,
+            texture,
+            nearest: false,
+            #[cfg(feature = "3d")]
+            mips: None,
+        });
+        (self.textures.len() - 1) as u32
+    }
+
+    /// Frees texture `id`: its slot shows a 1x1 white texture from now on,
+    /// so sprites and materials still showing it draw white, and target
+    /// cameras and compute passes let go of it if it was a render target.
+    pub fn free_texture(&mut self, id: u32) {
+        if id as usize >= self.textures.len() {
+            return;
+        }
+        let blank = match &self.blank {
+            Some(blank) => blank.clone(),
+            None => {
+                let blank = self.upload_texture(1, 1, &[255; 4]);
+                self.blank = Some(blank.clone());
+                blank
+            }
+        };
+        let bind_group = self.sprite_bind_group(&blank, false);
+        self.textures[id as usize] = GpuTexture {
+            bind_group,
+            texture: blank,
+            nearest: false,
+            // 1x1: no mipmaps to make.
+            #[cfg(feature = "3d")]
+            mips: Some(false),
+        };
+        self.freed_textures.insert(id);
+        #[cfg(feature = "3d")]
+        if let Some(three) = &mut self.three {
+            three.free_render_target(id);
+            three.rebind_materials(&self.device, &self.queue, &self.textures, Some(id), None);
+        }
+    }
+
+    /// Material `id` was freed (see `Renderer3D::free_material`).
+    #[cfg(feature = "3d")]
+    pub fn free_material(&mut self, id: u32) {
+        if let Some(three) = &mut self.three {
+            three.free_material(&self.device, &self.queue, id, &self.textures);
+        }
+    }
+
+    /// Material shader `id` was freed (see `Renderer3D::free_shader`).
+    #[cfg(feature = "3d")]
+    pub fn free_shader(&mut self, id: u32) {
+        if let Some(three) = &mut self.three {
+            three.free_shader(id);
+        }
+    }
+
+    /// Compute pass `id` was freed (see `Renderer3D::free_compute`).
+    #[cfg(feature = "3d")]
+    pub fn free_compute(&mut self, id: u32) {
+        if let Some(three) = &mut self.three {
+            three.free_compute(id);
+        }
+    }
+
+    /// Texture array `id` was freed (see `Renderer3D::free_texture_array`).
+    #[cfg(feature = "3d")]
+    pub fn free_texture_array(&mut self, id: u32) {
+        if let Some(three) = &mut self.three {
+            three.free_texture_array(&self.device, &self.queue, id, &self.textures);
+        }
+    }
+
+    /// An RGBA8 (sRGB) texture of `rgba`, not yet in `textures`.
+    fn upload_texture(&self, width: u32, height: u32, rgba: &[u8]) -> wgpu::Texture {
         debug_assert_eq!(rgba.len(), (width * height * 4) as usize);
         let size = wgpu::Extent3d {
             width,
@@ -876,15 +963,7 @@ impl Renderer {
             },
             size,
         );
-        let bind_group = self.sprite_bind_group(&texture, false);
-        self.textures.push(GpuTexture {
-            bind_group,
-            texture,
-            nearest: false,
-            #[cfg(feature = "3d")]
-            mips: None,
-        });
-        (self.textures.len() - 1) as u32
+        texture
     }
 
     /// The bind group sprites draw a texture with: its full-size level only,
@@ -1484,7 +1563,11 @@ impl Renderer {
                     continue;
                 }
                 pass.set_scissor_rect(x, y, w, h);
-                pass.set_bind_group(1, &p.textures[batch.texture as usize].bind_group, &[]);
+                // `Texture::NONE` (no texture) draws nothing.
+                let Some(texture) = p.textures.get(batch.texture as usize) else {
+                    continue;
+                };
+                pass.set_bind_group(1, &texture.bind_group, &[]);
                 pass.draw(0..6, base + batch.start..base + batch.end);
             }
         }

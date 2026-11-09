@@ -69,6 +69,7 @@ mod flow;
 mod game;
 #[cfg(feature = "gamepad")]
 mod gamepad;
+mod handle;
 mod hot_reload;
 mod input;
 pub use actions::{Action, ActionMap, Axis2Binding, AxisBinding, ButtonBinding, InputEvent, InputScenario};
@@ -122,6 +123,7 @@ pub use events::Events;
 pub use flow::RawFlowView;
 pub use flow::{FlowField, NavGrid};
 pub use game::{Game, SetupResult};
+pub use handle::{Handle, LiveCounts};
 pub use input::{Gamepad, GamepadAxis, GamepadButton, GamepadStick, Key, MAX_GAMEPADS, MouseButton};
 pub use net::{
     Authority, AuthorityCheck, ClockSync, Interest, InterestChange, InterestChangeKind, InterestConfig, InterestEntity,

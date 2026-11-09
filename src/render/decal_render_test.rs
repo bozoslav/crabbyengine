@@ -175,6 +175,7 @@ impl Rig {
         assert_eq!(id as usize, self.ctx.assets3d.arrays.len());
         self.ctx.assets3d.arrays.push(handle);
         self.ctx.assets3d.array_data.push(true);
+        self.ctx.assets3d.arrays_live.insert(id);
         self.ctx.set_decal_textures(Some(handle));
     }
 

@@ -176,9 +176,9 @@ mod cells {
             ctx.camera3d.position = vec3(0.0, 0.0, 5.0);
             ctx.camera3d.look_at(Vec3::ZERO);
             ctx.world.spawn((Transform3D::default(), Model::new(Mesh::NONE)));
-            // A freed id is taken by the next mesh made; NONE never is.
+            // Neither a freed id nor NONE is taken by a mesh made later.
             let made: Vec<Mesh> = (0..4).map(|_| ctx.create_mesh(&cube, material)).collect();
-            assert!(made.contains(&freed));
+            assert!(!made.contains(&freed));
             assert!(!made.contains(&Mesh::NONE));
             assert!(!ctx.is_mesh_live(Mesh::NONE));
             assert!(ctx.mesh_shadows(Mesh::NONE));
@@ -212,7 +212,7 @@ mod cells {
     }
 
     #[test]
-    fn freed_mesh_ids_are_reused() {
+    fn freed_mesh_ids_are_never_reused() {
         Game::new("t", 1, 1).run_headless(0, |ctx| {
             let material = ctx.default_material();
             let cube = MeshData::cube(1.0);
@@ -220,18 +220,12 @@ mod cells {
             ctx.set_mesh_shadows(first[1], false);
             ctx.free_mesh(first[1]);
             ctx.free_mesh(first[3]);
-            // Streaming tiles in and out keeps the mesh tables the same size.
+            // New meshes get new ids: an old handle never shows them.
             let again = [ctx.create_mesh(&cube, material), ctx.create_mesh(&cube, material)];
-            assert!(
-                again == [first[3], first[1]] || again == [first[1], first[3]],
-                "{again:?}"
-            );
+            assert!(again.iter().all(|m| !first.contains(m)), "{again:?}");
             assert!(again.iter().all(|&m| ctx.is_mesh_live(m)));
-            // The new mesh doesn't inherit the old one's settings.
-            assert!(ctx.mesh_shadows(first[1]));
-            // Past the freed ones, ids are new.
-            let new = ctx.create_mesh(&cube, material);
-            assert!(!first.contains(&new));
+            assert!(!ctx.is_mesh_live(first[1]) && !ctx.is_mesh_live(first[3]));
+            assert!(ctx.mesh_shadows(again[0]) && ctx.mesh_shadows(again[1]));
         });
     }
 
@@ -255,7 +249,7 @@ mod cells {
             let after: Vec<Mesh> = ctx.world.query::<&Model>().iter().map(|m| m.mesh).collect();
             assert_eq!(after.len(), 16);
             assert!(after.iter().all(|&m| ctx.is_mesh_live(m)));
-            // Freed ids are reused, so the old and new sets are the same size.
+            // One mesh per cell, before and after.
             assert_eq!(after.len(), meshes.len());
             // A cell whose mesh has nothing left goes away with its entity.
             let mut tiny = FarTerrain::new(&[0.0; 3 * 3], 3, Vec2::ZERO, 16.0, 32.0, ground);

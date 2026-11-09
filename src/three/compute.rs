@@ -203,11 +203,15 @@ impl Ctx {
             debug_assert_eq!(gpu_id, id);
         }
         self.assets3d.computes += 1;
+        self.assets3d.computes_live.insert(id);
         Ok(Compute { id })
     }
 
     /// Recompiles a compute pass whose file changed (hot reload).
     pub(crate) fn reload_compute(&mut self, id: u32, name: &str, source: &str) -> Result<(), String> {
+        if !self.assets3d.computes_live.contains(id) {
+            return Ok(());
+        }
         #[cfg(feature = "window")]
         crate::render::check_shader(name, &crate::render::compose_compute(source))?;
         if let Some(renderer) = self.renderer.as_mut()
@@ -218,11 +222,28 @@ impl Ctx {
         Ok(())
     }
 
-    /// Whether this game made `compute` (for the C API, which takes ids).
+    /// Whether this game made `compute` and hasn't freed it (for the C API,
+    /// which takes ids): [`Ctx::is_live`].
     #[doc(hidden)]
     #[must_use]
     pub fn has_compute(&self, compute: Compute) -> bool {
-        compute.id < self.assets3d.computes
+        self.is_live(compute)
+    }
+
+    /// Frees compute pass `id` (see [`Ctx::free`]): entries of
+    /// [`Ctx::compute_passes`] running it are skipped from now on.
+    pub(crate) fn free_compute_id(&mut self, id: u32) {
+        if !self.assets3d.computes_live.remove(id) {
+            return;
+        }
+        self.assets3d.loaded_computes.retain(|_, c| c.id != id);
+        self.watcher
+            .forget(|a| matches!(a, crate::hot_reload::Asset::Compute(c) if *c == id));
+        if let Some(renderer) = self.renderer.as_mut()
+            && !self.headless
+        {
+            renderer.free_compute(id);
+        }
     }
 }
 
@@ -253,23 +274,15 @@ impl GpuBuffer {
 }
 impl Ctx {
     /// Creates `len` elements. Initial data may be empty or exactly `len` elements.
-    /// A freed buffer's id is reused first (see [`Ctx::free_gpu_buffer`]).
+    /// Ids are never reused (see [`Ctx::free_gpu_buffer`]).
     /// Panics for zero length or mismatched data. See [`GpuBuffer`].
     pub fn create_gpu_buffer(&mut self, len: u32, data: &[crate::Vec4]) -> GpuBuffer {
         assert!(
             len > 0 && (data.is_empty() || data.len() == len as usize),
             "invalid GPU buffer length"
         );
-        let id = match self.assets3d.free_gpu_buffers.pop() {
-            Some(id) => {
-                self.assets3d.gpu_buffers[id as usize] = len;
-                id
-            }
-            None => {
-                self.assets3d.gpu_buffers.push(len);
-                self.assets3d.gpu_buffers.len() as u32 - 1
-            }
-        };
+        self.assets3d.gpu_buffers.push(len);
+        let id = self.assets3d.gpu_buffers.len() as u32 - 1;
         if let Some(r) = self.renderer.as_mut()
             && !self.headless
         {
@@ -294,17 +307,16 @@ impl Ctx {
     /// Frees `b`'s GPU memory, for effects that come and go. Its compute
     /// passes are removed from [`Ctx::compute_passes`] and meshes drawing
     /// from it draw nothing (they can be bound to another buffer again).
-    /// Drop the handle: the next buffer made takes its id, and an old handle
-    /// would reach that one. Freeing it again does nothing (until a new
-    /// buffer takes its id).
+    /// Its id is never reused, so the handle stays dead. Freeing it again
+    /// does nothing. The same as [`Ctx::free`] with a buffer.
     /// ```
     /// # use ponko::*;
     /// Game::new("b", 1, 1).run_headless(0, |ctx| {
     ///     let b = ctx.create_gpu_buffer(8, &[]);
     ///     ctx.free_gpu_buffer(b);
     ///     assert_eq!(ctx.gpu_buffer_len(b), None);
-    ///     // The id is reused.
-    ///     assert_eq!(ctx.create_gpu_buffer(4, &[]), b);
+    ///     // The id is not reused.
+    ///     assert_ne!(ctx.create_gpu_buffer(4, &[]), b);
     /// });
     /// ```
     pub fn free_gpu_buffer(&mut self, b: GpuBuffer) {
@@ -315,8 +327,7 @@ impl Ctx {
             return;
         }
         *len = 0;
-        self.assets3d.free_gpu_buffers.push(b.id);
-        // Clear what pointed at it, so the id's next buffer starts clean.
+        // Its passes would do nothing now.
         self.compute_passes.retain(|p| p.buffer != Some(b));
         if let Some(r) = self.renderer.as_mut()
             && !self.headless

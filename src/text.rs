@@ -113,6 +113,8 @@ pub(crate) struct SdfAtlas {
 
 pub(crate) struct Text {
     fonts: Vec<Option<fontdue::Font>>,
+    /// Which fonts are live (the built-in one always is).
+    live: crate::handle::LiveSet,
     glyphs: HashMap<(u32, char, u32), Glyph>,
     /// Shelf packer: next free spot and the current row's height.
     cursor: [u32; 2],
@@ -133,6 +135,11 @@ impl Text {
     pub fn new() -> Self {
         Self {
             fonts: vec![None],
+            live: {
+                let mut live = crate::handle::LiveSet::default();
+                live.insert(0);
+                live
+            },
             glyphs: HashMap::new(),
             cursor: [PAD, PAD],
             row: 0,
@@ -146,21 +153,50 @@ impl Text {
 
     pub const ATLAS_SIZE: u32 = ATLAS;
 
+    /// Whether `font` is the built-in one or a loaded one not freed.
     pub fn has_font(&self, font: Font) -> bool {
-        (font.0 as usize) < self.fonts.len()
+        self.live.contains(font.0)
+    }
+
+    /// Fonts loaded and not freed, not counting the built-in one.
+    pub fn loaded_fonts(&self) -> usize {
+        self.live.len() - 1
     }
 
     pub fn add_font(&mut self, bytes: &[u8]) -> Result<Font, String> {
         let font = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default())
             .map_err(|e| format!("not a font file this engine can read: {e}"))?;
         self.fonts.push(Some(font));
-        Ok(Font(self.fonts.len() as u32 - 1))
+        let id = self.fonts.len() as u32 - 1;
+        self.live.insert(id);
+        Ok(Font(id))
+    }
+
+    /// Drops a loaded font and its glyphs; true if it was live. Text in it
+    /// uses the built-in font from now on, which is never freed.
+    pub fn free_font(&mut self, font: Font) -> bool {
+        if font == Font::DEFAULT || !self.live.remove(font.0) {
+            return false;
+        }
+        self.fonts[font.0 as usize] = None;
+        self.glyphs.retain(|k, _| k.0 != font.0);
+        self.sdf.glyphs.retain(|k, _| k.0 != font.0);
+        true
+    }
+
+    /// The font text in `font` is drawn with: itself, or the built-in one
+    /// for a freed font or `Font::NONE`.
+    fn resolve(&self, font: Font) -> Font {
+        if self.has_font(font) { font } else { Font::DEFAULT }
     }
 
     /// Replaces a loaded font's data (hot reload); its glyphs are drawn again.
     pub fn replace_font(&mut self, font: Font, bytes: &[u8]) -> Result<(), String> {
         let new = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default())
             .map_err(|e| format!("not a font file this engine can read: {e}"))?;
+        if !self.has_font(font) {
+            return Ok(());
+        }
         self.fonts[font.0 as usize] = Some(new);
         self.glyphs.retain(|k, _| k.0 != font.0);
         self.sdf.glyphs.retain(|k, _| k.0 != font.0);
@@ -198,6 +234,7 @@ impl Text {
     /// missing glyphs are drawn into the atlas (queued in `uploads`).
     /// Returns the size in physical pixels; the glyphs are in `placed()`.
     pub fn layout(&mut self, text: &str, font: Font, px: f32, rasterize: bool) -> Vec2 {
+        let font = self.resolve(font);
         let key_px = px.round().max(1.0) as u32;
         self.layout_with(text, font, px, |t, c| match t.glyphs.get(&(font.0, c, key_px)) {
             Some(g) => Some(*g),
@@ -212,6 +249,7 @@ impl Text {
     /// each line's width in `line_widths()`.
     #[cfg_attr(not(feature = "3d"), allow(dead_code))]
     pub fn layout_sdf(&mut self, text: &str, font: Font) -> Vec2 {
+        let font = self.resolve(font);
         self.layout_with(text, font, SDF_PX, |t, c| match t.sdf.glyphs.get(&(font.0, c)) {
             Some(g) => Some(*g),
             None => t.make_sdf(font, c),

@@ -159,7 +159,10 @@ impl Ctx {
             if self.assets3d.probes.captures.len() == 4 {
                 return Err("four reflection environments are already allocated".into());
             }
-            let faces = std::array::from_fn(|_| self.create_render_target(128, 128));
+            let faces = std::array::from_fn(|_| {
+                self.make_render_target(128, 128)
+                    .unwrap_or_else(|e| panic!("ponko: {e}"))
+            });
             self.assets3d.probes.captures.push(faces);
             let slot = self.assets3d.probes.captures.len() as u32;
             self.world.get_mut::<ReflectionProbe3D>(entity).unwrap().content = slot;

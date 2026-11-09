@@ -13,7 +13,7 @@ use crate::{Color, Ctx, Mat4, Vec3};
 ///     ctx.free_instance_batch(batch);
 /// });
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(C)]
 pub struct InstanceBatch {
     pub(crate) id: u32,

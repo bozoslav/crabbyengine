@@ -109,7 +109,7 @@ impl Ctx {
         if let Some(t) = self.ui.white {
             return t;
         }
-        let t = self.create_texture(1, 1, &[255; 4]);
+        let t = self.make_texture(1, 1, &[255; 4]);
         self.ui.white = Some(t);
         t
     }
@@ -127,7 +127,7 @@ impl Ctx {
                 rgba.extend_from_slice(&[255, 255, 255, (alpha * 255.0) as u8]);
             }
         }
-        let t = self.create_texture(CIRCLE, CIRCLE, &rgba);
+        let t = self.make_texture(CIRCLE, CIRCLE, &rgba);
         self.ui.circle = Some(t);
         t
     }
