@@ -32,6 +32,9 @@ impl Renderer {
     pub fn gpu_frame(&self) -> Option<(&[crate::profiler::PassSpan], u64)> {
         match *self {}
     }
+    pub fn capabilities(&self) -> &super::GpuCapabilities {
+        match *self {}
+    }
     pub fn display_wait_ms(&self) -> f32 {
         match *self {}
     }

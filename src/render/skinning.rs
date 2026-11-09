@@ -92,6 +92,12 @@ pub(super) struct Skinning {
 }
 
 impl Skinning {
+    /// Whether meshes are posed by the compute shader (else on the CPU).
+    #[cfg(test)]
+    pub fn uses_compute(&self) -> bool {
+        self.pipeline.is_some()
+    }
+
     pub fn new(device: &wgpu::Device, compute: bool) -> Self {
         let pipeline = compute.then(|| {
             let storage = |binding, read_only| wgpu::BindGroupLayoutEntry {
