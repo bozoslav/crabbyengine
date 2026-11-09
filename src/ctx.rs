@@ -185,6 +185,8 @@ pub struct Ctx {
     cached_textures: Vec<Texture>,
     pub(crate) cached_sounds: Vec<crate::Sound>,
     pub(crate) timings: Vec<SystemTiming>,
+    /// Each timed system's place in the schedule, parallel to `timings`.
+    pub(crate) schedule: Vec<crate::diagnostics::ScheduleSlot>,
     pub(crate) input: Input,
     timing: FrameTiming,
     fixed_dt: f32,
@@ -406,6 +408,7 @@ impl Ctx {
             cached_textures: Vec::new(),
             cached_sounds: Vec::new(),
             timings: Vec::new(),
+            schedule: Vec::new(),
             input: Input::new(),
             timing: FrameTiming {
                 dt: 0.0,
@@ -731,6 +734,32 @@ impl Ctx {
     /// ```
     pub fn system_timings(&self) -> &[SystemTiming] {
         &self.timings
+    }
+
+    /// A snapshot of the ECS for tools and tests: every archetype with its
+    /// components, entity count and storage bytes; every component type
+    /// with its size and how many entities have it; and every system in run
+    /// order with its [`Phase`](crate::Phase), interval and last timings.
+    ///
+    /// Built only when called (nothing is collected otherwise), so it costs
+    /// nothing in a game that never asks. It allocates, so don't call it
+    /// every frame. The control endpoint serves it as `ecs.diagnostics`.
+    ///
+    /// ```
+    /// use ponko::*;
+    /// struct Pos(f32);
+    /// fn report(ctx: &mut Ctx) {
+    ///     let d = ctx.ecs_diagnostics();
+    ///     assert_eq!(d.entities, 2);
+    ///     assert_eq!(d.systems[0].phase, "AfterPhysics");
+    ///     println!("{}", serde_json::to_string_pretty(&d).unwrap());
+    /// }
+    /// Game::new("t", 1, 1).sim_system(report).run_headless(1, |ctx| {
+    ///     ctx.world.spawn_batch([(Pos(0.0),), (Pos(1.0),)]);
+    /// });
+    /// ```
+    pub fn ecs_diagnostics(&self) -> crate::EcsDiagnostics {
+        crate::diagnostics::snapshot(self)
     }
 
     // ------------------------------------------------------- simulation clock
