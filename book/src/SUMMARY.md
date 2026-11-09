@@ -27,6 +27,7 @@
 - [Sound](audio.md)
 - [Handles: freeing what you made](handles.md)
 - [Data files: tune without restarting](data-files.md)
+- [Asset sources: assets that don't live in `assets/`](asset-sources.md)
 - [Scenes and prefabs](scenes.md)
 - [Importing from Unity](unity.md)
 - [Changing code while the game runs](hot-patching.md)

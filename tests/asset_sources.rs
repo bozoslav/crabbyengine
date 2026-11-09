@@ -239,3 +239,28 @@ fn hot_reload_skips_assets_from_added_sources() {
         });
     assert_eq!(tex.unwrap().width(), 1);
 }
+
+// ANCHOR: embedded
+#[derive(serde::Deserialize)]
+struct Tuning {
+    speed: f32,
+}
+
+#[test]
+fn embedded_files_load_by_name_like_files_in_assets() {
+    game().run_headless(0, |ctx| {
+        // Compiled into the executable: nothing to ship next to it.
+        ctx.add_asset_source(
+            MemorySource::new("embedded")
+                .with("sprites/crab.png", include_bytes!("../assets/crab.png"))
+                .with("tuning.json", r#"{"speed": 30}"#),
+        );
+
+        // From here on, loads by name look there first.
+        let crab = ctx.load_texture("sprites/crab.png");
+        ctx.load_resource::<Tuning>("tuning.json");
+        // ANCHOR_END: embedded
+        assert!(crab.width() > 0);
+        assert_eq!(ctx.world.resource::<Tuning>().speed, 30.0);
+    });
+}
