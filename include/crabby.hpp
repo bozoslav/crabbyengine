@@ -220,6 +220,20 @@ using rect = CrabbyRect;
 using font = CrabbyFont;
 /// Alignment within a world text block.
 enum class text_align3d : uint32_t { left = 0, center = 1, right = 2 };
+/// Where a system runs in the loop, in this order. `input` through `sim_last`
+/// run once per fixed tick (also headless); `frame` through `draw` once per
+/// rendered frame. sim_system uses after_physics, system frame, late_system late.
+enum class phase : uint32_t {
+    input = CRABBY_PHASE_INPUT,
+    before_physics = CRABBY_PHASE_BEFORE_PHYSICS,
+    physics = CRABBY_PHASE_PHYSICS,
+    after_physics = CRABBY_PHASE_AFTER_PHYSICS,
+    sim_last = CRABBY_PHASE_SIM_LAST,
+    frame = CRABBY_PHASE_FRAME,
+    animate = CRABBY_PHASE_ANIMATE,
+    late = CRABBY_PHASE_LATE,
+    draw = CRABBY_PHASE_DRAW,
+};
 /// Owned world text, in meters. Settings follow Rust Text3D defaults.
 struct text3d {
     std::string text;
@@ -3751,13 +3765,15 @@ public:
     /// the sim systems that move things.
     game& follow_attachments() { return check(crabby_game_follow_attachments(raw_)); }
     /// Turns on 2D physics with `gravity` in pixels/s² (y is down): entities
-    /// with a rigid_body, a collider and a transform2d are simulated. Adds
-    /// the physics step here in the order: after the sim systems that move things.
+    /// with a rigid_body, a collider and a transform2d are simulated. The step
+    /// runs in phase::physics wherever this is called: add systems that feed
+    /// it with add(phase::before_physics, ...); sim_system runs after it.
     game& physics(vec2 gravity) { return check(crabby_game_physics(raw_, gravity)); }
     /// Turns on 3D physics with `gravity` in m/s² (+Y up): entities with a
     /// rigid_body3d, a collider3d and a transform3d, and characters, are
     /// simulated at 50 steps a second (unless fixed_hz chose a rate), and
-    /// drawn blended between steps. Adds the step here in the order.
+    /// drawn blended between steps. The step runs in phase::physics wherever
+    /// this is called; feed it from add(phase::before_physics, ...).
     game& physics3d(vec3 gravity) { return check(crabby_game_physics3d(raw_, gravity)); }
     /// Hosts a lockstep session for `players` (2-8; you are player 0) on
     /// `addr` ("0.0.0.0:7777"; port 0 picks one, written to `*port`). Input
@@ -3785,6 +3801,12 @@ public:
     /// A system on the fixed simulation tick; `every` > 1 runs it every n ticks.
     template<class F> game& sim_system(F fn, const char* name = nullptr, std::uint32_t every = 1) {
         return check(crabby_game_sim_system(raw_, name, every, trampoline, keep(std::move(fn))));
+    }
+    /// A system in an explicit phase; e.g. phase::before_physics for logic the
+    /// current tick's physics step must see. Fixed-tick phases take `every` > 1.
+    template<class F> game& add(phase p, F fn, const char* name = nullptr, std::uint32_t every = 1) {
+        return check(crabby_game_add_system(raw_, static_cast<std::uint32_t>(p), name, every, trampoline,
+                                            keep(std::move(fn))));
     }
     /// A system once per frame (input, camera, UI). Not run headless.
     template<class F> game& system(F fn, const char* name = nullptr) {

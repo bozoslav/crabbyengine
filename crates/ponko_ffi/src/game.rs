@@ -2,7 +2,7 @@
 //! pointers plus a `user` pointer; they get a `CrabbyCtx`.
 use std::ffi::{CStr, c_char, c_void};
 
-use ponko::{Ctx, Game};
+use ponko::{Ctx, Game, Phase};
 
 use crate::ctx::{CrabbyCtx, with_ctx};
 use crate::{CrabbyStatus, CrabbyWorld, Failure, boundary, error, invalid, owned_world};
@@ -286,6 +286,95 @@ pub unsafe extern "C" fn crabby_game_sim_system(
         })();
         build(game, |g| match checked {
             Ok((f, name)) => ok(g.named_sim_system(name, every, system(f, user))),
+            Err(e) => (g, Err(e)),
+        })
+    }
+}
+
+/// An execution phase for `crabby_game_add_system`, in the order they run.
+/// `INPUT` through `SIM_LAST` run once per fixed tick (also headless);
+/// `FRAME` through `DRAW` once per rendered frame. Systems in the same phase
+/// run in the order they were added. `crabby_game_sim_system` uses
+/// `AFTER_PHYSICS`, `crabby_game_system` `FRAME` and
+/// `crabby_game_late_system` `LATE`; the physics step is always in `PHYSICS`.
+/// ```
+/// assert_eq!(ponko_ffi::CrabbyPhase::CRABBY_PHASE_BEFORE_PHYSICS as u32, 1);
+/// ```
+#[repr(C)]
+#[allow(non_camel_case_types)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CrabbyPhase {
+    /// Fixed-tick input preparation, before all other simulation work.
+    CRABBY_PHASE_INPUT,
+    /// Fixed-tick gameplay that feeds this tick's physics step (forces,
+    /// velocities, wheel torques, steering).
+    CRABBY_PHASE_BEFORE_PHYSICS,
+    /// Fixed-tick physics integration.
+    CRABBY_PHASE_PHYSICS,
+    /// Fixed-tick gameplay that sees this tick's physics result.
+    CRABBY_PHASE_AFTER_PHYSICS,
+    /// Final fixed-tick work.
+    CRABBY_PHASE_SIM_LAST,
+    /// Per-frame gameplay, after the due simulation ticks.
+    CRABBY_PHASE_FRAME,
+    /// Per-frame pose work after frame gameplay.
+    CRABBY_PHASE_ANIMATE,
+    /// Per-frame work after animation and before drawing.
+    CRABBY_PHASE_LATE,
+    /// Per-frame drawing.
+    CRABBY_PHASE_DRAW,
+}
+
+fn phase(raw: u32) -> Result<Phase, Failure> {
+    Ok(match raw {
+        0 => Phase::Input,
+        1 => Phase::BeforePhysics,
+        2 => Phase::Physics,
+        3 => Phase::AfterPhysics,
+        4 => Phase::SimLast,
+        5 => Phase::Frame,
+        6 => Phase::Animate,
+        7 => Phase::Late,
+        8 => Phase::Draw,
+        _ => return Err(invalid("unknown phase")),
+    })
+}
+
+/// Adds a system in an explicit phase (a `CrabbyPhase`), like Rust's
+/// `Game::add`. Fixed-tick phases run it every `every` ticks (1 = every
+/// tick); frame phases need `every` = 1. Use `CRABBY_PHASE_BEFORE_PHYSICS`
+/// for logic the current tick's physics step must see. `name` (may be null)
+/// shows up in timings and tools. An unknown phase, `every` = 0 or a frame
+/// phase with `every` > 1 is `CRABBY_INVALID_ARGUMENT`.
+/// # Safety
+/// Live game; `system` and `user` must stay valid while the game runs.
+/// ```
+/// assert_eq!(unsafe { ponko_ffi::crabby_game_add_system(std::ptr::null_mut(), 1, std::ptr::null(), 1, None, std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_game_add_system(
+    game: *mut CrabbyGame,
+    phase: u32,
+    name: *const c_char,
+    every: u32,
+    system_fn: CrabbySystemFn,
+    user: *mut c_void,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe {
+        let checked = (|| {
+            let f = system_fn.ok_or_else(|| invalid("system is null"))?;
+            let phase = self::phase(phase)?;
+            if every == 0 {
+                return Err(invalid("every must be at least 1"));
+            }
+            if every > 1 && phase > Phase::SimLast {
+                return Err(invalid("only fixed-tick phases take an interval"));
+            }
+            Ok((f, phase, system_name(name, "C system")?))
+        })();
+        build(game, |g| match checked {
+            Ok((f, phase, name)) => ok(g.named_add(phase, name, every, system(f, user))),
             Err(e) => (g, Err(e)),
         })
     }

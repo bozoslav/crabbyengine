@@ -254,8 +254,8 @@ fn record(ctx: &mut Ctx) {
 /// Runs the script and checks what the car did.
 fn headless() {
     let world = Game::new("vehicle", 1, 1)
-        .sim_system(autopilot)
-        .sim_system(drive)
+        .add(Phase::BeforePhysics, autopilot)
+        .add(Phase::BeforePhysics, drive)
         .physics3d(vec3(0.0, -9.81, 0.0))
         .sim_system(record)
         .run_headless(500, |ctx| {
@@ -282,9 +282,9 @@ fn main() {
     }
     // ANCHOR: setup
     Game::new("Ponko: vehicle", 1280, 720)
-        .sim_system(keys)
-        .sim_system(drive) // sets the wheels' inputs...
-        .physics3d(vec3(0.0, -9.81, 0.0)) // ...for the step that drives them
+        .add(Phase::BeforePhysics, keys)
+        .add(Phase::BeforePhysics, drive) // sets the wheels' inputs for this tick's step
+        .physics3d(vec3(0.0, -9.81, 0.0))
         .system(place_wheels)
         .system(chase)
         // ANCHOR_END: setup

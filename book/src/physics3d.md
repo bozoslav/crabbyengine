@@ -32,7 +32,9 @@ Turn it on with gravity in m/s² (+Y is up):
 </div>
 </div>
 
-The physics step is a simulation system, placed where you call `physics3d`.
+The physics step is a simulation system in the `Physics`
+[phase](systems.md#phases), wherever you call `physics3d`: systems added
+with `.add(Phase::BeforePhysics, f)` feed it, `sim_system`s see its result.
 It runs 50 times a second unless you chose a rate with `fixed_hz`, and
 between steps every body is **drawn blended** between its last two poses,
 so motion stays smooth at any frame rate. Simulation systems always see the
@@ -212,7 +214,8 @@ Everything that makes a car a particular car is **the game's**: the
 engine and its gears, which wheels drive and steer, the brakes and assists.
 Set each wheel's `motor_torque` (N·m, positive forward), `brake_torque`
 and `steer_angle` (radians, positive steers right) in a simulation system
-that runs before the physics step:
+that runs before the physics step, in the `BeforePhysics`
+[phase](systems.md#phases):
 
 <div class="lang-pair">
 <div>
@@ -226,6 +229,27 @@ that runs before the physics step:
 
 ```cpp
 {{#include ../../examples/cpp/guide.cpp:vehicle3d_drive}}
+```
+
+</div>
+</div>
+
+Register it, and anything it reads (keys, an autopilot), in `BeforePhysics`
+so the wheels act in the same tick. A plain `sim_system` runs after the
+step, so its inputs would arrive one tick late:
+
+<div class="lang-pair">
+<div>
+
+```rust
+{{#include ../../examples/vehicle.rs:setup}}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:vehicle3d_setup}}
 ```
 
 </div>
