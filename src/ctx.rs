@@ -540,15 +540,66 @@ impl Ctx {
         &self.input.actions
     }
 
-    /// Whether a named button is held.
+    /// Resolves an action name once into a `Copy` [`ActionId`](crate::ActionId)
+    /// for the queries below, which then skip the string lookup. An unknown
+    /// name logs an error (naming the known actions) and gives
+    /// [`ActionId::NONE`](crate::ActionId::NONE), which reads false/zero.
+    /// Resolve in setup, after installing the bindings with
+    /// [`set_actions`](Self::set_actions); later rebinding keeps the id valid.
+    ///
+    /// The queries take an id or a `&str` name. They are meant to move to the
+    /// `ctx.input` service of the API-friction work (#195).
+    /// ```
+    /// # use ponko::*;
+    /// # fn example(ctx: &Ctx) {
+    /// let jump = ctx.action_id("jump");
+    /// if ctx.action_pressed(jump) { /* ... */ }
+    /// # }
+    /// ```
+    pub fn action_id(&self, name: &str) -> crate::ActionId {
+        match self.input.actions.resolve(name) {
+            Ok(id) => id,
+            Err(e) => {
+                eprintln!("ponko: {e}");
+                crate::ActionId::NONE
+            }
+        }
+    }
+
+    /// Like [`action_id`](Self::action_id), but returns the error instead of
+    /// logging it.
+    /// ```
+    /// # use ponko::*;
+    /// # fn example(ctx: &Ctx) {
+    /// let jump = ctx.try_action_id("jump");
+    /// # }
+    /// ```
+    pub fn try_action_id(&self, name: &str) -> Result<crate::ActionId, crate::UnknownAction> {
+        self.input.actions.resolve(name)
+    }
+
+    /// Resolves several actions at once; see also [`actions!`](crate::actions!),
+    /// which keeps the names in one declaration.
+    /// ```
+    /// # use ponko::*;
+    /// # fn example(ctx: &Ctx) {
+    /// let [jump, fire] = ctx.action_ids(&["jump", "fire"]);
+    /// # }
+    /// ```
+    pub fn action_ids<const N: usize>(&self, names: &[&str; N]) -> [crate::ActionId; N] {
+        names.map(|n| self.action_id(n))
+    }
+
+    /// Whether a named button is held. Takes a name or an
+    /// [`ActionId`](crate::ActionId) from [`action_id`](Self::action_id).
     /// ```
     /// # use ponko::*;
     /// # fn example(ctx: &Ctx) {
     /// let value = ctx.action_down("move");
     /// # }
     /// ```
-    pub fn action_down(&self, name: &str) -> bool {
-        self.input.actions.down(name)
+    pub fn action_down(&self, action: impl crate::ActionRef) -> bool {
+        self.input.actions.down(action)
     }
 
     /// Whether a named button became held this frame.
@@ -558,8 +609,8 @@ impl Ctx {
     /// let value = ctx.action_pressed("move");
     /// # }
     /// ```
-    pub fn action_pressed(&self, name: &str) -> bool {
-        self.input.actions.pressed(name)
+    pub fn action_pressed(&self, action: impl crate::ActionRef) -> bool {
+        self.input.actions.pressed(action)
     }
 
     /// Whether all sources of a named button were released this frame.
@@ -569,8 +620,8 @@ impl Ctx {
     /// let value = ctx.action_released("move");
     /// # }
     /// ```
-    pub fn action_released(&self, name: &str) -> bool {
-        self.input.actions.released(name)
+    pub fn action_released(&self, action: impl crate::ActionRef) -> bool {
+        self.input.actions.released(action)
     }
 
     /// A named scalar axis, or zero.
@@ -580,8 +631,8 @@ impl Ctx {
     /// let value = ctx.action_axis("move");
     /// # }
     /// ```
-    pub fn action_axis(&self, name: &str) -> f32 {
-        self.input.actions.axis(name)
+    pub fn action_axis(&self, action: impl crate::ActionRef) -> f32 {
+        self.input.actions.axis(action)
     }
 
     /// A named vector axis, or zero.
@@ -591,8 +642,8 @@ impl Ctx {
     /// let value = ctx.action_axis2("move");
     /// # }
     /// ```
-    pub fn action_axis2(&self, name: &str) -> Vec2 {
-        self.input.actions.axis2(name)
+    pub fn action_axis2(&self, action: impl crate::ActionRef) -> Vec2 {
+        self.input.actions.axis2(action)
     }
 
     /// Replace bindings at runtime. Held sources establish a baseline;
@@ -604,7 +655,7 @@ impl Ctx {
     /// # }
     /// ```
     pub fn set_actions(&mut self, mut actions: crate::ActionMap) {
-        actions.prepare();
+        actions.prepare_after(&self.input.actions);
         self.input.actions = actions;
         self.input.refresh_actions();
         self.input.actions.end_frame();
@@ -1333,11 +1384,28 @@ impl Ctx {
         loaded.unwrap_or_else(|e| panic!("ponko: {e}"));
     }
 
-    /// Loads a JSON file into reflected component `component` of `entity`
-    /// (object fields merge), reloading it when the file changes: the C and
-    /// C++ way to [`load_resource`](Self::load_resource).
+    /// Loads a JSON file into the reflected component `T` of `entity` (object
+    /// fields merge), reloading it when the file changes. `T` must be
+    /// registered with `World::reflect`; the name the file is applied under
+    /// comes from the type, so it can't drift from it.
+    /// ```
+    /// # use ponko::*;
+    /// # #[derive(Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
+    /// # struct Stats { hp: f32 }
+    /// # fn f(ctx: &mut Ctx, e: Entity) -> Result<(), String> {
+    /// ctx.load_component_json::<Stats>("stats.json", e)?;
+    /// # Ok(()) }
+    /// ```
+    pub fn load_component_json<T: 'static>(&mut self, path: &str, entity: Entity) -> Result<(), String> {
+        self.load_component_json_named(path, entity, &crate::reflect::short_name(std::any::type_name::<T>()))
+    }
+
+    /// Loads a JSON file into the reflected component `component` of `entity`
+    /// by name: the C and C++ way, and for components registered by name.
+    /// Rust code that has the type uses
+    /// [`load_component_json`](Self::load_component_json).
     #[doc(hidden)]
-    pub fn load_component_json(&mut self, path: &str, entity: Entity, component: &str) -> Result<(), String> {
+    pub fn load_component_json_named(&mut self, path: &str, entity: Entity, component: &str) -> Result<(), String> {
         let component = component.to_string();
         self.load_data(
             path,
@@ -1348,11 +1416,28 @@ impl Ctx {
         )
     }
 
-    /// Loads a JSON file into the reflected resource `name` (object fields
-    /// merge; it's added if missing), reloading it when the file changes:
-    /// the C and C++ way to [`load_resource`](Self::load_resource).
+    /// Loads a JSON file into the reflected resource `T` (object fields
+    /// merge; it's added if missing), reloading it when the file changes.
+    /// `T` must be registered with `World::reflect_resource`; the name comes
+    /// from the type. Unlike [`load_resource`](Self::load_resource) this
+    /// merges into the existing value instead of replacing it.
+    /// ```
+    /// # use ponko::*;
+    /// # #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
+    /// # struct Rules { speed: f32 }
+    /// # fn f(ctx: &mut Ctx) -> Result<(), String> {
+    /// ctx.load_resource_json::<Rules>("rules.json")?;
+    /// # Ok(()) }
+    /// ```
+    pub fn load_resource_json<T: 'static>(&mut self, path: &str) -> Result<(), String> {
+        self.load_resource_json_named(path, &crate::reflect::short_name(std::any::type_name::<T>()))
+    }
+
+    /// Loads a JSON file into the reflected resource `name` by name: the C
+    /// and C++ way. Rust code that has the type uses
+    /// [`load_resource_json`](Self::load_resource_json).
     #[doc(hidden)]
-    pub fn load_resource_json(&mut self, path: &str, name: &str) -> Result<(), String> {
+    pub fn load_resource_json_named(&mut self, path: &str, name: &str) -> Result<(), String> {
         let name = name.to_string();
         self.load_data(
             path,

@@ -2,6 +2,11 @@
 use ponko::*;
 
 // ANCHOR: action_map
+// The names live in one place; `Act::resolve` turns them into `Copy` ids once.
+actions! {
+    struct Act { jump = "jump", movement = "move", throttle = "throttle" }
+}
+
 fn main() {
     let pad = Gamepad::from_slot(0).unwrap();
     let mut bindings = ActionMap::default();
@@ -43,17 +48,23 @@ fn main() {
     let restored = ActionMap::from_json(&saved).unwrap();
     Game::new("actions", 1, 1).run_headless(0, |ctx| {
         ctx.set_actions(restored);
+        // Resolve once, after installing the bindings (an unknown name logs an
+        // error here instead of reading false every frame). Ids stay valid
+        // when the bindings are replaced below.
+        let act = Act::resolve(ctx);
         ctx.feed_input(InputEvent::Key(Key::Space, true));
-        assert!(ctx.action_pressed("jump") && ctx.action_down("jump"));
-        let movement = ctx.action_axis2("move");
-        let throttle = ctx.action_axis("throttle");
+        assert!(ctx.action_pressed(act.jump) && ctx.action_down(act.jump));
+        let movement = ctx.action_axis2(act.movement);
+        let throttle = ctx.action_axis(act.throttle);
         assert_eq!((movement, throttle), (Vec2::ZERO, 0.0));
         ctx.feed_input(InputEvent::Key(Key::Space, false));
-        assert!(ctx.action_released("jump"));
+        assert!(ctx.action_released(act.jump));
         let mut changed = ctx.actions().clone();
         changed.set("jump", Action::Button(vec![ButtonBinding::Key(Key::Enter)]));
         ctx.set_actions(changed);
-        assert!(!ctx.action_pressed("jump"));
+        assert!(!ctx.action_pressed(act.jump));
+        // The name form still works, for one-off checks and tools.
+        assert!(!ctx.action_down("jump"));
     });
 }
 // ANCHOR_END: action_map

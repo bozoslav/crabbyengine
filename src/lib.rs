@@ -71,7 +71,10 @@ mod game;
 mod gamepad;
 mod hot_reload;
 mod input;
-pub use actions::{Action, ActionMap, Axis2Binding, AxisBinding, ButtonBinding, InputEvent, InputScenario};
+pub use actions::{
+    Action, ActionId, ActionMap, ActionRef, Axis2Binding, AxisBinding, ButtonBinding, InputEvent, InputScenario,
+    UnknownAction,
+};
 #[cfg(feature = "inspector")]
 mod inspector;
 mod logs;
