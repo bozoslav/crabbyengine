@@ -8,14 +8,14 @@
 //! | [`ModuleKey::source`] | the game's WGSL | on a hot reload |
 //! | [`ModuleKey::features`] | decals, global illumination, instance storage | fixed per device |
 //! | [`TargetKey`] | HDR, depth and motion formats, samples per pixel | fixed per renderer |
-//! | [`ShaderVariant`] | sides and instancing of a draw (`variants.rs`) | per draw |
+//! | [`ShaderVariant`](super::ShaderVariant) | sides and instancing of a draw (`variants.rs`) | per draw |
 //! | [`PipelineRole`](super::PipelineRole) | the pass and the material's blend | per pass |
 //!
 //! [`MaterialCache`] maps a [`SetKey`] (module and targets) to the one
 //! [`ShaderPipelines`](super::ShaderPipelines) built for it: two shaders
 //! made from the same code share it, and a shader reloaded back to code
 //! another shader still uses takes that one instead of compiling. Inside a
-//! set each [`ShaderVariant`] is built once (plain ones with the shader,
+//! set each [`ShaderVariant`](super::ShaderVariant) is built once (plain ones with the shader,
 //! the others on first use or by warming) and kept while any shader uses
 //! the set. Replacing a shader drops only its own set, and only when no
 //! other shader shares it; the other shaders' pipelines stay as they are.
@@ -31,7 +31,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 
-use super::{ShaderPipelines, ShaderVariant};
+use super::ShaderPipelines;
+#[cfg(test)]
+use super::ShaderVariant;
 use crate::PipelineStats;
 
 /// The optional parts of the engine's code a material shader is composed
