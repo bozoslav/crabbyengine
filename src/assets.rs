@@ -530,6 +530,40 @@ mod tests {
         );
     }
 
+    /// A source that only implements `read`: `contains` falls back to it.
+    struct ReadOnly;
+    impl AssetSource for ReadOnly {
+        fn id(&self) -> &str {
+            "read-only"
+        }
+        fn read(&self, name: &str) -> std::io::Result<Vec<u8>> {
+            match name {
+                "here" => Ok(b"x".to_vec()),
+                "broken" => Err(std::io::Error::other("disk on fire")),
+                _ => Err(std::io::ErrorKind::NotFound.into()),
+            }
+        }
+    }
+
+    #[test]
+    fn locate_names_the_first_source_that_has_a_name_without_reading_memory() {
+        let mut sources = Sources::default();
+        sources.add(Box::new(ReadOnly));
+        sources.add(Box::new(
+            MemorySource::new("mem").with("here", *b"y").with("only-mem", *b"z"),
+        ));
+        let in_source = |source: &str, name: &str| Origin::Source {
+            source: source.into(),
+            name: name.into(),
+        };
+        assert_eq!(sources.locate("here"), Some(in_source("read-only", "here")));
+        assert_eq!(sources.locate("only-mem"), Some(in_source("mem", "only-mem")));
+        // A source that has it but fails to read it still has it: the
+        // load reports the error.
+        assert_eq!(sources.locate("broken"), Some(in_source("read-only", "broken")));
+        assert_eq!(sources.locate("definitely-not-here.png"), None);
+    }
+
     #[test]
     fn garbage_bytes_are_rejected() {
         assert!(decode_image(b"not a png").is_err());

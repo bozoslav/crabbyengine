@@ -2813,6 +2813,28 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    #[test]
+    fn streams_are_never_watched_and_cached_apart_from_sounds() {
+        let mut ctx = Ctx::new(1.0 / 60.0, Vec2::ZERO);
+        ctx.headless = true;
+        ctx.watcher.on = true;
+        ctx.add_asset_source(crate::MemorySource::new("mem").with("theme.wav", wav()));
+        let stream = ctx.load_stream("theme.wav");
+        assert_eq!(ctx.watcher.watched(), 0, "streams are not watched");
+        let sound = ctx.load_sound("theme.wav");
+        assert_ne!(stream, sound);
+        let origin = assets::Origin::Source {
+            source: "mem".into(),
+            name: "theme.wav".into(),
+        };
+        assert!(ctx.loaded.contains_key(&(origin.clone(), AssetKind::Stream)));
+        assert!(ctx.loaded.contains_key(&(origin, AssetKind::Sound)));
+        // Freeing the stream forgets it: loading again makes a new one.
+        ctx.free(stream);
+        assert_ne!(ctx.load_stream("theme.wav"), stream);
+        assert_eq!(ctx.load_sound("theme.wav"), sound);
+    }
+
     #[cfg(feature = "3d")]
     #[test]
     fn shaders_from_sources_are_cached_by_source_and_never_watched() {

@@ -314,3 +314,58 @@ fn the_same_gltf_image_name_in_two_sources_is_two_images() {
     });
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn texture_arrays_load_their_layers_from_sources() {
+    game().run_headless(0, |ctx| {
+        ctx.add_asset_source(
+            MemorySource::new("pack")
+                .with("layers/a.png", png(4))
+                .with("layers/b.png", png(4))
+                .with("layers/small.png", png(2))
+                .with("layers/bad.png", b"nope".to_vec()),
+        );
+        ctx.load_texture_array(&["layers/a.png", "layers/b.png"], TextureKind::Color);
+        let err = ctx
+            .try_load_texture_array(&["layers/a.png", "layers/small.png"], TextureKind::Color)
+            .unwrap_err();
+        assert!(err.contains("every layer must be the same size"), "{err}");
+        let err = ctx
+            .try_load_texture_array(&["layers/bad.png"], TextureKind::Color)
+            .unwrap_err();
+        assert!(
+            err.contains("\"layers/bad.png\" (from asset source \"pack\") is not a valid image"),
+            "{err}"
+        );
+        let err = ctx
+            .try_load_texture_array(&["layers/none.png"], TextureKind::Color)
+            .unwrap_err();
+        assert!(err.contains("Asset sources searched first: \"pack\""), "{err}");
+    });
+}
+
+fn exr(width: u32, height: u32) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    image::DynamicImage::ImageRgb32F(image::Rgb32FImage::from_pixel(width, height, image::Rgb([1.0; 3])))
+        .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::OpenExr)
+        .unwrap();
+    bytes
+}
+
+#[test]
+fn reflection_probe_images_load_from_sources() {
+    game().run_headless(0, |ctx| {
+        ctx.add_asset_source(
+            MemorySource::new("pack")
+                .with("sky/room.exr", exr(64, 32))
+                .with("sky/bad.exr", b"nope".to_vec()),
+        );
+        let probe = ctx.world.spawn((Transform3D::default(), ReflectionProbe3D::default()));
+        let err = ctx.load_reflection_probe(probe, "sky/bad.exr").unwrap_err();
+        assert!(err.contains("\"sky/bad.exr\" (from asset source \"pack\")"), "{err}");
+        let err = ctx.load_reflection_probe(probe, "sky/none.exr").unwrap_err();
+        assert!(err.contains("Asset sources searched first: \"pack\""), "{err}");
+        ctx.load_reflection_probe(probe, "sky/room.exr").unwrap();
+        assert_ne!(ctx.world.get::<ReflectionProbe3D>(probe).unwrap().content, 0);
+    });
+}
