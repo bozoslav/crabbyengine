@@ -8,6 +8,7 @@ running normally.
 <div>
 
 ```rust
+# fn ants(_: &mut Ctx) {}
 fn controls(ctx: &mut Ctx) {
     if ctx.key_pressed(Key::Space) {
         if ctx.is_paused() { ctx.resume() } else { ctx.pause() }
@@ -57,6 +58,7 @@ combine.
 <div>
 
 ```rust
+# fn movement(_: &mut Ctx) {} fn plan_routes(_: &mut Ctx) {} fn grow_food(_: &mut Ctx) {}
 Game::new("Colony", 1280, 720)
     .sim_system(movement)               // every tick
     .sim_system_every(10, plan_routes)  // 6 times a second
@@ -84,6 +86,8 @@ expensive part.
 <div>
 
 ```rust
+# struct Brain;
+# impl Brain { fn decide(&mut self, _dt: f32) {} }
 fn think(ctx: &mut Ctx) {
     let turn = ctx.turns(8); // each ant thinks every 8th tick
     ctx.world.query::<(Entity, &mut Brain)>().par_for_each(|(e, brain)| {

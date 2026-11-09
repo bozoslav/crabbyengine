@@ -25,6 +25,38 @@ mdbook serve book --open
 
 Every page has an edit button (top right) that opens the file on GitHub.
 
+### Rust snippets compile
+
+CI compiles every ` ```rust ` block in the book (`scripts/check-book-snippets.py`,
+one `cargo check` for all of them), so a rename can't silently break the guide.
+Run it before pushing a chapter change:
+
+```sh
+python3 scripts/check-book-snippets.py
+```
+
+A block is wrapped in `fn snippet(ctx: &mut Ctx, world: &mut World) -> Result<..>`
+with `use ponko::*;` in scope, so it can use `ctx`, `world` and `?` directly.
+Anything else it needs goes on hidden lines, which mdBook doesn't show and the
+checker keeps (`# ` prefix, as in rustdoc):
+
+````md
+```rust
+# struct Health(f32);
+# let enemy = ctx.world.spawn((Health(10.0),));
+ctx.world.despawn(enemy);
+```
+````
+
+- `no_run` and `should_panic` blocks are compiled too; nothing is ever run.
+- A block that is only an `{{#include ../../examples/x.rs:anchor}}` is skipped:
+  that file is compiled by `cargo build --examples` and `cargo test`. Prefer an
+  include for anything longer than a few lines.
+- ` ```rust,ignore ` is a last resort (at most three in the whole book) and
+  needs a reason in a comment, ideally hidden: `# // ignore: needs a GPU`.
+- The check enables the `3d`, `physics`, `physics3d`, `navmesh` and `steam`
+  features, so snippets for those compile without extra setup.
+
 ## License
 
 Ponko is dual licensed under

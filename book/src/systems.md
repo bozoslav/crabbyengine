@@ -9,6 +9,7 @@ in the order you added them.
 <div>
 
 ```rust
+# fn steer(_: &mut Ctx) {} fn movement(_: &mut Ctx) {} fn camera(_: &mut Ctx) {}
 Game::new("Sim", 1280, 720)
     .sim_system(steer)      // fixed rate: game logic
     .sim_system(movement)
@@ -144,6 +145,7 @@ Everything the engine does by itself is an ordinary system, and
 <div>
 
 ```rust
+# fn my_draw(_: &mut Ctx) {}
 Game::new("t", 800, 600)
     .remove_system(draw_sprites)   // draw your own way
     .system(my_draw);

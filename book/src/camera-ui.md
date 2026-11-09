@@ -58,6 +58,7 @@ The ants example starts zoomed out to fit every colony:
 <div>
 
 ```rust
+# let bounds = vec2(3200.0, 1800.0);
 let fit = ctx.window_size() / bounds;
 ctx.camera.zoom = fit.x.min(fit.y);
 ctx.camera.look_at(bounds / 2.0);
@@ -81,6 +82,7 @@ In world units, like sprites:
 <div>
 
 ```rust
+# let (from, to, tower) = (vec2(0.0, 0.0), vec2(100.0, 50.0), vec2(300.0, 300.0));
 ctx.draw_rect(Rect::new(0.0, 0.0, 200.0, 20.0), Color::hex(0x3a5a40));
 ctx.draw_line(from, to, 2.0, Color::RED);
 ctx.draw_circle(tower, 120.0, Color::BLUE.with_alpha(0.2));

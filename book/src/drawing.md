@@ -42,6 +42,7 @@ For UI, effects and quick prototypes, draw directly every frame:
 <div>
 
 ```rust
+# let crab = ctx.load_texture("crab.png");
 ctx.clear(Color::hex(0x203040));
 ctx.draw(&crab, vec2(100.0, 100.0));
 ctx.draw_ex(&crab, vec2(200.0, 100.0), DrawParams {
