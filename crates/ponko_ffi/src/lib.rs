@@ -19,6 +19,7 @@
 
 #![warn(missing_docs)]
 
+mod access;
 mod actions;
 mod animator;
 mod attach;
@@ -57,6 +58,7 @@ mod types;
 mod ui_panel3d;
 mod ui_retained;
 mod vehicle3d;
+pub use access::*;
 pub use actions::*;
 pub use animator::*;
 /// Counts the library's heap allocations while profiling is on (one atomic

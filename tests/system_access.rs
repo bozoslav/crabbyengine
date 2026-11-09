@@ -307,15 +307,16 @@ mod named {
                 SystemAccess::new()
                     .write_named(std::any::type_name::<Pos>())
                     .read_resource_named("lives")
-                    .send_raw_events(7)
-                    .read_raw_events(7),
+                    .send_events_named(std::any::type_name::<Hit>())
+                    .read_events_named(std::any::type_name::<Hit>()),
                 |ctx| {
                     ctx.world.query::<&mut Pos>().for_each(|p| p.0 += 1.0);
                     let lives = ctx.world.get_resource_dynamic("lives").unwrap();
                     // SAFETY: stored as a u32 in setup.
                     let n = unsafe { *lives.cast::<u32>() };
-                    ctx.events.send_raw(7, &n.to_ne_bytes()).unwrap();
-                    let (_, count) = ctx.events.read_raw(7, 4).unwrap();
+                    let hit = ctx.world.register::<Hit>().index() as u32;
+                    ctx.events.send_raw(hit, &n.to_ne_bytes()).unwrap();
+                    let (_, count) = ctx.events.read_raw(hit, 4).unwrap();
                     assert_eq!(count, 1);
                 },
             )
@@ -338,11 +339,14 @@ mod named {
             r.conflicts_with(&SystemAccess::new().read_resource_named("lives")),
             [AccessConflict::Resource("lives")]
         );
-        let send = SystemAccess::new().send_raw_events(3);
-        let read = SystemAccess::new().read_raw_events(3);
-        assert_eq!(send.conflicts_before(&read).len(), 1);
+        let send = SystemAccess::new().send_events_named("hit");
+        let read = SystemAccess::new().read_events_named("hit");
+        assert_eq!(send.conflicts_before(&read), [AccessConflict::Event("hit")]);
         assert!(read.conflicts_before(&send).is_empty());
-        assert!(send.conflicts_with(&SystemAccess::new().read_raw_events(4)).is_empty());
+        assert!(
+            send.conflicts_with(&SystemAccess::new().read_events_named("miss"))
+                .is_empty()
+        );
     }
 
     #[cfg(debug_assertions)]
@@ -358,27 +362,34 @@ mod named {
 
     #[cfg(debug_assertions)]
     #[test]
-    #[should_panic(expected = "sends events of foreign type 7")]
+    #[should_panic(expected = "sends events `system_access::Hit`")]
     fn undeclared_raw_events_panic() {
-        Game::new("access", 320, 240)
-            .add_with_access(Phase::AfterPhysics, SystemAccess::new().read_raw_events(7), |ctx| {
-                ctx.events.send_raw(7, &[1, 2, 3, 4]).unwrap();
-            })
-            .run_headless(1, |_| {});
-    }
-
-    #[cfg(debug_assertions)]
-    #[test]
-    #[should_panic(expected = "writes component `system_access::Pos`")]
-    fn a_named_read_does_not_cover_a_write() {
         Game::new("access", 320, 240)
             .add_with_access(
                 Phase::AfterPhysics,
+                SystemAccess::new().read_events_named(std::any::type_name::<Hit>()),
+                |ctx| {
+                    let hit = ctx.world.register::<Hit>().index() as u32;
+                    ctx.events.send_raw(hit, &[1, 2, 3, 4]).unwrap();
+                },
+            )
+            .run_headless(1, |_| {});
+    }
+
+    #[test]
+    fn a_named_declaration_covers_any_use_because_raw_access_cannot_tell() {
+        let mut world = Game::new("access", 320, 240)
+            .add_with_access(
+                Phase::AfterPhysics,
                 SystemAccess::new().read_named(std::any::type_name::<Pos>()),
-                |ctx| ctx.world.query::<&mut Pos>().for_each(|p| p.0 = 2.0),
+                |ctx| {
+                    let id = ctx.world.component_id::<Pos>().unwrap();
+                    ctx.world.for_each_chunk(&[id], |_| {});
+                },
             )
             .run_headless(1, |ctx| {
                 ctx.world.spawn((Pos(0.0),));
             });
+        assert_eq!(world.query::<&Pos>().count(), 1);
     }
 }

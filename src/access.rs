@@ -209,11 +209,9 @@ impl fmt::Display for Service {
 enum Key {
     /// A Rust type.
     Type(TypeId),
-    /// A component or resource registered by name (C and C++), matched by
-    /// the item's name.
+    /// A component, resource or event type registered by name (C and
+    /// C++), matched by the item's name.
     Named,
-    /// An event type without a Rust type (C and C++ use component ids).
-    Raw(u32),
 }
 
 /// One declared component, resource or event type.
@@ -404,7 +402,10 @@ impl SystemAccess {
     }
 
     /// Reads the component registered under `name` (C and C++ components,
-    /// or any component looked up by name).
+    /// or any component looked up by name). The raw C path can't tell reads
+    /// from writes, so the debug check accepts any use of a component
+    /// declared by name; declare [`write_named`](Self::write_named) if the
+    /// system changes it, so conflicts are reported.
     #[must_use]
     pub fn read_named(mut self, name: &str) -> Self {
         add(&mut self.components, named(name, false));
@@ -436,19 +437,18 @@ impl SystemAccess {
         self
     }
 
-    /// Reads events of foreign type `id` (C and C++).
-    #[doc(hidden)]
+    /// Reads events whose type is the component registered under `name`
+    /// (C and C++ send events by component id).
     #[must_use]
-    pub fn read_raw_events(mut self, id: u32) -> Self {
-        add_event(&mut self.events, raw_event(id, false));
+    pub fn read_events_named(mut self, name: &str) -> Self {
+        add_event(&mut self.events, named(name, false));
         self
     }
 
-    /// Sends events of foreign type `id` (C and C++).
-    #[doc(hidden)]
+    /// Sends events whose type is the component registered under `name`.
     #[must_use]
-    pub fn send_raw_events(mut self, id: u32) -> Self {
-        add_event(&mut self.events, raw_event(id, true));
+    pub fn send_events_named(mut self, name: &str) -> Self {
+        add_event(&mut self.events, named(name, true));
         self
     }
 
@@ -616,12 +616,12 @@ impl SystemAccess {
         let mut out = Vec::new();
         let covers = |items: &[Item], id: Option<TypeId>, name: &str, write: bool| {
             items.iter().any(|i| {
-                let same = match i.key {
-                    Key::Type(t) => id == Some(t),
+                match i.key {
+                    Key::Type(t) => id == Some(t) && (i.write || !write),
+                    // By name is the C and C++ path, whose raw pointers
+                    // can't tell reads from writes: any declaration covers use.
                     Key::Named => i.name == name,
-                    Key::Raw(_) => false,
-                };
-                same && (i.write || !write)
+                }
             })
         };
         let verb = |write| if write { "writes" } else { "reads" };
@@ -637,7 +637,6 @@ impl SystemAccess {
             }
         }
         for name in &used.dynamic_resources {
-            // Raw pointers can't tell reads from writes: any declaration covers use.
             if !covers(&self.resources, None, name, false) {
                 out.push(format!("uses resource `{name}`, which has no Rust type"));
             }
@@ -652,23 +651,21 @@ impl SystemAccess {
             }
         }
         for &(id, sent) in &events.raw {
-            if !self.events.iter().any(|i| i.key == Key::Raw(id) && i.write == sent) {
+            let name = world.component_at(id as usize).map(|c| world.component_info(c).name());
+            let declared = name.is_some_and(|n| {
+                self.events
+                    .iter()
+                    .any(|i| i.key == Key::Named && i.name == n && i.write == sent)
+            });
+            if !declared {
                 let what = if sent { "sends" } else { "reads" };
-                out.push(format!("{what} events of foreign type {id}"));
+                out.push(format!("{what} events `{}`", name.unwrap_or("of an unknown type")));
             }
         }
         if commands && !self.commands {
             out.push("records commands".into());
         }
         out
-    }
-}
-
-fn raw_event(id: u32, write: bool) -> Item {
-    Item {
-        key: Key::Raw(id),
-        name: Box::leak(format!("foreign event {id}").into_boxed_str()),
-        write,
     }
 }
 

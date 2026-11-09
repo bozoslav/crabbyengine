@@ -34,7 +34,7 @@
  * for that panel's UI.
  *
  * Enums (CrabbyKey, CrabbyMouseButton, CrabbyGamepadButton, CrabbyGamepadAxis,
- * CrabbyTextAlign3D, CrabbyBodyKind, CrabbyShapeKind, CrabbyShape3DKind, CrabbyNetState, CrabbyPhase, CrabbyHandleKind, and the
+ * CrabbyTextAlign3D, CrabbyBodyKind, CrabbyShapeKind, CrabbyShape3DKind, CrabbyNetState, CrabbyPhase, CrabbyService, CrabbyHandleKind, and the
  * CrabbyUi* layout and paint enums) are passed as uint32_t.
  * Last-error text is thread-local, borrowed until the next failed call;
  * successful calls leave it unchanged.
@@ -370,6 +370,29 @@ typedef enum CrabbyPhase {
   CRABBY_PHASE_DRAW,
 } CrabbyPhase;
 
+enum CrabbyService
+#ifdef __cplusplus
+  : uint32_t
+#endif // __cplusplus
+ {
+  CRABBY_SERVICE_INPUT = 0,
+  CRABBY_SERVICE_TIME = 1,
+  CRABBY_SERVICE_RANDOM = 2,
+  CRABBY_SERVICE_GFX = 3,
+  CRABBY_SERVICE_AUDIO = 4,
+  CRABBY_SERVICE_ASSETS = 5,
+  CRABBY_SERVICE_UI = 6,
+  CRABBY_SERVICE_PERF = 7,
+  CRABBY_SERVICE_CAMERA = 8,
+  CRABBY_SERVICE_SPATIAL = 9,
+  CRABBY_SERVICE_PHYSICS = 10,
+  CRABBY_SERVICE_PHYSICS3D = 11,
+  CRABBY_SERVICE_NET = 12,
+};
+#ifndef __cplusplus
+typedef uint32_t CrabbyService;
+#endif // __cplusplus
+
 typedef enum CrabbyShapeKind {
   CRABBY_SHAPE_CIRCLE,
   CRABBY_SHAPE_RECT,
@@ -496,6 +519,8 @@ typedef enum CrabbyUiTextAlign {
   CRABBY_UI_TEXT_ALIGN_END,
 } CrabbyUiTextAlign;
 
+typedef struct CrabbyAccess CrabbyAccess;
+
 typedef struct CrabbyActionMap CrabbyActionMap;
 
 typedef struct CrabbyAnimationGraph CrabbyAnimationGraph;
@@ -566,6 +591,8 @@ typedef struct CrabbyChunk {
 } CrabbyChunk;
 
 typedef void (*CrabbyQueryFn)(const struct CrabbyChunk*, void*);
+
+typedef void (*CrabbySystemFn)(struct CrabbyCtx *ctx, void *user);
 
 typedef struct CrabbyActionBinding {
   uint32_t kind;
@@ -705,8 +732,6 @@ typedef struct CrabbyFlowView {
   struct CrabbyVec2 origin;
   float cell_size;
 } CrabbyFlowView;
-
-typedef void (*CrabbySystemFn)(struct CrabbyCtx *ctx, void *user);
 
 typedef struct CrabbyGridItem {
   struct CrabbyEntity entity;
@@ -1692,6 +1717,44 @@ enum CrabbyStatus crabby_query_par(struct CrabbyWorld *world,
                                    size_t count,
                                    CrabbyQueryFn callback,
                                    void *user);
+
+struct CrabbyAccess *crabby_access_new(void);
+
+void crabby_access_free(struct CrabbyAccess *access);
+
+enum CrabbyStatus crabby_access_read_component(struct CrabbyAccess *access, const char *name);
+
+enum CrabbyStatus crabby_access_write_component(struct CrabbyAccess *access, const char *name);
+
+enum CrabbyStatus crabby_access_read_resource(struct CrabbyAccess *access, const char *name);
+
+enum CrabbyStatus crabby_access_write_resource(struct CrabbyAccess *access, const char *name);
+
+enum CrabbyStatus crabby_access_read_events(struct CrabbyAccess *access, const char *name);
+
+enum CrabbyStatus crabby_access_send_events(struct CrabbyAccess *access, const char *name);
+
+enum CrabbyStatus crabby_access_commands(struct CrabbyAccess *access);
+
+enum CrabbyStatus crabby_access_service(struct CrabbyAccess *access, uint32_t service, bool write);
+
+enum CrabbyStatus crabby_access_conflicts(const struct CrabbyAccess *earlier,
+                                          const struct CrabbyAccess *later,
+                                          bool ordered,
+                                          size_t *out_count);
+
+enum CrabbyStatus crabby_game_add_system_with_access(struct CrabbyGame *game,
+                                                     uint32_t phase_raw,
+                                                     const char *name,
+                                                     uint32_t every,
+                                                     const struct CrabbyAccess *access,
+                                                     CrabbySystemFn system_fn,
+                                                     void *user);
+
+enum CrabbyStatus crabby_game_access_report(struct CrabbyGame *game,
+                                            char *buffer,
+                                            size_t capacity,
+                                            size_t *out_len);
 
 struct CrabbyActionMap *crabby_action_map_new(void);
 
