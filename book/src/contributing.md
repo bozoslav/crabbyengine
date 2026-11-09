@@ -49,7 +49,7 @@ ctx.world.despawn(enemy);
 ````
 
 - `no_run` and `should_panic` blocks are compiled too; nothing is ever run.
-- A block that is only an `{{#include ../../examples/x.rs:anchor}}` is skipped:
+- A block that is only an `\{{#include}}` of an example file is skipped:
   that file is compiled by `cargo build --examples` and `cargo test`. Prefer an
   include for anything longer than a few lines.
 - ` ```rust,ignore ` is a last resort (at most three in the whole book) and
