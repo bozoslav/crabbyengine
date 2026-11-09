@@ -36,7 +36,7 @@ impl Ctx {
     /// With the loading error if the file is missing or can't be read, as
     /// `load_mesh` does.
     pub fn resident_mesh(&mut self, path: &str) -> Mesh {
-        self.try_resident_mesh(path).unwrap_or_else(|e| panic!("ponko: {e}"))
+        self.try_resident_mesh(path).unwrap_or_else(|e| panic!("{e}"))
     }
 
     /// Like [`resident_mesh`](Self::resident_mesh), and never evicted until
@@ -61,7 +61,23 @@ impl Ctx {
         self.enforce_residency(ResidencyKind::Mesh);
     }
 
-    pub(crate) fn try_resident_mesh(&mut self, path: &str) -> Result<Mesh, String> {
+    /// [`resident_mesh`](Self::resident_mesh) with errors as values, the
+    /// same ones [`try_load_mesh`](Self::try_load_mesh) returns. A failed
+    /// load changes nothing resident.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let hat = ctx.try_resident_mesh("models/hat.glb");
+    ///     assert_eq!(hat.unwrap_err().kind(), ErrorKind::NotFound);
+    ///     assert!(!ctx.is_resident(ResidencyKind::Mesh, "models/hat.glb"));
+    /// });
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// As `try_load_mesh`.
+    pub fn try_resident_mesh(&mut self, path: &str) -> Result<Mesh, crate::Error> {
         let now = self.residency_now();
         if let Some(mesh) = self.live_resident_mesh(path) {
             self.residency.set_mut(ResidencyKind::Mesh).touch(path, now);
@@ -70,7 +86,7 @@ impl Ctx {
         // Freed by the game (or never loaded): load it, noting whether the
         // game already holds it from `load_mesh`.
         self.residency.set_mut(ResidencyKind::Mesh).forget(path);
-        let file = assets::resolve(path)?;
+        let file = assets::resolve(path).map_err(|e| crate::Error::not_found(path, e))?;
         let shared = self.assets3d.loaded.contains_key(&file);
         let mesh = self.try_load_mesh(path)?;
         let bytes = self.assets3d.mesh_bytes.get(mesh.id as usize).copied().unwrap_or(0);
