@@ -15,9 +15,11 @@ Rules for any coding agent (Claude Code, Codex, Cursor, ...) working in this rep
 3. **Everything reaches `main` through a pull request.** Never push to `main` and never merge locally into `main`.
    - **One PR per big chunk of work**, not per small feature or fix: keep committing and pushing on the branch, and open the PR when a whole part is done (for example a milestone's worth: reflection + control endpoint + MCP server). Don't stack many small PRs and wait on CI for each.
    - Open the PR with `gh pr create --base main`. The body says what changed and how it was verified (commands run, benchmark numbers).
-   - Merge with `gh pr merge --squash --delete-branch`, then `git switch main && git pull`.
+   - Merge with `gh pr merge --squash --delete-branch`, then `git switch main && git pull`. With the merge queue on, this adds the PR to the queue instead of merging at once (`gh pr merge --auto --squash` also works); the queue merges it when the full CI passes.
    - `main` is protected: merging needs the **CI passed** check (it requires every CI job) and keeps history linear. Wait for CI (`gh pr checks <n> --watch`), then merge. Never bypass protection, even as admin.
+   - CI on a pull request runs only the fast Linux jobs (leaks, format, clippy, Linux tests, feature contracts, docs, book). The full matrix (macOS, Windows, feature tests, Miri, MSRV, C/C++, web) runs in the merge queue and on `main`. For risky platform changes, add the `full-ci` label to the PR to run the full matrix on it.
    - If CI fails, fix it on the branch and push again; don't merge red.
+   - **Don't edit `CHANGELOG.md` in a PR.** Add a fragment, `changelog.d/<pr-or-topic>.md`, with `### Added` / `### Changed` / `### Fixed` sections and bullets (see `changelog.d/README.md`). The release folds them in with `python3 scripts/changelog.py`.
 4. Don't rewrite published history (`push --force` on shared branches, rebasing `main`).
 
 ## Tests
@@ -34,7 +36,7 @@ Where tests live:
 | Performance | `crates/ponko_bench` (`cargo run --release -p ponko_bench [-- filter]`) | `iter/crabby` |
 
 Rules:
-- New public behavior gets a test in the matching area file. A new area is just a new file: CI's `test` job runs `cargo test --workspace` on each OS, so it picks the file up. Only a new feature combination needs its own step in `.github/workflows/ci.yml`.
+- New public behavior gets a test in the matching area file. A new area is just a new file: CI's `test` job runs `cargo test --workspace` (on Linux for a PR, on every OS in the merge queue), so it picks the file up. Only a new feature combination needs its own step in `.github/workflows/ci.yml`.
 - Test names say what must hold: `stale_handles_stay_dead`, not `test_entity_2`.
 - Panics that are part of the API get `#[should_panic(expected = "...")]` tests, so the message stays helpful.
 - Benchmarks are not tests: never assert on timings in tests, except for coarse bounds such as "≥ 6 ms for three 2 ms steps".

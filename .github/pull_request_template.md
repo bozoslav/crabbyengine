@@ -10,3 +10,4 @@
 - [ ] New public behavior has tests and doctests
 - [ ] The guide (`book/src/`) is updated, if this changes how games are written
 - [ ] The C API and C++ wrapper are updated, or not needed (say why)
+- [ ] A `changelog.d/` fragment is added if users will notice the change (don't edit `CHANGELOG.md`)
