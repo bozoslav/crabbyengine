@@ -7,19 +7,6 @@ says what that covers.
 
 ## [Unreleased]
 
-### GPU capability report (first stage)
-
-- Add `Ctx::gpu_capabilities()` and `GpuCapabilities`: the adapter, the
-  device limits the renderer's choices depend on, and for each
-  device-dependent feature (timestamps, compute, storage buffers, GPU
-  culling, GPU skinning, occlusion culling, TAA, GTAO, contact shadows, SSR,
-  GI, decals, MSAA) whether it is available, the fallback used and why.
-  Serializes to JSON. The renderer's own checks use the same predicates.
-- Fix GPU skinning on devices with four or five storage buffers per shader
-  stage: it needs six, and now falls back to CPU posing there instead of
-  raising validation errors.
-- Capability tiers and tier-based quality presets remain follow-ups to #151.
-
 ### Explicit runtime phases (first stage)
 
 - Add `Phase` and `Game::add(phase, system)` for sequential fixed-tick and
