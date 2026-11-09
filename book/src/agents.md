@@ -153,6 +153,25 @@ headless success does not verify rendering. Collect a `perf_report` or
 before/after workloads. A screenshot alone does not establish simulation
 correctness or a performance improvement.
 
+### Validation bundles (first stage)
+
+`cargo run --example validation_bundle -- --out DIR --variant buggy|fixed`
+runs a small headless interaction driven by a tick-indexed
+[`InputScenario`](actions.md) and writes one self-contained directory: a
+versioned `manifest.json` (engine version, commit/features/rustc when you
+supply them, scenario id and seed, commands, assertion outcomes with the
+failing tick, artifact sizes and SHA-256 hashes), `logs/` and a per-tick
+`trace.csv`. `--step "cmd args"` runs a bounded command first (a build, a
+launch check); a failed or timed-out step ends the run with its output kept
+(start and end, bounded). Control tokens, passwords and authorization values
+are replaced by `<redacted>`, and `--redact-paths` swaps the working, home and
+bundle directories for `<CWD>`, `<HOME>` and `<BUNDLE>` without touching the
+rest of a path. Metrics a run can't produce (screenshots, performance) are
+marked `unavailable` with the reason. The bundle shows what one run observed;
+it is not proof of pixel identity or visual correctness. Screenshots,
+performance reports and driving a launched game through the MCP tools are
+later stages.
+
 These tools exist today. A general gameplay-input recording/replay service,
 structured scheduler inspection, richer shader diagnostics and broader
 GPU/asset memory reports are not implied by their presence. Follow
