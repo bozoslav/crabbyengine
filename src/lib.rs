@@ -64,6 +64,7 @@ mod ctx;
 mod ecs;
 #[cfg(feature = "inspector")]
 mod editor;
+mod error;
 mod events;
 mod flow;
 mod game;
@@ -117,6 +118,7 @@ pub use collision::{BodyKind, CollisionStarted, CollisionStopped};
 pub use color::Color;
 pub use ctx::{Ctx, SystemTiming, Turns};
 pub use ecs::{Sprite, Transform2D, draw_sprites};
+pub use error::{Error, ErrorKind};
 pub use events::Events;
 #[doc(hidden)]
 pub use flow::RawFlowView;

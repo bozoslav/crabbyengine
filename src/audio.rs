@@ -448,22 +448,38 @@ impl Ctx {
     /// # }
     /// ```
     pub fn load_sound(&mut self, path: &str) -> Sound {
-        let file = crate::assets::resolve(path).unwrap_or_else(|e| panic!("ponko: {e}"));
+        self.try_load_sound(path).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// [`load_sound`](Self::load_sound) with errors as values:
+    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound),
+    /// [`Io`](crate::ErrorKind::Io), or (with the `audio` feature)
+    /// [`Decode`](crate::ErrorKind::Decode) if it can't be decoded.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     if let Ok(music) = ctx.try_load_sound("music/bonus.ogg") {
+    ///         ctx.play_sound(&music);
+    ///     }
+    /// });
+    /// ```
+    pub fn try_load_sound(&mut self, path: &str) -> Result<Sound, crate::Error> {
+        let file = crate::assets::resolve(path).map_err(|e| crate::Error::not_found(path, e))?;
         let key = (file, crate::ctx::AssetKind::Sound);
         if let Some(&i) = self.loaded.get(&key) {
-            return self.cached_sounds[i as usize];
+            return Ok(self.cached_sounds[i as usize]);
         }
-        let bytes =
-            crate::assets::read(&key.0).unwrap_or_else(|e| panic!("ponko: could not read {}: {e}", key.0.display()));
+        let bytes = crate::assets::read(&key.0).map_err(|e| crate::Error::io(path, &key.0, &e))?;
         let (id, seconds) = self
             .audio
             .load(bytes)
-            .unwrap_or_else(|e| panic!("ponko: {}: {e}", key.0.display()));
+            .map_err(|e| crate::Error::decode(path, format!("{}: {e}", key.0.display())))?;
         let sound = Sound { id, seconds };
         self.loaded.insert(key.clone(), self.cached_sounds.len() as u64);
         self.cached_sounds.push(sound);
         self.watcher.watch(path, key.0, crate::hot_reload::Asset::Sound(id));
-        sound
+        Ok(sound)
     }
 
     /// Makes a sound from mono samples in -1..1 at `sample_rate` Hz, for

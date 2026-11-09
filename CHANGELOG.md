@@ -7,6 +7,15 @@ says what that covers.
 
 ## [Unreleased]
 
+### Added
+- `ponko::Error` and `ErrorKind`: one error type with a kind to match on,
+  the asset path, and a `ponko:`-prefixed message. Implements
+  `std::error::Error`, and converts from `ReflectError`, `NavBakeError` and
+  `serde_json::Error`.
+- `try_` twins returning `Result<_, ponko::Error>` for `load_texture`,
+  `load_mesh`, `load_skeleton`, `load_sound`, `load_font`, `create_material`
+  and `create_mesh`. The panicking calls now panic with the same message.
+
 ## [0.0.1] - 2026-11-08
 
 ### Changed

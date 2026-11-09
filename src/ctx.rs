@@ -1126,18 +1126,34 @@ impl Ctx {
     /// # }
     /// ```
     pub fn load_font(&mut self, path: &str) -> Font {
-        let file = assets::resolve(path).unwrap_or_else(|e| panic!("ponko: {e}"));
+        self.try_load_font(path).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// [`load_font`](Self::load_font) with errors as values:
+    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound),
+    /// [`Io`](crate::ErrorKind::Io), or [`Decode`](crate::ErrorKind::Decode)
+    /// if the file isn't a font.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let title = ctx.try_load_font("fonts/Fancy.ttf").unwrap_or(Font::DEFAULT);
+    ///     # let _ = title;
+    /// });
+    /// ```
+    pub fn try_load_font(&mut self, path: &str) -> Result<Font, crate::Error> {
+        let file = assets::resolve(path).map_err(|e| crate::Error::not_found(path, e))?;
         if let Some(&id) = self.loaded.get(&(file.clone(), AssetKind::Font)) {
-            return Font(id as u32);
+            return Ok(Font(id as u32));
         }
-        let bytes = assets::read(&file).unwrap_or_else(|e| panic!("ponko: could not read {}: {e}", file.display()));
+        let bytes = assets::read(&file).map_err(|e| crate::Error::io(path, &file, &e))?;
         let font = self
             .text
             .add_font(&bytes)
-            .unwrap_or_else(|e| panic!("ponko: {}: {e}", file.display()));
+            .map_err(|e| crate::Error::decode(path, format!("{}: {e}", file.display())))?;
         self.loaded.insert((file.clone(), AssetKind::Font), u64::from(font.0));
         self.watcher.watch(path, file, Asset::Font(font.0));
-        font
+        Ok(font)
     }
 
     /// Whether `font` is the built-in font or one this context loaded. Only
@@ -1172,17 +1188,32 @@ impl Ctx {
     /// });
     /// ```
     pub fn load_texture(&mut self, path: &str) -> Texture {
-        self.try_load_texture(path).unwrap_or_else(|e| panic!("ponko: {e}"))
+        self.try_load_texture(path).unwrap_or_else(|e| panic!("{e}"))
     }
 
-    /// [`load_texture`](Self::load_texture) with errors as values; also
-    /// names the texture, so sprites showing it can be saved.
-    pub(crate) fn try_load_texture(&mut self, path: &str) -> Result<Texture, String> {
-        let file = assets::resolve(path)?;
+    /// [`load_texture`](Self::load_texture) with errors as values, for
+    /// optional assets: [`ErrorKind::NotFound`](crate::ErrorKind::NotFound)
+    /// if the file is missing, [`Io`](crate::ErrorKind::Io) if it can't be
+    /// read, [`Decode`](crate::ErrorKind::Decode) if it isn't an image.
+    /// Like `load_texture`, it also names the texture, so sprites showing it
+    /// can be saved.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     // A missing optional skin is not a bug: fall back to no skin.
+    ///     let skin: Option<Texture> = ctx.try_load_texture("skins/gold.png").ok();
+    ///     assert!(skin.is_none());
+    /// });
+    /// ```
+    pub fn try_load_texture(&mut self, path: &str) -> Result<Texture, crate::Error> {
+        let file = assets::resolve(path).map_err(|e| crate::Error::not_found(path, e))?;
         let texture = match self.loaded.get(&(file.clone(), AssetKind::Texture)) {
             Some(&i) => self.cached_textures[i as usize],
             None => {
-                let image = assets::load_image_at(&file, path)?;
+                let bytes = assets::read(&file).map_err(|e| crate::Error::io(path, &file, &e))?;
+                let image = assets::decode_image(&bytes)
+                    .map_err(|e| crate::Error::decode(path, format!("\"{path}\" is not a valid image: {e}")))?;
                 let texture = self.create_texture(image.width, image.height, &image.rgba);
                 self.loaded
                     .insert((file.clone(), AssetKind::Texture), self.cached_textures.len() as u64);
