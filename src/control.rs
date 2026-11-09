@@ -534,6 +534,7 @@ fn render_inspector_json(ctx: &Ctx) -> Value {
         stats: ctx.render_stats(),
         passes: ctx.gpu_passes(),
         quality,
+        pipelines: ctx.pipeline_stats(),
     })
 }
 

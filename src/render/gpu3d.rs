@@ -28,14 +28,17 @@ mod draw_order;
 use crate::render::traffic::{Counted, NewBuffer, Upload};
 mod instances;
 mod passes;
+mod pipeline_cache;
 mod shadow_cache;
 mod variants;
 use super::capabilities::GpuLimits;
 pub(crate) use draw_order::StateChanges;
 use instances::{Culling, StaticBatch};
+use pipeline_cache::{Features, MaterialCache, ModuleKey, TargetKey};
 use shadow_cache::ShadowCache;
 use std::ops::Range;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
 pub(crate) use variants::{Instancing, Pass, PipelineRole, ShaderVariant, Sides};
 
 use glam::{Mat4, Vec3};
@@ -290,6 +293,11 @@ struct ShaderPipelines {
     /// built when first drawn (or by [`Renderer3D::warm_pipelines`]).
     shared: [std::sync::OnceLock<Pipelines>; 2],
     builder: SideBuilder,
+    /// The cache's counters: builds, misses, and the sets this one drops.
+    counters: Arc<pipeline_cache::Counters>,
+    /// Whether shaders draw with it: sets built for code the GPU then
+    /// rejected were never used, so dropping them invalidates nothing.
+    in_use: bool,
     /// Whether it reads the scene behind it (`scene_color`, `scene_position`,
     /// `scene_distance`): its transparent surfaces then need a copy of it.
     reads_scene: bool,
@@ -298,7 +306,13 @@ struct ShaderPipelines {
 impl ShaderPipelines {
     /// The pipelines of `variant`. One not built yet is built now, and
     /// counted in `built`.
-    fn variant(&self, variant: ShaderVariant, built: &AtomicUsize) -> &Pipelines {
+    fn variant(&self, variant: ShaderVariant) -> &Pipelines {
+        self.lookup(variant, true)
+    }
+
+    /// The pipelines of `variant`, built now if needed; `drawing`: a
+    /// frame needs them (a miss), not warming.
+    fn lookup(&self, variant: ShaderVariant, drawing: bool) -> &Pipelines {
         let side = variant.sides.index();
         let lazy = match variant.instancing {
             Instancing::Plain => return &self.sides[side],
@@ -306,13 +320,14 @@ impl ShaderPipelines {
             Instancing::Shared => &self.shared[side],
         };
         lazy.get_or_init(|| {
-            built.fetch_add(1, Ordering::Relaxed);
-            self.builder.build(variant)
+            if drawing {
+                self.counters.missed();
+            }
+            self.builder.timed_build(variant, &self.counters)
         })
     }
 
     /// Whether `variant` is built.
-    #[cfg(test)]
     fn built(&self, variant: ShaderVariant) -> bool {
         let side = variant.sides.index();
         match variant.instancing {
@@ -324,9 +339,29 @@ impl ShaderPipelines {
 
     /// Builds every variant not built yet.
     fn warm(&self) {
-        let none = AtomicUsize::new(0);
         for variant in ShaderVariant::ALL {
-            self.variant(variant, &none);
+            self.lookup(variant, false);
+        }
+    }
+
+    /// How many of its variant sets are built.
+    fn built_count(&self) -> usize {
+        ShaderVariant::ALL.iter().filter(|&&v| self.built(v)).count()
+    }
+
+    /// Render pipelines in each of its sets: one per [`PipelineRole`] some
+    /// pass draws with at its sample count.
+    fn pipelines_per_set(&self) -> usize {
+        PipelineRole::per_set(self.builder.samples > 1)
+    }
+}
+
+impl Drop for ShaderPipelines {
+    /// The last shader using these let go (a reload or a replaced shader):
+    /// its built sets are invalidated, no other shader's.
+    fn drop(&mut self) {
+        if self.in_use {
+            self.counters.invalidated(self.built_count() as u64);
         }
     }
 }
@@ -770,13 +805,14 @@ pub(crate) struct Renderer3D {
     /// shadow pass (which can't read the shadow map it draws into).
     layout: wgpu::PipelineLayout,
     shadow_pipeline_layout: wgpu::PipelineLayout,
-    /// Each shader's pipelines; 0 is the built-in shader.
-    shaders: Vec<ShaderPipelines>,
+    /// Each shader's pipelines; 0 is the built-in shader. Shaders with the
+    /// same code share one set (see `pipeline_cache.rs`).
+    shaders: Vec<Arc<ShaderPipelines>>,
+    /// The sets by key, and the counters behind `PipelineStats`.
+    cache: MaterialCache,
     /// Whether every shader builds all its variants up front (after
     /// [`Renderer3D::warm_pipelines`]), instead of when first drawn.
     warm_variants: bool,
-    /// Variants built while drawing, since [`Renderer3D::take_pipelines_built`].
-    pipelines_built: AtomicUsize,
     material_sampler: wgpu::Sampler,
     scene_layout: wgpu::BindGroupLayout,
     /// The scene bind group of passes that can't see the scene.
@@ -1181,13 +1217,33 @@ impl Renderer3D {
             anisotropy_clamp: 8,
             ..Default::default()
         });
-        let builtin = build_pipelines(
+        let mut cache = MaterialCache::new(TargetKey {
+            color: HDR_FORMAT,
+            depth: DEPTH_FORMAT,
+            velocity: taa::VELOCITY_FORMAT,
+            samples,
+        });
+        let mut builtin = build_pipelines(
             device,
             &layout,
             &shadow_pipeline_layout,
             "built-in",
             &compose_shader_storage("", decals, gi, storage_supported),
             samples,
+            &cache.counters,
+        );
+        builtin.in_use = true;
+        let builtin = Arc::new(builtin);
+        cache.insert(
+            cache.key(ModuleKey {
+                source: "".into(),
+                features: Features {
+                    decals,
+                    gi,
+                    storage: storage_supported,
+                },
+            }),
+            &builtin,
         );
         let post_shader = device.create_shader_module(wgpu::include_wgsl!("post.wgsl"));
         let texture_entry = |binding| wgpu::BindGroupLayoutEntry {
@@ -1625,8 +1681,8 @@ impl Renderer3D {
             layout,
             shadow_pipeline_layout,
             shaders: vec![builtin],
+            cache,
             warm_variants: false,
-            pipelines_built: AtomicUsize::new(0),
             material_sampler,
             scene_layout,
             no_scene,
@@ -1744,6 +1800,13 @@ impl Renderer3D {
 
     /// Compiles a screen effect from the game's WGSL; returns its id.
     pub fn create_effect(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, String> {
+        let start = crate::Instant::now();
+        let made = self.compile_effect(device, name, user);
+        self.cache.counters.compiled(start.elapsed());
+        made
+    }
+
+    fn compile_effect(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, String> {
         let source = compose_effect(user);
         check_shader(name, &source)?;
         let (module, pipeline) = build_effect(device, &self.layout, name, &source);
@@ -1755,6 +1818,13 @@ impl Renderer3D {
 
     /// Recompiles effect `id` (hot reload). On an error the old one stays.
     pub fn replace_effect(&mut self, device: &wgpu::Device, id: u32, name: &str, user: &str) -> Result<(), String> {
+        let start = crate::Instant::now();
+        let made = self.recompile_effect(device, id, name, user);
+        self.cache.counters.compiled(start.elapsed());
+        made
+    }
+
+    fn recompile_effect(&mut self, device: &wgpu::Device, id: u32, name: &str, user: &str) -> Result<(), String> {
         let source = compose_effect(user);
         check_shader(name, &source)?;
         if let Some(pipeline) = self.effect_pipelines.get_mut(id as usize) {
@@ -1989,6 +2059,13 @@ impl Renderer3D {
     }
     /// Compiles a compute pass from the game's WGSL; returns its id.
     pub fn create_compute(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, String> {
+        let start = crate::Instant::now();
+        let made = self.compile_compute(device, name, user);
+        self.cache.counters.compiled(start.elapsed());
+        made
+    }
+
+    fn compile_compute(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, String> {
         let source = compose_compute(user);
         check_shader(name, &source)?;
         let layouts = if defines(user, "update") {
@@ -2014,6 +2091,13 @@ impl Renderer3D {
 
     /// Recompiles compute pass `id` (hot reload). On an error the old one stays.
     pub fn replace_compute(&mut self, device: &wgpu::Device, id: u32, name: &str, user: &str) -> Result<(), String> {
+        let start = crate::Instant::now();
+        let made = self.recompile_compute(device, id, name, user);
+        self.cache.counters.compiled(start.elapsed());
+        made
+    }
+
+    fn recompile_compute(&mut self, device: &wgpu::Device, id: u32, name: &str, user: &str) -> Result<(), String> {
         let source = compose_compute(user);
         check_shader(name, &source)?;
         let layouts = if defines(user, "update") {
@@ -2063,13 +2147,15 @@ impl Renderer3D {
         name: &str,
         user: &str,
     ) -> Result<u32, Box<ShaderDiagnostic>> {
-        let pipelines = self.material_pipelines(device, name, user)?;
+        let pipelines = self.material_pipelines(device, name, user, None)?;
         self.shaders.push(pipelines);
         self.shadow_cache.shaders.push(ShadowCache::shader_traits(user));
         Ok(self.shaders.len() as u32 - 1)
     }
 
     /// Recompiles shader `id` (hot reload). On an error the old one stays.
+    /// Only `id`'s pipelines change: its old set is dropped (unless another
+    /// shader shares it), and every other shader keeps its own.
     pub fn replace_shader(
         &mut self,
         device: &wgpu::Device,
@@ -2077,7 +2163,7 @@ impl Renderer3D {
         name: &str,
         user: &str,
     ) -> Result<(), Box<ShaderDiagnostic>> {
-        let pipelines = self.material_pipelines(device, name, user)?;
+        let pipelines = self.material_pipelines(device, name, user, Some(id))?;
         self.shaders[id as usize] = pipelines;
         self.shadow_cache.shaders[id as usize] = ShadowCache::shader_traits(user);
         self.shadow_cache.invalidate();
@@ -2085,9 +2171,51 @@ impl Renderer3D {
     }
 
     /// Checks and builds a material shader's pipelines for this device's
-    /// variant. Pipeline errors (a binding the layout doesn't have) come
-    /// back as an error instead of breaking the device.
+    /// variant, or shares the ones a shader with the same code already
+    /// built (see `pipeline_cache.rs`). Pipeline errors (a binding the
+    /// layout doesn't have) come back as an error instead of breaking the
+    /// device.
     fn material_pipelines(
+        &mut self,
+        device: &wgpu::Device,
+        name: &str,
+        user: &str,
+        replacing: Option<u32>,
+    ) -> Result<Arc<ShaderPipelines>, Box<ShaderDiagnostic>> {
+        let storage = self.storage_read.is_some();
+        let (decals, gi) = (self.frame_sources.decals, self.frame_sources.gi);
+        let key = self.cache.key(ModuleKey {
+            source: user.into(),
+            features: Features { decals, gi, storage },
+        });
+        if let Some(shared) = self.cache.get(&key) {
+            // A reload with unchanged code finds its own set: nothing shared.
+            let own = replacing
+                .and_then(|id| self.shaders.get(id as usize))
+                .is_some_and(|current| Arc::ptr_eq(current, &shared));
+            if !own {
+                self.cache.counters.shared();
+            }
+            if self.warm_variants {
+                shared.warm();
+            }
+            return Ok(shared);
+        }
+        let start = crate::Instant::now();
+        let built = self.compile_material(device, name, user);
+        self.cache.counters.compiled(start.elapsed());
+        let mut built = built?;
+        // Its builds count once the GPU accepted it; rejected code's don't.
+        self.cache.counters.add_builds(&built.counters);
+        built.counters = self.cache.counters.clone();
+        built.in_use = true;
+        let built = Arc::new(built);
+        self.cache.insert(key, &built);
+        Ok(built)
+    }
+
+    /// Compiles a material shader that no other shader shares.
+    fn compile_material(
         &self,
         device: &wgpu::Device,
         name: &str,
@@ -2111,6 +2239,8 @@ impl Renderer3D {
             name,
             &source,
             self.samples,
+            // Its own until the GPU accepts it (see `material_pipelines`).
+            &Arc::default(),
         );
         pipelines.reads_scene = reads_scene(user);
         if self.warm_variants {
@@ -2173,6 +2303,11 @@ impl Renderer3D {
             if material.shader == id {
                 material.shader = 0;
             }
+        }
+        // Its pipelines go too, unless another shader shares them.
+        let builtin = self.shaders[0].clone();
+        if let Some(slot) = self.shaders.get_mut(id as usize) {
+            *slot = builtin;
         }
     }
 
@@ -2386,15 +2521,24 @@ impl Renderer3D {
         variant: ShaderVariant,
         role: PipelineRole,
     ) -> Option<&wgpu::RenderPipeline> {
-        self.shaders[id as usize]
-            .variant(variant, &AtomicUsize::new(0))
-            .role(role)
+        self.shaders[id as usize].lookup(variant, false).role(role)
     }
 
     /// How many pipeline variants frames built while drawing since the last
     /// call (each one a hitch; see [`Renderer3D::warm_pipelines`]).
     pub fn take_pipelines_built(&self) -> usize {
-        self.pipelines_built.swap(0, Ordering::Relaxed)
+        self.cache.counters.frame_misses.swap(0, Ordering::Relaxed) as usize
+    }
+
+    /// The pipeline cache's counters and what it holds now.
+    pub fn pipeline_stats(&self) -> crate::PipelineStats {
+        self.cache.stats()
+    }
+
+    /// Every material pipeline key built so far (tests).
+    #[cfg(test)]
+    pub(crate) fn built_pipeline_keys(&self) -> Vec<pipeline_cache::PipelineKey> {
+        self.cache.built_keys()
     }
 
     /// Changes material `id` in place: every model using it changes.
@@ -4643,6 +4787,8 @@ impl Renderer3D {
         batch: Option<(&StaticBatch, usize)>,
     ) {
         let mut n = StateChanges::default();
+        // Pipeline lookups, added to the cache's counters once at the end.
+        let mut lookups = 0;
         pass.set_vertex_buffer(1, instances.slice(..));
         n.vertex_buffers += 1;
         if let Some(dummy) = &self.storage_dummy {
@@ -4703,7 +4849,8 @@ impl Renderer3D {
                 // pipelines are built the first time they're drawn, unless
                 // `warm_pipelines` built them while loading).
                 let variant = ShaderVariant::new(Sides::of(m.double_sided), Instancing::of(fading, storage.is_some()));
-                let Some(pipeline) = shader.variant(variant, &self.pipelines_built).role(role) else {
+                lookups += 1;
+                let Some(pipeline) = shader.variant(variant).role(role) else {
                     continue;
                 };
                 if bound != Some(pipeline as *const _) {
@@ -4788,6 +4935,7 @@ impl Renderer3D {
             }
         }
         self.state_counters.add(&n);
+        self.cache.counters.looked_up(lookups);
     }
 }
 
@@ -5024,6 +5172,7 @@ fn build_pipelines(
     name: &str,
     source: &str,
     samples: u32,
+    counters: &Arc<pipeline_cache::Counters>,
 ) -> ShaderPipelines {
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some(name),
@@ -5037,10 +5186,12 @@ fn build_pipelines(
         samples,
     };
     ShaderPipelines {
-        sides: Sides::ALL.map(|sides| builder.build(ShaderVariant::new(sides, Instancing::Plain))),
+        sides: Sides::ALL.map(|sides| builder.timed_build(ShaderVariant::new(sides, Instancing::Plain), counters)),
         fade: Default::default(),
         shared: Default::default(),
         builder,
+        counters: counters.clone(),
+        in_use: false,
         reads_scene: false,
     }
 }
@@ -5109,6 +5260,14 @@ struct SideBuilder {
 }
 
 impl SideBuilder {
+    /// [`SideBuilder::build`], timed into `counters`.
+    fn timed_build(&self, variant: ShaderVariant, counters: &pipeline_cache::Counters) -> Pipelines {
+        let start = crate::Instant::now();
+        let pipelines = self.build(variant);
+        counters.built(start.elapsed());
+        pipelines
+    }
+
     /// The pipeline set of `variant`: its sides pick the culling, its
     /// instancing the instance buffer's stride and (crossfading) the
     /// dithering fragment entry points; each role's entry points come from

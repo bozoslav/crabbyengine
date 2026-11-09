@@ -268,6 +268,15 @@ impl Renderer {
         self.stats
     }
 
+    /// The pipeline cache's counters; all zero before any 3D.
+    pub fn pipeline_stats(&self) -> super::PipelineStats {
+        #[cfg(feature = "3d")]
+        if let Some(three) = &self.three {
+            return three.pipeline_stats();
+        }
+        super::PipelineStats::default()
+    }
+
     /// See `Renderer3D::mesh_costs`; empty before any 3D.
     #[cfg(feature = "3d")]
     pub fn mesh_costs(&self) -> Vec<(u32, usize, usize, usize, usize)> {

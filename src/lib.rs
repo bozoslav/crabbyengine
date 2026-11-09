@@ -171,7 +171,9 @@ pub use physics3d::{
 pub use profiler::{FrameStats, GpuPass};
 pub use random::{DEFAULT_SEED, Random, Rng};
 pub use reflect::{Field, FieldType, ReflectError, WorldReflect};
-pub use render::{GpuAdapter, GpuCapabilities, GpuFeature, GpuFeatureStatus, GpuLimits, GpuUploads, RenderStats};
+pub use render::{
+    GpuAdapter, GpuCapabilities, GpuFeature, GpuFeatureStatus, GpuLimits, GpuUploads, PipelineStats, RenderStats,
+};
 pub use residency::{ResidencyKind, ResidencyStats};
 pub use schema::ValueSchema;
 pub use scope::{ProfileScope, ScopeGuard, ScopeTiming, scope_named};

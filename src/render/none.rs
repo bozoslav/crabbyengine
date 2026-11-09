@@ -13,6 +13,9 @@ impl Renderer {
     pub fn stats(&self) -> RenderStats {
         match *self {}
     }
+    pub fn pipeline_stats(&self) -> super::PipelineStats {
+        match *self {}
+    }
     pub fn take_screenshot(&mut self) -> Option<Screenshot> {
         match *self {}
     }
