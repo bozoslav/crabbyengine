@@ -16,6 +16,8 @@ struct Rig {
     textures: Vec<GpuTexture>,
     renderer: Renderer3D,
     ctx: Ctx,
+    /// Asks the next frame to forget the history (`reset_temporal_history`).
+    reset_history: bool,
 }
 
 impl Rig {
@@ -129,6 +131,7 @@ impl Rig {
             textures,
             renderer,
             ctx,
+            reset_history: false,
         })
     }
 
@@ -158,6 +161,7 @@ impl Rig {
         let ctx = &mut self.ctx;
         let mut frame = Frame3D::default();
         frame.lod = ctx.lod;
+        frame.motion.reset = std::mem::take(&mut self.reset_history);
         frame.collect(
             &mut ctx.world,
             &ctx.assets3d,
@@ -527,4 +531,58 @@ fn reflection_filter_gpu_cost() {
         median(&mut trace),
         with - without
     );
+}
+
+#[test]
+fn a_history_reset_drops_the_last_frames_image_from_the_reflections() {
+    let Some((mut rig, reflection, _)) = mirror_rig() else {
+        return;
+    };
+    // A dark box far off to the side, to swap with the glowing one.
+    let shade = rig.mesh(
+        &MeshData::cube(1.0),
+        MaterialDesc {
+            color: Color::BLACK,
+            roughness: 1.0,
+            ..Default::default()
+        },
+    );
+    rig.ctx
+        .world
+        .spawn((Transform3D::at(vec3(30.0, 1.0, 0.0)), Model::new(shade)));
+    let view_proj = rig.ctx.camera3d.view_proj();
+    let red = |pixels: &[u8]| {
+        let (x, y) = pixel(view_proj, reflection);
+        i32::from(pixels[((y * SIZE + x) * 4) as usize])
+    };
+    let swap = |rig: &mut Rig| {
+        rig.ctx.world.query::<&mut Transform3D>().for_each(|t| {
+            if t.position.y == 1.0 {
+                t.position.x = if t.position.x == 0.0 { 30.0 } else { 0.0 };
+            }
+        });
+    };
+    rig.ctx.post.ssr = 1.0;
+    rig.draw();
+    let settled = red(&rig.draw());
+    assert!(settled > 120, "the glowing box is reflected: {settled}");
+    // Negative control: swapped without a reset, the dark box is reflected
+    // in the colors the last frame had there.
+    swap(&mut rig);
+    let stale = red(&rig.draw());
+    let next = red(&rig.draw());
+    eprintln!("reflection: settled {settled}, swapped without a reset {stale}, a frame later {next}");
+    assert!(stale > 120, "the stale image shows the old box: {stale}");
+    assert!(next < 40, "and the next frame the dark one: {next}");
+    swap(&mut rig);
+    rig.draw();
+    assert!(red(&rig.draw()) > 120, "the glowing box is back");
+    // With a reset the swap frame reflects no old colors.
+    swap(&mut rig);
+    rig.reset_history = true;
+    let reset = red(&rig.draw());
+    let after = red(&rig.draw());
+    eprintln!("reflection: swapped with a reset {reset}, a frame later {after}");
+    assert!(reset < 40, "a reset frame reflects nothing stale: {reset}");
+    assert!(after < 40, "and the next shows the dark box: {after}");
 }

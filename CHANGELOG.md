@@ -42,6 +42,15 @@ says what that covers.
   `load_component_json_named` and `load_resource_json_named`; they are hidden
   from the docs.
 
+### Fixed
+- Temporal history resets are decided once per frame for every effect that
+  reuses earlier frames (TAA, temporal AO, screen-space reflections and
+  motion vectors): `Ctx::reset_temporal_history` now also drops the
+  reflections' last image, a model teleported on a reset frame has no
+  motion, and a reset asked for on a frame that draws nothing applies to
+  the next drawn frame. Resizes, render scale changes and effect switches
+  reset all of them alike.
+
 ## [0.0.1] - 2026-11-08
 
 ### Changed
