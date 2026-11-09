@@ -96,7 +96,10 @@ uses `include/ponko.h`, `include/ponko.hpp`, and `PONKO_*` settings. See
    Broader guide chapters, C/C++ bindings and paired examples are welcome but
    **not required from every contributor**. Mention follow-up needs you notice;
    maintainers will help identify and own the rest.
-4. Run relevant checks, then open a PR to `main` describing the change and
+4. If users will notice the change, add a changelog fragment,
+   `changelog.d/<pr-or-topic>.md`, instead of editing `CHANGELOG.md`
+   directly (see [changelog.d/README.md](changelog.d/README.md)).
+5. Run relevant checks, then open a PR to `main` describing the change and
    what you checked. It is fine to open a draft early for feedback.
 
 ### Checks: start with your change
@@ -118,7 +121,9 @@ Maintainers/agents use the full integration commands in
 Clippy, relevant native checks and Miri for affected unsafe ECS code. Required
 CI must pass before merge; focused local checks do not waive compatibility,
 correctness, privacy or leak checks. The exact platform/feature matrix is in
-[ci.yml](.github/workflows/ci.yml).
+[ci.yml](.github/workflows/ci.yml): a pull request runs the fast Linux jobs,
+and the full macOS/Windows/feature matrix runs in the merge queue before the
+change lands (maintainers can add the `full-ci` label to run it on the PR).
 
 ### Performance changes
 
