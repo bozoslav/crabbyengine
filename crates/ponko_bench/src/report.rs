@@ -170,7 +170,7 @@ pub fn to_json(env: &Env, records: &[Record]) -> String {
     let _ = writeln!(s, "    \"logical_cores\": {},", env.logical_cores);
     let _ = writeln!(s, "    \"rayon_threads\": {},", env.rayon_threads);
     let _ = writeln!(s, "    \"debug_assertions\": {},", env.debug_assertions);
-    let _ = writeln!(s, "    \"ponko_features\": [\"physics\", \"physics3d\"],");
+    let _ = writeln!(s, "    \"ponko_features\": [\"physics\", \"physics3d\", \"navmesh\"],");
     let _ = writeln!(s, "    \"bevy_ecs\": {},", json_str(BEVY_ECS_VERSION));
     let _ = writeln!(s, "    \"hecs\": {},", json_str(HECS_VERSION));
     let filter = env.filter.as_deref().map_or_else(|| "null".to_owned(), json_str);
