@@ -1041,7 +1041,7 @@ impl Ctx {
     /// ```
     #[must_use]
     pub fn models_drawn(&self) -> usize {
-        self.frame3d.instances.len()
+        self.frame3d.drawn
     }
 
     /// Makes TAA, temporal ambient occlusion and screen-space reflections

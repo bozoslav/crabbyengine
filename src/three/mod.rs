@@ -47,6 +47,7 @@ pub(crate) mod probe;
 pub use probe::ReflectionProbe3D;
 mod quality;
 mod resident;
+mod retained;
 mod skin;
 pub(crate) mod strips;
 pub use strips::{Line3D, Trail3D};
