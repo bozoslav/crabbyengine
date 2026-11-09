@@ -38,7 +38,7 @@ pub struct Art {
 
 /// Where the round stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Phase {
+pub enum RoundState {
     Playing,
     Won,
     Lost,
@@ -47,7 +47,7 @@ pub enum Phase {
 /// Round bookkeeping. One resource, so tests and tools can read it directly.
 #[derive(Debug, Clone)]
 pub struct Round {
-    pub phase: Phase,
+    pub phase: RoundState,
     pub collected: usize,
     pub time_left: f32,
     /// 1 for the first round, +1 for every restart.
@@ -182,7 +182,7 @@ pub fn new_round(ctx: &mut Ctx, number: u32) {
         ctx.world.spawn((transform, sprite, Coin));
     }
     ctx.world.insert_resource(Round {
-        phase: Phase::Playing,
+        phase: RoundState::Playing,
         collected: 0,
         time_left: ROUND_SECONDS,
         number,
@@ -200,7 +200,7 @@ pub fn rules(ctx: &mut Ctx) {
         new_round(ctx, next);
         return;
     }
-    if ctx.world.resource::<Round>().phase != Phase::Playing {
+    if ctx.world.resource::<Round>().phase != RoundState::Playing {
         return; // Won or lost: wait for a restart.
     }
 
@@ -229,9 +229,9 @@ pub fn rules(ctx: &mut Ctx) {
     round.collected += touched.len();
     round.time_left = (round.time_left - dt).max(0.0);
     if round.collected >= COINS {
-        round.phase = Phase::Won;
+        round.phase = RoundState::Won;
     } else if round.time_left <= 0.0 {
-        round.phase = Phase::Lost;
+        round.phase = RoundState::Lost;
     }
 }
 
@@ -244,9 +244,9 @@ pub fn hud(ctx: &mut Ctx) {
     );
     ctx.draw_text(&status, vec2(12.0, 8.0), 20.0, Color::WHITE);
     let banner = match round.phase {
-        Phase::Playing => None,
-        Phase::Won => Some(("You win!", Color::hex(0x8ac926))),
-        Phase::Lost => Some(("Time's up", Color::hex(0xff595e))),
+        RoundState::Playing => None,
+        RoundState::Won => Some(("You win!", Color::hex(0x8ac926))),
+        RoundState::Lost => Some(("Time's up", Color::hex(0xff595e))),
     };
     if let Some((text, color)) = banner {
         ctx.draw_text(text, vec2(ARENA.x / 2.0 - 90.0, ARENA.y / 2.0 - 40.0), 40.0, color);
