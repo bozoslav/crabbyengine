@@ -118,10 +118,23 @@ What you can ask for (Rust):
 | `&mut T` | write access to `T` |
 | `Option<&T>`, `Option<&mut T>` | the component if present; doesn't filter |
 | `Entity` | the entity's id |
-| a tuple of the above | all of them, up to 8 |
+| a tuple of the above | all of them, up to 12 (nest tuples for more) |
 
 Filters `with::<T>()` and `without::<T>()` narrow the match without fetching
-data. Asking for the same component twice with `&mut` panics.
+data. For "either" matches, or a filter you reuse across systems, pass a typed
+filter to `filter::<F>()`: `With<T>`, `Without<T>`, `Or<(...)>`, or a tuple of
+them that must all hold:
+
+```rust
+# struct Player;
+# struct Enemy;
+# struct Dead;
+# struct Health(f32);
+type Living = (Or<(With<Player>, With<Enemy>)>, Without<Dead>);
+world.query::<&mut Health>().filter::<Living>().for_each(|h| h.0 -= 1.0);
+```
+
+Asking for the same component twice with `&mut` (or `Option<&mut T>`) panics.
 
 Ways to run a query:
 

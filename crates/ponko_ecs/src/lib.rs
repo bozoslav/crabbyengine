@@ -50,6 +50,6 @@ pub use access::AccessLog;
 pub use bundle::{Bundle, Component};
 pub use commands::Commands;
 pub use entity::Entity;
-pub use query::{Query, QueryData, QueryIter};
+pub use query::{Or, OrTerm, OrTerms, Query, QueryData, QueryFilter, QueryIter, With, Without};
 pub use storage::{Archetype, ComponentId, ComponentInfo, DropFn};
 pub use world::{Chunk, World};
