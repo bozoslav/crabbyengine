@@ -98,6 +98,20 @@ impl Project {
         self.guids.get(path).map(String::as_str)
     }
 
+    /// The GUID of an asset whose file is named `name` (any case), anywhere
+    /// in the project; the first by path when several are.
+    pub(crate) fn find_by_file_name(&self, name: &str) -> Option<&str> {
+        self.guids
+            .iter()
+            .filter(|(p, _)| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.eq_ignore_ascii_case(name))
+            })
+            .min_by(|a, b| a.0.cmp(b.0))
+            .map(|(_, g)| g.as_str())
+    }
+
     /// Reads and parses the asset with this GUID (Unity text or binary).
     ///
     /// # Errors

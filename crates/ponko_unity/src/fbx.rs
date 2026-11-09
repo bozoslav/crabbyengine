@@ -4,11 +4,12 @@
 //! the winding turned to match, scaled to meters (`useFileScale`) and by
 //! `globalScale`, a submesh per material.
 
-use std::collections::HashMap;
-use std::path::Path;
+use std::collections::{BTreeMap, HashMap};
+use std::path::{Path, PathBuf};
 
+use crate::material::{Surface, TextureProperty, UnityMaterial};
 use crate::mesh::{BlendShape, MeshSkin, SkinNode, influences};
-use crate::{Error, UnityMesh};
+use crate::{Error, ObjRef, Project, UnityMesh};
 
 /// A model file, loaded once for every mesh taken from it.
 pub(crate) struct ModelFile {
@@ -21,6 +22,27 @@ pub(crate) struct ModelFile {
     /// permutation, the mirror included).
     to_unity: [[f64; 3]; 3],
     clips: Vec<Clip>,
+    /// The file, for finding its textures.
+    path: PathBuf,
+    /// Material sub-asset ids (what renderers use) to names.
+    material_names: HashMap<i64, String>,
+    /// The model's materials the `.meta` maps to material assets of the
+    /// project (`externalObjects`), by name.
+    remaps: HashMap<String, ObjRef>,
+    /// Whether Unity makes materials from the file's (`materialImportMode`
+    /// isn't None).
+    import_materials: bool,
+    /// Whether textures are looked for in the whole project too
+    /// (`searchTexturesGlobally`, or `materialSearch` Everywhere).
+    search_everywhere: bool,
+}
+
+/// A material of a model file, as Unity's model importer gives it.
+pub(crate) enum ModelMaterial {
+    /// Mapped to a material asset of the project (`externalObjects`).
+    Remapped(ObjRef),
+    /// Made from the file's own.
+    Embedded(Box<UnityMaterial>),
 }
 
 impl ModelFile {
@@ -52,7 +74,7 @@ impl ModelFile {
         } else {
             MIRROR_X
         };
-        let mut names = mesh_names(&meta);
+        let mut names = sub_asset_names(&meta, 43);
         // Unity 2019.3+ leaves the table empty and derives ids from names:
         // xxHash64 of "Type:Mesh->" + name + how many came before by that name.
         let mut count: HashMap<String, usize> = HashMap::new();
@@ -62,13 +84,54 @@ impl ModelFile {
             names.entry(hashed_id("Mesh", &name, *k)).or_insert(name);
             *k += 1;
         }
+        let mut material_names = sub_asset_names(&meta, 21);
+        let mut count: HashMap<String, usize> = HashMap::new();
+        for material in &scene.materials {
+            let name = material.element.name.to_string();
+            let k = count.entry(name.clone()).or_default();
+            material_names.entry(hashed_id("Material", &name, *k)).or_insert(name);
+            *k += 1;
+        }
+        let parsed = crate::value::parse(&meta).unwrap_or(crate::Value::Null);
+        let importer = &parsed["ModelImporter"];
+        let settings = &importer["materials"];
         Ok(Self {
             scene,
             names,
             scale,
             to_unity,
             clips: clips(&meta),
+            path: path.to_path_buf(),
+            material_names,
+            remaps: remaps(importer),
+            import_materials: settings["materialImportMode"].as_i64() != Some(0),
+            search_everywhere: settings["searchTexturesGlobally"].as_i64() == Some(1)
+                || settings["materialSearch"].as_i64() == Some(2),
         })
+    }
+
+    /// The material with sub-asset id `file_id`: the project's material
+    /// the `.meta` maps it to, or one made from the file's the way Unity's
+    /// model importer makes it for the Universal Render Pipeline (base
+    /// color and texture, normal map, emission, smoothness from
+    /// shininess, transparency from opacity). Textures are looked for as
+    /// Unity does (see [`find_texture`]). `None` when the model has no
+    /// such material.
+    pub(crate) fn material(&self, file_id: i64, project: &Project) -> Option<ModelMaterial> {
+        let name = self.material_names.get(&file_id)?;
+        if let Some(to) = self.remaps.get(name) {
+            return Some(ModelMaterial::Remapped(to.clone()));
+        }
+        if !self.import_materials {
+            return None;
+        }
+        let m = self.scene.materials.iter().find(|m| m.element.name == name.as_str())?;
+        Some(ModelMaterial::Embedded(Box::new(embedded_material(
+            m,
+            &self.path,
+            self.search_everywhere,
+            project,
+        ))))
     }
 
     /// The mesh with sub-asset id `file_id`, in Unity's space.
@@ -423,7 +486,13 @@ fn clips(meta: &str) -> Vec<Clip> {
     let Some(doc) = docs.first() else {
         return Vec::new();
     };
-    let Some(list) = doc["ModelImporter"]["clipAnimations"].as_vec() else {
+    // Unity writes them under `animations:`; very old files had them
+    // directly under the importer.
+    let importer = &doc["ModelImporter"];
+    let Some(list) = importer["animations"]["clipAnimations"]
+        .as_vec()
+        .or_else(|| importer["clipAnimations"].as_vec())
+    else {
         return Vec::new();
     };
     let number = |v: &yaml_rust2::Yaml| v.as_f64().or_else(|| v.as_i64().map(|n| n as f64)).unwrap_or(0.0);
@@ -437,6 +506,219 @@ fn clips(meta: &str) -> Vec<Clip> {
                 || c["loop"].as_bool().unwrap_or_else(|| number(&c["loop"]) != 0.0),
         })
         .collect()
+}
+
+/// The importer's `externalObjects` that map the model's materials to
+/// material assets: name to the asset.
+fn remaps(importer: &crate::Value) -> HashMap<String, ObjRef> {
+    importer["externalObjects"]
+        .as_seq()
+        .unwrap_or_default()
+        .iter()
+        .filter(|e| e["first"]["type"].as_str().is_some_and(|t| t.ends_with(":Material")))
+        .filter_map(|e| {
+            let to = e["second"].obj_ref().filter(|r| !r.is_none())?;
+            Some((e["first"]["name"].as_str()?.to_owned(), to))
+        })
+        .collect()
+}
+
+/// The GUID of the Universal Render Pipeline's Lit shader, which Unity
+/// gives the materials it makes from a model's when that pipeline is on.
+const URP_LIT: &str = "933532a4fcc9baf4fa0491de14d08ed7";
+
+/// A model's material as Unity makes it from the file's properties: the
+/// Universal Render Pipeline's rules for model material descriptions
+/// (`DiffuseColor` texture or color, `Bump` or `NormalMap`,
+/// `EmissiveColor`, `Shininess`, `Opacity` or `TransparencyFactor`).
+fn embedded_material(m: &ufbx::Material, model: &Path, everywhere: bool, project: &Project) -> UnityMaterial {
+    let prop = |name: &str| m.element.props.find_prop(name);
+    let number = |name: &str| prop(name).map(|p| p.value_vec4.x as f32);
+    let vector = |name: &str| {
+        prop(name).map(|p| {
+            let v = p.value_vec4;
+            [v.x as f32, v.y as f32, v.z as f32, v.w as f32]
+        })
+    };
+    let texture = |name: &str| {
+        m.find_prop_texture(name).and_then(|t| {
+            find_texture(project, model, &t.relative_filename, &t.filename, everywhere).map(|guid| ObjRef {
+                file_id: 2_800_000,
+                guid: Some(guid),
+                kind: Some(3),
+            })
+        })
+    };
+    // Opacity, else one minus the transparency factor or color.
+    let mut opacity = number("Opacity").unwrap_or_else(|| match number("TransparencyFactor") {
+        Some(f) if f != 1.0 => 1.0 - f,
+        _ => 1.0,
+    });
+    if prop("Opacity").is_none()
+        && opacity == 1.0
+        && let Some(c) = vector("TransparentColor")
+        && c[0] != 1.0
+    {
+        opacity = 1.0 - c[0];
+    }
+    let transparent = opacity < 1.0 || (opacity == 1.0 && m.find_prop_texture("TransparentColor").is_some());
+    let base_map = texture("DiffuseColor");
+    let color = if base_map.is_some() {
+        let f = number("DiffuseFactor").unwrap_or(1.0);
+        [f, f, f, opacity]
+    } else {
+        // The file's colors are linear; Unity keeps material colors sRGB.
+        let c = vector("DiffuseColor").unwrap_or([1.0; 4]);
+        [
+            linear_to_srgb(c[0]),
+            linear_to_srgb(c[1]),
+            linear_to_srgb(c[2]),
+            opacity,
+        ]
+    };
+    let normal_map = texture("Bump").or_else(|| texture("NormalMap"));
+    let normal_scale = number("BumpFactor").filter(|_| normal_map.is_some()).unwrap_or(1.0);
+    let factor = number("EmissiveFactor").unwrap_or(0.0);
+    let emission_map = texture("EmissiveColor");
+    let emission = if emission_map.is_some() {
+        if factor > 0.0 { [1.0; 3] } else { [0.0; 3] }
+    } else {
+        match vector("EmissiveColor") {
+            Some(c) if factor > 0.0 && (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]) > 0.0 => {
+                [c[0] * factor, c[1] * factor, c[2] * factor]
+            }
+            _ => [0.0; 3],
+        }
+    };
+    let smoothness = number("Shininess").map_or(0.0, |s| (s * 0.01).max(0.0).sqrt());
+    let mut textures = BTreeMap::new();
+    for (key, map) in [
+        ("_BaseMap", &base_map),
+        ("_BumpMap", &normal_map),
+        ("_EmissionMap", &emission_map),
+    ] {
+        if let Some(r) = map {
+            textures.insert(
+                key.to_owned(),
+                TextureProperty {
+                    texture: r.clone(),
+                    scale: [1.0; 2],
+                    offset: [0.0; 2],
+                },
+            );
+        }
+    }
+    let surface = if transparent { 1.0 } else { 0.0 };
+    let floats = BTreeMap::from([
+        ("_BumpScale".to_owned(), normal_scale),
+        ("_Smoothness".to_owned(), smoothness),
+        ("_Metallic".to_owned(), 0.0),
+        ("_Surface".to_owned(), surface),
+    ]);
+    let colors = BTreeMap::from([
+        ("_BaseColor".to_owned(), color),
+        (
+            "_EmissionColor".to_owned(),
+            [emission[0], emission[1], emission[2], 1.0],
+        ),
+    ]);
+    let urp = project.path_of(URP_LIT).is_some();
+    UnityMaterial {
+        name: m.element.name.to_string(),
+        shader: urp.then(|| URP_LIT.to_owned()),
+        // Unity's Standard shader without the pipeline.
+        shader_file_id: if urp { 4_800_000 } else { 46 },
+        color,
+        base_map,
+        tiling: [1.0; 2],
+        offset: [0.0; 2],
+        normal_map,
+        normal_scale,
+        metallic: 0.0,
+        smoothness,
+        metallic_map: None,
+        smoothness_in_base_alpha: false,
+        occlusion_map: None,
+        occlusion_strength: 1.0,
+        emission,
+        emission_map: emission_map.filter(|_| emission != [0.0; 3]),
+        surface: if transparent {
+            Surface::Transparent
+        } else {
+            Surface::Opaque
+        },
+        double_sided: false,
+        floats,
+        colors,
+        textures,
+    }
+}
+
+/// The GUID of the texture a model's material names (`relative`, the
+/// path saved in the file, relative to it, and `saved`, the path as
+/// resolved), found the way Unity's model importer finds it: that path,
+/// then by its file name in the model's folder, in a `Textures` folder
+/// there and in every folder above it up to `Assets`, then (when
+/// `everywhere`) anywhere in the project.
+fn find_texture(project: &Project, model: &Path, relative: &str, saved: &str, everywhere: bool) -> Option<String> {
+    let dir = model.parent()?;
+    let file_name = |p: &str| {
+        p.rsplit(['/', '\\'])
+            .next()
+            .filter(|n| !n.is_empty())
+            .map(str::to_owned)
+    };
+    let name = file_name(relative).or_else(|| file_name(saved))?;
+    let mut tries: Vec<PathBuf> = Vec::new();
+    if !relative.is_empty() {
+        tries.push(dir.join(relative.replace('\\', "/")));
+    }
+    tries.push(dir.join(&name));
+    let assets = project.root().join("Assets");
+    let mut at = Some(dir);
+    while let Some(d) = at {
+        tries.push(d.join("Textures").join(&name));
+        if d == assets || !d.starts_with(project.root()) {
+            break;
+        }
+        at = d.parent();
+    }
+    tries
+        .iter()
+        .find_map(|p| project.guid_of(&normalize(p)))
+        .map(str::to_owned)
+        .or_else(|| {
+            everywhere
+                .then(|| project.find_by_file_name(&name))
+                .flatten()
+                .map(str::to_owned)
+        })
+}
+
+/// `path` with `.` and `..` parts folded away.
+fn normalize(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for part in path.components() {
+        match part {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+/// Unity's `Mathf.LinearToGammaSpace`: a linear color channel as sRGB.
+fn linear_to_srgb(c: f32) -> f32 {
+    if c <= 0.0 {
+        0.0
+    } else if c <= 0.003_130_8 {
+        c * 12.92
+    } else {
+        1.055 * c.powf(1.0 / 2.4) - 0.055
+    }
 }
 
 /// Unity's handedness change alone: X negated.
@@ -478,10 +760,13 @@ fn hashed_id(type_name: &str, name: &str, index: usize) -> i64 {
     xxhash_rust::xxh64::xxh64(format!("Type:{type_name}->{name}{index}").as_bytes(), 0) as i64
 }
 
-/// Mesh sub-asset ids to names from a model's `.meta`: Unity 2019.3+
-/// `internalIDToNameTable` (`first: {43: id}`, `second: name`), or the
-/// older `fileIDToRecycleName` (`4300002: name`).
-fn mesh_names(meta: &str) -> HashMap<i64, String> {
+/// Sub-asset ids of class `class` (43 meshes, 21 materials) to names from
+/// a model's `.meta`: Unity 2019.3+ `internalIDToNameTable` (`first: {43:
+/// id}`, `second: name`), or the older `fileIDToRecycleName` (`4300002:
+/// name`, ids from the class times 100000).
+fn sub_asset_names(meta: &str, class: i64) -> HashMap<i64, String> {
+    let ids = class * 100_000..(class + 1) * 100_000;
+    let key = format!("{class}: ");
     let mut names = HashMap::new();
     let mut pending: Option<i64> = None;
     let mut recycle = false;
@@ -495,7 +780,7 @@ fn mesh_names(meta: &str) -> HashMap<i64, String> {
             match t.split_once(": ") {
                 Some((id, name)) if line.starts_with("    ") => {
                     if let Ok(id) = id.parse::<i64>()
-                        && (4_300_000..4_400_000).contains(&id)
+                        && ids.contains(&id)
                     {
                         names.insert(id, name.to_string());
                     }
@@ -504,7 +789,7 @@ fn mesh_names(meta: &str) -> HashMap<i64, String> {
                 _ => recycle = false,
             }
         }
-        if let Some(id) = t.strip_prefix("43: ") {
+        if let Some(id) = t.strip_prefix(key.as_str()) {
             pending = id.trim().parse().ok();
         } else if let Some(name) = t.strip_prefix("second: ")
             && let Some(id) = pending.take()
@@ -591,8 +876,10 @@ mod tests {
 
     #[test]
     fn meta_clips_preserve_frame_ranges_names_and_loop_flags() {
+        let old = clips("ModelImporter:\n  clipAnimations:\n  - name: Old\n    firstFrame: 1\n    lastFrame: 2\n");
+        assert_eq!(old.len(), 1, "very old files keep them under the importer");
         let clips = clips(
-            "ModelImporter:\n  clipAnimations:\n  - name: Walk\n    takeName: Take 001\n    firstFrame: 12\n    lastFrame: 24\n    loopTime: 1\n  - name: Stop\n    firstFrame: 24.5\n    lastFrame: 30\n    loop: 0\n",
+            "ModelImporter:\n  animations:\n    clipAnimations:\n    - name: Walk\n      takeName: Take 001\n      firstFrame: 12\n      lastFrame: 24\n      loopTime: 1\n    - name: Stop\n      firstFrame: 24.5\n      lastFrame: 30\n      loop: 0\n",
         );
         assert_eq!(clips.len(), 2);
         assert_eq!(clips[0].name, "Walk");
@@ -626,12 +913,12 @@ mod tests {
     #[test]
     fn mesh_names_come_from_either_meta_table() {
         let new = "ModelImporter:\n  internalIDToNameTable:\n  - first:\n      1: 100000\n    second: //RootNode\n  - first:\n      43: -2153578634513813181\n    second: Birch_1\n  - first:\n      43: 4300002\n    second: Birch_2\n";
-        let names = mesh_names(new);
+        let names = sub_asset_names(new, 43);
         assert_eq!(names[&-2153578634513813181], "Birch_1");
         assert_eq!(names[&4300002], "Birch_2");
         assert_eq!(names.len(), 2);
         let old = "ModelImporter:\n  fileIDToRecycleName:\n    100000: //RootNode\n    4300000: Rock\n    4300002: Rock_LOD1\n  externalObjects: {}\n";
-        let names = mesh_names(old);
+        let names = sub_asset_names(old, 43);
         assert_eq!(
             (names[&4300000].as_str(), names[&4300002].as_str()),
             ("Rock", "Rock_LOD1")
