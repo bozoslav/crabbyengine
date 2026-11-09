@@ -27,6 +27,7 @@ impl Rig {
             eprintln!("no GPU adapter: skipped");
             return None;
         };
+        eprintln!("model material test adapter: {:?}", adapter.get_info());
         let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) else {
             eprintln!("no GPU device: skipped");
             return None;
@@ -233,19 +234,19 @@ fn count(pixels: &[u8]) -> [usize; 3] {
     c
 }
 
-/// Red, green and blue pixels in each third of the image, left to right.
-fn thirds(pixels: &[u8]) -> [[usize; 3]; 3] {
-    let mut out = [[0; 3]; 3];
-    for (i, third) in out.iter_mut().enumerate() {
-        let mut part = Vec::new();
-        for y in 0..SIZE {
-            let row = (y * SIZE * 4) as usize;
-            let (x0, x1) = (i as u32 * SIZE / 3, (i as u32 + 1) * SIZE / 3);
-            part.extend_from_slice(&pixels[row + x0 as usize * 4..row + x1 as usize * 4]);
+/// Red, green and blue pixels in a 9x9 box around where `at` shows.
+fn around(pixels: &[u8], view_proj: Mat4, at: Vec3) -> [usize; 3] {
+    let ndc = view_proj.project_point3(at);
+    let x = ((ndc.x * 0.5 + 0.5) * SIZE as f32) as u32;
+    let y = ((0.5 - ndc.y * 0.5) * SIZE as f32) as u32;
+    let mut part = Vec::new();
+    for yy in y - 4..=y + 4 {
+        for xx in x - 4..=x + 4 {
+            let i = ((yy * SIZE + xx) * 4) as usize;
+            part.extend_from_slice(&pixels[i..i + 4]);
         }
-        *third = count(&part);
     }
-    out
+    count(&part)
 }
 
 #[test]
@@ -257,6 +258,8 @@ fn one_mesh_draws_with_each_models_material() {
         let cube = rig.mesh(&MeshData::cube(1.6), glowing(Color::rgb(0.0, 1.0, 0.0)));
         let red = rig.material(glowing(Color::rgb(1.0, 0.0, 0.0)));
         let blue = rig.material(glowing(Color::rgb(0.0, 0.0, 1.0)));
+        // Shadow maps on: the overrides go through the shadow passes too.
+        rig.ctx.lighting.shadows = true;
         rig.ctx.camera3d.position = vec3(0.0, 0.0, 8.0);
         rig.ctx.camera3d.look_at(Vec3::ZERO);
         let world = &mut rig.ctx.world;
@@ -277,18 +280,20 @@ fn one_mesh_draws_with_each_models_material() {
             ModelMaterial(blue),
         ));
         let (pixels, runs) = rig.draw();
-        let [left, middle, right] = thirds(&pixels);
+        let view_proj = rig.ctx.camera3d.view_proj();
+        let at = |p: &[u8], x: f32| around(p, view_proj, vec3(x, 0.0, 0.0));
+        let [left, middle, right] = [-2.4, 0.0, 2.4].map(|x| at(&pixels, x));
         eprintln!("prepass {solid_prepass}: {left:?} {middle:?} {right:?}, {runs} runs");
         assert!(
-            left[0] > 300 && left[1] == 0 && left[2] == 0,
+            left[0] == 81 && left[1] == 0 && left[2] == 0,
             "left: red only: {left:?}"
         );
         assert!(
-            middle[1] > 300 && middle[0] == 0 && middle[2] == 0,
+            middle[1] == 81 && middle[0] == 0 && middle[2] == 0,
             "middle: its own green: {middle:?}"
         );
         assert!(
-            right[2] > 300 && right[0] == 0 && right[1] == 0,
+            right[2] == 81 && right[0] == 0 && right[1] == 0,
             "right: blue only: {right:?}"
         );
         // Plain, red, and both blue cubes in one run.
@@ -307,8 +312,8 @@ fn one_mesh_draws_with_each_models_material() {
             rig.ctx.world.remove::<ModelMaterial>(e);
         }
         let (pixels, runs) = rig.draw();
-        let [_, _, right] = thirds(&pixels);
-        assert!(right[1] > 300 && right[2] == 0, "right: green again: {right:?}");
+        let right = at(&pixels, 2.4);
+        assert!(right[1] == 81 && right[2] == 0, "right: green again: {right:?}");
         assert_eq!(runs, 2);
     }
 }
