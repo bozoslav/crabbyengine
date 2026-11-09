@@ -61,6 +61,51 @@ errors like the rest of the wrapper. C: `ponko_ctx_load_scene`,
 `ponko_ctx_save_scene`, `ponko_ctx_spawn_prefab` and
 `ponko_ctx_save_prefab`.
 
+## What a load replaces and what it keeps
+
+A scene is a snapshot of the world, not a whole save of the game: it holds
+entities with reflected components and reflected resources. Everything
+else belongs to the game and lives outside the world, so a load treats it
+by a fixed rule (the full table is on `Ctx::load_scene` in the API docs):
+
+| State | After `load_scene` |
+|---|---|
+| Entities | The scene's, with the scene's ids. An old `Entity` may now name a different entity of the new scene. |
+| Reflected resources | The scene's values; reflected ones it doesn't name, and every other resource (scores, tuning, a baked navigation mesh), stay. |
+| Commands and events | Commands queued earlier in the running system are dropped; events stay readable (their entity ids are the old world's). |
+| 2D and 3D physics | Old bodies leave at once; the scene's are built at the next physics step, from rest. Gravity and settings stay. |
+| Crowd agents, 3D UI panels, skeletons, joint attachments | Components that aren't saved: gone with their entities. Old crowd slots are freed at the next navigation step, and the keyboard focus of a 3D panel is forgotten. |
+| `Attached` | Reflected: the scene's attachments follow the scene's entities. |
+| Assets and prefabs | Stay cached; a load never unloads anything. |
+| Positional sounds | A sound playing from a replaced entity stops; music and other sounds play on. |
+| Camera, screen UI, lighting, input, time, random seed | Kept. Temporal effects (TAA) forget their history. |
+| Lockstep networking | `load_scene` is refused while a session runs (see below). |
+
+A failed load (a missing file, a component that isn't reflected, an image
+that can't be loaded) changes none of this; only images and meshes that
+did load before the failure stay cached.
+
+### Loading scenes in lockstep
+
+In a [lockstep session](networking.md) every peer runs the same
+simulation, so a load that only one peer makes splits the game in two.
+While a session connects or runs, `load_scene` (and the editor's and
+tools' loads) are refused with an error. Load with `load_scene_lockstep`
+instead, from a simulation system or in setup, where every peer makes the
+same call at the same tick:
+
+```rust
+// In a simulation system: every peer reaches this tick with the same world.
+if ctx.sim_tick() == 600 {
+    ctx.load_scene_lockstep("levels/two.json")?;
+}
+```
+
+Offline it is the same as `load_scene`. The peers still compare their
+worlds, so a lockstep load that only some peers make shows up as a
+desync. C++: `ctx.load_scene_lockstep(path)`; C:
+`ponko_ctx_load_scene_lockstep`.
+
 ## The files
 
 A scene is the [save format](determinism.md) of `world.save()`:
