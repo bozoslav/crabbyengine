@@ -408,6 +408,78 @@ fn sorting_moves_stamps_with_their_rows() {
     assert_eq!(added::<Health>(&mut w, seen), []);
 }
 
+/// One byte, alignment 1: its stamps need a stricter alignment than it does.
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct Small(u8);
+/// No bytes at all: a tracked column of it holds only stamps.
+struct Marker;
+
+#[test]
+fn small_and_zero_sized_components_keep_values_and_stamps_through_growth_and_sorting() {
+    // Tracking starts when rows exist, without capacity, and before the
+    // component is first used.
+    for start in ["with rows", "empty", "unused"] {
+        let mut w = World::new();
+        if start == "unused" {
+            w.track_changes::<Small>();
+            w.track_changes::<Marker>();
+        }
+        let mut es: Vec<Entity> = Vec::new();
+        if start == "with rows" {
+            es.extend((0..3).map(|i| w.spawn((Small(i), Marker, Health(i as i32)))));
+        }
+        w.track_changes::<Small>();
+        w.track_changes::<Marker>();
+        for (i, &e) in es.iter().enumerate() {
+            assert_eq!(
+                *w.get::<Small>(e).unwrap(),
+                Small(i as u8),
+                "{start}: tracking keeps the values"
+            );
+        }
+        let seen = w.advance_change_tick();
+        // Growth, many times over; the first rows' stamps stay old.
+        es.extend((es.len()..600).map(|i| w.spawn((Small(i as u8), Marker, Health(i as i32)))));
+        let old = if start == "with rows" { 3 } else { 0 };
+        assert_eq!(added::<Small>(&mut w, seen), sorted(es[old..].to_vec()), "{start}");
+        assert_eq!(added::<Marker>(&mut w, seen), sorted(es[old..].to_vec()), "{start}");
+        let later = w.advance_change_tick();
+        let touched: Vec<Entity> = es.iter().copied().step_by(7).collect();
+        for &e in &touched {
+            w.get_mut::<Small>(e).unwrap().0 ^= 0x80;
+            assert!(w.mark_changed::<Marker>(e));
+        }
+        // Sorting reorders values and stamps together.
+        w.sort_by::<Health>(|h| (1000 - h.0) as u64);
+        assert_eq!(changed::<Small>(&mut w, later), sorted(touched.clone()), "{start}");
+        assert_eq!(changed::<Marker>(&mut w, later), sorted(touched.clone()), "{start}");
+        assert_eq!(added::<Small>(&mut w, later), [], "{start}");
+        for (i, &e) in es.iter().enumerate() {
+            let flipped = if i % 7 == 0 { 0x80 } else { 0 };
+            assert_eq!(
+                *w.get::<Small>(e).unwrap(),
+                Small(i as u8 ^ flipped),
+                "{start}: row {i}"
+            );
+            assert_eq!(w.get::<Health>(e).unwrap().0, i as i32);
+        }
+        // More growth after the sort, then removal from the middle.
+        es.extend((600..2000).map(|i| w.spawn((Small(i as u8), Marker, Health(i)))));
+        for &e in es.iter().step_by(3) {
+            w.despawn(e);
+        }
+        // Left: the touched old rows and the new ones, minus every third.
+        let left: Vec<Entity> = es
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| i % 3 != 0 && (*i >= 600 || i % 7 == 0))
+            .map(|(_, e)| *e)
+            .collect();
+        assert_eq!(changed::<Small>(&mut w, later), sorted(left.clone()), "{start}");
+        assert_eq!(changed::<Marker>(&mut w, later), sorted(left), "{start}");
+    }
+}
+
 #[test]
 fn stamps_survive_column_growth() {
     let (mut w, [a, b, c], seen) = three();

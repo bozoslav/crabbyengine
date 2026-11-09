@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 
 use crate::bundle::Component;
-use crate::change::{self, Clock, RowFilter, Runs, Tick};
+use crate::change::{self, Clock, RowFilter, Tick};
 use crate::entity::Entity;
 use crate::storage::{Archetype, ComponentId};
 use crate::world::World;
@@ -232,7 +232,9 @@ const MAX_OR: usize = 4;
 const MAX_OR_TERMS: usize = 16;
 
 impl Filters {
-    #[inline]
+    /// Always inlined: the query loops rely on it to specialize their
+    /// archetype loop for the filters in use.
+    #[inline(always)]
     fn matches(&self, arch: &Archetype) -> bool {
         if !(self.with[..self.n_with as usize].iter().all(|&id| arch.has(id))
             && !self.without[..self.n_without as usize].iter().any(|&id| arch.has(id)))
@@ -249,6 +251,14 @@ impl Filters {
             start = end;
         }
         true
+    }
+
+    /// [`matches`](Self::matches) as a call, for the loops of worlds that
+    /// track changes: they exist next to the plain ones at every call site,
+    /// so they stay small.
+    #[inline(never)]
+    fn matches_tracked(&self, arch: &Archetype) -> bool {
+        self.matches(arch)
     }
 
     fn add_with(&mut self, id: ComponentId) {
@@ -565,8 +575,9 @@ pub struct Query<'w, Q: QueryData> {
     ids: Q::Ids,
     filters: Filters,
     cached: bool,
-    /// What `Added`/`Changed` filters compare against.
-    since: Tick,
+    /// What `Added`/`Changed` filters compare against, if not the world's
+    /// [`changes_since`](World::changes_since).
+    since: Option<Tick>,
 }
 
 impl<'w, Q: QueryData> Query<'w, Q> {
@@ -576,20 +587,28 @@ impl<'w, Q: QueryData> Query<'w, Q> {
         world
             .recorder
             .note(|l| Q::access(&ids, &mut |id, write, _| l.component(id, write)));
-        let since = world.changes_since();
         Query {
             world,
             ids,
             filters: Filters::default(),
             cached: false,
-            since,
+            since: None,
         }
     }
 
     /// The world's current tick and this query's `since`, for change stamps.
     #[inline]
     fn clock(&self) -> Clock {
-        Clock::new(self.world.change_tick(), self.since)
+        let since = self.since.unwrap_or(self.world.changes_since());
+        Clock::new(self.world.change_tick(), since)
+    }
+
+    /// Whether any component of the world is tracked. The loops test this
+    /// before an archetype's own flag, so a world that tracks nothing doesn't
+    /// even read that flag.
+    #[inline]
+    fn tracking(&self) -> bool {
+        self.world.tracks_changes()
     }
 
     fn archetypes(&mut self) -> Archetypes<'_> {
@@ -732,27 +751,56 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     /// assert_eq!(changed.iter().collect::<Vec<_>>(), [moved]);
     /// ```
     pub fn since(mut self, tick: Tick) -> Self {
-        self.since = tick;
+        self.since = Some(tick);
         self
     }
 
     /// Runs `f` for every matching entity. The fastest way to loop.
     #[inline]
     pub fn for_each(&mut self, mut f: impl FnMut(Q::Item<'_>)) {
+        if !self.tracking() {
+            // The loop of a world that tracks nothing: kept apart from the
+            // tracked one, so it is compiled as it would be without change
+            // detection.
+            let ids = self.ids;
+            let filters = self.filters;
+            for arch in self.archetypes() {
+                let len = arch.len();
+                if len == 0 || !filters.matches(arch) {
+                    continue;
+                }
+                let Some(state) = Q::state(arch, &ids) else {
+                    continue;
+                };
+                for row in 0..len {
+                    f(unsafe { Q::fetch(state, row) });
+                }
+            }
+            return;
+        }
+        self.for_each_tracked(f);
+    }
+
+    /// [`for_each`](Self::for_each) in a world that tracks changes: a
+    /// tracked archetype stamps what the query may write, and with an
+    /// `Added`/`Changed` filter yields runs of rows instead of all of them.
+    ///
+    /// Always inlined: `f` must not be handed to a call the compiler can't
+    /// see into, or the variables it captures stop living in registers in
+    /// the caller's untracked loop too.
+    #[inline(always)]
+    fn for_each_tracked(&mut self, mut f: impl FnMut(Q::Item<'_>)) {
         let ids = self.ids;
         let filters = self.filters;
         let clock = self.clock();
         for arch in self.archetypes() {
             let len = arch.len();
-            if len == 0 || !filters.matches(arch) {
+            if len == 0 || !filters.matches_tracked(arch) {
                 continue;
             }
             let Some(state) = Q::state(arch, &ids) else {
                 continue;
             };
-            // Untracked archetypes (all of them, unless the game tracks
-            // changes) take one pass over every row. Tracked ones stamp what
-            // the query may write, and visit runs of rows that pass.
             let mut runs = if arch.tracked() {
                 change::visit::<Q>(arch, &ids, &filters, clock)
             } else {
@@ -845,6 +893,7 @@ impl<'w, Q: QueryData> Query<'w, Q> {
         let ids = self.ids;
         let filters = self.filters;
         let clock = self.clock();
+        let tracking = self.tracking();
         for arch in self.archetypes() {
             let len = arch.len();
             if len == 0 || !filters.matches(arch) {
@@ -855,7 +904,7 @@ impl<'w, Q: QueryData> Query<'w, Q> {
             };
             // As in `for_each`: stamps are written and row filters are read
             // here, on the calling thread, before a run's rows are shared.
-            let mut runs = if arch.tracked() {
+            let mut runs = if tracking && arch.tracked() {
                 change::visit::<Q>(arch, &ids, &filters, clock)
             } else {
                 None
@@ -1006,6 +1055,7 @@ impl<'w, Q: QueryData> Query<'w, Q> {
             let max_chunk = if cfg!(miri) { 64 } else { 8192 };
             let mut initialized = Initialized { slots, len: 0 };
             let clock = self.clock();
+            let tracking = self.tracking();
             for arch in self.world.archetypes.iter() {
                 let len = arch.len();
                 if len == 0 || !self.filters.matches(arch) {
@@ -1017,7 +1067,7 @@ impl<'w, Q: QueryData> Query<'w, Q> {
                 let state = SharedState(state);
                 // As in `for_each`: tracked archetypes are stamped, and may
                 // yield runs of rows instead of every row.
-                let mut runs = if arch.tracked() {
+                let mut runs = if tracking && arch.tracked() {
                     change::visit::<Q>(arch, &self.ids, &self.filters, clock)
                 } else {
                     None
@@ -1065,6 +1115,7 @@ impl<'w, Q: QueryData> Query<'w, Q> {
         let ids = self.ids;
         let filters = self.filters;
         let clock = self.clock();
+        let tracking = self.tracking();
         QueryIter {
             archetypes: self.archetypes(),
             ids,
@@ -1073,7 +1124,8 @@ impl<'w, Q: QueryData> Query<'w, Q> {
             row: 0,
             len: 0,
             clock,
-            runs: None,
+            tracking,
+            filtered: None,
             _q: PhantomData,
         }
     }
@@ -1084,6 +1136,13 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     pub fn count(&mut self) -> usize {
         let ids = self.ids;
         let filters = self.filters;
+        if !self.tracking() {
+            return self
+                .archetypes()
+                .filter(|a| !a.is_empty() && filters.matches(a) && Q::state(a, &ids).is_some())
+                .map(|a| a.len())
+                .sum();
+        }
         let clock = self.clock();
         self.archetypes()
             .filter(|a| !a.is_empty() && filters.matches(a) && Q::state(a, &ids).is_some())
@@ -1107,7 +1166,10 @@ impl<'w, Q: QueryData> Query<'w, Q> {
             return None;
         }
         let state = Q::state(arch, &ids)?;
-        if arch.tracked() && !change::visit_row::<Q>(arch, &ids, &filters, self.clock(), loc.row as usize) {
+        if self.tracking()
+            && arch.tracked()
+            && !change::visit_row::<Q>(arch, &ids, &filters, self.clock(), loc.row as usize)
+        {
             return None;
         }
         Some(unsafe { Q::fetch(state, loc.row as usize) })
@@ -1123,8 +1185,11 @@ pub struct QueryIter<'a, Q: QueryData> {
     row: usize,
     len: usize,
     clock: Clock,
-    /// The current archetype's remaining runs, when it filters rows.
-    runs: Option<Runs<'a>>,
+    /// Whether the world tracks any component at all.
+    tracking: bool,
+    /// The current archetype, when an `Added`/`Changed` filter picks its
+    /// rows: they then come in runs, and `len` is the current run's end.
+    filtered: Option<&'a Archetype>,
     _q: PhantomData<&'a mut Q>,
 }
 
@@ -1141,8 +1206,16 @@ impl<'a, Q: QueryData> Iterator for QueryIter<'a, Q> {
                 self.row += 1;
                 return Some(unsafe { Q::fetch(state, row) });
             }
-            if self.runs.is_some() && self.next_run() {
-                continue;
+            if let Some(arch) = self.filtered {
+                // The next run starts at or after the end of this one.
+                match change::next_run::<Q>(arch, self.ids, self.filters, self.clock, self.len) {
+                    Some((start, end)) => {
+                        self.row = start;
+                        self.len = end;
+                        continue;
+                    }
+                    None => self.filtered = None,
+                }
             }
             let arch = self.archetypes.next()?;
             self.state = if arch.is_empty() || !self.filters.matches(arch) {
@@ -1152,41 +1225,15 @@ impl<'a, Q: QueryData> Iterator for QueryIter<'a, Q> {
             };
             self.row = 0;
             self.len = arch.len();
-            if arch.tracked() && self.state.is_some() {
-                self.enter_tracked(arch);
+            if self.tracking
+                && arch.tracked()
+                && self.state.is_some()
+                && change::enter::<Q>(arch, self.ids, self.filters, self.clock)
+            {
+                // The rows come from runs.
+                self.filtered = Some(arch);
+                self.len = 0;
             }
-        }
-    }
-}
-
-impl<'a, Q: QueryData> QueryIter<'a, Q> {
-    /// Moves to the current archetype's next run of rows that pass the
-    /// `Added`/`Changed` filters; `false` once it has none left.
-    #[inline(never)]
-    fn next_run(&mut self) -> bool {
-        let run = self.runs.as_mut().and_then(|runs| runs.next::<Q>(&self.ids));
-        match run {
-            Some((start, end)) => {
-                self.row = start;
-                self.len = end;
-                true
-            }
-            None => {
-                self.runs = None;
-                false
-            }
-        }
-    }
-
-    /// Enters an archetype that tracks changes: stamps what the query may
-    /// write, and takes the rows from runs if a filter picks rows. Kept out
-    /// of `next` so worlds that track nothing iterate as before.
-    #[inline(never)]
-    fn enter_tracked(&mut self, arch: &'a Archetype) {
-        self.runs = change::visit::<Q>(arch, &self.ids, &self.filters, self.clock);
-        if self.runs.is_some() {
-            // The rows come from the runs.
-            self.len = 0;
         }
     }
 }

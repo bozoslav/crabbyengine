@@ -310,6 +310,7 @@ pub(crate) struct Runs<'a> {
 impl Runs<'_> {
     /// The next run `start..end` of passing rows, stamped as changed for
     /// every tracked component `Q` may write.
+    #[inline(never)]
     pub(crate) fn next<Q: QueryData>(&mut self, ids: &Q::Ids) -> Option<(usize, usize)> {
         let (start, end) = self.next_run()?;
         mark::<Q>(self.arch, ids, self.rows.clock.now, start, end);
@@ -362,6 +363,12 @@ fn mark_rows(arch: &Archetype, id: ComponentId, stamp: u32, start: usize, end: u
 /// filter here, stamps every row as changed for every tracked component `Q`
 /// may write, and returns `None`: the caller visits every row. Otherwise
 /// returns the runs of rows to visit.
+///
+/// Cold and out of line, like the other entry points the query loops call
+/// for tracked archetypes: the compiler then keeps the loops of worlds that
+/// track nothing as they were, with their state in registers.
+#[cold]
+#[inline(never)]
 pub(crate) fn visit<'a, Q: QueryData>(
     arch: &'a Archetype,
     ids: &Q::Ids,
@@ -375,6 +382,33 @@ pub(crate) fn visit<'a, Q: QueryData>(
             None
         }
     }
+}
+
+/// [`visit`] for the iterator: whether the rows of `arch` come in runs
+/// (see [`next_run`]). It and `next_run` are called out of line with
+/// everything by value, so the iterator's own state stays in registers and
+/// worlds that track nothing iterate exactly as before.
+#[cold]
+#[inline(never)]
+pub(crate) fn enter<Q: QueryData>(arch: &Archetype, ids: Q::Ids, filters: Filters, clock: Clock) -> bool {
+    visit::<Q>(arch, &ids, &filters, clock).is_some()
+}
+
+/// The first run `start..end` of rows of `arch` at or after row `from` that
+/// pass the row filter, stamped as [`Runs::next`] does; `None` once there
+/// are none left. Keeps no state between calls: it finds the filter's stamp
+/// arrays again each time.
+#[cold]
+#[inline(never)]
+pub(crate) fn next_run<Q: QueryData>(
+    arch: &Archetype,
+    ids: Q::Ids,
+    filters: Filters,
+    clock: Clock,
+    from: usize,
+) -> Option<(usize, usize)> {
+    let rows = filters.row_filter(arch, clock)?;
+    Runs { arch, rows, next: from }.next::<Q>(&ids)
 }
 
 /// [`visit`] for one row: `false` if the row filter rejects it; otherwise
@@ -394,6 +428,8 @@ pub(crate) fn visit_row<Q: QueryData>(
 }
 
 /// How many rows of tracked archetype `arch` pass the row filter.
+#[cold]
+#[inline(never)]
 pub(crate) fn count(arch: &Archetype, filters: &Filters, clock: Clock) -> usize {
     match filters.row_filter(arch, clock) {
         Some(rows) => (0..arch.len()).filter(|&row| rows.passes(row)).count(),
@@ -550,6 +586,12 @@ impl World {
             entities: Vec::new(),
             ticks: Vec::new(),
         });
+    }
+
+    /// Whether any component is tracked: each has a removal log.
+    #[inline]
+    pub(crate) fn tracks_changes(&self) -> bool {
+        !self.changes.removed.is_empty()
     }
 
     /// The current tick: changes made now are stamped with it, and a reader
