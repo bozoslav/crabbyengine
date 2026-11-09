@@ -51,7 +51,7 @@ fn bindings() -> ActionMap {
 fn aggregate_edges_survive_taps_and_clear_between_headless_frames() {
     let mut frame = 0;
     Game::new("actions", 1, 1)
-        .system(move |ctx: &mut Ctx| {
+        .sim_system(move |ctx: &mut Ctx| {
             match frame {
                 0 => {
                     ctx.feed_input(InputEvent::Key(Key::Space, true));

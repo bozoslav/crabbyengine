@@ -42,7 +42,7 @@ static ALLOCATOR: CountingAllocator = CountingAllocator;
 fn input_events_and_action_queries_allocate_nothing_after_installation() {
     let mut frames = 0;
     Game::new("allocations", 1, 1)
-        .system(move |ctx: &mut Ctx| {
+        .sim_system(move |ctx: &mut Ctx| {
             if frames == 0 {
                 ALLOCS.set(0);
                 TRACK.set(true);
