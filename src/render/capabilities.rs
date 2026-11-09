@@ -167,7 +167,7 @@ pub struct GpuFeatureStatus {
 /// decals: the 16 WebGL2 and WebGPU's defaults allow, and the decal images.
 pub(crate) const DECAL_SAMPLED_TEXTURES: u32 = 17;
 /// Storage buffers the per-instance culling pass binds at once.
-const CULLING_STORAGE_BUFFERS: u32 = 4;
+const CULLING_STORAGE_BUFFERS: u32 = 5;
 /// Storage buffers the skinning pass binds at once (see `skinning.rs`).
 const SKINNING_STORAGE_BUFFERS: u32 = 6;
 
@@ -180,7 +180,7 @@ impl GpuLimits {
 
     /// Whether shaders can read and write storage buffers.
     pub(crate) fn storage_buffers(&self) -> bool {
-        self.compute() && self.max_storage_buffers_per_shader_stage > 0
+        self.compute() && self.max_storage_buffers_per_shader_stage >= 2
     }
 
     /// Whether the per-instance culling pass can bind its buffers.
@@ -237,14 +237,14 @@ pub(crate) fn report(
                         limits.storage_buffers(),
                         "GPU buffers are not created and compute passes using them do nothing; material shaders that read `items` use the built-in shader".into(),
                         if limits.compute() {
-                            "max_storage_buffers_per_shader_stage is 0".into()
+                            storage_reason(&limits, 2, no_compute)
                         } else {
                             no_compute.into()
                         },
                     ),
                     GpuFeature::ComputeCulling => (
                         limits.compute_culling(),
-                        "static instance batches draw every instance, without per-instance GPU culling".into(),
+                        "static instance batches use CPU cell culling and choose one distance level per cell".into(),
                         storage_reason(&limits, CULLING_STORAGE_BUFFERS, no_compute),
                     ),
                     GpuFeature::GpuSkinning => (
@@ -467,7 +467,7 @@ mod tests {
     #[test]
     fn few_storage_buffers_turn_off_skinning_before_culling() {
         let limits = GpuLimits {
-            max_storage_buffers_per_shader_stage: 4,
+            max_storage_buffers_per_shader_stage: 5,
             ..webgpu(16)
         };
         let r = caps(limits, false);
@@ -476,7 +476,7 @@ mod tests {
         assert!(!skinning.available);
         assert_eq!(
             skinning.reason.as_deref(),
-            Some("max_storage_buffers_per_shader_stage is 4; 6 are needed")
+            Some("max_storage_buffers_per_shader_stage is 5; 6 are needed")
         );
         assert!(!r.available(GpuFeature::Timestamps));
     }

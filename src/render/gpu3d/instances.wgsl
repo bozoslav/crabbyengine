@@ -1,10 +1,11 @@
 struct Cell { lo:vec4<f32>, hi:vec4<f32> };
-struct View { planes:array<vec4<f32>,6>, camera:vec4<f32>, occlusion:vec4<f32> };
-@group(0) @binding(0) var<storage,read_write> data:array<vec4<f32>>;
+struct View { planes:array<vec4<f32>,6>, camera:vec4<f32>, occlusion:vec4<f32>, band:vec4<f32> };
+@group(0) @binding(0) var<storage,read> data:array<vec4<f32>>;
 @group(0) @binding(1) var<storage,read> cells:array<Cell>;
 @group(0) @binding(2) var<storage,read_write> args:array<atomic<u32>>;
 @group(0) @binding(3) var<uniform> view:View;
 @group(0) @binding(4) var<storage,read> depth:array<f32>;
+@group(0) @binding(5) var<storage,read_write> indices:array<u32>;
 fn hidden(center:vec3<f32>, radius:f32) -> bool {
     if view.occlusion.x == 0.0 || depth[3] == 0.0 {return false;}
     let vp=mat4x4<f32>(vec4<f32>(depth[4],depth[5],depth[6],depth[7]),vec4<f32>(depth[8],depth[9],depth[10],depth[11]),vec4<f32>(depth[12],depth[13],depth[14],depth[15]),vec4<f32>(depth[16],depth[17],depth[18],depth[19]));
@@ -24,7 +25,7 @@ fn hidden(center:vec3<f32>, radius:f32) -> bool {
     return true;
 }
 fn visible(center:vec3<f32>, radius:f32) -> bool {
-    if distance(center,view.camera.xyz)-radius > view.camera.w {return false;}
+    if view.band.z != 0.0 && distance(center,view.camera.xyz)-radius > view.camera.w {return false;}
     for (var i=0u;i<6u;i++) {if dot(view.planes[i].xyz,center)+view.planes[i].w < -radius {return false;}}
     return !hidden(center,radius);
 }
@@ -34,13 +35,15 @@ fn main(@builtin(workgroup_id) group:vec3<u32>, @builtin(local_invocation_index)
     if cell_index >= arrayLength(&cells) {return;}
     let cell=cells[cell_index];
     if !visible((cell.lo.xyz+cell.hi.xyz)*0.5,length(cell.hi.xyz-cell.lo.xyz)*0.5) {return;}
-    let count=u32(data[0].x);
     let start=bitcast<u32>(cell.lo.w); let end=start+bitcast<u32>(cell.hi.w);
     for(var i=start+lane;i<end;i+=64u) {
         let sphere=data[1u+i*6u+5u];
-        if visible(sphere.xyz,sphere.w) {
+        let origin=data[1u+i*6u+3u].xyz;
+        let d=distance(origin,view.camera.xyz);
+        let selected=view.band.z != 0.0 || (d >= view.band.x && d < view.band.y);
+        if selected && visible(sphere.xyz,sphere.w) {
             let slot=atomicAdd(&args[1],1u);
-            data[1u+count*6u+slot]=vec4<f32>(f32(i),0.0,0.0,0.0);
+            indices[1u+slot]=i;
             for(var part=1u;part<arrayLength(&args)/5u;part++) {atomicAdd(&args[part*5u+1u],1u);}
         }
     }

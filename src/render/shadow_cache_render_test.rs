@@ -496,3 +496,96 @@ fn a_changed_material_override_redraws_its_shadows() {
     assert_eq!(kept, 0, "the override changed: the cascade is drawn");
     assert_ne!(solid_image, glass_image);
 }
+
+#[test]
+fn instance_levels_refresh_cached_sun_cascades_across_shadow_bands() {
+    let Some(rig) = Rig::new() else {
+        eprintln!("no GPU: skipped");
+        return;
+    };
+    let mut ctx = Ctx::new(1.0 / 60.0, Vec2::splat(SIZE as f32));
+    ctx.camera3d.position = vec3(0.0, 6.0, 6.0);
+    ctx.camera3d.look_at(Vec3::ZERO);
+    ctx.sky.atmosphere = false;
+    ctx.lighting.shadow_cascades = 4;
+    ctx.lighting.shadow_resolution = 512;
+    ctx.lighting.shadow_refresh = 32;
+    ctx.lighting.sun_direction = -Vec3::Y;
+    let desc = MaterialDesc {
+        color: Color::WHITE,
+        ..Default::default()
+    };
+    let material = ctx.create_material(desc);
+    let ground = MeshData::plane(30.0);
+    let cube = MeshData::cube(2.0);
+    let floor = ctx.create_mesh(&ground, material);
+    let proxy = ctx.create_mesh(&cube, material);
+    ctx.world.spawn((Transform3D::default(), Model::new(floor)));
+    let b = ctx.create_instance_batch_levels(
+        &[
+            InstanceLevel {
+                mesh: proxy,
+                min_distance: 0.0,
+                max_distance: 7.0,
+                camera: false,
+                shadows: true,
+            },
+            InstanceLevel {
+                mesh: proxy,
+                min_distance: 7.0,
+                max_distance: 20.0,
+                camera: false,
+                shadows: false,
+            },
+        ],
+        &[Mat4::from_translation(vec3(0.0, 3.0, 0.0))],
+        &[],
+        Default::default(),
+    );
+    let mut renderers = [rig.renderer(), rig.renderer()];
+    for r in &mut renderers {
+        r.create_material(&rig.device, &GpuMaterialDesc::new(&desc), &rig.textures);
+        r.create_mesh(
+            &rig.device,
+            &ground,
+            &[(0..ground.indices.len() as u32, material)],
+            true,
+        );
+        r.create_mesh(&rig.device, &cube, &[(0..cube.indices.len() as u32, material)], true);
+        r.set_instance_batch(
+            &rig.device,
+            b.id(),
+            ctx.assets3d.instance_batches[b.id() as usize].as_ref(),
+        );
+    }
+    let mut frames = [Frame3D::default(), Frame3D::default()];
+    let mut compare = |ctx: &mut Ctx| {
+        let [cached, reference] = &mut renderers;
+        let [a, b] = &mut frames;
+        let image = rig.draw(cached, a, ctx);
+        reference.forget_shadows();
+        let expected = rig.draw(reference, b, ctx);
+        assert_eq!(image, expected, "cached shadow bands differ from a fresh draw");
+        (image, cached.shadow_views_kept())
+    };
+    compare(&mut ctx);
+    let (with_proxy, kept) = compare(&mut ctx);
+    assert_eq!(kept & 15, 15, "stationary bands keep the shadow cache");
+    ctx.set_mesh_shadows(proxy, false);
+    let (without_proxy, kept) = compare(&mut ctx);
+    assert_eq!(kept & 15, 0, "mesh shadow flags invalidate cached cascades");
+    assert_ne!(
+        with_proxy, without_proxy,
+        "shadow-only geometry must cast a visible sun shadow"
+    );
+    ctx.set_mesh_shadows(proxy, true);
+    compare(&mut ctx);
+    ctx.camera3d.position.z = 6.5;
+    ctx.camera3d.look_at(Vec3::ZERO);
+    let (_, kept) = compare(&mut ctx);
+    assert_eq!(
+        kept & 15,
+        0,
+        "camera crossing a shadow band refreshes even deferred far cascades"
+    );
+}

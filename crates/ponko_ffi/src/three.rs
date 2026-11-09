@@ -3921,3 +3921,147 @@ pub unsafe extern "C" fn crabby_ctx_free_instance_batch(
         })
     })
 }
+
+/// Mesh, half-open origin-distance band, and view flags for a batch level.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct CrabbyInstanceLevel {
+    /// Live mesh handle.
+    pub mesh: CrabbyMesh,
+    /// Inclusive finite nonnegative lower distance.
+    pub min_distance: f32,
+    /// Exclusive upper distance; infinity is allowed.
+    pub max_distance: f32,
+    /// Draw in camera and target views.
+    pub camera: bool,
+    /// Cast shadows when the batch and mesh also allow it.
+    pub shadows: bool,
+}
+
+/// Creates a multi-level batch. Empty colours use the options' tint.
+/// # Safety
+/// Context is live or null. Nonempty arrays have their stated lengths;
+/// output is writable. Matrices are column-major affine transforms.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_create_instance_batch_levels(
+    ctx: *mut CrabbyCtx,
+    levels: *const CrabbyInstanceLevel,
+    level_count: usize,
+    matrices: *const [f32; 16],
+    count: usize,
+    colors: *const CrabbyColor,
+    color_count: usize,
+    options: CrabbyInstanceBatchOptions,
+    output: *mut CrabbyInstanceBatch,
+) -> CrabbyStatus {
+    // SAFETY: caller supplies live arrays and writable output as documented.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            if output.is_null()
+                || levels.is_null()
+                || level_count == 0
+                || !options.cell_size.is_finite()
+                || options.cell_size <= 0.0
+                || options.max_distance.is_nan()
+                || options.max_distance < 0.0
+            {
+                return Err(invalid("invalid instance batch levels"));
+            }
+            let levels = std::slice::from_raw_parts(levels, level_count);
+            if levels.iter().any(|l| {
+                !c.is_mesh_live(to_c(l.mesh))
+                    || !l.min_distance.is_finite()
+                    || l.min_distance < 0.0
+                    || l.max_distance <= l.min_distance
+                    || l.max_distance.is_nan()
+            }) {
+                return Err(invalid("invalid instance level mesh or distance band"));
+            }
+            let levels: Vec<_> = levels
+                .iter()
+                .map(|l| ponko::InstanceLevel {
+                    mesh: to_c(l.mesh),
+                    min_distance: l.min_distance,
+                    max_distance: l.max_distance,
+                    camera: l.camera,
+                    shadows: l.shadows,
+                })
+                .collect();
+            let (transforms, colors) = instance_arrays(matrices, count, colors, color_count)?;
+            let b = c.create_instance_batch_levels(
+                &levels,
+                &transforms,
+                &colors,
+                ponko::InstanceBatchOptions {
+                    cell_size: options.cell_size,
+                    max_distance: options.max_distance,
+                    cast_shadows: options.cast_shadows,
+                    tint: Color::rgba(options.tint.r, options.tint.g, options.tint.b, options.tint.a),
+                },
+            );
+            out(output, CrabbyInstanceBatch { id: b.id() })
+        })
+    })
+}
+
+/// Replaces transforms and colours; zero colours restore the batch tint.
+/// # Safety
+/// Context is live or null; nonempty arrays have the stated lengths.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_update_instance_batch_colors(
+    ctx: *mut CrabbyCtx,
+    batch: CrabbyInstanceBatch,
+    matrices: *const [f32; 16],
+    count: usize,
+    colors: *const CrabbyColor,
+    color_count: usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded array/context contracts; validation precedes slicing.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let (transforms, colors) = instance_arrays(matrices, count, colors, color_count)?;
+            if !c.update_instance_batch_colors(ponko::InstanceBatch::from_id(batch.id), &transforms, &colors) {
+                return Err(invalid("invalid instance batch or level mesh"));
+            }
+            Ok(())
+        })
+    })
+}
+
+/// Caller guarantees non-null arrays have their stated lengths.
+unsafe fn instance_arrays(
+    matrices: *const [f32; 16],
+    count: usize,
+    colors: *const CrabbyColor,
+    color_count: usize,
+) -> Result<(Vec<ponko::Mat4>, Vec<Color>), crate::Failure> {
+    if count > 16_777_216
+        || (count > 0 && matrices.is_null())
+        || (color_count != 0 && color_count != count)
+        || (color_count > 0 && colors.is_null())
+    {
+        return Err(invalid("invalid instance transform or color count"));
+    }
+    // SAFETY: pointer/length contracts are forwarded; zero counts avoid null slices.
+    let transforms = if count == 0 {
+        Vec::new()
+    } else {
+        unsafe { std::slice::from_raw_parts(matrices, count) }
+            .iter()
+            .map(ponko::Mat4::from_cols_array)
+            .collect::<Vec<_>>()
+    };
+    if transforms.iter().any(|m| !m.is_finite() || m.row(3) != ponko::Vec4::W) {
+        return Err(invalid("invalid instance transform"));
+    }
+    // SAFETY: as above, and colour length was validated before slicing.
+    let colors = if color_count == 0 {
+        Vec::new()
+    } else {
+        unsafe { std::slice::from_raw_parts(colors, color_count) }
+            .iter()
+            .map(|c| Color::rgba(c.r, c.g, c.b, c.a))
+            .collect()
+    };
+    Ok((transforms, colors))
+}

@@ -458,7 +458,7 @@ fn compose_material(user: &str, decals: bool, gi: bool) -> String {
         MESH_PRELUDE.len() + decal_code.len() + gi_code.len() + user.len() + MESH_MAIN.len() + 200,
     );
     source.push_str(MESH_PRELUDE);
-    source.push_str("@group(3) @binding(0) var<storage, read> items: array<vec4<f32>>;\n");
+    source.push_str("@group(3) @binding(0) var<storage, read> items: array<vec4<f32>>;\n@group(3) @binding(1) var<storage, read> static_indices: array<u32>;\n");
     source.push_str(decal_code);
     source.push_str(gi_code);
     source.push_str("\n// ---- the game's shader ----\n");
@@ -864,6 +864,7 @@ pub(crate) struct Renderer3D {
     /// Compute pass pipelines, by compute id, and their layouts.
     compute_pipelines: Vec<Option<wgpu::ComputePipeline>>,
     pub(super) static_batches: Vec<Option<StaticBatch>>,
+    static_shadowless: Vec<u32>,
     static_culling: Option<Culling>,
     storage_read: Option<wgpu::BindGroupLayout>,
     storage_write: Option<(wgpu::BindGroupLayout, wgpu::PipelineLayout)>,
@@ -1080,20 +1081,22 @@ impl Renderer3D {
         let storage_layout = |read_only| {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("GPU buffer layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: if read_only {
-                        wgpu::ShaderStages::VERTEX_FRAGMENT
-                    } else {
-                        wgpu::ShaderStages::COMPUTE
-                    },
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
+                entries: &(0..if read_only { 2 } else { 1 })
+                    .map(|binding| wgpu::BindGroupLayoutEntry {
+                        binding,
+                        visibility: if read_only {
+                            wgpu::ShaderStages::VERTEX_FRAGMENT
+                        } else {
+                            wgpu::ShaderStages::COMPUTE
+                        },
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    })
+                    .collect::<Vec<_>>(),
             })
         };
         let storage_supported = GpuLimits::of(device).storage_buffers();
@@ -1108,10 +1111,12 @@ impl Renderer3D {
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
                 layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: buffer.as_entire_binding(),
-                }],
+                entries: &(0..2)
+                    .map(|binding| wgpu::BindGroupEntry {
+                        binding,
+                        resource: buffer.as_entire_binding(),
+                    })
+                    .collect::<Vec<_>>(),
             })
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -1686,6 +1691,7 @@ impl Renderer3D {
             view_targets: Vec::new(),
             compute_pipelines: Vec::new(),
             static_batches: Vec::new(),
+            static_shadowless: Vec::new(),
             static_culling: None,
             storage_read,
             storage_write,
@@ -1930,18 +1936,30 @@ impl Renderer3D {
                     contents: bytemuck::cast_slice(&data.iter().map(|v| v.to_array()).collect::<Vec<_>>()),
                     usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                 });
-            let group = |layout| {
+            let indices = device.new_buffer(&wgpu::BufferDescriptor {
+                label: Some("non-batch visibility"),
+                size: 4,
+                usage: wgpu::BufferUsages::STORAGE,
+                mapped_at_creation: false,
+            });
+            let group = |layout, read| {
                 device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: None,
                     layout,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: buffer.as_entire_binding(),
-                    }],
+                    entries: &(0..if read { 2 } else { 1 })
+                        .map(|binding| wgpu::BindGroupEntry {
+                            binding,
+                            resource: if binding == 0 {
+                                buffer.as_entire_binding()
+                            } else {
+                                indices.as_entire_binding()
+                            },
+                        })
+                        .collect::<Vec<_>>(),
                 })
             };
-            let read = group(read_layout);
-            let write = group(&self.storage_write.as_ref().unwrap().0);
+            let read = group(read_layout, true);
+            let write = group(&self.storage_write.as_ref().unwrap().0, false);
             slot = Some(StorageBuffer {
                 buffer,
                 read,
@@ -4474,7 +4492,12 @@ impl Renderer3D {
         self.runs
             .iter()
             .map(|&(mesh, _, _)| mesh)
-            .chain(self.static_batches.iter().flatten().map(|b| b.mesh))
+            .chain(
+                self.static_batches
+                    .iter()
+                    .flatten()
+                    .flat_map(|b| b.levels.iter().map(|l| l.mesh.id)),
+            )
             .any(|mesh| {
                 self.meshes[self.base(mesh) as usize].parts.iter().any(|&(_, m)| {
                     let m = &self.materials[self.part_material(mesh, m) as usize];
@@ -4535,10 +4558,12 @@ impl Renderer3D {
         let cutout = cutout
             || (batches.is_some()
                 && self.static_batches.iter().flatten().any(|b| {
-                    self.meshes[b.mesh as usize]
-                        .parts
-                        .iter()
-                        .any(|(_, m)| self.materials[*m as usize].cutout)
+                    b.levels.iter().any(|l| {
+                        self.meshes[l.mesh.id as usize]
+                            .parts
+                            .iter()
+                            .any(|(_, m)| self.materials[*m as usize].cutout)
+                    })
                 }));
         if self.samples <= 1 || !cutout {
             return;
@@ -4601,28 +4626,39 @@ impl Renderer3D {
             return;
         }
         for batch in self.static_batches.iter().flatten() {
-            if matches!(kind, Kind::Shadow(_)) && !batch.options.cast_shadows {
-                continue;
+            for (level, l) in batch.levels.iter().enumerate() {
+                if self.meshes.get(l.mesh.id as usize).is_none_or(|m| m.buffers.is_none()) {
+                    continue;
+                }
+                let visible = if batch.gpu_cells.is_some() {
+                    batch.view(view, level).is_some()
+                } else {
+                    batch
+                        .visible
+                        .get(view * batch.levels.len() + level)
+                        .is_some_and(|v| !v.is_empty())
+                };
+                if !visible {
+                    continue;
+                }
+                self.draw_model_runs(
+                    pass,
+                    &[(l.mesh.id, 0, batch.count)],
+                    kind,
+                    &batch.vertices,
+                    Some((batch, view, level)),
+                );
             }
-            if self.meshes.get(batch.mesh as usize).is_none_or(|m| m.buffers.is_none()) {
-                continue;
-            }
-            self.draw_model_runs(
-                pass,
-                &[(batch.mesh, 0, batch.count)],
-                kind,
-                &batch.vertices,
-                Some((batch, view)),
-            );
         }
     }
+
     fn draw_model_runs(
         &self,
         pass: &mut wgpu::RenderPass<'_>,
         runs: &[(u32, u32, u32)],
         kind: Kind,
         instances: &wgpu::Buffer,
-        batch: Option<(&StaticBatch, usize)>,
+        batch: Option<(&StaticBatch, usize, usize)>,
     ) {
         let mut n = StateChanges::default();
         pass.set_vertex_buffer(1, instances.slice(..));
@@ -4705,8 +4741,8 @@ impl Renderer3D {
                     n.bind_groups += 1;
                     bound_material = *material;
                 }
-                if let Some((batch, view)) = batch {
-                    if let Some(v) = batch.views.get(view) {
+                if let Some((batch, view, level)) = batch {
+                    if let Some(v) = batch.view(view, level) {
                         pass.set_bind_group(3, &v.read, &[]);
                         n.bind_groups += 1;
                         dummy_bound = false;
@@ -4726,7 +4762,7 @@ impl Renderer3D {
                             n.bind_groups += 1;
                             dummy_bound = true;
                         }
-                        for &(start, count) in &batch.visible[view] {
+                        for &(start, count) in &batch.visible[view * batch.levels.len() + level] {
                             pass.draw_indexed(range.clone(), 0, start..start + count);
                             n.draws += 1;
                         }

@@ -1379,6 +1379,14 @@ typedef struct CrabbyInstanceBatch {
   uint32_t id;
 } CrabbyInstanceBatch;
 
+typedef struct CrabbyInstanceLevel {
+  struct CrabbyMesh mesh;
+  float min_distance;
+  float max_distance;
+  bool camera;
+  bool shadows;
+} CrabbyInstanceLevel;
+
 typedef struct CrabbySpriteSheet {
   struct CrabbyTexture texture;
   struct CrabbyVec2 frame_size;
@@ -3628,6 +3636,23 @@ enum CrabbyStatus crabby_ctx_update_instance_batch(struct CrabbyCtx *ctx,
 
 enum CrabbyStatus crabby_ctx_free_instance_batch(struct CrabbyCtx *ctx,
                                                  struct CrabbyInstanceBatch batch);
+
+enum CrabbyStatus crabby_ctx_create_instance_batch_levels(struct CrabbyCtx *ctx,
+                                                          const struct CrabbyInstanceLevel *levels,
+                                                          size_t level_count,
+                                                          const float (*matrices)[16],
+                                                          size_t count,
+                                                          const struct CrabbyColor *colors,
+                                                          size_t color_count,
+                                                          struct CrabbyInstanceBatchOptions options,
+                                                          struct CrabbyInstanceBatch *output);
+
+enum CrabbyStatus crabby_ctx_update_instance_batch_colors(struct CrabbyCtx *ctx,
+                                                          struct CrabbyInstanceBatch batch,
+                                                          const float (*matrices)[16],
+                                                          size_t count,
+                                                          const struct CrabbyColor *colors,
+                                                          size_t color_count);
 
 enum CrabbyStatus crabby_sprite_sheet(struct CrabbyTexture texture,
                                       uint32_t frame_width,
