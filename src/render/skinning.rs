@@ -7,7 +7,7 @@
 //! Where the GPU can't run compute shaders (WebGL2), the CPU poses them
 //! instead.
 
-use wgpu::util::DeviceExt;
+use crate::render::traffic::{Counted, NewBuffer, Upload};
 
 use super::Vertex;
 use crate::three::SkinFrame;
@@ -196,18 +196,22 @@ impl Skinning {
                 .map(|(&joints, &weights)| Influence { joints, weights })
                 .collect()
         };
-        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("3d skin influences"),
-            contents: bytemuck::cast_slice(&influences),
-            usage: wgpu::BufferUsages::STORAGE,
-        });
+        let buffer = device
+            .uploading(Upload::Skins)
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("3d skin influences"),
+                contents: bytemuck::cast_slice(&influences),
+                usage: wgpu::BufferUsages::STORAGE,
+            });
         let targets = deltas.len().checked_div(vertices.len()).unwrap_or(0) as u32;
         let dummy = [Delta::default()];
-        let delta_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("3d morph targets"),
-            contents: bytemuck::cast_slice(if deltas.is_empty() { &dummy[..] } else { &deltas[..] }),
-            usage: wgpu::BufferUsages::STORAGE,
-        });
+        let delta_buffer = device
+            .uploading(Upload::Skins)
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("3d morph targets"),
+                contents: bytemuck::cast_slice(if deltas.is_empty() { &dummy[..] } else { &deltas[..] }),
+                usage: wgpu::BufferUsages::STORAGE,
+            });
         GpuSkin {
             influences: buffer,
             deltas: delta_buffer,
@@ -249,10 +253,14 @@ impl Skinning {
             self.matrix_scratch.clear();
             self.matrix_scratch
                 .extend(skins.matrices.iter().map(glam::Mat4::to_cols_array));
-            queue.write_buffer(&self.joints, 0, bytemuck::cast_slice(&self.matrix_scratch));
+            queue
+                .uploading(Upload::Skins)
+                .write_buffer(&self.joints, 0, bytemuck::cast_slice(&self.matrix_scratch));
         }
         if self.pipeline.is_some() && !skins.weights.is_empty() {
-            queue.write_buffer(&self.weights, 0, bytemuck::cast_slice(&skins.weights));
+            queue
+                .uploading(Upload::Skins)
+                .write_buffer(&self.weights, 0, bytemuck::cast_slice(&skins.weights));
         }
         if self.draws.len() > self.param_capacity {
             self.param_capacity = self.draws.len().next_power_of_two();
@@ -347,13 +355,17 @@ impl Skinning {
                                 ..*v
                             }
                         }));
-                    queue.write_buffer(&slot.buffer, 0, bytemuck::cast_slice(&self.scratch));
+                    queue
+                        .uploading(Upload::Skins)
+                        .write_buffer(&slot.buffer, 0, bytemuck::cast_slice(&self.scratch));
                 }
                 (None, None) => {}
             }
         }
         if self.pipeline.is_some() {
-            queue.write_buffer(&self.params, 0, &self.params_scratch);
+            queue
+                .uploading(Upload::Skins)
+                .write_buffer(&self.params, 0, &self.params_scratch);
         }
     }
 
@@ -406,7 +418,7 @@ fn entry(binding: u32, buffer: &wgpu::Buffer) -> wgpu::BindGroupEntry<'_> {
 }
 
 fn joint_buffer(device: &wgpu::Device, matrices: usize) -> wgpu::Buffer {
-    device.create_buffer(&wgpu::BufferDescriptor {
+    device.new_buffer(&wgpu::BufferDescriptor {
         label: Some("3d skin matrices"),
         size: (matrices * 64) as u64,
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
@@ -415,7 +427,7 @@ fn joint_buffer(device: &wgpu::Device, matrices: usize) -> wgpu::Buffer {
 }
 
 fn weight_buffer(device: &wgpu::Device, weights: usize) -> wgpu::Buffer {
-    device.create_buffer(&wgpu::BufferDescriptor {
+    device.new_buffer(&wgpu::BufferDescriptor {
         label: Some("3d morph weights"),
         size: (weights.max(4) * 4) as u64,
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
@@ -424,7 +436,7 @@ fn weight_buffer(device: &wgpu::Device, weights: usize) -> wgpu::Buffer {
 }
 
 fn param_buffer(device: &wgpu::Device, stride: u64, slots: usize) -> wgpu::Buffer {
-    device.create_buffer(&wgpu::BufferDescriptor {
+    device.new_buffer(&wgpu::BufferDescriptor {
         label: Some("3d skinning params"),
         size: stride * slots as u64,
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
@@ -433,7 +445,7 @@ fn param_buffer(device: &wgpu::Device, stride: u64, slots: usize) -> wgpu::Buffe
 }
 
 fn slot_buffer(device: &wgpu::Device, corners: u32, storage: wgpu::BufferUsages) -> wgpu::Buffer {
-    device.create_buffer(&wgpu::BufferDescriptor {
+    device.new_buffer(&wgpu::BufferDescriptor {
         label: Some("3d posed vertices"),
         size: u64::from(corners) * size_of::<Vertex>() as u64,
         usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC | storage,

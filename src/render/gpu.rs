@@ -1,5 +1,6 @@
 //! wgpu setup, textures, and the instanced sprite pass.
 
+use crate::render::traffic::{Counted, NewBuffer, Upload};
 use std::sync::Arc;
 
 use glam::Mat4;
@@ -192,7 +193,7 @@ impl Capture {
             view_formats: &[],
         });
         let padded_row = (width * 4).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
-        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        let buffer = device.new_buffer(&wgpu::BufferDescriptor {
             label: Some("screenshot readback"),
             size: u64::from(padded_row) * u64::from(height),
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
@@ -461,7 +462,7 @@ impl Renderer {
         let pipeline = sprite_pipeline(&device, &layout, &shader, view_format);
 
         let camera = |label| {
-            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            let buffer = device.new_buffer(&wgpu::BufferDescriptor {
                 label: Some(label),
                 size: size_of::<Mat4>() as u64,
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
@@ -560,7 +561,7 @@ impl Renderer {
     }
 
     fn create_instance_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
-        device.create_buffer(&wgpu::BufferDescriptor {
+        device.new_buffer(&wgpu::BufferDescriptor {
             label: Some("sprite instances"),
             size: (capacity * size_of::<SpriteInstance>()) as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
@@ -662,7 +663,7 @@ impl Renderer {
             view_formats: &[],
         });
         for (i, rgba) in layers.iter().enumerate() {
-            self.queue.write_texture(
+            self.queue.uploading(Upload::Textures).write_texture(
                 wgpu::TexelCopyTextureInfo {
                     texture: &texture,
                     mip_level: 0,
@@ -978,7 +979,7 @@ impl Renderer {
             // Materials read normal maps (data, not colors) without sRGB decoding.
             view_formats: self.image_view_formats,
         });
-        self.queue.write_texture(
+        self.queue.uploading(Upload::Textures).write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &texture,
                 mip_level: 0,
@@ -1100,7 +1101,7 @@ impl Renderer {
     /// Replaces every pixel of texture `id` (same size as created).
     pub fn update_texture(&mut self, id: u32, width: u32, height: u32, rgba: &[u8]) {
         debug_assert_eq!(rgba.len(), (width * height * 4) as usize);
-        self.queue.write_texture(
+        self.queue.uploading(Upload::Textures).write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &self.textures[id as usize].texture,
                 mip_level: 0,
@@ -1133,7 +1134,7 @@ impl Renderer {
     /// Replaces a `width` × `height` block of texture `id` at `(x, y)`.
     pub fn update_texture_region(&mut self, id: u32, at: [u32; 2], size: [u32; 2], rgba: &[u8]) {
         debug_assert_eq!(rgba.len(), (size[0] * size[1] * 4) as usize);
-        self.queue.write_texture(
+        self.queue.uploading(Upload::Textures).write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &self.textures[id as usize].texture,
                 mip_level: 0,
@@ -1275,11 +1276,13 @@ impl Renderer {
         }
         if !world.is_empty() {
             self.queue
+                .uploading(Upload::Sprites)
                 .write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(world));
         }
         if !ui.is_empty() {
             let offset = std::mem::size_of_val(world) as u64;
             self.queue
+                .uploading(Upload::Sprites)
                 .write_buffer(&self.instance_buffer, offset, bytemuck::cast_slice(ui));
         }
         // World-space UI panels' sprites go after the screen's, each panel
@@ -1289,15 +1292,21 @@ impl Renderer {
         for (i, (_, size, (sprites, _))) in panels.iter().enumerate() {
             if !sprites.is_empty() {
                 let offset = u64::from(panel_base) * size_of::<SpriteInstance>() as u64;
-                self.queue
-                    .write_buffer(&self.instance_buffer, offset, bytemuck::cast_slice(sprites));
+                self.queue.uploading(Upload::Sprites).write_buffer(
+                    &self.instance_buffer,
+                    offset,
+                    bytemuck::cast_slice(sprites),
+                );
             }
             if i == self.panel_cameras.len() {
                 self.panel_cameras.push(self.make_camera("ui panel camera"));
             }
             let view = crate::ctx::screen_projection(glam::Vec2::new(size[0] as f32, size[1] as f32));
-            self.queue
-                .write_buffer(&self.panel_cameras[i].0, 0, bytemuck::cast_slice(&view.to_cols_array()));
+            self.queue.uploading(Upload::Uniforms).write_buffer(
+                &self.panel_cameras[i].0,
+                0,
+                bytemuck::cast_slice(&view.to_cols_array()),
+            );
             panel_starts.push(panel_base);
             panel_base += sprites.len() as u32;
         }
@@ -1314,12 +1323,12 @@ impl Renderer {
                 format,
             ));
         }
-        self.queue.write_buffer(
+        self.queue.uploading(Upload::Uniforms).write_buffer(
             &self.camera_buffer,
             0,
             bytemuck::cast_slice(&world_view.to_cols_array()),
         );
-        self.queue.write_buffer(
+        self.queue.uploading(Upload::Uniforms).write_buffer(
             &self.ui_camera_buffer,
             0,
             bytemuck::cast_slice(&ui_view.to_cols_array()),
@@ -1434,6 +1443,7 @@ impl Renderer {
             self.stats.gpu_ms = timer.smoothed_ms;
         }
         self.stats.cpu_ms = cpu_start.elapsed().as_secs_f32() * 1000.0;
+        self.stats.uploads = super::traffic::take();
         #[cfg(feature = "3d")]
         {
             self.stats.cpu_ms += std::mem::take(&mut self.prepare_3d_ms);
@@ -1539,7 +1549,7 @@ impl Renderer {
 
     /// A camera uniform and its bind group for the sprite pipeline.
     fn make_camera(&self, label: &str) -> (wgpu::Buffer, wgpu::BindGroup) {
-        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+        let buffer = self.device.new_buffer(&wgpu::BufferDescriptor {
             label: Some(label),
             size: size_of::<Mat4>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,

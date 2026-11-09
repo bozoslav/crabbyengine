@@ -25,6 +25,7 @@
 //! Sprites and UI are drawn on top afterwards, without tone mapping.
 
 mod draw_order;
+use crate::render::traffic::{Counted, NewBuffer, Upload};
 mod instances;
 mod variants;
 mod shadow_cache;
@@ -36,7 +37,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 pub(crate) use variants::{Instancing, Pass, PipelineRole, ShaderVariant, Sides};
 
 use glam::{Mat4, Vec3};
-use wgpu::util::DeviceExt;
 
 use super::gpu::GpuTexture;
 use super::lights::LightTextures;
@@ -125,6 +125,9 @@ use crate::three::{
 };
 use crate::three::{Frame3D, Scene3D};
 
+/// Models per page of the instance buffer: a frame uploads the pages
+/// whose records changed (32 × 80 bytes).
+const INSTANCE_PAGE: usize = 32;
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 /// The lit frame before tone mapping: light brighter than white survives.
 pub(super) const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
@@ -893,6 +896,8 @@ pub(crate) struct Renderer3D {
     particles: super::particles::Particles,
     materials: Vec<GpuMaterial>,
     instances: wgpu::Buffer,
+    /// What `instances` holds, so each frame uploads only what changed.
+    instance_mirror: super::traffic::Mirror,
     /// Capacity of `instances`, in instances.
     capacity: usize,
     targets: Option<Targets>,
@@ -1060,7 +1065,7 @@ impl Renderer3D {
         let storage_supported = compute && device.limits().max_storage_buffers_per_shader_stage > 0;
         let storage_read = storage_supported.then(|| storage_layout(true));
         let storage_dummy = storage_read.as_ref().map(|layout| {
-            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            let buffer = device.new_buffer(&wgpu::BufferDescriptor {
                 label: None,
                 size: 16,
                 usage: wgpu::BufferUsages::STORAGE,
@@ -1249,7 +1254,7 @@ impl Renderer3D {
                 alpha: lerp,
             }),
         );
-        let post_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        let post_buffer = device.new_buffer(&wgpu::BufferDescriptor {
             label: Some("3d post"),
             size: size_of::<PostUniform>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
@@ -1277,7 +1282,7 @@ impl Renderer3D {
                 view_formats: &[],
             })
             .create_view(&Default::default());
-        let frame_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        let frame_buffer = device.new_buffer(&wgpu::BufferDescriptor {
             label: Some("3d frame"),
             size: size_of::<FrameUniform>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
@@ -1315,7 +1320,7 @@ impl Renderer3D {
             .collect();
         let align = device.limits().min_uniform_buffer_offset_alignment as u64;
         let shadow_stride = (size_of::<FrameUniform>() as u64).div_ceil(align) * align;
-        let shadow_frames = device.create_buffer(&wgpu::BufferDescriptor {
+        let shadow_frames = device.new_buffer(&wgpu::BufferDescriptor {
             label: Some("3d shadow frames"),
             // And one for global illumination's shadow map (see `gi.rs`).
             size: shadow_stride * (MAX_SHADOW_VIEWS as u64 + 1),
@@ -1679,6 +1684,7 @@ impl Renderer3D {
             meshes: Vec::new(),
             materials: Vec::new(),
             instances: Self::instance_buffer(device, capacity),
+            instance_mirror: Default::default(),
             capacity,
             targets: None,
             white,
@@ -1745,7 +1751,7 @@ impl Renderer3D {
                 })
                 .create_view(&Default::default())
         };
-        let frame_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        let frame_buffer = device.new_buffer(&wgpu::BufferDescriptor {
             label: Some("3d target camera frame"),
             size: size_of::<FrameUniform>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
@@ -1823,11 +1829,13 @@ impl Renderer3D {
             } else {
                 data
             };
-            let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("GPU items"),
-                contents: bytemuck::cast_slice(&data.iter().map(|v| v.to_array()).collect::<Vec<_>>()),
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            });
+            let buffer = device
+                .uploading(Upload::Meshes)
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("GPU items"),
+                    contents: bytemuck::cast_slice(&data.iter().map(|v| v.to_array()).collect::<Vec<_>>()),
+                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                });
             let group = |layout| {
                 device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: None,
@@ -1872,7 +1880,7 @@ impl Renderer3D {
     }
     pub fn write_gpu_buffer(&self, queue: &wgpu::Queue, id: u32, offset: u32, data: &[crate::Vec4]) {
         if let Some(Some(b)) = self.storage_buffers.get(id as usize) {
-            queue.write_buffer(
+            queue.uploading(Upload::Meshes).write_buffer(
                 &b.buffer,
                 u64::from(offset) * 16,
                 bytemuck::cast_slice(&data.iter().map(|v| v.to_array()).collect::<Vec<_>>()),
@@ -1937,7 +1945,7 @@ impl Renderer3D {
     }
 
     fn moved_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
-        device.create_buffer(&wgpu::BufferDescriptor {
+        device.new_buffer(&wgpu::BufferDescriptor {
             label: Some("3d moved instances"),
             size: (capacity * size_of::<MovedInstance>()) as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
@@ -1946,7 +1954,7 @@ impl Renderer3D {
     }
 
     fn instance_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
-        device.create_buffer(&wgpu::BufferDescriptor {
+        device.new_buffer(&wgpu::BufferDescriptor {
             label: Some("3d instances"),
             size: (capacity * size_of::<Instance3D>()) as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
@@ -2207,11 +2215,13 @@ impl Renderer3D {
     }
 
     pub fn create_material(&mut self, device: &wgpu::Device, desc: &GpuMaterialDesc, textures: &[GpuTexture]) -> u32 {
-        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("3d material"),
-            contents: bytemuck::bytes_of(&desc.uniform),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+        let buffer = device
+            .uploading(Upload::Materials)
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("3d material"),
+                contents: bytemuck::bytes_of(&desc.uniform),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
         let bindings = self.material_bindings(desc, textures);
         let bind_group = self.material_bind_group(device, &buffer, &bindings);
         self.shadow_cache.invalidate();
@@ -2279,7 +2289,9 @@ impl Renderer3D {
             return;
         };
         self.shadow_cache.invalidate();
-        queue.write_buffer(&material.buffer, 0, bytemuck::bytes_of(&desc.uniform));
+        queue
+            .uploading(Upload::Materials)
+            .write_buffer(&material.buffer, 0, bytemuck::bytes_of(&desc.uniform));
         if !self.material_bindings_match(&material.bindings, desc, textures) {
             let bindings = self.material_bindings(desc, textures);
             let bind_group = self.material_bind_group(device, &material.buffer, &bindings);
@@ -2344,21 +2356,25 @@ impl Renderer3D {
             self.skinning
                 .create(device, &vertices, &data.joints, &data.weights, deltas)
         });
-        let vertices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("3d vertices"),
-            contents: bytemuck::cast_slice(&vertices),
-            usage: wgpu::BufferUsages::VERTEX
-                | if skin.is_some() {
-                    self.skinning.rest_usage()
-                } else {
-                    wgpu::BufferUsages::empty()
-                },
-        });
-        let indices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("3d indices"),
-            contents: bytemuck::cast_slice(&data.indices),
-            usage: wgpu::BufferUsages::INDEX,
-        });
+        let vertices = device
+            .uploading(Upload::Meshes)
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("3d vertices"),
+                contents: bytemuck::cast_slice(&vertices),
+                usage: wgpu::BufferUsages::VERTEX
+                    | if skin.is_some() {
+                        self.skinning.rest_usage()
+                    } else {
+                        wgpu::BufferUsages::empty()
+                    },
+            });
+        let indices = device
+            .uploading(Upload::Meshes)
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("3d indices"),
+                contents: bytemuck::cast_slice(&data.indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
         self.shadow_cache.invalidate();
         let mesh = GpuMesh {
             buffers: Some((vertices, indices)),
@@ -2424,7 +2440,7 @@ impl Renderer3D {
         // The scene is drawn at `size` and scaled to the window's `window`.
         let size = scaled_size(window, post.render_scale, device.limits().max_texture_dimension_2d);
         let upscaled = size != window;
-        queue.write_buffer(
+        queue.uploading(Upload::Uniforms).write_buffer(
             &self.post_buffer,
             0,
             bytemuck::bytes_of(&PostUniform::new(post, lut.map(|(_, n)| n)).scaled(post, size, window)),
@@ -2684,19 +2700,24 @@ impl Renderer3D {
         if total > self.capacity {
             self.capacity = total.next_power_of_two();
             self.instances = Self::instance_buffer(device, self.capacity);
+            self.instance_mirror.forget();
         }
-        queue.write_buffer(&self.instances, 0, bytemuck::cast_slice(&frame.instances));
-        let mut at = frame.instances.len();
-        for view in &frame.views {
-            if !view.frame.instances.is_empty() {
-                let bytes = (at * size_of::<Instance3D>()) as u64;
-                queue.write_buffer(&self.instances, bytes, bytemuck::cast_slice(&view.frame.instances));
-            }
-            at += view.frame.instances.len();
-        }
-        if let Some(g) = gi_frame.filter(|g| !g.capture.instances.is_empty()) {
-            let bytes = (at * size_of::<Instance3D>()) as u64;
-            queue.write_buffer(&self.instances, bytes, bytemuck::cast_slice(&g.capture.instances));
+        // Only the pages that changed since the last frame are uploaded:
+        // models that stand still (and keep their place in the lists) cost
+        // nothing.
+        let uploads = queue.uploading(Upload::Instances);
+        let buffer = &self.instances;
+        let mut upload = |at: usize, bytes: &[u8]| uploads.write_buffer(buffer, at as u64, bytes);
+        let page = INSTANCE_PAGE * size_of::<Instance3D>();
+        let mut at = 0;
+        let views = frame.views.iter().map(|v| &v.frame.instances);
+        for instances in std::iter::once(&frame.instances)
+            .chain(views)
+            .chain(gi_frame.map(|g| &g.capture.instances))
+        {
+            let bytes = bytemuck::cast_slice(instances);
+            self.instance_mirror.sync(at, bytes, page, &mut upload);
+            at += bytes.len();
         }
         if self.velocity_on && !frame.motion.runs.is_empty() {
             let moved = &frame.motion.instances;
@@ -2704,7 +2725,9 @@ impl Renderer3D {
                 self.moved_capacity = moved.len().next_power_of_two();
                 self.moved = Self::moved_buffer(device, self.moved_capacity);
             }
-            queue.write_buffer(&self.moved, 0, bytemuck::cast_slice(moved));
+            queue
+                .uploading(Upload::Instances)
+                .write_buffer(&self.moved, 0, bytemuck::cast_slice(moved));
             self.moved_runs.extend_from_slice(&frame.motion.runs);
         }
         let scaled = |c, k: f32| {
@@ -2865,7 +2888,9 @@ impl Renderer3D {
         self.environment.bakes.clear();
         self.environment.bakes.extend_from_slice(&frame.probe_bakes);
         self.environment.prepare_bakes(device, &self.render_targets);
-        queue.write_buffer(&self.frame_buffer, 0, bytemuck::bytes_of(&uniform));
+        queue
+            .uploading(Upload::Uniforms)
+            .write_buffer(&self.frame_buffer, 0, bytemuck::bytes_of(&uniform));
         // Each target camera's frame: the same, seen from it.
         for view in &frame.views {
             let Some(target) = self.view_targets.iter().position(|&(id, _)| id == view.target) else {
@@ -2901,7 +2926,7 @@ impl Renderer3D {
                 1.0 / view.size.1.max(1) as f32,
             ];
             theirs.sky_light[3] = (view.camera.y / 1000.0).max(0.0);
-            queue.write_buffer(
+            queue.uploading(Upload::Uniforms).write_buffer(
                 &self.view_targets[target].1.frame_buffer,
                 0,
                 bytemuck::bytes_of(&theirs),
@@ -2929,7 +2954,9 @@ impl Renderer3D {
                 theirs.previous_view_proj = theirs.view_proj;
                 theirs.camera = probe.extend(1.0).to_array();
                 theirs.sky_light[3] = (probe.y / 1000.0).max(0.0);
-                queue.write_buffer(&gi.face_buffers[i], 0, bytemuck::bytes_of(&theirs));
+                queue
+                    .uploading(Upload::Uniforms)
+                    .write_buffer(&gi.face_buffers[i], 0, bytemuck::bytes_of(&theirs));
             }
         }
         // Copy 0 also serves the sky texture's pass. `camera.w` 0 tells
@@ -2937,7 +2964,7 @@ impl Renderer3D {
         uniform.camera[3] = 0.0;
         for i in 0..frame.cascades.max(1) {
             uniform.caster_view_proj = uniform.sun_view_proj[i.min(MAX_CASCADES - 1)];
-            queue.write_buffer(
+            queue.uploading(Upload::Uniforms).write_buffer(
                 &self.shadow_frames,
                 self.shadow_stride * i as u64,
                 bytemuck::bytes_of(&uniform),
@@ -2945,7 +2972,7 @@ impl Renderer3D {
         }
         for i in 0..frame.light_views {
             uniform.caster_view_proj = uniform.light_view_proj[i];
-            queue.write_buffer(
+            queue.uploading(Upload::Uniforms).write_buffer(
                 &self.shadow_frames,
                 self.shadow_stride * (MAX_CASCADES + i) as u64,
                 bytemuck::bytes_of(&uniform),
@@ -2953,7 +2980,7 @@ impl Renderer3D {
         }
         if let Some(g) = gi_frame {
             uniform.caster_view_proj = g.sun_view_proj.to_cols_array_2d();
-            queue.write_buffer(
+            queue.uploading(Upload::Uniforms).write_buffer(
                 &self.shadow_frames,
                 self.shadow_stride * MAX_SHADOW_VIEWS as u64,
                 bytemuck::bytes_of(&uniform),

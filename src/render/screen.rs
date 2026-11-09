@@ -2,9 +2,9 @@
 //! denoising: occlusion in red, the contact shadow in green. With
 //! screen-space reflections, the denoised result goes into the first level
 //! of their image instead (see `ssr.rs`).
+use crate::render::traffic::{Counted, Upload};
 use glam::{Mat4, Vec3};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use wgpu::util::DeviceExt;
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -120,11 +120,13 @@ impl Ao {
         let blur_wide_pipeline = pipeline("fs_denoise", super::ssr::SCREEN_FORMAT);
         let spatial_pipeline = pipeline("fs_spatial", wgpu::TextureFormat::Rg8Unorm);
         let spatial_wide_pipeline = pipeline("fs_spatial", super::ssr::SCREEN_FORMAT);
-        let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("GTAO"),
-            contents: bytemuck::bytes_of(&Settings::zeroed()),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+        let uniform = device
+            .uploading(Upload::Uniforms)
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("GTAO"),
+                contents: bytemuck::bytes_of(&Settings::zeroed()),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
         Self {
             layout,
             raw_pipeline,
@@ -170,7 +172,7 @@ impl Ao {
         );
         let valid = self.signature == Some(signature);
         self.signature = Some(signature);
-        queue.write_buffer(
+        queue.uploading(Upload::Uniforms).write_buffer(
             &self.uniform,
             0,
             bytemuck::bytes_of(&Settings {

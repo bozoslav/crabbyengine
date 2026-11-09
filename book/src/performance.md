@@ -170,7 +170,11 @@ goes, in a running game:
 - **`ctx.render_stats()`**: draw calls; 3D models and triangles drawn for
   the camera and, separately, for the shadow maps; and the render CPU
   time split into culling (`collect_ms`), recording (`record_ms`, all
-  cores) and submitting.
+  cores) and submitting. `uploads` counts the bytes sent to the GPU that
+  frame, by kind (model transforms, uniforms, lights, ...), and the
+  buffers created: in a scene where nothing changes it should stay at a
+  few kilobytes of uniforms and no buffers. Models that stand still cost
+  no uploads; only the changed parts of the model list are sent.
 - **`ctx.mesh_costs()`**: per mesh, how many models and triangles it drew
   for the camera and the shadows last frame, heaviest first.
 - **Traces**: `ctx.record_trace(path, frames)` (or `PONKO_TRACE=path`)

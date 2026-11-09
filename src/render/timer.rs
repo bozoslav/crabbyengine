@@ -7,6 +7,7 @@
 //! them never waits for the GPU: a frame's time shows up one to three frames
 //! later. If every buffer is still in flight, that frame isn't timed.
 
+use crate::render::traffic::NewBuffer;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use crate::profiler::{GpuPass, PassSpan};
@@ -70,14 +71,14 @@ impl GpuTimer {
             ty: wgpu::QueryType::Timestamp,
             count: QUERIES,
         });
-        let resolve = device.create_buffer(&wgpu::BufferDescriptor {
+        let resolve = device.new_buffer(&wgpu::BufferDescriptor {
             label: Some("timestamp resolve"),
             size: BYTES,
             usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
         let slot = || Slot {
-            buffer: device.create_buffer(&wgpu::BufferDescriptor {
+            buffer: device.new_buffer(&wgpu::BufferDescriptor {
                 label: Some("timestamp readback"),
                 size: BYTES,
                 usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,

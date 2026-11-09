@@ -3,6 +3,7 @@
 //! marks.
 use super::gpu::GpuTexture;
 use crate::ParticleBlend3D;
+use crate::render::traffic::{Counted, NewBuffer, Upload};
 use crate::three::particles::{ParticleFrame, ParticleInstance, ParticleRun};
 use crate::three::strips::{StripRun, StripVertex};
 use crate::three::text3d::TextVertex;
@@ -39,7 +40,7 @@ pub(super) struct Particles {
 }
 impl Particles {
     pub fn new(device: &wgpu::Device, texture_layout: &wgpu::BindGroupLayout, samples: u32) -> Self {
-        let camera = device.create_buffer(&wgpu::BufferDescriptor {
+        let camera = device.new_buffer(&wgpu::BufferDescriptor {
             label: Some("particle camera"),
             size: size_of::<Camera>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
@@ -188,7 +189,9 @@ impl Particles {
             self.instances = buffer(device, self.capacity);
         }
         if !frame.instances.is_empty() {
-            queue.write_buffer(&self.instances, 0, bytemuck::cast_slice(&frame.instances));
+            queue
+                .uploading(Upload::Other)
+                .write_buffer(&self.instances, 0, bytemuck::cast_slice(&frame.instances));
         }
         let strips = &frame.strips.vertices;
         if strips.len() > self.strip_capacity {
@@ -196,7 +199,9 @@ impl Particles {
             self.strip_vertices = strip_buffer(device, self.strip_capacity);
         }
         if !strips.is_empty() {
-            queue.write_buffer(&self.strip_vertices, 0, bytemuck::cast_slice(strips));
+            queue
+                .uploading(Upload::Other)
+                .write_buffer(&self.strip_vertices, 0, bytemuck::cast_slice(strips));
         }
         if texts.len() > self.text_capacity {
             self.text_capacity = texts.len().next_power_of_two();
@@ -204,9 +209,11 @@ impl Particles {
                 vertex_buffer(device, "3d text vertices", self.text_capacity * size_of::<TextVertex>());
         }
         if !texts.is_empty() {
-            queue.write_buffer(&self.text_vertices, 0, bytemuck::cast_slice(texts));
+            queue
+                .uploading(Upload::Other)
+                .write_buffer(&self.text_vertices, 0, bytemuck::cast_slice(texts));
         }
-        queue.write_buffer(
+        queue.uploading(Upload::Uniforms).write_buffer(
             &self.camera,
             0,
             bytemuck::bytes_of(&Camera {
@@ -286,7 +293,7 @@ impl Particles {
     }
 }
 fn vertex_buffer(device: &wgpu::Device, label: &str, bytes: usize) -> wgpu::Buffer {
-    device.create_buffer(&wgpu::BufferDescriptor {
+    device.new_buffer(&wgpu::BufferDescriptor {
         label: Some(label),
         size: bytes as u64,
         usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
@@ -295,7 +302,7 @@ fn vertex_buffer(device: &wgpu::Device, label: &str, bytes: usize) -> wgpu::Buff
 }
 
 fn strip_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
-    device.create_buffer(&wgpu::BufferDescriptor {
+    device.new_buffer(&wgpu::BufferDescriptor {
         label: Some("strip vertices"),
         size: (capacity * size_of::<StripVertex>()) as u64,
         usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
@@ -304,7 +311,7 @@ fn strip_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
 }
 
 fn buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
-    device.create_buffer(&wgpu::BufferDescriptor {
+    device.new_buffer(&wgpu::BufferDescriptor {
         label: Some("particle instances"),
         size: (capacity * size_of::<ParticleInstance>()) as u64,
         usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
