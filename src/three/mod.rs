@@ -284,7 +284,28 @@ pub struct Material {
 /// A material shader written in WGSL: made with
 /// [`Ctx::load_shader`](crate::Ctx::load_shader) or
 /// [`Ctx::create_shader`](crate::Ctx::create_shader); a cheap handle. See
-/// the 3D chapter of the guide for what a shader can do.
+/// the 3D chapter of the guide for what a shader can do ("Custom shaders"
+/// and "The shader contract").
+///
+/// # The contract, in short
+///
+/// - The game's WGSL may define `fn vertex(v: Vertex) -> Vertex` (world
+///   space) and `fn surface(s: Surface) -> Surface`, with exactly these
+///   signatures; a missing one passes its input through. It declares no
+///   bindings of its own: groups 0 (`frame`), 1 (`material` and its
+///   textures), 2 (the scene behind, for transparent materials) and 3
+///   (`items`, a mesh's GPU buffer) are the engine's.
+/// - The same code runs in every pass: `vertex` in the depth prepass, the
+///   opaque or transparent pass, the shadow maps and the motion vectors;
+///   `surface` in the lit passes, and in depth and shadow passes only for
+///   [`Blend::Cutout`] materials. `drawing_shadows()` tells shadow maps apart.
+/// - Each shader is built as six pipeline sets: one- or double-sided
+///   ([`MaterialDesc::double_sided`]) times plain, crossfading (levels of
+///   detail) or shared-instance (GPU buffer) draws. There are no defines;
+///   skinned meshes use the same pipelines.
+/// - Culling uses the mesh's bounds before `vertex` moves anything: grow
+///   them with [`Ctx::set_mesh_gpu_bounds`](crate::Ctx::set_mesh_gpu_bounds)
+///   for shaders that move vertices far.
 ///
 /// ```no_run
 /// # use ponko::*;

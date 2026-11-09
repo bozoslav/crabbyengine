@@ -396,13 +396,17 @@ fn every_blend_and_side_draws_through_a_custom_shader() {
 }
 
 /// A 2-unit cube at `x`, moved by its `vertex` hook by `shift`, drawn by a
-/// camera looking at the origin from 10 units away. Returns lit pixels.
-fn displaced_cube(x: f32, shift: f32) -> Option<usize> {
+/// camera looking at the origin from 10 units away; with `grow`, its
+/// culling bounds also hold where the hook puts it. Returns lit pixels.
+fn displaced_cube(x: f32, shift: f32, grow: bool) -> Option<usize> {
     let mut rig = Rig::new(4)?;
     let shader = rig.shader(BOTH_HOOKS);
     let mut desc = material(shader, Blend::Opaque, false);
     desc.custom[0] = vec4(shift, 0.0, 0.0, 0.0);
     let cube = rig.mesh(&MeshData::cube(2.0), desc);
+    if grow {
+        rig.ctx.set_mesh_gpu_bounds(cube, vec3(shift, 0.0, 0.0), 2.0);
+    }
     rig.ctx.world.spawn((
         Transform3D {
             position: vec3(x, 0.0, 0.0),
@@ -417,15 +421,20 @@ fn displaced_cube(x: f32, shift: f32) -> Option<usize> {
 
 #[test]
 fn culling_uses_the_mesh_bounds_before_vertex_displacement() {
-    let Some(still) = displaced_cube(0.0, 0.0) else { return };
+    let Some(still) = displaced_cube(0.0, 0.0, false) else {
+        return;
+    };
     assert!(still > 100, "the cube shows: {still}");
     // Moved into view from outside it: culled by where its bounds are.
-    let into_view = displaced_cube(60.0, -60.0).unwrap();
+    let into_view = displaced_cube(60.0, -60.0, false).unwrap();
     assert_eq!(into_view, 0, "culled by its undisplaced bounds");
+    // Bounds grown over where the hook puts it: drawn there.
+    let grown = displaced_cube(60.0, -60.0, true).unwrap();
+    assert!(grown.abs_diff(still) < still / 10, "{grown} vs {still}");
     // Moved out of view from inside it: drawn (off screen), so not seen.
-    let out_of_view = displaced_cube(0.0, 60.0).unwrap();
+    let out_of_view = displaced_cube(0.0, 60.0, false).unwrap();
     assert_eq!(out_of_view, 0);
     // A small displacement within view is drawn where `vertex` put it.
-    let nudged = displaced_cube(0.0, 1.0).unwrap();
+    let nudged = displaced_cube(0.0, 1.0, false).unwrap();
     assert!(nudged.abs_diff(still) < still / 5, "{nudged} vs {still}");
 }
