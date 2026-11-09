@@ -3499,6 +3499,8 @@ enum CrabbyStatus crabby_ctx_clear_decal_textures(struct CrabbyCtx *ctx);
 
 enum CrabbyStatus crabby_ctx_supports_decals(struct CrabbyCtx *ctx, bool *out_supported);
 
+enum CrabbyStatus crabby_ctx_warm_render_pipelines(struct CrabbyCtx *ctx);
+
 enum CrabbyStatus crabby_ctx_bake_reflection_probe(struct CrabbyCtx *ctx, uint64_t entity);
 
 enum CrabbyStatus crabby_ctx_load_reflection_probe(struct CrabbyCtx *ctx,

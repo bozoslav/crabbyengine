@@ -3324,6 +3324,25 @@ pub unsafe extern "C" fn crabby_ctx_supports_decals(ctx: *mut CrabbyCtx, out_sup
     boundary(|| unsafe { ctx_access(ctx, |c| out(out_supported, c.supports_decals())) })
 }
 
+/// Build, now, the 3D pipeline variants frames would build the first time
+/// they draw them (Rust `Ctx::warm_render_pipelines`); call it at the end of
+/// loading. Does nothing in headless runs.
+/// # Safety
+/// `ctx` null or live.
+/// ```
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_warm_render_pipelines(std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_warm_render_pipelines(ctx: *mut CrabbyCtx) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            c.warm_render_pipelines();
+            Ok(())
+        })
+    })
+}
+
 /// Queue six HDR views of the scene at the probe and prefilter them.
 /// # Safety
 /// Context is null or a live callback context.

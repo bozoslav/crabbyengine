@@ -131,6 +131,31 @@ impl Ctx {
         }
     }
 
+    /// Builds, now, the render pipelines the renderer would otherwise build
+    /// the first time a frame draws them: the variants of every material
+    /// shader for crossfading [`LodGroup`](crate::LodGroup) levels and for
+    /// buffer-driven instances. Each takes several milliseconds, a visible
+    /// hitch if it happens mid-game (the first time a crossfade shows). Call
+    /// it at the end of loading; shaders made afterwards then build theirs
+    /// when they're made. Startup takes longer, so games that use neither
+    /// can skip it. [`RenderStats::pipelines_built`](crate::RenderStats)
+    /// counts the ones still built while drawing. Does nothing in headless runs.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// // ... load meshes, materials and shaders ...
+    /// ctx.warm_render_pipelines();
+    /// # }
+    /// ```
+    pub fn warm_render_pipelines(&mut self) {
+        if let Some(renderer) = self.renderer.as_mut()
+            && !self.headless
+        {
+            renderer.warm_pipelines();
+        }
+    }
+
     fn check_material(&self, desc: &MaterialDesc) {
         assert!(
             (0.0..=1.0).contains(&desc.roughness) && (0.0..=1.0).contains(&desc.metallic),

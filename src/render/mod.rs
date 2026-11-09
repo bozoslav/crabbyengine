@@ -76,6 +76,12 @@ pub struct RenderStats {
     /// 3D models in the camera's view that weren't drawn because something
     /// hid them (see `Camera3D::occlusion_culling`).
     pub occluded: usize,
+    /// 3D pipeline variants built while drawing (crossfading level-of-detail
+    /// models, buffer-driven instances), each the first time a frame needed
+    /// it. Each one costs several milliseconds inside its frame; call
+    /// [`Ctx::warm_render_pipelines`](crate::Ctx::warm_render_pipelines)
+    /// while loading to build them up front. Always 0 without the `3d` feature.
+    pub pipelines_built: usize,
 }
 
 /// What happened when we tried to draw a frame.

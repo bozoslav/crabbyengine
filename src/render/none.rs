@@ -64,6 +64,10 @@ impl Renderer {
         match *self {}
     }
     #[cfg(feature = "3d")]
+    pub fn warm_pipelines(&mut self) {
+        match *self {}
+    }
+    #[cfg(feature = "3d")]
     pub fn supports_gi(&self) -> bool {
         match *self {}
     }

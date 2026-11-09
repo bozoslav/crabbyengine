@@ -355,6 +355,40 @@ fn a_crossfade_draws_both_levels_through_complementary_dither() {
 }
 
 #[test]
+fn warmed_pipelines_build_nothing_while_drawing_a_crossfade() {
+    // Cold: the first crossfade builds its variants inside the frame.
+    let Some(mut rig) = Rig::new(true) else {
+        return;
+    };
+    two_level_scene(&mut rig);
+    camera_at(&mut rig.ctx, distance_for(0.475));
+    rig.draw();
+    assert!(
+        rig.renderer.take_pipelines_built() > 0,
+        "a cold crossfade builds variants"
+    );
+    rig.draw();
+    assert_eq!(rig.renderer.take_pipelines_built(), 0, "once built, they're kept");
+
+    // Warmed while loading: the same crossfade draws the same pixels and
+    // builds nothing, and shaders made afterwards come warm too.
+    let Some(mut rig) = Rig::new(true) else {
+        return;
+    };
+    two_level_scene(&mut rig);
+    rig.renderer.warm_pipelines();
+    let late = rig
+        .renderer
+        .create_shader(&rig.device, "late", "fn surface(s: Surface) -> Surface { return s; }")
+        .unwrap();
+    assert!(rig.renderer.shader_warm(late), "a shader made after warming comes warm");
+    camera_at(&mut rig.ctx, distance_for(0.475));
+    let faded = count(&rig.draw());
+    assert_eq!(rig.renderer.take_pipelines_built(), 0);
+    assert!(faded.red > 0 && faded.blue > 0, "still a crossfade: {faded:?}");
+}
+
+#[test]
 fn the_dither_follows_the_blend() {
     let Some(mut rig) = Rig::new(true) else {
         return;
