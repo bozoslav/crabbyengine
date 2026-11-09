@@ -871,6 +871,12 @@
       "category": "public compatibility",
       "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
     },
+    "tests/scene_lifecycle.rs": {
+      "occurrences": 3,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
+    },
     "tests/scenes.rs": {
       "occurrences": 2,
       "path_occurrences": 0,
