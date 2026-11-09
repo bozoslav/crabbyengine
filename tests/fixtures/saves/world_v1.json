@@ -1,0 +1,99 @@
+{
+  "entities": [
+    {
+      "components": {
+        "Health": {
+          "current": 37.5,
+          "max": 100.0
+        },
+        "Label": {
+          "name": "Base \"north\" ✓",
+          "note": "line one\nline two"
+        },
+        "Mood": {
+          "Alert": {
+            "since": 42
+          }
+        },
+        "Team": 1,
+        "Transform2D": {
+          "position": [
+            120.5,
+            -64.0
+          ],
+          "rotation": 0.25,
+          "scale": [
+            2.0,
+            -1.0
+          ]
+        }
+      },
+      "entity": 4294967300
+    },
+    {
+      "components": {
+        "Label": {
+          "name": "marker",
+          "note": null
+        },
+        "Transform2D": {
+          "position": [
+            -1.0,
+            0.5
+          ],
+          "rotation": 0.0,
+          "scale": [
+            1.0,
+            1.0
+          ]
+        }
+      },
+      "entity": 12884901888
+    },
+    {
+      "components": {
+        "Follows": 4294967300,
+        "Mood": "Calm",
+        "Team": 2
+      },
+      "entity": 12884901889
+    },
+    {
+      "components": {
+        "Attached": {
+          "offset": [
+            0.0,
+            -8.0
+          ],
+          "rotation": 1.5,
+          "to": 4294967300
+        },
+        "Team": 1,
+        "Transform2D": {
+          "position": [
+            0.0,
+            0.0
+          ],
+          "rotation": 0.0,
+          "scale": [
+            1.0,
+            1.0
+          ]
+        }
+      },
+      "entity": 12884901890
+    }
+  ],
+  "format": "crabby-world",
+  "not_saved": {
+    "Secret": 1
+  },
+  "resources": {
+    "Round": 12,
+    "Score": {
+      "blue": 7,
+      "red": 3
+    }
+  },
+  "version": 1
+}
