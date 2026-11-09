@@ -242,6 +242,13 @@ fn tools() -> Vec<Tool> {
             required: &[],
         },
         Tool {
+            name: "instance_capabilities",
+            description: "What one running game can do, before you call anything that changes it: engine version, headless or windowed, compiled features (window, audio, physics, 3d, ...), subsystems (renderer, physics, audio, networking, control) and why each is off, every endpoint method and MCP tool with available true/false and the reason, and reflected components/resources with their field schema (status `opaque` when the game didn't describe it). Read-only. Older engines without this report say so instead of guessing.",
+            writes: false,
+            params: no_params,
+            required: &[],
+        },
+        Tool {
             name: "world_summary",
             description: "Overview of a game's world: entity count, archetypes (which component sets exist and how many entities each has), and which components and resources are reflected (readable/writable as JSON).",
             writes: false,
@@ -574,6 +581,76 @@ fn tools() -> Vec<Tool> {
     ]
 }
 
+/// The endpoint methods an MCP tool needs from the game. `None` for an
+/// unknown tool; empty for tools that work without one (or fall back).
+fn tool_methods(name: &str) -> Option<&'static [&'static str]> {
+    Some(match name {
+        "list_instances" | "launch" | "read_logs" => &[],
+        "instance_info" => &["info"],
+        "instance_capabilities" => &["capabilities"],
+        "world_summary" => &["world.summary"],
+        "list_entities" => &["entities.list"],
+        "entity_stats" => &["entities.stats"],
+        "get_entity" => &["entity.get"],
+        "list_resources" => &["resources.list"],
+        "get_resource" => &["resource.get"],
+        "set_resource" => &["resource.set"],
+        "system_timings" => &["systems.timings"],
+        "perf_report" => &["perf.get"],
+        "record_trace" => &["perf.trace"],
+        "perf_hud" => &["perf.hud"],
+        "list_events" => &["events.list"],
+        "subscribe_events" => &["events.subscribe"],
+        "take_events" => &["events.take"],
+        "screenshot" => &["screenshot"],
+        "set_camera" => &["camera.set"],
+        "run_ticks" => &["info", "sim.step"],
+        "watch" => &["info", "sim.step", "resource.get", "world.summary"],
+        "pause" => &["sim.pause"],
+        "resume" => &["sim.resume"],
+        "set_speed" => &["sim.speed"],
+        "spawn_entity" => &["entity.spawn"],
+        "despawn_entity" => &["entity.despawn"],
+        "set_component" => &["component.set"],
+        "remove_component" => &["component.remove"],
+        "save_world" => &["world.save"],
+        "load_world" => &["world.load"],
+        "save_scene" => &["scene.save"],
+        "load_scene" => &["scene.load"],
+        "spawn_prefab" => &["prefab.spawn"],
+        "save_prefab" => &["prefab.save"],
+        "quit_instance" => &["game.quit"],
+        _ => return None,
+    })
+}
+
+/// Each MCP tool's availability for one game, from the game's method
+/// report (`[{name, available, reason?}]`) and this server's mode.
+fn tool_availability(methods: &[Value], read_only: bool) -> Vec<Value> {
+    tools()
+        .iter()
+        .map(|t| {
+            let refused = if read_only && t.writes {
+                Some("changes the game and this server is read-only".to_string())
+            } else {
+                tool_methods(t.name).unwrap_or(&[]).iter().find_map(|m| {
+                    match methods.iter().find(|x| x["name"] == *m) {
+                        None => Some(format!("this game's engine has no `{m}` method")),
+                        Some(x) if x["available"] == false => {
+                            Some(x["reason"].as_str().unwrap_or("refused by the game").to_string())
+                        }
+                        Some(_) => None,
+                    }
+                })
+            };
+            match refused {
+                Some(reason) => json!({ "name": t.name, "available": false, "reason": reason }),
+                None => json!({ "name": t.name, "available": true }),
+            }
+        })
+        .collect()
+}
+
 fn tool_schema(t: &Tool) -> Value {
     let mut props = (t.params)();
     if t.name != "list_instances" && t.name != "launch" {
@@ -745,6 +822,7 @@ impl Server {
                 info["name"] = json!(i.name());
                 Ok(info)
             }
+            "instance_capabilities" => self.capabilities(args),
             "world_summary" => self.instance(args)?.call("world.summary", json!({})),
             "list_entities" => self
                 .instance(args)?
@@ -792,6 +870,56 @@ impl Server {
             "quit_instance" => self.instance(args)?.call("game.quit", json!({})),
             _ => Err(format!("unknown tool `{name}`")),
         }
+    }
+
+    /// The `instance_capabilities` tool: the game's own report plus which
+    /// MCP tools it supports here. Engines older than the `capabilities`
+    /// method get a report that says what can't be known.
+    fn capabilities(&self, args: &Value) -> Result<Value, String> {
+        let i = self.instance(args)?;
+        let mut report = match i.call("capabilities", json!({})) {
+            Ok(r) => r,
+            Err(e) if e.contains("unknown method") => {
+                // Only names: an older engine can't say what it would refuse.
+                let methods: Vec<Value> = i
+                    .call("methods", json!({}))?
+                    .as_array()
+                    .map(|m| {
+                        m.iter()
+                            .map(|m| json!({ "name": m["name"], "about": m["about"], "available": null }))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                json!({
+                    "format": "ponko-capabilities",
+                    "version": null,
+                    "supported": false,
+                    "reason": "this game's engine predates the `capabilities` method: features, subsystems, method availability and schemas are unknown",
+                    "engine_version": i.info.get("engine_version").cloned().unwrap_or(Value::Null),
+                    "mode": match i.info.get("headless").and_then(Value::as_bool) {
+                        Some(true) => json!("headless"),
+                        Some(false) => json!("windowed"),
+                        None => Value::Null,
+                    },
+                    "methods": methods,
+                })
+            }
+            Err(e) => return Err(e),
+        };
+        let methods = report["methods"].as_array().cloned().unwrap_or_default();
+        let mut tools = tool_availability(&methods, self.config.read_only);
+        if report.get("supported") == Some(&json!(false)) {
+            // Present methods may still be refused at run time: unknown, not available.
+            for t in &mut tools {
+                if t["available"] == true && !tool_methods(t["name"].as_str().unwrap_or("")).unwrap_or(&[]).is_empty() {
+                    t["available"] = Value::Null;
+                    t["reason"] = json!("unknown: the engine can't report availability");
+                }
+            }
+        }
+        report["name"] = json!(i.name());
+        report["mcp"] = json!({ "read_only": self.config.read_only, "tools": tools });
+        Ok(report)
     }
 
     /// The `screenshot` tool: the image plus a line saying where it is.
@@ -1158,6 +1286,113 @@ mod tests {
                 assert_eq!(value, Some(std::ffi::OsStr::new("0")));
             }
         }
+    }
+
+    #[test]
+    fn every_tool_names_the_methods_it_needs() {
+        for t in tools() {
+            assert!(tool_methods(t.name).is_some(), "add `{}` to tool_methods", t.name);
+        }
+        assert!(tool_methods("nope").is_none());
+    }
+
+    #[test]
+    fn tool_availability_follows_the_game_and_the_server_mode() {
+        let methods = vec![
+            json!({ "name": "info", "available": true }),
+            json!({ "name": "screenshot", "available": false, "reason": "headless games have no window" }),
+            json!({ "name": "entity.spawn", "available": true }),
+        ];
+        let find = |list: &[Value], name: &str| list.iter().find(|t| t["name"] == name).unwrap().clone();
+        let all = tool_availability(&methods, false);
+        assert_eq!(all.len(), tools().len());
+        assert_eq!(find(&all, "instance_info")["available"], true);
+        assert_eq!(find(&all, "list_instances")["available"], true, "needs no game method");
+        let shot = find(&all, "screenshot");
+        assert_eq!(
+            (shot["available"].clone(), shot["reason"].clone()),
+            (json!(false), json!("headless games have no window"))
+        );
+        let missing = find(&all, "save_world");
+        assert_eq!(missing["available"], false);
+        assert!(
+            missing["reason"].as_str().unwrap().contains("no `world.save`"),
+            "{missing}"
+        );
+        assert_eq!(find(&all, "spawn_entity")["available"], true);
+        let read_only = tool_availability(&methods, true);
+        let spawn = find(&read_only, "spawn_entity");
+        assert_eq!(spawn["available"], false);
+        assert!(spawn["reason"].as_str().unwrap().contains("read-only"));
+        assert_eq!(find(&read_only, "instance_info")["available"], true);
+    }
+
+    /// An engine from before `capabilities`: knows `methods` only.
+    #[test]
+    fn older_engines_report_capabilities_as_unknown() {
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let fake = std::thread::spawn(move || {
+            let mut answered = 0;
+            while answered < 2 {
+                let (stream, _) = listener.accept().unwrap();
+                let mut line = String::new();
+                // Discovery connects just to see the game is alive.
+                if BufReader::new(stream.try_clone().unwrap())
+                    .read_line(&mut line)
+                    .unwrap_or(0)
+                    == 0
+                {
+                    continue;
+                }
+                answered += 1;
+                let req: Value = serde_json::from_str(&line).unwrap();
+                let reply = match req["method"].as_str().unwrap() {
+                    "methods" => json!({ "id": 1, "result": [
+                        { "name": "info", "about": "status" },
+                        { "name": "screenshot", "about": "a frame" },
+                    ] }),
+                    m => json!({ "id": 1, "error": format!("unknown method `{m}` (call `methods` for the list)") }),
+                };
+                writeln!(&stream, "{reply}").unwrap();
+            }
+        });
+        let dir = std::env::temp_dir().join(format!("ponko-mcp-old-engine-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let pid = std::process::id();
+        let entry = json!({ "name": "old", "pid": pid, "port": port, "token": "t", "headless": true, "engine_version": "0.0.0" });
+        std::fs::write(dir.join(format!("{pid}-{port}.json")), entry.to_string()).unwrap();
+        let server = Server::new(Config {
+            instances_dir: dir.clone(),
+            logs_dir: dir.join("logs"),
+            read_only: false,
+        });
+        let caps = server.capabilities(&json!({})).unwrap();
+        fake.join().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            (caps["supported"].clone(), caps["version"].clone()),
+            (json!(false), Value::Null)
+        );
+        assert!(caps["reason"].as_str().unwrap().contains("predates"));
+        assert_eq!(
+            (caps["mode"].clone(), caps["engine_version"].clone()),
+            (json!("headless"), json!("0.0.0"))
+        );
+        assert!(
+            caps["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|m| m["available"].is_null())
+        );
+        let tools = caps["mcp"]["tools"].as_array().unwrap();
+        let find = |name: &str| tools.iter().find(|t| t["name"] == name).unwrap();
+        assert!(find("screenshot")["available"].is_null(), "present but unknown");
+        assert_eq!(find("save_world")["available"], false, "absent method");
+        assert_eq!(find("list_instances")["available"], true);
     }
 
     #[test]

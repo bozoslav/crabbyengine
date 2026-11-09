@@ -97,6 +97,146 @@ pub enum Action {
     Axis2(Vec<Axis2Binding>),
 }
 
+/// An action resolved once, so a query is an array index instead of a string
+/// lookup. Get one from [`Ctx::action_id`](crate::Ctx::action_id) (or
+/// [`actions!`](crate::actions!) for a set), keep it, and pass it where the
+/// `&str` forms take a name.
+///
+/// An id stays valid when bindings are replaced with
+/// [`Ctx::set_actions`](crate::Ctx::set_actions) (rebinding, loading a file):
+/// the name keeps its slot. [`ActionId::NONE`] is what resolving an unknown
+/// name gives; it reads false/zero. An id belongs to the context it came from.
+/// ```
+/// # use ponko::*;
+/// Game::new("ids", 1, 1).run_headless(0, |ctx| {
+///     let mut map = ActionMap::default();
+///     map.set("jump", Action::Button(vec![ButtonBinding::Key(Key::Space)]));
+///     ctx.set_actions(map);
+///     let jump = ctx.action_id("jump");
+///     ctx.feed_input(InputEvent::Key(Key::Space, true));
+///     assert!(ctx.action_down(jump));
+/// });
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ActionId(u32);
+impl ActionId {
+    /// The id of no action: reads false/zero. Resolving an unknown name
+    /// returns it (after logging an error).
+    pub const NONE: ActionId = ActionId(u32::MAX);
+    /// Whether this is [`NONE`](Self::NONE).
+    pub fn is_none(self) -> bool {
+        self == Self::NONE
+    }
+}
+impl Default for ActionId {
+    fn default() -> Self {
+        Self::NONE
+    }
+}
+
+/// Resolving a name that no installed action has. Its message names the
+/// known actions, which is usually enough to spot the typo.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnknownAction {
+    name: String,
+    known: Vec<String>,
+}
+impl UnknownAction {
+    /// The name that was asked for.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+}
+impl std::fmt::Display for UnknownAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "unknown action {:?}", self.name)?;
+        if self.known.is_empty() {
+            write!(f, " (no actions are installed; see Ctx::set_actions)")
+        } else {
+            write!(f, " (known: {})", self.known.join(", "))
+        }
+    }
+}
+impl std::error::Error for UnknownAction {}
+
+/// Something that names an action in a query: an [`ActionId`] (resolved once,
+/// the fast form) or a `&str` name (a lookup per call). Implemented for
+/// both so `ctx.action_down("jump")` and `ctx.action_down(jump)` work.
+pub trait ActionRef: sealed::Sealed + Copy {
+    #[doc(hidden)]
+    fn slot(self, map: &ActionMap) -> Option<usize>;
+}
+mod sealed {
+    pub trait Sealed {}
+    impl Sealed for super::ActionId {}
+    impl Sealed for &str {}
+    impl Sealed for &String {}
+}
+impl ActionRef for ActionId {
+    #[inline]
+    fn slot(self, map: &ActionMap) -> Option<usize> {
+        let i = self.0 as usize;
+        (i < map.states.len()).then_some(i)
+    }
+}
+impl ActionRef for &str {
+    #[inline]
+    fn slot(self, map: &ActionMap) -> Option<usize> {
+        map.slots.get(self).map(|&i| i as usize)
+    }
+}
+impl ActionRef for &String {
+    #[inline]
+    fn slot(self, map: &ActionMap) -> Option<usize> {
+        self.as_str().slot(map)
+    }
+}
+
+/// Declares a set of actions once: a `Copy` struct with one [`ActionId`] per
+/// field, resolved in one call, and the names as a constant. No proc macro,
+/// and a mistyped field is a compile error instead of a silent `false`.
+/// ```
+/// # use ponko::*;
+/// actions! {
+///     /// The game's actions.
+///     pub struct Act { jump = "jump", steer = "steer" }
+/// }
+/// Game::new("act", 1, 1).run_headless(0, |ctx| {
+///     let mut map = ActionMap::default();
+///     for name in Act::NAMES {
+///         map.set(*name, Action::Button(vec![]));
+///     }
+///     ctx.set_actions(map);
+///     let act = Act::resolve(ctx);
+///     assert!(!ctx.action_down(act.jump));
+/// });
+/// ```
+#[macro_export]
+macro_rules! actions {
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident { $($field:ident = $text:literal),+ $(,)? }
+    ) => {
+        $(#[$meta])*
+        #[derive(Debug, Clone, Copy)]
+        $vis struct $name {
+            $(
+                #[doc = concat!("The action `", $text, "`.")]
+                $vis $field: $crate::ActionId,
+            )+
+        }
+        impl $name {
+            /// The action names, in declaration order.
+            $vis const NAMES: &'static [&'static str] = &[$($text),+];
+            /// Resolves every action once; each unknown name logs an error
+            /// and reads false/zero.
+            $vis fn resolve(ctx: &$crate::Ctx) -> Self {
+                Self { $($field: ctx.action_id($text)),+ }
+            }
+        }
+    };
+}
+
 #[derive(Debug, Clone, Default)]
 struct State {
     down: bool,
@@ -107,7 +247,8 @@ struct State {
 }
 
 /// Serializable bindings, ordered by name. Runtime state is never serialized.
-/// Unknown names and queries of the wrong kind return false/zero.
+/// Unknown names and queries of the wrong kind return false/zero; resolve a
+/// name once with [`ActionMap::resolve`] or `Ctx::action_id` to learn of a typo.
 /// ```
 /// use ponko::{ActionMap, Action, ButtonBinding, Key};
 /// let mut map = ActionMap::default();
@@ -118,8 +259,15 @@ struct State {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ActionMap {
     bindings: BTreeMap<String, Action>,
+    // Runtime state lives in `states`, one slot per name ever installed (an
+    // `ActionId` is the slot). `order` is the slot of each binding, in
+    // `bindings` order, so refreshing needs no name lookups.
     #[serde(skip)]
-    states: BTreeMap<String, State>,
+    slots: BTreeMap<String, u32>,
+    #[serde(skip)]
+    states: Vec<State>,
+    #[serde(skip)]
+    order: Vec<u32>,
 }
 impl ActionMap {
     /// Add or replace an action. Installation on a context starts with no edges.
@@ -130,8 +278,10 @@ impl ActionMap {
     /// ```
     pub fn set(&mut self, name: impl Into<String>, action: Action) {
         let name = name.into();
-        self.states.insert(name.clone(), State::default());
-        self.bindings.insert(name, action);
+        self.bindings.insert(name.clone(), action);
+        self.sync();
+        let slot = self.slots[&name] as usize;
+        self.states[slot] = State::default();
     }
     /// Remove a binding.
     /// ```
@@ -141,7 +291,39 @@ impl ActionMap {
     /// ```
     pub fn remove(&mut self, name: &str) {
         self.bindings.remove(name);
-        self.states.remove(name);
+        if let Some(&slot) = self.slots.get(name) {
+            self.states[slot as usize] = State::default();
+        }
+        self.sync();
+    }
+    /// Resolves an action name once, for the id-based queries. An unknown
+    /// name is an error that lists the known actions.
+    /// ```
+    /// # use ponko::*;
+    /// let mut map = ActionMap::default();
+    /// map.set("jump", Action::Button(vec![]));
+    /// assert!(map.resolve("jump").is_ok());
+    /// assert!(map.resolve("jmup").is_err());
+    /// ```
+    pub fn resolve(&self, name: &str) -> Result<ActionId, UnknownAction> {
+        match self.slots.get(name) {
+            Some(&slot) if self.bindings.contains_key(name) => Ok(ActionId(slot)),
+            _ => Err(UnknownAction {
+                name: name.to_string(),
+                known: self.bindings.keys().cloned().collect(),
+            }),
+        }
+    }
+    /// Gives every binding a state slot (new names get the next free one)
+    /// and rebuilds the per-binding slot order.
+    fn sync(&mut self) {
+        for name in self.bindings.keys() {
+            if !self.slots.contains_key(name) {
+                self.slots.insert(name.clone(), self.states.len() as u32);
+                self.states.push(State::default());
+            }
+        }
+        self.order = self.bindings.keys().map(|n| self.slots[n]).collect();
     }
     /// Save bindings to JSON. Use `std::fs::write` to persist them.
     /// ```
@@ -159,29 +341,38 @@ impl ActionMap {
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(json)
     }
-    pub(crate) fn prepare(&mut self) {
-        self.states = self.bindings.keys().map(|n| (n.clone(), State::default())).collect();
+    /// Installs over `old`: names that had a slot keep it (so ids resolved
+    /// earlier stay valid), new names get the next ones; all state restarts.
+    pub(crate) fn prepare_after(&mut self, old: &ActionMap) {
+        self.slots = old.slots.clone();
+        self.states = vec![State::default(); old.states.len()];
+        self.sync();
     }
     pub(crate) fn end_frame(&mut self) {
-        for s in self.states.values_mut() {
+        for s in &mut self.states {
             s.pressed = false;
             s.released = false;
         }
     }
-    pub(crate) fn down(&self, name: &str) -> bool {
-        self.states.get(name).is_some_and(|s| s.down)
+    #[inline]
+    pub(crate) fn down(&self, action: impl ActionRef) -> bool {
+        action.slot(self).is_some_and(|i| self.states[i].down)
     }
-    pub(crate) fn pressed(&self, name: &str) -> bool {
-        self.states.get(name).is_some_and(|s| s.pressed)
+    #[inline]
+    pub(crate) fn pressed(&self, action: impl ActionRef) -> bool {
+        action.slot(self).is_some_and(|i| self.states[i].pressed)
     }
-    pub(crate) fn released(&self, name: &str) -> bool {
-        self.states.get(name).is_some_and(|s| s.released)
+    #[inline]
+    pub(crate) fn released(&self, action: impl ActionRef) -> bool {
+        action.slot(self).is_some_and(|i| self.states[i].released)
     }
-    pub(crate) fn axis(&self, name: &str) -> f32 {
-        self.states.get(name).map_or(0.0, |s| s.axis)
+    #[inline]
+    pub(crate) fn axis(&self, action: impl ActionRef) -> f32 {
+        action.slot(self).map_or(0.0, |i| self.states[i].axis)
     }
-    pub(crate) fn axis2(&self, name: &str) -> Vec2 {
-        self.states.get(name).map_or(Vec2::ZERO, |s| s.axis2)
+    #[inline]
+    pub(crate) fn axis2(&self, action: impl ActionRef) -> Vec2 {
+        action.slot(self).map_or(Vec2::ZERO, |i| self.states[i].axis2)
     }
     pub(crate) fn refresh(
         &mut self,
@@ -191,8 +382,8 @@ impl ActionMap {
     ) {
         let key = |k: Key| f32::from(keys.down[k as usize]);
         let pad_axis = |p: Gamepad, a: GamepadAxis| pads.get(p.slot()).map_or(0.0, |s| s.axes[a as usize]);
-        for (name, action) in &self.bindings {
-            let s = self.states.get_mut(name).expect("installed action state");
+        for (action, &slot) in self.bindings.values().zip(&self.order) {
+            let s = &mut self.states[slot as usize];
             match action {
                 Action::Button(bindings) => {
                     let down = bindings.iter().any(|b| match *b {

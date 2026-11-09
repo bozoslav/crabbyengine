@@ -20,6 +20,15 @@ says what that covers.
   particles and audio to inspectable systems remain follow-ups to #198.
 
 ### Added
+- `ActionId`: resolve an action name once with `Ctx::action_id` (or
+  `action_ids`, or the `actions!` macro, which keeps the names in one
+  declaration) and pass the `Copy` id to `action_down`, `action_pressed`,
+  `action_released`, `action_axis` and `action_axis2`, which now take an id or
+  a name. An unknown name logs an error when it is resolved
+  (`try_action_id` returns it). Ids stay valid across `set_actions`. Rust
+  only for now.
+- `Ctx::load_component_json::<T>(path, entity)` and
+  `load_resource_json::<T>(path)` take the name from the type.
 - One lifecycle for every resource handle: the `Handle` trait (`id`,
   `from_id`, `NONE`), `ctx.is_live(h)`, `ctx.free(h)` and
   `ctx.live_counts()` for textures (render targets included), sounds,
@@ -35,7 +44,10 @@ says what that covers.
   and `PONKO_HANDLE_NONE`; in C++ as `ctx.is_live`, `ctx.free`,
   `ctx.live_counts` and `ponko::none<H>()`.
 
-
+### Changed
+- The by-name forms of the two JSON loaders (used by the C API) are now
+  `load_component_json_named` and `load_resource_json_named`; they are hidden
+  from the docs.
 
 ## [0.0.1] - 2026-11-08
 
