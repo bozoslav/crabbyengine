@@ -588,6 +588,17 @@ impl UiBuilder<'_> {
             p.border_width = width;
         })
     }
+    /// Border thickness in logical units, in the theme's accent color.
+    /// ```
+    /// use ponko::*;
+    /// let mut ui = Ui::default();
+    /// let root = ui.root().id();
+    /// let slot = ui.button(root, "").border_width(1.0).id();
+    /// assert_eq!(ui.paint(slot).unwrap().border, UiTheme::default().accent);
+    /// ```
+    pub fn border_width(self, width: f32) -> Self {
+        self.paint_with(|p| p.border_width = width)
+    }
     /// Font handle, from `Ctx::load_font`.
     /// ```
     /// use ponko::*;
