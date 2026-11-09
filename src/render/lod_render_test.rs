@@ -1,7 +1,10 @@
 //! Level-of-detail groups drawn offscreen: the right mesh for the camera's
 //! distance, a crossfade drawing both levels through complementary dither
 //! patterns without holes (depth prepass and main pass agreeing), and the
-//! shadow maps following the level and its fade. Skips without a GPU.
+//! shadow maps following the level and its fade, also for groups the
+//! camera doesn't see. Moving the camera never leaves a frame without the
+//! group, and hysteresis keeps a level while the camera wobbles at its
+//! threshold. Skips without a GPU.
 use super::gpu::GpuTexture;
 use super::gpu3d::*;
 use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight};
@@ -18,6 +21,9 @@ struct Rig {
     textures: Vec<GpuTexture>,
     renderer: Renderer3D,
     ctx: Ctx,
+    /// Kept between draws, as the engine keeps its frame (hysteresis
+    /// remembers the last pick in it).
+    frame: Frame3D,
 }
 
 impl Rig {
@@ -124,6 +130,7 @@ impl Rig {
             textures,
             renderer,
             ctx,
+            frame: Frame3D::default(),
         })
     }
 
@@ -141,7 +148,7 @@ impl Rig {
     /// Draws the world and reads the pixels back (RGBA).
     fn draw(&mut self) -> Vec<u8> {
         let ctx = &mut self.ctx;
-        let mut frame = Frame3D::default();
+        let frame = &mut self.frame;
         frame.lod = ctx.lod;
         frame.collect(
             &mut ctx.world,
@@ -151,7 +158,7 @@ impl Rig {
             &ctx.lighting,
         );
         let scene = Scene3D {
-            frame: &frame,
+            frame,
             lighting: &ctx.lighting,
             sky: &ctx.sky,
             // Sunlight only in the shadow scene: elsewhere the cubes glow
@@ -474,5 +481,173 @@ fn shadows_follow_the_level_and_its_fade() {
     assert!(
         near < mid && mid < far,
         "half way through the fade the shadow is half there: {near} < {mid} < {far}"
+    );
+}
+
+/// Level 0 a red cube from 30% of the screen up, level 1 a blue one down
+/// to 5%, switching at once (no crossfade); with `hysteresis`, a
+/// [`LodHysteresis`] of 10%.
+fn instant_scene(rig: &mut Rig, hysteresis: bool) {
+    let red = rig.mesh(&MeshData::cube(3.0), glowing(Color::rgb(1.0, 0.0, 0.0)));
+    let blue = rig.mesh(&MeshData::cube(3.0), glowing(Color::rgb(0.0, 0.0, 1.0)));
+    let group = LodGroup::new(
+        8.0,
+        vec![
+            LodLevel::new(0.30, vec![LodRenderer::new(red)]),
+            LodLevel::new(0.05, vec![LodRenderer::new(blue)]),
+        ],
+    );
+    let e = rig.ctx.world.spawn((Transform3D::default(), group));
+    if hysteresis {
+        rig.ctx.world.insert(e, LodHysteresis(0.1));
+    }
+}
+
+/// Which cube a frame shows: 'r', 'b', '-' for neither, '?' for both.
+fn shown(pixels: &[u8]) -> char {
+    let c = count(pixels);
+    match (c.red > 20, c.blue > 20) {
+        (true, false) => 'r',
+        (false, true) => 'b',
+        (false, false) => '-',
+        (true, true) => '?',
+    }
+}
+
+#[test]
+fn hysteresis_keeps_the_level_while_the_camera_wobbles_at_a_threshold() {
+    for hysteresis in [false, true] {
+        let Some(mut rig) = Rig::new(true) else {
+            return;
+        };
+        instant_scene(&mut rig, hysteresis);
+        let mut frames = String::new();
+        // Close up, then 2% either side of level 0's threshold, frame by
+        // frame; then far away, and the same wobble from below.
+        camera_at(&mut rig.ctx, distance_for(0.9));
+        frames.push(shown(&rig.draw()));
+        for i in 0..6 {
+            camera_at(&mut rig.ctx, distance_for(if i % 2 == 0 { 0.294 } else { 0.306 }));
+            frames.push(shown(&rig.draw()));
+        }
+        camera_at(&mut rig.ctx, distance_for(0.15));
+        frames.push(shown(&rig.draw()));
+        for i in 0..6 {
+            camera_at(&mut rig.ctx, distance_for(if i % 2 == 0 { 0.306 } else { 0.294 }));
+            frames.push(shown(&rig.draw()));
+        }
+        // Then well past the band (10% above 0.30 is 0.33): it switches.
+        camera_at(&mut rig.ctx, distance_for(0.4));
+        frames.push(shown(&rig.draw()));
+        if hysteresis {
+            assert_eq!(frames, "rrrrrrrbbbbbbbr", "held through each wobble");
+        } else {
+            assert_eq!(frames, "rbrbrbrbrbrbrbr", "switching every frame");
+        }
+    }
+}
+
+#[test]
+fn dollying_out_never_leaves_a_frame_without_the_group() {
+    for solid_prepass in [true, false] {
+        let Some(mut rig) = Rig::new(solid_prepass) else {
+            return;
+        };
+        two_level_scene(&mut rig);
+        // From 90% of the screen down to 6% (just above the last level's
+        // threshold) in 40 frames, through the crossfade: every frame shows
+        // the group, and the red share only falls (with a little slack for
+        // the dither and the shrinking cube).
+        let mut last_share = 1.0f32;
+        let mut seen = String::new();
+        for step in 0..=40 {
+            let height = 0.9 * (0.06f32 / 0.9).powf(step as f32 / 40.0);
+            camera_at(&mut rig.ctx, distance_for(height));
+            let c = count(&rig.draw());
+            let drawn = c.red + c.blue;
+            assert!(drawn > 8, "frame {step} (height {height}) is missing the group: {c:?}");
+            let share = c.red as f32 / drawn as f32;
+            assert!(
+                share <= last_share + 0.1,
+                "frame {step} (height {height}) went back to the finer level: {share} after {last_share}"
+            );
+            last_share = share;
+            seen.push(match (c.red > 0, c.blue > 0) {
+                (true, false) => 'r',
+                (false, true) => 'b',
+                (true, true) => '?',
+                (false, false) => '-',
+            });
+        }
+        assert!(seen.starts_with('r') && seen.ends_with('b'), "{seen}");
+        assert!(seen.contains('?'), "a crossfade on the way: {seen}");
+        // A jump back to close up shows the detailed level in that frame.
+        camera_at(&mut rig.ctx, distance_for(0.9));
+        assert_eq!(shown(&rig.draw()), 'r');
+    }
+}
+
+#[test]
+fn a_group_the_camera_does_not_see_casts_its_shadow_with_the_cameras_level() {
+    let Some(mut rig) = Rig::new(true) else {
+        return;
+    };
+    rig.ctx.lighting.sun_direction = vec3(0.0, -1.0, 0.0001);
+    rig.ctx.lighting.shadows = true;
+    let matte = MaterialDesc {
+        roughness: 1.0,
+        ..Default::default()
+    };
+    let ground = rig.mesh(&MeshData::plane(30.0), matte);
+    rig.ctx.world.spawn((Transform3D::default(), Model::new(ground)));
+    let red = rig.mesh(&MeshData::cube(1.0), glowing(Color::rgb(1.0, 0.0, 0.0)));
+    let blue = rig.mesh(&MeshData::cube(1.0), glowing(Color::rgb(0.0, 0.0, 1.0)));
+    // Looking down at the ground from low; the group hangs 5 m above the
+    // middle of the view, out of the top of the picture, its shadow in the
+    // middle.
+    rig.ctx.camera3d.position = vec3(0.0, 1.0, 6.0);
+    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    let at = vec3(0.0, 5.0, 0.0);
+    let distance = rig.ctx.camera3d.position.distance(at);
+    // 60% of the screen at bias 1.
+    let size = LodGroup::screen_height_at(1.0, distance, rig.ctx.camera3d.fov_y).recip() * 0.6;
+    let group = LodGroup::new(
+        size,
+        vec![
+            LodLevel::new(0.5, vec![LodRenderer::new(red)]),
+            LodLevel::new(0.1, vec![LodRenderer::new(blue)]).with_shadow(LodShadow::Casters(vec![])),
+        ],
+    );
+    rig.ctx.world.spawn((Transform3D::at(at), group));
+    let view_proj = rig.ctx.camera3d.view_proj();
+    let ground_at = move |pixels: &[u8]| {
+        let ndc = view_proj.project_point3(Vec3::ZERO);
+        let x = ((ndc.x * 0.5 + 0.5) * SIZE as f32) as u32;
+        let y = ((0.5 - ndc.y * 0.5) * SIZE as f32) as u32;
+        let mut sum = 0;
+        for dy in 0..3 {
+            for dx in 0..3 {
+                let i = (((y + dy - 1) * SIZE + x + dx - 1) * 4) as usize;
+                sum += u32::from(pixels[i]) + u32::from(pixels[i + 1]) + u32::from(pixels[i + 2]);
+            }
+        }
+        sum
+    };
+    rig.ctx.lod.bias = 2.0; // level 0, which casts
+    let near = rig.draw();
+    rig.ctx.lod.bias = 0.5; // level 1, which casts nothing
+    let far = rig.draw();
+    for (name, pixels) in [("near", &near), ("far", &far)] {
+        let c = count(pixels);
+        assert!(
+            c.red == 0 && c.blue == 0,
+            "{name}: the group itself is out of view: {c:?}"
+        );
+    }
+    let (near, far) = (ground_at(&near), ground_at(&far));
+    assert!(far > 200, "the ground is lit without the shadow: {far}");
+    assert!(
+        near * 3 < far,
+        "the unseen group shadows the ground at the camera's level 0, not at level 1: {near} vs {far}"
     );
 }

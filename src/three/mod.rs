@@ -24,7 +24,7 @@ mod lod;
 pub(crate) mod occlusion;
 pub use gi::{GlobalIllumination, MAX_GI_PROBES, MAX_GI_PROBES_PER_FRAME};
 pub use ik::{look_at_joint, two_bone_ik};
-pub use lod::{LodGroup, LodLevel, LodPick, LodRenderer, LodSettings, LodShadow};
+pub use lod::{LodGroup, LodHysteresis, LodLevel, LodPick, LodRenderer, LodSettings, LodShadow};
 pub(crate) mod lights;
 mod mesh;
 pub use lights::{LIGHT_SHADOW_ATLAS_SIZE, LIGHT_SHADOW_SIZE, MAX_LIGHT_SHADOW_VIEWS, PointLight3D, SpotLight3D};
