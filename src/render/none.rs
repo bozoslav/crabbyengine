@@ -35,6 +35,9 @@ impl Renderer {
     pub fn max_texture_size(&self) -> u32 {
         match *self {}
     }
+    pub fn residency(&self) -> Option<crate::GpuResidency> {
+        match *self {}
+    }
     pub fn create_texture(&mut self, _width: u32, _height: u32, _rgba: &[u8]) -> u32 {
         match *self {}
     }

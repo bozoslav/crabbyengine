@@ -73,6 +73,7 @@ mod gamepad;
 mod handle;
 mod hot_reload;
 mod input;
+mod inventory;
 pub use actions::{
     Action, ActionId, ActionMap, ActionRef, Axis2Binding, AxisBinding, ButtonBinding, InputEvent, InputScenario,
     UnknownAction,
@@ -132,6 +133,7 @@ pub use flow::{FlowField, NavGrid};
 pub use game::{ConfiguredGame, Game, Phase, SetupResult};
 pub use handle::{Handle, LiveCounts};
 pub use input::{Gamepad, GamepadAxis, GamepadButton, GamepadStick, Key, MAX_GAMEPADS, MouseButton};
+pub use inventory::{AssetClass, AssetCount, AssetGrowth, AssetInventory, GpuResidency};
 pub use net::{
     Authority, AuthorityCheck, ClockSync, Interest, InterestChange, InterestChangeKind, InterestConfig, InterestEntity,
     InterestEntry, InterestTier, InterestViewer, Interpolate, LatestWins, MAX_INTEREST_TIERS, Pose, SnapshotBuffer,
