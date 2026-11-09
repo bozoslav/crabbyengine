@@ -189,6 +189,25 @@ if the world has none), `try_resource<T>()`, `set_resource(value)` and
 world is borrowed while the loop runs). In C: `ponko_resource_set`,
 `ponko_resource_get` and `ponko_resource_remove`, by name.
 
+For Rust, use `resource_scope` when a non-Copy resource must be mutated while
+querying components or accessing other resources. This avoids manually removing
+and reinserting it:
+
+```rust
+struct Total(u32);
+ctx.world.insert_resource(Total(0));
+ctx.world.resource_scope::<Total, _>(|world, total| {
+    world.query::<&u32>().for_each(|value| total.0 += *value);
+});
+```
+
+The scoped resource is temporarily absent from world lookups. Its original box
+and any mutations are restored on return (including early returns) or panic
+unwinding. Any same-type replacement inserted inside the callback is discarded
+on exit. Different resource types can be scoped inside one another. Scoping
+itself reuses storage without steady-state allocations. This API is Rust-only;
+native bindings retain their existing resource operations.
+
 ## Sorting for cache locality
 
 `world.sort_by::<T>(key)` reorders entities that have `T` by a `u64` key.

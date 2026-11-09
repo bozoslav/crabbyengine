@@ -165,6 +165,38 @@ fn main() {
     physics3d::run(&mut b);
     net::run(&mut b);
 
+    // Resource scoping versus the previous public take/put workaround.
+    for scoped in [false, true] {
+        b.steady(
+            if scoped {
+                "resource/scope-100k"
+            } else {
+                "resource/take-put-100k"
+            },
+            200,
+            || {
+                let mut w = ponko_ecs::World::new();
+                w.insert_resource(0u64);
+                w
+            },
+            |w| {
+                for _ in 0..100_000 {
+                    if scoped {
+                        w.resource_scope::<u64, _>(|world, value| {
+                            *value = black_box(*value + 1);
+                            black_box(world);
+                        });
+                    } else {
+                        let mut value = w.remove_resource::<u64>().unwrap();
+                        value = black_box(value + 1);
+                        black_box(&mut *w);
+                        w.insert_resource(value);
+                    }
+                }
+            },
+        );
+    }
+
     // ---- baseline: plain Vecs (upper bound for iteration) -------------------
     b.steady(
         "iter/raw-vec",
