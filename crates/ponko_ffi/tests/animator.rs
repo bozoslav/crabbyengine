@@ -673,6 +673,11 @@ unsafe fn bad_arguments(ctx: *mut CrabbyCtx, run: &Run, idle: *const CrabbyClip,
         let b = crabby_animation_graph_builder_new();
         assert_eq!(crabby_animation_graph_build(b, 0, null_mut()), BAD);
 
+        // A builder that is never built is freed on its own (null is fine).
+        let unused = builder_with_parameters();
+        crabby_animation_graph_builder_free(unused);
+        crabby_animation_graph_builder_free(null_mut());
+
         // Animators: no graph, no skeleton, no animator, dead entity.
         let g = two_states(idle, slide, CRABBY_CONDITION_TRIGGER, 2, 0.0);
         let e = rigged(ctx, run, g);
