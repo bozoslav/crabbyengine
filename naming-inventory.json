@@ -181,6 +181,12 @@
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
+    "crates/ponko_ffi/src/changes.rs": {
+      "occurrences": 130,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
     "crates/ponko_ffi/src/contacts3d.rs": {
       "occurrences": 182,
       "path_occurrences": 0,
@@ -224,7 +230,7 @@
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
     "crates/ponko_ffi/src/lib.rs": {
-      "occurrences": 221,
+      "occurrences": 225,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
@@ -405,6 +411,12 @@
     },
     "crates/ponko_ffi/tests/attach.rs": {
       "occurrences": 50,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
+    "crates/ponko_ffi/tests/changes.rs": {
+      "occurrences": 176,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
@@ -632,7 +644,7 @@
       "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
     },
     "include/crabby.h": {
-      "occurrences": 3028,
+      "occurrences": 3059,
       "path_occurrences": 1,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
@@ -644,7 +656,7 @@
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
     "include/ponko.h": {
-      "occurrences": 1110,
+      "occurrences": 1121,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."

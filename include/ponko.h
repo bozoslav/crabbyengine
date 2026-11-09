@@ -230,6 +230,7 @@
 #define PONKO_SHAPE_CIRCLE CRABBY_SHAPE_CIRCLE
 #define PONKO_SHAPE_POLYGON CRABBY_SHAPE_POLYGON
 #define PONKO_SHAPE_RECT CRABBY_SHAPE_RECT
+#define PONKO_SINCE_LAST_RUN CRABBY_SINCE_LAST_RUN
 #define PONKO_SNAPSHOT_ADDED CRABBY_SNAPSHOT_ADDED
 #define PONKO_SNAPSHOT_DUPLICATE CRABBY_SNAPSHOT_DUPLICATE
 #define PONKO_SNAPSHOT_EXTRAPOLATED CRABBY_SNAPSHOT_EXTRAPOLATED
@@ -416,6 +417,7 @@
 #define PonkoQuat CrabbyQuat
 #define PonkoQueryFilter3D CrabbyQueryFilter3D
 #define PonkoQueryFn CrabbyQueryFn
+#define PonkoQueryOptions CrabbyQueryOptions
 #define PonkoRagdollBone CrabbyRagdollBone
 #define PonkoRayHit CrabbyRayHit
 #define PonkoReceivesDecals CrabbyReceivesDecals
@@ -546,6 +548,7 @@
 #define ponko_collision_mesh_data_trimesh crabby_collision_mesh_data_trimesh
 #define ponko_component_reflect crabby_component_reflect
 #define ponko_component_register crabby_component_register
+#define ponko_component_track_changes crabby_component_track_changes
 #define ponko_contact_modifier3d_component crabby_contact_modifier3d_component
 #define ponko_contact_modifier3d_conveyor crabby_contact_modifier3d_conveyor
 #define ponko_contact_modifier3d_default crabby_contact_modifier3d_default
@@ -964,6 +967,7 @@
 #define ponko_lod_distance_at crabby_lod_distance_at
 #define ponko_lod_renderer crabby_lod_renderer
 #define ponko_lod_screen_height_at crabby_lod_screen_height_at
+#define ponko_mark_changed crabby_mark_changed
 #define ponko_material_desc crabby_material_desc
 #define ponko_mesh_data_add_morph_frame crabby_mesh_data_add_morph_frame
 #define ponko_mesh_data_add_morph_target crabby_mesh_data_add_morph_target
@@ -1031,12 +1035,15 @@
 #define ponko_quat_rotate crabby_quat_rotate
 #define ponko_query crabby_query
 #define ponko_query_filter3d crabby_query_filter3d
+#define ponko_query_options_default crabby_query_options_default
 #define ponko_query_par crabby_query_par
+#define ponko_query_with crabby_query_with
 #define ponko_ragdoll_bone crabby_ragdoll_bone
 #define ponko_receives_decals_component crabby_receives_decals_component
 #define ponko_reflection_probe3d_component crabby_reflection_probe3d_component
 #define ponko_reflection_probe3d_default crabby_reflection_probe3d_default
 #define ponko_remove crabby_remove
+#define ponko_removed crabby_removed
 #define ponko_resource_get crabby_resource_get
 #define ponko_resource_reflect crabby_resource_reflect
 #define ponko_resource_remove crabby_resource_remove
@@ -1107,11 +1114,15 @@
 #define ponko_velocity_component crabby_velocity_component
 #define ponko_wheel3d crabby_wheel3d
 #define ponko_wheel3d_pose crabby_wheel3d_pose
+#define ponko_world_advance_change_tick crabby_world_advance_change_tick
+#define ponko_world_change_tick crabby_world_change_tick
+#define ponko_world_changes_since crabby_world_changes_since
 #define ponko_world_free crabby_world_free
 #define ponko_world_len crabby_world_len
 #define ponko_world_load crabby_world_load
 #define ponko_world_new crabby_world_new
 #define ponko_world_save crabby_world_save
+#define ponko_world_set_changes_since crabby_world_set_changes_since
 #define ponko_world_sort_spatial crabby_world_sort_spatial
 
 #endif
