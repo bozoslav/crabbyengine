@@ -195,8 +195,9 @@ jobs:
           # PR caches are scoped by GitHub to that PR; keep new Windows
           # linker artifacts so reruns do not repeat a cold dependency build.
           save-if: ${{ github.ref == 'refs/heads/main' || runner.os == 'Windows' }}
-          # Restore the default suite's dependencies on the first run too.
-          shared-key: test
+          # Windows needs its complete feature graph cached separately:
+          # the faster default job otherwise wins the immutable cache key.
+          shared-key: ${{ runner.os == 'Windows' && 'test-features' || 'test' }}
       - name: Tests, ECS without rayon
         if: ${{ !cancelled() }}
         run: cargo test -p ponko_ecs --tests --no-fail-fast --no-default-features
