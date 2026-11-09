@@ -31,7 +31,7 @@ pub(crate) struct StaticBatch {
     min: Vec3,
     max: Vec3,
     pub visible: Vec<Vec<(u32, u32)>>,
-    pub(super) gpu_cells: Option<wgpu::Buffer>,
+    pub(super) compute: bool,
     arguments: Vec<Vec<u32>>,
     pub options: crate::InstanceBatchOptions,
     legacy_distance: bool,
@@ -66,7 +66,7 @@ impl Culling {
     pub fn new(device: &wgpu::Device) -> Self {
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("static culling"),
-            entries: &(0..6)
+            entries: &(0..5)
                 .map(|i| wgpu::BindGroupLayoutEntry {
                     binding: i,
                     visibility: wgpu::ShaderStages::COMPUTE,
@@ -75,7 +75,7 @@ impl Culling {
                             wgpu::BufferBindingType::Uniform
                         } else {
                             wgpu::BufferBindingType::Storage {
-                                read_only: i == 0 || i == 1 || i == 4,
+                                read_only: i == 0 || i == 4,
                             }
                         },
                         has_dynamic_offset: false,
@@ -143,54 +143,40 @@ impl Renderer3D {
         }
         let count = batch.instances.len() as u32;
         assert!(
-            !compute || u64::from(count) * 96 + 16 <= device.limits().max_storage_buffer_binding_size,
+            !compute
+                || u64::from(count) * 96 + 16 + batch.cells.len() as u64 * 32
+                    <= device.limits().max_storage_buffer_binding_size,
             "instance batch exceeds device storage limit"
         );
-        let (vertices, gpu_cells) = if compute {
-            let mut source = Vec::with_capacity(1 + 6 * count as usize);
-            source.push([count as f32, 0.0, 0.0, 0.0]);
-            for (i, s) in batch.instances.iter().zip(&batch.spheres) {
+        let vertices = if compute {
+            // Pack immutable cells after the source records: four storage
+            // bindings still suffice on downlevel compute devices.
+            let mut source = Vec::with_capacity(1 + 6 * count as usize + 2 * batch.cells.len());
+            source.push([count as f32, batch.cells.len() as f32, 0.0, 0.0]);
+            for (i, sphere) in batch.instances.iter().zip(&batch.spheres) {
                 source.extend_from_slice(&i.model);
                 source.push(i.color);
-                source.push(*s);
+                source.push(*sphere);
             }
-            let vertices =
-                device
-                    .uploading(Upload::StaticBatches)
-                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("shared static records"),
-                        contents: bytemuck::cast_slice(&source),
-                        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::VERTEX,
-                    });
-            let cells: Vec<_> = batch
-                .cells
-                .iter()
-                .flat_map(|c| {
-                    [
-                        c.min.extend(f32::from_bits(c.start)).to_array(),
-                        c.max.extend(f32::from_bits(c.count)).to_array(),
-                    ]
-                })
-                .collect();
-            let cells = device
+            for cell in &batch.cells {
+                source.push(cell.min.extend(f32::from_bits(cell.start)).to_array());
+                source.push(cell.max.extend(f32::from_bits(cell.count)).to_array());
+            }
+            device
                 .uploading(Upload::StaticBatches)
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("static cells"),
-                    contents: bytemuck::cast_slice(&cells),
-                    usage: wgpu::BufferUsages::STORAGE,
-                });
-            (vertices, Some(cells))
+                    label: Some("shared static records and cells"),
+                    contents: bytemuck::cast_slice(&source),
+                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::VERTEX,
+                })
         } else {
-            (
-                device
-                    .uploading(Upload::StaticBatches)
-                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("static instance vertices"),
-                        contents: bytemuck::cast_slice(&batch.instances),
-                        usage: wgpu::BufferUsages::VERTEX,
-                    }),
-                None,
-            )
+            device
+                .uploading(Upload::StaticBatches)
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("static instance vertices"),
+                    contents: bytemuck::cast_slice(&batch.instances),
+                    usage: wgpu::BufferUsages::VERTEX,
+                })
         };
         let arguments = batch
             .levels
@@ -211,7 +197,7 @@ impl Renderer3D {
             min: batch.min,
             max: batch.max,
             visible: Vec::new(),
-            gpu_cells,
+            compute,
             arguments,
             options: batch.options,
             legacy_distance: batch.legacy_distance,
@@ -258,7 +244,7 @@ impl Renderer3D {
             }
             let targets = 1 + MAX_CASCADES + frame.light_views;
             let slots = targets + frame.views.len();
-            if batch.gpu_cells.is_none() {
+            if !batch.compute {
                 while batch.visible.len() < slots * batch.levels.len() {
                     batch.visible.push(Vec::new());
                 }
@@ -313,8 +299,8 @@ impl Renderer3D {
                     if !intersects(batch.min, batch.max, &planes, eye, near, far) {
                         continue;
                     }
-                    if let (Some(culling), Some(storage_read), Some(cells)) =
-                        (&self.static_culling, &self.storage_read, &batch.gpu_cells)
+                    if let (Some(culling), Some(storage_read), true) =
+                        (&self.static_culling, &self.storage_read, batch.compute)
                     {
                         let index = match batch.views.iter().position(|v| v.slot == slot && v.level == level) {
                             Some(index) => index,
@@ -361,7 +347,7 @@ impl Renderer3D {
                                 let compute = device.create_bind_group(&wgpu::BindGroupDescriptor {
                                     label: None,
                                     layout: &culling.layout,
-                                    entries: [&batch.vertices, cells, &args, &uniform, &culling.occlusion, &visibility]
+                                    entries: [&batch.vertices, &visibility, &args, &uniform, &culling.occlusion]
                                         .into_iter()
                                         .enumerate()
                                         .map(|(i, b)| wgpu::BindGroupEntry {
