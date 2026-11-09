@@ -25,9 +25,11 @@
 //! Sprites and UI are drawn on top afterwards, without tone mapping.
 
 mod instances;
+mod variants;
 use instances::{Culling, StaticBatch};
 use std::ops::Range;
 use std::sync::atomic::{AtomicUsize, Ordering};
+pub(crate) use variants::{Instancing, Pass, PipelineRole, ShaderVariant, Sides};
 
 use glam::{Mat4, Vec3};
 use wgpu::util::DeviceExt;
@@ -260,14 +262,16 @@ struct MaterialBindings {
     arrays: [wgpu::TextureView; 3],
 }
 
-/// One material shader's pipelines, for one-sided and double-sided surfaces.
+/// One material shader's pipelines: a [`Pipelines`] set per
+/// [`ShaderVariant`] (see `variants.rs` for the whole list).
 struct ShaderPipelines {
+    /// [`Instancing::Plain`], one-sided and double-sided: built with the shader.
     sides: [Pipelines; 2],
-    /// The same for crossfading instances, built when first drawn (or
-    /// all at once by [`Renderer3D::warm_pipelines`]).
+    /// [`Instancing::Crossfade`], built when first drawn (or all at once by
+    /// [`Renderer3D::warm_pipelines`]).
     fade: [std::sync::OnceLock<Pipelines>; 2],
-    /// The same for buffer-driven instances, which all share their
-    /// entity's one instance record (a zero-stride instance buffer);
+    /// [`Instancing::Shared`]: buffer-driven instances, which all share
+    /// their entity's one instance record (a zero-stride instance buffer);
     /// built when first drawn (or by [`Renderer3D::warm_pipelines`]).
     shared: [std::sync::OnceLock<Pipelines>; 2],
     builder: SideBuilder,
@@ -277,30 +281,37 @@ struct ShaderPipelines {
 }
 
 impl ShaderPipelines {
-    /// The pipelines for `side` (0 one-sided, 1 double-sided): crossfading
-    /// (`fade`), buffer-driven (`shared`) or plain. A variant not built yet
-    /// is built now, and counted in `built`.
-    fn variant(&self, side: usize, fade: bool, shared: bool, built: &AtomicUsize) -> &Pipelines {
-        let lazy = if shared {
-            &self.shared[side]
-        } else if fade {
-            &self.fade[side]
-        } else {
-            return &self.sides[side];
+    /// The pipelines of `variant`. One not built yet is built now, and
+    /// counted in `built`.
+    fn variant(&self, variant: ShaderVariant, built: &AtomicUsize) -> &Pipelines {
+        let side = variant.sides.index();
+        let lazy = match variant.instancing {
+            Instancing::Plain => return &self.sides[side],
+            Instancing::Crossfade => &self.fade[side],
+            Instancing::Shared => &self.shared[side],
         };
         lazy.get_or_init(|| {
             built.fetch_add(1, Ordering::Relaxed);
-            let cull = (side == 0).then_some(wgpu::Face::Back);
-            self.builder.build(cull, fade && !shared, shared)
+            self.builder.build(variant)
         })
+    }
+
+    /// Whether `variant` is built.
+    #[cfg(test)]
+    fn built(&self, variant: ShaderVariant) -> bool {
+        let side = variant.sides.index();
+        match variant.instancing {
+            Instancing::Plain => true,
+            Instancing::Crossfade => self.fade[side].get().is_some(),
+            Instancing::Shared => self.shared[side].get().is_some(),
+        }
     }
 
     /// Builds every variant not built yet.
     fn warm(&self) {
         let none = AtomicUsize::new(0);
-        for side in 0..2 {
-            self.variant(side, true, false, &none);
-            self.variant(side, false, true, &none);
+        for variant in ShaderVariant::ALL {
+            self.variant(variant, &none);
         }
     }
 }
@@ -322,6 +333,25 @@ struct Pipelines {
     opaque_solid: wgpu::RenderPipeline,
     /// Motion vectors of moved models, over the opaque pass's depth.
     velocity: wgpu::RenderPipeline,
+}
+
+impl Pipelines {
+    /// The pipeline of `role`; `None` for the coverage roles without
+    /// multisampling.
+    fn role(&self, role: PipelineRole) -> Option<&wgpu::RenderPipeline> {
+        Some(match role {
+            PipelineRole::Prepass => &self.prepass,
+            PipelineRole::PrepassCutout => &self.prepass_cutout,
+            PipelineRole::PrepassCoverage => &self.coverage.as_ref()?[0],
+            PipelineRole::Opaque => &self.opaque,
+            PipelineRole::OpaqueCoverage => &self.coverage.as_ref()?[1],
+            PipelineRole::OpaqueSolid => &self.opaque_solid,
+            PipelineRole::Transparent => &self.transparent,
+            PipelineRole::Shadow => &self.shadow,
+            PipelineRole::ShadowCutout => &self.shadow_cutout,
+            PipelineRole::Velocity => &self.velocity,
+        })
+    }
 }
 
 /// The built-in parts of every material shader.
@@ -2088,7 +2118,21 @@ impl Renderer3D {
     #[cfg(test)]
     pub fn shader_warm(&self, id: u32) -> bool {
         let shader = &self.shaders[id as usize];
-        shader.fade.iter().chain(&shader.shared).all(|v| v.get().is_some())
+        ShaderVariant::ALL.iter().all(|&v| shader.built(v))
+    }
+
+    /// The pipeline shader `id` draws `role` of `variant` with, building
+    /// the variant if needed (tests check every documented pair builds).
+    #[cfg(test)]
+    pub fn shader_pipeline(
+        &self,
+        id: u32,
+        variant: ShaderVariant,
+        role: PipelineRole,
+    ) -> Option<&wgpu::RenderPipeline> {
+        self.shaders[id as usize]
+            .variant(variant, &AtomicUsize::new(0))
+            .role(role)
     }
 
     /// How many pipeline variants frames built while drawing since the last
@@ -4274,41 +4318,25 @@ impl Renderer3D {
             for (part, (range, material)) in mesh.parts.iter().enumerate() {
                 let material = &self.part_material(run_mesh, *material);
                 let m = &self.materials[*material as usize];
-                // Transparent surfaces are drawn last and cast no shadows.
-                if m.transparent != (kind == Kind::Transparent) {
+                // The role for the material's blend in this pass (see
+                // `PipelineRole::for_pass`): transparent surfaces are drawn
+                // last and cast no shadows.
+                let Some(role) = PipelineRole::for_pass(
+                    kind.pass(),
+                    m.cutout,
+                    m.transparent,
+                    self.samples > 1,
+                    self.full_prepass(),
+                ) else {
                     continue;
-                }
+                };
                 let shader = &self.shaders[m.shader as usize];
-                let side = usize::from(m.double_sided);
                 // Crossfading instances dither in every pass (their
                 // pipelines are built the first time they're drawn, unless
                 // `warm_pipelines` built them while loading).
-                let pipelines = shader.variant(side, fading, storage.is_some(), &self.pipelines_built);
-                let coverage = pipelines.coverage.as_ref().filter(|_| m.cutout);
-                let pipeline = match kind {
-                    Kind::Shadow(_) if m.cutout => &pipelines.shadow_cutout,
-                    Kind::Shadow(_) => &pipelines.shadow,
-                    Kind::PrepassCoverage => match coverage {
-                        Some([prepass, _]) => prepass,
-                        None => continue,
-                    },
-                    // With coverage, cut-outs have a prepass of their own.
-                    Kind::Prepass if coverage.is_some() => continue,
-                    Kind::Prepass if m.cutout => &pipelines.prepass_cutout,
-                    Kind::Prepass if !self.full_prepass() => continue,
-                    Kind::Prepass => &pipelines.prepass,
-                    Kind::Opaque if !m.cutout && !self.full_prepass() => &pipelines.opaque_solid,
-                    Kind::Opaque => match coverage {
-                        Some([_, opaque]) => opaque,
-                        None => &pipelines.opaque,
-                    },
-                    Kind::Transparent => &pipelines.transparent,
-                    Kind::Velocity => &pipelines.velocity,
-                    Kind::Capture if !m.cutout => &pipelines.opaque_solid,
-                    Kind::Capture => match coverage {
-                        Some([_, opaque]) => opaque,
-                        None => &pipelines.opaque,
-                    },
+                let variant = ShaderVariant::new(Sides::of(m.double_sided), Instancing::of(fading, storage.is_some()));
+                let Some(pipeline) = shader.variant(variant, &self.pipelines_built).role(role) else {
+                    continue;
                 };
                 if bound != Some(pipeline as *const _) {
                     pass.set_pipeline(pipeline);
@@ -4386,6 +4414,20 @@ enum Kind {
     /// Global illumination's probe views: lit, solid surfaces writing
     /// their own depth (cut-outs went through `PrepassCoverage`).
     Capture,
+}
+
+impl Kind {
+    fn pass(self) -> Pass {
+        match self {
+            Kind::Shadow(_) => Pass::Shadow,
+            Kind::Prepass => Pass::Prepass,
+            Kind::PrepassCoverage => Pass::PrepassCoverage,
+            Kind::Opaque => Pass::Opaque,
+            Kind::Transparent => Pass::Transparent,
+            Kind::Velocity => Pass::Velocity,
+            Kind::Capture => Pass::Capture,
+        }
+    }
 }
 
 /// A material shader's pipelines: depth prepass, opaque, transparent and
@@ -4592,10 +4634,7 @@ fn build_pipelines(
         samples,
     };
     ShaderPipelines {
-        sides: [
-            builder.build(Some(wgpu::Face::Back), false, false),
-            builder.build(None, false, false),
-        ],
+        sides: Sides::ALL.map(|sides| builder.build(ShaderVariant::new(sides, Instancing::Plain))),
         fade: Default::default(),
         shared: Default::default(),
         builder,
@@ -4667,14 +4706,15 @@ struct SideBuilder {
 }
 
 impl SideBuilder {
-    /// The pipelines for one-sided (`cull`) or double-sided surfaces. With
-    /// `fade`, the fragment shaders also dither crossfading instances
-    /// (`fade_keeps` in the shader), even solid materials' depth passes.
-    ///
-    /// With `shared`, every instance of a draw reads the same instance
-    /// record (the entity's model and tint): the instance buffer's stride
-    /// is 0.
-    fn build(&self, cull: Option<wgpu::Face>, fade: bool, shared: bool) -> Pipelines {
+    /// The pipeline set of `variant`: its sides pick the culling, its
+    /// instancing the instance buffer's stride and (crossfading) the
+    /// dithering fragment entry points; each role's entry points come from
+    /// [`PipelineRole`].
+    fn build(&self, variant: ShaderVariant) -> Pipelines {
+        let cull = variant.sides.cull();
+        let shared = variant.instancing.shared();
+        let vs = PipelineRole::vertex_entry;
+        let fs = |role: PipelineRole| role.fragment_entry(variant.instancing);
         let (device, module, layout, shadow_layout, samples) = (
             &self.device,
             &self.module,
@@ -4768,7 +4808,7 @@ impl SideBuilder {
             layout: Some(layout),
             vertex: wgpu::VertexState {
                 module,
-                entry_point: Some("vs_velocity"),
+                entry_point: Some(vs(PipelineRole::Velocity)),
                 compilation_options: Default::default(),
                 buffers: &moved_buffers,
             },
@@ -4780,7 +4820,7 @@ impl SideBuilder {
             multisample: msaa,
             fragment: Some(wgpu::FragmentState {
                 module,
-                entry_point: Some("fs_velocity"),
+                entry_point: fs(PipelineRole::Velocity),
                 compilation_options: Default::default(),
                 targets: &velocity_target,
             }),
@@ -4794,12 +4834,12 @@ impl SideBuilder {
         };
         // Solid surfaces write depth with no fragment shader at all, so the
         // GPU can reject hidden ones early; cut-out ones run it for the alpha.
-        let prepass = |fragment, cull| {
+        let prepass = |role: PipelineRole| {
             pipeline(
                 "3d depth prepass",
                 layout,
-                "vs_main",
-                fragment,
+                vs(role),
+                fs(role),
                 cull,
                 depth(true, wgpu::CompareFunction::Less, Default::default()),
                 msaa,
@@ -4808,19 +4848,18 @@ impl SideBuilder {
         };
         // Both faces cast: thin things (leaves, planes) too. The stored depth
         // is pushed back a little, against shadow acne.
-        let shadow = |fragment| {
+        let shadow = |role: PipelineRole| {
             pipeline(
                 "3d shadow",
                 shadow_layout,
-                "vs_shadow",
-                fragment,
+                vs(role),
+                fs(role),
                 None,
                 depth(true, wgpu::CompareFunction::Less, shadow_bias),
                 wgpu::MultisampleState::default(),
                 &[],
             )
         };
-        let depth_fragment = if fade { "fs_depth_fade" } else { "fs_depth" };
         let coverage_msaa = wgpu::MultisampleState {
             alpha_to_coverage_enabled: true,
             ..msaa
@@ -4835,12 +4874,8 @@ impl SideBuilder {
                 pipeline(
                     "3d depth prepass coverage",
                     layout,
-                    "vs_main",
-                    Some(if fade {
-                        "fs_depth_coverage_fade"
-                    } else {
-                        "fs_depth_coverage"
-                    }),
+                    vs(PipelineRole::PrepassCoverage),
+                    fs(PipelineRole::PrepassCoverage),
                     cull,
                     depth(true, wgpu::CompareFunction::Less, Default::default()),
                     coverage_msaa,
@@ -4849,12 +4884,8 @@ impl SideBuilder {
                 pipeline(
                     "3d opaque coverage",
                     layout,
-                    "vs_main",
-                    Some(if fade {
-                        "fs_main_coverage_fade"
-                    } else {
-                        "fs_main_coverage"
-                    }),
+                    vs(PipelineRole::OpaqueCoverage),
+                    fs(PipelineRole::OpaqueCoverage),
                     cull,
                     depth(false, wgpu::CompareFunction::Equal, Default::default()),
                     coverage_msaa,
@@ -4864,14 +4895,14 @@ impl SideBuilder {
         });
         Pipelines {
             coverage,
-            prepass: prepass(fade.then_some("fs_fade"), cull),
-            prepass_cutout: prepass(Some(depth_fragment), cull),
+            prepass: prepass(PipelineRole::Prepass),
+            prepass_cutout: prepass(PipelineRole::PrepassCutout),
             // Only the fragments the prepass found nearest: each pixel is lit once.
             opaque: pipeline(
                 "3d opaque",
                 layout,
-                "vs_main",
-                Some(if fade { "fs_main_fade" } else { "fs_main" }),
+                vs(PipelineRole::Opaque),
+                fs(PipelineRole::Opaque),
                 cull,
                 depth(false, wgpu::CompareFunction::Equal, Default::default()),
                 msaa,
@@ -4880,8 +4911,8 @@ impl SideBuilder {
             opaque_solid: pipeline(
                 "3d opaque solid",
                 layout,
-                "vs_main",
-                Some(if fade { "fs_main_fade" } else { "fs_main" }),
+                vs(PipelineRole::OpaqueSolid),
+                fs(PipelineRole::OpaqueSolid),
                 cull,
                 depth(true, wgpu::CompareFunction::Less, Default::default()),
                 msaa,
@@ -4891,15 +4922,15 @@ impl SideBuilder {
             transparent: pipeline(
                 "3d transparent",
                 layout,
-                "vs_main",
-                Some(if fade { "fs_transparent_fade" } else { "fs_transparent" }),
+                vs(PipelineRole::Transparent),
+                fs(PipelineRole::Transparent),
                 cull,
                 depth(false, wgpu::CompareFunction::Less, Default::default()),
                 msaa,
                 &transparent_target,
             ),
-            shadow: shadow(fade.then_some("fs_fade")),
-            shadow_cutout: shadow(Some(depth_fragment)),
+            shadow: shadow(PipelineRole::Shadow),
+            shadow_cutout: shadow(PipelineRole::ShadowCutout),
             velocity,
         }
     }
