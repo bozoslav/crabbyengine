@@ -500,8 +500,9 @@ mod backend {
 pub(crate) use backend::Audio;
 
 impl Ctx {
-    /// Loads a sound from the `assets/` folder: OGG Vorbis, WAV, MP3 or FLAC.
-    /// Loading the same file again returns the same handle.
+    /// Loads a sound from an [added asset source](Ctx::add_asset_source) or the
+    /// `assets/` folder: OGG Vorbis, WAV, MP3 or FLAC. Loading the same file
+    /// again returns the same handle. Only a file from `assets/` is hot reloaded.
     ///
     /// Without the `audio` feature nothing is decoded: the file only has to
     /// exist, and the sound lasts zero seconds.
@@ -535,21 +536,31 @@ impl Ctx {
     /// });
     /// ```
     pub fn try_load_sound(&mut self, path: &str) -> Result<Sound, crate::Error> {
-        let file = crate::assets::resolve(path).map_err(|e| crate::Error::not_found(path, e))?;
-        let key = (crate::assets::Origin::File(file.clone()), crate::ctx::AssetKind::Sound);
-        if let Some(&i) = self.loaded.get(&key) {
-            return Ok(self.cached_sounds[i as usize]);
-        }
-        let bytes = crate::assets::read(&file).map_err(|e| crate::Error::io(path, &file, &e))?;
-        let (id, seconds) = self
-            .audio
-            .load(bytes)
-            .map_err(|e| crate::Error::decode(path, format!("{}: {e}", file.display())))?;
+        let found = match self.asset_sources.lookup(path, |origin| {
+            let key = (origin.clone(), crate::ctx::AssetKind::Sound);
+            self.loaded.get(&key).map(|&i| self.cached_sounds[i as usize])
+        })? {
+            crate::assets::Lookup::Cached(_, sound) => return Ok(sound),
+            crate::assets::Lookup::Found(found) => found,
+        };
+        let origin = found.origin.clone();
+        let bytes = found.into_bytes().map_err(|e| e.with_path(path))?;
+        let (id, seconds) = self.audio.load(bytes).map_err(|e| match &origin {
+            crate::assets::Origin::File(file) => crate::Error::decode(path, format!("{}: {e}", file.display())),
+            crate::assets::Origin::Source { .. } => {
+                crate::Error::decode(path, format!("{}: {e}", origin.describe(path)))
+            }
+        })?;
         let sound = Sound { id, seconds };
         self.sounds_live.insert(id);
-        self.loaded.insert(key, self.cached_sounds.len() as u64);
+        self.loaded.insert(
+            (origin.clone(), crate::ctx::AssetKind::Sound),
+            self.cached_sounds.len() as u64,
+        );
         self.cached_sounds.push(sound);
-        self.watcher.watch(path, file, crate::hot_reload::Asset::Sound(id));
+        if let crate::assets::Origin::File(file) = origin {
+            self.watcher.watch(path, file, crate::hot_reload::Asset::Sound(id));
+        }
         Ok(sound)
     }
 

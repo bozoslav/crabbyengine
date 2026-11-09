@@ -30,8 +30,18 @@ use std::sync::Arc;
 /// assets by them. A loaded asset is cached by its source's
 /// [`id`](Self::id) and its name, so the same name in two sources is two
 /// assets, and loading a name again returns the first handle without
-/// reading the source again. Assets from added sources are not hot
-/// reloaded: only the default source on desktop watches files.
+/// reading the source again. This holds for every kind of asset: textures,
+/// fonts, data, scenes, prefabs, sounds and (with the `3d` feature) meshes,
+/// skeletons, animation clips, shaders, screen effects and compute passes.
+///
+/// # Hot reload
+///
+/// Only files found in the default source on desktop are watched and
+/// reloaded when they change (textures, fonts, sounds, data, shaders,
+/// effects, compute). Assets that came from an added source are loaded once
+/// and never reloaded, whatever the source does later, so a source can keep
+/// its bytes in memory without being polled. The same name found in `assets/`
+/// before a source was added keeps being watched.
 ///
 /// `read` runs on the game thread, inside the load call that needs it.
 pub trait AssetSource: 'static {
@@ -126,6 +136,25 @@ impl Origin {
             Origin::Source { source, .. } => format!("\"{name}\" (from asset source \"{source}\")"),
         }
     }
+
+    /// Where the asset is, for listings: the file's path, or `source:name`.
+    #[cfg_attr(not(feature = "3d"), allow(dead_code))]
+    pub(crate) fn display(&self) -> String {
+        match self {
+            Origin::File(path) => path.display().to_string(),
+            Origin::Source { source, name } => format!("{source}:{name}"),
+        }
+    }
+}
+
+/// What [`Sources::lookup`] found for a name.
+pub(crate) enum Lookup<T> {
+    /// The asset was loaded before: where it came from (3D files need it to
+    /// find their skeleton and clips), and what it became.
+    #[cfg_attr(not(feature = "3d"), allow(dead_code))]
+    Cached(Origin, T),
+    /// Not loaded yet.
+    Found(Found),
 }
 
 /// A named asset that was found: where, and its bytes if reading it was
@@ -152,7 +181,10 @@ impl Found {
     pub(crate) fn into_text(self, name: &str) -> Result<String, String> {
         let origin = self.origin.clone();
         let bytes = self.into_bytes()?;
-        String::from_utf8(bytes).map_err(|e| format!("{} is not UTF-8 text: {e}", origin.describe(name)))
+        String::from_utf8(bytes).map_err(|e| match &origin {
+            Origin::File(path) => format!("{} is not UTF-8 text: {e}", path.display()),
+            Origin::Source { .. } => format!("{} is not UTF-8 text: {e}", origin.describe(name)),
+        })
     }
 }
 
@@ -183,6 +215,39 @@ impl Sources {
             source: s.id().to_string(),
             name: name.to_string(),
         })
+    }
+
+    /// Finds asset `name` unless `cached` already has it from where it
+    /// would be found. Sources are only read for what isn't cached, so
+    /// loading a name again never reads a source again.
+    ///
+    /// # Errors
+    /// As [`find`](Self::find).
+    pub(crate) fn lookup<T>(
+        &self,
+        name: &str,
+        cached: impl Fn(&Origin) -> Option<T>,
+    ) -> Result<Lookup<T>, crate::Error> {
+        for origin in self.origins(name) {
+            if let Some(value) = cached(&origin) {
+                return Ok(Lookup::Cached(origin, value));
+            }
+        }
+        let found = self.find(name)?;
+        Ok(match cached(&found.origin) {
+            Some(value) => Lookup::Cached(found.origin, value),
+            None => Lookup::Found(found),
+        })
+    }
+
+    /// The bytes of `name` from the first place that has it, for files an
+    /// asset refers to (a glTF's images, say).
+    ///
+    /// # Errors
+    /// As [`find`](Self::find), or if reading fails.
+    #[cfg_attr(not(feature = "3d"), allow(dead_code))]
+    pub(crate) fn read(&self, name: &str) -> Result<Vec<u8>, String> {
+        Ok(self.find(name)?.into_bytes()?)
     }
 
     /// Finds asset `name`: in the added sources in order, then the default one.
