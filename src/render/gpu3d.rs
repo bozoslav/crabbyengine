@@ -1255,6 +1255,8 @@ impl Renderer3D {
             &cache.counters,
         );
         builtin.in_use = true;
+        // wgpu objects aren't `Send` on wasm (one thread): the `Arc` only shares them.
+        #[allow(clippy::arc_with_non_send_sync)]
         let builtin = Arc::new(builtin);
         cache.insert(
             cache.key(ModuleKey {
@@ -2236,6 +2238,8 @@ impl Renderer3D {
         self.cache.counters.add_builds(&built.counters);
         built.counters = self.cache.counters.clone();
         built.in_use = true;
+        // wgpu objects aren't `Send` on wasm (one thread): the `Arc` only shares them.
+        #[allow(clippy::arc_with_non_send_sync)]
         let built = Arc::new(built);
         self.cache.insert(key, &built);
         Ok(built)
