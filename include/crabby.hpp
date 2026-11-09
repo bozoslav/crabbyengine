@@ -239,6 +239,22 @@ enum class phase : uint32_t {
     late = CRABBY_PHASE_LATE,
     draw = CRABBY_PHASE_DRAW,
 };
+/// Engine services an access declaration can name (see crabby::access).
+enum class service : uint32_t {
+    input = CRABBY_SERVICE_INPUT,
+    time = CRABBY_SERVICE_TIME,
+    random = CRABBY_SERVICE_RANDOM,
+    gfx = CRABBY_SERVICE_GFX,
+    audio = CRABBY_SERVICE_AUDIO,
+    assets = CRABBY_SERVICE_ASSETS,
+    ui = CRABBY_SERVICE_UI,
+    perf = CRABBY_SERVICE_PERF,
+    camera = CRABBY_SERVICE_CAMERA,
+    spatial = CRABBY_SERVICE_SPATIAL,
+    physics = CRABBY_SERVICE_PHYSICS,
+    physics3d = CRABBY_SERVICE_PHYSICS3D,
+    net = CRABBY_SERVICE_NET,
+};
 /// Owned world text, in meters. Settings follow Rust Text3D defaults.
 struct text3d {
     std::string text;
@@ -2538,6 +2554,75 @@ public:
     CrabbyActionMap* raw() const noexcept { return raw_; }
 };
 
+/// What a system declares it reads and writes: components, resources and
+/// events by C++ type (their registered names) or by name, commands and
+/// services. Pass it to game::add with a system; debug builds stop the game
+/// if the system uses anything it didn't declare. Copyable.
+class access {
+    CrabbyAccess* raw_ = nullptr;
+    access& step(CrabbyStatus s) { detail::check(s); return *this; }
+public:
+    access() : raw_(crabby_access_new()) { if (!raw_) throw std::runtime_error(crabby_last_error()); }
+    ~access() { crabby_access_free(raw_); }
+    access(const access& other) : access() { *this = other; }
+    access& operator=(const access& other) {
+        if (this != &other) { access fresh; std::swap(raw_, fresh.raw_); names_.clear(); copy_from(other); }
+        return *this;
+    }
+    access(access&& other) noexcept : raw_(std::exchange(other.raw_, nullptr)) {}
+    access& operator=(access&& other) noexcept { if (this != &other) { crabby_access_free(raw_); raw_ = std::exchange(other.raw_, nullptr); } return *this; }
+    /// Reads component T.
+    template<class T> access& read() { return read_component(detail::type_name<T>().c_str()); }
+    /// Reads and writes component T.
+    template<class T> access& write() { return write_component(detail::type_name<T>().c_str()); }
+    /// Reads resource T.
+    template<class T> access& read_resource() { return read_resource(detail::type_name<T>().c_str()); }
+    /// Reads and writes resource T.
+    template<class T> access& write_resource() { return write_resource(detail::type_name<T>().c_str()); }
+    /// Reads T events.
+    template<class T> access& read_events() { return read_events(detail::type_name<T>().c_str()); }
+    /// Sends T events (doesn't cover reading them).
+    template<class T> access& send_events() { return send_events(detail::type_name<T>().c_str()); }
+    access& read_component(const char* name) { names_.push_back({0, name}); return step(crabby_access_read_component(raw_, name)); }
+    access& write_component(const char* name) { names_.push_back({1, name}); return step(crabby_access_write_component(raw_, name)); }
+    access& read_resource(const char* name) { names_.push_back({2, name}); return step(crabby_access_read_resource(raw_, name)); }
+    access& write_resource(const char* name) { names_.push_back({3, name}); return step(crabby_access_write_resource(raw_, name)); }
+    access& read_events(const char* name) { names_.push_back({4, name}); return step(crabby_access_read_events(raw_, name)); }
+    access& send_events(const char* name) { names_.push_back({5, name}); return step(crabby_access_send_events(raw_, name)); }
+    /// Records commands (ctx::*_later).
+    access& commands() { names_.push_back({6, {}}); return step(crabby_access_commands(raw_)); }
+    /// Uses `s`: reading it, or also changing it.
+    access& read_service(service s) { names_.push_back({7, {}, static_cast<std::uint32_t>(s)}); return step(crabby_access_service(raw_, static_cast<std::uint32_t>(s), false)); }
+    access& write_service(service s) { names_.push_back({8, {}, static_cast<std::uint32_t>(s)}); return step(crabby_access_service(raw_, static_cast<std::uint32_t>(s), true)); }
+    /// Number of reasons this system, registered before `later`, can't share
+    /// a parallel batch with it (0: it could). `ordered = false` checks
+    /// either order.
+    std::size_t conflicts_before(const access& later, bool ordered = true) const {
+        std::size_t n = 0;
+        detail::check(crabby_access_conflicts(raw_, later.raw_, ordered, &n));
+        return n;
+    }
+    const CrabbyAccess* raw() const noexcept { return raw_; }
+private:
+    struct entry { int kind; std::string name; std::uint32_t service = 0; };
+    std::vector<entry> names_;
+    void copy_from(const access& other) {
+        for (const auto& e : other.names_) {
+            switch (e.kind) {
+            case 0: read_component(e.name.c_str()); break;
+            case 1: write_component(e.name.c_str()); break;
+            case 2: read_resource(e.name.c_str()); break;
+            case 3: write_resource(e.name.c_str()); break;
+            case 4: read_events(e.name.c_str()); break;
+            case 5: send_events(e.name.c_str()); break;
+            case 6: commands(); break;
+            case 7: read_service(static_cast<service>(e.service)); break;
+            default: write_service(static_cast<service>(e.service)); break;
+            }
+        }
+    }
+};
+
 /// Manual input for tests and replay (same state as live input).
 struct input_event {
     std::uint32_t kind, slot, input;
@@ -3844,6 +3929,18 @@ public:
     template<class F> game& add(phase p, F fn, const char* name = nullptr, std::uint32_t every = 1) {
         return check(crabby_game_add_system(raw_, static_cast<std::uint32_t>(p), name, every, trampoline,
                                             keep(std::move(fn))));
+    }
+    /// A system in an explicit phase with a declaration of what it reads and
+    /// writes (see crabby::access). Debug builds stop the game if it uses
+    /// anything undeclared. It still runs in order, like any other system.
+    template<class F> game& add(phase p, const access& a, F fn, const char* name = nullptr, std::uint32_t every = 1) {
+        return check(crabby_game_add_system_with_access(raw_, static_cast<std::uint32_t>(p), name, every, a.raw(),
+                                                        trampoline, keep(std::move(fn))));
+    }
+    /// One line per pair of declared systems in the same phase: whether
+    /// they could run together, or what they conflict on.
+    std::string access_report() {
+        return detail::read_text([&](char* b, std::size_t c, std::size_t* l) { return crabby_game_access_report(raw_, b, c, l); });
     }
     /// A system once per frame (input, camera, UI). Not run headless.
     template<class F> game& system(F fn, const char* name = nullptr) {
