@@ -209,3 +209,23 @@ fn par_collect_into_drops_each_written_zero_sized_value_on_mapper_panic() {
     drop(out);
     assert_eq!(DROPS.load(Ordering::Relaxed), created.load(Ordering::Relaxed));
 }
+
+
+#[test]
+fn panicking_parallel_mutation_releases_all_row_borrows() {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+    let n = if cfg!(miri) { 130 } else { 20000 };
+    let mut w = World::new();
+    w.spawn_batch((0..n).map(|_| (0usize,)));
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| {
+            w.query::<&mut usize>().par_for_each_indexed(|i, v| {
+                *v += 1;
+                assert_ne!(i, n / 2, "callback panic");
+            });
+        }))
+        .is_err()
+    );
+    w.query::<&mut usize>().par_for_each(|v| *v = 7);
+    assert_eq!(w.query::<&usize>().iter().filter(|&&v| v == 7).count(), n);
+}

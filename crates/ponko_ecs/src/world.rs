@@ -42,6 +42,9 @@ impl Chunk<'_> {
 /// Holds everything in the simulation: entities, their components, and
 /// global resources.
 ///
+/// If a component destructor panics while the world itself is being dropped,
+/// unvisited component values and column allocations may leak.
+///
 /// ```
 /// use ponko_ecs::*;
 ///
@@ -288,14 +291,18 @@ impl World {
     }
 
     /// Removes an entity and drops its components. Returns `false` if it was
-    /// already gone.
+    /// already gone. If a component destructor panics, removal finishes before
+    /// the first panic is resumed. Additional panic payloads are leaked.
     pub fn despawn(&mut self, e: Entity) -> bool {
         let Some(loc) = self.entities.get(e) else { return false };
         // Free the slot first: if a component's drop panics, the entity is already gone.
         self.entities.free(e);
-        let moved = unsafe { self.archetypes[loc.archetype as usize].swap_remove_drop(loc.row as usize) };
+        let (moved, panic) = unsafe { self.archetypes[loc.archetype as usize].swap_remove_drop(loc.row as usize) };
         if let Some(moved) = moved {
             self.entities.set_row(moved, loc.row as usize);
+        }
+        if let Some(payload) = panic {
+            std::panic::resume_unwind(payload);
         }
         true
     }
@@ -341,8 +348,18 @@ impl World {
     }
 
     /// Adds component `value` to `e`, replacing any existing `T`.
-    /// Returns `false` (and drops `value`) if `e` is dead.
+    /// Returns `false` (and drops `value`) if `e` is dead. If the old value's
+    /// destructor panics, the replacement remains installed.
     pub fn insert<T: Component>(&mut self, e: Entity, value: T) -> bool {
+        // Keep typed replacement on the stack rather than allocating a
+        // runtime-layout temporary as insert_dynamic must.
+        if std::mem::needs_drop::<T>() {
+            if let Some(current) = self.get_mut::<T>(e) {
+                let old = std::mem::replace(current, value);
+                drop(old);
+                return true;
+            }
+        }
         let id = self.register::<T>();
         let value = std::mem::ManuallyDrop::new(value);
         let ok = unsafe { self.insert_dynamic(e, id, (&*value as *const T).cast()) };
@@ -803,18 +820,27 @@ impl World {
     ///
     /// # Safety
     /// `value` must point to a valid value of component `id`; on success the
-    /// world takes ownership of it.
+    /// world takes ownership of it, including when an old component destructor
+    /// panics after the replacement has been installed.
     pub unsafe fn insert_dynamic(&mut self, e: Entity, id: ComponentId, value: *const u8) -> bool {
         let Some(loc) = self.entities.get(e) else { return false };
         let src = loc.archetype as usize;
         if let Some(col) = self.archetypes[src].column_index(id) {
             let c = &self.archetypes[src].columns[col];
             let dst = c.ptr(loc.row as usize);
-            unsafe {
-                if let Some(d) = c.drop_fn() {
-                    d(dst);
+            // Publish the replacement before invoking the old value's destructor.
+            // The temporary owns only the old bytes, even when Drop unwinds.
+            if let Some(d) = c.drop_fn() {
+                let mut old = TempValue::new(self.infos[id.index()].layout);
+                unsafe {
+                    std::ptr::copy_nonoverlapping(dst, old.ptr(), c.size());
+                    std::ptr::copy_nonoverlapping(value, dst, c.size());
+                    d(old.ptr());
                 }
-                std::ptr::copy_nonoverlapping(value, dst, c.size());
+            } else {
+                unsafe {
+                    std::ptr::copy_nonoverlapping(value, dst, c.size());
+                }
             }
             return true;
         }

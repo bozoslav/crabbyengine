@@ -299,16 +299,28 @@ impl Archetype {
 
     /// Removes `row` by moving the last row into it, dropping the removed
     /// values. Returns the entity that moved into `row`, if any.
-    pub(crate) unsafe fn swap_remove_drop(&mut self, row: usize) -> Option<Entity> {
+    pub(crate) unsafe fn swap_remove_drop(
+        &mut self,
+        row: usize,
+    ) -> (Option<Entity>, Option<Box<dyn std::any::Any + Send>>) {
         let last = self.len() - 1;
+        let mut panic = None;
         for c in self.columns.iter_mut() {
             if let Some(d) = c.drop {
-                unsafe { d(c.ptr(row)) }
+                // Finish removing every column before propagating user Drop panics.
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe { d(c.ptr(row)) }));
+                if let Err(payload) = result {
+                    if panic.is_none() {
+                        panic = Some(payload);
+                    } else {
+                        std::mem::forget(payload);
+                    }
+                }
             }
             unsafe { c.swap_remove_forget(row, last) }
         }
         self.entities.swap_remove(row);
-        (row != last).then(|| self.entities[row])
+        ((row != last).then(|| self.entities[row]), panic)
     }
 }
 
