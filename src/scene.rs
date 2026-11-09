@@ -9,12 +9,15 @@ use serde_json::{Value, json};
 
 use crate::{Ctx, Entity, Transform2D, Vec2, WorldReflect, assets};
 
+/// Loads one asset a scene names (`Ctx::scene_asset_field`).
+type SceneAssetLoader = std::rc::Rc<dyn Fn(&mut Ctx, &str) -> Result<(), String>>;
+
 /// A field of a reflected component that names an asset, and how to load
 /// it (`Ctx::scene_asset_field`).
 pub(crate) struct SceneAssetField {
     component: String,
     field: String,
-    load: std::rc::Rc<dyn Fn(&mut Ctx, &str) -> Result<(), String>>,
+    load: SceneAssetLoader,
 }
 
 const PREFAB_FORMAT: &str = "crabby-prefab";
