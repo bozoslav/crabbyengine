@@ -153,6 +153,14 @@ static void scenes_and_prefabs() {
         ctx.load_scene("test-cpp-scene.json");
     });
     CHECK(loaded.size() == 2 && loaded.get<game::Health>(first).value == 9);
+    // Offline, a lockstep load is a plain load; a failed one changes nothing.
+    auto offline = ponko::game("scenes", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
+        ctx.world().reflect<game::Health>({ponko::field("value", &game::Health::value)});
+        ctx.world().spawn(Tag{});
+        ctx.load_scene_lockstep("test-cpp-scene.json");
+        throws([&] { ctx.load_scene_lockstep("test-cpp-missing.json"); });
+    });
+    CHECK(offline.size() == 2 && offline.get<game::Health>(first).value == 9);
 }
 
 static void three_d() {

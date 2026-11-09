@@ -10,6 +10,7 @@ use crate::{CrabbyStatus, boundary, invalid_owned};
 
 /// Replaces the world with the scene in `assets/<path>`; entities keep their
 /// ids. Components must be reflected. On an error the world is unchanged.
+/// Fails while a lockstep session runs: use `crabby_ctx_load_scene_lockstep`.
 /// # Safety
 /// Live ctx; `path` NUL-terminated.
 /// ```
@@ -19,6 +20,22 @@ use crate::{CrabbyStatus, boundary, invalid_owned};
 pub unsafe extern "C" fn crabby_ctx_load_scene(ctx: *mut CrabbyCtx, path: *const c_char) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe { ctx_access(ctx, |c| c.load_scene(text(path)?).map_err(invalid_owned)) })
+}
+
+/// Loads the scene in `assets/<path>` as a step of a lockstep session: every
+/// peer makes the same load at the same tick (`Ctx::load_scene_lockstep`).
+/// Call it from a simulation system or before the session starts; offline
+/// it is `crabby_ctx_load_scene`. While a session runs, plain
+/// `crabby_ctx_load_scene` fails instead, since it would change one peer.
+/// # Safety
+/// Live ctx; `path` NUL-terminated.
+/// ```
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_load_scene_lockstep(std::ptr::null_mut(), c"a.json".as_ptr()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_load_scene_lockstep(ctx: *mut CrabbyCtx, path: *const c_char) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe { ctx_access(ctx, |c| c.load_scene_lockstep(text(path)?).map_err(invalid_owned)) })
 }
 
 /// Saves the world's reflected components and resources as a scene in
