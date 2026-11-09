@@ -130,7 +130,7 @@ pub fn setup(ctx: &mut Ctx) {
 
 /// [`setup`] with an explicit save file (`None`: don't keep progress).
 pub fn setup_with(ctx: &mut Ctx, save: Option<PathBuf>) {
-    ctx.clear(Color::hex(0x14181f));
+    ctx.gfx.clear(Color::hex(0x14181f));
     ctx.input.set_actions(bindings());
     let disc = disc(ctx);
     ctx.world.insert_resource(Art { disc });
@@ -167,7 +167,7 @@ fn disc(ctx: &mut Ctx) -> Texture {
             rgba.extend([255, 255, 255, (alpha * 255.0) as u8]);
         }
     }
-    ctx.create_texture(SIZE, SIZE, &rgba)
+    ctx.gfx.create_texture(SIZE, SIZE, &rgba)
 }
 
 /// A disc sprite with a radius in world units.
@@ -610,7 +610,7 @@ pub fn hud(ctx: &mut Ctx) {
     let height: f32 = lines.iter().map(|l| l.size * 1.5).sum();
     let mut y = (ARENA.y - height) / 2.0;
     for l in lines {
-        let width = ctx.measure_text(&l.text, l.size).x;
+        let width = ctx.gfx.measure_text(&l.text, l.size).x;
         ctx.draw_text(&l.text, vec2((ARENA.x - width) / 2.0, y), l.size, l.color);
         y += l.size * 1.5;
     }

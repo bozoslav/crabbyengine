@@ -73,6 +73,7 @@ mod flow;
 mod game;
 #[cfg(feature = "gamepad")]
 mod gamepad;
+mod gfx;
 mod handle;
 mod hot_reload;
 mod input;
@@ -140,6 +141,7 @@ pub use events::Events;
 pub use flow::RawFlowView;
 pub use flow::{FlowField, NavGrid};
 pub use game::{ConfiguredGame, Game, Phase, Plugin, SetupResult, SystemId, Systems};
+pub use gfx::Graphics;
 pub use handle::{Handle, LiveCounts};
 pub use input::{Gamepad, GamepadAxis, GamepadButton, GamepadStick, Input, Key, MAX_GAMEPADS, MouseButton};
 pub use inventory::{AssetClass, AssetCount, AssetGrowth, AssetInventory, GpuResidency};

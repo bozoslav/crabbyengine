@@ -228,7 +228,7 @@ fn wav(samples: usize, level: i16) -> Vec<u8> {
 fn edited_fonts_reload_and_broken_ones_are_kept() {
     let font = epaint_default_fonts::UBUNTU_LIGHT;
     let load = |ctx: &mut Ctx, f: &str| {
-        ctx.load_font(f);
+        ctx.gfx.load_font(f);
     };
     assert_eq!(reload_ticks("good.ttf", font, font[..].to_vec(), load), [2]);
     assert_eq!(

@@ -553,7 +553,7 @@ pub struct Audio {
 }
 
 impl Audio {
-    /// Loads a sound from an [added asset source](Ctx::add_asset_source) or the
+    /// Loads a sound from an [added asset source](crate::Ctx::add_asset_source) or the
     /// `assets/` folder: OGG Vorbis, WAV, MP3 or FLAC. Loading the same file
     /// again returns the same handle. Only a file from `assets/` is hot reloaded.
     ///

@@ -1,5 +1,5 @@
 //! Shader errors as data: where in the game's own WGSL a compile failed,
-//! why, and whether a hot reload took effect ([`Ctx::shader_status`]).
+//! why, and whether a hot reload took effect ([`Graphics::shader_status`](ponko::Graphics::shader_status)).
 #![cfg(all(feature = "3d", feature = "window"))]
 
 use std::sync::{Arc, Mutex};
@@ -14,10 +14,10 @@ const GOOD: &str = "fn surface(s: Surface) -> Surface {\n    var out = s;\n    o
 #[test]
 fn a_broken_shader_says_where_and_why_in_its_own_lines() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        let err = ctx.try_create_shader("red.wgsl", BROKEN).unwrap_err();
+        let err = ctx.gfx.try_create_shader("red.wgsl", BROKEN).unwrap_err();
         assert!(err.starts_with("red.wgsl:3:12: error: "), "{err}");
 
-        let status = ctx.shader_status();
+        let status = ctx.gfx.shader_status();
         assert_eq!(status.len(), 1);
         let s = &status[0];
         assert_eq!((s.shader.as_str(), s.kind), ("red.wgsl", ShaderKind::Material));
@@ -35,9 +35,10 @@ fn a_broken_shader_says_where_and_why_in_its_own_lines() {
 #[test]
 fn good_shaders_are_listed_as_compiled() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        ctx.create_shader("red.wgsl", GOOD);
-        ctx.create_effect("fx", "fn effect(p: Pixel) -> vec3<f32> { return p.color; }");
-        let status = ctx.shader_status();
+        ctx.gfx.create_shader("red.wgsl", GOOD);
+        ctx.gfx
+            .create_effect("fx", "fn effect(p: Pixel) -> vec3<f32> { return p.color; }");
+        let status = ctx.gfx.shader_status();
         assert_eq!(status.len(), 2);
         assert!(status.iter().all(|s| s.is_ok() && s.diagnostics.is_empty()));
         assert_eq!(status[1].kind, ShaderKind::Effect);
@@ -48,14 +49,16 @@ fn good_shaders_are_listed_as_compiled() {
 fn broken_effects_and_compute_passes_have_diagnostics_too() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
         assert!(
-            ctx.try_create_effect("fx.wgsl", "fn effect(p: Pixel) -> vec4<f32> {\n  return nope;\n}")
+            ctx.gfx
+                .try_create_effect("fx.wgsl", "fn effect(p: Pixel) -> vec4<f32> {\n  return nope;\n}")
                 .is_err()
         );
         assert!(
-            ctx.try_create_compute("sim.wgsl", "\n\nfn compute(c: Cell) -> f32 { return 1.0; }")
+            ctx.gfx
+                .try_create_compute("sim.wgsl", "\n\nfn compute(c: Cell) -> f32 { return 1.0; }")
                 .is_err()
         );
-        let status = ctx.shader_status();
+        let status = ctx.gfx.shader_status();
         assert_eq!(status[0].kind, ShaderKind::Effect);
         assert_eq!(status[0].diagnostics[0].line, Some(2));
         assert_eq!(status[1].kind, ShaderKind::Compute);
@@ -69,12 +72,13 @@ fn a_hook_with_the_wrong_signature_is_reported_in_the_engines_code() {
         // Effects return the new color as `vec3<f32>`; the engine's entry
         // point that calls this one is what breaks.
         let err = ctx
+            .gfx
             .try_create_effect(
                 "fx.wgsl",
                 "fn effect(p: Pixel) -> vec4<f32> {\n    return vec4<f32>(p.color, 1.0);\n}",
             )
             .unwrap_err();
-        let d = &ctx.shader_status()[0].diagnostics[0];
+        let d = &ctx.gfx.shader_status()[0].diagnostics[0];
         assert!(d.in_engine_code, "{err}");
         assert!(err.starts_with("fx.wgsl (in the engine's code around it"), "{err}");
     });
@@ -95,7 +99,7 @@ fn a_failed_reload_keeps_the_old_shader_and_a_fix_reloads() {
     Game::new("shader", 1, 1)
         .hot_reload(true)
         .sim_system(move |ctx: &mut Ctx| {
-            let status = ctx.shader_status().iter().find(|s| s.kind == ShaderKind::Material);
+            let status = ctx.gfx.shader_status().iter().find(|s| s.kind == ShaderKind::Material);
             log.lock().unwrap().push(status.unwrap().clone());
             let edit = match ctx.time.sim_tick() {
                 1 => Some(BROKEN),
@@ -109,8 +113,8 @@ fn a_failed_reload_keeps_the_old_shader_and_a_fix_reloads() {
             }
         })
         .run_headless(6, move |ctx| {
-            let shader = ctx.load_shader(&name);
-            ctx.create_material(MaterialDesc {
+            let shader = ctx.gfx.load_shader(&name);
+            ctx.gfx.create_material(MaterialDesc {
                 shader: Some(shader),
                 ..Default::default()
             });

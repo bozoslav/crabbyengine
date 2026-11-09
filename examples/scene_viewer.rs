@@ -103,7 +103,7 @@ fn main() {
             if ctx.time.frame() == 300
                 && let Some(path) = &shot
             {
-                ctx.save_screenshot(path);
+                ctx.gfx.save_screenshot(path);
             }
             if ctx.time.frame() == 302 && shot.is_some() {
                 ctx.quit();

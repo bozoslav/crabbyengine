@@ -571,12 +571,12 @@ fn draw_map(ctx: &mut Ctx) -> impl FnMut(&mut Ctx) + use<> {
             }
         }
     }
-    let tex = ctx.create_texture(size.x, size.y, &pixels);
-    ctx.set_texture_filter(&tex, TextureFilter::Nearest);
+    let tex = ctx.gfx.create_texture(size.x, size.y, &pixels);
+    ctx.gfx.set_texture_filter(&tex, TextureFilter::Nearest);
     move |ctx: &mut Ctx| {
-        ctx.clear(Color::BLACK);
+        ctx.gfx.clear(Color::BLACK);
         let world = size.as_vec2() * CELL;
-        ctx.draw_ex(
+        ctx.gfx.draw_ex(
             &tex,
             world / 2.0,
             DrawParams {
@@ -591,16 +591,16 @@ fn draw_map(ctx: &mut Ctx) -> impl FnMut(&mut Ctx) + use<> {
             bases[b.team.index()] = (t.position, b.hp / b.max_hp, b.team);
         });
         for (at, health, team) in bases {
-            ctx.draw_circle(at, BASE_RADIUS, team.color().with_alpha(0.35));
-            ctx.draw_circle(at, BASE_RADIUS * 0.4, team.color());
+            ctx.gfx.draw_circle(at, BASE_RADIUS, team.color().with_alpha(0.35));
+            ctx.gfx.draw_circle(at, BASE_RADIUS * 0.4, team.color());
             let bar = Rect::new(at.x - BASE_RADIUS, at.y - BASE_RADIUS - 8.0, BASE_RADIUS * 2.0, 3.0);
-            ctx.draw_rect(bar, Color::rgba(0.0, 0.0, 0.0, 0.6));
-            ctx.draw_rect(
+            ctx.gfx.draw_rect(bar, Color::rgba(0.0, 0.0, 0.0, 0.6));
+            ctx.gfx.draw_rect(
                 Rect::new(bar.min.x, bar.min.y, bar.size().x * health, 3.0),
                 team.color(),
             );
         }
-        ctx.draw_circle(rally, 5.0, Color::rgba(1.0, 0.9, 0.3, 0.9));
+        ctx.gfx.draw_circle(rally, 5.0, Color::rgba(1.0, 0.9, 0.3, 0.9));
     }
 }
 
@@ -639,7 +639,7 @@ fn hud(ctx: &mut Ctx) {
             "Blue wins. R to try again"
         };
         let center = ctx.window_size() / 2.0;
-        let size = ctx.measure_text(msg, 32.0);
+        let size = ctx.gfx.measure_text(msg, 32.0);
         ctx.draw_text(msg, center - size / 2.0, 32.0, team.color());
     }
 }
@@ -697,7 +697,7 @@ fn main() {
         .system(camera_controls)
         .system(hud)
         .run(move |ctx| {
-            let dot = ctx.create_texture(2, 2, &[255; 2 * 2 * 4]);
+            let dot = ctx.gfx.create_texture(2, 2, &[255; 2 * 2 * 4]);
             setup(ctx, units, seed, Some(dot));
             let world = ctx.world.resource::<Battle>().nav.size().as_vec2() * CELL;
             ctx.camera.zoom = (ctx.camera.viewport() / world).min_element();

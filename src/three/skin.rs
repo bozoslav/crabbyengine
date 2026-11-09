@@ -36,7 +36,7 @@ pub struct Joint {
 /// models whose [`SkinOf`] points at it): each joint's `pose` is where it
 /// sits relative to its parent this frame, and the mesh's corners follow
 /// the joints they're weighted to. Loaded from a glTF file with
-/// [`Ctx::load_skeleton`](crate::Ctx::load_skeleton), or made in code with
+/// [`Graphics::load_skeleton`](crate::Graphics::load_skeleton), or made in code with
 /// [`Skeleton::new`]. Cloning one is cheap: the joints are shared.
 ///
 /// A skinned model without a skeleton draws in the pose it was modelled in.
@@ -44,8 +44,8 @@ pub struct Joint {
 /// ```no_run
 /// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
-/// let body = ctx.load_mesh("models/fox.glb");
-/// let skeleton = ctx.load_skeleton("models/fox.glb");
+/// let body = ctx.gfx.load_mesh("models/fox.glb");
+/// let skeleton = ctx.gfx.load_skeleton("models/fox.glb");
 /// let head = skeleton.find("head").unwrap();
 /// let fox = ctx.world.spawn((Transform3D::default(), Model::new(body), skeleton));
 /// // Later, in a system: turn the head.
@@ -228,9 +228,9 @@ impl Skeleton {
 /// ```no_run
 /// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
-/// let body = ctx.load_mesh("people/body.glb");
-/// let hat = ctx.load_mesh("people/hat.glb");
-/// let skeleton = ctx.load_skeleton("people/body.glb");
+/// let body = ctx.gfx.load_mesh("people/body.glb");
+/// let hat = ctx.gfx.load_mesh("people/hat.glb");
+/// let skeleton = ctx.gfx.load_skeleton("people/body.glb");
 /// let person = ctx.world.spawn((Transform3D::default(), Model::new(body), skeleton));
 /// ctx.world.spawn((Model::new(hat), SkinOf(person)));
 /// # }
@@ -325,9 +325,9 @@ impl MeshSkin {
 ///     let mut up = vec![Vec3::ZERO; quad.positions.len()];
 ///     up[0] = vec3(0.0, 0.5, 0.0);
 ///     quad.morph_targets.push(MorphTarget { name: "raise".into(), positions: up, normals: Vec::new() });
-///     let material = ctx.default_material();
-///     let mesh = ctx.create_mesh(&quad, material);
-///     let raise = ctx.morph_target(mesh, "raise").unwrap();
+///     let material = ctx.gfx.default_material();
+///     let mesh = ctx.gfx.create_mesh(&quad, material);
+///     let raise = ctx.gfx.morph_target(mesh, "raise").unwrap();
 ///     let mut weights = MorphWeights::default();
 ///     weights.set(raise, 0.5); // halfway there
 ///     ctx.world.spawn((Transform3D::default(), Model::new(mesh), weights));

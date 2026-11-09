@@ -460,7 +460,7 @@ fn draw_world(bounds: Vec2) -> impl FnMut(&mut Ctx) {
             (f.w, f.h)
         };
         let field_tex =
-            *field_texture.get_or_insert_with(|| ctx.create_texture(w as u32, h as u32, &vec![0; w * h * 4]));
+            *field_texture.get_or_insert_with(|| ctx.gfx.create_texture(w as u32, h as u32, &vec![0; w * h * 4]));
         let field = ctx.world.resource::<Field>();
         pixels.clear();
         pixels.extend(field.to_food.iter().zip(&field.to_home).flat_map(|(&food, &home)| {
@@ -468,10 +468,10 @@ fn draw_world(bounds: Vec2) -> impl FnMut(&mut Ctx) {
             let b = (home.sqrt() * 120.0) as u8;
             [g / 3, g, b.max(g / 4), 255]
         }));
-        ctx.update_texture(&field_tex, &pixels);
-        ctx.clear(Color::BLACK);
+        ctx.gfx.update_texture(&field_tex, &pixels);
+        ctx.gfx.clear(Color::BLACK);
         let scale = bounds / vec2(w as f32, h as f32);
-        ctx.draw_ex(
+        ctx.gfx.draw_ex(
             &field_tex,
             bounds * 0.5,
             DrawParams {
@@ -489,7 +489,7 @@ fn draw_world(bounds: Vec2) -> impl FnMut(&mut Ctx) {
             dots.push((t.position, NEST_RADIUS, Color::hex(0x8E5A3C)));
         });
         for &(p, radius, color) in &dots {
-            ctx.draw_circle(p, radius, color);
+            ctx.gfx.draw_circle(p, radius, color);
         }
     }
 }
@@ -526,7 +526,7 @@ fn main() {
         .system(draw_world(bounds))
         .system(hud)
         .run(move |ctx| {
-            let sprite = ctx.create_texture(3, 2, &[255; 3 * 2 * 4]);
+            let sprite = ctx.gfx.create_texture(3, 2, &[255; 3 * 2 * 4]);
             setup(ctx, bounds, ants, Some(sprite));
             // Start with the whole world in view.
             let fit = ctx.window_size() / bounds;

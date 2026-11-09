@@ -99,7 +99,7 @@ fn textures_load_without_a_gpu() {
     let world = Game::new("t", 1, 1).run_headless(1, |ctx| {
         let crab = ctx.load_texture("crab.png");
         assert!(crab.width() > 0 && crab.height() > 0);
-        let made = ctx.create_texture(2, 3, &[255; 24]);
+        let made = ctx.gfx.create_texture(2, 3, &[255; 24]);
         assert_eq!((made.width(), made.height()), (2, 3));
         assert_ne!(crab, made);
         ctx.world.spawn((Transform2D::default(), Sprite::new(crab)));
@@ -204,8 +204,8 @@ fn turns_of_zero_panics() {
 #[test]
 fn update_texture_works_headless() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        let tex = ctx.create_texture(2, 2, &[0; 16]);
-        ctx.update_texture(&tex, &[255; 16]);
+        let tex = ctx.gfx.create_texture(2, 2, &[0; 16]);
+        ctx.gfx.update_texture(&tex, &[255; 16]);
     });
 }
 
@@ -213,8 +213,8 @@ fn update_texture_works_headless() {
 #[should_panic(expected = "a 2 x 2 texture needs 16 bytes of RGBA, got 4")]
 fn update_texture_checks_the_size() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        let tex = ctx.create_texture(2, 2, &[0; 16]);
-        ctx.update_texture(&tex, &[0; 4]);
+        let tex = ctx.gfx.create_texture(2, 2, &[0; 16]);
+        ctx.gfx.update_texture(&tex, &[0; 4]);
     });
 }
 
@@ -226,9 +226,9 @@ fn headless_runs_have_no_render_stats_or_screenshots() {
     let r = ran.clone();
     Game::new("t", 1, 1)
         .sim_system(move |ctx: &mut Ctx| {
-            ctx.save_screenshot(&p);
+            ctx.gfx.save_screenshot(&p);
             assert_eq!(ctx.perf.render_stats(), RenderStats::default());
-            assert!(ctx.gpu_capabilities().is_none(), "no GPU is opened headless");
+            assert!(ctx.gfx.gpu_capabilities().is_none(), "no GPU is opened headless");
             r.set(r.get() + 1);
         })
         .run_headless(3, |_| {});
@@ -249,6 +249,10 @@ fn loading_a_texture_twice_gives_the_same_handle() {
         let a = ctx.load_texture("crab.png");
         let b = ctx.load_texture("crab.png");
         assert_eq!(a, b);
-        assert_ne!(a, ctx.create_texture(1, 1, &[0; 4]), "created textures are their own");
+        assert_ne!(
+            a,
+            ctx.gfx.create_texture(1, 1, &[0; 4]),
+            "created textures are their own"
+        );
     });
 }

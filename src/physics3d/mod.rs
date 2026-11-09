@@ -738,7 +738,7 @@ impl Physics3D {
     }
 
     /// Ground for a terrain tile, from the same heights and size as
-    /// [`Ctx::create_terrain_tile`](crate::Ctx::create_terrain_tile) (n × n
+    /// [`Graphics::create_terrain_tile`](crate::Graphics::create_terrain_tile) (n × n
     /// heights, row by row along +Z, each row along +X; NaN for a hole), so
     /// the collider matches the drawn ground triangle for triangle. Give it
     /// to a [`TerrainCollider`] on the tile's entity (or a fixed body at the
@@ -1408,7 +1408,7 @@ mod tests {
 
         // The public system, through a Ctx.
         let mut ctx = Ctx::new(f64::from(DT), Vec2::ZERO);
-        ctx.headless = true;
+        ctx.set_headless(true);
         start(&mut ctx, gravity);
         let wrapped = pile(&mut ctx.world);
         for _ in 0..100 {
@@ -1426,7 +1426,7 @@ mod tests {
     #[test]
     fn headless_runs_draw_the_stepped_pose() {
         let mut ctx = Ctx::new(0.02, Vec2::ZERO);
-        ctx.headless = true;
+        ctx.set_headless(true);
         start(&mut ctx, Vec3::ZERO);
         let ball = ctx.world.spawn((
             Transform3D::default(),

@@ -690,7 +690,7 @@ pub unsafe extern "C" fn crabby_ctx_animator_update(ctx: *mut CrabbyCtx, entity_
             })?;
             a.update(dt, s);
             drop(query);
-            c.write_animated_morphs();
+            c.gfx.write_animated_morphs(&mut c.world);
             Ok(())
         })
     })

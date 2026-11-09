@@ -20,7 +20,6 @@ use crate::camera::Rect;
 use crate::color::Color;
 use crate::ctx::Ctx;
 use crate::input::MouseButton;
-use crate::render::batch::SpriteInstance;
 use crate::text::TextParams;
 
 /// Colors and sizes of the built-in UI: [`ctx.ui_style`](crate::Ctx::ui_style).
@@ -74,9 +73,6 @@ pub(crate) struct UiState {
     /// `mouse_over_ui` can answer before this frame's UI is drawn.
     this_frame: Vec<Rect>,
     last_frame: Vec<Rect>,
-    /// 1×1 white and a soft-edged circle, made on first use.
-    white: Option<crate::Texture>,
-    circle: Option<crate::Texture>,
     /// The mouse is over the inspector overlay.
     pub overlay_has_pointer: bool,
     retained_spare: Option<Ui>,
@@ -93,123 +89,8 @@ impl UiState {
     }
 }
 
-/// Side of the circle texture: big enough that circles look smooth at
-/// common sizes.
-const CIRCLE: u32 = 128;
-
-/// Which list a shape goes to.
-#[derive(Clone, Copy)]
-enum Layer {
-    World,
-    Screen,
-}
-
 impl Ctx {
-    fn white_texture(&mut self) -> crate::Texture {
-        if let Some(t) = self.ui.white {
-            return t;
-        }
-        let t = self.make_texture(1, 1, &[255; 4]);
-        self.ui.white = Some(t);
-        t
-    }
-
-    fn circle_texture(&mut self) -> crate::Texture {
-        if let Some(t) = self.ui.circle {
-            return t;
-        }
-        let r = CIRCLE as f32 / 2.0;
-        let mut rgba = Vec::with_capacity((CIRCLE * CIRCLE * 4) as usize);
-        for y in 0..CIRCLE {
-            for x in 0..CIRCLE {
-                let d = Vec2::new(x as f32 + 0.5 - r, y as f32 + 0.5 - r).length();
-                let alpha = (r - d).clamp(0.0, 1.0); // one pixel of antialiasing
-                rgba.extend_from_slice(&[255, 255, 255, (alpha * 255.0) as u8]);
-            }
-        }
-        let t = self.make_texture(CIRCLE, CIRCLE, &rgba);
-        self.ui.circle = Some(t);
-        t
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn shape(
-        &mut self,
-        layer: Layer,
-        texture: u32,
-        pos: Vec2,
-        size: Vec2,
-        rotation: f32,
-        pivot: Vec2,
-        color: Color,
-        z: f32,
-    ) {
-        let instance = SpriteInstance::new(pos.into(), size.into(), pivot.into(), rotation, color.to_rgba8());
-        match layer {
-            Layer::World => self.draw_list.push(texture, z, instance),
-            Layer::Screen => self.ui_list.push(texture, z, instance),
-        }
-    }
-
     // ------------------------------------------------------------ shapes
-
-    /// Fills `rect` (world units) with `color`.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn f(ctx: &mut Ctx) {
-    /// ctx.draw_rect(Rect::new(0.0, 0.0, 200.0, 20.0), Color::hex(0x3a5a40));
-    /// # }
-    /// ```
-    pub fn draw_rect(&mut self, rect: Rect, color: Color) {
-        let white = self.white_texture().id;
-        self.shape(Layer::World, white, rect.min, rect.size(), 0.0, Vec2::ZERO, color, 0.0);
-    }
-
-    /// A line from `a` to `b`, `width` world units thick.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn f(ctx: &mut Ctx, from: Vec2, to: Vec2) {
-    /// ctx.draw_line(from, to, 2.0, Color::RED);
-    /// # }
-    /// ```
-    pub fn draw_line(&mut self, a: Vec2, b: Vec2, width: f32, color: Color) {
-        let white = self.white_texture().id;
-        let d = b - a;
-        self.shape(
-            Layer::World,
-            white,
-            a,
-            Vec2::new(d.length(), width),
-            d.to_angle(),
-            Vec2::new(0.0, 0.5),
-            color,
-            0.0,
-        );
-    }
-
-    /// A filled circle (world units).
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn f(ctx: &mut Ctx, tower: Vec2) {
-    /// ctx.draw_circle(tower, 120.0, Color::BLUE.with_alpha(0.2)); // its range
-    /// # }
-    /// ```
-    pub fn draw_circle(&mut self, center: Vec2, radius: f32, color: Color) {
-        let circle = self.circle_texture().id;
-        self.shape(
-            Layer::World,
-            circle,
-            center,
-            Vec2::splat(radius * 2.0),
-            0.0,
-            Vec2::splat(0.5),
-            color,
-            0.0,
-        );
-    }
 
     // ------------------------------------------------------------ UI
 
@@ -250,7 +131,7 @@ impl Ctx {
     /// ```
     pub fn ui_panel(&mut self, rect: Rect) {
         let color = self.ui_style.panel;
-        self.ui_fill(rect, color, -1.0);
+        self.gfx.ui_fill(rect, color, -1.0);
         self.ui.this_frame.push(rect);
     }
 
@@ -267,7 +148,7 @@ impl Ctx {
     /// ```
     pub fn ui_label(&mut self, pos: Vec2, text: &str) -> Vec2 {
         let style = self.ui_style;
-        self.draw_text_ex(
+        self.gfx.draw_text_ex(
             text,
             pos,
             TextParams {
@@ -277,7 +158,7 @@ impl Ctx {
                 ..Default::default()
             },
         );
-        self.measure_text(text, style.text_size)
+        self.gfx.measure_text(text, style.text_size)
     }
 
     /// A button at `rect` (window pixels) with `label` centered on it.
@@ -309,12 +190,12 @@ impl Ctx {
             style.button
         };
         if hovered {
-            self.ui_fill(rect.expand(1.0), style.accent, -0.5);
+            self.gfx.ui_fill(rect.expand(1.0), style.accent, -0.5);
         }
-        self.ui_fill(rect, fill, 0.0);
-        let size = self.measure_text(label, style.text_size);
+        self.gfx.ui_fill(rect, fill, 0.0);
+        let size = self.gfx.measure_text(label, style.text_size);
         let at = (rect.center() - size / 2.0).round();
-        self.draw_text_ex(
+        self.gfx.draw_text_ex(
             label,
             at,
             TextParams {
@@ -326,12 +207,6 @@ impl Ctx {
         );
         self.ui.this_frame.push(rect);
         clicked
-    }
-
-    /// A filled screen-space rectangle (UI building block).
-    pub(crate) fn ui_fill(&mut self, rect: Rect, color: Color, z: f32) {
-        let white = self.white_texture().id;
-        self.shape(Layer::Screen, white, rect.min, rect.size(), 0.0, Vec2::ZERO, color, z);
     }
 }
 

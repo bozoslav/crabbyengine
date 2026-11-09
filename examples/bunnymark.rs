@@ -82,7 +82,7 @@ fn main() {
                 if c.pos.x > bounds.x { c.pos.x = bounds.x; c.vel.x = -c.vel.x.abs(); }
                 if c.pos.y > bounds.y { c.pos.y = bounds.y; c.vel.y = -c.vel.y.abs() * 0.85; }
                 if c.pos.y < 0.0 { c.pos.y = 0.0; c.vel.y = 0.0; }
-                ctx.draw_ex(&crab, c.pos, DrawParams { color: c.color, ..Default::default() });
+                ctx.gfx.draw_ex(&crab, c.pos, DrawParams { color: c.color, ..Default::default() });
             }
             update_ms_sum += update_start.elapsed().as_secs_f64() * 1000.0;
 

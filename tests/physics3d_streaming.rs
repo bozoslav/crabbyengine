@@ -35,9 +35,9 @@ fn a_ball_rests_on_a_turned_and_scaled_terrain_tile_at_the_drawn_height_and_fall
     let radius = 0.3;
     let (mut ball, mut over_hole) = (None, None);
     let mut world = Game::new("t", 1, 1).physics3d(GRAVITY).run_headless(150, |ctx| {
-        let material = ctx.default_material();
+        let material = ctx.gfx.default_material();
         let data = TerrainTileData::new(&heights, size);
-        let tile = ctx.upload_terrain_tile(&data, material);
+        let tile = ctx.gfx.upload_terrain_tile(&data, material);
         let mesh = ctx.physics3d.heightfield(&heights, size);
         ctx.world
             .spawn((tile_transform, tile, TerrainCollider::new(mesh).friction(1.0)));
@@ -294,7 +294,7 @@ fn build_tile(heights: Vec<f32>) -> Job<(TerrainTileData, CollisionMeshData)> {
 /// tile goes (`ctx.free_terrain_tile`, `ctx.physics3d.free_mesh`).
 fn place_tile(ctx: &mut Ctx, corner: Vec3, built: (TerrainTileData, CollisionMeshData), ground: Material) -> Entity {
     let (drawn, solid) = built;
-    let tile = ctx.upload_terrain_tile(&drawn, ground);
+    let tile = ctx.gfx.upload_terrain_tile(&drawn, ground);
     let mesh = ctx.physics3d.add_mesh(&solid);
     ctx.world
         .spawn((Transform3D::at(corner), tile, TerrainCollider::new(mesh)))
@@ -328,7 +328,7 @@ fn the_guide_tiles_are_solid_only_near_the_player_and_the_car() {
             }
         })
         .run_headless(6, |ctx| {
-            let ground = ctx.default_material();
+            let ground = ctx.gfx.default_material();
             // Tiles every 128 m along X, out to 1 km.
             for k in 0..8 {
                 let built = build_tile(vec![0.0; 33 * 33]).wait();

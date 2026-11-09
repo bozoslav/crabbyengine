@@ -270,7 +270,7 @@ A computer screen, a shop terminal or a sign with buttons is a `UiPanel3D`: a
 component with its own `Ui` that the engine draws every frame into a render
 target, which a glowing, alpha-blended quad shows. Build `panel.ui` just like the
 screen's tree; its widgets are laid out in the target's pixels, so a 600 x 400
-panel has a 600 x 400 viewport. `ctx.create_ui_panel(width, height, size)` makes
+panel has a 600 x 400 viewport. `ctx.gfx.create_ui_panel(width, height, size)` makes
 the render target, the material and the quad (`size` is in meters, in the
 entity's XY plane, facing +Z) and returns the panel and the `Model` to spawn
 with it, next to a `Transform3D`. The quad is an ordinary model: move and

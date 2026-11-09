@@ -40,8 +40,8 @@ fn tileset(ctx: &mut Ctx) -> SpriteSheet {
             rgba.push(255);
         }
     }
-    let tex = ctx.create_texture(w, h, &rgba);
-    ctx.set_texture_filter(&tex, TextureFilter::Nearest);
+    let tex = ctx.gfx.create_texture(w, h, &rgba);
+    ctx.gfx.set_texture_filter(&tex, TextureFilter::Nearest);
     SpriteSheet::new(tex, TILE, TILE)
 }
 
@@ -62,8 +62,8 @@ fn creature(ctx: &mut Ctx) -> SpriteSheet {
             }
         }
     }
-    let tex = ctx.create_texture(frames * size, size, &rgba);
-    ctx.set_texture_filter(&tex, TextureFilter::Nearest);
+    let tex = ctx.gfx.create_texture(frames * size, size, &rgba);
+    ctx.gfx.set_texture_filter(&tex, TextureFilter::Nearest);
     SpriteSheet::new(tex, size, size)
 }
 
@@ -144,7 +144,7 @@ fn hud(ctx: &mut Ctx) {
         ctx.camera.zoom,
         ctx.time.fps()
     );
-    let size = ctx.measure_text(&text, ctx.ui_style.text_size) + 2.0 * ctx.ui_style.padding;
+    let size = ctx.gfx.measure_text(&text, ctx.ui_style.text_size) + 2.0 * ctx.ui_style.padding;
     let panel = Rect::new(12.0, 12.0, size.x, size.y);
     ctx.ui_panel(panel);
     ctx.ui_label(panel.min + ctx.ui_style.padding, &text);

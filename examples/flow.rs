@@ -153,8 +153,8 @@ fn setup(ctx: &mut Ctx, agents: usize, texture: Option<Texture>) {
 
 fn draw_map(ctx: &mut Ctx) -> impl FnMut(&mut Ctx) + use<> {
     let (w, h) = (MAP.x as usize, MAP.y as usize);
-    let tex = ctx.create_texture(MAP.x, MAP.y, &vec![0; w * h * 4]);
-    ctx.set_texture_filter(&tex, TextureFilter::Nearest);
+    let tex = ctx.gfx.create_texture(MAP.x, MAP.y, &vec![0; w * h * 4]);
+    ctx.gfx.set_texture_filter(&tex, TextureFilter::Nearest);
     let mut pixels = vec![0u8; w * h * 4];
     let mut heat = false;
     let mut drawn: Option<(Vec2, bool)> = None;
@@ -189,11 +189,11 @@ fn draw_map(ctx: &mut Ctx) -> impl FnMut(&mut Ctx) + use<> {
                     pixels[(y * w + x) * 4..][..4].copy_from_slice(&px);
                 }
             }
-            ctx.update_texture(&tex, &pixels);
+            ctx.gfx.update_texture(&tex, &pixels);
         }
-        ctx.clear(Color::BLACK);
+        ctx.gfx.clear(Color::BLACK);
         let size = MAP.as_vec2() * CELL;
-        ctx.draw_ex(
+        ctx.gfx.draw_ex(
             &tex,
             size / 2.0,
             DrawParams {
@@ -202,7 +202,7 @@ fn draw_map(ctx: &mut Ctx) -> impl FnMut(&mut Ctx) + use<> {
                 ..Default::default()
             },
         );
-        ctx.draw_circle(goal, 8.0, Color::rgba(1.0, 0.3, 0.3, 0.8));
+        ctx.gfx.draw_circle(goal, 8.0, Color::rgba(1.0, 0.3, 0.3, 0.8));
     }
 }
 
@@ -284,7 +284,7 @@ fn main() {
         .system(camera_controls)
         .system(hud)
         .run(move |ctx| {
-            let dot = ctx.create_texture(2, 2, &[255; 2 * 2 * 4]);
+            let dot = ctx.gfx.create_texture(2, 2, &[255; 2 * 2 * 4]);
             setup(ctx, agents, Some(dot));
             draw_map(ctx)
         });

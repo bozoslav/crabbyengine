@@ -859,7 +859,7 @@ pub unsafe extern "C" fn crabby_ctx_create_texture(
             if out_texture.is_null() {
                 return Err(invalid("output is null"));
             }
-            out(out_texture, texture_to_c(c.create_texture(width, height, pixels)))
+            out(out_texture, texture_to_c(c.gfx.create_texture(width, height, pixels)))
         })
     })
 }
@@ -882,7 +882,7 @@ pub unsafe extern "C" fn crabby_ctx_update_texture(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             let pixels = pixels(texture.width, texture.height, rgba, len)?;
-            c.update_texture(&texture_from_c(texture), pixels);
+            c.gfx.update_texture(&texture_from_c(texture), pixels);
             Ok(())
         })
     })
@@ -912,7 +912,7 @@ pub unsafe extern "C" fn crabby_ctx_clear(ctx: *mut CrabbyCtx, color: CrabbyColo
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.clear(to_c(color));
+            c.gfx.clear(to_c(color));
             Ok(())
         })
     })
@@ -956,7 +956,8 @@ pub unsafe extern "C" fn crabby_ctx_draw_ex(
             if params.is_null() {
                 return Err(invalid("params is null"));
             }
-            c.draw_ex(&texture_from_c(texture), to_c(pos), draw_params_from_c(&*params));
+            c.gfx
+                .draw_ex(&texture_from_c(texture), to_c(pos), draw_params_from_c(&*params));
             Ok(())
         })
     })
@@ -1005,7 +1006,7 @@ pub unsafe extern "C" fn crabby_ctx_measure_text(
             if out_size.is_null() {
                 return Err(invalid("output is null"));
             }
-            out(out_size, to_c(c.measure_text(string, size)))
+            out(out_size, to_c(c.gfx.measure_text(string, size)))
         })
     })
 }

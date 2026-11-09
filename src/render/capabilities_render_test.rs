@@ -175,18 +175,18 @@ fn draw(profile: &Profile) -> Option<Outcome> {
 
     let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
     // As `Ctx` does from the renderer's answers.
-    ctx.assets3d.decals_supported = report.available(GpuFeature::Decals);
-    ctx.assets3d.gi_supported = report.available(GpuFeature::GlobalIllumination);
+    ctx.gfx.assets3d.decals_supported = report.available(GpuFeature::Decals);
+    ctx.gfx.assets3d.gi_supported = report.available(GpuFeature::GlobalIllumination);
     let matte = MaterialDesc {
         color: Color::rgb(0.8, 0.5, 0.2),
         roughness: 0.3,
         ..Default::default()
     };
-    let material = ctx.create_material(matte);
+    let material = ctx.gfx.create_material(matte);
     let mut renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
     renderer.create_material(&device, &GpuMaterialDesc::new(&matte), &textures);
     let mut add = |ctx: &mut Ctx, data: &MeshData, at: Transform3D| {
-        let mesh = ctx.create_mesh(data, material);
+        let mesh = ctx.gfx.create_mesh(data, material);
         renderer.create_mesh(&device, data, &[(0..data.indices.len() as u32, material)], true);
         ctx.world.spawn((Model::new(mesh), at));
     };
@@ -219,7 +219,7 @@ fn draw(profile: &Profile) -> Option<Outcome> {
         let mut frame = Frame3D::default();
         frame.collect(
             &mut ctx.world,
-            &ctx.assets3d,
+            &ctx.gfx.assets3d,
             &SkinFrame::default(),
             &ctx.camera3d,
             &ctx.lighting,

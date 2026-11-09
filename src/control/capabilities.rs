@@ -191,7 +191,7 @@ mod tests {
 
     fn ctx(headless: bool) -> Ctx {
         let mut ctx = Ctx::new(1.0 / 60.0, glam::Vec2::ZERO);
-        ctx.headless = headless;
+        ctx.set_headless(headless);
         ctx
     }
 

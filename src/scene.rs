@@ -18,7 +18,7 @@ impl Ctx {
     /// [`WorldReflect::save`]). Entities keep their ids, so references
     /// between them hold. Components must be [reflected](WorldReflect::reflect).
     /// The scene and the textures it names may also come from an
-    /// [asset source](Ctx::add_asset_source).
+    /// [asset source](crate::Ctx::add_asset_source).
     ///
     /// ```no_run
     /// # use ponko::*;

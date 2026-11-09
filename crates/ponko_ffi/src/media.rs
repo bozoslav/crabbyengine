@@ -219,7 +219,7 @@ pub unsafe extern "C" fn crabby_ctx_draw_rect(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.draw_rect(to_c(rect), to_c(color));
+            c.gfx.draw_rect(to_c(rect), to_c(color));
             Ok(())
         })
     })
@@ -245,7 +245,7 @@ pub unsafe extern "C" fn crabby_ctx_draw_line(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.draw_line(to_c(a), to_c(b), width, to_c(color));
+            c.gfx.draw_line(to_c(a), to_c(b), width, to_c(color));
             Ok(())
         })
     })
@@ -269,7 +269,7 @@ pub unsafe extern "C" fn crabby_ctx_draw_circle(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.draw_circle(to_c(center), radius, to_c(color));
+            c.gfx.draw_circle(to_c(center), radius, to_c(color));
             Ok(())
         })
     })
@@ -421,7 +421,7 @@ pub unsafe extern "C" fn crabby_ctx_load_font(
             if out_font.is_null() {
                 return Err(invalid("output is null"));
             }
-            out(out_font, font_to_c(c.load_font(path)))
+            out(out_font, font_to_c(c.gfx.load_font(path)))
         })
     })
 }
@@ -449,10 +449,10 @@ pub unsafe extern "C" fn crabby_ctx_draw_text_ex(
                 return Err(invalid("params is null"));
             }
             let p = *params;
-            if !c.has_font(font_from_c(p.font)) {
+            if !c.gfx.has_font(font_from_c(p.font)) {
                 return Err(invalid("unknown or freed font"));
             }
-            c.draw_text_ex(
+            c.gfx.draw_text_ex(
                 string,
                 to_c(pos),
                 TextParams {
@@ -489,10 +489,10 @@ pub unsafe extern "C" fn crabby_ctx_measure_text_ex(
             if out_size.is_null() {
                 return Err(invalid("output is null"));
             }
-            if !c.has_font(font_from_c(font)) {
+            if !c.gfx.has_font(font_from_c(font)) {
                 return Err(invalid("unknown or freed font"));
             }
-            out(out_size, to_c(c.measure_text_ex(string, font_from_c(font), size)))
+            out(out_size, to_c(c.gfx.measure_text_ex(string, font_from_c(font), size)))
         })
     })
 }
@@ -628,7 +628,7 @@ pub unsafe extern "C" fn crabby_ctx_save_screenshot(ctx: *mut CrabbyCtx, path: *
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.save_screenshot(text(path)?);
+            c.gfx.save_screenshot(text(path)?);
             Ok(())
         })
     })

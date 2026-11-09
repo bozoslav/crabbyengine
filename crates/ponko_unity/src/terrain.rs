@@ -8,7 +8,7 @@ use crate::{Error, ObjRef, UnityObject};
 const MAX_HEIGHT: f64 = 32766.0;
 
 /// A `TerrainData`'s heights in world units, ready for
-/// `Ctx::create_terrain_tile`, and the ground layers painted on it.
+/// `Graphics::create_terrain_tile`, and the ground layers painted on it.
 ///
 /// Unity's +Z is Ponko's -Z, so the rows are flipped: the first row is
 /// Unity's far (+Z) edge, and the tile's corner is where

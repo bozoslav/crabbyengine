@@ -135,7 +135,7 @@ impl Rig {
 
     /// A material on the CPU and the GPU.
     fn material(&mut self, desc: MaterialDesc) -> Material {
-        let material = self.ctx.create_material(desc);
+        let material = self.ctx.gfx.create_material(desc);
         self.renderer
             .create_material(&self.device, &GpuMaterialDesc::new(&desc), &self.textures);
         material
@@ -143,14 +143,14 @@ impl Rig {
 
     /// A material shader on the CPU and the GPU.
     fn shader(&mut self, name: &str, source: &str) -> Shader {
-        let shader = self.ctx.create_shader(name, source);
+        let shader = self.ctx.gfx.create_shader(name, source);
         self.renderer.create_shader(&self.device, name, source).unwrap();
         shader
     }
 
     /// A mesh of `data` with `material`, on the CPU and the GPU.
     fn mesh(&mut self, data: &MeshData, material: Material) -> Mesh {
-        let mesh = self.ctx.create_mesh(data, material);
+        let mesh = self.ctx.gfx.create_mesh(data, material);
         self.renderer
             .create_mesh(&self.device, data, &[(0..data.indices.len() as u32, material)], true);
         mesh
@@ -171,7 +171,7 @@ impl Rig {
         frame.lod = ctx.lod;
         frame.collect(
             &mut ctx.world,
-            &ctx.assets3d,
+            &ctx.gfx.assets3d,
             &SkinFrame::default(),
             &ctx.camera3d,
             &ctx.lighting,

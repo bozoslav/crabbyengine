@@ -359,7 +359,7 @@ fn answer(ctx: &mut Ctx, req: Request) {
         match screenshot_path(ctx, &req.params) {
             Ok(path) => {
                 let max_size = req.params.get("max_size").and_then(Value::as_u64).unwrap_or(0) as u32;
-                ctx.queue_screenshot(path, max_size, Some(req.reply));
+                ctx.gfx.queue_screenshot(path, max_size, Some(req.reply));
             }
             Err(e) => {
                 let _ = req.reply.send(Err(e));
@@ -528,7 +528,7 @@ fn render_inspector_json(ctx: &Ctx) -> Value {
         (false, Some(detail)) => inspector::Source::Drawn(detail),
     };
     #[cfg(feature = "3d")]
-    let quality = Some(inspector::quality_json(&ctx.graphics_quality()));
+    let quality = Some(inspector::quality_json(&ctx.gfx.quality(&ctx.post, &ctx.lighting)));
     #[cfg(not(feature = "3d"))]
     let quality = None;
     inspector::render_inspector(&inspector::Inputs {
@@ -580,6 +580,7 @@ fn perf_json(ctx: &Ctx, meshes: usize) -> Value {
     #[cfg(feature = "3d")]
     if meshes > 0 {
         out["meshes"] = ctx
+            .gfx
             .mesh_costs()
             .iter()
             .take(meshes)
@@ -599,11 +600,12 @@ fn perf_json(ctx: &Ctx, meshes: usize) -> Value {
     out
 }
 
-/// `Ctx::shader_status` as JSON.
+/// `Graphics::shader_status` as JSON.
 #[cfg(feature = "3d")]
 fn shader_status_json(ctx: &Ctx) -> Value {
     use crate::{ShaderKind, ShaderOutcome};
     let shaders: Vec<Value> = ctx
+        .gfx
         .shader_status()
         .iter()
         .map(|s| {
@@ -1095,7 +1097,7 @@ mod tests {
             handle(&mut ctx, "shaders.status", &json!({})).unwrap()["shaders"],
             json!([])
         );
-        let _ = ctx.try_create_shader(
+        let _ = ctx.gfx.try_create_shader(
             "red.wgsl",
             "// red\nfn surface(s: Surface) -> Surface {\n    return 1.0;\n}",
         );

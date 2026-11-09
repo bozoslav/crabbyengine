@@ -1345,7 +1345,7 @@ impl Game {
         run_setups(std::mem::take(&mut self.setups), &mut ctx);
         drop(setup(&mut ctx).into_frame_fn()); // no frames, so no frame closure
         ctx.apply_commands();
-        ctx.discard_draws();
+        ctx.gfx.discard_draws();
 
         let timing = FrameTiming {
             dt: fixed_dt as f32,
@@ -1387,7 +1387,7 @@ impl Game {
             self.run_sim_tick(&mut ctx);
             ctx.set_in_sim(false);
             end_timings(&mut ctx);
-            ctx.discard_draws();
+            ctx.gfx.discard_draws();
             ctx.input.end_frame();
             if ctx.perf.state.on {
                 ctx.end_perf_frame(tick_start.elapsed().as_secs_f32() * 1000.0);
@@ -1710,7 +1710,7 @@ mod tests {
         }
         ctx.world.spawn((crate::Transform2D::default(),)); // no sprite: not drawn
         game.run_systems(&mut ctx, 0);
-        assert_eq!(ctx.sprite_count(), 10);
+        assert_eq!(ctx.gfx.sprite_count(), 10);
     }
 }
 

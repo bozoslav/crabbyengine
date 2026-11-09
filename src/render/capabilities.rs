@@ -12,14 +12,14 @@ use serde::{Deserialize, Serialize};
 /// renderer feature that depends on the device, whether it's available and
 /// what the renderer does instead when it isn't.
 ///
-/// From [`Ctx::gpu_capabilities`](crate::Ctx::gpu_capabilities). It is
+/// From [`Graphics::gpu_capabilities`](crate::Graphics::gpu_capabilities). It is
 /// decided once, when the GPU is opened, and doesn't change while the game
 /// runs. Serializes to JSON (`serde_json::to_value`) for tools.
 ///
 /// ```
 /// # use ponko::*;
 /// fn report(ctx: &mut Ctx) {
-///     if let Some(caps) = ctx.gpu_capabilities() {
+///     if let Some(caps) = ctx.gfx.gpu_capabilities() {
 ///         for f in caps.features.iter().filter(|f| !f.available) {
 ///             println!("{:?}: {} ({})", f.feature, f.fallback.as_deref().unwrap_or("-"), f.reason.as_deref().unwrap_or("-"));
 ///         }

@@ -81,7 +81,7 @@ fn move_crabs(ctx: &mut Ctx) {
 // ANCHOR_END: simulate
 
 fn draw(ctx: &mut Ctx) {
-    ctx.clear(Color::hex(0x20304a));
+    ctx.gfx.clear(Color::hex(0x20304a));
     let crabs: Vec<(Vec2, u32)> = ctx
         .world
         .query::<(&Transform2D, &Crab)>()
@@ -90,7 +90,7 @@ fn draw(ctx: &mut Ctx) {
         .collect();
     for (at, player) in crabs {
         let color = [Color::hex(0xf56565), Color::hex(0x63b3ed)][player as usize % 2];
-        ctx.draw_circle(at, 30.0, color);
+        ctx.gfx.draw_circle(at, 30.0, color);
     }
     let net = &ctx.net;
     let status = match net.state() {

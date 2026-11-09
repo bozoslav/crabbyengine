@@ -25,15 +25,16 @@ fn scene(ctx: &mut Ctx) {
         for x in 0..20 {
             let shade = if (x + y) % 2 == 0 { 0.16 } else { 0.19 };
             let tile = Rect::new(x as f32 * 64.0, y as f32 * 64.0, 64.0, 64.0);
-            ctx.draw_rect(tile, Color::rgb(shade, shade + 0.03, shade));
+            ctx.gfx.draw_rect(tile, Color::rgb(shade, shade + 0.03, shade));
         }
     }
     let center = vec2(640.0, 640.0);
-    ctx.draw_circle(center, 180.0, Color::hex(0x3a86ff).with_alpha(0.15));
+    ctx.gfx
+        .draw_circle(center, 180.0, Color::hex(0x3a86ff).with_alpha(0.15));
     let orbit = center + Vec2::from_angle(t * 0.6) * 180.0;
-    ctx.draw_line(center, orbit, 3.0, Color::hex(0xffbe0b));
+    ctx.gfx.draw_line(center, orbit, 3.0, Color::hex(0xffbe0b));
     let crab = ctx.world.resource::<Scene>().crab;
-    ctx.draw_ex(
+    ctx.gfx.draw_ex(
         &crab,
         orbit,
         DrawParams {

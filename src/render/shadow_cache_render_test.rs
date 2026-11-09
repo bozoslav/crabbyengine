@@ -141,7 +141,7 @@ impl Rig {
     fn draw(&self, renderer: &mut Renderer3D, frame: &mut Frame3D, ctx: &mut Ctx) -> Vec<u8> {
         frame.collect(
             &mut ctx.world,
-            &ctx.assets3d,
+            &ctx.gfx.assets3d,
             &SkinFrame::default(),
             &ctx.camera3d,
             &ctx.lighting,
@@ -209,11 +209,11 @@ fn kept_shadow_views_draw_the_same_image_as_redrawing_them() {
         roughness: 1.0,
         ..Default::default()
     };
-    let material = ctx.create_material(matte);
+    let material = ctx.gfx.create_material(matte);
     let ground = MeshData::plane(20.0);
     let cube = MeshData::cube(1.0);
-    let ground_mesh = ctx.create_mesh(&ground, material);
-    let cube_mesh = ctx.create_mesh(&cube, material);
+    let ground_mesh = ctx.gfx.create_mesh(&ground, material);
+    let cube_mesh = ctx.gfx.create_mesh(&cube, material);
     ctx.world.spawn((Transform3D::default(), Model::new(ground_mesh)));
     let mover = ctx
         .world
@@ -368,15 +368,15 @@ fn views_with_shader_moved_vertices_are_always_drawn() {
         ..Default::default()
     };
     let waving = MaterialDesc {
-        shader: Some(ctx.create_shader("wave", WAVE)),
+        shader: Some(ctx.gfx.create_shader("wave", WAVE)),
         ..matte
     };
-    let material = ctx.create_material(matte);
-    let wave_material = ctx.create_material(waving);
+    let material = ctx.gfx.create_material(matte);
+    let wave_material = ctx.gfx.create_material(waving);
     let ground = MeshData::plane(20.0);
     let cube = MeshData::cube(1.0);
-    let ground_mesh = ctx.create_mesh(&ground, material);
-    let cube_mesh = ctx.create_mesh(&cube, wave_material);
+    let ground_mesh = ctx.gfx.create_mesh(&ground, material);
+    let cube_mesh = ctx.gfx.create_mesh(&cube, wave_material);
     ctx.world.spawn((Transform3D::default(), Model::new(ground_mesh)));
     ctx.world
         .spawn((Transform3D::at(vec3(0.0, 1.0, 0.0)), Model::new(cube_mesh)));
@@ -444,13 +444,13 @@ fn a_changed_material_override_redraws_its_shadows() {
         color: Color::rgba(1.0, 1.0, 1.0, 0.3),
         ..matte
     };
-    let material = ctx.create_material(matte);
-    let solid = ctx.create_material(matte);
-    let see_through = ctx.create_material(glass);
+    let material = ctx.gfx.create_material(matte);
+    let solid = ctx.gfx.create_material(matte);
+    let see_through = ctx.gfx.create_material(glass);
     let ground = MeshData::plane(20.0);
     let cube = MeshData::cube(1.0);
-    let ground_mesh = ctx.create_mesh(&ground, material);
-    let cube_mesh = ctx.create_mesh(&cube, material);
+    let ground_mesh = ctx.gfx.create_mesh(&ground, material);
+    let cube_mesh = ctx.gfx.create_mesh(&cube, material);
     ctx.world.spawn((Transform3D::default(), Model::new(ground_mesh)));
     let rock = ctx.world.spawn((
         Transform3D::at(vec3(0.0, 1.0, 0.0)),

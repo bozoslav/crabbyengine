@@ -137,11 +137,11 @@ fn local_shadow(batch: bool, point: bool, compute: bool, casts: bool) {
         roughness: 1.0,
         ..Default::default()
     };
-    let material = ctx.create_material(matte);
+    let material = ctx.gfx.create_material(matte);
     let ground = MeshData::plane(20.0);
     let cube = MeshData::cube(1.0);
-    let ground_mesh = ctx.create_mesh(&ground, material);
-    let cube_mesh = ctx.create_mesh(&cube, material);
+    let ground_mesh = ctx.gfx.create_mesh(&ground, material);
+    let cube_mesh = ctx.gfx.create_mesh(&cube, material);
     ctx.world.spawn((Transform3D::default(), Model::new(ground_mesh)));
     if !batch {
         ctx.world
@@ -184,7 +184,7 @@ fn local_shadow(batch: bool, point: bool, compute: bool, casts: bool) {
     renderer.create_mesh(&device, &cube, &[(0..cube.indices.len() as u32, material)], true);
 
     if batch {
-        let handle = ctx.create_instance_batch(
+        let handle = ctx.gfx.create_instance_batch(
             cube_mesh,
             &[Mat4::from_translation(vec3(0.0, 3.0, 0.0))],
             InstanceBatchOptions {
@@ -196,14 +196,14 @@ fn local_shadow(batch: bool, point: bool, compute: bool, casts: bool) {
         renderer.set_instance_batch(
             &device,
             handle.id(),
-            ctx.assets3d.instance_batches[handle.id() as usize].as_ref(),
+            ctx.gfx.assets3d.instance_batches[handle.id() as usize].as_ref(),
         );
     }
     let mut draw = |ctx: &mut Ctx| -> Vec<u8> {
         let mut frame = Frame3D::default();
         frame.collect(
             &mut ctx.world,
-            &ctx.assets3d,
+            &ctx.gfx.assets3d,
             &SkinFrame::default(),
             &ctx.camera3d,
             &ctx.lighting,

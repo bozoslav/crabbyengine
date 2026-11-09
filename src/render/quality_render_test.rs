@@ -123,11 +123,11 @@ impl Fixture {
             roughness: 1.0,
             ..Default::default()
         };
-        let material = ctx.create_material(matte);
+        let material = ctx.gfx.create_material(matte);
         let ground = MeshData::plane(20.0);
         let cube = MeshData::cube(1.0);
-        let ground_mesh = ctx.create_mesh(&ground, material);
-        let cube_mesh = ctx.create_mesh(&cube, material);
+        let ground_mesh = ctx.gfx.create_mesh(&ground, material);
+        let cube_mesh = ctx.gfx.create_mesh(&cube, material);
         ctx.world.spawn((Transform3D::default(), Model::new(ground_mesh)));
         ctx.world
             .spawn((Transform3D::at(vec3(0.0, 0.5, 0.0)), Model::new(cube_mesh)));
@@ -171,7 +171,7 @@ impl Fixture {
         frame.size_limit = device.limits().max_texture_dimension_2d;
         frame.collect(
             &mut ctx.world,
-            &ctx.assets3d,
+            &ctx.gfx.assets3d,
             &SkinFrame::default(),
             &ctx.camera3d,
             &ctx.lighting,
@@ -282,7 +282,7 @@ fn switching_presets_back_and_forth_renders_clean_full_size_frames() {
         GraphicsQuality::medium(),
     ];
     for (round, quality) in levels.into_iter().enumerate() {
-        f.ctx.set_graphics_quality(quality);
+        f.ctx.gfx.set_quality(&mut f.ctx.post, &mut f.ctx.lighting, quality);
         let first = f.draw();
         let second = f.draw();
         assert_eq!(
@@ -312,7 +312,9 @@ fn switching_presets_back_and_forth_renders_clean_full_size_frames() {
         assert_eq!(f.renderer.scales_output(), quality.render_scale != 1.0);
     }
     // Back to where it started: the same picture as the first time.
-    f.ctx.set_graphics_quality(GraphicsQuality::default());
+    f.ctx
+        .gfx
+        .set_quality(&mut f.ctx.post, &mut f.ctx.lighting, GraphicsQuality::default());
     let again = f.draw();
     assert_eq!(again, reference, "switching away and back changes nothing");
 }
@@ -439,11 +441,15 @@ fn a_bigger_shadow_map_changes_the_picture_less_than_it_changes_the_map() {
     // Presets differ in shadow detail but the lit ground and the box's
     // shadow stay: the picture is about the same.
     let Some(mut f) = Fixture::new() else { return };
-    f.ctx.set_graphics_quality(GraphicsQuality {
-        anti_aliasing: AntiAliasing::None,
-        ambient_occlusion: false,
-        ..GraphicsQuality::medium()
-    });
+    f.ctx.gfx.set_quality(
+        &mut f.ctx.post,
+        &mut f.ctx.lighting,
+        GraphicsQuality {
+            anti_aliasing: AntiAliasing::None,
+            ambient_occlusion: false,
+            ..GraphicsQuality::medium()
+        },
+    );
     let medium = f.draw();
     f.ctx.lighting.shadow_resolution = 4096;
     let sharp = f.draw();

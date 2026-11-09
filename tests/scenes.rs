@@ -168,7 +168,7 @@ fn sprites_are_saved_by_their_image_name_and_load_it() {
 #[test]
 fn sprites_of_textures_made_in_code_are_left_out_of_saves() {
     game().run_headless(0, |ctx| {
-        let made = ctx.create_texture(1, 1, &[255; 4]);
+        let made = ctx.gfx.create_texture(1, 1, &[255; 4]);
         let e = ctx.world.spawn((Transform2D::default(), Sprite::new(made)));
         let json = ctx.world.entity_json(e).unwrap();
         assert!(

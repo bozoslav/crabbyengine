@@ -244,3 +244,161 @@ fn the_default_listener_is_the_camera_as_the_running_system_found_it() {
         ctx.camera3d.position = vec3(5.0, 0.0, 0.0);
     });
 }
+
+struct Dot(Texture);
+
+#[test]
+fn drawing_queues_while_a_world_query_is_alive() {
+    struct Queued(usize);
+    fn draw_each(ctx: &mut Ctx) {
+        // `ctx.gfx` is its own field: draw from inside the query.
+        for (dot, at) in ctx.world.query::<(&Dot, &Transform2D)>().iter() {
+            ctx.gfx.draw(&dot.0, at.position);
+            ctx.gfx
+                .draw_rect(Rect::new(at.position.x, at.position.y, 1.0, 1.0), Color::WHITE);
+        }
+        let queued = ctx.gfx.sprite_count();
+        ctx.world.resource_mut::<Queued>().0 = queued;
+    }
+    let world = Game::new("t", 8, 8).sim_system(draw_each).run_headless(1, |ctx| {
+        let pixel = ctx.gfx.create_texture(1, 1, &[255; 4]);
+        ctx.world.insert_resource(Queued(0));
+        ctx.world
+            .spawn_batch((0..3).map(|i| (Dot(pixel), Transform2D::at(vec2(i as f32, 0.0)))));
+    });
+    assert_eq!(world.resource::<Queued>().0, 6, "a sprite and a rectangle per entity");
+}
+
+#[test]
+fn the_graphics_service_owns_textures_and_the_shortcuts_reach_it() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        let before = ctx.live_counts().textures;
+        let pixel = ctx.gfx.create_texture(2, 2, &[255; 16]);
+        assert_eq!((pixel.width(), pixel.height()), (2, 2));
+        assert!(ctx.is_live(pixel));
+        assert_eq!(ctx.live_counts().textures, before + 1);
+        ctx.gfx.update_texture(&pixel, &[0; 16]);
+        ctx.gfx.set_texture_filter(&pixel, TextureFilter::Nearest);
+        // The shortcuts queue through the same service.
+        ctx.draw(&pixel, Vec2::ZERO);
+        ctx.gfx.draw_ex(&pixel, Vec2::ZERO, DrawParams::default());
+        assert_eq!(ctx.gfx.sprite_count(), 2);
+        ctx.draw_text("headless text is measured, not drawn", Vec2::ZERO, 16.0, Color::WHITE);
+        assert!(ctx.gfx.measure_text("wide", 16.0).x > 0.0);
+        assert!(ctx.gfx.has_font(Font::DEFAULT));
+        assert!(ctx.gfx.try_load_texture("missing.png").is_err());
+        assert!(ctx.gfx.try_load_font("missing.ttf").is_err());
+        assert!(ctx.gfx.gpu_capabilities().is_none(), "no GPU in a headless run");
+        ctx.free(pixel);
+        assert!(!ctx.is_live(pixel));
+    });
+}
+
+#[test]
+#[should_panic(expected = "a 2 x 2 texture needs 16 bytes of RGBA, got 4")]
+fn a_texture_with_the_wrong_byte_count_panics_from_the_service() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        ctx.gfx.create_texture(2, 2, &[255; 4]);
+    });
+}
+
+#[test]
+fn a_texture_loaded_by_the_service_is_saved_by_file_name() {
+    let mut png = Vec::new();
+    image::RgbaImage::from_pixel(1, 1, image::Rgba([255; 4]))
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+    let world = Game::new("t", 1, 1).hot_reload(false).run_headless(0, |ctx| {
+        ctx.add_asset_source(MemorySource::new("mem").with("dot.png", png));
+        // The service needs no world to load; the world still learns the name.
+        let dot = ctx.gfx.load_texture("dot.png");
+        assert_eq!(ctx.gfx.load_texture("dot.png"), dot, "a file is loaded once");
+        ctx.world.spawn((Transform2D::default(), Sprite::new(dot)));
+        // A freed texture's name goes with it.
+        let gone = ctx.gfx.create_texture(1, 1, &[0; 4]);
+        ctx.world.spawn((Transform2D::default(), Sprite::new(gone)));
+        ctx.free(gone);
+    });
+    let save = world.save().to_string();
+    assert_eq!(save.matches("\"texture\":\"dot.png\"").count(), 1, "{save}");
+}
+
+#[cfg(feature = "3d")]
+mod three {
+    use ponko::*;
+
+    struct Box3(Mesh);
+
+    #[test]
+    fn meshes_are_made_while_a_world_query_is_alive() {
+        fn grow(ctx: &mut Ctx) {
+            let material = ctx.gfx.default_material();
+            for b in ctx.world.query::<&mut Box3>().iter() {
+                // The world is borrowed by the query; `ctx.gfx` is free.
+                let bigger = ctx.gfx.create_mesh(&MeshData::cube(2.0), material);
+                ctx.gfx.free_mesh(b.0);
+                b.0 = bigger;
+            }
+        }
+        let mut world = Game::new("t", 1, 1).sim_system(grow).run_headless(2, |ctx| {
+            let material = ctx.gfx.default_material();
+            let mesh = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
+            ctx.world.spawn((Box3(mesh),));
+        });
+        assert_eq!(world.query::<&Box3>().count(), 1);
+    }
+
+    #[test]
+    fn the_calls_that_touch_entities_take_the_world() {
+        Game::new("t", 1, 1).run_headless(0, |ctx| {
+            let probe = ctx.world.spawn((Transform3D::default(), ReflectionProbe3D::default()));
+            ctx.gfx.bake_reflection_probe(&mut ctx.world, probe).unwrap();
+            assert_ne!(ctx.world.get::<ReflectionProbe3D>(probe).unwrap().content, 0);
+            let bare = ctx.world.spawn((Transform3D::default(),));
+            assert!(ctx.gfx.bake_reflection_probe(&mut ctx.world, bare).is_err());
+            ctx.gfx.write_animated_morphs(&mut ctx.world);
+        });
+    }
+
+    #[test]
+    fn freeing_a_gpu_buffer_drops_its_compute_passes() {
+        Game::new("t", 1, 1).run_headless(0, |ctx| {
+            let buffer = ctx.gfx.create_gpu_buffer(4, &[]);
+            let update = ctx.gfx.create_compute("up", "fn update(i: u32) { items[i].x += 1.0; }");
+            ctx.compute_passes.push(ComputePass::for_buffer(update, buffer));
+            assert!(ctx.is_live(buffer));
+            ctx.free(buffer);
+            assert!(ctx.compute_passes.is_empty());
+            assert_eq!(ctx.gfx.gpu_buffer_len(buffer), None);
+            // The id is reused, and starts clean.
+            assert_eq!(ctx.gfx.create_gpu_buffer(2, &[]), buffer);
+        });
+    }
+
+    #[test]
+    fn quality_presets_write_the_post_and_lighting_settings_they_are_given() {
+        Game::new("t", 1, 1).run_headless(0, |ctx| {
+            ctx.gfx
+                .set_quality(&mut ctx.post, &mut ctx.lighting, GraphicsQuality::low());
+            assert_eq!(ctx.gfx.quality(&ctx.post, &ctx.lighting).level(), QualityLevel::Low);
+            assert_eq!(ctx.post.render_scale, GraphicsQuality::low().render_scale);
+            // A tweak on top stays, and the level says so.
+            ctx.lighting.shadow_distance += 1.0;
+            assert_eq!(ctx.gfx.quality(&ctx.post, &ctx.lighting).level(), QualityLevel::Custom);
+        });
+    }
+
+    #[test]
+    fn handles_from_the_service_are_live_until_freed() {
+        Game::new("t", 1, 1).run_headless(0, |ctx| {
+            let material = ctx.gfx.create_material(MaterialDesc::default());
+            let mesh = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
+            assert!(ctx.is_live(material) && ctx.is_live(mesh));
+            assert!(ctx.gfx.has_material(material) && ctx.gfx.is_mesh_live(mesh));
+            ctx.free(mesh);
+            ctx.free(material);
+            assert!(!ctx.is_live(material) && !ctx.is_live(mesh));
+            assert!(!ctx.gfx.has_material(material));
+        });
+    }
+}

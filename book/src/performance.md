@@ -175,7 +175,7 @@ goes, in a running game:
   buffers created: in a scene where nothing changes it should stay at a
   few kilobytes of uniforms and no buffers. Models that stand still cost
   no uploads; only the changed parts of the model list are sent.
-- **`ctx.mesh_costs()`**: per mesh, how many models and triangles it drew
+- **`ctx.gfx.mesh_costs()`**: per mesh, how many models and triangles it drew
   for the camera and the shadows last frame, heaviest first.
 - **Traces**: `ctx.perf.record_trace(path, frames)` (or `PONKO_TRACE=path`)
   writes the next frames as a Chrome trace: every system, rendering,

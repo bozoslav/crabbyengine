@@ -104,7 +104,7 @@ fn start_profiler() -> Option<puffin_http::Server> {
 /// The end of a benchmark report: the meshes that cost the most triangles.
 #[cfg(feature = "3d")]
 fn print_mesh_costs(ctx: &Ctx) {
-    let costs = ctx.mesh_costs();
+    let costs = ctx.gfx.mesh_costs();
     if costs.is_empty() {
         return;
     }
@@ -276,12 +276,12 @@ where
         let present = crate::environment::var("PONKO_BENCH_PRESENT").is_ok_and(|v| v == "1");
         let benchmarking = self.ctx.perf.profiler.benchmarking();
         renderer.set_draw_hidden(benchmarking, benchmarking && !present);
-        self.ctx.renderer = Some(renderer);
+        self.ctx.gfx.renderer = Some(renderer);
         self.ctx.set_window_size(Self::logical_window_size(&window));
         self.ctx.set_scale_factor(window.scale_factor() as f32);
         #[cfg(feature = "inspector")]
         if let (true, open) = crate::inspector::enabled(self.config.inspector) {
-            let max_side = self.ctx.renderer.as_ref().map_or(2048, Renderer::max_texture_size);
+            let max_side = self.ctx.gfx.renderer.as_ref().map_or(2048, Renderer::max_texture_size);
             let mut inspector = crate::inspector::Inspector::new(&window, max_side as usize);
             inspector.open = open;
             self.inspector = Some(inspector);
@@ -401,7 +401,7 @@ where
 
             WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
                 let size = window.inner_size();
-                if let Some(renderer) = self.ctx.renderer.as_mut() {
+                if let Some(renderer) = self.ctx.gfx.renderer.as_mut() {
                     renderer.resize(size.width, size.height);
                 }
                 self.ctx.set_window_size(Self::logical_window_size(&window));

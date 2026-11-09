@@ -14,17 +14,16 @@ use crate::events::Events;
 use crate::hot_reload::Asset;
 use crate::input::{Input, Key};
 use crate::reflect::WorldReflect;
-use crate::render::batch::{DrawList, SpriteInstance};
+use crate::render::batch::SpriteInstance;
 use crate::render::batch::{FULL_UV, uv_region};
 use crate::render::{FrameStatus, Renderer, Screenshot};
 use crate::spatial::SpatialGrid;
-use crate::text::{Font, Text, TextParams};
-use crate::texture::{DrawParams, Texture, TextureFilter};
+use crate::text::Font;
+use crate::texture::Texture;
 use crate::time::{FrameTiming, Time};
 use crate::ui::{UiState, UiStyle};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::Sender;
 
 /// Maps window pixels ((0, 0) top-left, y down) to wgpu clip space
 /// (x right, y up, both -1..1).
@@ -160,11 +159,6 @@ pub struct Ctx {
     pub(crate) headless: bool,
     /// Where the control endpoint listens, if it's on.
     pub(crate) control_addr: Option<std::net::SocketAddr>,
-    pub(crate) headless_textures: u32,
-    /// The game's textures (not the engine's own), by id, live or freed.
-    pub(crate) textures_live: crate::handle::LiveSet,
-    /// Tallies for `asset_inventory` of handles without a table of their own.
-    pub(crate) asset_ledger: crate::inventory::Ledger,
     /// Asset hot reload: which files textures came from.
     pub(crate) watcher: crate::hot_reload::SharedWatcher,
     /// Textures reloaded at the start of this frame.
@@ -181,11 +175,6 @@ pub struct Ctx {
     pub(crate) asset_sources: assets::SharedSources,
     /// Assets loaded under residency budgets (`resident_mesh`), by kind.
     pub(crate) residency: crate::residency::Residency,
-    /// Assets already loaded, by origin (resolved path, or source and
-    /// name): loading one again returns the same handle.
-    pub(crate) loaded: HashMap<(assets::Origin, AssetKind), u64>,
-    /// Textures and sounds loaded from files, indexed by `loaded` values.
-    pub(crate) cached_textures: Vec<Texture>,
     /// Keyboard, mouse, gamepads and named actions: see [`Input`].
     ///
     /// ```
@@ -207,14 +196,6 @@ pub struct Ctx {
     pub time: Time,
     window_size: Vec2,
     quit_requested: bool,
-    pub(crate) renderer: Option<Renderer>,
-    /// Screenshots waiting for the next drawn frame.
-    screenshots: Vec<ScreenshotRequest>,
-    /// World-space sprites (through the camera).
-    pub(crate) draw_list: DrawList,
-    /// Screen-space sprites and text, drawn on top.
-    pub(crate) ui_list: DrawList,
-    clear_color: Color,
     /// Which part of the world the window shows. Move it, zoom it, or make
     /// it follow something; see [`Camera2D`].
     ///
@@ -278,7 +259,7 @@ pub struct Ctx {
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let haze = ctx.load_effect("effects/haze.wgsl");
+    /// let haze = ctx.gfx.load_effect("effects/haze.wgsl");
     /// ctx.effects.push(ScreenEffect::new(haze));
     /// # }
     /// ```
@@ -293,7 +274,7 @@ pub struct Ctx {
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, glow: Effect) {
-    /// let mask = ctx.create_render_target(256, 256);
+    /// let mask = ctx.gfx.create_render_target(256, 256);
     /// ctx.target_effects.push(TargetEffect::new(glow, mask));
     /// # }
     /// ```
@@ -306,7 +287,7 @@ pub struct Ctx {
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let lake = ctx.create_render_target(960, 540);
+    /// let lake = ctx.gfx.create_render_target(960, 540);
     /// ctx.target_cameras.push(TargetCamera::reflection(ctx.camera3d, lake, 0.0));
     /// # }
     /// ```
@@ -319,8 +300,8 @@ pub struct Ctx {
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let ripples = ctx.load_compute("compute/ripples.wgsl");
-    /// let water = ctx.create_render_target(256, 256);
+    /// let ripples = ctx.gfx.load_compute("compute/ripples.wgsl");
+    /// let water = ctx.gfx.create_render_target(256, 256);
     /// ctx.compute_passes.push(ComputePass::new(ripples, water));
     /// # }
     /// ```
@@ -338,15 +319,6 @@ pub struct Ctx {
     /// ```
     #[cfg(feature = "3d")]
     pub sky: crate::Sky,
-    #[cfg(feature = "3d")]
-    pub(crate) assets3d: crate::three::Assets3D,
-    #[cfg(feature = "3d")]
-    pub(crate) frame3d: crate::three::Frame3D,
-    pub(crate) text: Text,
-    /// The glyph atlas, created on the first `draw_text`.
-    font_atlas: Option<Texture>,
-    /// Physical pixels per window pixel (2 on most Retina screens).
-    pub(crate) scale_factor: f32,
     pub(crate) ui: UiState,
     /// Retained widget tree and screen stack. Processed before frame systems.
     /// ```
@@ -368,6 +340,18 @@ pub struct Ctx {
     /// # }
     /// ```
     pub ui_style: UiStyle,
+    /// Drawing and everything on the GPU: sprites, text, shapes, textures,
+    /// fonts, and with the `3d` feature meshes, materials, shaders and the
+    /// rest. See [`Graphics`](crate::Graphics).
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// # fn f(ctx: &mut Ctx, crab: Texture) {
+    /// ctx.gfx.draw_circle(vec2(100.0, 100.0), 20.0, Color::WHITE);
+    /// ctx.gfx.draw(&crab, vec2(400.0, 300.0));
+    /// # }
+    /// ```
+    pub gfx: crate::Graphics,
     /// Sounds, playing handles, buses and the listener: see
     /// [`Audio`](crate::Audio).
     ///
@@ -398,6 +382,32 @@ impl Ctx {
         // Every service that loads files shares these two.
         let asset_sources = assets::SharedSources::default();
         let watcher = crate::hot_reload::SharedWatcher::default();
+        let mut world = World::new();
+        crate::reflect::WorldReflect::reflect::<crate::Transform2D>(&mut world);
+        crate::reflect::describe_transform2d(&mut world);
+        crate::reflect::WorldReflect::reflect::<crate::Attached>(&mut world);
+        #[cfg(feature = "3d")]
+        crate::reflect::WorldReflect::reflect::<crate::Transform3D>(&mut world);
+        #[cfg(feature = "3d")]
+        crate::reflect::reflect_model(&mut world);
+        #[cfg(feature = "3d")]
+        {
+            crate::reflect::WorldReflect::reflect::<crate::PointLight3D>(&mut world);
+            crate::reflect::WorldReflect::reflect::<crate::SpotLight3D>(&mut world);
+            crate::reflect::WorldReflect::reflect::<crate::Decal3D>(&mut world);
+            crate::reflect::WorldReflect::reflect::<crate::ReceivesDecals>(&mut world);
+            crate::reflect::WorldReflect::reflect::<crate::LodHysteresis>(&mut world);
+        }
+        crate::reflect::reflect_sprite(&mut world);
+        // The file names behind sprites and models: the world saves by them,
+        // the graphics service fills them in as files load.
+        let gfx = crate::Graphics::new(
+            asset_sources.clone(),
+            watcher.clone(),
+            world.resource::<crate::reflect::TextureNames>().clone(),
+            #[cfg(feature = "3d")]
+            world.resource::<crate::reflect::MeshNames>().clone(),
+        );
         #[allow(unused_mut, clippy::let_and_return)]
         let mut ctx = Self {
             audio: Audio {
@@ -405,26 +415,8 @@ impl Ctx {
                 watcher: watcher.clone(),
                 ..Default::default()
             },
-            world: {
-                let mut world = World::new();
-                crate::reflect::WorldReflect::reflect::<crate::Transform2D>(&mut world);
-                crate::reflect::describe_transform2d(&mut world);
-                crate::reflect::WorldReflect::reflect::<crate::Attached>(&mut world);
-                #[cfg(feature = "3d")]
-                crate::reflect::WorldReflect::reflect::<crate::Transform3D>(&mut world);
-                #[cfg(feature = "3d")]
-                crate::reflect::reflect_model(&mut world);
-                #[cfg(feature = "3d")]
-                {
-                    crate::reflect::WorldReflect::reflect::<crate::PointLight3D>(&mut world);
-                    crate::reflect::WorldReflect::reflect::<crate::SpotLight3D>(&mut world);
-                    crate::reflect::WorldReflect::reflect::<crate::Decal3D>(&mut world);
-                    crate::reflect::WorldReflect::reflect::<crate::ReceivesDecals>(&mut world);
-                    crate::reflect::WorldReflect::reflect::<crate::LodHysteresis>(&mut world);
-                }
-                crate::reflect::reflect_sprite(&mut world);
-                world
-            },
+            gfx,
+            world,
             commands: Commands::new(),
             spatial: SpatialGrid::default(),
             #[cfg(feature = "physics")]
@@ -437,9 +429,6 @@ impl Ctx {
             system_index: 0,
             headless: false,
             control_addr: None,
-            headless_textures: 0,
-            textures_live: Default::default(),
-            asset_ledger: Default::default(),
             watcher: watcher.clone(),
             reloaded_textures: Vec::new(),
             reloaded_files: Vec::new(),
@@ -448,16 +437,10 @@ impl Ctx {
             prefabs: HashMap::new(),
             asset_sources: asset_sources.clone(),
             residency: Default::default(),
-            loaded: HashMap::new(),
-            cached_textures: Vec::new(),
             input: Input::new(),
             time: Time::new(fixed_dt),
             window_size,
             quit_requested: false,
-            renderer: None,
-            screenshots: Vec::new(),
-            draw_list: DrawList::default(),
-            ui_list: DrawList::default(),
             camera: Camera2D::new(window_size),
             #[cfg(feature = "3d")]
             camera3d: crate::Camera3D::new(window_size),
@@ -477,19 +460,11 @@ impl Ctx {
             compute_passes: Vec::new(),
             #[cfg(feature = "3d")]
             sky: crate::Sky::default(),
-            #[cfg(feature = "3d")]
-            assets3d: Default::default(),
-            #[cfg(feature = "3d")]
-            frame3d: Default::default(),
-            text: Text::new(),
-            font_atlas: None,
-            scale_factor: 1.0,
             ui: UiState::default(),
             ui_retained: crate::Ui::default(),
             ui_press_at: Vec2::splat(f32::NAN),
             ui_style: UiStyle::default(),
             perf: crate::Perf::new(),
-            clear_color: Color::PONKO_DARK,
         };
         #[cfg(feature = "3d")]
         ctx.sync_audio_camera();
@@ -499,7 +474,7 @@ impl Ctx {
     /// Engine side: draw everything queued this frame, then reset the queue.
     pub(crate) fn render_frame(&mut self) -> FrameStatus {
         self.draw_retained_ui();
-        let capture = !self.screenshots.is_empty();
+        let capture = !self.gfx.screenshots.is_empty();
         #[cfg(feature = "3d")]
         self.draw_ui_panels();
         #[cfg(feature = "3d")]
@@ -508,12 +483,12 @@ impl Ctx {
         let panels = self.ui.panels.frame_draws();
         #[cfg(not(feature = "3d"))]
         let panels: &mut [crate::render::batch::PanelDraw] = &mut [];
-        let status = match self.renderer.as_mut() {
+        let status = match self.gfx.renderer.as_mut() {
             Some(renderer) => renderer.render(
-                &mut self.draw_list,
-                &mut self.ui_list,
+                &mut self.gfx.draw_list,
+                &mut self.gfx.ui_list,
                 panels,
-                self.clear_color,
+                self.gfx.clear_color,
                 self.camera.view_proj(),
                 screen_projection(self.window_size),
                 capture,
@@ -522,20 +497,21 @@ impl Ctx {
         };
         #[cfg(feature = "3d")]
         // A frame that wasn't drawn hands its probe captures to the next one.
-        self.assets3d
+        self.gfx
+            .assets3d
             .probes
             .settle(!matches!(status, FrameStatus::Occluded | FrameStatus::Skipped));
-        self.perf.last_render_stats = self.renderer.as_ref().map(Renderer::stats).unwrap_or_default();
-        self.perf.last_render_detail = self.renderer.as_ref().map(Renderer::detail);
-        if let Some(renderer) = &self.renderer {
+        self.perf.last_render_stats = self.gfx.renderer.as_ref().map(Renderer::stats).unwrap_or_default();
+        self.perf.last_render_detail = self.gfx.renderer.as_ref().map(Renderer::detail);
+        if let Some(renderer) = &self.gfx.renderer {
             self.perf.gpu_passes.clear();
             self.perf.gpu_passes.extend_from_slice(renderer.gpu_passes());
             self.perf.display_wait_ms = renderer.display_wait_ms();
         }
-        self.draw_list.clear();
-        self.ui_list.clear();
-        if let Some(shot) = self.renderer.as_mut().and_then(Renderer::take_screenshot) {
-            for req in self.screenshots.drain(..) {
+        self.gfx.draw_list.clear();
+        self.gfx.ui_list.clear();
+        if let Some(shot) = self.gfx.renderer.as_mut().and_then(Renderer::take_screenshot) {
+            for req in self.gfx.screenshots.drain(..) {
                 let result = save_png(&req.path, &shot, req.max_size);
                 match req.reply {
                     Some(reply) => {
@@ -552,31 +528,17 @@ impl Ctx {
         status
     }
 
-    pub(crate) fn queue_screenshot(
-        &mut self,
-        path: PathBuf,
-        max_size: u32,
-        reply: Option<Sender<Result<Value, String>>>,
-    ) {
-        self.screenshots.push(ScreenshotRequest { path, max_size, reply });
-    }
-
-    pub(crate) fn renderer(&mut self) -> &mut Renderer {
-        self.renderer
-            .as_mut()
-            .expect("ponko: textures can only be created once the game is running (in setup or update)")
-    }
-
     /// Engine side: start a new frame with fresh timing.
     pub(crate) fn begin_frame(&mut self, timing: FrameTiming) {
         self.time.begin_frame(timing);
         self.events.begin_frame(self.time.frame(), self.time.sim_tick());
-        self.text.begin_frame();
+        self.gfx.frame = self.time.frame();
+        self.gfx.text.begin_frame();
         self.ui.begin_frame();
     }
 
     pub(crate) fn set_scale_factor(&mut self, scale: f32) {
-        self.scale_factor = scale.max(0.25);
+        self.gfx.scale_factor = scale.max(0.25);
     }
 
     pub(crate) fn set_window_size(&mut self, size: Vec2) {
@@ -656,12 +618,6 @@ impl Ctx {
         self.time.set_in_sim(in_sim);
     }
 
-    /// Engine side: forget queued draws (headless runs never render).
-    pub(crate) fn discard_draws(&mut self) {
-        self.draw_list.clear();
-        self.ui_list.clear();
-    }
-
     /// Random numbers for this system and tick: `ctx.random().of(entity)`
     /// for an entity's own stream (safe in `par_for_each`), or
     /// `.stream(n)` for anything else. A simulation run twice with the same
@@ -712,7 +668,7 @@ impl Ctx {
             )
             .with_uv(uv)
         }
-        let draw_list = &mut self.draw_list;
+        let draw_list = &mut self.gfx.draw_list;
         let mut query = self.world.query::<(&Transform2D, &Sprite)>();
         let n = query.count();
         if n < PARALLEL_MIN {
@@ -730,261 +686,11 @@ impl Ctx {
 
     // ---------------------------------------------------------------- drawing
 
-    /// Sets the background color. It stays until you change it.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn setup(ctx: &mut Ctx) {
-    /// ctx.clear(Color::hex(0x203040));
-    /// # }
-    /// ```
-    pub fn clear(&mut self, color: Color) {
-        self.clear_color = color;
-    }
-
-    /// Draws `texture` centered at `pos`, in world units (window pixels until
-    /// you move or zoom [`camera`](Self::camera)).
-    ///
-    /// Drawing is cheap: calls are collected and sent to the GPU in big
-    /// batches at the end of the frame. Call it every frame for everything
-    /// you want visible.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn update(ctx: &mut Ctx, crab: Texture) {
-    /// ctx.draw(&crab, vec2(400.0, 300.0));
-    /// # }
-    /// ```
-    pub fn draw(&mut self, texture: &Texture, pos: Vec2) {
-        push_sprite(
-            &mut self.draw_list,
-            texture,
-            pos,
-            Vec2::ONE,
-            0.0,
-            0.0,
-            Vec2::splat(0.5),
-            [255; 4],
-            None,
-        );
-    }
-
-    /// Draws `texture` with rotation, scale, tint, draw order or pivot.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn update(ctx: &mut Ctx, crab: Texture) {
-    /// ctx.draw_ex(&crab, vec2(400.0, 300.0), DrawParams {
-    ///     rotation: ctx.time.elapsed() as f32,
-    ///     color: Color::RED.with_alpha(0.5),
-    ///     z: 1.0, // on top of everything at z = 0
-    ///     ..Default::default()
-    /// });
-    /// # }
-    /// ```
-    pub fn draw_ex(&mut self, texture: &Texture, pos: Vec2, params: DrawParams) {
-        push_sprite(
-            if params.screen {
-                &mut self.ui_list
-            } else {
-                &mut self.draw_list
-            },
-            texture,
-            pos,
-            params.scale,
-            params.rotation,
-            params.z,
-            params.pivot,
-            params.color.to_rgba8(),
-            params.region,
-        );
-    }
-
-    /// Draws `text` with its top-left corner at `pos`, in window pixels (on
-    /// top of the world, ignoring the camera). `size` is the line height in
-    /// pixels. `\n` starts a new line.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn hud(ctx: &mut Ctx) {
-    /// let fps = ctx.time.fps();
-    /// ctx.draw_text(&format!("{fps:.0} FPS"), vec2(10.0, 10.0), 18.0, Color::WHITE);
-    /// # }
-    /// ```
-    pub fn draw_text(&mut self, text: &str, pos: Vec2, size: f32, color: Color) {
-        self.draw_text_ex(
-            text,
-            pos,
-            TextParams {
-                size,
-                color,
-                ..Default::default()
-            },
-        );
-    }
-
-    /// [`draw_text`](Self::draw_text) with a font and draw order.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn hud(ctx: &mut Ctx, title: Font) {
-    /// ctx.draw_text_ex("Colony", vec2(20.0, 20.0), TextParams {
-    ///     font: title,
-    ///     size: 40.0,
-    ///     z: 1.0,
-    ///     ..Default::default()
-    /// });
-    /// # }
-    /// ```
-    pub fn draw_text_ex(&mut self, text: &str, pos: Vec2, params: TextParams) {
-        if self.headless || text.is_empty() {
-            return;
-        }
-        let atlas = match self.font_atlas {
-            Some(t) => t,
-            None => {
-                let side = Text::ATLAS_SIZE;
-                let t = self.make_texture(side, side, &vec![0; (side * side * 4) as usize]);
-                self.font_atlas = Some(t);
-                t
-            }
-        };
-        let scale = self.scale_factor;
-        self.text.layout(text, params.font, params.size * scale, true);
-        if !self.text.uploads.is_empty()
-            && let Some(renderer) = self.renderer.as_mut()
-        {
-            for (at, size, rgba) in self.text.uploads.drain(..) {
-                renderer.update_texture_region(atlas.id, at, size, &rgba);
-            }
-        }
-        let side = Text::ATLAS_SIZE as f32;
-        let color = params.color.to_rgba8();
-        for p in self.text.placed() {
-            let Some(at) = p.glyph.at else { continue };
-            let size = Vec2::new(p.glyph.size[0] as f32, p.glyph.size[1] as f32);
-            let uv = uv_region([at[0] as f32 / side, at[1] as f32 / side], (size / side).into());
-            self.ui_list.push(
-                atlas.id,
-                params.z,
-                SpriteInstance::new(
-                    (pos + p.pos / scale).into(),
-                    (size / scale).into(),
-                    [0.0, 0.0],
-                    0.0,
-                    color,
-                )
-                .with_uv(uv),
-            );
-        }
-    }
-
-    /// The size `text` would take with [`draw_text`](Self::draw_text) at
-    /// `size`, in window pixels. Works headless too.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn centered(ctx: &mut Ctx) {
-    /// let label = "Paused";
-    /// let size = ctx.measure_text(label, 32.0);
-    /// let at = (ctx.window_size() - size) / 2.0;
-    /// ctx.draw_text(label, at, 32.0, Color::WHITE);
-    /// # }
-    /// ```
-    pub fn measure_text(&mut self, text: &str, size: f32) -> Vec2 {
-        self.measure_text_ex(text, Font::DEFAULT, size)
-    }
-
-    /// [`measure_text`](Self::measure_text) for another font.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn f(ctx: &mut Ctx, title: Font) {
-    /// let width = ctx.measure_text_ex("Colony", title, 40.0).x;
-    /// # }
-    /// ```
-    pub fn measure_text_ex(&mut self, text: &str, font: Font, size: f32) -> Vec2 {
-        let scale = self.scale_factor;
-        self.text.layout(text, font, size * scale, false) / scale
-    }
-
-    /// Sets how `texture` is sampled. Use [`TextureFilter::Nearest`] for pixel
-    /// art and tilesets; the default is smooth.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn setup(ctx: &mut Ctx) {
-    /// let tiles = ctx.load_texture("crab.png");
-    /// ctx.set_texture_filter(&tiles, TextureFilter::Nearest);
-    /// # }
-    /// ```
-    pub fn set_texture_filter(&mut self, texture: &Texture, filter: TextureFilter) {
-        if !self.textures_live.contains(texture.id) {
-            return;
-        }
-        if let Some(r) = self.renderer.as_mut() {
-            r.set_filter(texture.id, filter == TextureFilter::Nearest);
-        }
-    }
-
-    /// Loads a TrueType or OpenType font from the `assets/` folder.
-    /// Loading the same file again returns the same handle.
-    ///
-    /// # Panics
-    /// With a clear message if the file is missing or isn't a font.
-    ///
-    /// ```no_run
-    /// # use ponko::*;
-    /// # fn setup(ctx: &mut Ctx) {
-    /// let title = ctx.load_font("fonts/Title.ttf");
-    /// # let _ = title;
-    /// # }
-    /// ```
-    pub fn load_font(&mut self, path: &str) -> Font {
-        self.try_load_font(path).unwrap_or_else(|e| panic!("{e}"))
-    }
-
-    /// [`load_font`](Self::load_font) with errors as values:
-    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound),
-    /// [`Io`](crate::ErrorKind::Io), or [`Decode`](crate::ErrorKind::Decode)
-    /// if it isn't a font.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let title = ctx.try_load_font("fonts/Fancy.ttf").unwrap_or(Font::DEFAULT);
-    ///     # let _ = title;
-    /// });
-    /// ```
-    pub fn try_load_font(&mut self, path: &str) -> Result<Font, crate::Error> {
-        if let Some((_, id)) = self.cached_in_sources(path, AssetKind::Font) {
-            return Ok(Font(id as u32));
-        }
-        let found = self.asset_sources.find(path)?;
-        let origin = found.origin.clone();
-        if let Some(&id) = self.loaded.get(&(origin.clone(), AssetKind::Font)) {
-            return Ok(Font(id as u32));
-        }
-        let bytes = found.into_bytes().map_err(|e| e.with_path(path))?;
-        let font = self.text.add_font(&bytes).map_err(|e| {
-            let what = match &origin {
-                assets::Origin::File(file) => file.display().to_string(),
-                assets::Origin::Source { .. } => origin.describe(path),
-            };
-            crate::Error::decode(path, format!("{what}: {e}"))
-        })?;
-        self.loaded.insert((origin.clone(), AssetKind::Font), u64::from(font.0));
-        if let assets::Origin::File(file) = origin {
-            self.watcher.watch(path, file, Asset::Font(font.0));
-        }
-        Ok(font)
-    }
-
     /// Adds a place to load named assets from. Added sources are asked in
     /// the order they were added, all before the `assets/` folder.
     ///
     /// Every load by name goes through it: [`load_texture`](Self::load_texture),
-    /// [`load_font`](Self::load_font), [`load_resource`](Self::load_resource),
+    /// [`load_font`](crate::Graphics::load_font), [`load_resource`](Self::load_resource),
     /// [`load_scene`](Self::load_scene), [`spawn_prefab`](Self::spawn_prefab)
     /// (and the textures their scenes name), [`load_sound`](Self::load_sound),
     /// [`load_asset_with`](Self::load_asset_with) and, with the `3d` feature,
@@ -1058,108 +764,11 @@ impl Ctx {
         decode(&bytes).map_err(|e| format!("{} could not be decoded: {e}", origin.describe(name)))
     }
 
-    /// A cached `kind` asset called `name` from an added source, searched
-    /// in order. Earlier sources win, so this matches what a fresh
-    /// [`assets::Sources::find`] would pick for anything still cached.
-    fn cached_in_sources(&self, name: &str, kind: AssetKind) -> Option<(assets::Origin, u64)> {
-        self.asset_sources
-            .origins(name)
-            .into_iter()
-            .find_map(|origin| self.loaded.get(&(origin.clone(), kind)).map(|&v| (origin, v)))
-    }
-
     /// Reads asset `name` as UTF-8 text from the first source that has it.
     pub(crate) fn read_asset_text(&self, name: &str) -> Result<(assets::Origin, String), String> {
         let found = self.asset_sources.find(name)?;
         let origin = found.origin.clone();
         Ok((origin, found.into_text(name)?))
-    }
-
-    /// Whether `font` is the built-in font or one this context loaded and
-    /// hasn't freed: the same as [`is_live`](Self::is_live). Text in a font
-    /// that isn't uses the built-in one.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     assert!(ctx.has_font(Font::DEFAULT));
-    /// });
-    /// ```
-    #[must_use]
-    pub fn has_font(&self, font: Font) -> bool {
-        self.text.has_font(font)
-    }
-
-    /// Loads an image from the `assets/` folder (PNG for now).
-    ///
-    /// Do this once in setup and keep the [`Texture`]; it's a cheap handle.
-    /// Loading the same file again returns the same texture (use
-    /// [`create_texture`](Self::create_texture) for a copy of your own).
-    ///
-    /// # Panics
-    /// With a clear message if the file is missing or isn't a valid image.
-    ///
-    /// ```no_run
-    /// # use ponko::*;
-    /// Game::new("Crabs", 800, 600).run(|ctx| {
-    ///     let crab = ctx.load_texture("crab.png");
-    ///     move |ctx: &mut Ctx| ctx.draw(&crab, vec2(400.0, 300.0))
-    /// });
-    /// ```
-    pub fn load_texture(&mut self, path: &str) -> Texture {
-        self.try_load_texture(path).unwrap_or_else(|e| panic!("{e}"))
-    }
-
-    /// [`load_texture`](Self::load_texture) with errors as values, for
-    /// optional assets: [`ErrorKind::NotFound`](crate::ErrorKind::NotFound)
-    /// if no source has it, [`Io`](crate::ErrorKind::Io) if it can't be
-    /// read, [`Decode`](crate::ErrorKind::Decode) if it isn't an image.
-    /// Like `load_texture`, it also names the texture, so sprites showing it
-    /// can be saved.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     // A missing optional skin is not a bug: fall back to no skin.
-    ///     let skin: Option<Texture> = ctx.try_load_texture("skins/gold.png").ok();
-    ///     assert!(skin.is_none());
-    /// });
-    /// ```
-    pub fn try_load_texture(&mut self, path: &str) -> Result<Texture, crate::Error> {
-        let cached = match self.cached_in_sources(path, AssetKind::Texture) {
-            Some((_, i)) => Ok(i),
-            None => {
-                let found = self.asset_sources.find(path)?;
-                match self.loaded.get(&(found.origin.clone(), AssetKind::Texture)) {
-                    Some(&i) => Ok(i),
-                    None => Err(found),
-                }
-            }
-        };
-        let texture = match cached {
-            Ok(i) => self.cached_textures[i as usize],
-            Err(found) => {
-                // Acquire, decode (CPU only), then create on the GPU (game thread).
-                let origin = found.origin.clone();
-                let bytes = found.into_bytes().map_err(|e| e.with_path(path))?;
-                let image = assets::decode_image(&bytes).map_err(|e| {
-                    crate::Error::decode(path, format!("{} is not a valid image: {e}", origin.describe(path)))
-                })?;
-                let texture = self.create_texture(image.width, image.height, &image.rgba);
-                self.loaded
-                    .insert((origin.clone(), AssetKind::Texture), self.cached_textures.len() as u64);
-                self.cached_textures.push(texture);
-                if let assets::Origin::File(file) = origin {
-                    self.watcher.watch(path, file, Asset::Texture(texture));
-                }
-                texture
-            }
-        };
-        if let Some(names) = self.world.get_resource_mut::<crate::reflect::TextureNames>() {
-            names.by_id.entry(texture.id).or_insert_with(|| path.to_string());
-            names.by_name.entry(path.to_string()).or_insert(texture);
-        }
-        Ok(texture)
     }
 
     /// Loads the textures of sprites and meshes of models that `json` (a
@@ -1168,7 +777,7 @@ impl Ctx {
         let mut names = Vec::new();
         crate::reflect::asset_names(json, "Sprite", "texture", &mut names);
         for name in names.drain(..) {
-            self.try_load_texture(&name)?;
+            self.gfx.try_load_texture(&name)?;
         }
         #[cfg(feature = "3d")]
         {
@@ -1178,7 +787,7 @@ impl Ctx {
             names.sort_unstable();
             names.dedup();
             for name in names {
-                self.try_load_mesh(&name)?;
+                self.gfx.try_load_mesh(&name)?;
             }
         }
         #[cfg(feature = "physics3d")]
@@ -1355,7 +964,7 @@ impl Ctx {
                 Asset::Font(id) => {
                     let applied = assets::read(&file)
                         .map_err(|e| e.to_string())
-                        .and_then(|bytes| self.text.replace_font(Font(id), &bytes));
+                        .and_then(|bytes| self.gfx.text.replace_font(Font(id), &bytes));
                     self.report_reload(name, applied);
                     continue;
                 }
@@ -1374,26 +983,29 @@ impl Ctx {
                 }
                 #[cfg(feature = "3d")]
                 Asset::Shader(id) => {
-                    let applied = assets::read_to_string(&file).and_then(|text| self.reload_shader(id, &name, &text));
+                    let applied =
+                        assets::read_to_string(&file).and_then(|text| self.gfx.reload_shader(id, &name, &text));
                     self.report_reload(name, applied);
                     continue;
                 }
                 #[cfg(feature = "3d")]
                 Asset::Effect(id) => {
-                    let applied = assets::read_to_string(&file).and_then(|text| self.reload_effect(id, &name, &text));
+                    let applied =
+                        assets::read_to_string(&file).and_then(|text| self.gfx.reload_effect(id, &name, &text));
                     self.report_reload(name, applied);
                     continue;
                 }
                 #[cfg(feature = "3d")]
                 Asset::Compute(id) => {
-                    let applied = assets::read_to_string(&file).and_then(|text| self.reload_compute(id, &name, &text));
+                    let applied =
+                        assets::read_to_string(&file).and_then(|text| self.gfx.reload_compute(id, &name, &text));
                     self.report_reload(name, applied);
                     continue;
                 }
             };
             match assets::load_image_at(&file, &name) {
                 Ok(image) if (image.width, image.height) == (texture.width(), texture.height()) => {
-                    self.update_texture(&texture, &image.rgba);
+                    self.gfx.update_texture(&texture, &image.rgba);
                     self.reloaded_textures.push(texture);
                     self.reloaded_files.push(name.clone());
                     eprintln!("ponko: reloaded {name}");
@@ -1412,183 +1024,10 @@ impl Ctx {
         self.reload_pending = changed;
     }
 
-    /// Creates a texture from raw RGBA pixels (4 bytes per pixel, row by row,
-    /// top row first). Handy for generated images.
-    ///
-    /// # Panics
-    /// If `rgba.len()` isn't `width * height * 4`, or the size is 0 or larger
-    /// than the GPU supports.
-    ///
-    /// ```no_run
-    /// # use ponko::*;
-    /// # fn setup(ctx: &mut Ctx) {
-    /// // A 2x2 checkerboard.
-    /// let w = [255, 255, 255, 255];
-    /// let b = [0, 0, 0, 255];
-    /// let pixels = [w, b, b, w].concat();
-    /// let checker = ctx.create_texture(2, 2, &pixels);
-    /// # }
-    /// ```
-    pub fn create_texture(&mut self, width: u32, height: u32, rgba: &[u8]) -> Texture {
-        let texture = self.make_texture(width, height, rgba);
-        self.textures_live.insert(texture.id);
-        texture
-    }
-
-    /// [`create_texture`](Self::create_texture) for the engine's own
-    /// textures (UI shapes, glyph atlases): not the game's to free, and not
-    /// counted by [`live_counts`](Self::live_counts).
-    pub(crate) fn make_texture(&mut self, width: u32, height: u32, rgba: &[u8]) -> Texture {
-        assert!(
-            width > 0 && height > 0,
-            "ponko: texture size must not be zero (got {width} x {height})"
-        );
-        let expected = width as usize * height as usize * 4;
-        assert_eq!(
-            rgba.len(),
-            expected,
-            "ponko: a {width} x {height} texture needs {expected} bytes of RGBA, got {}",
-            rgba.len()
-        );
-        let bytes = crate::inventory::rgba8_bytes(width, height);
-        if self.headless {
-            // No GPU: a handle that remembers its size, so game logic still works.
-            self.headless_textures += 1;
-            self.asset_ledger.textures.insert(self.headless_textures, bytes);
-            return Texture::new(self.headless_textures, width, height);
-        }
-        let renderer = self.renderer();
-        let max = renderer.max_texture_size();
-        assert!(
-            width <= max && height <= max,
-            "ponko: {width} x {height} is larger than this GPU's maximum texture size ({max})"
-        );
-        let id = renderer.create_texture(width, height, rgba);
-        self.asset_ledger.textures.insert(id, bytes);
-        Texture::new(id, width, height)
-    }
-
-    /// Frees game texture `id` (see [`Ctx::free`]): what still shows it
-    /// sees the renderer's white stand-in.
-    pub(crate) fn free_texture_id(&mut self, id: u32) {
-        if !self.textures_live.remove(id) {
-            return;
-        }
-        self.asset_ledger.textures.remove(&id);
-        let cached = &self.cached_textures;
-        self.loaded
-            .retain(|(_, kind), i| *kind != AssetKind::Texture || cached[*i as usize].id != id);
-        self.watcher.forget(|a| matches!(a, Asset::Texture(t) if t.id == id));
-        if let Some(names) = self.world.get_resource_mut::<crate::reflect::TextureNames>()
-            && let Some(name) = names.by_id.remove(&id)
-        {
-            names.by_name.remove(&name);
-        }
-        #[cfg(feature = "3d")]
-        {
-            self.assets3d.render_targets.retain(|t| t.id != id);
-            self.assets3d.shared_images.retain(|_, t| t.id != id);
-        }
-        if let Some(renderer) = self.renderer.as_mut()
-            && !self.headless
-        {
-            renderer.free_texture(id);
-        }
-    }
-
-    /// Frees game font `id` (see [`Ctx::free`]); never the built-in one.
-    pub(crate) fn free_font_id(&mut self, id: u32) {
-        if !self.text.free_font(Font(id)) {
-            return;
-        }
-        self.loaded
-            .retain(|(_, kind), v| *kind != AssetKind::Font || *v != u64::from(id));
-        self.watcher.forget(|a| matches!(a, Asset::Font(f) if *f == id));
-    }
-
-    /// Replaces every pixel of `texture` with `rgba` (same size as it was
-    /// created with, 4 bytes per pixel). For images that change while the
-    /// game runs: a minimap, a heat map, a simulated field. Cheap enough to
-    /// do every frame for textures up to a few megapixels.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn f(ctx: &mut Ctx) {
-    /// let mut pixels = vec![0u8; 64 * 64 * 4];
-    /// let heat = ctx.create_texture(64, 64, &pixels);
-    /// pixels[0..4].copy_from_slice(&[255, 0, 0, 255]); // top-left pixel red
-    /// ctx.update_texture(&heat, &pixels);
-    /// # }
-    /// ```
-    ///
-    /// # Panics
-    /// If `rgba` isn't `width * height * 4` bytes.
-    #[track_caller]
-    pub fn update_texture(&mut self, texture: &Texture, rgba: &[u8]) {
-        let (w, h) = (texture.width(), texture.height());
-        let expected = w as usize * h as usize * 4;
-        assert_eq!(
-            rgba.len(),
-            expected,
-            "ponko: a {w} x {h} texture needs {expected} bytes of RGBA, got {}",
-            rgba.len()
-        );
-        #[cfg(feature = "3d")]
-        assert!(
-            !self.is_render_target(*texture),
-            "ponko: a render target is drawn by its target camera, not updated with pixels"
-        );
-        // A freed texture (or `Texture::NONE`) has no pixels of its own.
-        if self.headless || !self.textures_live.contains(texture.id) {
-            return;
-        }
-        self.renderer().update_texture(texture.id, w, h, rgba);
-    }
-
-    /// How many sprites have been drawn so far this frame.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn update(ctx: &mut Ctx) {
-    /// println!("{} sprites", ctx.sprite_count());
-    /// # }
-    /// ```
-    pub fn sprite_count(&self) -> usize {
-        self.draw_list.len() + self.ui_list.len()
-    }
-
-    /// Saves the next frame as a PNG at `path`, once it has been drawn.
-    /// Does nothing in headless runs (there is no frame). Errors are printed.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// fn photo_mode(ctx: &mut Ctx) {
-    ///     if ctx.key_pressed(Key::F12) {
-    ///         ctx.save_screenshot("screenshot.png");
-    ///     }
-    /// }
-    /// # Game::new("t", 1, 1).system(photo_mode).run_headless(1, |_| {});
-    /// ```
-    pub fn save_screenshot(&mut self, path: impl Into<PathBuf>) {
-        if !self.headless {
-            self.queue_screenshot(path.into(), 0, None);
-        }
-    }
-
-    /// What the GPU can do: the adapter, its main limits, and for each
-    /// device-dependent renderer feature (compute passes, TAA, SSR, global
-    /// illumination, GPU timestamps, ...) whether it's available and, if
-    /// not, the fallback used and why. `None` in headless runs and before
-    /// the window opens. See [`GpuCapabilities`](crate::GpuCapabilities).
-    #[must_use]
-    pub fn gpu_capabilities(&self) -> Option<&crate::GpuCapabilities> {
-        self.renderer.as_ref().map(Renderer::capabilities)
-    }
-
     /// Hands one frame's timings to the profiler. `true` when a benchmark
     /// run is done and the game should quit.
     pub(crate) fn record_frame(&mut self, sample: crate::profiler::FrameSample) -> bool {
-        let gpu_frame = self.renderer.as_ref().and_then(Renderer::gpu_frame);
+        let gpu_frame = self.gfx.renderer.as_ref().and_then(Renderer::gpu_frame);
         self.perf.entities = self.world.len();
         self.perf.record_frame(sample, gpu_frame)
     }
@@ -1614,6 +1053,56 @@ impl Ctx {
             position: self.camera3d.position,
             rotation: self.camera3d.rotation,
         };
+    }
+
+    /// Draws `texture` centered at `pos`, in world units (window pixels until
+    /// you move or zoom [`camera`](Self::camera)). A shortcut for
+    /// [`ctx.gfx.draw`](crate::Graphics::draw), which has the details;
+    /// [`draw_ex`](crate::Graphics::draw_ex) scales, rotates and tints.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// # fn update(ctx: &mut Ctx, crab: Texture) {
+    /// ctx.draw(&crab, vec2(400.0, 300.0));
+    /// # }
+    /// ```
+    pub fn draw(&mut self, texture: &Texture, pos: Vec2) {
+        self.gfx.draw(texture, pos);
+    }
+
+    /// Draws `text` with its top-left corner at `pos`, in window pixels (on
+    /// top of the world, ignoring the camera). `size` is the line height in
+    /// pixels. A shortcut for [`ctx.gfx.draw_text`](crate::Graphics::draw_text).
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// # fn hud(ctx: &mut Ctx) {
+    /// let fps = ctx.time.fps();
+    /// ctx.draw_text(&format!("{fps:.0} FPS"), vec2(10.0, 10.0), 18.0, Color::WHITE);
+    /// # }
+    /// ```
+    pub fn draw_text(&mut self, text: &str, pos: Vec2, size: f32, color: Color) {
+        self.gfx.draw_text(text, pos, size, color);
+    }
+
+    /// Loads an image from an [added asset source](crate::Assets::add_source)
+    /// or the `assets/` folder. Do this once in setup and keep the
+    /// [`Texture`]; it's a cheap handle. A shortcut for
+    /// [`ctx.gfx.load_texture`](crate::Graphics::load_texture), which has
+    /// the details.
+    ///
+    /// # Panics
+    /// With a clear message if the file is missing or isn't a valid image.
+    ///
+    /// ```no_run
+    /// # use ponko::*;
+    /// Game::new("Crabs", 800, 600).run(|ctx| {
+    ///     let crab = ctx.load_texture("crab.png");
+    ///     move |ctx: &mut Ctx| ctx.draw(&crab, vec2(400.0, 300.0))
+    /// });
+    /// ```
+    pub fn load_texture(&mut self, path: &str) -> Texture {
+        self.gfx.load_texture(path)
     }
 
     /// Loads a sound from an [added asset source](crate::Assets::add_source)
@@ -1654,6 +1143,7 @@ impl Ctx {
     pub(crate) fn set_headless(&mut self, headless: bool) {
         self.headless = headless;
         self.perf.headless = headless;
+        self.gfx.headless = headless;
         self.audio.headless = headless;
     }
 
@@ -1677,8 +1167,8 @@ impl Ctx {
         let lines = text.lines().count() as f32;
         let (size, pad) = (14.0, 8.0);
         let panel = crate::Rect::new(4.0, 4.0, 420.0, lines * size * 1.25 + pad * 2.0);
-        self.ui_fill(panel, Color::rgba(0.0, 0.0, 0.0, 0.6), 100.0);
-        self.draw_text_ex(
+        self.gfx.ui_fill(panel, Color::rgba(0.0, 0.0, 0.0, 0.6), 100.0);
+        self.gfx.draw_text_ex(
             &text,
             panel.min + pad,
             crate::TextParams {
@@ -1819,14 +1309,6 @@ impl Ctx {
     }
 }
 
-/// A screenshot someone asked for: where to save it, and who to tell.
-pub(crate) struct ScreenshotRequest {
-    path: PathBuf,
-    /// Scale down so neither side exceeds this (0: full size).
-    max_size: u32,
-    reply: Option<Sender<Result<Value, String>>>,
-}
-
 fn save_png(path: &Path, shot: &Screenshot, max_size: u32) -> Result<Value, String> {
     if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
         std::fs::create_dir_all(dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
@@ -1849,27 +1331,6 @@ fn save_png(path: &Path, shot: &Screenshot, max_size: u32) -> Result<Value, Stri
     Ok(serde_json::json!({ "path": path, "width": image.width(), "height": image.height() }))
 }
 
-#[allow(clippy::too_many_arguments)]
-#[inline]
-fn push_sprite(
-    draw_list: &mut DrawList,
-    texture: &Texture,
-    pos: Vec2,
-    scale: Vec2,
-    rotation: f32,
-    z: f32,
-    pivot: Vec2,
-    color: [u8; 4],
-    region_px: Option<Rect>,
-) {
-    let (size, uv) = region(texture, region_px);
-    draw_list.push(
-        texture.id,
-        z,
-        SpriteInstance::new(pos.into(), (size * scale).into(), pivot.into(), rotation, color).with_uv(uv),
-    );
-}
-
 /// The drawn size (texture pixels) and UV of `region` of `texture`.
 #[inline]
 pub(crate) fn region(texture: &Texture, region: Option<Rect>) -> (Vec2, [u16; 4]) {
@@ -1885,6 +1346,7 @@ pub(crate) fn region(texture: &Texture, region: Option<Rect>) -> (Vec2, [u16; 4]
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::texture::DrawParams;
 
     fn timing(dt: f32) -> FrameTiming {
         FrameTiming {
@@ -1920,7 +1382,7 @@ mod tests {
         assert_ne!(from_source, from_folder, "same name, other source: another asset");
         assert_eq!(from_source.width(), 3);
         assert_eq!(ctx.watcher.watched(), 1, "source assets are not watched");
-        let keys: Vec<_> = ctx.loaded.keys().map(|(origin, _)| origin.clone()).collect();
+        let keys: Vec<_> = ctx.gfx.loaded.keys().map(|(origin, _)| origin.clone()).collect();
         assert!(keys.contains(&assets::Origin::Source {
             source: "mem".into(),
             name: name.clone()
@@ -1983,13 +1445,17 @@ mod tests {
         let file = dir.join("plain.wgsl");
         std::fs::write(&file, wgsl).unwrap();
         let name = file.to_str().unwrap().to_string();
-        let from_folder = ctx.load_shader(&name);
+        let from_folder = ctx.gfx.load_shader(&name);
         assert_eq!(ctx.watcher.watched(), 1, "default-source shaders are watched");
         ctx.add_asset_source(crate::MemorySource::new("mem").with(name.clone(), wgsl));
-        let from_source = ctx.load_shader(&name);
+        let from_source = ctx.gfx.load_shader(&name);
         assert_ne!(from_source, from_folder, "same name, other source: another shader");
         assert_eq!(ctx.watcher.watched(), 1, "source shaders are not watched");
-        assert_eq!(ctx.load_shader(&name), from_source, "the source's copy stays cached");
+        assert_eq!(
+            ctx.gfx.load_shader(&name),
+            from_source,
+            "the source's copy stays cached"
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -2028,7 +1494,7 @@ mod tests {
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(800.0, 600.0));
         let tex = Texture::new(0, 16, 8);
         ctx.draw(&tex, Vec2::new(10.0, 20.0));
-        ctx.draw_ex(
+        ctx.gfx.draw_ex(
             &tex,
             Vec2::ZERO,
             DrawParams {
@@ -2036,9 +1502,9 @@ mod tests {
                 ..Default::default()
             },
         );
-        assert_eq!(ctx.sprite_count(), 2);
+        assert_eq!(ctx.gfx.sprite_count(), 2);
         assert_eq!(ctx.render_frame(), FrameStatus::Skipped);
-        assert_eq!(ctx.sprite_count(), 0, "queue is cleared after each frame");
+        assert_eq!(ctx.gfx.sprite_count(), 0, "queue is cleared after each frame");
     }
 
     #[test]

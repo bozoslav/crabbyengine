@@ -187,7 +187,7 @@ pub struct UiPaint {
     /// let _ = UiPaint::default().color;
     /// ```
     pub color: Color,
-    /// Font handle, from `Ctx::load_font`.
+    /// Font handle, from `Graphics::load_font`.
     /// ```
     /// use ponko::*;
     /// let _ = UiPaint::default().font;

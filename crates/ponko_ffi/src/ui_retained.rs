@@ -1212,7 +1212,7 @@ fn existing(ui: &Ui, id: u64) -> Result<UiId, Failure> {
 /// Fails for a font the engine doesn't know (or that was freed), which
 /// would otherwise be laid out in the built-in font without a word.
 fn check_font(c: &mut ponko::Ctx, font: ponko::Font) -> Result<(), Failure> {
-    if c.has_font(font) {
+    if c.gfx.has_font(font) {
         Ok(())
     } else {
         Err(invalid("unknown font"))

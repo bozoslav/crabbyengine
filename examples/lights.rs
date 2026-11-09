@@ -16,7 +16,7 @@ fn main() {
             if ctx.time.frame() == 5
                 && let Some(path) = &shot
             {
-                ctx.save_screenshot(path);
+                ctx.gfx.save_screenshot(path);
             }
             if ctx.time.frame() == 7 && shot.is_some() {
                 ctx.quit();

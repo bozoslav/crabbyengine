@@ -134,7 +134,7 @@ fn offscreen_light_benchmark() {
             let start = std::time::Instant::now();
             frame.collect(
                 &mut ctx.world,
-                &ctx.assets3d,
+                &ctx.gfx.assets3d,
                 &crate::three::SkinFrame::default(),
                 &ctx.camera3d,
                 &ctx.lighting,

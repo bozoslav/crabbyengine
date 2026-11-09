@@ -37,7 +37,7 @@ For pixel art, turn smoothing off so pixels stay square:
 
 ```rust
 # let tex = ctx.load_texture("units.png");
-ctx.set_texture_filter(&tex, TextureFilter::Nearest);
+ctx.gfx.set_texture_filter(&tex, TextureFilter::Nearest);
 ```
 
 </div>

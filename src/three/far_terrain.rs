@@ -32,7 +32,7 @@ const BLOCK: usize = 64;
 ///     // 8 km of world sampled every 64 m, from (-4096, -4096); tiles 256 m wide.
 ///     let n = 129;
 ///     let heights: Vec<f32> = (0..n * n).map(|i| ((i % n) as f32 * 0.3).sin() * 40.0).collect();
-///     let ground = ctx.default_material();
+///     let ground = ctx.gfx.default_material();
 ///     let mut far = FarTerrain::new(&heights, n, vec2(-4096.0, -4096.0), 64.0, 256.0, ground);
 ///     far.cut((0, 0)); // the tile of cell (0, 0) is loaded
 ///     far.update(ctx);
@@ -209,7 +209,7 @@ impl FarTerrain {
     /// ```
     /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let ground = ctx.default_material();
+    ///     let ground = ctx.gfx.default_material();
     ///     let mut far = FarTerrain::new(&[0.0; 4 * 4], 4, Vec2::ZERO, 100.0, 100.0, ground);
     ///     far.update(ctx);
     ///     assert_eq!(far.mesh_count(), 1);
@@ -228,7 +228,7 @@ impl FarTerrain {
             let data = self.block_data(b);
             let old = self.blocks[b].shown.take();
             if let Some((_, mesh)) = old {
-                ctx.free_mesh(mesh);
+                ctx.gfx.free_mesh(mesh);
             }
             if data.indices.is_empty() {
                 if let Some((entity, _)) = old {
@@ -236,7 +236,7 @@ impl FarTerrain {
                 }
                 continue;
             }
-            let mesh = ctx.create_mesh(&data, self.material);
+            let mesh = ctx.gfx.create_mesh(&data, self.material);
             let entity = match old {
                 Some((entity, _)) if ctx.world.get::<Model>(entity).is_some() => {
                     if let Some(model) = ctx.world.get_mut::<Model>(entity) {
@@ -260,7 +260,7 @@ impl FarTerrain {
     /// ```
     /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let ground = ctx.default_material();
+    ///     let ground = ctx.gfx.default_material();
     ///     let mut far = FarTerrain::new(&[0.0; 4 * 4], 4, Vec2::ZERO, 100.0, 100.0, ground);
     ///     far.update(ctx);
     ///     far.clear(ctx);
@@ -271,7 +271,7 @@ impl FarTerrain {
         for block in &mut self.blocks {
             if let Some((entity, mesh)) = block.shown.take() {
                 ctx.world.despawn(entity);
-                ctx.free_mesh(mesh);
+                ctx.gfx.free_mesh(mesh);
             }
             block.dirty = true;
         }

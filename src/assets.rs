@@ -6,7 +6,7 @@
 //!    in order, then from the default source (the `assets/` folders on
 //!    desktop, the files fetched from `assets/index.json` in a browser).
 //! 2. **Decode** them on the CPU ([`decode_image`]): no GPU, any thread.
-//! 3. **Create** the GPU resource on the game thread (`Ctx::create_texture`).
+//! 3. **Create** the GPU resource on the game thread (`Graphics::create_texture`).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

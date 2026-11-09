@@ -956,7 +956,7 @@ impl Inspector {
         ctx.ui.overlay_has_pointer = self.egui.is_pointer_over_egui();
         self.input.handle_platform_output(window, output.platform_output);
         let primitives = self.egui.tessellate(output.shapes, output.pixels_per_point);
-        if let Some(renderer) = ctx.renderer.as_mut() {
+        if let Some(renderer) = ctx.gfx.renderer.as_mut() {
             renderer.set_overlay(Overlay {
                 primitives,
                 textures: output.textures_delta,

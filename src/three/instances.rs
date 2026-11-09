@@ -1,16 +1,17 @@
 //! Persistent static geometry, partitioned into bounded spatial cells.
 use super::{Mesh, collect::Instance3D};
-use crate::{Color, Ctx, Mat4, Vec3};
+use crate::gfx::Graphics;
+use crate::{Color, Mat4, Vec3};
 
 /// A persistent batch. Handles are never recycled; freeing twice is harmless.
 /// Create one batch per streamed region and free it when that region unloads.
 /// ```
 /// use ponko::*;
 /// Game::new("instances", 1, 1).run_headless(0, |ctx| {
-///     let mat = ctx.create_material(MaterialDesc::default());
-///     let mesh = ctx.create_mesh(&MeshData::cube(1.0), mat);
-///     let batch = ctx.create_instance_batch(mesh, &[Mat4::IDENTITY], InstanceBatchOptions::default());
-///     ctx.free_instance_batch(batch);
+///     let mat = ctx.gfx.create_material(MaterialDesc::default());
+///     let mesh = ctx.gfx.create_mesh(&MeshData::cube(1.0), mat);
+///     let batch = ctx.gfx.create_instance_batch(mesh, &[Mat4::IDENTITY], InstanceBatchOptions::default());
+///     ctx.gfx.free_instance_batch(batch);
 /// });
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -126,7 +127,7 @@ impl Batch {
         batch
     }
 }
-impl Ctx {
+impl Graphics {
     /// Uploads transforms once; the mesh retains its normal materials.
     /// See [`InstanceBatch`] for an example. Empty batches are valid.
     pub fn create_instance_batch(

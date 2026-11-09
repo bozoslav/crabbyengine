@@ -11,7 +11,7 @@ impl Ctx {
     /// frame you need it (cell streaming, a level's props): asking marks it
     /// used, and when resident meshes go over the budget, the least recently
     /// used ones are freed until they fit. A freed one loads again, from
-    /// where [`load_mesh`](Self::load_mesh) finds it, the next time it's
+    /// where [`load_mesh`](crate::Graphics::load_mesh) finds it, the next time it's
     /// asked for, possibly as a different [`Mesh`]; its materials and
     /// textures stay loaded.
     ///
@@ -62,7 +62,7 @@ impl Ctx {
     }
 
     /// [`resident_mesh`](Self::resident_mesh) with errors as values, the
-    /// same ones [`try_load_mesh`](Self::try_load_mesh) returns. A failed
+    /// same ones [`try_load_mesh`](crate::Graphics::try_load_mesh) returns. A failed
     /// load changes nothing resident.
     ///
     /// ```
@@ -87,10 +87,10 @@ impl Ctx {
         // game already holds it from `load_mesh`.
         self.residency.set_mut(ResidencyKind::Mesh).forget(path);
         // Already in the load cache: the game holds it from `load_mesh`.
-        let cached = self.assets3d.loaded.len();
-        let (mesh, file) = self.load_mesh_from(path)?;
-        let shared = self.assets3d.loaded.len() == cached;
-        let bytes = self.assets3d.mesh_bytes.get(mesh.id as usize).copied().unwrap_or(0);
+        let cached = self.gfx.assets3d.loaded.len();
+        let (mesh, file) = self.gfx.load_mesh_from(path)?;
+        let shared = self.gfx.assets3d.loaded.len() == cached;
+        let bytes = self.gfx.assets3d.mesh_bytes.get(mesh.id as usize).copied().unwrap_or(0);
         self.residency
             .set_mut(ResidencyKind::Mesh)
             .insert(path, (mesh.id, file), bytes, shared, now);
@@ -103,7 +103,7 @@ impl Ctx {
     pub(crate) fn live_resident_mesh(&self, path: &str) -> Option<Mesh> {
         let entry = self.residency.set(ResidencyKind::Mesh).get(path)?;
         let mesh = Mesh { id: entry.handle };
-        (self.assets3d.loaded.get(&entry.file) == Some(&mesh)).then_some(mesh)
+        (self.gfx.assets3d.loaded.get(&entry.file) == Some(&mesh)).then_some(mesh)
     }
 
     /// Frees the meshes the budget needs gone (`enforce_residency`).
@@ -116,8 +116,8 @@ impl Ctx {
         for (_, entry) in evicted {
             let mesh = Mesh { id: entry.handle };
             // Freed elsewhere since: its id may be another mesh's now.
-            if self.assets3d.loaded.get(&entry.file) == Some(&mesh) {
-                self.free_mesh(mesh);
+            if self.gfx.assets3d.loaded.get(&entry.file) == Some(&mesh) {
+                self.gfx.free_mesh(mesh);
             }
         }
     }

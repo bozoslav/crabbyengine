@@ -48,7 +48,7 @@ fn main() {
                     clicks += 1;
                 }
                 // The background changes with each click, so a click shows.
-                ctx.clear(if clicks.is_multiple_of(2) {
+                ctx.gfx.clear(if clicks.is_multiple_of(2) {
                     Color::hex(0x1E2A38)
                 } else {
                     Color::hex(0x2E4A28)
@@ -57,7 +57,7 @@ fn main() {
                 let t = ticks.get() as f32 / 60.0;
                 for i in 0..8 {
                     let angle = t + i as f32 * std::f32::consts::TAU / 8.0;
-                    ctx.draw_ex(
+                    ctx.gfx.draw_ex(
                         &crab,
                         size / 2.0 + Vec2::from_angle(angle) * size.min_element() * 0.3,
                         DrawParams {

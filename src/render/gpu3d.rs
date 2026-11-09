@@ -5034,7 +5034,7 @@ fn build_pipelines(
 /// agree.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct HistoryReset {
-    /// The game asked (`Ctx::reset_temporal_history`): a teleport or a new
+    /// The game asked (`Graphics::reset_temporal_history`): a teleport or a new
     /// scene the camera can't tell apart from motion.
     pub requested: bool,
     /// The targets are made again (a resize, a render scale change or an

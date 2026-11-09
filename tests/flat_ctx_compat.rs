@@ -84,3 +84,67 @@ fn the_flat_listener_reads_the_camera_live() {
         assert_eq!(ctx.audio_listener().position, Vec3::ZERO);
     });
 }
+
+#[test]
+fn the_flat_graphics_spellings_still_forward() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        ctx.clear(Color::BLACK);
+        let pixel = ctx.create_texture(1, 1, &[255; 4]);
+        ctx.update_texture(&pixel, &[0; 4]);
+        ctx.set_texture_filter(&pixel, TextureFilter::Linear);
+        ctx.draw_ex(&pixel, Vec2::ZERO, DrawParams::default());
+        ctx.draw_rect(Rect::new(0.0, 0.0, 1.0, 1.0), Color::WHITE);
+        ctx.draw_line(Vec2::ZERO, Vec2::ONE, 1.0, Color::WHITE);
+        ctx.draw_circle(Vec2::ZERO, 1.0, Color::WHITE);
+        assert_eq!(ctx.sprite_count(), 4);
+        assert_eq!(ctx.sprite_count(), ctx.gfx.sprite_count());
+        ctx.draw_text_ex("flat", Vec2::ZERO, TextParams::default());
+        assert_eq!(ctx.measure_text("flat", 16.0), ctx.gfx.measure_text("flat", 16.0));
+        assert_eq!(
+            ctx.measure_text_ex("flat", Font::DEFAULT, 16.0),
+            ctx.gfx.measure_text("flat", 16.0)
+        );
+        assert!(ctx.has_font(Font::DEFAULT));
+        assert!(ctx.try_load_texture("missing.png").is_err());
+        assert!(ctx.try_load_font("missing.ttf").is_err());
+        assert!(ctx.gpu_capabilities().is_none());
+        ctx.save_screenshot("unused.png"); // headless: does nothing
+    });
+}
+
+#[cfg(feature = "3d")]
+#[test]
+fn the_flat_3d_spellings_still_forward() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        let material = ctx.create_material(MaterialDesc::default());
+        assert!(ctx.has_material(material) && ctx.gfx.has_material(material));
+        assert_eq!(ctx.default_material(), ctx.gfx.default_material());
+        let mesh = ctx.create_mesh(&MeshData::cube(1.0), material);
+        assert!(ctx.is_mesh_live(mesh));
+        ctx.set_mesh_shadows(mesh, false);
+        assert!(!ctx.mesh_shadows(mesh));
+        ctx.free_mesh(mesh);
+        assert!(!ctx.gfx.is_mesh_live(mesh));
+        assert_eq!(ctx.models_drawn(), ctx.gfx.models_drawn());
+        assert_eq!(ctx.shader_status().len(), ctx.gfx.shader_status().len());
+
+        // The flat spellings of the calls that touch entities pass the world themselves.
+        let probe = ctx.world.spawn((Transform3D::default(), ReflectionProbe3D::default()));
+        ctx.bake_reflection_probe(probe).unwrap();
+        assert!(ctx.load_reflection_probe(probe, "missing-probe.exr").is_err());
+        ctx.write_animated_morphs();
+
+        ctx.set_graphics_quality(GraphicsQuality::medium());
+        assert_eq!(ctx.graphics_quality(), ctx.gfx.quality(&ctx.post, &ctx.lighting));
+        assert_eq!(ctx.graphics_quality().level(), QualityLevel::Medium);
+
+        // Freeing a buffer the flat way still drops its passes and reuses the id.
+        let buffer = ctx.create_gpu_buffer(4, &[]);
+        let update = ctx.create_compute("up", "fn update(i: u32) { items[i].x += 1.0; }");
+        ctx.compute_passes.push(ComputePass::for_buffer(update, buffer));
+        ctx.free_gpu_buffer(buffer);
+        assert!(ctx.compute_passes.is_empty());
+        assert_eq!(ctx.gpu_buffer_len(buffer), None);
+        assert_eq!(ctx.create_gpu_buffer(4, &[]), buffer);
+    });
+}
