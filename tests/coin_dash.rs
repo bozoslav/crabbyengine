@@ -6,6 +6,8 @@
 mod game;
 
 use game::*;
+// The game has its own `Phase` (round state); name it explicitly so it wins over `ponko::Phase`.
+use game::Phase;
 use ponko::*;
 
 /// The sim runs at the default 60 Hz: ticks per second, for readable run lengths.
