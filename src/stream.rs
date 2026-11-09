@@ -38,8 +38,14 @@ pub struct Job<T> {
 }
 
 impl<T: Send + 'static> Job<T> {
-    /// Starts `work` on a worker thread (the shared pool, one thread per
-    /// core).
+    /// Starts `work` on a worker thread.
+    ///
+    /// Jobs have their own pool, of half as many threads as cores (at least
+    /// one), apart from the pool for the frame's parallel work (such as
+    /// `par_for_each`): busy jobs never make a frame wait for a free thread.
+    /// At most that many jobs run at once; the rest wait their turn.
+    /// Parallel work inside a job stays in the job pool. Dropping a job
+    /// doesn't stop its work.
     ///
     /// ```
     /// # use ponko::*;
@@ -57,7 +63,10 @@ impl<T: Send + 'static> Job<T> {
             }
         };
         #[cfg(not(target_arch = "wasm32"))]
-        rayon::spawn(run);
+        match job_pool() {
+            Some(pool) => pool.spawn(run),
+            None => rayon::spawn(run),
+        }
         #[cfg(target_arch = "wasm32")]
         run();
         Self {
@@ -66,6 +75,23 @@ impl<T: Send + 'static> Job<T> {
             taken: false,
         }
     }
+}
+
+/// The pool [`Job`]s run on, built on first use: half as many threads as
+/// cores, at least one. `None` if its threads couldn't be started (then
+/// jobs fall back to the global pool, as before).
+#[cfg(not(target_arch = "wasm32"))]
+fn job_pool() -> Option<&'static rayon::ThreadPool> {
+    static POOL: std::sync::OnceLock<Option<rayon::ThreadPool>> = std::sync::OnceLock::new();
+    POOL.get_or_init(|| {
+        let cores = std::thread::available_parallelism().map_or(2, std::num::NonZero::get);
+        rayon::ThreadPoolBuilder::new()
+            .num_threads((cores / 2).max(1))
+            .thread_name(|i| format!("ponko-job-{i}"))
+            .build()
+            .ok()
+    })
+    .as_ref()
 }
 
 impl<T> Job<T> {
