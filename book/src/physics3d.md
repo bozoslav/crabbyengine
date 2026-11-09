@@ -379,6 +379,16 @@ terrain:
 | 100 | 218 ms | 0.9 ms |
 | 1,000 | 2.45 s | 9.8 ms |
 
+Characters do allocate a little every step, and almost all of it is rapier's:
+its character controller builds fresh contact lists on every move, about 8
+small allocations per walking character per tick (counted with four
+walkers in `tests/physics3d_alloc.rs`, 1717 of the 1894 allocations in 60
+ticks inside rapier's `move_shape`). The engine's own buffers (the list
+of bodies a character pushed, the plans) are reused, and the test fails if
+the engine allocates more than rapier alone does for the same walkers.
+Cutting rapier's share needs a change upstream, so it is a known cost: it
+grows with the number of characters, not with the world.
+
 A thousand is about the limit of a 50 Hz step. Characters also sweep
 against each other; if a crowd doesn't need to, give them a group that
 leaves itself out of its filter (`groups = CollisionGroups::new(CROWD, !CROWD)`),
