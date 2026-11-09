@@ -88,8 +88,10 @@ pub const FIXED_KEYS: [Key; 6] = [Key::Left, Key::Right, Key::Up, Key::Down, Key
 /// Why a key or button was not accepted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Refused {
-    /// Escape closes dialogs, Tab moves the focus, and the gamepad's East
-    /// button closes dialogs: the retained UI owns them.
+    /// The retained UI owns them: Escape closes dialogs, Tab moves the focus,
+    /// and on the gamepad East closes dialogs while the four D-pad directions
+    /// move the focus. (Escape and East stay the defaults of Pause and Back;
+    /// "Reset to defaults" gives them back.)
     Reserved,
     /// One of [`FIXED_KEYS`].
     Fixed,
@@ -97,6 +99,19 @@ pub enum Refused {
     InUse(Control),
     /// Movement has no gamepad button (the stick moves).
     NoButton,
+}
+
+/// The gamepad buttons the retained UI uses for navigation, which no control
+/// may take: the keyboard side reserves Escape, Tab and the arrow keys the same way.
+pub fn is_reserved_pad(button: GamepadButton) -> bool {
+    matches!(
+        button,
+        GamepadButton::East
+            | GamepadButton::DPadUp
+            | GamepadButton::DPadDown
+            | GamepadButton::DPadLeft
+            | GamepadButton::DPadRight
+    )
 }
 
 /// The key, and the gamepad button, chosen for each [`Control`], in the order of [`Control::ALL`].
@@ -181,7 +196,7 @@ impl Controls {
         if control.is_movement() {
             return Err(Refused::NoButton);
         }
-        if button == GamepadButton::East {
+        if is_reserved_pad(button) {
             return Err(Refused::Reserved);
         }
         if let Some(other) = Control::ALL
@@ -207,7 +222,12 @@ impl Controls {
                 && keys.insert(key);
             let pad_ok = match self.pad(c) {
                 None => true,
-                Some(button) => !c.is_movement() && pads.insert(button),
+                // East is Back's default, so it is allowed there and nowhere else.
+                Some(button) => {
+                    !c.is_movement()
+                        && (!is_reserved_pad(button) || (button == GamepadButton::East && c == Control::Back))
+                        && pads.insert(button)
+                }
             };
             key_ok && pad_ok
         })
@@ -435,7 +455,9 @@ fn candidate_keys() -> Vec<Key> {
     keys
 }
 
-const PAD_BUTTONS: [GamepadButton; 15] = [
+/// Every gamepad button the prompt listens for (all sixteen), so it can say
+/// "reserved" for the ones it refuses instead of ignoring them.
+pub const PAD_BUTTONS: [GamepadButton; 16] = [
     GamepadButton::South,
     GamepadButton::East,
     GamepadButton::North,
@@ -451,6 +473,7 @@ const PAD_BUTTONS: [GamepadButton; 15] = [
     GamepadButton::DPadUp,
     GamepadButton::DPadDown,
     GamepadButton::DPadLeft,
+    GamepadButton::DPadRight,
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -525,9 +548,7 @@ impl SettingsUi {
             .accessible_name("Volume")
             .id();
 
-        ui.label(root, "Controls: press a button, then the new key or pad button")
-            .layout(UiLayout::row(24.0))
-            .size(16.0);
+        ui.label(root, HINT).layout(UiLayout::row(52.0)).size(16.0).wrap();
         let scroll = ui.scroll_area(root).layout(UiLayout::fill()).id();
         let list = ui
             .panel(scroll)
@@ -597,6 +618,9 @@ impl SettingsUi {
         }
     }
 }
+
+/// Above the list of controls: how to rebind, and what can't be chosen.
+pub const HINT: &str = "Press a button, then the new key. Escape, Tab, East and the D-pad are reserved for the menus; Reset gives Pause its Escape back.";
 
 /// The sentence a refused key or button gets.
 pub fn refusal(refused: Refused, name: &str, controls: &Controls) -> String {
@@ -738,7 +762,8 @@ fn pressed(ctx: &Ctx, device: Device) -> Option<(String, Result<Key, GamepadButt
             .into_iter()
             .find(|&k| ctx.key_pressed(k))
             .map(|k| (format!("{k:?}"), Ok(k))),
-        Device::Pad => ctx.gamepads().iter().find_map(|&pad| {
+        // Every slot, connected or not: an unplugged pad has nothing pressed.
+        Device::Pad => (0..).map_while(Gamepad::from_slot).find_map(|pad| {
             PAD_BUTTONS
                 .into_iter()
                 .find(|&b| ctx.gamepad_pressed(pad, b))
