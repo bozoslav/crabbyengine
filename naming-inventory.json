@@ -146,7 +146,7 @@
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
     "crates/ponko_ffi/cbindgen.toml": {
-      "occurrences": 79,
+      "occurrences": 83,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
@@ -303,6 +303,12 @@
     },
     "crates/ponko_ffi/src/replicate.rs": {
       "occurrences": 277,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
+    "crates/ponko_ffi/src/residency.rs": {
+      "occurrences": 119,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
@@ -632,19 +638,19 @@
       "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
     },
     "include/crabby.h": {
-      "occurrences": 3028,
+      "occurrences": 3098,
       "path_occurrences": 1,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
     "include/crabby.hpp": {
-      "occurrences": 1312,
+      "occurrences": 1345,
       "path_occurrences": 1,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
     "include/ponko.h": {
-      "occurrences": 1110,
+      "occurrences": 1138,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
@@ -1011,6 +1017,12 @@
     },
     "crates/ponko_ffi/tests/fixtures/abi/layout_table.rs": {
       "occurrences": 428,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
+    "crates/ponko_ffi/tests/residency.rs": {
+      "occurrences": 89,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."

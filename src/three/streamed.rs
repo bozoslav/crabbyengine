@@ -13,7 +13,7 @@ use crate::{Ctx, Job, ResidencyKind};
 /// A decoded glTF file waiting for the game thread.
 pub(crate) enum LoadedFile {
     /// Parsed on a worker.
-    Parsed(gltf::Loaded),
+    Parsed(Box<gltf::Loaded>),
     /// Its bytes only: it came from an added asset source, whose files
     /// (its buffers and images) can only be read on the game thread.
     Bytes(Vec<u8>),
@@ -120,7 +120,7 @@ impl Ctx {
                         let mut read = |file: &str| assets::Sources::default().read(file);
                         let loaded = gltf::load(&name, &bytes, &mut read, &|_| false)
                             .map_err(|e| crate::Error::decode(&name, e))?;
-                        Ok((origin, LoadedFile::Parsed(loaded)))
+                        Ok((origin, LoadedFile::Parsed(Box::new(loaded))))
                     }),
                     _ => {
                         let bytes = found.into_bytes().map_err(|e| e.with_path(path));
@@ -231,7 +231,7 @@ impl Ctx {
         }
         let made = self.load_reserved(name, |ctx| {
             let loaded = match file {
-                LoadedFile::Parsed(loaded) => loaded,
+                LoadedFile::Parsed(loaded) => *loaded,
                 LoadedFile::Bytes(bytes) => {
                     let shared = &ctx.assets3d.shared_images;
                     let sources = &ctx.asset_sources;

@@ -158,13 +158,13 @@ fn halve(level: &Level) -> Level {
                 let sx = (2 * x + dx).min(w - 1);
                 let sy = (2 * y + dy).min(h - 1);
                 let i = ((sy * w + sx) * 4) as usize;
-                for c in 0..4 {
-                    sum[c] += u32::from(level.rgba[i + c]);
+                for (s, &v) in sum.iter_mut().zip(&level.rgba[i..i + 4]) {
+                    *s += u32::from(v);
                 }
             }
             let o = ((y * nw + x) * 4) as usize;
-            for c in 0..4 {
-                rgba[o + c] = ((sum[c] + 2) / 4) as u8;
+            for (d, s) in rgba[o..o + 4].iter_mut().zip(sum) {
+                *d = ((s + 2) / 4) as u8;
             }
         }
     }
