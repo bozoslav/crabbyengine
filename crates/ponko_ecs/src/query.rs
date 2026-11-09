@@ -276,6 +276,9 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     pub(crate) fn new(world: &'w mut World) -> Self {
         let ids = Q::ids(world);
         check_aliasing::<Q>(world, &ids);
+        world
+            .recorder
+            .note(|l| Q::access(&ids, &mut |id, write, _| l.component(id, write)));
         Query {
             world,
             ids,

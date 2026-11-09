@@ -61,6 +61,10 @@ pub struct Events {
     reflected: Vec<ReflectedEvent>,
     /// What a tool subscribed to, collected between frames.
     pub(crate) feed: Option<Feed>,
+    /// Debug builds: event types the running system used, while its
+    /// declared access is checked (see [`SystemAccess`](crate::SystemAccess)).
+    #[cfg(debug_assertions)]
+    pub(crate) used: std::cell::RefCell<Option<crate::access::EventUse>>,
 }
 
 /// Reader id of the tools' feed; systems count up from 1.
@@ -93,6 +97,7 @@ enum Key {
 impl Events {
     /// Sends an event to every system that reads `T`.
     pub fn send<T: 'static>(&mut self, event: T) {
+        self.note::<T>(true);
         let (frame, tick) = (self.frame, self.tick);
         let ch = self.typed::<T>();
         ch.log.push(frame, tick);
@@ -102,6 +107,7 @@ impl Events {
     /// The `T` events this system hasn't seen yet, oldest first. The next
     /// call from the same system returns only newer ones.
     pub fn read<T: 'static>(&mut self) -> &[T] {
+        self.note::<T>(false);
         let reader = self.reader;
         let ch = self.typed::<T>();
         let range = ch.log.read(reader);
@@ -112,12 +118,34 @@ impl Events {
     /// this system's read position.
     #[must_use]
     pub fn peek<T: 'static>(&self) -> &[T] {
+        self.note::<T>(false);
         match self.by_key.get(&Key::Type(TypeId::of::<T>())) {
             Some(&i) => {
                 let any: &dyn Any = self.channels[i].as_any();
                 &any.downcast_ref::<Typed<T>>().expect("channel type").items
             }
             None => &[],
+        }
+    }
+
+    /// Debug builds, while checking a system's declared access: notes that
+    /// it sent (or read) `T` events.
+    #[inline]
+    fn note<T: 'static>(&self, sent: bool) {
+        #[cfg(debug_assertions)]
+        if let Some(used) = self.used.borrow_mut().as_mut() {
+            used.note(TypeId::of::<T>(), std::any::type_name::<T>(), sent);
+        }
+        #[cfg(not(debug_assertions))]
+        let _ = sent;
+    }
+
+    /// Like `note`, for events without a Rust type.
+    #[inline]
+    fn note_raw(&self) {
+        #[cfg(debug_assertions)]
+        if let Some(used) = self.used.borrow_mut().as_mut() {
+            used.raw = true;
         }
     }
 
@@ -159,6 +187,7 @@ impl Events {
     /// id fixes its size.
     #[doc(hidden)]
     pub fn send_raw(&mut self, id: u32, bytes: &[u8]) -> Result<(), &'static str> {
+        self.note_raw();
         let (frame, tick) = (self.frame, self.tick);
         let ch = self.raw(id, bytes.len());
         if ch.size != bytes.len() {
@@ -174,6 +203,7 @@ impl Events {
     /// type or the end of the system.
     #[doc(hidden)]
     pub fn read_raw(&mut self, id: u32, size: usize) -> Result<(*const u8, usize), &'static str> {
+        self.note_raw();
         let reader = self.reader;
         let ch = self.raw(id, size);
         if ch.size != size {
