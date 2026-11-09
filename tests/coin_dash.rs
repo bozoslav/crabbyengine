@@ -255,8 +255,7 @@ fn the_player_stays_in_the_arena_and_diagonals_are_not_faster() {
 
 #[test]
 fn the_game_starts_on_an_empty_title_screen_that_ignores_movement() {
-    let mut world =
-        script(|ctx| intent(ctx).direction = vec2(1.0, 0.0)).run_headless(2 * HZ, |ctx| setup_with(ctx, None));
+    let world = script(|ctx| intent(ctx).direction = vec2(1.0, 0.0)).run_headless(2 * HZ, |ctx| setup_with(ctx, None));
     assert_eq!(screen(&world), Screen::Title);
     assert_eq!(world.resource::<Round>().number, 0);
     assert!(world.is_empty(), "no player and no coins before the first round");
@@ -384,7 +383,7 @@ fn restart_from_the_pause_screen_starts_a_fresh_round_and_back_returns_to_the_ti
     .run_headless(5 * HZ, setup_playing);
     assert_fresh_round(&mut world, 2);
 
-    let mut world = script(|ctx| match ctx.sim_tick() {
+    let world = script(|ctx| match ctx.sim_tick() {
         5 => intent(ctx).pause = true,
         7 => {
             intent(ctx).back = true;
@@ -407,7 +406,7 @@ fn back_does_nothing_while_playing() {
 #[test]
 fn result_screen_offers_play_again_and_back_to_the_title() {
     // Title -> play -> lose -> play again (round 2) -> lose -> back to title.
-    let mut world = script(|ctx| {
+    let world = script(|ctx| {
         let over = matches!(*ctx.world.resource::<Screen>(), Screen::Result(_));
         let number = ctx.world.resource::<Round>().number;
         if over {
@@ -827,7 +826,8 @@ fn every_button_binding_sets_its_own_request_which_the_sim_takes_once() {
         )
     };
     type Flag = fn(&Intent) -> bool;
-    let table: [(&str, Flag, Vec<(InputEvent, InputEvent)>); 4] = [
+    type Press = (InputEvent, InputEvent); // press, release
+    let table: [(&str, Flag, Vec<Press>); 4] = [
         (
             "confirm",
             |i| i.confirm,
