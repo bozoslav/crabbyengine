@@ -1,39 +1,52 @@
 //! What 3D physics allocates per tick once a scene is running. rapier's own
 //! solver (and its character controller) allocate a few small buffers per
 //! step, which the engine can't avoid; the engine's part (syncing
-//! components, events, queries, vehicles) must add nothing. Its own test binary, for
-//! the counting allocator.
+//! components, events, queries, vehicles) must add nothing.
+//!
+//! The counter is thread-local: only allocations made by the thread that is
+//! measuring count. A process-wide counter also saw other threads (libtest's
+//! main thread recording the previous test's result, a logger, a worker
+//! waking up), and these comparisons have zero tolerance, so one stray
+//! allocation failed the run now and then. This is sound here because the
+//! engine's 3D physics runs on the calling thread: rapier's `parallel`
+//! feature is off, and nothing in these scenes uses the character
+//! controller's parallel path. A future parallel path would need a different
+//! approach, such as a process-wide count in a binary with a single test (see
+//! `tests/alloc_counting.rs`).
 #![cfg(feature = "physics3d")]
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use ponko::*;
 use rapier3d::prelude as rp;
 
 struct Counting;
 
-static COUNTING: AtomicBool = AtomicBool::new(false);
-static ALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
-/// The tests share the counter, so they take turns.
-static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+thread_local! {
+    static COUNTING: Cell<bool> = const { Cell::new(false) };
+    static ALLOCATIONS: Cell<usize> = const { Cell::new(0) };
+}
+
+/// Counts one allocation if this thread is measuring. `try_with`: a thread
+/// that is shutting down has no counter any more.
+fn record_allocation() {
+    if COUNTING.try_with(Cell::get).unwrap_or(false) {
+        let _ = ALLOCATIONS.try_with(|n| n.set(n.get() + 1));
+    }
+}
 
 // SAFETY: forwards to the system allocator unchanged.
 unsafe impl GlobalAlloc for Counting {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if COUNTING.load(Ordering::Relaxed) {
-            ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
-        }
+        record_allocation();
         // SAFETY: the caller's contract, passed on.
         unsafe { System.alloc(layout) }
     }
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        if COUNTING.load(Ordering::Relaxed) {
-            ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
-        }
+        record_allocation();
         // SAFETY: the caller's contract, passed on.
         unsafe { System.realloc(ptr, layout, new_size) }
     }
@@ -46,13 +59,15 @@ unsafe impl GlobalAlloc for Counting {
 #[global_allocator]
 static ALLOCATOR: Counting = Counting;
 
+/// Starts counting this thread's allocations from zero.
 fn start_counting() {
-    ALLOCATIONS.store(0, Ordering::Relaxed);
-    COUNTING.store(true, Ordering::Relaxed);
+    ALLOCATIONS.set(0);
+    COUNTING.set(true);
 }
+/// Stops counting and returns this thread's count since `start_counting`.
 fn stop_counting() -> usize {
-    COUNTING.store(false, Ordering::Relaxed);
-    ALLOCATIONS.load(Ordering::Relaxed)
+    COUNTING.set(false);
+    ALLOCATIONS.get()
 }
 
 const WARMUP: u64 = 60;
@@ -179,7 +194,6 @@ fn through_the_engine(queries: bool) -> usize {
 
 #[test]
 fn the_engine_adds_no_allocations_to_rapiers_own() {
-    let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let rapier = rapier_alone();
     let engine = through_the_engine(false);
     println!("{MEASURED} ticks: {rapier} allocations in rapier alone, {engine} through the engine");
@@ -191,10 +205,15 @@ fn the_engine_adds_no_allocations_to_rapiers_own() {
 
 #[test]
 fn queries_do_not_allocate() {
-    let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let without = through_the_engine(false);
     let with = through_the_engine(true);
-    assert_eq!(with, without, "ray casts, shape casts and overlaps added allocations");
+    assert_eq!(
+        with,
+        without,
+        "ray casts, shape casts and overlaps added allocations: {with} with queries, {without} without, \
+         {:+.2} per tick over {MEASURED} ticks",
+        (with as f64 - without as f64) / MEASURED as f64
+    );
 }
 
 const CARS: usize = 20;
@@ -290,7 +309,6 @@ fn cars_driving() -> usize {
 
 #[test]
 fn vehicles_add_no_allocations_to_rapiers_own() {
-    let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let rapier = chassis_pushed_in_rapier();
     let engine = cars_driving();
     println!("{MEASURED} ticks of {CARS} cars: {rapier} allocations in rapier alone, {engine} through the engine");

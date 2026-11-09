@@ -1,6 +1,7 @@
 //! Recording and applying commands into a reused `Commands` doesn't allocate
-//! once its buffers have grown. Its own test binary: it counts every
-//! allocation through a global allocator.
+//! once its buffers have grown. Its own test binary with a single test: the
+//! counter is process-wide (every thread), so no other test may run beside
+//! it, or its allocations would count.
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};

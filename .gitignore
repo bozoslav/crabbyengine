@@ -34,3 +34,7 @@ rustc-ice-*.txt
 
 # Editor settings (local)
 .vscode/
+
+# Temporary asset files the integration tests write (tests/common); a killed
+# test run can leave them behind
+/assets/test-*
