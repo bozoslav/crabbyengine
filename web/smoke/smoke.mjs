@@ -154,6 +154,10 @@ async function probe(context, url) {
           }
         } catch (e) {
           result.webgpuError = String(e);
+          if (result.webgpu) {
+            result.webgpu.canvas = false;
+            result.webgpu.canvasProblem = `probing a WebGPU canvas threw: ${e}`;
+          }
         }
       }
       const gl = document.createElement("canvas").getContext("webgl2");
@@ -291,9 +295,19 @@ async function main() {
     report.browser = `chromium ${browser.version()}`;
     log(`${report.browser}, ${report.platform}`);
 
-    const probeContext = await browser.newContext();
-    report.capabilities = await probe(probeContext, url);
-    await probeContext.close();
+    // Software GL contexts occasionally fail to start; ask again before
+    // calling a backend unsupported.
+    const wanted = (c) =>
+      args.backend === "webgl2" ? c.webgl2 : args.backend === "webgpu" ? c.webgpu?.canvas : c.webgl2 || c.webgpu;
+    for (let attempt = 1; ; attempt++) {
+      const probeContext = await browser.newContext();
+      report.capabilities = await probe(probeContext, url);
+      await probeContext.close();
+      report.probeAttempts = attempt;
+      if (wanted(report.capabilities) || attempt === 3) break;
+      log(`probe ${attempt} lacked the backend: ${JSON.stringify(report.capabilities)}; retrying`);
+      await sleep(1000);
+    }
     log(`WebGPU adapter: ${JSON.stringify(report.capabilities.webgpu)}; WebGL2: ${JSON.stringify(report.capabilities.webgl2)}`);
     if (args.backend === "webgpu" && !report.capabilities.webgpu) {
       throw new Failure("unsupported", "this browser has no WebGPU adapter here");
@@ -413,7 +427,7 @@ async function main() {
     }
     log(`canvas: ${JSON.stringify(report.canvas)}`);
     if (Object.values(report.canvas).every(blank)) {
-      if (report.backend === "webgpu" && report.capabilities.webgpu?.canvas === false) {
+      if (report.backend === "webgpu" && report.capabilities.webgpu?.canvas !== true) {
         throw new Failure("unsupported", `blank WebGPU canvas, but a plain WebGPU canvas fails here too: ${report.capabilities.webgpu.canvasProblem}`);
       }
       throw new Failure("blank", `the canvas looks blank: ${JSON.stringify(report.canvas)}`);
@@ -448,7 +462,8 @@ async function main() {
     await browser?.close().catch(() => {});
     server.close();
   }
-  const { kind, message } = report.outcome;
+  const { kind } = report.outcome;
+  const message = report.outcome.message.replace(/\s*\n\s*/g, " ").trim();
   const label = kind === "unsupported" ? "UNSUPPORTED" : outcome === EXIT.pass ? "PASS" : "FAIL";
   console.log(`${label} (${kind}): ${message} [${report.elapsedSeconds.toFixed(1)}s, report in ${args.out}]`);
   process.exit(outcome);
