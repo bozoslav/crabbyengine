@@ -82,6 +82,14 @@ patching](hot-patching.md) of code, and anything that writes files
 (`ctx.save_screenshot`, saving the world to a path). `println!` output goes
 nowhere; panics appear in the browser's developer console.
 
+## Testing in a browser
+
+`web/smoke/` in the engine's repository runs a web build in headless
+Chromium and checks that it starts, fetches its assets, keeps simulating,
+reacts to a click and draws something; CI runs it on every change with
+WebGL2. See its
+[README](https://github.com/ponkoengine/ponko/blob/main/web/smoke/README.md).
+
 ## C and C++
 
 Not yet: web builds work for Rust games. C and C++ games would need to be

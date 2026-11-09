@@ -1,0 +1,12 @@
+{
+  "name": "ponko-web-smoke",
+  "private": true,
+  "description": "Headless-browser smoke test for Ponko web builds; see README.md.",
+  "type": "module",
+  "scripts": {
+    "smoke": "node smoke.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "1.64.1"
+  }
+}

@@ -888,6 +888,12 @@
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
+    },
+    "web/smoke/smoke.mjs": {
+      "occurrences": 1,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Selects the engine's retained web canvas id."
     }
   }
 }

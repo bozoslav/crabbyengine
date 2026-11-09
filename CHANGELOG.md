@@ -7,6 +7,17 @@ says what that covers.
 
 ## [Unreleased]
 
+### Browser smoke test (first stage)
+
+- Add `web/smoke/`, a headless-Chromium runner (Node + Playwright), and the
+  `web_smoke` example it drives: startup, asset fetch, fixed-step progress,
+  one click and a nonblank canvas, with "unsupported browser/backend" kept
+  apart from game failures. CI's new `web-smoke` job runs it with WebGL2
+  (forced) and tries WebGPU.
+- Fix web builds on WebGL2: creating any sprite texture failed validation
+  there (texture view formats), so 2D games panicked at startup in browsers
+  without WebGPU.
+
 ### Explicit runtime phases (first stage)
 
 - Add `Phase` and `Game::add(phase, system)` for sequential fixed-tick and

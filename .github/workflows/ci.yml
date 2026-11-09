@@ -434,12 +434,63 @@ jobs:
           tool: wasm-bindgen@${{ env.WASM_BINDGEN }}
       - run: web/build.sh battle
 
+  # Runs a web build in headless Chromium (web/smoke/README.md): startup,
+  # asset fetch, fixed-step progress, a click and a nonblank canvas. GitHub's
+  # runners have no GPU: WebGL2 runs on SwiftShader and must pass; WebGPU
+  # is tried and reported, and passes as "unsupported" where the browser
+  # can't show a WebGPU canvas at all (checked without the engine).
+  web-smoke:
+    name: Web smoke test (headless Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          key: web-smoke
+      - name: Find the wasm-bindgen version in Cargo.lock
+        run: echo "WASM_BINDGEN=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/version = |"/, ""); print }' Cargo.lock)" >> "$GITHUB_ENV"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ env.WASM_BINDGEN }}
+      - name: Install the runner and Chromium's headless shell
+        run: |
+          node --version
+          npm ci --prefix web/smoke --no-audit --no-fund
+          node web/smoke/node_modules/playwright-core/cli.js install --with-deps --only-shell chromium
+      - run: web/build.sh web_smoke
+      - name: WebGL2 (WebGPU hidden, the fallback path)
+        run: node web/smoke/smoke.mjs --dir target/web/web_smoke --backend webgl2
+      - name: WebGPU (where the runner's browser can show it)
+        if: ${{ !cancelled() }}
+        run: node web/smoke/smoke.mjs --dir target/web/web_smoke --backend webgpu --allow-unsupported
+      - name: Whatever the engine picks
+        if: ${{ !cancelled() }}
+        run: node web/smoke/smoke.mjs --dir target/web/web_smoke --backend auto --allow-unsupported
+      # The runner itself: each broken build must be caught as that failure.
+      - name: Self-tests (missing asset, startup panic, stalled simulation)
+        if: ${{ !cancelled() }}
+        run: |
+          for case in missing-asset panic stall; do
+            node web/smoke/smoke.mjs --dir target/web/web_smoke --backend webgl2 --case "$case"
+          done
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: web-smoke
+          path: target/web-smoke
+          retention-days: 7
+
   # Single check for branch protection: passes only if every job above passed.
   # (Requiring one job keeps the rule valid when jobs are added or renamed.)
   ci-passed:
     name: CI passed
     if: always()
-    needs: [leaks, fmt, clippy, feature-deps, msrv, test, windows-unit-build, windows-unit, windows-examples, test-features, docs, book, miri, native, web]
+    needs: [leaks, fmt, clippy, feature-deps, msrv, test, windows-unit-build, windows-unit, windows-examples, test-features, docs, book, miri, native, web, web-smoke]
     runs-on: ubuntu-latest
     steps:
       - name: Check every job
