@@ -1,0 +1,12 @@
+{
+  "fixture": "prefab_v1.json",
+  "format": "crabby-prefab",
+  "version": 1,
+  "engine_version": "ponko 0.0.1",
+  "engine_revision": "b3799f698ed5eb85267f7e34cccdb2f27126910b",
+  "toolchain": "rustc 1.99.1 (58cf8f9c3 2026-10-13), aarch64-apple-darwin",
+  "features": "--no-default-features",
+  "generated_by": "PONKO_PREFAB_FIXTURE_OUT=<path> cargo test -p ponko --no-default-features --test prefab_compat -- --ignored --exact write_prefab_v1_fixture",
+  "date": "2026-11-09",
+  "baseline": "First retained prefab fixture: the prefab format as written by Ctx::save_prefab at this revision of the engine's main branch, not a published release."
+}

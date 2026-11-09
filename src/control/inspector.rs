@@ -12,8 +12,8 @@
 
 use serde_json::{Map, Value, json};
 
-use crate::GpuPass;
 use crate::render::{RenderDetail, RenderStats};
+use crate::{GpuPass, PipelineStats};
 
 /// The `render_inspector` schema version. Bumped only when a field is
 /// removed or changes meaning; new fields don't bump it.
@@ -37,6 +37,8 @@ pub(super) struct Inputs<'a> {
     pub passes: &'a [GpuPass],
     /// The active graphics quality settings, if the build has them.
     pub quality: Option<Value>,
+    /// The render pipeline cache since the renderer started.
+    pub pipelines: PipelineStats,
 }
 
 const NO_TIMESTAMPS: &str = "the GPU adapter doesn't support timestamp queries, so GPU time can't be measured";
@@ -129,6 +131,12 @@ pub(super) fn render_inspector(inputs: &Inputs<'_>) -> Value {
             )
         }
     };
+    let pipelines = if let Source::Headless = inputs.source {
+        gone("pipelines", "headless runs build no pipelines");
+        Value::Null
+    } else {
+        pipelines_json(&inputs.pipelines)
+    };
     let quality = match &inputs.quality {
         Some(q) => q.clone(),
         None => {
@@ -149,8 +157,30 @@ pub(super) fn render_inspector(inputs: &Inputs<'_>) -> Value {
         "counts": counts,
         "upload_bytes": upload_bytes,
         "memory_estimate_bytes": null,
+        "pipelines": pipelines,
         "quality": quality,
         "unavailable": unavailable,
+    })
+}
+
+/// The pipeline cache's totals since the renderer started (not per frame).
+fn pipelines_json(p: &PipelineStats) -> Value {
+    json!({
+        "material_shaders": p.material_shaders,
+        "variant_sets": p.variant_sets,
+        "pipelines": p.pipelines,
+        "hits": p.hits,
+        "misses": p.misses,
+        "shared": p.shared,
+        "builds": p.builds,
+        "build_ms_total": p.build_ms,
+        "slowest_build_ms": p.slowest_build_ms,
+        "compiles": p.compiles,
+        "compile_ms_total": p.compile_ms,
+        "slowest_compile_ms": p.slowest_compile_ms,
+        "last_compile_ms": p.last_compile_ms,
+        "invalidated": p.invalidated,
+        "key_bytes": p.key_bytes,
     })
 }
 
@@ -236,6 +266,11 @@ mod tests {
             stats: stats(gpu_ms),
             passes: &PASSES,
             quality: Some(json!({ "level": "high" })),
+            pipelines: PipelineStats {
+                misses: 2,
+                hits: 40,
+                ..Default::default()
+            },
         })
     }
 
@@ -281,12 +316,15 @@ mod tests {
             "counts",
             "upload_bytes",
             "memory_estimate_bytes",
+            "pipelines",
             "quality",
             "unavailable",
         ] {
             assert!(v.get(key).is_some(), "{key} missing from {v}");
         }
         assert!(v["upload_bytes"].is_u64(), "a drawn frame counts its uploads: {v}");
+        assert_eq!(v["pipelines"]["misses"], 2, "pipeline cache totals: {v}");
+        assert_eq!(v["pipelines"]["hits"], 40);
         for key in ["total", "extract", "prepare", "encode", "submit", "other"] {
             assert!(v["cpu_ms"][key].is_number(), "cpu_ms.{key}: {v}");
         }
@@ -380,7 +418,9 @@ mod tests {
             stats: RenderStats::default(),
             passes: &[],
             quality: None,
+            pipelines: PipelineStats::default(),
         });
+        assert!(v["pipelines"].is_null(), "headless: {v}");
         assert!(v["quality"].is_null());
         assert_nulls_explained(&v);
     }

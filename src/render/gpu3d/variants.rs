@@ -24,9 +24,11 @@
 //! same pipelines draw them. There is no unlit variant either: an unlit look
 //! is a `surface` hook that writes `emissive` and a black `albedo`.
 //!
-//! This is a description of the current set, not a cache: the plain variants
-//! are built with the shader, the others the first time a frame draws them (or
-//! all up front by `Renderer3D::warm_pipelines`).
+//! The plain variants are built with the shader, the others the first time a
+//! frame draws them (or all up front by `Renderer3D::warm_pipelines`). The
+//! sets are cached by shader code, composed features, target formats and
+//! samples (`pipeline_cache.rs`), which also lists the renderer's fixed
+//! pipelines.
 
 /// Which faces of a material's triangles are drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
