@@ -1372,3 +1372,21 @@ fn hundred_thousand_static_instances_need_no_entities() {
         assert_eq!(ctx.world.len(), 0);
     });
 }
+
+#[test]
+fn target_effects_run_headless_and_keep_their_settings() {
+    let mut kept = Vec::new();
+    Game::new("t", 64, 64).run_headless(2, |ctx| {
+        if ctx.target_effects.is_empty() {
+            let copy = ctx.create_effect("copy", "fn effect(p: Pixel) -> vec3<f32> { return p.color; }");
+            let target = ctx.create_render_target(16, 16);
+            let image = ctx.create_texture(1, 1, &[255; 4]);
+            ctx.target_effects.push(TargetEffect::new(copy, target));
+            // Not a render target: skipped, not an error.
+            ctx.target_effects.push(TargetEffect::new(copy, image));
+        }
+        kept = ctx.target_effects.clone();
+    });
+    assert_eq!(kept.len(), 2);
+    assert!(kept.iter().all(|e| e.material.is_none()));
+}
