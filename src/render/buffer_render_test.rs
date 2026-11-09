@@ -7,19 +7,19 @@ use crate::*;
 const SIZE: u32 = 128;
 
 /// An offscreen renderer with a 1x1 white texture, and a `Ctx` to fill.
-struct Rig {
-    device: wgpu::Device,
-    queue: wgpu::Queue,
+pub(super) struct Rig {
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
     output: wgpu::Texture,
     target: wgpu::TextureView,
     textures: Vec<GpuTexture>,
-    renderer: Renderer3D,
-    ctx: Ctx,
+    pub renderer: Renderer3D,
+    pub ctx: Ctx,
 }
 
 impl Rig {
     /// `None` without a GPU.
-    fn new() -> Option<Self> {
+    pub fn new() -> Option<Self> {
         Self::with_compute(true)
     }
     fn with_compute(compute: bool) -> Option<Self> {
@@ -136,7 +136,7 @@ impl Rig {
     }
 
     /// A mesh of `data` with `desc`, on the CPU and the GPU.
-    fn mesh(&mut self, data: &MeshData, desc: MaterialDesc) -> Mesh {
+    pub fn mesh(&mut self, data: &MeshData, desc: MaterialDesc) -> Mesh {
         let material = self.ctx.create_material(desc);
         let mesh = self.ctx.create_mesh(data, material);
         self.renderer
@@ -147,7 +147,7 @@ impl Rig {
     }
 
     /// Draws the world and reads the pixels back (RGBA).
-    fn draw(&mut self) -> Vec<u8> {
+    pub fn draw(&mut self) -> Vec<u8> {
         self.draw_with_grid(None)
     }
     fn draw_with_grid(&mut self, grid: Option<crate::three::occlusion::OcclusionGrid>) -> Vec<u8> {

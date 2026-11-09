@@ -28,6 +28,8 @@ mod ssr;
 mod taa;
 #[cfg(feature = "window")]
 mod timer;
+#[cfg(feature = "window")]
+pub(crate) mod traffic;
 
 #[cfg(feature = "window")]
 pub(crate) use gpu::Renderer;
@@ -82,6 +84,92 @@ pub struct RenderStats {
     /// [`Ctx::warm_render_pipelines`](crate::Ctx::warm_render_pipelines)
     /// while loading to build them up front. Always 0 without the `3d` feature.
     pub pipelines_built: usize,
+    /// What the renderer sent to the GPU since the frame before: bytes
+    /// uploaded, by kind, and buffers created. In a scene where nothing
+    /// changes, only a few small per-frame uniforms should be uploaded and
+    /// no buffers created.
+    pub uploads: GpuUploads,
+}
+
+/// Bytes the renderer uploaded to the GPU, by kind, and the buffers it
+/// created, over one frame: [`RenderStats::uploads`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct GpuUploads {
+    /// 3D models' per-frame records (transforms and colors), for the
+    /// camera, target cameras and probe views.
+    pub instances: u64,
+    /// 2D sprites' records.
+    pub sprites: u64,
+    /// Instance batches (`Ctx::set_instance_batch`) and their culling data.
+    pub static_batches: u64,
+    /// Small per-frame uniforms: cameras, post-processing and effect settings.
+    pub uniforms: u64,
+    /// Lights and decals.
+    pub lights: u64,
+    /// Material parameters.
+    pub materials: u64,
+    /// Skinned models: joint matrices and weights.
+    pub skins: u64,
+    /// Mesh vertices and indices, and GPU buffers the game made.
+    pub meshes: u64,
+    /// Texture pixels.
+    pub textures: u64,
+    /// Everything else: particles, 3D text, occlusion grids.
+    pub other: u64,
+    /// Buffers created (a buffer outgrown is replaced by a new one).
+    pub buffers_created: u32,
+    /// The bytes of the buffers created.
+    pub buffer_bytes_created: u64,
+}
+
+impl GpuUploads {
+    pub(crate) const ZERO: Self = Self {
+        instances: 0,
+        sprites: 0,
+        static_batches: 0,
+        uniforms: 0,
+        lights: 0,
+        materials: 0,
+        skins: 0,
+        meshes: 0,
+        textures: 0,
+        other: 0,
+        buffers_created: 0,
+        buffer_bytes_created: 0,
+    };
+
+    /// The counts as JSON, for benchmark reports and the control endpoint.
+    pub(crate) fn json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "bytes": self.bytes(),
+            "instances": self.instances,
+            "sprites": self.sprites,
+            "static_batches": self.static_batches,
+            "uniforms": self.uniforms,
+            "lights": self.lights,
+            "materials": self.materials,
+            "skins": self.skins,
+            "meshes": self.meshes,
+            "textures": self.textures,
+            "other": self.other,
+            "buffers_created": self.buffers_created,
+            "buffer_bytes_created": self.buffer_bytes_created,
+        })
+    }
+
+    /// Every byte uploaded, all kinds together.
+    pub fn bytes(&self) -> u64 {
+        self.instances
+            + self.sprites
+            + self.static_batches
+            + self.uniforms
+            + self.lights
+            + self.materials
+            + self.skins
+            + self.meshes
+            + self.textures
+            + self.other
+    }
 }
 
 /// What happened when we tried to draw a frame.
@@ -146,6 +234,8 @@ mod ssr_render_test;
 mod text3d_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod variant_render_test;
+#[cfg(all(test, feature = "window", feature = "3d"))]
+mod upload_render_test;
 
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod ao_aa_render_test;

@@ -1,7 +1,7 @@
 //! Render-pass IBL baking using the existing sky texture binding.
 use super::gpu3d::HDR_FORMAT;
+use crate::render::traffic::{Counted, Upload};
 use std::sync::atomic::{AtomicBool, Ordering};
-use wgpu::util::DeviceExt;
 
 pub(super) struct Environment {
     pub atlas: wgpu::Texture,
@@ -130,11 +130,13 @@ impl Environment {
         });
         let buffers: Vec<_> = (0..5)
             .map(|slot| {
-                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("IBL config"),
-                    contents: bytemuck::cast_slice(&[[slot as f32, 0.0, 1.0, 0.0], [0.0; 4], [0.0; 4], [0.0; 4]]),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                })
+                device
+                    .uploading(Upload::Uniforms)
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("IBL config"),
+                        contents: bytemuck::cast_slice(&[[slot as f32, 0.0, 1.0, 0.0], [0.0; 4], [0.0; 4], [0.0; 4]]),
+                        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    })
             })
             .collect();
         let group = |view: &wgpu::TextureView, buffer: &wgpu::Buffer| {
@@ -236,7 +238,7 @@ impl Environment {
             self.dirty.store(true, Ordering::Relaxed);
             self.key = Some(key);
         }
-        queue.write_buffer(
+        queue.uploading(Upload::Uniforms).write_buffer(
             &self.buffers[0],
             0,
             bytemuck::cast_slice(&[[0.0, f32::from(atmosphere), intensity, 0.0], sky, ground, equator]),
@@ -319,7 +321,7 @@ impl Environment {
                 usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC,
                 view_formats: &[],
             });
-            queue.write_texture(
+            queue.uploading(Upload::Textures).write_texture(
                 texture.as_image_copy(),
                 bytemuck::cast_slice(data),
                 wgpu::TexelCopyBufferLayout {

@@ -532,6 +532,16 @@ impl Bench {
             render.record_ms,
             render.submit_ms
         );
+        let u = render.uploads;
+        let _ = writeln!(
+            report,
+            "gpu uploads (last frame): {} bytes ({} instances, {} uniforms, {} lights)   buffers created {}",
+            u.bytes(),
+            u.instances,
+            u.uniforms,
+            u.lights,
+            u.buffers_created
+        );
         if self.skipped > 0 {
             let _ = writeln!(report, "({} frames weren't drawn and aren't counted)", self.skipped);
         }
@@ -559,6 +569,7 @@ impl Bench {
                 "collect_ms": render.collect_ms,
                 "record_ms": render.record_ms,
                 "submit_ms": render.submit_ms,
+                "uploads": render.uploads.json(),
                 "gpu_passes": passes.iter().map(|(n, t)| serde_json::json!({ "name": n, "ms": t / g })).collect::<Vec<_>>(),
                 "systems": self.systems.iter().map(|(name, t)| serde_json::json!({ "name": name, "ms": t / n })).collect::<Vec<_>>(),
             });

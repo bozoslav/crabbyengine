@@ -11,10 +11,10 @@
 //! first level says the second is there: GTAO writes it, or without GTAO a
 //! clear of the new image. (GTAO's own RG8 image and the opaque pass's
 //! black stand-in read 0 there; GLSL ES can't count a texture's levels.)
+use crate::render::traffic::{Counted, Upload};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use glam::{Mat4, Vec3};
-use wgpu::util::DeviceExt;
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -214,11 +214,13 @@ impl Ssr {
             cache: None,
         });
         let copy_pipeline = pipeline("fs_copy", super::gpu3d::HDR_FORMAT);
-        let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("screen reflections"),
-            contents: bytemuck::bytes_of(&<Settings as bytemuck::Zeroable>::zeroed()),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+        let uniform = device
+            .uploading(Upload::Uniforms)
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("screen reflections"),
+                contents: bytemuck::bytes_of(&<Settings as bytemuck::Zeroable>::zeroed()),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("screen reflections"),
             mag_filter: wgpu::FilterMode::Linear,
@@ -251,7 +253,7 @@ impl Ssr {
     pub fn prepare(&mut self, queue: &wgpu::Queue, view_proj: Mat4, camera: Vec3, strength: f32, longest: f32) {
         let previous = self.previous.replace(view_proj);
         self.frame = self.frame.wrapping_add(1);
-        queue.write_buffer(
+        queue.uploading(Upload::Uniforms).write_buffer(
             &self.uniform,
             0,
             bytemuck::bytes_of(&Settings {

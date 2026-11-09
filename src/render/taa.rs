@@ -9,6 +9,7 @@
 //! be resolved up to the output's size; for now the renderer uses one size
 //! for both.
 
+use crate::render::traffic::{Counted, NewBuffer, Upload};
 use glam::Mat4;
 
 use super::gpu3d::HDR_FORMAT;
@@ -215,7 +216,7 @@ impl Taa {
             multiview_mask: None,
             cache: None,
         });
-        let uniform = device.create_buffer(&wgpu::BufferDescriptor {
+        let uniform = device.new_buffer(&wgpu::BufferDescriptor {
             label: Some("TAA"),
             size: size_of::<TaaUniform>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
@@ -314,7 +315,7 @@ impl Taa {
             let (w, h) = (w.max(1) as f32, h.max(1) as f32);
             [w, h, 1.0 / w, 1.0 / h]
         };
-        queue.write_buffer(
+        queue.uploading(Upload::Uniforms).write_buffer(
             &self.uniform,
             0,
             bytemuck::bytes_of(&TaaUniform {
