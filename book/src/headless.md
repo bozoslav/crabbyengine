@@ -84,7 +84,11 @@ cargo build --release -p ponko_ffi \
 </div>
 </div>
 
-That build has 82 crates instead of 142, builds from clean in 7 s instead of
-15 s (release, M-series Mac) and leaves half the build output. Everything in
+That C build needs 168 crates instead of 360. It always keeps 3D models and
+navigation, because the C API exports those functions in every build. The
+Rust engine alone is smaller still: 72 crates with no default features, 143
+with only `audio`, and 312 with the defaults. CI checks that these reduced
+builds never pull in the renderer, an audio device, the inspector, glTF,
+physics or navigation by accident (`scripts/feature-deps.sh`). Everything in
 this chapter works the same. Drawing calls do nothing, and `Game::run`
 (C: `ponko_game_run`) stops with a message that says to use `run_headless`.
