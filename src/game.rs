@@ -1710,3 +1710,6 @@ mod tests {
         assert_eq!(ctx.sprite_count(), 10);
     }
 }
+
+#[cfg(test)]
+mod barrier_tests;

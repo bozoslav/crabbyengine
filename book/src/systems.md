@@ -79,17 +79,68 @@ simulation logic added before it, should move that logic to
 
 ## One frame, in order
 
-1. Simulation ticks, `ctx.fixed_steps()` times; each tick runs the
-   `Input`, `BeforePhysics`, `Physics`, `AfterPhysics` and `SimLast` phases.
-2. Frame systems.
-3. The closure returned from `setup`, if any.
-4. With `3d`, animator and particle updates.
-5. Late systems (`Game::late_system`), then built-in draw systems such as `draw_sprites`.
-6. Spatial audio update, then rendering.
+1. Simulation systems, `ctx.fixed_steps()` times (each tick runs all of them
+   once, in phase order: `Input`, `BeforePhysics`, `Physics`,
+   `AfterPhysics`, `SimLast`).
+2. Frame systems (`Phase::Frame`), then the closure returned from `setup`,
+   if any.
+3. `Phase::Animate` systems, then, with `3d`, the built-in animator and
+   particle updates.
+4. Late systems (`Phase::Late`, `Game::late_system`), then draw systems
+   (`Phase::Draw`) such as the built-in `draw_sprites`.
+5. Spatial audio update, then rendering.
 
-Commands are applied after each system. The setup-returned closure is
-appended to the frame-system list, so it runs before animator updates and
-late systems. Headless execution runs simulation systems only.
+## When changes become visible
+
+Systems run one at a time, each with all of `ctx`. Between two systems
+the engine applies the first one's commands, so **every system is a
+barrier**: within a phase, across phases, and between ticks.
+
+| What | Becomes visible |
+|---|---|
+| A change through `ctx.world` | immediately |
+| A command in `ctx.commands` | when the recording system returns, before the next system; never to the recording system itself |
+| Commands recorded in `setup` | before the first tick |
+| A sent event | immediately, to every later `read` (also the sender's own) |
+| An event, to a system earlier in the order | on that system's next run (the next tick for simulation systems) |
+| Events from simulation ticks, to frame systems | in the same frame, all ticks of it |
+| Events from frame systems, to simulation systems | on the next tick that runs |
+
+Commands apply in the order they were recorded: a closure from
+`commands.add` sees the ones before it, and an `insert` after a `despawn` of
+the same entity does nothing. Engine steps such as the physics step are
+ordinary systems, so commands recorded in `Phase::BeforePhysics` are in the
+world when physics runs. A system skipped by `sim_system_every` doesn't run
+and records nothing. C and C++ systems follow the same rules: inside a
+C query callback recorded commands are still pending, and parallel
+queries refuse commands.
+
+So the next system sees an event together with the commands its sender
+recorded: a `Died(e)` sent with `commands.despawn(e)` arrives when `e` is
+already gone.
+
+Events are dropped at the start of a frame (each tick in headless runs) once
+they are at least one whole frame old *and* older than the slowest
+`sim_system_every` interval. Headless, with every system running every
+tick, an event from tick `t` is kept through tick `t + 1`. While the
+simulation is paused no ticks pass, so events sent by frame systems (a pause
+menu's "restart") wait for the simulation readers.
+
+`tests/schedule_barriers.rs` pins these rules.
+
+### Writing systems that keep working
+
+The flush after every system is the contract for ordinary systems, and it
+stays that way. If parallel scheduling arrives
+([#138](https://github.com/ponkoengine/ponko/issues/138)), systems that opt
+in may get coarser barriers, documented there. To be ready:
+
+- Depend on another system's commands or events through explicit order: put
+  the reader in a later phase, rather than relying on registration order
+  inside one phase.
+- Read results of your own commands on your next run, not in the same call.
+- Keep work that needs the world exactly as it is in one system, through
+  `ctx.world` (immediate) or one `commands.add` closure.
 
 ## Parallel queries and future scheduling
 
@@ -99,8 +150,9 @@ across threads; this is not automatic parallel execution of different systems.
 Optional declared-access scheduling is planned in
 [#137](https://github.com/ponkoengine/ponko/issues/137) and
 [#138](https://github.com/ponkoengine/ponko/issues/138), after safety and
-performance baselines. Event visibility, deferred commands and barriers must
-be explicit ([#146](https://github.com/ponkoengine/ponko/issues/146)). Existing
+performance baselines. The sequential barriers above are the baseline any
+such scheduler must keep or document
+([#146](https://github.com/ponkoengine/ponko/issues/146)). Existing
 unannotated `sim_system` callbacks must remain usable and exclusive.
 See [the architecture](https://github.com/ponkoengine/ponko/blob/main/ARCHITECTURE.md)
 for current subsystem boundaries.
