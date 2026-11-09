@@ -1144,6 +1144,7 @@ impl Ctx {
         self.assets3d.decals_supported = self.supports_decals();
         self.assets3d.gi_supported = self.renderer.as_ref().is_some_and(|r| r.supports_gi());
         let fallback = if self.effects.iter().any(|e| e.material.is_none())
+            || self.target_effects.iter().any(|e| e.material.is_none())
             || self.compute_passes.iter().any(|c| c.material.is_none())
         {
             Some(self.default_material())
@@ -1160,6 +1161,15 @@ impl Ctx {
         skins.collect(&mut self.world, &self.assets3d);
         self.collect_views(&skins);
         let targets = &self.assets3d.render_targets;
+        self.frame3d.target_effects.clear();
+        self.frame3d
+            .target_effects
+            .extend(self.target_effects.iter().filter_map(|e| {
+                let material = e.material.or(fallback)?;
+                targets
+                    .contains(&e.target)
+                    .then_some((e.effect.id, e.target.id, material.id))
+            }));
         self.frame3d.computes.clear();
         self.frame3d.computes.extend(self.compute_passes.iter().filter_map(|c| {
             let material = c.material.or(fallback)?;

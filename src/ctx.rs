@@ -274,6 +274,21 @@ pub struct Ctx {
     /// ```
     #[cfg(feature = "3d")]
     pub effects: Vec<crate::ScreenEffect>,
+    /// Effects run over the lit 3D frame each frame, in order, that write
+    /// into render targets instead of the frame (feature `3d`): after the
+    /// transparent surfaces, before [`effects`](Self::effects). See
+    /// [`TargetEffect`](crate::TargetEffect) for the ordering and resource
+    /// rules.
+    ///
+    /// ```no_run
+    /// # use ponko::*;
+    /// # fn f(ctx: &mut Ctx, glow: Effect) {
+    /// let mask = ctx.create_render_target(256, 256);
+    /// ctx.target_effects.push(TargetEffect::new(glow, mask));
+    /// # }
+    /// ```
+    #[cfg(feature = "3d")]
+    pub target_effects: Vec<crate::TargetEffect>,
     /// Cameras drawing the 3D world into render targets each frame, before
     /// the main view (feature `3d`): mirrors, reflections, security
     /// cameras. See [`TargetCamera`](crate::TargetCamera).
@@ -435,6 +450,8 @@ impl Ctx {
             post: crate::Post::default(),
             #[cfg(feature = "3d")]
             effects: Vec::new(),
+            #[cfg(feature = "3d")]
+            target_effects: Vec::new(),
             #[cfg(feature = "3d")]
             target_cameras: Vec::new(),
             #[cfg(feature = "3d")]

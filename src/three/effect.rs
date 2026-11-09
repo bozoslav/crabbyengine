@@ -2,7 +2,7 @@
 //! bloom and tone mapping (sun shafts, underwater, heat haze, outlines).
 
 use super::Material;
-use crate::Ctx;
+use crate::{Ctx, Texture};
 
 /// A screen effect shader, made with [`Ctx::load_effect`] or
 /// [`Ctx::create_effect`]; a cheap handle. Run it by adding a
@@ -78,6 +78,86 @@ impl ScreenEffect {
     /// # use ponko::*;
     /// # fn f(e: Effect, m: Material) {
     /// let fx = ScreenEffect::new(e).with_material(m);
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn with_material(self, material: Material) -> Self {
+        Self {
+            material: Some(material),
+            ..self
+        }
+    }
+}
+
+/// One entry of [`Ctx::target_effects`](crate::Ctx::target_effects): an
+/// effect shader run over the lit 3D frame that writes its result into a
+/// render target of its own, leaving the frame unchanged.
+///
+/// It reads the frame as a [`ScreenEffect`] does (`p.color`, `p.world`,
+/// `p.distance`, `p.sky`, `scene_color`, `scene_position`) and writes `effect(p)`
+/// into each texel of `target`. A target of another size reads the frame at
+/// the matching point (the nearest pixel, no filtering): a small target is a
+/// cheap, coarse copy.
+///
+/// **When it runs.** Once per frame, after the opaque and transparent
+/// surfaces and temporal antialiasing, and before [`Ctx::effects`](crate::Ctx::effects),
+/// bloom and tone mapping. Target effects run in list order. So in one frame:
+/// - screen effects (and later target effects) that sample `target` see
+///   this frame's result;
+/// - materials, target cameras and compute passes, which run earlier, see the
+///   one from the frame before (all 0 at first).
+///
+/// **Resources.** `target` must be made by [`Ctx::create_render_target`];
+/// other textures are skipped. Its whole contents are replaced each frame. The
+/// game owns it and keeps it until it stops using it; the engine only writes
+/// it. An entry whose material samples its own `target` can't run (one pass
+/// can't read and write the same texture): it is skipped with a warning.
+/// Without a 3D scene nothing runs.
+///
+/// ```no_run
+/// # use ponko::*;
+/// # fn f(ctx: &mut Ctx) {
+/// // A quarter-size map of how far each pixel is, for a later effect to blur.
+/// let far = ctx.create_effect("far", "fn effect(p: Pixel) -> vec3<f32> { return vec3<f32>(p.distance); }");
+/// let depth = ctx.create_render_target(320, 180);
+/// ctx.target_effects.push(TargetEffect::new(far, depth));
+/// # }
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TargetEffect {
+    /// The shader, made like a screen effect's.
+    pub effect: Effect,
+    /// What it writes: made by [`Ctx::create_render_target`].
+    pub target: Texture,
+    /// Where its values and textures come from. `None`: the default
+    /// material (all custom values 0).
+    pub material: Option<Material>,
+}
+
+impl TargetEffect {
+    /// Runs `effect` into `target` with no values of its own.
+    ///
+    /// ```no_run
+    /// # use ponko::*;
+    /// # fn f(ctx: &mut Ctx, e: Effect, t: Texture) {
+    /// ctx.target_effects.push(TargetEffect::new(e, t));
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn new(effect: Effect, target: Texture) -> Self {
+        Self {
+            effect,
+            target,
+            material: None,
+        }
+    }
+
+    /// The same, reading its values and textures from `material`.
+    ///
+    /// ```no_run
+    /// # use ponko::*;
+    /// # fn f(e: Effect, t: Texture, m: Material) {
+    /// let pass = TargetEffect::new(e, t).with_material(m);
     /// # }
     /// ```
     #[must_use]

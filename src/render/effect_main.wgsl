@@ -17,3 +17,35 @@ fn fs_effect(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
     p.sky = textureLoad(scene_depth_texture, clamp(vec2<i32>(at.xy), vec2<i32>(0), size - 1), 0) >= 1.0;
     return vec4<f32>(effect(p), 1.0);
 }
+
+// Target effects: the same `effect`, written into a render target of any
+// size. Each texel reads the frame at the matching point (`uv` across the
+// target, times the frame's size), so a smaller target is a coarse copy.
+struct TargetOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+
+@vertex
+fn vs_effect_target(@builtin(vertex_index) i: u32) -> TargetOut {
+    let uv = vec2<f32>(f32((i << 1u) & 2u), f32(i & 2u));
+    var out: TargetOut;
+    out.position = vec4<f32>(uv * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0), 0.0, 1.0);
+    out.uv = uv;
+    return out;
+}
+
+@fragment
+fn fs_effect_target(in: TargetOut) -> @location(0) vec4<f32> {
+    let size = vec2<i32>(textureDimensions(scene_depth_texture));
+    let texel = clamp(vec2<i32>(in.uv * frame.screen.xy), vec2<i32>(0), size - 1);
+    let at = vec2<f32>(texel) + 0.5;
+    var p: Pixel;
+    p.screen = at;
+    p.uv = at * frame.screen.zw;
+    p.color = scene_color(at);
+    p.world = scene_position(at);
+    p.distance = distance(p.world, frame.camera.xyz);
+    p.sky = textureLoad(scene_depth_texture, texel, 0) >= 1.0;
+    return vec4<f32>(effect(p), 1.0);
+}

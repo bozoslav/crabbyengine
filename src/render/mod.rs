@@ -133,6 +133,8 @@ mod skin_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod ssr_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
+mod target_effect_render_test;
+#[cfg(all(test, feature = "window", feature = "3d"))]
 mod text3d_render_test;
 
 #[cfg(all(test, feature = "window", feature = "3d"))]
