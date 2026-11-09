@@ -1905,6 +1905,16 @@ impl Ctx {
         self.last_render_stats
     }
 
+    /// What the GPU can do: the adapter, its main limits, and for each
+    /// device-dependent renderer feature (compute passes, TAA, SSR, global
+    /// illumination, GPU timestamps, ...) whether it's available and, if
+    /// not, the fallback used and why. `None` in headless runs and before
+    /// the window opens. See [`GpuCapabilities`](crate::GpuCapabilities).
+    #[must_use]
+    pub fn gpu_capabilities(&self) -> Option<&crate::GpuCapabilities> {
+        self.renderer.as_ref().map(Renderer::capabilities)
+    }
+
     /// Frame-time statistics over the last few seconds: frames per second,
     /// average and percentile frame times, and where the time went (systems,
     /// drawing on the CPU, waiting for the display, the GPU). Refreshed four

@@ -2,6 +2,7 @@
 //! lives in `gpu`, behind the `window` feature; without it, `none` stands in.
 
 pub(crate) mod batch;
+pub(crate) mod capabilities;
 #[cfg(all(feature = "window", feature = "3d"))]
 mod gi;
 #[cfg(feature = "window")]
@@ -33,6 +34,7 @@ mod timer;
 #[cfg(feature = "window")]
 pub(crate) mod traffic;
 
+pub use capabilities::{GpuAdapter, GpuCapabilities, GpuFeature, GpuFeatureStatus, GpuLimits};
 #[cfg(feature = "window")]
 pub(crate) use gpu::Renderer;
 #[cfg(all(feature = "window", feature = "3d"))]

@@ -65,6 +65,8 @@ pub(crate) struct Renderer {
     instance_capacity: usize,
 
     timer: Option<GpuTimer>,
+    /// What this GPU can do and the fallbacks used (fixed once opened).
+    capabilities: super::GpuCapabilities,
     /// Draw frames the window can't take into `hidden_target` instead of
     /// skipping them (benchmarks).
     draw_hidden: bool,
@@ -326,6 +328,11 @@ impl Renderer {
         }
     }
 
+    /// What this GPU can do, and what the renderer does where it can't.
+    pub fn capabilities(&self) -> &super::GpuCapabilities {
+        &self.capabilities
+    }
+
     /// The latest GPU frame's passes and how many frames the timer has read.
     pub fn gpu_frame(&self) -> Option<(&[crate::profiler::PassSpan], u64)> {
         self.timer.as_ref().map(|t| (&t.last_frame[..], t.frames_read))
@@ -394,6 +401,7 @@ impl Renderer {
 
         // The 3D frame's samples per pixel: the game's choice where this GPU
         // can multisample both 3D targets that much, else 4 (always works).
+        let requested_msaa = msaa;
         #[cfg(feature = "3d")]
         let msaa = if super::gpu3d::multisamples(&adapter, msaa) {
             msaa
@@ -401,8 +409,7 @@ impl Renderer {
             eprintln!("ponko: this GPU can't do {msaa}x multisampling here; using 4x");
             4
         };
-        #[cfg(not(feature = "3d"))]
-        let _ = msaa;
+        let capabilities = super::capabilities::of_device(&adapter.get_info(), &device, (requested_msaa, msaa));
         // Apple's GPUs (Metal) draw in tiles and drop hidden solid fragments
         // themselves: there solid surfaces skip the depth prepass.
         #[cfg(feature = "3d")]
@@ -547,6 +554,7 @@ impl Renderer {
             instance_buffer,
             instance_capacity: INITIAL_INSTANCE_CAPACITY,
             timer,
+            capabilities,
             draw_hidden: false,
             only_hidden: false,
             hidden_target: None,
