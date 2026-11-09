@@ -176,9 +176,12 @@ impl Lists {
         }
     }
 
-    /// Room for `more` ids without growing further than that.
+    /// Room for `more` ids: grows by that, or an eighth if that is more.
     pub fn reserve(&mut self, more: usize) {
-        self.applied.reserve_exact(more.saturating_sub(self.free.len()));
+        let (more, len) = (more.saturating_sub(self.free.len()), self.applied.len());
+        if self.applied.capacity() - len < more {
+            self.applied.reserve_exact(more.max(len / 8));
+        }
     }
 
     /// A new id, drawn nowhere.
@@ -482,14 +485,6 @@ impl Source {
         }
         h | 1
     }
-
-    fn transform(&self) -> Transform3D {
-        Transform3D {
-            rotation: Quat::from_array(self.rotation),
-            position: Vec3::from_array(self.position),
-            scale: Vec3::from_array(self.scale),
-        }
-    }
 }
 
 /// The model as the GPU reads it, from the first [`KEPT`] words of its
@@ -562,9 +557,14 @@ fn derive(source: &Source, assets: &Assets3D, overrides: &Overrides<'_>) -> Deri
     }
     .filter(|&c| assets.casts_shadows(c));
     let caster_bounds = caster.and_then(|c| assets.live_bounds(c));
-    let transform = source.transform();
-    let (matrix, scale) = (transform.matrix(), transform.scale.abs().max_element());
-    let world = |(center, radius): (Vec3, f32)| matrix.transform_point3(center).extend(radius * scale).to_array();
+    let (rotation, position) = (Quat::from_array(source.rotation), Vec3::from_array(source.position));
+    let scale = Vec3::from_array(source.scale);
+    let widest = scale.abs().max_element();
+    let world = |(center, radius): (Vec3, f32)| {
+        (position + rotation * (scale * center))
+            .extend(radius * widest)
+            .to_array()
+    };
     // The model's own mesh, wherever it is drawn (not a separate
     // `ShadowMesh`), takes the override.
     let own = if source.material == NONE {
@@ -588,6 +588,8 @@ fn derive(source: &Source, assets: &Assets3D, overrides: &Overrides<'_>) -> Deri
 /// find changed in place (plain loads and stores: every model is found by
 /// one task).
 struct Cold {
+    /// What its instance is made from: written by the compare when the
+    /// lists need the instance (stale otherwise).
     kept: [AtomicU32; KEPT],
     /// See [`Derived`].
     mesh: AtomicU32,
@@ -639,6 +641,8 @@ pub(crate) struct Tracked {
     results: Vec<u32>,
     /// What the models were last worked out and culled with.
     facts: Vec<Fact>,
+    /// By mesh id: whether its facts changed this frame (see `sync`).
+    stale: Vec<bool>,
     overrides: (u32, Vec<(u32, u32)>),
     view: Vec<f32>,
 }
@@ -655,6 +659,11 @@ struct Pass<'a> {
     overrides: &'a Overrides<'a>,
     /// Work every model out again.
     force: bool,
+    /// By mesh id, when some meshes' facts changed: work their models out
+    /// again.
+    stale: Option<&'a [bool]>,
+    /// Work the models with a material override out again.
+    renumbered: bool,
     /// Cull every model again.
     cull: bool,
 }
@@ -673,13 +682,24 @@ impl Pass<'_> {
         };
         let source = Source::of(t, m, shadow, skeleton, receives, material);
         let digest = source.digest();
-        // With ECS change ticks, this compare is what a tick test replaces.
-        if self.force || self.digests[k].load(Ordering::Relaxed) != digest {
-            let cold = &self.cold[k];
-            let derived = derive(&source, self.assets, self.overrides);
+        let stale = |mesh: u32| {
+            self.stale
+                .is_some_and(|s| s.get(mesh as usize).copied().unwrap_or(false))
+        };
+        let cold = &self.cold[k];
+        let keep = || {
             for (kept, &word) in cold.kept.iter().zip(source.words()) {
                 kept.store(word, Ordering::Relaxed);
             }
+        };
+        // With ECS change ticks, this compare is what a tick test replaces.
+        if self.force
+            || self.digests[k].load(Ordering::Relaxed) != digest
+            || stale(source.mesh)
+            || stale(source.shadow)
+            || (self.renumbered && source.material != NONE)
+        {
+            let derived = derive(&source, self.assets, self.overrides);
             let spheres = derived.sphere.into_iter().chain(derived.caster_sphere);
             for (kept, value) in self.spheres[k].iter().zip(spheres) {
                 kept.store(value.to_bits(), Ordering::Relaxed);
@@ -689,6 +709,9 @@ impl Pass<'_> {
             self.digests[k].store(digest, Ordering::Relaxed);
             let flags = self.culler.classify_spheres(derived.sphere, derived.caster_sphere);
             cold.pending.store(flags, Ordering::Relaxed);
+            if flags != 0 {
+                keep();
+            }
             if flags != 0 || self.applied[k] != 0 {
                 return k as u32;
             }
@@ -696,7 +719,10 @@ impl Pass<'_> {
             let [x, y, z, r, cx, cy, cz, cr] = load(&self.spheres[k]);
             let flags = self.culler.classify_spheres([x, y, z, r], [cx, cy, cz, cr]);
             if flags != self.applied[k] {
-                self.cold[k].pending.store(flags, Ordering::Relaxed);
+                cold.pending.store(flags, Ordering::Relaxed);
+                if flags != 0 {
+                    keep();
+                }
                 return k as u32;
             }
         }
@@ -718,55 +744,50 @@ impl Tracked {
         arena: &mut Vec<Instance3D>,
         motion: &mut Motion,
     ) {
-        // Everything is worked out again when what it is worked out from
-        // changed: the meshes' facts or the overrides' numbering.
-        let facts = (0..assets.bounds.len() as u32).map(|id| {
-            let (center, radius) = assets.bounds[id as usize];
-            let shadowless = !assets.casts_shadows(id);
-            (
-                center,
-                radius,
-                shadowless,
-                assets.skin(id).is_some(),
-                assets.morph(id).is_some(),
-            )
-        });
-        let mut force = false;
-        if !self.facts.iter().copied().eq(facts.clone()) {
+        // Models are worked out again when what they are worked out from
+        // changed: the facts of their meshes, or (for models with a
+        // material override) the overrides' numbering.
+        let fact = |id: usize| -> Fact {
+            let (center, radius) = assets.bounds[id];
+            let shadowless = !assets.casts_shadows(id as u32);
+            let (skin, morph) = (assets.skin(id as u32).is_some(), assets.morph(id as u32).is_some());
+            (center, radius, shadowless, skin, morph)
+        };
+        let meshes = assets.bounds.len();
+        let same = self.facts.len() == meshes && (0..meshes).all(|id| self.facts[id] == fact(id));
+        if !same {
+            self.stale.clear();
+            self.stale.resize(meshes.max(self.facts.len()), true);
+            for id in 0..meshes.min(self.facts.len()) {
+                self.stale[id] = self.facts[id] != fact(id);
+            }
             self.facts.clear();
-            self.facts.extend(facts);
-            force = true;
+            self.facts.extend((0..meshes).map(fact));
         }
-        if self.overrides.0 != overrides.base || self.overrides.1 != overrides.pairs {
+        let renumbered = self.overrides.0 != overrides.base || self.overrides.1 != overrides.pairs;
+        if renumbered {
             self.overrides.0 = overrides.base;
             self.overrides.1.clear();
             self.overrides.1.extend_from_slice(overrides.pairs);
-            force = true;
         }
         // Everything is culled again when the views changed.
         let cull = culler.changed_since(&mut self.view);
 
         // On all cores: each model is compared with what is kept of it.
         let mut results = std::mem::take(&mut self.results);
-        let pass = |tracked: &Self, results: &mut Vec<u32>, world: &mut World, force| {
+        let pass = |tracked: &Self, results: &mut Vec<u32>, world: &mut World| {
             let pass = Pass {
-                slot_of: &tracked.slot_of,
-                digests: &tracked.digests,
-                spheres: &tracked.spheres,
-                cold: &tracked.cold,
-                applied: &tracked.applied,
-                assets,
-                culler,
-                overrides,
-                force,
-                cull,
+                force: false,
+                stale: (!same).then_some(&tracked.stale[..]),
+                renumbered,
+                ..tracked.pass(assets, culler, overrides, cull)
             };
             world
                 .query::<ModelItem<'_>>()
                 .without::<SkinOf>()
                 .par_collect_into(results, |item| pass.check(item));
         };
-        pass(self, &mut results, world, force);
+        pass(self, &mut results, world);
         let mut new = 0;
         for &result in &results {
             match result {
@@ -792,25 +813,14 @@ impl Tracked {
                     if many {
                         return; // its digest matches nothing yet
                     }
-                    let pass = Pass {
-                        slot_of: &self.slot_of,
-                        digests: &self.digests,
-                        spheres: &self.spheres,
-                        cold: &self.cold,
-                        applied: &self.applied,
-                        assets,
-                        culler,
-                        overrides,
-                        force: true,
-                        cull,
-                    };
+                    let pass = self.pass(assets, culler, overrides, cull);
                     if pass.check((entity, t, m, shadow, skeleton, receives, material)) == k as u32 {
                         self.apply(k, lists, arena, motion);
                     }
                 },
             );
             if many {
-                pass(self, &mut results, world, false);
+                pass(self, &mut results, world);
                 for &result in &results {
                     if result < NEW {
                         self.apply(result as usize, lists, arena, motion);
@@ -825,17 +835,47 @@ impl Tracked {
         self.results = results;
     }
 
-    /// Room for `new` more objects, without growing the buffers further
-    /// than that.
+    /// A pass that works out every model it is given.
+    fn pass<'a>(
+        &'a self,
+        assets: &'a Assets3D,
+        culler: &'a Culler<'a>,
+        overrides: &'a Overrides<'a>,
+        cull: bool,
+    ) -> Pass<'a> {
+        Pass {
+            slot_of: &self.slot_of,
+            digests: &self.digests,
+            spheres: &self.spheres,
+            cold: &self.cold,
+            applied: &self.applied,
+            assets,
+            culler,
+            overrides,
+            force: true,
+            stale: None,
+            renumbered: false,
+            cull,
+        }
+    }
+
+    /// Room for `new` more objects. The buffers grow by what is asked for,
+    /// or an eighth if that is more: a world loaded at once takes no more
+    /// than it needs, and one that grows a model at a time isn't copied
+    /// for each.
     fn reserve(&mut self, new: usize, lists: &mut Lists) {
         let more = new.saturating_sub(self.free.len());
-        self.entities.reserve_exact(more);
-        self.digests.reserve_exact(more);
-        self.spheres.reserve_exact(more);
-        self.cold.reserve_exact(more);
-        self.applied.reserve_exact(more);
-        self.ids.reserve_exact(more);
-        self.stamps.reserve_exact(more);
+        let len = self.entities.len();
+        if self.entities.capacity() - len < more {
+            let room = more.max(len / 8);
+            self.entities.reserve_exact(room);
+            self.digests.reserve_exact(room);
+            self.spheres.reserve_exact(room);
+            self.cold.reserve_exact(room);
+            self.applied.reserve_exact(room);
+            self.ids.reserve_exact(room);
+            self.stamps.reserve_exact(room);
+        }
         lists.reserve(more);
     }
 
@@ -935,6 +975,7 @@ impl Tracked {
             + self.slot_of.capacity() * size_of::<u64>()
             + (self.free.capacity() + self.results.capacity()) * size_of::<u32>()
             + self.facts.capacity() * size_of::<Fact>()
+            + self.stale.capacity()
             + self.overrides.1.capacity() * size_of::<(u32, u32)>()
             + self.view.capacity() * size_of::<f32>()
     }

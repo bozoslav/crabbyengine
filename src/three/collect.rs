@@ -55,6 +55,10 @@ impl Instance3D {
     }
 }
 
+/// The renderer uploads the instances that changed since the frame before;
+/// two of them with up to this many unchanged ones between go in one write.
+pub(crate) const INSTANCE_BRIDGE: usize = 15;
+
 /// Set in the mesh id of a run whose instances are crossfading (dithered):
 /// their depth and shadow passes run a fragment shader for the dither.
 pub(crate) const FADED: u32 = 1 << 31;

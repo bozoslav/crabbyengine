@@ -127,15 +127,12 @@ use crate::Material;
 use crate::three::gi::GI_SHADOW_SIZE;
 use crate::three::motion::MovedInstance;
 use crate::three::{
-    FADED, GpuMaterialDesc, Instance3D, MAX_CASCADES, MAX_LIGHT_SHADOW_VIEWS, MAX_SHADOW_VIEWS, MaterialTextures,
-    MeshData, PostUniform, linear, scaled_size, shadow_views,
+    FADED, GpuMaterialDesc, INSTANCE_BRIDGE, Instance3D, MAX_CASCADES, MAX_LIGHT_SHADOW_VIEWS, MAX_SHADOW_VIEWS,
+    MaterialTextures, MeshData, PostUniform, linear, scaled_size, shadow_views,
 };
 use crate::three::{Frame3D, Scene3D};
 use crate::three::{ShaderDiagnostic, ShaderKind};
 
-/// Models per page of the instance buffer: a frame uploads the pages
-/// whose records changed (32 × 80 bytes).
-const INSTANCE_PAGE: usize = 32;
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 /// The lit frame before tone mapping: light brighter than white survives.
 pub(super) const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
@@ -2812,7 +2809,9 @@ impl Renderer3D {
         let uploads = queue.uploading(Upload::Instances);
         let buffer = &self.instances;
         let mut upload = |at: usize, bytes: &[u8]| uploads.write_buffer(buffer, at as u64, bytes);
-        let page = INSTANCE_PAGE * size_of::<Instance3D>();
+        // A frame uploads the instances that changed, with the few
+        // unchanged ones between two of them.
+        let page = size_of::<Instance3D>();
         let mut at = 0;
         let views = frame.views.iter().map(|v| &v.frame.instances);
         for instances in std::iter::once(&frame.instances)
@@ -2820,7 +2819,8 @@ impl Renderer3D {
             .chain(gi_frame.map(|g| &g.capture.instances))
         {
             let bytes = bytemuck::cast_slice(instances);
-            self.instance_mirror.sync(at, bytes, page, &mut upload);
+            self.instance_mirror
+                .sync_bridged(at, bytes, page, INSTANCE_BRIDGE, &mut upload);
             at += bytes.len();
         }
         if self.velocity_on && !frame.motion.runs.is_empty() {

@@ -4,13 +4,9 @@
 
 use glam::Vec3;
 
-use super::collect::{Frame3D, Instance3D, shadow_views};
+use super::collect::{Frame3D, INSTANCE_BRIDGE, Instance3D, shadow_views};
 use super::{Assets3D, Camera3D, Lighting, Mesh, SkinFrame};
 use crate::World;
-
-/// Models per page of the renderer's instance buffer (its `INSTANCE_PAGE`):
-/// a frame uploads the pages whose bytes changed.
-const PAGE: usize = 32;
 
 /// Collects a world's 3D frame the way the engine does before drawing, and
 /// measures what that costs: see [`ExtractionSample`].
@@ -80,25 +76,26 @@ impl ExtractionBench {
 
     /// Brings the stand-in for the GPU's instance buffer up to the last
     /// collected frame, as the renderer does, and returns the bytes that
-    /// uploads: every page of 32 instances that differs from the frame before.
+    /// uploads: every instance that differs from the frame before, with the
+    /// few unchanged ones between two of them.
     pub fn sync_uploads(&mut self) -> usize {
         let new = &self.frame.instances;
-        let record = size_of::<Instance3D>();
-        let mut bytes = 0;
-        for (page, now) in new.chunks(PAGE).enumerate() {
-            let at = page * PAGE;
-            let same = self
-                .mirror
-                .get(at..at + now.len())
-                .is_some_and(|before| bytemuck::cast_slice::<_, u8>(before) == bytemuck::cast_slice::<_, u8>(now));
-            if !same {
-                bytes += now.len() * record;
-            }
+        let same = |i: usize| {
+            (self.mirror.get(i)).is_some_and(|before| bytemuck::bytes_of(before) == bytemuck::bytes_of(&new[i]))
+        };
+        // The end of the last changed instance's run, and what is written.
+        let (mut last, mut written) = (None, 0);
+        for i in (0..new.len()).filter(|&i| !same(i)) {
+            written += match last {
+                Some(last) if i - last <= INSTANCE_BRIDGE => i + 1 - last,
+                _ => 1,
+            };
+            last = Some(i + 1);
         }
         if self.mirror.len() < new.len() {
             self.mirror.resize(new.len(), Instance3D::default());
         }
         self.mirror[..new.len()].copy_from_slice(new);
-        bytes
+        written * size_of::<Instance3D>()
     }
 }
