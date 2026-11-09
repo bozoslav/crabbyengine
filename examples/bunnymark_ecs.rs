@@ -141,7 +141,7 @@ fn main() {
         .vsync(false)
         .system(bounce)
         .system(report)
-        .run(move |ctx| {
+        .setup(move |ctx| {
             let crab = ctx.load_texture("crab.png");
             ctx.world.insert_resource(Bench {
                 crab,
@@ -154,5 +154,6 @@ fn main() {
                 scale: env_number("SCALE", 1.0) as f32,
             });
             spawn(ctx, start_count, vec2(20.0, 20.0));
-        });
+        })
+        .run();
 }
