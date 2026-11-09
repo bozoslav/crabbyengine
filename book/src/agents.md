@@ -37,6 +37,7 @@ ctx.world.reflect::<Health>();
 | `list_instances` | | find running games |
 | `launch` | ✓ | build and start a game or example; headless and paused by default |
 | `instance_info` | | tick, sim time, paused, speed, fps, entity count, render CPU/GPU ms |
+| `instance_capabilities` | | what this game can do before you try: headless or windowed, compiled features, subsystems and why one is off, which tools work on it (and why not), reflected types with their field schema ([details](control.md#capabilities)) |
 | `world_summary` | | archetypes, entity counts, reflected components |
 | `list_entities` | | entities with component values; filter by component names and `where` conditions (`Health.current < 5`), paged |
 | `get_entity` | | one entity's components |
@@ -126,6 +127,9 @@ deliveries in that time from 328 to 1,747.
   can ask "who's winning?" without counting entities, and the events
   (`ctx.events.reflect::<Died>()`), so it can see what happened, not only
   the state afterwards.
+- Describe the shape of reflected types an agent should write
+  (`world.describe_component("Health", ValueSchema::object([...]))`), so
+  `instance_capabilities` lists their fields; otherwise they show as opaque.
 - Read sizes and seeds from environment variables (like the examples'
   `BOIDS` and `HEADLESS`), so `launch` can set them through `env`.
 - Support headless: put game logic in sim systems; it then runs without a
