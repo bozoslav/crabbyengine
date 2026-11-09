@@ -252,10 +252,7 @@ fn strip_param_name(p: &str) -> String {
     if p.contains('(') || p == "void" || p == "..." {
         return p;
     }
-    let tokens: Vec<&str> = p
-        .split(|c: char| c == ' ' || c == '*')
-        .filter(|t| !t.is_empty())
-        .collect();
+    let tokens: Vec<&str> = p.split([' ', '*']).filter(|t| !t.is_empty()).collect();
     let type_words = ["struct", "enum", "const", "unsigned", "signed", "long", "short"];
     match tokens.as_slice() {
         [.., prev, last] if !type_words.contains(prev) && !type_words.contains(last) => {
@@ -348,7 +345,7 @@ fn parse_header(text: &str) -> BTreeMap<String, Item> {
         } else if let Some(open) = st.find('(') {
             let close = st.rfind(')').unwrap();
             let head = &st[..open];
-            let name = head.rsplit(|c: char| c == ' ' || c == '*').next().unwrap().to_string();
+            let name = head.rsplit([' ', '*']).next().unwrap().to_string();
             let ret = head[..head.len() - name.len()].trim().to_string();
             let args = &st[open + 1..close];
             // Split parameters at commas outside parentheses.
