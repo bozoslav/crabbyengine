@@ -25,6 +25,34 @@ const PIXELS_PER_SCROLL_LINE: f32 = 20.0;
 /// How often to check whether a hidden/minimized window is visible again.
 const OCCLUDED_POLL: Duration = Duration::from_millis(100);
 
+/// Sequential execution buckets, ordered independently of builder call order.
+///
+/// `Input` through `SimLast` run once per fixed tick (also headlessly).
+/// `Frame` through `Draw` run once per rendered frame. Systems in the same
+/// phase run in registration order, applying deferred commands after each one.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Phase {
+    /// Fixed-tick input preparation, before all other simulation work.
+    Input,
+    /// Fixed-tick gameplay that feeds the physics step.
+    BeforePhysics,
+    /// Fixed-tick physics integration.
+    Physics,
+    /// Fixed-tick gameplay observing the current physics result.
+    AfterPhysics,
+    /// Final fixed-tick work, before advancing the tick counter.
+    SimLast,
+    /// Per-frame gameplay, after the due simulation ticks.
+    Frame,
+    /// Per-frame pose work after frame gameplay.
+    Animate,
+    /// Per-frame work after animation and before drawing.
+    Late,
+    /// Per-frame drawing after final positions are available.
+    Draw,
+}
+
 /// A game: a window plus the loop that drives your code.
 ///
 /// ```no_run
@@ -103,6 +131,7 @@ type SystemFn = Box<dyn FnMut(&mut Ctx)>;
 /// A system: a named function that runs over the world.
 struct System {
     name: &'static str,
+    stage: Phase,
     run: SystemFn,
     /// Simulation systems only: run on ticks where `tick % every == phase`.
     every: u32,
@@ -155,6 +184,7 @@ impl System {
     fn new<F: FnMut(&mut Ctx) + 'static>(f: F) -> Self {
         System {
             name: std::any::type_name::<F>(),
+            stage: Phase::AfterPhysics,
             run: hot(f),
             every: 1,
             phase: 0,
@@ -261,6 +291,37 @@ impl Game {
         }
     }
 
+    /// Registers a system in an explicit execution phase.
+    ///
+    /// Compatibility mappings: `sim_system` (including interval/named forms)
+    /// uses `AfterPhysics`, `system` uses `Frame`, and `late_system` uses `Late`.
+    /// Built-in physics always uses `Physics`; use `BeforePhysics` for logic
+    /// that must affect the current physics step. This is sequential scheduling.
+    ///
+    /// ```
+    /// use ponko::{Game, Phase};
+    /// let world = Game::new("server", 1, 1)
+    ///     .add(Phase::BeforePhysics, |_| {})
+    ///     .add(Phase::AfterPhysics, |_| {})
+    ///     .run_headless(1, |_| {});
+    /// assert!(world.is_empty());
+    /// ```
+    pub fn add(mut self, phase: Phase, system: impl FnMut(&mut Ctx) + 'static) -> Self {
+        let mut s = System::new(system);
+        s.stage = phase;
+        let systems = match phase {
+            Phase::Input | Phase::BeforePhysics | Phase::Physics | Phase::AfterPhysics | Phase::SimLast => {
+                &mut self.sim_systems
+            }
+            Phase::Frame | Phase::Animate => &mut self.systems,
+            Phase::Late => &mut self.late_systems,
+            Phase::Draw => &mut self.draw_systems,
+        };
+        let index = systems.partition_point(|s| s.stage <= phase);
+        systems.insert(index, s);
+        self
+    }
+
     /// Plays over the network in deterministic lockstep: `net` from
     /// [`Net::host`](crate::Net::host), [`Net::join`](crate::Net::join) or
     /// [`Net::loopback`](crate::Net::loopback). Ticks then run only once
@@ -297,9 +358,8 @@ impl Game {
     /// use ponko::*;
     /// Game::new("Pose", 800, 600).late_system(|ctx| { let _ = ctx.dt(); }).run(|_| {});
     /// ```
-    pub fn late_system<F: FnMut(&mut Ctx) + 'static>(mut self, system: F) -> Self {
-        self.late_systems.push(System::new(system));
-        self
+    pub fn late_system<F: FnMut(&mut Ctx) + 'static>(self, system: F) -> Self {
+        self.add(Phase::Late, system)
     }
 
     /// Adds a simulation system: it runs at the fixed rate
@@ -307,7 +367,7 @@ impl Game {
     /// times per frame, and `ctx.dt()` inside it is the fixed step.
     /// Put game logic here so it behaves the same at any frame rate.
     ///
-    /// Systems run in the order they were added.
+    /// Systems run in `Phase::AfterPhysics`, in registration order.
     ///
     /// ```no_run
     /// # use ponko::*;
@@ -316,9 +376,8 @@ impl Game {
     ///
     /// Game::new("Sim", 800, 600).sim_system(gravity).sim_system(movement).run(|_| {});
     /// ```
-    pub fn sim_system<F: FnMut(&mut Ctx) + 'static>(mut self, system: F) -> Self {
-        self.sim_systems.push(System::new(system));
-        self
+    pub fn sim_system<F: FnMut(&mut Ctx) + 'static>(self, system: F) -> Self {
+        self.add(Phase::AfterPhysics, system)
     }
 
     /// Adds a simulation system that runs only every `ticks`-th tick, for
@@ -362,7 +421,8 @@ impl Game {
         let same = self.sim_systems.iter().filter(|s| s.every == ticks).count() as u32;
         s.every = ticks;
         s.phase = same % ticks;
-        self.sim_systems.push(s);
+        let index = self.sim_systems.partition_point(|s| s.stage <= Phase::AfterPhysics);
+        self.sim_systems.insert(index, s);
         self
     }
 
@@ -394,7 +454,9 @@ impl Game {
     pub fn named_system(mut self, name: &'static str, system: impl FnMut(&mut Ctx) + 'static) -> Self {
         let mut s = System::new(system);
         s.name = name;
-        self.systems.push(s);
+        s.stage = Phase::Frame;
+        let index = self.systems.partition_point(|s| s.stage <= Phase::Frame);
+        self.systems.insert(index, s);
         self
     }
 
@@ -419,8 +481,8 @@ impl Game {
     /// casts rays and finds overlaps.
     ///
     /// The step is the built-in [`step_physics`](crate::step_physics) sim
-    /// system, removable or reorderable like any other. It runs after the
-    /// systems added before this call.
+    /// system in [`Phase::Physics`], independent of builder call order.
+    /// Use [`Phase::BeforePhysics`] for work that must run before the step.
     ///
     /// ```
     /// use ponko::*;
@@ -438,7 +500,7 @@ impl Game {
         self.gravity = Some(gravity);
         let name = std::any::type_name_of_val(&crate::step_physics);
         if !self.sim_systems.iter().any(|s| s.name == name) {
-            self.sim_systems.push(System::new(crate::step_physics));
+            self = self.add(Phase::Physics, crate::step_physics);
         }
         self
     }
@@ -454,11 +516,11 @@ impl Game {
     /// The simulation runs at [`PHYSICS3D_HZ`](crate::PHYSICS3D_HZ) (50)
     /// ticks per second unless [`fixed_hz`](Self::fixed_hz) chose a rate;
     /// in a window, moving bodies are drawn blended between ticks
-    /// ([`interpolate_physics3d`](crate::interpolate_physics3d), the first
-    /// frame system). The step is the built-in
-    /// [`step_physics3d`](crate::step_physics3d) sim system, removable or
-    /// reorderable like any other. It runs after the systems added before
-    /// this call.
+    /// ([`interpolate_physics3d`](crate::interpolate_physics3d), a
+    /// `Frame` system). The step is the built-in
+    /// [`step_physics3d`](crate::step_physics3d) sim system, removable and
+    /// registered in [`Phase::Physics`], independent of builder call order.
+    /// Use [`Phase::BeforePhysics`] for work that must run before the step.
     ///
     /// ```
     /// use ponko::*;
@@ -479,11 +541,11 @@ impl Game {
         }
         let name = std::any::type_name_of_val(&crate::step_physics3d);
         if !self.sim_systems.iter().any(|s| s.name == name) {
-            self.sim_systems.push(System::new(crate::step_physics3d));
+            self = self.add(Phase::Physics, crate::step_physics3d);
         }
         let name = std::any::type_name_of_val(&crate::interpolate_physics3d);
         if !self.systems.iter().any(|s| s.name == name) {
-            self.systems.insert(0, System::new(crate::interpolate_physics3d));
+            self = self.add(Phase::Frame, crate::interpolate_physics3d);
         }
         self
     }
@@ -503,7 +565,7 @@ impl Game {
         self.spatial_cell = Some(crate::SpatialGrid::new(cell_size).cell_size());
         let name = std::any::type_name_of_val(&rebuild_spatial_grid);
         if !self.sim_systems.iter().any(|s| s.name == name) {
-            self.sim_systems.insert(0, System::new(rebuild_spatial_grid));
+            self = self.add(Phase::Input, rebuild_spatial_grid);
         }
         self
     }
@@ -519,9 +581,8 @@ impl Game {
     ///
     /// Game::new("Sim", 800, 600).system(quit_on_escape).run(|_| {});
     /// ```
-    pub fn system<F: FnMut(&mut Ctx) + 'static>(mut self, system: F) -> Self {
-        self.systems.push(System::new(system));
-        self
+    pub fn system<F: FnMut(&mut Ctx) + 'static>(self, system: F) -> Self {
+        self.add(Phase::Frame, system)
     }
 
     /// Removes a system that was added before, including the built-in
@@ -1141,6 +1202,36 @@ mod tests {
         assert!(ctx.system_timings()[1].name.ends_with("::late"));
         let game = game.remove_system(late);
         assert!(game.late_systems.is_empty());
+    }
+
+    #[test]
+    fn explicit_phases_sort_without_changing_order_within_a_phase() {
+        let mut game = bare(Game::new("t", 1, 1))
+            .add(Phase::Draw, |ctx| log(ctx, "draw"))
+            .add(Phase::Late, |ctx| log(ctx, "late"))
+            .add(Phase::Animate, |ctx| log(ctx, "animate"))
+            .add(Phase::Frame, |ctx| log(ctx, "frame1"))
+            .system(|ctx| log(ctx, "frame2"))
+            .add(Phase::SimLast, |ctx| log(ctx, "sim_last"))
+            .add(Phase::AfterPhysics, |ctx| log(ctx, "after"))
+            .add(Phase::Physics, |ctx| log(ctx, "physics"))
+            .add(Phase::BeforePhysics, |ctx| log(ctx, "before"))
+            .add(Phase::Input, |ctx| log(ctx, "input"));
+        let mut ctx = ctx();
+        game.run_systems(&mut ctx, 1);
+        let names: Vec<_> = ctx
+            .world
+            .resource::<Log>()
+            .0
+            .iter()
+            .map(|s| s.split(' ').next().unwrap())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "input", "before", "physics", "after", "sim_last", "frame1", "frame2", "animate", "late", "draw"
+            ]
+        );
     }
 
     #[test]

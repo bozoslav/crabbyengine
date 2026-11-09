@@ -7,6 +7,19 @@ says what that covers.
 
 ## [Unreleased]
 
+### Explicit runtime phases (first stage)
+
+- Add `Phase` and `Game::add(phase, system)` for sequential fixed-tick and
+  frame scheduling. Within each phase, registration order is preserved.
+- `sim_system` and its interval/named forms map to `AfterPhysics`; `system`
+  maps to `Frame`, `late_system` to `Late`, and built-in drawing to `Draw`.
+  Physics installation always schedules the step in `Physics`. Code that
+  previously registered simulation logic before `.physics()` or `.physics3d()`
+  to run before physics should use `add(Phase::BeforePhysics, logic)`.
+- Plugin composition, stable system IDs, and migrating automatic animation,
+  particles and audio to inspectable systems remain follow-ups to #198.
+
+
 ## [0.0.1] - 2026-11-08
 
 ### Changed
