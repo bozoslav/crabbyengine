@@ -595,9 +595,14 @@ fn derive(source: &Source, assets: &Assets3D, overrides: &Overrides<'_>) -> Deri
     } else {
         (overrides.index.get(&(source.mesh, source.material))).map_or(source.mesh, |k| overrides.base + k)
     };
+    let sphere = world(bounds);
     Derived {
-        sphere: world(bounds),
-        caster_sphere: caster_bounds.map_or(NOTHING.caster_sphere, world),
+        sphere,
+        caster_sphere: match caster_bounds {
+            Some(_) if caster == Some(source.mesh) => sphere,
+            Some(bounds) => world(bounds),
+            None => NOTHING.caster_sphere,
+        },
         mesh: own,
         caster: match caster.filter(|_| caster_bounds.is_some()) {
             Some(c) if c != source.mesh => c,
@@ -654,13 +659,14 @@ pub(crate) struct Tracked {
     applied: Vec<u32>,
     /// Its id in the lists.
     ids: Vec<u32>,
-    /// The frame (of those with spawns or despawns: `sweeps`) that last
-    /// found its entity among the models.
-    stamps: Vec<u32>,
+    /// The frame (see `frame`) that last found its entity among the
+    /// models: the ones a frame doesn't find are gone.
+    stamps: Vec<AtomicU32>,
     free: Vec<u32>,
     live: usize,
-    sweeps: u32,
-    /// The objects a frame added, with their entities.
+    /// Counts the frames.
+    frame: u32,
+    /// The objects a frame added, with their entities, when they are few.
     fresh: Vec<(u32, crate::Entity)>,
     /// Per model, in query order: [`UNCHANGED`], [`NEW`], or the object
     /// whose lists need bringing up to date.
@@ -680,6 +686,8 @@ struct Pass<'a> {
     spheres: &'a [[AtomicU32; 8]],
     cold: &'a [Cold],
     applied: &'a [u32],
+    stamps: &'a [AtomicU32],
+    frame: u32,
     assets: &'a Assets3D,
     culler: &'a Culler<'a>,
     overrides: &'a Overrides<'a>,
@@ -706,6 +714,7 @@ impl Pass<'_> {
             }
             _ => return NEW,
         };
+        self.stamps[k].store(self.frame, Ordering::Relaxed);
         let source = Source::of(t, m, shadow, skeleton, receives, material);
         let digest = source.digest();
         let stale = |mesh: u32| {
@@ -798,6 +807,7 @@ impl Tracked {
         }
         // Everything is culled again when the views changed.
         let cull = culler.changed_since(&mut self.view);
+        self.frame = self.frame.wrapping_add(1);
 
         // On all cores: each model is compared with what is kept of it.
         let mut results = std::mem::take(&mut self.results);
@@ -830,13 +840,11 @@ impl Tracked {
             }
         }
         let found = if nothing { 0 } else { results.len() - new };
-        let gone = found != self.live;
-        if new > 0 || gone {
-            // Models were spawned or despawned, or got or lost a component:
-            // they are gone through once more, by entity alone, to give the
-            // new ones an object and to mark the tracked ones still there.
-            self.sweeps = self.sweeps.wrapping_add(1).max(1);
+        if new > 0 {
+            // New models (spawned, or with the components now) are found
+            // again in order, by entity alone, and each given an object.
             self.reserve(new, lists);
+            let many = new > MANY_NEW;
             let mut fresh = std::mem::take(&mut self.fresh);
             fresh.clear();
             let mut at = 0;
@@ -848,14 +856,15 @@ impl Tracked {
                 .for_each(|entity| {
                     at += 1;
                     if nothing || results[at - 1] == NEW {
-                        fresh.push((self.add(entity) as u32, entity));
-                    } else if gone {
-                        self.mark(entity);
+                        let k = self.add(entity) as u32;
+                        if !many {
+                            fresh.push((k, entity));
+                        }
                     }
                 });
             debug_assert!(nothing || at == results.len(), "both queries find the same models");
             self.grow(lists);
-            if new > MANY_NEW {
+            if many {
                 // Many: worked out on all cores, like the rest (their
                 // digests match nothing yet).
                 pass(self, &mut results, world);
@@ -874,9 +883,9 @@ impl Tracked {
                 }
             }
             self.fresh = fresh;
-            if gone {
-                self.sweep(lists, arena);
-            }
+        }
+        if found != self.live {
+            self.sweep(lists, arena);
         }
         self.live = found + new;
         self.results = results;
@@ -896,6 +905,8 @@ impl Tracked {
             spheres: &self.spheres,
             cold: &self.cold,
             applied: &self.applied,
+            stamps: &self.stamps,
+            frame: self.frame,
             assets,
             culler,
             overrides,
@@ -934,7 +945,7 @@ impl Tracked {
             Some(k) => {
                 let k = k as usize;
                 self.entities[k] = bits;
-                self.stamps[k] = self.sweeps;
+                *self.stamps[k].get_mut() = self.frame;
                 *self.digests[k].get_mut() = 0; // no source's
                 self.applied[k] = 0;
                 *self.cold[k].pending.get_mut() = 0;
@@ -942,7 +953,7 @@ impl Tracked {
             }
             None => {
                 self.entities.push(bits);
-                self.stamps.push(self.sweeps);
+                self.stamps.push(AtomicU32::new(self.frame));
                 self.entities.len() - 1
             }
         };
@@ -972,16 +983,6 @@ impl Tracked {
         }
     }
 
-    /// Notes that `entity`, if tracked, is still a model in the world.
-    fn mark(&mut self, entity: crate::Entity) {
-        if let Some(&slot) = self.slot_of.get(entity.index() as usize)
-            && slot >> 32 == entity.to_bits() >> 32
-            && let Some(stamp) = self.stamps.get_mut(slot as u32 as usize)
-        {
-            *stamp = self.sweeps;
-        }
-    }
-
     /// Brings the lists up to date with object `k`.
     fn apply(&mut self, k: usize, lists: &mut Lists, arena: &mut Vec<Instance3D>, motion: &mut Motion) {
         let cold = &self.cold[k];
@@ -1005,11 +1006,11 @@ impl Tracked {
     }
 
     /// Some tracked models are gone from the world (despawned, or without
-    /// the components now): the ones not marked this frame. Takes them out
-    /// of the lists.
+    /// the components now): the ones this frame didn't find. Takes them
+    /// out of the lists.
     fn sweep(&mut self, lists: &mut Lists, arena: &mut Vec<Instance3D>) {
         for k in 0..self.entities.len() {
-            if self.entities[k] != DEAD && self.stamps[k] != self.sweeps {
+            if *self.stamps[k].get_mut() != self.frame && self.entities[k] != DEAD {
                 lists.clear(arena, self.ids[k]);
                 self.applied[k] = 0;
                 let index = self.entities[k] as u32 as usize;
