@@ -2,8 +2,9 @@
 
 Build a tree once in `ctx.ui_retained`, then update its text, values and styles.
 The engine handles layout/input before frame systems and draws the tree above
-scene sprites. The immediate-mode `ui_panel`, `ui_label` and `ui_button` APIs
-remain available.
+scene sprites. The retained tree is the game's UI: menus, HUDs, shops, dialogs.
+The immediate-mode `ui_panel`, `ui_label` and `ui_button` calls
+([Camera and UI](camera-ui.md#ui)) are for debug overlays and quick prototypes.
 
 In C++ the tree is `ctx.ui_retained()`, a `ponko::ui::tree`; layouts and paints are
 built by chaining (`ui::layout().column().size(...)`, `ui::paint().wrap()`). In C it
@@ -38,13 +39,32 @@ opening a window with `cargo build --example ui_shop`.
 </div>
 </div>
 
-A row/column is a `Panel` with Taffy's `flex_direction`. An inventory/list is a
-panel with grid/column layout whose children are buttons, labels or images.
-Keep scroll content from shrinking (`flex_shrink: 0.0`); give the scroll view a
-bounded size. `UiWidget::Scroll` clips descendants and supports wheel scrolling,
+In Rust, `ui.label(parent, text)`, `ui.button(...)`, `ui.panel(...)`,
+`ui.scroll_area(...)`, `ui.text_input(...)`, `ui.toggle(...)`, `ui.slider(...)`
+and `ui.image(...)` add a node and return a builder; chain its layout, text and
+paint, and end with `.id()` when you need the id again. `ui.root()` makes a
+detached panel to push as a screen. The builders are shorthand for `add_child`
+plus the setters, which keep working.
+
+`UiLayout` names the common shapes, so no screen needs its own layout helpers:
+`row(height)` and `column(width)` strips, `fill()`, `fixed(w, h)`,
+`anchored(x, y, w, h)` in fractions of the parent (of the window for a screen
+root), `centered(w, h)` for dialogs and `grid(columns, row_height)` for
+inventories, refined with `gap`, `padding`, `grow`, `horizontal`/`vertical` and
+`width`/`height`. Children stack top to bottom, except in a row. Any Taffy
+`ui_layout::Style` is still accepted, and `UiLayout::custom(style)` wraps one.
+Give a scroll view a bounded size; `fill()` shrinks to the space its siblings
+leave. `UiWidget::Scroll` clips descendants and supports wheel scrolling,
 content dragging and a vertical scrollbar. `set_scroll` uses unscaled layout
 units and clamps offsets during layout. Nested scroll views intersect clips.
 Navigation scrolls the focused widget into view.
+
+Colors and text defaults come from the tree's theme:
+`ui.set_theme(UiTheme { panel, control, accent, text, text_size, .. })`. Every
+new node takes its `UiPaint` from the theme for its widget; paint set on a node
+(`.color(..)`, `.size(..)`, `set_paint`) overrides it, and a later `set_theme`
+changes only the fields a node didn't set. `ctx.ui_style` still styles only the
+immediate-mode widgets.
 
 `UiPaint` supplies background colors for normal/hover/pressed/disabled states,
 borders, font, line height, text color, wrapping and horizontal alignment.

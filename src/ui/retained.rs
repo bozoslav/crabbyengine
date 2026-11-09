@@ -452,6 +452,7 @@ pub struct Ui {
     measure: crate::text::Text,
     external_fonts: bool,
     consumed: bool,
+    pub(super) theme: super::UiTheme,
 }
 // SAFETY: the only part that isn't `Send`/`Sync` is taffy's `CompactLength`,
 // which may hold an opaque `calc()` handle as a raw pointer. The engine
@@ -478,6 +479,7 @@ impl Default for Ui {
             measure: crate::text::Text::new(),
             external_fonts: false,
             consumed: false,
+            theme: super::UiTheme::default(),
         }
     }
 }
@@ -488,8 +490,13 @@ impl Ui {
     fn node_mut(&mut self, id: UiId) -> Option<&mut Node> {
         self.nodes.get_mut(id.0)?.as_mut()
     }
+    pub(super) fn paint_mut(&mut self, id: UiId) -> Option<&mut UiPaint> {
+        Some(&mut self.node_mut(id)?.paint)
+    }
 
     /// Add a detached node. Push it as a screen or use `add_child` instead.
+    /// Its paint comes from the theme ([`Ui::set_theme`]). [`Ui::root`] and
+    /// the other builders do the same in one expression.
     /// ```
     /// use ponko::*;
     /// let mut ui = Ui::default();
@@ -498,10 +505,7 @@ impl Ui {
     pub fn add(&mut self, widget: UiWidget, style: Style) -> UiId {
         let id = UiId(self.nodes.len());
         let layout = self.tree.new_leaf_with_context(style, id.0).expect("valid UI layout");
-        let mut paint = UiPaint::default();
-        if matches!(widget, UiWidget::Label | UiWidget::Image) {
-            paint.background = Color::rgba(0.0, 0.0, 0.0, 0.0);
-        }
+        let paint = self.theme.paint(widget);
         self.nodes.push(Some(Node {
             widget,
             layout,
