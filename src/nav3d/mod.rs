@@ -961,9 +961,11 @@ mod tests {
         (0..12)
             .map(|i| {
                 let at = Vec3::new(i as f32 - 6.0, 0.0, -6.0);
-                let mut agent = NavAgent3D::default();
-                agent.destination = Some(Vec3::new(-at.x, 0.0, 6.0));
-                agent.avoidance = i % 2 == 0;
+                let agent = NavAgent3D {
+                    destination: Some(Vec3::new(-at.x, 0.0, 6.0)),
+                    avoidance: i % 2 == 0,
+                    ..NavAgent3D::default()
+                };
                 world.spawn((Transform3D::at(at), agent))
             })
             .collect()
