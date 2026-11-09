@@ -237,6 +237,29 @@ pub enum LodPick {
     },
 }
 
+/// Hysteresis for the [`LodGroup`] on the same entity: once a level is
+/// shown, it stays until the group's screen height moves this fraction past
+/// the level's own range (0 to 1). A camera resting near a threshold then
+/// keeps one level instead of switching every frame. Levels that
+/// [crossfade](LodLevel::fade_width) already change smoothly; this matters
+/// most for those that switch at once. Without the component, levels switch
+/// exactly at their thresholds.
+///
+/// Each camera (the main one, and each render target's) holds its own
+/// choice.
+///
+/// In scene files it's `"LodHysteresis": 0.1`.
+///
+/// ```
+/// # use ponko::*;
+/// let mut world = World::new();
+/// let group = LodGroup::new(4.0, vec![LodLevel::new(0.2, vec![])]);
+/// // Hold each level until the group is 10% past its threshold.
+/// world.spawn((Transform3D::default(), group, LodHysteresis(0.1)));
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+pub struct LodHysteresis(pub f32);
+
 /// Levels of detail: the meshes this entity draws depend on how much of the
 /// screen it covers. Goes on an entity with a [`Transform3D`] (and no
 /// [`Model`](crate::Model): the group draws instead).
@@ -252,7 +275,9 @@ pub enum LodPick {
 /// a dither pattern that fills in what the other leaves out, so the swap
 /// is not seen. The shadow maps use the main camera's choice (and fade
 /// the same way). Cameras drawing into render targets choose for
-/// themselves.
+/// themselves. Levels that switch at once can be held near their
+/// thresholds with a [`LodHysteresis`], so a camera resting at one doesn't
+/// flicker between two.
 ///
 /// In scene files it's `"LodGroup": { "size": 8, "levels": [{ "screen_height": 0.3,
 /// "renderers": [{ "mesh": "tree_high.glb" }] }, ...] }`.
@@ -421,6 +446,40 @@ impl LodGroup {
     #[must_use]
     pub fn pick_for(&self, transform: &Transform3D, camera: &Camera3D, settings: &LodSettings) -> LodPick {
         self.pick(self.screen_height(transform, camera), settings)
+    }
+
+    /// [`pick`](Self::pick), but holding `previous` (last frame's pick)
+    /// while `height` (before bias) is within `band` (a fraction, see
+    /// [`LodHysteresis`]) of that level's range. Crossfades pass through:
+    /// they are continuous already, and they meet the levels they connect
+    /// at their ends, so switching into or out of one never jumps.
+    pub(crate) fn pick_held(&self, height: f32, settings: &LodSettings, band: f32, previous: LodPick) -> LodPick {
+        let raw = self.pick(height, settings);
+        let n = self.levels.len();
+        let index = |p: LodPick| match p {
+            LodPick::Level(i) if i < n => Some(i),
+            LodPick::Culled => Some(n),
+            _ => None,
+        };
+        let (Some(now), Some(held)) = (index(raw), index(previous)) else {
+            return raw;
+        };
+        let band = band.clamp(0.0, 1.0);
+        if now == held || band == 0.0 {
+            return raw;
+        }
+        let height = height * settings.bias.max(0.0);
+        // Level `held` is used from its threshold (0 when culled) up to the
+        // previous level's (no limit for the first).
+        let lower = self.levels.get(held).map_or(0.0, |l| l.screen_height);
+        let upper = held
+            .checked_sub(1)
+            .map_or(f32::INFINITY, |i| self.levels[i].screen_height);
+        if height >= lower * (1.0 - band) && height < upper * (1.0 + band) {
+            previous
+        } else {
+            raw
+        }
     }
 
     /// The levels drawn for `pick`, with each one's dither: 0 for none,
@@ -634,5 +693,120 @@ mod tests {
         assert!((fa.abs() + fb - 1.0).abs() < 1e-6);
         assert_eq!(g.drawn(LodPick::Level(1))[0].unwrap().1, 0.0);
         assert!(g.drawn(LodPick::Culled)[0].is_none());
+    }
+
+    #[test]
+    fn hysteresis_holds_a_level_near_its_threshold() {
+        let g = group(0.0);
+        let s = LodSettings::default();
+        // Level 1 is 0.2 to 0.5. Held with a 10% band, it stays from 0.18
+        // up to 0.55.
+        let held = |h: f32, prev: LodPick| g.pick_held(h, &s, 0.1, prev);
+        assert_eq!(held(0.52, LodPick::Level(1)), LodPick::Level(1));
+        assert_eq!(held(0.56, LodPick::Level(1)), LodPick::Level(0));
+        assert_eq!(held(0.19, LodPick::Level(1)), LodPick::Level(1));
+        assert_eq!(held(0.17, LodPick::Level(1)), LodPick::Level(2));
+        // Coming from level 0 the other way: it stays down to 0.45.
+        assert_eq!(held(0.46, LodPick::Level(0)), LodPick::Level(0));
+        assert_eq!(held(0.44, LodPick::Level(0)), LodPick::Level(1));
+        // Culled stays culled until 10% above the last threshold.
+        assert_eq!(held(0.054, LodPick::Culled), LodPick::Culled);
+        assert_eq!(held(0.056, LodPick::Culled), LodPick::Level(2));
+        // A jump far past the band switches at once.
+        assert_eq!(held(0.9, LodPick::Level(2)), LodPick::Level(0));
+        // No band: the plain pick.
+        assert_eq!(g.pick_held(0.52, &s, 0.0, LodPick::Level(1)), LodPick::Level(0));
+    }
+
+    #[test]
+    fn hysteresis_stops_a_camera_wobbling_at_a_threshold_from_switching() {
+        let g = group(0.0);
+        let s = LodSettings::default();
+        let (mut plain, mut held) = (0, 0);
+        let (mut last_plain, mut last_held) = (g.pick(0.5, &s), g.pick(0.5, &s));
+        for frame in 0..100 {
+            // 0.5 plus or minus 1%: across level 0's threshold every frame.
+            let h = 0.5 * (1.0 + 0.01 * if frame % 2 == 0 { 1.0 } else { -1.0 });
+            let p = g.pick(h, &s);
+            plain += usize::from(p != last_plain);
+            last_plain = p;
+            let p = g.pick_held(h, &s, 0.05, last_held);
+            held += usize::from(p != last_held);
+            last_held = p;
+        }
+        assert!(plain >= 99, "without hysteresis it switches every frame ({plain})");
+        assert!(held <= 1, "with it, at most once ({held})");
+    }
+
+    #[test]
+    fn hysteresis_lets_crossfades_through_and_follows_the_bias() {
+        let g = group(0.5);
+        let s = LodSettings::default();
+        // 0.3 is in level 1's crossfade into level 2 (0.2 to 0.35).
+        assert!(matches!(
+            g.pick_held(0.3, &s, 0.5, LodPick::Level(0)),
+            LodPick::Fade { from: 1, .. }
+        ));
+        // The bias scales the height before the held range is checked.
+        let biased = LodSettings { bias: 2.0, ..s };
+        let g = group(0.0);
+        assert_eq!(g.pick_held(0.27, &biased, 0.1, LodPick::Level(1)), LodPick::Level(1));
+        assert_eq!(g.pick_held(0.29, &biased, 0.1, LodPick::Level(1)), LodPick::Level(0));
+        // A stale pick from a group that had more levels is ignored.
+        assert_eq!(g.pick_held(0.3, &s, 0.1, LodPick::Level(7)), LodPick::Level(1));
+    }
+
+    #[test]
+    fn moving_away_never_goes_back_to_a_finer_level() {
+        // Dollying out in small steps: the picks only ever move towards
+        // cheaper levels, through each crossfade, and the group is only
+        // culled past the last threshold (no missing frames on the way).
+        for fade in [0.0, 0.3, 1.0] {
+            let g = group(fade);
+            let s = LodSettings::default();
+            let rank = |p: LodPick| match p {
+                LodPick::Level(i) => 2 * i,
+                LodPick::Fade { from, .. } => 2 * from + 1,
+                LodPick::Culled => 2 * g.levels.len(),
+            };
+            // (rank, blend): never going down as the group shrinks.
+            let mut last = (0, 0.0);
+            for step in 0..4000 {
+                let h = 1.2 * (1.0 - step as f32 / 4000.0);
+                let p = g.pick(h, &s);
+                let now = match p {
+                    LodPick::Fade { blend, .. } => (rank(p), blend),
+                    _ => (rank(p), 0.0),
+                };
+                assert!(now >= last, "fade {fade}: {p:?} after {last:?} at {h}");
+                last = now;
+                // (Within a blend of 1/128 of its end, a fade to nothing
+                // counts as done.)
+                if h < 0.05 {
+                    assert_eq!(p, LodPick::Culled, "fade {fade}: past the last level at {h}");
+                } else if h > 0.052 {
+                    assert_ne!(p, LodPick::Culled, "fade {fade}: culled too soon at {h}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn turning_the_camera_does_not_change_the_level() {
+        let g = group(0.3);
+        let s = LodSettings::default();
+        let t = Transform3D::at(Vec3::new(3.0, 0.0, -20.0));
+        let mut camera = Camera3D::new(glam::Vec2::new(1280.0, 720.0));
+        camera.position = Vec3::new(0.0, 1.0, 0.0);
+        camera.look_at(t.position);
+        let ahead = g.pick_for(&t, &camera, &s);
+        for target in [
+            Vec3::new(50.0, 1.0, 0.0),
+            Vec3::new(0.0, 1.0, 50.0),
+            Vec3::new(0.0, -40.0, -1.0),
+        ] {
+            camera.look_at(target);
+            assert_eq!(g.pick_for(&t, &camera, &s), ahead, "looking at {target}");
+        }
     }
 }

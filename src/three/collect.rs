@@ -4,8 +4,9 @@
 use glam::{Mat4, Vec3, Vec4};
 
 use super::{
-    Assets3D, Camera3D, Lighting, LodGroup, LodPick, LodRenderer, LodSettings, LodShadow, Model, ModelMaterial,
-    ReceivesDecals, ShadowMesh, Skeleton, SkinFrame, SkinOf, TERRAIN_LODS, TerrainTile, Transform3D, linear,
+    Assets3D, Camera3D, Lighting, LodGroup, LodHysteresis, LodPick, LodRenderer, LodSettings, LodShadow, Model,
+    ModelMaterial, ReceivesDecals, ShadowMesh, Skeleton, SkinFrame, SkinOf, TERRAIN_LODS, TerrainTile, Transform3D,
+    linear,
 };
 use crate::World;
 
@@ -157,6 +158,10 @@ pub(crate) struct Frame3D {
     flags: Vec<u32>,
     /// Per LOD group: what the camera picked, and which passes see any of it.
     lod_picks: Vec<(LodPick, u32)>,
+    /// Per LOD group, in query order: the entity and the pick it showed
+    /// last frame, for [`LodHysteresis`]. Each frame (main camera, render
+    /// target) keeps its own.
+    lod_held: Vec<(Option<crate::Entity>, LodPick)>,
 }
 
 /// What one target camera draws this frame.
@@ -562,10 +567,36 @@ impl Frame3D {
                 (pick, seen)
             });
         let mut at = 0;
+        let held = &mut self.lod_held;
+        held.resize(picks.len(), (None, LodPick::Culled));
         world
-            .query::<(&Transform3D, &LodGroup, Option<&ReceivesDecals>)>()
-            .for_each(|(t, g, decals)| {
-                let (pick, seen) = picks[at];
+            .query::<(
+                crate::Entity,
+                &Transform3D,
+                &LodGroup,
+                Option<&ReceivesDecals>,
+                Option<&LodHysteresis>,
+            )>()
+            .for_each(|(entity, t, g, decals, hysteresis)| {
+                let (mut pick, mut seen) = picks[at];
+                // Hysteresis: when the pick changes, hold last frame's
+                // instead while near its thresholds (the same entity at the
+                // same place in the query, else it's new or the query
+                // changed: no history this frame).
+                if let Some(&LodHysteresis(band)) = hysteresis {
+                    let (e, previous) = held[at];
+                    if e == Some(entity) && previous != pick {
+                        let kept = g.pick_held(g.screen_height(t, camera), &lod, band, previous);
+                        if kept != pick {
+                            pick = kept;
+                            seen = 0;
+                            lod_draws(g, pick, |r, drawn, casts, _| {
+                                seen |= lod_flags(t, r, drawn, casts).map_or(0, |(_, f)| f);
+                            });
+                        }
+                    }
+                    held[at] = (Some(entity), pick);
+                }
                 at += 1;
                 if seen != 0 {
                     let receives = super::projected::receiver_mask(decals);
