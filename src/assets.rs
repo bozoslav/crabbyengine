@@ -166,10 +166,13 @@ pub(crate) struct Found {
 
 impl Found {
     /// The asset's bytes, reading the file now if it came from the default source.
-    pub(crate) fn into_bytes(self) -> Result<Vec<u8>, String> {
+    /// A failed read is [`ErrorKind::Io`](crate::ErrorKind::Io).
+    pub(crate) fn into_bytes(self) -> Result<Vec<u8>, crate::Error> {
         match (self.bytes, &self.origin) {
             (Some(bytes), _) => Ok(bytes),
-            (None, Origin::File(path)) => read(path).map_err(|e| format!("could not read {}: {e}", path.display())),
+            (None, Origin::File(path)) => read(path).map_err(|e| {
+                crate::Error::new(crate::ErrorKind::Io, format!("could not read {}: {e}", path.display()))
+            }),
             (None, Origin::Source { .. }) => unreachable!("sources hand over their bytes when found"),
         }
     }
@@ -220,7 +223,11 @@ impl Sources {
     ///
     /// # Errors
     /// As [`find`](Self::find).
-    pub(crate) fn lookup<T>(&self, name: &str, cached: impl Fn(&Origin) -> Option<T>) -> Result<Lookup<T>, String> {
+    pub(crate) fn lookup<T>(
+        &self,
+        name: &str,
+        cached: impl Fn(&Origin) -> Option<T>,
+    ) -> Result<Lookup<T>, crate::Error> {
         for origin in self.origins(name) {
             if let Some(value) = cached(&origin) {
                 return Ok(Lookup::Cached(origin, value));
@@ -240,7 +247,7 @@ impl Sources {
     /// As [`find`](Self::find), or if reading fails.
     #[cfg_attr(not(feature = "3d"), allow(dead_code))]
     pub(crate) fn read(&self, name: &str) -> Result<Vec<u8>, String> {
-        self.find(name)?.into_bytes()
+        Ok(self.find(name)?.into_bytes()?)
     }
 
     /// Finds asset `name`: in the added sources in order, then the default one.
@@ -248,7 +255,10 @@ impl Sources {
     /// # Errors
     /// If no source has it (naming every place searched), or a source
     /// failed to read it.
-    pub(crate) fn find(&self, name: &str) -> Result<Found, String> {
+    /// Not finding it is [`ErrorKind::NotFound`](crate::ErrorKind::NotFound);
+    /// a source that has it but fails to read it is
+    /// [`Io`](crate::ErrorKind::Io). The error names `name` as its path.
+    pub(crate) fn find(&self, name: &str) -> Result<Found, crate::Error> {
         for source in &self.list {
             match source.read(name) {
                 Ok(bytes) => {
@@ -262,10 +272,8 @@ impl Sources {
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                 Err(e) => {
-                    return Err(format!(
-                        "asset source \"{}\" could not read \"{name}\": {e}",
-                        source.id()
-                    ));
+                    let message = format!("asset source \"{}\" could not read \"{name}\": {e}", source.id());
+                    return Err(crate::Error::new(crate::ErrorKind::Io, message).with_path(name));
                 }
             }
         }
@@ -274,10 +282,11 @@ impl Sources {
                 origin: Origin::File(path),
                 bytes: None,
             }),
-            Err(e) if self.list.is_empty() => Err(e),
+            Err(e) if self.list.is_empty() => Err(crate::Error::not_found(name, e)),
             Err(e) => {
                 let ids: Vec<String> = self.list.iter().map(|s| format!("\"{}\"", s.id())).collect();
-                Err(format!("{e}\nAsset sources searched first: {}", ids.join(", ")))
+                let message = format!("{e}\nAsset sources searched first: {}", ids.join(", "));
+                Err(crate::Error::not_found(name, message))
             }
         }
     }
@@ -484,7 +493,11 @@ mod tests {
         let missing = MemorySource::new("a").read("z").unwrap_err();
         assert_eq!(missing.kind(), std::io::ErrorKind::NotFound);
         let err = sources.find("definitely-not-here.png").err().unwrap();
-        assert!(err.ends_with("Asset sources searched first: \"a\", \"b\""), "{err}");
+        assert_eq!(err.kind(), crate::ErrorKind::NotFound);
+        assert!(
+            err.message().ends_with("Asset sources searched first: \"a\", \"b\""),
+            "{err}"
+        );
     }
 
     #[test]

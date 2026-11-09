@@ -461,23 +461,38 @@ impl Ctx {
     /// # }
     /// ```
     pub fn load_sound(&mut self, path: &str) -> Sound {
-        let found = match self
-            .asset_sources
-            .lookup(path, |origin| {
-                let key = (origin.clone(), crate::ctx::AssetKind::Sound);
-                self.loaded.get(&key).map(|&i| self.cached_sounds[i as usize])
-            })
-            .unwrap_or_else(|e| panic!("ponko: {e}"))
-        {
-            crate::assets::Lookup::Cached(_, sound) => return sound,
+        self.try_load_sound(path).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// [`load_sound`](Self::load_sound) with errors as values:
+    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound),
+    /// [`Io`](crate::ErrorKind::Io), or (with the `audio` feature)
+    /// [`Decode`](crate::ErrorKind::Decode) if it can't be decoded.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     if let Ok(music) = ctx.try_load_sound("music/bonus.ogg") {
+    ///         ctx.play_sound(&music);
+    ///     }
+    /// });
+    /// ```
+    pub fn try_load_sound(&mut self, path: &str) -> Result<Sound, crate::Error> {
+        let found = match self.asset_sources.lookup(path, |origin| {
+            let key = (origin.clone(), crate::ctx::AssetKind::Sound);
+            self.loaded.get(&key).map(|&i| self.cached_sounds[i as usize])
+        })? {
+            crate::assets::Lookup::Cached(_, sound) => return Ok(sound),
             crate::assets::Lookup::Found(found) => found,
         };
         let origin = found.origin.clone();
-        let bytes = found.into_bytes().unwrap_or_else(|e| panic!("ponko: {e}"));
-        let (id, seconds) = self.audio.load(bytes).unwrap_or_else(|e| match &origin {
-            crate::assets::Origin::File(file) => panic!("ponko: {}: {e}", file.display()),
-            crate::assets::Origin::Source { .. } => panic!("ponko: {}: {e}", origin.describe(path)),
-        });
+        let bytes = found.into_bytes().map_err(|e| e.with_path(path))?;
+        let (id, seconds) = self.audio.load(bytes).map_err(|e| match &origin {
+            crate::assets::Origin::File(file) => crate::Error::decode(path, format!("{}: {e}", file.display())),
+            crate::assets::Origin::Source { .. } => {
+                crate::Error::decode(path, format!("{}: {e}", origin.describe(path)))
+            }
+        })?;
         let sound = Sound { id, seconds };
         self.loaded.insert(
             (origin.clone(), crate::ctx::AssetKind::Sound),
@@ -487,7 +502,7 @@ impl Ctx {
         if let crate::assets::Origin::File(file) = origin {
             self.watcher.watch(path, file, crate::hot_reload::Asset::Sound(id));
         }
-        sound
+        Ok(sound)
     }
 
     /// Makes a sound from mono samples in -1..1 at `sample_rate` Hz, for

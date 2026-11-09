@@ -92,7 +92,23 @@ impl Ctx {
     ///
     /// If roughness or metallic is outside 0..=1.
     pub fn create_material(&mut self, desc: MaterialDesc) -> Material {
-        self.check_material(&desc);
+        self.try_create_material(desc).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// [`create_material`](Self::create_material) with errors as values:
+    /// [`ErrorKind::Invalid`](crate::ErrorKind::Invalid) if roughness or
+    /// metallic is outside 0..=1, [`BadHandle`](crate::ErrorKind::BadHandle)
+    /// if its shader or texture arrays weren't made by this game.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let err = ctx.try_create_material(MaterialDesc { roughness: 2.0, ..Default::default() }).unwrap_err();
+    ///     assert_eq!(err.kind(), ErrorKind::Invalid);
+    /// });
+    /// ```
+    pub fn try_create_material(&mut self, desc: MaterialDesc) -> Result<Material, crate::Error> {
+        self.check_material(&desc)?;
         let id = self.assets3d.materials;
         self.assets3d.materials += 1;
         if let Some(renderer) = self.renderer.as_mut()
@@ -101,7 +117,7 @@ impl Ctx {
             let gpu_id = renderer.create_material(&GpuMaterialDesc::new(&desc));
             debug_assert_eq!(gpu_id, id);
         }
-        Material { id }
+        Ok(Material { id })
     }
 
     /// Changes a material: every model drawn with it changes too. Handy for
@@ -123,7 +139,7 @@ impl Ctx {
             material.id < self.assets3d.materials,
             "ponko: update_material: that material wasn't made by this game"
         );
-        self.check_material(&desc);
+        self.check_material(&desc).unwrap_or_else(|e| panic!("{e}"));
         if let Some(renderer) = self.renderer.as_mut()
             && !self.headless
         {
@@ -156,25 +172,31 @@ impl Ctx {
         }
     }
 
-    fn check_material(&self, desc: &MaterialDesc) {
-        assert!(
-            (0.0..=1.0).contains(&desc.roughness) && (0.0..=1.0).contains(&desc.metallic),
-            "ponko: material roughness and metallic go from 0 to 1 (got {} and {})",
-            desc.roughness,
-            desc.metallic
-        );
-        if let Some(shader) = desc.shader {
-            assert!(
-                shader.id < self.assets3d.shaders,
-                "ponko: that shader wasn't made by this game"
-            );
+    fn check_material(&self, desc: &MaterialDesc) -> Result<(), crate::Error> {
+        use crate::{Error, ErrorKind};
+        if !((0.0..=1.0).contains(&desc.roughness) && (0.0..=1.0).contains(&desc.metallic)) {
+            return Err(Error::new(
+                ErrorKind::Invalid,
+                format!(
+                    "material roughness and metallic go from 0 to 1 (got {} and {})",
+                    desc.roughness, desc.metallic
+                ),
+            ));
+        }
+        if let Some(shader) = desc.shader
+            && shader.id >= self.assets3d.shaders
+        {
+            return Err(Error::new(ErrorKind::BadHandle, "that shader wasn't made by this game"));
         }
         for array in desc.custom_arrays.into_iter().flatten() {
-            assert!(
-                self.has_texture_array(array),
-                "ponko: that texture array wasn't made by this game"
-            );
+            if !self.has_texture_array(array) {
+                return Err(Error::new(
+                    ErrorKind::BadHandle,
+                    "that texture array wasn't made by this game",
+                ));
+            }
         }
+        Ok(())
     }
 
     /// Loads a material shader (WGSL) from an [added asset
@@ -321,14 +343,34 @@ impl Ctx {
     /// If the data doesn't fit together (see [`MeshData::check`]), or the
     /// material comes from another game.
     pub fn create_mesh(&mut self, data: &MeshData, material: Material) -> Mesh {
-        if let Err(e) = data.check() {
-            panic!("ponko: create_mesh: {e}");
+        self.try_create_mesh(data, material).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// [`create_mesh`](Self::create_mesh) with errors as values:
+    /// [`ErrorKind::Invalid`](crate::ErrorKind::Invalid) if the data doesn't
+    /// fit together, [`BadHandle`](crate::ErrorKind::BadHandle) if the
+    /// material comes from another game.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let stone = ctx.create_material(MaterialDesc::default());
+    ///     let mut broken = MeshData::cube(1.0);
+    ///     broken.indices.pop();
+    ///     assert_eq!(ctx.try_create_mesh(&broken, stone).unwrap_err().kind(), ErrorKind::Invalid);
+    /// });
+    /// ```
+    pub fn try_create_mesh(&mut self, data: &MeshData, material: Material) -> Result<Mesh, crate::Error> {
+        use crate::{Error, ErrorKind};
+        data.check()
+            .map_err(|e| Error::new(ErrorKind::Invalid, format!("create_mesh: {e}")))?;
+        if material.id >= self.assets3d.materials {
+            return Err(Error::new(
+                ErrorKind::BadHandle,
+                "create_mesh: that material wasn't made by this game",
+            ));
         }
-        assert!(
-            material.id < self.assets3d.materials,
-            "ponko: create_mesh: that material wasn't made by this game"
-        );
-        self.mesh_from_parts(data, &[(0..data.indices.len() as u32, material)], None, Vec::new())
+        Ok(self.mesh_from_parts(data, &[(0..data.indices.len() as u32, material)], None, Vec::new()))
     }
 
     /// Makes a mesh that bends with `skeleton`: each corner of `data` has
@@ -416,16 +458,30 @@ impl Ctx {
     /// With a clear message if the file is missing, can't be read or has
     /// no skins.
     pub fn load_skeleton(&mut self, path: &str) -> Skeleton {
-        self.try_load_skeleton(path).unwrap_or_else(|e| panic!("ponko: {e}"))
+        self.try_load_skeleton(path).unwrap_or_else(|e| panic!("{e}"))
     }
 
-    pub(crate) fn try_load_skeleton(&mut self, path: &str) -> Result<Skeleton, String> {
+    /// [`load_skeleton`](Self::load_skeleton) with errors as values: those
+    /// of [`try_load_mesh`](Self::try_load_mesh), or
+    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if the file has
+    /// no skins.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let err = ctx.try_load_skeleton("models/missing.glb").unwrap_err();
+    ///     assert_eq!(err.kind(), ErrorKind::NotFound);
+    /// });
+    /// ```
+    pub fn try_load_skeleton(&mut self, path: &str) -> Result<Skeleton, crate::Error> {
         let (_, origin) = self.load_mesh_from(path)?;
-        self.assets3d
-            .loaded_skeletons
-            .get(&origin)
-            .cloned()
-            .ok_or_else(|| format!("{path} has no skins or animations, so no skeleton"))
+        self.assets3d.loaded_skeletons.get(&origin).cloned().ok_or_else(|| {
+            crate::Error::new(
+                crate::ErrorKind::NotFound,
+                format!("{path} has no skins or animations, so no skeleton"),
+            )
+            .with_path(path)
+        })
     }
 
     /// Loads all animation clips from a glTF file, cached per file.
@@ -505,16 +561,29 @@ impl Ctx {
     ///
     /// With a clear message if the file is missing or can't be read.
     pub fn load_mesh(&mut self, path: &str) -> Mesh {
-        self.try_load_mesh(path).unwrap_or_else(|e| panic!("ponko: {e}"))
+        self.try_load_mesh(path).unwrap_or_else(|e| panic!("{e}"))
     }
 
-    pub(crate) fn try_load_mesh(&mut self, path: &str) -> Result<Mesh, String> {
+    /// [`load_mesh`](Self::load_mesh) with errors as values:
+    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if the file is
+    /// missing, [`Io`](crate::ErrorKind::Io) if it can't be read,
+    /// [`Decode`](crate::ErrorKind::Decode) if it isn't a glTF model this
+    /// engine can read (including files it names that are missing).
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let hat = ctx.try_load_mesh("models/hat.glb").unwrap_or(Mesh::NONE);
+    ///     assert_eq!(hat, Mesh::NONE);
+    /// });
+    /// ```
+    pub fn try_load_mesh(&mut self, path: &str) -> Result<Mesh, crate::Error> {
         self.load_mesh_from(path).map(|(mesh, _)| mesh)
     }
 
     /// Loads (or returns the cached) mesh `path`, and says where it was
     /// found: the key of its skeleton, clips and materials.
-    fn load_mesh_from(&mut self, path: &str) -> Result<(Mesh, assets::Origin), String> {
+    fn load_mesh_from(&mut self, path: &str) -> Result<(Mesh, assets::Origin), crate::Error> {
         let found = match self
             .asset_sources
             .lookup(path, |origin| self.assets3d.loaded.get(origin).copied())?
@@ -523,12 +592,13 @@ impl Ctx {
             assets::Lookup::Found(found) => found,
         };
         let file = found.origin.clone();
-        let bytes = found.into_bytes()?;
+        let bytes = found.into_bytes().map_err(|e| e.with_path(path))?;
         let shared = &self.assets3d.shared_images;
         let sources = &self.asset_sources;
         let loaded = gltf::load(path, &bytes, &mut |name| sources.read(name), &|source| {
             shared.contains_key(source)
-        })?;
+        })
+        .map_err(|e| crate::Error::decode(path, e))?;
         let materials = if let Some(materials) = self.assets3d.file_materials.get(&file) {
             materials.clone()
         } else {
