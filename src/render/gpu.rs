@@ -384,13 +384,27 @@ impl Renderer {
             .await
             .unwrap_or_else(|e| panic!("ponko: no compatible GPU found: {e}"));
 
+        // `PONKO_GPU_TIER` opens the device as a weaker GPU would be.
+        let forced_tier = super::GpuTier::forced();
+        if let Some(tier) = forced_tier {
+            eprintln!("ponko: PONKO_GPU_TIER forces the {tier} GPU tier");
+        }
+        let required_features = adapter.features()
+            & (wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES);
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("ponko device"),
-                required_features: adapter.features()
-                    & (wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES),
+                required_features: forced_tier.map_or(required_features, |t| t.device_features(required_features)),
                 // The defaults ask for more than WebGL2 has; we need little.
-                required_limits: if cfg!(target_arch = "wasm32") {
+                required_limits: if let Some(tier) = forced_tier {
+                    tier.device_limits(wgpu::Limits {
+                        max_sampled_textures_per_shader_stage: adapter
+                            .limits()
+                            .max_sampled_textures_per_shader_stage
+                            .clamp(16, 24),
+                        ..wgpu::Limits::default()
+                    })
+                } else if cfg!(target_arch = "wasm32") {
                     adapter.limits()
                 } else {
                     // One more sampled texture than the default 16, where
@@ -418,7 +432,8 @@ impl Renderer {
             eprintln!("ponko: this GPU can't do {msaa}x multisampling here; using 4x");
             4
         };
-        let capabilities = super::capabilities::of_device(&adapter.get_info(), &device, (requested_msaa, msaa));
+        let mut capabilities = super::capabilities::of_device(&adapter.get_info(), &device, (requested_msaa, msaa));
+        capabilities.forced_tier = forced_tier;
         // Apple's GPUs (Metal) draw in tiles and drop hidden solid fragments
         // themselves: there solid surfaces skip the depth prepass.
         #[cfg(feature = "3d")]
