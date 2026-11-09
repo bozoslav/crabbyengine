@@ -12,7 +12,7 @@ use rapier2d::prelude as rp;
 use serde::{Deserialize, Serialize};
 
 use crate::collision::{BodyKind, CollisionStarted, CollisionStopped};
-use crate::{Ctx, Entity, Transform2D, Vec2, World};
+use crate::{Ctx, Entity, Events, Transform2D, Vec2, World};
 
 /// Makes an entity a physics body. It also needs a [`Collider`] and a
 /// [`Transform2D`].
@@ -552,13 +552,21 @@ pub(crate) fn start(ctx: &mut Ctx, gravity: Vec2) {
 /// other system.
 pub fn step_physics(ctx: &mut Ctx) {
     let dt = ctx.dt();
-    let physics = &mut ctx.physics;
+    step(&mut ctx.physics, &mut ctx.world, &mut ctx.events, dt);
+}
+
+/// The step itself, with only what it touches: the physics state, the world
+/// whose [`Transform2D`] / [`RigidBody`] / [`Collider`] / [`Velocity`]
+/// components it reads and writes, the event queue that gets the collision
+/// events, and the timestep. No `Ctx`, window or device is needed, so tests
+/// (and a future scheduler) can see and supply exactly these inputs.
+fn step(physics: &mut Physics, world: &mut World, events: &mut Events, dt: f32) {
     physics.step += 1;
-    sync_into(physics, &mut ctx.world);
+    sync_into(physics, world);
     physics.world.gravity = to_rp(physics.gravity);
     physics.world.integration_parameters.dt = dt;
     physics.world.step_with_events(&(), &physics.collector);
-    write_back(physics, &mut ctx.world);
+    write_back(physics, world);
     while let Ok(event) = physics.collisions.try_recv() {
         let (a, b, flags, started) = match event {
             rp::CollisionEvent::Started(a, b, f) => (a, b, f, true),
@@ -569,9 +577,9 @@ pub fn step_physics(ctx: &mut Ctx) {
         };
         let sensor = flags.contains(rp::CollisionEventFlags::SENSOR);
         if started {
-            ctx.events.send(CollisionStarted { a, b, sensor });
+            events.send(CollisionStarted { a, b, sensor });
         } else {
-            ctx.events.send(CollisionStopped { a, b, sensor });
+            events.send(CollisionStopped { a, b, sensor });
         }
     }
 }
@@ -669,4 +677,111 @@ fn write_back(physics: &mut Physics, world: &mut World) {
                 *velocity = v;
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vec2;
+
+    const DT: f32 = 1.0 / 60.0;
+    const GRAVITY: Vec2 = vec2(0.0, 980.0);
+
+    /// A floor and a column of balls that fall, roll and touch.
+    fn pile(world: &mut World) -> Vec<Entity> {
+        let mut entities = vec![world.spawn((
+            Transform2D::at(vec2(0.0, 200.0)),
+            RigidBody::fixed(),
+            Collider::rect(vec2(400.0, 20.0)),
+        ))];
+        for i in 0..24 {
+            let at = vec2((i % 5) as f32 * 9.0 - 20.0, -(i as f32) * 11.0);
+            entities.push(world.spawn((Transform2D::at(at), RigidBody::dynamic(), Collider::circle(5.0))));
+        }
+        entities
+    }
+
+    /// Every body's pose and velocity, bit for bit.
+    fn fingerprint(world: &World, entities: &[Entity]) -> Vec<[u32; 6]> {
+        entities
+            .iter()
+            .map(|&e| {
+                let t = world.get::<Transform2D>(e).copied().unwrap_or_default();
+                let v = world.get::<Velocity>(e).copied().unwrap_or_default();
+                [
+                    t.position.x.to_bits(),
+                    t.position.y.to_bits(),
+                    t.rotation.to_bits(),
+                    v.linear.x.to_bits(),
+                    v.linear.y.to_bits(),
+                    v.angular.to_bits(),
+                ]
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_core_step_needs_only_its_inputs_and_matches_the_ctx_system() {
+        // The core, on a bare world: no Ctx, window or device.
+        let mut physics = Physics::new(GRAVITY);
+        let mut world = World::new();
+        let mut events = Events::default();
+        let bare = pile(&mut world);
+        for _ in 0..120 {
+            step(&mut physics, &mut world, &mut events, DT);
+        }
+
+        // The public system, through a Ctx.
+        let mut ctx = Ctx::new(f64::from(DT), Vec2::ZERO);
+        start(&mut ctx, GRAVITY);
+        let wrapped = pile(&mut ctx.world);
+        for _ in 0..120 {
+            ctx.set_in_sim(true);
+            step_physics(&mut ctx);
+            ctx.set_in_sim(false);
+        }
+
+        assert_eq!(physics.step, 120);
+        assert_eq!(fingerprint(&world, &bare), fingerprint(&ctx.world, &wrapped));
+        let started = events.peek::<CollisionStarted>();
+        assert!(!started.is_empty(), "the balls land");
+        assert_eq!(started, ctx.events.peek::<CollisionStarted>());
+        assert_eq!(events.peek::<CollisionStopped>(), ctx.events.peek::<CollisionStopped>());
+    }
+
+    #[test]
+    fn the_core_step_reports_contacts_on_the_step_they_begin_and_handles_teleports_and_removals() {
+        let mut physics = Physics::new(Vec2::ZERO);
+        let mut world = World::new();
+        let mut events = Events::default();
+        let sensor = world.spawn((
+            Transform2D::at(vec2(0.0, 0.0)),
+            RigidBody::fixed(),
+            Collider::circle(10.0).sensor(),
+        ));
+        let ball = world.spawn((
+            Transform2D::at(vec2(100.0, 0.0)),
+            RigidBody::dynamic(),
+            Collider::circle(5.0),
+        ));
+
+        step(&mut physics, &mut world, &mut events, DT);
+        assert!(events.peek::<CollisionStarted>().is_empty(), "apart");
+        assert_eq!(physics.body_count(), 2);
+
+        // A teleport into the sensor: picked up, and reported the same step.
+        world.get_mut::<Transform2D>(ball).unwrap().position = vec2(2.0, 0.0);
+        step(&mut physics, &mut world, &mut events, DT);
+        assert_eq!(world.get::<Transform2D>(ball).unwrap().position, vec2(2.0, 0.0));
+        let started = events.read::<CollisionStarted>();
+        assert_eq!(started.len(), 1);
+        let pair = [started[0].a, started[0].b];
+        assert!(started[0].sensor && pair.contains(&ball) && pair.contains(&sensor));
+
+        // A removed entity's body goes on the next step.
+        world.despawn(ball);
+        step(&mut physics, &mut world, &mut events, DT);
+        assert_eq!(physics.body_count(), 1);
+        assert!(events.read::<CollisionStarted>().is_empty());
+    }
 }
