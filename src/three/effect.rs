@@ -161,18 +161,46 @@ impl Ctx {
     /// [`Ctx::create_effect`] that returns errors (for the C API).
     #[doc(hidden)]
     pub fn try_create_effect(&mut self, name: &str, source: &str) -> Result<Effect, String> {
-        #[cfg(feature = "window")]
-        crate::render::check_shader(name, &crate::render::compose_effect(source))?;
         let id = self.assets3d.effects;
-        if let Some(renderer) = self.renderer.as_mut()
-            && !self.headless
-        {
-            let gpu_id = renderer.create_effect(name, source)?;
-            debug_assert_eq!(gpu_id, id);
-        }
+        let compiled = self.compile_effect(name, source, None);
+        self.record_shader(name, super::ShaderKind::Effect, false, compiled)?;
         self.assets3d.effects += 1;
         self.assets3d.effects_live.insert(id);
         Ok(Effect { id })
+    }
+
+    /// Checks effect `source` and builds its pipeline, as `replace` or as the next one.
+    fn compile_effect(
+        &mut self,
+        name: &str,
+        source: &str,
+        replace: Option<u32>,
+    ) -> Result<(), Box<super::ShaderDiagnostic>> {
+        #[cfg(feature = "window")]
+        crate::render::diagnose(
+            name,
+            super::ShaderKind::Effect,
+            crate::render::EFFECT_VARIANT,
+            &crate::render::compose_effect(source),
+        )?;
+        if let Some(renderer) = self.renderer.as_mut()
+            && !self.headless
+        {
+            let built = match replace {
+                Some(id) => renderer.replace_effect(id, name, source),
+                None => renderer
+                    .create_effect(name, source)
+                    .map(|gpu_id| debug_assert_eq!(gpu_id, self.assets3d.effects)),
+            };
+            #[cfg(feature = "window")]
+            built.map_err(|e| {
+                crate::render::without_location(name, super::ShaderKind::Effect, crate::render::EFFECT_VARIANT, e)
+            })?;
+            #[cfg(not(feature = "window"))]
+            let _ = built;
+        }
+        let _ = (name, source, replace);
+        Ok(())
     }
 
     /// Recompiles an effect whose file changed (hot reload).
@@ -180,14 +208,8 @@ impl Ctx {
         if !self.assets3d.effects_live.contains(id) {
             return Ok(());
         }
-        #[cfg(feature = "window")]
-        crate::render::check_shader(name, &crate::render::compose_effect(source))?;
-        if let Some(renderer) = self.renderer.as_mut()
-            && !self.headless
-        {
-            renderer.replace_effect(id, name, source)?;
-        }
-        Ok(())
+        let compiled = self.compile_effect(name, source, Some(id));
+        self.record_shader(name, super::ShaderKind::Effect, true, compiled)
     }
 
     /// Whether this game made `effect` and hasn't freed it (for the C API,
