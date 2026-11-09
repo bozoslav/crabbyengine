@@ -526,6 +526,8 @@ pub struct Physics3D {
     dominance: bool,
     gravity: Vec3,
     step: u64,
+    /// The world's load count when `links` were made (see `forget_bodies`).
+    world_loads: u64,
     collector: Collector,
     /// Events taken from the collector, kept to reuse its memory.
     events: Vec<rp::CollisionEvent>,
@@ -588,6 +590,7 @@ impl Physics3D {
             dominance: false,
             gravity,
             step: 0,
+            world_loads: 0,
             collector: Collector::default(),
             events: Vec::new(),
             meshes: Vec::new(),
@@ -955,6 +958,19 @@ impl Physics3D {
             self.world.remove_body(link.body);
         }
     }
+
+    /// Removes every body and character (and with them their joints),
+    /// keeping gravity, collision meshes, hooks and settings: the world's
+    /// entities were replaced (a scene or save was loaded), so ids may now
+    /// name different entities and nothing of the old bodies may carry
+    /// over. The next step builds them afresh from the components; until
+    /// then queries find nothing.
+    pub(crate) fn forget_bodies(&mut self) {
+        joints::forget(self);
+        for i in 0..self.links.len() {
+            self.remove(i);
+        }
+    }
 }
 
 /// The body's own mass and center of mass, if it has them, on its collider
@@ -1114,6 +1130,11 @@ fn written_matches(link: &Link, t: &Transform3D) -> bool {
 /// New bodies in, your changes applied, gone ones out.
 fn sync_into(physics: &mut Physics3D, world: &mut World) {
     let step = physics.step;
+    let loads = crate::reflect::world_loads(world);
+    if loads != physics.world_loads {
+        physics.world_loads = loads;
+        physics.forget_bodies();
+    }
     world
         .query::<(Entity, &Transform3D, &RigidBody3D, &Collider3D, Option<&Velocity3D>)>()
         .without::<Character3D>()

@@ -87,6 +87,18 @@ const SAVE_FORMAT: &str = "crabby-world";
 /// Version of the save layout; bumped when it changes incompatibly.
 const SAVE_VERSION: u64 = 1;
 
+/// How many times [`WorldReflect::load`] has replaced this world's entities.
+/// A private resource, never saved: services that link outside state to
+/// entity ids (physics bodies) compare it to the count they last saw and
+/// drop those links when it moved, because a load may give an old id to a
+/// different entity.
+pub(crate) struct WorldLoads(pub(crate) u64);
+
+/// The [`WorldLoads`] count of `world` (0 if it was never loaded into).
+pub(crate) fn world_loads(world: &World) -> u64 {
+    world.get_resource::<WorldLoads>().map_or(0, |l| l.0)
+}
+
 /// What reflection knows about one component type.
 #[derive(Clone)]
 struct Reflected {
@@ -1240,6 +1252,10 @@ impl WorldReflect for World {
         }
 
         self.reset();
+        // Counted as soon as the old entities are gone, so linked services
+        // never keep them.
+        let loads = world_loads(self) + 1;
+        self.insert_resource(WorldLoads(loads));
         for (e, parts) in plan {
             let mut parts = parts.into_iter();
             let (first, value) = parts.next().expect("checked: at least one component");
