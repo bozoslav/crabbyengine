@@ -49,12 +49,16 @@ fn nothing_is_tracked_until_asked() {
     let e = w.spawn((Health(1), Armor(2)));
     w.get_mut::<Health>(e).unwrap().0 = 5;
     assert!(w.components().iter().all(|info| !info.tracks_changes()));
-    let bytes = w.allocated_bytes();
+    let row_bytes = |w: &World| w.archetypes().iter().find(|a| a.len() == 1).unwrap().bytes_per_entity();
+    let (bytes, row) = (w.allocated_bytes(), row_bytes(&w));
     let health = w.track_changes::<Health>();
     assert!(w.component_info(health).tracks_changes());
     assert!(!w.component_info(w.component_id::<Armor>().unwrap()).tracks_changes());
-    // Stamps live outside the component columns.
-    assert_eq!(w.allocated_bytes(), bytes);
+    // Tracking costs two 4-byte stamps per row of the tracked component, and
+    // nothing for the others.
+    assert_eq!(row_bytes(&w), row + 8);
+    assert_eq!(w.allocated_bytes() / (row + 8), bytes / row, "the same capacity");
+    assert_eq!(w.allocated_bytes() % (row + 8), 0);
     assert_eq!(w.track_changes::<Health>(), health, "tracking twice is harmless");
 }
 

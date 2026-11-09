@@ -101,6 +101,15 @@ impl Column {
 
     /// The `added` and `changed` stamp arrays, if this component is tracked.
     #[inline]
+    /// Bytes of change stamps per row: two `u32`s if tracked.
+    fn stamp_bytes(&self) -> usize {
+        if self.changed.is_null() {
+            0
+        } else {
+            2 * std::mem::size_of::<u32>()
+        }
+    }
+
     pub(crate) fn stamps(&self) -> Option<(*mut u32, *mut u32)> {
         (!self.changed.is_null()).then_some((self.added, self.changed))
     }
@@ -289,7 +298,10 @@ impl Archetype {
     }
 
     /// Bytes per entity in this archetype: the size of every component plus
-    /// the entity handle. What one more entity costs, with no slack.
+    /// the entity handle, and 8 bytes of change stamps for each component
+    /// whose changes are tracked
+    /// ([`World::track_changes`](crate::World::track_changes)). What one more
+    /// entity costs, with no slack.
     ///
     /// ```
     /// use ponko_ecs::World;
@@ -299,9 +311,13 @@ impl Archetype {
     /// world.spawn((Pos(0.0, 0.0),));
     /// let a = world.archetypes().iter().find(|a| a.len() == 1).unwrap();
     /// assert_eq!(a.bytes_per_entity(), 8 + 8); // Pos + the entity handle
+    ///
+    /// world.track_changes::<Pos>();
+    /// let a = world.archetypes().iter().find(|a| a.len() == 1).unwrap();
+    /// assert_eq!(a.bytes_per_entity(), 8 + 8 + 8); // and two 4-byte stamps
     /// ```
     pub fn bytes_per_entity(&self) -> usize {
-        self.columns.iter().map(Column::size).sum::<usize>() + std::mem::size_of::<Entity>()
+        self.columns.iter().map(|c| c.size() + c.stamp_bytes()).sum::<usize>() + std::mem::size_of::<Entity>()
     }
 
     /// Bytes this archetype has allocated for entity data (including spare
@@ -318,7 +334,10 @@ impl Archetype {
     /// ```
     #[must_use]
     pub fn allocated_bytes(&self) -> usize {
-        self.columns.iter().map(|c| c.size() * self.cap).sum::<usize>()
+        self.columns
+            .iter()
+            .map(|c| (c.size() + c.stamp_bytes()) * self.cap)
+            .sum::<usize>()
             + self.entities.capacity() * std::mem::size_of::<Entity>()
     }
 
