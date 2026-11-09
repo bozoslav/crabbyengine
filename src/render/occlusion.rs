@@ -85,6 +85,11 @@ pub(crate) struct Occlusion {
 }
 
 impl Occlusion {
+    /// Whether occlusion culling can run on this device.
+    pub fn supported(&self) -> bool {
+        self.supported
+    }
+
     /// `supported`: whether the device runs compute shaders.
     pub fn new(device: &wgpu::Device, supported: bool) -> Self {
         let slot = || Slot {

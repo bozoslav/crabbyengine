@@ -98,9 +98,7 @@ impl Renderer3D {
             self.static_batches[id as usize] = None;
             return;
         };
-        let compute = self.storage_read.is_some()
-            && device.limits().max_storage_buffers_per_shader_stage >= 4
-            && can_compute(device);
+        let compute = self.storage_read.is_some() && GpuLimits::of(device).compute_culling();
         if compute && self.static_culling.is_none() {
             self.static_culling = Some(Culling::new(device));
         }

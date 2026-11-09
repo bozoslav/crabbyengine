@@ -228,6 +228,7 @@ fn headless_runs_have_no_render_stats_or_screenshots() {
         .sim_system(move |ctx: &mut Ctx| {
             ctx.save_screenshot(&p);
             assert_eq!(ctx.render_stats(), RenderStats::default());
+            assert!(ctx.gpu_capabilities().is_none(), "no GPU is opened headless");
             r.set(r.get() + 1);
         })
         .run_headless(3, |_| {});

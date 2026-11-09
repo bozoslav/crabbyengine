@@ -25,6 +25,7 @@
 //! Sprites and UI are drawn on top afterwards, without tone mapping.
 
 mod instances;
+use super::capabilities::GpuLimits;
 use instances::{Culling, StaticBatch};
 use std::ops::Range;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -332,15 +333,11 @@ const MESH_MAIN: &str = include_str!("mesh_main.wgsl");
 const DECALS: &str = include_str!("decal.wgsl");
 const NO_DECALS: &str = include_str!("decal_off.wgsl");
 
-/// Sampled textures a fragment shader needs for the mesh pipelines with
-/// decals: the 16 WebGL2 and WebGPU's defaults allow, and the decal images.
-const DECAL_SAMPLED_TEXTURES: u32 = 17;
-
 /// Whether `device` has a texture slot to spare for projected decals.
 /// Native devices ask for more than the default when the adapter has it;
 /// WebGL2 doesn't, and skips decals.
 pub(crate) fn supports_decals(device: &wgpu::Device) -> bool {
-    device.limits().max_sampled_textures_per_shader_stage >= DECAL_SAMPLED_TEXTURES
+    GpuLimits::of(device).decals()
 }
 
 /// Global illumination's probes in the mesh shader (see `gi.rs`), or the
@@ -360,7 +357,7 @@ pub(super) fn gi_update_source() -> String {
 /// Whether `device` can draw global illumination: compute shaders, and a
 /// texture slot past the decals' for the probes (the 18th).
 pub(crate) fn supports_gi(device: &wgpu::Device) -> bool {
-    can_compute(device) && device.limits().max_sampled_textures_per_shader_stage > DECAL_SAMPLED_TEXTURES
+    GpuLimits::of(device).gi()
 }
 const EFFECT_PRELUDE: &str = include_str!("effect.wgsl");
 const EFFECT_MAIN: &str = include_str!("effect_main.wgsl");
@@ -495,8 +492,7 @@ pub(crate) fn check_shader(name: &str, source: &str) -> Result<(), String> {
 /// Whether `device` runs compute passes: WebGL2 has no compute shaders
 /// or storage textures.
 fn can_compute(device: &wgpu::Device) -> bool {
-    let limits = device.limits();
-    limits.max_compute_workgroups_per_dimension > 0 && limits.max_storage_textures_per_shader_stage > 0
+    GpuLimits::of(device).compute()
 }
 
 /// Most bloom steps: the smallest image is 1/128 of the screen.
@@ -998,7 +994,7 @@ impl Renderer3D {
                 }],
             })
         };
-        let storage_supported = compute && device.limits().max_storage_buffers_per_shader_stage > 0;
+        let storage_supported = GpuLimits::of(device).storage_buffers();
         let storage_read = storage_supported.then(|| storage_layout(true));
         let storage_dummy = storage_read.as_ref().map(|layout| {
             let buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -1592,10 +1588,7 @@ impl Renderer3D {
             buffer_computes: Vec::new(),
             storage_dummy,
             compute_layouts,
-            skinning: skinning::Skinning::new(
-                device,
-                compute && device.limits().max_storage_buffers_per_shader_stage >= 4,
-            ),
+            skinning: skinning::Skinning::new(device, GpuLimits::of(device).gpu_skinning()),
             particles: super::particles::Particles::new(device, texture_layout, samples),
             occlusion: super::occlusion::Occlusion::new(device, compute),
             occluded: 0,
@@ -4988,3 +4981,7 @@ mod tests {
 #[cfg(test)]
 #[path = "material_render_test.rs"]
 mod material_render_test;
+
+#[cfg(test)]
+#[path = "capabilities_render_test.rs"]
+mod capabilities_render_test;
