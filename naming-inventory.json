@@ -811,6 +811,12 @@
       "category": "public compatibility",
       "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
     },
+    "tests/asset_sources.rs": {
+      "occurrences": 1,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Uses the retained prefab format identifier in a test fixture."
+    },
     "tests/control.rs": {
       "occurrences": 3,
       "path_occurrences": 0,

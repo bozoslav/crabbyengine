@@ -176,8 +176,11 @@ pub struct Ctx {
     data_loaders: Vec<DataLoader>,
     /// Parsed prefab files, by name (`spawn_prefab`).
     pub(crate) prefabs: HashMap<String, serde_json::Value>,
-    /// Files already loaded, by resolved path: loading one again returns the same handle.
-    pub(crate) loaded: HashMap<(std::path::PathBuf, AssetKind), u64>,
+    /// Asset sources added with `add_asset_source`, asked before `assets/`.
+    pub(crate) asset_sources: assets::Sources,
+    /// Assets already loaded, by origin (resolved path, or source and
+    /// name): loading one again returns the same handle.
+    pub(crate) loaded: HashMap<(assets::Origin, AssetKind), u64>,
     /// Textures and sounds loaded from files, indexed by `loaded` values.
     cached_textures: Vec<Texture>,
     pub(crate) cached_sounds: Vec<crate::Sound>,
@@ -397,6 +400,7 @@ impl Ctx {
             watcher: Default::default(),
             data_loaders: Vec::new(),
             prefabs: HashMap::new(),
+            asset_sources: assets::Sources::default(),
             loaded: HashMap::new(),
             cached_textures: Vec::new(),
             cached_sounds: Vec::new(),
@@ -1126,18 +1130,73 @@ impl Ctx {
     /// # }
     /// ```
     pub fn load_font(&mut self, path: &str) -> Font {
-        let file = assets::resolve(path).unwrap_or_else(|e| panic!("ponko: {e}"));
-        if let Some(&id) = self.loaded.get(&(file.clone(), AssetKind::Font)) {
+        if let Some((_, id)) = self.cached_in_sources(path, AssetKind::Font) {
             return Font(id as u32);
         }
-        let bytes = assets::read(&file).unwrap_or_else(|e| panic!("ponko: could not read {}: {e}", file.display()));
-        let font = self
-            .text
-            .add_font(&bytes)
-            .unwrap_or_else(|e| panic!("ponko: {}: {e}", file.display()));
-        self.loaded.insert((file.clone(), AssetKind::Font), u64::from(font.0));
-        self.watcher.watch(path, file, Asset::Font(font.0));
+        let found = self.asset_sources.find(path).unwrap_or_else(|e| panic!("ponko: {e}"));
+        let origin = found.origin.clone();
+        if let Some(&id) = self.loaded.get(&(origin.clone(), AssetKind::Font)) {
+            return Font(id as u32);
+        }
+        let bytes = found.into_bytes().unwrap_or_else(|e| panic!("ponko: {e}"));
+        let font = self.text.add_font(&bytes).unwrap_or_else(|e| match &origin {
+            assets::Origin::File(file) => panic!("ponko: {}: {e}", file.display()),
+            assets::Origin::Source { .. } => panic!("ponko: {}: {e}", origin.describe(path)),
+        });
+        self.loaded.insert((origin.clone(), AssetKind::Font), u64::from(font.0));
+        if let assets::Origin::File(file) = origin {
+            self.watcher.watch(path, file, Asset::Font(font.0));
+        }
         font
+    }
+
+    /// Adds a place to load named assets from. Added sources are asked in
+    /// the order they were added, all before the `assets/` folder.
+    ///
+    /// Every load by name goes through it: [`load_texture`](Self::load_texture),
+    /// [`load_font`](Self::load_font), [`load_resource`](Self::load_resource),
+    /// [`load_scene`](Self::load_scene) and [`spawn_prefab`](Self::spawn_prefab)
+    /// (and the textures their scenes name). Sounds, meshes, shaders and other
+    /// 3D files still come only from `assets/`. See [`AssetSource`](crate::AssetSource)
+    /// for names, caching and hot reload.
+    ///
+    /// Add sources in setup, before loading what they hold: assets loaded
+    /// earlier stay cached where they were found.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// #[derive(serde::Deserialize)]
+    /// struct Rules {
+    ///     speed: f32,
+    /// }
+    ///
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     ctx.add_asset_source(MemorySource::new("built-in").with("rules.json", r#"{"speed": 30}"#));
+    ///     ctx.load_resource::<Rules>("rules.json");
+    ///     assert_eq!(ctx.world.resource::<Rules>().speed, 30.0);
+    /// });
+    /// ```
+    ///
+    /// # Panics
+    /// If the source's id is empty or a source with that id was already added.
+    pub fn add_asset_source(&mut self, source: impl crate::AssetSource) {
+        self.asset_sources.add(Box::new(source));
+    }
+
+    /// A cached `kind` asset called `name` from an added source, searched
+    /// in order. Earlier sources win, so this matches what a fresh
+    /// [`assets::Sources::find`] would pick for anything still cached.
+    fn cached_in_sources(&self, name: &str, kind: AssetKind) -> Option<(assets::Origin, u64)> {
+        self.asset_sources
+            .origins(name)
+            .find_map(|origin| self.loaded.get(&(origin.clone(), kind)).map(|&v| (origin, v)))
+    }
+
+    /// Reads asset `name` as UTF-8 text from the first source that has it.
+    pub(crate) fn read_asset_text(&self, name: &str) -> Result<(assets::Origin, String), String> {
+        let found = self.asset_sources.find(name)?;
+        let origin = found.origin.clone();
+        Ok((origin, found.into_text(name)?))
     }
 
     /// Whether `font` is the built-in font or one this context loaded. Only
@@ -1178,16 +1237,31 @@ impl Ctx {
     /// [`load_texture`](Self::load_texture) with errors as values; also
     /// names the texture, so sprites showing it can be saved.
     pub(crate) fn try_load_texture(&mut self, path: &str) -> Result<Texture, String> {
-        let file = assets::resolve(path)?;
-        let texture = match self.loaded.get(&(file.clone(), AssetKind::Texture)) {
-            Some(&i) => self.cached_textures[i as usize],
+        let cached = match self.cached_in_sources(path, AssetKind::Texture) {
+            Some((_, i)) => Ok(i),
             None => {
-                let image = assets::load_image_at(&file, path)?;
+                let found = self.asset_sources.find(path)?;
+                match self.loaded.get(&(found.origin.clone(), AssetKind::Texture)) {
+                    Some(&i) => Ok(i),
+                    None => Err(found),
+                }
+            }
+        };
+        let texture = match cached {
+            Ok(i) => self.cached_textures[i as usize],
+            Err(found) => {
+                // Acquire, decode (CPU only), then create on the GPU (game thread).
+                let origin = found.origin.clone();
+                let bytes = found.into_bytes()?;
+                let image = assets::decode_image(&bytes)
+                    .map_err(|e| format!("{} is not a valid image: {e}", origin.describe(path)))?;
                 let texture = self.create_texture(image.width, image.height, &image.rgba);
                 self.loaded
-                    .insert((file.clone(), AssetKind::Texture), self.cached_textures.len() as u64);
+                    .insert((origin.clone(), AssetKind::Texture), self.cached_textures.len() as u64);
                 self.cached_textures.push(texture);
-                self.watcher.watch(path, file, Asset::Texture(texture));
+                if let assets::Origin::File(file) = origin {
+                    self.watcher.watch(path, file, Asset::Texture(texture));
+                }
                 texture
             }
         };
@@ -1290,11 +1364,12 @@ impl Ctx {
     }
 
     fn load_data(&mut self, path: &str, apply: DataLoader) -> Result<(), String> {
-        let file = assets::resolve(path)?;
-        let text = assets::read_to_string(&file)?;
+        let (origin, text) = self.read_asset_text(path)?;
         apply(&mut self.world, &text).map_err(|e| format!("{path}: {e}"))?;
         self.data_loaders.push(apply);
-        self.watcher.watch(path, file, Asset::Data(self.data_loaders.len() - 1));
+        if let assets::Origin::File(file) = origin {
+            self.watcher.watch(path, file, Asset::Data(self.data_loaders.len() - 1));
+        }
         Ok(())
     }
 
@@ -2340,6 +2415,42 @@ mod tests {
             fixed_steps: 1,
             alpha: 0.25,
         }
+    }
+
+    fn png(size: u32) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        image::RgbaImage::from_pixel(size, size, image::Rgba([0, 0, 255, 255]))
+            .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .unwrap();
+        bytes
+    }
+
+    #[test]
+    fn source_assets_are_cached_by_source_and_never_watched() {
+        let mut ctx = Ctx::new(1.0 / 60.0, Vec2::ZERO);
+        ctx.headless = true;
+        ctx.watcher.on = true;
+        // An absolute name resolves as itself in the default source.
+        let dir = std::env::temp_dir().join(format!("ponko-source-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("crab.png");
+        std::fs::write(&file, png(2)).unwrap();
+        let name = file.to_str().unwrap().to_string();
+        let from_folder = ctx.load_texture(&name);
+        assert_eq!(ctx.watcher.watched(), 1, "default-source files are watched");
+        ctx.add_asset_source(crate::MemorySource::new("mem").with(name.clone(), png(3)));
+        let from_source = ctx.load_texture(&name);
+        assert_ne!(from_source, from_folder, "same name, other source: another asset");
+        assert_eq!(from_source.width(), 3);
+        assert_eq!(ctx.watcher.watched(), 1, "source assets are not watched");
+        let keys: Vec<_> = ctx.loaded.keys().map(|(origin, _)| origin.clone()).collect();
+        assert!(keys.contains(&assets::Origin::Source {
+            source: "mem".into(),
+            name: name.clone()
+        }));
+        assert!(keys.iter().any(|o| matches!(o, assets::Origin::File(_))));
+        assert_eq!(ctx.load_texture(&name), from_source, "the source's copy stays cached");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

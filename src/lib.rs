@@ -107,6 +107,7 @@ mod ui;
 mod web;
 
 pub use alloc_count::{AllocCounts, CountingAllocator, alloc_counts, note_allocation};
+pub use assets::{AssetSource, MemorySource};
 pub use attach::{Attached, follow_attachments};
 pub use audio::{AudioBus, AudioEffects, Playing, Sound, SoundParams};
 #[cfg(feature = "3d")]
