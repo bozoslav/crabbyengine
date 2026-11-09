@@ -1,6 +1,8 @@
 name: Release
 
-# Push a tag like v1.0.0 (on a commit of main whose CI passed):
+# First fold the changelog fragments in (python3 scripts/changelog.py) and
+# name the version in CHANGELOG.md, through a PR. Then push a tag like
+# v1.0.0 (on a commit of main whose CI passed):
 #   - builds the C library on each OS and attaches it, with the headers,
 #     to a GitHub release whose notes are that version's CHANGELOG section;
 #   - publishes the crates to crates.io if the CARGO_REGISTRY_TOKEN secret
