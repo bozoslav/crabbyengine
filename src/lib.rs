@@ -78,8 +78,7 @@ mod input;
 mod inventory;
 pub use access::{AccessConflict, AccessReport, ReportedPair, ReportedSystem, SystemAccess};
 pub use actions::{
-    Action, ActionId, ActionMap, ActionRef, Axis2Binding, AxisBinding, ButtonBinding, InputEvent, InputScenario,
-    UnknownAction,
+    Action, ActionId, ActionMap, ActionRef, Axis2Binding, AxisBinding, ButtonBinding, InputEvent, UnknownAction,
 };
 #[cfg(feature = "inspector")]
 mod inspector;
@@ -101,6 +100,7 @@ mod random;
 mod reflect;
 mod render;
 mod residency;
+mod scenario;
 mod scene;
 mod schema;
 mod scope;
@@ -117,6 +117,10 @@ mod ui;
 #[cfg(all(target_arch = "wasm32", feature = "window"))]
 mod web;
 
+pub use scenario::{
+    InputScenario, MAX_SCENARIO_STEPS, MAX_SCENARIO_TICKS, SCENARIO_VERSION, ScenarioCheck, ScenarioError,
+    ScenarioFailure, ScenarioReport, ScenarioStatus,
+};
 pub use alloc_count::{AllocCounts, CountingAllocator, alloc_counts, note_allocation};
 pub use assets::{AssetSource, MemorySource};
 pub use attach::{Attached, follow_attachments};

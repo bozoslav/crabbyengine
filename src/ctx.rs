@@ -189,6 +189,8 @@ pub struct Ctx {
     pub(crate) headless: bool,
     /// Where the control endpoint listens, if it's on.
     pub(crate) control_addr: Option<std::net::SocketAddr>,
+    /// Running input scenario and whether tools may start one.
+    pub(crate) scenarios: crate::scenario::Scenarios,
     pub(crate) headless_textures: u32,
     /// The game's textures (not the engine's own), by id, live or freed.
     pub(crate) textures_live: crate::handle::LiveSet,
@@ -446,6 +448,7 @@ impl Ctx {
             },
             headless: false,
             control_addr: None,
+            scenarios: Default::default(),
             headless_textures: 0,
             textures_live: Default::default(),
             sounds_live: Default::default(),
@@ -1016,6 +1019,10 @@ impl Ctx {
 
     pub(crate) fn set_in_sim(&mut self, in_sim: bool) {
         self.in_sim = in_sim;
+    }
+
+    pub(crate) fn is_in_sim(&self) -> bool {
+        self.in_sim
     }
 
     /// Engine side: apply commands recorded by the system that just ran.

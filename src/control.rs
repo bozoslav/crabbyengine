@@ -38,6 +38,8 @@ use query::{Condition, FieldPath, FieldStats};
 
 /// Environment variable that turns the endpoint on (`1`).
 pub(crate) const ENV_CONTROL: &str = "PONKO_CONTROL";
+/// Environment variable that lets tools start input scenarios (`1`).
+pub(crate) const ENV_INPUT_INJECTION: &str = "PONKO_INPUT_INJECTION";
 /// Environment variable that starts the simulation paused (`1`).
 pub(crate) const ENV_START_PAUSED: &str = "PONKO_START_PAUSED";
 /// Environment variable overriding where instances register themselves.
