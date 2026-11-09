@@ -93,6 +93,7 @@ pub(super) struct Skinning {
 
 impl Skinning {
     /// Whether meshes are posed by the compute shader (else on the CPU).
+    #[cfg(test)]
     pub fn uses_compute(&self) -> bool {
         self.pipeline.is_some()
     }

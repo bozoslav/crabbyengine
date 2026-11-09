@@ -86,6 +86,7 @@ pub(crate) struct Occlusion {
 
 impl Occlusion {
     /// Whether occlusion culling can run on this device.
+    #[cfg(test)]
     pub fn supported(&self) -> bool {
         self.supported
     }
