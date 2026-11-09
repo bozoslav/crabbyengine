@@ -150,7 +150,7 @@ impl Ctx {
         name: &str,
         kind: ShaderKind,
         reload: bool,
-        result: Result<(), ShaderDiagnostic>,
+        result: Result<(), Box<ShaderDiagnostic>>,
     ) -> Result<(), String> {
         let frame = self.frame();
         let list = &mut self.assets3d.shader_status;
@@ -188,7 +188,7 @@ impl Ctx {
                 } else {
                     ShaderOutcome::Failed
                 };
-                status.diagnostics = vec![diagnostic];
+                status.diagnostics = vec![*diagnostic];
                 Err(message)
             }
         }

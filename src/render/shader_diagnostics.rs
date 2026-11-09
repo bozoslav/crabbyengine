@@ -23,7 +23,12 @@ fn game_range(composed: &str) -> Option<std::ops::Range<usize>> {
 
 /// Checks composed shader `composed` made from the game's `name`. On an
 /// error: where it is in the game's code, and why.
-pub(crate) fn diagnose(name: &str, kind: ShaderKind, variant: &str, composed: &str) -> Result<(), ShaderDiagnostic> {
+pub(crate) fn diagnose(
+    name: &str,
+    kind: ShaderKind,
+    variant: &str,
+    composed: &str,
+) -> Result<(), Box<ShaderDiagnostic>> {
     let module = match naga::front::wgsl::parse_str(composed) {
         Ok(module) => module,
         Err(e) => {
@@ -76,8 +81,8 @@ pub(crate) fn diagnose(name: &str, kind: ShaderKind, variant: &str, composed: &s
 
 /// A diagnostic for an error that isn't the compiler's (pipeline creation),
 /// with no place in the source.
-pub(crate) fn without_location(name: &str, kind: ShaderKind, variant: &str, message: String) -> ShaderDiagnostic {
-    ShaderDiagnostic {
+pub(crate) fn without_location(name: &str, kind: ShaderKind, variant: &str, message: String) -> Box<ShaderDiagnostic> {
+    Box::new(ShaderDiagnostic {
         shader: name.to_string(),
         kind,
         variant: variant.to_string(),
@@ -88,7 +93,7 @@ pub(crate) fn without_location(name: &str, kind: ShaderKind, variant: &str, mess
         label: String::new(),
         notes: Vec::new(),
         source_line: None,
-    }
+    })
 }
 
 fn build(
@@ -99,7 +104,7 @@ fn build(
     message: String,
     primary: Option<(std::ops::Range<usize>, String)>,
     notes: Vec<String>,
-) -> ShaderDiagnostic {
+) -> Box<ShaderDiagnostic> {
     let mut diagnostic = without_location(name, kind, variant, message);
     diagnostic.notes = notes;
     let Some((range, label)) = primary else {

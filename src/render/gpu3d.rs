@@ -1902,7 +1902,12 @@ impl Renderer3D {
     }
 
     /// Compiles a material shader from the game's WGSL; returns its index.
-    pub fn create_shader(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, ShaderDiagnostic> {
+    pub fn create_shader(
+        &mut self,
+        device: &wgpu::Device,
+        name: &str,
+        user: &str,
+    ) -> Result<u32, Box<ShaderDiagnostic>> {
         let pipelines = self.material_pipelines(device, name, user)?;
         self.shaders.push(pipelines);
         Ok(self.shaders.len() as u32 - 1)
@@ -1915,7 +1920,7 @@ impl Renderer3D {
         id: u32,
         name: &str,
         user: &str,
-    ) -> Result<(), ShaderDiagnostic> {
+    ) -> Result<(), Box<ShaderDiagnostic>> {
         let pipelines = self.material_pipelines(device, name, user)?;
         self.shaders[id as usize] = pipelines;
         Ok(())
@@ -1929,7 +1934,7 @@ impl Renderer3D {
         device: &wgpu::Device,
         name: &str,
         user: &str,
-    ) -> Result<ShaderPipelines, ShaderDiagnostic> {
+    ) -> Result<ShaderPipelines, Box<ShaderDiagnostic>> {
         let storage = self.storage_read.is_some();
         let (decals, gi) = (self.frame_sources.decals, self.frame_sources.gi);
         let variant = material_variant(decals, gi, storage);

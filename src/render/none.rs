@@ -106,11 +106,11 @@ impl Renderer {
         match *self {}
     }
     #[cfg(feature = "3d")]
-    pub fn create_shader(&mut self, _name: &str, _source: &str) -> Result<u32, crate::ShaderDiagnostic> {
+    pub fn create_shader(&mut self, _name: &str, _source: &str) -> Result<u32, Box<crate::ShaderDiagnostic>> {
         match *self {}
     }
     #[cfg(feature = "3d")]
-    pub fn replace_shader(&mut self, _id: u32, _name: &str, _source: &str) -> Result<(), crate::ShaderDiagnostic> {
+    pub fn replace_shader(&mut self, _id: u32, _name: &str, _source: &str) -> Result<(), Box<crate::ShaderDiagnostic>> {
         match *self {}
     }
     #[cfg(feature = "3d")]

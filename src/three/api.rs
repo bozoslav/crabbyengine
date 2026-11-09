@@ -261,7 +261,7 @@ impl Ctx {
         name: &str,
         source: &str,
         replace: Option<u32>,
-    ) -> Result<(), super::ShaderDiagnostic> {
+    ) -> Result<(), Box<super::ShaderDiagnostic>> {
         #[cfg(feature = "window")]
         crate::render::diagnose(
             name,
