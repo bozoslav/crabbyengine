@@ -414,10 +414,12 @@ pub(super) struct Node {
     pub value: f32,
     pub caret: usize,
     pub anchor: usize,
+    /// Accessible name override; empty means "derive it from the text".
+    pub access_name: String,
 }
-struct Screen {
-    root: UiId,
-    modal: bool,
+pub(super) struct Screen {
+    pub root: UiId,
+    pub modal: bool,
     saved_focus: Option<UiId>,
 }
 #[derive(Clone, Copy)]
@@ -439,7 +441,7 @@ enum Drag {
 pub struct Ui {
     pub(super) tree: TaffyTree<usize>,
     pub(super) nodes: Vec<Option<Node>>,
-    screens: Vec<Screen>,
+    pub(super) screens: Vec<Screen>,
     pub(super) visible: Vec<UiId>,
     events: Vec<UiEvent>,
     pub(super) focus: Option<UiId>,
@@ -487,7 +489,7 @@ impl Ui {
     pub(super) fn node(&self, id: UiId) -> Option<&Node> {
         self.nodes.get(id.0)?.as_ref()
     }
-    fn node_mut(&mut self, id: UiId) -> Option<&mut Node> {
+    pub(super) fn node_mut(&mut self, id: UiId) -> Option<&mut Node> {
         self.nodes.get_mut(id.0)?.as_mut()
     }
     pub(super) fn paint_mut(&mut self, id: UiId) -> Option<&mut UiPaint> {
@@ -521,6 +523,7 @@ impl Ui {
             value: 0.0,
             caret: 0,
             anchor: 0,
+            access_name: String::new(),
         }));
         id
     }
@@ -837,7 +840,7 @@ impl Ui {
         }
         false
     }
-    fn focusable(&self, id: UiId) -> bool {
+    pub(super) fn focusable(&self, id: UiId) -> bool {
         self.interactive(id)
             && self.node(id).is_some_and(|n| {
                 matches!(
