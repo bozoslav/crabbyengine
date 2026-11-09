@@ -5,7 +5,8 @@ use glam::{Mat4, Vec3, Vec4};
 
 use super::{
     Assets3D, Camera3D, Lighting, LodGroup, LodHysteresis, LodPick, LodRenderer, LodSettings, LodShadow, Model,
-    ReceivesDecals, ShadowMesh, Skeleton, SkinFrame, SkinOf, TERRAIN_LODS, TerrainTile, Transform3D, linear,
+    ModelMaterial, ReceivesDecals, ShadowMesh, Skeleton, SkinFrame, SkinOf, TERRAIN_LODS, TerrainTile, Transform3D,
+    linear,
 };
 use crate::World;
 
@@ -138,6 +139,17 @@ pub(crate) struct Frame3D {
     /// Global illumination's probes and what they draw, when it's on (only
     /// the main frame has this).
     pub gi: Option<Box<super::gi::GiFrame>>,
+    /// The (mesh, material) pairs of models with a [`ModelMaterial`], each
+    /// once, in the world's order. In `runs`, pair `k` is mesh id
+    /// `override_base + k`: its mesh drawn with that material. Every frame
+    /// collected from the same world numbers them alike, so target cameras
+    /// and probe views share the main frame's.
+    pub material_overrides: Vec<(u32, u32)>,
+    /// The first mesh id of `material_overrides`: past the meshes and the
+    /// skinned models.
+    pub override_base: u32,
+    /// Where each pair is in `material_overrides`.
+    override_index: std::collections::HashMap<(u32, u32), u32>,
     scratch: Vec<Entry>,
     counts: Vec<u32>,
     /// Per model, which passes see it (see `collect`), kept between frames.
@@ -422,6 +434,22 @@ impl Frame3D {
             Some(_) => s.is_some(),
             None => assets.morph(m.mesh.id).is_some(),
         };
+        // Material overrides: each (mesh, material) pair gets a mesh id of
+        // its own past the skinned models, so its models batch together
+        // and the rest keep the plain per-mesh path.
+        let real_meshes = assets.bounds.len() as u32;
+        let override_base = real_meshes + skins.draws.len() as u32;
+        self.override_base = override_base;
+        self.material_overrides.clear();
+        self.override_index.clear();
+        let (overrides, override_index) = (&mut self.material_overrides, &mut self.override_index);
+        world.query::<(&Model, &ModelMaterial)>().for_each(|(m, o)| {
+            override_index.entry((m.mesh.id, o.0.id)).or_insert_with(|| {
+                overrides.push((m.mesh.id, o.0.id));
+                overrides.len() as u32 - 1
+            });
+        });
+        let override_index = &self.override_index;
         // Models: culled on all cores (most of the work, and most models are
         // culled), then the few that are seen are added in order.
         let flags = &mut self.flags;
@@ -449,14 +477,26 @@ impl Frame3D {
                 Option<&ShadowMesh>,
                 Option<&Skeleton>,
                 Option<&ReceivesDecals>,
+                Option<&ModelMaterial>,
             )>()
             .without::<SkinOf>()
-            .for_each(|(e, t, m, shadow, _, receives)| {
+            .for_each(|(e, t, m, shadow, _, receives, material)| {
                 let f = flags[at];
                 at += 1;
                 if f != 0
-                    && let Some((meshes, _, _)) = model_meshes(m, shadow)
+                    && let Some((mut meshes, _, _)) = model_meshes(m, shadow)
                 {
+                    // The model's own mesh, wherever it is drawn (not a
+                    // separate `ShadowMesh`), takes the override.
+                    if let Some(o) = material
+                        && let Some(&k) = override_index.get(&(m.mesh.id, o.0.id))
+                    {
+                        for mesh in &mut meshes {
+                            if *mesh == m.mesh.id {
+                                *mesh = override_base + k;
+                            }
+                        }
+                    }
                     add_instance(
                         meshes,
                         instance(t, linear(m.color), super::projected::receiver_mask(receives)),
@@ -491,7 +531,6 @@ impl Frame3D {
                 }
             });
         // Skinned models: each its own mesh, skinned on the GPU this frame.
-        let real_meshes = assets.bounds.len() as u32;
         for (k, d) in skins.draws.iter().enumerate() {
             if d.bounds.1 < 0.0 {
                 continue;
@@ -612,7 +651,7 @@ impl Frame3D {
                 }
             });
         self.motion.finish();
-        let meshes = assets.bounds.len() + skins.draws.len();
+        let meshes = override_base as usize + self.material_overrides.len();
         let (counts, instances) = (&mut self.counts, &mut self.instances);
         self.occluded = occluded.into_inner();
         self.visible = sort_runs(&self.scratch, |e| e.2, meshes, counts, instances, &mut self.runs);
@@ -914,6 +953,54 @@ mod tests {
         assert_eq!(frame.visible, 1);
         assert_eq!(frame.runs, vec![(0, 0, 1)]);
         assert_eq!(frame.shadow_runs[0], vec![(0, 1, 2)]);
+    }
+
+    #[test]
+    fn material_overrides_batch_by_mesh_and_material() {
+        use crate::{Material, ModelMaterial};
+        let mut world = World::new();
+        let assets = Assets3D {
+            bounds: vec![(Vec3::ZERO, 1.0); 2],
+            ..Default::default()
+        };
+        let mut camera = camera();
+        camera.position = Vec3::new(0.0, 5.0, 10.0);
+        camera.look_at(Vec3::ZERO);
+        let lighting = Lighting {
+            sun_direction: Vec3::new(0.0, -1.0, -0.2),
+            shadow_distance: 30.0,
+            shadow_cascades: 1,
+            ..Default::default()
+        };
+        let (wet, dry) = (ModelMaterial(Material { id: 7 }), ModelMaterial(Material { id: 3 }));
+        let rock = Model::new(Mesh { id: 0 });
+        let at = |x: f32| Transform3D::at(Vec3::new(x, 0.0, 0.0));
+        world.spawn((at(0.0), rock)); // its own material
+        world.spawn((at(1.0), rock, wet));
+        world.spawn((at(2.0), rock, dry));
+        world.spawn((at(-1.0), rock, wet));
+        world.spawn((at(-2.0), Model::new(Mesh { id: 1 }))); // another mesh
+        // Its own shadow mesh keeps that mesh's materials.
+        world.spawn((at(3.0), rock, wet, ShadowMesh(Some(Mesh { id: 1 }))));
+        let mut frame = Frame3D::default();
+        frame.collect(&mut world, &assets, &SkinFrame::default(), &camera, &lighting);
+        // Past the two meshes (no skinned models): one id per pair, in the
+        // world's order (archetypes as made: wet, dry, then wet with a shadow mesh).
+        assert_eq!(frame.override_base, 2);
+        assert_eq!(frame.material_overrides, vec![(0, 7), (0, 3)]);
+        assert_eq!(frame.visible, 6);
+        // Wet rocks batch into one run, apart from the plain and dry ones.
+        assert_eq!(frame.runs, vec![(0, 0, 1), (1, 1, 1), (2, 2, 3), (3, 5, 1)]);
+        // Shadows: the plain rock, the two wet and the dry one, plus the
+        // two mesh-1 casters (the other mesh and the shadow mesh).
+        assert_eq!(frame.shadow_runs[0], vec![(0, 6, 1), (1, 7, 2), (2, 9, 2), (3, 11, 1)]);
+        // Another frame of the same world numbers the pairs alike.
+        let mut view = Frame3D::default();
+        view.collect(&mut world, &assets, &SkinFrame::default(), &camera, &lighting);
+        assert_eq!(
+            (view.override_base, &view.material_overrides),
+            (2, &frame.material_overrides)
+        );
     }
 
     #[test]

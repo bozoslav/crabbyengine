@@ -144,7 +144,9 @@ fn main() {
         ctx.world.spawn((Transform3D::default(), Model::new(ground)));
 
         // Spheres: rough to smooth left to right, plastic in front, metal behind.
-        let ball = MeshData::sphere(0.45, 32);
+        // One mesh, uploaded once; each sphere draws it with its own material.
+        let white = ctx.default_material();
+        let ball = ctx.create_mesh(&MeshData::sphere(0.45, 32), white);
         for row in 0..2 {
             for col in 0..6 {
                 let material = ctx.create_material(MaterialDesc {
@@ -156,14 +158,13 @@ fn main() {
                         Color::hex(0xE8C070)
                     })
                 });
-                let mesh = ctx.create_mesh(&ball, material);
                 let at = vec3(col as f32 * 1.1 - 2.75, 0.45, row as f32 * -1.2);
-                ctx.world.spawn((Transform3D::at(at), Model::new(mesh)));
+                ctx.world
+                    .spawn((Transform3D::at(at), Model::new(ball), ModelMaterial(material)));
             }
         }
 
         // A field of spinning cubes, one mesh, tinted per cube.
-        let white = ctx.default_material();
         let cube = ctx.create_mesh(&MeshData::cube(0.6), white);
         let side = (cubes as f32).sqrt().ceil() as usize;
         let mut rng = Rng::new(3);
