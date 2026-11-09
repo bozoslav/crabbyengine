@@ -32,7 +32,8 @@ unsafe impl GlobalAlloc for Counting {
 #[global_allocator]
 static GLOBAL: Counting = Counting;
 
-struct Marked(u64);
+/// A sized component, so each command carries bytes, not just a type.
+struct Marked(#[allow(dead_code)] u64);
 
 #[test]
 fn reused_commands_record_and_apply_without_allocating() {
