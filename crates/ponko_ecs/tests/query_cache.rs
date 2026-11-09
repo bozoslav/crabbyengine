@@ -1,4 +1,4 @@
-use ponko_ecs::{Entity, World};
+use ponko_ecs::{Entity, Or, With, Without, World};
 struct Value(usize);
 struct Marker<const N: usize>;
 
@@ -119,4 +119,29 @@ fn cached_parallel_order_matches_sequential() {
         .with::<Marker<0>>()
         .par_collect_into(&mut actual, |v| v.0);
     assert_eq!(actual, expected);
+}
+
+#[test]
+fn cached_typed_filters_keep_distinct_signatures() {
+    let mut w = World::new();
+    fragmented(&mut w);
+    type Either = Or<(With<Marker<0>>, With<Marker<1>>)>;
+    type EitherNot = Or<(With<Marker<0>>, Without<Marker<1>>)>;
+    type Narrow = (Either, Without<Marker<2>>);
+    for _ in 0..2 {
+        // Same terms, different polarity or extra filters: separate cache entries.
+        assert_eq!(w.query::<&Value>().cached().filter::<Either>().count(), 96);
+        assert_eq!(w.query::<&Value>().cached().filter::<EitherNot>().count(), 96);
+        assert_eq!(w.query::<&Value>().cached().filter::<Narrow>().count(), 48);
+        let cached: Vec<usize> = w
+            .query::<&Value>()
+            .cached()
+            .filter::<EitherNot>()
+            .iter()
+            .map(|v| v.0)
+            .collect();
+        let direct: Vec<usize> = w.query::<&Value>().filter::<EitherNot>().iter().map(|v| v.0).collect();
+        assert_eq!(cached, direct);
+        assert!(cached.iter().all(|&b| b & 1 != 0 || b & 2 == 0));
+    }
 }
