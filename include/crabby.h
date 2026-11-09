@@ -34,7 +34,7 @@
  * for that panel's UI.
  *
  * Enums (CrabbyKey, CrabbyMouseButton, CrabbyGamepadButton, CrabbyGamepadAxis,
- * CrabbyTextAlign3D, CrabbyBodyKind, CrabbyShapeKind, CrabbyShape3DKind, CrabbyNetState, CrabbyHandleKind, and the
+ * CrabbyTextAlign3D, CrabbyBodyKind, CrabbyShapeKind, CrabbyShape3DKind, CrabbyNetState, CrabbyPhase, CrabbyHandleKind, and the
  * CrabbyUi* layout and paint enums) are passed as uint32_t.
  * Last-error text is thread-local, borrowed until the next failed call;
  * successful calls leave it unchanged.
@@ -357,6 +357,18 @@ typedef enum CrabbyBodyKind {
   CRABBY_BODY_FIXED,
   CRABBY_BODY_KINEMATIC,
 } CrabbyBodyKind;
+
+typedef enum CrabbyPhase {
+  CRABBY_PHASE_INPUT,
+  CRABBY_PHASE_BEFORE_PHYSICS,
+  CRABBY_PHASE_PHYSICS,
+  CRABBY_PHASE_AFTER_PHYSICS,
+  CRABBY_PHASE_SIM_LAST,
+  CRABBY_PHASE_FRAME,
+  CRABBY_PHASE_ANIMATE,
+  CRABBY_PHASE_LATE,
+  CRABBY_PHASE_DRAW,
+} CrabbyPhase;
 
 typedef enum CrabbyShapeKind {
   CRABBY_SHAPE_CIRCLE,
@@ -2215,6 +2227,13 @@ enum CrabbyStatus crabby_game_hot_reload(struct CrabbyGame *game, bool on);
 enum CrabbyStatus crabby_game_inspector(struct CrabbyGame *game, bool on);
 
 enum CrabbyStatus crabby_game_sim_system(struct CrabbyGame *game,
+                                         const char *name,
+                                         uint32_t every,
+                                         CrabbySystemFn system_fn,
+                                         void *user);
+
+enum CrabbyStatus crabby_game_add_system(struct CrabbyGame *game,
+                                         uint32_t phase,
                                          const char *name,
                                          uint32_t every,
                                          CrabbySystemFn system_fn,

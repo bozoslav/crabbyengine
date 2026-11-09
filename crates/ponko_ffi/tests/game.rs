@@ -666,3 +666,81 @@ fn gamepad_calls_read_empty_slots_and_reject_bad_arguments() {
         ]
     );
 }
+
+unsafe extern "C" fn log_phase(_: *mut CrabbyCtx, user: *mut c_void) {
+    // `user` points at (log, this system's label).
+    unsafe {
+        let (log, label) = &mut *user.cast::<(*mut Vec<u32>, u32)>();
+        (**log).push(*label);
+    }
+}
+
+#[test]
+fn add_system_runs_fixed_phases_in_phase_order() {
+    use CrabbyPhase::*;
+    let mut log = Vec::new();
+    let log_ptr: *mut Vec<u32> = &mut log;
+    let mut users: Vec<(*mut Vec<u32>, u32)> = [
+        CRABBY_PHASE_SIM_LAST,
+        CRABBY_PHASE_AFTER_PHYSICS,
+        CRABBY_PHASE_FRAME,
+        CRABBY_PHASE_BEFORE_PHYSICS,
+        CRABBY_PHASE_INPUT,
+    ]
+    .iter()
+    .map(|&p| (log_ptr, p as u32))
+    .collect();
+    unsafe {
+        let g = game();
+        // A plain sim system (AFTER_PHYSICS) added first still runs after BEFORE_PHYSICS.
+        let mut sim = (log_ptr, 99);
+        assert_eq!(
+            crabby_game_sim_system(g, c"sim".as_ptr(), 1, Some(log_phase), user(&mut sim)),
+            CRABBY_OK
+        );
+        for u in &mut users {
+            let phase = u.1;
+            assert_eq!(
+                crabby_game_add_system(g, phase, c"phase".as_ptr(), 1, Some(log_phase), user(u)),
+                CRABBY_OK
+            );
+        }
+        let world = run(g, 1, None, null_mut());
+        crabby_world_free(world);
+    }
+    let p = |p: CrabbyPhase| p as u32;
+    assert_eq!(
+        log,
+        [
+            p(CRABBY_PHASE_INPUT),
+            p(CRABBY_PHASE_BEFORE_PHYSICS),
+            99,
+            p(CRABBY_PHASE_AFTER_PHYSICS),
+            p(CRABBY_PHASE_SIM_LAST),
+        ]
+    );
+}
+
+#[test]
+fn add_system_rejects_bad_phases_and_intervals() {
+    use CrabbyPhase::*;
+    unsafe {
+        let g = game();
+        let add =
+            |phase: u32, every: u32, f: CrabbySystemFn| crabby_game_add_system(g, phase, null(), every, f, null_mut());
+        assert_eq!(add(9, 1, Some(log_tick)), CRABBY_INVALID_ARGUMENT);
+        assert_eq!(
+            add(CRABBY_PHASE_INPUT as u32, 0, Some(log_tick)),
+            CRABBY_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            add(CRABBY_PHASE_FRAME as u32, 2, Some(log_tick)),
+            CRABBY_INVALID_ARGUMENT
+        );
+        assert_eq!(add(CRABBY_PHASE_INPUT as u32, 1, None), CRABBY_INVALID_ARGUMENT);
+        assert_eq!(add(CRABBY_PHASE_SIM_LAST as u32, 3, Some(noop)), CRABBY_OK);
+        assert_eq!(add(CRABBY_PHASE_DRAW as u32, 1, Some(noop)), CRABBY_OK);
+        crabby_world_free(run(g, 1, None, null_mut()));
+    }
+}
+unsafe extern "C" fn noop(_: *mut CrabbyCtx, _: *mut c_void) {}

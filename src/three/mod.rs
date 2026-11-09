@@ -284,7 +284,28 @@ pub struct Material {
 /// A material shader written in WGSL: made with
 /// [`Ctx::load_shader`](crate::Ctx::load_shader) or
 /// [`Ctx::create_shader`](crate::Ctx::create_shader); a cheap handle. See
-/// the 3D chapter of the guide for what a shader can do.
+/// the 3D chapter of the guide for what a shader can do ("Custom shaders"
+/// and "The shader contract").
+///
+/// # The contract, in short
+///
+/// - The game's WGSL may define `fn vertex(v: Vertex) -> Vertex` (world
+///   space) and `fn surface(s: Surface) -> Surface`, with exactly these
+///   signatures; a missing one passes its input through. It declares no
+///   bindings of its own: groups 0 (`frame`), 1 (`material` and its
+///   textures), 2 (the scene behind, for transparent materials) and 3
+///   (`items`, a mesh's GPU buffer) are the engine's.
+/// - The same code runs in every pass: `vertex` in the depth prepass, the
+///   opaque or transparent pass, the shadow maps and the motion vectors;
+///   `surface` in the lit passes, and in depth and shadow passes only for
+///   [`Blend::Cutout`] materials. `drawing_shadows()` tells shadow maps apart.
+/// - Each shader is built as six pipeline sets: one- or double-sided
+///   ([`MaterialDesc::double_sided`]) times plain, crossfading (levels of
+///   detail) or shared-instance (GPU buffer) draws. There are no defines;
+///   skinned meshes use the same pipelines.
+/// - Culling uses the mesh's bounds before `vertex` moves anything: grow
+///   them with [`Ctx::set_mesh_gpu_bounds`](crate::Ctx::set_mesh_gpu_bounds)
+///   for shaders that move vertices far.
 ///
 /// ```no_run
 /// # use ponko::*;
@@ -469,6 +490,33 @@ pub struct Model {
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ShadowMesh(pub Option<Mesh>);
+
+/// Draws the entity's [`Model`] with this material instead of the ones its
+/// mesh was made with (every part of the mesh), so one uploaded mesh can be
+/// a wet and a dry rock, or a door in three paints, without a second copy
+/// of its vertices. Without it, the mesh's own materials are drawn.
+///
+/// Models that share a mesh and a material are still drawn together, in
+/// one draw per mesh part. The [`Model::color`] tint applies on top. A
+/// transparent material casts no shadow, as on a mesh made with it.
+///
+/// Not yet applied to skinned models posed by a [`Skeleton`], meshes with
+/// morph targets, [`LodGroup`] renderers or [`TerrainTile`]s: those draw
+/// their meshes' own materials. It isn't saved in scene files (materials
+/// have no file names), like a mesh made in code.
+///
+/// ```no_run
+/// # use ponko::*;
+/// # fn f(ctx: &mut Ctx) {
+/// let rock = ctx.load_mesh("rock.glb");
+/// let wet = ctx.create_material(MaterialDesc { roughness: 0.1, ..MaterialDesc::color(Color::hex(0x404850)) });
+/// ctx.world.spawn((Transform3D::default(), Model::new(rock)));                    // as the file has it
+/// ctx.world.spawn((Transform3D::at(vec3(3.0, 0.0, 0.0)), Model::new(rock), ModelMaterial(wet))); // wet
+/// # }
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(C)]
+pub struct ModelMaterial(pub Material);
 
 impl Model {
     /// Draws `mesh` as it is.

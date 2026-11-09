@@ -243,8 +243,12 @@ mod three {
                 ctx.compute_passes.push(ComputePass::new(compute, target));
                 ctx.target_cameras.push(TargetCamera::new(ctx.camera3d, target));
                 ctx.world.spawn((Transform3D::default(), Model::new(mesh)));
-                ctx.world
-                    .spawn((Transform3D::at(vec3(2.0, 0.0, 0.0)), Model::new(other)));
+                // Drawn with the material as an override too (ModelMaterial).
+                ctx.world.spawn((
+                    Transform3D::at(vec3(2.0, 0.0, 0.0)),
+                    Model::new(other),
+                    ModelMaterial(material),
+                ));
                 for h in [image, normal, target] {
                     ctx.free(h);
                 }

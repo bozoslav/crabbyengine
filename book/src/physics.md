@@ -31,8 +31,11 @@ systems that react to it:
 </div>
 </div>
 
-The physics step is a simulation system, placed where you call `physics`:
-systems added before it move things, systems added after it see the result.
+The physics step is a simulation system in the `Physics`
+[phase](systems.md#phases), wherever you call `physics`. Systems that move
+things for this tick's step (forces, velocities) go in `BeforePhysics` with
+`.add(Phase::BeforePhysics, f)` (C++: `.add(ponko::phase::before_physics, f)`);
+`sim_system`s run after the step and see its result.
 
 ## Bodies and colliders
 

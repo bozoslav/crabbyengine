@@ -129,7 +129,7 @@ pub use events::Events;
 #[doc(hidden)]
 pub use flow::RawFlowView;
 pub use flow::{FlowField, NavGrid};
-pub use game::{Game, Phase, SetupResult};
+pub use game::{ConfiguredGame, Game, Phase, SetupResult};
 pub use handle::{Handle, LiveCounts};
 pub use input::{Gamepad, GamepadAxis, GamepadButton, GamepadStick, Key, MAX_GAMEPADS, MouseButton};
 pub use net::{
@@ -193,11 +193,12 @@ pub use three::{
     LIGHT_SHADOW_ATLAS_SIZE, LIGHT_SHADOW_SIZE, LayerBlend, Lighting, Line3D, LodGroup, LodLevel, LodPick, LodRenderer,
     LodSettings, LodShadow, MAX_DECALS, MAX_DECALS_PER_CLUSTER, MAX_GI_PROBES, MAX_GI_PROBES_PER_FRAME,
     MAX_LIGHT_SHADOW_VIEWS, MAX_RENDER_SCALE, MIN_RENDER_SCALE, Material, MaterialDesc, Mesh, MeshCost, MeshData,
-    Model, MorphAnimation, MorphFrame, MorphTarget, MorphWeights, Motion, MotionChild, ParticleBlend3D, ParticleCurve,
-    ParticleEmitter3D, ParticleGradient, ParticleSettings3D, ParticleShape3D, ParticleSpace3D, PointLight3D, Post,
-    QualityLevel, ReceivesDecals, ReflectionProbe3D, RootMotion, ScreenEffect, Shader, ShadowMesh, Skeleton, SkinOf,
-    Sky, SpotLight3D, TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera, TerrainMaterialDesc, TerrainTile, TerrainTileData,
-    Text3D, TextAlign3D, TextureArray, TextureKind, Tonemap, Trail3D, Transform3D, look_at_joint, two_bone_ik,
+    Model, ModelMaterial, MorphAnimation, MorphFrame, MorphTarget, MorphWeights, Motion, MotionChild, ParticleBlend3D,
+    ParticleCurve, ParticleEmitter3D, ParticleGradient, ParticleSettings3D, ParticleShape3D, ParticleSpace3D,
+    PointLight3D, Post, QualityLevel, ReceivesDecals, ReflectionProbe3D, RootMotion, ScreenEffect, Shader, ShadowMesh,
+    Skeleton, SkinOf, Sky, SpotLight3D, TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera, TerrainMaterialDesc, TerrainTile,
+    TerrainTileData, Text3D, TextAlign3D, TextureArray, TextureKind, Tonemap, Trail3D, Transform3D, look_at_joint,
+    two_bone_ik,
 };
 pub use tilemap::{TileMap, draw_tilemaps};
 #[cfg(feature = "3d")]

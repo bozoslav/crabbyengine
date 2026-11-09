@@ -126,6 +126,56 @@ pub struct Game {
     input_scenario: Option<crate::InputScenario>,
 }
 
+type SetupFn = Box<dyn FnOnce(&mut Ctx)>;
+
+/// A game with stored startup callbacks and closure-free run methods.
+///
+/// Returned by [`Game::setup`]. Configure systems and window options on `Game`
+/// first, then register one or more setup callbacks. This separate type lets
+/// existing `Game::run(setup)` calls keep compiling: Rust cannot overload
+/// inherent methods by argument count.
+#[must_use = "a configured game does nothing until run or run_headless"]
+pub struct ConfiguredGame {
+    game: Game,
+    setups: Vec<SetupFn>,
+}
+
+fn run_setups(setups: Vec<SetupFn>, ctx: &mut Ctx) {
+    for setup in setups {
+        setup(ctx);
+        ctx.apply_commands();
+    }
+}
+
+impl ConfiguredGame {
+    /// Appends a startup callback. Callbacks run once in registration order,
+    /// after runtime initialization and before any systems. Deferred commands
+    /// are applied after each callback, including when running zero ticks.
+    pub fn setup(mut self, setup: impl FnOnce(&mut Ctx) + 'static) -> Self {
+        self.setups.push(Box::new(setup));
+        self
+    }
+
+    /// Opens the window and runs with the stored setup callbacks.
+    /// Has the same platform requirements and panics as [`Game::run`].
+    pub fn run(self) {
+        self.game.run(move |ctx| run_setups(self.setups, ctx));
+    }
+
+    /// Runs fixed ticks without a window or GPU, returning the world.
+    /// Frame systems do not run; see [`Game::run_headless`].
+    pub fn run_headless(self, ticks: u64) -> World {
+        self.game.run_headless(ticks, move |ctx| run_setups(self.setups, ctx))
+    }
+
+    /// Profiles fixed ticks using the stored setup callbacks.
+    /// See [`Game::profile_headless`] for warmup and report semantics.
+    pub fn profile_headless(self, warmup: u64, ticks: u64) -> (World, crate::PerfReport) {
+        self.game
+            .profile_headless(warmup, ticks, move |ctx| run_setups(self.setups, ctx))
+    }
+}
+
 type SystemFn = Box<dyn FnMut(&mut Ctx)>;
 
 /// A system: a named function that runs over the world.
@@ -233,6 +283,7 @@ fn connect_hotpatch() {
 /// What `setup` may return: nothing, or a closure to run every frame.
 ///
 /// Implemented for `()` and for every `FnMut(&mut Ctx)`.
+#[doc(hidden)]
 pub trait SetupResult {
     #[doc(hidden)]
     fn into_frame_fn(self) -> Option<SystemFn>;
@@ -306,8 +357,38 @@ impl Game {
     ///     .run_headless(1, |_| {});
     /// assert!(world.is_empty());
     /// ```
-    pub fn add(mut self, phase: Phase, system: impl FnMut(&mut Ctx) + 'static) -> Self {
+    pub fn add(self, phase: Phase, system: impl FnMut(&mut Ctx) + 'static) -> Self {
+        self.insert(phase, System::new(system))
+    }
+
+    /// For language bindings (the C API): `add` with a name for timings and
+    /// tools, and an interval in ticks for fixed-tick phases (like
+    /// `sim_system_every`). Frame phases need `ticks == 1`.
+    #[doc(hidden)]
+    #[track_caller]
+    pub fn named_add(
+        self,
+        phase: Phase,
+        name: &'static str,
+        ticks: u32,
+        system: impl FnMut(&mut Ctx) + 'static,
+    ) -> Self {
+        assert!(ticks > 0, "Game::named_add: the interval must be at least 1 tick");
+        assert!(
+            ticks == 1 || phase <= Phase::SimLast,
+            "Game::named_add: only fixed-tick phases take an interval"
+        );
         let mut s = System::new(system);
+        s.name = name;
+        if ticks > 1 {
+            let same = self.sim_systems.iter().filter(|s| s.every == ticks).count() as u32;
+            s.every = ticks;
+            s.phase = same % ticks;
+        }
+        self.insert(phase, s)
+    }
+
+    fn insert(mut self, phase: Phase, mut s: System) -> Self {
         s.stage = phase;
         let systems = match phase {
             Phase::Input | Phase::BeforePhysics | Phase::Physics | Phase::AfterPhysics | Phase::SimLast => {
@@ -320,6 +401,35 @@ impl Game {
         let index = systems.partition_point(|s| s.stage <= phase);
         systems.insert(index, s);
         self
+    }
+
+    /// Stores startup work on the builder. Configure systems and options first;
+    /// the returned [`ConfiguredGame`] has plain `.run()` and
+    /// `.run_headless(ticks)` methods, and accepts additional `.setup(...)` calls.
+    /// Callbacks run once in order, after initialization and before systems.
+    ///
+    /// Runtime branches can choose different capturing closures without needing
+    /// a common returned frame-closure type:
+    ///
+    /// ```
+    /// use ponko::Game;
+    /// let headless = true;
+    /// let game = Game::new("Example", 800, 600);
+    /// let game = if headless {
+    ///     let label = String::from("server");
+    ///     game.setup(move |ctx| ctx.world.insert_resource(label))
+    /// } else {
+    ///     let size = 42usize;
+    ///     game.setup(move |ctx| ctx.world.insert_resource(size.to_string()))
+    /// };
+    /// let world = game.run_headless(0);
+    /// assert_eq!(world.resource::<String>(), "server");
+    /// ```
+    pub fn setup(self, setup: impl FnOnce(&mut Ctx) + 'static) -> ConfiguredGame {
+        ConfiguredGame {
+            game: self,
+            setups: vec![Box::new(setup)],
+        }
     }
 
     /// Plays over the network in deterministic lockstep: `net` from
@@ -941,6 +1051,8 @@ impl Game {
     /// let y = world.query::<&Pos>().iter().next().unwrap().0;
     /// assert!((y - 90.0).abs() < 1e-3);
     /// ```
+    /// For larger programs, prefer [`setup`](Self::setup) and the returned
+    /// [`ConfiguredGame::run_headless`] without a closure.
     pub fn run_headless<S, U>(self, ticks: u64, setup: S) -> World
     where
         S: FnOnce(&mut Ctx) -> U,
@@ -1105,6 +1217,8 @@ impl Game {
     /// If the operating system refuses to create the event loop or window,
     /// or no usable GPU is found, and always when the `window` feature is
     /// off.
+    /// For larger programs, prefer [`setup`](Self::setup) followed by
+    /// [`ConfiguredGame::run`] with no closure.
     pub fn run<S, U>(self, setup: S)
     where
         S: FnOnce(&mut Ctx) -> U,

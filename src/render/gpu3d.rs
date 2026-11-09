@@ -25,9 +25,11 @@
 //! Sprites and UI are drawn on top afterwards, without tone mapping.
 
 mod instances;
+mod variants;
 use instances::{Culling, StaticBatch};
 use std::ops::Range;
 use std::sync::atomic::{AtomicUsize, Ordering};
+pub(crate) use variants::{Instancing, Pass, PipelineRole, ShaderVariant, Sides};
 
 use glam::{Mat4, Vec3};
 use wgpu::util::DeviceExt;
@@ -260,14 +262,16 @@ struct MaterialBindings {
     arrays: [wgpu::TextureView; 3],
 }
 
-/// One material shader's pipelines, for one-sided and double-sided surfaces.
+/// One material shader's pipelines: a [`Pipelines`] set per
+/// [`ShaderVariant`] (see `variants.rs` for the whole list).
 struct ShaderPipelines {
+    /// [`Instancing::Plain`], one-sided and double-sided: built with the shader.
     sides: [Pipelines; 2],
-    /// The same for crossfading instances, built when first drawn (or
-    /// all at once by [`Renderer3D::warm_pipelines`]).
+    /// [`Instancing::Crossfade`], built when first drawn (or all at once by
+    /// [`Renderer3D::warm_pipelines`]).
     fade: [std::sync::OnceLock<Pipelines>; 2],
-    /// The same for buffer-driven instances, which all share their
-    /// entity's one instance record (a zero-stride instance buffer);
+    /// [`Instancing::Shared`]: buffer-driven instances, which all share
+    /// their entity's one instance record (a zero-stride instance buffer);
     /// built when first drawn (or by [`Renderer3D::warm_pipelines`]).
     shared: [std::sync::OnceLock<Pipelines>; 2],
     builder: SideBuilder,
@@ -277,30 +281,37 @@ struct ShaderPipelines {
 }
 
 impl ShaderPipelines {
-    /// The pipelines for `side` (0 one-sided, 1 double-sided): crossfading
-    /// (`fade`), buffer-driven (`shared`) or plain. A variant not built yet
-    /// is built now, and counted in `built`.
-    fn variant(&self, side: usize, fade: bool, shared: bool, built: &AtomicUsize) -> &Pipelines {
-        let lazy = if shared {
-            &self.shared[side]
-        } else if fade {
-            &self.fade[side]
-        } else {
-            return &self.sides[side];
+    /// The pipelines of `variant`. One not built yet is built now, and
+    /// counted in `built`.
+    fn variant(&self, variant: ShaderVariant, built: &AtomicUsize) -> &Pipelines {
+        let side = variant.sides.index();
+        let lazy = match variant.instancing {
+            Instancing::Plain => return &self.sides[side],
+            Instancing::Crossfade => &self.fade[side],
+            Instancing::Shared => &self.shared[side],
         };
         lazy.get_or_init(|| {
             built.fetch_add(1, Ordering::Relaxed);
-            let cull = (side == 0).then_some(wgpu::Face::Back);
-            self.builder.build(cull, fade && !shared, shared)
+            self.builder.build(variant)
         })
+    }
+
+    /// Whether `variant` is built.
+    #[cfg(test)]
+    fn built(&self, variant: ShaderVariant) -> bool {
+        let side = variant.sides.index();
+        match variant.instancing {
+            Instancing::Plain => true,
+            Instancing::Crossfade => self.fade[side].get().is_some(),
+            Instancing::Shared => self.shared[side].get().is_some(),
+        }
     }
 
     /// Builds every variant not built yet.
     fn warm(&self) {
         let none = AtomicUsize::new(0);
-        for side in 0..2 {
-            self.variant(side, true, false, &none);
-            self.variant(side, false, true, &none);
+        for variant in ShaderVariant::ALL {
+            self.variant(variant, &none);
         }
     }
 }
@@ -322,6 +333,25 @@ struct Pipelines {
     opaque_solid: wgpu::RenderPipeline,
     /// Motion vectors of moved models, over the opaque pass's depth.
     velocity: wgpu::RenderPipeline,
+}
+
+impl Pipelines {
+    /// The pipeline of `role`; `None` for the coverage roles without
+    /// multisampling.
+    fn role(&self, role: PipelineRole) -> Option<&wgpu::RenderPipeline> {
+        Some(match role {
+            PipelineRole::Prepass => &self.prepass,
+            PipelineRole::PrepassCutout => &self.prepass_cutout,
+            PipelineRole::PrepassCoverage => &self.coverage.as_ref()?[0],
+            PipelineRole::Opaque => &self.opaque,
+            PipelineRole::OpaqueCoverage => &self.coverage.as_ref()?[1],
+            PipelineRole::OpaqueSolid => &self.opaque_solid,
+            PipelineRole::Transparent => &self.transparent,
+            PipelineRole::Shadow => &self.shadow,
+            PipelineRole::ShadowCutout => &self.shadow_cutout,
+            PipelineRole::Velocity => &self.velocity,
+        })
+    }
 }
 
 /// The built-in parts of every material shader.
@@ -747,6 +777,12 @@ pub(crate) struct Renderer3D {
     taa_frame_read: usize,
     /// The last frame's unjittered camera, when its image is in the history.
     taa_previous: Option<Mat4>,
+    /// The unjittered camera of the last frame drawn: camera cuts are
+    /// measured from it.
+    history_camera: Option<Mat4>,
+    /// Why this frame dropped the temporal history, if it did.
+    #[cfg(test)]
+    history_reset: HistoryReset,
     /// Models that moved: their instances (see `MovedInstance`) and runs.
     moved: wgpu::Buffer,
     moved_capacity: usize,
@@ -871,6 +907,11 @@ pub(crate) struct Renderer3D {
     shadow_runs: [Vec<(u32, u32, u32)>; MAX_SHADOW_VIEWS],
     /// Per skinned model this frame, whether any pass draws it.
     skin_drawn: Vec<bool>,
+    /// This frame's material overrides (see `Frame3D::material_overrides`):
+    /// mesh id `override_base + k` draws mesh `.0` with material `.1`
+    /// (`u32::MAX`: an unknown material, so the mesh's own).
+    material_overrides: Vec<(u32, u32)>,
+    override_base: u32,
 }
 
 impl Renderer3D {
@@ -1547,6 +1588,9 @@ impl Renderer3D {
             taa_read: 0,
             taa_frame_read: 0,
             taa_previous: None,
+            history_camera: None,
+            #[cfg(test)]
+            history_reset: HistoryReset::default(),
             moved: Self::moved_buffer(device, 16),
             moved_capacity: 16,
             moved_runs: Vec::new(),
@@ -1627,6 +1671,8 @@ impl Renderer3D {
             runs: Vec::new(),
             shadow_runs: Default::default(),
             skin_drawn: Vec::new(),
+            material_overrides: Vec::new(),
+            override_base: u32::MAX,
         }
     }
 
@@ -2168,7 +2214,21 @@ impl Renderer3D {
     #[cfg(test)]
     pub fn shader_warm(&self, id: u32) -> bool {
         let shader = &self.shaders[id as usize];
-        shader.fade.iter().chain(&shader.shared).all(|v| v.get().is_some())
+        ShaderVariant::ALL.iter().all(|&v| shader.built(v))
+    }
+
+    /// The pipeline shader `id` draws `role` of `variant` with, building
+    /// the variant if needed (tests check every documented pair builds).
+    #[cfg(test)]
+    pub fn shader_pipeline(
+        &self,
+        id: u32,
+        variant: ShaderVariant,
+        role: PipelineRole,
+    ) -> Option<&wgpu::RenderPipeline> {
+        self.shaders[id as usize]
+            .variant(variant, &AtomicUsize::new(0))
+            .role(role)
     }
 
     /// How many pipeline variants frames built while drawing since the last
@@ -2345,7 +2405,6 @@ impl Renderer3D {
         } else {
             unjittered
         };
-        let previous_view_proj = self.taa_previous.unwrap_or(unjittered);
         self.moved_runs.clear();
         self.particles.prepare(device, queue, &frame.particles, view_proj);
         let ao_on = post.ambient_occlusion.enabled
@@ -2390,13 +2449,25 @@ impl Renderer3D {
             self.frame_sources.gi_view = self.no_gi.clone();
             self.rebind_frames(device);
         }
+        // Temporal history: one decision for every effect that reuses the
+        // last frame (see `HistoryReset`), made before any of them prepares.
+        let rebuild = self.targets_stale(size, post, ao_on, upscaled);
+        let reset = HistoryReset {
+            requested: frame.motion.reset,
+            targets: rebuild,
+            camera_cut: self.history_camera.is_some_and(|before| camera_cut(before, unjittered)),
+        };
+        if reset.any() {
+            self.forget_history();
+        }
+        #[cfg(test)]
+        {
+            self.history_reset = reset;
+        }
+        // Camera motion is measured from the last frame's camera; after a
+        // reset there is none (the last frame is no past of this one).
+        let previous_view_proj = self.taa_previous.unwrap_or(unjittered);
         if let Some(ao) = &mut self.ao {
-            if frame.motion.reset
-                || self.targets.as_ref().is_none_or(|t| t.size != size)
-                || self.taa_previous.is_some_and(|before| camera_cut(before, unjittered))
-            {
-                ao.reset();
-            }
             let sun = (-lighting.sun_direction).try_normalize().unwrap_or(Vec3::Y);
             ao.prepare(
                 queue,
@@ -2422,6 +2493,16 @@ impl Renderer3D {
             ));
         }
         self.atmosphere = sky.atmosphere;
+        self.override_base = frame.override_base;
+        self.material_overrides.clear();
+        let (meshes, materials) = (self.meshes.len() as u32, self.materials.len() as u32);
+        self.material_overrides
+            .extend(frame.material_overrides.iter().map(|&(mesh, material)| {
+                (
+                    if mesh < meshes { mesh } else { 0 },
+                    if material < materials { material } else { u32::MAX },
+                )
+            }));
         self.prepare_static(device, queue, frame, camera, occlusion);
         self.runs.clear();
         self.runs.extend_from_slice(&frame.runs);
@@ -2826,24 +2907,10 @@ impl Renderer3D {
                 bytemuck::bytes_of(&uniform),
             );
         }
-        let mut rebuilt = false;
         // Targets made for settings that have since changed (a different
         // size, or an effect turned on or off) are replaced; the old ones
         // are freed once the commands that used them have run.
-        if self.targets.as_ref().is_none_or(|t| {
-            t.size != size
-                || t.ao.is_some() != self.ao_enabled
-                || t.ao
-                    .as_ref()
-                    .is_some_and(|a| a.half != (post.ao_half_resolution && ao_on))
-                || t.ao.as_ref().is_some_and(|a| a.temporal != (post.ao_temporal && ao_on))
-                || t.ssr.is_some() != self.ssr_on
-                || t.taa.is_some() != self.taa_on
-                || t.velocity.is_some() != self.velocity_on
-                || t.ldr.is_some() != (self.aa == crate::AntiAliasing::Fxaa)
-                || t.upscale.is_some() != upscaled
-        }) {
-            rebuilt = true;
+        if rebuild {
             let texture = |label, format, samples, usage| {
                 device.create_texture(&wgpu::TextureDescriptor {
                     label: Some(label),
@@ -3026,8 +3093,9 @@ impl Renderer3D {
         if !self.taa_on {
             self.taa_previous = self.velocity_on.then_some(unjittered);
         } else if self.has_draws() {
-            let reset =
-                frame.motion.reset || rebuilt || self.taa_previous.is_none_or(|before| camera_cut(before, unjittered));
+            // No camera of the last frame: the first frame with TAA, or
+            // the history was just forgotten.
+            let reset = self.taa_previous.is_none();
             if let Some(taa) = &self.taa {
                 taa.prepare(
                     queue,
@@ -3048,15 +3116,19 @@ impl Renderer3D {
             self.taa_read ^= 1;
         }
         // Screen-space reflections: the last frame's image is their colors,
-        // unless the targets are new or the camera jumped.
+        // unless they were off or the history was forgotten above.
         let drawn = self.has_draws();
         if let Some(ssr) = &mut self.ssr {
-            if !self.ssr_on || rebuilt || ssr.previous().is_some_and(|before| camera_cut(before, view_proj)) {
+            if !self.ssr_on {
                 ssr.forget();
             }
             if self.ssr_on && drawn {
                 ssr.prepare(queue, view_proj, camera, post.ssr.min(1.0), post.ssr_max_distance);
             }
+        }
+        // Cuts are measured from the last frame that left an image behind.
+        if drawn {
+            self.history_camera = Some(unjittered);
         }
         self.occluded = frame.occluded;
         if let Some(targets) = &self.targets {
@@ -3329,7 +3401,8 @@ impl Renderer3D {
                 .sum()
         };
         let mut add = |mesh: u32, count: u32, shadow: bool| {
-            let mesh = mesh & !FADED;
+            // A material override counts towards its mesh.
+            let mesh = self.material_override(mesh).map_or(mesh & !FADED, |o| o.0);
             let at = match out.binary_search_by_key(&mesh, |e| e.0) {
                 Ok(i) => i,
                 Err(i) => {
@@ -4107,6 +4180,45 @@ impl Renderer3D {
         self.targets.as_ref()?.velocity.as_ref().map(|t| &t.velocity_texture)
     }
 
+    /// Why the last prepared frame dropped the temporal history (for tests).
+    #[cfg(test)]
+    pub(crate) fn history_reset(&self) -> HistoryReset {
+        self.history_reset
+    }
+
+    /// Whether the targets were made for other settings than these: a
+    /// different size (window or render scale), or an effect switched on or
+    /// off. They are then made again, and the history with them.
+    fn targets_stale(&self, size: (u32, u32), post: &crate::Post, ao_on: bool, upscaled: bool) -> bool {
+        self.targets.as_ref().is_none_or(|t| {
+            t.size != size
+                || t.ao.is_some() != self.ao_enabled
+                || t.ao
+                    .as_ref()
+                    .is_some_and(|a| a.half != (post.ao_half_resolution && ao_on))
+                || t.ao.as_ref().is_some_and(|a| a.temporal != (post.ao_temporal && ao_on))
+                || t.ssr.is_some() != self.ssr_on
+                || t.taa.is_some() != self.taa_on
+                || t.velocity.is_some() != self.velocity_on
+                || t.ldr.is_some() != (self.aa == crate::AntiAliasing::Fxaa)
+                || t.upscale.is_some() != upscaled
+        })
+    }
+
+    /// Drops every effect's memory of the frames before this one: TAA's
+    /// history and the camera motion is measured from, temporal AO's
+    /// history and SSR's last image. Each starts over from the next frame
+    /// it draws, so a reset asked for on a frame that draws nothing holds.
+    fn forget_history(&mut self) {
+        self.taa_previous = None;
+        if let Some(ao) = &mut self.ao {
+            ao.reset();
+        }
+        if let Some(ssr) = &mut self.ssr {
+            ssr.forget();
+        }
+    }
+
     /// Whether this frame is resolved by temporal antialiasing (for tests).
     #[cfg(test)]
     pub(crate) fn taa_active(&self) -> bool {
@@ -4121,7 +4233,7 @@ impl Renderer3D {
             .chain(self.static_batches.iter().flatten().map(|b| b.mesh))
             .any(|mesh| {
                 self.meshes[self.base(mesh) as usize].parts.iter().any(|&(_, m)| {
-                    let m = &self.materials[m as usize];
+                    let m = &self.materials[self.part_material(mesh, m) as usize];
                     m.transparent && self.shaders[m.shader as usize].reads_scene
                 })
             })
@@ -4131,9 +4243,28 @@ impl Renderer3D {
     /// past the meshes), the skinned mesh.
     fn base(&self, mesh: u32) -> u32 {
         let mesh = mesh & !FADED;
+        if let Some(&(base, _)) = self.material_override(mesh) {
+            return base;
+        }
         match (mesh as usize).checked_sub(self.meshes.len()) {
             None => mesh,
             Some(k) => self.skinning.draws.get(k).map_or(0, |d| d.0),
+        }
+    }
+
+    /// The (mesh, material) a run's mesh id stands for, if it's a
+    /// material override (see `Frame3D::material_overrides`).
+    fn material_override(&self, mesh: u32) -> Option<&(u32, u32)> {
+        let k = (mesh & !FADED).checked_sub(self.override_base)?;
+        self.material_overrides.get(k as usize)
+    }
+
+    /// The material a run draws a mesh part with: the part's own, or the
+    /// run's override.
+    fn part_material(&self, run_mesh: u32, own: u32) -> u32 {
+        match self.material_override(run_mesh) {
+            Some(&(_, material)) if material != u32::MAX => material,
+            _ => own,
         }
     }
 
@@ -4155,7 +4286,7 @@ impl Renderer3D {
             self.meshes[self.base(mesh & !FADED) as usize]
                 .parts
                 .iter()
-                .any(|&(_, m)| self.materials[m as usize].cutout)
+                .any(|&(_, m)| self.materials[self.part_material(mesh, m) as usize].cutout)
         });
         let cutout = cutout
             || (batches.is_some()
@@ -4260,7 +4391,10 @@ impl Renderer3D {
         for &(mesh, start, models) in runs {
             let fading = mesh & FADED != 0;
             let mesh = mesh & !FADED;
-            let posed = (mesh as usize).checked_sub(self.meshes.len());
+            let run_mesh = mesh;
+            let posed = (mesh as usize)
+                .checked_sub(self.meshes.len())
+                .filter(|_| self.material_override(mesh).is_none());
             let mesh = &self.meshes[self.base(mesh) as usize];
             let storage = if let Some((id, count)) = mesh.gpu_buffer {
                 let Some(buffer) = self.storage_buffers.get(id as usize).and_then(Option::as_ref) else {
@@ -4282,42 +4416,27 @@ impl Renderer3D {
             };
             let mut buffers_set = false;
             for (part, (range, material)) in mesh.parts.iter().enumerate() {
+                let material = &self.part_material(run_mesh, *material);
                 let m = &self.materials[*material as usize];
-                // Transparent surfaces are drawn last and cast no shadows.
-                if m.transparent != (kind == Kind::Transparent) {
+                // The role for the material's blend in this pass (see
+                // `PipelineRole::for_pass`): transparent surfaces are drawn
+                // last and cast no shadows.
+                let Some(role) = PipelineRole::for_pass(
+                    kind.pass(),
+                    m.cutout,
+                    m.transparent,
+                    self.samples > 1,
+                    self.full_prepass(),
+                ) else {
                     continue;
-                }
+                };
                 let shader = &self.shaders[m.shader as usize];
-                let side = usize::from(m.double_sided);
                 // Crossfading instances dither in every pass (their
                 // pipelines are built the first time they're drawn, unless
                 // `warm_pipelines` built them while loading).
-                let pipelines = shader.variant(side, fading, storage.is_some(), &self.pipelines_built);
-                let coverage = pipelines.coverage.as_ref().filter(|_| m.cutout);
-                let pipeline = match kind {
-                    Kind::Shadow(_) if m.cutout => &pipelines.shadow_cutout,
-                    Kind::Shadow(_) => &pipelines.shadow,
-                    Kind::PrepassCoverage => match coverage {
-                        Some([prepass, _]) => prepass,
-                        None => continue,
-                    },
-                    // With coverage, cut-outs have a prepass of their own.
-                    Kind::Prepass if coverage.is_some() => continue,
-                    Kind::Prepass if m.cutout => &pipelines.prepass_cutout,
-                    Kind::Prepass if !self.full_prepass() => continue,
-                    Kind::Prepass => &pipelines.prepass,
-                    Kind::Opaque if !m.cutout && !self.full_prepass() => &pipelines.opaque_solid,
-                    Kind::Opaque => match coverage {
-                        Some([_, opaque]) => opaque,
-                        None => &pipelines.opaque,
-                    },
-                    Kind::Transparent => &pipelines.transparent,
-                    Kind::Velocity => &pipelines.velocity,
-                    Kind::Capture if !m.cutout => &pipelines.opaque_solid,
-                    Kind::Capture => match coverage {
-                        Some([_, opaque]) => opaque,
-                        None => &pipelines.opaque,
-                    },
+                let variant = ShaderVariant::new(Sides::of(m.double_sided), Instancing::of(fading, storage.is_some()));
+                let Some(pipeline) = shader.variant(variant, &self.pipelines_built).role(role) else {
+                    continue;
                 };
                 if bound != Some(pipeline as *const _) {
                     pass.set_pipeline(pipeline);
@@ -4395,6 +4514,20 @@ enum Kind {
     /// Global illumination's probe views: lit, solid surfaces writing
     /// their own depth (cut-outs went through `PrepassCoverage`).
     Capture,
+}
+
+impl Kind {
+    fn pass(self) -> Pass {
+        match self {
+            Kind::Shadow(_) => Pass::Shadow,
+            Kind::Prepass => Pass::Prepass,
+            Kind::PrepassCoverage => Pass::PrepassCoverage,
+            Kind::Opaque => Pass::Opaque,
+            Kind::Transparent => Pass::Transparent,
+            Kind::Velocity => Pass::Velocity,
+            Kind::Capture => Pass::Capture,
+        }
+    }
 }
 
 /// A material shader's pipelines: depth prepass, opaque, transparent and
@@ -4601,14 +4734,36 @@ fn build_pipelines(
         samples,
     };
     ShaderPipelines {
-        sides: [
-            builder.build(Some(wgpu::Face::Back), false, false),
-            builder.build(None, false, false),
-        ],
+        sides: Sides::ALL.map(|sides| builder.build(ShaderVariant::new(sides, Instancing::Plain))),
         fade: Default::default(),
         shared: Default::default(),
         builder,
         reads_scene: false,
+    }
+}
+
+/// Why a frame drops the temporal history: everything an effect kept from
+/// earlier frames (TAA's history, temporal AO's, SSR's last image, the
+/// camera and models motion vectors are measured from). Decided once per
+/// frame in `Renderer3D::prepare`, before any effect prepares, so they all
+/// agree.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct HistoryReset {
+    /// The game asked (`Ctx::reset_temporal_history`): a teleport or a new
+    /// scene the camera can't tell apart from motion.
+    pub requested: bool,
+    /// The targets are made again (a resize, a render scale change or an
+    /// effect switched): the old history images are gone or the wrong size.
+    pub targets: bool,
+    /// The camera jumped far or turned sharply (see `camera_cut`): the
+    /// last frame shows somewhere else.
+    pub camera_cut: bool,
+}
+
+impl HistoryReset {
+    /// Whether the frame starts over.
+    pub fn any(self) -> bool {
+        self.requested || self.targets || self.camera_cut
     }
 }
 
@@ -4651,14 +4806,15 @@ struct SideBuilder {
 }
 
 impl SideBuilder {
-    /// The pipelines for one-sided (`cull`) or double-sided surfaces. With
-    /// `fade`, the fragment shaders also dither crossfading instances
-    /// (`fade_keeps` in the shader), even solid materials' depth passes.
-    ///
-    /// With `shared`, every instance of a draw reads the same instance
-    /// record (the entity's model and tint): the instance buffer's stride
-    /// is 0.
-    fn build(&self, cull: Option<wgpu::Face>, fade: bool, shared: bool) -> Pipelines {
+    /// The pipeline set of `variant`: its sides pick the culling, its
+    /// instancing the instance buffer's stride and (crossfading) the
+    /// dithering fragment entry points; each role's entry points come from
+    /// [`PipelineRole`].
+    fn build(&self, variant: ShaderVariant) -> Pipelines {
+        let cull = variant.sides.cull();
+        let shared = variant.instancing.shared();
+        let vs = PipelineRole::vertex_entry;
+        let fs = |role: PipelineRole| role.fragment_entry(variant.instancing);
         let (device, module, layout, shadow_layout, samples) = (
             &self.device,
             &self.module,
@@ -4752,7 +4908,7 @@ impl SideBuilder {
             layout: Some(layout),
             vertex: wgpu::VertexState {
                 module,
-                entry_point: Some("vs_velocity"),
+                entry_point: Some(vs(PipelineRole::Velocity)),
                 compilation_options: Default::default(),
                 buffers: &moved_buffers,
             },
@@ -4764,7 +4920,7 @@ impl SideBuilder {
             multisample: msaa,
             fragment: Some(wgpu::FragmentState {
                 module,
-                entry_point: Some("fs_velocity"),
+                entry_point: fs(PipelineRole::Velocity),
                 compilation_options: Default::default(),
                 targets: &velocity_target,
             }),
@@ -4778,12 +4934,12 @@ impl SideBuilder {
         };
         // Solid surfaces write depth with no fragment shader at all, so the
         // GPU can reject hidden ones early; cut-out ones run it for the alpha.
-        let prepass = |fragment, cull| {
+        let prepass = |role: PipelineRole| {
             pipeline(
                 "3d depth prepass",
                 layout,
-                "vs_main",
-                fragment,
+                vs(role),
+                fs(role),
                 cull,
                 depth(true, wgpu::CompareFunction::Less, Default::default()),
                 msaa,
@@ -4792,19 +4948,18 @@ impl SideBuilder {
         };
         // Both faces cast: thin things (leaves, planes) too. The stored depth
         // is pushed back a little, against shadow acne.
-        let shadow = |fragment| {
+        let shadow = |role: PipelineRole| {
             pipeline(
                 "3d shadow",
                 shadow_layout,
-                "vs_shadow",
-                fragment,
+                vs(role),
+                fs(role),
                 None,
                 depth(true, wgpu::CompareFunction::Less, shadow_bias),
                 wgpu::MultisampleState::default(),
                 &[],
             )
         };
-        let depth_fragment = if fade { "fs_depth_fade" } else { "fs_depth" };
         let coverage_msaa = wgpu::MultisampleState {
             alpha_to_coverage_enabled: true,
             ..msaa
@@ -4819,12 +4974,8 @@ impl SideBuilder {
                 pipeline(
                     "3d depth prepass coverage",
                     layout,
-                    "vs_main",
-                    Some(if fade {
-                        "fs_depth_coverage_fade"
-                    } else {
-                        "fs_depth_coverage"
-                    }),
+                    vs(PipelineRole::PrepassCoverage),
+                    fs(PipelineRole::PrepassCoverage),
                     cull,
                     depth(true, wgpu::CompareFunction::Less, Default::default()),
                     coverage_msaa,
@@ -4833,12 +4984,8 @@ impl SideBuilder {
                 pipeline(
                     "3d opaque coverage",
                     layout,
-                    "vs_main",
-                    Some(if fade {
-                        "fs_main_coverage_fade"
-                    } else {
-                        "fs_main_coverage"
-                    }),
+                    vs(PipelineRole::OpaqueCoverage),
+                    fs(PipelineRole::OpaqueCoverage),
                     cull,
                     depth(false, wgpu::CompareFunction::Equal, Default::default()),
                     coverage_msaa,
@@ -4848,14 +4995,14 @@ impl SideBuilder {
         });
         Pipelines {
             coverage,
-            prepass: prepass(fade.then_some("fs_fade"), cull),
-            prepass_cutout: prepass(Some(depth_fragment), cull),
+            prepass: prepass(PipelineRole::Prepass),
+            prepass_cutout: prepass(PipelineRole::PrepassCutout),
             // Only the fragments the prepass found nearest: each pixel is lit once.
             opaque: pipeline(
                 "3d opaque",
                 layout,
-                "vs_main",
-                Some(if fade { "fs_main_fade" } else { "fs_main" }),
+                vs(PipelineRole::Opaque),
+                fs(PipelineRole::Opaque),
                 cull,
                 depth(false, wgpu::CompareFunction::Equal, Default::default()),
                 msaa,
@@ -4864,8 +5011,8 @@ impl SideBuilder {
             opaque_solid: pipeline(
                 "3d opaque solid",
                 layout,
-                "vs_main",
-                Some(if fade { "fs_main_fade" } else { "fs_main" }),
+                vs(PipelineRole::OpaqueSolid),
+                fs(PipelineRole::OpaqueSolid),
                 cull,
                 depth(true, wgpu::CompareFunction::Less, Default::default()),
                 msaa,
@@ -4875,15 +5022,15 @@ impl SideBuilder {
             transparent: pipeline(
                 "3d transparent",
                 layout,
-                "vs_main",
-                Some(if fade { "fs_transparent_fade" } else { "fs_transparent" }),
+                vs(PipelineRole::Transparent),
+                fs(PipelineRole::Transparent),
                 cull,
                 depth(false, wgpu::CompareFunction::Less, Default::default()),
                 msaa,
                 &transparent_target,
             ),
-            shadow: shadow(fade.then_some("fs_fade")),
-            shadow_cutout: shadow(Some(depth_fragment)),
+            shadow: shadow(PipelineRole::Shadow),
+            shadow_cutout: shadow(PipelineRole::ShadowCutout),
             velocity,
         }
     }

@@ -234,6 +234,53 @@ static void vehicles(void) {
     CHECK(ponko_friction_curve_evaluate(ponko_friction_curve_sideways(), 0.2f) == 1);
     CHECK(ponko_world_free(w) == PONKO_OK);
 }
+/* Phases: a BEFORE_PHYSICS system feeds this tick's step; a sim system,
+   even one added before physics3d, runs after the step and sees its result. */
+typedef struct { uint32_t transform, velocity; uint64_t ball; float seen_before, seen_after; } Kick;
+static void kick_setup(PonkoCtx* ctx, void* user) {
+    Kick* k = user;
+    PonkoWorld* w = ponko_ctx_world(ctx);
+    uint32_t body, collider;
+    CHECK(ponko_transform3d_component(w, &k->transform) == PONKO_OK);
+    CHECK(ponko_velocity3d_component(w, &k->velocity) == PONKO_OK);
+    CHECK(ponko_rigid_body3d_component(w, &body) == PONKO_OK);
+    CHECK(ponko_collider3d_component(w, &collider) == PONKO_OK);
+    PonkoTransform3D at = ponko_transform3d_at((PonkoVec3){0, 0, 0});
+    PonkoRigidBody3D rb = ponko_rigid_body3d(PONKO_BODY_DYNAMIC);
+    PonkoCollider3D sphere = ponko_collider3d_sphere(0.5f);
+    PonkoVelocity3D still = {{0, 0, 0}, {0, 0, 0}};
+    PonkoValue values[] = {{k->transform, &at, sizeof at}, {body, &rb, sizeof rb},
+                            {collider, &sphere, sizeof sphere}, {k->velocity, &still, sizeof still}};
+    CHECK(ponko_spawn(w, values, 4, &k->ball) == PONKO_OK);
+}
+static void kick(PonkoCtx* ctx, void* user) {
+    Kick* k = user;
+    PonkoWorld* w = ponko_ctx_world(ctx);
+    PonkoTransform3D t; CHECK(ponko_get(w, k->ball, k->transform, &t, sizeof t) == PONKO_OK);
+    k->seen_before = t.position.x;
+    PonkoVelocity3D v = {{5, 0, 0}, {0, 0, 0}};
+    CHECK(ponko_set(w, k->ball, k->velocity, &v, sizeof v) == PONKO_OK);
+}
+static void watch(PonkoCtx* ctx, void* user) {
+    Kick* k = user;
+    PonkoTransform3D t; CHECK(ponko_get(ponko_ctx_world(ctx), k->ball, k->transform, &t, sizeof t) == PONKO_OK);
+    k->seen_after = t.position.x;
+}
+static void phases(void) {
+    Kick k = {0};
+    PonkoGame* game = ponko_game_new("c phases", 1, 1); CHECK(game);
+    CHECK(ponko_game_fixed_hz(game, 50) == PONKO_OK);
+    CHECK(ponko_game_sim_system(game, "watch", 1, watch, &k) == PONKO_OK);
+    CHECK(ponko_game_add_system(game, PONKO_PHASE_BEFORE_PHYSICS, "kick", 1, kick, &k) == PONKO_OK);
+    CHECK(ponko_game_add_system(game, 99, "bad", 1, kick, &k) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_game_add_system(game, PONKO_PHASE_FRAME, "bad", 2, kick, &k) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_game_physics3d(game, (PonkoVec3){0, 0, 0}) == PONKO_OK);
+    PonkoWorld* w = NULL;
+    CHECK(ponko_game_run_headless(game, 1, kick_setup, &k, &w) == PONKO_OK);
+    CHECK(k.seen_before == 0);
+    CHECK(fabsf(k.seen_after - 5.0f / 50.0f) < 1e-3f);
+    CHECK(ponko_world_free(w) == PONKO_OK);
+}
 /* The retained UI: a column with a button, laid out and clicked from C. */
 static void ui_setup(PonkoCtx* ctx, void* user) {
     (void)user;
@@ -659,6 +706,7 @@ int main(void) {
     PonkoDrawParams params = ponko_draw_params_default();
     CHECK(params.scale.x == 1 && params.pivot.x == .5f && !params.screen);
     vehicles();
+    phases();
     retained_ui();
     ui_panels();
     ribbons_and_decals();

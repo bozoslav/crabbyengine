@@ -127,6 +127,8 @@ mod lights_bench;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod lod_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
+mod model_material_render_test;
+#[cfg(all(test, feature = "window", feature = "3d"))]
 mod occlusion_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod shafts_render_test;
@@ -136,6 +138,8 @@ mod skin_render_test;
 mod ssr_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod text3d_render_test;
+#[cfg(all(test, feature = "window", feature = "3d"))]
+mod variant_render_test;
 
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod ao_aa_render_test;
