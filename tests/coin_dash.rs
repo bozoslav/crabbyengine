@@ -883,6 +883,7 @@ fn every_control_name_is_a_binding() {
 
 use game::settings::{self, Control, Controls, Refused, SCALES, Settings, SettingsFile};
 
+// ANCHOR: ui_drive
 /// What the engine does with the retained UI at the start of every frame (layout,
 /// focus, events from this input), then the game's own frame system.
 fn ui_frame(ctx: &mut Ctx, input: UiInput) {
@@ -922,6 +923,8 @@ fn focused(ctx: &Ctx) -> Option<String> {
     let tree = ctx.ui_retained.accessibility_tree();
     tree.nodes().iter().find(|n| n.focused).map(|n| n.name.clone())
 }
+
+// ANCHOR_END: ui_drive
 
 /// Whether a control's accessible name is `name`, or `name` followed by its
 /// current value (`"Confirm key: Enter"` is named `"Confirm key"`).
@@ -1152,6 +1155,7 @@ fn rebind_key_through_the_screen(ctx: &mut Ctx, control: Control, key: Key) {
     ctx.feed_input(InputEvent::Key(key, false));
 }
 
+// ANCHOR: rebind_test
 #[test]
 fn rebinding_a_key_changes_what_the_game_reads() {
     Game::new("t", 800, 600).run_headless(0, |ctx| {
@@ -1206,6 +1210,7 @@ fn rebinding_a_key_changes_what_the_game_reads() {
         );
     });
 }
+// ANCHOR_END: rebind_test
 
 #[test]
 fn the_hints_on_the_other_screens_show_the_rebound_keys() {

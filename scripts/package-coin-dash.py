@@ -370,6 +370,11 @@ def smoke_window(package, work, timeout, allow_unsupported):
 def cmd_smoke(args):
     package = Path(args.package).resolve()
     if not (package / EXE).is_file():
+        # The folder `package --out` made: use the one package in it.
+        inside = [p for p in package.iterdir() if (p / EXE).is_file()] if package.is_dir() else []
+        if len(inside) == 1:
+            package = inside[0]
+    if not (package / EXE).is_file():
         print(f"smoke: {package / EXE} does not exist (run `package` first)", file=sys.stderr)
         return 3
     # Unpack to a place outside the checkout, with a space and a non-ASCII letter in its path.
@@ -401,6 +406,9 @@ def cmd_smoke(args):
 
 
 def main():
+    # The unpack folder has a non-ASCII letter in its name; never fail on printing it.
+    sys.stdout.reconfigure(errors="replace")
+    sys.stderr.reconfigure(errors="replace")
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("package", help="build the example and lay out the package folder")

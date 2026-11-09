@@ -673,6 +673,12 @@
       "category": "public compatibility",
       "reason": "Migration checks, alias generation or existing leak/build configuration fallback."
     },
+    "scripts/package-coin-dash.py": {
+      "occurrences": 1,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Migration checks, alias generation or existing leak/build configuration fallback."
+    },
     "src/alloc_count.rs": {
       "occurrences": 2,
       "path_occurrences": 0,

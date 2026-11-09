@@ -159,6 +159,7 @@ impl Controls {
         }
     }
 
+    // ANCHOR: set_key
     /// Gives `control` the key, unless the key is not allowed. Nothing changes on refusal.
     pub fn set_key(&mut self, control: Control, key: Key) -> Result<(), Refused> {
         if matches!(key, Key::Escape | Key::Tab) {
@@ -173,6 +174,7 @@ impl Controls {
         self.keys[control as usize] = key;
         Ok(())
     }
+    // ANCHOR_END: set_key
 
     /// Gives `control` the gamepad button, unless it is not allowed.
     pub fn set_pad(&mut self, control: Control, button: GamepadButton) -> Result<(), Refused> {
@@ -212,6 +214,7 @@ impl Controls {
     }
 }
 
+// ANCHOR: bindings_for
 /// The input bindings for `controls`: the chosen keys and buttons, the fixed
 /// alternates, and the left stick.
 pub fn bindings_for(controls: &Controls) -> ActionMap {
@@ -255,6 +258,7 @@ pub fn bindings_for(controls: &Controls) -> ActionMap {
     map.set("settings", button(Control::Settings, None));
     map
 }
+// ANCHOR_END: bindings_for
 
 /// What the player chose. A resource; the saved copy is `settings.json`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -613,6 +617,7 @@ pub fn step_scale(current: f32, direction: i32) -> f32 {
     SCALES[(index + direction).clamp(0, SCALES.len() as i32 - 1) as usize]
 }
 
+// ANCHOR: settings_ui
 /// Frame system: the settings screen. Runs after the engine has processed this
 /// frame's UI input, so the focus has moved and the events are waiting.
 ///
@@ -634,6 +639,7 @@ pub fn settings_ui(ctx: &mut Ctx) {
     drive(ctx, &mut state, on_screen);
     ctx.world.insert_resource(state);
 }
+// ANCHOR_END: settings_ui
 
 fn drive(ctx: &mut Ctx, state: &mut SettingsUi, on_screen: bool) {
     if !on_screen {
