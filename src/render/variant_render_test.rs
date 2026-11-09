@@ -438,3 +438,44 @@ fn culling_uses_the_mesh_bounds_before_vertex_displacement() {
     let nudged = displaced_cube(0.0, 1.0, false).unwrap();
     assert!(nudged.abs_diff(still) < still / 5, "{nudged} vs {still}");
 }
+
+/// Draws a plane with `BOTH_HOOKS` through shader `id` (made by `make`,
+/// which may make other shaders first), cut out, at 4x multisampling.
+fn plane_with(make: impl FnOnce(&mut Rig) -> Shader) -> Option<(Vec<u8>, crate::PipelineStats)> {
+    let mut rig = Rig::new(4)?;
+    rig.ctx.lighting.shadows = true;
+    let shader = make(&mut rig);
+    let plane = rig.mesh(&MeshData::plane(1.0), material(shader, Blend::Cutout, false));
+    rig.ctx.world.spawn((
+        Transform3D {
+            scale: Vec3::splat(40.0),
+            ..Default::default()
+        },
+        Model::new(plane),
+    ));
+    rig.ctx.camera3d.position = vec3(0.0, 6.0, 0.001);
+    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    let pixels = rig.draw();
+    Some((pixels, rig.renderer.pipeline_stats()))
+}
+
+#[test]
+fn a_shader_sharing_another_ones_pipelines_draws_the_same_pixels() {
+    let Some((own, own_stats)) = plane_with(|rig| rig.shader(BOTH_HOOKS)) else {
+        return;
+    };
+    let Some((shared, shared_stats)) = plane_with(|rig| {
+        rig.shader(BOTH_HOOKS);
+        rig.shader(BOTH_HOOKS)
+    }) else {
+        return;
+    };
+    assert_eq!(
+        shared_stats.shared,
+        own_stats.shared + 1,
+        "the second shader shared the first's set"
+    );
+    assert_eq!(shared_stats.compiles, own_stats.compiles);
+    assert!(lit(&own) > 0);
+    assert_eq!(own, shared, "identical pixels through the shared pipelines");
+}

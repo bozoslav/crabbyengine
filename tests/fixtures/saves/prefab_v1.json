@@ -1,0 +1,31 @@
+{
+  "components": {
+    "Health": {
+      "current": 8.0,
+      "max": 12.0
+    },
+    "Label": {
+      "name": "Palm \"tall\" ✓",
+      "note": "two\nlines"
+    },
+    "Mood": {
+      "Alert": {
+        "since": 7
+      }
+    },
+    "Team": 3,
+    "Transform2D": {
+      "position": [
+        0.0,
+        0.0
+      ],
+      "rotation": 0.75,
+      "scale": [
+        1.5,
+        1.5
+      ]
+    }
+  },
+  "format": "crabby-prefab",
+  "version": 1
+}

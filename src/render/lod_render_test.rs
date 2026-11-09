@@ -369,13 +369,21 @@ fn warmed_pipelines_build_nothing_while_drawing_a_crossfade() {
     };
     two_level_scene(&mut rig);
     camera_at(&mut rig.ctx, distance_for(0.475));
+    let before = rig.renderer.pipeline_stats();
     rig.draw();
     assert!(
         rig.renderer.take_pipelines_built() > 0,
         "a cold crossfade builds variants"
     );
+    let cold = rig.renderer.pipeline_stats();
+    assert!(cold.misses > before.misses, "the cache saw the misses");
+    assert_eq!(cold.builds - before.builds, cold.misses - before.misses);
+    assert!(cold.slowest_build_ms > 0.0 && cold.build_ms >= cold.slowest_build_ms);
     rig.draw();
     assert_eq!(rig.renderer.take_pipelines_built(), 0, "once built, they're kept");
+    let warm = rig.renderer.pipeline_stats();
+    assert_eq!(warm.misses, cold.misses, "the second frame only hits");
+    assert!(warm.hits > cold.hits);
 
     // Warmed while loading: the same crossfade draws the same pixels and
     // builds nothing, and shaders made afterwards come warm too.
