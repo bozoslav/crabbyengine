@@ -6,9 +6,41 @@ Started as the M3 ECS spike: it compares a minimal archetype ECS of our own (`sr
 2. **D12 condition:** does routing every component through runtime registration (needed for the C/C++ API) cost the Rust path anything?
 
 ```sh
-cargo run --release -p crabby_bench            # everything
-cargo run --release -p crabby_bench -- iter    # filter by name
+cargo run --release -p ponko_bench            # everything
+cargo run --release -p ponko_bench -- iter    # filter by name (substring)
+PONKO_BENCH_JSON=results.json cargo run --release -p ponko_bench   # also export JSON
 ```
+
+Each benchmark prints its median (p50), p95 and minimum. *Steady* benchmarks build their state once, run the operation 5 times untimed, then time it repeatedly (like a system running every frame); *fresh* benchmarks rebuild the state untimed before every run and drop one warmup run. Percentiles are nearest-rank, so with 10 runs p95 is the slowest run.
+
+## Machine-readable results
+
+With `PONKO_BENCH_JSON=<path>`, the runner writes every result it ran (after the filter) to one JSON document:
+
+```json
+{
+  "schema_version": 1,
+  "env": {
+    "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)", "git_rev": "<commit>", "git_dirty": false,
+    "os": "macos", "arch": "aarch64", "cpu": "Apple M4 Max",
+    "logical_cores": 14, "rayon_threads": 14, "debug_assertions": false,
+    "ponko_features": ["physics", "physics3d"], "bevy_ecs": "0.20.1", "hecs": "0.11.2",
+    "filter": "archetypes", "unix_time": 1794224632
+  },
+  "results": [
+    {"name": "archetypes-1024/ponko", "kind": "steady", "warmup": 5, "runs": 200,
+     "min_ms": 0.0069, "p50_ms": 0.0078, "p95_ms": 0.0088, "max_ms": 0.0090, "mean_ms": 0.0078,
+     "world_bytes": 1081344}
+  ]
+}
+```
+
+- Times are milliseconds per timed operation. `kind` is `steady` or `fresh` (above).
+- `world_bytes` is `World::allocated_bytes()` (component columns and entity handles) after the timed runs, for benchmarks that record it; otherwise `null`. It is not process memory, and bevy_ecs and hecs don't report a comparable number.
+- `rustc` is the `rustc` on `PATH` when the runner starts, which matches the build when run through `cargo run`. Unknown values are `"unknown"` or `null`.
+- `schema_version` changes only when a field changes meaning or is removed.
+
+The numbers depend on the machine and its load: compare runs from the same machine and build, and never use them as pass/fail thresholds in CI. The workloads' correctness is checked separately by `cargo test -p ponko_bench`, which builds each new workload in both libraries and checks they contain and update the same entities.
 
 ## Results (2026-11-02, Apple M4 Max, release, single thread)
 
@@ -47,6 +79,21 @@ Baselines for the iteration loop:
 | heavy, 10M | 57.6 ms | **8.1 ms** | 7.1× |
 
 Light updates are memory-bandwidth-bound, so extra cores help less. Heavy updates scale with cores: **10M agents fit a 60 Hz tick** (16.7 ms budget).
+
+## Many small archetypes and query construction (2026-11-09)
+
+`ponko_ecs` vs `bevy_ecs` 0.20.1, M4 Max, release, single thread, rustc 1.99.1. The world: 1024 archetypes of 16 entities (16,384 total), each `(Pos, Vel, Spr)` plus a different subset of 10 zero-sized markers. `cargo run --release -p ponko_bench -- archetypes-1024` and `-- query-build`. Medians of 200 runs (iteration) or 100 runs (queries); the machine was shared with other work (load average around 40), so treat these as indicative and rerun before comparing.
+
+| Benchmark | ponko_ecs | bevy_ecs |
+|---|---:|---:|
+| iterate `pos += vel*dt` over 1024 archetypes | 0.006–0.008 ms | 0.011–0.014 ms |
+| build the `(&mut Pos, &Vel)` query, ×1000 | 0.014 ms | 8.3–8.4 ms |
+| build the query and count its matches, ×1000 | 1.5 ms | 9.0–9.3 ms |
+| ECS storage for this world (`world_bytes`) | 1056 KiB | not reported |
+
+- The two "build" rows measure different work: building a bevy `QueryState` matches it against every archetype, while a ponko `Query` only resolves component ids and matches while it runs. The "build and count" row does the same work in both (resolve, match all 1024 archetypes, sum lengths), so compare that one. bevy systems normally keep their `QueryState` and update it incrementally, which this benchmark does not measure.
+- The iteration row builds the query once for bevy (a kept `QueryState`) and once per run for ponko, as each library's systems use them.
+- hecs is not included in these cases.
 
 ## Caveats
 

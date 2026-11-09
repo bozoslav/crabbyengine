@@ -5,11 +5,13 @@
 //! Each benchmark builds its state untimed, then times one operation; we report
 //! the median and minimum over several runs.
 
+mod archetypes;
 mod net;
 #[allow(dead_code)] // spike: API surface kept for the M3 port
 mod own;
 mod physics;
 mod physics3d;
+mod report;
 
 use bevy_ecs::component::Component;
 use std::hint::black_box;
@@ -65,19 +67,43 @@ fn shuffled(n: usize) -> Vec<usize> {
 
 struct Bench {
     filter: Option<String>,
+    records: Vec<report::Record>,
 }
 
 impl Bench {
+    fn new(filter: Option<String>) -> Self {
+        Bench {
+            filter,
+            records: Vec::new(),
+        }
+    }
+
+    fn skips(&self, name: &str) -> bool {
+        self.filter.as_ref().is_some_and(|f| !name.contains(f.as_str()))
+    }
+
     /// Builds the state once, then times `op` repeatedly on it (like a system
     /// running every frame). Use for iteration benchmarks.
-    fn steady<S>(&mut self, name: &str, runs: usize, setup: impl FnOnce() -> S, mut op: impl FnMut(&mut S)) {
-        if let Some(f) = &self.filter
-            && !name.contains(f.as_str())
-        {
+    fn steady<S>(&mut self, name: &str, runs: usize, setup: impl FnOnce() -> S, op: impl FnMut(&mut S)) {
+        self.steady_with_bytes(name, runs, setup, op, |_| None);
+    }
+
+    /// [`Bench::steady`], also recording `bytes(&state)` after the timed runs
+    /// (the ECS world's storage size, where the library reports it).
+    fn steady_with_bytes<S>(
+        &mut self,
+        name: &str,
+        runs: usize,
+        setup: impl FnOnce() -> S,
+        mut op: impl FnMut(&mut S),
+        bytes: impl FnOnce(&S) -> Option<usize>,
+    ) {
+        const WARMUP: usize = 5;
+        if self.skips(name) {
             return;
         }
         let mut s = setup();
-        for _ in 0..5 {
+        for _ in 0..WARMUP {
             op(&mut s);
         }
         let mut times: Vec<_> = (0..runs)
@@ -88,34 +114,42 @@ impl Bench {
             })
             .collect();
         black_box(&s);
-        self.report(name, &mut times);
+        let mut record = report::Record::new(name, report::Kind::Steady, WARMUP, &mut times);
+        record.world_bytes = bytes(&s);
+        self.report(record);
     }
 
-    fn report(&mut self, name: &str, times: &mut [Duration]) {
-        times.sort();
-        let (med, min) = (times[times.len() / 2], times[0]);
-        println!("{name:<28} median {:>9.3} ms   min {:>9.3} ms", ms(med), ms(min));
+    fn report(&mut self, r: report::Record) {
+        let bytes = r.world_bytes.map(|b| format!("   {:>8.1} KiB", b as f64 / 1024.0));
+        println!(
+            "{:<32} median {:>9.3} ms   p95 {:>9.3} ms   min {:>9.3} ms{}",
+            r.name,
+            ms(r.p50),
+            ms(r.p95),
+            ms(r.min),
+            bytes.unwrap_or_default()
+        );
+        self.records.push(r);
     }
 
     fn run<S>(&mut self, name: &str, runs: usize, mut setup: impl FnMut() -> S, mut op: impl FnMut(&mut S)) {
-        if let Some(f) = &self.filter
-            && !name.contains(f.as_str())
-        {
+        const WARMUP: usize = 1;
+        if self.skips(name) {
             return;
         }
         let mut times = Vec::with_capacity(runs);
-        // One warmup run, then measured runs.
-        for i in 0..runs + 1 {
+        // Warmup runs, then measured runs.
+        for i in 0..runs + WARMUP {
             let mut s = setup();
             let t = Instant::now();
             op(&mut s);
             let el = t.elapsed();
-            if i > 0 {
+            if i >= WARMUP {
                 times.push(el);
             }
             drop(black_box(s));
         }
-        self.report(name, &mut times);
+        self.report(report::Record::new(name, report::Kind::Fresh, WARMUP, &mut times));
     }
 }
 
@@ -125,7 +159,7 @@ fn ms(d: Duration) -> f64 {
 
 fn main() {
     let filter = std::env::args().nth(1);
-    let mut b = Bench { filter };
+    let mut b = Bench::new(filter.clone());
     println!("N = {N}, add/remove N = {ADD_REMOVE_N}\n");
     physics::run(&mut b);
     physics3d::run(&mut b);
@@ -700,7 +734,19 @@ fn main() {
         },
     );
 
+    archetypes::run(&mut b);
     flow_benches(&mut b);
+
+    if let Some(path) = std::env::var_os("PONKO_BENCH_JSON") {
+        let json = report::to_json(&report::Env::detect(filter), &b.records);
+        match std::fs::write(&path, json) {
+            Ok(()) => println!("\n{} results written to {}", b.records.len(), path.to_string_lossy()),
+            Err(e) => {
+                eprintln!("could not write {}: {e}", path.to_string_lossy());
+                std::process::exit(1);
+            }
+        }
+    }
 }
 
 /// A `side` × `side` map with about 20% of cells walls (blobs, like terrain).
