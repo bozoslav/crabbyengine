@@ -1,8 +1,8 @@
 //! Plain value helpers of the 3D C API (quaternions, transforms, mesh data,
 //! tyre curves) and morph writing: pure functions, no window needed.
 use ponko_ffi::*;
-use std::ffi::c_void;
 use std::f32::consts::FRAC_PI_2;
+use std::ffi::c_void;
 use std::ptr::{null, null_mut};
 
 use CrabbyStatus::*;
@@ -26,7 +26,10 @@ fn positions(v: &CrabbyMeshView) -> &[CrabbyVec3] {
 fn rotating_a_vector_by_a_quarter_turn_about_y_sends_x_to_minus_z() {
     let quarter = crabby_quat_from_axis_angle(v3(0.0, 1.0, 0.0), FRAC_PI_2);
     assert!(near(crabby_quat_rotate(quarter, v3(1.0, 0.0, 0.0)), v3(0.0, 0.0, -1.0)));
-    assert!(near(crabby_quat_rotate(quarter, v3(0.0, 5.0, 0.0)), v3(0.0, 5.0, 0.0)), "the axis stays");
+    assert!(
+        near(crabby_quat_rotate(quarter, v3(0.0, 5.0, 0.0)), v3(0.0, 5.0, 0.0)),
+        "the axis stays"
+    );
     assert!(near(crabby_quat_rotate(quarter, v3(0.0, 0.0, 1.0)), v3(1.0, 0.0, 0.0)));
     let identity = crabby_quat_identity();
     assert!(near(crabby_quat_rotate(identity, v3(1.0, 2.0, 3.0)), v3(1.0, 2.0, 3.0)));
@@ -51,7 +54,11 @@ fn a_transform_faces_minus_z_and_looking_at_turns_it_towards_the_target() {
         let turned = crabby_transform3d_looking_at(there, target);
         assert!(near(turned.position, there.position), "looking doesn't move");
         assert_eq!(turned.scale.x, there.scale.x);
-        assert!(near(crabby_transform3d_forward(turned), expected), "{target:?}: {:?}", crabby_transform3d_forward(turned));
+        assert!(
+            near(crabby_transform3d_forward(turned), expected),
+            "{target:?}: {:?}",
+            crabby_transform3d_forward(turned)
+        );
     }
     // Looking diagonally: the forward is the unit vector to the target.
     let diagonal = crabby_transform3d_looking_at(origin, v3(3.0, 0.0, -4.0));
@@ -98,16 +105,27 @@ fn heightfield_mesh_data_puts_each_height_at_its_grid_corner() {
     assert!(positions(&v).contains(&v3(5.0, 2.0, 5.0)), "the peak is in the middle");
     let top = positions(&v).iter().map(|p| p.y).fold(f32::MIN, f32::max);
     assert_eq!(top, 2.0);
-    let (min_x, max_x) = positions(&v).iter().fold((f32::MAX, f32::MIN), |(lo, hi), p| (lo.min(p.x), hi.max(p.x)));
+    let (min_x, max_x) = positions(&v)
+        .iter()
+        .fold((f32::MAX, f32::MIN), |(lo, hi), p| (lo.min(p.x), hi.max(p.x)));
     assert_eq!((min_x, max_x), (0.0, 10.0), "as wide as asked");
     // A coarser step uses fewer corners.
     let coarse = unsafe { crabby_mesh_data_heightfield(heights.as_ptr(), heights.len(), 10.0, 2) };
     assert!(view(coarse).vertex_count <= v.vertex_count);
 
     unsafe {
-        assert!(crabby_mesh_data_heightfield(heights.as_ptr(), 8, 10.0, 1).is_null(), "not square");
-        assert!(crabby_mesh_data_heightfield(heights.as_ptr(), 1, 10.0, 1).is_null(), "too small");
-        assert!(crabby_mesh_data_heightfield(heights.as_ptr(), 9, 10.0, 0).is_null(), "step 0");
+        assert!(
+            crabby_mesh_data_heightfield(heights.as_ptr(), 8, 10.0, 1).is_null(),
+            "not square"
+        );
+        assert!(
+            crabby_mesh_data_heightfield(heights.as_ptr(), 1, 10.0, 1).is_null(),
+            "too small"
+        );
+        assert!(
+            crabby_mesh_data_heightfield(heights.as_ptr(), 9, 10.0, 0).is_null(),
+            "step 0"
+        );
         assert!(crabby_mesh_data_heightfield(null(), 9, 10.0, 1).is_null());
         crabby_mesh_data_free(hill);
         crabby_mesh_data_free(coarse);
@@ -134,10 +152,23 @@ fn mesh_data_colors_need_one_per_corner_or_none() {
             CRABBY_INVALID_ARGUMENT,
             "one short"
         );
-        assert_eq!(crabby_mesh_data_set_colors(cube, red.as_ptr(), corners + 1), CRABBY_INVALID_ARGUMENT);
-        assert_eq!(crabby_mesh_data_set_colors(cube, null(), corners), CRABBY_INVALID_ARGUMENT);
-        assert_eq!(crabby_mesh_data_set_colors(cube, null(), 0), CRABBY_OK, "0 removes them");
-        assert_eq!(crabby_mesh_data_set_colors(null_mut(), red.as_ptr(), corners), CRABBY_INVALID_ARGUMENT);
+        assert_eq!(
+            crabby_mesh_data_set_colors(cube, red.as_ptr(), corners + 1),
+            CRABBY_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            crabby_mesh_data_set_colors(cube, null(), corners),
+            CRABBY_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            crabby_mesh_data_set_colors(cube, null(), 0),
+            CRABBY_OK,
+            "0 removes them"
+        );
+        assert_eq!(
+            crabby_mesh_data_set_colors(null_mut(), red.as_ptr(), corners),
+            CRABBY_INVALID_ARGUMENT
+        );
 
         // The colored mesh data still makes a mesh.
         assert_eq!(crabby_mesh_data_set_colors(cube, red.as_ptr(), corners), CRABBY_OK);
@@ -219,7 +250,7 @@ fn writing_animated_morphs_keeps_the_weights_nothing_animates() {
             assert_eq!(weight, 0.75);
         }
     }
-    let mut entity = 0u64;
+    let mut entity = u64::MAX;
     unsafe {
         let game = crabby_game_new(c"morphs".as_ptr(), 1, 1);
         let mut world = null_mut();
@@ -230,5 +261,5 @@ fn writing_animated_morphs_keeps_the_weights_nothing_animates() {
         crabby_world_free(world);
         assert_eq!(crabby_ctx_write_animated_morphs(null_mut()), CRABBY_INVALID_ARGUMENT);
     }
-    assert_ne!(entity, 0);
+    assert_ne!(entity, u64::MAX, "the setup ran");
 }
