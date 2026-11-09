@@ -14,7 +14,7 @@ use rapier3d::prelude as rp;
 use serde::{Deserialize, Serialize};
 
 use crate::collision::{BodyKind, CollisionStarted, CollisionStopped};
-use crate::{Ctx, Entity, Quat, Transform3D, Vec3, World};
+use crate::{Ctx, Entity, Events, Quat, Transform3D, Vec3, World};
 
 mod character;
 mod contacts;
@@ -1020,16 +1020,25 @@ pub(crate) fn start(ctx: &mut Ctx, gravity: Vec3) {
 /// reorder it like any other system.
 pub fn step_physics3d(ctx: &mut Ctx) {
     let dt = ctx.dt();
-    let physics = &mut ctx.physics3d;
+    step(&mut ctx.physics3d, &mut ctx.world, &mut ctx.events, dt);
+}
+
+/// The step itself, with only what it touches: the physics state (bodies,
+/// joints, contact rules, ragdolls), the world whose body, character,
+/// vehicle, joint and terrain components it reads and writes, the event
+/// queue that gets the collision events, and the timestep. No `Ctx`, window
+/// or device is needed, so tests (and a future scheduler) can see and
+/// supply exactly these inputs.
+fn step(physics: &mut Physics3D, world: &mut World, events: &mut Events, dt: f32) {
     physics.step += 1;
-    sync_into(physics, &mut ctx.world);
-    streaming::stream(physics, &mut ctx.world);
-    joints::sync(physics, &mut ctx.world);
-    contacts::sync(physics, &mut ctx.world);
+    sync_into(physics, world);
+    streaming::stream(physics, world);
+    joints::sync(physics, world);
+    contacts::sync(physics, world);
     physics.world.gravity = to_rp(physics.gravity);
     physics.world.integration_parameters.dt = dt;
-    character::move_characters(physics, &mut ctx.world, dt);
-    vehicle::step_vehicles(physics, &mut ctx.world, dt);
+    character::move_characters(physics, world, dt);
+    vehicle::step_vehicles(physics, world, dt);
     let hooks = contacts::Hooks {
         table: &physics.contact_table,
         custom: physics.contact_hook.as_deref(),
@@ -1038,8 +1047,8 @@ pub fn step_physics3d(ctx: &mut Ctx) {
     if physics.uses_dominance() {
         dominance::transfer_velocity(physics, dt);
     }
-    write_back(physics, &mut ctx.world);
-    pose_ragdolls(&mut ctx.world, &mut physics.ragdolls);
+    write_back(physics, world);
+    pose_ragdolls(world, &mut physics.ragdolls);
     std::mem::swap(
         &mut physics.events,
         &mut *physics
@@ -1058,9 +1067,9 @@ pub fn step_physics3d(ctx: &mut Ctx) {
         };
         let sensor = flags.contains(rp::CollisionEventFlags::SENSOR);
         if started {
-            ctx.events.send(CollisionStarted { a, b, sensor });
+            events.send(CollisionStarted { a, b, sensor });
         } else {
-            ctx.events.send(CollisionStopped { a, b, sensor });
+            events.send(CollisionStopped { a, b, sensor });
         }
     }
     physics.events.clear();
@@ -1325,6 +1334,72 @@ mod tests {
         assert_eq!(x(&mut ctx), -5.0, "left alone by the blend");
         tick(&mut ctx);
         assert!((x(&mut ctx) + 4.8).abs() < 1e-4, "{}", x(&mut ctx));
+    }
+
+    /// A floor, a stack of boxes and a walking character.
+    fn pile(world: &mut World) -> Vec<Entity> {
+        let mut entities = vec![world.spawn((
+            Transform3D::at(vec3(0.0, -0.5, 0.0)),
+            RigidBody3D::fixed(),
+            Collider3D::cuboid(vec3(20.0, 1.0, 20.0)),
+        ))];
+        for i in 0..27 {
+            let at = vec3(
+                (i % 3) as f32 * 0.6,
+                0.5 + (i / 9) as f32 * 0.6,
+                (i / 3 % 3) as f32 * 0.6,
+            );
+            entities.push(world.spawn((
+                Transform3D::at(at),
+                RigidBody3D::dynamic(),
+                Collider3D::cuboid(Vec3::splat(0.5)),
+            )));
+        }
+        entities.push(world.spawn((Transform3D::at(vec3(4.0, 1.0, 0.0)), Character3D::default())));
+        entities
+    }
+
+    /// Every pose and velocity, bit for bit.
+    fn fingerprint(world: &World, entities: &[Entity]) -> Vec<[u32; 10]> {
+        entities
+            .iter()
+            .map(|&e| {
+                let t = world.get::<Transform3D>(e).copied().unwrap_or_default();
+                let v = world.get::<Velocity3D>(e).copied().unwrap_or_default();
+                let (p, r, l) = (t.position, t.rotation, v.linear);
+                [p.x, p.y, p.z, r.x, r.y, r.z, r.w, l.x, l.y, l.z].map(f32::to_bits)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_core_step_needs_only_its_inputs_and_matches_the_ctx_system() {
+        const DT: f32 = 0.02;
+        let gravity = vec3(0.0, -9.81, 0.0);
+        // The core, on a bare world: no Ctx, window or device.
+        let mut physics = Physics3D::new(gravity);
+        let mut world = World::new();
+        let mut events = Events::default();
+        let bare = pile(&mut world);
+        for _ in 0..100 {
+            step(&mut physics, &mut world, &mut events, DT);
+        }
+
+        // The public system, through a Ctx.
+        let mut ctx = Ctx::new(f64::from(DT), Vec2::ZERO);
+        ctx.headless = true;
+        start(&mut ctx, gravity);
+        let wrapped = pile(&mut ctx.world);
+        for _ in 0..100 {
+            tick(&mut ctx);
+        }
+
+        assert_eq!(physics.step, 100);
+        assert_eq!(fingerprint(&world, &bare), fingerprint(&ctx.world, &wrapped));
+        let started = events.peek::<CollisionStarted>();
+        assert!(!started.is_empty(), "the boxes land");
+        assert_eq!(started, ctx.events.peek::<CollisionStarted>());
+        assert_eq!(events.peek::<CollisionStopped>(), ctx.events.peek::<CollisionStopped>());
     }
 
     #[test]
