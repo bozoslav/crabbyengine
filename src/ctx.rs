@@ -1777,11 +1777,11 @@ impl Ctx {
             "ponko: a {width} x {height} texture needs {expected} bytes of RGBA, got {}",
             rgba.len()
         );
-        self.asset_ledger.textures += 1;
-        self.asset_ledger.texture_bytes += crate::inventory::rgba8_bytes(width, height);
+        let bytes = crate::inventory::rgba8_bytes(width, height);
         if self.headless {
             // No GPU: a handle that remembers its size, so game logic still works.
             self.headless_textures += 1;
+            self.asset_ledger.textures.insert(self.headless_textures, bytes);
             return Texture::new(self.headless_textures, width, height);
         }
         let renderer = self.renderer();
@@ -1791,6 +1791,7 @@ impl Ctx {
             "ponko: {width} x {height} is larger than this GPU's maximum texture size ({max})"
         );
         let id = renderer.create_texture(width, height, rgba);
+        self.asset_ledger.textures.insert(id, bytes);
         Texture::new(id, width, height)
     }
 
@@ -1800,6 +1801,7 @@ impl Ctx {
         if !self.textures_live.remove(id) {
             return;
         }
+        self.asset_ledger.textures.remove(&id);
         let cached = &self.cached_textures;
         self.loaded
             .retain(|(_, kind), i| *kind != AssetKind::Texture || cached[*i as usize].id != id);
