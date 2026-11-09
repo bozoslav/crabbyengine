@@ -25,7 +25,9 @@
 //! Sprites and UI are drawn on top afterwards, without tone mapping.
 
 mod instances;
+mod shadow_cache;
 use instances::{Culling, StaticBatch};
+use shadow_cache::ShadowCache;
 use std::ops::Range;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -876,6 +878,10 @@ pub(crate) struct Renderer3D {
     /// (`u32::MAX`: an unknown material, so the mesh's own).
     material_overrides: Vec<(u32, u32)>,
     override_base: u32,
+    /// Which shadow views keep what they hold (see [`ShadowCache`]).
+    shadow_cache: ShadowCache,
+    /// Clears one light atlas tile (made with the atlas).
+    tile_clear: Option<wgpu::RenderPipeline>,
 }
 
 impl Renderer3D {
@@ -1634,6 +1640,8 @@ impl Renderer3D {
             skin_drawn: Vec::new(),
             material_overrides: Vec::new(),
             override_base: u32::MAX,
+            shadow_cache: ShadowCache::default(),
+            tile_clear: None,
         }
     }
 
@@ -1817,6 +1825,7 @@ impl Renderer3D {
         }
     }
     pub fn set_mesh_gpu_buffer(&mut self, mesh: u32, b: u32, count: u32) {
+        self.shadow_cache.invalidate();
         if let Some(mesh) = self.meshes.get_mut(mesh as usize) {
             mesh.gpu_buffer = Some((b, count));
         }
@@ -1917,6 +1926,7 @@ impl Renderer3D {
             pipelines.warm();
         }
         self.shaders.push(pipelines);
+        self.shadow_cache.shaders.push(ShadowCache::shader_traits(user));
         Ok(self.shaders.len() as u32 - 1)
     }
 
@@ -1947,6 +1957,8 @@ impl Renderer3D {
             pipelines.warm();
         }
         self.shaders[id as usize] = pipelines;
+        self.shadow_cache.shaders[id as usize] = ShadowCache::shader_traits(user);
+        self.shadow_cache.invalidate();
         Ok(())
     }
 
@@ -2051,6 +2063,7 @@ impl Renderer3D {
         });
         let bindings = self.material_bindings(desc, textures);
         let bind_group = self.material_bind_group(device, &buffer, &bindings);
+        self.shadow_cache.invalidate();
         self.materials.push(GpuMaterial {
             buffer,
             bind_group,
@@ -2100,6 +2113,7 @@ impl Renderer3D {
         let Some(material) = self.materials.get(id as usize) else {
             return;
         };
+        self.shadow_cache.invalidate();
         queue.write_buffer(&material.buffer, 0, bytemuck::bytes_of(&desc.uniform));
         if !self.material_bindings_match(&material.bindings, desc, textures) {
             let bindings = self.material_bindings(desc, textures);
@@ -2180,6 +2194,7 @@ impl Renderer3D {
             contents: bytemuck::cast_slice(&data.indices),
             usage: wgpu::BufferUsages::INDEX,
         });
+        self.shadow_cache.invalidate();
         let mesh = GpuMesh {
             buffers: Some((vertices, indices)),
             parts: parts.iter().map(|(r, m)| (r.clone(), m.id)).collect(),
@@ -2198,6 +2213,7 @@ impl Renderer3D {
 
     /// Frees mesh `id`'s GPU memory; it draws nothing from now on.
     pub fn free_mesh(&mut self, id: u32) {
+        self.shadow_cache.invalidate();
         if let Some(mesh) = self.meshes.get_mut(id as usize) {
             mesh.buffers = None;
             mesh.parts = Vec::new();
@@ -2501,6 +2517,8 @@ impl Renderer3D {
         let sun = (-lighting.sun_direction).try_normalize().unwrap_or(Vec3::Y);
         self.set_shadow_map(device, frame);
         self.set_light_shadow_map(device, frame);
+        // Shadow views whose maps already hold what they'd draw are kept.
+        self.plan_shadows(frame, camera);
         let rebind = self.bind_decal_array(frame.decal_array);
         if self.lights.upload(device, queue, &frame.lights, &frame.decals) || rebind {
             self.frame_bind_group = self.frame_sources.bind_group(device, &self.frame_buffer, &self.lights);
@@ -3024,6 +3042,7 @@ impl Renderer3D {
         if self.shadow_dims == wanted {
             return;
         }
+        self.shadow_cache.invalidate();
         let map = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("3d shadow map"),
             size: wgpu::Extent3d {
@@ -3087,6 +3106,7 @@ impl Renderer3D {
         if self.light_shadow_dims == wanted {
             return;
         }
+        self.shadow_cache.invalidate();
         self.light_shadow_dims = wanted;
         let Some(size) = wanted else {
             // Back to the 1x1 stand-in the frame bind groups start with.
@@ -3110,6 +3130,9 @@ impl Renderer3D {
             view_formats: &[],
         });
         let view = map.create_view(&Default::default());
+        if self.tile_clear.is_none() {
+            self.tile_clear = Some(shadow_cache::tile_clear_pipeline(device));
+        }
         self.frame_sources.light_shadow_view = view.clone();
         self.light_atlas = Some(view);
         self.rebind_frames(device);
@@ -3311,11 +3334,15 @@ impl Renderer3D {
         };
         let time = |name| timer.and_then(|t| t.pass(name));
         let split = self.needs_scene();
+        self.shadow_cache.recorded();
         let mut parts = Vec::with_capacity(8 + self.cascades + self.light_views);
         parts.push(Part::Prelude);
         for cascade in shadow_views(self.cascades, self.light_views) {
             if cascade < MAX_CASCADES && self.redrawn & (1 << cascade) == 0 {
                 continue; // kept from an earlier frame: not even cleared
+            }
+            if cascade >= MAX_CASCADES && self.shadow_cache.light_kept & (1 << (cascade - MAX_CASCADES)) != 0 {
+                continue; // its tile already holds this
             }
             let runs = &self.shadow_runs[cascade];
             let mut first = 0;
@@ -3463,11 +3490,14 @@ impl Renderer3D {
                 self.environment.sky(encoder, &self.sky_texture);
             }
             Part::Shadow { cascade, first, end } => {
-                // Light views share the atlas: the first one clears all of it.
+                // Light views share the atlas: the first one clears all of
+                // it, unless some keep their tiles; then each drawn view
+                // clears its own.
+                let whole = self.shadow_cache.light_kept == 0;
                 let (view, clear) = if cascade < MAX_CASCADES {
                     (&self.shadow_layers[cascade], first == 0)
                 } else if let Some(atlas) = &self.light_atlas {
-                    (atlas, cascade == MAX_CASCADES && first == 0)
+                    (atlas, whole && cascade == MAX_CASCADES && first == 0)
                 } else {
                     return;
                 };
@@ -3499,6 +3529,13 @@ impl Renderer3D {
                 {
                     pass.set_viewport(x as f32, y as f32, side as f32, side as f32, 0.0, 1.0);
                     pass.set_scissor_rect(x, y, side, side);
+                    if !whole
+                        && first == 0
+                        && let Some(tile_clear) = &self.tile_clear
+                    {
+                        pass.set_pipeline(tile_clear);
+                        pass.draw(0..3, 0..1);
+                    }
                 }
                 let offset = (self.shadow_stride * cascade as u64) as u32;
                 pass.set_bind_group(0, &self.shadow_bind_group, &[offset]);

@@ -970,6 +970,12 @@ impl Renderer {
 
     /// Remakes texture `id`'s mipmaps after its pixels changed.
     fn refresh_mips(&mut self, id: u32) {
+        // Called after every change to a texture's pixels: cut-out shadows
+        // drawn with it are drawn again.
+        #[cfg(feature = "3d")]
+        if let Some(three) = &mut self.three {
+            three.texture_changed(id);
+        }
         #[cfg(feature = "3d")]
         if let Some(linear) = self.textures[id as usize].mips
             && let Some(mips) = &self.mips
