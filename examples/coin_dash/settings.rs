@@ -533,21 +533,12 @@ impl SettingsUi {
         for control in Control::ALL {
             let strip = ui.panel(list).layout(UiLayout::row(32.0).gap(8.0)).id();
             ui.label(strip, control.label()).layout(UiLayout::fixed(150.0, 32.0));
-            let key = ui
-                .button(strip, "")
-                .layout(UiLayout::fixed(120.0, 32.0))
-                .accessible_name(format!("{} key", control.label()))
-                .id();
+            let key = ui.button(strip, "").layout(UiLayout::fixed(120.0, 32.0)).id();
             let pad = if control.is_movement() {
                 ui.label(strip, "left stick").layout(UiLayout::fixed(120.0, 32.0));
                 None
             } else {
-                Some(
-                    ui.button(strip, "")
-                        .layout(UiLayout::fixed(120.0, 32.0))
-                        .accessible_name(format!("{} gamepad button", control.label()))
-                        .id(),
-                )
+                Some(ui.button(strip, "").layout(UiLayout::fixed(120.0, 32.0)).id())
             };
             rows.push(Row { control, key, pad });
         }
@@ -590,10 +581,14 @@ impl SettingsUi {
     fn refresh(&self, ui: &mut Ui, settings: &Settings) {
         ui.set_text(self.scale_label, format!("{:.0}%", settings.ui_scale * 100.0));
         ui.set_value(self.volume, settings.volume);
+        // A button's name is its text unless told otherwise; "Enter" alone says nothing.
         for row in &self.rows {
-            ui.set_text(row.key, settings.controls.key_name(row.control));
+            let key = settings.controls.key_name(row.control);
+            ui.set_text(row.key, &key);
+            ui.set_accessible_name(row.key, format!("{} key: {key}", row.control.label()));
             if let (Some(id), Some(button)) = (row.pad, settings.controls.pad(row.control)) {
                 ui.set_text(id, format!("{button:?}"));
+                ui.set_accessible_name(id, format!("{} gamepad button: {button:?}", row.control.label()));
             }
         }
     }
