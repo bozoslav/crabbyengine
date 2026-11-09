@@ -27,6 +27,12 @@ frame resets and action queries allocate nothing.
 keyboard, mouse and gamepad input updates the same action state automatically.
 Frame edges clear after each frame (after each tick in headless runs).
 
+To replay input by simulation tick, build an `InputScenario` with
+`.at(tick, event)` and install it with `Game::input_scenario` (Rust only for
+now). Before each tick's simulation systems run, the scenario feeds that tick's
+events through `feed_input`. The same seed and scenario therefore give the same
+headless run.
+
 | Action | Rust sources | C++ sources |
 | --- | --- | --- |
 | `Action::Button` / `action::button` | `ButtonBinding::Key`, `Mouse`, `Gamepad` | `action_binding::key`, `mouse`, `button` |
