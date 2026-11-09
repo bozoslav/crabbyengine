@@ -828,7 +828,7 @@ static void asset_streaming() {
         CHECK(ctx.asset_error(ponko::residency_kind::mesh, "models/nope.glb").find("nope.glb") != std::string::npos);
         CHECK(ctx.asset_error(ponko::residency_kind::mesh, "models/house.glb").empty());
         auto e = ctx.world().spawn(ponko::transform3d_at({0, 0, 0}));
-        ctx.set_lod_group(e, 4, {ponko::lod_level{0.0f, 0, {ponko::lod_renderer_of(ponko::mesh_none)}}});
+        ctx.set_lod_group(e, 4, {ponko::lod_level{0.0f, 0, {ponko::lod_renderer_of(ponko::mesh_none)}, false, {}}});
         ctx.set_streamed_lod(e, {"models/house.glb"});
         throws([] { ponko::detail::check(ponko_ctx_set_streamed_lod(nullptr, 0, nullptr, 0)); });
     });
