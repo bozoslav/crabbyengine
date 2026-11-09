@@ -845,6 +845,7 @@
 #define ponko_ctx_update_material crabby_ctx_update_material
 #define ponko_ctx_update_texture crabby_ctx_update_texture
 #define ponko_ctx_upload_terrain_tile crabby_ctx_upload_terrain_tile
+#define ponko_ctx_warm_render_pipelines crabby_ctx_warm_render_pipelines
 #define ponko_ctx_was_reloaded crabby_ctx_was_reloaded
 #define ponko_ctx_window_size crabby_ctx_window_size
 #define ponko_ctx_world crabby_ctx_world

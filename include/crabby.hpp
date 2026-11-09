@@ -2887,6 +2887,9 @@ public:
     void clear_decal_textures() { detail::check(crabby_ctx_clear_decal_textures(raw_)); }
     /// Whether this GPU draws projected decals (false headless and on WebGL2).
     bool supports_decals() { bool yes = false; detail::check(crabby_ctx_supports_decals(raw_, &yes)); return yes; }
+    /// Build the 3D pipeline variants frames would build when first drawn
+    /// (crossfades, buffer-driven instances); call at the end of loading.
+    void warm_render_pipelines() { detail::check(crabby_ctx_warm_render_pipelines(raw_)); }
     /// A material for terrain: ground layers blended by a weight map.
     material create_terrain_material(const terrain_material_desc& desc) {
         material m{}; detail::check(crabby_ctx_create_terrain_material(raw_, &desc, &m)); return m;

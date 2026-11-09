@@ -27,6 +27,7 @@
 mod instances;
 use instances::{Culling, StaticBatch};
 use std::ops::Range;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use glam::{Mat4, Vec3};
 use wgpu::util::DeviceExt;
@@ -251,16 +252,46 @@ struct GpuMaterial {
 /// One material shader's pipelines, for one-sided and double-sided surfaces.
 struct ShaderPipelines {
     sides: [Pipelines; 2],
-    /// The same for crossfading instances, built when first drawn.
+    /// The same for crossfading instances, built when first drawn (or
+    /// all at once by [`Renderer3D::warm_pipelines`]).
     fade: [std::sync::OnceLock<Pipelines>; 2],
     /// The same for buffer-driven instances, which all share their
     /// entity's one instance record (a zero-stride instance buffer);
-    /// built when first drawn.
+    /// built when first drawn (or by [`Renderer3D::warm_pipelines`]).
     shared: [std::sync::OnceLock<Pipelines>; 2],
     builder: SideBuilder,
     /// Whether it reads the scene behind it (`scene_color`, `scene_position`,
     /// `scene_distance`): its transparent surfaces then need a copy of it.
     reads_scene: bool,
+}
+
+impl ShaderPipelines {
+    /// The pipelines for `side` (0 one-sided, 1 double-sided): crossfading
+    /// (`fade`), buffer-driven (`shared`) or plain. A variant not built yet
+    /// is built now, and counted in `built`.
+    fn variant(&self, side: usize, fade: bool, shared: bool, built: &AtomicUsize) -> &Pipelines {
+        let lazy = if shared {
+            &self.shared[side]
+        } else if fade {
+            &self.fade[side]
+        } else {
+            return &self.sides[side];
+        };
+        lazy.get_or_init(|| {
+            built.fetch_add(1, Ordering::Relaxed);
+            let cull = (side == 0).then_some(wgpu::Face::Back);
+            self.builder.build(cull, fade && !shared, shared)
+        })
+    }
+
+    /// Builds every variant not built yet.
+    fn warm(&self) {
+        let none = AtomicUsize::new(0);
+        for side in 0..2 {
+            self.variant(side, true, false, &none);
+            self.variant(side, false, true, &none);
+        }
+    }
 }
 
 struct Pipelines {
@@ -673,6 +704,11 @@ pub(crate) struct Renderer3D {
     shadow_pipeline_layout: wgpu::PipelineLayout,
     /// Each shader's pipelines; 0 is the built-in shader.
     shaders: Vec<ShaderPipelines>,
+    /// Whether every shader builds all its variants up front (after
+    /// [`Renderer3D::warm_pipelines`]), instead of when first drawn.
+    warm_variants: bool,
+    /// Variants built while drawing, since [`Renderer3D::take_pipelines_built`].
+    pipelines_built: AtomicUsize,
     material_sampler: wgpu::Sampler,
     scene_layout: wgpu::BindGroupLayout,
     /// The scene bind group of passes that can't see the scene.
@@ -1480,6 +1516,8 @@ impl Renderer3D {
             layout,
             shadow_pipeline_layout,
             shaders: vec![builtin],
+            warm_variants: false,
+            pipelines_built: AtomicUsize::new(0),
             material_sampler,
             scene_layout,
             no_scene,
@@ -1857,6 +1895,9 @@ impl Renderer3D {
             self.samples,
         );
         pipelines.reads_scene = reads_scene(user);
+        if self.warm_variants {
+            pipelines.warm();
+        }
         self.shaders.push(pipelines);
         Ok(self.shaders.len() as u32 - 1)
     }
@@ -1884,6 +1925,9 @@ impl Renderer3D {
             self.samples,
         );
         pipelines.reads_scene = reads_scene(user);
+        if self.warm_variants {
+            pipelines.warm();
+        }
         self.shaders[id as usize] = pipelines;
         Ok(())
     }
@@ -1964,6 +2008,31 @@ impl Renderer3D {
             double_sided: desc.double_sided,
         });
         self.materials.len() as u32 - 1
+    }
+
+    /// Builds every material shader's pipeline variants that would
+    /// otherwise be built the first time a frame draws them (crossfading
+    /// level-of-detail instances, buffer-driven instances), and from now on
+    /// builds them with each new shader. Building one takes several
+    /// milliseconds, a visible hitch inside a frame.
+    pub fn warm_pipelines(&mut self) {
+        self.warm_variants = true;
+        for shader in &self.shaders {
+            shader.warm();
+        }
+    }
+
+    /// Whether every variant of shader `id` is built.
+    #[cfg(test)]
+    pub fn shader_warm(&self, id: u32) -> bool {
+        let shader = &self.shaders[id as usize];
+        shader.fade.iter().chain(&shader.shared).all(|v| v.get().is_some())
+    }
+
+    /// How many pipeline variants frames built while drawing since the last
+    /// call (each one a hitch; see [`Renderer3D::warm_pipelines`]).
+    pub fn take_pipelines_built(&self) -> usize {
+        self.pipelines_built.swap(0, Ordering::Relaxed)
     }
 
     /// Changes material `id` in place: every model using it changes.
@@ -4070,20 +4139,9 @@ impl Renderer3D {
                 let shader = &self.shaders[m.shader as usize];
                 let side = usize::from(m.double_sided);
                 // Crossfading instances dither in every pass (their
-                // pipelines are built the first time they're drawn).
-                let pipelines = if storage.is_some() {
-                    shader.shared[side].get_or_init(|| {
-                        let cull = (side == 0).then_some(wgpu::Face::Back);
-                        shader.builder.build(cull, false, true)
-                    })
-                } else if fading {
-                    shader.fade[side].get_or_init(|| {
-                        let cull = (side == 0).then_some(wgpu::Face::Back);
-                        shader.builder.build(cull, true, false)
-                    })
-                } else {
-                    &shader.sides[side]
-                };
+                // pipelines are built the first time they're drawn, unless
+                // `warm_pipelines` built them while loading).
+                let pipelines = shader.variant(side, fading, storage.is_some(), &self.pipelines_built);
                 let coverage = pipelines.coverage.as_ref().filter(|_| m.cutout);
                 let pipeline = match kind {
                     Kind::Shadow(_) if m.cutout => &pipelines.shadow_cutout,

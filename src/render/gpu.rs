@@ -584,6 +584,13 @@ impl Renderer {
         }
     }
 
+    /// Builds the 3D pipeline variants frames would build when first drawn
+    /// (see `Renderer3D::warm_pipelines`).
+    #[cfg(feature = "3d")]
+    pub fn warm_pipelines(&mut self) {
+        self.three().warm_pipelines();
+    }
+
     /// Whether projected decals can be drawn (see `gpu3d::supports_decals`).
     #[cfg(feature = "3d")]
     pub fn supports_decals(&self) -> bool {
@@ -1143,6 +1150,7 @@ impl Renderer {
             self.stats.shadow_instances = shadow_instances;
             self.stats.shadow_triangles = shadow_triangles;
             self.stats.occluded = three.occluded;
+            self.stats.pipelines_built = three.take_pipelines_built();
             self.stats.collect_ms = self.collect_ms;
         }
 
