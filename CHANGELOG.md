@@ -20,10 +20,6 @@ says what that covers.
   particles and audio to inspectable systems remain follow-ups to #198.
 
 ### Added
-- `coin_dash` example grows into a complete small game: title, pause and result
-  screens, a saved best time and high score that recovers from a missing or
-  damaged save file, all tested headlessly (`tests/coin_dash.rs`). Packaging,
-  notices and a web build of it are still to come (#176).
 - `ActionId`: resolve an action name once with `Ctx::action_id` (or
   `action_ids`, or the `actions!` macro, which keeps the names in one
   declaration) and pass the `Copy` id to `action_down`, `action_pressed`,
