@@ -433,8 +433,12 @@ impl Ctx {
     /// Loads a sound from the `assets/` folder: OGG Vorbis, WAV, MP3 or FLAC.
     /// Loading the same file again returns the same handle.
     ///
+    /// Without the `audio` feature nothing is decoded: the file only has to
+    /// exist, and the sound lasts zero seconds.
+    ///
     /// # Panics
-    /// With a clear message if the file is missing or can't be decoded.
+    /// With a clear message if the file is missing or, with the `audio`
+    /// feature, can't be decoded.
     ///
     /// ```no_run
     /// # use ponko::*;
