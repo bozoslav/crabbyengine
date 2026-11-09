@@ -20,7 +20,12 @@ fn main() {
                     cast_shadows: region % 3 == 0,
                     ..Default::default()
                 };
-                if std::env::var_os("PONKO_INSTANCE_LEGACY").is_some() {
+                if std::env::var_os("PONKO_INSTANCE_MODELS").is_some() {
+                    for matrix in &transforms {
+                        ctx.world
+                            .spawn((Transform3D::at(matrix.w_axis.truncate()), Model::new(mesh)));
+                    }
+                } else if std::env::var_os("PONKO_INSTANCE_LEGACY").is_some() {
                     ctx.create_instance_batch(mesh, &transforms, options);
                 } else {
                     let levels = [(0.0, 50.0), (50.0, 150.0), (150.0, 300.0), (300.0, 500.0)].map(

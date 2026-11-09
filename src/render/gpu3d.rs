@@ -3761,7 +3761,7 @@ impl Renderer3D {
         } = *frame;
         match part {
             Part::Prelude => {
-                self.cull_static(encoder);
+                self.cull_static(encoder, time);
                 // Skinned models first: every pass draws them posed.
                 if self.skinning.has_work() {
                     let timestamps = time("skinning").map(|t| wgpu::ComputePassTimestampWrites {
@@ -4645,7 +4645,11 @@ impl Renderer3D {
                     pass,
                     &[(l.mesh.id, 0, batch.count)],
                     kind,
-                    &batch.vertices,
+                    if batch.compute {
+                        &self.static_culling.as_ref().unwrap().marker
+                    } else {
+                        &batch.vertices
+                    },
                     Some((batch, view, level)),
                 );
             }
@@ -4720,7 +4724,10 @@ impl Renderer3D {
                 // Crossfading instances dither in every pass (their
                 // pipelines are built the first time they're drawn, unless
                 // `warm_pipelines` built them while loading).
-                let variant = ShaderVariant::new(Sides::of(m.double_sided), Instancing::of(fading, storage.is_some()));
+                let variant = ShaderVariant::new(
+                    Sides::of(m.double_sided),
+                    Instancing::of(fading, storage.is_some() || batch.is_some_and(|(b, _, _)| b.compute)),
+                );
                 let Some(pipeline) = shader.variant(variant, &self.pipelines_built).role(role) else {
                     continue;
                 };
