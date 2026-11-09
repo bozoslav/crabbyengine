@@ -25,6 +25,7 @@
 //! Sprites and UI are drawn on top afterwards, without tone mapping.
 
 mod instances;
+mod passes;
 mod variants;
 use instances::{Culling, StaticBatch};
 use std::ops::Range;
@@ -72,17 +73,22 @@ enum Part {
 }
 
 impl Part {
-    fn label(self) -> &'static str {
+    /// Its pass in [`passes::FRAME_PASSES`]: what it reads and writes.
+    fn pass(self) -> usize {
         match self {
-            Part::Prelude => "3d prelude",
-            Part::Shadow { .. } => "3d shadows",
-            Part::Views => "3d target cameras",
-            Part::Gi => "3d global illumination",
-            Part::Prepass => "3d depth prepass",
-            Part::Opaque => "3d opaque",
-            Part::Transparent => "3d transparent",
-            Part::Post => "3d post",
+            Part::Prelude => passes::PRELUDE,
+            Part::Shadow { .. } => passes::SHADOW,
+            Part::Views => passes::VIEWS,
+            Part::Gi => passes::GI,
+            Part::Prepass => passes::PREPASS,
+            Part::Opaque => passes::OPAQUE,
+            Part::Transparent => passes::TRANSPARENT,
+            Part::Post => passes::POST,
         }
+    }
+
+    fn label(self) -> &'static str {
+        passes::FRAME_PASSES[self.pass()].name
     }
 }
 
@@ -924,6 +930,7 @@ impl Renderer3D {
         samples: u32,
         solid_prepass: bool,
     ) -> Self {
+        debug_assert_eq!(passes::check_passes(&passes::FRAME_PASSES), Ok(()));
         // The material shaders' bindings are seen by compute passes too
         // (they read the frame and their material), where there are any.
         let compute = can_compute(device);
@@ -3405,6 +3412,13 @@ impl Renderer3D {
             parts.push(Part::Transparent);
         }
         parts.push(Part::Post);
+        // The order must keep what each pass declares it reads and writes
+        // (see `passes`); checked in debug builds, so in every render test.
+        if cfg!(debug_assertions)
+            && let Err(error) = passes::check_order(&passes::FRAME_PASSES, parts.iter().map(|p| p.pass()))
+        {
+            panic!("invalid 3d frame order: {error}");
+        }
         let frame = FrameParts {
             view,
             clear,
