@@ -154,6 +154,14 @@ impl Ctx {
         &self.assets3d.shader_status
     }
 
+    /// [`Ctx::shader_status`] as JSON, the same as the `shaders.status`
+    /// control method returns (for the C API).
+    #[doc(hidden)]
+    #[must_use]
+    pub fn shader_status_json(&self) -> String {
+        crate::control::shader_status_json(self).to_string()
+    }
+
     /// Records how compiling shader `name` went; `reload`: a changed file.
     pub(crate) fn record_shader(
         &mut self,

@@ -1459,7 +1459,10 @@ pub unsafe extern "C" fn crabby_ctx_loaded_materials(
 
 /// Loads a material shader (WGSL) from `assets/`; with hot reload on,
 /// saving the file updates the game. A file that can't be read or doesn't
-/// compile is an error; `crabby_last_error` says where.
+/// compile is an error; `crabby_last_error` says where. With hot reload on,
+/// a file that doesn't compile still gives a shader, drawing with the
+/// built-in look until a saved fix compiles (`crabby_ctx_shader_status`
+/// says what's wrong).
 /// # Safety
 /// `ctx` null or live; `path` a C string; output writable.
 /// ```
@@ -1514,7 +1517,9 @@ pub unsafe extern "C" fn crabby_ctx_create_shader(
 
 /// Loads a compute pass shader (WGSL, defining `fn compute(c: Cell) ->
 /// vec4<f32>`) from assets/, hot reloaded; the same file again gives the
-/// same compute pass (Rust `Ctx::load_compute`).
+/// same compute pass (Rust `Ctx::load_compute`). With hot reload on, a
+/// file that doesn't compile still gives a compute pass, skipped until a
+/// saved fix compiles (`crabby_ctx_shader_status` says what's wrong).
 /// # Safety
 /// `ctx` null or live; `path` a NUL-terminated string; output writable.
 /// ```
@@ -1663,7 +1668,9 @@ pub unsafe extern "C" fn crabby_ctx_compute_passes(
 
 /// Loads a screen effect shader (WGSL, defining `fn effect(p: Pixel) ->
 /// vec3<f32>`) from assets/, hot reloaded; the same file again gives the
-/// same effect (Rust `Ctx::load_effect`).
+/// same effect (Rust `Ctx::load_effect`). With hot reload on, a file that
+/// doesn't compile still gives an effect, showing the frame as it is until
+/// a saved fix compiles (`crabby_ctx_shader_status` says what's wrong).
 /// # Safety
 /// `ctx` null or live; `path` a NUL-terminated string; output writable.
 /// ```

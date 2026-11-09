@@ -58,6 +58,20 @@
 
 #define CRABBY_MAX_GAMEPADS 8
 
+#define CRABBY_SHADER_MATERIAL 0
+
+#define CRABBY_SHADER_EFFECT 1
+
+#define CRABBY_SHADER_COMPUTE 2
+
+#define CRABBY_SHADER_COMPILED 0
+
+#define CRABBY_SHADER_RELOADED 1
+
+#define CRABBY_SHADER_FAILED 2
+
+#define CRABBY_SHADER_RELOAD_FAILED 3
+
 #define CRABBY_MESH_NONE UINT32_MAX
 
 #define CRABBY_TERRAIN_LODS 4
@@ -1056,6 +1070,18 @@ typedef struct CrabbyInterestChange {
   uint64_t entity;
   enum CrabbyInterestChangeKind kind;
 } CrabbyInterestChange;
+
+typedef struct CrabbyShaderStatus {
+  uint32_t kind;
+  uint32_t outcome;
+  bool ok;
+  uint32_t reloads;
+  uint64_t frame;
+  uint32_t diagnostics;
+  uint32_t line;
+  uint32_t column;
+  bool in_engine_code;
+} CrabbyShaderStatus;
 
 typedef struct CrabbyJoint {
   const char *name;
@@ -3006,6 +3032,29 @@ enum CrabbyStatus crabby_ctx_spawn_prefab(struct CrabbyCtx *ctx,
                                           uint64_t *out_entity);
 
 enum CrabbyStatus crabby_ctx_save_prefab(struct CrabbyCtx *ctx, uint64_t entity, const char *path);
+
+enum CrabbyStatus crabby_ctx_shader_status_count(const struct CrabbyCtx *ctx, size_t *out_count);
+
+enum CrabbyStatus crabby_ctx_shader_status(const struct CrabbyCtx *ctx,
+                                           size_t index,
+                                           struct CrabbyShaderStatus *out_status);
+
+enum CrabbyStatus crabby_ctx_shader_status_name(const struct CrabbyCtx *ctx,
+                                                size_t index,
+                                                char *buffer,
+                                                size_t capacity,
+                                                size_t *out_len);
+
+enum CrabbyStatus crabby_ctx_shader_status_text(const struct CrabbyCtx *ctx,
+                                                size_t index,
+                                                char *buffer,
+                                                size_t capacity,
+                                                size_t *out_len);
+
+enum CrabbyStatus crabby_ctx_shader_status_json(const struct CrabbyCtx *ctx,
+                                                char *buffer,
+                                                size_t capacity,
+                                                size_t *out_len);
 
 enum CrabbyStatus crabby_mesh_data_set_skin(struct CrabbyMeshData *data,
                                             const uint16_t *joints,

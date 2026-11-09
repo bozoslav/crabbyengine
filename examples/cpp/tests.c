@@ -72,6 +72,25 @@ static void setup(PonkoCtx* ctx, void* user) {
     CHECK(ponko_ctx_lighting(ctx, &lit) == PONKO_OK && lit.has_equator && lit.equator_color.g == 1);
     light.has_equator = false;
     CHECK(ponko_ctx_set_lighting(ctx, &light) == PONKO_OK);
+    /* Shader status: what compiled, and where an error is in the game's WGSL. */
+    size_t shaders_before = 0;
+    CHECK(ponko_ctx_shader_status_count(ctx, &shaders_before) == PONKO_OK);
+    PonkoShader broken_shader;
+    CHECK(ponko_ctx_create_shader(ctx, "broken.wgsl", "// tint\nfn surface(s: Surface) -> Surface {\n    return 1.0;\n}", &broken_shader) == PONKO_INVALID_ARGUMENT);
+    size_t shaders = 0;
+    CHECK(ponko_ctx_shader_status_count(ctx, &shaders) == PONKO_OK && shaders == shaders_before + 1);
+    PonkoShaderStatus shader_status;
+    CHECK(ponko_ctx_shader_status(ctx, shaders - 1, &shader_status) == PONKO_OK);
+    CHECK(shader_status.kind == PONKO_SHADER_MATERIAL && shader_status.outcome == PONKO_SHADER_FAILED && !shader_status.ok);
+    CHECK(shader_status.line == 3 && shader_status.column == 12 && !shader_status.in_engine_code);
+    char shader_text[1024];
+    size_t shader_len = 0;
+    CHECK(ponko_ctx_shader_status_name(ctx, shaders - 1, shader_text, sizeof shader_text, &shader_len) == PONKO_OK);
+    CHECK(strcmp(shader_text, "broken.wgsl") == 0 && shader_len == 11);
+    CHECK(ponko_ctx_shader_status_text(ctx, shaders - 1, shader_text, sizeof shader_text, &shader_len) == PONKO_OK);
+    CHECK(strncmp(shader_text, "broken.wgsl:3:12: error: ", 25) == 0);
+    CHECK(ponko_ctx_shader_status_json(ctx, NULL, 0, &shader_len) == PONKO_OK && shader_len > 0);
+    CHECK(ponko_ctx_shader_status(ctx, shaders, &shader_status) == PONKO_INVALID_ARGUMENT);
     /* Global illumination: off by default, its settings checked when on. */
     CHECK(!light.gi_enabled && light.gi_spacing == 2 && light.gi_probes_per_frame == 4);
     light.gi_enabled = true;
