@@ -665,6 +665,18 @@ impl Frame3D {
     }
 }
 
+impl Frame3D {
+    /// Bytes the model collection keeps between frames: its buffers'
+    /// capacity (instances, lists and what is remembered per model).
+    pub(crate) fn extraction_bytes(&self) -> usize {
+        let runs = self.runs.capacity() + self.shadow_runs.iter().map(Vec::capacity).sum::<usize>();
+        self.instances.capacity() * size_of::<Instance3D>()
+            + self.scratch.capacity() * size_of::<Entry>()
+            + (self.counts.capacity() + self.flags.capacity()) * size_of::<u32>()
+            + runs * size_of::<(u32, u32, u32)>()
+    }
+}
+
 /// The shadow views drawn this frame: the sun's cascades, then the light views.
 pub(crate) fn shadow_views(cascades: usize, light_views: usize) -> impl Iterator<Item = usize> + Clone {
     (0..cascades).chain(MAX_CASCADES..MAX_CASCADES + light_views)

@@ -211,6 +211,9 @@ pub use three::{
     TerrainTileData, Text3D, TextAlign3D, TextureArray, TextureKind, Tonemap, Trail3D, Transform3D, look_at_joint,
     two_bone_ik,
 };
+#[cfg(feature = "3d")]
+#[doc(hidden)]
+pub use three::{ExtractionBench, ExtractionSample};
 pub use tilemap::{TileMap, draw_tilemaps};
 #[cfg(feature = "3d")]
 pub use ui::UiPanel3D;

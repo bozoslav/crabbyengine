@@ -15,6 +15,9 @@ mod clip;
 mod collect;
 mod compute;
 mod effect;
+mod extraction_bench;
+#[doc(hidden)]
+pub use extraction_bench::{ExtractionBench, ExtractionSample};
 pub(crate) mod gi;
 mod gltf;
 mod ik;
