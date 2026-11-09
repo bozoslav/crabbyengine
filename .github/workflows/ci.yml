@@ -114,9 +114,8 @@ jobs:
           key: msrv
       - run: cargo check --workspace --all-targets --features ponko/physics,ponko/steam
 
-  # Keep suites together to reuse compilation. Windows unit tests include
-  # slow software-rendered GPU tests; run them beside integration tests and
-  # examples rather than blocking those targets behind rendering.
+  # Linux/macOS keep suites together. Windows integration tests, examples,
+  # and archived unit-test shards run separately to shorten the critical path.
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -146,16 +145,16 @@ jobs:
           if [ "$RUNNER_OS" = "Linux" ]; then
             cargo test --workspace --no-fail-fast
           elif [ "$RUNNER_OS" = "Windows" ]; then
-            cargo test --workspace --no-fail-fast --bins --test '*' --examples
+            cargo test --workspace --no-fail-fast --bins --test '*'
           else
             cargo test --workspace --no-fail-fast --lib --bins --tests --examples
           fi
       - name: Build examples
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && runner.os != 'Windows' }}
         run: cargo build --workspace --examples
 
-  windows-unit:
-    name: Unit and render tests (windows-latest)
+  windows-unit-build:
+    name: Compile unit and render tests (windows-latest)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -167,11 +166,58 @@ jobs:
           # linker artifacts so reruns do not repeat a cold dependency build.
           save-if: ${{ github.ref == 'refs/heads/main' || runner.os == 'Windows' }}
           shared-key: test
-      # Separate compile and execution timings so GPU cost is visible.
-      - name: Compile unit and render tests
-        run: cargo test --workspace --lib --no-run
-      - name: Run unit and render tests
-        run: cargo test --workspace --lib --no-fail-fast
+      - uses: ./.github/actions/nextest
+      # Compile once. Shards reuse the binaries, metadata, and runtime DLLs
+      # in this archive, rather than recompiling the engine on each runner.
+      - name: Archive unit and render tests
+        run: cargo nextest archive --workspace --lib --archive-file target/windows-unit.tar.zst
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-unit-tests
+          path: target/windows-unit.tar.zst
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+
+  windows-unit:
+    name: Unit and render tests (Windows shard ${{ matrix.shard }}/3)
+    needs: windows-unit-build
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/nextest
+      - uses: actions/download-artifact@v8
+        with:
+          name: windows-unit-tests
+          path: target/ci-unit
+      # Slices cover every test exactly once. Limit concurrent tests per
+      # runner so software-rendered GPU tests do not swamp the CPU.
+      - name: Run archived tests
+        run: >-
+          cargo nextest run --archive-file target/ci-unit/windows-unit.tar.zst
+          --workspace-remap . --partition slice:${{ matrix.shard }}/3
+          --test-threads 2 --no-fail-fast
+
+  windows-examples:
+    name: Examples (windows-latest)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/windows-linker
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: true
+          shared-key: test
+      - name: Test examples
+        run: cargo test --workspace --examples --no-fail-fast
+      - name: Build examples
+        if: ${{ !cancelled() }}
+        run: cargo build --workspace --examples
 
   # Feature variants run beside the default suite, rather than extending
   # its critical path with five more serial engine builds on every OS.
@@ -356,7 +402,7 @@ jobs:
   ci-passed:
     name: CI passed
     if: always()
-    needs: [leaks, fmt, clippy, msrv, test, windows-unit, test-features, docs, book, miri, native, web]
+    needs: [leaks, fmt, clippy, msrv, test, windows-unit-build, windows-unit, windows-examples, test-features, docs, book, miri, native, web]
     runs-on: ubuntu-latest
     steps:
       - name: Check every job
