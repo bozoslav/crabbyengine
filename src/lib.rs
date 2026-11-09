@@ -205,8 +205,8 @@ pub use three::{
     ParticleCurve, ParticleEmitter3D, ParticleGradient, ParticleSettings3D, ParticleShape3D, ParticleSpace3D,
     PointLight3D, Post, QualityLevel, ReceivesDecals, ReflectionProbe3D, RootMotion, ScreenEffect, Shader,
     ShaderDiagnostic, ShaderKind, ShaderOutcome, ShaderStatus, ShadowMesh, Skeleton, SkinOf, Sky, SpotLight3D,
-    TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera, TerrainMaterialDesc, TerrainTile, TerrainTileData, Text3D, TextAlign3D,
-    TextureArray, TextureKind, Tonemap, Trail3D, Transform3D, look_at_joint, two_bone_ik,
+    TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera, TargetEffect, TerrainMaterialDesc, TerrainTile, TerrainTileData,
+    Text3D, TextAlign3D, TextureArray, TextureKind, Tonemap, Trail3D, Transform3D, look_at_joint, two_bone_ik,
 };
 pub use tilemap::{TileMap, draw_tilemaps};
 #[cfg(feature = "3d")]

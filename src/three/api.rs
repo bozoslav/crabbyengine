@@ -1335,7 +1335,7 @@ impl Ctx {
         self.assets3d.morph_entities = entities;
     }
 
-    /// The screen effects and compute passes this frame runs (with their
+    /// The screen effects, target effects and compute passes this frame runs (with their
     /// materials, `fallback` for none): freed ones, and passes into a freed
     /// target or buffer, are left out.
     pub(crate) fn collect_passes(&mut self, fallback: Option<Material>) {
@@ -1350,6 +1350,20 @@ impl Ctx {
             Some((e.effect.id, material.id))
         }));
         let targets = &self.assets3d.render_targets;
+        self.frame3d.target_effects.clear();
+        self.frame3d
+            .target_effects
+            .extend(self.target_effects.iter().filter_map(|e| {
+                // A freed effect, or one into a freed target, is skipped.
+                if !effects_live.contains(e.effect.id) {
+                    return None;
+                }
+                let material = e.material.or(fallback)?;
+                targets
+                    .iter()
+                    .any(|t| t.id == e.target.id)
+                    .then_some((e.effect.id, e.target.id, material.id))
+            }));
         self.frame3d.computes.clear();
         let computes_live = &self.assets3d.computes_live;
         self.frame3d.computes.extend(self.compute_passes.iter().filter_map(|c| {
@@ -1389,6 +1403,7 @@ impl Ctx {
         self.assets3d.decals_supported = self.supports_decals();
         self.assets3d.gi_supported = self.renderer.as_ref().is_some_and(|r| r.supports_gi());
         let fallback = if self.effects.iter().any(|e| e.material.is_none())
+            || self.target_effects.iter().any(|e| e.material.is_none())
             || self.compute_passes.iter().any(|c| c.material.is_none())
         {
             Some(self.default_material())

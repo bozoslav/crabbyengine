@@ -112,6 +112,8 @@ pub(crate) struct Frame3D {
     frame_number: u32,
     /// The screen effects to run, in order: (effect, material).
     pub effects: Vec<(u32, u32)>,
+    /// The target effects to run, in order: (effect, target texture, material).
+    pub target_effects: Vec<(u32, u32, u32)>,
     /// The compute passes to run, in order: (compute, target texture, material).
     pub computes: Vec<(u32, u32, u32)>,
     /// How many of `instances` the camera sees (the rest cast shadows).

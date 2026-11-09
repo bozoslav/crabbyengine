@@ -70,7 +70,7 @@ pub(crate) mod motion;
 pub(crate) use collect::{FADED, Instance3D, MAX_CASCADES, MAX_SHADOW_VIEWS, shadow_views};
 pub(crate) use collect::{Frame3D, MAX_SHADOW_RESOLUTION, MIN_SHADOW_RESOLUTION, SHADOW_MAP_SIZE};
 pub use compute::{Compute, ComputePass, GpuBuffer};
-pub use effect::{Effect, ScreenEffect};
+pub use effect::{Effect, ScreenEffect, TargetEffect};
 pub use mesh::{MeshData, MorphFrame, MorphTarget};
 pub use post::{AmbientOcclusion, AntiAliasing, MAX_RENDER_SCALE, MIN_RENDER_SCALE, Post, Tonemap};
 #[cfg(feature = "window")]

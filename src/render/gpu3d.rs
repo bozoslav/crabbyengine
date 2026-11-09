@@ -925,6 +925,19 @@ pub(crate) struct Renderer3D {
     effect_pipelines: Vec<wgpu::RenderPipeline>,
     /// This frame's effects, in order: (effect, material).
     effects: Vec<(u32, u32)>,
+    /// Each effect's compiled shader, for building its target pipeline.
+    effect_modules: Vec<wgpu::ShaderModule>,
+    /// Target effect pipelines, by effect id: built when first used.
+    effect_target_pipelines: Vec<Option<wgpu::RenderPipeline>>,
+    /// Render targets target effects write: (texture id, texture, its view),
+    /// made on first use.
+    effect_targets: Vec<(u32, wgpu::Texture, wgpu::TextureView)>,
+    /// This frame's target effects, in order: (effect, index in
+    /// `effect_targets`, material).
+    target_effects: Vec<(u32, usize, u32)>,
+    /// Target effects already warned about (effect, target), so a skipped
+    /// one is reported once rather than every frame.
+    target_effect_warnings: Vec<(u32, u32)>,
     /// Texture arrays for materials (whole, every layer and mip level).
     arrays: Vec<wgpu::TextureView>,
     /// A 1x1 white one-layer array, for materials without one.
@@ -1708,6 +1721,11 @@ impl Renderer3D {
             white,
             effect_pipelines: Vec::new(),
             effects: Vec::new(),
+            effect_modules: Vec::new(),
+            effect_target_pipelines: Vec::new(),
+            effect_targets: Vec::new(),
+            target_effects: Vec::new(),
+            target_effect_warnings: Vec::new(),
             arrays: Vec::new(),
             white_array: array_view(white_array),
             runs: Vec::new(),
@@ -1728,8 +1746,10 @@ impl Renderer3D {
     pub fn create_effect(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, String> {
         let source = compose_effect(user);
         check_shader(name, &source)?;
-        self.effect_pipelines
-            .push(build_effect(device, &self.layout, name, &source));
+        let (module, pipeline) = build_effect(device, &self.layout, name, &source);
+        self.effect_pipelines.push(pipeline);
+        self.effect_modules.push(module);
+        self.effect_target_pipelines.push(None);
         Ok(self.effect_pipelines.len() as u32 - 1)
     }
 
@@ -1738,7 +1758,11 @@ impl Renderer3D {
         let source = compose_effect(user);
         check_shader(name, &source)?;
         if let Some(pipeline) = self.effect_pipelines.get_mut(id as usize) {
-            *pipeline = build_effect(device, &self.layout, name, &source);
+            let (module, new) = build_effect(device, &self.layout, name, &source);
+            *pipeline = new;
+            self.effect_modules[id as usize] = module;
+            // Rebuilt from the new shader when next used.
+            self.effect_target_pipelines[id as usize] = None;
         }
         Ok(())
     }
@@ -1787,6 +1811,58 @@ impl Renderer3D {
         };
         self.view_targets.push((id, view));
         Some(self.view_targets.len() - 1)
+    }
+
+    /// Keeps this frame's target effects that can run: a known effect,
+    /// material and render target, and a material that doesn't sample the
+    /// target it writes (a pass can't read and write one texture; those are
+    /// skipped with a warning). Builds their pipelines on first use.
+    fn prepare_target_effects(&mut self, device: &wgpu::Device, wanted: &[(u32, u32, u32)]) {
+        self.target_effects.clear();
+        for &(effect, target, material) in wanted {
+            if effect as usize >= self.effect_pipelines.len() || material as usize >= self.materials.len() {
+                continue;
+            }
+            let index = match self.effect_targets.iter().position(|&(t, _, _)| t == target) {
+                Some(i) => i,
+                None => {
+                    let Some((_, texture)) = self.render_targets.iter().find(|&&(t, _)| t == target) else {
+                        continue;
+                    };
+                    let texture = texture.clone();
+                    let view = texture.create_view(&Default::default());
+                    self.effect_targets.push((target, texture, view));
+                    self.effect_targets.len() - 1
+                }
+            };
+            let texture = &self.effect_targets[index].1;
+            if self.materials[material as usize].bindings.textures.contains(texture) {
+                if !self.target_effect_warnings.contains(&(effect, target)) {
+                    self.target_effect_warnings.push((effect, target));
+                    eprintln!(
+                        "ponko: target effect {effect} skipped: its material samples render target {target}, which it writes"
+                    );
+                }
+                continue;
+            }
+            if self.effect_target_pipelines[effect as usize].is_none() {
+                self.effect_target_pipelines[effect as usize] = Some(effect_pipeline(
+                    device,
+                    &self.layout,
+                    "3d target effect",
+                    &self.effect_modules[effect as usize],
+                    "vs_effect_target",
+                    "fs_effect_target",
+                ));
+            }
+            self.target_effects.push((effect, index, material));
+        }
+    }
+
+    /// How many target effects run this frame (for tests).
+    #[cfg(test)]
+    pub(crate) fn target_effect_count(&self) -> usize {
+        self.target_effects.len()
     }
 
     /// The index in `compute_states` of render target `id`, made on first use.
@@ -2606,6 +2682,7 @@ impl Renderer3D {
                 .iter()
                 .filter(|&&(e, m)| (e as usize) < effects && (m as usize) < materials),
         );
+        self.prepare_target_effects(device, &frame.target_effects);
         self.cascades = frame.cascades;
         self.redrawn = frame.redrawn;
         self.light_views = frame.light_views;
@@ -3453,6 +3530,7 @@ impl Renderer3D {
             + self.views.len() * usize::from(self.atmosphere)
             + self.particles.draw_count()
             + self.effects.len()
+            + self.target_effects.len()
             + usize::from(self.ao_enabled) * 2
             + usize::from(self.ssr_on) * 2
             + usize::from(self.taa_on)
@@ -3897,7 +3975,12 @@ impl Renderer3D {
                                 // Later passes read it (the motion pass and
                                 // screen effects too); without a solid
                                 // prepass, it's only complete here.
-                                store: if split || self.taa_on || !self.effects.is_empty() || !self.full_prepass() {
+                                store: if split
+                                    || self.taa_on
+                                    || !self.effects.is_empty()
+                                    || !self.target_effects.is_empty()
+                                    || !self.full_prepass()
+                                {
                                     wgpu::StoreOp::Store
                                 } else {
                                     wgpu::StoreOp::Discard
@@ -3973,6 +4056,35 @@ impl Renderer3D {
                     && let (Some(taa), Some(images)) = (&self.taa, &targets.taa)
                 {
                     taa.draw(encoder, images, self.taa_frame_read, &targets.hdr, time("taa"));
+                }
+                // Target effects, in order: each reads the settled frame (in
+                // `hdr`) and writes only its own render target, so the screen
+                // effects below can sample this frame's results.
+                for &(effect, index, material) in &self.target_effects {
+                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("3d target effect"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &self.effect_targets[index].2,
+                            depth_slice: None,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: time("target effects"),
+                        occlusion_query_set: None,
+                        multiview_mask: None,
+                    });
+                    pass.set_pipeline(self.effect_target_pipelines[effect as usize].as_ref().unwrap());
+                    pass.set_bind_group(0, &self.frame_bind_group, &[]);
+                    pass.set_bind_group(1, &self.materials[material as usize].bind_group, &[]);
+                    pass.set_bind_group(2, &targets.scene_of_hdr, &[]);
+                    if let Some(dummy) = &self.storage_dummy {
+                        pass.set_bind_group(3, dummy, &[]);
+                    }
+                    pass.draw(0..3, 0..1);
                 }
                 // Screen effects, in order, swapping between `hdr` and the scene
                 // texture (free once the transparents are drawn): each reads the
@@ -4713,17 +4825,30 @@ fn build_effect(
     layout: &wgpu::PipelineLayout,
     name: &str,
     source: &str,
-) -> wgpu::RenderPipeline {
+) -> (wgpu::ShaderModule, wgpu::RenderPipeline) {
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some(name),
         source: wgpu::ShaderSource::Wgsl(source.into()),
     });
+    let pipeline = effect_pipeline(device, layout, name, &module, "vs_effect", "fs_effect");
+    (module, pipeline)
+}
+
+/// A full-screen pipeline of an effect shader's entry points, writing `HDR_FORMAT`.
+fn effect_pipeline(
+    device: &wgpu::Device,
+    layout: &wgpu::PipelineLayout,
+    name: &str,
+    module: &wgpu::ShaderModule,
+    vertex: &str,
+    fragment: &str,
+) -> wgpu::RenderPipeline {
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some(name),
         layout: Some(layout),
         vertex: wgpu::VertexState {
-            module: &module,
-            entry_point: Some("vs_effect"),
+            module,
+            entry_point: Some(vertex),
             compilation_options: Default::default(),
             buffers: &[],
         },
@@ -4731,8 +4856,8 @@ fn build_effect(
         depth_stencil: None,
         multisample: Default::default(),
         fragment: Some(wgpu::FragmentState {
-            module: &module,
-            entry_point: Some("fs_effect"),
+            module,
+            entry_point: Some(fragment),
             compilation_options: Default::default(),
             targets: &[Some(HDR_FORMAT.into())],
         }),
