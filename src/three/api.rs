@@ -817,6 +817,10 @@ impl Ctx {
                 self.assets3d.bounds.len() as u32 - 1
             }
         };
+        if self.assets3d.mesh_bytes.len() <= id as usize {
+            self.assets3d.mesh_bytes.resize(id as usize + 1, 0);
+        }
+        self.assets3d.mesh_bytes[id as usize] = super::mesh_gpu_bytes(data);
         let posed = skin.is_some() || !data.morph_targets.is_empty();
         if let Some(skin) = skin {
             if self.assets3d.skins.len() <= id as usize {
@@ -903,6 +907,9 @@ impl Ctx {
             return;
         }
         *bounds = (Vec3::ZERO, -1.0);
+        if let Some(bytes) = self.assets3d.mesh_bytes.get_mut(mesh.id as usize) {
+            *bytes = 0;
+        }
         self.assets3d.gpu_mesh_bounds.remove(&mesh.id);
         self.assets3d.free_meshes.push(mesh.id);
         if let Some(shadowless) = self.assets3d.shadowless.get_mut(mesh.id as usize) {

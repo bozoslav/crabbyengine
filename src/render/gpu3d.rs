@@ -2345,6 +2345,23 @@ impl Renderer3D {
         }
     }
 
+    /// Meshes with GPU buffers and their bytes, then GPU buffers and
+    /// theirs (`Ctx::asset_inventory`).
+    pub fn residency(&self) -> (usize, u64, usize, u64) {
+        let (mut meshes, mut mesh_bytes) = (0, 0);
+        for (vertices, indices) in self.meshes.iter().filter_map(|m| m.buffers.as_ref()) {
+            meshes += 1;
+            mesh_bytes += vertices.size() + indices.size();
+        }
+        let buffers = self.storage_buffers.iter().flatten();
+        (
+            meshes,
+            mesh_bytes,
+            buffers.clone().count(),
+            buffers.map(|b| b.buffer.size()).sum(),
+        )
+    }
+
     /// Frees mesh `id`'s GPU memory; it draws nothing from now on.
     pub fn free_mesh(&mut self, id: u32) {
         if let Some(mesh) = self.meshes.get_mut(id as usize) {

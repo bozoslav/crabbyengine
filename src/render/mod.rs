@@ -157,3 +157,6 @@ mod environment;
 
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod quality_render_test;
+
+#[cfg(all(test, feature = "window", feature = "3d"))]
+mod residency_render_test;
