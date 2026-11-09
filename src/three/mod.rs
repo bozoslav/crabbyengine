@@ -926,32 +926,35 @@ pub(crate) struct Assets3D {
 impl Assets3D {
     /// Live 3D handles by class, counted from the tables that decide
     /// whether each handle is live (`Ctx::asset_inventory`).
-    pub(crate) fn inventory(&self) -> [crate::AssetCount; 8] {
+    /// Freed ones aren't counted; `textures_live` says which render
+    /// targets are.
+    pub(crate) fn inventory(&self, textures_live: &crate::handle::LiveSet) -> [crate::AssetCount; 8] {
         use crate::inventory::{AssetClass, mip_chain_bytes};
         let count = |class, live: usize, bytes: u64| crate::AssetCount { class, live, bytes };
         // Render targets are linear HDR: 8 bytes a pixel.
-        let targets: u64 = self
-            .render_targets
-            .iter()
+        let live_targets = self.render_targets.iter().filter(|t| textures_live.contains(t.id));
+        let targets: u64 = live_targets
+            .clone()
             .map(|t| u64::from(t.width()) * u64::from(t.height()) * 8)
             .sum();
         let arrays: u64 = self
             .arrays
             .iter()
+            .filter(|a| self.arrays_live.contains(a.id))
             .map(|a| mip_chain_bytes(a.width, a.height, 4) * u64::from(a.layers))
             .sum();
         let meshes = self.bounds.iter().filter(|&&(_, r)| r >= 0.0).count();
         let buffers = self.gpu_buffers.iter().filter(|&&len| len > 0).count();
         let buffer_bytes: u64 = self.gpu_buffers.iter().map(|&len| u64::from(len) * 16).sum();
         [
-            count(AssetClass::RenderTarget, self.render_targets.len(), targets),
-            count(AssetClass::TextureArray, self.arrays.len(), arrays),
-            count(AssetClass::Material, self.materials as usize, 0),
-            count(AssetClass::Shader, self.shaders as usize, 0),
+            count(AssetClass::RenderTarget, live_targets.count(), targets),
+            count(AssetClass::TextureArray, self.arrays_live.len(), arrays),
+            count(AssetClass::Material, self.materials_live.len(), 0),
+            count(AssetClass::Shader, self.shaders_live.len(), 0),
             count(AssetClass::Mesh, meshes, self.mesh_bytes.iter().sum()),
             count(AssetClass::GpuBuffer, buffers, buffer_bytes),
-            count(AssetClass::Effect, self.effects as usize, 0),
-            count(AssetClass::Compute, self.computes as usize, 0),
+            count(AssetClass::Effect, self.effects_live.len(), 0),
+            count(AssetClass::Compute, self.computes_live.len(), 0),
         ]
     }
 

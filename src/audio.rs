@@ -453,6 +453,8 @@ mod backend {
     #[derive(Default)]
     pub struct Audio {
         count: u32,
+        /// Sounds freed (each id once: `Ctx::free` checks).
+        freed: u32,
         next: u64,
         pub(super) buses: BusRegistry,
         #[cfg(feature = "3d")]
@@ -467,9 +469,10 @@ mod backend {
             self.count += 1;
             Ok((self.count - 1, 0.0))
         }
-        /// Sounds made; nothing is decoded without the `audio` feature.
+        /// Sounds made and not freed; nothing is decoded without the
+        /// `audio` feature.
         pub fn inventory(&self) -> (usize, u64) {
-            (self.count as usize, 0)
+            ((self.count - self.freed) as usize, 0)
         }
         pub fn stream(&mut self, _path: std::path::PathBuf) -> Result<(u32, f32), String> {
             self.load(Vec::new())
@@ -477,7 +480,9 @@ mod backend {
         pub fn replace(&mut self, _id: u32, _bytes: Vec<u8>) -> Result<(), String> {
             Ok(())
         }
-        pub fn free(&mut self, _id: u32) {}
+        pub fn free(&mut self, _id: u32) {
+            self.freed += 1;
+        }
         pub fn create(&mut self, sample_rate: u32, samples: &[f32]) -> (u32, f32) {
             self.count += 1;
             (self.count - 1, samples.len() as f32 / sample_rate.max(1) as f32)

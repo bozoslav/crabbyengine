@@ -206,12 +206,12 @@ impl fmt::Display for AssetInventory {
     }
 }
 
-/// Running tallies for classes whose handles have no table of their own
-/// to count from (2D textures).
+/// Classes whose handles have no table of their own to count from (2D
+/// textures): what each live one holds.
 #[derive(Default)]
 pub(crate) struct Ledger {
-    pub textures: usize,
-    pub texture_bytes: u64,
+    /// Bytes of each 2D texture made and not freed, by texture id.
+    pub textures: std::collections::HashMap<u32, u64>,
 }
 
 /// Bytes of an RGBA8 image.
@@ -242,11 +242,11 @@ impl Ctx {
     pub fn asset_inventory(&self) -> AssetInventory {
         let mut classes = vec![AssetCount {
             class: AssetClass::Texture,
-            live: self.asset_ledger.textures,
-            bytes: self.asset_ledger.texture_bytes,
+            live: self.asset_ledger.textures.len(),
+            bytes: self.asset_ledger.textures.values().sum(),
         }];
         #[cfg(feature = "3d")]
-        classes.extend(self.assets3d.inventory());
+        classes.extend(self.assets3d.inventory(&self.textures_live));
         let (sounds, sound_bytes) = self.audio.inventory();
         classes.push(AssetCount {
             class: AssetClass::Sound,

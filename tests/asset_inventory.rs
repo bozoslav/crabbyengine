@@ -155,3 +155,29 @@ mod three {
         });
     }
 }
+
+#[test]
+fn freed_handles_leave_the_inventory() {
+    headless(|ctx| {
+        let base = ctx.asset_inventory();
+        for _ in 0..3 {
+            let texture = ctx.create_texture(4, 4, &[0; 4 * 4 * 4]);
+            let beep = ctx.create_sound(1000, &[0.0; 100]);
+            assert_eq!(
+                ctx.asset_inventory().get(AssetClass::Texture).live,
+                base.get(AssetClass::Texture).live + 1
+            );
+            ctx.free(texture);
+            ctx.free(beep);
+        }
+        let after = ctx.asset_inventory();
+        for class in [AssetClass::Texture, AssetClass::Sound] {
+            assert_eq!(
+                (after.get(class).live, after.get(class).bytes),
+                (base.get(class).live, base.get(class).bytes),
+                "{class:?}"
+            );
+        }
+        assert!(after.growth_since(&base).is_empty());
+    });
+}
