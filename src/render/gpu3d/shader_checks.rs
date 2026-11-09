@@ -63,6 +63,9 @@ pub(super) fn end_scope(scope: wgpu::ErrorScopeGuard, defer: bool) -> Result<Opt
     if defer { Err(Verdict::Ready(now)) } else { Ok(now) }
 }
 
+/// A material shader's verdict to come, with the variant it was built for.
+pub(super) type LaterVerdict = Option<(String, Verdict)>;
+
 /// Which pipelines a check is about, and what to put back if the GPU
 /// rejects them (`None`: the shader was new; it gets a stand-in).
 pub(super) enum Swap {

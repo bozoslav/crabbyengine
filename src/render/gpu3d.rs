@@ -2317,7 +2317,7 @@ impl Renderer3D {
         name: &str,
         user: &str,
         replacing: Option<u32>,
-    ) -> Result<(Arc<ShaderPipelines>, Option<(String, shader_checks::Verdict)>), Box<ShaderDiagnostic>> {
+    ) -> Result<(Arc<ShaderPipelines>, shader_checks::LaterVerdict), Box<ShaderDiagnostic>> {
         let storage = self.storage_read.is_some();
         let (decals, gi) = (self.frame_sources.decals, self.frame_sources.gi);
         let key = self.cache.key(ModuleKey {
@@ -2356,7 +2356,7 @@ impl Renderer3D {
         device: &wgpu::Device,
         name: &str,
         user: &str,
-    ) -> Result<(ShaderPipelines, Option<(String, shader_checks::Verdict)>), Box<ShaderDiagnostic>> {
+    ) -> Result<(ShaderPipelines, shader_checks::LaterVerdict), Box<ShaderDiagnostic>> {
         let storage = self.storage_read.is_some();
         let (decals, gi) = (self.frame_sources.decals, self.frame_sources.gi);
         let variant = material_variant(decals, gi, storage);

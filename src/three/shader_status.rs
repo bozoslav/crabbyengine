@@ -248,6 +248,7 @@ impl Ctx {
     }
 
     /// A shader recorded as compiled turned out to be rejected by the GPU.
+    #[cfg(feature = "window")]
     pub(crate) fn record_rejected(&mut self, reload: bool, diagnostic: ShaderDiagnostic) {
         let frame = self.frame();
         let Some(status) = self
