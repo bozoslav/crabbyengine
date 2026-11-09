@@ -10,5 +10,5 @@
   },
   "adapter": "Apple M4 Max",
   "backend": "Metal",
-  "driver": ""
+  "driver": "unknown"
 }

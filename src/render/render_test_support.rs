@@ -296,7 +296,7 @@ impl Image {
         match texture.format() {
             wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Rgba8UnormSrgb => {}
             wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb => {
-                rgba.chunks_exact_mut(4).for_each(|p| p.swap(0, 2));
+                rgba.as_chunks_mut::<4>().0.iter_mut().for_each(|p| p.swap(0, 2));
             }
             other => panic!("not an 8-bit RGBA format: {other:?}"),
         }
@@ -397,7 +397,7 @@ pub(super) fn diff(a: &Image, b: &Image, channel: u8) -> Diff {
         "comparing images of different sizes"
     );
     let (mut max_channel, mut sum, mut outliers) = (0u8, 0u64, 0usize);
-    for (p, q) in a.rgba.chunks_exact(4).zip(b.rgba.chunks_exact(4)) {
+    for (p, q) in a.rgba.as_chunks::<4>().0.iter().zip(b.rgba.as_chunks::<4>().0) {
         let worst = p.iter().zip(q).map(|(x, y)| x.abs_diff(*y)).max().unwrap();
         sum += p.iter().zip(q).map(|(x, y)| u64::from(x.abs_diff(*y))).sum::<u64>();
         max_channel = max_channel.max(worst);
@@ -528,9 +528,15 @@ pub(super) fn check_reference(name: &str, image: &Image, tolerance: Tolerance, s
     let actual = out.join(format!("{name}.actual.png"));
     let difference = out.join(format!("{name}.diff.png"));
     save_png(&actual, image);
-    // Differences in red, scaled up; matching pixels as dim grey.
+    // Pixels beyond the tolerance in red, the rest as dim grey.
     let mut shown = image.clone();
-    for (p, q) in shown.rgba.chunks_exact_mut(4).zip(reference.rgba.chunks_exact(4)) {
+    for (p, q) in shown
+        .rgba
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .zip(reference.rgba.as_chunks::<4>().0)
+    {
         let worst = p.iter().zip(q).take(3).map(|(x, y)| x.abs_diff(*y)).max().unwrap();
         let grey = (p[0] as u16 + p[1] as u16 + p[2] as u16) / 12;
         p.copy_from_slice(&if worst > tolerance.channel {
