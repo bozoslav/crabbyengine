@@ -101,6 +101,7 @@ headless game waits for requests and runs only the ticks you step.
 | `perf.get` | `meshes?` (0) | where frame time goes, over the last few seconds: fps; avg, p50, p95, p99 and max ms; CPU in systems, render and display wait; GPU ms in total and per pass; draw calls and 3D models and triangles (camera and shadows); the slowest systems; with `meshes`, the meshes drawing the most triangles; `render_inspector`, the last frame's rendering cost in a versioned schema (see [Profiling a frame](performance.md#the-render-pass-inspector)) |
 | `perf.trace` | `path?` (a temp file), `frames?` (120) | records the next frames as a Chrome/Perfetto trace; returns the path, written once the frames are done |
 | `perf.hud` | `on` | shows or hides the performance overlay |
+| `shaders.status` | | each custom shader's last compile or hot reload result (`compiled`, `reloaded`, `failed`, `reload_failed`), reload count, frame, and errors with line and column in the game's own WGSL, cause and GPU variant |
 | `camera.get` | | position, zoom, center, visible rect |
 | `camera.set` | `position`?, `zoom`?, `look_at`? | move the camera; returns `camera.get` |
 | `screenshot` | `path`?, `max_size`? | save the next frame as a PNG (windowed games only); returns `path`, `width`, `height` |

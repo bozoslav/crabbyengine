@@ -21,6 +21,8 @@ mod particles;
 #[cfg(all(feature = "window", feature = "3d"))]
 mod screen;
 #[cfg(all(feature = "window", feature = "3d"))]
+mod shader_diagnostics;
+#[cfg(all(feature = "window", feature = "3d"))]
 mod smaa;
 #[cfg(all(feature = "window", feature = "3d"))]
 mod ssr;
@@ -34,9 +36,13 @@ pub(crate) mod traffic;
 #[cfg(feature = "window")]
 pub(crate) use gpu::Renderer;
 #[cfg(all(feature = "window", feature = "3d"))]
-pub(crate) use gpu3d::{check_shader, compose_compute, compose_effect, compose_shader};
+pub(crate) use gpu3d::{
+    COMPUTE_VARIANT, EFFECT_VARIANT, FULL_MATERIAL_VARIANT, compose_compute, compose_effect, compose_shader,
+};
 #[cfg(not(feature = "window"))]
 pub(crate) use none::Renderer;
+#[cfg(all(feature = "window", feature = "3d"))]
+pub(crate) use shader_diagnostics::{diagnose, without_location};
 
 /// What drawing the last frame cost, from [`Ctx::render_stats`](crate::Ctx::render_stats).
 ///

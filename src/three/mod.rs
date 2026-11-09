@@ -49,6 +49,8 @@ pub use strips::{Line3D, Trail3D};
 pub(crate) mod text3d;
 pub use text3d::{Text3D, TextAlign3D};
 mod far_terrain;
+mod shader_status;
+pub use shader_status::{ShaderDiagnostic, ShaderKind, ShaderOutcome, ShaderStatus};
 mod sky;
 mod target;
 mod terrain;
@@ -838,6 +840,8 @@ pub(crate) fn mesh_gpu_bytes(data: &MeshData) -> u64 {
 /// culling, and for headless runs, which have no GPU.
 #[derive(Default)]
 pub(crate) struct Assets3D {
+    /// The latest compile of each of the game's shaders (`Ctx::shader_status`).
+    pub shader_status: Vec<ShaderStatus>,
     pub morph_entities: Vec<crate::Entity>,
     pub morph_bases: std::collections::HashMap<crate::Entity, (u32, MorphWeights, MorphWeights)>,
     /// Bounding sphere of each mesh, in its own space: center and radius.
