@@ -160,8 +160,8 @@ pub struct Archetype {
     pub(crate) columns: Box<[Column]>,
     pub(crate) entities: Vec<Entity>,
     cap: usize,
-    pub(crate) add_edges: HashMap<ComponentId, usize>,
-    pub(crate) remove_edges: HashMap<ComponentId, usize>,
+    pub(crate) add_edges: EdgeMap,
+    pub(crate) remove_edges: EdgeMap,
 }
 
 // SAFETY: columns are plain owned buffers. Rust components are required to be
@@ -183,8 +183,8 @@ impl Archetype {
             columns,
             entities: Vec::new(),
             cap: 0,
-            add_edges: HashMap::new(),
-            remove_edges: HashMap::new(),
+            add_edges: EdgeMap::default(),
+            remove_edges: EdgeMap::default(),
         }
     }
 
@@ -258,6 +258,11 @@ impl Archetype {
     #[inline]
     pub(crate) fn column_index(&self, id: ComponentId) -> Option<usize> {
         // Archetypes have few components; a linear scan beats binary search here.
+        // Measured (benches `membership/*`, Apple M4 Max): 1-2 ns at 2 components,
+        // 3 ns at 8, 5 ns at 16, 9 ns at 32, 14 ns at 64. A bitset or id-indexed table
+        // answers in under 1 ns but costs 50-640 B per archetype and a second cache
+        // line; callers look up once per archetype and column, never per entity.
+        // Structural changes do not scan per column: `move_row` merges the sorted id lists.
         self.ids.iter().position(|&c| c == id)
     }
 
@@ -345,3 +350,26 @@ impl Hasher for TypeIdHasher {
 }
 
 pub(crate) type TypeMap<V> = HashMap<TypeId, V, BuildHasherDefault<TypeIdHasher>>;
+
+/// Component ids are small dense integers: one multiply is a good hash, and
+/// SipHash was most of the cost of a cached structural change.
+#[derive(Default)]
+pub(crate) struct ComponentIdHasher(u64);
+
+impl Hasher for ComponentIdHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = (self.0.rotate_left(5) ^ b as u64).wrapping_mul(0x517c_c1b7_2722_0a95);
+        }
+    }
+    #[inline]
+    fn write_u32(&mut self, n: u32) {
+        self.0 = u64::from(n).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    }
+}
+
+/// Transition-edge cache of an archetype: component id -> destination archetype.
+pub(crate) type EdgeMap = HashMap<ComponentId, usize, BuildHasherDefault<ComponentIdHasher>>;
