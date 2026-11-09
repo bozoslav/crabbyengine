@@ -100,7 +100,7 @@ The intended evolution is smaller resource, pipeline, preparation and encoding r
 
 The opt-in [control endpoint](src/control.rs) exposes runtime operations at engine-controlled boundaries. [MCP tools](crates/ponko_mcp/src/lib.rs) discover instances, launch games, inspect/edit reflected state, operate scenes, pause/step, capture screenshots, retrieve logs and performance information. Reflection registration determines what component data tools can understand. [Profiling](src/perf_report.rs), [scope instrumentation](src/scope.rs) and [GPU timers](src/render/timer.rs) provide existing evidence sources.
 
-The complete autonomous edit/build/observe/repair loop is a development direction. Structured shader source diagnostics, scheduler explanations and a richer render-pass inspector remain backlog work. Screenshots require a rendering-capable instance; a headless state assertion cannot establish visual correctness. See the [agent guide](book/src/agents.md) and [roadmap](ROADMAP.md).
+The complete autonomous edit/build/observe/repair loop is a development direction. Custom shader errors and reload results are available as data through `Ctx::shader_status` ([shader_status.rs](src/three/shader_status.rs)), but not yet through an MCP tool. Scheduler explanations and a richer render-pass inspector remain backlog work. Screenshots require a rendering-capable instance; a headless state assertion cannot establish visual correctness. See the [agent guide](book/src/agents.md) and [roadmap](ROADMAP.md).
 
 ## Rust, C and C++ compatibility
 

@@ -5010,3 +5010,7 @@ mod tests {
 #[cfg(test)]
 #[path = "material_render_test.rs"]
 mod material_render_test;
+
+#[cfg(test)]
+#[path = "shader_reload_render_test.rs"]
+mod shader_reload_render_test;
