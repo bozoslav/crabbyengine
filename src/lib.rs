@@ -203,7 +203,10 @@ pub use three::{
 pub use tilemap::{TileMap, draw_tilemaps};
 #[cfg(feature = "3d")]
 pub use ui::UiPanel3D;
-pub use ui::{Ui, UiBuilder, UiEvent, UiId, UiInput, UiLayout, UiPaint, UiStyle, UiTextAlign, UiTheme, UiWidget};
+pub use ui::{
+    Ui, UiAccessNode, UiAccessTree, UiAccessValue, UiBuilder, UiEvent, UiId, UiInput, UiLayout, UiPaint, UiRole,
+    UiStyle, UiTextAlign, UiTheme, UiWidget,
+};
 
 /// The ECS: entities, components, queries, resources, commands.
 pub use ponko_ecs::{Commands, Component, ComponentId, Entity, Query, World};

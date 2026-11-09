@@ -680,6 +680,19 @@ impl UiBuilder<'_> {
         self.ui.set_value(self.id, value);
         self
     }
+    /// Name read by assistive technology; see [`Ui::set_accessible_name`].
+    /// Give one to sliders, text inputs, images and icon-only buttons.
+    /// ```
+    /// use ponko::*;
+    /// let mut ui = Ui::default();
+    /// let root = ui.root().id();
+    /// let volume = ui.slider(root).accessible_name("Volume").id();
+    /// assert_eq!(ui.accessible_name(volume), Some("Volume"));
+    /// ```
+    pub fn accessible_name(self, name: impl AsRef<str>) -> Self {
+        self.ui.set_accessible_name(self.id, name);
+        self
+    }
 }
 
 impl Ui {

@@ -231,6 +231,39 @@ input. Standalone `Ui` measurements use the built-in font; context-owned UI also
 measures loaded custom fonts. The engine keeps existing sprite batching and adds
 per-batch scissor rectangles; world sprites and immediate UI remain unclipped.
 
+## Accessibility semantics
+
+`ui.accessibility_tree()` returns a deterministic snapshot of what assistive
+technology would read: each shown node's role (group, dialog, label, button,
+image, scroll view, text input, checkbox, slider), name, value (text, checked
+state or 0..1 range), bounds and states (focusable, focused, disabled, inert,
+modal), plus the focused node. Names come from the node's text; give sliders,
+text inputs, images and icon-only buttons one with `.accessible_name("Volume")`
+or `ui.set_accessible_name(id, "Volume")`. Text inputs expose their text as the
+value, never as the name. Names never change layout, focus or events.
+
+Nodes with `display: none` are left out with their subtrees. A modal screen
+hides every screen below it; lower screens under a non-modal one stay readable
+but inert. The snapshot prints one indented line per node, which suits golden
+tests:
+
+```rust
+let mut ui = Ui::default();
+let root = ui.root().layout(UiLayout::fill()).id();
+ui.button(root, "Play");
+ui.slider(root).layout(UiLayout::row(20.0)).value(0.25).accessible_name("Volume");
+ui.push_screen(root, false);
+ui.layout(vec2(800.0, 600.0));
+assert_eq!(
+    ui.accessibility_tree().to_string(),
+    "group\n  button \"Play\" focusable\n  slider \"Volume\" value=0.25 focusable\n"
+);
+```
+
+This is the platform-neutral half only: no screen reader reads it yet. A native
+adapter is planned, and the C/C++ API does not expose these semantics yet
+(Rust only for now; the same example is a doctest on `UiAccessTree`).
+
 ## UI on surfaces in the world
 
 A computer screen, a shop terminal or a sign with buttons is a `UiPanel3D`: a
