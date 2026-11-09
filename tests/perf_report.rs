@@ -66,7 +66,7 @@ fn perf_keys(ctx: &mut Ctx) {
 
 #[test]
 fn live_profiling_keys_run_headless() {
-    Game::new("t", 1, 1).system(perf_keys).run_headless(2, |_| {});
+    Game::new("t", 1, 1).sim_system(perf_keys).run_headless(2, |_| {});
 }
 
 #[test]
