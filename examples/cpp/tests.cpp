@@ -1907,7 +1907,7 @@ static void animator_layers_and_blend_trees() {
 static void headless_wrapper_calls() {
     // Joints: which axes each kind leaves free.
     {
-        auto count = [](const ponko::joint3d& j, CrabbyJointMotionKind kind) {
+        auto count = [](const ponko::joint3d& j, PonkoJointMotionKind kind) {
             int n = 0;
             for (auto& axis : j.axes) n += axis.kind == kind;
             return n;
@@ -1933,9 +1933,9 @@ static void headless_wrapper_calls() {
             std::vector<ponko::hit3d> hits;
             ctx.cast_ray3d_all({0, 0, 0}, {0, 0, 1}, 100, hits);
             CHECK(hits.size() == 2);
-            CHECK(crabby_entity_bits(hits[0].entity) == wall);
+            CHECK(ponko_entity_bits(hits[0].entity) == wall);
             CHECK(std::fabs(hits[0].distance - 4.0f) < 1e-3f);
-            CHECK(crabby_entity_bits(hits[1].entity) == ball);
+            CHECK(ponko_entity_bits(hits[1].entity) == ball);
             CHECK(hits[1].distance > hits[0].distance);
             // A ball swept along +Z touches the wall half its radius early.
             auto swept = ctx.cast_sphere3d({0, 0, 0}, 0.5f, {0, 0, 1}, 100);
@@ -1944,9 +1944,9 @@ static void headless_wrapper_calls() {
             auto capsule = ctx.cast_capsule3d({0, 0, 0}, 2, 0.5f, {0, 0, 1}, 100);
             CHECK(capsule && std::fabs(capsule->distance - 3.5f) < 1e-3f);
             // Overlaps: a box around the wall finds it and not the ball.
-            std::vector<CrabbyEntity> found;
+            std::vector<PonkoEntity> found;
             ctx.overlap_box3d({0, 0, 5}, {4, 4, 4}, {0, 0, 0, 1}, found);
-            CHECK(found.size() == 1 && crabby_entity_bits(found[0]) == wall);
+            CHECK(found.size() == 1 && ponko_entity_bits(found[0]) == wall);
             // Masses: the ball has one, a plain entity is no body.
             CHECK(ctx.mass3d(ball) && *ctx.mass3d(ball) > 0);
             CHECK(!ctx.mass3d(plain));
