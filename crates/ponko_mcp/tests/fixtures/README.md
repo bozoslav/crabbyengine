@@ -1,6 +1,6 @@
 # Retained MCP contract
 
-`tools_v1.json` is what the MCP server offered at a recorded engine revision
+`tools_v1.json` and `tools_v2.json` are what the MCP server offered at a recorded engine revision
 (`tools_v1.provenance.json`): every tool with its parameters (JSON schema
 without descriptions), its required list and whether it is read-only, plus the
 protocol versions the server negotiates and its name.
@@ -8,7 +8,11 @@ protocol versions the server negotiates and its name.
 releases only add MCP tools and optional parameters; `tests/contract.rs`
 compares the running server against this file.
 
-The file is a baseline from the engine's `main` branch, not from a published
+Two baselines are retained and both are checked. `tools_v2.json` repeats `tools_v1.json` and adds each
+tool's other top-level `inputSchema` keywords (`type`, `additionalProperties`, ...), which v1 did not
+record; it was retained as a new baseline, with its own provenance, rather than by regenerating v1.
+
+The files are baselines from the engine's `main` branch, not from a published
 release. It shows that today's server honors what that revision offered, not
 that any earlier binary release is covered.
 
@@ -21,6 +25,8 @@ that any earlier binary release is covered.
 | A parameter becomes required, or a new required parameter is added to an existing tool | fails: `parameter P became required` |
 | A parameter's type, enum, bounds (`minimum`, `maximum`, ...) or other constraint accepts fewer values | fails: names the parameter and the bound |
 | A read-only tool starts changing the game | fails |
+| A tool starts rejecting extra arguments (`additionalProperties: false` on its input schema, or on an object parameter), or restricts them to a schema that accepts less | fails: `extra properties are no longer accepted` |
+| A tool or object parameter accepts more extra properties (`false` -> a schema or `true`, a schema -> a wider one or none) | passes |
 | A tool is added (also with required parameters of its own) | passes |
 | An optional parameter is added, a type widened, a bound loosened, a required parameter made optional | passes |
 
@@ -43,9 +49,9 @@ major release), and keep the old file and its tests:
 1. Check out the revision to record, clean.
 2. ```sh
    PONKO_MCP_FIXTURE_OUT=$PWD/crates/ponko_mcp/tests/fixtures/tools_v<N>.json \
-     cargo test -p ponko_mcp --test contract -- --ignored --exact write_v1_fixture
+     cargo test -p ponko_mcp --test contract -- --ignored --exact write_v<N>_fixture
    ```
-   (Copy `write_v1_fixture` to `write_v<N>_fixture` first.)
+   (`write_v1_fixture` and `write_v2_fixture` already exist; copy `write_v2_fixture` to `write_v<N>_fixture` first.)
 3. Write `tools_v<N>.provenance.json` with the same keys: the full commit id
    (`git rev-parse HEAD`), `rustc --version`, the command and the date.
 4. Add a test that compares the server against it, next to the existing one.

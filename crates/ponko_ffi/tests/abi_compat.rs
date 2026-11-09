@@ -79,6 +79,7 @@ fn rust_facts() -> RustFacts {
     l
 }
 
+#[cfg(target_pointer_width = "64")]
 fn num(v: &Value) -> usize {
     v.as_u64().expect("a number") as usize
 }
@@ -99,13 +100,12 @@ fn baseline_pins_abi_version_2_on_a_64_bit_target() {
     );
 }
 
+// The baseline was measured on a 64-bit desktop target (macOS, Linux and Windows,
+// x86-64 and arm64, agree on these types). On a 32-bit target the test is not
+// compiled, so it is reported as absent rather than as a pass.
+#[cfg(target_pointer_width = "64")]
 #[test]
 fn struct_size_alignment_and_field_offsets_match_the_baseline() {
-    if usize::BITS != 64 {
-        // The baseline was measured on a 64-bit desktop target (macOS, Linux
-        // and Windows x86-64 and arm64 agree on these types).
-        return;
-    }
     let baseline = layout_fixture();
     let rust = rust_facts();
     let mut problems = Vec::new();
@@ -293,13 +293,15 @@ fn parse_header(text: &str) -> BTreeMap<String, Item> {
             if name != "CRABBY_H" {
                 items.insert(format!("define {name}"), Item::Define(norm(parts.next().unwrap_or(""))));
             }
-        } else if !t.starts_with('#') {
+        } else if !t.starts_with('#') && t != "}" {
+            // A lone `}` closes the `extern "C" {` block (`} // extern "C"` once its
+            // comment is stripped); struct and enum blocks close with `} Name;`.
             code.push_str(line);
             code.push('\n');
         }
     }
     // Statements end with `;` outside braces; `extern "C" {` is not one.
-    let code = code.replace("extern \"C\" {", "").replace("\n}\n", "\n");
+    let code = code.replace("extern \"C\" {", "");
     let (mut depth, mut start) = (0usize, 0usize);
     let mut statements = Vec::new();
     for (i, ch) in code.char_indices() {
@@ -471,6 +473,16 @@ fn expect_one(found: Vec<String>, fragment: &str) {
         found.iter().any(|m| m.contains(fragment)),
         "expected a failure mentioning {fragment:?}, got {found:?}"
     );
+}
+
+#[test]
+fn items_after_the_extern_c_block_are_still_parsed() {
+    let items = parse_header(&format!(
+        "{MINI}\ntypedef struct CrabbyAfter {{ int a; }} CrabbyAfter;\nint crabby_after(void);\n"
+    ));
+    assert!(items.contains_key("struct CrabbyAfter") && items.contains_key("fn crabby_after"));
+    // The closing brace of `extern "C"` is not mistaken for an item.
+    assert_eq!(items.len(), 9, "{:?}", items.keys().collect::<Vec<_>>());
 }
 
 #[test]
