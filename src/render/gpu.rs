@@ -84,6 +84,9 @@ pub(crate) struct Renderer {
     /// Of `prepare_3d_ms`, the time collecting models.
     #[cfg(feature = "3d")]
     collect_ms: f32,
+    /// The last drawn frame's `prepare_3d_ms`, for `detail`.
+    #[cfg(feature = "3d")]
+    last_prepare_3d_ms: f32,
     /// How long the last frame waited for the window's next image.
     display_wait_ms: f32,
     /// The last captured frame, waiting to be picked up.
@@ -300,6 +303,18 @@ impl Renderer {
     /// The GPU time of each pass, smoothed (empty without timestamp queries).
     pub fn gpu_passes(&self) -> &[crate::profiler::GpuPass] {
         self.timer.as_ref().map_or(&[], |t| &t.passes)
+    }
+
+    /// What the render-pass inspector needs beyond [`RenderStats`].
+    pub fn detail(&self) -> super::RenderDetail {
+        super::RenderDetail {
+            gpu_timestamps: self.timer.is_some(),
+            gpu_frames_timed: self.timer.as_ref().map_or(0, |t| t.frames_read),
+            #[cfg(feature = "3d")]
+            prepare_ms: self.last_prepare_3d_ms,
+            #[cfg(not(feature = "3d"))]
+            prepare_ms: 0.0,
+        }
     }
 
     /// The latest GPU frame's passes and how many frames the timer has read.
@@ -529,6 +544,8 @@ impl Renderer {
             prepare_3d_ms: 0.0,
             #[cfg(feature = "3d")]
             collect_ms: 0.0,
+            #[cfg(feature = "3d")]
+            last_prepare_3d_ms: 0.0,
             screenshot: None,
             #[cfg(feature = "inspector")]
             overlay: None,
@@ -1321,7 +1338,8 @@ impl Renderer {
         self.stats.cpu_ms = cpu_start.elapsed().as_secs_f32() * 1000.0;
         #[cfg(feature = "3d")]
         {
-            self.stats.cpu_ms += std::mem::take(&mut self.prepare_3d_ms);
+            self.last_prepare_3d_ms = std::mem::take(&mut self.prepare_3d_ms);
+            self.stats.cpu_ms += self.last_prepare_3d_ms;
         }
         if let Some(frame) = frame {
             self.window.pre_present_notify();
