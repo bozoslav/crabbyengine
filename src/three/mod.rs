@@ -43,6 +43,7 @@ pub use projected::{Decal3D, MAX_DECALS, MAX_DECALS_PER_CLUSTER, ReceivesDecals}
 pub(crate) mod probe;
 pub use probe::ReflectionProbe3D;
 mod quality;
+mod resident;
 mod skin;
 pub(crate) mod strips;
 pub use strips::{Line3D, Trail3D};
