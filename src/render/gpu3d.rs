@@ -368,10 +368,10 @@ impl ShaderPipelines {
         ShaderVariant::ALL.iter().filter(|&&v| self.built(v)).count()
     }
 
-    /// Render pipelines in each of its sets: one per [`PipelineRole`], the
-    /// two alpha-to-coverage ones only with multisampling.
+    /// Render pipelines in each of its sets: one per [`PipelineRole`] some
+    /// pass draws with at its sample count.
     fn pipelines_per_set(&self) -> usize {
-        if self.builder.samples > 1 { 10 } else { 8 }
+        PipelineRole::per_set(self.builder.samples > 1)
     }
 }
 
@@ -2170,7 +2170,7 @@ impl Renderer3D {
         name: &str,
         user: &str,
     ) -> Result<u32, Box<ShaderDiagnostic>> {
-        let pipelines = self.material_pipelines(device, name, user)?;
+        let pipelines = self.material_pipelines(device, name, user, None)?;
         self.shaders.push(pipelines);
         self.shadow_cache.shaders.push(ShadowCache::shader_traits(user));
         Ok(self.shaders.len() as u32 - 1)
@@ -2186,7 +2186,7 @@ impl Renderer3D {
         name: &str,
         user: &str,
     ) -> Result<(), Box<ShaderDiagnostic>> {
-        let pipelines = self.material_pipelines(device, name, user)?;
+        let pipelines = self.material_pipelines(device, name, user, Some(id))?;
         self.shaders[id as usize] = pipelines;
         self.shadow_cache.shaders[id as usize] = ShadowCache::shader_traits(user);
         self.shadow_cache.invalidate();
@@ -2203,6 +2203,7 @@ impl Renderer3D {
         device: &wgpu::Device,
         name: &str,
         user: &str,
+        replacing: Option<u32>,
     ) -> Result<Arc<ShaderPipelines>, Box<ShaderDiagnostic>> {
         let storage = self.storage_read.is_some();
         let (decals, gi) = (self.frame_sources.decals, self.frame_sources.gi);
@@ -2211,6 +2212,13 @@ impl Renderer3D {
             features: Features { decals, gi, storage },
         });
         if let Some(shared) = self.cache.get(&key) {
+            // A reload with unchanged code finds its own set: nothing shared.
+            let own = replacing
+                .and_then(|id| self.shaders.get(id as usize))
+                .is_some_and(|current| Arc::ptr_eq(current, &shared));
+            if !own {
+                self.cache.counters.shared();
+            }
             if self.warm_variants {
                 shared.warm();
             }
@@ -2220,6 +2228,9 @@ impl Renderer3D {
         let built = self.compile_material(device, name, user);
         self.cache.counters.compiled(start.elapsed());
         let mut built = built?;
+        // Its builds count once the GPU accepted it; rejected code's don't.
+        self.cache.counters.add_builds(&built.counters);
+        built.counters = self.cache.counters.clone();
         built.in_use = true;
         let built = Arc::new(built);
         self.cache.insert(key, &built);
@@ -2251,7 +2262,8 @@ impl Renderer3D {
             name,
             &source,
             self.samples,
-            &self.cache.counters,
+            // Its own until the GPU accepts it (see `material_pipelines`).
+            &Arc::default(),
         );
         pipelines.reads_scene = reads_scene(user);
         if self.warm_variants {
