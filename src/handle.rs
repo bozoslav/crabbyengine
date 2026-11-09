@@ -29,8 +29,8 @@ mod sealed {
     pub trait Sealed {}
 }
 
-/// A handle to a resource the engine holds for the game: [`Texture`],
-/// [`Sound`], [`Font`], and with the `3d` feature [`Mesh`](crate::Mesh),
+/// A handle to a resource the engine holds for the game: [`Texture`](crate::Texture),
+/// [`Sound`](crate::Sound), [`Font`](crate::Font), and with the `3d` feature [`Mesh`](crate::Mesh),
 /// [`Material`](crate::Material), [`Shader`](crate::Shader),
 /// [`Compute`](crate::Compute), [`Effect`](crate::Effect),
 /// [`GpuBuffer`](crate::GpuBuffer), [`InstanceBatch`](crate::InstanceBatch)
@@ -74,7 +74,7 @@ pub trait Handle: Copy + Eq + Hash + std::fmt::Debug + sealed::Sealed {
     fn id(self) -> u32;
 
     /// A handle from an id (from [`id`](Self::id)). Only the id is kept:
-    /// for [`Texture`], [`Sound`] and [`TextureArray`](crate::TextureArray)
+    /// for [`Texture`](crate::Texture), [`Sound`](crate::Sound) and [`TextureArray`](crate::TextureArray)
     /// the size or length reads 0, so compare such handles by id. Check it
     /// with [`Ctx::is_live`] before trusting it.
     ///
