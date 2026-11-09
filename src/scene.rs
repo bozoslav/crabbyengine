@@ -44,10 +44,16 @@ impl Ctx {
     /// | [`events`](Self::events) | Kept: events sent before the load can still be read for their usual lifetime. Entity ids inside them (such as [`CollisionStarted`](crate::CollisionStarted)) refer to the old world. |
     /// | 2D and 3D physics | Bodies, characters and joints are removed at once (queries find nothing), then built from the new components at the next physics step, from rest unless the scene has a velocity component. Gravity, collision meshes, contact hooks and settings are kept. |
     /// | [`spatial`](Self::spatial) neighbor grid | Refilled at the start of the next simulation tick. |
+    /// | 3D navigation (`NavMesh3D`, with the `navmesh` feature) | The baked mesh, a resource, is kept. Crowd agents are components, so they go with their entities; `step_navmesh3d` frees the old agents' crowd slots at its next step, and agents added to the new scene's entities (even with the same ids) start from where they are. |
+    /// | [`Attached`](crate::Attached) | Reflected: the scene's attachments, to the scene's entities. [`follow_attachments`](crate::follow_attachments) places them at its next run and despawns those whose entity isn't in the scene. |
+    /// | Skeletons, joint attachments, skinned and morphing models | Components: gone with their entities unless the game adds them again. The engine's skinning scratch is rebuilt every frame from the world as it is. |
     /// | Assets | Textures, meshes and collision files the scene names are loaded first and stay cached. Loaded assets are never unloaded by a load. |
+    /// | Prefabs | Kept: files [`spawn_prefab`](Self::spawn_prefab) read stay cached, so spawning one after a load doesn't read it again. |
     /// | Positional sounds | A sound playing from an entity stops at the next audio update unless that entity still has the same playing source; other sounds and music keep playing. |
     /// | Retained UI, camera, lighting, input, time, random seed | Kept: they belong to the game, not the scene. |
-    /// | Lockstep networking ([`net`](Self::net)) | Not synchronized: a load changes only this peer. In a session, every peer must make the same load from a simulation system at the same tick. |
+    /// | 3D UI panels (`UiPanel3D`, with the `3d` feature) | Components: gone with their entities. Which panel had the keyboard is forgotten, so a new panel with the old one's id doesn't get it without a click. |
+    /// | Temporal history (TAA, temporal AO, reflections) | Reset, as by `reset_temporal_history` (`3d` feature): the new scene's models have no motion from the old one's. |
+    /// | Lockstep networking ([`net`](Self::net)) | `load_scene` is refused while a session is connecting or running: it would change only this peer. Use [`load_scene_lockstep`](Self::load_scene_lockstep) from a simulation system, which every peer runs at the same tick. After a session is lost, loads are local again. |
     ///
     /// The physics rule also holds for [`WorldReflect::load`] called
     /// directly on `ctx.world`, except that bodies are removed at the next
@@ -57,18 +63,77 @@ impl Ctx {
     ///
     /// If the file is missing or isn't a scene, names a component or
     /// resource that isn't reflected, or names an asset that can't be
-    /// loaded. The world, commands and physics are unchanged then; assets
+    /// loaded, and while a lockstep session runs (see above). The world,
+    /// commands, physics and every other service are unchanged then; assets
     /// the scene named that did load before the failure stay cached.
     pub fn load_scene(&mut self, path: &str) -> Result<(), String> {
-        let (_, text) = self.read_asset_text(path)?;
-        let scene: Value = serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
-        self.replace_world(&scene).map_err(|e| format!("{path}: {e}"))
+        self.check_local_load().map_err(|e| format!("{path}: {e}"))?;
+        self.read_and_replace(path)
     }
 
-    /// Replaces the world with `save` (a scene or world save), as
-    /// [`load_scene`](Self::load_scene) describes: its assets first, then
-    /// the entities, then the services that follow entity ids.
+    /// [`load_scene`](Self::load_scene) as a step of a lockstep session:
+    /// the game says every peer makes this same load at the same tick. Use
+    /// it from a simulation system (whose ticks every peer runs from the
+    /// same inputs) or before the session starts, such as in setup. Offline
+    /// it is the same as `load_scene`. The peers' worlds are still compared
+    /// every [`checksum_every`](crate::Net::checksum_every) ticks, so a
+    /// load that only some peers made shows up as a [`Desync`](crate::Desync).
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// # fn next_level(ctx: &mut Ctx) {
+    /// // A simulation system: every peer reaches tick 600 with the same world.
+    /// if ctx.sim_tick() == 600 {
+    ///     ctx.load_scene_lockstep("levels/two.json").expect("level");
+    /// }
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// As `load_scene`, and while a session runs, when called outside a
+    /// simulation system (a frame system, a tool): nothing changes then.
+    pub fn load_scene_lockstep(&mut self, path: &str) -> Result<(), String> {
+        if self.net.state() == crate::NetState::Running && !self.in_sim() {
+            return Err(format!(
+                "{path}: load_scene_lockstep runs in simulation systems while a lockstep session runs; \
+                 a frame system's load would change only this peer"
+            ));
+        }
+        self.read_and_replace(path)
+    }
+
+    fn read_and_replace(&mut self, path: &str) -> Result<(), String> {
+        let (_, text) = self.read_asset_text(path)?;
+        let scene: Value = serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
+        self.replace_world_now(&scene).map_err(|e| format!("{path}: {e}"))
+    }
+
+    /// Refuses a load that would change only this peer while a lockstep
+    /// session is connecting or running.
+    fn check_local_load(&self) -> Result<(), String> {
+        match self.net.state() {
+            crate::NetState::Connecting | crate::NetState::Running => {
+                Err("a lockstep session is running and a load changes only this peer: \
+                 make every peer load at the same tick with load_scene_lockstep from a simulation system"
+                    .into())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Replaces the world with `save` (a scene or world save) for tools (the
+    /// editor, the control endpoint): refused during a lockstep session,
+    /// like [`load_scene`](Self::load_scene).
     pub(crate) fn replace_world(&mut self, save: &Value) -> Result<(), String> {
+        self.check_local_load()?;
+        self.replace_world_now(save)
+    }
+
+    /// Replaces the world with `save`, as [`load_scene`](Self::load_scene)
+    /// describes: its assets first, then the entities, then the services
+    /// that follow entity ids.
+    fn replace_world_now(&mut self, save: &Value) -> Result<(), String> {
         self.load_scene_assets(save)?;
         self.world.load(save).map_err(|e| e.to_string())?;
         self.commands = crate::Commands::new();
@@ -76,6 +141,15 @@ impl Ctx {
         self.physics.forget_bodies();
         #[cfg(feature = "physics3d")]
         self.physics3d.forget_bodies();
+        #[cfg(feature = "3d")]
+        {
+            // Keyboard focus named an entity of the old world: the same id
+            // may be another panel now, which nobody clicked.
+            self.ui.panels.forget_focus();
+            // Motion history is keyed by entity id: a same-id model of the
+            // new scene has no past in the old one.
+            self.reset_temporal_history();
+        }
         Ok(())
     }
 

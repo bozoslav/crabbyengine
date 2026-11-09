@@ -1018,6 +1018,11 @@ impl Ctx {
         self.in_sim = in_sim;
     }
 
+    /// Whether a simulation system is running now.
+    pub(crate) fn in_sim(&self) -> bool {
+        self.in_sim
+    }
+
     /// Engine side: apply commands recorded by the system that just ran.
     pub(crate) fn apply_commands(&mut self) {
         if !self.commands.is_empty() {

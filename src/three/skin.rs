@@ -770,6 +770,63 @@ mod tests {
     }
 
     #[test]
+    fn skinning_scratch_follows_a_same_id_world_load() {
+        use crate::WorldReflect;
+        let mut world = World::new();
+        world.reflect::<Transform3D>();
+        let mut bent = arm();
+        let assets = stick(&bent);
+        bent.pose[0].rotation = Quat::from_rotation_z(std::f32::consts::FRAC_PI_2);
+        let mesh = super::super::Mesh { id: 0 };
+        let body = world.spawn((Transform3D::default(), Model::new(mesh), bent));
+        let cup = world.spawn((
+            Transform3D::default(),
+            AttachToJoint {
+                skeleton: body,
+                joint: 1,
+                offset: Transform3D::default(),
+            },
+        ));
+        let mut frame = SkinFrame::default();
+        frame.collect(&mut world, &assets);
+        assert_eq!(frame.draws.len(), 1);
+        // The next scene: the same ids, the body moved, skeletons and joint
+        // attachments not saved (they aren't reflected).
+        world.get_mut::<Transform3D>(body).unwrap().position = vec3(5.0, 0.0, 0.0);
+        let next = world.save();
+        world.load(&next).unwrap();
+        frame.collect(&mut world, &assets);
+        assert!(
+            frame.draws.is_empty() && frame.matrices.is_empty(),
+            "nothing of the old pose is drawn"
+        );
+        // The game adds an unbent skeleton to the same id.
+        world.insert(body, Model::new(mesh));
+        world.insert(body, arm());
+        world.insert(
+            cup,
+            AttachToJoint {
+                skeleton: body,
+                joint: 1,
+                offset: Transform3D::default(),
+            },
+        );
+        frame.collect(&mut world, &assets);
+        assert_eq!(frame.draws.len(), 1);
+        assert_eq!(frame.draws[0].matrix, Transform3D::at(vec3(5.0, 0.0, 0.0)).matrix());
+        let tip = frame.matrices[1].transform_point3(vec3(0.0, 1.0, 0.0));
+        assert!(
+            tip.abs_diff_eq(vec3(0.0, 1.0, 0.0), 1e-5),
+            "the new pose, not the old one: {tip}"
+        );
+        let cup_at = world.get::<Transform3D>(cup).unwrap().position;
+        assert!(
+            cup_at.abs_diff_eq(vec3(5.0, 1.0, 0.0), 1e-5),
+            "on the new skeleton's tip: {cup_at}"
+        );
+    }
+
+    #[test]
     fn posed_models_are_not_also_drawn_as_they_were_modelled() {
         let mut world = World::new();
         let s = arm();
