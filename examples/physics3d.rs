@@ -187,8 +187,9 @@ fn main() {
         .sim_system(walk)
         .system(eyes)
         // ANCHOR_END: setup
-        .run(|ctx| {
+        .setup(|ctx| {
             ctx.clear(Color::hex(0x9CC4E4));
             build_world(ctx);
-        });
+        })
+        .run();
 }
