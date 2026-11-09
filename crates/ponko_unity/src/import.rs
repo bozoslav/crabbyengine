@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use glam::{Mat4, Quat, Vec3};
 use serde_json::{Value as Json, json};
 
-use crate::fbx::ModelFile;
+use crate::fbx::{ModelFile, ModelMaterial};
 use crate::glb::{self, Primitive, Vertices};
 use crate::hierarchy::GameObject;
 use crate::material::{Surface, UnityMaterial};
@@ -27,6 +27,10 @@ const BOX_COLLIDER: i32 = 65;
 const SPHERE_COLLIDER: i32 = 135;
 const CAPSULE_COLLIDER: i32 = 136;
 const MESH_COLLIDER: i32 = 64;
+/// Model files read with ufbx, by lowercase extension.
+const MODEL_FILES: [&str; 2] = ["fbx", "obj"];
+const ANIMATOR: i32 = 95;
+const ANIMATION: i32 = 111;
 /// The GUID Unity's built-in resources (Cube, Sphere, Default-Material) share.
 const BUILTIN: &str = "0000000000000000e000000000000000";
 
@@ -642,14 +646,16 @@ impl<'p> Importer<'p> {
                 None => return Ok(None),
             }
         };
+        let mut clip_root = None;
         if let Some((scene, world, renderer, bones, root)) = skeleton
             && let Some(skin) = &mut unity.skin
         {
             apply_scene_bones(skin, scene, world, renderer, bones, root);
+            clip_root = animator_node(skin, scene, renderer, bones);
             unity.name = format!("{}_renderer_{renderer}", unity.name);
         }
         let mats: Vec<Option<UnityMaterial>> = materials.iter().map(|m| self.material(m)).collect();
-        let glb = self.build_glb(&unity, &mats);
+        let glb = self.build_glb(&unity, &mats, clip_root);
         let file_name = self.unique_name(&unity.name, mesh, materials);
         let dir = self.out.join("meshes");
         std::fs::create_dir_all(&dir).map_err(|e| Error::new(format!("{}: {e}", dir.display())))?;
@@ -691,13 +697,8 @@ impl<'p> Importer<'p> {
                     return Ok(None);
                 }
             }
-        } else if ["fbx", "obj"].contains(&ext.as_str()) {
-            let full = self.project.root().join(path);
-            let model = self
-                .model_files
-                .entry(guid.to_string())
-                .or_insert_with(|| ModelFile::open(&full).map_err(|e| e.message));
-            let mesh = match model {
+        } else if MODEL_FILES.contains(&ext.as_str()) {
+            let mesh = match self.model_file(guid) {
                 Ok(model) => model.mesh(mesh.file_id),
                 Err(e) => Err(Error::new(e.clone())),
             };
@@ -717,6 +718,38 @@ impl<'p> Importer<'p> {
         };
         Ok(Some(unity))
     }
+    /// The model file (FBX, OBJ) with this GUID, read once.
+    fn model_file(&mut self, guid: &str) -> &Result<ModelFile, String> {
+        let project = self.project;
+        self.model_files.entry(guid.to_string()).or_insert_with(|| {
+            let path = project
+                .path_of(guid)
+                .ok_or_else(|| format!("no asset has GUID {guid}"))?;
+            ModelFile::open(&project.root().join(path)).map_err(|e| e.message)
+        })
+    }
+
+    /// The material `r` names: a material asset, or one inside a model
+    /// file (made from the model's own, or the asset its `.meta` maps it
+    /// to); `None` when it can't be found.
+    fn read_material(&mut self, r: &ObjRef) -> Option<UnityMaterial> {
+        let guid = r.guid.as_deref().filter(|g| *g != BUILTIN)?;
+        let project = self.project;
+        let ext = project
+            .path_of(guid)?
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if MODEL_FILES.contains(&ext.as_str()) {
+            return match self.model_file(guid).as_ref().ok()?.material(r.file_id, project)? {
+                ModelMaterial::Embedded(m) => Some(*m),
+                ModelMaterial::Remapped(to) => material_asset(project, &to),
+            };
+        }
+        material_asset(project, r)
+    }
+
     /// The material `r` names, read once; `None` (drawn plain) when it
     /// can't be found.
     fn material(&mut self, r: &ObjRef) -> Option<UnityMaterial> {
@@ -726,13 +759,7 @@ impl<'p> Importer<'p> {
             }
             return m.clone();
         }
-        let m = r
-            .guid
-            .as_deref()
-            .filter(|g| *g != BUILTIN)
-            .and_then(|g| self.project.load(g).ok())
-            .and_then(|f| f.get(r.file_id).map(UnityMaterial::from_object))
-            .and_then(Result::ok);
+        let m = self.read_material(r);
         if m.is_none() && !r.is_none() {
             self.report.skip("a material that can't be read (drawn plain)");
         }
@@ -794,8 +821,10 @@ impl<'p> Importer<'p> {
     }
 
     /// The mesh as a `.glb`, in glTF's space, a primitive per submesh with
-    /// its material.
-    fn build_glb(&mut self, mesh: &UnityMesh, mats: &[Option<UnityMaterial>]) -> Vec<u8> {
+    /// its material. Standalone clips (`animation_clips`) resolve their
+    /// paths from skin node `clip_root` (the Animator's object), else from
+    /// the skin's root bone.
+    fn build_glb(&mut self, mesh: &UnityMesh, mats: &[Option<UnityMaterial>], clip_root: Option<usize>) -> Vec<u8> {
         let mut textures: Vec<String> = Vec::new();
         let mut materials: Vec<Json> = Vec::new();
         let mut vertices = Vertices {
@@ -821,8 +850,9 @@ impl<'p> Importer<'p> {
                     })
                 })
                 .map(|mut skin| {
-                    let root = skin
-                        .root
+                    let root = clip_root
+                        .filter(|&r| r < skin.nodes.len())
+                        .or(skin.root)
                         .or_else(|| skin.nodes.iter().position(|n| n.parent.is_none()))
                         .unwrap_or(0);
                     for clip in &self.animation_clips {
@@ -1149,6 +1179,15 @@ impl<'p> Importer<'p> {
 }
 
 /// Unity's space to Ponko's: mirrored along Z on both sides.
+/// The material asset (a `.mat`) `r` names.
+fn material_asset(project: &Project, r: &ObjRef) -> Option<UnityMaterial> {
+    project
+        .load(r.guid.as_deref()?)
+        .ok()
+        .and_then(|f| f.get(r.file_id).map(UnityMaterial::from_object))
+        .and_then(Result::ok)
+}
+
 fn mirror(m: Mat4) -> Mat4 {
     let s = Mat4::from_scale(Vec3::new(1.0, 1.0, -1.0));
     s * m * s
@@ -1267,6 +1306,52 @@ fn fnv(bytes: &[u8]) -> u64 {
     })
 }
 
+/// The object of the transform `bone` refers to.
+fn resolve_bone(scene: &Hierarchy, bone: &Value) -> Option<usize> {
+    let reference = bone.obj_ref()?;
+    scene.objects.iter().position(|o| {
+        o.components
+            .iter()
+            .any(|c| matches!(c.class_id, 4 | 224) && c.file_id == reference.file_id)
+    })
+}
+
+/// The skin node of the object whose Animator (or legacy Animation)
+/// plays the clips of skinned renderer `renderer`, the nearest one at or
+/// above it: Unity resolves a clip's paths from there. `None` when there
+/// is none, or the skin has no node for it (reached from a bone by the
+/// same names as in the scene).
+fn animator_node(skin: &crate::mesh::MeshSkin, scene: &Hierarchy, renderer: usize, bones: &[Value]) -> Option<usize> {
+    let objects = &scene.objects;
+    let mut at = Some(renderer);
+    let animator = loop {
+        let i = at?;
+        if objects[i].component(ANIMATOR).is_some() || objects[i].component(ANIMATION).is_some() {
+            break i;
+        }
+        at = objects[i].parent;
+    };
+    for (bone, &joint) in bones.iter().zip(&skin.joints) {
+        let Some(mut object) = resolve_bone(scene, bone) else {
+            continue;
+        };
+        let mut node = joint;
+        loop {
+            if object == animator {
+                return Some(node);
+            }
+            if skin.nodes.get(node)?.name != objects[object].name {
+                break;
+            }
+            match (objects[object].parent, skin.nodes[node].parent) {
+                (Some(o), Some(n)) => (object, node) = (o, n),
+                _ => break,
+            }
+        }
+    }
+    None
+}
+
 // Preserve joint order (the vertex indices and bind poses use it), while
 // taking the rest pose and names from the flattened, overridden scene.
 type SceneSkeleton<'a> = (&'a Hierarchy, &'a [Mat4], usize, &'a [Value], &'a Value);
@@ -1279,14 +1364,7 @@ fn apply_scene_bones(
     bones: &[Value],
     root: &Value,
 ) {
-    let resolve = |bone: &Value| {
-        let reference = bone.obj_ref()?;
-        scene.objects.iter().position(|o| {
-            o.components
-                .iter()
-                .any(|c| matches!(c.class_id, 4 | 224) && c.file_id == reference.file_id)
-        })
-    };
+    let resolve = |bone: &Value| resolve_bone(scene, bone);
     let root = resolve(root);
     let resolved: Vec<_> = bones.iter().map(resolve).collect();
     let joints: Option<Vec<_>> = resolved.iter().copied().collect();
@@ -1487,7 +1565,7 @@ mod tests {
             let [speed, foam] = mesh.uvs[1][v];
             [speed / 2.0, foam, 0.0, 9.0]
         });
-        let colors = colors_of(&import.build_glb(&quad, &river));
+        let colors = colors_of(&import.build_glb(&quad, &river, None));
         assert_eq!(colors.len(), 4);
         let mut speeds: Vec<f32> = colors.iter().map(|c| c[0]).collect();
         speeds.sort_by(f32::total_cmp);
@@ -1516,12 +1594,12 @@ mod tests {
         quad.uvs[1] = vec![[3.0, 1.0]; quad.positions.len()];
         let leaf = [Some(material_of("leaf0000"))];
         let mut plain = Importer::new(&project, dir.join("out"), "");
-        assert!(!has_uv1(&plain.build_glb(&quad, &leaf)));
+        assert!(!has_uv1(&plain.build_glb(&quad, &leaf, None)));
         let mut custom = Importer::new(&project, dir.join("out"), "");
         custom.custom_shader("Assets/Leaf.shader");
-        assert!(has_uv1(&custom.build_glb(&quad, &leaf)));
+        assert!(has_uv1(&custom.build_glb(&quad, &leaf, None)));
         quad.uvs[1].clear();
-        assert!(!has_uv1(&custom.build_glb(&quad, &leaf)), "none to keep");
+        assert!(!has_uv1(&custom.build_glb(&quad, &leaf, None)), "none to keep");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1537,14 +1615,14 @@ mod tests {
         let wall = [Some(material_of("wall0000"))];
         let mut plain = Importer::new(&project, dir.join("out"), "");
         assert!(
-            !has_colors(&plain.build_glb(&cube, &wall)),
+            !has_colors(&plain.build_glb(&cube, &wall, None)),
             "Lit-style shaders ignore them"
         );
         let mut custom = Importer::new(&project, dir.join("out"), "");
         custom.custom_shader("Assets/Wall.shader");
-        assert!(has_colors(&custom.build_glb(&cube, &wall)));
+        assert!(has_colors(&custom.build_glb(&cube, &wall, None)));
         cube.colors.clear();
-        assert!(!has_colors(&custom.build_glb(&cube, &wall)), "none to keep");
+        assert!(!has_colors(&custom.build_glb(&cube, &wall, None)), "none to keep");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

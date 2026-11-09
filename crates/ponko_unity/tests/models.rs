@@ -463,3 +463,253 @@ fn fbx_inbetween_frames_survive_glb_export() {
         2
     );
 }
+
+/// A 1 x 1 RGBA PNG.
+const PNG: &[u8] = &[
+    137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196,
+    137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 156, 99, 248, 223, 224, 240, 31, 0, 7, 0, 2, 191, 43, 215, 199, 226, 0, 0,
+    0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+];
+
+/// The `.meta` of `textured.fbx`: its mesh and both materials by id.
+const TEXTURED_META: &str = "guid: plate000
+ModelImporter:
+  internalIDToNameTable:
+  - first:
+      43: 4300000
+    second: Plate
+  - first:
+      21: 2100000
+    second: Paint
+  - first:
+      21: 2100002
+    second: Tint
+";
+
+/// Imports a prefab drawing `textured.fbx` (at `Assets/Props/Plate.fbx`,
+/// its `.meta` being `meta`) with `material`, with the texture at
+/// `Assets/Props/Textures/paint.png` and `files` written too; the glTF
+/// JSON of the `.glb` written and the report.
+fn import_textured(name: &str, meta: &str, material: &str, files: &[(&str, &str)]) -> (Json, Report) {
+    let dir = std::env::temp_dir().join(format!("ponko_unity_textured_{name}_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let props = dir.join("Assets/Props");
+    std::fs::create_dir_all(props.join("Textures")).unwrap();
+    std::fs::write(props.join("Plate.fbx"), include_bytes!("fixtures/textured.fbx")).unwrap();
+    std::fs::write(props.join("Plate.fbx.meta"), meta).unwrap();
+    std::fs::write(props.join("Textures/paint.png"), PNG).unwrap();
+    std::fs::write(props.join("Textures/paint.png.meta"), "guid: paint000\n").unwrap();
+    for (path, text) in files {
+        std::fs::write(dir.join(path), text).unwrap();
+    }
+    let prefab = PREFAB
+        .replace("guid: lid00000", "guid: plate000")
+        .replace("m_Materials: []", &format!("m_Materials:\n  - {material}"));
+    let project = Project::open(&dir).unwrap();
+    let hierarchy = Hierarchy::build(&UnityFile::parse(&prefab).unwrap(), &project).unwrap();
+    let out = dir.join("out");
+    let mut importer = Importer::new(&project, &out, "");
+    let scene = importer.scene(&hierarchy).unwrap();
+    let report = importer.finish().unwrap();
+    let path = scene["entities"][0]["components"]["Model"]["mesh"].as_str().unwrap();
+    let bytes = std::fs::read(out.join(path)).unwrap();
+    let len = u32::from_le_bytes(bytes[12..16].try_into().unwrap()) as usize;
+    let doc = serde_json::from_slice(&bytes[20..20 + len]).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    (doc, report)
+}
+
+#[test]
+fn embedded_model_materials_find_their_texture_by_name() {
+    let (doc, report) = import_textured(
+        "paint",
+        TEXTURED_META,
+        "{fileID: 2100000, guid: plate000, type: 3}",
+        &[],
+    );
+    let material = &doc["materials"][0];
+    assert_eq!(material["name"], "Paint");
+    // Saved as ../art/paint.png, which isn't there: found in Textures/.
+    let texture = material["pbrMetallicRoughness"]["baseColorTexture"]["index"]
+        .as_u64()
+        .unwrap();
+    let image = doc["textures"][texture as usize]["source"].as_u64().unwrap();
+    assert_eq!(doc["images"][image as usize]["uri"], "textures/paint000.png");
+    // With a texture, the color is white times the diffuse factor.
+    assert_eq!(
+        material["pbrMetallicRoughness"]["baseColorFactor"],
+        serde_json::json!([1.0, 1.0, 1.0, 1.0])
+    );
+    assert_eq!(material["pbrMetallicRoughness"]["roughnessFactor"], 1.0, "no shininess");
+    assert!(material.get("alphaMode").is_none());
+    assert_eq!(report.textures, 1);
+    assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+}
+
+#[test]
+fn embedded_model_materials_keep_color_opacity_and_shininess() {
+    let (doc, _) = import_textured("tint", TEXTURED_META, "{fileID: 2100002, guid: plate000, type: 3}", &[]);
+    let material = &doc["materials"][0];
+    assert_eq!(material["name"], "Tint");
+    let pbr = &material["pbrMetallicRoughness"];
+    assert!(pbr.get("baseColorTexture").is_none());
+    // The file's linear color goes to sRGB in Unity and back to linear in
+    // glTF: the same 0.214 again. Opacity 0.5 makes it transparent.
+    let color: Vec<f64> = pbr["baseColorFactor"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c.as_f64().unwrap())
+        .collect();
+    assert!((color[0] - 0.214041).abs() < 1e-3, "{color:?}");
+    assert!((color[3] - 0.5).abs() < 1e-6);
+    assert_eq!(material["alphaMode"], "BLEND");
+    // Smoothness is the square root of shininess / 100.
+    assert!((pbr["roughnessFactor"].as_f64().unwrap() - 0.5).abs() < 1e-6);
+}
+
+#[test]
+fn embedded_model_materials_use_hashed_ids_and_remaps() {
+    // Unity 2019.3+ leaves the table empty and hashes the names; the
+    // `.meta` may map a material to a material asset instead.
+    let meta = "guid: plate000
+ModelImporter:
+  externalObjects:
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
+      name: Tint
+    second: {fileID: 2100000, guid: redmat00, type: 2}
+  internalIDToNameTable:
+  - first:
+      43: 4300000
+    second: Plate
+";
+    let red = "%YAML 1.1\n--- !u!21 &2100000\nMaterial:\n  m_Name: Red\n  m_SavedProperties:\n    m_Colors:\n    - _BaseColor: {r: 1, g: 0, b: 0, a: 1}\n";
+    // xxHash64 of "Type:Material->Tint0": the scheme of meshes' ids.
+    let tint = "{fileID: 3047379822089669152, guid: plate000, type: 3}";
+    let files = [("Assets/Red.mat", red), ("Assets/Red.mat.meta", "guid: redmat00\n")];
+    let (doc, _) = import_textured("remap", meta, tint, &files);
+    assert_eq!(doc["materials"][0]["name"], "Red");
+    let (doc, _) = import_textured("hashed", &meta.replace("name: Tint", "name: Other"), tint, &files);
+    assert_eq!(doc["materials"][0]["name"], "Tint");
+    // Materials import turned off: drawn plain.
+    let off = format!("{meta}  materials:\n    materialImportMode: 0\n").replace("name: Tint", "name: Other");
+    let (doc, report) = import_textured("off", &off, tint, &files);
+    assert_eq!(doc["materials"][0]["name"], "plain");
+    assert_eq!(report.skipped["a material that can't be read (drawn plain)"], 1);
+}
+
+#[test]
+fn model_clip_splits_come_from_the_animations_block() {
+    let dir = std::env::temp_dir().join(format!("ponko_unity_clip_splits_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let assets = dir.join("Assets");
+    std::fs::create_dir_all(&assets).unwrap();
+    std::fs::write(assets.join("Lid.fbx"), include_bytes!("fixtures/skinned.fbx")).unwrap();
+    // Where Unity writes them, with other settings around.
+    std::fs::write(
+        assets.join("Lid.fbx.meta"),
+        "guid: lid00000\nModelImporter:\n  fileIDToRecycleName:\n    4300000: Lid\n  animations:\n    legacyGenerateAnimations: 4\n    clipAnimations:\n    - serializedVersion: 16\n      name: Open\n      takeName: Move\n      firstFrame: 6\n      lastFrame: 18\n      loopTime: 1\n      loopBlend: 0\n    - serializedVersion: 16\n      name: Shut\n      takeName: Move\n      firstFrame: 18\n      lastFrame: 24\n      loopTime: 0\n    isReadable: 0\n  meshes:\n    globalScale: 1\n",
+    )
+    .unwrap();
+    let prefab = PREFAB.replace(
+        "--- !u!23 &4\nMeshRenderer:",
+        "--- !u!137 &4\nSkinnedMeshRenderer:\n  m_Mesh: {fileID: 4300000, guid: lid00000, type: 3}",
+    );
+    let project = Project::open(&dir).unwrap();
+    let hierarchy = Hierarchy::build(&UnityFile::parse(&prefab).unwrap(), &project).unwrap();
+    let out = dir.join("out");
+    let mut importer = Importer::new(&project, &out, "");
+    let scene = importer.scene(&hierarchy).unwrap();
+    let path = scene["entities"][0]["components"]["Model"]["mesh"].as_str().unwrap();
+    let bytes = std::fs::read(out.join(path)).unwrap();
+    let gltf = gltf::Gltf::from_slice(&bytes).unwrap();
+    let len = u32::from_le_bytes(bytes[12..16].try_into().unwrap()) as usize;
+    let doc: Json = serde_json::from_slice(&bytes[20..20 + len]).unwrap();
+    let clips: Vec<_> = gltf
+        .animations()
+        .map(|a| {
+            let time = a
+                .channels()
+                .map(|c| {
+                    let reader = c.reader(|_| gltf.blob.as_deref());
+                    reader.read_inputs().unwrap().fold(0.0f32, f32::max)
+                })
+                .fold(0.0f32, f32::max);
+            let looping = doc["animations"][a.index()]["extras"]["loop"] == true;
+            (a.name().unwrap().to_owned(), looping, time)
+        })
+        .collect();
+    // 24 frames a second: 12 and 6 frames long.
+    assert_eq!(clips.len(), 2, "{clips:?}");
+    assert_eq!((clips[0].0.as_str(), clips[0].1), ("Open", true));
+    assert!((clips[0].2 - 0.5).abs() < 1e-5);
+    assert_eq!((clips[1].0.as_str(), clips[1].1), ("Shut", false));
+    assert!((clips[1].2 - 0.25).abs() < 1e-5);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn standalone_clip_paths_resolve_from_the_animators_object() {
+    let dir = std::env::temp_dir().join(format!("ponko_unity_animator_root_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let assets = dir.join("Assets");
+    std::fs::create_dir_all(&assets).unwrap();
+    std::fs::write(assets.join("Lid.fbx"), include_bytes!("fixtures/skinned.fbx")).unwrap();
+    std::fs::write(
+        assets.join("Lid.fbx.meta"),
+        "guid: lid00000\nModelImporter:\n  fileIDToRecycleName:\n    4300000: Lid\n",
+    )
+    .unwrap();
+    // Character (Animator) > Body (the renderer), and Character >
+    // Armature > Hips (the root bone).
+    let mut prefab = String::from("%YAML 1.1\n");
+    for (id, name, parent) in [
+        (1, "Character", 0),
+        (11, "Body", 2),
+        (21, "Armature", 2),
+        (31, "Hips", 22),
+    ] {
+        prefab.push_str(&format!("--- !u!1 &{id}\nGameObject:\n  m_Name: {name}\n  m_IsActive: 1\n--- !u!4 &{}\nTransform:\n  m_GameObject: {{fileID: {id}}}\n  m_Father: {{fileID: {parent}}}\n  m_LocalRotation: {{x: 0, y: 0, z: 0, w: 1}}\n  m_LocalPosition: {{x: 0, y: 0, z: 0}}\n  m_LocalScale: {{x: 1, y: 1, z: 1}}\n", id + 1));
+    }
+    prefab.push_str("--- !u!95 &3\nAnimator:\n  m_GameObject: {fileID: 1}\n  m_Enabled: 1\n");
+    prefab.push_str("--- !u!137 &13\nSkinnedMeshRenderer:\n  m_GameObject: {fileID: 11}\n  m_Enabled: 1\n  m_Mesh: {fileID: 4300000, guid: lid00000, type: 3}\n  m_Bones: [{fileID: 32}]\n  m_RootBone: {fileID: 32}\n  m_Materials: []\n");
+    let clip = AnimationClip::parse("--- !u!74 &1\nAnimationClip:\n  m_Name: Bob\n  m_SampleRate: 2\n  m_AnimationClipSettings: {m_StartTime: 0, m_StopTime: 1}\n  m_PositionCurves:\n  - path: Armature/Hips\n    curve:\n      m_Curve:\n      - {time: 0, value: {x: 0, y: 0, z: 0}}\n      - {time: 1, value: {x: 0, y: 2, z: 0}}\n  - path: Armature\n    curve:\n      m_Curve:\n      - {time: 0, value: {x: 0, y: 0, z: 0}}\n      - {time: 1, value: {x: 3, y: 0, z: 0}}\n").unwrap();
+    let project = Project::open(&dir).unwrap();
+    let hierarchy = Hierarchy::build(&UnityFile::parse(&prefab).unwrap(), &project).unwrap();
+    let out = dir.join("out");
+    let mut importer = Importer::new(&project, &out, "");
+    importer.animation_clips([clip]);
+    let scene = importer.scene(&hierarchy).unwrap();
+    let report = importer.finish().unwrap();
+    assert!(
+        !report.skipped.keys().any(|k| k.contains("unresolved")),
+        "{:?}",
+        report.skipped
+    );
+    let path = scene["entities"][0]["components"]["Model"]["mesh"].as_str().unwrap();
+    let bytes = std::fs::read(out.join(path)).unwrap();
+    let gltf = gltf::Gltf::from_slice(&bytes).unwrap();
+    let bob = gltf.animations().find(|a| a.name() == Some("Bob")).unwrap();
+    let mut targets: Vec<_> = bob
+        .channels()
+        .filter(|c| c.target().property() == gltf::animation::Property::Translation)
+        .map(|c| {
+            let reader = c.reader(|_| gltf.blob.as_deref());
+            let gltf::animation::util::ReadOutputs::Translations(values) = reader.read_outputs().unwrap() else {
+                panic!("translation")
+            };
+            (c.target().node().name().unwrap().to_owned(), values.last().unwrap())
+        })
+        .collect();
+    targets.sort_by(|a, b| a.0.cmp(&b.0));
+    // Both bind, Armature too, though it's above the root bone. (Ponko's
+    // mirror along Z leaves X and Y as they are.)
+    assert_eq!(targets.len(), 2, "{targets:?}");
+    assert_eq!(targets[0].0, "Armature");
+    assert!((targets[0].1[0] - 3.0).abs() < 1e-5, "{targets:?}");
+    assert_eq!(targets[1].0, "Hips");
+    assert!((targets[1].1[1] - 2.0).abs() < 1e-5, "{targets:?}");
+    std::fs::remove_dir_all(dir).unwrap();
+}
