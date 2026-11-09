@@ -111,6 +111,7 @@ fn the_flat_graphics_spellings_still_forward() {
         assert!(ctx.try_load_font("missing.ttf").is_err());
         assert!(ctx.gpu_capabilities().is_none());
         ctx.save_screenshot("unused.png"); // headless: does nothing
+        assert_eq!(ctx.pipeline_stats(), ctx.gfx.pipeline_stats());
     });
 }
 

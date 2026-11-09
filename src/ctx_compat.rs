@@ -700,6 +700,12 @@ impl Ctx {
     }
 
     #[doc(hidden)]
+    #[deprecated(note = "use `ctx.gfx.pipeline_stats`")]
+    pub fn pipeline_stats(&self) -> PipelineStats {
+        self.gfx.pipeline_stats()
+    }
+
+    #[doc(hidden)]
     #[deprecated(note = "use `ctx.audio.play_at`")]
     #[cfg(feature = "3d")]
     pub fn play_sound_at(&mut self, sound: &Sound, position: Vec3, settings: AudioSettings3D) -> Playing {
@@ -752,7 +758,7 @@ impl Ctx {
 
     #[doc(hidden)]
     #[deprecated(note = "use `ctx.assets.reloaded_textures`")]
-    pub fn reloaded_textures(&self) -> &[Texture] {
+    pub fn reloaded_textures(&self) -> &[crate::Texture] {
         self.assets.reloaded_textures()
     }
 
