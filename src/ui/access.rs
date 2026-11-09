@@ -153,9 +153,9 @@ pub struct UiAccessNode {
 /// ```
 /// use ponko::*;
 /// let mut ui = Ui::default();
-/// let root = ui.root().id();
+/// let root = ui.root().layout(UiLayout::fill()).id();
 /// ui.button(root, "Play");
-/// ui.slider(root).value(0.25).accessible_name("Volume");
+/// ui.slider(root).layout(UiLayout::row(20.0)).value(0.25).accessible_name("Volume");
 /// ui.push_screen(root, false);
 /// ui.layout(vec2(800.0, 600.0));
 /// assert_eq!(

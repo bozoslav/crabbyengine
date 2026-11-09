@@ -7,6 +7,16 @@ says what that covers.
 
 ## [Unreleased]
 
+### Retained UI accessibility semantics (first stage)
+
+- Add `Ui::accessibility_tree()`, a deterministic snapshot (`UiAccessTree`,
+  `UiAccessNode`, `UiRole`, `UiAccessValue`) of roles, names, values, bounds,
+  focus and disabled/inert/modal states over the retained UI hierarchy.
+  Hidden subtrees are left out and modal screens hide the screens below.
+- Add `Ui::set_accessible_name`, `Ui::accessible_name` and
+  `UiBuilder::accessible_name`. Names never change layout, focus or events.
+- No platform screen-reader adapter or C/C++ binding yet; both are follow-ups.
+
 ### Explicit runtime phases (first stage)
 
 - Add `Phase` and `Game::add(phase, system)` for sequential fixed-tick and
