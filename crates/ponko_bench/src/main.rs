@@ -8,10 +8,10 @@
 mod actions;
 mod archetypes;
 mod membership;
+mod nav3d;
 mod net;
 #[allow(dead_code)] // spike: API surface kept for the M3 port
 mod own;
-mod nav3d;
 mod physics;
 mod physics3d;
 mod query_cache;
