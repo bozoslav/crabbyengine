@@ -163,13 +163,14 @@ existing spatial voices does not allocate engine-side buffers each frame.
 </div>
 </div>
 
-`load_stream` reads the header and keeps the native filesystem path rather
-than decoding the entire clip. Each playback opens a separate decoder;
+`load_stream` reads the header and keeps the file's path (or, for music from
+an [asset source](asset-sources.md), its still-encoded bytes in memory)
+rather than decoding the entire clip. Each playback opens a separate decoder;
 Kira performs buffered decoding on its worker thread. The returned `Sound`
 works with 2D playback, positional playback, buses, effects and looping.
-The file must remain available until playback ends. Streaming files are
-not hot reloaded and currently require native filesystem assets (web builds
-should use `load_sound` for prefetched assets). With audio disabled, stream
-handles are silent and report zero duration. Headless playback never creates
-tracks, decoder workers or an audio device. These additions currently have
-Rust APIs only; C and C++ bindings are deferred.
+A file must remain available until playback ends. Streams are not hot
+reloaded. In a browser there are no files to stream from: `load_stream`
+decodes the fetched (or source) bytes whole, like `load_sound`.
+`try_load_stream` returns errors instead of panicking. With audio disabled,
+stream handles are silent and report zero duration. Headless playback never
+creates tracks, decoder workers or an audio device.

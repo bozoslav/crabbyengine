@@ -1321,14 +1321,13 @@ impl Ctx {
     /// Every load by name goes through it: [`load_texture`](Self::load_texture),
     /// [`load_font`](Self::load_font), [`load_resource`](Self::load_resource),
     /// [`load_scene`](Self::load_scene), [`spawn_prefab`](Self::spawn_prefab)
-    /// (and the textures their scenes name), [`load_sound`](Self::load_sound),
+    /// (and the assets their scenes name, including fields registered with
+    /// [`scene_asset_field`](Self::scene_asset_field)),
+    /// [`load_sound`](Self::load_sound), [`load_stream`](Self::load_stream),
     /// [`load_asset_with`](Self::load_asset_with) and, with the `3d` feature,
-    /// meshes, skeletons and animation clips (and the files a glTF refers to),
-    /// shaders, screen effects and compute passes.
-    ///
-    /// Not covered yet: [`load_stream`](Self::load_stream) (music streamed
-    /// from a file), texture arrays and reflection probe images still come
-    /// only from `assets/`.
+    /// meshes, skeletons and animation clips (and the files a glTF refers
+    /// to), texture arrays, reflection probe images, shaders, screen effects
+    /// and compute passes.
     ///
     /// Assets from sources are never hot reloaded: only files found in
     /// `assets/` are watched. See [`AssetSource`](crate::AssetSource) for

@@ -31,8 +31,19 @@ use std::sync::Arc;
 /// [`id`](Self::id) and its name, so the same name in two sources is two
 /// assets, and loading a name again returns the first handle without
 /// reading the source again. This holds for every kind of asset: textures,
-/// fonts, data, scenes, prefabs, sounds and (with the `3d` feature) meshes,
-/// skeletons, animation clips, shaders, screen effects and compute passes.
+/// fonts, data, scenes, prefabs, sounds, streamed music and (with the `3d`
+/// feature) meshes, skeletons, animation clips, shaders, screen effects and
+/// compute passes. Images a glTF file refers to are shared between models
+/// by the source they were found in, so two sources with the same image
+/// name give two images. Texture arrays, reflection probe images and
+/// [`load_asset_with`](crate::Ctx::load_asset_with) read their source on
+/// every call (they aren't cached).
+///
+/// # In a browser
+///
+/// Added sources work the same in web builds: they are asked first, and
+/// what they have is never fetched. The default source there is the files
+/// listed in `assets/index.json`, fetched before setup.
 ///
 /// # Hot reload
 ///

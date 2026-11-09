@@ -603,6 +603,7 @@ fn a_custom_asset_field_that_fails_to_load_fails_the_scene_with_its_name() {
     });
 }
 
+// ANCHOR: portal
 /// Levels of a custom format, decoded by the game and kept in a resource.
 #[derive(Default)]
 struct Levels(std::collections::HashMap<String, Tiles>);
@@ -611,6 +612,7 @@ struct Levels(std::collections::HashMap<String, Tiles>);
 struct Portal {
     level: String,
 }
+// ANCHOR_END: portal
 
 #[test]
 fn a_custom_asset_field_can_load_a_custom_decoded_asset() {
@@ -623,6 +625,7 @@ fn a_custom_asset_field_can_load_a_custom_decoded_asset() {
         scene = serde_json::to_string(&ctx.world.save()).unwrap();
     });
     game().run_headless(0, |ctx| {
+        // ANCHOR: scene_asset_field
         ctx.world.reflect::<Portal>();
         ctx.world.insert_resource(Levels::default());
         ctx.scene_asset_field::<Portal>("level", |ctx, name| {
@@ -630,6 +633,7 @@ fn a_custom_asset_field_can_load_a_custom_decoded_asset() {
             ctx.world.resource_mut::<Levels>().0.insert(name.to_string(), tiles);
             Ok(())
         });
+        // ANCHOR_END: scene_asset_field
         ctx.add_asset_source(
             MemorySource::new("mem")
                 .with("world.json", scene.clone())
