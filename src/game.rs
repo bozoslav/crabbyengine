@@ -94,6 +94,8 @@ pub struct Game {
     /// Reload asset and data files when they change (`PONKO_HOT_RELOAD` overrides).
     hot_reload: bool,
     inspector: bool,
+    /// Scheduled input from `input_scenario`, fed at the start of sim ticks.
+    input_scenario: Option<crate::InputScenario>,
 }
 
 type SystemFn = Box<dyn FnMut(&mut Ctx)>;
@@ -255,6 +257,7 @@ impl Game {
             control: control::env_flag(control::ENV_CONTROL),
             hot_reload: cfg!(debug_assertions),
             inspector: cfg!(debug_assertions),
+            input_scenario: None,
         }
     }
 
@@ -550,6 +553,48 @@ impl Game {
         self
     }
 
+    /// Feeds scheduled input into the game by simulation tick, for
+    /// reproducible tests (off unless called). Before the simulation systems
+    /// of each tick run, the scenario's steps for that tick go through
+    /// [`Ctx::feed_input`], so [named actions](crate::ActionMap) and raw input
+    /// queries see them exactly like live input. Calling it again replaces
+    /// the previous scenario.
+    ///
+    /// Edges last until the end of the frame. Headless runs have one tick per
+    /// frame, so a press is visible to exactly one tick. A windowed frame that
+    /// runs several ticks shows it to the rest of that frame's ticks, as with
+    /// live input. Live input is still read alongside the scenario.
+    ///
+    /// ```
+    /// use ponko::*;
+    ///
+    /// struct Jumps(u32);
+    ///
+    /// fn jump(ctx: &mut Ctx) {
+    ///     if ctx.action_pressed("jump") {
+    ///         ctx.world.query::<&mut Jumps>().for_each(|j| j.0 += 1);
+    ///     }
+    /// }
+    ///
+    /// let scenario = InputScenario::new()
+    ///     .at(3, InputEvent::Key(Key::Space, true))
+    ///     .at(6, InputEvent::Key(Key::Space, false));
+    /// let mut world = Game::new("test", 1, 1)
+    ///     .sim_system(jump)
+    ///     .input_scenario(scenario)
+    ///     .run_headless(10, |ctx| {
+    ///         let mut actions = ActionMap::default();
+    ///         actions.set("jump", Action::Button(vec![ButtonBinding::Key(Key::Space)]));
+    ///         ctx.set_actions(actions);
+    ///         ctx.world.spawn((Jumps(0),));
+    ///     });
+    /// assert_eq!(world.query::<&Jumps>().iter().next().unwrap().0, 1);
+    /// ```
+    pub fn input_scenario(mut self, scenario: crate::InputScenario) -> Self {
+        self.input_scenario = Some(scenario);
+        self
+    }
+
     /// Opens the control endpoint, so tools such as the `ponko-mcp` agent
     /// bridge can inspect and drive this game while it runs: list and edit
     /// entities (through [reflection](crate::WorldReflect)), pause, step,
@@ -759,6 +804,9 @@ impl Game {
     /// One simulation tick: every sim system once, then the tick counter.
     fn run_sim_tick(&mut self, ctx: &mut Ctx) {
         let tick = ctx.sim_tick();
+        if let Some(scenario) = &mut self.input_scenario {
+            scenario.apply(ctx, tick);
+        }
         for (i, s) in self.sim_systems.iter_mut().enumerate() {
             if tick % u64::from(s.every) != u64::from(s.phase) {
                 continue;
