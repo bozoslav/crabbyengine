@@ -161,6 +161,18 @@ pub(crate) fn browser_gl_has_no_multisampled_textures(backend: wgpu::Backend) ->
     cfg!(target_arch = "wasm32") && backend == wgpu::Backend::Gl
 }
 
+/// The shader source for a frame of `samples` per pixel. Sources are written
+/// for the multisampled frame; with one sample the scene depth the mesh
+/// prelude declares is an ordinary depth texture (`textureLoad` takes a mip
+/// level there instead of a sample index, and the shaders pass 0 for both).
+fn for_samples(source: &str, samples: u32) -> std::borrow::Cow<'_, str> {
+    if samples > 1 {
+        std::borrow::Cow::Borrowed(source)
+    } else {
+        std::borrow::Cow::Owned(source.replace("texture_depth_multisampled_2d", "texture_depth_2d"))
+    }
+}
+
 /// The frame's camera and light, as the shader reads them.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -1114,7 +1126,7 @@ impl Renderer3D {
                     ty: wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Depth,
                         view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: true,
+                        multisampled: samples > 1,
                     },
                     count: None,
                 },
@@ -1459,7 +1471,7 @@ impl Renderer3D {
         });
         let sky_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("3d sky"),
-            source: wgpu::ShaderSource::Wgsl(format!("{MESH_PRELUDE}\n{SKY}").into()),
+            source: wgpu::ShaderSource::Wgsl(for_samples(&format!("{MESH_PRELUDE}\n{SKY}"), samples).into_owned().into()),
         });
         let sky_pipeline = |label, layout: &wgpu::PipelineLayout, entry_point, samples, depth| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -1816,7 +1828,7 @@ impl Renderer3D {
     fn compile_effect(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, String> {
         let source = compose_effect(user);
         check_shader(name, &source)?;
-        let (module, pipeline) = build_effect(device, &self.layout, name, &source);
+        let (module, pipeline) = build_effect(device, &self.layout, name, &for_samples(&source, self.samples));
         self.effect_pipelines.push(pipeline);
         self.effect_modules.push(module);
         self.effect_target_pipelines.push(None);
@@ -1835,7 +1847,7 @@ impl Renderer3D {
         let source = compose_effect(user);
         check_shader(name, &source)?;
         if let Some(pipeline) = self.effect_pipelines.get_mut(id as usize) {
-            let (module, new) = build_effect(device, &self.layout, name, &source);
+            let (module, new) = build_effect(device, &self.layout, name, &for_samples(&source, self.samples));
             *pipeline = new;
             self.effect_modules[id as usize] = module;
             // Rebuilt from the new shader when next used.
@@ -3479,6 +3491,18 @@ impl Renderer3D {
     }
 
     /// Records the occlusion depth grid's reduction, timed as a compute pass.
+    /// Where the lit frame's color pass draws, and what it resolves into:
+    /// the multisampled color target resolving into the lit image, or with
+    /// one sample the lit image itself.
+    fn frame_color<'a>(&self, targets: &'a Targets) -> (&'a wgpu::TextureView, Option<&'a wgpu::TextureView>) {
+        let lit = targets.lit_view(self.taa_on);
+        if self.samples > 1 {
+            (&targets.color, Some(lit))
+        } else {
+            (lit, None)
+        }
+    }
+
     fn record_occlusion(&self, encoder: &mut wgpu::CommandEncoder, frame: &FrameParts<'_, '_>) {
         let timestamps = (frame.time)("occlusion depth").map(|t| wgpu::ComputePassTimestampWrites {
             query_set: t.query_set,
@@ -4101,13 +4125,14 @@ impl Renderer3D {
                     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("3d opaque"),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &targets.color,
+                            view: self.frame_color(targets).0,
                             depth_slice: None,
-                            resolve_target: Some(targets.lit_view(self.taa_on)),
+                            resolve_target: self.frame_color(targets).1,
                             ops: wgpu::Operations {
                                 // Alpha 0 marks the background for the post pass.
                                 load: wgpu::LoadOp::Clear(wgpu::Color { a: 0.0, ..clear }),
-                                store: if split {
+                                // Without multisampling this is the lit frame itself.
+                                store: if split || self.samples <= 1 {
                                     wgpu::StoreOp::Store
                                 } else {
                                     wgpu::StoreOp::Discard
@@ -4171,12 +4196,16 @@ impl Renderer3D {
                     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("3d transparent"),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &targets.color,
+                            view: self.frame_color(targets).0,
                             depth_slice: None,
-                            resolve_target: Some(targets.lit_view(self.taa_on)),
+                            resolve_target: self.frame_color(targets).1,
                             ops: wgpu::Operations {
                                 load: wgpu::LoadOp::Load,
-                                store: wgpu::StoreOp::Discard,
+                                store: if self.samples <= 1 {
+                                    wgpu::StoreOp::Store
+                                } else {
+                                    wgpu::StoreOp::Discard
+                                },
                             },
                         })],
                         // Read-only depth: the shaders sample it at the same time.
@@ -4527,12 +4556,16 @@ impl Renderer3D {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("3d target camera"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &target.color,
+                view: if self.samples > 1 { &target.color } else { &target.resolve },
                 depth_slice: None,
-                resolve_target: Some(&target.resolve),
+                resolve_target: (self.samples > 1).then_some(&target.resolve),
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(clear),
-                    store: wgpu::StoreOp::Discard,
+                    store: if self.samples > 1 {
+                        wgpu::StoreOp::Discard
+                    } else {
+                        wgpu::StoreOp::Store
+                    },
                 },
             })],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
@@ -5153,7 +5186,7 @@ fn build_pipelines(
 ) -> ShaderPipelines {
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some(name),
-        source: wgpu::ShaderSource::Wgsl(source.into()),
+        source: wgpu::ShaderSource::Wgsl(for_samples(source, samples).into_owned().into()),
     });
     let builder = SideBuilder {
         device: device.clone(),
