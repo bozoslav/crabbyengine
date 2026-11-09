@@ -41,7 +41,6 @@ pub(super) struct Inputs<'a> {
 
 const NO_TIMESTAMPS: &str = "the GPU adapter doesn't support timestamp queries, so GPU time can't be measured";
 const NOT_TIMED_YET: &str = "no frame's GPU timestamps have come back yet";
-const UPLOADS: &str = "per-frame upload bytes aren't counted by the renderer yet";
 const MEMORY: &str = "GPU memory isn't estimated by the renderer yet";
 const FRUSTUM: &str =
     "models skipped by frustum culling aren't counted yet; see counts.occluded_models for occlusion culling";
@@ -51,20 +50,19 @@ pub(super) fn render_inspector(inputs: &Inputs<'_>) -> Value {
     let mut gone = |path: &str, why: &str| {
         unavailable.insert(path.into(), json!(why));
     };
-    gone("upload_bytes", UPLOADS);
     gone("memory_estimate_bytes", MEMORY);
 
-    let (gpu_timing, cpu_ms, gpu_ms, counts) = match inputs.source {
+    let (gpu_timing, cpu_ms, gpu_ms, counts, upload_bytes) = match inputs.source {
         Source::Headless | Source::NotDrawn => {
             let why = match inputs.source {
                 Source::Headless => "headless runs draw nothing",
                 _ => "no frame has been drawn yet",
             };
-            for path in ["cpu_ms", "gpu_ms", "counts"] {
+            for path in ["cpu_ms", "gpu_ms", "counts", "upload_bytes"] {
                 gone(path, why);
             }
             let timing = json!({ "available": false, "frames_timed": 0 });
-            (timing, Value::Null, Value::Null, Value::Null)
+            (timing, Value::Null, Value::Null, Value::Null, Value::Null)
         }
         Source::Drawn(detail) => {
             let s = &inputs.stats;
@@ -121,7 +119,8 @@ pub(super) fn render_inspector(inputs: &Inputs<'_>) -> Value {
                 "available": detail.gpu_timestamps,
                 "frames_timed": detail.gpu_frames_timed,
             });
-            (timing, cpu, json!({ "frame": frame, "passes": passes }), counts)
+            let uploads = json!(s.uploads.bytes());
+            (timing, cpu, json!({ "frame": frame, "passes": passes }), counts, uploads)
         }
     };
     let quality = match &inputs.quality {
@@ -142,7 +141,7 @@ pub(super) fn render_inspector(inputs: &Inputs<'_>) -> Value {
         "cpu_ms": cpu_ms,
         "gpu_ms": gpu_ms,
         "counts": counts,
-        "upload_bytes": null,
+        "upload_bytes": upload_bytes,
         "memory_estimate_bytes": null,
         "quality": quality,
         "unavailable": unavailable,
@@ -281,6 +280,7 @@ mod tests {
         ] {
             assert!(v.get(key).is_some(), "{key} missing from {v}");
         }
+        assert!(v["upload_bytes"].is_u64(), "a drawn frame counts its uploads: {v}");
         for key in ["total", "extract", "prepare", "encode", "submit", "other"] {
             assert!(v["cpu_ms"][key].is_number(), "cpu_ms.{key}: {v}");
         }

@@ -237,7 +237,8 @@ are per frame.
 | `cpu_ms` | the renderer's CPU time: `total`, split into `extract` (culling, collecting models), `prepare` (uploading 3D data), `encode` (recording command buffers), `submit` and `other` (sprites, overlays) |
 | `gpu_ms` | `frame` and `passes` (`[{name, ms}]` in the order they run), smoothed |
 | `counts` | `draw_calls`, `sprites`, `models`, `triangles`, `shadow_models`, `shadow_triangles`, `occluded_models`, `frustum_culled_models`, `pipelines_built` |
-| `upload_bytes`, `memory_estimate_bytes` | not measured yet |
+| `upload_bytes` | bytes the renderer uploaded to the GPU in the last drawn frame (`render.uploads` in `perf.get` splits them by kind) |
+| `memory_estimate_bytes` | not measured yet |
 | `quality` | the active [graphics quality](3d.md) `level` (`low` ... `ultra`, or `custom`) and every setting (3D builds) |
 | `unavailable` | a reason for every metric that is `null` |
 
