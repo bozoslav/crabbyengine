@@ -53,7 +53,8 @@ impl Ctx {
     /// | Retained UI, camera, lighting, input, time, random seed | Kept: they belong to the game, not the scene. |
     /// | 3D UI panels (`UiPanel3D`, with the `3d` feature) | Components: gone with their entities. Which panel had the keyboard is forgotten, so a new panel with the old one's id doesn't get it without a click. |
     /// | Temporal history (TAA, temporal AO, reflections) | Reset, as by `reset_temporal_history` (`3d` feature): the new scene's models have no motion from the old one's. |
-    /// | Lockstep networking ([`net`](Self::net)) | `load_scene` is refused while a session is connecting or running: it would change only this peer. Use [`load_scene_lockstep`](Self::load_scene_lockstep) from a simulation system, which every peer runs at the same tick. After a session is lost, loads are local again. |
+    /// | Lockstep networking ([`net`](Self::net)) | Not synchronized: a load changes only this peer. In a session, load from a simulation system (every peer runs it at the same tick) or in setup (every peer runs it before the first tick); [`load_scene_lockstep`](Self::load_scene_lockstep) is the same call, named for that. Loads from frame, late and draw systems, and tools' loads (the editor's Stop, the control endpoint), are refused while a session is connecting or running. After a session is lost, loads are local again. |
+    /// | Tools (the inspector) | Its selection is cleared: the id may name another entity now. |
     ///
     /// The physics rule also holds for [`WorldReflect::load`] called
     /// directly on `ctx.world`, except that bodies are removed at the next
@@ -63,21 +64,22 @@ impl Ctx {
     ///
     /// If the file is missing or isn't a scene, names a component or
     /// resource that isn't reflected, or names an asset that can't be
-    /// loaded, and while a lockstep session runs (see above). The world,
+    /// loaded, or when a lockstep session runs and the load would change
+    /// only this peer (see above). The world,
     /// commands, physics and every other service are unchanged then; assets
     /// the scene named that did load before the failure stay cached.
     pub fn load_scene(&mut self, path: &str) -> Result<(), String> {
-        self.check_local_load().map_err(|e| format!("{path}: {e}"))?;
+        self.check_session_load().map_err(|e| format!("{path}: {e}"))?;
         self.read_and_replace(path)
     }
 
-    /// [`load_scene`](Self::load_scene) as a step of a lockstep session:
-    /// the game says every peer makes this same load at the same tick. Use
-    /// it from a simulation system (whose ticks every peer runs from the
-    /// same inputs) or before the session starts, such as in setup. Offline
-    /// it is the same as `load_scene`. The peers' worlds are still compared
-    /// every [`checksum_every`](crate::Net::checksum_every) ticks, so a
-    /// load that only some peers made shows up as a [`Desync`](crate::Desync).
+    /// [`load_scene`](Self::load_scene), named for a lockstep game: the
+    /// same load on every peer at the same tick. It follows the same rules
+    /// (a simulation system or setup in a session, anywhere offline); the
+    /// name says at the call site that the load is part of the shared
+    /// simulation. The peers' worlds are still compared every
+    /// [`checksum_every`](crate::Net::checksum_every) ticks, so a load that
+    /// only some peers made shows up as a [`Desync`](crate::Desync).
     ///
     /// ```
     /// # use ponko::*;
@@ -91,16 +93,9 @@ impl Ctx {
     ///
     /// # Errors
     ///
-    /// As `load_scene`, and while a session runs, when called outside a
-    /// simulation system (a frame system, a tool): nothing changes then.
+    /// As `load_scene`.
     pub fn load_scene_lockstep(&mut self, path: &str) -> Result<(), String> {
-        if self.net.state() == crate::NetState::Running && !self.in_sim() {
-            return Err(format!(
-                "{path}: load_scene_lockstep runs in simulation systems while a lockstep session runs; \
-                 a frame system's load would change only this peer"
-            ));
-        }
-        self.read_and_replace(path)
+        self.load_scene(path)
     }
 
     fn read_and_replace(&mut self, path: &str) -> Result<(), String> {
@@ -109,24 +104,33 @@ impl Ctx {
         self.replace_world_now(&scene).map_err(|e| format!("{path}: {e}"))
     }
 
-    /// Refuses a load that would change only this peer while a lockstep
-    /// session is connecting or running.
-    fn check_local_load(&self) -> Result<(), String> {
-        match self.net.state() {
-            crate::NetState::Connecting | crate::NetState::Running => {
-                Err("a lockstep session is running and a load changes only this peer: \
-                 make every peer load at the same tick with load_scene_lockstep from a simulation system"
-                    .into())
-            }
-            _ => Ok(()),
+    /// Refuses a game's load that would change only this peer: outside a
+    /// simulation system and outside setup while a lockstep session is
+    /// connecting or running. Every peer runs its setup before the first
+    /// tick and its simulation systems at the same ticks; frame, late and
+    /// draw systems run on each peer's own clock.
+    fn check_session_load(&self) -> Result<(), String> {
+        if !self.session_active() || self.in_sim() || self.in_setup() {
+            return Ok(());
         }
+        Err(
+            "a lockstep session is running and a load outside a simulation system or setup \
+             would change only this peer: load from a simulation system, which every peer runs at the same tick"
+                .into(),
+        )
+    }
+
+    fn session_active(&self) -> bool {
+        matches!(self.net.state(), crate::NetState::Connecting | crate::NetState::Running)
     }
 
     /// Replaces the world with `save` (a scene or world save) for tools (the
-    /// editor, the control endpoint): refused during a lockstep session,
-    /// like [`load_scene`](Self::load_scene).
+    /// editor's Stop, the control endpoint): refused while a lockstep
+    /// session is connecting or running, since a tool acts on this peer only.
     pub(crate) fn replace_world(&mut self, save: &Value) -> Result<(), String> {
-        self.check_local_load()?;
+        if self.session_active() {
+            return Err("a lockstep session is running and a tool's load would change only this peer".into());
+        }
         self.replace_world_now(save)
     }
 
@@ -137,6 +141,7 @@ impl Ctx {
         self.load_scene_assets(save)?;
         self.world.load(save).map_err(|e| e.to_string())?;
         self.commands = crate::Commands::new();
+        self.scene_loads += 1;
         #[cfg(feature = "physics")]
         self.physics.forget_bodies();
         #[cfg(feature = "physics3d")]
@@ -252,4 +257,184 @@ fn spawn_at(world: &mut crate::World, mut components: Value, at: Vec2) -> Result
         None => components["Transform2D"] = serde_json::to_value(Transform2D::at(at)).map_err(|e| e.to_string())?,
     }
     world.spawn_json(components).map_err(|e| e.to_string())
+}
+
+/// Loads during a lockstep session: refused where only one peer would load,
+/// taken where every peer does (setup, simulation systems).
+#[cfg(test)]
+mod lockstep_tests {
+    use serde::{Deserialize, Serialize};
+    use serde_json::json;
+
+    use crate::{Ctx, Desync, Game, Net, NetState, World, WorldReflect};
+
+    #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
+    struct Tag(u32);
+
+    /// A scene in `assets/` (for `load_scene`) and the same world in a plain
+    /// file (for the control endpoint's `world.load`), deleted afterwards.
+    struct Files {
+        asset: &'static str,
+        plain: std::path::PathBuf,
+    }
+    impl Files {
+        fn new(asset: &'static str) -> Self {
+            let mut world = World::new();
+            world.reflect::<Tag>();
+            world.spawn((Tag(7),));
+            let text = serde_json::to_string(&world.save()).unwrap();
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+            std::fs::write(root.join("assets").join(asset), &text).unwrap();
+            let plain = std::env::temp_dir().join(format!("ponko-{}-{asset}", std::process::id()));
+            std::fs::write(&plain, &text).unwrap();
+            Self { asset, plain }
+        }
+    }
+    impl Drop for Files {
+        fn drop(&mut self) {
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+            let _ = std::fs::remove_file(root.join("assets").join(self.asset));
+            let _ = std::fs::remove_file(&self.plain);
+        }
+    }
+
+    fn tags(ctx: &mut Ctx) -> Vec<u32> {
+        let mut t: Vec<u32> = ctx.world.query::<&Tag>().iter().map(|t| t.0).collect();
+        t.sort_unstable();
+        t
+    }
+
+    /// Every way to load that only this peer would make: each must fail and
+    /// leave the world as it was.
+    fn assert_every_local_load_is_refused(ctx: &mut Ctx, files: &Files) {
+        let before = WorldReflect::save(&ctx.world);
+        let plain = files.plain.to_str().unwrap();
+        let errors = [
+            ctx.load_scene(files.asset).unwrap_err(),
+            ctx.load_scene_lockstep(files.asset).unwrap_err(),
+            crate::control::handle(ctx, "scene.load", &json!({ "path": files.asset })).unwrap_err(),
+            crate::control::handle(ctx, "world.load", &json!({ "path": plain })).unwrap_err(),
+        ];
+        for e in &errors {
+            assert!(e.contains("lockstep session"), "{e}");
+        }
+        let mut editor = crate::editor::Editor::default();
+        editor.play(ctx);
+        let extra = ctx.world.spawn((Tag(100),));
+        assert!(editor.stop(ctx).unwrap_err().contains("lockstep session"));
+        assert!(editor.playing(), "Stop can be retried");
+        ctx.resume();
+        ctx.world.despawn(extra);
+        assert_eq!(WorldReflect::save(&ctx.world), before, "nothing changed");
+    }
+
+    /// Runs two loopback peers for `ticks`; returns each one's tags and desync.
+    fn two_peers(
+        ticks: u64,
+        setup: fn(&mut Ctx, &Files),
+        tick: fn(&mut Ctx, &Files),
+        files: &std::sync::Arc<Files>,
+    ) -> Vec<(Vec<u32>, Option<Desync>)> {
+        let runs: Vec<_> = Net::loopback(2)
+            .into_iter()
+            .map(|net| {
+                let (f1, f2) = (files.clone(), files.clone());
+                std::thread::spawn(move || {
+                    let mut world = Game::new("t", 1, 1)
+                        .lockstep(net.checksum_every(5))
+                        .sim_system(move |ctx: &mut Ctx| {
+                            ctx.net.set_input(&(ctx.sim_tick() as u32));
+                            tick(ctx, &f1);
+                            if ctx.sim_tick() + 1 == ticks {
+                                let desync = ctx.net.desync().cloned();
+                                ctx.world.insert_resource(Some(desync));
+                            }
+                        })
+                        .run_headless(ticks, move |ctx| {
+                            ctx.world.reflect::<Tag>();
+                            ctx.world.spawn((Tag(1),));
+                            setup(ctx, &f2);
+                        });
+                    let desync = world
+                        .remove_resource::<Option<Option<Desync>>>()
+                        .expect("every tick ran");
+                    let mut t: Vec<u32> = world.query::<&Tag>().iter().map(|t| t.0).collect();
+                    t.sort_unstable();
+                    (t, desync.flatten())
+                })
+            })
+            .collect();
+        runs.into_iter().map(|r| r.join().unwrap()).collect()
+    }
+
+    #[test]
+    fn loads_outside_simulation_systems_are_refused_while_a_session_runs() {
+        let files = std::sync::Arc::new(Files::new("test-scene-lockstep-running.json"));
+        let runs = two_peers(
+            20,
+            |_, _| {},
+            |ctx, files| {
+                if ctx.sim_tick() == 8 {
+                    assert_eq!(ctx.net.state(), NetState::Running);
+                    // As in a frame, late or draw system, or a tool between ticks.
+                    ctx.set_in_sim(false);
+                    assert_every_local_load_is_refused(ctx, files);
+                    ctx.set_in_sim(true);
+                    assert_eq!(tags(ctx), [1]);
+                    ctx.load_scene(files.asset).unwrap();
+                }
+            },
+            &files,
+        );
+        for (tags, desync) in runs {
+            assert_eq!(desync, None);
+            assert_eq!(tags, [7], "the scene, on both peers");
+        }
+    }
+
+    #[test]
+    fn a_frame_systems_load_while_connecting_is_refused() {
+        let files = std::sync::Arc::new(Files::new("test-scene-lockstep-connecting.json"));
+        let runs = two_peers(
+            10,
+            |ctx, files| {
+                assert_eq!(ctx.net.state(), NetState::Connecting);
+                // As in a frame system while the peers are still connecting.
+                ctx.set_in_setup(false);
+                assert_every_local_load_is_refused(ctx, files);
+                ctx.set_in_setup(true);
+            },
+            |_, _| {},
+            &files,
+        );
+        for (tags, desync) in runs {
+            assert_eq!(desync, None);
+            assert_eq!(tags, [1], "nothing loaded");
+        }
+    }
+
+    #[test]
+    fn setup_and_simulation_loads_still_work_on_every_peer() {
+        let files = std::sync::Arc::new(Files::new("test-scene-lockstep-works.json"));
+        let runs = two_peers(
+            20,
+            |ctx, files| {
+                assert_eq!(ctx.net.state(), NetState::Connecting);
+                ctx.load_scene(files.asset).unwrap();
+                assert_eq!(tags(ctx), [7]);
+                ctx.world.query::<&mut Tag>().for_each(|t| t.0 = 2);
+            },
+            |ctx, files| {
+                if ctx.sim_tick() == 8 {
+                    assert_eq!(tags(ctx), [2]);
+                    ctx.load_scene(files.asset).unwrap();
+                }
+            },
+            &files,
+        );
+        for (tags, desync) in runs {
+            assert_eq!(desync, None, "both peers loaded at the same tick");
+            assert_eq!(tags, [7]);
+        }
+    }
 }

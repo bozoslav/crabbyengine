@@ -220,8 +220,17 @@ fn scenes_with_huge_entity_ids_are_refused_from_c() {
 #[derive(Default)]
 struct Lockstep {
     file: Option<&'static CStr>,
-    /// What the plain load and the lockstep load returned at tick 3.
+    /// What the load in setup, then the plain and the lockstep load at
+    /// tick 3, returned.
     statuses: Vec<CrabbyStatus>,
+}
+
+unsafe extern "C" fn load_in_setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
+    unsafe {
+        let run = &mut *user.cast::<Lockstep>();
+        run.statuses
+            .push(crabby_ctx_load_scene(ctx, run.file.unwrap().as_ptr()));
+    }
 }
 
 unsafe extern "C" fn load_in_session(ctx: *mut CrabbyCtx, user: *mut c_void) {
@@ -248,7 +257,7 @@ fn play_lockstep(game: *mut CrabbyGame, file: &'static CStr) -> Vec<CrabbyStatus
         );
         let mut world = null_mut();
         assert_eq!(
-            crabby_game_run_headless(game, 10, None, null_mut(), &mut world),
+            crabby_game_run_headless(game, 10, Some(load_in_setup), user, &mut world),
             CRABBY_OK
         );
         crabby_world_free(world);
@@ -257,7 +266,7 @@ fn play_lockstep(game: *mut CrabbyGame, file: &'static CStr) -> Vec<CrabbyStatus
 }
 
 #[test]
-fn a_lockstep_session_refuses_plain_loads_from_c() {
+fn loads_in_setup_and_sim_systems_work_in_a_lockstep_session_from_c() {
     let file = TempAsset::new(c"test-ffi-lockstep.json");
     let mut run = Run {
         file: Some(file.0),
@@ -293,8 +302,8 @@ fn a_lockstep_session_refuses_plain_loads_from_c() {
     for statuses in [host.join().unwrap(), guest] {
         assert_eq!(
             statuses,
-            [CRABBY_INVALID_ARGUMENT, CRABBY_OK],
-            "plain load refused, lockstep load taken"
+            [CRABBY_OK, CRABBY_OK, CRABBY_OK],
+            "every peer runs setup and sim systems: both loads are taken"
         );
     }
 }

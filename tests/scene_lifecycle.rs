@@ -441,10 +441,12 @@ fn attachments_follow_the_new_scenes_entities() {
 #[derive(Serialize, Deserialize)]
 struct Step(u32);
 
-/// Two peers in lockstep: a plain load is refused (it would change only one
-/// peer); `load_scene_lockstep` from a simulation system loads on both.
+/// Two peers in lockstep: loads in setup and in simulation systems run on
+/// every peer, with `load_scene` or its lockstep-named twin, and the worlds
+/// stay the same. (Refused loads from frame systems and tools are tested
+/// inside the crate, in `src/scene.rs`.)
 #[test]
-fn a_lockstep_session_refuses_local_loads_and_takes_lockstep_ones() {
+fn loads_in_setup_and_simulation_systems_run_on_every_lockstep_peer() {
     let file = TempAsset("test-lifecycle-lockstep.json");
     // Written first: both peers read it.
     Game::new("t", 1, 1).run_headless(0, |ctx| {
@@ -461,10 +463,8 @@ fn a_lockstep_session_refuses_local_loads_and_takes_lockstep_ones() {
                     .sim_system(|ctx: &mut Ctx| {
                         ctx.net.set_input(&Step(ctx.sim_tick() as u32));
                         if ctx.sim_tick() == 10 {
-                            let err = ctx.load_scene("test-lifecycle-lockstep.json").unwrap_err();
-                            assert!(err.contains("load_scene_lockstep"), "{err}");
-                            assert_eq!(ctx.world.query::<&Tag>().iter().next().unwrap().0, 1, "unchanged");
-                            ctx.load_scene_lockstep("test-lifecycle-lockstep.json").unwrap();
+                            assert_eq!(ctx.world.query::<&Tag>().iter().next().unwrap().0, 1);
+                            ctx.load_scene("test-lifecycle-lockstep.json").unwrap();
                         }
                         if ctx.sim_tick() == 29 {
                             let desync = ctx.net.desync().cloned();
@@ -474,7 +474,6 @@ fn a_lockstep_session_refuses_local_loads_and_takes_lockstep_ones() {
                     .run_headless(30, |ctx| {
                         ctx.world.reflect::<Tag>();
                         assert_eq!(ctx.net.state(), NetState::Connecting);
-                        assert!(ctx.load_scene("test-lifecycle-lockstep.json").is_err());
                         // Setup runs on every peer before the first tick.
                         ctx.load_scene_lockstep("test-lifecycle-lockstep.json").unwrap();
                         ctx.world.query::<&mut Tag>().for_each(|t| t.0 = 1);

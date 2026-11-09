@@ -2756,8 +2756,8 @@ public:
     // Scenes and prefabs: worlds and entities kept as JSON under assets/.
     /// Replaces the world with the scene in assets/`path`; ids are kept.
     void load_scene(const char* path) { detail::check(crabby_ctx_load_scene(raw_, path)); }
-    /// The same load on every lockstep peer at the same tick: call it from a
-    /// sim system (or before the session starts). load_scene throws in a session.
+    /// load_scene, named for a lockstep game: call it from a sim system or
+    /// setup, which every peer runs. Both throw from a frame system in a session.
     void load_scene_lockstep(const char* path) { detail::check(crabby_ctx_load_scene_lockstep(raw_, path)); }
     /// Saves the world as a scene in assets/`path`.
     void save_scene(const char* path) { detail::check(crabby_ctx_save_scene(raw_, path)); }

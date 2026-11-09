@@ -1,17 +1,21 @@
 ### Added
-- `Ctx::load_scene_lockstep`: loads a scene as a step of a lockstep session,
-  from a simulation system or before the session starts, so every peer
-  makes the same load at the same tick. C: `ponko_ctx_load_scene_lockstep`;
-  C++: `ctx.load_scene_lockstep`.
+- `Ctx::load_scene_lockstep`: `load_scene` named for a lockstep game, with
+  the same rules, so the call site says the load is part of the shared
+  simulation. C: `ponko_ctx_load_scene_lockstep`; C++:
+  `ctx.load_scene_lockstep`.
 - The guide's "Scenes and prefabs" chapter has a table of what a load
   replaces and keeps, and a section on loading scenes in lockstep.
 
-### Changed
-- `Ctx::load_scene`, and the editor's and control endpoint's scene loads,
-  are refused while a lockstep session connects or runs: they would change
-  only this peer. Use `load_scene_lockstep`.
-
 ### Fixed
+- In a lockstep session, loads that would change only one peer are now
+  refused with an error and change nothing: `load_scene` from frame, late
+  and draw systems, and tools' loads (the inspector's Load, the editor's
+  Stop, the control endpoint's `scene.load` and `world.load`). Loads in
+  setup and in simulation systems, which every peer runs, work as before.
+- The editor's Stop keeps its Play snapshot and undo history when the world
+  can't be put back, so it can be retried.
+- A scene load clears the inspector's selection, which could otherwise show
+  a different entity that reused the id.
 - A scene load forgets which 3D UI panel had the keyboard, so a new panel
   with the old one's entity id no longer gets key input without a click.
 - A scene load resets temporal history (TAA, temporal AO, reflections), so

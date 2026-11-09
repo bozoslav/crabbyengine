@@ -293,8 +293,10 @@ where
         }
 
         if let Some(setup) = self.setup.take() {
+            self.ctx.set_in_setup(true);
             run_setups(std::mem::take(&mut self.config.setups), &mut self.ctx);
             let frame_fn = setup(&mut self.ctx).into_frame_fn();
+            self.ctx.set_in_setup(false);
             self.ctx.apply_commands();
             if let Some(f) = frame_fn {
                 let index = self.config.systems.partition_point(|s| s.stage <= Phase::Frame);

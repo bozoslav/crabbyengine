@@ -745,9 +745,21 @@ static void vehicles() {
 static void lockstep() {
     // Two games over UDP on localhost see the same inputs, tick for tick.
     struct Order { std::uint32_t tick; float x; };
-    struct Seen { std::uint64_t sum = 0; std::uint32_t others = 0, player = 9; bool desync = false; };
+    struct Seen { std::uint64_t sum = 0; std::uint32_t others = 0, player = 9; bool desync = false; std::size_t loaded = 0; };
+    // Both peers load it in setup and again at tick 50, in a sim system:
+    // places every peer runs, so the loads keep them in step.
+    ponko::game("scene", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
+        ctx.world().spawn(ponko::transform_at({1, 2}));
+        ctx.world().spawn(ponko::transform_at({3, 4}));
+        ctx.save_scene("test-cpp-lockstep.json");
+    });
     auto play = [](ponko::game& g, Seen& seen) {
         g.sim_system([&seen](ponko::ctx& ctx) {
+            if (ctx.sim_tick() == 50) {
+                ctx.world().spawn(ponko::transform_at({5, 6}));
+                ctx.load_scene_lockstep("test-cpp-lockstep.json");
+                seen.loaded = ctx.world().size();
+            }
             seen.player = ctx.player();
             ctx.set_input(Order{std::uint32_t(ctx.sim_tick()), float(ctx.player())});
             for (std::uint32_t p = 0; p < ctx.players(); ++p)
@@ -757,7 +769,7 @@ static void lockstep() {
                 }
             seen.desync = ctx.desynced();
         });
-        g.run_headless(200, [](ponko::ctx&) {});
+        g.run_headless(200, [](ponko::ctx& ctx) { ctx.load_scene("test-cpp-lockstep.json"); });
     };
     std::uint16_t port = 0;
     Seen host_seen, guest_seen;
@@ -772,6 +784,7 @@ static void lockstep() {
     CHECK(host_seen.player == 0 && guest_seen.player == 1);
     CHECK(host_seen.sum == guest_seen.sum && host_seen.others > 150 && guest_seen.others > 150);
     CHECK(!host_seen.desync && !guest_seen.desync);
+    CHECK(host_seen.loaded == 2 && guest_seen.loaded == 2);
     throws([] { ponko::game("t", 1, 1).lockstep_host("127.0.0.1:0", 1); });
     throws([] { ponko::game("t", 1, 1).lockstep_steam_host(480, 2); });   // built without `steam`
 }

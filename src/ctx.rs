@@ -178,6 +178,11 @@ pub struct Ctx {
     pub events: Events,
     /// `true` while simulation systems run: `dt()` then returns the fixed step.
     in_sim: bool,
+    /// `true` while the game's setup (and plugins' setups) run.
+    in_setup: bool,
+    /// Scene loads so far, so tools holding entity ids (the inspector's
+    /// selection) can tell the world was replaced.
+    pub(crate) scene_loads: u64,
     /// Fixed steps the running sim system covers (`sim_system_every`).
     sim_steps: u32,
     /// Seed for `random()`.
@@ -434,6 +439,8 @@ impl Ctx {
             net: crate::Net::default(),
             events: Events::default(),
             in_sim: false,
+            in_setup: false,
+            scene_loads: 0,
             sim_steps: 1,
             seed: crate::random::DEFAULT_SEED,
             system_index: 0,
@@ -1021,6 +1028,15 @@ impl Ctx {
     /// Whether a simulation system is running now.
     pub(crate) fn in_sim(&self) -> bool {
         self.in_sim
+    }
+
+    pub(crate) fn set_in_setup(&mut self, in_setup: bool) {
+        self.in_setup = in_setup;
+    }
+
+    /// Whether the game's setup is running now (before the first tick).
+    pub(crate) fn in_setup(&self) -> bool {
+        self.in_setup
     }
 
     /// Engine side: apply commands recorded by the system that just ran.
