@@ -641,6 +641,111 @@ static void profiling_c(void) {
     free(json);
 }
 
+/* A two-joint skin with one clip, "rise": the arm goes up 2 over 1 second. */
+static const char RISE_GLTF[] =
+    "{\"asset\": {\"version\": \"2.0\"}, \"scene\": 0, \"scenes\": [{\"nodes\": [0]}],"
+    "\"nodes\": [{\"name\": \"root\", \"children\": [1]}, {\"name\": \"arm\", \"mesh\": 0}],"
+    "\"meshes\": [{\"primitives\": [{\"attributes\": {\"POSITION\": 2}}]}],"
+    "\"skins\": [{\"joints\": [0, 1]}],"
+    "\"animations\": [{\"name\": \"rise\", \"samplers\": [{\"input\": 0, \"output\": 1}],"
+    "\"channels\": [{\"sampler\": 0, \"target\": {\"node\": 1, \"path\": \"translation\"}}]}],"
+    "\"buffers\": [{\"byteLength\": 68, \"uri\": \"data:application/octet-stream;base64,"
+    "AAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAACAPwAAAAA=\"}],"
+    "\"bufferViews\": [{\"buffer\": 0, \"byteLength\": 8}, {\"buffer\": 0, \"byteOffset\": 8, \"byteLength\": 24},"
+    "{\"buffer\": 0, \"byteOffset\": 32, \"byteLength\": 36}],"
+    "\"accessors\": [{\"bufferView\": 0, \"componentType\": 5126, \"count\": 2, \"type\": \"SCALAR\", \"min\": [0], \"max\": [1]},"
+    "{\"bufferView\": 1, \"componentType\": 5126, \"count\": 2, \"type\": \"VEC3\"},"
+    "{\"bufferView\": 2, \"componentType\": 5126, \"count\": 3, \"type\": \"VEC3\", \"min\": [0, 0, 0], \"max\": [1, 1, 0]}]}";
+
+static const char* temp_dir(void) {
+    const char* dir = getenv("TMPDIR");
+    if (!dir) dir = getenv("TEMP");
+    if (!dir) dir = getenv("TMP");
+    return dir ? dir : "/tmp";
+}
+
+typedef struct { char path[1024]; } AnimatorRun;
+
+/* A graph with a float parameter, a resting state and a "rise" state with an
+   event half way, then an animator on a skeleton, run with manual updates. */
+static void animator_setup(PonkoCtx* ctx, void* user) {
+    const AnimatorRun* run = user;
+    PonkoClip* rise = NULL;
+    CHECK(ponko_ctx_load_clip(ctx, run->path, "rise", &rise) == PONKO_OK && rise);
+    CHECK(fabsf(ponko_clip_duration(rise) - 1.0f) < 1e-5f);
+    PonkoClip* missing = NULL;
+    CHECK(ponko_ctx_load_clip(ctx, run->path, "no such clip", &missing) != PONKO_OK && !missing);
+
+    PonkoAnimationGraphBuilder* b = ponko_animation_graph_builder_new();
+    size_t speed = 99, still = 99, up = 99, go = 99;
+    CHECK(ponko_animation_graph_add_float(b, 0.0f, &speed) == PONKO_OK && speed == 0);
+    PonkoMotion* motion = NULL;
+    CHECK(ponko_motion_clip(rise, &motion) == PONKO_OK);
+    CHECK(ponko_animation_graph_add_state(b, motion, 0.0f, -1, true, &still) == PONKO_OK && still == 0);
+    CHECK(ponko_motion_clip(rise, &motion) == PONKO_OK);
+    CHECK(ponko_animation_graph_add_state(b, motion, 1.0f, -1, false, &up) == PONKO_OK && up == 1);
+    CHECK(ponko_animation_graph_add_event(b, up, 0.5f, "half") == PONKO_OK);
+    CHECK(ponko_animation_graph_add_event(b, 9, 0.5f, "nowhere") == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_animation_graph_add_transition(b, (int64_t)still, up, -1.0f, 0.0f, 0.0f, &go) == PONKO_OK);
+    CHECK(ponko_animation_graph_add_condition(b, go, PONKO_CONDITION_GREATER, speed, 0.5f) == PONKO_OK);
+    PonkoAnimationGraph* graph = NULL;
+    CHECK(ponko_animation_graph_build(b, still, &graph) == PONKO_OK && graph);
+    /* A graph without states does not build; the builder is used up either way. */
+    PonkoAnimationGraphBuilder* empty = ponko_animation_graph_builder_new();
+    PonkoAnimationGraph* none = NULL;
+    CHECK(ponko_animation_graph_build(empty, 3, &none) != PONKO_OK && !none);
+
+    PonkoWorld* world = ponko_ctx_world(ctx);
+    uint32_t transform_id;
+    CHECK(ponko_transform3d_component(world, &transform_id) == PONKO_OK);
+    PonkoTransform3D at = ponko_transform3d_at((PonkoVec3){0, 0, 0});
+    PonkoValue part = {transform_id, &at, sizeof at};
+    uint64_t e;
+    CHECK(ponko_spawn(world, &part, 1, &e) == PONKO_OK);
+    CHECK(ponko_ctx_set_animator(ctx, e, graph) != PONKO_OK); /* no skeleton yet */
+    CHECK(ponko_ctx_load_skeleton(ctx, e, run->path) == PONKO_OK);
+    CHECK(ponko_ctx_set_animator(ctx, e, graph) == PONKO_OK);
+    CHECK(ponko_ctx_animator_set_manual(ctx, e, true) == PONKO_OK);
+
+    size_t state = 99; float time = -1;
+    CHECK(ponko_ctx_animator_update(ctx, e, 0.1f) == PONKO_OK);
+    CHECK(ponko_ctx_animator_state(ctx, e, &state, &time) == PONKO_OK && state == still);
+    CHECK(ponko_ctx_animator_set_float(ctx, e, speed, 1.0f) == PONKO_OK);
+    CHECK(ponko_ctx_animator_set_bool(ctx, e, speed, true) != PONKO_OK); /* it is a float */
+    CHECK(ponko_ctx_animator_update(ctx, e, 0.0f) == PONKO_OK); /* takes the transition */
+    CHECK(ponko_ctx_animator_state(ctx, e, &state, &time) == PONKO_OK && state == up);
+    CHECK(ponko_ctx_animator_update(ctx, e, 0.75f) == PONKO_OK);
+    CHECK(ponko_ctx_animator_state(ctx, e, &state, &time) == PONKO_OK && fabsf(time - 0.75f) < 1e-4f);
+    PonkoTransform3D arm;
+    CHECK(ponko_ctx_joint_pose(ctx, e, 1, &arm) == PONKO_OK && fabsf(arm.position.y - 1.5f) < 1e-4f);
+
+    char name[64]; bool found = false;
+    CHECK(ponko_ctx_animator_next_event(ctx, e, name, sizeof name, &found) == PONKO_OK && found);
+    CHECK(strcmp(name, "half") == 0);
+    CHECK(ponko_ctx_animator_next_event(ctx, e, name, sizeof name, &found) == PONKO_OK && !found);
+    CHECK(ponko_ctx_animator_crossfade(ctx, e, still, 0.0f, 0.0f) == PONKO_OK);
+    CHECK(ponko_ctx_animator_update(ctx, e, 0.0f) == PONKO_OK);
+    CHECK(ponko_ctx_animator_state(ctx, e, &state, &time) == PONKO_OK && state == still);
+    CHECK(ponko_ctx_animator_crossfade(ctx, e, 7, 0.0f, 0.0f) != PONKO_OK);
+
+    ponko_animation_graph_free(graph);
+    ponko_clip_free(rise);
+}
+
+static void animation_graphs(void) {
+    AnimatorRun run;
+    snprintf(run.path, sizeof run.path, "%s/ponko-c-animator.gltf", temp_dir());
+    FILE* file = fopen(run.path, "wb");
+    CHECK(file);
+    CHECK(fputs(RISE_GLTF, file) >= 0);
+    CHECK(fclose(file) == 0);
+    PonkoGame* game = ponko_game_new("animator", 1, 1);
+    PonkoWorld* world = NULL;
+    CHECK(ponko_game_run_headless(game, 0, animator_setup, &run, &world) == PONKO_OK);
+    CHECK(ponko_world_free(world) == PONKO_OK);
+    remove(run.path);
+}
+
 int main(void) {
     steam_messages_validation();
     morph_clip_api();
@@ -713,5 +818,6 @@ int main(void) {
     lod_helpers();
     streamed_worlds();
     profiling_c();
+    animation_graphs();
     return 0;
 }
