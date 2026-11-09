@@ -92,6 +92,9 @@ headless game waits for requests and runs only the ticks you step.
 | `sim.pause` / `sim.resume` | | |
 | `sim.step` | `ticks?` (1) | ticks queued |
 | `sim.speed` | `speed` | |
+| `input.scenario.load` | `scenario`, `bind_connection?` | starts a tick-indexed [input scenario](actions.md#input-scenarios) on the next tick, replacing a running one; refused unless the game allows input injection (`Game::input_injection(true)` or `PONKO_INPUT_INJECTION=1`). With `bind_connection`, it is cancelled when this connection closes. Returns `{report, bound_to_connection}` |
+| `input.scenario.status` | | the latest scenario's report (`status`, `ticks_run`, `checks_passed`, and for a failed check its `step`, `tick`, `expected` and `actual`), or `null` |
+| `input.scenario.cancel` | `reason?` | ends the running scenario and releases the input it holds; returns `{cancelled, report}`. A failed check also drops the steps still queued by `sim.step` |
 | `systems.timings` | | each system's last and average ms |
 | `ecs.diagnostics` | `with?`, `limit?` (100) | archetypes, component storage and the schedule (see [ECS diagnostics](agents.md#ecs-diagnostics)); with `with`, also `matching` |
 | `events.list` | | reflected [event](events.md) types and how many are kept now |
