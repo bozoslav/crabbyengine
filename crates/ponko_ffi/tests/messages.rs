@@ -1,0 +1,369 @@
+//! Message endpoints from C: in-memory loopback pairs and real UDP on the
+//! local machine, with connection and message events, lanes, statistics,
+//! disconnects and timeouts.
+use ponko_ffi::*;
+use std::ffi::CStr;
+use std::ptr::{null, null_mut};
+use std::time::{Duration, Instant};
+
+use CrabbyLane::*;
+use CrabbyMessageEventKind::*;
+use CrabbyStatus::*;
+
+const OK: CrabbyStatus = CRABBY_OK;
+const BAD: CrabbyStatus = CRABBY_INVALID_ARGUMENT;
+
+type Endpoint = *mut CrabbyNetMessages;
+
+/// An event with its bytes and reason copied out, so it outlives the next call.
+#[derive(Debug, PartialEq)]
+enum Event {
+    Connected(u64),
+    Disconnected(u64, String),
+    Message(u64, CrabbyLane, Vec<u8>),
+}
+
+unsafe fn next(endpoint: Endpoint) -> Option<Event> {
+    unsafe {
+        let mut e = CrabbyMessageEvent::default();
+        let mut found = false;
+        assert_eq!(crabby_net_messages_next_event(endpoint, &mut e, &mut found), OK);
+        found.then(|| match e.kind {
+            CRABBY_MESSAGE_CONNECTED => Event::Connected(e.peer),
+            CRABBY_MESSAGE_DISCONNECTED => {
+                assert!(!e.reason.is_null());
+                Event::Disconnected(e.peer, CStr::from_ptr(e.reason).to_str().unwrap().to_string())
+            }
+            CRABBY_MESSAGE => {
+                let bytes = if e.len == 0 {
+                    Vec::new()
+                } else {
+                    std::slice::from_raw_parts(e.bytes, e.len).to_vec()
+                };
+                Event::Message(e.peer, e.lane, bytes)
+            }
+        })
+    }
+}
+
+unsafe fn drain(endpoint: Endpoint) -> Vec<Event> {
+    unsafe { std::iter::from_fn(|| next(endpoint)).collect() }
+}
+
+/// Polls every endpoint now and then until `done` says the events collected
+/// so far are enough (or two seconds pass: then it panics).
+unsafe fn pump(endpoints: &[Endpoint], events: &mut [Vec<Event>], done: impl Fn(&[Vec<Event>]) -> bool) {
+    unsafe {
+        let start = Instant::now();
+        while !done(events) {
+            assert!(
+                start.elapsed() < Duration::from_secs(2),
+                "timed out; events: {events:?}"
+            );
+            for (i, &endpoint) in endpoints.iter().enumerate() {
+                assert_eq!(crabby_net_messages_poll(endpoint), OK);
+                events[i].extend(drain(endpoint));
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+}
+
+/// Two endpoints connected to each other: `[host, client]`, with the host's
+/// id for the client.
+unsafe fn connected(endpoints: [Endpoint; 2]) -> u64 {
+    unsafe {
+        let mut events = [Vec::new(), Vec::new()];
+        pump(&endpoints, &mut events, |e| !e[0].is_empty() && !e[1].is_empty());
+        assert_eq!(events[1], [Event::Connected(0)], "the host is always peer 0");
+        let Event::Connected(peer) = events[0][0] else {
+            panic!("the host sees a connection first: {:?}", events[0]);
+        };
+        peer
+    }
+}
+
+fn messages_of(events: &[Event]) -> Vec<(CrabbyLane, &[u8])> {
+    events
+        .iter()
+        .filter_map(|e| match e {
+            Event::Message(_, lane, bytes) => Some((*lane, bytes.as_slice())),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn loopback_endpoints_connect_exchange_messages_and_count_traffic() {
+    unsafe {
+        let mut e = [null_mut(); 2];
+        assert_eq!(crabby_net_messages_loopback(2, e.as_mut_ptr()), OK);
+        let [host, client] = e;
+        let peer = connected(e);
+
+        // Reliable both ways, then the other lanes; the bytes arrive intact.
+        let mut events = [Vec::new(), Vec::new()];
+        assert_eq!(
+            crabby_net_messages_send(host, peer, CRABBY_LANE_RELIABLE, b"hello".as_ptr(), 5),
+            OK
+        );
+        assert_eq!(
+            crabby_net_messages_send(host, peer, CRABBY_LANE_RELIABLE, b"world".as_ptr(), 5),
+            OK
+        );
+        assert_eq!(
+            crabby_net_messages_send(client, 0, CRABBY_LANE_UNRELIABLE, b"aim".as_ptr(), 3),
+            OK
+        );
+        assert_eq!(
+            crabby_net_messages_send_to_all(host, CRABBY_LANE_RELIABLE_UNORDERED, b"all".as_ptr(), 3),
+            OK
+        );
+        pump(&e, &mut events, |ev| {
+            messages_of(&ev[1]).len() == 3 && messages_of(&ev[0]).len() == 1
+        });
+        assert_eq!(messages_of(&events[0]), [(CRABBY_LANE_UNRELIABLE, &b"aim"[..])]);
+        let received = messages_of(&events[1]);
+        assert_eq!(received[0], (CRABBY_LANE_RELIABLE, &b"hello"[..]), "in the order sent");
+        assert_eq!(received[1], (CRABBY_LANE_RELIABLE, &b"world"[..]));
+        assert_eq!(received[2], (CRABBY_LANE_RELIABLE_UNORDERED, &b"all"[..]));
+        assert!(
+            events[1]
+                .iter()
+                .all(|e| !matches!(e, Event::Message(from, ..) if *from != 0))
+        );
+
+        // An empty message is allowed (null bytes with length 0); a missing
+        // payload or one over 1 MiB is not.
+        assert_eq!(
+            crabby_net_messages_send(host, peer, CRABBY_LANE_RELIABLE, null(), 0),
+            OK
+        );
+        assert_eq!(
+            crabby_net_messages_send(host, peer, CRABBY_LANE_RELIABLE, null(), 4),
+            BAD
+        );
+        assert_eq!(
+            crabby_net_messages_send_to_all(host, CRABBY_LANE_RELIABLE, null(), 4),
+            BAD
+        );
+        let big = vec![0u8; (1 << 20) + 1];
+        assert_ne!(
+            crabby_net_messages_send(host, peer, CRABBY_LANE_RELIABLE, big.as_ptr(), big.len()),
+            OK
+        );
+
+        // Traffic was counted on both sides.
+        let (mut hs, mut cs) = (CrabbyMessageStats::default(), CrabbyMessageStats::default());
+        assert_eq!(crabby_net_messages_stats(host, &mut hs), OK);
+        assert_eq!(crabby_net_messages_stats(client, &mut cs), OK);
+        assert!(hs.packets_sent > 0 && hs.bytes_sent > 0, "{hs:?}");
+        assert!(cs.packets_received > 0 && cs.bytes_received > 0, "{cs:?}");
+        assert!(hs.bytes_sent >= 10, "at least the payloads: {hs:?}");
+        assert_eq!(crabby_net_messages_stats(host, null_mut()), BAD);
+
+        // Loopback endpoints have no port; the timeout setter accepts any value.
+        let mut port = 99;
+        assert_eq!(crabby_net_messages_local_port(host, &mut port), OK);
+        assert_eq!(port, 0);
+        assert_eq!(crabby_net_messages_set_timeout(host, 30_000), OK);
+        // No Steam identities here: zero, with or without the feature.
+        let mut id = 7;
+        assert_eq!(crabby_net_messages_steam_peer(host, peer, &mut id), OK);
+        assert_eq!(id, 0);
+
+        crabby_net_messages_free(host);
+        crabby_net_messages_free(client);
+    }
+}
+
+#[test]
+fn an_event_stays_valid_until_the_next_one_is_taken() {
+    unsafe {
+        let mut e = [null_mut(); 2];
+        assert_eq!(crabby_net_messages_loopback(2, e.as_mut_ptr()), OK);
+        let [host, client] = e;
+        let peer = connected(e);
+        for text in [&b"one"[..], b"two"] {
+            assert_eq!(
+                crabby_net_messages_send(host, peer, CRABBY_LANE_RELIABLE, text.as_ptr(), text.len()),
+                OK
+            );
+        }
+        // Poll without draining, so both are queued.
+        let start = Instant::now();
+        loop {
+            assert_eq!(crabby_net_messages_poll(host), OK);
+            assert_eq!(crabby_net_messages_poll(client), OK);
+            let mut first = CrabbyMessageEvent::default();
+            let mut found = false;
+            assert_eq!(crabby_net_messages_next_event(client, &mut first, &mut found), OK);
+            if found {
+                assert_eq!(first.kind, CRABBY_MESSAGE);
+                assert_eq!(std::slice::from_raw_parts(first.bytes, first.len), b"one");
+                // Asking for the second one is what invalidates the first.
+                assert_eq!(
+                    next(client),
+                    Some(Event::Message(0, CRABBY_LANE_RELIABLE, b"two".to_vec()))
+                );
+                assert_eq!(next(client), None);
+                break;
+            }
+            assert!(start.elapsed() < Duration::from_secs(2), "no message arrived");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        crabby_net_messages_free(host);
+        crabby_net_messages_free(client);
+    }
+}
+
+#[test]
+fn disconnecting_a_peer_tells_it_why() {
+    unsafe {
+        let mut e = [null_mut(); 2];
+        assert_eq!(crabby_net_messages_loopback(2, e.as_mut_ptr()), OK);
+        let [host, client] = e;
+        let peer = connected(e);
+        assert_eq!(crabby_net_messages_disconnect(host, peer), OK);
+        let mut events = [Vec::new(), Vec::new()];
+        pump(&e, &mut events, |ev| {
+            ev[1].iter().any(|e| matches!(e, Event::Disconnected(..)))
+        });
+        let gone: Vec<_> = events[1]
+            .iter()
+            .filter(|e| matches!(e, Event::Disconnected(..)))
+            .collect();
+        assert_eq!(gone.len(), 1, "reported once: {:?}", events[1]);
+        assert!(matches!(gone[0], Event::Disconnected(0, _)));
+        crabby_net_messages_free(host);
+        crabby_net_messages_free(client);
+    }
+}
+
+#[test]
+fn a_silent_peer_times_out() {
+    unsafe {
+        let mut e = [null_mut(); 2];
+        assert_eq!(crabby_net_messages_loopback(2, e.as_mut_ptr()), OK);
+        let [host, client] = e;
+        connected(e);
+        // The client stops hearing from the host for longer than its timeout.
+        assert_eq!(crabby_net_messages_set_timeout(client, 50), OK);
+        let start = Instant::now();
+        let mut seen = Vec::new();
+        while !seen.iter().any(|e| matches!(e, Event::Disconnected(..))) {
+            assert!(start.elapsed() < Duration::from_secs(5), "no timeout: {seen:?}");
+            std::thread::sleep(Duration::from_millis(20));
+            assert_eq!(crabby_net_messages_poll(client), OK);
+            seen.extend(drain(client));
+        }
+        assert!(matches!(seen.last(), Some(Event::Disconnected(0, _))), "{seen:?}");
+        crabby_net_messages_free(host);
+        crabby_net_messages_free(client);
+    }
+}
+
+#[test]
+fn three_loopback_players_hear_the_host() {
+    unsafe {
+        let mut e = [null_mut(); 3];
+        assert_eq!(crabby_net_messages_loopback(3, e.as_mut_ptr()), OK);
+        let mut events = [Vec::new(), Vec::new(), Vec::new()];
+        pump(&e, &mut events, |ev| {
+            ev[0].len() == 2 && ev[1].len() == 1 && ev[2].len() == 1
+        });
+        assert_eq!(
+            crabby_net_messages_send_to_all(e[0], CRABBY_LANE_RELIABLE, b"hi".as_ptr(), 2),
+            OK
+        );
+        pump(&e, &mut events, |ev| {
+            ev[1..].iter().all(|events| messages_of(events).len() == 1)
+        });
+        for events in &events[1..] {
+            assert_eq!(messages_of(events), [(CRABBY_LANE_RELIABLE, &b"hi"[..])]);
+        }
+        for endpoint in e {
+            crabby_net_messages_free(endpoint);
+        }
+    }
+}
+
+#[test]
+fn udp_endpoints_talk_on_the_local_machine() {
+    unsafe {
+        let mut host = null_mut();
+        assert_eq!(crabby_net_messages_host(c"127.0.0.1:0".as_ptr(), 2, &mut host), OK);
+        let mut port = 0;
+        assert_eq!(crabby_net_messages_local_port(host, &mut port), OK);
+        assert_ne!(port, 0, "a free port was picked");
+        let mut client = null_mut();
+        let addr = std::ffi::CString::new(format!("127.0.0.1:{port}")).unwrap();
+        assert_eq!(crabby_net_messages_join(addr.as_ptr(), &mut client), OK);
+
+        let peer = connected([host, client]);
+        assert_eq!(
+            crabby_net_messages_send(host, peer, CRABBY_LANE_RELIABLE, b"over udp".as_ptr(), 8),
+            OK
+        );
+        let mut events = [Vec::new(), Vec::new()];
+        pump(&[host, client], &mut events, |ev| !messages_of(&ev[1]).is_empty());
+        assert_eq!(messages_of(&events[1]), [(CRABBY_LANE_RELIABLE, &b"over udp"[..])]);
+
+        crabby_net_messages_free(client);
+        crabby_net_messages_free(host);
+    }
+}
+
+#[test]
+fn bad_arguments_are_errors_not_crashes() {
+    unsafe {
+        let mut e = [null_mut(); 2];
+        let mut one = null_mut();
+        // Creating endpoints.
+        assert_eq!(
+            crabby_net_messages_loopback(1, e.as_mut_ptr()),
+            BAD,
+            "needs two players"
+        );
+        assert_eq!(crabby_net_messages_loopback(0, e.as_mut_ptr()), BAD);
+        assert_eq!(crabby_net_messages_loopback(2, null_mut()), BAD);
+        assert_eq!(crabby_net_messages_host(null(), 2, &mut one), BAD);
+        assert_eq!(crabby_net_messages_host(c"127.0.0.1:0".as_ptr(), 2, null_mut()), BAD);
+        assert_ne!(crabby_net_messages_host(c"not an address".as_ptr(), 2, &mut one), OK);
+        assert!(one.is_null());
+        assert_eq!(crabby_net_messages_join(null(), &mut one), BAD);
+        assert_eq!(crabby_net_messages_join(c"127.0.0.1:9".as_ptr(), null_mut()), BAD);
+        assert_ne!(crabby_net_messages_join(c"not an address".as_ptr(), &mut one), OK);
+
+        // A null endpoint everywhere.
+        let mut ev = CrabbyMessageEvent::default();
+        let (mut found, mut port, mut stats, mut id) = (false, 0u16, CrabbyMessageStats::default(), 0u64);
+        assert_eq!(crabby_net_messages_poll(null_mut()), BAD);
+        assert_eq!(crabby_net_messages_next_event(null_mut(), &mut ev, &mut found), BAD);
+        assert_eq!(
+            crabby_net_messages_send(null_mut(), 0, CRABBY_LANE_RELIABLE, null(), 0),
+            BAD
+        );
+        assert_eq!(
+            crabby_net_messages_send_to_all(null_mut(), CRABBY_LANE_RELIABLE, null(), 0),
+            BAD
+        );
+        assert_eq!(crabby_net_messages_disconnect(null_mut(), 0), BAD);
+        assert_eq!(crabby_net_messages_stats(null_mut(), &mut stats), BAD);
+        assert_eq!(crabby_net_messages_local_port(null_mut(), &mut port), BAD);
+        assert_eq!(crabby_net_messages_set_timeout(null_mut(), 10), BAD);
+        assert_eq!(crabby_net_messages_steam_peer(null_mut(), 0, &mut id), BAD);
+        crabby_net_messages_free(null_mut());
+
+        // Outputs must be writable.
+        assert_eq!(crabby_net_messages_loopback(2, e.as_mut_ptr()), OK);
+        assert_eq!(crabby_net_messages_next_event(e[0], null_mut(), &mut found), BAD);
+        assert_eq!(crabby_net_messages_next_event(e[0], &mut ev, null_mut()), BAD);
+        assert_eq!(crabby_net_messages_local_port(e[0], null_mut()), BAD);
+        assert_eq!(crabby_net_messages_steam_peer(e[0], 0, null_mut()), BAD);
+        // Disconnecting someone who isn't there is an error, not a crash.
+        let _ = crabby_net_messages_disconnect(e[0], 12345);
+        crabby_net_messages_free(e[0]);
+        crabby_net_messages_free(e[1]);
+    }
+}
