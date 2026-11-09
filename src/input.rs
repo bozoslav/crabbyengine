@@ -360,6 +360,8 @@ impl Input {
 
     /// A pad was plugged in: it takes the lowest free slot. `None` when all
     /// [`MAX_GAMEPADS`] slots are taken.
+    // Only the gilrs backend plugs pads in (and the unit tests).
+    #[cfg_attr(not(feature = "gamepad"), allow(dead_code))]
     pub fn connect_gamepad(&mut self) -> Option<Gamepad> {
         let slot = (0..MAX_GAMEPADS as u8).find(|&s| !self.connected.contains(&Gamepad(s)))?;
         let pad = Gamepad(slot);

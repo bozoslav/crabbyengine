@@ -6,7 +6,11 @@ fn in_tick(f: impl FnMut(&mut Ctx) + 'static) {
     Game::new("audio", 1, 1).sim_system(f).run_headless(1, |_| {});
 }
 
+// Decoding sound files needs the `audio` feature: without it a sound only
+// has to exist, and lasts zero seconds.
+
 /// A mono 16-bit PCM WAV file.
+#[cfg(feature = "audio")]
 fn wav(sample_rate: u32, samples: &[i16]) -> Vec<u8> {
     let data_len = (samples.len() * 2) as u32;
     let mut out = Vec::new();
@@ -28,6 +32,7 @@ fn wav(sample_rate: u32, samples: &[i16]) -> Vec<u8> {
     out
 }
 
+#[cfg(feature = "audio")]
 fn temp_file(name: &str, bytes: &[u8]) -> String {
     let path = std::env::temp_dir().join(format!("ponko-audio-{}-{name}", std::process::id()));
     std::fs::write(&path, bytes).unwrap();
@@ -44,6 +49,7 @@ fn generated_sounds_know_their_length() {
     });
 }
 
+#[cfg(feature = "audio")]
 #[test]
 fn wav_files_load() {
     let path = temp_file("tone.wav", &wav(22_050, &vec![1000; 22_050 / 4]));
@@ -61,6 +67,7 @@ fn wav_files_load() {
     });
 }
 
+#[cfg(feature = "audio")]
 #[test]
 #[should_panic(expected = "could not decode the sound")]
 fn files_that_are_not_sound_say_so() {

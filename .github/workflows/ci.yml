@@ -66,6 +66,10 @@ jobs:
           python3 scripts/generate-ponko-header.py --check
       - run: cargo fmt --all --check
 
+  # Reduced builds lint one package (`scope`), not the workspace: Cargo
+  # unifies features across every package it builds, and other members turn
+  # engine features on (the C library enables 3d and navmesh; the MCP
+  # server's tests, the defaults).
   clippy:
     name: Clippy (${{ matrix.name }})
     runs-on: ubuntu-latest
@@ -82,11 +86,17 @@ jobs:
           - name: steam
             args: --features ponko/steam,ponko_ffi/steam
           - name: ECS without parallel
-            args: -p ponko_ecs --no-default-features
+            scope: -p ponko_ecs
+            args: --no-default-features
           - name: engine without window or audio
-            args: -p ponko --no-default-features
+            scope: -p ponko
+            args: --no-default-features
           - name: engine without window
-            args: -p ponko --no-default-features --features audio
+            scope: -p ponko
+            args: --no-default-features --features audio
+          - name: engine with only a window (2D)
+            scope: -p ponko
+            args: --no-default-features --features window
     steps:
       - uses: actions/checkout@v7
       - name: Install ALSA and udev headers (audio, gamepads)
@@ -99,7 +109,21 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           key: clippy-${{ matrix.name }}
-      - run: cargo clippy --workspace --all-targets ${{ matrix.args }}
+      - run: cargo clippy ${{ matrix.scope || '--workspace' }} --all-targets ${{ matrix.args }}
+
+  # Reduced engine builds must not pull in optional subsystems (renderer,
+  # audio devices, inspector, glTF, physics, navigation, dev tools); see the
+  # script for each build's contract. It only resolves the dependency graph.
+  feature-deps:
+    name: Feature dependency contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Check each reduced build's dependencies
+        run: scripts/feature-deps.sh
+      - name: A forbidden dependency fails the check
+        run: scripts/feature-deps.sh self-test
 
   # The oldest supported Rust (rust-version in Cargo.toml) still builds everything.
   msrv:
@@ -258,9 +282,11 @@ jobs:
       - name: Tests, ECS without rayon
         if: ${{ !cancelled() }}
         run: cargo test -p ponko_ecs --tests --no-fail-fast --no-default-features
-      - name: Tests, engine without a window
+      # No optional feature at all: no renderer, audio device or inspector.
+      # (Audio without a window is linted in the clippy job.)
+      - name: Tests, engine with no default features
         if: ${{ !cancelled() }}
-        run: cargo test -p ponko --tests --no-fail-fast --no-default-features --features audio
+        run: cargo test -p ponko --tests --no-fail-fast --no-default-features
       # Systems called through subsecond's jump table (no dx attached) behave the same.
       - name: Tests, engine with hotpatch
         if: ${{ !cancelled() }}
@@ -413,7 +439,7 @@ jobs:
   ci-passed:
     name: CI passed
     if: always()
-    needs: [leaks, fmt, clippy, msrv, test, windows-unit-build, windows-unit, windows-examples, test-features, docs, book, miri, native, web]
+    needs: [leaks, fmt, clippy, feature-deps, msrv, test, windows-unit-build, windows-unit, windows-examples, test-features, docs, book, miri, native, web]
     runs-on: ubuntu-latest
     steps:
       - name: Check every job
