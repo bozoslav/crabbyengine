@@ -130,7 +130,7 @@ pub use events::Events;
 #[doc(hidden)]
 pub use flow::RawFlowView;
 pub use flow::{FlowField, NavGrid};
-pub use game::{ConfiguredGame, Game, Phase, SetupResult};
+pub use game::{ConfiguredGame, Game, Phase, Plugin, SetupResult, SystemId, Systems};
 pub use handle::{Handle, LiveCounts};
 pub use input::{Gamepad, GamepadAxis, GamepadButton, GamepadStick, Key, MAX_GAMEPADS, MouseButton};
 pub use inventory::{AssetClass, AssetCount, AssetGrowth, AssetInventory, GpuResidency};

@@ -293,19 +293,23 @@ where
         }
 
         if let Some(setup) = self.setup.take() {
+            run_setups(std::mem::take(&mut self.config.setups), &mut self.ctx);
             let frame_fn = setup(&mut self.ctx).into_frame_fn();
             self.ctx.apply_commands();
             if let Some(f) = frame_fn {
                 let index = self.config.systems.partition_point(|s| s.stage <= Phase::Frame);
+                let id = next_system_id();
                 self.config.systems.insert(
                     index,
                     System {
+                        key: SystemId(id),
+                        builtin: None,
                         name: "setup closure",
                         stage: Phase::Frame,
                         run: f,
                         every: 1,
                         phase: 0,
-                        id: next_system_id(),
+                        id,
                     },
                 );
             }

@@ -53,6 +53,99 @@ pub enum Phase {
     Draw,
 }
 
+/// A reusable module of systems and startup work.
+///
+/// `build` runs immediately during registration; `setup` runs once after runtime
+/// initialization, interleaved with explicit setup callbacks in registration order.
+/// Plugins need no registry, dependency graph, or additional runtime feature.
+/// Each system names its [`Phase`], so the order in which plugins are added
+/// only matters between systems of the same phase.
+///
+/// ```
+/// use ponko::{Ctx, Game, Phase, Plugin};
+///
+/// struct Score;
+/// impl Plugin for Score {
+///     fn build(&self, game: Game) -> Game {
+///         game.add(Phase::AfterPhysics, |ctx| *ctx.world.resource_mut::<u32>() += 1)
+///     }
+///     fn setup(&self, ctx: &mut Ctx) {
+///         ctx.world.insert_resource(0u32);
+///     }
+/// }
+///
+/// let world = Game::new("score", 1, 1).plugin(Score).setup(|_| {}).run_headless(3);
+/// assert_eq!(*world.resource::<u32>(), 3);
+/// ```
+pub trait Plugin {
+    /// Registers systems and options on the existing builder.
+    fn build(&self, game: Game) -> Game;
+    /// Initializes this module before systems start. Commands apply afterward.
+    fn setup(&self, _ctx: &mut Ctx) {}
+}
+
+/// An opaque registration handle. Registration IDs are unique across game builders
+/// and never reused. Constants in [`Systems`] identify all registrations of a
+/// built-in function. IDs are not persistence identifiers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct SystemId(u32);
+
+/// Stable IDs for built-in systems. Feature-gated systems are only installed
+/// when enabled/configured; removing an absent ID is a no-op.
+pub struct Systems;
+
+impl Systems {
+    /// Fixed-tick 2D physics step.
+    pub const PHYSICS: SystemId = SystemId(1);
+    /// Fixed-tick 3D physics step.
+    pub const PHYSICS3D: SystemId = SystemId(2);
+    /// Per-frame interpolated 3D physics transforms.
+    pub const INTERPOLATE_PHYSICS3D: SystemId = SystemId(3);
+    /// Spatial grid rebuild.
+    pub const REBUILD_SPATIAL_GRID: SystemId = SystemId(4);
+    /// Sprite animation in the drawing bucket.
+    pub const ANIMATE_SPRITES: SystemId = SystemId(5);
+    /// Tilemap drawing.
+    pub const DRAW_TILEMAPS: SystemId = SystemId(6);
+    /// Sprite drawing.
+    pub const DRAW_SPRITES: SystemId = SystemId(7);
+    /// Attachment transforms, when explicitly registered.
+    pub const FOLLOW_ATTACHMENTS: SystemId = SystemId(8);
+    /// Navigation update, when explicitly registered.
+    pub const STEP_NAVMESH3D: SystemId = SystemId(9);
+}
+
+fn builtin_id(name: &str) -> Option<SystemId> {
+    let entries = [
+        (std::any::type_name_of_val(&animate_sprites), Systems::ANIMATE_SPRITES),
+        (std::any::type_name_of_val(&draw_tilemaps), Systems::DRAW_TILEMAPS),
+        (std::any::type_name_of_val(&draw_sprites), Systems::DRAW_SPRITES),
+        (
+            std::any::type_name_of_val(&rebuild_spatial_grid),
+            Systems::REBUILD_SPATIAL_GRID,
+        ),
+        (
+            std::any::type_name_of_val(&crate::follow_attachments),
+            Systems::FOLLOW_ATTACHMENTS,
+        ),
+        #[cfg(feature = "physics")]
+        (std::any::type_name_of_val(&crate::step_physics), Systems::PHYSICS),
+        #[cfg(feature = "physics3d")]
+        (std::any::type_name_of_val(&crate::step_physics3d), Systems::PHYSICS3D),
+        #[cfg(feature = "physics3d")]
+        (
+            std::any::type_name_of_val(&crate::interpolate_physics3d),
+            Systems::INTERPOLATE_PHYSICS3D,
+        ),
+        #[cfg(feature = "navmesh")]
+        (
+            std::any::type_name_of_val(&crate::step_navmesh3d),
+            Systems::STEP_NAVMESH3D,
+        ),
+    ];
+    entries.into_iter().find_map(|(n, id)| (n == name).then_some(id))
+}
+
 /// A game: a window plus the loop that drives your code.
 ///
 /// ```no_run
@@ -91,6 +184,7 @@ pub enum Phase {
 /// ```
 #[must_use = "a Game does nothing until `.run()` or `.run_headless()`"]
 pub struct Game {
+    setups: Vec<SetupFn>,
     title: String,
     width: u32,
     height: u32,
@@ -137,7 +231,6 @@ type SetupFn = Box<dyn FnOnce(&mut Ctx)>;
 #[must_use = "a configured game does nothing until run or run_headless"]
 pub struct ConfiguredGame {
     game: Game,
-    setups: Vec<SetupFn>,
 }
 
 fn run_setups(setups: Vec<SetupFn>, ctx: &mut Ctx) {
@@ -152,27 +245,33 @@ impl ConfiguredGame {
     /// after runtime initialization and before any systems. Deferred commands
     /// are applied after each callback, including when running zero ticks.
     pub fn setup(mut self, setup: impl FnOnce(&mut Ctx) + 'static) -> Self {
-        self.setups.push(Box::new(setup));
+        self.game.setups.push(Box::new(setup));
+        self
+    }
+
+    /// Registers a plugin after earlier startup callbacks. Its systems are
+    /// configured immediately and its setup joins the same ordered queue.
+    pub fn plugin(mut self, plugin: impl Plugin + 'static) -> Self {
+        self.game = self.game.plugin(plugin);
         self
     }
 
     /// Opens the window and runs with the stored setup callbacks.
     /// Has the same platform requirements and panics as [`Game::run`].
     pub fn run(self) {
-        self.game.run(move |ctx| run_setups(self.setups, ctx));
+        self.game.run(|_| {});
     }
 
     /// Runs fixed ticks without a window or GPU, returning the world.
     /// Frame systems do not run; see [`Game::run_headless`].
     pub fn run_headless(self, ticks: u64) -> World {
-        self.game.run_headless(ticks, move |ctx| run_setups(self.setups, ctx))
+        self.game.run_headless(ticks, |_| {})
     }
 
     /// Profiles fixed ticks using the stored setup callbacks.
     /// See [`Game::profile_headless`] for warmup and report semantics.
     pub fn profile_headless(self, warmup: u64, ticks: u64) -> (World, crate::PerfReport) {
-        self.game
-            .profile_headless(warmup, ticks, move |ctx| run_setups(self.setups, ctx))
+        self.game.profile_headless(warmup, ticks, |_| {})
     }
 }
 
@@ -180,6 +279,8 @@ type SystemFn = Box<dyn FnMut(&mut Ctx)>;
 
 /// A system: a named function that runs over the world.
 struct System {
+    key: SystemId,
+    builtin: Option<SystemId>,
     name: &'static str,
     stage: Phase,
     run: SystemFn,
@@ -193,8 +294,10 @@ struct System {
 /// Ids for [`System::id`]; 0 means "outside any system".
 fn next_system_id() -> u32 {
     use std::sync::atomic::{AtomicU32, Ordering};
-    static NEXT: AtomicU32 = AtomicU32::new(1);
-    NEXT.fetch_add(1, Ordering::Relaxed)
+    static NEXT: AtomicU32 = AtomicU32::new(1024);
+    let id = NEXT.fetch_add(1, Ordering::Relaxed);
+    assert!(id >= 1024, "system ID space exhausted");
+    id
 }
 
 /// This frame's timing: the clock at the current sim speed (0 while
@@ -232,13 +335,16 @@ fn run_one(s: &mut System, ctx: &mut Ctx, timing_index: usize) {
 
 impl System {
     fn new<F: FnMut(&mut Ctx) + 'static>(f: F) -> Self {
+        let id = next_system_id();
         System {
+            key: SystemId(id),
+            builtin: builtin_id(std::any::type_name::<F>()),
             name: std::any::type_name::<F>(),
             stage: Phase::AfterPhysics,
             run: hot(f),
             every: 1,
             phase: 0,
-            id: next_system_id(),
+            id,
         }
     }
 }
@@ -312,6 +418,7 @@ impl Game {
     /// ```
     pub fn new(title: impl Into<String>, width: u32, height: u32) -> Self {
         Self {
+            setups: Vec::new(),
             title: title.into(),
             width,
             height,
@@ -357,8 +464,15 @@ impl Game {
     ///     .run_headless(1, |_| {});
     /// assert!(world.is_empty());
     /// ```
-    pub fn add(self, phase: Phase, system: impl FnMut(&mut Ctx) + 'static) -> Self {
-        self.insert(phase, System::new(system))
+    pub fn add(mut self, phase: Phase, system: impl FnMut(&mut Ctx) + 'static) -> Self {
+        self.add_system(phase, system);
+        self
+    }
+
+    /// Registers a system and returns its removal handle. Unlike the chainable
+    /// [`add`](Self::add), this method borrows the builder to return an ID.
+    pub fn add_system(&mut self, phase: Phase, system: impl FnMut(&mut Ctx) + 'static) -> SystemId {
+        self.insert_system(phase, System::new(system))
     }
 
     /// For language bindings (the C API): `add` with a name for timings and
@@ -367,7 +481,7 @@ impl Game {
     #[doc(hidden)]
     #[track_caller]
     pub fn named_add(
-        self,
+        mut self,
         phase: Phase,
         name: &'static str,
         ticks: u32,
@@ -385,10 +499,12 @@ impl Game {
             s.every = ticks;
             s.phase = same % ticks;
         }
-        self.insert(phase, s)
+        self.insert_system(phase, s);
+        self
     }
 
-    fn insert(mut self, phase: Phase, mut s: System) -> Self {
+    fn insert_system(&mut self, phase: Phase, mut s: System) -> SystemId {
+        let id = s.key;
         s.stage = phase;
         let systems = match phase {
             Phase::Input | Phase::BeforePhysics | Phase::Physics | Phase::AfterPhysics | Phase::SimLast => {
@@ -400,7 +516,7 @@ impl Game {
         };
         let index = systems.partition_point(|s| s.stage <= phase);
         systems.insert(index, s);
-        self
+        id
     }
 
     /// Stores startup work on the builder. Configure systems and options first;
@@ -425,11 +541,32 @@ impl Game {
     /// let world = game.run_headless(0);
     /// assert_eq!(world.resource::<String>(), "server");
     /// ```
-    pub fn setup(self, setup: impl FnOnce(&mut Ctx) + 'static) -> ConfiguredGame {
-        ConfiguredGame {
-            game: self,
-            setups: vec![Box::new(setup)],
-        }
+    pub fn setup(mut self, setup: impl FnOnce(&mut Ctx) + 'static) -> ConfiguredGame {
+        self.setups.push(Box::new(setup));
+        ConfiguredGame { game: self }
+    }
+
+    /// Composes an optional module. Its build runs now; setup runs before the
+    /// legacy run closure or in registration order with [`Game::setup`].
+    pub fn plugin(self, plugin: impl Plugin + 'static) -> Self {
+        let mut game = plugin.build(self);
+        game.setups.push(Box::new(move |ctx| plugin.setup(ctx)));
+        game
+    }
+
+    /// Removes all registrations with this ID, including built-ins. An absent
+    /// or already removed ID is a no-op. Runtime event readers remain distinct
+    /// even when multiple registrations share a built-in ID.
+    pub fn remove(mut self, id: SystemId) -> Self {
+        self.remove_id(id);
+        self
+    }
+
+    fn remove_id(&mut self, id: SystemId) {
+        self.sim_systems.retain(|s| s.key != id && s.builtin != Some(id));
+        self.systems.retain(|s| s.key != id && s.builtin != Some(id));
+        self.late_systems.retain(|s| s.key != id && s.builtin != Some(id));
+        self.draw_systems.retain(|s| s.key != id && s.builtin != Some(id));
     }
 
     /// Plays over the network in deterministic lockstep: `net` from
@@ -575,12 +712,20 @@ impl Game {
     /// Returns how many were removed.
     #[doc(hidden)]
     pub fn remove_named_system(&mut self, name: &str) -> usize {
-        let before = self.sim_systems.len() + self.systems.len() + self.late_systems.len() + self.draw_systems.len();
-        self.sim_systems.retain(|s| s.name != name);
-        self.systems.retain(|s| s.name != name);
-        self.late_systems.retain(|s| s.name != name);
-        self.draw_systems.retain(|s| s.name != name);
-        before - (self.sim_systems.len() + self.systems.len() + self.late_systems.len() + self.draw_systems.len())
+        let ids: Vec<_> = self
+            .sim_systems
+            .iter()
+            .chain(&self.systems)
+            .chain(&self.late_systems)
+            .chain(&self.draw_systems)
+            .filter(|s| s.name == name)
+            .map(|s| s.key)
+            .collect();
+        let count = ids.len();
+        for id in ids {
+            self.remove_id(id);
+        }
+        count
     }
 
     /// Turns on 2D physics (feature `physics`): every entity with a
@@ -608,8 +753,7 @@ impl Game {
     #[cfg(feature = "physics")]
     pub fn physics(mut self, gravity: Vec2) -> Self {
         self.gravity = Some(gravity);
-        let name = std::any::type_name_of_val(&crate::step_physics);
-        if !self.sim_systems.iter().any(|s| s.name == name) {
+        if !self.sim_systems.iter().any(|s| s.builtin == Some(Systems::PHYSICS)) {
             self = self.add(Phase::Physics, crate::step_physics);
         }
         self
@@ -649,12 +793,14 @@ impl Game {
         if !self.fixed_hz_set {
             self.fixed_hz = crate::PHYSICS3D_HZ;
         }
-        let name = std::any::type_name_of_val(&crate::step_physics3d);
-        if !self.sim_systems.iter().any(|s| s.name == name) {
+        if !self.sim_systems.iter().any(|s| s.builtin == Some(Systems::PHYSICS3D)) {
             self = self.add(Phase::Physics, crate::step_physics3d);
         }
-        let name = std::any::type_name_of_val(&crate::interpolate_physics3d);
-        if !self.systems.iter().any(|s| s.name == name) {
+        if !self
+            .systems
+            .iter()
+            .any(|s| s.builtin == Some(Systems::INTERPOLATE_PHYSICS3D))
+        {
             self = self.add(Phase::Frame, crate::interpolate_physics3d);
         }
         self
@@ -673,8 +819,11 @@ impl Game {
     #[track_caller]
     pub fn spatial_grid(mut self, cell_size: f32) -> Self {
         self.spatial_cell = Some(crate::SpatialGrid::new(cell_size).cell_size());
-        let name = std::any::type_name_of_val(&rebuild_spatial_grid);
-        if !self.sim_systems.iter().any(|s| s.name == name) {
+        if !self
+            .sim_systems
+            .iter()
+            .any(|s| s.builtin == Some(Systems::REBUILD_SPATIAL_GRID))
+        {
             self = self.add(Phase::Input, rebuild_spatial_grid);
         }
         self
@@ -710,15 +859,9 @@ impl Game {
     pub fn remove_system<F: FnMut(&mut Ctx) + 'static>(mut self, system: F) -> Self {
         drop(system);
         let name = std::any::type_name::<F>();
-        let count = |g: &Game| g.sim_systems.len() + g.systems.len() + g.late_systems.len() + g.draw_systems.len();
-        let before = count(&self);
-        self.sim_systems.retain(|s| s.name != name);
-        self.systems.retain(|s| s.name != name);
-        self.late_systems.retain(|s| s.name != name);
-        self.draw_systems.retain(|s| s.name != name);
         assert_ne!(
-            before,
-            count(&self),
+            self.remove_named_system(name),
+            0,
             "Game::remove_system: no system `{name}` was added"
         );
         self
@@ -1132,6 +1275,7 @@ impl Game {
             ctx.net = net;
         }
         ctx.net.begin(ctx.seed);
+        run_setups(std::mem::take(&mut self.setups), &mut ctx);
         drop(setup(&mut ctx).into_frame_fn()); // no frames, so no frame closure
         ctx.apply_commands();
         ctx.discard_draws();
@@ -1318,6 +1462,42 @@ mod tests {
         assert!(ctx.system_timings()[1].name.ends_with("::late"));
         let game = game.remove_system(late);
         assert!(game.late_systems.is_empty());
+    }
+
+    #[test]
+    fn ids_remove_from_every_phase_and_builtin_aliases_remove_all_instances() {
+        let mut game = Game::new("ids", 1, 1);
+        for phase in [
+            Phase::Input,
+            Phase::BeforePhysics,
+            Phase::Physics,
+            Phase::AfterPhysics,
+            Phase::SimLast,
+            Phase::Frame,
+            Phase::Animate,
+            Phase::Late,
+            Phase::Draw,
+        ] {
+            let id = game.add_system(phase, |_| panic!("removed system ran"));
+            game = game.remove(id);
+            assert!(
+                !game
+                    .sim_systems
+                    .iter()
+                    .chain(&game.systems)
+                    .chain(&game.late_systems)
+                    .chain(&game.draw_systems)
+                    .any(|s| s.key == id)
+            );
+        }
+        game.add_system(Phase::Draw, draw_sprites);
+        game = game.remove(Systems::DRAW_SPRITES);
+        assert_eq!(game.draw_systems.len(), 2);
+        let game = game
+            .spatial_grid(32.0)
+            .remove(Systems::REBUILD_SPATIAL_GRID)
+            .spatial_grid(64.0);
+        assert_eq!(game.sim_systems.len(), 1);
     }
 
     #[test]
