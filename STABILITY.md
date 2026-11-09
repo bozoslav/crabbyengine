@@ -10,8 +10,11 @@ below for inherited APIs, Cargo features, C/C++ layouts and symbols, saved
 worlds, or MCP tools. The existing 1.x policy remains the reference for
 compatible evolution. Any proposal that conflicts with it needs an explicit
 migration and major-version decision; a 0.x number is not permission for an
-undocumented break. Directory names, `crabby_*` C symbols and saved-format
-identifiers can remain unchanged across the rename.
+undocumented break. Source directories now use `ponko_*`. The `ponko.h` / `ponko.hpp` headers
+provide source aliases over the existing C symbols and C++ namespace. Binary
+symbols and saved-format identifiers remain unchanged. See the
+[naming migration](book/src/naming.md) for environment precedence and retained
+external identifiers.
 
 ## Semantic versioning
 

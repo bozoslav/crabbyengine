@@ -1,7 +1,7 @@
 # Systems and the frame
 
 A **system** is a function `fn(&mut Ctx)` (or a closure); in C++, anything
-callable as `void(crabby::ctx&)`, with an optional name for timings and tools. You add systems to
+callable as `void(ponko::ctx&)`, with an optional name for timings and tools. You add systems to
 the `Game` and they run in the order you added them.
 
 <div class="lang-pair">

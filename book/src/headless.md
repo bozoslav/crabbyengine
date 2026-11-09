@@ -1,6 +1,6 @@
 # Headless runs and testing
 
-`Game::run_headless(ticks, setup)` (C++: `crabby::game::run_headless`) runs the simulation with no window and no
+`Game::run_headless(ticks, setup)` (C++: `ponko::game::run_headless`) runs the simulation with no window and no
 GPU, as fast as the CPU allows, then hands you the `World`.
 
 Use it for:
@@ -87,4 +87,4 @@ cargo build --release -p ponko_ffi \
 That build has 82 crates instead of 142, builds from clean in 7 s instead of
 15 s (release, M-series Mac) and leaves half the build output. Everything in
 this chapter works the same. Drawing calls do nothing, and `Game::run`
-(C: `crabby_game_run`) stops with a message that says to use `run_headless`.
+(C: `ponko_game_run`) stops with a message that says to use `run_headless`.

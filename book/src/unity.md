@@ -1,7 +1,7 @@
 # Importing from Unity
 
 `ponko_unity` reads a Unity project and turns its scenes and prefabs into
-Crabby [scenes](scenes.md): every drawn mesh becomes a `.glb` with its
+Ponko [scenes](scenes.md): every drawn mesh becomes a `.glb` with its
 materials, its textures become PNGs, and the scene is a `crabby-world`
 file of `Transform3D` and `Model` entities that `load_scene` loads. It
 runs once, as a tool, and writes into your game's `assets/`.
@@ -24,8 +24,8 @@ To look around what came out:
 SCENE=town/Town.json cargo run --release --features 3d --example scene_viewer
 ```
 
-Unity's +Z is Crabby's -Z: everything is mirrored along Z on the way, so a
-scene looks the same, and positions and rotations come out in Crabby's
+Unity's +Z is Ponko's -Z: everything is mirrored along Z on the way, so a
+scene looks the same, and positions and rotations come out in Ponko's
 space.
 
 ## What comes over
@@ -42,7 +42,7 @@ space.
   and metalness image), emission, tiling, cutout, transparency and
   two-sided, plus occlusion. A custom shader is drawn as plain PBR by the
   same rules; the report lists the shaders used, so you know which need a
-  Crabby [shader](3d.md) of their own.
+  Ponko [shader](3d.md) of their own.
 - **Textures** from image files, at most as large as their import settings
   allow, and from texture assets saved uncompressed.
 - **Prefabs** inside prefabs, with their overrides, baked into one flat
@@ -96,7 +96,7 @@ it can't find or read.
 ## Your own shaders for imported materials
 
 Materials of the project's own shaders come over as plain PBR. To draw
-them with a Crabby [shader](3d.md) of your own, tell the importer which
+them with a Ponko [shader](3d.md) of your own, tell the importer which
 shaders those are:
 
 ```rust
@@ -104,7 +104,7 @@ import.custom_shader("Assets/Shaders/Wall.shader"); // as the report lists it
 ```
 
 Their meshes then keep their vertex colors and UV set 1 (which custom
-shaders often read; in Crabby's shaders they're `s.color` and `s.uv1`,
+shaders often read; in Ponko's shaders they're `s.color` and `s.uv1`,
 UV set 1 unflipped, as Unity has it), and the importer writes
 `materials.json` next to the scenes: each such material by name, with its
 shader and every number, color and texture it sets, the textures written
@@ -130,10 +130,10 @@ keep that and change the shader:
 </div>
 
 Call it after the scene (or model) is loaded: models loaded later aren't
-in it yet. C: `crabby_ctx_loaded_materials`.
+in it yet. C: `ponko_ctx_loaded_materials`.
 
 A shader that reads something else per vertex, such as a second UV set,
-can have it put in the vertex colors instead, which is what Crabby's
+can have it put in the vertex colors instead, which is what Ponko's
 shaders get per vertex besides one UV set:
 
 ```rust
@@ -227,7 +227,7 @@ the formats' public descriptions, not against every Unity version's output.
 ## Terrain
 
 Unity terrain (`TerrainData`, text or binary) reads as a
-`UnityTerrain`: its heights in world units, already in Crabby's row order,
+`UnityTerrain`: its heights in world units, already in Ponko's row order,
 ready for a [terrain tile](3d.md), and the layers painted on it with
 their weight maps.
 
@@ -248,4 +248,4 @@ The weight maps are `Texture2D`s in the same file: read them with
 
 The importer is a Rust tool: run it once, as above. What it writes are
 ordinary scene, glTF and PNG files, which C and C++ games load with
-`ctx.load_scene(path)` (C: `crabby_ctx_load_scene`) like any other.
+`ctx.load_scene(path)` (C: `ponko_ctx_load_scene`) like any other.

@@ -512,7 +512,7 @@ fn main() {
         return;
     }
 
-    colonies(Game::new("Crabby Engine: ants", 1280, 720).seed(seed), bounds)
+    colonies(Game::new("Ponko: ants", 1280, 720).seed(seed), bounds)
         .system(controls)
         .system(camera_controls)
         .system(draw_world(bounds))

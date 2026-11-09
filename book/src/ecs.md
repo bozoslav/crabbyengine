@@ -89,7 +89,7 @@ ctx.world
 
 In C++, `each` reads the components to visit from your function's
 parameters: `T&` to change one, `const T&` to read it, and a first
-`crabby::entity` parameter gets the entity's id. `world.each_par` is the C++
+`ponko::entity` parameter gets the entity's id. `world.each_par` is the C++
 `par_for_each`: your function runs on all cores at once, so it must only
 touch its own entity.
 
@@ -186,8 +186,8 @@ ctx.world.resource_mut::<Score>().0 += 1;
 C++ resources are plain structs, copied in and out: `resource<T>()` (throws
 if the world has none), `try_resource<T>()`, `set_resource(value)` and
 `remove_resource<T>()`. Read them before an `each` loop, not inside it (the
-world is borrowed while the loop runs). In C: `crabby_resource_set`,
-`crabby_resource_get` and `crabby_resource_remove`, by name.
+world is borrowed while the loop runs). In C: `ponko_resource_set`,
+`ponko_resource_get` and `ponko_resource_remove`, by name.
 
 ## Sorting for cache locality
 

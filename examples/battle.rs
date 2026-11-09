@@ -681,7 +681,7 @@ fn main() {
         return;
     }
 
-    battle_systems(Game::new("Crabby Engine: battle", 1280, 720).seed(seed))
+    battle_systems(Game::new("Ponko: battle", 1280, 720).seed(seed))
         .system(controls)
         .system(camera_controls)
         .system(hud)

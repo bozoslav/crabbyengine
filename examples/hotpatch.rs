@@ -45,7 +45,7 @@ fn report(ctx: &mut Ctx) {
 struct Crab(f32);
 
 fn main() {
-    Game::new("Crabby Engine: hot patching", 1280, 720)
+    Game::new("Ponko: hot patching", 1280, 720)
         .sim_system(spin)
         .sim_system(wobble)
         .sim_system(report)

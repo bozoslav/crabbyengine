@@ -10,7 +10,7 @@ use crate::Texture;
 
 /// Environment variable that turns hot reload on (`1`) or off (`0`),
 /// overriding [`Game::hot_reload`](crate::Game::hot_reload).
-pub(crate) const ENV_HOT_RELOAD: &str = "CRABBY_HOT_RELOAD";
+pub(crate) const ENV_HOT_RELOAD: &str = "PONKO_HOT_RELOAD";
 
 /// How often watched files are checked.
 const CHECK_EVERY: Duration = Duration::from_millis(250);
@@ -87,13 +87,13 @@ impl Default for Watcher {
     }
 }
 
-/// `on` unless `CRABBY_HOT_RELOAD` says otherwise.
+/// `on` unless `PONKO_HOT_RELOAD` says otherwise.
 pub(crate) fn enabled(on: bool) -> bool {
     // Web builds have no files to watch.
     if cfg!(target_arch = "wasm32") {
         return false;
     }
-    match std::env::var(ENV_HOT_RELOAD).as_deref() {
+    match crate::environment::var(ENV_HOT_RELOAD).as_deref() {
         Ok("1") => true,
         Ok("0") => false,
         _ => on,
@@ -139,7 +139,7 @@ mod tests {
     use super::*;
 
     fn temp_file(name: &str, bytes: &[u8]) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("crabby-hot-{}-{name}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("ponko-hot-{}-{name}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join(name);
         std::fs::write(&path, bytes).unwrap();

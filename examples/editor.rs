@@ -55,7 +55,7 @@ fn walk(ctx: &mut Ctx) {
 }
 
 fn main() {
-    Game::new("Crabby Engine: editor", 1280, 720)
+    Game::new("Ponko: editor", 1280, 720)
         .inspector(true)
         .sim_system(walk)
         .run(|ctx| {

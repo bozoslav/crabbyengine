@@ -103,7 +103,7 @@ fn plop(ctx: &mut Ctx) -> Sound {
 }
 
 fn main() {
-    Game::new("Crabby Engine: camera, shapes, text, UI", 1280, 720)
+    Game::new("Ponko: camera, shapes, text, UI", 1280, 720)
         .system(camera_controls)
         .system(scene)
         .system(hud)

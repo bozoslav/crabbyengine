@@ -45,7 +45,7 @@ Game::new("Colony", 1280, 720)
 <div>
 
 ```cpp
-crabby::game("Colony", 1280, 720)
+ponko::game("Colony", 1280, 720)
     .camera_controls()       // right/middle drag pans, wheel zooms
 ```
 
@@ -96,7 +96,7 @@ ctx.draw_circle(tower, 120.0, Color::BLUE.with_alpha(0.2));
 </div>
 </div>
 
-C++ rectangles are `{min, max}`; `crabby::rect_at(min, size)` makes one
+C++ rectangles are `{min, max}`; `ponko::rect_at(min, size)` makes one
 from a corner and a size, like Rust's `Rect::new`.
 
 ## Text
@@ -122,7 +122,7 @@ ctx.draw_text_ex("Colony", vec2(20.0, 60.0), TextParams { font: title, size: 40.
 </div>
 
 In C++, `draw_text(text, pos, params)` is `draw_text_ex`, with
-`crabby::text_defaults()` to start from.
+`ponko::text_defaults()` to start from.
 
 - `size` is the line height in window pixels; `\n` starts a new line.
 - The built-in font is Ubuntu Light (Ubuntu Font Licence).

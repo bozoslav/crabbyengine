@@ -1,5 +1,5 @@
 //! Retained, game-styled UI. Taffy owns only layout; this module owns nodes,
-//! focus, screens and events, and Crabby draws the results with sprites/text.
+//! focus, screens and events, and Ponko draws the results with sprites/text.
 //! Taffy's flex/grid algorithms embed without a renderer or event loop.
 //! Egui embeds well but is immediate-mode (and remains the inspector); the
 //! standard Xilem/Masonry stack couples widgets to Vello and winit. Keeping

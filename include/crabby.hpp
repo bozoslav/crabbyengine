@@ -1,4 +1,4 @@
-// Crabby Engine for C++17: a header-only wrapper over crabby.h.
+// Ponko for C++17: a header-only wrapper over crabby.h.
 //
 // Mirrors the Rust API: crabby::game is Game, crabby::ctx is Ctx,
 // crabby::world_view is World. Components are plain structs, found by their

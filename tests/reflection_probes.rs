@@ -32,7 +32,7 @@ fn bake_requires_a_live_probe_and_allocates_content_once() {
 }
 
 fn write_image(name: &str, width: u32, height: u32, value: f32) -> String {
-    let path = std::env::temp_dir().join(format!("crabby-probe-{}-{name}.exr", std::process::id()));
+    let path = std::env::temp_dir().join(format!("ponko-probe-{}-{name}.exr", std::process::id()));
     image::Rgb32FImage::from_pixel(width, height, image::Rgb([value; 3]))
         .save(&path)
         .unwrap();

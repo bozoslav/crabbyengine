@@ -182,7 +182,7 @@ fn eyes(ctx: &mut Ctx) {
 
 fn main() {
     // ANCHOR: setup
-    Game::new("Crabby Engine: 3D physics", 1280, 720)
+    Game::new("Ponko: 3D physics", 1280, 720)
         .physics3d(vec3(0.0, -9.81, 0.0)) // m/s², +Y up; 50 steps a second
         .sim_system(walk)
         .system(eyes)

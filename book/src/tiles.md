@@ -76,8 +76,8 @@ let boom = Animation::new(sheet, 8..16, 24.0).once(); // stops on the last frame
 </div>
 
 `animation.finished()` tells you when a `once()` animation is done, so you
-can despawn the explosion. In C++, `crabby::animation` is a plain struct, so
-an `each` can take `crabby::animation&` like `crabby::transform2d&`.
+can despawn the explosion. In C++, `ponko::animation` is a plain struct, so
+an `each` can take `ponko::animation&` like `ponko::transform2d&`.
 
 ## Tilemaps
 

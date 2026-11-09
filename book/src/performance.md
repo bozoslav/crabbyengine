@@ -3,7 +3,7 @@
 Numbers from a MacBook Pro (M4 Max), release builds. Reproduce them yourself;
 every number here has a command next to it.
 
-These are historical measurements made under the Crabby name, retained
+These are historical measurements made under the Ponko name, retained
 without rerunning them for the Ponko documentation update. They are specific
 workload results, not current-version guarantees or proof of overall engine
 superiority. See [the engine comparison](comparison.md) and baseline issues
@@ -14,7 +14,7 @@ superiority. See [the engine comparison](comparison.md) and baseline issues
 
 `cargo run --release -p ponko_bench`
 
-| Benchmark (1M entities) | Crabby | bevy_ecs | hecs |
+| Benchmark (1M entities) | Ponko | bevy_ecs | hecs |
 |---|---|---|---|
 | iterate `(&mut Pos, &Vel)` | 0.15 ms | 0.36 ms | 1.77 ms |
 
@@ -157,7 +157,7 @@ A frame takes about as long as the slower of the CPU (systems, then
 recording draws) and the GPU. The profiler shows which, and where the time
 goes, in a running game:
 
-- **The overlay** (`ctx.set_perf_hud(true)`, or `CRABBY_HUD=1`): fps,
+- **The overlay** (`ctx.set_perf_hud(true)`, or `PONKO_HUD=1`): fps,
   frame-time percentiles, CPU and GPU time, and the slowest GPU passes.
 - **`ctx.frame_stats()`**: the same numbers over the last few seconds:
   fps, average, p50, p95, p99 and worst frame time, CPU time in systems,
@@ -173,7 +173,7 @@ goes, in a running game:
   cores) and submitting.
 - **`ctx.mesh_costs()`**: per mesh, how many models and triangles it drew
   for the camera and the shadows last frame, heaviest first.
-- **Traces**: `ctx.record_trace(path, frames)` (or `CRABBY_TRACE=path`)
+- **Traces**: `ctx.record_trace(path, frames)` (or `PONKO_TRACE=path`)
   writes the next frames as a Chrome trace: every system, rendering,
   display waits and the GPU passes on a timeline. Open it in
   [Perfetto](https://ui.perfetto.dev) to see what's in a hitch.
@@ -197,17 +197,17 @@ goes, in a running game:
 
 ### Benchmark runs
 
-`CRABBY_BENCH=<frames>` turns any windowed game into a benchmark: after
-`CRABBY_BENCH_WARMUP` frames (240), it measures that many with vsync off,
+`PONKO_BENCH=<frames>` turns any windowed game into a benchmark: after
+`PONKO_BENCH_WARMUP` frames (240), it measures that many with vsync off,
 prints a report and quits. The report has the frame-time percentiles, the
 CPU split, the GPU passes, the slowest systems and the meshes drawing the
-most triangles; `CRABBY_BENCH_OUT=file.json` also writes it as JSON, and
-`CRABBY_BENCH_MESHES=file.csv` writes every mesh's counts. Frames are
+most triangles; `PONKO_BENCH_OUT=file.json` also writes it as JSON, and
+`PONKO_BENCH_MESHES=file.csv` writes every mesh's counts. Frames are
 drawn offscreen, so the display's refresh rate neither caps nor stalls
-them (`CRABBY_BENCH_PRESENT=1` shows them instead).
+them (`PONKO_BENCH_PRESENT=1` shows them instead).
 
 ```sh
-CRABBY_BENCH=600 CRABBY_BENCH_OUT=before.json cargo run --release
+PONKO_BENCH=600 PONKO_BENCH_OUT=before.json cargo run --release
 ```
 
 Run it at a fixed camera before and after a change, and compare.
@@ -231,9 +231,9 @@ game why it's slow, change something, and ask again.
 - **Pixels**: on a large Retina screen, `Game::msaa(2)` costs about a
   third less GPU time for the 3D passes than the default 4x.
 
-## 3D: Crabby vs Unity
+## 3D: Ponko vs Unity
 
-The same 3D scene in Crabby and in Unity 6, built the way a normal Unity
+The same 3D scene in Ponko and in Unity 6, built the way a normal Unity
 game is: one GameObject per cube with a `MeshRenderer` and a script whose
 `Update()` turns it. Both scenes have:
 
@@ -246,12 +246,12 @@ Both run fullscreen at the display's native resolution with vsync off, on
 the M4 Max. Each number is the median of three 10-second runs, after a
 3-second warmup.
 
-![The 100,000-cube scene: Crabby on the left, Unity 6 (URP) on the right](images/3d-vs-unity.jpg)
+![The 100,000-cube scene: Ponko on the left, Unity 6 (URP) on the right](images/3d-vs-unity.jpg)
 
-*Crabby (left) and Unity 6 (right), 100,000 cubes. Unity's axes are
+*Ponko (left) and Unity 6 (right), 100,000 cubes. Unity's axes are
 left-handed, so it sees the field mirrored.*
 
-| Spinning cubes | Unity 6 (URP) | Crabby | Crabby's lead |
+| Spinning cubes | Unity 6 (URP) | Ponko | Ponko's lead |
 |---|---|---|---|
 | 1,000 | 728 FPS | **750 FPS** | about even |
 | 10,000 | 398 FPS | **724 FPS** | 1.8x |
@@ -259,7 +259,7 @@ left-handed, so it sees the field mirrored.*
 
 CPU time per frame:
 
-| Spinning cubes | Unity main thread | Crabby (everything but waiting for the display) |
+| Spinning cubes | Unity main thread | Ponko (everything but waiting for the display) |
 |---|---|---|
 | 1,000 | 0.65 ms | **0.17 ms** |
 | 10,000 | 2.51 ms | **0.43 ms** |
@@ -267,7 +267,7 @@ CPU time per frame:
 
 Unity's time goes to the per-object work every GameObject brings: 100k
 `Update()` calls, transform syncing, and culling and batching 100k
-renderers. Crabby's goes to one query that turns every cube and one pass
+renderers. Ponko's goes to one query that turns every cube and one pass
 that culls them, groups them by mesh and uploads them (28 draw calls).
 
 To be fair to Unity:
@@ -275,8 +275,8 @@ To be fair to Unity:
 - SSAO, post-processing and HDR were disabled in this historical
   comparison. The current engine has additional rendering features.
 - The cubes share 64 tinted materials. Giving each its own color, as
-  Crabby does for free, would break Unity's batching.
-- Crabby's fullscreen frame is 3% smaller: macOS keeps the strip by the
+  Ponko does for free, would break Unity's batching.
+- Ponko's fullscreen frame is 3% smaller: macOS keeps the strip by the
   camera notch, so it's 3456 x 2168 against Unity's 3456 x 2234.
 - The Unity player uses Mono, Unity's default script backend. IL2CPP
   would make the `Update()` calls somewhat faster.
@@ -288,7 +288,7 @@ To be fair to Unity:
 
 Run it yourself:
 
-- Crabby: `CUBES=100000 BENCH_SECONDS=10 cargo run --release --features 3d --example 3d`
+- Ponko: `CUBES=100000 BENCH_SECONDS=10 cargo run --release --features 3d --example 3d`
   (fullscreen; `BENCH_WINDOWED=1` keeps the window).
 - Unity: the project and the steps are in
   [`bench/unity`](https://github.com/ponkoengine/ponko/tree/main/bench/unity).

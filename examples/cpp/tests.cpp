@@ -1,4 +1,4 @@
-#include "crabby.hpp"
+#include "ponko.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -19,15 +19,15 @@ struct Vel { float x, y; };
 struct Tag {};
 namespace game { struct Health { float value; }; }
 namespace other { struct Health { int value; }; }
-CRABBY_COUNT_CPP_ALLOCATIONS
+PONKO_COUNT_CPP_ALLOCATIONS
 template<class F> void throws(F f) { bool caught = false; try { f(); } catch (const std::exception&) { caught = true; } CHECK(caught); }
 
 static void worlds() {
-    static_assert(!std::is_copy_constructible<crabby::world>::value, "world owns its handle");
-    crabby::world a;
+    static_assert(!std::is_copy_constructible<ponko::world>::value, "world owns its handle");
+    ponko::world a;
     auto e = a.spawn(Pos{1, 2}, Vel{3, 4});
     CHECK(a.size() == 1 && a.alive(e));
-    a.each([&](crabby::entity id, Pos& p, const Vel& v) { p.x += v.x; CHECK(id == e); });
+    a.each([&](ponko::entity id, Pos& p, const Vel& v) { p.x += v.x; CHECK(id == e); });
     CHECK(a.get<Pos>(e).x == 4);
     a.query<Pos, Vel>([&](auto chunk) {
         CHECK(chunk.size() == 1);
@@ -55,9 +55,9 @@ static void worlds() {
     throws([&] { a.each([&](Pos&) { (void)a.size(); }); });
     throws([&] { a.query<Pos, Pos>([](auto) {}); });
     // Moving worlds keeps entities and component ids.
-    crabby::world c(std::move(a)); CHECK(c.get<Pos>(e).x == 12);
+    ponko::world c(std::move(a)); CHECK(c.get<Pos>(e).x == 12);
     throws([&] { (void)a.size(); });
-    crabby::world b;
+    ponko::world b;
     b = std::move(c); CHECK(b.get<Pos>(e).x == 12);
     b.remove<Vel>(e); throws([&] { (void)b.get<Vel>(e); });
     b.despawn(e); CHECK(!b.alive(e)); throws([&] { b.despawn(e); });
@@ -66,10 +66,10 @@ static void worlds() {
 
 static void names_and_reflection() {
     // Components are named after their C++ type, namespaces included.
-    CHECK(crabby::detail::type_name<game::Health>() == "game::Health");
-    CHECK(crabby::detail::type_name<Pos>() == "Pos");
-    crabby::world w;
-    w.reflect<game::Health>({crabby::field("value", &game::Health::value)});
+    CHECK(ponko::detail::type_name<game::Health>() == "game::Health");
+    CHECK(ponko::detail::type_name<Pos>() == "Pos");
+    ponko::world w;
+    w.reflect<game::Health>({ponko::field("value", &game::Health::value)});
     auto e = w.spawn(game::Health{5}, other::Health{7});
     CHECK(w.get<game::Health>(e).value == 5 && w.get<other::Health>(e).value == 7);
     const std::string saved = w.save();
@@ -78,18 +78,18 @@ static void names_and_reflection() {
     w.load(saved);
     CHECK(w.get<game::Health>(e).value == 5);
     // A chosen name must come before first use, and can't be taken twice.
-    crabby::world n;
-    n.reflect<Vel>("Velocity", {crabby::field("x", &Vel::x), crabby::field("y", &Vel::y)});
+    ponko::world n;
+    n.reflect<Vel>("Velocity", {ponko::field("x", &Vel::x), ponko::field("y", &Vel::y)});
     n.spawn(Vel{1, 2});
     CHECK(n.save().find("\"Velocity\":{\"x\":1.0,\"y\":2.0}") != std::string::npos);
-    throws([&] { n.reflect<Pos>("Velocity", {crabby::field("x", &Pos::x)}); });
+    throws([&] { n.reflect<Pos>("Velocity", {ponko::field("x", &Pos::x)}); });
     n.spawn(Pos{});
-    throws([&] { n.reflect<Pos>("Position", {crabby::field("x", &Pos::x)}); });
+    throws([&] { n.reflect<Pos>("Position", {ponko::field("x", &Pos::x)}); });
 }
 
 namespace game { struct Score { std::uint32_t red, blue; }; }
 static void resources() {
-    crabby::world w;
+    ponko::world w;
     CHECK(!w.try_resource<game::Score>());
     throws([&] { w.resource<game::Score>(); });
     w.set_resource(game::Score{1, 2});
@@ -97,7 +97,7 @@ static void resources() {
     w.set_resource(game::Score{3, 2});
     CHECK(w.resource<game::Score>().red == 3);
     // Described, it's saved with the entities and loaded back.
-    w.reflect_resource<game::Score>({crabby::field("red", &game::Score::red), crabby::field("blue", &game::Score::blue)});
+    w.reflect_resource<game::Score>({ponko::field("red", &game::Score::red), ponko::field("blue", &game::Score::blue)});
     const std::string saved = w.save();
     CHECK(saved.find("\"game::Score\":{\"blue\":2,\"red\":3}") != std::string::npos);
     w.set_resource(game::Score{0, 0});
@@ -110,15 +110,15 @@ static void resources() {
 
 namespace game { struct Tuning { float speed; std::uint32_t waves; }; }
 static void data_files() {
-    const auto file = std::filesystem::temp_directory_path() / "crabby-cpp-tuning.json";
+    const auto file = std::filesystem::temp_directory_path() / "ponko-cpp-tuning.json";
     std::ofstream(file) << R"({"speed": 2.5, "waves": 3})";
     const std::string path = file.string();
-    auto w = crabby::game("data", 1, 1).run_headless(0, [&](crabby::ctx& ctx) {
+    auto w = ponko::game("data", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
         auto world = ctx.world();
-        world.reflect_resource<game::Tuning>({crabby::field("speed", &game::Tuning::speed), crabby::field("waves", &game::Tuning::waves)});
+        world.reflect_resource<game::Tuning>({ponko::field("speed", &game::Tuning::speed), ponko::field("waves", &game::Tuning::waves)});
         ctx.load_json<game::Tuning>(path.c_str());
-        world.reflect<game::Tuning>({crabby::field("speed", &game::Tuning::speed), crabby::field("waves", &game::Tuning::waves)});
-        const crabby::entity e = world.spawn(game::Tuning{0, 9});
+        world.reflect<game::Tuning>({ponko::field("speed", &game::Tuning::speed), ponko::field("waves", &game::Tuning::waves)});
+        const ponko::entity e = world.spawn(game::Tuning{0, 9});
         ctx.load_json<game::Tuning>(path.c_str(), e);
         CHECK(world.get<game::Tuning>(e).speed == 2.5f);
     });
@@ -128,13 +128,13 @@ static void data_files() {
 
 // Saved under the executable's assets/ copy (build output), so nothing to clean.
 static void scenes_and_prefabs() {
-    crabby::entity first = 0;
-    std::vector<crabby::entity> palms;
-    auto w = crabby::game("scenes", 1, 1).run_headless(0, [&](crabby::ctx& ctx) {
+    ponko::entity first = 0;
+    std::vector<ponko::entity> palms;
+    auto w = ponko::game("scenes", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
         auto world = ctx.world();
-        world.reflect<game::Health>({crabby::field("value", &game::Health::value)});
+        world.reflect<game::Health>({ponko::field("value", &game::Health::value)});
         // Sprites are saved by their image's name, and spawning loads it.
-        auto model = world.spawn(crabby::transform_at({70, 80}), game::Health{9}, crabby::sprite_of(ctx.load_texture("crab.png"), crabby::colors::white, 4));
+        auto model = world.spawn(ponko::transform_at({70, 80}), game::Health{9}, ponko::sprite_of(ctx.load_texture("crab.png"), ponko::colors::white, 4));
         ctx.save_prefab(model, "test-cpp-prefab.json");
         world.despawn(model);
         for (float x : {0.0f, 10.0f}) palms.push_back(ctx.spawn_prefab("test-cpp-prefab.json", {x, 100}));
@@ -145,10 +145,10 @@ static void scenes_and_prefabs() {
         ctx.save_scene("test-cpp-scene.json");
     });
     CHECK(w.size() == 2);
-    CHECK(w.get<crabby::transform2d>(palms[1]).position.x == 10 && w.get<game::Health>(palms[1]).value == 9);
-    CHECK(w.get<crabby::sprite>(palms[1]).z == 4);
-    auto loaded = crabby::game("scenes", 1, 1).run_headless(0, [&](crabby::ctx& ctx) {
-        ctx.world().reflect<game::Health>({crabby::field("value", &game::Health::value)});
+    CHECK(w.get<ponko::transform2d>(palms[1]).position.x == 10 && w.get<game::Health>(palms[1]).value == 9);
+    CHECK(w.get<ponko::sprite>(palms[1]).z == 4);
+    auto loaded = ponko::game("scenes", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
+        ctx.world().reflect<game::Health>({ponko::field("value", &game::Health::value)});
         ctx.world().spawn(Tag{});   // replaced by the scene
         ctx.load_scene("test-cpp-scene.json");
     });
@@ -156,74 +156,74 @@ static void scenes_and_prefabs() {
 }
 
 static void three_d() {
-    auto probes = crabby::game("probes", 1, 1).run_headless(0, [](crabby::ctx& ctx) {
-        auto e = ctx.world().spawn(crabby::transform3d_at({0, 0, 0}), crabby::reflection_probe3d_default());
+    auto probes = ponko::game("probes", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
+        auto e = ctx.world().spawn(ponko::transform3d_at({0, 0, 0}), ponko::reflection_probe3d_default());
         ctx.bake_reflection_probe(e);
-        auto p = ctx.world().get<crabby::reflection_probe3d>(e);
+        auto p = ctx.world().get<ponko::reflection_probe3d>(e);
         CHECK(p.content == 1 && p.box_projection);
         ctx.bake_reflection_probe(e);
-        CHECK(ctx.world().get<crabby::reflection_probe3d>(e).content == 1);
+        CHECK(ctx.world().get<ponko::reflection_probe3d>(e).content == 1);
     });
     CHECK(probes.size() == 1);
-    auto decals = crabby::game("decals", 1, 1).run_headless(0, [](crabby::ctx& ctx) {
+    auto decals = ponko::game("decals", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
         std::vector<std::uint8_t> pixels(2 * 2 * 4, 255);
-        auto colors = ctx.create_texture_array(2, 2, pixels, crabby::texture_kind::color);
+        auto colors = ctx.create_texture_array(2, 2, pixels, ponko::texture_kind::color);
         throws([&] { ctx.set_decal_textures(colors); }); // decals want TextureKind::Data arrays
-        auto images = ctx.create_texture_array(2, 2, pixels, crabby::texture_kind::data);
+        auto images = ctx.create_texture_array(2, 2, pixels, ponko::texture_kind::data);
         ctx.set_decal_textures(images);
         CHECK(!ctx.supports_decals()); // no GPU in a headless run
-        auto mark = crabby::decal3d_default();
+        auto mark = ponko::decal3d_default();
         mark.size = {2, 2, 1};
         mark.order = 3;
-        mark.normal_image = crabby::decal_no_image;
-        auto e = ctx.world().spawn(crabby::transform3d_at({0, 1, 0}), mark, crabby::receives_decals{0});
-        CHECK(ctx.world().get<crabby::decal3d>(e).order == 3 && ctx.world().get<crabby::decal3d>(e).size.x == 2);
-        CHECK(ctx.world().get<crabby::receives_decals>(e).layers == 0);
+        mark.normal_image = ponko::decal_no_image;
+        auto e = ctx.world().spawn(ponko::transform3d_at({0, 1, 0}), mark, ponko::receives_decals{0});
+        CHECK(ctx.world().get<ponko::decal3d>(e).order == 3 && ctx.world().get<ponko::decal3d>(e).size.x == 2);
+        CHECK(ctx.world().get<ponko::receives_decals>(e).layers == 0);
         ctx.clear_decal_textures();
     });
     CHECK(decals.size() == 1);
-    crabby::world lights;
-    auto lamp = lights.spawn(crabby::transform3d_at({1, 2, 3}), crabby::point_light3d{crabby::colors::red, 20, 12, false});
-    auto beam = lights.spawn(crabby::transform3d_at({0, 3, 0}), crabby::spot_light3d{crabby::colors::white, 40, 25, .2f, .5f, true, 256});
-    CHECK(lights.get<crabby::point_light3d>(lamp).range == 12);
-    CHECK(lights.get<crabby::spot_light3d>(beam).inner_angle == .2f);
-    CHECK(lights.get<crabby::spot_light3d>(beam).shadows);
-    CHECK(lights.get<crabby::spot_light3d>(beam).shadow_resolution == 256);
-    CHECK(lights.get<crabby::point_light3d>(lamp).shadow_resolution == 0);
-    lights.each([](crabby::point_light3d& p) { p.intensity += 1; });
-    CHECK(lights.get<crabby::point_light3d>(lamp).intensity == 21);
-    std::vector<crabby::entity> cubes;
-    crabby::mesh cube{};
-    auto spin = [](crabby::ctx& ctx) {
-        ctx.world().each([](crabby::transform3d& t, const crabby::model&) { t.rotation = crabby::quat_from_rotation_y(0.1f) * t.rotation; });
+    ponko::world lights;
+    auto lamp = lights.spawn(ponko::transform3d_at({1, 2, 3}), ponko::point_light3d{ponko::colors::red, 20, 12, false});
+    auto beam = lights.spawn(ponko::transform3d_at({0, 3, 0}), ponko::spot_light3d{ponko::colors::white, 40, 25, .2f, .5f, true, 256});
+    CHECK(lights.get<ponko::point_light3d>(lamp).range == 12);
+    CHECK(lights.get<ponko::spot_light3d>(beam).inner_angle == .2f);
+    CHECK(lights.get<ponko::spot_light3d>(beam).shadows);
+    CHECK(lights.get<ponko::spot_light3d>(beam).shadow_resolution == 256);
+    CHECK(lights.get<ponko::point_light3d>(lamp).shadow_resolution == 0);
+    lights.each([](ponko::point_light3d& p) { p.intensity += 1; });
+    CHECK(lights.get<ponko::point_light3d>(lamp).intensity == 21);
+    std::vector<ponko::entity> cubes;
+    ponko::mesh cube{};
+    auto spin = [](ponko::ctx& ctx) {
+        ctx.world().each([](ponko::transform3d& t, const ponko::model&) { t.rotation = ponko::quat_from_rotation_y(0.1f) * t.rotation; });
     };
-    auto w = crabby::game("3d", 640, 480).sim_system(spin, "spin").run_headless(5, [&](crabby::ctx& ctx) {
-        auto stone = ctx.create_material(crabby::material_of(crabby::rgb(.5f, .5f, .5f)));
-        cube = ctx.create_mesh(crabby::mesh_data::cube(1), stone);
+    auto w = ponko::game("3d", 640, 480).sim_system(spin, "spin").run_headless(5, [&](ponko::ctx& ctx) {
+        auto stone = ctx.create_material(ponko::material_of(ponko::rgb(.5f, .5f, .5f)));
+        cube = ctx.create_mesh(ponko::mesh_data::cube(1), stone);
         for (int i = 0; i < 3; ++i)
-            cubes.push_back(ctx.world().spawn(crabby::transform3d_at({float(i) * 2, 0, 0}), crabby::model_of(cube, crabby::colors::red)));
-        throws([&] { ctx.create_mesh(crabby::mesh_data::cube(1), crabby::material{99}); });
-        auto shiny = crabby::material_of(crabby::colors::white);
+            cubes.push_back(ctx.world().spawn(ponko::transform3d_at({float(i) * 2, 0, 0}), ponko::model_of(cube, ponko::colors::red)));
+        throws([&] { ctx.create_mesh(ponko::mesh_data::cube(1), ponko::material{99}); });
+        auto shiny = ponko::material_of(ponko::colors::white);
         shiny.metallic = 2;
         throws([&] { ctx.create_material(shiny); });
-        throws([] { crabby::mesh_data({{0, 0, 0}, {1, 0, 0}, {0, 1, 0}}, {0, 1}); });
+        throws([] { ponko::mesh_data({{0, 0, 0}, {1, 0, 0}, {0, 1, 0}}, {0, 1}); });
         auto tile = ctx.create_terrain_tile(std::vector<float>(81, 0.0f), 16, stone);
         CHECK(tile.lod_distance == 16 && tile.lods[0].id != tile.lods[3].id);
-        ctx.world().spawn(crabby::transform3d_at({0, 0, 0}), tile);
+        ctx.world().spawn(ponko::transform3d_at({0, 0, 0}), tile);
         throws([&] { ctx.create_terrain_tile(std::vector<float>(80, 0.0f), 16, stone); });
-        throws([] { crabby::mesh_data::heightfield({0, 0, 0}, 1); });
-        auto layers = ctx.create_texture_array(1, 1, std::vector<std::uint8_t>(8, 200), crabby::texture_kind::color);
+        throws([] { ponko::mesh_data::heightfield({0, 0, 0}, 1); });
+        auto layers = ctx.create_texture_array(1, 1, std::vector<std::uint8_t>(8, 200), ponko::texture_kind::color);
         CHECK(layers.layers == 2);
-        auto weights = ctx.create_texture_array(1, 1, std::vector<std::uint8_t>(4, 255), crabby::texture_kind::data);
-        auto ground = ctx.create_terrain_material(crabby::terrain_material_of(layers, weights, {0, 0}, {16, 16}));
+        auto weights = ctx.create_texture_array(1, 1, std::vector<std::uint8_t>(4, 255), ponko::texture_kind::data);
+        auto ground = ctx.create_terrain_material(ponko::terrain_material_of(layers, weights, {0, 0}, {16, 16}));
         CHECK(ground.id != stone.id);
-        throws([&] { ctx.create_texture_array(1, 1, std::vector<std::uint8_t>(6, 0), crabby::texture_kind::color); });
-        throws([&] { ctx.create_terrain_material(crabby::terrain_material_of(layers, weights, {0, 0}, {0, 0})); });
+        throws([&] { ctx.create_texture_array(1, 1, std::vector<std::uint8_t>(6, 0), ponko::texture_kind::color); });
+        throws([&] { ctx.create_terrain_material(ponko::terrain_material_of(layers, weights, {0, 0}, {0, 0})); });
         auto grey = ctx.create_effect("grey", "fn effect(p: Pixel) -> vec3<f32> { return vec3<f32>(p.color.g); }");
-        ctx.set_effects({crabby::screen_effect_of(grey), crabby::screen_effect_of(grey, stone)});
+        ctx.set_effects({ponko::screen_effect_of(grey), ponko::screen_effect_of(grey, stone)});
         CHECK(ctx.effects().size() == 2 && ctx.effects()[1].material.id == stone.id);
         throws([&] { ctx.create_effect("bad", "fn effect(p: Pixel) -> f32 { return 1.0; }"); });
-        throws([&] { ctx.set_effects({crabby::screen_effect_of(crabby::effect{99})}); });
+        throws([&] { ctx.set_effects({ponko::screen_effect_of(ponko::effect{99})}); });
         ctx.set_effects({});
         CHECK(ctx.effects().empty());
         auto mirror = ctx.create_render_target(32, 16);
@@ -232,15 +232,15 @@ static void three_d() {
         eye.position = {0, 5, 0};
         auto below = ctx.reflection_camera(eye, mirror, 1);
         CHECK(below.camera.position.y == -3 && below.has_clip_plane && below.clip_plane[3] == -1);
-        ctx.set_target_cameras({below, crabby::target_camera_of(eye, mirror)});
+        ctx.set_target_cameras({below, ponko::target_camera_of(eye, mirror)});
         CHECK(ctx.target_cameras().size() == 2 && !ctx.target_cameras()[1].has_clip_plane);
         const std::uint8_t px[4] = {255, 255, 255, 255};
         auto plain = ctx.create_texture(1, 1, px, sizeof px);
-        throws([&] { ctx.set_target_cameras({crabby::target_camera_of(eye, plain)}); });
+        throws([&] { ctx.set_target_cameras({ponko::target_camera_of(eye, plain)}); });
         throws([&] { ctx.create_render_target(0, 4); });
         ctx.set_target_cameras({});
-        auto batch_material = ctx.create_material(crabby::material_of(crabby::colors::white));
-        auto batch_mesh = ctx.create_mesh(crabby::mesh_data::cube(1.0f), batch_material);
+        auto batch_material = ctx.create_material(ponko::material_of(ponko::colors::white));
+        auto batch_mesh = ctx.create_mesh(ponko::mesh_data::cube(1.0f), batch_material);
         std::vector<std::array<float,16>> batch_matrices = {{{1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1}}};
         auto batch = ctx.create_instance_batch(batch_mesh,batch_matrices);
         ctx.update_instance_batch(batch,batch_matrices);
@@ -255,14 +255,14 @@ static void three_d() {
         throws([&] { ctx.write_gpu_buffer(spare, 0, {{1, 2, 3, 4}}); });
         CHECK(ctx.create_gpu_buffer(3).id == spare.id);
         auto update = ctx.create_compute("update", "fn update(i: u32) { items[i].x += frame.time.y; }");
-        ctx.set_compute_passes({crabby::buffer_compute_pass(update, buffer)});
+        ctx.set_compute_passes({ponko::buffer_compute_pass(update, buffer)});
         CHECK(ctx.compute_passes()[0].has_buffer && ctx.compute_passes()[0].buffer.id == buffer.id);
         auto fade = ctx.create_compute("fade", "fn compute(c: Cell) -> vec4<f32> { return c.value * 0.9; }");
-        ctx.set_compute_passes({crabby::compute_pass_of(fade, mirror), crabby::compute_pass_of(fade, mirror, stone)});
+        ctx.set_compute_passes({ponko::compute_pass_of(fade, mirror), ponko::compute_pass_of(fade, mirror, stone)});
         CHECK(ctx.compute_passes().size() == 2 && ctx.compute_passes()[1].material.id == stone.id);
         throws([&] { ctx.create_compute("bad", "fn compute(c: Cell) -> f32 { return 1.0; }"); });
-        throws([&] { ctx.set_compute_passes({crabby::compute_pass_of(fade, plain)}); });
-        throws([&] { ctx.set_compute_passes({crabby::compute_pass_of(crabby::compute{9}, mirror)}); });
+        throws([&] { ctx.set_compute_passes({ponko::compute_pass_of(fade, plain)}); });
+        throws([&] { ctx.set_compute_passes({ponko::compute_pass_of(ponko::compute{9}, mirror)}); });
         ctx.set_compute_passes({});
 
         auto cam = ctx.camera3d();
@@ -273,7 +273,7 @@ static void three_d() {
         ctx.set_occlusion_culling(true);
         CHECK(ctx.occlusion_culling());
         ctx.set_occlusion_culling(false);
-        CHECK(crabby::forward(crabby::looking_at(crabby::transform3d_at(cam.position), {0, 0, 0})).z < 0);
+        CHECK(ponko::forward(ponko::looking_at(ponko::transform3d_at(cam.position), {0, 0, 0})).z < 0);
         cam.near = 0;
         throws([&] { ctx.set_camera3d(cam); });
         auto light = ctx.lighting();
@@ -282,7 +282,7 @@ static void three_d() {
         light.shadow_cascades = 2;
         CHECK(!light.has_equator);
         light.has_equator = true;
-        light.equator_color = crabby::rgb(0, 1, 0);
+        light.equator_color = ponko::rgb(0, 1, 0);
         ctx.set_lighting(light);
         CHECK(ctx.lighting().shadow_cascades == 2);
         CHECK(ctx.lighting().has_equator && ctx.lighting().equator_color.g == 1);
@@ -323,19 +323,19 @@ static void three_d() {
         sky.light_shafts = 0;
         sky.sun_size = 0;
         throws([&] { ctx.set_sky(sky); });
-        CHECK(crabby::sun_direction_at(12).y < -0.8f);
+        CHECK(ponko::sun_direction_at(12).y < -0.8f);
         auto post = ctx.post();
-        CHECK(post.tonemap == uint32_t(crabby::tonemap::aces) && post.contrast == 1 && !post.has_lut);
-        post.tonemap = uint32_t(crabby::tonemap::neutral);
+        CHECK(post.tonemap == uint32_t(ponko::tonemap::aces) && post.contrast == 1 && !post.has_lut);
+        post.tonemap = uint32_t(ponko::tonemap::neutral);
         post.bloom = 0.2f;
         CHECK(post.anti_aliasing == 0 && !post.ao_enabled && post.ao_radius == 1);
-        post.anti_aliasing = uint32_t(crabby::anti_aliasing::smaa);
+        post.anti_aliasing = uint32_t(ponko::anti_aliasing::smaa);
         post.ao_enabled = true; post.ao_half_resolution = true; post.ao_temporal = true; post.ao_radius = 2; post.ao_intensity = 1.5f;
         post.ao_slices = 4; post.ao_steps = 8;
         ctx.set_post(post);
-        CHECK(ctx.post().tonemap == uint32_t(crabby::tonemap::neutral));
+        CHECK(ctx.post().tonemap == uint32_t(ponko::tonemap::neutral));
         CHECK(ctx.post().ao_half_resolution && ctx.post().ao_temporal && ctx.post().ao_enabled && ctx.post().ao_radius == 2 && ctx.post().ao_steps == 8);
-        CHECK(ctx.post().anti_aliasing == uint32_t(crabby::anti_aliasing::smaa));
+        CHECK(ctx.post().anti_aliasing == uint32_t(ponko::anti_aliasing::smaa));
         auto invalid_post = post; invalid_post.anti_aliasing = 4;
         throws([&] { ctx.set_post(invalid_post); });
         invalid_post = post; invalid_post.taa_sharpness = 2;
@@ -356,7 +356,7 @@ static void three_d() {
         }
         {
             auto temporal = post;
-            temporal.anti_aliasing = uint32_t(crabby::anti_aliasing::taa);
+            temporal.anti_aliasing = uint32_t(ponko::anti_aliasing::taa);
             temporal.taa_sharpness = 0.5f;
             temporal.ao_enabled = true;
             temporal.ao_temporal = true;
@@ -372,25 +372,25 @@ static void three_d() {
 
         // Graphics quality presets, switched at run time.
         CHECK(ctx.post().render_scale == 1 && ctx.post().sharpen == 0);
-        auto quality = crabby::graphics_quality_preset(crabby::quality_level::medium);
-        CHECK(crabby::graphics_quality_level(quality) == crabby::quality_level::medium);
-        CHECK(quality.shadow_cascades == 3 && quality.anti_aliasing == uint32_t(crabby::anti_aliasing::fxaa));
+        auto quality = ponko::graphics_quality_preset(ponko::quality_level::medium);
+        CHECK(ponko::graphics_quality_level(quality) == ponko::quality_level::medium);
+        CHECK(quality.shadow_cascades == 3 && quality.anti_aliasing == uint32_t(ponko::anti_aliasing::fxaa));
         ctx.set_graphics_quality(quality);
         CHECK(ctx.lighting().shadow_cascades == 3 && ctx.lighting().shadow_resolution == 2048);
         CHECK(ctx.graphics_quality().light_shadow_views == 4);
         CHECK(ctx.lighting().light_shadow_atlas == 2048);
-        quality = crabby::graphics_quality_preset(crabby::quality_level::low);
+        quality = ponko::graphics_quality_preset(ponko::quality_level::low);
         ctx.set_graphics_quality(quality);
         CHECK(ctx.post().render_scale < 1 && ctx.lighting().light_shadow_views == 0);
         quality.shadow_cascades = 3;
-        CHECK(crabby::graphics_quality_level(quality) == crabby::quality_level::custom);
+        CHECK(ponko::graphics_quality_level(quality) == ponko::quality_level::custom);
         auto bad_quality = quality; bad_quality.render_scale = 4;
         throws([&] { ctx.set_graphics_quality(bad_quality); });
-        throws([&] { crabby::graphics_quality_preset(crabby::quality_level::custom); });
+        throws([&] { ponko::graphics_quality_preset(ponko::quality_level::custom); });
         CHECK(ctx.graphics_quality().shadow_cascades == 2);
-        ctx.set_graphics_quality(crabby::graphics_quality_preset(crabby::quality_level::high));
+        ctx.set_graphics_quality(ponko::graphics_quality_preset(ponko::quality_level::high));
         CHECK(ctx.graphics_quality().ssr == 1 && ctx.post().ssr == 1);
-        CHECK(!ctx.graphics_quality().gi && crabby::graphics_quality_preset(crabby::quality_level::ultra).gi);
+        CHECK(!ctx.graphics_quality().gi && ponko::graphics_quality_preset(ponko::quality_level::ultra).gi);
         auto light_q = ctx.lighting();
         light_q.shadow_resolution = 100;
         throws([&] { ctx.set_lighting(light_q); });
@@ -401,30 +401,30 @@ static void three_d() {
                 out.albedo *= step(0.5, fract(s.uv.x * 8.0));
                 return out;
             })");
-        auto look = crabby::material_of(crabby::rgb(1, 1, 1));
+        auto look = ponko::material_of(ponko::rgb(1, 1, 1));
         look.has_shader = true;
         look.shader = tiles;
-        look.blend = uint32_t(crabby::blend::transparent);
+        look.blend = uint32_t(ponko::blend::transparent);
         auto tiled = ctx.create_material(look);
         look.double_sided = true;
         ctx.update_material(tiled, look);
         throws([&] { ctx.create_shader("broken", "fn surface(s: Surface) -> Surface { return 1; }"); });
     });
-    const auto t = w.get<crabby::transform3d>(cubes[1]);
+    const auto t = w.get<ponko::transform3d>(cubes[1]);
     CHECK(t.position.x == 2 && std::abs(t.rotation.y - std::sin(0.25f)) < 1e-5f);
-    CHECK(w.get<crabby::model>(cubes[2]).mesh.id == cube.id);
+    CHECK(w.get<ponko::model>(cubes[2]).mesh.id == cube.id);
     // Quaternion math matches the engine's.
-    const auto q = crabby::quat_from_rotation_y(1.5707964f);
-    const auto v = q * crabby::vec3{1, 0, 0};
+    const auto q = ponko::quat_from_rotation_y(1.5707964f);
+    const auto v = q * ponko::vec3{1, 0, 0};
     CHECK(std::abs(v.z + 1) < 1e-5f);
-    auto tri = crabby::mesh_data({{0, 0, 0}, {1, 0, 0}, {0, 1, 0}}, {0, 1, 2});
+    auto tri = ponko::mesh_data({{0, 0, 0}, {1, 0, 0}, {0, 1, 0}}, {0, 1, 2});
     CHECK(tri.view().vertex_count == 3 && tri.view().normals == nullptr);
     tri.set_colors({{1, 0, 0, 1}, {0, 1, 0, 1}, {0, 0, 1, 1}});
     throws([&] { tri.set_colors({{1, 1, 1, 1}}); });
 }
 
 static void parallel_queries() {
-    crabby::world w;
+    ponko::world w;
     for (int i = 0; i < 100000; ++i) w.spawn(i);
     std::atomic<long long> rows{0};
     w.query_par<int>([&](auto chunk) {
@@ -455,35 +455,35 @@ struct Bullet { float speed; };
 static void games() {
     // Systems, the clock, quit and exceptions.
     std::uint64_t ticks = 0; float dt = 0;
-    auto sim = crabby::game("t", 1, 1).fixed_hz(50)
-        .sim_system([&](crabby::ctx& ctx) {
+    auto sim = ponko::game("t", 1, 1).fixed_hz(50)
+        .sim_system([&](ponko::ctx& ctx) {
             ++ticks; dt = ctx.dt();
             CHECK(ctx.gamepads().empty());   // no pads in headless runs
             if (ctx.sim_tick() == 2) ctx.quit();
         }, "count")
-        .run_headless(100, [&](crabby::ctx& ctx) { ctx.world().spawn(Pos{1, 1}); });
+        .run_headless(100, [&](ponko::ctx& ctx) { ctx.world().spawn(Pos{1, 1}); });
     CHECK(ticks == 3 && dt > .019f && dt < .021f && sim.size() == 1);
     // The returned world knows the game's components.
     sim.each([](const Pos& p) { CHECK(p.x == 1); });
-    throws([] { crabby::game("t", 1, 1).run_headless(1, [](crabby::ctx&) { throw std::runtime_error("setup"); }); });
+    throws([] { ponko::game("t", 1, 1).run_headless(1, [](ponko::ctx&) { throw std::runtime_error("setup"); }); });
     bool second = false;
-    throws([&] { crabby::game("t", 1, 1).sim_system([](crabby::ctx&) { throw std::runtime_error("tick"); })
-                     .sim_system([&](crabby::ctx&) { second = true; }).run_headless(5); });
+    throws([&] { ponko::game("t", 1, 1).sim_system([](ponko::ctx&) { throw std::runtime_error("tick"); })
+                     .sim_system([&](ponko::ctx&) { second = true; }).run_headless(5); });
     CHECK(!second);
-    throws([] { crabby::game("t", 1, 1).fixed_hz(0); });
-    throws([] { crabby::game("t", 1, 1).remove_system("nope"); });
-    crabby::game g("t", 1, 1);
+    throws([] { ponko::game("t", 1, 1).fixed_hz(0); });
+    throws([] { ponko::game("t", 1, 1).remove_system("nope"); });
+    ponko::game g("t", 1, 1);
     g.run_headless(1);
     throws([&] { g.run_headless(1); });
 
     // Commands from inside a loop (Bullet is first used there); spatial
     // queries; random streams; built-ins.
-    std::vector<crabby::grid_hit> hits;
+    std::vector<ponko::grid_hit> hits;
     std::size_t near = 0;
     std::uint64_t first_random = 0;
-    auto w = crabby::game("t", 1, 1).spatial_grid(16).seed(3)
-        .sim_system([&](crabby::ctx& ctx) {
-            ctx.world().each([&](crabby::entity e, const Hp& hp) {
+    auto w = ponko::game("t", 1, 1).spatial_grid(16).seed(3)
+        .sim_system([&](ponko::ctx& ctx) {
+            ctx.world().each([&](ponko::entity e, const Hp& hp) {
                 if (hp.value <= 0) { ctx.despawn_later(e); ctx.spawn_later(Hp{100}, Bullet{2}); }
             });
             ctx.spatial_radius({45, 0}, 16, hits);
@@ -493,13 +493,13 @@ static void games() {
             first_random = ctx.random().of(7).u64();
             ctx.quit();
         })
-        .run_headless(10, [&](crabby::ctx& ctx) {
+        .run_headless(10, [&](ponko::ctx& ctx) {
             auto world = ctx.world();
             std::uint8_t px[16] = {};
             auto tex = ctx.create_texture(2, 2, px, sizeof px);
             for (int x = 0; x < 10; ++x)
-                world.spawn(Hp{x % 2 ? 5 : 0}, crabby::transform_at({x * 10.0f, 0}),
-                            crabby::sprite_of(tex, crabby::colors::red, float(x)));
+                world.spawn(Hp{x % 2 ? 5 : 0}, ponko::transform_at({x * 10.0f, 0}),
+                            ponko::sprite_of(tex, ponko::colors::red, float(x)));
         });
     CHECK(w.size() == 10);
     CHECK(near == 4);
@@ -507,63 +507,63 @@ static void games() {
     w.each([&](const Hp& hp) { total += hp.value; });
     CHECK(total == 5 * 5 + 5 * 100);
     CHECK(w.count<Hp, Bullet>() == 5);
-    CHECK(first_random == crabby::random(0).of(7).u64() || first_random != 0);
+    CHECK(first_random == ponko::random(0).of(7).u64() || first_random != 0);
 
     // set_later and remove_later, also for types first used inside a loop.
-    auto changed = crabby::game("t", 1, 1)
-        .sim_system([](crabby::ctx& ctx) {
-            ctx.world().each([&](crabby::entity e, Hp& hp) {
+    auto changed = ponko::game("t", 1, 1)
+        .sim_system([](ponko::ctx& ctx) {
+            ctx.world().each([&](ponko::entity e, Hp& hp) {
                 if (hp.value == 1) ctx.set_later(e, Vel{1, 1});
                 if (hp.value == 2) ctx.remove_later<Tag>(e);
             });
         })
-        .run_headless(1, [](crabby::ctx& ctx) { ctx.world().spawn(Hp{1}); ctx.world().spawn(Hp{2}, Tag{}); });
+        .run_headless(1, [](ponko::ctx& ctx) { ctx.world().spawn(Hp{1}); ctx.world().spawn(Hp{2}, Tag{}); });
     CHECK(changed.count<Vel>() == 1 && changed.count<Tag>() == 0);
 }
 
 static void grid_views_match_engine_queries() {
-    crabby::grid g(8);
-    crabby::rng r(5);
-    std::vector<crabby::grid_item> items;
+    ponko::grid g(8);
+    ponko::rng r(5);
+    std::vector<ponko::grid_item> items;
     for (std::uint32_t i = 0; i < 20000; ++i)
         items.push_back({{i, 0}, {r.range(-500, 500), r.range(-500, 500)}, i});
     g.rebuild(items);
     auto view = g.view();
     CHECK(view.size() == items.size());
-    std::vector<crabby::grid_item> engine;
+    std::vector<ponko::grid_item> engine;
     for (int q = 0; q < 300; ++q) {
-        const crabby::vec2 c{r.range(-600, 600), r.range(-600, 600)};
+        const ponko::vec2 c{r.range(-600, 600), r.range(-600, 600)};
         const float radius = q % 50 == 0 ? 2000.0f : r.range(0, 40);
         g.radius(c, radius, engine);
         std::vector<std::uint32_t> a, b;
         for (auto& e : engine) a.push_back(e.data);
-        view.for_each_in_radius(c, radius, [&](const crabby::grid_item& e) { b.push_back(e.data); });
+        view.for_each_in_radius(c, radius, [&](const ponko::grid_item& e) { b.push_back(e.data); });
         std::sort(a.begin(), a.end());
         std::sort(b.begin(), b.end());
         CHECK(a == b);
     }
-    throws([&] { crabby::grid_view<crabby::grid_hit> wrong(CrabbyGridView{nullptr, 20, nullptr, nullptr, 1, 0, 0, 0, 0, 0}); });
+    throws([&] { ponko::grid_view<ponko::grid_hit> wrong(PonkoGridView{nullptr, 20, nullptr, nullptr, 1, 0, 0, 0, 0, 0}); });
 }
 
-struct Died { crabby::entity who; std::uint64_t tick; };
+struct Died { ponko::entity who; std::uint64_t tick; };
 struct Never { int x; };
 
 static void events() {
     // Sent from inside a loop (the first send is the type's first use), read
     // by a later system in the same tick, once each.
     std::vector<std::uint64_t> seen;
-    auto w = crabby::game("t", 1, 1)
-        .sim_system([](crabby::ctx& ctx) {
-            ctx.world().each([&](crabby::entity e, const Hp& hp) {
+    auto w = ponko::game("t", 1, 1)
+        .sim_system([](ponko::ctx& ctx) {
+            ctx.world().each([&](ponko::entity e, const Hp& hp) {
                 if (hp.value <= 0) ctx.send(Died{e, ctx.sim_tick()});
             });
         }, "deaths")
-        .sim_system([&](crabby::ctx& ctx) {
+        .sim_system([&](ponko::ctx& ctx) {
             for (const Died& d : ctx.read<Died>()) { seen.push_back(d.tick); ctx.despawn_later(d.who); }
             CHECK(ctx.read<Died>().empty());
             CHECK(ctx.read<Never>().empty());
         }, "funerals")
-        .run_headless(3, [](crabby::ctx& ctx) {
+        .run_headless(3, [](ponko::ctx& ctx) {
             for (int h : {0, 5, -1}) ctx.world().spawn(Hp{h});
         });
     CHECK(w.size() == 1);
@@ -572,152 +572,152 @@ static void events() {
 
 static void rng_matches_rust() {
     // The same numbers as Rust's Rng (pinned in src/random.rs).
-    crabby::rng r(42);
+    ponko::rng r(42);
     CHECK(r.u64() == 0xc757960b442b0ac3ull);
     CHECK(r.u64() == 0x4bb22a7f77ff8c6cull);
     CHECK(r.u64() == 0x04950439d3c5eafeull);
-    CHECK(crabby::random(7).stream(3).u64() == 0x6045c0e00af2e148ull);
-    crabby::rng f(1);
+    CHECK(ponko::random(7).stream(3).u64() == 0x6045c0e00af2e148ull);
+    ponko::rng f(1);
     for (int i = 0; i < 1000; ++i) { float x = f.f32(); CHECK(x >= 0 && x < 1); CHECK(f.below(10) < 10); }
 }
 
 static void attachments() {
     // Chains follow their root; orphans are despawned with it.
-    crabby::entity root = 0, arm = 0, hand = 0;
-    crabby::transform2d seen{};
-    auto w = crabby::game("t", 1, 1)
-        .sim_system([&](crabby::ctx& ctx) {
+    ponko::entity root = 0, arm = 0, hand = 0;
+    ponko::transform2d seen{};
+    auto w = ponko::game("t", 1, 1)
+        .sim_system([&](ponko::ctx& ctx) {
             auto world = ctx.world();
-            auto t = world.get<crabby::transform2d>(root);
+            auto t = world.get<ponko::transform2d>(root);
             t.position.x += 1;
             world.set(root, t);
             if (ctx.sim_tick() == 2) ctx.despawn_later(root);
         })
         .follow_attachments()
-        .sim_system([&](crabby::ctx& ctx) {
-            if (ctx.sim_tick() == 1) seen = ctx.world().get<crabby::transform2d>(hand);
+        .sim_system([&](ponko::ctx& ctx) {
+            if (ctx.sim_tick() == 1) seen = ctx.world().get<ponko::transform2d>(hand);
         })
-        .run_headless(3, [&](crabby::ctx& ctx) {
+        .run_headless(3, [&](ponko::ctx& ctx) {
             auto world = ctx.world();
-            root = world.spawn(crabby::transform_at({5, 5}));
-            arm = world.spawn(crabby::transform_at({0, 0}), crabby::attach_to(root, {1, 0}));
-            hand = world.spawn(crabby::transform_at({0, 0}), crabby::attach_to(arm, {0, 1}, 0.5f));
+            root = world.spawn(ponko::transform_at({5, 5}));
+            arm = world.spawn(ponko::transform_at({0, 0}), ponko::attach_to(root, {1, 0}));
+            hand = world.spawn(ponko::transform_at({0, 0}), ponko::attach_to(arm, {0, 1}, 0.5f));
         });
-    CHECK(seen.position == (crabby::vec2{8, 6}) && seen.rotation == 0.5f);
-    CHECK(crabby::bits(crabby::entity_of(arm)) == arm);
+    CHECK(seen.position == (ponko::vec2{8, 6}) && seen.rotation == 0.5f);
+    CHECK(ponko::bits(ponko::entity_of(arm)) == arm);
     CHECK(!w.alive(root) && !w.alive(arm) && !w.alive(hand));
 }
 
 static void physics() {
     // A ball drops through a sensor onto the floor; queries and events work from C++.
-    crabby::entity ball = 0, floor = 0, sensor = 0;
-    std::vector<crabby::collision> started;
-    std::optional<crabby::ray_hit> hit;
+    ponko::entity ball = 0, floor = 0, sensor = 0;
+    std::vector<ponko::collision> started;
+    std::optional<ponko::ray_hit> hit;
     std::optional<float> mass;
     bool kicked_nothing = true;
-    auto w = crabby::game("t", 1, 1)
+    auto w = ponko::game("t", 1, 1)
         .physics({0, 980})
-        .sim_system([&](crabby::ctx& ctx) {
+        .sim_system([&](ponko::ctx& ctx) {
             for (const auto& c : ctx.collisions_started()) started.push_back(c);
             if (ctx.sim_tick() == 1) {
                 hit = ctx.cast_ray({150, 0}, {0, 1}, 1000);
                 mass = ctx.mass(ball);
                 kicked_nothing = ctx.apply_impulse(12345, {1, 0});
-                std::vector<CrabbyEntity> at;
+                std::vector<PonkoEntity> at;
                 ctx.entities_at({150, 300}, at);
-                CHECK(at.size() == 1 && crabby::bits(at[0]) == floor);
+                CHECK(at.size() == 1 && ponko::bits(at[0]) == floor);
             }
         })
-        .run_headless(120, [&](crabby::ctx& ctx) {
+        .run_headless(120, [&](ponko::ctx& ctx) {
             auto world = ctx.world();
-            auto bouncy = crabby::circle_collider(10);
+            auto bouncy = ponko::circle_collider(10);
             bouncy.restitution = 0;
-            ball = world.spawn(crabby::transform_at({0, 0}), crabby::dynamic_body(), bouncy, crabby::velocity{});
-            auto trigger = crabby::rect_collider({80, 20});
+            ball = world.spawn(ponko::transform_at({0, 0}), ponko::dynamic_body(), bouncy, ponko::velocity{});
+            auto trigger = ponko::rect_collider({80, 20});
             trigger.sensor = true;
-            sensor = world.spawn(crabby::transform_at({0, 100}), crabby::fixed_body(), trigger);
-            floor = world.spawn(crabby::transform_at({0, 300}), crabby::fixed_body(), crabby::rect_collider({400, 20}));
+            sensor = world.spawn(ponko::transform_at({0, 100}), ponko::fixed_body(), trigger);
+            floor = world.spawn(ponko::transform_at({0, 300}), ponko::fixed_body(), ponko::rect_collider({400, 20}));
         });
-    CHECK(std::fabs(w.get<crabby::transform2d>(ball).position.y - 280) < 2);
-    CHECK(std::fabs(w.get<crabby::velocity>(ball).linear.y) < 5);
-    CHECK(w.get<crabby::rigid_body>(floor).kind == CRABBY_BODY_FIXED);
-    CHECK(w.get<crabby::collider>(sensor).sensor);
-    auto touched = [&](crabby::entity a, crabby::entity b) {
-        return std::any_of(started.begin(), started.end(), [&](const crabby::collision& c) {
-            const auto x = crabby::bits(c.a), y = crabby::bits(c.b);
+    CHECK(std::fabs(w.get<ponko::transform2d>(ball).position.y - 280) < 2);
+    CHECK(std::fabs(w.get<ponko::velocity>(ball).linear.y) < 5);
+    CHECK(w.get<ponko::rigid_body>(floor).kind == PONKO_BODY_FIXED);
+    CHECK(w.get<ponko::collider>(sensor).sensor);
+    auto touched = [&](ponko::entity a, ponko::entity b) {
+        return std::any_of(started.begin(), started.end(), [&](const ponko::collision& c) {
+            const auto x = ponko::bits(c.a), y = ponko::bits(c.b);
             return (x == a && y == b) || (x == b && y == a);
         });
     };
     CHECK(touched(ball, sensor) && touched(ball, floor));
 
     // A wedge, flat side down, comes to rest on it (as tests/physics.rs).
-    crabby::entity wedge = 0;
-    auto rested = crabby::game("t", 1, 1).physics({0, 980}).run_headless(240, [&](crabby::ctx& ctx) {
+    ponko::entity wedge = 0;
+    auto rested = ponko::game("t", 1, 1).physics({0, 980}).run_headless(240, [&](ponko::ctx& ctx) {
         auto world = ctx.world();
-        auto shape = crabby::polygon_collider({{-30, 15}, {30, 15}, {-30, -15}});
+        auto shape = ponko::polygon_collider({{-30, 15}, {30, 15}, {-30, -15}});
         shape.friction = 0.9f;
-        wedge = world.spawn(crabby::transform_at({0, 0}), crabby::dynamic_body(), shape);
-        world.spawn(crabby::transform_at({0, 200}), crabby::fixed_body(), crabby::rect_collider({400, 20}));
+        wedge = world.spawn(ponko::transform_at({0, 0}), ponko::dynamic_body(), shape);
+        world.spawn(ponko::transform_at({0, 200}), ponko::fixed_body(), ponko::rect_collider({400, 20}));
     });
-    const auto t = rested.get<crabby::transform2d>(wedge);
+    const auto t = rested.get<ponko::transform2d>(wedge);
     CHECK(std::fabs(t.position.y - 175) < 1.5f && std::fabs(t.rotation) < 0.01f);
     CHECK(rested.collider_points(wedge).size() == 3);
-    CHECK(rested.get<crabby::collider>(wedge).shape == CRABBY_SHAPE_POLYGON);
-    CHECK(rested.get<crabby::collider>(wedge).friction == 0.9f);
-    throws([] { crabby::polygon_collider({{0, 0}, {1, 0}}); });
-    CHECK(hit && crabby::bits(hit->entity) == floor && std::fabs(hit->distance - 290) < 1e-3f);
+    CHECK(rested.get<ponko::collider>(wedge).shape == PONKO_SHAPE_POLYGON);
+    CHECK(rested.get<ponko::collider>(wedge).friction == 0.9f);
+    throws([] { ponko::polygon_collider({{0, 0}, {1, 0}}); });
+    CHECK(hit && ponko::bits(hit->entity) == floor && std::fabs(hit->distance - 290) < 1e-3f);
     CHECK(mass && std::fabs(*mass - 314.159f) < 1);
     CHECK(!kicked_nothing);
     // Bad values are rejected, not simulated.
-    auto flat = crabby::rect_collider({10, 0});
+    auto flat = ponko::rect_collider({10, 0});
     throws([&] { w.set(floor, flat); });
 }
 
 static void vehicles() {
     // A box car on raycast wheels settles on its suspension, then drives
     // off; the vehicle is a query column (as tests/vehicle3d.rs).
-    crabby::entity car = 0;
-    std::optional<crabby::vec3> center;
-    auto w = crabby::game("t", 1, 1)
-        .sim_system([](crabby::ctx& ctx) {
+    ponko::entity car = 0;
+    std::optional<ponko::vec3> center;
+    auto w = ponko::game("t", 1, 1)
+        .sim_system([](ponko::ctx& ctx) {
             if (ctx.sim_tick() < 100) return;
-            ctx.world().each([](crabby::vehicle3d& v) {
+            ctx.world().each([](ponko::vehicle3d& v) {
                 v.wheels[2].motor_torque = v.wheels[3].motor_torque = 500;
                 v.wheels[0].steer_angle = v.wheels[1].steer_angle = 0.2f;
             });
         }, "drive")
         .physics3d({0, -9.81f, 0})
-        .sim_system([&](crabby::ctx& ctx) {
+        .sim_system([&](ponko::ctx& ctx) {
             if (ctx.sim_tick() == 99) center = ctx.center_of_mass3d(car);
         }, "probe")
-        .run_headless(200, [&](crabby::ctx& ctx) {
+        .run_headless(200, [&](ponko::ctx& ctx) {
             auto world = ctx.world();
-            world.spawn(crabby::transform3d_at({0, -0.5f, 0}), crabby::fixed_body3d(), crabby::box_collider({200, 1, 200}));
+            world.spawn(ponko::transform3d_at({0, -0.5f, 0}), ponko::fixed_body3d(), ponko::box_collider({200, 1, 200}));
             const float x = 0.8f, y = -0.3f, z = 1.3f, r = 0.35f;
-            car = world.spawn(crabby::transform3d_at({0, 1, 0}),
-                              crabby::with_center_of_mass(crabby::with_mass(crabby::dynamic_body3d(), 1200), {0, -0.3f, 0}),
-                              crabby::box_collider({1.8f, 0.6f, 4.2f}),
-                              crabby::vehicle({crabby::wheel({-x, y, -z}, r), crabby::wheel({x, y, -z}, r),
-                                               crabby::wheel({-x, y, z}, r), crabby::wheel({x, y, z}, r)}));
+            car = world.spawn(ponko::transform3d_at({0, 1, 0}),
+                              ponko::with_center_of_mass(ponko::with_mass(ponko::dynamic_body3d(), 1200), {0, -0.3f, 0}),
+                              ponko::box_collider({1.8f, 0.6f, 4.2f}),
+                              ponko::vehicle({ponko::wheel({-x, y, -z}, r), ponko::wheel({x, y, -z}, r),
+                                               ponko::wheel({-x, y, z}, r), ponko::wheel({x, y, z}, r)}));
         });
     CHECK(center && std::fabs(center->y - 0.5f) < 0.02f);
-    const auto v = w.get<crabby::vehicle3d>(car);
-    const auto t = w.get<crabby::transform3d>(car);
-    CHECK(v.wheel_count == 4 && v.wheels[0].grounded && crabby::rpm(v.wheels[3]) > 50);
+    const auto v = w.get<ponko::vehicle3d>(car);
+    const auto t = w.get<ponko::transform3d>(car);
+    CHECK(v.wheel_count == 4 && v.wheels[0].grounded && ponko::rpm(v.wheels[3]) > 50);
     CHECK(t.position.z < -3 && t.position.x > 0.2f && t.position.y > 0.7f && t.position.y < 0.9f);
-    CHECK(std::fabs(crabby::wheel_pose(v.wheels[0], t).position.y - 0.35f) < 0.05f);
-    CHECK(crabby::evaluate(v.wheels[0].forward_friction, 0.4f) == 1);
-    throws([] { crabby::vehicle({crabby::wheel({}, 1), crabby::wheel({}, 1), crabby::wheel({}, 1), crabby::wheel({}, 1),
-                                 crabby::wheel({}, 1), crabby::wheel({}, 1), crabby::wheel({}, 1), crabby::wheel({}, 1),
-                                 crabby::wheel({}, 1)}); });
+    CHECK(std::fabs(ponko::wheel_pose(v.wheels[0], t).position.y - 0.35f) < 0.05f);
+    CHECK(ponko::evaluate(v.wheels[0].forward_friction, 0.4f) == 1);
+    throws([] { ponko::vehicle({ponko::wheel({}, 1), ponko::wheel({}, 1), ponko::wheel({}, 1), ponko::wheel({}, 1),
+                                 ponko::wheel({}, 1), ponko::wheel({}, 1), ponko::wheel({}, 1), ponko::wheel({}, 1),
+                                 ponko::wheel({}, 1)}); });
 }
 
 static void lockstep() {
     // Two games over UDP on localhost see the same inputs, tick for tick.
     struct Order { std::uint32_t tick; float x; };
     struct Seen { std::uint64_t sum = 0; std::uint32_t others = 0, player = 9; bool desync = false; };
-    auto play = [](crabby::game& g, Seen& seen) {
-        g.sim_system([&seen](crabby::ctx& ctx) {
+    auto play = [](ponko::game& g, Seen& seen) {
+        g.sim_system([&seen](ponko::ctx& ctx) {
             seen.player = ctx.player();
             ctx.set_input(Order{std::uint32_t(ctx.sim_tick()), float(ctx.player())});
             for (std::uint32_t p = 0; p < ctx.players(); ++p)
@@ -727,27 +727,27 @@ static void lockstep() {
                 }
             seen.desync = ctx.desynced();
         });
-        g.run_headless(200, [](crabby::ctx&) {});
+        g.run_headless(200, [](ponko::ctx&) {});
     };
     std::uint16_t port = 0;
     Seen host_seen, guest_seen;
-    crabby::game host("host", 1, 1);
+    ponko::game host("host", 1, 1);
     host.lockstep_host("127.0.0.1:0", 2, 2, 30, &port);
     CHECK(port != 0);
     std::thread host_thread([&] { play(host, host_seen); });
-    crabby::game guest("guest", 1, 1);
+    ponko::game guest("guest", 1, 1);
     guest.lockstep_join(("127.0.0.1:" + std::to_string(port)).c_str());
     play(guest, guest_seen);
     host_thread.join();
     CHECK(host_seen.player == 0 && guest_seen.player == 1);
     CHECK(host_seen.sum == guest_seen.sum && host_seen.others > 150 && guest_seen.others > 150);
     CHECK(!host_seen.desync && !guest_seen.desync);
-    throws([] { crabby::game("t", 1, 1).lockstep_host("127.0.0.1:0", 1); });
-    throws([] { crabby::game("t", 1, 1).lockstep_steam_host(480, 2); });   // built without `steam`
+    throws([] { ponko::game("t", 1, 1).lockstep_host("127.0.0.1:0", 1); });
+    throws([] { ponko::game("t", 1, 1).lockstep_steam_host(480, 2); });   // built without `steam`
 }
 
 static void streaming() {
-    crabby::cell_streamer cells(10, 25, 40);
+    ponko::cell_streamer cells(10, 25, 40);
     cells.update({5, 0, 5}, 2);
     CHECK(cells.to_load().size() == 2 && cells.to_load()[0].x == 0 && cells.to_load()[0].z == 0);
     cells.update({5, 0, 5}, 1000);
@@ -757,21 +757,21 @@ static void streaming() {
     CHECK(cells.corner({2, -1}).x == 20 && cells.corner({2, -1}).z == -10);
     cells.clear();
     CHECK(cells.loaded_count() == 0);
-    throws([] { crabby::cell_streamer(0, 1, 1); });
-    throws([] { crabby::terrain_tile_data(std::vector<float>(8, 0.0f), 4); });
-    crabby::heightfield slope({0, 2, 0, 2}, 1);
+    throws([] { ponko::cell_streamer(0, 1, 1); });
+    throws([] { ponko::terrain_tile_data(std::vector<float>(8, 0.0f), 4); });
+    ponko::heightfield slope({0, 2, 0, 2}, 1);
     CHECK(std::abs(*slope.height_at(0.5f, 0.5f) - 1) < 1e-5f && slope.normal_at(0.5f, 0.5f)->x < 0);
     CHECK(!slope.height_at(2, 0.5f) && !slope.normal_at(-1, 0));
-    throws([] { crabby::heightfield({0, 0, 0}, 1); });
-    crabby::game("stream", 64, 64).run_headless(0, [](crabby::ctx& ctx) {
-        auto ground = ctx.create_material(crabby::material_of(crabby::colors::white));
+    throws([] { ponko::heightfield({0, 0, 0}, 1); });
+    ponko::game("stream", 64, 64).run_headless(0, [](ponko::ctx& ctx) {
+        auto ground = ctx.create_material(ponko::material_of(ponko::colors::white));
         // Built on another thread, uploaded on the game's.
-        auto data = std::async(std::launch::async, [] { return crabby::terrain_tile_data(std::vector<float>(33 * 33, 1.0f), 64); });
+        auto data = std::async(std::launch::async, [] { return ponko::terrain_tile_data(std::vector<float>(33 * 33, 1.0f), 64); });
         auto tile = ctx.upload_terrain_tile(data.get(), ground);
         CHECK(tile.lod_distance == 64 && ctx.is_mesh_live(tile.lods[0]));
         ctx.free_terrain_tile(tile);
         CHECK(!ctx.is_mesh_live(tile.lods[0]) && !ctx.is_mesh_live(tile.lods[3]));
-        auto cube = ctx.create_mesh(crabby::mesh_data::cube(1), ground);
+        auto cube = ctx.create_mesh(ponko::mesh_data::cube(1), ground);
         CHECK(ctx.mesh_shadows(cube));
         ctx.set_mesh_shadows(cube, false);
         CHECK(!ctx.mesh_shadows(cube));
@@ -783,9 +783,9 @@ static void streaming() {
 
 static void streamed_worlds() {
     // Far ground, cut where a tile is shown.
-    crabby::game("far", 64, 64).run_headless(0, [](crabby::ctx& ctx) {
+    ponko::game("far", 64, 64).run_headless(0, [](ponko::ctx& ctx) {
         auto ground = ctx.default_material();
-        crabby::far_terrain far(std::vector<float>(129 * 129, 1.0f), 129, {-1024, -1024}, 16, 128, ground);
+        ponko::far_terrain far(std::vector<float>(129 * 129, 1.0f), 129, {-1024, -1024}, 16, 128, ground);
         far.update(ctx);
         CHECK(far.mesh_count() == 4 && !far.is_cut({0, 0}));
         far.cut({0, 0});
@@ -796,52 +796,52 @@ static void streamed_worlds() {
         far.clear(ctx);
         CHECK(far.mesh_count() == 0);
     });
-    throws([] { crabby::far_terrain(std::vector<float>(16, 0.0f), 4, {5, 0}, 10, 10, crabby::material{}); });
-    throws([] { crabby::collision_mesh_data::heightfield(std::vector<float>(8, 0.0f), 4); });
-    throws([] { crabby::collision_mesh_data::convex_hull({{0, 0, 0}, {1, 0, 0}, {0, 1, 0}}); });
+    throws([] { ponko::far_terrain(std::vector<float>(16, 0.0f), 4, {5, 0}, 10, 10, ponko::material{}); });
+    throws([] { ponko::collision_mesh_data::heightfield(std::vector<float>(8, 0.0f), 4); });
+    throws([] { ponko::collision_mesh_data::convex_hull({{0, 0, 0}, {1, 0, 0}, {0, 1, 0}}); });
     // A ball on terrain built on another thread; a far wall that comes in
     // once the focus walks to it.
-    crabby::entity ball = 0, wall = 0, focus = 0, ground = 0;
+    ponko::entity ball = 0, wall = 0, focus = 0, ground = 0;
     bool wall_at_start = true, wall_later = false;
-    auto w = crabby::game("t", 1, 1)
+    auto w = ponko::game("t", 1, 1)
         .physics3d({0, -9.81f, 0})
-        .sim_system([&](crabby::ctx& ctx) {
+        .sim_system([&](ponko::ctx& ctx) {
             if (ctx.sim_tick() == 0) {
                 wall_at_start = ctx.is_collider_active(wall);
-                ctx.world().set(focus, crabby::transform3d_at({290, 0, 0}));
+                ctx.world().set(focus, ponko::transform3d_at({290, 0, 0}));
             } else if (ctx.sim_tick() == 1) {
                 wall_later = ctx.is_collider_active(wall);
             }
         })
-        .run_headless(120, [&](crabby::ctx& ctx) {
+        .run_headless(120, [&](ponko::ctx& ctx) {
             ctx.stream_colliders(8);
             auto data = std::async(std::launch::async, [] {
-                return crabby::collision_mesh_data::heightfield(std::vector<float>(9, 2.0f), 20);
+                return ponko::collision_mesh_data::heightfield(std::vector<float>(9, 2.0f), 20);
             });
             auto mesh = ctx.add_collision_mesh(data.get());
             auto world = ctx.world();
-            ground = world.spawn(crabby::transform3d_at({-10, 0, -10}), crabby::solid_terrain(mesh));
-            ball = world.spawn(crabby::transform3d_at({0, 4, 0}), crabby::dynamic_body3d(), crabby::sphere_collider(0.5f));
-            wall = world.spawn(crabby::transform3d_at({300, 0, 0}), crabby::fixed_body3d(), crabby::box_collider({1, 1, 1}));
-            focus = world.spawn(crabby::transform3d_at({0, 0, 0}), crabby::focus_colliders(50, 80));
+            ground = world.spawn(ponko::transform3d_at({-10, 0, -10}), ponko::solid_terrain(mesh));
+            ball = world.spawn(ponko::transform3d_at({0, 4, 0}), ponko::dynamic_body3d(), ponko::sphere_collider(0.5f));
+            wall = world.spawn(ponko::transform3d_at({300, 0, 0}), ponko::fixed_body3d(), ponko::box_collider({1, 1, 1}));
+            focus = world.spawn(ponko::transform3d_at({0, 0, 0}), ponko::focus_colliders(50, 80));
         });
-    CHECK(std::fabs(w.get<crabby::transform3d>(ball).position.y - 2.5f) < 0.05f);
+    CHECK(std::fabs(w.get<ponko::transform3d>(ball).position.y - 2.5f) < 0.05f);
     CHECK(!wall_at_start && wall_later);
-    CHECK(w.get<crabby::terrain_collider>(ground).friction == 0.5f);
-    CHECK(w.get<crabby::collider_focus>(focus).keep_radius == 80);
+    CHECK(w.get<ponko::terrain_collider>(ground).friction == 0.5f);
+    CHECK(w.get<ponko::collider_focus>(focus).keep_radius == 80);
 }
 
 static void lod_groups() {
     float fov = 60 * 3.14159265f / 180;
-    CHECK(std::abs(crabby::lod_screen_height_at(2, 10, fov) - 0.1732f) < 1e-3f);
-    CHECK(std::abs(crabby::lod_distance_at(2, 0.1732f, fov) - 10) < 0.01f);
-    crabby::game("lod", 64, 64).run_headless(0, [](crabby::ctx& ctx) {
+    CHECK(std::abs(ponko::lod_screen_height_at(2, 10, fov) - 0.1732f) < 1e-3f);
+    CHECK(std::abs(ponko::lod_distance_at(2, 0.1732f, fov) - 10) < 0.01f);
+    ponko::game("lod", 64, 64).run_headless(0, [](ponko::ctx& ctx) {
         auto white = ctx.default_material();
-        auto high = ctx.create_mesh(crabby::mesh_data::cube(1), white);
-        auto low = ctx.create_mesh(crabby::mesh_data::cube(2), white);
-        auto e = ctx.world().spawn(crabby::transform3d_at({0, 0, 0}));
-        crabby::lod_level a{0.5f, 0, {crabby::lod_renderer_of(high)}};
-        crabby::lod_level b{0.1f, 0, {crabby::lod_renderer_of(low)}, true, {}};
+        auto high = ctx.create_mesh(ponko::mesh_data::cube(1), white);
+        auto low = ctx.create_mesh(ponko::mesh_data::cube(2), white);
+        auto e = ctx.world().spawn(ponko::transform3d_at({0, 0, 0}));
+        ponko::lod_level a{0.5f, 0, {ponko::lod_renderer_of(high)}};
+        ponko::lod_level b{0.1f, 0, {ponko::lod_renderer_of(low)}, true, {}};
         ctx.set_lod_group(e, 2, {a, b});
         auto at = [&](float d) {
             auto cam = ctx.camera3d();
@@ -856,31 +856,31 @@ static void lod_groups() {
         ctx.set_lod({20, true});
         CHECK(at(5).level == 0 && ctx.lod().bias == 20);
         throws([&] { ctx.set_lod({-1, true}); });
-        throws([&] { ctx.lod_pick_of(ctx.world().spawn(crabby::transform3d_at({0, 0, 0}))); });
+        throws([&] { ctx.lod_pick_of(ctx.world().spawn(ponko::transform3d_at({0, 0, 0}))); });
     });
 }
 
 static void skeletons() {
-    crabby::game("skeletons", 1, 1).run_headless(0, [&](crabby::ctx& ctx) {
-        auto arm = ctx.world().spawn(crabby::transform3d_at({0, 0, 0}));
-        crabby::joint base{"base"}, tip{"tip", 0, crabby::transform3d_at({0, 1, 0})};
+    ponko::game("skeletons", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
+        auto arm = ctx.world().spawn(ponko::transform3d_at({0, 0, 0}));
+        ponko::joint base{"base"}, tip{"tip", 0, ponko::transform3d_at({0, 1, 0})};
         ctx.set_skeleton(arm, {base, tip});
         CHECK(ctx.joint_count(arm) == 2);
         CHECK(ctx.find_joint(arm, "tip") == std::optional<std::size_t>(1));
         CHECK(!ctx.find_joint(arm, "tail"));
         // Bend the base a quarter turn: the tip swings from +Y to -X.
         auto pose = ctx.joint_pose(arm, 0);
-        pose.rotation = crabby::quat_from_rotation_z(1.5707963f);
+        pose.rotation = ponko::quat_from_rotation_z(1.5707963f);
         ctx.set_joint_pose(arm, 0, pose);
         auto m = ctx.joint_matrix(arm, 1);
         CHECK(std::fabs(m[12] + 1) < 1e-5f && std::fabs(m[13]) < 1e-5f);
         ctx.reset_pose(arm);
         CHECK(std::fabs(ctx.joint_matrix(arm, 1)[13] - 1) < 1e-6f);
         throws([&] { ctx.joint_pose(arm, 2); });
-        throws([&] { ctx.set_skeleton(arm, {crabby::joint{"loop", 0}}); });
+        throws([&] { ctx.set_skeleton(arm, {ponko::joint{"loop", 0}}); });
 
         // A post: corners above the middle follow the tip.
-        auto post = crabby::mesh_data::cube(0.2f);
+        auto post = ponko::mesh_data::cube(0.2f);
         std::vector<std::array<std::uint16_t, 4>> joints;
         std::vector<std::array<float, 4>> weights;
         auto view = post.view();
@@ -891,12 +891,12 @@ static void skeletons() {
         post.set_skin(joints, weights);
         auto material = ctx.default_material();
         auto mesh = ctx.create_skinned_mesh(post, material, arm);
-        ctx.world().spawn(crabby::model_of(mesh));
-        auto hat = ctx.world().spawn(crabby::model_of(mesh));
+        ctx.world().spawn(ponko::model_of(mesh));
+        auto hat = ctx.world().spawn(ponko::model_of(mesh));
         ctx.set_skin_of(hat, arm);
-        auto cup = ctx.world().spawn(crabby::transform3d_at({0, 0, 0}));
-        ctx.attach_to_joint(cup, arm, 1, crabby::transform3d_at({0, 0.1f, 0}));
-        throws([&] { ctx.create_skinned_mesh(crabby::mesh_data::cube(1), material, arm); });
+        auto cup = ctx.world().spawn(ponko::transform3d_at({0, 0, 0}));
+        ctx.attach_to_joint(cup, arm, 1, ponko::transform3d_at({0, 0.1f, 0}));
+        throws([&] { ctx.create_skinned_mesh(ponko::mesh_data::cube(1), material, arm); });
         joints.assign(joints.size(), {7, 0, 0, 0});
         post.set_skin(joints, weights);
         throws([&] { ctx.create_skinned_mesh(post, material, arm); });
@@ -907,25 +907,25 @@ static void skeletons() {
 }
 
 static void morph_targets() {
-    crabby::game("morph targets", 1, 1).run_headless(0, [&](crabby::ctx& ctx) {
+    ponko::game("morph targets", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
         // Two targets on a plane: one dents the whole sheet, one tips a corner.
-        auto sheet = crabby::mesh_data::plane(1.0);
-        crabby::morph_target dent{"dent", std::vector<crabby::vec3>(4, {0, 0, -0.7f}), {}};
+        auto sheet = ponko::mesh_data::plane(1.0);
+        ponko::morph_target dent{"dent", std::vector<ponko::vec3>(4, {0, 0, -0.7f}), {}};
         sheet.add_morph_target(dent);
-        crabby::morph_target tip{"tip", std::vector<crabby::vec3>(4), {}}; // normals stay flat
+        ponko::morph_target tip{"tip", std::vector<ponko::vec3>(4), {}}; // normals stay flat
         tip.positions[0] = {0, 0.4f, 0};
         sheet.add_morph_target(tip);
         sheet.add_morph_frame(0, 1, 0.5f);
         sheet.add_morph_frame(0, 0, 1.0f);
         throws([&] { sheet.add_morph_frame(0, 0, 1.0f); });
-        throws([&] { sheet.add_morph_target(crabby::morph_target{"short", std::vector<crabby::vec3>(3), {}}); });
+        throws([&] { sheet.add_morph_target(ponko::morph_target{"short", std::vector<ponko::vec3>(3), {}}); });
 
         auto mesh = ctx.create_mesh(sheet, ctx.default_material());
         CHECK(ctx.morph_target(mesh, "dent") == std::optional<std::size_t>(0));
         CHECK(ctx.morph_target(mesh, "tip") == std::optional<std::size_t>(1));
         CHECK(!ctx.morph_target(mesh, "sag"));
 
-        auto e = ctx.world().spawn(crabby::transform3d_at({0, 0, 0}), crabby::model_of(mesh));
+        auto e = ctx.world().spawn(ponko::transform3d_at({0, 0, 0}), ponko::model_of(mesh));
         CHECK(!ctx.morph_weight(e, 0)); // no weights: its mesh's defaults show
         ctx.set_morph_weight(e, 0, 0.5f);
         ctx.set_morph_weight(e, 1, 1.0f);
@@ -933,7 +933,7 @@ static void morph_targets() {
         CHECK(ctx.morph_weight(e, 1) == std::optional(1.0f));
         CHECK(ctx.morph_weight(e, 2) == std::optional(0.0f));
         ctx.set_skeleton(e, {});
-        crabby::clip face("face");
+        ponko::clip face("face");
         face.set_morph_track("dent", {0, 2}, {0, 1});
         CHECK(face.duration() == 2);
         ctx.sample_clip(face, e, 1);
@@ -948,24 +948,24 @@ static void morph_targets() {
 }
 
 static void sound3d() {
-    crabby::game("sound3d", 1, 1).run_headless(0, [&](crabby::ctx& ctx) {
+    ponko::game("sound3d", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
         float samples[64] = {};
         auto hum = ctx.create_sound(44100, samples, 64);
         auto music = ctx.audio_bus("music");
         CHECK(music.index == ctx.audio_bus("music").index);
-        CHECK(music.index != crabby::audio_bus{}.index);
+        CHECK(music.index != ponko::audio_bus{}.index);
         ctx.set_audio_bus_volume(music, 0.5f);
         ctx.mute_audio_bus(music, true);
-        auto settings = crabby::audio_settings3d_defaults();
+        auto settings = ponko::audio_settings3d_defaults();
         CHECK(settings.max_distance == 100.0f && settings.doppler == 1.0f);
-        settings.rolloff = CRABBY_ROLLOFF_LINEAR;
+        settings.rolloff = PONKO_ROLLOFF_LINEAR;
         settings.bus = music;
-        auto e = ctx.world().spawn(crabby::transform3d_at({4, 0, 0}));
+        auto e = ctx.world().spawn(ponko::transform3d_at({4, 0, 0}));
         ctx.set_audio_source3d(e, hum, settings);
         ctx.remove_audio_source3d(e);
         auto voice = ctx.play_sound_at(hum, {-4, 0, 0}, settings);
         ctx.set_sound_effects(voice, {800.0f, 0.3f});
-        ctx.set_audio_listener(crabby::audio_listener3d{{7, 2, 3}, {0, 0, 0, 1}});
+        ctx.set_audio_listener(ponko::audio_listener3d{{7, 2, 3}, {0, 0, 0, 1}});
         CHECK(ctx.audio_listener().position.x == 7.0f);
         ctx.set_audio_listener(std::nullopt);
         CHECK(ctx.audio_listener().position.x != 7.0f);
@@ -975,7 +975,7 @@ static void sound3d() {
 
 // A two-joint skin with one clip, "rise": the arm goes up 2 over 1 second.
 static void animators() {
-    const auto file = std::filesystem::temp_directory_path() / "crabby-cpp-rise.gltf";
+    const auto file = std::filesystem::temp_directory_path() / "ponko-cpp-rise.gltf";
     std::ofstream(file) << R"({"asset": {"version": "2.0"}, "scene": 0, "scenes": [{"nodes": [0]}],
         "nodes": [{"name": "root", "children": [1]}, {"name": "arm", "mesh": 0}],
         "meshes": [{"primitives": [{"attributes": {"POSITION": 2}}]}],
@@ -989,23 +989,23 @@ static void animators() {
             {"bufferView": 1, "componentType": 5126, "count": 2, "type": "VEC3"},
             {"bufferView": 2, "componentType": 5126, "count": 3, "type": "VEC3", "min": [0, 0, 0], "max": [1, 1, 0]}]})";
     const std::string path = file.string();
-    crabby::game("animators", 1, 1).run_headless(0, [&](crabby::ctx& ctx) {
+    ponko::game("animators", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
         auto rise = ctx.load_clip(path.c_str(), "rise");
         CHECK(rise.duration() == 1.0f);
-        crabby::animation_graph_builder b;
+        ponko::animation_graph_builder b;
         auto speed = b.add_float();
-        auto still = b.add_state(crabby::motion::of(rise), 0);
-        auto up = b.add_state(crabby::motion::of(rise), 1, std::nullopt, false);
+        auto still = b.add_state(ponko::motion::of(rise), 0);
+        auto up = b.add_state(ponko::motion::of(rise), 1, std::nullopt, false);
         b.add_event(up, 0.5f, "half");
         auto go = b.add_transition(still, up, 0);
-        b.add_condition(go, CRABBY_CONDITION_GREATER, speed, 0.5f);
-        auto tree = crabby::motion::blend1d(speed);
-        tree.add(0, crabby::motion::of(rise)).add(1, crabby::motion::of(rise), 2);
+        b.add_condition(go, PONKO_CONDITION_GREATER, speed, 0.5f);
+        auto tree = ponko::motion::blend1d(speed);
+        tree.add(0, ponko::motion::of(rise)).add(1, ponko::motion::of(rise), 2);
         b.add_state(std::move(tree));
         auto graph = b.build(still);
-        throws([&] { crabby::animation_graph_builder bad; bad.build(3); });
+        throws([&] { ponko::animation_graph_builder bad; bad.build(3); });
 
-        auto e = ctx.world().spawn(crabby::transform3d_at({0, 0, 0}));
+        auto e = ctx.world().spawn(ponko::transform3d_at({0, 0, 0}));
         throws([&] { ctx.set_animator(e, graph); }); // no skeleton yet
         ctx.load_skeleton(e, path.c_str());
         ctx.set_animator(e, graph);
@@ -1027,17 +1027,17 @@ static void animators() {
         CHECK(ctx.animator_state(e) == still);
 
         ctx.animator_set_float(e, speed, 0); // the base stays still
-        crabby::animation_graph_builder lb;
-        lb.add_state(crabby::motion::of(rise), 1, std::nullopt, false);
+        ponko::animation_graph_builder lb;
+        lb.add_state(ponko::motion::of(rise), 1, std::nullopt, false);
         auto overlay = lb.build(0);
-        auto layer = ctx.animator_add_layer(e, overlay, crabby::layer_blend::override_pose, "arm");
+        auto layer = ctx.animator_add_layer(e, overlay, ponko::layer_blend::override_pose, "arm");
         CHECK(layer == 0);
         ctx.animator_set_layer_weight(e, layer, 0.5f);
         ctx.animator_update(e, 0.5f); // layer: y = 1, base: y = 0
         CHECK(std::fabs(ctx.joint_pose(e, arm).position.y - 0.5f) < 1e-4f);
         throws([&] { ctx.animator_set_layer_weight(e, 1, 1); });
-        throws([&] { ctx.animator_add_layer(e, overlay, crabby::layer_blend::additive, "tail"); });
-        ctx.animator_set_root_motion(e, crabby::root_motion::extract, arm);
+        throws([&] { ctx.animator_add_layer(e, overlay, ponko::layer_blend::additive, "tail"); });
+        ctx.animator_set_root_motion(e, ponko::root_motion::extract, arm);
         ctx.animator_update(e, 0.1f);
         auto [moved, turned] = ctx.animator_root_motion(e);
         CHECK(moved.x == 0 && moved.z == 0 && turned.w == 1); // rising isn't horizontal
@@ -1047,34 +1047,34 @@ static void animators() {
 
 // A ball on a 1 m ball joint below a fixed anchor swings but stays 1 m away.
 static void joints3d() {
-    crabby::entity ball = 0, joint = 0;
+    ponko::entity ball = 0, joint = 0;
     std::size_t joints_seen = 0;
     float reach = 0, lowest = 5;
-    crabby::game("joints", 1, 1)
+    ponko::game("joints", 1, 1)
         .physics3d({0, -9.81f, 0})
-        .sim_system([&](crabby::ctx& ctx) {
+        .sim_system([&](ponko::ctx& ctx) {
             if (ctx.sim_tick() == 10) joints_seen = ctx.joint_count();
-            if (ctx.sim_tick() < 60) lowest = std::min(lowest, ctx.world().get<crabby::transform3d>(ball).position.y);
+            if (ctx.sim_tick() < 60) lowest = std::min(lowest, ctx.world().get<ponko::transform3d>(ball).position.y);
             if (ctx.sim_tick() == 60) {
-                auto p = ctx.world().get<crabby::transform3d>(ball).position;
+                auto p = ctx.world().get<ponko::transform3d>(ball).position;
                 reach = std::sqrt(p.x * p.x + (p.y - 5) * (p.y - 5) + p.z * p.z);
                 ctx.world().despawn(joint);
             }
         }, "probe")
-        .run_headless(70, [&](crabby::ctx& ctx) {
+        .run_headless(70, [&](ponko::ctx& ctx) {
             auto world = ctx.world();
-            auto anchor = world.spawn(crabby::transform3d_at({0, 5, 0}), crabby::fixed_body3d(), crabby::sphere_collider(0.1f));
-            ball = world.spawn(crabby::transform3d_at({1, 5, 0}), crabby::with_dominance(crabby::dynamic_body3d(), 3),
-                               crabby::sphere_collider(0.2f));
-            auto j = crabby::spherical_joint3d(anchor, ball);
-            j.frame_b = crabby::transform3d_at({-1, 0, 0}); // the anchor, seen from the ball
+            auto anchor = world.spawn(ponko::transform3d_at({0, 5, 0}), ponko::fixed_body3d(), ponko::sphere_collider(0.1f));
+            ball = world.spawn(ponko::transform3d_at({1, 5, 0}), ponko::with_dominance(ponko::dynamic_body3d(), 3),
+                               ponko::sphere_collider(0.2f));
+            auto j = ponko::spherical_joint3d(anchor, ball);
+            j.frame_b = ponko::transform3d_at({-1, 0, 0}); // the anchor, seen from the ball
             joint = world.spawn(j);
-            CHECK(world.get<crabby::joint3d>(joint).axes[crabby::joint_axis::linear_x].kind == CRABBY_JOINT_LOCKED);
-            CHECK(world.get<crabby::rigid_body3d>(ball).dominance == 3);
-            auto bad = crabby::with_limits(crabby::revolute_joint3d(anchor, ball), crabby::joint_axis::angular_x, 1, -1);
+            CHECK(world.get<ponko::joint3d>(joint).axes[ponko::joint_axis::linear_x].kind == PONKO_JOINT_LOCKED);
+            CHECK(world.get<ponko::rigid_body3d>(ball).dominance == 3);
+            auto bad = ponko::with_limits(ponko::revolute_joint3d(anchor, ball), ponko::joint_axis::angular_x, 1, -1);
             throws([&] { world.spawn(bad); });
-            auto motor = crabby::with_drive(crabby::revolute_joint3d(anchor, ball), crabby::joint_axis::angular_x, crabby::velocity_drive(2, 10));
-            CHECK(motor.drives[crabby::joint_axis::angular_x].enabled && motor.drives[3].target_velocity == 2);
+            auto motor = ponko::with_drive(ponko::revolute_joint3d(anchor, ball), ponko::joint_axis::angular_x, ponko::velocity_drive(2, 10));
+            CHECK(motor.drives[ponko::joint_axis::angular_x].enabled && motor.drives[3].target_velocity == 2);
         });
     CHECK(joints_seen == 1);
     CHECK(std::fabs(reach - 1) < 0.05f);
@@ -1083,12 +1083,12 @@ static void joints3d() {
 
 // A leg of two 1 m bones bends so its foot lands on a reachable target.
 static void inverse_kinematics() {
-    auto g = crabby::game("ik", 1, 1);
-    g.late_system([](crabby::ctx&) {}, "after animation");
-    g.run_headless(0, [&](crabby::ctx& ctx) {
-        auto leg = ctx.world().spawn(crabby::transform3d_at({5, 0, 0}));
-        ctx.set_skeleton(leg, {crabby::joint{"hip"}, crabby::joint{"knee", 0, crabby::transform3d_at({0, -1, 0})},
-                               crabby::joint{"foot", 1, crabby::transform3d_at({0, -1, 0})}});
+    auto g = ponko::game("ik", 1, 1);
+    g.late_system([](ponko::ctx&) {}, "after animation");
+    g.run_headless(0, [&](ponko::ctx& ctx) {
+        auto leg = ctx.world().spawn(ponko::transform3d_at({5, 0, 0}));
+        ctx.set_skeleton(leg, {ponko::joint{"hip"}, ponko::joint{"knee", 0, ponko::transform3d_at({0, -1, 0})},
+                               ponko::joint{"foot", 1, ponko::transform3d_at({0, -1, 0})}});
         ctx.two_bone_ik(leg, 0, 1, 2, {5.5f, -1.5f, 0}, {0, 0, 1});
         auto foot = ctx.joint_matrix(leg, 2); // model space: the leg stands at x = 5
         CHECK(std::fabs(foot[12] - 0.5f) < 1e-3f && std::fabs(foot[13] + 1.5f) < 1e-3f);
@@ -1097,18 +1097,18 @@ static void inverse_kinematics() {
         ctx.look_at_joint(leg, 0, {0, -1, 0}, {5, 0, 3});
         auto knee = ctx.joint_matrix(leg, 1);
         CHECK(std::fabs(knee[14] - 1) < 1e-3f && std::fabs(knee[13]) < 1e-3f);
-        ctx.draw_skeleton(leg, crabby::colors::white);
+        ctx.draw_skeleton(leg, ponko::colors::white);
         throws([&] { ctx.two_bone_ik(leg, 0, 1, 9, {0, 0, 0}, {0, 0, 1}); });
     });
 }
 
 // A stick figure ragdolled 1 m up falls and is posed by its bodies; stopping removes them.
 static void ragdolls() {
-    crabby::entity figure = 0;
+    ponko::entity figure = 0;
     float hips_y = 0, rest_y = 0;
-    crabby::game("ragdolls", 1, 1)
+    ponko::game("ragdolls", 1, 1)
         .physics3d({0, -9.81f, 0})
-        .sim_system([&](crabby::ctx& ctx) {
+        .sim_system([&](ponko::ctx& ctx) {
             if (ctx.sim_tick() == 60) {
                 hips_y = ctx.joint_pose(figure, 0).position.y;
                 ctx.stop_ragdoll(figure, 0.5f);
@@ -1116,58 +1116,58 @@ static void ragdolls() {
                 CHECK(!ctx.ragdoll_body(figure, 0));
             }
         }, "probe")
-        .run_headless(62, [&](crabby::ctx& ctx) {
+        .run_headless(62, [&](ponko::ctx& ctx) {
             auto world = ctx.world();
-            world.spawn(crabby::transform3d_at({0, -0.5f, 0}), crabby::fixed_body3d(), crabby::box_collider({20, 1, 20}));
-            figure = world.spawn(crabby::transform3d_at({0, 1, 0}));
-            ctx.set_skeleton(figure, {crabby::joint{"hips"}, crabby::joint{"spine", 0, crabby::transform3d_at({0, 0.6f, 0})},
-                                      crabby::joint{"head", 1, crabby::transform3d_at({0, 0.4f, 0})}});
+            world.spawn(ponko::transform3d_at({0, -0.5f, 0}), ponko::fixed_body3d(), ponko::box_collider({20, 1, 20}));
+            figure = world.spawn(ponko::transform3d_at({0, 1, 0}));
+            ctx.set_skeleton(figure, {ponko::joint{"hips"}, ponko::joint{"spine", 0, ponko::transform3d_at({0, 0.6f, 0})},
+                                      ponko::joint{"head", 1, ponko::transform3d_at({0, 0.4f, 0})}});
             rest_y = ctx.joint_pose(figure, 0).position.y;
             std::size_t before = world.size();
-            ctx.start_ragdoll(figure, {crabby::ragdoll_bone("hips", 0.12f), crabby::ragdoll_bone("spine", 0.1f).swing(0.5f).twist(0.2f)});
+            ctx.start_ragdoll(figure, {ponko::ragdoll_bone("hips", 0.12f), ponko::ragdoll_bone("spine", 0.1f).swing(0.5f).twist(0.2f)});
             CHECK(world.size() == before + 3); // two bodies and a joint
             auto spine = ctx.find_joint(figure, "spine");
             auto body = ctx.ragdoll_body(figure, *spine);
             CHECK(body && ctx.apply_impulse3d(*body, {1, 0, 0}));
             CHECK(!ctx.ragdoll_body(figure, 2)); // the head has no body of its own
             CHECK(ctx.ragdolled(figure) && !ctx.ragdoll_blending(figure));
-            throws([&] { ctx.start_ragdoll(figure, {crabby::ragdoll_bone("tail", 0.1f)}); });
+            throws([&] { ctx.start_ragdoll(figure, {ponko::ragdoll_bone("tail", 0.1f)}); });
         });
     CHECK(hips_y < rest_y - 0.3f); // it fell
 }
 
 // One-way platforms pass things up through, belts carry them, and a hook can ignore a pair.
 static void contacts3d() {
-    auto floor = [](crabby::world_view world, crabby::vec3 at, crabby::contact_modifier3d m) {
-        return world.spawn(crabby::transform3d_at(at), crabby::fixed_body3d(), crabby::box_collider({20, 0.4f, 20}), m);
+    auto floor = [](ponko::world_view world, ponko::vec3 at, ponko::contact_modifier3d m) {
+        return world.spawn(ponko::transform3d_at(at), ponko::fixed_body3d(), ponko::box_collider({20, 0.4f, 20}), m);
     };
-    auto ball = [](crabby::world_view world, crabby::vec3 at, crabby::vec3 linear) {
-        return world.spawn(crabby::transform3d_at(at), crabby::dynamic_body3d(), crabby::sphere_collider(0.25f),
-                           crabby::velocity3d{linear, {0, 0, 0}});
+    auto ball = [](ponko::world_view world, ponko::vec3 at, ponko::vec3 linear) {
+        return world.spawn(ponko::transform3d_at(at), ponko::dynamic_body3d(), ponko::sphere_collider(0.25f),
+                           ponko::velocity3d{linear, {0, 0, 0}});
     };
-    crabby::entity from_below = 0, blocked = 0, carried = 0, ghost = 0, standing = 0;
+    ponko::entity from_below = 0, blocked = 0, carried = 0, ghost = 0, standing = 0;
     std::size_t hook_calls = 0;
     bool pair_ok = true;
-    auto world = crabby::game("contacts", 1, 1).physics3d({0, -9.81f, 0}).run_headless(150, [&](crabby::ctx& ctx) {
+    auto world = ponko::game("contacts", 1, 1).physics3d({0, -9.81f, 0}).run_headless(150, [&](ponko::ctx& ctx) {
         auto w = ctx.world();
         // A one-way platform: a ball thrown up from below comes up through it.
-        auto up = crabby::one_way_modifier3d({0, 1, 0});
+        auto up = ponko::one_way_modifier3d({0, 1, 0});
         CHECK(up.has_one_way && up.one_way_angle == 1.2f);
         floor(w, {0, 0, 0}, up);
         from_below = ball(w, {0, -1, 0}, {0, 8, 0});
         // An ordinary one blocks the same throw.
-        floor(w, {30, 0, 0}, crabby::default_contact_modifier3d());
+        floor(w, {30, 0, 0}, ponko::default_contact_modifier3d());
         blocked = ball(w, {30, -1, 0}, {0, 8, 0});
         // A belt carrying things along +X at 2 m/s.
-        auto belt = crabby::conveyor_modifier3d({2, 0, 0});
+        auto belt = ponko::conveyor_modifier3d({2, 0, 0});
         CHECK(belt.surface_velocity.x == 2);
         floor(w, {60, 0, 0}, belt);
         carried = ball(w, {60, 0.5f, 0}, {0, 0, 0});
         // A hook: only `ghost` is let through the hooked floor.
-        auto hooked = floor(w, {90, 0, 0}, crabby::hook_modifier3d());
+        auto hooked = floor(w, {90, 0, 0}, ponko::hook_modifier3d());
         ghost = ball(w, {90, 1, 0}, {0, 0, 0});
         standing = ball(w, {93, 1, 0}, {0, 0, 0});
-        ctx.set_contact_hook3d([&, hooked](crabby::contact_pair3d& pair) {
+        ctx.set_contact_hook3d([&, hooked](ponko::contact_pair3d& pair) {
             ++hook_calls;
             pair_ok = pair_ok && (pair.a() == hooked || pair.b() == hooked);
             auto count = pair.point_count();
@@ -1190,91 +1190,91 @@ static void contacts3d() {
         });
     });
     float rest = 0.2f + 0.25f;
-    CHECK(std::abs(world.get<crabby::transform3d>(from_below).position.y - rest) < 0.05f);
-    CHECK(world.get<crabby::transform3d>(blocked).position.y < -0.3f);
-    CHECK(world.get<crabby::transform3d>(carried).position.x > 61);
+    CHECK(std::abs(world.get<ponko::transform3d>(from_below).position.y - rest) < 0.05f);
+    CHECK(world.get<ponko::transform3d>(blocked).position.y < -0.3f);
+    CHECK(world.get<ponko::transform3d>(carried).position.x > 61);
     CHECK(hook_calls > 0 && pair_ok);
-    CHECK(world.get<crabby::transform3d>(ghost).position.y < -1);
-    CHECK(world.get<crabby::transform3d>(standing).position.y > 0.3f);
+    CHECK(world.get<ponko::transform3d>(ghost).position.y < -1);
+    CHECK(world.get<ponko::transform3d>(standing).position.y > 0.3f);
 
     // A cleared hook leaves the hooked floor ordinary.
     std::size_t calls_after_clear = 0;
-    crabby::entity ball_on_floor = 0;
-    auto cleared = crabby::game("contacts cleared", 1, 1).physics3d({0, -9.81f, 0}).run_headless(100, [&](crabby::ctx& ctx) {
+    ponko::entity ball_on_floor = 0;
+    auto cleared = ponko::game("contacts cleared", 1, 1).physics3d({0, -9.81f, 0}).run_headless(100, [&](ponko::ctx& ctx) {
         auto w = ctx.world();
-        floor(w, {0, 0, 0}, crabby::hook_modifier3d());
+        floor(w, {0, 0, 0}, ponko::hook_modifier3d());
         ball_on_floor = ball(w, {0, 1, 0}, {0, 0, 0});
-        ctx.set_contact_hook3d([&](crabby::contact_pair3d& pair) { ++calls_after_clear; pair.ignore(); });
+        ctx.set_contact_hook3d([&](ponko::contact_pair3d& pair) { ++calls_after_clear; pair.ignore(); });
         ctx.clear_contact_hook3d();
     });
-    CHECK(calls_after_clear == 0 && cleared.get<crabby::transform3d>(ball_on_floor).position.y > 0.3f);
+    CHECK(calls_after_clear == 0 && cleared.get<ponko::transform3d>(ball_on_floor).position.y > 0.3f);
 
     // An exception in the hook never unwinds into the engine: the run ends and rethrows it.
     bool caught = false;
     try {
-        crabby::game("contacts throwing", 1, 1).physics3d({0, -9.81f, 0}).run_headless(100, [&](crabby::ctx& ctx) {
+        ponko::game("contacts throwing", 1, 1).physics3d({0, -9.81f, 0}).run_headless(100, [&](ponko::ctx& ctx) {
             auto w = ctx.world();
-            floor(w, {0, 0, 0}, crabby::hook_modifier3d());
+            floor(w, {0, 0, 0}, ponko::hook_modifier3d());
             ball(w, {0, 1, 0}, {0, 0, 0});
-            ctx.set_contact_hook3d([](crabby::contact_pair3d&) { throw std::runtime_error("boom"); });
+            ctx.set_contact_hook3d([](ponko::contact_pair3d&) { throw std::runtime_error("boom"); });
         });
     } catch (const std::runtime_error& e) { caught = std::string(e.what()) == "boom"; }
     CHECK(caught);
 
     // The modifier is an ordinary component: read it back, and it is no query column.
-    crabby::world plain;
-    auto m = crabby::one_way_modifier3d({0, 1, 0});
+    ponko::world plain;
+    auto m = ponko::one_way_modifier3d({0, 1, 0});
     m.hook = true;
     auto e = plain.spawn(m);
-    CHECK(plain.get<crabby::contact_modifier3d>(e).hook);
+    CHECK(plain.get<ponko::contact_modifier3d>(e).hook);
     m.one_way_angle = -1;
     throws([&] { plain.set(e, m); });
 }
 
 // Two endpoints in memory: connect, then a reliable message and a broadcast.
 static void messages() {
-    throws([] { crabby::net_messages::steam_host(480, 0); });
-    throws([] { crabby::net_messages::steam_join(480, 0); });
-    throws([] { crabby::net_messages::steam_host(480, 2); }); // no Steam support/client in native test
-    throws([] { crabby::steam_lobby::create(480, crabby::steam_lobby_visibility::private_lobby, 0); });
-    throws([] { crabby::steam_lobby::create(480, crabby::steam_lobby_visibility::friends_only, 2); });
-    throws([] { crabby::steam_lobby::join(480, 0); });
-    auto peers = crabby::net_messages::loopback(2);
+    throws([] { ponko::net_messages::steam_host(480, 0); });
+    throws([] { ponko::net_messages::steam_join(480, 0); });
+    throws([] { ponko::net_messages::steam_host(480, 2); }); // no Steam support/client in native test
+    throws([] { ponko::steam_lobby::create(480, ponko::steam_lobby_visibility::private_lobby, 0); });
+    throws([] { ponko::steam_lobby::create(480, ponko::steam_lobby_visibility::friends_only, 2); });
+    throws([] { ponko::steam_lobby::join(480, 0); });
+    auto peers = ponko::net_messages::loopback(2);
     auto& host = peers[0];
     auto& client = peers[1];
-    std::vector<crabby::message_event> got;
+    std::vector<ponko::message_event> got;
     for (int i = 0; i < 3000 && got.size() < 4; i++) { // the handshake takes real time
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
         host.poll();
         client.poll();
         while (auto e = host.next_event()) got.push_back(*e);
         while (auto e = client.next_event()) {
-            if (e->kind == CRABBY_MESSAGE_CONNECTED) {
-                client.send(0, CRABBY_LANE_RELIABLE, std::string("buy apple"));
-                host.send_to_all(CRABBY_LANE_UNRELIABLE, std::string("tick"));
+            if (e->kind == PONKO_MESSAGE_CONNECTED) {
+                client.send(0, PONKO_LANE_RELIABLE, std::string("buy apple"));
+                host.send_to_all(PONKO_LANE_UNRELIABLE, std::string("tick"));
             }
             got.push_back(*e);
         }
     }
-    auto has = [&](CrabbyMessageEventKind kind, const std::string& text) {
+    auto has = [&](PonkoMessageEventKind kind, const std::string& text) {
         for (auto& e : got)
             if (e.kind == kind && std::string(e.bytes.begin(), e.bytes.end()) == text) return true;
         return false;
     };
-    CHECK(has(CRABBY_MESSAGE_CONNECTED, ""));
-    CHECK(has(CRABBY_MESSAGE, "buy apple"));
-    CHECK(has(CRABBY_MESSAGE, "tick"));
+    CHECK(has(PONKO_MESSAGE_CONNECTED, ""));
+    CHECK(has(PONKO_MESSAGE, "buy apple"));
+    CHECK(has(PONKO_MESSAGE, "tick"));
     CHECK(host.stats().packets_sent > 0);
-    throws([&] { client.send(0, CRABBY_LANE_RELIABLE, nullptr, 2 * 1024 * 1024); });
-    throws([] { crabby::net_messages::loopback(1); });
+    throws([&] { client.send(0, PONKO_LANE_RELIABLE, nullptr, 2 * 1024 * 1024); });
+    throws([] { ponko::net_messages::loopback(1); });
 }
 
 static void navigation_carving() {
-    crabby::entity box = 0;
+    ponko::entity box = 0;
     int tick = 0;
     bool cut = false, restored = false;
-    crabby::game("carve", 1, 1).navmesh3d()
-        .sim_system([&](crabby::ctx& ctx) {
+    ponko::game("carve", 1, 1).navmesh3d()
+        .sim_system([&](ponko::ctx& ctx) {
             ++tick;
             auto state = ctx.navmesh_update_carving(1);
             CHECK(state.first <= 1);
@@ -1292,10 +1292,10 @@ static void navigation_carving() {
                 CHECK(path.size() == 2);
                 restored = true;
             }
-        }).run_headless(45, [&](crabby::ctx& ctx) {
-            crabby::nav_sources sources;
-            sources.add_mesh(crabby::mesh_data::plane(20), crabby::transform3d_at({0, 0, 0}));
-            auto settings = crabby::nav_bake_defaults();
+        }).run_headless(45, [&](ponko::ctx& ctx) {
+            ponko::nav_sources sources;
+            sources.add_mesh(ponko::mesh_data::plane(20), ponko::transform3d_at({0, 0, 0}));
+            auto settings = ponko::nav_bake_defaults();
             settings.carving = true;
             ctx.bake_navmesh(sources, settings);
             box = ctx.world().spawn();
@@ -1306,13 +1306,13 @@ static void navigation_carving() {
 
 // A 20 m floor with a wall across the middle, open at one end: the agent walks around.
 static void navigation() {
-    crabby::entity walker = 0;
+    ponko::entity walker = 0;
     std::size_t corners = 0;
-    auto w = crabby::game("nav", 1, 1).navmesh3d().run_headless(600, [&](crabby::ctx& ctx) {
-        crabby::nav_sources sources;
-        sources.add_mesh(crabby::mesh_data::plane(20), crabby::transform3d_at({0, 0, 0}));
-        auto wall = crabby::mesh_data::cube(1);
-        auto t = crabby::transform3d_at({0, 1, -2});
+    auto w = ponko::game("nav", 1, 1).navmesh3d().run_headless(600, [&](ponko::ctx& ctx) {
+        ponko::nav_sources sources;
+        sources.add_mesh(ponko::mesh_data::plane(20), ponko::transform3d_at({0, 0, 0}));
+        auto wall = ponko::mesh_data::cube(1);
+        auto t = ponko::transform3d_at({0, 1, -2});
         t.scale = {1, 2, 16}; // x = -0.5..0.5, z = -10..6: open beyond z = 6
         sources.add_mesh(wall, t);
         ctx.bake_navmesh(sources);
@@ -1324,40 +1324,40 @@ static void navigation() {
         ctx.set_nav_carve_obstacle(ctx.world().spawn(), {8, 1, 8}, {0.5f, 1, 0.5f});
         corners = path.size();
         CHECK(path.size() >= 3); // around the wall's end
-        walker = ctx.world().spawn(crabby::transform3d_at({-5, 0, 0}));
+        walker = ctx.world().spawn(ponko::transform3d_at({-5, 0, 0}));
         ctx.set_nav_agent(walker, 4);
         ctx.set_nav_avoidance(walker);
         throws([&] { ctx.set_nav_avoidance(walker, true, -1); });
         throws([&] { ctx.set_nav_avoidance(walker, true, 2, 0); });
         throws([&] { ctx.set_nav_avoidance(ctx.world().spawn()); });
-        ctx.set_nav_destination(walker, crabby::vec3{5, 0, 0});
+        ctx.set_nav_destination(walker, ponko::vec3{5, 0, 0});
         throws([&] { ctx.set_nav_agent(walker, -1); });
-        crabby::nav_sources empty;
+        ponko::nav_sources empty;
         throws([&] { ctx.bake_navmesh(empty); });
     });
-    auto end = w.get<crabby::transform3d>(walker).position;
+    auto end = w.get<ponko::transform3d>(walker).position;
     CHECK(corners >= 3);
     CHECK(std::fabs(end.x - 5) < 0.3f && std::fabs(end.z) < 0.3f);
 }
 
 static void particles3d() {
-    crabby::game("particles", 1, 1).run_headless(0, [&](crabby::ctx& ctx) {
-        auto e = ctx.world().spawn(crabby::transform3d_at({0, 1, 0}));
-        auto fire = crabby::particle_settings()
+    ponko::game("particles", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
+        auto e = ctx.world().spawn(ponko::transform3d_at({0, 1, 0}));
+        auto fire = ponko::particle_settings()
                         .rate(40)
                         .cone(0.3f)
                         .lifetime(0.5f, 1)
                         .size_over_life({{0, 1}, {1, 0}})
                         .color_over_life({{0, {1, 0.6f, 0.1f, 1}}, {1, {1, 0, 0, 0}}})
-                        .blend(crabby::particle_blend::additive)
+                        .blend(ponko::particle_blend::additive)
                         .max_particles(256);
         ctx.set_particle_emitter3d(e, fire);
         ctx.particle_burst(e, 20);
         // Particles simulate in the visual frame phase, which headless runs skip.
         CHECK(ctx.particle_live_count(e) == 0);
-        throws([&] { ctx.set_particle_emitter3d(e, crabby::particle_settings().lifetime(0, 1)); });
-        throws([&] { ctx.set_particle_emitter3d(e, crabby::particle_settings().lifetime(2, 1)); });
-        throws([&] { ctx.set_particle_emitter3d(e, crabby::particle_settings().max_particles(0)); });
+        throws([&] { ctx.set_particle_emitter3d(e, ponko::particle_settings().lifetime(0, 1)); });
+        throws([&] { ctx.set_particle_emitter3d(e, ponko::particle_settings().lifetime(2, 1)); });
+        throws([&] { ctx.set_particle_emitter3d(e, ponko::particle_settings().max_particles(0)); });
         ctx.remove_particle_emitter3d(e);
         throws([&] { ctx.particle_burst(e, 1); });
     });
@@ -1365,7 +1365,7 @@ static void particles3d() {
 
 // A 4 x 4 m floor facing up, as a glTF file.
 static void ribbons_and_decals() {
-    const auto file = std::filesystem::temp_directory_path() / "crabby-cpp-floor.gltf";
+    const auto file = std::filesystem::temp_directory_path() / "ponko-cpp-floor.gltf";
     std::ofstream(file) << R"({"asset": {"version": "2.0"}, "scene": 0, "scenes": [{"nodes": [0]}],
         "nodes": [{"mesh": 0}],
         "meshes": [{"primitives": [{"attributes": {"POSITION": 0}, "indices": 1}]}],
@@ -1376,12 +1376,12 @@ static void ribbons_and_decals() {
     const std::string path = file.string();
     // The box's +Z turned up, 0.5 m wide and 0.2 m deep, at (1, 0, 0).
     const std::array<float, 16> down = {0.5f, 0, 0, 0,   0, 0, -0.2f, 0,   0, 0.5f, 0, 0,   1, 0, 0, 1};
-    crabby::game("ribbons", 1, 1).run_headless(0, [&](crabby::ctx& ctx) {
-        auto e = ctx.world().spawn(crabby::transform3d_at({0, 1, 0}));
-        auto tracer = crabby::trail3d(0.25f, 0.05f)
+    ponko::game("ribbons", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
+        auto e = ctx.world().spawn(ponko::transform3d_at({0, 1, 0}));
+        auto tracer = ponko::trail3d(0.25f, 0.05f)
                           .width_over_age({{0, 0.1f}, {1, 0}})
                           .color_over_age({{0, {1, 0.8f, 0.3f, 1}}, {1, {1, 0.3f, 0, 0}}})
-                          .blend(crabby::particle_blend::additive)
+                          .blend(ponko::particle_blend::additive)
                           .min_distance(0.1f)
                           .max_points(32);
         ctx.set_trail3d(e, tracer);
@@ -1389,21 +1389,21 @@ static void ribbons_and_decals() {
         CHECK(ctx.trail3d_point_count(e) == 0);
         ctx.set_trail3d_emitting(e, false);
         ctx.clear_trail3d(e);
-        throws([&] { ctx.set_trail3d(e, crabby::trail3d(0, 0.1f)); });
-        throws([&] { ctx.set_trail3d(e, crabby::trail3d(1, -0.1f)); });
-        throws([&] { ctx.set_trail3d(e, crabby::trail3d(1, 0.1f).max_points(1)); });
-        throws([&] { ctx.set_trail3d(e, crabby::trail3d(1, 0.1f).width_over_age({{0, -1}})); });
+        throws([&] { ctx.set_trail3d(e, ponko::trail3d(0, 0.1f)); });
+        throws([&] { ctx.set_trail3d(e, ponko::trail3d(1, -0.1f)); });
+        throws([&] { ctx.set_trail3d(e, ponko::trail3d(1, 0.1f).max_points(1)); });
+        throws([&] { ctx.set_trail3d(e, ponko::trail3d(1, 0.1f).width_over_age({{0, -1}})); });
         ctx.remove_trail3d(e);
         throws([&] { ctx.trail3d_point_count(e); });
         throws([&] { ctx.clear_trail3d(e); });
 
-        auto beam = crabby::line3d({{0, 0, 0}, {0, 0, -20}}, 0.02f, crabby::colors::red)
-                        .blend(crabby::particle_blend::additive)
+        auto beam = ponko::line3d({{0, 0, 0}, {0, 0, -20}}, 0.02f, ponko::colors::red)
+                        .blend(ponko::particle_blend::additive)
                         .texture_length(2);
         ctx.set_line3d(e, beam);
-        ctx.set_line3d(e, crabby::line3d({{0, 0, 0}, {1, 0, 0}, {1, 1, 0}}, 0.1f, crabby::colors::white)); // replaces it
-        throws([&] { ctx.set_line3d(e, crabby::line3d({{0, 0, 0}, {1, 0, 0}}, -1, crabby::colors::white)); });
-        throws([&] { ctx.set_line3d(e, crabby::line3d({{0, 0, 0}, {1, NAN, 0}}, 0.1f, crabby::colors::white)); });
+        ctx.set_line3d(e, ponko::line3d({{0, 0, 0}, {1, 0, 0}, {1, 1, 0}}, 0.1f, ponko::colors::white)); // replaces it
+        throws([&] { ctx.set_line3d(e, ponko::line3d({{0, 0, 0}, {1, 0, 0}}, -1, ponko::colors::white)); });
+        throws([&] { ctx.set_line3d(e, ponko::line3d({{0, 0, 0}, {1, NAN, 0}}, 0.1f, ponko::colors::white)); });
         ctx.remove_line3d(e);
 
         auto floor = ctx.load_mesh_data(path.c_str());
@@ -1428,12 +1428,12 @@ static void ribbons_and_decals() {
 }
 
 static void ui_panels() {
-    crabby::game("ui panels", 1, 1).run_headless(0, [&](crabby::ctx& ctx) {
-        namespace u = crabby::ui;
-        auto e = ctx.world().spawn(crabby::transform3d_at({0, 1.5f, -2}));
+    ponko::game("ui panels", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
+        namespace u = ponko::ui;
+        auto e = ctx.world().spawn(ponko::transform3d_at({0, 1.5f, -2}));
         auto texture = ctx.create_ui_panel(e, 600, 400, {1.2f, 0.8f});
         CHECK(texture.width == 600 && texture.height == 400);
-        CHECK(ctx.world().has<crabby::model>(e));
+        CHECK(ctx.world().has<ponko::model>(e));
 
         // The panel's UI takes the same calls as the screen's, in the panel's pixels.
         auto panel = ctx.panel_ui(e);
@@ -1470,10 +1470,10 @@ static void ui_panels() {
 }
 
 static void retained_ui() {
-    crabby::game("retained ui", 1, 1).run_headless(0, [&](crabby::ctx& ctx) {
+    ponko::game("retained ui", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
         auto ui = ctx.ui_retained();
-        const crabby::vec2 window{800, 600};
-        namespace u = crabby::ui;
+        const ponko::vec2 window{800, 600};
+        namespace u = ponko::ui;
         auto root = ui.add_panel(u::none, u::layout().column().size(400, 300).padding(10).gap(5));
         auto label = ui.add_label(root, "Title", u::layout().size(100, 20).shrink(0));
         auto go = ui.add_button(root, "Go", u::layout().size(200, 40).shrink(0));
@@ -1623,11 +1623,11 @@ static void retained_ui() {
 }
 
 static void world_text() {
-    crabby::game("text", 1, 1).run_headless(0, [](crabby::ctx& c) {
+    ponko::game("text", 1, 1).run_headless(0, [](ponko::ctx& c) {
         auto e = c.world().spawn();
         CHECK(!c.text3d(e));
-        crabby::text3d t("Hello\nworld");
-        t.size = .5f; t.align = crabby::text_align3d::left;
+        ponko::text3d t("Hello\nworld");
+        t.size = .5f; t.align = ponko::text_align3d::left;
         t.billboard = true; t.outline_width = .06f;
         c.set_text3d(e, t);
         auto got = c.text3d(e);
@@ -1638,7 +1638,7 @@ static void world_text() {
         t.font.id = UINT32_MAX;
         throws([&] { c.set_text3d(e, t); });
         CHECK(c.text3d(e)->text == "Changed");
-        t.font.id = 0; t.align = static_cast<crabby::text_align3d>(99);
+        t.font.id = 0; t.align = static_cast<ponko::text_align3d>(99);
         throws([&] { c.set_text3d(e, t); });
         c.remove_text3d(e); CHECK(!c.text3d(e));
         c.world().despawn(e);
@@ -1647,21 +1647,21 @@ static void world_text() {
 }
 // Replication helpers: sequence numbers, authority, snapshots and interest.
 static void replication() {
-    CHECK(crabby::seq_newer(0, 65535) && !crabby::seq_newer(5, 5) && crabby::seq_diff(1, 65535) == 2);
-    CHECK(crabby::stamp_newer({1, 0}, {0, 60000}) && !crabby::stamp_newer({0, 7}, {0, 7}));
+    CHECK(ponko::seq_newer(0, 65535) && !ponko::seq_newer(5, 5) && ponko::seq_diff(1, 65535) == 2);
+    CHECK(ponko::stamp_newer({1, 0}, {0, 60000}) && !ponko::stamp_newer({0, 7}, {0, 7}));
 
-    crabby::authority car(0);
-    CHECK(car.check(0, 0) == crabby::authority_check::accept);
+    ponko::authority car(0);
+    CHECK(car.check(0, 0) == ponko::authority_check::accept);
     CHECK(car.handoff(1) == 1 && car.owner() == 1 && car.epoch() == 1);
-    CHECK(car.check(0, 0) == crabby::authority_check::stale);
-    CHECK(car.check(0, 1) == crabby::authority_check::wrong_owner);
-    CHECK(car.check(1, 2) == crabby::authority_check::ahead);
+    CHECK(car.check(0, 0) == ponko::authority_check::stale);
+    CHECK(car.check(0, 1) == ponko::authority_check::wrong_owner);
+    CHECK(car.check(1, 2) == ponko::authority_check::ahead);
     CHECK(!car.adopt(2, 1) && car.owner() == 1); // simultaneous handoff: the lower id wins
     CHECK(car.adopt(2, 2) && car.owner() == 2);
 
-    crabby::latest_wins filter;
+    ponko::latest_wins filter;
     CHECK(filter.accept(5, std::uint16_t(3)) && !filter.accept(5, std::uint16_t(2)) && !filter.accept(5, std::uint16_t(3)));
-    CHECK(filter.accept(5, crabby::update_stamp{1, 0})); // a new epoch beats any sequence number
+    CHECK(filter.accept(5, ponko::update_stamp{1, 0})); // a new epoch beats any sequence number
     CHECK(filter.size() == 1);
     filter.forget(5);
     CHECK(filter.accept(5, std::uint16_t(1)) && filter.size() == 1);
@@ -1669,33 +1669,33 @@ static void replication() {
     moved.clear();
     CHECK(moved.size() == 0);
 
-    crabby::snapshot_stream stream;
+    ponko::snapshot_stream stream;
     CHECK(!stream.sample(0) && !stream.clock_offset());
     for (int n = 0; n < 20; n++) {
-        auto p = crabby::moving(crabby::pose_at({float(n), 0, 0}), {20, 0, 0});
-        CHECK(stream.push(5000 + n * 0.05, n * 0.05 + 0.03, p) == crabby::snapshot_push::added);
+        auto p = ponko::moving(ponko::pose_at({float(n), 0, 0}), {20, 0, 0});
+        CHECK(stream.push(5000 + n * 0.05, n * 0.05 + 0.03, p) == ponko::snapshot_push::added);
     }
-    CHECK(stream.push(5000, 1.0, crabby::pose_at({0, 0, 0})) == crabby::snapshot_push::duplicate);
+    CHECK(stream.push(5000, 1.0, ponko::pose_at({0, 0, 0})) == ponko::snapshot_push::duplicate);
     auto shown = stream.sample(1.0);
-    CHECK(shown && shown->state == crabby::snapshot_state::interpolated && std::fabs(shown->value.position.x - 17.4f) < 0.05f);
-    CHECK(stream.sample(1.2)->state == crabby::snapshot_state::extrapolated);
-    CHECK(stream.sample(5.0)->state == crabby::snapshot_state::held);
+    CHECK(shown && shown->state == ponko::snapshot_state::interpolated && std::fabs(shown->value.position.x - 17.4f) < 0.05f);
+    CHECK(stream.sample(1.2)->state == ponko::snapshot_state::extrapolated);
+    CHECK(stream.sample(5.0)->state == ponko::snapshot_state::held);
     CHECK(stream.size() == 20 && stream.clock_offset() && std::fabs(*stream.clock_offset() + 4999.97) < 0.01);
     stream.set_delay(0);
     throws([&] { stream.set_delay(-1); });
     stream.clear();
     CHECK(stream.size() == 0 && !stream.sample(1.0));
-    auto config = crabby::snapshot_defaults();
+    auto config = ponko::snapshot_defaults();
     config.capacity = 1;
-    throws([&] { crabby::snapshot_stream bad(config); });
+    throws([&] { ponko::snapshot_stream bad(config); });
 
-    crabby::interest interest;
-    std::vector<crabby::interest_viewer> viewers{{1, {0, 0, 0}}};
-    std::vector<crabby::interest_entity> world{{10, {10, 0, 0}}, {20, {100, 0, 0}}, {30, {900, 0, 0}}};
+    ponko::interest interest;
+    std::vector<ponko::interest_viewer> viewers{{1, {0, 0, 0}}};
+    std::vector<ponko::interest_entity> world{{10, {10, 0, 0}}, {20, {100, 0, 0}}, {30, {900, 0, 0}}};
     interest.update(0, viewers, world);
     auto entries = interest.entries(1);
     CHECK(entries.size() == 2 && entries[0].entity == 10 && entries[0].tier == 0 && entries[1].tier == 1 && entries[1].send);
-    CHECK(interest.changes().size() == 2 && interest.changes()[0].kind == CRABBY_INTEREST_ENTERED);
+    CHECK(interest.changes().size() == 2 && interest.changes()[0].kind == PONKO_INTEREST_ENTERED);
     int near_sent = 0, mid_sent = 0;
     for (std::uint64_t tick = 1; tick <= 8; tick++) {
         interest.update(tick, viewers, world);
@@ -1706,22 +1706,22 @@ static void replication() {
     interest.update(9, {}, world); // nobody is looking any more
     CHECK(interest.entries(1).empty() && interest.changes().size() == 2);
     interest.remove_peer(1);
-    auto bad = crabby::interest_defaults();
+    auto bad = ponko::interest_defaults();
     bad.hysteresis = 99;
-    throws([&] { crabby::interest invalid(bad); });
+    throws([&] { ponko::interest invalid(bad); });
 }
 
 static void profiling() {
-    auto work = [](crabby::ctx&) {
-        CRABBY_PROFILE_SCOPE("cpp_work");
+    auto work = [](ponko::ctx&) {
+        PONKO_PROFILE_SCOPE("cpp_work");
         volatile float x = 0;
         for (int i = 0; i < 3000; ++i) x = x + std::sqrt(float(i));
     };
-    auto leaky = [](crabby::ctx&) { int* p = new int[4]; *static_cast<volatile int*>(p) = 7; delete[] p; };
-    auto run = crabby::game("p", 1, 1)
+    auto leaky = [](ponko::ctx&) { int* p = new int[4]; *static_cast<volatile int*>(p) = 7; delete[] p; };
+    auto run = ponko::game("p", 1, 1)
         .sim_system(work, "work")
         .sim_system(leaky, "leaky")
-        .profile_headless(5, 40, [](crabby::ctx& ctx) { ctx.world().spawn(Pos{1, 2}); });
+        .profile_headless(5, 40, [](ponko::ctx& ctx) { ctx.world().spawn(Pos{1, 2}); });
     CHECK(run.world.size() == 1);
     const std::string text = run.report.text();
     CHECK(text.find("40 frames") != std::string::npos && text.find("cpp_work") != std::string::npos);
@@ -1733,12 +1733,12 @@ static void profiling() {
     CHECK(broken.find("allocations per frame") != std::string::npos && broken.find("cpp_work") != std::string::npos);
     CHECK(run.report.regressions(run.report).empty());
     throws([&] { (void)run.report.check("not json"); });
-    const auto file = std::filesystem::temp_directory_path() / "crabby-cpp-report.json";
+    const auto file = std::filesystem::temp_directory_path() / "ponko-cpp-report.json";
     run.report.save(file.string().c_str());
-    CHECK(crabby::perf_report::load(file.string().c_str()).json() == run.report.json());
+    CHECK(ponko::perf_report::load(file.string().c_str()).json() == run.report.json());
     std::filesystem::remove(file);
     // Scopes and profiling toggles work from a live ctx too.
-    crabby::game("q", 1, 1).run_headless(0, [](crabby::ctx& ctx) {
+    ponko::game("q", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
         ctx.set_profiling(true);
         CHECK(ctx.perf_report().json().size() > 2);
         ctx.set_profiling(false);

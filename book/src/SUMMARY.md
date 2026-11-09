@@ -32,6 +32,7 @@
 - [Headless runs and testing](headless.md)
 - [Web builds: games in the browser](web.md)
 - [C and C++](c-cpp.md)
+- [Naming and compatibility](naming.md)
 - [Reflection: components as JSON](reflection.md)
 - [The inspector: look inside a running game](inspector.md)
 - [Randomness, determinism and saving](determinism.md)

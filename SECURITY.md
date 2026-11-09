@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Crabby Engine hasn't had a release yet. Security fixes go to `main`.
+Ponko hasn't had a release yet. Security fixes go to `main`.
 
 ## Reporting a vulnerability
 
@@ -17,7 +17,7 @@ named.
 
 ## Areas worth knowing about
 
-- **The control endpoint** (`CRABBY_CONTROL=1`) lets tools and AI agents
+- **The control endpoint** (`PONKO_CONTROL=1`) lets tools and AI agents
   read and change a running game. It's off by default, listens only on
   localhost, and needs a random token written to `~/.crabby/instances`.
   Never expose it to a network.

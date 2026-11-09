@@ -1,0 +1,19 @@
+[package]
+name = "ponko_bench"
+version = "0.0.1"
+description = "Benchmarks: ponko_ecs vs bevy_ecs vs hecs, and simulation at scale."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+ponko_ecs = { path = "../../crates/ponko_ecs", version = "0.0.1" }
+ponko = { path = "../..", version = "0.0.1", default-features = false, features = ["physics", "physics3d"] }
+rapier2d = "0.36.1"
+rapier3d = "0.36.1"
+rayon = "1.12.0"
+bevy_ecs = "0.20.1"
+hecs = "0.11.2"

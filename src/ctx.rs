@@ -452,7 +452,7 @@ impl Ctx {
             profiler: crate::profiler::Profiler::new(),
             perf: crate::perf_report::PerfState::new(),
             gpu_passes: Vec::new(),
-            clear_color: Color::CRABBY_DARK,
+            clear_color: Color::PONKO_DARK,
         }
     }
 
@@ -1589,7 +1589,7 @@ impl Ctx {
 
     /// Shows or hides the performance HUD: frame times, CPU and GPU time,
     /// the slowest GPU passes and systems, drawn in the top-left corner.
-    /// `CRABBY_HUD=1` shows it from the start.
+    /// `PONKO_HUD=1` shows it from the start.
     ///
     /// ```
     /// # use ponko::*;
@@ -1641,7 +1641,7 @@ impl Ctx {
     /// scopes and [`Ctx::profile`] calls are timed, allocations are counted
     /// (if [`CountingAllocator`](crate::CountingAllocator) is installed), and
     /// [`perf_report`](Self::perf_report) has numbers. The overlay
-    /// (`set_perf_hud`) and `CRABBY_BENCH` switch it on by themselves. While
+    /// (`set_perf_hud`) and `PONKO_BENCH` switch it on by themselves. While
     /// it is off, scopes cost one atomic load.
     ///
     /// ```
@@ -1791,7 +1791,7 @@ impl Ctx {
         if quit {
             let report = self.perf_report();
             eprint!("{report}");
-            if let Some(path) = std::env::var_os("CRABBY_BENCH_REPORT")
+            if let Some(path) = crate::environment::var_os("PONKO_BENCH_REPORT")
                 && let Err(e) = report.save(&path)
             {
                 eprintln!("ponko: could not write {}: {e}", std::path::Path::new(&path).display());

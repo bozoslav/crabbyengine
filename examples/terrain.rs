@@ -190,7 +190,7 @@ fn main() {
     };
     let mut parked: Vec<ScreenEffect> = Vec::new();
     let bench = std::env::var("BENCH").is_ok();
-    Game::new("Crabby Engine: terrain", 1280, 720)
+    Game::new("Ponko: terrain", 1280, 720)
         .vsync(!bench)
         .fullscreen(bench)
         .system(move |ctx: &mut Ctx| {

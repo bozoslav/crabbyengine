@@ -200,7 +200,7 @@ fn layers_and_root_motion(skeleton: &Skeleton, wave: AnimationClip) -> Animator 
 }
 
 fn main() {
-    Game::new("Crabby: skinned meshes", 1000, 700).system(sway).run(|ctx| {
+    Game::new("Ponko: skinned meshes", 1000, 700).system(sway).run(|ctx| {
         ctx.clear(Color::hex(0xABCBDD));
         ctx.camera3d.position = vec3(6.0, 4.0, 9.0);
         ctx.camera3d.look_at(vec3(0.0, 1.7, 0.0));

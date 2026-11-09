@@ -41,7 +41,7 @@ fn main() {
     let env = |name| std::env::var(name).ok().and_then(|v| v.parse::<f32>().ok());
     let mut hour = env("HOUR").unwrap_or(15.5);
     let mut fog = env("FOG").unwrap_or(0.0) > 0.0;
-    Game::new("Crabby Engine: shaders", 1280, 720)
+    Game::new("Ponko: shaders", 1280, 720)
         .system(move |ctx: &mut Ctx| {
             if ctx.key_pressed(Key::Escape) {
                 ctx.quit();

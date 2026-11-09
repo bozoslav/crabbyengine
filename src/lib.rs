@@ -1,4 +1,4 @@
-//! # Crabby Engine
+//! # Ponko
 //!
 //! A fast 2D engine for games with huge numbers of things on screen.
 //!
@@ -228,3 +228,5 @@ pub use serde_json::{self, Value, json};
 /// println!("flow field in {:.2} ms", start.elapsed().as_secs_f64() * 1000.0);
 /// ```
 pub use web_time::Instant;
+
+mod environment;

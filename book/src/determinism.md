@@ -2,7 +2,7 @@
 
 A simulation that comes out the same every time it runs with the same
 inputs is easy to debug, test and compare: replay a bug, check a balance
-change against the old version, let an agent run experiments. Crabby
+change against the old version, let an agent run experiments. Ponko
 simulations are reproducible by default.
 
 ## Random numbers
@@ -41,7 +41,7 @@ fn wander(ctx: &mut Ctx) {
 
 For setup code and tests, `Rng::new(seed)` makes a generator directly.
 
-C++ has the same generator in the header (`crabby::rng`, `crabby::random`),
+C++ has the same generator in the header (`ponko::rng`, `ponko::random`),
 bit for bit: a C++ system gets exactly the numbers its Rust twin would.
 
 ## Seeds

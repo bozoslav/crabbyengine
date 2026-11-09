@@ -29,7 +29,7 @@ fn wav(sample_rate: u32, samples: &[i16]) -> Vec<u8> {
 }
 
 fn temp_file(name: &str, bytes: &[u8]) -> String {
-    let path = std::env::temp_dir().join(format!("crabby-audio-{}-{name}", std::process::id()));
+    let path = std::env::temp_dir().join(format!("ponko-audio-{}-{name}", std::process::id()));
     std::fs::write(&path, bytes).unwrap();
     path.to_string_lossy().into_owned()
 }

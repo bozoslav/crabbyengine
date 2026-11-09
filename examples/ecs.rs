@@ -102,7 +102,7 @@ fn controls(ctx: &mut Ctx) {
 }
 
 fn main() {
-    Game::new("Crabby Engine: ECS", 1280, 720)
+    Game::new("Ponko: ECS", 1280, 720)
         .sim_system(movement)
         .sim_system(aging)
         .system(controls)

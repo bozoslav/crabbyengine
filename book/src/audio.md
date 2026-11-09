@@ -47,7 +47,7 @@ let click = ctx.create_sound(44100, &samples);
 
 </div>
 </div>
-- `Sound` is a cheap `Copy` handle, like `Texture` (C++: `crabby::sound`,
+- `Sound` is a cheap `Copy` handle, like `Texture` (C++: `ponko::sound`,
   with `play_sound(s, params)` for `play_sound_ex`).
 
 The audio device opens the first time a sound plays. Headless runs, and

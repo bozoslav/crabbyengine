@@ -56,7 +56,7 @@ where
     if ctx.profiler.benchmarking() {
         game.vsync = false;
     }
-    match std::env::var("CRABBY_VSYNC").as_deref() {
+    match crate::environment::var("PONKO_VSYNC").as_deref() {
         Ok("0") => game.vsync = false,
         Ok("1") => game.vsync = true,
         _ => {}
@@ -120,7 +120,7 @@ fn print_mesh_costs(ctx: &Ctx) {
         );
     }
     // Every mesh, for sorting and grouping elsewhere.
-    if let Some(path) = std::env::var_os("CRABBY_BENCH_MESHES") {
+    if let Some(path) = crate::environment::var_os("PONKO_BENCH_MESHES") {
         let mut csv = String::from("models,triangles,shadow_models,shadow_triangles,name\n");
         for c in &costs {
             csv.push_str(&format!(
@@ -272,8 +272,8 @@ where
         let mut renderer = renderer;
         // Benchmarks draw offscreen: a window is shown at most once per display
         // refresh, so above that rate presenting stalls now and then.
-        // CRABBY_BENCH_PRESENT=1 draws to the window when it can take a frame.
-        let present = std::env::var("CRABBY_BENCH_PRESENT").is_ok_and(|v| v == "1");
+        // PONKO_BENCH_PRESENT=1 draws to the window when it can take a frame.
+        let present = crate::environment::var("PONKO_BENCH_PRESENT").is_ok_and(|v| v == "1");
         let benchmarking = self.ctx.profiler.benchmarking();
         renderer.set_draw_hidden(benchmarking, benchmarking && !present);
         self.ctx.renderer = Some(renderer);

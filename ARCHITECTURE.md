@@ -2,7 +2,9 @@
 
 Ponko integrates an archetype ECS, fixed-step simulation, a wgpu renderer and game services behind a code-first Rust API. C and C++ enter through a separate FFI crate; inspection tools use a local control protocol. This describes the source in this checkout, not the target architecture in [ROADMAP.md](ROADMAP.md). Source inspection confirms that mechanisms exist; it does not establish production readiness, performance on your hardware or feature parity across targets.
 
-Package names use `ponko_*`. Source directories and the native headers retain their `crabby_*` / `crabby` names. These paths are intentional navigation references.
+Package names and source directories use `ponko_*`. New native code uses
+`include/ponko.h` and `include/ponko.hpp`; legacy headers remain available as
+part of the [compatibility migration](book/src/naming.md).
 
 ```mermaid
 flowchart TD
@@ -24,12 +26,12 @@ flowchart TD
 | Boundary | Current responsibility and source |
 |---|---|
 | `ponko` | Public facade and integrated game services: [src/lib.rs](src/lib.rs), [src/ctx.rs](src/ctx.rs), [src/game.rs](src/game.rs). Feature flags select windowing, audio, inspector, physics, navigation and 3D. |
-| `ponko_ecs` | Entities, column storage, queries, commands and resources: [crates/crabby_ecs/src](crates/crabby_ecs/src). It does not own the window or GPU. |
+| `ponko_ecs` | Entities, column storage, queries, commands and resources: [crates/ponko_ecs/src](crates/ponko_ecs/src). It does not own the window or GPU. |
 | Rendering | Device/surface and frame coordination in [src/render/gpu.rs](src/render/gpu.rs); 3D coordination in [src/render/gpu3d.rs](src/render/gpu3d.rs); game-facing 3D types in [src/three](src/three). |
-| `ponko_mcp` | Stdio MCP server, tool schemas, instance discovery and forwarding to a running game: [crates/crabby_mcp/src/lib.rs](crates/crabby_mcp/src/lib.rs). |
-| `ponko_ffi` | Exported native API and handle/callback conversion: [crates/crabby_ffi](crates/crabby_ffi), [include/crabby.h](include/crabby.h), [include/crabby.hpp](include/crabby.hpp). |
-| `ponko_unity` | External asset/scene conversion tooling: [crates/crabby_unity](crates/crabby_unity). This is an importer, not a Unity runtime or C# compatibility layer. |
-| `ponko_bench` | Development benchmarks: [crates/crabby_bench](crates/crabby_bench). Results need workload, hardware, build and feature context. |
+| `ponko_mcp` | Stdio MCP server, tool schemas, instance discovery and forwarding to a running game: [crates/ponko_mcp/src/lib.rs](crates/ponko_mcp/src/lib.rs). |
+| `ponko_ffi` | Exported native API and handle/callback conversion: [crates/ponko_ffi](crates/ponko_ffi), [include/crabby.h](include/crabby.h), [include/crabby.hpp](include/crabby.hpp). |
+| `ponko_unity` | External asset/scene conversion tooling: [crates/ponko_unity](crates/ponko_unity). This is an importer, not a Unity runtime or C# compatibility layer. |
+| `ponko_bench` | Development benchmarks: [crates/ponko_bench](crates/ponko_bench). Results need workload, hardware, build and feature context. |
 
 The engine is integrated rather than a collection of independent service crates. `Ctx` gives systems broad access to state, while the 3D collector bridges ECS components and GPU-oriented frame data. These convenient boundaries also create coupling: a scheduler cannot infer a system's access from its closure signature, and renderer ownership changes can affect assets, temporal history and pass sequencing together.
 
@@ -52,11 +54,11 @@ Fixed steps and seeded random streams support repeatability, but deterministic g
 
 ## ECS storage and queries
 
-[World](crates/crabby_ecs/src/world.rs) manages generational entity locations and archetypes. [Storage](crates/crabby_ecs/src/storage.rs) holds type-erased component columns; structural changes move entities between layouts. This custom storage remains the baseline, rather than a candidate for replacement without measurements.
+[World](crates/ponko_ecs/src/world.rs) manages generational entity locations and archetypes. [Storage](crates/ponko_ecs/src/storage.rs) holds type-erased component columns; structural changes move entities between layouts. This custom storage remains the baseline, rather than a candidate for replacement without measurements.
 
-[Typed queries](crates/crabby_ecs/src/query.rs) resolve component IDs, validate aliasing, match archetypes and fetch row references. They support shared/mutable references, optional components, entity IDs, tuples up to eight elements and bounded `with`/`without` filtering. Matching currently iterates archetypes; persistent matching caches and general `Added`/`Changed` filters are roadmap work, not current guarantees.
+[Typed queries](crates/ponko_ecs/src/query.rs) resolve component IDs, validate aliasing, match archetypes and fetch row references. They support shared/mutable references, optional components, entity IDs, tuples up to eight elements and bounded `with`/`without` filtering. Matching currently iterates archetypes; persistent matching caches and general `Added`/`Changed` filters are roadmap work, not current guarantees.
 
-Rayon-backed query methods partition disjoint rows. Indexed parallel operations preserve their documented output ordering, but callers must make per-entity work safe and avoid nondeterministic external effects. `par_collect_into` currently documents leaked initialized results when its mapper panics; [#142](https://github.com/ponkoengine/ponko/issues/142) tracks cleanup and structural panic safety. See [queries tests](crates/crabby_ecs/tests/queries.rs), [parallel tests](crates/crabby_ecs/tests/parallel.rs), and [#133](https://github.com/ponkoengine/ponko/issues/133) for the broader proposed differential/Miri suite.
+Rayon-backed query methods partition disjoint rows. Indexed parallel operations preserve their documented output ordering, but callers must make per-entity work safe and avoid nondeterministic external effects. `par_collect_into` currently documents leaked initialized results when its mapper panics; [#142](https://github.com/ponkoengine/ponko/issues/142) tracks cleanup and structural panic safety. See [queries tests](crates/ponko_ecs/tests/queries.rs), [parallel tests](crates/ponko_ecs/tests/parallel.rs), and [#133](https://github.com/ponkoengine/ponko/issues/133) for the broader proposed differential/Miri suite.
 
 ## Scene preparation and renderer
 
@@ -88,7 +90,7 @@ The intended evolution is smaller resource, pipeline, preparation and encoding r
 
 `Game::run_headless` creates a context, runs setup and fixed simulation ticks, and returns the world. Frame, late and drawing systems do not run. With default features disabled, [render/none.rs](src/render/none.rs) supplies the no-GPU path; the audio API can remain silent. Headless behavior tests therefore complement GPU tests rather than substitute for them.
 
-The opt-in [control endpoint](src/control.rs) exposes runtime operations at engine-controlled boundaries. [MCP tools](crates/crabby_mcp/src/lib.rs) discover instances, launch games, inspect/edit reflected state, operate scenes, pause/step, capture screenshots, retrieve logs and performance information. Reflection registration determines what component data tools can understand. [Profiling](src/perf_report.rs), [scope instrumentation](src/scope.rs) and [GPU timers](src/render/timer.rs) provide existing evidence sources.
+The opt-in [control endpoint](src/control.rs) exposes runtime operations at engine-controlled boundaries. [MCP tools](crates/ponko_mcp/src/lib.rs) discover instances, launch games, inspect/edit reflected state, operate scenes, pause/step, capture screenshots, retrieve logs and performance information. Reflection registration determines what component data tools can understand. [Profiling](src/perf_report.rs), [scope instrumentation](src/scope.rs) and [GPU timers](src/render/timer.rs) provide existing evidence sources.
 
 The complete autonomous edit/build/observe/repair loop is a development direction. Structured shader source diagnostics, scheduler explanations and a richer render-pass inspector remain backlog work. Screenshots require a rendering-capable instance; a headless state assertion cannot establish visual correctness. See the [agent guide](book/src/agents.md) and [roadmap](ROADMAP.md).
 

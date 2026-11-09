@@ -28,19 +28,19 @@ use crate::{Ctx, Rect, Sprite, Transform2D, WorldReflect};
 /// Environment variable that turns the inspector on (`1`) or off (`0`),
 /// overriding [`Game::inspector`](crate::Game::inspector).
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
-pub(crate) const ENV_INSPECTOR: &str = "CRABBY_INSPECTOR";
+pub(crate) const ENV_INSPECTOR: &str = "PONKO_INSPECTOR";
 
 /// The key that opens and closes the inspector.
 pub(crate) const TOGGLE_CODE: winit::keyboard::KeyCode = winit::keyboard::KeyCode::Backquote;
 
 /// Whether the inspector is on, and whether it starts open:
-/// `CRABBY_INSPECTOR` (`1`, `0` or `open`) if set, else the game's choice.
+/// `PONKO_INSPECTOR` (`1`, `0` or `open`) if set, else the game's choice.
 /// In web builds, the page's `?inspector` (`=1`, `=0`, `=open`) instead.
 pub(crate) fn enabled(game_default: bool) -> (bool, bool) {
     #[cfg(target_arch = "wasm32")]
     let setting = crate::web::query_param("inspector").map(|v| if v.is_empty() { "1".into() } else { v });
     #[cfg(not(target_arch = "wasm32"))]
-    let setting = std::env::var(ENV_INSPECTOR).ok();
+    let setting = crate::environment::var(ENV_INSPECTOR).ok();
     match setting.as_deref() {
         Some("1") => (true, false),
         Some("open") => (true, true),
@@ -149,7 +149,7 @@ impl Panels {
             self.selected = None;
         }
 
-        egui::Panel::right("crabby-inspector")
+        egui::Panel::right("ponko-inspector")
             .default_size(360.0)
             .resizable(true)
             .show(ui, |ui| {

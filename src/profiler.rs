@@ -6,18 +6,18 @@
 //! reserves its storage when it starts).
 //!
 //! Environment variables (read when the game starts):
-//! - `CRABBY_HUD=1`: show the performance HUD.
-//! - `CRABBY_BENCH=<frames>`: after `CRABBY_BENCH_WARMUP` frames (default
+//! - `PONKO_HUD=1`: show the performance HUD.
+//! - `PONKO_BENCH=<frames>`: after `PONKO_BENCH_WARMUP` frames (default
 //!   240), measure that many frames with vsync off, print a report, write it
-//!   as JSON to `CRABBY_BENCH_OUT` if set, and quit. With 3D, it also lists
+//!   as JSON to `PONKO_BENCH_OUT` if set, and quit. With 3D, it also lists
 //!   the meshes that drew the most triangles, and writes every mesh's counts
-//!   as CSV to `CRABBY_BENCH_MESHES` if set. Frames are drawn offscreen, so
-//!   the display's refresh rate doesn't cap them; `CRABBY_BENCH_PRESENT=1`
+//!   as CSV to `PONKO_BENCH_MESHES` if set. Frames are drawn offscreen, so
+//!   the display's refresh rate doesn't cap them; `PONKO_BENCH_PRESENT=1`
 //!   shows them in the window instead (where it can take them).
-//! - `CRABBY_TRACE=<path.json>`: after `CRABBY_TRACE_SKIP` frames (default
-//!   240), record `CRABBY_TRACE_FRAMES` frames (default 120) as a Chrome trace
+//! - `PONKO_TRACE=<path.json>`: after `PONKO_TRACE_SKIP` frames (default
+//!   240), record `PONKO_TRACE_FRAMES` frames (default 120) as a Chrome trace
 //!   (open it in <https://ui.perfetto.dev>).
-//! - `CRABBY_VSYNC=0` or `1`: overrides [`Game::vsync`](crate::Game::vsync).
+//! - `PONKO_VSYNC=0` or `1`: overrides [`Game::vsync`](crate::Game::vsync).
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -125,7 +125,7 @@ impl Default for Profiler {
 }
 
 fn env_num(name: &str) -> Option<u64> {
-    std::env::var(name).ok()?.trim().parse().ok()
+    crate::environment::var(name).ok()?.trim().parse().ok()
 }
 
 impl Profiler {
@@ -145,22 +145,22 @@ impl Profiler {
         }
     }
 
-    /// Reads the `CRABBY_*` variables described in the module docs.
+    /// Reads the `PONKO_*` settings described above, with legacy fallbacks.
     pub fn from_env() -> Self {
         let mut p = Self::new();
-        p.hud = std::env::var("CRABBY_HUD").is_ok_and(|v| v != "0");
-        if let Some(frames) = env_num("CRABBY_BENCH").filter(|&n| n > 0) {
+        p.hud = crate::environment::var("PONKO_HUD").is_ok_and(|v| v != "0");
+        if let Some(frames) = env_num("PONKO_BENCH").filter(|&n| n > 0) {
             p.bench = Some(Bench::new(
-                env_num("CRABBY_BENCH_WARMUP").unwrap_or(240),
+                env_num("PONKO_BENCH_WARMUP").unwrap_or(240),
                 frames as usize,
-                std::env::var_os("CRABBY_BENCH_OUT").map(PathBuf::from),
+                crate::environment::var_os("PONKO_BENCH_OUT").map(PathBuf::from),
             ));
         }
-        if let Some(path) = std::env::var_os("CRABBY_TRACE") {
+        if let Some(path) = crate::environment::var_os("PONKO_TRACE") {
             p.trace = Some(Trace::new(
                 PathBuf::from(path),
-                env_num("CRABBY_TRACE_SKIP").unwrap_or(240),
-                env_num("CRABBY_TRACE_FRAMES").unwrap_or(120) as usize,
+                env_num("PONKO_TRACE_SKIP").unwrap_or(240),
+                env_num("PONKO_TRACE_FRAMES").unwrap_or(120) as usize,
             ));
         }
         p

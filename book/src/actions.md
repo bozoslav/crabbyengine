@@ -34,7 +34,7 @@ Frame edges clear after each frame (after each tick in headless runs).
 | `Action::Axis2` / `action::axis2` | `Axis2Binding::Keys`, `Gamepad` | `action_binding::keys2`, `stick` |
 
 For example, add `ButtonBinding::Mouse(MouseButton::Left)` or
-`action_binding::mouse(CRABBY_MOUSE_LEFT)` to a button action. A scalar key pair
+`action_binding::mouse(PONKO_MOUSE_LEFT)` to a button action. A scalar key pair
 takes the negative key followed by the positive key. Four-key vectors take
 left, right, up, down, so WASD is A, D, W, S. Opposing keys cancel and keyboard
 diagonals are normalized. Vectors use screen coordinates: positive Y is down.
@@ -69,13 +69,13 @@ using normal file I/O. Read it back with `ActionMap::from_json` /
 changing active bindings. Rust returns `Result`; C++ throws the usual engine
 exception. Button state is never saved.
 
-The C API uses an owned `CrabbyActionMap`: create/free, set/remove,
-load/save JSON, then `crabby_ctx_set_actions`. `crabby_action_map_set` takes
-a kind (0 button, 1 scalar, 2 vector) and an array of `CrabbyActionBinding`.
-`CrabbyActionSource` documents each source's fields; unused fields are zero.
+The C API uses an owned `PonkoActionMap`: create/free, set/remove,
+load/save JSON, then `ponko_ctx_set_actions`. `ponko_action_map_set` takes
+a kind (0 button, 1 scalar, 2 vector) and an array of `PonkoActionBinding`.
+`PonkoActionSource` documents each source's fields; unused fields are zero.
 Save follows the standard two-call buffer convention: query the length,
 allocate length + 1 bytes, then save again. Context queries are named
-`crabby_ctx_action_down`, `pressed`, `released`, `axis` and `axis2`.
+`ponko_ctx_action_down`, `pressed`, `released`, `axis` and `axis2`.
 
 This map has no chords, action contexts, smoothing, interactive binding UI,
 or device-specific profiles. Each gamepad binding names a stable controller

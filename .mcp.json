@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "crabby": {
+    "ponko": {
       "command": "cargo",
       "args": ["run", "--quiet", "--release", "-p", "ponko_mcp"]
     }

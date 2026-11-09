@@ -338,7 +338,7 @@ mod backend {
         #[test]
         fn audio_stream_loads_headers_reuses_handle_and_never_opens_device() {
             let path = std::env::temp_dir().join(format!(
-                "crabby-audio-{}-{}.wav",
+                "ponko-audio-{}-{}.wav",
                 std::process::id(),
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)

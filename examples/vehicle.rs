@@ -281,7 +281,7 @@ fn main() {
         return;
     }
     // ANCHOR: setup
-    Game::new("Crabby Engine: vehicle", 1280, 720)
+    Game::new("Ponko: vehicle", 1280, 720)
         .sim_system(keys)
         .sim_system(drive) // sets the wheels' inputs...
         .physics3d(vec3(0.0, -9.81, 0.0)) // ...for the step that drives them

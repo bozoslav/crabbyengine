@@ -26,12 +26,12 @@ Where tests live:
 
 | What | Where | Example |
 |---|---|---|
-| Public API of a crate | `crates/<crate>/tests/<area>.rs`, one file per area | `crates/crabby_ecs/tests/queries.rs` |
+| Public API of a crate | `crates/<crate>/tests/<area>.rs`, one file per area | `crates/ponko_ecs/tests/queries.rs` |
 | Shared test helpers | `tests/common/mod.rs` next to them | components used by several ECS test files |
 | Private internals (clock math, schedule order) | `#[cfg(test)] mod tests` at the bottom of the file | `src/time.rs` |
 | Usage examples in docs | doctests for public usage and behavior where useful | `World::spawn` |
 | Engine and game logic | headless runs, no window or GPU (`Game::run_headless`) | `tests/` in the root crate |
-| Performance | `crates/crabby_bench` (`cargo run --release -p ponko_bench [-- filter]`) | `iter/crabby` |
+| Performance | `crates/ponko_bench` (`cargo run --release -p ponko_bench [-- filter]`) | `iter/crabby` |
 
 Rules:
 - New public behavior gets a test in the matching area file. A new area is just a new file: CI's `test` job runs `cargo test --workspace` on each OS, so it picks the file up. Only a new feature combination needs its own step in `.github/workflows/ci.yml`.
@@ -58,10 +58,10 @@ cargo test --workspace
 cargo clippy --workspace --all-targets
 ```
 
-If you touched unsafe code in `crates/crabby_ecs`, also run the ECS tests under Miri:
+If you touched unsafe code in `crates/ponko_ecs`, also run the ECS tests under Miri:
 
 ```sh
-cd crates/crabby_ecs
+cd crates/ponko_ecs
 # Our unsafe code, strict model, without rayon:
 cargo +nightly miri test --tests --no-default-features
 # The parallel path. rayon's dependency crossbeam-epoch trips Stacked Borrows

@@ -89,9 +89,9 @@ pub struct Game {
     gravity3d: Option<crate::Vec3>,
     /// The lockstep session from `lockstep`, moved into `ctx.net` at start.
     net: Option<crate::Net>,
-    /// Open the control endpoint (also on with `CRABBY_CONTROL=1`).
+    /// Open the control endpoint (also on with `PONKO_CONTROL=1`).
     control: bool,
-    /// Reload asset and data files when they change (`CRABBY_HOT_RELOAD` overrides).
+    /// Reload asset and data files when they change (`PONKO_HOT_RELOAD` overrides).
     hot_reload: bool,
     inspector: bool,
 }
@@ -558,8 +558,8 @@ impl Game {
     /// It listens on `127.0.0.1` only, and every request must carry a random
     /// token written to the instance registry (`~/.crabby/instances`),
     /// which only your user can read. Off by default; setting the
-    /// environment variable `CRABBY_CONTROL=1` turns it on without code
-    /// changes, and `CRABBY_START_PAUSED=1` starts the simulation paused.
+    /// environment variable `PONKO_CONTROL=1` turns it on without code
+    /// changes, and `PONKO_START_PAUSED=1` starts the simulation paused.
     ///
     /// ```no_run
     /// # use ponko::*;
@@ -574,7 +574,7 @@ impl Game {
     /// from `assets/` when their files change, under the same handles: save an
     /// image or a JSON file in your editor and the running game shows it
     /// within a quarter of a second. On by default in debug builds, off in
-    /// release builds; `CRABBY_HOT_RELOAD=1` or `0` overrides both.
+    /// release builds; `PONKO_HOT_RELOAD=1` or `0` overrides both.
     ///
     /// A file is checked a few times a second (one `stat` per loaded
     /// texture). An image that changed size isn't reloaded (sprites store
@@ -600,8 +600,8 @@ impl Game {
     /// Its "Pick" button selects the unit you click next.
     ///
     /// On by default in debug builds, off in release builds. The
-    /// environment variable `CRABBY_INSPECTOR=1` (or `0`) overrides this, and
-    /// `CRABBY_INSPECTOR=open` also starts the game with it open.
+    /// environment variable `PONKO_INSPECTOR=1` (or `0`) overrides this, and
+    /// `PONKO_INSPECTOR=open` also starts the game with it open.
     /// Needs the `inspector` cargo feature (on by default); without it, this
     /// does nothing. While closed it costs nothing.
     ///
@@ -617,7 +617,7 @@ impl Game {
         self
     }
 
-    /// Starts the control endpoint if it's enabled, and applies `CRABBY_START_PAUSED`.
+    /// Starts the control endpoint if it's enabled, and applies `PONKO_START_PAUSED`.
     fn start_control(&self, ctx: &mut Ctx, headless: bool) -> Option<Control> {
         if control::env_flag(control::ENV_START_PAUSED) {
             ctx.pause();

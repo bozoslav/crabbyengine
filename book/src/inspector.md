@@ -86,7 +86,7 @@ To ship it in a release build for playtesters:
 </div>
 </div>
 
-The environment variable `CRABBY_INSPECTOR` overrides the game's choice:
+The environment variable `PONKO_INSPECTOR` overrides the game's choice:
 `1` turns it on, `0` turns it off, and `open` turns it on and opens it at
 start.
 

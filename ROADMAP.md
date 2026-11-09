@@ -10,9 +10,9 @@ This roadmap is directional. Ordering changes with correctness evidence, measure
 
 | Complete-game area | Status | Evidence and remaining work |
 |---|---|---|
-| ECS and fixed-step simulation | Implemented | [ECS](crates/crabby_ecs/src), [game loop](src/game.rs), [determinism tests](tests/determinism.rs). Systems remain sequential; optional cross-system scheduling is planned. |
+| ECS and fixed-step simulation | Implemented | [ECS](crates/ponko_ecs/src), [game loop](src/game.rs), [determinism tests](tests/determinism.rs). Systems remain sequential; optional cross-system scheduling is planned. |
 | World, scene and prefab management | Implemented | [scene.rs](src/scene.rs), [reflection](src/reflect.rs), [scene tests](tests/scenes.rs). Advanced world composition and complete service-state restoration need use-case validation. |
-| Asset importing and processing | Partial | [glTF](src/three/gltf.rs), [Unity tooling](crates/crabby_unity), [assets](src/assets.rs). Import support varies by format and feature; it is not source-engine runtime compatibility. |
+| Asset importing and processing | Partial | [glTF](src/three/gltf.rs), [Unity tooling](crates/ponko_unity), [assets](src/assets.rs). Import support varies by format and feature; it is not source-engine runtime compatibility. |
 | Asset streaming and residency | Partial | [Job/CellStreamer](src/stream.rs), [stream tests](tests/stream.rs). Automatic budgeted mip/mesh residency is missing; [#154](https://github.com/ponkoengine/ponko/issues/154). |
 | Meshes, materials, animation and skinning | Implemented | [mesh](src/three/mesh.rs), [clips](src/three/clip.rs), [animator](src/three/animator.rs), [skin](src/three/skin.rs), [morph tests](tests/morph3d.rs). Verify particular imported animation workflows; presence is not arbitrary asset parity. |
 | Terrain, vegetation, LOD and large worlds | Partial | [terrain](src/three/terrain.rs), [far terrain](src/three/far_terrain.rs), [instances](src/three/instances.rs), [LOD](src/three/lod.rs), [streaming example](examples/streaming.rs). Budgeted residency and broader incremental extraction remain work. |
@@ -26,12 +26,12 @@ This roadmap is directional. Ordering changes with correctness evidence, measure
 | Build tooling, packaging and deployment | Partial | [Cargo manifest](Cargo.toml), [web tooling](web), [release workflow](.github/workflows/release.yml). CI/release scripts are not proof that a complete reference game has shipped through every path. |
 | Desktop and browser portability | Requires verification | Target-specific implementation and [CI configuration](.github/workflows/ci.yml) exist; see [platform policy](STABILITY.md#platforms). Full visual/runtime parity and individual GPU feature fallbacks need adapter evidence; mobile is not a validated product commitment. |
 | Debugging, profiling and automated testing | Implemented | [tests](tests), [GPU tests](src/render), [performance reports](src/perf_report.rs), [inspector](src/inspector.rs). Broader reproducible matrices and diagnostics remain below. |
-| AI development and runtime control | Partial | [MCP](crates/crabby_mcp/src/lib.rs), [control](src/control.rs), [agent guide](book/src/agents.md): state, stepping, launch, screenshots, logs and profiling exist. Reliable autonomous complete-game production is not established. |
+| AI development and runtime control | Partial | [MCP](crates/ponko_mcp/src/lib.rs), [control](src/control.rs), [agent guide](book/src/agents.md): state, stepping, launch, screenshots, logs and profiling exist. Reliable autonomous complete-game production is not established. |
 | End-to-end shipping reference workflow | Missing | Examples exercise many individual systems; a reviewed complete-game acceptance workflow spanning persistence, input/UI, audio, deployment and failure recovery is still an outcome to establish. |
 
 ## 1. Performance, correctness and reproducibility
 
-Deliver trusted baselines before optimization or broad refactoring. Existing [benchmarks](crates/crabby_bench), [profiling](book/src/profiling.md), headless tests and GPU regression modules are starting points, not completion of the expanded acceptance matrices.
+Deliver trusted baselines before optimization or broad refactoring. Existing [benchmarks](crates/ponko_bench), [profiling](book/src/profiling.md), headless tests and GPU regression modules are starting points, not completion of the expanded acceptance matrices.
 
 | Priority / issue | Outcome and dependency |
 |---|---|

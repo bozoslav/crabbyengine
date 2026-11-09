@@ -137,7 +137,7 @@ fn main() {
     let start_count = env_number("CRABS", 10_000.0) as usize;
     let quit_after = env_number("SECONDS", 0.0);
 
-    Game::new("Crabby Engine: bunnymark (ECS)", 1280, 720)
+    Game::new("Ponko: bunnymark (ECS)", 1280, 720)
         .vsync(false)
         .system(bounce)
         .system(report)

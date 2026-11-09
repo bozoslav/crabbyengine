@@ -17,7 +17,7 @@ if ctx.key_pressed(Key::Space) { println!("jump"); }
 
 Keys are named by their **position** on a US keyboard: `Key::W` is the key
 above `S` on every layout, so WASD controls stay in place for AZERTY and
-Dvorak players too. In C++: `ctx.key_down(CRABBY_KEY_RIGHT)`.
+Dvorak players too. In C++: `ctx.key_down(PONKO_KEY_RIGHT)`.
 
 ## Mouse
 

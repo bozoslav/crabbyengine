@@ -81,7 +81,7 @@ top-left) until you move the camera; see [Camera, text and UI](camera-ui.md).
 {{#include ../../examples/cpp/guide.cpp:pixels}}
 ```
 
-In C++, `Sprite` values are `crabby::sprite` (`sprite_of(texture, tint, z)`).
+In C++, `Sprite` values are `ponko::sprite` (`sprite_of(texture, tint, z)`).
 They can be spawned, read and set, but not used as query columns, because
 the engine stores sprites in a Rust layout. `Transform2D` can.
 
@@ -94,7 +94,7 @@ using them updates by itself. Fonts (`load_font`) and sounds (`load_sound`)
 reload the same way, and so do [data files](data-files.md). A file that
 can't be read or decoded mid-save keeps the old version. It's on by default
 in debug builds and off in release builds; `Game::hot_reload(bool)` or
-`CRABBY_HOT_RELOAD=1`/`0` changes that.
+`PONKO_HOT_RELOAD=1`/`0` changes that.
 
 If you computed something from an image (a level read from its pixels, a
 collision mask), redo it when the texture shows up in `reloaded_textures`:

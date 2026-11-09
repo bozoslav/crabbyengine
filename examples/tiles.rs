@@ -152,7 +152,7 @@ fn hud(ctx: &mut Ctx) {
 
 fn main() {
     let side = std::env::var("MAP").ok().and_then(|v| v.parse().ok()).unwrap_or(1000);
-    Game::new("Crabby Engine: tiles", 1280, 720)
+    Game::new("Ponko: tiles", 1280, 720)
         .vsync(false)
         .system(camera_controls)
         .system(wander)

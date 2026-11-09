@@ -27,7 +27,7 @@ In Rust the file becomes a resource: any type that implements
 `serde::Deserialize`, replaced whole on each reload (use `#[serde(default)]`
 for optional fields). In C and C++ the resource is a plain struct described
 with `reflect_resource`, and the file's fields merge into it, so the file
-may list only some of them (C: `crabby_ctx_load_resource_json`). C++ can
+may list only some of them (C: `ponko_ctx_load_resource_json`). C++ can
 also load a file into a component of one entity: `ctx.load_json<T>(path, e)`.
 
 - Loading fails with a clear message: a missing file lists the folders
@@ -37,6 +37,6 @@ also load a file into a component of one entity: `ctx.load_json<T>(path, e)`.
   applies.
 - `ctx.reloaded_files()` names the files reloaded this frame, textures
   included, for work that depends on them (rebuilding a map, say). In C++,
-  `ctx.was_reloaded("map.json")` (C: `crabby_ctx_was_reloaded`).
+  `ctx.was_reloaded("map.json")` (C: `ponko_ctx_was_reloaded`).
 - Headless runs reload too, so an agent or a test can change a file
   between ticks.

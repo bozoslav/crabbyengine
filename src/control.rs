@@ -2,7 +2,7 @@
 //! inspector, scripts) look inside a running game and drive it.
 //!
 //! Off by default. Turned on with [`Game::control_endpoint`](crate::Game::control_endpoint)
-//! or the `CRABBY_CONTROL=1` environment variable, so tools can enable it
+//! or the `PONKO_CONTROL=1` environment variable, so tools can enable it
 //! for any game without code changes.
 //!
 //! Protocol: TCP on `127.0.0.1`, one JSON object per line each way.
@@ -33,13 +33,13 @@ mod query;
 use query::{Condition, FieldPath, FieldStats};
 
 /// Environment variable that turns the endpoint on (`1`).
-pub(crate) const ENV_CONTROL: &str = "CRABBY_CONTROL";
+pub(crate) const ENV_CONTROL: &str = "PONKO_CONTROL";
 /// Environment variable that starts the simulation paused (`1`).
-pub(crate) const ENV_START_PAUSED: &str = "CRABBY_START_PAUSED";
+pub(crate) const ENV_START_PAUSED: &str = "PONKO_START_PAUSED";
 /// Environment variable overriding where instances register themselves.
-pub(crate) const ENV_INSTANCES_DIR: &str = "CRABBY_INSTANCES_DIR";
+pub(crate) const ENV_INSTANCES_DIR: &str = "PONKO_INSTANCES_DIR";
 /// Environment variable a launching tool sets; copied into the registry file.
-pub(crate) const ENV_LAUNCH_ID: &str = "CRABBY_LAUNCH_ID";
+pub(crate) const ENV_LAUNCH_ID: &str = "PONKO_LAUNCH_ID";
 
 /// How long a connection waits for the game to answer before giving up
 /// (a game stuck in a long frame, or paused in a debugger).
@@ -52,19 +52,19 @@ const ACCEPT_POLL: Duration = Duration::from_millis(20);
 const MAX_LIST: usize = 10_000;
 
 pub(crate) fn env_flag(name: &str) -> bool {
-    std::env::var(name).is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+    crate::environment::var(name).is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
 }
 
-/// The directory where running instances register: `$CRABBY_INSTANCES_DIR`,
+/// The directory where running instances register: `$PONKO_INSTANCES_DIR`,
 /// else `~/.crabby/instances` (`%LOCALAPPDATA%\crabby\instances` on Windows).
 pub(crate) fn instances_dir() -> Option<PathBuf> {
-    if let Some(dir) = std::env::var_os(ENV_INSTANCES_DIR) {
+    if let Some(dir) = crate::environment::var_os(ENV_INSTANCES_DIR) {
         return Some(PathBuf::from(dir));
     }
     if cfg!(windows) {
-        std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("crabby").join("instances"))
+        crate::environment::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("crabby").join("instances"))
     } else {
-        std::env::var_os("HOME").map(|d| PathBuf::from(d).join(".crabby").join("instances"))
+        crate::environment::var_os("HOME").map(|d| PathBuf::from(d).join(".crabby").join("instances"))
     }
 }
 
@@ -125,7 +125,7 @@ impl Control {
                 "started": SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs()),
                 "engine_version": env!("CARGO_PKG_VERSION"),
                 // Set by tools that launch games, to find the instance they started.
-                "launch_id": std::env::var(ENV_LAUNCH_ID).ok(),
+                "launch_id": crate::environment::var(ENV_LAUNCH_ID).ok(),
             });
             match write_registry(&dir, addr.port(), &info) {
                 Ok(path) => Some(path),
@@ -138,7 +138,7 @@ impl Control {
 
         let stop = shutdown.clone();
         thread::Builder::new()
-            .name("crabby-control".into())
+            .name("ponko-control".into())
             .spawn(move || accept_loop(listener, token, tx, stop))?;
         let logs = crate::logs::Capture::start();
         eprintln!("ponko: control endpoint on {addr}");
@@ -206,7 +206,7 @@ fn accept_loop(listener: TcpListener, token: Arc<str>, tx: Sender<Request>, shut
             Ok((stream, _)) => {
                 let (token, tx) = (token.clone(), tx.clone());
                 let _ = thread::Builder::new()
-                    .name("crabby-control-conn".into())
+                    .name("ponko-control-conn".into())
                     .spawn(move || serve_connection(stream, &token, &tx));
             }
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => thread::sleep(ACCEPT_POLL),
@@ -382,7 +382,7 @@ fn camera_json(ctx: &Ctx) -> Value {
 fn screenshot_path(ctx: &Ctx, params: &Value) -> Result<PathBuf, String> {
     match params.get("path") {
         None | Some(Value::Null) => {
-            Ok(std::env::temp_dir().join(format!("crabby-screenshot-{}-{}.png", std::process::id(), ctx.frame())))
+            Ok(std::env::temp_dir().join(format!("ponko-screenshot-{}-{}.png", std::process::id(), ctx.frame())))
         }
         Some(Value::String(p)) => Ok(PathBuf::from(p)),
         Some(_) => Err("`path` must be a string".into()),
@@ -829,7 +829,7 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
             let frames = usize_param(params, "frames", 120)?.clamp(1, 10_000);
             let path = match params.get("path").and_then(Value::as_str) {
                 Some(p) => PathBuf::from(p),
-                None => std::env::temp_dir().join(format!("crabby-trace-{}-{}.json", std::process::id(), ctx.frame())),
+                None => std::env::temp_dir().join(format!("ponko-trace-{}-{}.json", std::process::id(), ctx.frame())),
             };
             ctx.record_trace(path.clone(), frames);
             json!({ "path": path, "frames": frames, "written_after_frame": ctx.frame() + frames as u64 })

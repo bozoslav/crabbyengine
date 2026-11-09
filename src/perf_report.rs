@@ -4,7 +4,7 @@
 //!
 //! A [`PerfReport`] comes from [`Ctx::perf_report`](crate::Ctx::perf_report)
 //! in a running game and from [`Game::profile_headless`](crate::Game::profile_headless)
-//! for a headless run; `CRABBY_BENCH` prints one, and the control endpoint's
+//! for a headless run; `PONKO_BENCH` prints one, and the control endpoint's
 //! `perf.get` returns one as JSON.
 
 use std::collections::BTreeMap;

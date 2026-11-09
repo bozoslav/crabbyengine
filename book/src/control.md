@@ -16,23 +16,23 @@ Game::new("Colony", 1280, 720).control_endpoint(true)
 ```
 
 ```sh
-CRABBY_CONTROL=1 cargo run --release --example boids
-CRABBY_CONTROL=1 CRABBY_START_PAUSED=1 HEADLESS=1 cargo run --release --example boids
+PONKO_CONTROL=1 cargo run --release --example boids
+PONKO_CONTROL=1 PONKO_START_PAUSED=1 HEADLESS=1 cargo run --release --example boids
 ```
 
 The environment variable works for every game without code changes.
-`CRABBY_START_PAUSED=1` starts the simulation paused, so a tool can set
+`PONKO_START_PAUSED=1` starts the simulation paused, so a tool can set
 things up and step it tick by tick.
 
 ## Finding instances
 
 Each instance writes a small JSON file to `~/.crabby/instances/`
-(`%LOCALAPPDATA%\crabby\instances` on Windows, or `$CRABBY_INSTANCES_DIR`)
+(`%LOCALAPPDATA%\crabby\instances` on Windows, or `$PONKO_INSTANCES_DIR`)
 and removes it on exit:
 
 ```json
 {
-  "name": "Crabby Engine: boids",
+  "name": "Ponko: boids",
   "pid": 41213,
   "port": 50113,
   "token": "9f1c…",
@@ -151,7 +151,7 @@ keep; `logs.get` then says it isn't captured.
 ## Trying it by hand
 
 ```sh
-CRABBY_CONTROL=1 cargo run --release --example boids &
+PONKO_CONTROL=1 cargo run --release --example boids &
 f=$(ls ~/.crabby/instances/*.json | head -1)
 port=$(jq .port "$f"); token=$(jq -r .token "$f")
 echo "{\"id\":1,\"token\":\"$token\",\"method\":\"info\"}" | nc -q1 127.0.0.1 "$port"

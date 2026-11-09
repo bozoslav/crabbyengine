@@ -135,7 +135,7 @@ fn main() {
     }
 
     let bounds = vec2(1280.0, 720.0);
-    Game::new("Crabby Engine: boids", 1280, 720)
+    Game::new("Ponko: boids", 1280, 720)
         .sim_system(flocking(bounds))
         .system(controls)
         .run(move |ctx| {
