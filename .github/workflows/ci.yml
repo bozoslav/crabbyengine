@@ -396,6 +396,17 @@ jobs:
           tool: mdbook@0.5.4
       - run: mdbook --version
       - run: mdbook build book
+      # The guide's inline Rust snippets: one `cargo check` of every block as a
+      # module of a scratch crate (see book/src/contributing.md).
+      - name: Install ALSA and udev headers (audio, gamepads)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev libudev-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          key: book-snippets
+      - name: Compile the guide's Rust snippets
+        run: python3 scripts/check-book-snippets.py
 
   miri:
     name: Miri (${{ matrix.name }})

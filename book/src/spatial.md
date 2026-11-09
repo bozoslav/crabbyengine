@@ -8,6 +8,7 @@ pair is O(n²); a **spatial grid** answers it by looking only at nearby cells.
 Turn it on with a cell size near your usual query radius:
 
 ```rust
+# fn flock(_: &mut Ctx) {}
 Game::new("Boids", 1280, 720)
     .spatial_grid(24.0)
     .sim_system(flock);

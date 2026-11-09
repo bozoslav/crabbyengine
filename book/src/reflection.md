@@ -57,6 +57,8 @@ tweak) lives in resources. Reflect them the same way:
 <div>
 
 ```rust
+# use serde::{Deserialize, Serialize};
+# use serde_json::json;
 #[derive(Serialize, Deserialize)]
 struct Score { red: u32, blue: u32 }
 
@@ -118,6 +120,7 @@ All of them come from `WorldReflect`, which `use ponko::*;` brings in.
 copied, saved, or sent over the wire:
 
 ```rust
+# let e = world.spawn((Transform2D::default(),));
 let snapshot = world.entity_json(e)?;   // {"Transform2D": {...}, "Health": {...}}
 let copy = world.spawn_json(snapshot)?;
 ```

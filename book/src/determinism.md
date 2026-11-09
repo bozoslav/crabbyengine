@@ -13,6 +13,7 @@ Get random numbers in systems from `ctx.random()`:
 <div>
 
 ```rust
+# struct Heading(f32);
 fn wander(ctx: &mut Ctx) {
     let random = ctx.random();
     ctx.world.query::<(Entity, &mut Heading)>().par_for_each(|(e, h)| {

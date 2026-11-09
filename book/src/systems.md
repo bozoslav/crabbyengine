@@ -9,6 +9,7 @@ in the order you added them.
 <div>
 
 ```rust
+# fn steer(_: &mut Ctx) {} fn movement(_: &mut Ctx) {} fn camera(_: &mut Ctx) {}
 Game::new("Sim", 1280, 720)
     .sim_system(steer)      // fixed rate: game logic
     .sim_system(movement)
@@ -64,6 +65,7 @@ it even when you add it before calling `.physics()` or `.physics3d()`.
 Logic that must affect the current tick's step goes in `BeforePhysics`:
 
 ```rust
+# fn steer(_: &mut Ctx) {} fn score(_: &mut Ctx) {}
 Game::new("Drive", 1280, 720)
     .add(Phase::BeforePhysics, steer) // the step below sees this tick's input
     .physics3d(vec3(0.0, -9.81, 0.0))
@@ -144,6 +146,7 @@ Everything the engine does by itself is an ordinary system, and
 <div>
 
 ```rust
+# fn my_draw(_: &mut Ctx) {}
 Game::new("t", 800, 600)
     .remove_system(draw_sprites)   // draw your own way
     .system(my_draw);

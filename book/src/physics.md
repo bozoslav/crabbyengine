@@ -91,6 +91,7 @@ Add a `Velocity` component to read a body's speed after every step, or to
 set it (a jump, a thrown crate, a moving platform):
 
 ```rust
+# let player = ctx.world.spawn((Transform2D::default(),));
 ctx.world.insert(player, Velocity::linear(vec2(0.0, -400.0))); // jump: y is down
 ```
 

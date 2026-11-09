@@ -10,6 +10,7 @@ right, top to bottom.
 <div>
 
 ```rust
+# let pos = vec2(100.0, 100.0);
 let tex = ctx.load_texture("units.png");
 let sheet = SpriteSheet::new(tex, 32, 32);   // 32 × 32 frames
 ctx.world.spawn((Transform2D::at(pos), sheet.sprite(5))); // frame 5
@@ -35,6 +36,7 @@ For pixel art, turn smoothing off so pixels stay square:
 <div>
 
 ```rust
+# let tex = ctx.load_texture("units.png");
 ctx.set_texture_filter(&tex, TextureFilter::Nearest);
 ```
 
@@ -57,6 +59,8 @@ system (on by default, all cores) advances it every frame:
 <div>
 
 ```rust
+# let pos = vec2(100.0, 100.0);
+# let sheet = SpriteSheet::new(ctx.load_texture("units.png"), 32, 32);
 ctx.world.spawn((
     Transform2D::at(pos),
     sheet.sprite(0),

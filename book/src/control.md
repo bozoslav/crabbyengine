@@ -134,6 +134,7 @@ supports, so a tool can check before sending a request that would fail:
   types described with `reflect_fields` get theirs from the fields:
 
 ```rust
+# #[derive(serde::Serialize, serde::Deserialize)] struct Health(f32);
 ctx.world.reflect::<Health>();
 ctx.world.describe_component("Health", ValueSchema::object([
     ("current", ValueSchema::Number),
