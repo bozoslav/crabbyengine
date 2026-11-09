@@ -972,6 +972,54 @@
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
+    "crates/ponko_ffi/tests/abi_compat.rs": {
+      "occurrences": 67,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
+    "crates/ponko_ffi/tests/fixtures/abi/README.md": {
+      "occurrences": 10,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
+    "crates/ponko_ffi/tests/fixtures/abi/abi_v2.provenance.json": {
+      "occurrences": 3,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
+    "crates/ponko_ffi/tests/fixtures/abi/abi_v2_layout.json": {
+      "occurrences": 428,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
+    "crates/ponko_ffi/tests/fixtures/abi/crabby_abi2.h": {
+      "occurrences": 3028,
+      "path_occurrences": 1,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
+    "crates/ponko_ffi/tests/fixtures/abi/generate_baseline.py": {
+      "occurrences": 3,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
+    "crates/ponko_ffi/tests/fixtures/abi/layout_table.rs": {
+      "occurrences": 428,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
+    "examples/cpp/abi_baseline.c": {
+      "occurrences": 62,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
     }
   }
 }

@@ -1,0 +1,12 @@
+{
+  "fixtures": ["crabby_abi2.h", "abi_v2_layout.json"],
+  "abi_version": 2,
+  "engine_version": "ponko 0.0.1",
+  "engine_revision": "b3799f698ed5eb85267f7e34cccdb2f27126910b",
+  "header": "include/crabby.h at that revision, copied byte for byte (cbindgen output, verified fresh by CI)",
+  "layout_measured_by": "Apple clang version 21.0.0 (clang-2100.4.1.1), -std=c11, aarch64-apple-darwin, 64-bit pointers",
+  "toolchain": "rustc 1.99.1 (58cf8f9c3 2026-10-13), aarch64-apple-darwin",
+  "generated_by": "python3 crates/ponko_ffi/tests/fixtures/abi/generate_baseline.py crates/ponko_ffi/tests/fixtures/abi/crabby_abi2.h crates/ponko_ffi/tests/fixtures/abi 2",
+  "date": "2026-11-09",
+  "baseline": "First retained native ABI baseline: the version-2 header and layouts as of this revision of the engine's main branch, not a published release. No released native artifact exists to link an older client against, so this does not claim historical binary compatibility."
+}

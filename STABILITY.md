@@ -104,6 +104,27 @@ within it unless the world once had over 4 million entities alive and was
 saved with under an eighth of them; such a save still loads back into the
 world that wrote it.
 
+## Compatibility checks
+
+The promises above are tested against retained baselines, not only against
+what the current revision generates. A baseline is a small fixture recorded at
+a named engine revision with its provenance next to it; it is never edited to
+make a test pass. The baselines come from the engine's `main` branch, not from
+a published release, so they show that today's code honors what that revision
+promised and do not claim anything about earlier binary releases.
+
+| Contract | Baseline | Check |
+|---|---|---|
+| Saved worlds | `tests/fixtures/saves/` | `tests/save_compat.rs` |
+| MCP tools and parameters | `crates/ponko_mcp/tests/fixtures/` | `crates/ponko_mcp/tests/contract.rs` |
+| C ABI header and layouts | `crates/ponko_ffi/tests/fixtures/abi/` | `crates/ponko_ffi/tests/abi_compat.rs`, `examples/cpp/abi_baseline.c` |
+
+Additions pass: new MCP tools and optional parameters, new C functions and enum
+constants. A removed or changed tool, parameter, function or struct layout, a
+new required MCP parameter, or a parameter that accepts fewer values fails with
+a message naming it. Each fixture folder's README says how to retain a new
+baseline after an intentional major-version change.
+
 ## Determinism
 
 What gives the same world from the same seed and inputs:

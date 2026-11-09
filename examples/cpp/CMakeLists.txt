@@ -63,3 +63,7 @@ ponko_native(ponko_c_compatibility compatibility.c)
 ponko_native(ponko_cpp_compatibility compatibility.cpp)
 add_test(NAME c_compatibility COMMAND ponko_c_compatibility)
 add_test(NAME cpp_compatibility COMMAND ponko_cpp_compatibility)
+# A client written against the retained ABI-2 baseline header, linked to the current library.
+ponko_native(ponko_c_abi_baseline abi_baseline.c)
+target_include_directories(ponko_c_abi_baseline PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../crates/ponko_ffi/tests/fixtures/abi")
+add_test(NAME c_abi_baseline COMMAND ponko_c_abi_baseline)
