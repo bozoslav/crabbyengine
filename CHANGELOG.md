@@ -29,6 +29,13 @@ says what that covers.
   only for now.
 - `Ctx::load_component_json::<T>(path, entity)` and
   `load_resource_json::<T>(path)` take the name from the type.
+- `ponko::Error` and `ErrorKind`: one error type with a kind to match on,
+  the asset path, and a `ponko:`-prefixed message. Implements
+  `std::error::Error`, and converts from `ReflectError`, `NavBakeError` and
+  `serde_json::Error`.
+- `try_` twins returning `Result<_, ponko::Error>` for `load_texture`,
+  `load_mesh`, `load_skeleton`, `load_sound`, `load_font`, `create_material`
+  and `create_mesh`. The panicking calls now panic with the same message.
 
 ### Changed
 - The by-name forms of the two JSON loaders (used by the C API) are now

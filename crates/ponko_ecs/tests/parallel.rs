@@ -209,3 +209,42 @@ fn par_collect_into_drops_each_written_zero_sized_value_on_mapper_panic() {
     drop(out);
     assert_eq!(DROPS.load(Ordering::Relaxed), created.load(Ordering::Relaxed));
 }
+
+#[test]
+fn cached_parallel_chunks_follow_growth_and_preserve_order() {
+    struct Marker<const N: usize>;
+    let mut w = World::new();
+    for bits in 0..128 {
+        let e = w.spawn((bits as u64,));
+        macro_rules! m {
+            ($n:literal) => {
+                if bits & (1 << $n) != 0 {
+                    w.insert(e, Marker::<$n>);
+                }
+            };
+        }
+        m!(0);
+        m!(1);
+        m!(2);
+        m!(3);
+        m!(4);
+        m!(5);
+        m!(6);
+    }
+    assert_eq!(w.query::<&u64>().cached().with::<Marker<0>>().count(), 64);
+    let rows = if cfg!(miri) { 129 } else { 1025 };
+    // A new layout after warming, with enough rows to require multiple tasks.
+    w.spawn_batch((0..rows).map(|i| (i as u64, Marker::<0>, Marker::<9>)));
+    w.query::<&mut u64>()
+        .cached()
+        .with::<Marker<0>>()
+        .par_for_each(|v| *v += 1);
+    let expected: Vec<_> = w.query::<&u64>().with::<Marker<0>>().iter().copied().collect();
+    let mut actual = Vec::new();
+    w.query::<&u64>()
+        .cached()
+        .with::<Marker<0>>()
+        .par_collect_into(&mut actual, |v| *v);
+    assert_eq!(actual, expected);
+    assert_eq!(actual.len(), 64 + rows);
+}
