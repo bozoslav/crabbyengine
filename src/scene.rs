@@ -318,13 +318,17 @@ mod lockstep_tests {
         for e in &errors {
             assert!(e.contains("lockstep session"), "{e}");
         }
-        let mut editor = crate::editor::Editor::default();
-        editor.play(ctx);
-        let extra = ctx.world.spawn((Tag(100),));
-        assert!(editor.stop(ctx).unwrap_err().contains("lockstep session"));
-        assert!(editor.playing(), "Stop can be retried");
-        ctx.resume();
-        ctx.world.despawn(extra);
+        // The editor's Stop (with the inspector).
+        #[cfg(feature = "inspector")]
+        {
+            let mut editor = crate::editor::Editor::default();
+            editor.play(ctx);
+            let extra = ctx.world.spawn((Tag(100),));
+            assert!(editor.stop(ctx).unwrap_err().contains("lockstep session"));
+            assert!(editor.playing(), "Stop can be retried");
+            ctx.resume();
+            ctx.world.despawn(extra);
+        }
         assert_eq!(WorldReflect::save(&ctx.world), before, "nothing changed");
     }
 
