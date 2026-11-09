@@ -614,7 +614,7 @@ impl Renderer {
         if self.three.is_none() {
             let white = self.create_texture(1, 1, &[255; 4]);
             let white_array = self.upload_texture_array(1, 1, &[&[255; 4]], false);
-            self.three = Some(super::gpu3d::Renderer3D::new(
+            let renderer = super::gpu3d::Renderer3D::new(
                 &self.device,
                 &self.texture_layout,
                 self.view_format,
@@ -622,7 +622,13 @@ impl Renderer {
                 &white_array,
                 self.msaa,
                 !self.tiled,
-            ));
+            );
+            // No view formats (WebGL2): sprite textures can't be read through a linear view.
+            self.three = Some(if self.image_view_formats.is_empty() {
+                renderer.without_linear_views()
+            } else {
+                renderer
+            });
         }
         self.three.as_mut().expect("just made")
     }

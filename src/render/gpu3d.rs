@@ -884,6 +884,9 @@ pub(crate) struct Renderer3D {
     gi_face_runs: Vec<Run>,
     gi_faces: Vec<(u32, u32)>,
     dummy_depth: wgpu::TextureView,
+    /// Whether a texture made for sprites can also be read through its
+    /// linear (non-sRGB) format: not on WebGL2, which has no view formats.
+    linear_views: bool,
     post_layout: wgpu::BindGroupLayout,
     bloom_prefilter: wgpu::RenderPipeline,
     bloom_down: wgpu::RenderPipeline,
@@ -1736,6 +1739,7 @@ impl Renderer3D {
             gi_face_runs: Vec::new(),
             gi_faces: Vec::new(),
             dummy_depth,
+            linear_views: true,
             post_layout,
             bloom_prefilter,
             bloom_down,
@@ -2421,7 +2425,7 @@ impl Renderer3D {
                 // Render targets (HDR) are read as they are.
                 let image = texture.format() == wgpu::TextureFormat::Rgba8UnormSrgb;
                 texture.create_view(&wgpu::TextureViewDescriptor {
-                    format: image.then_some(if linear {
+                    format: image.then_some(if linear && self.linear_views {
                         wgpu::TextureFormat::Rgba8Unorm
                     } else {
                         wgpu::TextureFormat::Rgba8UnormSrgb
@@ -3491,6 +3495,15 @@ impl Renderer3D {
     }
 
     /// Records the occlusion depth grid's reduction, timed as a compute pass.
+    /// For a device without view formats (WebGL2): textures made for
+    /// sprites are read as they are, in their own (sRGB) format, in the
+    /// material slots that otherwise read them linearly. Only the default
+    /// white image is ever bound there, which reads the same either way.
+    pub(super) fn without_linear_views(mut self) -> Self {
+        self.linear_views = false;
+        self
+    }
+
     /// Where the lit frame's color pass draws, and what it resolves into:
     /// the multisampled color target resolving into the lit image, or with
     /// one sample the lit image itself.
