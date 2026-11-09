@@ -14,10 +14,10 @@
   `set_changes_since`, `Query::since`, `Tick`, and `World::query_chunks`
   with `ChunkQuery` (a chunk query that says which columns it writes and
   which must have changed).
-- C: `crabby_query_with` with `CrabbyQueryOptions`, `crabby_component_track_changes`,
-  `crabby_mark_changed`, `crabby_removed`, `crabby_world_change_tick`,
-  `crabby_world_advance_change_tick`, `crabby_world_changes_since` and
-  `crabby_world_set_changes_since`. C++: the filters `ponko::changed<T>`,
+- C: `ponko_query_with` with `PonkoQueryOptions`, `ponko_component_track_changes`,
+  `ponko_mark_changed`, `ponko_removed`, `ponko_world_change_tick`,
+  `ponko_world_advance_change_tick`, `ponko_world_changes_since` and
+  `ponko_world_set_changes_since`. C++: the filters `ponko::changed<T>`,
   `ponko::added<T>` and `ponko::any_of<...>` for `each`, `each_par`,
   `query`, `query_par` and `count`, `const` columns in `query`, and
   `track_changes`, `mark_changed`, `removed`, `removed_since`,
@@ -34,5 +34,5 @@
   the stamps of tracked components.
 - In C++, an `each` parameter taken as `const T&` or by value, and a
   `const` column of `query`, read a tracked component without marking it
-  changed; `T&` marks it. `crabby_query` and `crabby_query_par` mark every
+  changed; `T&` marks it. `ponko_query` and `ponko_query_par` mark every
   tracked column they hand out.
