@@ -594,7 +594,7 @@ jobs:
           status=0
           for fixture in web_smoke web_smoke_3d; do
             node web/smoke/smoke.mjs --fixture "$fixture" --browser chromium --chromium-mode new --backend webgpu \
-              --browser-arg --use-webgpu-adapter=swiftshader --chrome-trace --allow-unsupported || status=1
+              --browser-arg --use-webgpu-adapter=swiftshader --allow-unsupported || status=1
           done
           exit $status
       - name: Chromium, whatever the engine picks

@@ -83,7 +83,7 @@ Options:
 | `--press <Key>=<field>:<value>` | After the click, press the key (Playwright key name: `Enter`, `Escape`, `Q`) and wait up to 10 s for the reported state's `<field>` to become `<value>`. Repeatable, in order. |
 | `--min <field>=<n>` | The reported state's numeric `<field>` must be at least `n`. Repeatable. |
 | `--engine-gpu required` | Fail when the fixture publishes no engine GPU report (fixtures set this). |
-| `--no-trace` / `--chrome-trace` | Skip the Playwright trace, or also write Chromium's GPU trace. |
+| `--no-trace` / `--chrome-trace` | Skip the Playwright trace, or also write Chromium's GPU trace (it slows a heavy page a lot, enough to trip the stall check on a 3D scene: use it on the 2D fixture, or to look at one run). |
 | `--out <dir>` | Where artifacts go (default `target/web-smoke/<fixture>-<browser>-<backend>-<case>`). |
 | `--browser-arg <flag>` | Extra browser flag (repeatable). |
 
