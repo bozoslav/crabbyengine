@@ -19,7 +19,8 @@ says what that covers.
 - On native, material shader pipelines are built in a validation error
   scope: a reload the GPU rejects keeps the last good pipelines instead of
   breaking the device.
-- An MCP tool for these results remains a follow-up.
+- Add the `shaders.status` control method and the `shader_status` MCP tool
+  returning the same results.
 
 ### Explicit runtime phases (first stage)
 

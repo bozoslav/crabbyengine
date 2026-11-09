@@ -45,6 +45,7 @@ ctx.world.reflect::<Health>();
 | `list_resources` / `get_resource` | | game-wide state: scores, rules, the current round |
 | `system_timings` | | which systems are slow |
 | `perf_report` | | why frames are slow: fps and frame-time percentiles, CPU vs GPU, GPU time per pass, triangles drawn for the camera and the shadows, the heaviest meshes ([details](performance.md#profiling-a-frame)) |
+| `shader_status` | | did a shader edit take effect? Each custom shader's last compile or hot reload result, and its errors with line and column in your `.wgsl` file ([details](3d.md)) |
 | `record_trace` | | the next N frames as a Perfetto trace, to find hitches |
 | `perf_hud` | | show the performance overlay, e.g. before a screenshot |
 | `list_events` | | event types the game shows tools, and how many are in flight |

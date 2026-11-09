@@ -492,6 +492,10 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
         "save the next frame as a PNG (windowed games only); params: path? (default: a temp file), max_size? (scale down to fit, 0 = full size). Returns path, width, height",
     ),
     (
+        "shaders.status",
+        "the game's custom shaders (material shaders, screen effects, compute passes): each one's last compile or hot reload result (compiled, reloaded, failed, reload_failed: the last good version stays), reload count, frame, and its errors with line and column in the game's own WGSL, cause and GPU variant",
+    ),
+    (
         "perf.get",
         "frame timing over the last few seconds (fps; avg, p50, p95, p99, max ms; CPU split into systems, render and waiting on the display; GPU ms), GPU ms per pass, what was drawn (draw calls; 3D models and triangles for the camera and the shadows; render CPU split into collect, record, submit), the slowest systems; params: meshes? (list the n meshes drawing the most triangles, default 0), profiling? (true turns on scope timing and allocation counting, false turns it off). While profiling is on, the answer also has `report`: frame percentiles, every system and profile_scope with time and allocations per frame, the slowest frames and what was in them, and warnings with advice",
     ),
@@ -561,6 +565,62 @@ fn perf_json(ctx: &Ctx, meshes: usize) -> Value {
     #[cfg(not(feature = "3d"))]
     let _ = meshes;
     out
+}
+
+/// `Ctx::shader_status` as JSON.
+#[cfg(feature = "3d")]
+fn shader_status_json(ctx: &Ctx) -> Value {
+    use crate::{ShaderKind, ShaderOutcome};
+    let shaders: Vec<Value> = ctx
+        .shader_status()
+        .iter()
+        .map(|s| {
+            let kind = match s.kind {
+                ShaderKind::Material => "material",
+                ShaderKind::Effect => "effect",
+                _ => "compute",
+            };
+            let outcome = match s.outcome {
+                ShaderOutcome::Compiled => "compiled",
+                ShaderOutcome::Reloaded => "reloaded",
+                ShaderOutcome::Failed => "failed",
+                _ => "reload_failed",
+            };
+            let diagnostics: Vec<Value> = s
+                .diagnostics
+                .iter()
+                .map(|d| {
+                    json!({
+                        "line": d.line,
+                        "column": d.column,
+                        "in_engine_code": d.in_engine_code,
+                        "message": d.message,
+                        "label": d.label,
+                        "notes": d.notes,
+                        "source_line": d.source_line,
+                        "variant": d.variant,
+                        "text": d.to_string(),
+                    })
+                })
+                .collect();
+            json!({
+                "shader": s.shader,
+                "kind": kind,
+                "outcome": outcome,
+                "ok": s.is_ok(),
+                "reloads": s.reloads,
+                "frame": s.frame,
+                "diagnostics": diagnostics,
+            })
+        })
+        .collect();
+    json!({ "shaders": shaders })
+}
+
+/// Without the `3d` feature a game has no custom shaders.
+#[cfg(not(feature = "3d"))]
+fn shader_status_json(_ctx: &Ctx) -> Value {
+    json!({ "shaders": [], "note": "built without the `3d` feature: no custom shaders" })
 }
 
 /// The 10 systems with the most average time.
@@ -875,6 +935,7 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
         }
         "events.unsubscribe" => json!(ctx.events.feed.take().is_some()),
         "camera.get" => camera_json(ctx),
+        "shaders.status" => shader_status_json(ctx),
         "camera.set" => {
             let vec = |name: &str| -> Result<Option<Vec2>, String> {
                 match params.get(name) {
@@ -940,6 +1001,30 @@ mod tests {
                 .unwrap_err()
                 .contains("unknown method")
         );
+    }
+
+    #[cfg(all(feature = "3d", feature = "window"))]
+    #[test]
+    fn shader_status_reports_errors_in_the_games_lines() {
+        let mut ctx = ctx();
+        assert_eq!(
+            handle(&mut ctx, "shaders.status", &json!({})).unwrap()["shaders"],
+            json!([])
+        );
+        let _ = ctx.try_create_shader(
+            "red.wgsl",
+            "// red\nfn surface(s: Surface) -> Surface {\n    return 1.0;\n}",
+        );
+        let r = handle(&mut ctx, "shaders.status", &json!({})).unwrap();
+        let s = &r["shaders"][0];
+        assert_eq!(
+            (s["shader"].clone(), s["kind"].clone()),
+            (json!("red.wgsl"), json!("material"))
+        );
+        assert_eq!((s["outcome"].clone(), s["ok"].clone()), (json!("failed"), json!(false)));
+        let d = &s["diagnostics"][0];
+        assert_eq!((d["line"].clone(), d["column"].clone()), (json!(3), json!(12)), "{d}");
+        assert!(d["text"].as_str().unwrap().starts_with("red.wgsl:3:12: error:"), "{d}");
     }
 
     #[test]
