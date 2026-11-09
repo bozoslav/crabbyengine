@@ -229,3 +229,36 @@ export function unsupportedReason(caps, backend, browser = "chromium") {
 export function backendAvailable(caps, backend) {
   return unsupportedReason(caps, backend) === null;
 }
+
+/**
+ * One line per run of a folder of reports: what was asked for, what the page
+ * and the engine reported, and how it ended. "Unsupported" runs say why, so a
+ * WebGPU step that couldn't run can never read as a pass.
+ */
+export function summaryRow(report) {
+  const outcome = report.outcome ?? { status: -1, kind: "no outcome", message: "the run wrote no outcome" };
+  const adapter = report.engine?.summary?.adapter;
+  return {
+    fixture: report.fixture ?? "-",
+    browser: report.browser ?? report.requestedBrowser ?? "-",
+    requested: report.requestedBackend ?? "-",
+    case: report.case ?? "ok",
+    used: report.backend ?? "-",
+    adapter: adapter ? `${adapter.backend} ${adapter.device_type} ${adapter.name}`.trim() : "-",
+    result: outcome.kind === "unsupported" ? "UNSUPPORTED" : outcome.status === 0 ? "pass" : "FAIL",
+    kind: outcome.kind,
+    message: String(outcome.message ?? "").replace(/\s*\n\s*/g, " ").slice(0, 200),
+  };
+}
+
+export function summaryMarkdown(rows) {
+  const cell = (text) => String(text).replace(/\|/g, "\\|");
+  const lines = [
+    "| Fixture | Browser | Asked | Ran on | Adapter (from the engine) | Result | Detail |",
+    "|---|---|---|---|---|---|---|",
+    ...rows.map((r) =>
+      `| ${[r.fixture + (r.case === "ok" ? "" : ` (${r.case})`), r.browser, r.requested, r.used, r.adapter, r.result, r.message].map(cell).join(" | ")} |`,
+    ),
+  ];
+  return lines.join("\n") + "\n";
+}
