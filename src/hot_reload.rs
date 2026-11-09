@@ -101,6 +101,12 @@ pub(crate) fn enabled(on: bool) -> bool {
 }
 
 impl Watcher {
+    /// How many files are watched.
+    #[cfg(test)]
+    pub(crate) fn watched(&self) -> usize {
+        self.files.len()
+    }
+
     /// Remembers that `asset` came from `path`.
     pub(crate) fn watch(&mut self, name: &str, path: PathBuf, asset: Asset) {
         if !self.on {

@@ -488,21 +488,21 @@ impl Ctx {
     /// ```
     pub fn load_sound(&mut self, path: &str) -> Sound {
         let file = crate::assets::resolve(path).unwrap_or_else(|e| panic!("ponko: {e}"));
-        let key = (file, crate::ctx::AssetKind::Sound);
+        let key = (crate::assets::Origin::File(file.clone()), crate::ctx::AssetKind::Sound);
         if let Some(&i) = self.loaded.get(&key) {
             return self.cached_sounds[i as usize];
         }
         let bytes =
-            crate::assets::read(&key.0).unwrap_or_else(|e| panic!("ponko: could not read {}: {e}", key.0.display()));
+            crate::assets::read(&file).unwrap_or_else(|e| panic!("ponko: could not read {}: {e}", file.display()));
         let (id, seconds) = self
             .audio
             .load(bytes)
-            .unwrap_or_else(|e| panic!("ponko: {}: {e}", key.0.display()));
+            .unwrap_or_else(|e| panic!("ponko: {}: {e}", file.display()));
         let sound = Sound { id, seconds };
         self.sounds_live.insert(id);
-        self.loaded.insert(key.clone(), self.cached_sounds.len() as u64);
+        self.loaded.insert(key, self.cached_sounds.len() as u64);
         self.cached_sounds.push(sound);
-        self.watcher.watch(path, key.0, crate::hot_reload::Asset::Sound(id));
+        self.watcher.watch(path, file, crate::hot_reload::Asset::Sound(id));
         sound
     }
 

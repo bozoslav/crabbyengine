@@ -165,6 +165,38 @@ fn main() {
     physics3d::run(&mut b);
     net::run(&mut b);
 
+    // Resource scoping versus the previous public take/put workaround.
+    for scoped in [false, true] {
+        b.steady(
+            if scoped {
+                "resource/scope-100k"
+            } else {
+                "resource/take-put-100k"
+            },
+            200,
+            || {
+                let mut w = ponko_ecs::World::new();
+                w.insert_resource(0u64);
+                w
+            },
+            |w| {
+                for _ in 0..100_000 {
+                    if scoped {
+                        w.resource_scope::<u64, _>(|world, value| {
+                            *value = black_box(*value + 1);
+                            black_box(world);
+                        });
+                    } else {
+                        let mut value = w.remove_resource::<u64>().unwrap();
+                        value = black_box(value + 1);
+                        black_box(&mut *w);
+                        w.insert_resource(value);
+                    }
+                }
+            },
+        );
+    }
+
     // ---- baseline: plain Vecs (upper bound for iteration) -------------------
     b.steady(
         "iter/raw-vec",
@@ -283,6 +315,37 @@ fn main() {
                     .par_for_each(|(p, a)| heavy(p, a, dt));
             },
         );
+    }
+
+    // Reuse output capacity; cover both trivially dropped and owning results.
+    for &n in &[256usize, 1_000_000] {
+        for &owning in &[false, true] {
+            let kind = if owning { "owning" } else { "plain" };
+            b.steady(
+                &format!("par-collect-{n}/{kind}"),
+                200,
+                || {
+                    let mut w = ponko_ecs::World::new();
+                    w.spawn_batch((0..n).map(ent));
+                    (w, Vec::with_capacity(n), Vec::with_capacity(n))
+                },
+                |(w, plain, owned)| {
+                    if owning {
+                        // A nontrivial destructor without per-element allocations.
+                        struct Owned(f32);
+                        impl Drop for Owned {
+                            fn drop(&mut self) {
+                                black_box(self.0);
+                            }
+                        }
+                        w.query::<&Pos>()
+                            .par_collect_into(owned, |p| Owned(p.x * black_box(2.0)));
+                    } else {
+                        w.query::<&Pos>().par_collect_into(plain, |p| p.x * black_box(2.0));
+                    }
+                },
+            );
+        }
     }
 
     // ---- spawn ------------------------------------------------------------------

@@ -41,10 +41,18 @@ The engine is integrated rather than a collection of independent service crates.
 
 1. Update retained UI and begin frame timings.
 2. Run the due fixed simulation ticks. Lockstep can defer a tick until peer inputs are ready while the windowed frame continues.
-3. Run frame systems in registration order.
+3. Run `Frame` systems, then explicitly registered `Animate` systems.
 4. Update built-in animation and particles when 3D is enabled.
 5. Run late systems, then drawing systems; update positional audio.
 6. The windowed application prepares and submits rendering through [src/game](src/game) and [src/render](src/render).
+
+`Game::add(Phase, system)` selects an explicit sequential bucket. Each fixed tick
+runs `Input`, `BeforePhysics`, `Physics`, `AfterPhysics`, then `SimLast`. Legacy
+`sim_system` registrations use `AfterPhysics`; installing physics always places
+the step in `Physics`, independent of builder order. Legacy `system` and
+`late_system` map to `Frame` and `Late`; built-in drawing uses `Draw`. Within a
+phase registration order is preserved. Automatic 3D animation, particles and
+positional audio remain hard-coded boundaries in this first phase API stage.
 
 `run_one` applies deferred commands after each system. `sim_system_every` schedules a system at a tick interval and phase; it is simulation frequency control, not parallel scheduling. Events have reader/lifetime machinery in [src/events.rs](src/events.rs). Changes to barriers must preserve the currently observable command and event behavior.
 
