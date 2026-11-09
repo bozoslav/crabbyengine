@@ -19,6 +19,7 @@ mod none;
 mod occlusion;
 #[cfg(all(feature = "window", feature = "3d"))]
 mod particles;
+mod pipeline_stats;
 #[cfg(all(feature = "window", feature = "3d"))]
 mod screen;
 #[cfg(all(feature = "window", feature = "3d"))]
@@ -43,6 +44,7 @@ pub(crate) use gpu3d::{
 };
 #[cfg(not(feature = "window"))]
 pub(crate) use none::Renderer;
+pub use pipeline_stats::PipelineStats;
 #[cfg(all(feature = "window", feature = "3d"))]
 pub(crate) use shader_diagnostics::{diagnose, without_location};
 
