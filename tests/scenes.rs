@@ -118,6 +118,30 @@ fn bad_files_are_errors_that_change_nothing() {
     });
 }
 
+#[test]
+fn scenes_with_huge_entity_ids_are_errors_that_change_nothing() {
+    let file = TempAsset("test-huge-entity-id.json");
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("assets")
+        .join(file.0);
+    game().run_headless(0, |ctx| {
+        let kept = ctx.world.spawn((Transform2D::at(vec2(1.0, 2.0)),));
+        let (slots, bytes) = (ctx.world.entity_slots(), ctx.world.allocated_bytes());
+        for id in [50_000_000u64, 1 << 31] {
+            // The issue's 181-byte file, with this id.
+            let mut scene = World::new().save();
+            scene["entities"] = serde_json::json!([ { "entity": id,
+                "components": { "Transform2D": { "position": [0.0, 0.0], "rotation": 0.0, "scale": [1.0, 1.0] } } } ]);
+            std::fs::write(&path, scene.to_string()).unwrap();
+            let err = ctx.load_scene(file.0).unwrap_err();
+            assert!(err.contains("may only use indices below"), "{err}");
+            assert_eq!(ctx.world.len(), 1);
+            assert_eq!((ctx.world.entity_slots(), ctx.world.allocated_bytes()), (slots, bytes));
+            assert!(ctx.world.is_alive(kept));
+        }
+    });
+}
+
 // ANCHOR: scenes
 fn beach(ctx: &mut Ctx) -> Result<(), String> {
     ctx.world.reflect::<Palm>(); // components in files must be reflected

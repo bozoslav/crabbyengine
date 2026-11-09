@@ -192,12 +192,21 @@ fn bad_saves_are_rejected_with_a_reason_and_change_nothing() {
             ..Default::default()
         },
     );
-    let cases: [(&CStr, &str); 3] = [
+    let cases: [(&CStr, &str); 5] = [
         (c"not json", "not JSON"),
         (c"{}", "not a world save"),
         (
             cr#"{"format":"crabby-world","version":1,"entities":[{"entity":1,"components":{"Unit":{"speed":1}}}]}"#,
             "has no field `speed`",
+        ),
+        // Huge entity ids would make the world allocate a huge entity table.
+        (
+            cr#"{"format":"crabby-world","version":1,"entities":[{"entity":50000000,"components":{"Unit":{"hp":1}}}]}"#,
+            "may only use indices below",
+        ),
+        (
+            cr#"{"format":"crabby-world","version":1,"entities":[{"entity":2147483648,"components":{"Unit":{"hp":1}}}]}"#,
+            "may only use indices below",
         ),
     ];
     for (json, message) in cases {

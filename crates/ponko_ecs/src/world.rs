@@ -321,6 +321,27 @@ impl World {
         self.len() == 0
     }
 
+    /// Size of the entity slot table: one past the highest entity index this
+    /// world has handed out or restored since it was created or
+    /// [`reset`](Self::reset). Despawned slots stay in the table for reuse, so
+    /// this never shrinks except on `reset`.
+    ///
+    /// ```
+    /// use ponko_ecs::{Entity, World};
+    ///
+    /// let mut world = World::new();
+    /// let a = world.spawn((1u8,));
+    /// world.spawn((2u8,));
+    /// world.despawn(a);
+    /// assert_eq!((world.len(), world.entity_slots()), (1, 2));
+    /// assert!(world.spawn_at(Entity::from_bits(9), (3u8,)));
+    /// assert_eq!(world.entity_slots(), 10);
+    /// ```
+    #[must_use]
+    pub fn entity_slots(&self) -> usize {
+        self.entities.slots()
+    }
+
     // ---- single-entity access -----------------------------------------------
 
     /// Component `T` of entity `e`, or `None` if `e` is dead or doesn't have one.

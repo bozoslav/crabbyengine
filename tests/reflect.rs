@@ -278,6 +278,107 @@ fn a_bad_save_leaves_the_world_untouched() {
     }
 }
 
+/// A save of one entity with the given id, as a corrupt or hostile file could hold.
+fn one_entity_save(id: u64) -> serde_json::Value {
+    let mut save = World::new().save();
+    save["entities"] = json!([ { "entity": id,
+        "components": { "Transform2D": { "position": [0.0, 0.0], "rotation": 0.0, "scale": [1.0, 1.0] } } } ]);
+    save
+}
+
+#[test]
+fn huge_entity_indices_are_errors_that_allocate_nothing() {
+    let (mut w, _, _) = save_world();
+    let before = w.save();
+    let (len, slots, bytes) = (w.len(), w.entity_slots(), w.allocated_bytes());
+    // One past the limit for a one-entity save into a small world, about 2^31,
+    // the largest index, and a big index with a generation.
+    let limit = (1u64 << 22) + 8;
+    for id in [
+        limit,
+        50_000_000,
+        1 << 31,
+        u64::from(u32::MAX - 1),
+        50_000_000 | 7 << 32,
+    ] {
+        let err = w.load(&one_entity_save(id)).unwrap_err().to_string();
+        assert!(err.contains("may only use indices below 4194312"), "{id}: {err}");
+        assert_eq!(
+            (w.len(), w.entity_slots(), w.allocated_bytes()),
+            (len, slots, bytes),
+            "{id}"
+        );
+        assert_eq!(w.save(), before, "{id} changed the world");
+    }
+    // Gaps within the limit are fine.
+    w.load(&one_entity_save(limit - 1_000_000)).unwrap();
+    assert_eq!(w.len(), 1);
+}
+
+#[test]
+fn the_index_limit_grows_with_the_entities_in_the_save() {
+    let mut save = one_entity_save(0);
+    let entity = save["entities"][0].clone();
+    let entities = save["entities"].as_array_mut().unwrap();
+    for id in 1..1000u64 {
+        let mut e = entity.clone();
+        e["entity"] = json!(id);
+        entities.push(e);
+    }
+    // 1000 entities may use indices below 8 * 1000 + 2^22.
+    let mut last = entity.clone();
+    last["entity"] = json!(8_000 + (1u64 << 22) - 1);
+    entities.push(last.clone());
+    let mut w = world();
+    w.load(&save).unwrap();
+    assert_eq!(w.len(), 1001);
+    last["entity"] = json!(8_008 + (1u64 << 22));
+    *save["entities"].as_array_mut().unwrap().last_mut().unwrap() = last;
+    // Into a fresh world: `w` now has the slots, so it would vouch for them.
+    let mut fresh = world();
+    assert!(fresh.load(&save).is_err());
+    assert_eq!(fresh.entity_slots(), 0);
+}
+
+#[test]
+fn saves_with_heavy_despawn_churn_load_back() {
+    let mut w = world();
+    let all: Vec<Entity> = (0..100_000)
+        .map(|i| w.spawn((Transform2D::at(vec2(i as f32, 0.0)),)))
+        .collect();
+    for (i, &e) in all.iter().enumerate() {
+        if i % 1000 != 999 {
+            w.despawn(e);
+        }
+    }
+    // Churn generations too.
+    for _ in 0..10 {
+        let batch: Vec<Entity> = (0..50_000).map(|_| w.spawn((Team(0),))).collect();
+        for e in batch {
+            w.despawn(e);
+        }
+    }
+    let save = w.save();
+    assert_eq!(save["entities"].as_array().unwrap().len(), 100);
+    let mut fresh = world();
+    fresh.load(&save).unwrap();
+    assert_eq!(fresh.save(), save);
+    assert!(fresh.is_alive(all[99_999]));
+}
+
+#[test]
+fn a_world_always_loads_its_own_save_back() {
+    // A world that once used more slots than a fresh one would accept for
+    // this save: its own slot table vouches for the ids.
+    let mut w = world();
+    let far = Entity::from_bits(5_000_000 | 2 << 32);
+    assert!(w.spawn_at(far, (Transform2D::default(),)));
+    let save = w.save();
+    w.load(&save).unwrap();
+    assert!(w.is_alive(far));
+    assert!(world().load(&save).is_err(), "a fresh world has no such slots");
+}
+
 // ---- resources --------------------------------------------------------------------
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
