@@ -514,7 +514,11 @@ fn transitions(filter: Option<&str>) {
                 }
             }
             times.sort_by(f64::total_cmp);
-            println!("{full:<48} median {:>9.2} ns   min {:>9.2} ns", times[times.len() / 2], times[0]);
+            println!(
+                "{full:<48} median {:>9.2} ns   min {:>9.2} ns",
+                times[times.len() / 2],
+                times[0]
+            );
         }
     }
 }

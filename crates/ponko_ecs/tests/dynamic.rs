@@ -130,7 +130,7 @@ fn structural_changes_keep_values_in_wide_archetypes() {
     // Three entities share the archetype, so rows are swapped when one leaves.
     let es: Vec<Entity> = (0..3).map(|_| w.spawn((Pos(0.0, 0.0),))).collect();
     // Insert in a scrambled order; the archetype's columns are sorted by id regardless.
-    let initial = |c: u32| c % 2 == 0 && c != 20;
+    let initial = |c: u32| c.is_multiple_of(2) && c != 20;
     let order: Vec<u32> = (0..WIDE).filter(|&c| initial(c)).rev().collect();
     for (n, &e) in es.iter().enumerate() {
         for &c in &order {
