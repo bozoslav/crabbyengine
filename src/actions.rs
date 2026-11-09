@@ -356,15 +356,15 @@ impl ActionMap {
     }
     #[inline]
     pub(crate) fn down(&self, action: impl ActionRef) -> bool {
-        action.slot(self).map_or(false, |i| self.states[i].down)
+        action.slot(self).is_some_and(|i| self.states[i].down)
     }
     #[inline]
     pub(crate) fn pressed(&self, action: impl ActionRef) -> bool {
-        action.slot(self).map_or(false, |i| self.states[i].pressed)
+        action.slot(self).is_some_and(|i| self.states[i].pressed)
     }
     #[inline]
     pub(crate) fn released(&self, action: impl ActionRef) -> bool {
-        action.slot(self).map_or(false, |i| self.states[i].released)
+        action.slot(self).is_some_and(|i| self.states[i].released)
     }
     #[inline]
     pub(crate) fn axis(&self, action: impl ActionRef) -> f32 {
