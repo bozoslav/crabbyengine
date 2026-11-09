@@ -1,9 +1,9 @@
 ### Added
-- C and C++ bindings for shader status: `crabby_ctx_shader_status_count`,
-  `crabby_ctx_shader_status` (`CrabbyShaderStatus`, `CRABBY_SHADER_*`
-  kinds and outcomes), `crabby_ctx_shader_status_name`,
-  `crabby_ctx_shader_status_text` and `crabby_ctx_shader_status_json`
-  (and `ponko_*` spellings); C++ `ctx::shader_status()` and
+- C and C++ bindings for shader status: `ponko_ctx_shader_status_count`,
+  `ponko_ctx_shader_status` (`PonkoShaderStatus`, `PONKO_SHADER_*`
+  kinds and outcomes), `ponko_ctx_shader_status_name`,
+  `ponko_ctx_shader_status_text` and `ponko_ctx_shader_status_json`
+  (`ponko.h` spellings over the version-2 ABI); C++ `ctx::shader_status()` and
   `ctx::shader_status_json()`.
 - The guide's "Shader errors and reloads" section: what the compiler and
   the GPU check on each platform, and what isn't caught.

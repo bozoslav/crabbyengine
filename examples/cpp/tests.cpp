@@ -228,9 +228,9 @@ static void three_d() {
             CHECK(shaders.size() >= 2);
             auto& grey_status = shaders[shaders.size() - 2];
             CHECK(grey_status.shader == "grey" && grey_status.ok() && grey_status.errors.empty());
-            CHECK(grey_status.info.kind == CRABBY_SHADER_EFFECT && grey_status.info.outcome == CRABBY_SHADER_COMPILED);
+            CHECK(grey_status.info.kind == PONKO_SHADER_EFFECT && grey_status.info.outcome == PONKO_SHADER_COMPILED);
             auto& bad = shaders.back();
-            CHECK(bad.shader == "bad" && !bad.ok() && bad.info.outcome == CRABBY_SHADER_FAILED);
+            CHECK(bad.shader == "bad" && !bad.ok() && bad.info.outcome == PONKO_SHADER_FAILED);
             CHECK(bad.info.diagnostics == 1 && bad.info.line > 0 && bad.errors.rfind("bad", 0) == 0);
             CHECK(ctx.shader_status_json().find("\"outcome\":\"failed\"") != std::string::npos);
         }
