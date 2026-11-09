@@ -38,6 +38,7 @@
 
 #![warn(missing_docs)]
 
+mod access;
 mod bundle;
 mod commands;
 mod entity;
@@ -45,6 +46,7 @@ mod query;
 mod storage;
 mod world;
 
+pub use access::AccessLog;
 pub use bundle::{Bundle, Component};
 pub use commands::Commands;
 pub use entity::Entity;

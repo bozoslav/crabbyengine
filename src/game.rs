@@ -289,6 +289,8 @@ struct System {
     phase: u32,
     /// Unique per system: its read position for events.
     id: u32,
+    /// Declared access from `add_with_access`; `None` is exclusive.
+    access: Option<crate::SystemAccess>,
 }
 
 /// Ids for [`System::id`]; 0 means "outside any system".
@@ -323,7 +325,15 @@ fn run_one(s: &mut System, ctx: &mut Ctx, timing_index: usize) {
     let start = Instant::now();
     ctx.system_index = timing_index;
     ctx.events.reader = s.id;
+    #[cfg(debug_assertions)]
+    if s.access.is_some() {
+        crate::access::begin_check(ctx);
+    }
     (s.run)(ctx);
+    #[cfg(debug_assertions)]
+    if let Some(access) = &s.access {
+        crate::access::end_check(ctx, s.name, access);
+    }
     ctx.events.reader = 0;
     ctx.apply_commands();
     ctx.timings[timing_index].last_ms += start.elapsed().as_secs_f32() * 1000.0;
@@ -345,6 +355,7 @@ impl System {
             every: 1,
             phase: 0,
             id,
+            access: None,
         }
     }
 }
@@ -473,6 +484,42 @@ impl Game {
     /// [`add`](Self::add), this method borrows the builder to return an ID.
     pub fn add_system(&mut self, phase: Phase, system: impl FnMut(&mut Ctx) + 'static) -> SystemId {
         self.insert_system(phase, System::new(system))
+    }
+
+    /// Like [`add`](Self::add), with a declaration of what the system
+    /// reads and writes. Opt-in metadata for tools and a future scheduler:
+    /// the system still runs in order with the whole `Ctx`. In debug builds,
+    /// using anything beyond the declaration panics after the system runs.
+    /// See [`SystemAccess`] and [`access_report`](Self::access_report).
+    ///
+    /// [`SystemAccess`]: crate::SystemAccess
+    pub fn add_with_access(
+        mut self,
+        phase: Phase,
+        access: crate::SystemAccess,
+        system: impl FnMut(&mut Ctx) + 'static,
+    ) -> Self {
+        let mut s = System::new(system);
+        s.access = Some(access);
+        self.insert_system(phase, s);
+        self
+    }
+
+    /// Every system in run order with its declared access, and which
+    /// declared systems in the same phase could run together.
+    #[must_use]
+    pub fn access_report(&self) -> crate::AccessReport {
+        let systems = (self.sim_systems.iter())
+            .chain(&self.systems)
+            .chain(&self.late_systems)
+            .chain(&self.draw_systems)
+            .map(|s| crate::access::ReportedSystem {
+                name: s.name,
+                phase: s.stage,
+                access: s.access.clone(),
+            })
+            .collect();
+        crate::AccessReport::new(systems)
     }
 
     /// For language bindings (the C API): `add` with a name for timings and
