@@ -34,16 +34,6 @@ says what that covers.
 - The by-name forms of the two JSON loaders (used by the C API) are now
   `load_component_json_named` and `load_resource_json_named`; they are hidden
   from the docs.
-### Builder setup callbacks
-
-- `Game::setup` stores startup callbacks and returns `ConfiguredGame`, which
-  supports `.setup(...)`, `.run()`, `.run_headless(ticks)` and profiling.
-  Configure systems/options before calling setup. Callbacks run once in order,
-  applying deferred commands after each callback, before systems start.
-- Existing `Game::run(setup)` and `run_headless(ticks, setup)` remain compatible;
-  their `SetupResult` implementation detail is now hidden from generated docs.
-  The separate configured type preserves both call shapes without overloading.
-
 
 ## [0.0.1] - 2026-11-08
 
