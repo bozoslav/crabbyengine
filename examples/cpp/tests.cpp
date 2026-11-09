@@ -388,6 +388,16 @@ static void three_d() {
         throws([&] { ctx.set_graphics_quality(bad_quality); });
         throws([&] { ponko::graphics_quality_preset(ponko::quality_level::custom); });
         CHECK(ctx.graphics_quality().shadow_cascades == 2);
+        // GPU tiers: no GPU headless; tier reports and presets need none.
+        CHECK(!ctx.gpu_capabilities() && !ctx.gpu_tier() && !ctx.recommended_graphics_quality());
+        CHECK(!ctx.gpu_has(ponko::gpu_feature::compute));
+        CHECK(ponko::gpu_tier_report(ponko::gpu_tier::desktop).find("\"tier\":\"desktop\"") != std::string::npos);
+        CHECK(!ponko::gpu_tier_has(ponko::gpu_tier::webgl2, ponko::gpu_feature::screen_space_reflections));
+        CHECK(ponko::gpu_tier_has(ponko::gpu_tier::baseline, ponko::gpu_feature::compute_culling));
+        CHECK(!ponko::gpu_tier_has(ponko::gpu_tier::baseline, ponko::gpu_feature::gpu_skinning));
+        CHECK(ponko::graphics_quality_level(ponko::graphics_quality_for_tier(ponko::gpu_tier::baseline)) == ponko::quality_level::medium);
+        CHECK(ponko::graphics_quality_for_tier(ponko::gpu_tier::webgl2).anti_aliasing == uint32_t(ponko::anti_aliasing::fxaa));
+        throws([&] { ponko::gpu_tier_has(ponko::gpu_tier(7), ponko::gpu_feature::compute); });
         ctx.set_graphics_quality(ponko::graphics_quality_preset(ponko::quality_level::high));
         CHECK(ctx.graphics_quality().ssr == 1 && ctx.post().ssr == 1);
         CHECK(!ctx.graphics_quality().gi && ponko::graphics_quality_preset(ponko::quality_level::ultra).gi);

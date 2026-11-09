@@ -199,6 +199,17 @@ using graphics_quality = CrabbyGraphicsQuality;
 /// The presets (Rust `QualityLevel`); `custom` is what graphics_quality_level()
 /// says of settings that are none of them.
 enum class quality_level : uint32_t { low = 0, medium = 1, high = 2, ultra = 3, custom = 4 };
+/// A class of GPU (Rust `GpuTier`), from the weakest the engine runs on:
+/// WebGL2 (no compute), baseline (compute: every screen-space effect and GPU
+/// culling) and desktop (also GPU skinning, decals and global illumination).
+/// See gpu_tier_report() and ctx::gpu_tier().
+enum class gpu_tier : uint32_t { webgl2 = 0, baseline = 1, desktop = 2 };
+/// A renderer feature that depends on the GPU (Rust `GpuFeature`).
+enum class gpu_feature : uint32_t {
+    timestamps = 0, compute = 1, storage_buffers = 2, compute_culling = 3, gpu_skinning = 4,
+    occlusion_culling = 5, temporal_antialiasing = 6, ambient_occlusion = 7, contact_shadows = 8,
+    screen_space_reflections = 9, global_illumination = 10, decals = 11, multisampling = 12
+};
 /// How HDR light maps to the screen (`post::tonemap`).
 enum class tonemap : uint32_t { aces = 0, agx = 1, neutral = 2, none = 3 };
 using draw_params = CrabbyDrawParams;
@@ -708,6 +719,21 @@ inline graphics_quality graphics_quality_preset(quality_level level) {
 /// Which preset `q` is, or quality_level::custom. Throws if a field is out of range.
 inline quality_level graphics_quality_level(const graphics_quality& q) {
     uint32_t level = 0; detail::check(crabby_graphics_quality_level(&q, &level)); return quality_level(level);
+}
+/// The quality preset meant for tier `t` (Rust `GraphicsQuality::for_tier`):
+/// low with FXAA, medium or high, asking for nothing the tier lacks.
+inline graphics_quality graphics_quality_for_tier(gpu_tier t) {
+    graphics_quality q{}; detail::check(crabby_graphics_quality_for_tier(uint32_t(t), &q)); return q;
+}
+/// The JSON report a device with exactly tier `t`'s minimum limits gives
+/// (Rust `GpuTier::report`): what the tier guarantees, and for the other
+/// features the fallback and the reason. Needs no GPU.
+inline std::string gpu_tier_report(gpu_tier t) {
+    return detail::read_text([&](char* b, std::size_t c, std::size_t* n) { return crabby_gpu_tier_report(uint32_t(t), b, c, n); });
+}
+/// Whether every GPU of tier `t` has feature `f`. Needs no GPU.
+inline bool gpu_tier_has(gpu_tier t, gpu_feature f) {
+    bool on = false; detail::check(crabby_gpu_tier_feature(uint32_t(t), uint32_t(f), &on)); return on;
 }
 /// One described field of a component, from crabby::field.
 template<class T> struct field_info { CrabbyField raw; };
@@ -3279,6 +3305,39 @@ public:
     /// resolution scale and shadow map sizes. Throws, changing nothing, for a field
     /// outside its range.
     void set_graphics_quality(const crabby::graphics_quality& q) { detail::check(crabby_ctx_set_graphics_quality(raw_, &q)); }
+    /// The GPU report as JSON (Rust `ctx.gpu_capabilities()`): adapter, limits,
+    /// tier, forced_tier and one {feature, available, fallback, reason} entry per
+    /// feature. Empty before a GPU opens (headless, before the window).
+    std::optional<std::string> gpu_capabilities() const {
+        std::size_t len = 0;
+        CrabbyStatus status = crabby_ctx_gpu_capabilities(raw_, nullptr, 0, &len);
+        if (status == CRABBY_NOT_FOUND) return std::nullopt;
+        detail::check(status);
+        return detail::read_text([&](char* b, std::size_t c, std::size_t* n) { return crabby_ctx_gpu_capabilities(raw_, b, c, n); });
+    }
+    /// The GPU's tier; empty before a GPU opens.
+    std::optional<crabby::gpu_tier> gpu_tier() const {
+        uint32_t t = 0;
+        CrabbyStatus status = crabby_ctx_gpu_tier(raw_, &t);
+        if (status == CRABBY_NOT_FOUND) return std::nullopt;
+        detail::check(status); return crabby::gpu_tier(t);
+    }
+    /// Whether the GPU has feature `f` (false before a GPU opens); the fallback
+    /// and the reason are in gpu_capabilities().
+    bool gpu_has(crabby::gpu_feature f) const {
+        bool on = false;
+        CrabbyStatus status = crabby_ctx_gpu_feature(raw_, uint32_t(f), &on);
+        if (status == CRABBY_NOT_FOUND) return false;
+        detail::check(status); return on;
+    }
+    /// The preset for the open GPU, fitted to what it has (Rust
+    /// `GraphicsQuality::recommended`); empty before a GPU opens.
+    std::optional<crabby::graphics_quality> recommended_graphics_quality() const {
+        crabby::graphics_quality q{};
+        CrabbyStatus status = crabby_ctx_recommended_graphics_quality(raw_, &q);
+        if (status == CRABBY_NOT_FOUND) return std::nullopt;
+        detail::check(status); return q;
+    }
     /// Makes temporal antialiasing and temporal AO forget earlier frames: call it
     /// after a camera cut or an object teleport. (Resizes and big camera jumps
     /// reset by themselves.)

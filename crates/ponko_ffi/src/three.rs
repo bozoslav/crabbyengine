@@ -2652,7 +2652,7 @@ pub struct CrabbyGraphicsQuality {
     pub gi: bool,
 }
 
-fn quality_to_c(q: GraphicsQuality) -> CrabbyGraphicsQuality {
+pub(crate) fn quality_to_c(q: GraphicsQuality) -> CrabbyGraphicsQuality {
     CrabbyGraphicsQuality {
         render_scale: q.render_scale,
         sharpen: q.sharpen,
