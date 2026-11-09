@@ -58,6 +58,55 @@ The same game can run windowed or headless: the boids example does both
 [`examples/headless.rs`](https://github.com/bozoslav/ponko/blob/main/examples/headless.rs)
 simulates a million agents this way.
 
+## A complete game, tested headlessly
+
+[`examples/coin_dash`](https://github.com/ponkoengine/ponko/tree/main/examples/coin_dash)
+is a small complete game (win, lose, restart, keyboard and gamepad, no asset
+files) built so that a test can play it. It has three layers:
+
+1. `read_input`, a frame system, turns the named [actions](actions.md) into
+   an `Intent` resource (below).
+2. `rules`, a sim system, is the whole game. It reads only the `Intent` and the
+   world, never the keyboard.
+3. Drawing is the built-in sprite drawing plus a `hud` frame system.
+
+`read_input` resolves the action names once, at startup, into `ActionId`s, so
+a name that `bindings` doesn't define is logged once instead of reading false on
+every frame:
+
+```rust
+{{#include ../../examples/coin_dash/game.rs:controls}}
+```
+
+```rust
+{{#include ../../examples/coin_dash/game.rs:read_input}}
+```
+
+Because `rules` reads only the `Intent`, [`tests/coin_dash.rs`](https://github.com/ponkoengine/ponko/blob/main/tests/coin_dash.rs)
+replaces step 1 with a scripted player: a sim system added before the game's
+own, which writes the `Intent` each tick. The game's systems are installed
+unchanged:
+
+```rust
+{{#include ../../tests/coin_dash.rs:script}}
+```
+
+```rust
+{{#include ../../tests/coin_dash.rs:chase}}
+```
+
+A whole round then runs in a few milliseconds, with the same result every time
+because the game uses the context's seeded random numbers (see
+[Randomness, determinism and saving](determinism.md)):
+
+```rust
+{{#include ../../tests/coin_dash.rs:win}}
+```
+
+The same file tests a loss, restarts, reproducible layouts, and the input
+mapping itself: `feed_input` presses keys and moves sticks, and the test calls
+`read_input` and checks the `Intent` it produced.
+
 ## Builds without a window
 
 A simulation server or a CI job that only runs headless doesn't need winit

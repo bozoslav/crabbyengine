@@ -11,11 +11,13 @@ use ponko::*;
 /// The sim runs at the default 60 Hz: ticks per second, for readable run lengths.
 const HZ: u64 = 60;
 
+// ANCHOR: script
 /// A system that runs before the game's rules and decides what the player
 /// does this tick (in place of `read_input`, which needs a window's frames).
 fn script(f: impl FnMut(&mut Ctx) + 'static) -> Game {
     install(Game::new("coin dash test", 800, 600).seed(SEED).sim_system(f))
 }
+// ANCHOR_END: script
 
 fn player_and_coins(ctx: &mut Ctx) -> (Vec2, Vec<Vec2>) {
     let mut player = Vec2::ZERO;
@@ -31,6 +33,7 @@ fn player_and_coins(ctx: &mut Ctx) -> (Vec2, Vec<Vec2>) {
     (player, coins)
 }
 
+// ANCHOR: chase
 /// Walks straight to the nearest coin.
 fn chase_nearest_coin(ctx: &mut Ctx) {
     let (player, coins) = player_and_coins(ctx);
@@ -40,6 +43,7 @@ fn chase_nearest_coin(ctx: &mut Ctx) {
     let direction = nearest.map_or(Vec2::ZERO, |c| (c - player).normalize_or_zero());
     ctx.world.resource_mut::<Intent>().direction = direction;
 }
+// ANCHOR_END: chase
 
 fn coin_layout(world: &mut World) -> Vec<Vec2> {
     let mut coins: Vec<Vec2> = world
@@ -51,6 +55,7 @@ fn coin_layout(world: &mut World) -> Vec<Vec2> {
     coins
 }
 
+// ANCHOR: win
 #[test]
 fn collecting_every_coin_wins_the_round() {
     let mut world = script(chase_nearest_coin).run_headless(ROUND_SECONDS as u64 * HZ, setup);
@@ -60,6 +65,7 @@ fn collecting_every_coin_wins_the_round() {
     assert!(round.time_left > 0.0, "won with time to spare, got {}", round.time_left);
     assert_eq!(world.query::<&Coin>().iter().count(), 0);
 }
+// ANCHOR_END: win
 
 #[test]
 fn a_finished_round_stays_finished_until_restart() {
@@ -271,4 +277,14 @@ fn every_restart_binding_asks_for_a_restart_that_the_sim_takes_once() {
             );
         }
     });
+}
+
+#[test]
+fn every_control_name_is_a_binding() {
+    // `Controls` resolves names once; a name `bindings` doesn't define would
+    // read false forever, so the two lists must agree.
+    let map = bindings();
+    for name in Controls::NAMES {
+        assert!(map.resolve(name).is_ok(), "`{name}` is not bound");
+    }
 }
