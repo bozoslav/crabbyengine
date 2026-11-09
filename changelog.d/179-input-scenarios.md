@@ -16,7 +16,11 @@
   `cancel_input_scenario`. Tools can only load scenarios when the game allows
   it (`Game::input_injection(true)` or `PONKO_INPUT_INJECTION=1`; the MCP
   `launch` tool sets it). A scenario loaded with `bind_connection` is cancelled
-  when its client disconnects.
+  when its client disconnects. A tool's scenario releases the keys it holds
+  when it ends unless `keep_input_when_done` is set (the kept input stays owned
+  and a cancel or the owner's disconnect releases it); `max_ticks` is checked
+  before a running scenario is touched, and `queue_ticks` makes a failed check or
+  a cancel take back only the steps the scenario queued itself.
 
 ### Changed
 - `InputScenario` now lives in its own module; the public path

@@ -73,8 +73,15 @@ report.assert_passed(); // or look at report.failure
   bound on a run, and hands it back with the world.
 - **Releasing input.** `ctx.cancel_input_scenario()`, a scenario that replaces
   it, a failed check and a tool's disconnect release every key, button and axis
-  the scenario still holds. A run that simply finishes leaves its input as it
-  was, unless the scenario says `.release_when_done()`.
+  the scenario still holds. A run in game code that simply finishes leaves its
+  input as it was, unless the scenario says `.release_when_done()`; a run a tool
+  loads releases it by default (see below). Only what the scenario itself left
+  held is released, but the input state is one shared set of held keys with no
+  record of which device holds one: a key a player also holds physically reads as
+  up until its next key event.
+- **Started from a system.** `ctx.start_input_scenario` called from a simulation
+  system begins on the next tick; nothing of it (input or checks) happens on the
+  tick that started it.
 
 ### The scenario file
 
@@ -116,6 +123,16 @@ only opens the endpoint for inspection refuses to load scenarios: allow it with
 `Game::input_injection(true)` or `PONKO_INPUT_INJECTION=1` (the MCP `launch`
 tool sets it). A scenario loaded with `bind_connection` is cancelled, and its
 input released, when the client that loaded it disconnects.
+
+A tool's scenario releases the keys it holds when it ends, however it ends, so a
+tool that dies mid-run leaves nothing pressed. With `keep_input_when_done` they
+stay held (to look at the result, say), and stay owned by the scenario's owner:
+`input.scenario.cancel`, or the owner's disconnect when it was bound, still
+releases them, and the report's `still_held` says how many are left. With
+`max_ticks` a too-long scenario is refused before the running one is touched, and
+with `queue_ticks` a paused game gets the scenario's own ticks queued as steps; a
+failed check or a cancel takes back only those that haven't run, never ticks
+another client asked for with `sim.step`.
 
 | Action | Rust sources | C++ sources |
 | --- | --- | --- |
