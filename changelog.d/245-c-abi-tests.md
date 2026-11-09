@@ -9,3 +9,15 @@
   with its reason in `scripts/ffi-coverage-allowlist.txt`.
 - `scripts/check-ffi-coverage.py`, run by CI, fails when a C export has no
   test and no allowlist entry, or when an allowlist entry gets a test.
+
+### Changed
+- `Animator::parameter` and `Animator::state_count` read a parameter by index and
+  the graph's state count, so callers can check before a setter or crossfade
+  that panics on purpose.
+
+### Fixed
+- The C animator calls (`animator_set_float/bool/trigger`, `animator_crossfade`
+  and the layer versions) returned a panic status, with a panic message on
+  stderr, for a parameter of the wrong kind or index, a non-finite value, an
+  unknown state or a negative or non-finite crossfade duration or offset. They
+  now return `INVALID_ARGUMENT` and leave the animator unchanged.

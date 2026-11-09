@@ -545,7 +545,9 @@ pub unsafe extern "C" fn crabby_ctx_animator_set_float(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            animator(c, entity_bits)?.set_float(parameter, value);
+            let a = animator(c, entity_bits)?;
+            check_float(a, parameter, value)?;
+            a.set_float(parameter, value);
             Ok(())
         })
     })
@@ -567,7 +569,9 @@ pub unsafe extern "C" fn crabby_ctx_animator_set_bool(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            animator(c, entity_bits)?.set_bool(parameter, value);
+            let a = animator(c, entity_bits)?;
+            check_bool(a, parameter)?;
+            a.set_bool(parameter, value);
             Ok(())
         })
     })
@@ -590,7 +594,9 @@ pub unsafe extern "C" fn crabby_ctx_animator_set_trigger(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            animator(c, entity_bits)?.set_trigger(parameter, value);
+            let a = animator(c, entity_bits)?;
+            check_trigger(a, parameter)?;
+            a.set_trigger(parameter, value);
             Ok(())
         })
     })
@@ -641,7 +647,9 @@ pub unsafe extern "C" fn crabby_ctx_animator_crossfade(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            animator(c, entity_bits)?.crossfade(state, duration, offset);
+            let a = animator(c, entity_bits)?;
+            check_crossfade(a, state, duration, offset)?;
+            a.crossfade(state, duration, offset);
             Ok(())
         })
     })
@@ -768,6 +776,45 @@ pub enum CrabbyRootMotion {
     CRABBY_ROOT_MOTION_APPLY,
 }
 
+/// `Animator` panics on purpose for a wrong parameter index or kind; these
+/// check first, so a C caller gets `CRABBY_INVALID_ARGUMENT` instead.
+fn check_float(a: &Animator, parameter: usize, value: f32) -> Result<(), Failure> {
+    if !value.is_finite() {
+        return Err(invalid("value must be finite"));
+    }
+    match a.parameter(parameter) {
+        Some(AnimationParameter::Float(_)) => Ok(()),
+        _ => Err(invalid("that parameter is not a float")),
+    }
+}
+
+fn check_bool(a: &Animator, parameter: usize) -> Result<(), Failure> {
+    match a.parameter(parameter) {
+        Some(AnimationParameter::Bool(_)) => Ok(()),
+        _ => Err(invalid("that parameter is not a bool")),
+    }
+}
+
+fn check_trigger(a: &Animator, parameter: usize) -> Result<(), Failure> {
+    match a.parameter(parameter) {
+        Some(AnimationParameter::Trigger(_)) => Ok(()),
+        _ => Err(invalid("that parameter is not a trigger")),
+    }
+}
+
+fn check_crossfade(a: &Animator, state: usize, duration: f32, offset: f32) -> Result<(), Failure> {
+    if state >= a.state_count() {
+        return Err(invalid("no such animation state"));
+    }
+    if !(duration.is_finite() && duration >= 0.) {
+        return Err(invalid("crossfade duration must be finite and not negative"));
+    }
+    if !(offset.is_finite() && offset >= 0.) {
+        return Err(invalid("crossfade offset must be finite and not negative"));
+    }
+    Ok(())
+}
+
 fn layer(c: &mut Ctx, bits: u64, index: usize) -> Result<&mut Animator, Failure> {
     let a = animator(c, bits)?;
     if index >= a.layer_count() {
@@ -876,7 +923,9 @@ pub unsafe extern "C" fn crabby_ctx_animator_layer_set_float(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            layer(c, entity_bits, layer_index)?.set_float(parameter, value);
+            let a = layer(c, entity_bits, layer_index)?;
+            check_float(a, parameter, value)?;
+            a.set_float(parameter, value);
             Ok(())
         })
     })
@@ -899,7 +948,9 @@ pub unsafe extern "C" fn crabby_ctx_animator_layer_set_bool(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            layer(c, entity_bits, layer_index)?.set_bool(parameter, value);
+            let a = layer(c, entity_bits, layer_index)?;
+            check_bool(a, parameter)?;
+            a.set_bool(parameter, value);
             Ok(())
         })
     })
@@ -922,7 +973,9 @@ pub unsafe extern "C" fn crabby_ctx_animator_layer_set_trigger(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            layer(c, entity_bits, layer_index)?.set_trigger(parameter, value);
+            let a = layer(c, entity_bits, layer_index)?;
+            check_trigger(a, parameter)?;
+            a.set_trigger(parameter, value);
             Ok(())
         })
     })
@@ -947,7 +1000,9 @@ pub unsafe extern "C" fn crabby_ctx_animator_layer_crossfade(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            layer(c, entity_bits, layer_index)?.crossfade(state, duration, offset);
+            let a = layer(c, entity_bits, layer_index)?;
+            check_crossfade(a, state, duration, offset)?;
+            a.crossfade(state, duration, offset);
             Ok(())
         })
     })

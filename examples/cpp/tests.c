@@ -711,7 +711,11 @@ static void animator_setup(PonkoCtx* ctx, void* user) {
     CHECK(ponko_ctx_animator_update(ctx, e, 0.1f) == PONKO_OK);
     CHECK(ponko_ctx_animator_state(ctx, e, &state, &time) == PONKO_OK && state == still);
     CHECK(ponko_ctx_animator_set_float(ctx, e, speed, 1.0f) == PONKO_OK);
-    CHECK(ponko_ctx_animator_set_bool(ctx, e, speed, true) != PONKO_OK); /* it is a float */
+    /* A wrong kind or index, or bad values, are invalid arguments. */
+    CHECK(ponko_ctx_animator_set_bool(ctx, e, speed, true) == PONKO_INVALID_ARGUMENT); /* it is a float */
+    CHECK(ponko_ctx_animator_set_float(ctx, e, 9, 1.0f) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_ctx_animator_set_float(ctx, e, speed, NAN) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_ctx_animator_set_trigger(ctx, e, speed, true) == PONKO_INVALID_ARGUMENT);
     CHECK(ponko_ctx_animator_update(ctx, e, 0.0f) == PONKO_OK); /* takes the transition */
     CHECK(ponko_ctx_animator_state(ctx, e, &state, &time) == PONKO_OK && state == up);
     CHECK(ponko_ctx_animator_update(ctx, e, 0.75f) == PONKO_OK);
@@ -726,7 +730,9 @@ static void animator_setup(PonkoCtx* ctx, void* user) {
     CHECK(ponko_ctx_animator_crossfade(ctx, e, still, 0.0f, 0.0f) == PONKO_OK);
     CHECK(ponko_ctx_animator_update(ctx, e, 0.0f) == PONKO_OK);
     CHECK(ponko_ctx_animator_state(ctx, e, &state, &time) == PONKO_OK && state == still);
-    CHECK(ponko_ctx_animator_crossfade(ctx, e, 7, 0.0f, 0.0f) != PONKO_OK);
+    CHECK(ponko_ctx_animator_crossfade(ctx, e, 7, 0.0f, 0.0f) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_ctx_animator_crossfade(ctx, e, still, -1.0f, 0.0f) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_ctx_animator_crossfade(ctx, e, still, 0.0f, NAN) == PONKO_INVALID_ARGUMENT);
 
     ponko_animation_graph_free(graph);
     ponko_clip_free(rise);

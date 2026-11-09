@@ -199,47 +199,56 @@ fn the_forward_tyre_curve_peaks_at_its_extremum_then_slides_to_the_asymptote() {
     );
 }
 
+/// A plane with one morph target ("lift") on a new entity with a model.
+unsafe fn spawn_morph_model(ctx: *mut CrabbyCtx) -> u64 {
+    unsafe {
+        let w = crabby_ctx_world(ctx);
+        let (mut transform, mut model) = (0u32, 0u32);
+        assert_eq!(crabby_transform3d_component(w, &mut transform), CRABBY_OK);
+        assert_eq!(crabby_model_component(w, &mut model), CRABBY_OK);
+        let d = crabby_mesh_data_plane(1.0);
+        let lift = [v3(0.0, 0.5, 0.0); 4];
+        assert_eq!(
+            crabby_mesh_data_add_morph_target(d, c"lift".as_ptr(), lift.as_ptr(), null(), 4),
+            CRABBY_OK
+        );
+        let desc = crabby_material_desc(CrabbyColor {
+            r: 1.0,
+            g: 1.0,
+            b: 1.0,
+            a: 1.0,
+        });
+        let mut material = CrabbyMaterial::default();
+        assert_eq!(crabby_ctx_create_material(ctx, &desc, &mut material), CRABBY_OK);
+        let mut mesh = CrabbyMesh::default();
+        assert_eq!(crabby_ctx_create_mesh(ctx, d, material, &mut mesh), CRABBY_OK);
+        crabby_mesh_data_free(d);
+        let t = crabby_transform3d_at(v3(0.0, 0.0, 0.0));
+        let m = crabby_model(mesh);
+        let parts = [
+            CrabbyValue {
+                component: transform,
+                data: (&t as *const CrabbyTransform3D).cast(),
+                size: size_of::<CrabbyTransform3D>(),
+            },
+            CrabbyValue {
+                component: model,
+                data: (&m as *const CrabbyModel).cast(),
+                size: size_of::<CrabbyModel>(),
+            },
+        ];
+        let mut entity = u64::MAX;
+        assert_eq!(crabby_spawn(w, parts.as_ptr(), 2, &mut entity), CRABBY_OK);
+        entity
+    }
+}
+
 #[test]
 fn writing_animated_morphs_keeps_the_weights_nothing_animates() {
     unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
         unsafe {
             let entity = &mut *user.cast::<u64>();
-            let w = crabby_ctx_world(ctx);
-            let (mut transform, mut model) = (0u32, 0u32);
-            assert_eq!(crabby_transform3d_component(w, &mut transform), CRABBY_OK);
-            assert_eq!(crabby_model_component(w, &mut model), CRABBY_OK);
-            let d = crabby_mesh_data_plane(1.0);
-            let lift = [v3(0.0, 0.5, 0.0); 4];
-            assert_eq!(
-                crabby_mesh_data_add_morph_target(d, c"lift".as_ptr(), lift.as_ptr(), null(), 4),
-                CRABBY_OK
-            );
-            let desc = crabby_material_desc(CrabbyColor {
-                r: 1.0,
-                g: 1.0,
-                b: 1.0,
-                a: 1.0,
-            });
-            let mut material = CrabbyMaterial::default();
-            assert_eq!(crabby_ctx_create_material(ctx, &desc, &mut material), CRABBY_OK);
-            let mut mesh = CrabbyMesh::default();
-            assert_eq!(crabby_ctx_create_mesh(ctx, d, material, &mut mesh), CRABBY_OK);
-            crabby_mesh_data_free(d);
-            let t = crabby_transform3d_at(v3(0.0, 0.0, 0.0));
-            let m = crabby_model(mesh);
-            let parts = [
-                CrabbyValue {
-                    component: transform,
-                    data: (&t as *const CrabbyTransform3D).cast(),
-                    size: size_of::<CrabbyTransform3D>(),
-                },
-                CrabbyValue {
-                    component: model,
-                    data: (&m as *const CrabbyModel).cast(),
-                    size: size_of::<CrabbyModel>(),
-                },
-            ];
-            assert_eq!(crabby_spawn(w, parts.as_ptr(), 2, entity), CRABBY_OK);
+            *entity = spawn_morph_model(ctx);
             assert_eq!(crabby_ctx_set_morph_weight(ctx, *entity, 0, 0.75), CRABBY_OK);
 
             // No skeleton animates this model: its hand-set weight stays.
@@ -262,4 +271,108 @@ fn writing_animated_morphs_keeps_the_weights_nothing_animates() {
         assert_eq!(crabby_ctx_write_animated_morphs(null_mut()), CRABBY_INVALID_ARGUMENT);
     }
     assert_ne!(entity, u64::MAX, "the setup ran");
+}
+
+/// The weight the skeleton's pose has for the "lift" target, then the weight
+/// after setting it by hand and writing the animated morphs again.
+#[derive(Default)]
+struct Weights {
+    posed: f32,
+    after_hand_set: f32,
+    written_again: f32,
+    ran: bool,
+}
+
+#[test]
+fn writing_animated_morphs_applies_the_pose_of_a_clips_morph_track_to_the_model() {
+    unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
+        unsafe {
+            let seen = &mut *user.cast::<Weights>();
+            let path = std::env::temp_dir().join("ponko-ffi-morph-rig.gltf");
+            std::fs::write(
+                &path,
+                // Two joints, a triangle on the second and a clip that holds the
+                // first still: the least a glTF needs to give a skeleton.
+                concat!(
+                    r#"{"asset": {"version": "2.0"}, "scene": 0, "scenes": [{"nodes": [0]}],"#,
+                    r#" "nodes": [{"name": "root", "children": [1]}, {"name": "arm", "mesh": 0}],"#,
+                    r#" "meshes": [{"primitives": [{"attributes": {"POSITION": 0}}]}],"#,
+                    r#" "animations": [{"name": "hold", "samplers": [{"input": 1, "output": 2, "interpolation": "LINEAR"}],"#,
+                    r#" "channels": [{"sampler": 0, "target": {"node": 0, "path": "translation"}}]}],"#,
+                    r#" "buffers": [{"byteLength": 68, "uri": "data:application/octet-stream;base64,AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}],"#,
+                    r#" "bufferViews": [{"buffer": 0, "byteLength": 36}, {"buffer": 0, "byteOffset": 36, "byteLength": 8},"#,
+                    r#" {"buffer": 0, "byteOffset": 44, "byteLength": 24}],"#,
+                    r#" "accessors": [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3","#,
+                    r#" "min": [0, 0, 0], "max": [1, 1, 0]},"#,
+                    r#" {"bufferView": 1, "componentType": 5126, "count": 2, "type": "SCALAR", "min": [0], "max": [1]},"#,
+                    r#" {"bufferView": 2, "componentType": 5126, "count": 2, "type": "VEC3"}]}"#
+                ),
+            )
+            .unwrap();
+            let path = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
+            let e = spawn_morph_model(ctx);
+            assert_eq!(crabby_ctx_load_skeleton(ctx, e, path.as_ptr()), CRABBY_OK);
+            let weight = |ctx| {
+                let mut w = f32::NAN;
+                assert_eq!(crabby_ctx_morph_weight(ctx, e, 0, &mut w), CRABBY_OK);
+                w
+            };
+            assert_eq!(crabby_ctx_set_morph_weight(ctx, e, 0, 0.1), CRABBY_OK);
+            assert_eq!(weight(ctx), 0.1, "nothing has posed the skeleton yet");
+
+            // A clip that holds "lift" at 0.6 for a second, played by a one-state graph.
+            let mut clip = null_mut();
+            assert_eq!(crabby_clip_new(c"face".as_ptr(), &mut clip), CRABBY_OK);
+            let (times, values) = ([0.0f32, 1.0], [0.6f32, 0.6]);
+            assert_eq!(
+                crabby_clip_set_morph_track(clip, c"lift".as_ptr(), times.as_ptr(), values.as_ptr(), 2, 1),
+                CRABBY_OK
+            );
+            let mut motion = null_mut();
+            assert_eq!(crabby_motion_clip(clip, &mut motion), CRABBY_OK);
+            let builder = crabby_animation_graph_builder_new();
+            assert_eq!(
+                crabby_animation_graph_add_state(builder, motion, 1.0, -1, true, null_mut()),
+                CRABBY_OK
+            );
+            let mut graph = null_mut();
+            assert_eq!(crabby_animation_graph_build(builder, 0, &mut graph), CRABBY_OK);
+            assert_eq!(crabby_ctx_set_animator(ctx, e, graph), CRABBY_OK);
+            assert_eq!(crabby_ctx_animator_set_manual(ctx, e, true), CRABBY_OK);
+            assert_eq!(crabby_ctx_animator_update(ctx, e, 0.1), CRABBY_OK);
+            seen.posed = weight(ctx);
+
+            // Hand-setting the weight, then writing the animated morphs again:
+            // the pose's morph channel is applied to the model once more.
+            assert_eq!(crabby_ctx_set_morph_weight(ctx, e, 0, 0.0), CRABBY_OK);
+            seen.after_hand_set = weight(ctx);
+            assert_eq!(crabby_ctx_write_animated_morphs(ctx), CRABBY_OK);
+            seen.written_again = weight(ctx);
+            seen.ran = true;
+            crabby_animation_graph_free(graph);
+            crabby_clip_free(clip);
+        }
+    }
+    let mut seen = Weights::default();
+    unsafe {
+        let game = crabby_game_new(c"morph-clip".as_ptr(), 1, 1);
+        let mut world = null_mut();
+        assert_eq!(
+            crabby_game_run_headless(game, 1, Some(setup), (&raw mut seen).cast(), &mut world),
+            CRABBY_OK
+        );
+        crabby_world_free(world);
+    }
+    assert!(seen.ran);
+    assert!(
+        (seen.posed - 0.6).abs() < 1e-5,
+        "the animator wrote the clip's weight: {}",
+        seen.posed
+    );
+    assert_eq!(seen.after_hand_set, 0.0);
+    assert!(
+        (seen.written_again - 0.6).abs() < 1e-5,
+        "writing again applies the pose: {}",
+        seen.written_again
+    );
 }

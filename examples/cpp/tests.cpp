@@ -20,6 +20,16 @@ struct Tag {};
 namespace game { struct Health { float value; }; }
 namespace other { struct Health { int value; }; }
 PONKO_COUNT_CPP_ALLOCATIONS
+// The wrapper throws the engine's message; an argument the engine refused says so
+// (a panic would say "panicked").
+template<class F> void throws_invalid(F f, const char* what) {
+    bool caught = false;
+    try { f(); } catch (const std::exception& e) {
+        std::string message = e.what();
+        caught = message.find(what) != std::string::npos && message.find("panic") == std::string::npos;
+    }
+    CHECK(caught);
+}
 template<class F> void throws(F f) { bool caught = false; try { f(); } catch (const std::exception&) { caught = true; } CHECK(caught); }
 
 static void worlds() {
@@ -1080,7 +1090,9 @@ static void animators() {
         CHECK(ctx.animator_normalized_time(e) == 0.75f);
         CHECK(ctx.animator_next_event(e) == std::optional<std::string>("half"));
         CHECK(!ctx.animator_next_event(e));
-        throws([&] { ctx.animator_set_bool(e, speed, true); }); // speed is a float
+        throws_invalid([&] { ctx.animator_set_bool(e, speed, true); }, "not a bool"); // speed is a float
+        throws_invalid([&] { ctx.animator_crossfade(e, 7, 0.1f); }, "no such animation state");
+        throws_invalid([&] { ctx.animator_crossfade(e, still, -1.0f); }, "duration");
         ctx.animator_play(e, still);
         ctx.animator_update(e, 0.0f);
         CHECK(ctx.animator_state(e) == still);
@@ -1863,7 +1875,7 @@ static void animator_layers_and_blend_trees() {
         ctx.animator_update(e, 0.5f);
         CHECK(std::fabs(arm_y() - 1.0f) < 1e-4f); // by the float
         throws([&] { ctx.animator_layer_set_float(e, layer + 1, amount, 1.0f); }); // no such layer
-        throws([&] { ctx.animator_layer_set_bool(e, layer, amount, true); });      // amount is a float
+        throws_invalid([&] { ctx.animator_layer_set_bool(e, layer, amount, true); }, "not a bool"); // amount is a float
 
         // A base graph with a trigger: it fires once and is used up.
         ponko::animation_graph_builder tb;
