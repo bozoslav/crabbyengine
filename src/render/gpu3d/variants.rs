@@ -13,9 +13,9 @@
 //! | Key | From | Effect on the pipelines |
 //! |---|---|---|
 //! | [`Sides`] | `MaterialDesc::double_sided` | back-face culling, or none |
-//! | [`Instancing::Plain`] | ordinary models and instanced batches | per-instance records |
+//! | [`Instancing::Plain`] | ordinary models and CPU-culled batches | per-instance records |
 //! | [`Instancing::Crossfade`] | a model crossfading between LOD levels | every fragment entry point dithers (`fade_keeps`) |
-//! | [`Instancing::Shared`] | a mesh with a GPU buffer (`set_mesh_gpu_buffer`) | a zero-stride instance record; no crossfade |
+//! | [`Instancing::Shared`] | a mesh with a GPU buffer (`set_mesh_gpu_buffer`) or GPU-culled batches | a zero-stride instance record; no crossfade |
 //!
 //! What picks the role inside a set is the material's blend
 //! ([`crate::three::Blend`]), the pass being drawn and multisampling (see

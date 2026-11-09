@@ -34,14 +34,23 @@ fn main(@builtin(workgroup_id) group:vec3<u32>, @builtin(local_invocation_index)
     if cell_index >= u32(data[0].y) {return;}
     let base=1u+u32(data[0].x)*6u+cell_index*2u;
     let cell=Cell(data[base],data[base+1u]);
+    if view.band.z == 0.0 {
+        // Cell bounds include every origin as well as the mesh spheres.
+        // AABB distances therefore conservatively bound origin distances,
+        // including off-centre meshes and proxies.
+        let near=max(max(cell.lo.xyz-view.camera.xyz,view.camera.xyz-cell.hi.xyz),vec3<f32>(0.0));
+        let far=max(abs(cell.lo.xyz-view.camera.xyz),abs(cell.hi.xyz-view.camera.xyz));
+        if dot(near,near) >= view.band.y*view.band.y || dot(far,far) < view.band.x*view.band.x {return;}
+    }
     if !visible((cell.lo.xyz+cell.hi.xyz)*0.5,length(cell.hi.xyz-cell.lo.xyz)*0.5) {return;}
     let start=bitcast<u32>(cell.lo.w); let end=start+bitcast<u32>(cell.hi.w);
     for(var i=start+lane;i<end;i+=64u) {
+        if view.band.z == 0.0 {
+            let d=distance(data[1u+i*6u+3u].xyz,view.camera.xyz);
+            if d < view.band.x || d >= view.band.y {continue;}
+        }
         let sphere=data[1u+i*6u+5u];
-        let origin=data[1u+i*6u+3u].xyz;
-        let d=distance(origin,view.camera.xyz);
-        let selected=view.band.z != 0.0 || (d >= view.band.x && d < view.band.y);
-        if selected && visible(sphere.xyz,sphere.w) {
+        if visible(sphere.xyz,sphere.w) {
             let slot=atomicAdd(&args[1],1u);
             indices[1u+slot]=i;
             for(var part=1u;part<arrayLength(&args)/5u;part++) {atomicAdd(&args[part*5u+1u],1u);}

@@ -23,8 +23,8 @@ pub(crate) struct BatchView {
 }
 pub(crate) struct StaticBatch {
     pub levels: Vec<InstanceLevel>,
-    /// The source buffer is also bound as vertex input; the batch shader reads
-    /// the shared records instead. No duplicate transform buffer is needed.
+    /// Shared storage records and cells on compute devices; instance vertices
+    /// on the CPU fallback. Compute draws bind one zero-stride marker instead.
     pub vertices: wgpu::Buffer,
     pub views: Vec<BatchView>,
     cells: Vec<Cell>,
@@ -61,6 +61,8 @@ pub(super) struct Culling {
     layout: wgpu::BindGroupLayout,
     pipeline: wgpu::ComputePipeline,
     occlusion: wgpu::Buffer,
+    /// One attribute marker, shared by all batch draws with zero instance stride.
+    pub(super) marker: wgpu::Buffer,
 }
 impl Culling {
     pub fn new(device: &wgpu::Device) -> Self {
@@ -107,10 +109,20 @@ impl Culling {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let mut marker = Instance3D::default();
+        marker.model[0][3] = -2.0;
+        let marker = device
+            .uploading(Upload::StaticBatches)
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("static instance marker"),
+                contents: bytemuck::bytes_of(&marker),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
         Self {
             layout,
             pipeline,
             occlusion,
+            marker,
         }
     }
 }
@@ -167,7 +179,7 @@ impl Renderer3D {
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("shared static records and cells"),
                     contents: bytemuck::cast_slice(&source),
-                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::VERTEX,
+                    usage: wgpu::BufferUsages::STORAGE,
                 })
         } else {
             device
@@ -421,7 +433,7 @@ impl Renderer3D {
             }
         }
     }
-    pub(super) fn cull_static(&self, encoder: &mut wgpu::CommandEncoder) {
+    pub(super) fn cull_static<'t>(&self, encoder: &mut wgpu::CommandEncoder, time: &PassTimer<'_, 't>) {
         let Some(cull) = &self.static_culling else {
             return;
         };
@@ -442,7 +454,11 @@ impl Renderer3D {
         }
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("static instance cull"),
-            timestamp_writes: None,
+            timestamp_writes: time("static instance cull").map(|t| wgpu::ComputePassTimestampWrites {
+                query_set: t.query_set,
+                beginning_of_pass_write_index: t.beginning_of_pass_write_index,
+                end_of_pass_write_index: t.end_of_pass_write_index,
+            }),
         });
         pass.set_pipeline(&cull.pipeline);
         for batch in self.static_batches.iter().flatten() {

@@ -1,5 +1,5 @@
 fn static_instance(v: VertexIn) -> VertexIn {
-    if static_indices[0] == 0u { return v; }
+    if v.m0.w != -2.0 { return v; }
     let index = static_indices[1u+v.instance_index];
     let base = 1u+index*6u;
     var out = v;

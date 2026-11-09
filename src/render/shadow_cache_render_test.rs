@@ -505,6 +505,7 @@ fn instance_levels_refresh_cached_sun_cascades_across_shadow_bands() {
     };
     let mut ctx = Ctx::new(1.0 / 60.0, Vec2::splat(SIZE as f32));
     ctx.camera3d.position = vec3(0.0, 6.0, 6.0);
+    ctx.camera3d.fov_y = 90.0_f32.to_radians();
     ctx.camera3d.look_at(Vec3::ZERO);
     ctx.sky.atmosphere = false;
     ctx.lighting.shadow_cascades = 4;
@@ -516,7 +517,7 @@ fn instance_levels_refresh_cached_sun_cascades_across_shadow_bands() {
         ..Default::default()
     };
     let material = ctx.create_material(desc);
-    let ground = MeshData::plane(30.0);
+    let ground = MeshData::plane(120.0);
     let cube = MeshData::cube(2.0);
     let floor = ctx.create_mesh(&ground, material);
     let proxy = ctx.create_mesh(&cube, material);
@@ -542,6 +543,24 @@ fn instance_levels_refresh_cached_sun_cascades_across_shadow_bands() {
         &[],
         Default::default(),
     );
+    // This caster lies in a deferred far cascade and crosses its own band
+    // during the same half-unit camera move as the nearby caster.
+    let far_batch = ctx.create_instance_batch_levels(
+        &[InstanceLevel {
+            mesh: proxy,
+            min_distance: 0.0,
+            max_distance: 46.25,
+            camera: false,
+            shadows: true,
+        }],
+        &[Mat4::from_scale_rotation_translation(
+            Vec3::splat(4.0),
+            Quat::IDENTITY,
+            vec3(0.0, 3.0, -40.0),
+        )],
+        &[],
+        Default::default(),
+    );
     let mut renderers = [rig.renderer(), rig.renderer()];
     for r in &mut renderers {
         r.create_material(&rig.device, &GpuMaterialDesc::new(&desc), &rig.textures);
@@ -552,11 +571,13 @@ fn instance_levels_refresh_cached_sun_cascades_across_shadow_bands() {
             true,
         );
         r.create_mesh(&rig.device, &cube, &[(0..cube.indices.len() as u32, material)], true);
-        r.set_instance_batch(
-            &rig.device,
-            b.id(),
-            ctx.assets3d.instance_batches[b.id() as usize].as_ref(),
-        );
+        for batch in [b, far_batch] {
+            r.set_instance_batch(
+                &rig.device,
+                batch.id(),
+                ctx.assets3d.instance_batches[batch.id() as usize].as_ref(),
+            );
+        }
     }
     let mut frames = [Frame3D::default(), Frame3D::default()];
     let mut compare = |ctx: &mut Ctx, equal: bool| {
@@ -568,13 +589,14 @@ fn instance_levels_refresh_cached_sun_cascades_across_shadow_bands() {
         reference.forget_shadows();
         let expected = rig.draw(reference, b, ctx);
         assert_eq!(reference.shadow_cascades_redrawn(), 4);
+        let matches = image == expected;
         if equal {
-            assert_eq!(image, expected, "cached shadow bands differ from a fresh draw");
+            assert!(matches, "cached shadow bands differ from a fresh draw");
         }
-        (image, a.redrawn, cached.shadow_cascades_redrawn())
+        (image, a.redrawn, cached.shadow_cascades_redrawn(), matches)
     };
     compare(&mut ctx, true);
-    let (with_proxy, collected, redrawn) = compare(&mut ctx, true);
+    let (with_proxy, collected, redrawn, _) = compare(&mut ctx, true);
     assert_eq!(
         collected & 0b1100,
         0,
@@ -585,7 +607,7 @@ fn instance_levels_refresh_cached_sun_cascades_across_shadow_bands() {
         "stationary content redraws no cascades in either cache layer"
     );
     ctx.set_mesh_shadows(proxy, false);
-    let (without_proxy, _, redrawn) = compare(&mut ctx, true);
+    let (without_proxy, _, redrawn, _) = compare(&mut ctx, true);
     assert_eq!(redrawn, 4, "mesh shadow flags invalidate cached cascades");
     assert_ne!(
         with_proxy, without_proxy,
@@ -596,14 +618,20 @@ fn instance_levels_refresh_cached_sun_cascades_across_shadow_bands() {
     ctx.camera3d.position.z = 6.5;
     ctx.camera3d.look_at(Vec3::ZERO);
     let mut refreshed = 0;
+    let mut stale_seen = false;
     let refresh = ctx.lighting.shadow_refresh;
     for turn in 0..refresh {
-        let (_, collected, _) = compare(&mut ctx, turn + 1 == refresh);
+        let (_, collected, _, matches) = compare(&mut ctx, turn + 1 == refresh);
         assert!(
             (collected & 0b1100).count_ones() <= 1,
             "band crossings preserve far-cascade turns"
         );
         refreshed |= collected;
+        stale_seen |= !matches;
     }
+    assert!(
+        stale_seen,
+        "the far caster must exercise deferred shadow content before its turn"
+    );
     assert_eq!(refreshed, 0b1111, "every cascade converges within one refresh cycle");
 }
