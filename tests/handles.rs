@@ -289,4 +289,28 @@ mod three {
             assert!(ctx.is_live(again) && !ctx.is_live(house));
         });
     }
+
+    #[test]
+    fn a_streamed_out_cell_frees_its_resources() {
+        Game::new("t", 1, 1).run_headless(0, |ctx| {
+            // ANCHOR: handles
+            let before = ctx.live_counts();
+            let bricks = ctx.create_texture(1, 1, &[200, 80, 60, 255]);
+            let wall = ctx.create_material(MaterialDesc {
+                texture: Some(bricks),
+                ..Default::default()
+            });
+            let block = ctx.create_mesh(&MeshData::cube(1.0), wall);
+            ctx.world.spawn((Transform3D::default(), Model::new(block)));
+            // Going out of range: free what the cell made. The model still
+            // draws (untextured), until its entity is despawned too.
+            ctx.free(bricks);
+            ctx.free(wall);
+            ctx.free(block);
+            assert!(!ctx.is_live(bricks) && !ctx.is_live(wall) && !ctx.is_live(block));
+            assert!(!ctx.is_live(Texture::NONE));
+            assert_eq!(ctx.live_counts(), before);
+            // ANCHOR_END: handles
+        });
+    }
 }

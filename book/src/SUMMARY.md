@@ -25,6 +25,7 @@
 - [3D physics: bodies, terrain, characters and vehicles](physics3d.md)
 - [3D navigation meshes](navigation3d.md)
 - [Sound](audio.md)
+- [Handles: freeing what you made](handles.md)
 - [Data files: tune without restarting](data-files.md)
 - [Scenes and prefabs](scenes.md)
 - [Importing from Unity](unity.md)

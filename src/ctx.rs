@@ -1149,9 +1149,9 @@ impl Ctx {
         font
     }
 
-    /// Whether `font` is the built-in font or one this context loaded. Only
-    /// foreign callers can hold a handle that isn't (C code passing a made-up
-    /// id); [`Text3D`](crate::Text3D) would panic when drawn with one.
+    /// Whether `font` is the built-in font or one this context loaded and
+    /// hasn't freed: the same as [`is_live`](Self::is_live). Text in a font
+    /// that isn't uses the built-in one.
     ///
     /// ```
     /// # use ponko::*;

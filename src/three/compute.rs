@@ -444,10 +444,11 @@ mod tests {
             // Calling again replaces the sphere instead of piling on.
             ctx.set_mesh_gpu_bounds(mesh, Vec3::Y * 10.0, 2.0);
             assert_eq!(ctx.assets3d.bounds[mesh.id as usize], grown);
-            // A freed mesh's slot starts over.
+            // A new mesh made after freeing this one has its own sphere.
             ctx.free_mesh(mesh);
             let again = ctx.create_mesh(&crate::MeshData::cube(0.5), material);
-            assert_eq!((again, ctx.assets3d.bounds[again.id as usize]), (mesh, own));
+            assert_ne!(again, mesh, "ids are never reused");
+            assert_eq!(ctx.assets3d.bounds[again.id as usize], own);
         });
     }
 
