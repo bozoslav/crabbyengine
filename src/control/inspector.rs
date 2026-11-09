@@ -120,7 +120,13 @@ pub(super) fn render_inspector(inputs: &Inputs<'_>) -> Value {
                 "frames_timed": detail.gpu_frames_timed,
             });
             let uploads = json!(s.uploads.bytes());
-            (timing, cpu, json!({ "frame": frame, "passes": passes }), counts, uploads)
+            (
+                timing,
+                cpu,
+                json!({ "frame": frame, "passes": passes }),
+                counts,
+                uploads,
+            )
         }
     };
     let quality = match &inputs.quality {
