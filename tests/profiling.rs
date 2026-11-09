@@ -4,7 +4,7 @@ use ponko::*;
 
 // ANCHOR: profiling
 /// F3 shows the performance overlay; F4 records the next 300 frames as a
-/// trace to open in Perfetto. Slow stretches are logged with their cause.
+/// trace to open in Perfetto. Slow stretches are logged for investigation.
 fn perf_keys(ctx: &mut Ctx) {
     if ctx.key_pressed(Key::F3) {
         let on = !ctx.perf_hud();
@@ -15,12 +15,8 @@ fn perf_keys(ctx: &mut Ctx) {
     }
     let stats = ctx.frame_stats();
     if stats.frames > 0 && stats.p99_ms > 20.0 && ctx.frame().is_multiple_of(600) {
-        // Waiting on the display means the GPU (or vsync) is the limit.
-        let gpu_bound = stats.display_wait_ms > stats.systems_ms;
-        println!(
-            "slow: p99 {:.1} ms, gpu {:?} ms, gpu bound: {gpu_bound}",
-            stats.p99_ms, stats.gpu_ms
-        );
+        // Display wait includes pacing; inspect measured CPU/GPU work separately.
+        println!("slow: p99 {:.1} ms, gpu {:?} ms", stats.p99_ms, stats.gpu_ms);
         for pass in ctx.gpu_passes() {
             println!("  {}: {:.2} ms", pass.name, pass.ms);
         }

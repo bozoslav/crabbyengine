@@ -1,15 +1,17 @@
 # Contributing
 
-Start with [`CONTRIBUTING.md`](https://github.com/bozoslav/ponko/blob/main/CONTRIBUTING.md).
-The full rules, the same for humans and coding agents, are in
-[`AGENTS.md`](https://github.com/bozoslav/ponko/blob/main/AGENTS.md).
+Start with [`CONTRIBUTING.md`](https://github.com/ponkoengine/ponko/blob/main/CONTRIBUTING.md).
+The detailed maintainer/agent integration checklist is in
+[`AGENTS.md`](https://github.com/ponkoengine/ponko/blob/main/AGENTS.md).
 In short:
 
 - Work on a branch, open a pull request to `main`, wait for CI.
-- New public behavior gets a test in the matching area file, and every
-  public item gets a doctest.
+- Add relevant tests for changed behavior and helpful nearby API comments.
+  You do not need a doctest for every item or unrelated local toolchains.
 - Performance claims need release-build numbers in the PR.
-- Features that change how games are written update this book in the same PR.
+- Rust-only changes are welcome; guide chapters and C/C++ bindings are not
+  required from every contributor. Maintainers coordinate that coverage and
+  own follow-ups. Preserve existing compatibility and describe behavior and tests.
 
 ## Editing this book
 
@@ -25,7 +27,7 @@ Every page has an edit button (top right) that opens the file on GitHub.
 
 ## License
 
-Crabby Engine is dual licensed under
-[MIT](https://github.com/bozoslav/ponko/blob/main/LICENSE-MIT) or
-[Apache-2.0](https://github.com/bozoslav/ponko/blob/main/LICENSE-APACHE),
+Ponko is dual licensed under
+[MIT](https://github.com/ponkoengine/ponko/blob/main/LICENSE-MIT) or
+[Apache-2.0](https://github.com/ponkoengine/ponko/blob/main/LICENSE-APACHE),
 at your option. Contributions are accepted under the same terms.

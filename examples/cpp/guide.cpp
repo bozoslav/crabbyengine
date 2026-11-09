@@ -1021,17 +1021,17 @@ static void cull_hidden(crabby::ctx& ctx) {
 }
 // ANCHOR_END: occlusion
 
+// ANCHOR: profiling
 /// F3 shows the performance overlay; F4 records the next 300 frames as a
-/// trace to open in Perfetto. Slow stretches are logged with their cause.
+/// trace to open in Perfetto. Slow stretches are logged for investigation.
 static void perf_keys(crabby::ctx& ctx) {
     static bool hud = false;
     if (ctx.key_pressed(CRABBY_KEY_F3)) ctx.set_perf_hud(hud = !hud);
     if (ctx.key_pressed(CRABBY_KEY_F4)) ctx.record_trace("trace.json", 300);
     auto stats = ctx.frame_stats();
     if (stats.frames > 0 && stats.p99_ms > 20 && ctx.frame() % 600 == 0) {
-        // Waiting on the display means the GPU (or vsync) is the limit.
-        bool gpu_bound = stats.display_wait_ms > stats.systems_ms;
-        std::printf("slow: p99 %.1f ms, gpu %.2f ms, gpu bound: %d\n", stats.p99_ms, stats.gpu_ms, gpu_bound);
+        // Display wait includes pacing; inspect measured CPU/GPU work separately.
+        std::printf("slow: p99 %.1f ms, gpu %.2f ms\n", stats.p99_ms, stats.gpu_ms);
     }
 }
 // ANCHOR_END: profiling

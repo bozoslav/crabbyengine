@@ -42,10 +42,27 @@ also takes the interval of `sim_system_every`.
 1. Simulation systems, `ctx.fixed_steps()` times (each tick runs all of them once).
 2. Frame systems.
 3. The closure returned from `setup`, if any.
-4. Draw systems: the built-in `draw_sprites`.
-5. Rendering.
+4. With `3d`, animator and particle updates.
+5. Late systems (`Game::late_system`), then built-in draw systems such as `draw_sprites`.
+6. Spatial audio update, then rendering.
 
-Commands are applied after each system.
+Commands are applied after each system. The setup-returned closure is
+appended to the frame-system list, so it runs before animator updates and
+late systems. Headless execution runs simulation systems only.
+
+## Parallel queries and future scheduling
+
+Systems currently execute sequentially, taking exclusive `&mut Ctx` access.
+A system can use the ECS's parallel query methods to divide its entity work
+across threads; this is not automatic parallel execution of different systems.
+Optional declared-access scheduling is planned in
+[#137](https://github.com/ponkoengine/ponko/issues/137) and
+[#138](https://github.com/ponkoengine/ponko/issues/138), after safety and
+performance baselines. Event visibility, deferred commands and barriers must
+be explicit ([#146](https://github.com/ponkoengine/ponko/issues/146)). Existing
+unannotated `sim_system` callbacks must remain usable and exclusive.
+See [the architecture](https://github.com/ponkoengine/ponko/blob/main/ARCHITECTURE.md)
+for current subsystem boundaries.
 
 ## Systems with state
 

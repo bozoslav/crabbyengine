@@ -29,20 +29,30 @@ Where tests live:
 | Public API of a crate | `crates/<crate>/tests/<area>.rs`, one file per area | `crates/crabby_ecs/tests/queries.rs` |
 | Shared test helpers | `tests/common/mod.rs` next to them | components used by several ECS test files |
 | Private internals (clock math, schedule order) | `#[cfg(test)] mod tests` at the bottom of the file | `src/time.rs` |
-| Usage examples in docs | doctests on public items: every public item gets one | `World::spawn` |
+| Usage examples in docs | doctests for public usage and behavior where useful | `World::spawn` |
 | Engine and game logic | headless runs, no window or GPU (`Game::run_headless`) | `tests/` in the root crate |
-| Performance | `crates/crabby_bench` (`cargo run --release -p crabby_bench [-- filter]`) | `iter/crabby` |
+| Performance | `crates/crabby_bench` (`cargo run --release -p ponko_bench [-- filter]`) | `iter/crabby` |
 
 Rules:
 - New public behavior gets a test in the matching area file. A new area is just a new file: CI's `test` job runs `cargo test --workspace` on each OS, so it picks the file up. Only a new feature combination needs its own step in `.github/workflows/ci.yml`.
 - Test names say what must hold: `stale_handles_stay_dead`, not `test_entity_2`.
 - Panics that are part of the API get `#[should_panic(expected = "...")]` tests, so the message stays helpful.
 - Benchmarks are not tests: never assert on timings in tests, except for coarse bounds such as "≥ 6 ms for three 2 ms steps".
-- Run one area locally with `cargo test -p crabby_ecs --test queries`.
+- Run one area locally with `cargo test -p ponko_ecs --test queries`.
 
-## Before every commit
+## Integration checks
+
+Contributors may submit focused Rust-only changes with relevant tests; do not
+require them to implement C/C++ bindings, write guide chapters, install unrelated
+toolchains or run the entire platform matrix. Help identify and own follow-ups.
+For docs-only changes, check Markdown, links and the book when affected; no
+workspace rebuild is needed unless executable examples or code changed.
+
+For code changes, maintainers and coding agents run the relevant full checks
+before declaring the PR ready to merge (not before every intermediate commit):
 
 ```sh
+cargo fmt --all --check
 cargo build --workspace --examples
 cargo test --workspace
 cargo clippy --workspace --all-targets
@@ -65,9 +75,23 @@ MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-ignore-leaks" cargo +nightly miri test --t
 - No per-frame heap allocations in steady state on hot paths.
 - Every `unsafe` block needs a test that exercises it.
 - Public API: simple first. One obvious way to do each thing.
-- Guide examples come in Rust and C++, side by side: wrap the pair in `<div class="lang-pair">` (see `book/theme/lang-pair.css`), with the C++ snippet pulled from `examples/cpp/guide.cpp` (compiled and run by the native CI job). If C++ can't do it yet, the chapter says so.
-- New engine features get a C API (`crates/crabby_ffi`) and a C++ wrapper (`include/crabby.hpp`) in the same PR, written to match the Rust API, when they're part of writing games, unless that's much bigger than the feature; then say so in the PR.
-- Docs ship with the feature: a PR that adds or changes how games are written updates the guide in `book/src/` in the same PR (check with `mdbook build book`). Code that the guide shows from examples is pulled in with `{{#include}}` anchors, so it can't go stale.
+- Rust-only contributions are welcome. Guide updates and C/C++ coverage are
+  project goals maintained collectively, not mandatory work for every author.
+  Maintainers may complete them in the PR or record and own scoped follow-ups;
+  do not make an unrelated language/toolchain a barrier to a focused contribution.
+- Add or update nearby Rust API documentation when needed to explain changed
+  behavior. A standalone Rust PR need not add a guide chapter, a doctest for
+  every public item, native bindings or paired guide examples.
+- When writing a paired guide example, use `<div class="lang-pair">` and pull
+  the C++ snippet from `examples/cpp/guide.cpp` so native CI compiles it. A
+  Rust-only guide example is acceptable; label native coverage gaps honestly.
+- Preserve existing Rust/C/C++ compatibility. If a change touches existing
+  bindings or layouts, maintainers must verify them before merging. New Rust
+  features may land before new bindings; record the coverage gap and owner.
+- Keep documentation accurate: correct claims invalidated by the change or
+  clearly note the limitation, with maintainer-owned follow-up for broader
+  guide coverage. Run `mdbook build book` when editing the guide. Reuse tested
+  examples through `{{#include}}` anchors where practical.
 
 ## Performance work
 
@@ -89,6 +113,63 @@ Measure first, in release builds; the book's "Profiling a frame"
   `record_trace` and `perf_hud`.
 - CPU hot spots: `sample <pid> 5` on macOS, or `--features profiling` with
   puffin_viewer.
-- Read the numbers before changing anything: a large display wait means the
-  GPU is the limit; then the pass list says which pass, and `render_stats`
-  whether it's triangles (camera or shadows) or pixels.
+- Read the numbers before changing anything: separate display pacing/wait from
+  CPU and GPU work. Use GPU pass timings and `render_stats` to investigate
+  triangles (camera or shadows) and pixel cost; do not infer a GPU bottleneck
+  from display wait alone.
+
+## Architecture and scope
+
+Read [PROJECT_VISION.md](PROJECT_VISION.md), [ARCHITECTURE.md](ARCHITECTURE.md),
+[ROADMAP.md](ROADMAP.md) and [STABILITY.md](STABILITY.md) before architectural
+work. Inspect the affected implementation and tests; a roadmap item describes
+future work, not proof that an API exists. Discuss major design changes in an
+issue before implementing them, and deliver small, independently verifiable steps.
+
+- Preserve the integrated public workflow (`Game::new()`, `.sim_system()`,
+  `.physics()`, `.run()`) and current compatibility promises: Rust APIs, C ABI,
+  saved worlds, determinism and MCP contracts. Document conflicts separately;
+  prefer additive designs rather than weakening stability guarantees.
+- Keep ownership and dependencies explicit within each subsystem. Change the
+  narrowest responsible module; avoid unrelated ECS, renderer, networking or UI
+  rewrites. Separate internal responsibilities before extracting public crates.
+- Before adding a crate, dependency, trait, interface or plugin abstraction,
+  explain the concrete need, why existing modules are insufficient, the benefit
+  to performance/testing/maintenance/extensibility, its complexity and platform
+  costs, and the smaller alternative considered. Avoid dependency cycles,
+  hidden hot-path allocations and speculative replacement frameworks.
+- Preserve compile-time feature selection and headless builds. Optional tooling
+  must not impose GPU, window or audio dependencies on minimal configurations.
+  Common operations need sensible defaults; advanced extension points stay optional.
+- Keep archetype storage and the wgpu renderer. Proposed system scheduling is
+  optional and requires sound access metadata, explicit ordering, deferred-command
+  and event barriers, and documented determinism tradeoffs. Never share arbitrary
+  mutable `Ctx` or `World` access concurrently to implement parallel systems.
+- Renderer refactors preserve resource ownership, lifetimes and pass ordering.
+  Establish regression and performance baselines first; prefer small pass
+  dependencies and targeted extension points over a full renderer rewrite.
+
+## Evidence and agent responsibility
+
+Measure representative release workloads before and after performance changes.
+Record commands, revision, toolchain, features, hardware, workload and warm-up;
+include CPU/GPU cost, memory, allocations and frame-time percentiles where relevant.
+Mark unavailable metrics explicitly. A microbenchmark does not establish overall
+engine superiority, and correctness must be verified separately from throughput.
+
+For GPU changes, inspect comparable before/after images as well as test results.
+Record adapter/backend, driver, resolution and quality settings; validate supported
+capabilities and fallbacks. An unsupported adapter skip or headless test is not
+visual proof. Preserve desktop and web behavior and report untested platforms.
+
+Use existing MCP/runtime inspection, screenshots, headless stepping and profiling
+when appropriate to reproduce and validate behavior. Verify tool availability and
+contracts before calling them; keep a reproducible code/test path alongside runtime
+evidence. Do not describe proposed tools or planned scheduler features as shipped.
+
+Agents follow the same review, tests, privacy and leak checks as human contributors.
+Inspect generated changes, identify documentation/binding follow-ups, and
+report exact checks, failures, skips and remaining limitations. Never claim a build,
+visual result, CI success or completed issue without observing the evidence. Keep
+private projects, assets, screenshots and identifying details out of public changes,
+issue text, benchmark artifacts and external services.

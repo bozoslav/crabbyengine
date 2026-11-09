@@ -130,3 +130,31 @@ deliveries in that time from 328 to 1,747.
   `BOIDS` and `HEADLESS`), so `launch` can set them through `env`.
 - Support headless: put game logic in sim systems; it then runs without a
   window or GPU, which is faster for agents and works on CI.
+
+
+## A reproducible development loop
+
+Start with a small reproduction and record the engine revision, example or
+game command, features, seed, input sequence and expected state. Use `launch`
+with a controlled environment, inspect the reflected state, then `run_ticks`
+to a fixed tick and record `get_entity`/`get_resource` results. Save a
+checkpoint when useful; only reflected/serialized game data can be inspected
+or restored through these tools.
+
+After editing code, compile, run the relevant tests and relaunch the same
+reproduction. Compare the same state and ticks. For a visual change, use a
+windowed instance and record camera, resolution, quality and screenshots;
+headless success does not verify rendering. Collect a `perf_report` or
+`record_trace` when the change affects performance, and preserve comparable
+before/after workloads. A screenshot alone does not establish simulation
+correctness or a performance improvement.
+
+These tools exist today. A general gameplay-input recording/replay service,
+structured scheduler inspection, richer shader diagnostics and broader
+GPU/asset memory reports are not implied by their presence. Follow
+[#145](https://github.com/ponkoengine/ponko/issues/145),
+[#153](https://github.com/ponkoengine/ponko/issues/153) and
+[#157](https://github.com/ponkoengine/ponko/issues/157) for the relevant
+planned extensions. Reliable autonomous creation of complete games remains
+a long-term objective, with human review and reproducible evidence still
+required. See [the project vision](https://github.com/ponkoengine/ponko/blob/main/PROJECT_VISION.md).
