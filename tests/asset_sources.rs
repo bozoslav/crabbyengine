@@ -239,3 +239,156 @@ fn hot_reload_skips_assets_from_added_sources() {
         });
     assert_eq!(tex.unwrap().width(), 1);
 }
+
+/// A mono 16-bit PCM WAV file of silence, `samples` long.
+fn wav(sample_rate: u32, samples: usize) -> Vec<u8> {
+    let data_len = (samples * 2) as u32;
+    let mut out = Vec::new();
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&(36 + data_len).to_le_bytes());
+    out.extend_from_slice(b"WAVEfmt ");
+    out.extend_from_slice(&16u32.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    out.extend_from_slice(&1u16.to_le_bytes()); // mono
+    out.extend_from_slice(&sample_rate.to_le_bytes());
+    out.extend_from_slice(&(sample_rate * 2).to_le_bytes());
+    out.extend_from_slice(&2u16.to_le_bytes());
+    out.extend_from_slice(&16u16.to_le_bytes());
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&data_len.to_le_bytes());
+    out.resize(out.len() + data_len as usize, 0);
+    out
+}
+
+#[test]
+fn a_sound_loads_by_name_from_a_memory_source() {
+    game().run_headless(0, |ctx| {
+        ctx.add_asset_source(MemorySource::new("mem").with("sfx/tone.wav", wav(8000, 4000)));
+        let tone = ctx.load_sound("sfx/tone.wav");
+        // Without the `audio` feature nothing is decoded and sounds last 0 s.
+        if cfg!(feature = "audio") {
+            assert!((tone.seconds() - 0.5).abs() < 0.01, "{}", tone.seconds());
+        }
+        assert_eq!(
+            ctx.load_sound("sfx/tone.wav"),
+            tone,
+            "loading again returns the same handle"
+        );
+        ctx.play_sound(&tone);
+    });
+}
+
+#[test]
+fn repeated_sound_loads_read_a_source_once() {
+    struct CountingSounds(Rc<Cell<u32>>);
+    impl AssetSource for CountingSounds {
+        fn id(&self) -> &str {
+            "counting"
+        }
+        fn read(&self, name: &str) -> std::io::Result<Vec<u8>> {
+            if name != "tone.wav" {
+                return Err(std::io::ErrorKind::NotFound.into());
+            }
+            self.0.set(self.0.get() + 1);
+            Ok(wav(8000, 800))
+        }
+    }
+    let reads = Rc::new(Cell::new(0));
+    let counted = reads.clone();
+    game().run_headless(0, move |ctx| {
+        ctx.add_asset_source(CountingSounds(counted.clone()));
+        let first = ctx.load_sound("tone.wav");
+        for _ in 0..3 {
+            assert_eq!(ctx.load_sound("tone.wav"), first);
+        }
+    });
+    assert_eq!(reads.get(), 1);
+}
+
+#[test]
+fn the_same_sound_name_in_two_sources_is_two_sounds_and_the_first_wins() {
+    game().run_headless(0, |ctx| {
+        ctx.add_asset_source(MemorySource::new("first").with("tone.wav", wav(8000, 800)));
+        ctx.add_asset_source(MemorySource::new("second").with("tone.wav", wav(8000, 8000)));
+        let tone = ctx.load_sound("tone.wav");
+        if cfg!(feature = "audio") {
+            assert!((tone.seconds() - 0.1).abs() < 0.01, "the first source wins");
+        }
+    });
+}
+
+#[test]
+fn a_missing_sound_reports_the_sources_and_folders_searched() {
+    let caught = std::panic::catch_unwind(|| {
+        game().run_headless(0, |ctx| {
+            ctx.add_asset_source(MemorySource::new("mem"));
+            ctx.load_sound("nowhere.wav");
+        });
+    })
+    .unwrap_err();
+    let message = caught
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| caught.downcast_ref::<&str>().map(|s| s.to_string()))
+        .unwrap();
+    assert!(message.contains("\"nowhere.wav\" not found in assets/"), "{message}");
+    assert!(message.contains("Asset sources searched first: \"mem\""), "{message}");
+}
+
+#[cfg(feature = "audio")]
+#[test]
+#[should_panic(expected = "\"broken.wav\" (from asset source \"mem\")")]
+fn corrupt_sound_bytes_name_the_asset_and_its_source() {
+    game().run_headless(0, |ctx| {
+        ctx.add_asset_source(MemorySource::new("mem").with("broken.wav", b"not audio".to_vec()));
+        ctx.load_sound("broken.wav");
+    });
+}
+
+/// A level in a made-up format: one row of tiles per line, `#` is a wall.
+struct Tiles(Vec<Vec<bool>>);
+
+fn decode_tiles(bytes: &[u8]) -> Result<Tiles, String> {
+    let text = std::str::from_utf8(bytes).map_err(|e| e.to_string())?;
+    if let Some(bad) = text.chars().find(|c| !matches!(c, '#' | '.' | '\n')) {
+        return Err(format!("unknown tile {bad:?}"));
+    }
+    Ok(Tiles(
+        text.lines()
+            .map(|row| row.chars().map(|c| c == '#').collect())
+            .collect(),
+    ))
+}
+
+#[test]
+fn a_custom_asset_decodes_from_a_source_with_a_callback() {
+    game().run_headless(0, |ctx| {
+        ctx.add_asset_source(MemorySource::new("mem").with("levels/one.tiles", "#.\n##\n"));
+        let level = ctx.load_asset_with("levels/one.tiles", decode_tiles).unwrap();
+        assert_eq!(level.0, vec![vec![true, false], vec![true, true]]);
+    });
+}
+
+#[test]
+fn a_custom_asset_decode_error_names_the_asset_and_its_source() {
+    game().run_headless(0, |ctx| {
+        ctx.add_asset_source(MemorySource::new("mem").with("levels/bad.tiles", "#?\n"));
+        let err = ctx.load_asset_with("levels/bad.tiles", decode_tiles).err().unwrap();
+        assert_eq!(
+            err,
+            "\"levels/bad.tiles\" (from asset source \"mem\") could not be decoded: unknown tile '?'"
+        );
+        let err = ctx.load_asset_with("levels/none.tiles", decode_tiles).err().unwrap();
+        assert!(err.contains("\"levels/none.tiles\" not found in assets/"), "{err}");
+        assert!(err.contains("Asset sources searched first: \"mem\""), "{err}");
+    });
+}
+
+#[test]
+fn a_custom_asset_can_come_from_the_assets_folder_too() {
+    // Without a source named for it, `assets/` is searched as for any load.
+    game().run_headless(0, |ctx| {
+        let bytes = ctx.load_asset_with("crab.png", |bytes| Ok(bytes.len())).unwrap();
+        assert!(bytes > 0);
+    });
+}

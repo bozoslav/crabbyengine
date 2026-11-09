@@ -793,10 +793,10 @@ pub(crate) struct Assets3D {
     /// Each mesh's morph targets, by mesh id; shorter than `bounds` when
     /// the last ones have none.
     pub morphs: Vec<Option<std::sync::Arc<MeshMorph>>>,
-    /// Shared animation clips of skinned glTF files, by resolved path.
-    pub loaded_clips: std::collections::HashMap<std::path::PathBuf, Vec<AnimationClip>>,
-    /// The joints of skinned glTF files, by resolved path.
-    pub loaded_skeletons: std::collections::HashMap<std::path::PathBuf, Skeleton>,
+    /// Shared animation clips of skinned glTF files, by where they were found (file or asset source).
+    pub loaded_clips: std::collections::HashMap<crate::assets::Origin, Vec<AnimationClip>>,
+    /// The joints of skinned glTF files, by where they were found (file or asset source).
+    pub loaded_skeletons: std::collections::HashMap<crate::assets::Origin, Skeleton>,
     /// Meshes set to cast no shadow (`Ctx::set_mesh_shadows`), by id;
     /// shorter than `bounds` when the last ones cast.
     pub shadowless: Vec<bool>,
@@ -827,22 +827,22 @@ pub(crate) struct Assets3D {
     /// Buffer-driven meshes' own bounds (before `set_mesh_gpu_bounds`
     /// grew them), by mesh id.
     pub gpu_mesh_bounds: std::collections::HashMap<u32, (Vec3, f32)>,
-    pub loaded_computes: std::collections::HashMap<std::path::PathBuf, Compute>,
-    /// Effects loaded from files, by resolved path.
-    pub loaded_effects: std::collections::HashMap<std::path::PathBuf, Effect>,
+    pub loaded_computes: std::collections::HashMap<crate::assets::Origin, Compute>,
+    /// Effects loaded from files, by where they were found (file or asset source).
+    pub loaded_effects: std::collections::HashMap<crate::assets::Origin, Effect>,
     /// The built-in terrain shader, once a terrain material needs it.
     pub terrain_shader: Option<Shader>,
     /// Shaders made so far (the built-in one is not counted).
     pub shaders: u32,
-    /// Shaders loaded from files, by resolved path.
-    pub loaded_shaders: std::collections::HashMap<std::path::PathBuf, Shader>,
+    /// Shaders loaded from files, by where they were found (file or asset source).
+    pub loaded_shaders: std::collections::HashMap<crate::assets::Origin, Shader>,
     /// The material handed out for meshes without one.
     pub default_material: Option<Material>,
-    /// Meshes loaded from files, by resolved path.
-    pub loaded: std::collections::HashMap<std::path::PathBuf, Mesh>,
+    /// Meshes loaded from files, by where they were found (file or asset source).
+    pub loaded: std::collections::HashMap<crate::assets::Origin, Mesh>,
     /// Material handles survive geometry eviction; reloading must preserve
     /// user shader edits and must not allocate another material/texture set.
-    pub file_materials: std::collections::HashMap<std::path::PathBuf, Vec<Material>>,
+    pub file_materials: std::collections::HashMap<crate::assets::Origin, Vec<Material>>,
     /// Images that glTF files take from files of their own, by asset name
     /// (see `gltf::Loaded::image_sources`): many models share them.
     pub shared_images: std::collections::HashMap<String, crate::Texture>,

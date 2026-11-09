@@ -122,14 +122,15 @@ impl ComputePass {
 }
 
 impl Ctx {
-    /// Loads a compute pass shader (WGSL) from `assets/`. It defines
+    /// Loads a compute pass shader (WGSL) from an [added asset
+    /// source](Ctx::add_asset_source) or `assets/`. It defines
     /// `fn compute(c: Cell) -> vec4<f32>`: the new value of each texel of
     /// the render target, from what it holds now (`c.value`, all 0 at
     /// first), where it is (`c.pixel`, `c.size`, `c.uv`) and its
     /// neighbours (`cell_at(pixel)`, which reads the target as it was
     /// before this pass). It reads `frame` (`frame.time.y` is the frame's
     /// seconds) and `material` as material shaders do. With hot reload on,
-    /// saving the file updates the game (an error keeps the old one).
+    /// saving the file in `assets/` updates the game (an error keeps the old one).
     /// Loading the same file again returns the same compute pass.
     ///
     /// For GPU buffers, define `fn update(i: u32)` instead, accessing the
@@ -154,15 +155,21 @@ impl Ctx {
     /// [`Ctx::load_compute`] that returns errors (for the C API).
     #[doc(hidden)]
     pub fn try_load_compute(&mut self, path: &str) -> Result<Compute, String> {
-        let file = crate::assets::resolve(path)?;
-        if let Some(&compute) = self.assets3d.loaded_computes.get(&file) {
-            return Ok(compute);
-        }
-        let source = crate::assets::read_to_string(&file)?;
+        let found = match self
+            .asset_sources
+            .lookup(path, |origin| self.assets3d.loaded_computes.get(origin).copied())?
+        {
+            crate::assets::Lookup::Cached(_, compute) => return Ok(compute),
+            crate::assets::Lookup::Found(found) => found,
+        };
+        let origin = found.origin.clone();
+        let source = found.into_text(path)?;
         let compute = self.try_create_compute(path, &source)?;
-        self.assets3d.loaded_computes.insert(file.clone(), compute);
-        self.watcher
-            .watch(path, file, crate::hot_reload::Asset::Compute(compute.id));
+        self.assets3d.loaded_computes.insert(origin.clone(), compute);
+        if let crate::assets::Origin::File(file) = origin {
+            self.watcher
+                .watch(path, file, crate::hot_reload::Asset::Compute(compute.id));
+        }
         Ok(compute)
     }
 

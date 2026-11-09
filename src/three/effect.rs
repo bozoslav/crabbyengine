@@ -90,13 +90,14 @@ impl ScreenEffect {
 }
 
 impl Ctx {
-    /// Loads a screen effect shader (WGSL) from `assets/`. It defines
+    /// Loads a screen effect shader (WGSL) from an [added asset
+    /// source](Ctx::add_asset_source) or `assets/`. It defines
     /// `fn effect(p: Pixel) -> vec3<f32>`: the new light at each pixel of
     /// the 3D frame, from what's there (`p.color`, `p.world`, `p.distance`,
     /// `p.sky`, `p.screen`, `p.uv`). It can call `scene_color(screen)` and
     /// `scene_position(screen)` for other pixels, and read `frame` and
     /// `material` as material shaders do. With hot reload on, saving the
-    /// file updates the game (an error keeps the old one). Loading the same
+    /// file in `assets/` updates the game (an error keeps the old one). Loading the same
     /// file again returns the same effect.
     ///
     /// ```no_run
@@ -117,15 +118,21 @@ impl Ctx {
     /// [`Ctx::load_effect`] that returns errors (for the C API).
     #[doc(hidden)]
     pub fn try_load_effect(&mut self, path: &str) -> Result<Effect, String> {
-        let file = crate::assets::resolve(path)?;
-        if let Some(&effect) = self.assets3d.loaded_effects.get(&file) {
-            return Ok(effect);
-        }
-        let source = crate::assets::read_to_string(&file)?;
+        let found = match self
+            .asset_sources
+            .lookup(path, |origin| self.assets3d.loaded_effects.get(origin).copied())?
+        {
+            crate::assets::Lookup::Cached(_, effect) => return Ok(effect),
+            crate::assets::Lookup::Found(found) => found,
+        };
+        let origin = found.origin.clone();
+        let source = found.into_text(path)?;
         let effect = self.try_create_effect(path, &source)?;
-        self.assets3d.loaded_effects.insert(file.clone(), effect);
-        self.watcher
-            .watch(path, file, crate::hot_reload::Asset::Effect(effect.id));
+        self.assets3d.loaded_effects.insert(origin.clone(), effect);
+        if let crate::assets::Origin::File(file) = origin {
+            self.watcher
+                .watch(path, file, crate::hot_reload::Asset::Effect(effect.id));
+        }
         Ok(effect)
     }
 

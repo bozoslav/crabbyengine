@@ -7,6 +7,16 @@ says what that covers.
 
 ## [Unreleased]
 
+### Asset sources (second stage)
+
+- Sounds, meshes, skeletons and animation clips (and the files a glTF refers
+  to), shaders, screen effects and compute passes now load through
+  `Ctx::add_asset_source` too, with caches keyed by where an asset was found.
+  Without added sources, loading and its error messages are unchanged.
+- Add `Ctx::load_asset_with(name, decode)` to read a named asset and decode it
+  into your own CPU type with a callback.
+- Assets from added sources are never hot reloaded (documented).
+
 ### Explicit runtime phases (first stage)
 
 - Add `Phase` and `Game::add(phase, system)` for sequential fixed-tick and

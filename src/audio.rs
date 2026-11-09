@@ -442,8 +442,9 @@ mod backend {
 pub(crate) use backend::Audio;
 
 impl Ctx {
-    /// Loads a sound from the `assets/` folder: OGG Vorbis, WAV, MP3 or FLAC.
-    /// Loading the same file again returns the same handle.
+    /// Loads a sound from an [added asset source](Ctx::add_asset_source) or the
+    /// `assets/` folder: OGG Vorbis, WAV, MP3 or FLAC. Loading the same file
+    /// again returns the same handle. Only a file from `assets/` is hot reloaded.
     ///
     /// Without the `audio` feature nothing is decoded: the file only has to
     /// exist, and the sound lasts zero seconds.
@@ -460,21 +461,32 @@ impl Ctx {
     /// # }
     /// ```
     pub fn load_sound(&mut self, path: &str) -> Sound {
-        let file = crate::assets::resolve(path).unwrap_or_else(|e| panic!("ponko: {e}"));
-        let key = (crate::assets::Origin::File(file.clone()), crate::ctx::AssetKind::Sound);
-        if let Some(&i) = self.loaded.get(&key) {
-            return self.cached_sounds[i as usize];
-        }
-        let bytes =
-            crate::assets::read(&file).unwrap_or_else(|e| panic!("ponko: could not read {}: {e}", file.display()));
-        let (id, seconds) = self
-            .audio
-            .load(bytes)
-            .unwrap_or_else(|e| panic!("ponko: {}: {e}", file.display()));
+        let found = match self
+            .asset_sources
+            .lookup(path, |origin| {
+                let key = (origin.clone(), crate::ctx::AssetKind::Sound);
+                self.loaded.get(&key).map(|&i| self.cached_sounds[i as usize])
+            })
+            .unwrap_or_else(|e| panic!("ponko: {e}"))
+        {
+            crate::assets::Lookup::Cached(_, sound) => return sound,
+            crate::assets::Lookup::Found(found) => found,
+        };
+        let origin = found.origin.clone();
+        let bytes = found.into_bytes().unwrap_or_else(|e| panic!("ponko: {e}"));
+        let (id, seconds) = self.audio.load(bytes).unwrap_or_else(|e| match &origin {
+            crate::assets::Origin::File(file) => panic!("ponko: {}: {e}", file.display()),
+            crate::assets::Origin::Source { .. } => panic!("ponko: {}: {e}", origin.describe(path)),
+        });
         let sound = Sound { id, seconds };
-        self.loaded.insert(key, self.cached_sounds.len() as u64);
+        self.loaded.insert(
+            (origin.clone(), crate::ctx::AssetKind::Sound),
+            self.cached_sounds.len() as u64,
+        );
         self.cached_sounds.push(sound);
-        self.watcher.watch(path, file, crate::hot_reload::Asset::Sound(id));
+        if let crate::assets::Origin::File(file) = origin {
+            self.watcher.watch(path, file, crate::hot_reload::Asset::Sound(id));
+        }
         sound
     }
 
