@@ -54,7 +54,7 @@ fn scene(ctx: &mut Ctx) {
         ctx.world.spawn((Transform2D::at(at), Sprite::new(crab)));
         let plop = ctx.world.resource::<Scene>().plop;
         let speed = 0.8 + ctx.random().stream(0).f32() * 0.4;
-        ctx.play_sound_ex(
+        ctx.audio.play_ex(
             &plop,
             SoundParams {
                 speed,
@@ -99,7 +99,7 @@ fn plop(ctx: &mut Ctx) -> Sound {
             (t * freq * std::f32::consts::TAU).sin() * (1.0 - t * 8.0).max(0.0) * 0.25
         })
         .collect();
-    ctx.create_sound(rate, &samples)
+    ctx.audio.create(rate, &samples)
 }
 
 fn main() {

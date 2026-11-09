@@ -73,7 +73,7 @@ fn textures_sounds_and_fonts_free_and_stay_dead() {
         let pixel = |ctx: &mut Ctx| ctx.create_texture(1, 1, &[255; 4]);
         let t = pixel(ctx);
         frees(ctx, t, pixel);
-        let beep = |ctx: &mut Ctx| ctx.create_sound(8_000, &[0.0; 80]);
+        let beep = |ctx: &mut Ctx| ctx.audio.create(8_000, &[0.0; 80]);
         let s = beep(ctx);
         frees(ctx, s, beep);
         let font = ctx.load_font(&file);
@@ -117,7 +117,7 @@ fn live_counts_follow_creates_and_frees() {
         let before = ctx.live_counts();
         let a = ctx.create_texture(1, 1, &[255; 4]);
         let _b = ctx.create_texture(1, 1, &[255; 4]);
-        let s = ctx.create_sound(8_000, &[0.0; 8]);
+        let s = ctx.audio.create(8_000, &[0.0; 8]);
         let now = ctx.live_counts();
         assert_eq!(now.textures, before.textures + 2);
         assert_eq!(now.sounds, before.sounds + 1);

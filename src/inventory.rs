@@ -247,7 +247,7 @@ impl Ctx {
         }];
         #[cfg(feature = "3d")]
         classes.extend(self.assets3d.inventory(&self.textures_live));
-        let (sounds, sound_bytes) = self.audio.inventory();
+        let (sounds, sound_bytes) = self.audio.backend.inventory();
         classes.push(AssetCount {
             class: AssetClass::Sound,
             live: sounds,

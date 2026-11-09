@@ -62,6 +62,28 @@ impl Ctx {
     }
 
     #[doc(hidden)]
+    #[deprecated(note = "use `ctx.audio.bus`")]
+    pub fn audio_bus(&mut self, name: &str) -> AudioBus {
+        self.audio.bus(name)
+    }
+
+    #[doc(hidden)]
+    #[deprecated(note = "use `ctx.audio.listener`")]
+    #[cfg(feature = "3d")]
+    pub fn audio_listener(&self) -> AudioListener3D {
+        self.audio.custom_listener().unwrap_or(AudioListener3D {
+            position: self.camera3d.position,
+            rotation: self.camera3d.rotation,
+        })
+    }
+
+    #[doc(hidden)]
+    #[deprecated(note = "use `ctx.audio.create`")]
+    pub fn create_sound(&mut self, sample_rate: u32, samples: &[f32]) -> Sound {
+        self.audio.create(sample_rate, samples)
+    }
+
+    #[doc(hidden)]
     #[deprecated(note = "use `ctx.input.cursor_locked`")]
     pub fn cursor_locked(&self) -> bool {
         self.input.cursor_locked()
@@ -164,6 +186,12 @@ impl Ctx {
     }
 
     #[doc(hidden)]
+    #[deprecated(note = "use `ctx.audio.load_stream`")]
+    pub fn load_stream(&mut self, path: &str) -> Sound {
+        self.audio.load_stream(path)
+    }
+
+    #[doc(hidden)]
     #[deprecated(note = "use `ctx.input.mouse_delta`")]
     pub fn mouse_delta(&self) -> Vec2 {
         self.input.mouse_delta()
@@ -200,6 +228,12 @@ impl Ctx {
     }
 
     #[doc(hidden)]
+    #[deprecated(note = "use `ctx.audio.mute_bus`")]
+    pub fn mute_audio_bus(&mut self, bus: AudioBus, muted: bool) {
+        self.audio.mute_bus(bus, muted)
+    }
+
+    #[doc(hidden)]
     #[deprecated(note = "use `ctx.time.pause`")]
     pub fn pause(&mut self) {
         self.time.pause()
@@ -215,6 +249,32 @@ impl Ctx {
     #[deprecated(note = "use `ctx.perf.report`")]
     pub fn perf_report(&self) -> crate::PerfReport {
         self.perf.report()
+    }
+
+    #[doc(hidden)]
+    #[deprecated(note = "use `ctx.audio.play_at`")]
+    #[cfg(feature = "3d")]
+    pub fn play_sound_at(&mut self, sound: &Sound, position: Vec3, settings: AudioSettings3D) -> Playing {
+        self.sync_audio_camera();
+        self.audio.play_at(sound, position, settings)
+    }
+
+    #[doc(hidden)]
+    #[deprecated(note = "use `ctx.audio.play_ex`")]
+    pub fn play_sound_ex(&mut self, sound: &Sound, params: SoundParams) -> Playing {
+        self.audio.play_ex(sound, params)
+    }
+
+    #[doc(hidden)]
+    #[deprecated(note = "use `ctx.audio.play_on`")]
+    pub fn play_sound_on(
+        &mut self,
+        sound: &Sound,
+        params: SoundParams,
+        bus: AudioBus,
+        effects: AudioEffects,
+    ) -> Playing {
+        self.audio.play_on(sound, params, bus, effects)
     }
 
     #[doc(hidden)]
@@ -261,6 +321,19 @@ impl Ctx {
     }
 
     #[doc(hidden)]
+    #[deprecated(note = "use `ctx.audio.set_bus_volume`")]
+    pub fn set_audio_bus_volume(&mut self, bus: AudioBus, volume: f32) {
+        self.audio.set_bus_volume(bus, volume)
+    }
+
+    #[doc(hidden)]
+    #[deprecated(note = "use `ctx.audio.set_listener`")]
+    #[cfg(feature = "3d")]
+    pub fn set_audio_listener(&mut self, listener: Option<AudioListener3D>) {
+        self.audio.set_listener(listener)
+    }
+
+    #[doc(hidden)]
     #[deprecated(note = "use `ctx.input.set_cursor_locked`")]
     pub fn set_cursor_locked(&mut self, locked: bool) {
         self.input.set_cursor_locked(locked)
@@ -283,6 +356,12 @@ impl Ctx {
     #[track_caller]
     pub fn set_sim_speed(&mut self, speed: f32) {
         self.time.set_speed(speed)
+    }
+
+    #[doc(hidden)]
+    #[deprecated(note = "use `ctx.audio.set_effects`")]
+    pub fn set_sound_effects(&mut self, playing: Playing, effects: AudioEffects) {
+        self.audio.set_effects(playing, effects)
     }
 
     #[doc(hidden)]
@@ -310,6 +389,12 @@ impl Ctx {
     }
 
     #[doc(hidden)]
+    #[deprecated(note = "use `ctx.audio.stop`")]
+    pub fn stop_sound(&mut self, playing: Playing) {
+        self.audio.stop(playing)
+    }
+
+    #[doc(hidden)]
     #[deprecated(note = "use `ctx.perf.system_timings`")]
     pub fn system_timings(&self) -> &[SystemTiming] {
         self.perf.system_timings()
@@ -325,6 +410,12 @@ impl Ctx {
     #[deprecated(note = "use `ctx.input.try_action_id`")]
     pub fn try_action_id(&self, name: &str) -> Result<crate::ActionId, crate::UnknownAction> {
         self.input.try_action_id(name)
+    }
+
+    #[doc(hidden)]
+    #[deprecated(note = "use `ctx.audio.try_load`")]
+    pub fn try_load_sound(&mut self, path: &str) -> Result<Sound, crate::Error> {
+        self.audio.try_load(path)
     }
 
     #[doc(hidden)]

@@ -174,10 +174,10 @@ impl Ctx {
     /// ```
     /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let beep = ctx.create_sound(8_000, &[0.0; 800]);
+    ///     let beep = ctx.audio.create(8_000, &[0.0; 800]);
     ///     ctx.free(beep);
     ///     assert!(!ctx.is_live(beep));
-    ///     let again = ctx.create_sound(8_000, &[0.0; 800]);
+    ///     let again = ctx.audio.create(8_000, &[0.0; 800]);
     ///     assert_ne!(again.id(), beep.id()); // ids are never reused
     /// });
     /// ```
@@ -198,7 +198,7 @@ impl Ctx {
         #[cfg_attr(not(feature = "3d"), allow(unused_mut))]
         let mut counts = LiveCounts {
             textures: self.textures_live.len(),
-            sounds: self.sounds_live.len(),
+            sounds: self.audio.sounds_live.len(),
             fonts: self.text.loaded_fonts(),
             ..LiveCounts::default()
         };
@@ -313,10 +313,10 @@ impl Handle for crate::Sound {
         crate::Sound::new(id, 0.0)
     }
     fn live_in(self, ctx: &Ctx) -> bool {
-        ctx.sounds_live.contains(self.id)
+        ctx.audio.sounds_live.contains(self.id)
     }
     fn free_in(self, ctx: &mut Ctx) {
-        ctx.free_sound_id(self.id);
+        ctx.audio.free_id(self.id);
     }
 }
 

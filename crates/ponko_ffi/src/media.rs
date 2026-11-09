@@ -554,7 +554,7 @@ pub unsafe extern "C" fn crabby_ctx_create_sound(
             } else {
                 std::slice::from_raw_parts(samples, len)
             };
-            out(out_sound, sound_to_c(c.create_sound(sample_rate, samples)))
+            out(out_sound, sound_to_c(c.audio.create(sample_rate, samples)))
         })
     })
 }
@@ -582,7 +582,7 @@ pub unsafe extern "C" fn crabby_ctx_play_sound(
             } else {
                 *params
             };
-            let playing = c.play_sound_ex(
+            let playing = c.audio.play_ex(
                 &sound_from_c(sound),
                 SoundParams {
                     volume: p.volume,
@@ -609,7 +609,7 @@ pub unsafe extern "C" fn crabby_ctx_stop_sound(ctx: *mut CrabbyCtx, playing: Cra
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.stop_sound(playing_from_c(playing));
+            c.audio.stop(playing_from_c(playing));
             Ok(())
         })
     })

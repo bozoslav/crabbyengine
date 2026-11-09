@@ -21,7 +21,7 @@ fn missing_assets_are_not_found_for_every_loader() {
         let missing = "no/such/asset.bin";
         assert_eq!(ctx.try_load_texture(missing).unwrap_err().kind(), ErrorKind::NotFound);
         assert_eq!(ctx.try_load_font(missing).unwrap_err().kind(), ErrorKind::NotFound);
-        assert_eq!(ctx.try_load_sound(missing).unwrap_err().kind(), ErrorKind::NotFound);
+        assert_eq!(ctx.audio.try_load(missing).unwrap_err().kind(), ErrorKind::NotFound);
         let err = ctx.try_load_texture(missing).unwrap_err();
         assert_eq!(err.path(), Some(missing));
     });
@@ -50,7 +50,7 @@ fn files_that_are_not_fonts_fail_to_decode() {
 fn files_that_are_not_sounds_fail_to_decode() {
     let path = temp_file("bad.ogg", b"not a sound");
     in_tick(move |ctx| {
-        assert_eq!(ctx.try_load_sound(&path).unwrap_err().kind(), ErrorKind::Decode);
+        assert_eq!(ctx.audio.try_load(&path).unwrap_err().kind(), ErrorKind::Decode);
     });
 }
 

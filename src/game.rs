@@ -326,6 +326,8 @@ fn run_one(s: &mut System, ctx: &mut Ctx, timing_index: usize) {
     let start = Instant::now();
     ctx.system_index = timing_index;
     ctx.events.reader = s.id;
+    #[cfg(feature = "3d")]
+    ctx.sync_audio_camera();
     #[cfg(debug_assertions)]
     if s.access.is_some() {
         crate::access::begin_check(ctx);
@@ -1323,7 +1325,7 @@ impl Game {
         let mut ctx = Ctx::new(fixed_dt, Vec2::new(self.width as f32, self.height as f32));
         ctx.seed = self.seed;
         ctx.set_headless(true);
-        ctx.watcher.on = crate::hot_reload::enabled(self.hot_reload);
+        ctx.watcher.set_on(crate::hot_reload::enabled(self.hot_reload));
         if let Some(cell) = self.spatial_cell {
             ctx.spatial = crate::SpatialGrid::new(cell);
         }

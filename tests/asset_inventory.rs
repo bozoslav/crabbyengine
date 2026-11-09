@@ -15,7 +15,7 @@ fn textures_and_sounds_are_counted_with_their_bytes() {
         assert!(before.gpu.is_none(), "headless runs have no GPU to count");
         let _a = ctx.create_texture(4, 2, &[0; 4 * 2 * 4]);
         let _b = ctx.create_texture(1, 1, &[0; 4]);
-        let _beep = ctx.create_sound(1000, &[0.0; 100]);
+        let _beep = ctx.audio.create(1000, &[0.0; 100]);
         let after = ctx.asset_inventory();
         let textures = after.get(AssetClass::Texture);
         assert_eq!(textures.live, before.get(AssetClass::Texture).live + 2);
@@ -162,7 +162,7 @@ fn freed_handles_leave_the_inventory() {
         let base = ctx.asset_inventory();
         for _ in 0..3 {
             let texture = ctx.create_texture(4, 4, &[0; 4 * 4 * 4]);
-            let beep = ctx.create_sound(1000, &[0.0; 100]);
+            let beep = ctx.audio.create(1000, &[0.0; 100]);
             assert_eq!(
                 ctx.asset_inventory().get(AssetClass::Texture).live,
                 base.get(AssetClass::Texture).live + 1

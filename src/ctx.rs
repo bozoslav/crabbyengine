@@ -163,18 +163,22 @@ pub struct Ctx {
     pub(crate) headless_textures: u32,
     /// The game's textures (not the engine's own), by id, live or freed.
     pub(crate) textures_live: crate::handle::LiveSet,
-    /// The game's sounds, by id, live or freed.
-    pub(crate) sounds_live: crate::handle::LiveSet,
     /// Tallies for `asset_inventory` of handles without a table of their own.
     pub(crate) asset_ledger: crate::inventory::Ledger,
     /// Asset hot reload: which files textures came from.
-    pub(crate) watcher: crate::hot_reload::Watcher,
+    pub(crate) watcher: crate::hot_reload::SharedWatcher,
+    /// Textures reloaded at the start of this frame.
+    pub(crate) reloaded_textures: Vec<Texture>,
+    /// Names of every file reloaded at the start of this frame.
+    pub(crate) reloaded_files: Vec<String>,
+    /// Scratch for the watcher's changes, kept so checks don't allocate.
+    reload_pending: Vec<(Asset, PathBuf, String)>,
     /// How to apply each loaded data file's text (`load_resource`).
     data_loaders: Vec<DataLoader>,
     /// Parsed prefab files, by name (`spawn_prefab`).
     pub(crate) prefabs: HashMap<String, serde_json::Value>,
     /// Asset sources added with `add_asset_source`, asked before `assets/`.
-    pub(crate) asset_sources: assets::Sources,
+    pub(crate) asset_sources: assets::SharedSources,
     /// Assets loaded under residency budgets (`resident_mesh`), by kind.
     pub(crate) residency: crate::residency::Residency,
     /// Assets already loaded, by origin (resolved path, or source and
@@ -182,7 +186,6 @@ pub struct Ctx {
     pub(crate) loaded: HashMap<(assets::Origin, AssetKind), u64>,
     /// Textures and sounds loaded from files, indexed by `loaded` values.
     pub(crate) cached_textures: Vec<Texture>,
-    pub(crate) cached_sounds: Vec<crate::Sound>,
     /// Keyboard, mouse, gamepads and named actions: see [`Input`].
     ///
     /// ```
@@ -365,7 +368,17 @@ pub struct Ctx {
     /// # }
     /// ```
     pub ui_style: UiStyle,
-    pub(crate) audio: Audio,
+    /// Sounds, playing handles, buses and the listener: see
+    /// [`Audio`](crate::Audio).
+    ///
+    /// ```no_run
+    /// # use ponko::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// let hit = ctx.audio.load("hit.ogg");
+    /// ctx.audio.play(&hit);
+    /// # }
+    /// ```
+    pub audio: Audio,
     /// Where the time goes: system timings, frame and render statistics,
     /// GPU passes, the HUD, traces and the report. See [`Perf`](crate::Perf).
     ///
@@ -382,7 +395,16 @@ pub struct Ctx {
 impl Ctx {
     /// `fixed_dt` in seconds, as f64 so `sim_time()` stays exact over long runs.
     pub(crate) fn new(fixed_dt: f64, window_size: Vec2) -> Self {
-        Self {
+        // Every service that loads files shares these two.
+        let asset_sources = assets::SharedSources::default();
+        let watcher = crate::hot_reload::SharedWatcher::default();
+        #[allow(unused_mut, clippy::let_and_return)]
+        let mut ctx = Self {
+            audio: Audio {
+                asset_sources: asset_sources.clone(),
+                watcher: watcher.clone(),
+                ..Default::default()
+            },
             world: {
                 let mut world = World::new();
                 crate::reflect::WorldReflect::reflect::<crate::Transform2D>(&mut world);
@@ -417,16 +439,17 @@ impl Ctx {
             control_addr: None,
             headless_textures: 0,
             textures_live: Default::default(),
-            sounds_live: Default::default(),
             asset_ledger: Default::default(),
-            watcher: Default::default(),
+            watcher: watcher.clone(),
+            reloaded_textures: Vec::new(),
+            reloaded_files: Vec::new(),
+            reload_pending: Vec::new(),
             data_loaders: Vec::new(),
             prefabs: HashMap::new(),
-            asset_sources: assets::Sources::default(),
+            asset_sources: asset_sources.clone(),
             residency: Default::default(),
             loaded: HashMap::new(),
             cached_textures: Vec::new(),
-            cached_sounds: Vec::new(),
             input: Input::new(),
             time: Time::new(fixed_dt),
             window_size,
@@ -465,10 +488,12 @@ impl Ctx {
             ui_retained: crate::Ui::default(),
             ui_press_at: Vec2::splat(f32::NAN),
             ui_style: UiStyle::default(),
-            audio: Audio::default(),
             perf: crate::Perf::new(),
             clear_color: Color::PONKO_DARK,
-        }
+        };
+        #[cfg(feature = "3d")]
+        ctx.sync_audio_camera();
+        ctx
     }
 
     /// Engine side: draw everything queued this frame, then reset the queue.
@@ -966,7 +991,7 @@ impl Ctx {
     /// meshes, skeletons and animation clips (and the files a glTF refers to),
     /// shaders, screen effects and compute passes.
     ///
-    /// Not covered yet: [`load_stream`](Self::load_stream) (music streamed
+    /// Not covered yet: [`load_stream`](crate::Audio::load_stream) (music streamed
     /// from a file), texture arrays and reflection probe images still come
     /// only from `assets/`.
     ///
@@ -1039,6 +1064,7 @@ impl Ctx {
     fn cached_in_sources(&self, name: &str, kind: AssetKind) -> Option<(assets::Origin, u64)> {
         self.asset_sources
             .origins(name)
+            .into_iter()
             .find_map(|origin| self.loaded.get(&(origin.clone(), kind)).map(|&v| (origin, v)))
     }
 
@@ -1284,7 +1310,7 @@ impl Ctx {
     /// # }
     /// ```
     pub fn reloaded_files(&self) -> &[String] {
-        &self.watcher.reloaded_files
+        &self.reloaded_files
     }
 
     /// Textures whose files changed and were reloaded at the start of this
@@ -1301,14 +1327,14 @@ impl Ctx {
     /// # }
     /// ```
     pub fn reloaded_textures(&self) -> &[Texture] {
-        &self.watcher.reloaded
+        &self.reloaded_textures
     }
 
     fn report_reload(&mut self, name: String, applied: Result<(), String>) {
         match applied {
             Ok(()) => {
                 eprintln!("ponko: reloaded {name}");
-                self.watcher.reloaded_files.push(name);
+                self.reloaded_files.push(name);
             }
             Err(e) => eprintln!("ponko: could not reload {name} (keeping the old one): {e}"),
         }
@@ -1316,12 +1342,12 @@ impl Ctx {
 
     /// Reloads textures, fonts, sounds and data files that changed (checked a few times a second).
     pub(crate) fn reload_changed_assets(&mut self) {
-        self.watcher.reloaded.clear();
-        self.watcher.reloaded_files.clear();
-        if !self.watcher.on {
+        self.reloaded_textures.clear();
+        self.reloaded_files.clear();
+        if !self.watcher.on() {
             return;
         }
-        let mut changed = std::mem::take(&mut self.watcher.pending);
+        let mut changed = std::mem::take(&mut self.reload_pending);
         self.watcher.changed(web_time::Instant::now(), &mut changed);
         for (asset, file, name) in changed.drain(..) {
             let texture = match asset {
@@ -1336,7 +1362,7 @@ impl Ctx {
                 Asset::Sound(id) => {
                     let applied = assets::read(&file)
                         .map_err(|e| e.to_string())
-                        .and_then(|bytes| self.audio.replace(id, bytes));
+                        .and_then(|bytes| self.audio.backend.replace(id, bytes));
                     self.report_reload(name, applied);
                     continue;
                 }
@@ -1368,8 +1394,8 @@ impl Ctx {
             match assets::load_image_at(&file, &name) {
                 Ok(image) if (image.width, image.height) == (texture.width(), texture.height()) => {
                     self.update_texture(&texture, &image.rgba);
-                    self.watcher.reloaded.push(texture);
-                    self.watcher.reloaded_files.push(name.clone());
+                    self.reloaded_textures.push(texture);
+                    self.reloaded_files.push(name.clone());
                     eprintln!("ponko: reloaded {name}");
                 }
                 Ok(image) => eprintln!(
@@ -1383,7 +1409,7 @@ impl Ctx {
                 Err(e) => eprintln!("ponko: could not reload {name}: {e}"),
             }
         }
-        self.watcher.pending = changed;
+        self.reload_pending = changed;
     }
 
     /// Creates a texture from raw RGBA pixels (4 bytes per pixel, row by row,
@@ -1578,10 +1604,57 @@ impl Ctx {
         self.perf.end_frame(ms);
     }
 
+    /// Engine side: hands the 3D camera to the audio service, whose default
+    /// listener it is. Runs before every system and before the frame's
+    /// positional sound update.
+    #[cfg(feature = "3d")]
+    #[inline]
+    pub(crate) fn sync_audio_camera(&mut self) {
+        self.audio.backend.spatial.camera = crate::AudioListener3D {
+            position: self.camera3d.position,
+            rotation: self.camera3d.rotation,
+        };
+    }
+
+    /// Loads a sound from an [added asset source](crate::Assets::add_source)
+    /// or the `assets/` folder. A shortcut for
+    /// [`ctx.audio.load`](crate::Audio::load), which has the details.
+    ///
+    /// # Panics
+    /// With a clear message if the file is missing or, with the `audio`
+    /// feature, can't be decoded.
+    ///
+    /// ```no_run
+    /// # use ponko::*;
+    /// # fn setup(ctx: &mut Ctx) {
+    /// let hit = ctx.load_sound("hit.ogg");
+    /// ctx.play_sound(&hit);
+    /// # }
+    /// ```
+    pub fn load_sound(&mut self, path: &str) -> crate::Sound {
+        self.audio.load(path)
+    }
+
+    /// Plays a sound once at full volume. A shortcut for
+    /// [`ctx.audio.play`](crate::Audio::play); the other ways to play
+    /// (volume, pitch, looping, buses, positions) are on
+    /// [`ctx.audio`](Self::audio).
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// # fn f(ctx: &mut Ctx, hit: Sound) {
+    /// ctx.play_sound(&hit);
+    /// # }
+    /// ```
+    pub fn play_sound(&mut self, sound: &crate::Sound) -> crate::Playing {
+        self.audio.play(sound)
+    }
+
     /// Engine side: this context has no window or GPU.
     pub(crate) fn set_headless(&mut self, headless: bool) {
         self.headless = headless;
         self.perf.headless = headless;
+        self.audio.headless = headless;
     }
 
     /// Queues the HUD's drawing for this frame (the game loop calls it
@@ -1833,7 +1906,7 @@ mod tests {
     fn source_assets_are_cached_by_source_and_never_watched() {
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::ZERO);
         ctx.set_headless(true);
-        ctx.watcher.on = true;
+        ctx.watcher.set_on(true);
         // An absolute name resolves as itself in the default source.
         let dir = std::env::temp_dir().join(format!("ponko-source-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -1882,7 +1955,7 @@ mod tests {
     fn sounds_from_sources_are_cached_by_source_and_never_watched() {
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::ZERO);
         ctx.set_headless(true);
-        ctx.watcher.on = true;
+        ctx.watcher.set_on(true);
         let dir = std::env::temp_dir().join(format!("ponko-source-sound-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("tone.wav");
@@ -1904,7 +1977,7 @@ mod tests {
         let wgsl = "fn surface(s: Surface) -> Surface { return s; }";
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::ZERO);
         ctx.set_headless(true);
-        ctx.watcher.on = true;
+        ctx.watcher.set_on(true);
         let dir = std::env::temp_dir().join(format!("ponko-source-shader-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("plain.wgsl");

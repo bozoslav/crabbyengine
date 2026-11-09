@@ -178,3 +178,69 @@ fn the_hud_switch_turns_profiling_on_and_scopes_get_timed() {
         });
     assert!(world.resource::<Names>().0.contains(&"services/timed"));
 }
+
+struct Beep(Sound);
+
+#[test]
+fn sounds_play_while_a_world_query_is_alive() {
+    fn beep_each(ctx: &mut Ctx) {
+        let beep = ctx.world.resource::<Beep>().0;
+        for p in ctx.world.query::<&mut Pos>().iter() {
+            // `ctx.audio` is its own field: no need to collect first.
+            let playing = ctx.audio.play(&beep);
+            ctx.audio.stop(playing);
+            p.0 += 1.0;
+        }
+    }
+    let mut world = Game::new("t", 1, 1).sim_system(beep_each).run_headless(2, |ctx| {
+        let beep = ctx.audio.create(8000, &[0.0; 80]);
+        ctx.world.insert_resource(Beep(beep));
+        ctx.world.spawn_batch([(Pos(0.0),), (Pos(0.0),)]);
+    });
+    assert!(world.query::<&Pos>().iter().all(|p| p.0 == 2.0));
+}
+
+#[test]
+fn the_audio_service_owns_sounds_buses_and_the_shortcuts_reach_it() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        let beep = ctx.audio.create(8000, &[0.0; 8000]);
+        assert_eq!(beep.seconds(), 1.0);
+        assert!(ctx.is_live(beep));
+        // The shortcut plays through the same service.
+        let playing = ctx.play_sound(&beep);
+        ctx.audio.stop(playing);
+        let music = ctx.audio.bus("music");
+        assert_eq!(ctx.audio.bus("music"), music, "a name gives the same bus");
+        ctx.audio.set_bus_volume(music, 0.25);
+        ctx.audio.mute_bus(music, true);
+        let on_bus = ctx
+            .audio
+            .play_on(&beep, SoundParams::default(), music, AudioEffects::default());
+        ctx.audio.set_effects(on_bus, AudioEffects::default());
+        ctx.audio.stop(on_bus);
+        assert!(ctx.audio.try_load("missing.ogg").is_err());
+        ctx.free(beep);
+        assert!(!ctx.is_live(beep));
+    });
+}
+
+#[cfg(feature = "3d")]
+#[test]
+fn the_default_listener_is_the_camera_as_the_running_system_found_it() {
+    fn listen(ctx: &mut Ctx) {
+        // The camera the system started with is where the ears are...
+        assert_eq!(ctx.audio.listener().position, ctx.camera3d.position);
+        // ...and a listener of the game's own replaces it at once.
+        let ears = AudioListener3D {
+            position: vec3(1.0, 2.0, 3.0),
+            rotation: Quat::IDENTITY,
+        };
+        ctx.audio.set_listener(Some(ears));
+        assert_eq!(ctx.audio.listener().position, ears.position);
+        ctx.audio.set_listener(None);
+        ctx.camera3d.position.x += 1.0;
+    }
+    Game::new("t", 1, 1).sim_system(listen).run_headless(3, |ctx| {
+        ctx.camera3d.position = vec3(5.0, 0.0, 0.0);
+    });
+}

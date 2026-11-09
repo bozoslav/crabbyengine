@@ -125,7 +125,7 @@ fn subsystems(ctx: &Ctx) -> Value {
             "feature": "audio",
             "compiled": true,
             // Opens on the first sound; headless games may never open it.
-            "device": ctx.audio.device_state(),
+            "device": ctx.audio.backend.device_state(),
         })
     } else {
         compiled_out("audio")

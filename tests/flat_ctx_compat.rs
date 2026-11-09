@@ -53,3 +53,34 @@ fn the_flat_perf_spellings_still_forward() {
         ctx.record_trace("unused.json", 1); // headless: does nothing
     });
 }
+
+#[test]
+fn the_flat_audio_spellings_still_forward() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        let beep = ctx.create_sound(8000, &[0.0; 80]);
+        let playing = ctx.play_sound_ex(&beep, SoundParams::default());
+        ctx.stop_sound(playing);
+        let music = ctx.audio_bus("music");
+        assert_eq!(music, ctx.audio.bus("music"));
+        ctx.set_audio_bus_volume(music, 0.5);
+        ctx.mute_audio_bus(music, false);
+        let on_bus = ctx.play_sound_on(&beep, SoundParams::default(), music, AudioEffects::default());
+        ctx.set_sound_effects(on_bus, AudioEffects::default());
+        assert!(ctx.try_load_sound("missing.ogg").is_err());
+    });
+}
+
+#[cfg(feature = "3d")]
+#[test]
+fn the_flat_listener_reads_the_camera_live() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        ctx.camera3d.position = vec3(9.0, 0.0, 0.0);
+        // The flat spelling had all of `Ctx`, so it saw the camera at once.
+        assert_eq!(ctx.audio_listener().position, vec3(9.0, 0.0, 0.0));
+        let beep = ctx.create_sound(8000, &[0.0; 80]);
+        let playing = ctx.play_sound_at(&beep, vec3(1.0, 0.0, 0.0), AudioSettings3D::default());
+        ctx.stop_sound(playing);
+        ctx.set_audio_listener(Some(AudioListener3D::default()));
+        assert_eq!(ctx.audio_listener().position, Vec3::ZERO);
+    });
+}

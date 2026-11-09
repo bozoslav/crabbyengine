@@ -292,6 +292,44 @@ impl Sources {
     }
 }
 
+/// The asset [`Sources`] of a game, shared by every service that loads
+/// files (`ctx.assets` adds to them; `ctx.gfx` and `ctx.audio` read through
+/// them). One game thread uses them, so a `RefCell` is enough.
+#[derive(Clone, Default)]
+pub(crate) struct SharedSources(std::rc::Rc<std::cell::RefCell<Sources>>);
+
+impl SharedSources {
+    /// As [`Sources::add`].
+    pub(crate) fn add(&self, source: Box<dyn AssetSource>) {
+        self.0.borrow_mut().add(source);
+    }
+
+    /// As [`Sources::origins`], collected.
+    pub(crate) fn origins(&self, name: &str) -> Vec<Origin> {
+        self.0.borrow().origins(name).collect()
+    }
+
+    /// As [`Sources::lookup`].
+    pub(crate) fn lookup<T>(
+        &self,
+        name: &str,
+        cached: impl Fn(&Origin) -> Option<T>,
+    ) -> Result<Lookup<T>, crate::Error> {
+        self.0.borrow().lookup(name, cached)
+    }
+
+    /// As [`Sources::read`].
+    #[cfg_attr(not(feature = "3d"), allow(dead_code))]
+    pub(crate) fn read(&self, name: &str) -> Result<Vec<u8>, String> {
+        self.0.borrow().read(name)
+    }
+
+    /// As [`Sources::find`].
+    pub(crate) fn find(&self, name: &str) -> Result<Found, crate::Error> {
+        self.0.borrow().find(name)
+    }
+}
+
 /// Folders we look in for `assets/`, in order:
 /// 1. next to `Cargo.toml` when started with `cargo run` (`CARGO_MANIFEST_DIR`)
 /// 2. next to the executable (shipped games)
