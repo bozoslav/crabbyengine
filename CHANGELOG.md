@@ -20,13 +20,6 @@ says what that covers.
   particles and audio to inspectable systems remain follow-ups to #198.
 
 ### Added
-- ECS diagnostics for tools and agents (first stage of #145):
-  `Ctx::ecs_diagnostics()` returns a versioned, serializable `EcsDiagnostics`
-  snapshot of archetypes (components, entities, bytes), component storage and
-  every system in run order with its `Phase`, interval, access and last
-  timings; `EcsDiagnostics::matching` counts what a query for some components
-  visits. Built only when asked. Served by the control endpoint as
-  `ecs.diagnostics` and by `ponko-mcp` as the `ecs_diagnostics` tool.
 - `ActionId`: resolve an action name once with `Ctx::action_id` (or
   `action_ids`, or the `actions!` macro, which keeps the names in one
   declaration) and pass the `Copy` id to `action_down`, `action_pressed`,
