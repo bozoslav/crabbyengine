@@ -1,8 +1,7 @@
 //! [`Ctx`]: everything game code talks to each frame.
 
 use glam::{Mat4, Vec2};
-use ponko_ecs::{Commands, Entity, World};
-use std::collections::HashMap;
+use ponko_ecs::{Commands, World};
 
 use crate::assets;
 use crate::audio::Audio;
@@ -13,7 +12,6 @@ use crate::ecs::{Sprite, Transform2D};
 use crate::events::Events;
 use crate::hot_reload::Asset;
 use crate::input::{Input, Key};
-use crate::reflect::WorldReflect;
 use crate::render::batch::SpriteInstance;
 use crate::render::batch::{FULL_UV, uv_region};
 use crate::render::{FrameStatus, Renderer, Screenshot};
@@ -23,7 +21,7 @@ use crate::texture::Texture;
 use crate::time::{FrameTiming, Time};
 use crate::ui::UiState;
 use serde_json::Value;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Maps window pixels ((0, 0) top-left, y down) to wgpu clip space
 /// (x right, y up, both -1..1).
@@ -48,9 +46,6 @@ pub(crate) enum AssetKind {
     Font,
     Sound,
 }
-
-/// Applies a data file's text to the world.
-type DataLoader = Box<dyn Fn(&mut World, &str) -> Result<(), String>>;
 
 /// What every system gets: the world, commands, events, input, drawing,
 /// the clock, sound, the camera, physics and the network session. Systems are
@@ -159,20 +154,6 @@ pub struct Ctx {
     pub(crate) headless: bool,
     /// Where the control endpoint listens, if it's on.
     pub(crate) control_addr: Option<std::net::SocketAddr>,
-    /// Asset hot reload: which files textures came from.
-    pub(crate) watcher: crate::hot_reload::SharedWatcher,
-    /// Textures reloaded at the start of this frame.
-    pub(crate) reloaded_textures: Vec<Texture>,
-    /// Names of every file reloaded at the start of this frame.
-    pub(crate) reloaded_files: Vec<String>,
-    /// Scratch for the watcher's changes, kept so checks don't allocate.
-    reload_pending: Vec<(Asset, PathBuf, String)>,
-    /// How to apply each loaded data file's text (`load_resource`).
-    data_loaders: Vec<DataLoader>,
-    /// Parsed prefab files, by name (`spawn_prefab`).
-    pub(crate) prefabs: HashMap<String, serde_json::Value>,
-    /// Asset sources added with `add_asset_source`, asked before `assets/`.
-    pub(crate) asset_sources: assets::SharedSources,
     /// Assets loaded under residency budgets (`resident_mesh`), by kind.
     pub(crate) residency: crate::residency::Residency,
     /// Keyboard, mouse, gamepads and named actions: see [`Input`].
@@ -346,6 +327,18 @@ pub struct Ctx {
     /// # }
     /// ```
     pub gfx: crate::Graphics,
+    /// Asset files: where they are read from, data files, saving scenes and
+    /// prefabs, and what hot reload changed. See [`Assets`](crate::Assets).
+    ///
+    /// ```no_run
+    /// # use ponko::*;
+    /// # #[derive(serde::Deserialize)]
+    /// # struct Rules { speed: f32 }
+    /// # fn f(ctx: &mut Ctx) {
+    /// ctx.assets.load_resource::<Rules>(&mut ctx.world, "rules.json");
+    /// # }
+    /// ```
+    pub assets: crate::Assets,
     /// Sounds, playing handles, buses and the listener: see
     /// [`Audio`](crate::Audio).
     ///
@@ -410,6 +403,11 @@ impl Ctx {
                 ..Default::default()
             },
             gfx,
+            assets: crate::Assets {
+                asset_sources,
+                watcher,
+                ..Default::default()
+            },
             world,
             commands: Commands::new(),
             spatial: SpatialGrid::default(),
@@ -423,13 +421,6 @@ impl Ctx {
             system_index: 0,
             headless: false,
             control_addr: None,
-            watcher: watcher.clone(),
-            reloaded_textures: Vec::new(),
-            reloaded_files: Vec::new(),
-            reload_pending: Vec::new(),
-            data_loaders: Vec::new(),
-            prefabs: HashMap::new(),
-            asset_sources: asset_sources.clone(),
             residency: Default::default(),
             input: Input::new(),
             time: Time::new(fixed_dt),
@@ -678,91 +669,6 @@ impl Ctx {
 
     // ---------------------------------------------------------------- drawing
 
-    /// Adds a place to load named assets from. Added sources are asked in
-    /// the order they were added, all before the `assets/` folder.
-    ///
-    /// Every load by name goes through it: [`load_texture`](Self::load_texture),
-    /// [`load_font`](crate::Graphics::load_font), [`load_resource`](Self::load_resource),
-    /// [`load_scene`](Self::load_scene), [`spawn_prefab`](Self::spawn_prefab)
-    /// (and the textures their scenes name), [`load_sound`](Self::load_sound),
-    /// [`load_asset_with`](Self::load_asset_with) and, with the `3d` feature,
-    /// meshes, skeletons and animation clips (and the files a glTF refers to),
-    /// shaders, screen effects and compute passes.
-    ///
-    /// Not covered yet: [`load_stream`](crate::Audio::load_stream) (music streamed
-    /// from a file), texture arrays and reflection probe images still come
-    /// only from `assets/`.
-    ///
-    /// Assets from sources are never hot reloaded: only files found in
-    /// `assets/` are watched. See [`AssetSource`](crate::AssetSource) for
-    /// names, caching and hot reload.
-    ///
-    /// Add sources in setup, before loading what they hold: assets loaded
-    /// earlier stay cached where they were found.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// #[derive(serde::Deserialize)]
-    /// struct Rules {
-    ///     speed: f32,
-    /// }
-    ///
-    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     ctx.add_asset_source(MemorySource::new("built-in").with("rules.json", r#"{"speed": 30}"#));
-    ///     ctx.load_resource::<Rules>("rules.json");
-    ///     assert_eq!(ctx.world.resource::<Rules>().speed, 30.0);
-    /// });
-    /// ```
-    ///
-    /// # Panics
-    /// If the source's id is empty or a source with that id was already added.
-    pub fn add_asset_source(&mut self, source: impl crate::AssetSource) {
-        self.asset_sources.add(Box::new(source));
-    }
-
-    /// Reads asset `name` (from the added sources, then `assets/`) and
-    /// decodes it with `decode` on the CPU: your own asset type, with no
-    /// registration. Nothing is cached and nothing is watched: it reads and
-    /// decodes each call, so keep the result.
-    ///
-    /// `decode` gets the bytes and returns your value, or an error message
-    /// that is reported with the asset's name and source.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// /// A level in a tiny made-up format: one row of tiles per line.
-    /// struct Tiles(Vec<Vec<u8>>);
-    ///
-    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     ctx.add_asset_source(MemorySource::new("built-in").with("levels/one.tiles", "##.\n#..\n"));
-    ///     let level = ctx
-    ///         .load_asset_with("levels/one.tiles", |bytes| {
-    ///             let text = std::str::from_utf8(bytes).map_err(|e| e.to_string())?;
-    ///             Ok(Tiles(text.lines().map(|row| row.bytes().collect()).collect()))
-    ///         })
-    ///         .unwrap();
-    ///     assert_eq!(level.0.len(), 2);
-    ///     assert_eq!(level.0[0], b"##.");
-    /// });
-    /// ```
-    ///
-    /// # Errors
-    /// If no source has the asset (the message says where it looked), reading
-    /// it fails, or `decode` returns an error.
-    pub fn load_asset_with<T>(&self, name: &str, decode: impl FnOnce(&[u8]) -> Result<T, String>) -> Result<T, String> {
-        let found = self.asset_sources.find(name)?;
-        let origin = found.origin.clone();
-        let bytes = found.into_bytes()?;
-        decode(&bytes).map_err(|e| format!("{} could not be decoded: {e}", origin.describe(name)))
-    }
-
-    /// Reads asset `name` as UTF-8 text from the first source that has it.
-    pub(crate) fn read_asset_text(&self, name: &str) -> Result<(assets::Origin, String), String> {
-        let found = self.asset_sources.find(name)?;
-        let origin = found.origin.clone();
-        Ok((origin, found.into_text(name)?))
-    }
-
     /// Loads the textures of sprites and meshes of models that `json` (a
     /// scene, a prefab, or components) names, so they can be spawned.
     pub(crate) fn load_scene_assets(&mut self, json: &serde_json::Value) -> Result<(), String> {
@@ -787,169 +693,15 @@ impl Ctx {
         Ok(())
     }
 
-    /// Loads resource `R` from a JSON file in `assets/`. With [hot
-    /// reload](crate::Game::hot_reload) on, editing the file replaces the
-    /// resource while the game runs: tune numbers without restarting. A file
-    /// that doesn't parse keeps the old values and prints why.
-    ///
-    /// # Panics
-    /// If the file is missing or isn't valid JSON for `R` (with the line and
-    /// column).
-    ///
-    /// ```no_run
-    /// # use ponko::*;
-    /// #[derive(serde::Deserialize)]
-    /// struct Rules {
-    ///     speed: f32,
-    ///     damage: f32,
-    /// }
-    ///
-    /// Game::new("Tuning", 800, 600).run(|ctx| {
-    ///     ctx.load_resource::<Rules>("rules.json"); // {"speed": 30, "damage": 2}
-    ///     |ctx: &mut Ctx| {
-    ///         let speed = ctx.world.resource::<Rules>().speed;
-    ///         // ...
-    ///     }
-    /// });
-    /// ```
-    pub fn load_resource<R: Send + Sync + 'static + serde::de::DeserializeOwned>(&mut self, path: &str) {
-        let loaded = self.load_data(
-            path,
-            Box::new(|world: &mut World, text: &str| {
-                let value: R = serde_json::from_str(text).map_err(|e| e.to_string())?;
-                world.insert_resource(value);
-                Ok(())
-            }),
-        );
-        loaded.unwrap_or_else(|e| panic!("ponko: {e}"));
-    }
-
-    /// Loads a JSON file into the reflected component `T` of `entity` (object
-    /// fields merge), reloading it when the file changes. `T` must be
-    /// registered with `World::reflect`; the name the file is applied under
-    /// comes from the type, so it can't drift from it.
-    /// ```
-    /// # use ponko::*;
-    /// # #[derive(Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
-    /// # struct Stats { hp: f32 }
-    /// # fn f(ctx: &mut Ctx, e: Entity) -> Result<(), String> {
-    /// ctx.load_component_json::<Stats>("stats.json", e)?;
-    /// # Ok(()) }
-    /// ```
-    pub fn load_component_json<T: 'static>(&mut self, path: &str, entity: Entity) -> Result<(), String> {
-        self.load_component_json_named(path, entity, &crate::reflect::short_name(std::any::type_name::<T>()))
-    }
-
-    /// Loads a JSON file into the reflected component `component` of `entity`
-    /// by name: the C and C++ way, and for components registered by name.
-    /// Rust code that has the type uses
-    /// [`load_component_json`](Self::load_component_json).
-    #[doc(hidden)]
-    pub fn load_component_json_named(&mut self, path: &str, entity: Entity, component: &str) -> Result<(), String> {
-        let component = component.to_string();
-        self.load_data(
-            path,
-            Box::new(move |world: &mut World, text: &str| {
-                let value: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
-                world.set_json(entity, &component, value).map_err(|e| e.to_string())
-            }),
-        )
-    }
-
-    /// Loads a JSON file into the reflected resource `T` (object fields
-    /// merge; it's added if missing), reloading it when the file changes.
-    /// `T` must be registered with `World::reflect_resource`; the name comes
-    /// from the type. Unlike [`load_resource`](Self::load_resource) this
-    /// merges into the existing value instead of replacing it.
-    /// ```
-    /// # use ponko::*;
-    /// # #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
-    /// # struct Rules { speed: f32 }
-    /// # fn f(ctx: &mut Ctx) -> Result<(), String> {
-    /// ctx.load_resource_json::<Rules>("rules.json")?;
-    /// # Ok(()) }
-    /// ```
-    pub fn load_resource_json<T: 'static>(&mut self, path: &str) -> Result<(), String> {
-        self.load_resource_json_named(path, &crate::reflect::short_name(std::any::type_name::<T>()))
-    }
-
-    /// Loads a JSON file into the reflected resource `name` by name: the C
-    /// and C++ way. Rust code that has the type uses
-    /// [`load_resource_json`](Self::load_resource_json).
-    #[doc(hidden)]
-    pub fn load_resource_json_named(&mut self, path: &str, name: &str) -> Result<(), String> {
-        let name = name.to_string();
-        self.load_data(
-            path,
-            Box::new(move |world: &mut World, text: &str| {
-                let value: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
-                world.set_resource_json(&name, value).map_err(|e| e.to_string())
-            }),
-        )
-    }
-
-    fn load_data(&mut self, path: &str, apply: DataLoader) -> Result<(), String> {
-        let (origin, text) = self.read_asset_text(path)?;
-        apply(&mut self.world, &text).map_err(|e| format!("{path}: {e}"))?;
-        self.data_loaders.push(apply);
-        if let assets::Origin::File(file) = origin {
-            self.watcher.watch(path, file, Asset::Data(self.data_loaders.len() - 1));
-        }
-        Ok(())
-    }
-
-    /// Names of the files (as you loaded them) that changed and were
-    /// reloaded at the start of this frame, textures and data alike. Use it
-    /// to redo work that depends on them.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn f(ctx: &mut Ctx) {
-    /// if ctx.reloaded_files().iter().any(|f| f == "map.json") {
-    ///     println!("map changed: rebuilding the flow fields");
-    /// }
-    /// # }
-    /// ```
-    pub fn reloaded_files(&self) -> &[String] {
-        &self.reloaded_files
-    }
-
-    /// Textures whose files changed and were reloaded at the start of this
-    /// frame (with [hot reload](crate::Game::hot_reload) on). They keep their
-    /// handles, so sprites show the new image by themselves; use this to redo
-    /// anything you computed from an image, such as a level read from its pixels.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn f(ctx: &mut Ctx, level: Texture) {
-    /// if ctx.reloaded_textures().contains(&level) {
-    ///     println!("level image changed: rebuilding the map");
-    /// }
-    /// # }
-    /// ```
-    pub fn reloaded_textures(&self) -> &[Texture] {
-        &self.reloaded_textures
-    }
-
-    fn report_reload(&mut self, name: String, applied: Result<(), String>) {
-        match applied {
-            Ok(()) => {
-                eprintln!("ponko: reloaded {name}");
-                self.reloaded_files.push(name);
-            }
-            Err(e) => eprintln!("ponko: could not reload {name} (keeping the old one): {e}"),
-        }
-    }
-
     /// Reloads textures, fonts, sounds and data files that changed (checked a few times a second).
     pub(crate) fn reload_changed_assets(&mut self) {
-        self.reloaded_textures.clear();
-        self.reloaded_files.clear();
-        if !self.watcher.on() {
+        self.assets.reloaded_textures.clear();
+        self.assets.reloaded_files.clear();
+        if !self.assets.watcher.on() {
             return;
         }
-        let mut changed = std::mem::take(&mut self.reload_pending);
-        self.watcher.changed(web_time::Instant::now(), &mut changed);
+        let mut changed = std::mem::take(&mut self.assets.reload_pending);
+        self.assets.watcher.changed(web_time::Instant::now(), &mut changed);
         for (asset, file, name) in changed.drain(..) {
             let texture = match asset {
                 Asset::Texture(t) => t,
@@ -957,49 +709,49 @@ impl Ctx {
                     let applied = assets::read(&file)
                         .map_err(|e| e.to_string())
                         .and_then(|bytes| self.gfx.text.replace_font(Font(id), &bytes));
-                    self.report_reload(name, applied);
+                    self.assets.report_reload(name, applied);
                     continue;
                 }
                 Asset::Sound(id) => {
                     let applied = assets::read(&file)
                         .map_err(|e| e.to_string())
                         .and_then(|bytes| self.audio.backend.replace(id, bytes));
-                    self.report_reload(name, applied);
+                    self.assets.report_reload(name, applied);
                     continue;
                 }
                 Asset::Data(i) => {
-                    let applied =
-                        assets::read_to_string(&file).and_then(|text| (self.data_loaders[i])(&mut self.world, &text));
-                    self.report_reload(name, applied);
+                    let applied = assets::read_to_string(&file)
+                        .and_then(|text| (self.assets.data_loaders[i])(&mut self.world, &text));
+                    self.assets.report_reload(name, applied);
                     continue;
                 }
                 #[cfg(feature = "3d")]
                 Asset::Shader(id) => {
                     let applied =
                         assets::read_to_string(&file).and_then(|text| self.gfx.reload_shader(id, &name, &text));
-                    self.report_reload(name, applied);
+                    self.assets.report_reload(name, applied);
                     continue;
                 }
                 #[cfg(feature = "3d")]
                 Asset::Effect(id) => {
                     let applied =
                         assets::read_to_string(&file).and_then(|text| self.gfx.reload_effect(id, &name, &text));
-                    self.report_reload(name, applied);
+                    self.assets.report_reload(name, applied);
                     continue;
                 }
                 #[cfg(feature = "3d")]
                 Asset::Compute(id) => {
                     let applied =
                         assets::read_to_string(&file).and_then(|text| self.gfx.reload_compute(id, &name, &text));
-                    self.report_reload(name, applied);
+                    self.assets.report_reload(name, applied);
                     continue;
                 }
             };
             match assets::load_image_at(&file, &name) {
                 Ok(image) if (image.width, image.height) == (texture.width(), texture.height()) => {
                     self.gfx.update_texture(&texture, &image.rgba);
-                    self.reloaded_textures.push(texture);
-                    self.reloaded_files.push(name.clone());
+                    self.assets.reloaded_textures.push(texture);
+                    self.assets.reloaded_files.push(name.clone());
                     eprintln!("ponko: reloaded {name}");
                 }
                 Ok(image) => eprintln!(
@@ -1013,7 +765,7 @@ impl Ctx {
                 Err(e) => eprintln!("ponko: could not reload {name}: {e}"),
             }
         }
-        self.reload_pending = changed;
+        self.assets.reload_pending = changed;
     }
 
     /// Hands one frame's timings to the profiler. `true` when a benchmark
@@ -1370,7 +1122,7 @@ mod tests {
     fn source_assets_are_cached_by_source_and_never_watched() {
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::ZERO);
         ctx.set_headless(true);
-        ctx.watcher.set_on(true);
+        ctx.assets.watcher.set_on(true);
         // An absolute name resolves as itself in the default source.
         let dir = std::env::temp_dir().join(format!("ponko-source-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -1378,12 +1130,13 @@ mod tests {
         std::fs::write(&file, png(2)).unwrap();
         let name = file.to_str().unwrap().to_string();
         let from_folder = ctx.load_texture(&name);
-        assert_eq!(ctx.watcher.watched(), 1, "default-source files are watched");
-        ctx.add_asset_source(crate::MemorySource::new("mem").with(name.clone(), png(3)));
+        assert_eq!(ctx.assets.watcher.watched(), 1, "default-source files are watched");
+        ctx.assets
+            .add_source(crate::MemorySource::new("mem").with(name.clone(), png(3)));
         let from_source = ctx.load_texture(&name);
         assert_ne!(from_source, from_folder, "same name, other source: another asset");
         assert_eq!(from_source.width(), 3);
-        assert_eq!(ctx.watcher.watched(), 1, "source assets are not watched");
+        assert_eq!(ctx.assets.watcher.watched(), 1, "source assets are not watched");
         let keys: Vec<_> = ctx.gfx.loaded.keys().map(|(origin, _)| origin.clone()).collect();
         assert!(keys.contains(&assets::Origin::Source {
             source: "mem".into(),
@@ -1419,18 +1172,19 @@ mod tests {
     fn sounds_from_sources_are_cached_by_source_and_never_watched() {
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::ZERO);
         ctx.set_headless(true);
-        ctx.watcher.set_on(true);
+        ctx.assets.watcher.set_on(true);
         let dir = std::env::temp_dir().join(format!("ponko-source-sound-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("tone.wav");
         std::fs::write(&file, wav()).unwrap();
         let name = file.to_str().unwrap().to_string();
         let from_folder = ctx.load_sound(&name);
-        assert_eq!(ctx.watcher.watched(), 1, "default-source sounds are watched");
-        ctx.add_asset_source(crate::MemorySource::new("mem").with(name.clone(), wav()));
+        assert_eq!(ctx.assets.watcher.watched(), 1, "default-source sounds are watched");
+        ctx.assets
+            .add_source(crate::MemorySource::new("mem").with(name.clone(), wav()));
         let from_source = ctx.load_sound(&name);
         assert_ne!(from_source, from_folder, "same name, other source: another sound");
-        assert_eq!(ctx.watcher.watched(), 1, "source sounds are not watched");
+        assert_eq!(ctx.assets.watcher.watched(), 1, "source sounds are not watched");
         assert_eq!(ctx.load_sound(&name), from_source, "the source's copy stays cached");
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -1441,18 +1195,19 @@ mod tests {
         let wgsl = "fn surface(s: Surface) -> Surface { return s; }";
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::ZERO);
         ctx.set_headless(true);
-        ctx.watcher.set_on(true);
+        ctx.assets.watcher.set_on(true);
         let dir = std::env::temp_dir().join(format!("ponko-source-shader-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("plain.wgsl");
         std::fs::write(&file, wgsl).unwrap();
         let name = file.to_str().unwrap().to_string();
         let from_folder = ctx.gfx.load_shader(&name);
-        assert_eq!(ctx.watcher.watched(), 1, "default-source shaders are watched");
-        ctx.add_asset_source(crate::MemorySource::new("mem").with(name.clone(), wgsl));
+        assert_eq!(ctx.assets.watcher.watched(), 1, "default-source shaders are watched");
+        ctx.assets
+            .add_source(crate::MemorySource::new("mem").with(name.clone(), wgsl));
         let from_source = ctx.gfx.load_shader(&name);
         assert_ne!(from_source, from_folder, "same name, other source: another shader");
-        assert_eq!(ctx.watcher.watched(), 1, "source shaders are not watched");
+        assert_eq!(ctx.assets.watcher.watched(), 1, "source shaders are not watched");
         assert_eq!(
             ctx.gfx.load_shader(&name),
             from_source,

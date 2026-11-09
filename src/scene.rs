@@ -7,18 +7,18 @@
 
 use serde_json::{Value, json};
 
-use crate::{Ctx, Entity, Transform2D, Vec2, WorldReflect, assets};
+use crate::{Ctx, Entity, Transform2D, Vec2, WorldReflect};
 
-const PREFAB_FORMAT: &str = "crabby-prefab";
-const PREFAB_VERSION: u64 = 1;
+pub(crate) const PREFAB_FORMAT: &str = "crabby-prefab";
+pub(crate) const PREFAB_VERSION: u64 = 1;
 
 impl Ctx {
     /// Replaces the world with the scene in `assets/<path>` (written by
-    /// [`save_scene`](Self::save_scene), the editor, or
+    /// [`save_scene`](crate::Assets::save_scene), the editor, or
     /// [`WorldReflect::save`]). Entities keep their ids, so references
     /// between them hold. Components must be [reflected](WorldReflect::reflect).
     /// The scene and the textures it names may also come from an
-    /// [asset source](crate::Ctx::add_asset_source).
+    /// [asset source](crate::Assets::add_source).
     ///
     /// ```no_run
     /// # use ponko::*;
@@ -38,8 +38,8 @@ impl Ctx {
     /// |---|---|
     /// | Entities | Replaced by the scene's, with the scene's ids. An old [`Entity`] handle may now name a different entity of the new scene. |
     /// | Reflected resources | Those in the scene are written; reflected ones it doesn't name stay. |
-    /// | Other resources | Kept as they were (scores you didn't reflect, tuning loaded with [`load_resource`](Self::load_resource), a baked navigation mesh). |
-    /// | Components that aren't reflected | Gone with their entities; [`save_scene`](Self::save_scene) reports them under `"not_saved"`. |
+    /// | Other resources | Kept as they were (scores you didn't reflect, tuning loaded with [`load_resource`](crate::Assets::load_resource), a baked navigation mesh). |
+    /// | Components that aren't reflected | Gone with their entities; [`save_scene`](crate::Assets::save_scene) reports them under `"not_saved"`. |
     /// | [`commands`](Self::commands) | Commands queued earlier in the running system are dropped: they were meant for the old entities. Commands queued after the load apply as usual. |
     /// | [`events`](Self::events) | Kept: events sent before the load can still be read for their usual lifetime. Entity ids inside them (such as [`CollisionStarted`](crate::CollisionStarted)) refer to the old world. |
     /// | 2D and 3D physics | Bodies, characters and joints are removed at once (queries find nothing), then built from the new components at the next physics step, from rest unless the scene has a velocity component. Gravity, collision meshes, contact hooks and settings are kept. |
@@ -60,7 +60,7 @@ impl Ctx {
     /// loaded. The world, commands and physics are unchanged then; assets
     /// the scene named that did load before the failure stay cached.
     pub fn load_scene(&mut self, path: &str) -> Result<(), String> {
-        let (_, text) = self.read_asset_text(path)?;
+        let (_, text) = self.assets.read_text(path)?;
         let scene: Value = serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
         self.replace_world(&scene).map_err(|e| format!("{path}: {e}"))
     }
@@ -77,24 +77,6 @@ impl Ctx {
         #[cfg(feature = "physics3d")]
         self.physics3d.forget_bodies();
         Ok(())
-    }
-
-    /// Saves the world (its reflected components and resources) as a scene
-    /// in `assets/<path>`, over the file if it exists. Not in web builds.
-    ///
-    /// ```no_run
-    /// # use ponko::*;
-    /// # fn f(ctx: &mut Ctx) {
-    /// ctx.save_scene("levels/beach.json").expect("saved");
-    /// # }
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// If the file can't be written.
-    pub fn save_scene(&mut self, path: &str) -> Result<(), String> {
-        let text = serde_json::to_string_pretty(&self.world.save()).map_err(|e| e.to_string())?;
-        assets::write(path, text.as_bytes()).map(|_| ())
     }
 
     /// Spawns the prefab in `assets/<path>` with its position at `at` (its
@@ -114,42 +96,16 @@ impl Ctx {
     /// If the file is missing or isn't a prefab, or a component isn't
     /// reflected or doesn't fit; nothing is spawned then.
     pub fn spawn_prefab(&mut self, path: &str, at: Vec2) -> Result<Entity, String> {
-        if !self.prefabs.contains_key(path) {
-            let (_, text) = self.read_asset_text(path)?;
+        if !self.assets.prefabs.contains_key(path) {
+            let (_, text) = self.assets.read_text(path)?;
             let prefab: Value = serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
             let components = components_of(&prefab).map_err(|e| format!("{path}: {e}"))?;
             self.load_scene_assets(&components)
                 .map_err(|e| format!("{path}: {e}"))?;
-            self.prefabs.insert(path.to_string(), components);
+            self.assets.prefabs.insert(path.to_string(), components);
         }
-        let components = self.prefabs[path].clone();
+        let components = self.assets.prefabs[path].clone();
         spawn_at(&mut self.world, components, at).map_err(|e| format!("{path}: {e}"))
-    }
-
-    /// Saves entity `e` (its reflected components) as a prefab in
-    /// `assets/<path>`, for [`spawn_prefab`](Self::spawn_prefab). Its
-    /// position isn't kept: each spawn says where. Not in web builds.
-    ///
-    /// ```no_run
-    /// # use ponko::*;
-    /// # fn f(ctx: &mut Ctx, palm: Entity) {
-    /// ctx.save_prefab(palm, "prefabs/palm.json").expect("saved");
-    /// # }
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// If `e` is dead or the file can't be written.
-    pub fn save_prefab(&mut self, e: Entity, path: &str) -> Result<(), String> {
-        let mut components = self.world.entity_json(e).map_err(|e| e.to_string())?;
-        if let Some(t) = components.get_mut("Transform2D") {
-            t["position"] = json!([0.0, 0.0]);
-        }
-        let prefab = json!({ "format": PREFAB_FORMAT, "version": PREFAB_VERSION, "components": components });
-        let text = serde_json::to_string_pretty(&prefab).map_err(|e| e.to_string())?;
-        assets::write(path, text.as_bytes())?;
-        self.prefabs.insert(path.to_string(), components);
-        Ok(())
     }
 }
 

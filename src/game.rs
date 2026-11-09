@@ -978,7 +978,7 @@ impl Game {
         self
     }
 
-    /// Reload textures, fonts, sounds and data files ([`Ctx::load_resource`])
+    /// Reload textures, fonts, sounds and data files ([`Assets::load_resource`](crate::Assets::load_resource))
     /// from `assets/` when their files change, under the same handles: save an
     /// image or a JSON file in your editor and the running game shows it
     /// within a quarter of a second. On by default in debug builds, off in
@@ -987,7 +987,7 @@ impl Game {
     /// A file is checked a few times a second (one `stat` per loaded
     /// texture). An image that changed size isn't reloaded (sprites store
     /// their texture's size): restart the game for that.
-    /// [`Ctx::reloaded_textures`] lists what was reloaded this frame.
+    /// [`Assets::reloaded_textures`](crate::Assets::reloaded_textures) lists what was reloaded this frame.
     ///
     /// ```no_run
     /// # use ponko::*;
@@ -1324,7 +1324,7 @@ impl Game {
         let mut ctx = Ctx::new(fixed_dt, Vec2::new(self.width as f32, self.height as f32));
         ctx.seed = self.seed;
         ctx.set_headless(true);
-        ctx.watcher.set_on(crate::hot_reload::enabled(self.hot_reload));
+        ctx.assets.watcher.set_on(crate::hot_reload::enabled(self.hot_reload));
         if let Some(cell) = self.spatial_cell {
             ctx.spatial = crate::SpatialGrid::new(cell);
         }

@@ -62,6 +62,12 @@ impl Ctx {
     }
 
     #[doc(hidden)]
+    #[deprecated(note = "use `ctx.assets.add_source`")]
+    pub fn add_asset_source(&mut self, source: impl crate::AssetSource) {
+        self.assets.add_source(source)
+    }
+
+    #[doc(hidden)]
     #[deprecated(note = "use `ctx.audio.bus`")]
     pub fn audio_bus(&mut self, name: &str) -> AudioBus {
         self.audio.bus(name)
@@ -461,6 +467,12 @@ impl Ctx {
     }
 
     #[doc(hidden)]
+    #[deprecated(note = "use `ctx.assets.load_with`")]
+    pub fn load_asset_with<T>(&self, name: &str, decode: impl FnOnce(&[u8]) -> Result<T, String>) -> Result<T, String> {
+        self.assets.load_with(name, decode)
+    }
+
+    #[doc(hidden)]
     #[deprecated(note = "use `ctx.gfx.load_clip`")]
     #[cfg(feature = "3d")]
     pub fn load_clip(&mut self, path: &str, name: &str) -> AnimationClip {
@@ -472,6 +484,19 @@ impl Ctx {
     #[cfg(feature = "3d")]
     pub fn load_clips(&mut self, path: &str) -> Vec<AnimationClip> {
         self.gfx.load_clips(path)
+    }
+
+    #[doc(hidden)]
+    #[deprecated(note = "use `ctx.assets.load_component_json::<T>(&mut ctx.world, path, entity)`")]
+    pub fn load_component_json<T: 'static>(&mut self, path: &str, entity: Entity) -> Result<(), String> {
+        self.assets.load_component_json::<T>(&mut self.world, path, entity)
+    }
+
+    #[doc(hidden)]
+    #[deprecated(note = "use `ctx.assets.load_component_json_named(&mut ctx.world, path, entity, component)`")]
+    pub fn load_component_json_named(&mut self, path: &str, entity: Entity, component: &str) -> Result<(), String> {
+        self.assets
+            .load_component_json_named(&mut self.world, path, entity, component)
     }
 
     #[doc(hidden)]
@@ -513,6 +538,24 @@ impl Ctx {
     #[cfg(feature = "3d")]
     pub fn load_reflection_probe(&mut self, entity: Entity, name: &str) -> Result<(), String> {
         self.gfx.load_reflection_probe(&mut self.world, entity, name)
+    }
+
+    #[doc(hidden)]
+    #[deprecated(note = "use `ctx.assets.load_resource::<R>(&mut ctx.world, path)`")]
+    pub fn load_resource<R: Send + Sync + 'static + serde::de::DeserializeOwned>(&mut self, path: &str) {
+        self.assets.load_resource::<R>(&mut self.world, path)
+    }
+
+    #[doc(hidden)]
+    #[deprecated(note = "use `ctx.assets.load_resource_json::<T>(&mut ctx.world, path)`")]
+    pub fn load_resource_json<T: 'static>(&mut self, path: &str) -> Result<(), String> {
+        self.assets.load_resource_json::<T>(&mut self.world, path)
+    }
+
+    #[doc(hidden)]
+    #[deprecated(note = "use `ctx.assets.load_resource_json_named(&mut ctx.world, path, name)`")]
+    pub fn load_resource_json_named(&mut self, path: &str, name: &str) -> Result<(), String> {
+        self.assets.load_resource_json_named(&mut self.world, path, name)
     }
 
     #[doc(hidden)]
@@ -702,6 +745,18 @@ impl Ctx {
     }
 
     #[doc(hidden)]
+    #[deprecated(note = "use `ctx.assets.reloaded_files`")]
+    pub fn reloaded_files(&self) -> &[String] {
+        self.assets.reloaded_files()
+    }
+
+    #[doc(hidden)]
+    #[deprecated(note = "use `ctx.assets.reloaded_textures`")]
+    pub fn reloaded_textures(&self) -> &[Texture] {
+        self.assets.reloaded_textures()
+    }
+
+    #[doc(hidden)]
     #[deprecated(note = "use `ctx.perf.render_stats`")]
     pub fn render_stats(&self) -> RenderStats {
         self.perf.render_stats()
@@ -718,6 +773,18 @@ impl Ctx {
     #[deprecated(note = "use `ctx.time.resume`")]
     pub fn resume(&mut self) {
         self.time.resume()
+    }
+
+    #[doc(hidden)]
+    #[deprecated(note = "use `ctx.assets.save_prefab(&ctx.world, entity, path)`")]
+    pub fn save_prefab(&mut self, e: Entity, path: &str) -> Result<(), String> {
+        self.assets.save_prefab(&self.world, e, path)
+    }
+
+    #[doc(hidden)]
+    #[deprecated(note = "use `ctx.assets.save_scene(&ctx.world, path)`")]
+    pub fn save_scene(&mut self, path: &str) -> Result<(), String> {
+        self.assets.save_scene(&self.world, path)
     }
 
     #[doc(hidden)]

@@ -831,7 +831,7 @@ fn scenes_make_mesh_colliders_from_mesh_files_and_save_them_by_file() {
         Vec3::ZERO,
         move |ctx| {
             ctx.load_scene(&file_name).unwrap();
-            ctx.save_scene(&saved_name).unwrap();
+            ctx.assets.save_scene(&ctx.world, &saved_name).unwrap();
         },
         |ctx| {
             let top = |x: f32| {

@@ -124,7 +124,7 @@ impl ComputePass {
 
 impl Graphics {
     /// Loads a compute pass shader (WGSL) from an [added asset
-    /// source](crate::Ctx::add_asset_source) or `assets/`. It defines
+    /// source](crate::Assets::add_source) or `assets/`. It defines
     /// `fn compute(c: Cell) -> vec4<f32>`: the new value of each texel of
     /// the render target, from what it holds now (`c.value`, all 0 at
     /// first), where it is (`c.pixel`, `c.size`, `c.uv`) and its

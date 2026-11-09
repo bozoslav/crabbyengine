@@ -295,7 +295,7 @@ impl Graphics {
     }
 
     /// Loads a material shader (WGSL) from an [added asset
-    /// source](crate::Ctx::add_asset_source) or `assets/`. It can define
+    /// source](crate::Assets::add_source) or `assets/`. It can define
     /// `fn vertex(v: Vertex) -> Vertex`, to move vertices (wind, waves), and
     /// `fn surface(s: Surface) -> Surface`, to change how each pixel looks;
     /// the engine lights it, shadows it and does the rest. With hot reload
@@ -659,7 +659,7 @@ impl Graphics {
     }
 
     /// Loads a glTF model (`.glb`, or `.gltf` with its files next to it)
-    /// from an [added asset source](crate::Ctx::add_asset_source) or `assets/` as
+    /// from an [added asset source](crate::Assets::add_source) or `assets/` as
     /// one [`Mesh`]: every mesh in the file's scene, where the file puts it, with its materials and their base color, normal,
     /// occlusion-roughness-metalness and emissive maps.
     /// Loading the same file again returns the same mesh. After freeing its
@@ -1514,7 +1514,8 @@ mod clip_tests {
     #[test]
     fn clips_cached_from_a_source_are_found_by_the_source_and_not_the_folder() {
         let mut ctx = Ctx::new(1.0 / 60.0, glam::Vec2::ONE);
-        ctx.add_asset_source(crate::MemorySource::new("pack").with("hero.glb", b"unread".to_vec()));
+        ctx.assets
+            .add_source(crate::MemorySource::new("pack").with("hero.glb", b"unread".to_vec()));
         let origin = assets::Origin::Source {
             source: "pack".into(),
             name: "hero.glb".into(),

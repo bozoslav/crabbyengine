@@ -172,7 +172,7 @@ impl TargetEffect {
 
 impl Graphics {
     /// Loads a screen effect shader (WGSL) from an [added asset
-    /// source](crate::Ctx::add_asset_source) or `assets/`. It defines
+    /// source](crate::Assets::add_source) or `assets/`. It defines
     /// `fn effect(p: Pixel) -> vec3<f32>`: the new light at each pixel of
     /// the 3D frame, from what's there (`p.color`, `p.world`, `p.distance`,
     /// `p.sky`, `p.screen`, `p.uv`). It can call `scene_color(screen)` and

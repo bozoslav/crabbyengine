@@ -29,7 +29,7 @@ fn run(path: &Path, hot_reload: bool, edit: impl Fn() + 'static) -> (Texture, Ve
     Game::new("hot", 1, 1)
         .hot_reload(hot_reload)
         .sim_system(move |ctx: &mut Ctx| {
-            let reloaded = ctx.reloaded_textures().to_vec();
+            let reloaded = ctx.assets.reloaded_textures().to_vec();
             if !reloaded.is_empty() {
                 log.lock().unwrap().push((ctx.time.sim_tick(), reloaded));
             }
@@ -100,14 +100,14 @@ fn run_rules(path: &Path, edit: &'static str) -> Vec<(f32, Vec<String>)> {
         .hot_reload(true)
         .sim_system(move |ctx: &mut Ctx| {
             let speed = ctx.world.resource::<Rules>().speed;
-            log.lock().unwrap().push((speed, ctx.reloaded_files().to_vec()));
+            log.lock().unwrap().push((speed, ctx.assets.reloaded_files().to_vec()));
             if ctx.time.sim_tick() == 2 {
                 std::thread::sleep(Duration::from_millis(50)); // see `run`
                 std::fs::write(&file, edit).unwrap();
                 std::thread::sleep(Duration::from_millis(400));
             }
         })
-        .run_headless(5, |ctx| ctx.load_resource::<Rules>(&name));
+        .run_headless(5, |ctx| ctx.assets.load_resource::<Rules>(&mut ctx.world, &name));
     seen.lock().unwrap().clone()
 }
 
@@ -134,13 +134,15 @@ fn data_files_that_dont_parse_keep_the_old_values() {
 fn bad_data_files_say_where_at_load() {
     let path = temp_json("bad.json", r#"{"speed": "fast", "damage": 2}"#);
     let name = path.to_str().unwrap().to_string();
-    Game::new("data", 1, 1).run_headless(0, |ctx| ctx.load_resource::<Rules>(&name));
+    Game::new("data", 1, 1).run_headless(0, |ctx| ctx.assets.load_resource::<Rules>(&mut ctx.world, &name));
 }
 
 #[test]
 #[should_panic(expected = "not found in assets/")]
 fn missing_data_files_say_where_they_were_looked_for() {
-    Game::new("data", 1, 1).run_headless(0, |ctx| ctx.load_resource::<Rules>("no-such-rules.json"));
+    Game::new("data", 1, 1).run_headless(0, |ctx| {
+        ctx.assets.load_resource::<Rules>(&mut ctx.world, "no-such-rules.json")
+    });
 }
 
 // ANCHOR: data_files
@@ -151,7 +153,7 @@ struct Tuning {
 }
 
 fn load_tuning(ctx: &mut Ctx, path: &str) {
-    ctx.load_resource::<Tuning>(path); // e.g. "tuning.json": {"speed": 30, "damage": 2}
+    ctx.assets.load_resource::<Tuning>(&mut ctx.world, path); // e.g. "tuning.json": {"speed": 30, "damage": 2}
 }
 
 fn step_size(ctx: &Ctx) -> f32 {
@@ -188,7 +190,7 @@ fn reload_ticks(name: &str, before: &[u8], after: Vec<u8>, load: fn(&mut Ctx, &s
     Game::new("media", 1, 1)
         .hot_reload(true)
         .sim_system(move |ctx: &mut Ctx| {
-            if ctx.reloaded_files().contains(&watched) {
+            if ctx.assets.reloaded_files().contains(&watched) {
                 log.lock().unwrap().push(ctx.time.sim_tick());
             }
             if ctx.time.sim_tick() == 1 {

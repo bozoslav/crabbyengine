@@ -31,7 +31,11 @@ pub unsafe extern "C" fn crabby_ctx_load_scene(ctx: *mut CrabbyCtx, path: *const
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_save_scene(ctx: *mut CrabbyCtx, path: *const c_char) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    boundary(|| unsafe { ctx_access(ctx, |c| c.save_scene(text(path)?).map_err(invalid_owned)) })
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            c.assets.save_scene(&c.world, text(path)?).map_err(invalid_owned)
+        })
+    })
 }
 
 /// Spawns the prefab in `assets/<path>` with its position at `at`, writing
@@ -72,7 +76,8 @@ pub unsafe extern "C" fn crabby_ctx_save_prefab(ctx: *mut CrabbyCtx, entity: u64
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.save_prefab(Entity::from_bits(entity), text(path)?)
+            c.assets
+                .save_prefab(&c.world, Entity::from_bits(entity), text(path)?)
                 .map_err(invalid_owned)
         })
     })

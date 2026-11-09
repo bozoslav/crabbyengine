@@ -978,7 +978,7 @@ fn models_of_loaded_meshes_save_and_load_by_file_name() {
         let white = ctx.gfx.default_material();
         let cube = ctx.gfx.create_mesh(&MeshData::cube(1.0), white);
         ctx.world.spawn((Transform3D::default(), Model::new(cube)));
-        ctx.save_scene(file).unwrap();
+        ctx.assets.save_scene(&ctx.world, file).unwrap();
     });
     let result = std::panic::catch_unwind(|| {
         Game::new("t", 1, 1).run_headless(0, |ctx| {
@@ -1124,7 +1124,7 @@ fn lod_groups_of_loaded_meshes_save_and_load_by_file_name() {
             Transform3D::default(),
             LodGroup::new(1.0, vec![LodLevel::new(0.1, vec![LodRenderer::new(cube)])]),
         ));
-        ctx.save_scene(file).unwrap();
+        ctx.assets.save_scene(&ctx.world, file).unwrap();
     });
     let result = std::panic::catch_unwind(move || {
         Game::new("t", 1, 1).run_headless(0, move |ctx| {

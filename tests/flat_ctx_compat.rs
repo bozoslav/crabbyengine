@@ -2,6 +2,8 @@
 //! ...) stay for one deprecation cycle: each forwards to its service.
 #![allow(deprecated)]
 
+mod common;
+
 use ponko::*;
 
 #[test]
@@ -170,5 +172,42 @@ fn the_flat_pointer_ray_still_forwards() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
         ctx.set_ui_pointer_ray(Some((Vec3::ZERO, Vec3::X)));
         ctx.set_ui_pointer_ray(None);
+    });
+}
+
+#[derive(Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
+struct Stats {
+    hp: f32,
+}
+
+#[test]
+fn the_flat_asset_spellings_still_forward() {
+    let prefab = common::TempAsset::new("flat-prefab.json");
+    let scene = common::TempAsset::new("flat-scene.json");
+    let (prefab, scene) = (prefab.name(), scene.name());
+    Game::new("t", 1, 1).hot_reload(false).run_headless(0, |ctx| {
+        ctx.add_asset_source(MemorySource::new("mem").with("stats.json", r#"{"hp": 7}"#));
+        let hp = ctx
+            .load_asset_with("stats.json", |bytes| {
+                serde_json::from_slice::<Stats>(bytes).map_err(|e| e.to_string())
+            })
+            .unwrap()
+            .hp;
+        assert_eq!(hp, 7.0);
+        ctx.load_resource::<Stats>("stats.json");
+        assert_eq!(ctx.world.resource::<Stats>().hp, 7.0);
+
+        ctx.world.reflect::<Stats>();
+        ctx.world.reflect_resource::<Stats>();
+        let e = ctx.world.spawn((Transform2D::default(), Stats::default()));
+        ctx.load_component_json::<Stats>("stats.json", e).unwrap();
+        ctx.load_component_json_named("stats.json", e, "Stats").unwrap();
+        assert_eq!(ctx.world.get::<Stats>(e).unwrap().hp, 7.0);
+        ctx.load_resource_json::<Stats>("stats.json").unwrap();
+        ctx.load_resource_json_named("stats.json", "Stats").unwrap();
+
+        ctx.save_prefab(e, prefab).unwrap();
+        ctx.save_scene(scene).unwrap();
+        assert!(ctx.reloaded_files().is_empty() && ctx.reloaded_textures().is_empty());
     });
 }

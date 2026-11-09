@@ -359,7 +359,10 @@ impl Panels {
             }
             .to_owned();
             if ui.button("Save").clicked() {
-                let saved = ctx.save_scene(&path).map(|()| format!("saved {path}"));
+                let saved = ctx
+                    .assets
+                    .save_scene(&ctx.world, &path)
+                    .map(|()| format!("saved {path}"));
                 self.status = self.report(saved);
             }
             if ui
@@ -392,7 +395,10 @@ impl Panels {
                 && save.on_hover_text("Saves the selected entity as this prefab").clicked()
             {
                 let path = self.prefab_path.clone();
-                let saved = ctx.save_prefab(e, &path).map(|()| format!("saved {path}"));
+                let saved = ctx
+                    .assets
+                    .save_prefab(&ctx.world, e, &path)
+                    .map(|()| format!("saved {path}"));
                 self.status = self.report(saved);
                 self.prefabs = None;
             }

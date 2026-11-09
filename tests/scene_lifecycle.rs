@@ -55,7 +55,7 @@ fn commands_queued_before_a_load_are_dropped_and_later_ones_apply() {
         .run_headless(2, |ctx| {
             ctx.world.reflect::<Tag>();
             kept = Some(ctx.world.spawn((Tag(1),)));
-            ctx.save_scene(file.0).unwrap();
+            ctx.assets.save_scene(&ctx.world, file.0).unwrap();
         });
     let e = kept.unwrap();
     assert_eq!(
@@ -96,7 +96,7 @@ fn events_sent_before_a_load_can_still_be_read() {
         .run_headless(2, |ctx| {
             ctx.world.reflect::<Tag>();
             ctx.world.spawn((Tag(1),));
-            ctx.save_scene(file.0).unwrap();
+            ctx.assets.save_scene(&ctx.world, file.0).unwrap();
         });
     assert_eq!(got.get(), Some(7));
 }
@@ -109,7 +109,7 @@ fn reflected_resources_follow_the_scene_and_other_state_stays() {
         ctx.world.reflect_resource::<Level>();
         ctx.world.insert_resource(Level(1));
         ctx.world.spawn((Tag(1),));
-        ctx.save_scene(file.0).unwrap();
+        ctx.assets.save_scene(&ctx.world, file.0).unwrap();
 
         ctx.world.insert_resource(Level(5));
         ctx.world.insert_resource(Coins(42));
@@ -203,9 +203,9 @@ mod physics {
             RigidBody::dynamic(),
             Collider::circle(10.0),
         ));
-        ctx.save_scene(a).unwrap();
+        ctx.assets.save_scene(&ctx.world, a).unwrap();
         ctx.world.get_mut::<Transform2D>(ball).unwrap().position = vec2(500.0, 0.0);
-        ctx.save_scene(b).unwrap();
+        ctx.assets.save_scene(&ctx.world, b).unwrap();
         ctx.load_scene(a).unwrap();
         ball
     }
@@ -293,9 +293,13 @@ mod physics {
                 let ball = ctx
                     .world
                     .spawn((Transform2D::at(Vec2::ZERO), RigidBody::fixed(), Collider::circle(10.0)));
-                ctx.save_scene("test-lifecycle-query-a.json").unwrap();
+                ctx.assets
+                    .save_scene(&ctx.world, "test-lifecycle-query-a.json")
+                    .unwrap();
                 ctx.world.get_mut::<Transform2D>(ball).unwrap().position = vec2(500.0, 0.0);
-                ctx.save_scene("test-lifecycle-query-b.json").unwrap();
+                ctx.assets
+                    .save_scene(&ctx.world, "test-lifecycle-query-b.json")
+                    .unwrap();
                 ctx.load_scene("test-lifecycle-query-a.json").unwrap();
             });
         drop((a, b));
@@ -332,7 +336,7 @@ mod physics {
                     RigidBody::dynamic(),
                     Collider::circle(10.0),
                 ));
-                ctx.save_scene(file.0).unwrap();
+                ctx.assets.save_scene(&ctx.world, file.0).unwrap();
             });
     }
 }
@@ -360,9 +364,9 @@ mod physics3d {
                     RigidBody3D::dynamic(),
                     Collider3D::sphere(0.5),
                 ));
-                ctx.save_scene(a.0).unwrap();
+                ctx.assets.save_scene(&ctx.world, a.0).unwrap();
                 ctx.world.get_mut::<Transform3D>(ball).unwrap().position = vec3(50.0, 0.0, 0.0);
-                ctx.save_scene(b.0).unwrap();
+                ctx.assets.save_scene(&ctx.world, b.0).unwrap();
                 ctx.load_scene(a.0).unwrap();
             });
         let p = world

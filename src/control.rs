@@ -899,7 +899,7 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
         }
         "scene.save" => {
             let path = str_param(params, "path")?;
-            ctx.save_scene(path)?;
+            ctx.assets.save_scene(&ctx.world, path)?;
             json!({ "path": path, "entities": ctx.world.len() })
         }
         "scene.load" => {
@@ -917,7 +917,7 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
         "prefab.save" => {
             let e = entity_param(params)?;
             let path = str_param(params, "path")?;
-            ctx.save_prefab(e, path)?;
+            ctx.assets.save_prefab(&ctx.world, e, path)?;
             json!({ "path": path })
         }
         "world.load" => {

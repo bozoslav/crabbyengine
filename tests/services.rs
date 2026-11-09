@@ -2,6 +2,9 @@
 //! own field, so it borrows apart from the world and from the others, and
 //! the flat `Ctx` methods from before them still forward.
 
+mod common;
+
+use common::TempAsset;
 use ponko::*;
 
 struct Pos(f32);
@@ -309,7 +312,7 @@ fn a_texture_loaded_by_the_service_is_saved_by_file_name() {
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
         .unwrap();
     let world = Game::new("t", 1, 1).hot_reload(false).run_headless(0, |ctx| {
-        ctx.add_asset_source(MemorySource::new("mem").with("dot.png", png));
+        ctx.assets.add_source(MemorySource::new("mem").with("dot.png", png));
         // The service needs no world to load; the world still learns the name.
         let dot = ctx.gfx.load_texture("dot.png");
         assert_eq!(ctx.gfx.load_texture("dot.png"), dot, "a file is loaded once");
@@ -408,6 +411,108 @@ fn the_ui_has_the_pointer_over_immediate_widgets_drawn_this_frame_or_the_last() 
     });
     // Not drawn yet; drawn the frame before; not drawn for a whole frame.
     assert_eq!(world.resource::<Seen>().0, [false, true, false]);
+}
+
+#[derive(serde::Deserialize)]
+struct Rules {
+    speed: f32,
+}
+
+#[derive(Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
+struct Stats {
+    hp: f32,
+}
+
+#[test]
+fn data_files_load_while_a_world_query_is_alive() {
+    fn give_stats(ctx: &mut Ctx) {
+        // Read data files for the entities the query finds: the files load
+        // into another world here, since the query has the game's.
+        let mut scratch = World::new();
+        for p in ctx.world.query::<&mut Pos>().iter() {
+            let found = ctx.assets.load_with("rules.json", |bytes| {
+                serde_json::from_slice::<Rules>(bytes).map_err(|e| e.to_string())
+            });
+            p.0 = found.unwrap().speed;
+            ctx.assets.load_resource::<Rules>(&mut scratch, "rules.json");
+        }
+        assert_eq!(scratch.resource::<Rules>().speed, 30.0);
+    }
+    let mut world = Game::new("t", 1, 1)
+        .hot_reload(false)
+        .sim_system(give_stats)
+        .run_headless(1, |ctx| {
+            ctx.assets
+                .add_source(MemorySource::new("mem").with("rules.json", r#"{"speed": 30}"#));
+            ctx.world.spawn((Pos(0.0),));
+        });
+    assert_eq!(world.query::<&Pos>().iter().next().unwrap().0, 30.0);
+}
+
+#[test]
+fn the_assets_service_fills_resources_and_components_of_the_world_it_is_given() {
+    Game::new("t", 1, 1).hot_reload(false).run_headless(0, |ctx| {
+        assert!(!ctx.assets.hot_reload());
+        ctx.assets.add_source(
+            MemorySource::new("mem")
+                .with("rules.json", r#"{"speed": 30}"#)
+                .with("stats.json", r#"{"hp": 7}"#),
+        );
+        ctx.assets.load_resource::<Rules>(&mut ctx.world, "rules.json");
+        assert_eq!(ctx.world.resource::<Rules>().speed, 30.0);
+
+        ctx.world.reflect::<Stats>();
+        let e = ctx.world.spawn((Stats::default(),));
+        ctx.assets
+            .load_component_json::<Stats>(&mut ctx.world, "stats.json", e)
+            .unwrap();
+        assert_eq!(ctx.world.get::<Stats>(e).unwrap().hp, 7.0);
+
+        ctx.world.reflect_resource::<Stats>();
+        ctx.assets
+            .load_resource_json::<Stats>(&mut ctx.world, "stats.json")
+            .unwrap();
+        assert_eq!(ctx.world.resource::<Stats>().hp, 7.0);
+
+        let missing = ctx
+            .assets
+            .load_component_json::<Stats>(&mut ctx.world, "missing.json", e);
+        assert!(missing.is_err());
+        assert!(ctx.assets.reloaded_files().is_empty() && ctx.assets.reloaded_textures().is_empty());
+    });
+}
+
+#[test]
+#[should_panic(expected = "rules.json")]
+fn a_missing_data_file_panics_with_its_name() {
+    Game::new("t", 1, 1).hot_reload(false).run_headless(0, |ctx| {
+        ctx.assets
+            .load_resource::<Rules>(&mut ctx.world, "no-such-dir/rules.json");
+    });
+}
+
+#[test]
+fn scenes_and_prefabs_are_saved_from_the_world_they_are_given() {
+    let scene = TempAsset::new("services-scene.json");
+    let prefab = TempAsset::new("services-prefab.json");
+    let (scene, prefab) = (scene.name(), prefab.name());
+    Game::new("t", 1, 1).hot_reload(false).run_headless(0, |ctx| {
+        ctx.world.reflect::<Stats>();
+        let e = ctx.world.spawn((Transform2D::at(vec2(3.0, 4.0)), Stats { hp: 5.0 }));
+        ctx.assets.save_scene(&ctx.world, scene).unwrap();
+        ctx.assets.save_prefab(&ctx.world, e, prefab).unwrap();
+
+        // The prefab is cached by the service that saved it; the scene comes back from its file.
+        let copy = ctx.spawn_prefab(prefab, vec2(9.0, 9.0)).unwrap();
+        assert_eq!(ctx.world.get::<Stats>(copy).unwrap().hp, 5.0);
+        assert_eq!(ctx.world.get::<Transform2D>(copy).unwrap().position, vec2(9.0, 9.0));
+        ctx.load_scene(scene).unwrap();
+        assert_eq!(ctx.world.query::<&Stats>().count(), 1);
+
+        let dead = ctx.world.spawn((Stats::default(),));
+        ctx.world.despawn(dead);
+        assert!(ctx.assets.save_prefab(&ctx.world, dead, prefab).is_err());
+    });
 }
 
 #[cfg(feature = "3d")]

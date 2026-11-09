@@ -41,7 +41,8 @@ impl AssetSource for Counting {
 #[test]
 fn a_mesh_loads_by_name_from_a_memory_source() {
     game().run_headless(0, |ctx| {
-        ctx.add_asset_source(MemorySource::new("pack").with("models/home.glb", HOUSE));
+        ctx.assets
+            .add_source(MemorySource::new("pack").with("models/home.glb", HOUSE));
         let home = ctx.gfx.load_mesh("models/home.glb");
         assert_eq!(
             ctx.gfx.load_mesh("models/home.glb"),
@@ -59,7 +60,8 @@ fn a_mesh_in_a_source_is_found_by_the_names_a_scene_gives() {
     // A saved scene names its mesh; it is found in the source too.
     let mut saved = String::new();
     game().run_headless(0, |ctx| {
-        ctx.add_asset_source(MemorySource::new("pack").with("models/home.glb", HOUSE));
+        ctx.assets
+            .add_source(MemorySource::new("pack").with("models/home.glb", HOUSE));
         let home = ctx.gfx.load_mesh("models/home.glb");
         ctx.world.spawn((Transform3D::default(), Model::new(home)));
         saved = serde_json::to_string(&ctx.world.save()).unwrap();
@@ -68,7 +70,7 @@ fn a_mesh_in_a_source_is_found_by_the_names_a_scene_gives() {
         .with("models/home.glb", HOUSE)
         .with("level.json", saved);
     let world = game().run_headless(0, |ctx| {
-        ctx.add_asset_source(pack);
+        ctx.assets.add_source(pack);
         ctx.load_scene("level.json").unwrap();
         assert_eq!(ctx.world.query::<&Model>().iter().count(), 1);
     });
@@ -80,7 +82,7 @@ fn repeated_mesh_loads_read_a_source_once() {
     let reads = Rc::new(Cell::new(0));
     let counted = reads.clone();
     game().run_headless(0, move |ctx| {
-        ctx.add_asset_source(Counting {
+        ctx.assets.add_source(Counting {
             id: "counting",
             reads: counted.clone(),
             name: "home.glb",
@@ -98,15 +100,16 @@ fn repeated_mesh_loads_read_a_source_once() {
 #[test]
 fn the_same_mesh_name_in_two_sources_is_two_meshes_and_the_first_wins() {
     game().run_headless(0, |ctx| {
-        ctx.add_asset_source(MemorySource::new("first").with("m.glb", HOUSE));
-        ctx.add_asset_source(MemorySource::new("second").with("m.glb", HOUSE));
+        ctx.assets.add_source(MemorySource::new("first").with("m.glb", HOUSE));
+        ctx.assets.add_source(MemorySource::new("second").with("m.glb", HOUSE));
         let from_first = ctx.gfx.load_mesh("m.glb");
         assert_eq!(ctx.gfx.load_mesh("m.glb"), from_first);
     });
     // The folder's copy and a source's copy are separate assets.
     game().run_headless(0, |ctx| {
         let from_folder = ctx.gfx.load_mesh("models/house.glb");
-        ctx.add_asset_source(MemorySource::new("pack").with("models/house.glb", HOUSE));
+        ctx.assets
+            .add_source(MemorySource::new("pack").with("models/house.glb", HOUSE));
         let from_source = ctx.gfx.load_mesh("models/house.glb");
         assert_ne!(from_source, from_folder, "same name, other source: another mesh");
         assert_eq!(ctx.gfx.load_mesh("models/house.glb"), from_source);
@@ -116,7 +119,7 @@ fn the_same_mesh_name_in_two_sources_is_two_meshes_and_the_first_wins() {
 #[test]
 fn a_missing_mesh_reports_the_sources_and_folders_searched() {
     game().run_headless(0, |ctx| {
-        ctx.add_asset_source(MemorySource::new("pack"));
+        ctx.assets.add_source(MemorySource::new("pack"));
         let err = ctx.gfx.load_mesh_data("models/nowhere.glb").unwrap_err();
         assert!(err.contains("\"models/nowhere.glb\" not found in assets/"), "{err}");
         assert!(err.contains("Asset sources searched first: \"pack\""), "{err}");
@@ -127,7 +130,8 @@ fn a_missing_mesh_reports_the_sources_and_folders_searched() {
 #[should_panic(expected = "models/broken.glb")]
 fn corrupt_mesh_bytes_are_an_error_naming_the_file() {
     game().run_headless(0, |ctx| {
-        ctx.add_asset_source(MemorySource::new("pack").with("models/broken.glb", b"nope".to_vec()));
+        ctx.assets
+            .add_source(MemorySource::new("pack").with("models/broken.glb", b"nope".to_vec()));
         ctx.gfx.load_mesh("models/broken.glb");
     });
 }
@@ -135,7 +139,7 @@ fn corrupt_mesh_bytes_are_an_error_naming_the_file() {
 #[test]
 fn shaders_effects_and_compute_load_by_name_from_a_memory_source() {
     game().run_headless(0, |ctx| {
-        ctx.add_asset_source(
+        ctx.assets.add_source(
             MemorySource::new("pack")
                 .with("shaders/plain.wgsl", SURFACE)
                 .with("effects/plain.wgsl", EFFECT)
@@ -155,7 +159,7 @@ fn repeated_shader_loads_read_a_source_once() {
     let reads = Rc::new(Cell::new(0));
     let counted = reads.clone();
     game().run_headless(0, move |ctx| {
-        ctx.add_asset_source(Counting {
+        ctx.assets.add_source(Counting {
             id: "counting",
             reads: counted.clone(),
             name: "plain.wgsl",
@@ -174,7 +178,8 @@ fn the_same_shader_name_in_two_sources_is_two_shaders() {
     game().run_headless(0, |ctx| {
         // The assets folder has shaders/water.wgsl; a source's copy is another shader.
         let from_folder = ctx.gfx.load_shader("shaders/water.wgsl");
-        ctx.add_asset_source(MemorySource::new("pack").with("shaders/water.wgsl", SURFACE));
+        ctx.assets
+            .add_source(MemorySource::new("pack").with("shaders/water.wgsl", SURFACE));
         let from_source = ctx.gfx.load_shader("shaders/water.wgsl");
         assert_ne!(from_source, from_folder);
         assert_eq!(ctx.gfx.load_shader("shaders/water.wgsl"), from_source);
@@ -184,7 +189,8 @@ fn the_same_shader_name_in_two_sources_is_two_shaders() {
 #[test]
 fn shader_errors_name_the_source() {
     game().run_headless(0, |ctx| {
-        ctx.add_asset_source(MemorySource::new("pack").with("bad.wgsl", vec![0xff, 0xfe, 0xfd]));
+        ctx.assets
+            .add_source(MemorySource::new("pack").with("bad.wgsl", vec![0xff, 0xfe, 0xfd]));
         let err = ctx.gfx.try_load_shader("bad.wgsl").unwrap_err();
         assert!(
             err.contains("\"bad.wgsl\" (from asset source \"pack\") is not UTF-8 text"),

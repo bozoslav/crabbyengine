@@ -785,7 +785,8 @@ pub unsafe extern "C" fn crabby_ctx_load_json(
             } else {
                 full.rsplit("::").next().unwrap_or(full).to_string()
             };
-            c.load_component_json_named(path, Entity::from_bits(entity), &name)
+            c.assets
+                .load_component_json_named(&mut c.world, path, Entity::from_bits(entity), &name)
                 .map_err(crate::invalid_owned)
         })
     })
@@ -811,7 +812,9 @@ pub unsafe extern "C" fn crabby_ctx_load_resource_json(
         ctx_access(ctx, |c| {
             let path = text(path)?;
             let name = text(name)?;
-            c.load_resource_json_named(path, name).map_err(crate::invalid_owned)
+            c.assets
+                .load_resource_json_named(&mut c.world, path, name)
+                .map_err(crate::invalid_owned)
         })
     })
 }
@@ -833,7 +836,7 @@ pub unsafe extern "C" fn crabby_ctx_was_reloaded(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             let path = text(path)?;
-            out(out_reloaded, c.reloaded_files().iter().any(|f| f == path))
+            out(out_reloaded, c.assets.reloaded_files().iter().any(|f| f == path))
         })
     })
 }

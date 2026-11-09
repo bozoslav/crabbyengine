@@ -109,7 +109,7 @@ Game::new("Art test", 1280, 720)
     .run(|ctx| {
         let level = ctx.load_texture("level.png");
         move |ctx: &mut Ctx| {
-            if ctx.reloaded_textures().contains(&level) {
+            if ctx.assets.reloaded_textures().contains(&level) {
                 println!("level.png changed: rebuilding the map");
             }
         }

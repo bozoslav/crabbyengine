@@ -34,7 +34,7 @@ where
     let clock = Clock::new(game.fixed_hz);
     let mut ctx = Ctx::new(clock.fixed_dt(), Vec2::new(game.width as f32, game.height as f32));
     ctx.seed = game.seed;
-    ctx.watcher.set_on(crate::hot_reload::enabled(game.hot_reload));
+    ctx.assets.watcher.set_on(crate::hot_reload::enabled(game.hot_reload));
     if let Some(cell) = game.spatial_cell {
         ctx.spatial = crate::SpatialGrid::new(cell);
     }

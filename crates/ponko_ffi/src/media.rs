@@ -660,7 +660,7 @@ pub unsafe extern "C" fn crabby_ctx_reloaded_textures(
         // SAFETY: forwarded caller contract; outputs checked non-null.
         unsafe {
             ctx_access(ctx, |c| {
-                let list = c.reloaded_textures();
+                let list = c.assets.reloaded_textures();
                 // Texture and CrabbyTexture have the same layout (types.rs).
                 out_textures.write(list.as_ptr().cast());
                 out_count.write(list.len());

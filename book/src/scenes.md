@@ -52,8 +52,8 @@ it (and its folders). Web builds can't save files.
 
 ```rust
 # let palm = ctx.world.spawn((Transform2D::default(),));
-ctx.save_scene("levels/beach.json")?;
-ctx.save_prefab(palm, "prefabs/palm.json")?;
+ctx.assets.save_scene(&ctx.world, "levels/beach.json")?;
+ctx.assets.save_prefab(&ctx.world, palm, "prefabs/palm.json")?;
 ```
 
 C++: `ctx.save_scene(path)` and `ctx.save_prefab(e, path)`, which throw on
