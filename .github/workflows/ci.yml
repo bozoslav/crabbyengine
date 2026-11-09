@@ -114,9 +114,9 @@ jobs:
           key: msrv
       - run: cargo check --workspace --all-targets --features ponko/physics,ponko/steam
 
-  # Keep the default suite together to reuse compilation. Feature variants
-  # run in a second job per OS; avoid a job per test file, which duplicates
-  # the workspace build and queues behind hosted-runner concurrency limits.
+  # Keep suites together to reuse compilation. Windows unit tests include
+  # slow software-rendered GPU tests; run them beside integration tests and
+  # examples rather than blocking those targets behind rendering.
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -130,23 +130,48 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev libudev-dev
       - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/windows-linker
+        if: runner.os == 'Windows'
       - uses: Swatinem/rust-cache@v2
         with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      # Every crate's unit and integration tests; also builds the examples.
-      # Doc tests only on Linux: they don't depend on the OS, and Windows
-      # links each one as its own executable (that was 8 of its 10 minutes).
+          # PR caches are scoped by GitHub to that PR; keep new Windows
+          # linker artifacts so reruns do not repeat a cold dependency build.
+          save-if: ${{ github.ref == 'refs/heads/main' || runner.os == 'Windows' }}
+      # Linux also runs doctests. Windows unit tests have their own job;
+      # --test '*' selects all integration targets without running unit tests
+      # a second time (--tests would include unit tests too).
       - name: Tests (default features)
         shell: bash
         run: |
           if [ "$RUNNER_OS" = "Linux" ]; then
             cargo test --workspace --no-fail-fast
+          elif [ "$RUNNER_OS" = "Windows" ]; then
+            cargo test --workspace --no-fail-fast --bins --test '*' --examples
           else
             cargo test --workspace --no-fail-fast --lib --bins --tests --examples
           fi
       - name: Build examples
         if: ${{ !cancelled() }}
         run: cargo build --workspace --examples
+
+  windows-unit:
+    name: Unit and render tests (windows-latest)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/windows-linker
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # PR caches are scoped by GitHub to that PR; keep new Windows
+          # linker artifacts so reruns do not repeat a cold dependency build.
+          save-if: ${{ github.ref == 'refs/heads/main' || runner.os == 'Windows' }}
+          shared-key: test
+      # Separate compile and execution timings so GPU cost is visible.
+      - name: Compile unit and render tests
+        run: cargo test --workspace --lib --no-run
+      - name: Run unit and render tests
+        run: cargo test --workspace --lib --no-fail-fast
 
   # Feature variants run beside the default suite, rather than extending
   # its critical path with five more serial engine builds on every OS.
@@ -163,11 +188,16 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev libudev-dev
       - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/windows-linker
+        if: runner.os == 'Windows'
       - uses: Swatinem/rust-cache@v2
         with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-          # Restore the default suite's dependencies on the first run too.
-          shared-key: test
+          # PR caches are scoped by GitHub to that PR; keep new Windows
+          # linker artifacts so reruns do not repeat a cold dependency build.
+          save-if: ${{ github.ref == 'refs/heads/main' || runner.os == 'Windows' }}
+          # Windows needs its complete feature graph cached separately:
+          # the faster default job otherwise wins the immutable cache key.
+          shared-key: ${{ runner.os == 'Windows' && 'test-features' || 'test' }}
       - name: Tests, ECS without rayon
         if: ${{ !cancelled() }}
         run: cargo test -p ponko_ecs --tests --no-fail-fast --no-default-features
@@ -207,9 +237,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Cache mdBook binary
+        id: mdbook-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/bin/mdbook
+          key: mdbook-${{ runner.os }}-${{ runner.arch }}-0.5.4
       - uses: taiki-e/install-action@v2
+        if: steps.mdbook-cache.outputs.cache-hit != 'true'
         with:
           tool: mdbook@0.5.4
+      - run: mdbook --version
       - run: mdbook build book
 
   miri:
@@ -254,17 +292,27 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev libudev-dev
       - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/windows-linker
+        if: runner.os == 'Windows'
       - uses: Swatinem/rust-cache@v2
         with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          # PR caches are scoped by GitHub to that PR; keep new Windows
+          # linker artifacts so reruns do not repeat a cold dependency build.
+          save-if: ${{ github.ref == 'refs/heads/main' || runner.os == 'Windows' }}
           key: native
+      - name: Find the cbindgen version in Cargo.lock
+        shell: bash
+        run: echo "CBINDGEN_VERSION=$(awk '/^name = "cbindgen"$/ { getline; gsub(/version = |"/, ""); print }' Cargo.lock)" >> "$GITHUB_ENV"
+      # Install just the generator and cache its binary. Running the FFI
+      # example would compile and link the engine before reading its source.
+      - uses: taiki-e/cache-cargo-install-action@v3
+        with:
+          tool: cbindgen@${{ env.CBINDGEN_VERSION }}
       - name: Verify generated C header
         shell: bash
         run: |
           mkdir -p target
-          # Reuse the release build below instead of compiling the engine
-          # in both dev and release profiles just to generate the header.
-          cargo run --release -p ponko_ffi --example generate_header > target/crabby.generated.h
+          cbindgen --config crates/crabby_ffi/cbindgen.toml crates/crabby_ffi > target/crabby.generated.h
           python - <<'PYTHON'
           from pathlib import Path
           import difflib
@@ -308,7 +356,7 @@ jobs:
   ci-passed:
     name: CI passed
     if: always()
-    needs: [leaks, fmt, clippy, msrv, test, test-features, docs, book, miri, native, web]
+    needs: [leaks, fmt, clippy, msrv, test, windows-unit, test-features, docs, book, miri, native, web]
     runs-on: ubuntu-latest
     steps:
       - name: Check every job
