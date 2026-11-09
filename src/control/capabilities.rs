@@ -48,9 +48,9 @@ pub(super) fn unavailable(ctx: &Ctx, method: &str) -> Option<String> {
 fn limited(ctx: &Ctx, method: &str) -> Option<&'static str> {
     match method {
         "perf.hud" if ctx.headless => Some("accepted, but a headless game draws no overlay"),
-        "perf.get" if ctx.headless => {
-            Some("headless games report only simulation system timings, no frame or GPU numbers")
-        }
+        "perf.get" if ctx.headless => Some(
+            "headless games report only simulation system timings, no frame or GPU numbers (render_inspector marks them unavailable)",
+        ),
         _ => None,
     }
 }

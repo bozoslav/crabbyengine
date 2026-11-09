@@ -23,6 +23,9 @@ impl Renderer {
     pub fn set_draw_hidden(&mut self, _on: bool, _always: bool) {
         match *self {}
     }
+    pub fn detail(&self) -> super::RenderDetail {
+        match *self {}
+    }
     pub fn gpu_passes(&self) -> &[crate::profiler::GpuPass] {
         match *self {}
     }

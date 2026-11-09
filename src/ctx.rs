@@ -351,6 +351,9 @@ pub struct Ctx {
     pub ui_style: UiStyle,
     pub(crate) audio: Audio,
     pub(crate) last_render_stats: RenderStats,
+    /// The renderer's extra numbers for the last drawn frame, `None`
+    /// before the first frame and without a renderer.
+    pub(crate) last_render_detail: Option<crate::render::RenderDetail>,
     /// Frame statistics, the HUD, traces and benchmark runs.
     pub(crate) profiler: crate::profiler::Profiler,
     /// Scopes, allocation counts and the history behind `perf_report`.
@@ -463,6 +466,7 @@ impl Ctx {
             ui_style: UiStyle::default(),
             audio: Audio::default(),
             last_render_stats: RenderStats::default(),
+            last_render_detail: None,
             profiler: crate::profiler::Profiler::new(),
             perf: crate::perf_report::PerfState::new(),
             gpu_passes: Vec::new(),
@@ -500,6 +504,7 @@ impl Ctx {
             .probes
             .settle(!matches!(status, FrameStatus::Occluded | FrameStatus::Skipped));
         self.last_render_stats = self.renderer.as_ref().map(Renderer::stats).unwrap_or_default();
+        self.last_render_detail = self.renderer.as_ref().map(Renderer::detail);
         if let Some(renderer) = &self.renderer {
             self.gpu_passes.clear();
             self.gpu_passes.extend_from_slice(renderer.gpu_passes());
