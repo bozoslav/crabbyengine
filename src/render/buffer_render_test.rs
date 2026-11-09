@@ -773,7 +773,7 @@ fn instance_levels_select_boundary_meshes_and_colors_on_gpu_and_fallback() {
         assert!(b.views.len() <= 2, "camera-only levels allocated shadow slots");
         rig.ctx.camera3d.position.z = 15.0;
         assert!(
-            rig.draw().chunks_exact(4).all(|p| p[0] < 50 && p[2] < 50),
+            rig.draw().as_chunks::<4>().0.iter().all(|p| p[0] < 50 && p[2] < 50),
             "no band must draw nothing"
         );
         rig.renderer.set_instance_batch(&rig.device, batch.id(), None);
