@@ -1,0 +1,28 @@
+//! One test process keeps allocation measurements isolated.
+use ponko::*;
+
+#[global_allocator]
+static ALLOCATOR: CountingAllocator = CountingAllocator;
+
+fn scoped_tick(ctx: &mut Ctx) {
+    let before = alloc_counts();
+    ctx.world.resource_scope::<Vec<u32>, _>(|world, totals| {
+        world.query::<&mut u32>().for_each(|n| {
+            *n += 1;
+            totals[0] += *n;
+        });
+    });
+    assert_eq!(alloc_counts(), before, "resource scope and query must not allocate");
+}
+
+#[test]
+fn scoped_resource_and_query_allocate_nothing_in_steady_state() {
+    let (_, report) = Game::new("scope", 1, 1)
+        .sim_system(scoped_tick)
+        .profile_headless(10, 100, |ctx| {
+            ctx.world.insert_resource(vec![0u32]);
+            ctx.world.spawn_batch((0..100).map(|n| (n as u32,)));
+        });
+    assert!(report.allocs.is_some(), "allocation counting must be enabled");
+    assert_eq!(report.system("scoped_tick").unwrap().allocs_per_frame, 0.0);
+}

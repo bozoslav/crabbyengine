@@ -74,6 +74,21 @@ pub struct World {
     scratch_ids: Vec<ComponentId>,
 }
 
+// Own the existing box so scoped access needs neither unsafe code nor a new
+// allocation. Field borrows separate the callback's World and resource access.
+struct ResourceScope<'a> {
+    world: &'a mut World,
+    id: TypeId,
+    value: Option<Box<dyn Any + Send + Sync>>,
+}
+
+impl Drop for ResourceScope<'_> {
+    fn drop(&mut self) {
+        // Restore before dropping any replacement, even if its destructor panics.
+        self.world.resources.insert(self.id, self.value.take().unwrap());
+    }
+}
+
 /// One value with no Rust type: plain bytes in their own allocation, so a
 /// pointer to it stays valid until the value is replaced or removed.
 struct RawValue {
@@ -429,6 +444,47 @@ impl World {
     #[track_caller]
     pub fn resource_mut<R: Send + Sync + 'static>(&mut self) -> &mut R {
         self.get_resource_mut().unwrap_or_else(|| missing_resource::<R>())
+    }
+
+    /// Temporarily takes `R` out of the world, giving the callback mutable
+    /// access to both the resource and the rest of the world.
+    ///
+    /// The original resource (including callback mutations) is restored on
+    /// return or panic unwinding. It is absent from world resource lookups
+    /// during the callback. A replacement inserted there is discarded when
+    /// the original is restored. Scopes for different types may be nested.
+    /// The existing box is reused: scoping itself does not allocate in steady
+    /// state. Changes made by the callback may still allocate.
+    ///
+    /// ```
+    /// use ponko_ecs::World;
+    /// struct Total(u32);
+    /// let mut world = World::new();
+    /// world.insert_resource(Total(0));
+    /// world.spawn((3u32,));
+    /// world.resource_scope::<Total, _>(|world, total| {
+    ///     world.query::<&mut u32>().for_each(|n| {
+    ///         *n += 1;
+    ///         total.0 += *n;
+    ///     });
+    /// });
+    /// assert_eq!(world.resource::<Total>().0, 4);
+    /// ```
+    ///
+    /// # Panics
+    /// If `R` is absent, including a nested scope for the same type unless a
+    /// replacement was inserted. As with any destructor, a replacement whose
+    /// destructor panics during unwinding causes an abort.
+    #[track_caller]
+    pub fn resource_scope<R: Send + Sync + 'static, T>(&mut self, f: impl FnOnce(&mut Self, &mut R) -> T) -> T {
+        let id = TypeId::of::<R>();
+        let value = self.resources.remove(&id).unwrap_or_else(|| missing_resource::<R>());
+        let mut scope = ResourceScope {
+            world: self,
+            id,
+            value: Some(value),
+        };
+        f(scope.world, scope.value.as_mut().unwrap().downcast_mut::<R>().unwrap())
     }
 
     /// The resource of type `R`, if there is one.
