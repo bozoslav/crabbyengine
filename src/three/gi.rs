@@ -420,8 +420,14 @@ impl GiFrame {
             .resize(capture.instances.len(), Vec4::new(0.0, 0.0, 0.0, f32::INFINITY));
         let real = assets.bounds.len() as u32;
         for &(mesh, start, count) in &capture.runs {
-            // Skinned models (past the real meshes) are always drawn.
-            let Some((center, radius)) = assets.live_bounds(mesh & !FADED).filter(|_| mesh & !FADED < real) else {
+            // Material overrides are culled as their mesh; skinned models
+            // (past the real meshes) are always drawn.
+            let mesh = mesh & !FADED;
+            let mesh = mesh
+                .checked_sub(capture.override_base)
+                .and_then(|k| capture.material_overrides.get(k as usize))
+                .map_or(mesh, |o| o.0);
+            let Some((center, radius)) = assets.live_bounds(mesh).filter(|_| mesh < real) else {
                 continue;
             };
             for i in start..start + count {

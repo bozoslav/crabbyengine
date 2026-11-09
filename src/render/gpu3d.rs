@@ -871,6 +871,11 @@ pub(crate) struct Renderer3D {
     shadow_runs: [Vec<(u32, u32, u32)>; MAX_SHADOW_VIEWS],
     /// Per skinned model this frame, whether any pass draws it.
     skin_drawn: Vec<bool>,
+    /// This frame's material overrides (see `Frame3D::material_overrides`):
+    /// mesh id `override_base + k` draws mesh `.0` with material `.1`
+    /// (`u32::MAX`: an unknown material, so the mesh's own).
+    material_overrides: Vec<(u32, u32)>,
+    override_base: u32,
 }
 
 impl Renderer3D {
@@ -1627,6 +1632,8 @@ impl Renderer3D {
             runs: Vec::new(),
             shadow_runs: Default::default(),
             skin_drawn: Vec::new(),
+            material_overrides: Vec::new(),
+            override_base: u32::MAX,
         }
     }
 
@@ -2326,6 +2333,16 @@ impl Renderer3D {
             ));
         }
         self.atmosphere = sky.atmosphere;
+        self.override_base = frame.override_base;
+        self.material_overrides.clear();
+        let (meshes, materials) = (self.meshes.len() as u32, self.materials.len() as u32);
+        self.material_overrides
+            .extend(frame.material_overrides.iter().map(|&(mesh, material)| {
+                (
+                    if mesh < meshes { mesh } else { 0 },
+                    if material < materials { material } else { u32::MAX },
+                )
+            }));
         self.prepare_static(device, queue, frame, camera, occlusion);
         self.runs.clear();
         self.runs.extend_from_slice(&frame.runs);
@@ -3229,7 +3246,8 @@ impl Renderer3D {
                 .sum()
         };
         let mut add = |mesh: u32, count: u32, shadow: bool| {
-            let mesh = mesh & !FADED;
+            // A material override counts towards its mesh.
+            let mesh = self.material_override(mesh).map_or(mesh & !FADED, |o| o.0);
             let at = match out.binary_search_by_key(&mesh, |e| e.0) {
                 Ok(i) => i,
                 Err(i) => {
@@ -4021,7 +4039,7 @@ impl Renderer3D {
             .chain(self.static_batches.iter().flatten().map(|b| b.mesh))
             .any(|mesh| {
                 self.meshes[self.base(mesh) as usize].parts.iter().any(|&(_, m)| {
-                    let m = &self.materials[m as usize];
+                    let m = &self.materials[self.part_material(mesh, m) as usize];
                     m.transparent && self.shaders[m.shader as usize].reads_scene
                 })
             })
@@ -4031,9 +4049,28 @@ impl Renderer3D {
     /// past the meshes), the skinned mesh.
     fn base(&self, mesh: u32) -> u32 {
         let mesh = mesh & !FADED;
+        if let Some(&(base, _)) = self.material_override(mesh) {
+            return base;
+        }
         match (mesh as usize).checked_sub(self.meshes.len()) {
             None => mesh,
             Some(k) => self.skinning.draws.get(k).map_or(0, |d| d.0),
+        }
+    }
+
+    /// The (mesh, material) a run's mesh id stands for, if it's a
+    /// material override (see `Frame3D::material_overrides`).
+    fn material_override(&self, mesh: u32) -> Option<&(u32, u32)> {
+        let k = (mesh & !FADED).checked_sub(self.override_base)?;
+        self.material_overrides.get(k as usize)
+    }
+
+    /// The material a run draws a mesh part with: the part's own, or the
+    /// run's override.
+    fn part_material(&self, run_mesh: u32, own: u32) -> u32 {
+        match self.material_override(run_mesh) {
+            Some(&(_, material)) if material != u32::MAX => material,
+            _ => own,
         }
     }
 
@@ -4055,7 +4092,7 @@ impl Renderer3D {
             self.meshes[self.base(mesh & !FADED) as usize]
                 .parts
                 .iter()
-                .any(|&(_, m)| self.materials[m as usize].cutout)
+                .any(|&(_, m)| self.materials[self.part_material(mesh, m) as usize].cutout)
         });
         let cutout = cutout
             || (batches.is_some()
@@ -4160,7 +4197,10 @@ impl Renderer3D {
         for &(mesh, start, models) in runs {
             let fading = mesh & FADED != 0;
             let mesh = mesh & !FADED;
-            let posed = (mesh as usize).checked_sub(self.meshes.len());
+            let run_mesh = mesh;
+            let posed = (mesh as usize)
+                .checked_sub(self.meshes.len())
+                .filter(|_| self.material_override(mesh).is_none());
             let mesh = &self.meshes[self.base(mesh) as usize];
             let storage = if let Some((id, count)) = mesh.gpu_buffer {
                 let Some(buffer) = self.storage_buffers.get(id as usize).and_then(Option::as_ref) else {
@@ -4182,6 +4222,7 @@ impl Renderer3D {
             };
             let mut buffers_set = false;
             for (part, (range, material)) in mesh.parts.iter().enumerate() {
+                let material = &self.part_material(run_mesh, *material);
                 let m = &self.materials[*material as usize];
                 // Transparent surfaces are drawn last and cast no shadows.
                 if m.transparent != (kind == Kind::Transparent) {
