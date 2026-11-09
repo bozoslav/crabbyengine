@@ -685,12 +685,13 @@ fn main() {
         .system(controls)
         .system(camera_controls)
         .system(hud)
-        .run(move |ctx| {
+        .setup(move |ctx| {
             let dot = ctx.create_texture(2, 2, &[255; 2 * 2 * 4]);
             setup(ctx, units, seed, Some(dot));
             let world = ctx.world.resource::<Battle>().nav.size().as_vec2() * CELL;
             ctx.camera.zoom = (ctx.camera.viewport() / world).min_element();
             ctx.camera.look_at(world / 2.0);
             draw_map(ctx)
-        });
+        })
+        .run();
 }
