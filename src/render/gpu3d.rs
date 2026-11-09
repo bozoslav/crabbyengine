@@ -154,6 +154,13 @@ pub(crate) fn multisamples(adapter: &wgpu::Adapter, samples: u32) -> bool {
     })
 }
 
+/// Whether `backend` is the browser's WebGL2, which wgpu can't give
+/// multisampled textures (`texStorage2DMultisample` is missing from WebGL2, and
+/// glow's browser binding panics on it). The 3D frame then uses one sample.
+pub(crate) fn browser_gl_has_no_multisampled_textures(backend: wgpu::Backend) -> bool {
+    cfg!(target_arch = "wasm32") && backend == wgpu::Backend::Gl
+}
+
 /// The frame's camera and light, as the shader reads them.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]

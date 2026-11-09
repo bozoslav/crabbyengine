@@ -53,6 +53,7 @@ impl Smoke {
     }
 
     /// Left clicks seen so far.
+    #[allow(dead_code)] // fixtures that don't react to clicks don't call it
     pub fn clicks(&self) -> u32 {
         self.clicks
     }

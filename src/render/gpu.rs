@@ -412,7 +412,12 @@ impl Renderer {
         // can multisample both 3D targets that much, else 4 (always works).
         let requested_msaa = msaa;
         #[cfg(feature = "3d")]
-        let msaa = if super::gpu3d::multisamples(&adapter, msaa) {
+        let msaa = if super::gpu3d::browser_gl_has_no_multisampled_textures(adapter.get_info().backend) {
+            // WebGL2 can't make multisampled textures through wgpu (glow's
+            // browser binding panics): draw the 3D frame unsmoothed, and
+            // leave edges to FXAA or SMAA.
+            1
+        } else if super::gpu3d::multisamples(&adapter, msaa) {
             msaa
         } else {
             eprintln!("ponko: this GPU can't do {msaa}x multisampling here; using 4x");
