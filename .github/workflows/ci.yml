@@ -19,6 +19,11 @@
 # added, starts this workflow on the branch with workflow_dispatch. That
 # check isn't required, so the leaks job here re-reads the current PR text
 # in the merge queue: an edited-in leak still blocks the merge.
+#
+# Build caches are saved only by runs on main (`save-if`). Every other run
+# can restore those, and nothing can restore a cache saved from a merge
+# queue ref. Saving elsewhere fills the repository's 10 GB cache quota, and
+# GitHub then evicts main's caches: the next runs rebuild every dependency.
 
 name: CI
 
@@ -222,12 +227,12 @@ jobs:
         if: runner.os == 'Windows'
       - uses: Swatinem/rust-cache@v2
         with:
-          # PR caches are scoped by GitHub to that PR; keep new Windows
-          # linker artifacts so reruns do not repeat a cold dependency build.
-          save-if: ${{ github.ref == 'refs/heads/main' || runner.os == 'Windows' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # Linux also runs doctests. Windows unit tests have their own job;
       # --test '*' selects all integration targets without running unit tests
-      # a second time (--tests would include unit tests too).
+      # a second time (--tests would include unit tests too). No job passes
+      # --examples: the examples hold no tests, so it would only link each
+      # one a second time, as a test binary. They are built once, below.
       - name: Tests (default features)
         shell: bash
         run: |
@@ -236,7 +241,7 @@ jobs:
           elif [ "$RUNNER_OS" = "Windows" ]; then
             cargo test --workspace --no-fail-fast --bins --test '*'
           else
-            cargo test --workspace --no-fail-fast --lib --bins --tests --examples
+            cargo test --workspace --no-fail-fast --lib --bins --tests
           fi
       - name: Build examples
         if: ${{ !cancelled() && runner.os != 'Windows' }}
@@ -252,9 +257,7 @@ jobs:
       - uses: ./.github/actions/windows-linker
       - uses: Swatinem/rust-cache@v2
         with:
-          # PR caches are scoped by GitHub to that PR; keep new Windows
-          # linker artifacts so reruns do not repeat a cold dependency build.
-          save-if: ${{ github.ref == 'refs/heads/main' || runner.os == 'Windows' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           # This narrower build has a different dependency feature graph;
           # keep its cache separate from the full-workspace jobs.
           shared-key: windows-unit-engine
@@ -274,13 +277,13 @@ jobs:
           if-no-files-found: error
 
   windows-unit:
-    name: Unit and render tests (Windows shard ${{ matrix.shard }}/3)
+    name: Unit and render tests (Windows shard ${{ matrix.shard }}/6)
     needs: windows-unit-build
     runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/nextest
@@ -289,11 +292,14 @@ jobs:
           name: windows-unit-tests
           path: target/ci-unit
       # Slices cover every test exactly once. Limit concurrent tests per
-      # runner so software-rendered GPU tests do not swamp the CPU.
+      # runner so software-rendered GPU tests do not swamp the CPU. A few
+      # render tests take two to three minutes each on the software adapter
+      # and set the floor for a shard; six shards keep the rest of a slice
+      # from adding much to that (three took over five minutes).
       - name: Run archived tests
         run: >-
           cargo nextest run --archive-file target/ci-unit/windows-unit.tar.zst
-          --workspace-remap . --partition slice:${{ matrix.shard }}/3
+          --workspace-remap . --partition slice:${{ matrix.shard }}/6
           --test-threads 2 --no-fail-fast
 
   windows-examples:
@@ -306,13 +312,10 @@ jobs:
       - uses: ./.github/actions/windows-linker
       - uses: Swatinem/rust-cache@v2
         with:
-          save-if: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           shared-key: test
       - name: Test other library crates
         run: cargo test --workspace --exclude ponko --lib --no-fail-fast
-      - name: Test examples
-        if: ${{ !cancelled() }}
-        run: cargo test --workspace --examples --no-fail-fast
       - name: Build examples
         if: ${{ !cancelled() }}
         run: cargo build --workspace --examples
@@ -337,9 +340,7 @@ jobs:
         if: runner.os == 'Windows'
       - uses: Swatinem/rust-cache@v2
         with:
-          # PR caches are scoped by GitHub to that PR; keep new Windows
-          # linker artifacts so reruns do not repeat a cold dependency build.
-          save-if: ${{ github.ref == 'refs/heads/main' || runner.os == 'Windows' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           # Windows needs its complete feature graph cached separately:
           # the faster default job otherwise wins the immutable cache key.
           shared-key: ${{ runner.os == 'Windows' && 'test-features' || 'test' }}
@@ -456,9 +457,7 @@ jobs:
         if: runner.os == 'Windows'
       - uses: Swatinem/rust-cache@v2
         with:
-          # PR caches are scoped by GitHub to that PR; keep new Windows
-          # linker artifacts so reruns do not repeat a cold dependency build.
-          save-if: ${{ github.ref == 'refs/heads/main' || runner.os == 'Windows' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           key: native
       - name: Find the cbindgen version in Cargo.lock
         shell: bash
