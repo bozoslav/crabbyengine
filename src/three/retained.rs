@@ -361,6 +361,11 @@ impl Lists {
         }
         std::mem::swap(arena, &mut packed);
         std::mem::swap(&mut self.owners, &mut owners);
+        // What is kept for the next packing is no larger than this one.
+        packed.clear();
+        owners.clear();
+        packed.shrink_to(arena.len());
+        owners.shrink_to(arena.len());
         self.spare = (packed, owners);
         self.repacks += 1;
     }
@@ -787,16 +792,23 @@ impl Tracked {
                 .without::<SkinOf>()
                 .par_collect_into(results, |item| pass.check(item));
         };
-        pass(self, &mut results, world);
         let mut new = 0;
-        for &result in &results {
-            match result {
-                UNCHANGED => {}
-                NEW => new += 1,
-                k => self.apply(k as usize, lists, arena, motion),
+        // With nothing tracked, every model is new.
+        let nothing = self.live == 0;
+        if nothing {
+            results.clear();
+            new = world.query::<ModelItem<'_>>().without::<SkinOf>().count();
+        } else {
+            pass(self, &mut results, world);
+            for &result in &results {
+                match result {
+                    UNCHANGED => {}
+                    NEW => new += 1,
+                    k => self.apply(k as usize, lists, arena, motion),
+                }
             }
         }
-        let found = results.len() - new;
+        let found = if nothing { 0 } else { results.len() - new };
         if new > 0 {
             // New models: found again in order, each given an object. A
             // few are worked out here; many, on all cores like the rest.
@@ -806,7 +818,7 @@ impl Tracked {
             world.query::<ModelItem<'_>>().without::<SkinOf>().for_each(
                 |(entity, t, m, shadow, skeleton, receives, material)| {
                     at += 1;
-                    if results[at - 1] != NEW {
+                    if !nothing && results[at - 1] != NEW {
                         return;
                     }
                     let k = self.add(entity, lists);
