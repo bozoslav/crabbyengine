@@ -7,6 +7,17 @@ says what that covers.
 
 ## [Unreleased]
 
+### Render-pass inspector (first stage)
+
+- `perf.get` (MCP `perf_report`) has a `render_inspector` section with a
+  versioned schema: the renderer's CPU time split into extract, prepare,
+  encode, submit and other; GPU time per frame and per pass; draw, model,
+  triangle and occlusion counts; and the active graphics quality. Metrics
+  that can't be measured (no timestamp queries, headless, not counted yet)
+  are `null` with a reason in `unavailable`, never zero. Upload bytes,
+  memory estimates and frustum-culled counts are reserved as `null` for
+  later stages of #157.
+
 ### Explicit runtime phases (first stage)
 
 - Add `Phase` and `Game::add(phase, system)` for sequential fixed-tick and

@@ -219,6 +219,32 @@ The [control endpoint](control.md) has the same numbers (`perf.get`,
 `perf_report`, `record_trace` and `perf_hud`: an agent can ask a running
 game why it's slow, change something, and ask again.
 
+### The render-pass inspector
+
+`perf.get` (and `perf_report`) always includes `render_inspector`, the
+last frame's rendering cost in a fixed shape for tools. `schema` is its
+version (1); a field is only removed or changes meaning with a new version.
+A field's suffix is its unit: `_ms` milliseconds, `_bytes` bytes; counts
+are per frame.
+
+| Field | What |
+|---|---|
+| `gpu_timing` | `available`: the GPU has timestamp queries; `frames_timed`: frames whose GPU times came back |
+| `cpu_ms` | the renderer's CPU time: `total`, split into `extract` (culling, collecting models), `prepare` (uploading 3D data), `encode` (recording command buffers), `submit` and `other` (sprites, overlays) |
+| `gpu_ms` | `frame` and `passes` (`[{name, ms}]` in the order they run), smoothed |
+| `counts` | `draw_calls`, `sprites`, `models`, `triangles`, `shadow_models`, `shadow_triangles`, `occluded_models`, `frustum_culled_models`, `pipelines_built` |
+| `upload_bytes`, `memory_estimate_bytes` | not measured yet |
+| `quality` | the active [graphics quality](3d.md) `level` (`low` ... `ultra`, or `custom`) and every setting (3D builds) |
+| `unavailable` | a reason for every metric that is `null` |
+
+A metric the engine can't measure is `null`, never `0`, and `unavailable`
+says why under its path, for example `"gpu_ms.frame": "the GPU adapter
+doesn't support timestamp queries, so GPU time can't be measured"`.
+Headless runs and games that haven't drawn yet report `cpu_ms`, `gpu_ms`
+and `counts` as `null` the same way. The inspector is built only when
+`perf.get` is called, from numbers the renderer keeps anyway, so it
+costs a frame nothing.
+
 ### What usually helps in 3D
 
 - **Shadows**: every caster is drawn again for each shadow cascade it
