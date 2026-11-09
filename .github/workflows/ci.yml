@@ -9,6 +9,14 @@
 # A pull request labelled `full-ci` runs the full matrix too (for risky
 # platform changes). Full-tier-only jobs carry
 # `if: github.event_name != 'pull_request' || <full-ci label>`.
+#
+# Only events that change the code start this workflow. Labels and title or
+# description edits go to pr-events.yml instead: GitHub can't filter
+# `labeled` by label name, so here every area label would start (and, via
+# the concurrency group, cancel) a whole run, and a lighter run publishing
+# its own "CI passed" on the same commit could stand in for a failed one.
+# pr-events.yml re-checks edited PR text for leaks and, when `full-ci` is
+# added, starts this workflow on the branch with workflow_dispatch.
 
 name: CI
 
@@ -16,8 +24,8 @@ on:
   push:
     branches: [main]
   pull_request:
-    # `labeled` so adding `full-ci` starts the full matrix.
-    types: [opened, synchronize, reopened, edited, labeled]
+    # Not `edited` or `labeled`: see the header and pr-events.yml.
+    types: [opened, synchronize, reopened]
   merge_group:
   workflow_dispatch:
 
