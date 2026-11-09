@@ -252,5 +252,11 @@ pub fn publish_web_state(ctx: &mut Ctx) {
         .and_then(|d| d.document_element())
     {
         let _ = root.set_attribute("data-smoke", &state);
+        // What the engine says about the GPU it opened, once it is known.
+        if !root.has_attribute("data-smoke-gpu")
+            && let Some(gpu) = ctx.gpu_capabilities().and_then(|gpu| serde_json::to_string(gpu).ok())
+        {
+            let _ = root.set_attribute("data-smoke-gpu", &gpu);
+        }
     }
 }
