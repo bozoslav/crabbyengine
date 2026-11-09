@@ -282,3 +282,152 @@ fn pipeline_creation_and_reload_stalls_are_measured() {
     assert!(s.builds >= 7 && s.slowest_build_ms > 0.0);
     assert!(shared < create, "sharing skips the compile");
 }
+
+const FX_GREY: &str = "fn effect(p: Pixel) -> vec3<f32> {\n    return vec3<f32>(dot(p.color, vec3<f32>(0.3)));\n}\n";
+/// Line 2 names something that doesn't exist.
+const FX_BROKEN: &str = "fn effect(p: Pixel) -> vec3<f32> {\n    return p.color * nope;\n}\n";
+const FX_UNBOUND: &str = "@group(3) @binding(7) var<uniform> extra: vec4<f32>;\nfn effect(p: Pixel) -> vec3<f32> { return p.color * extra.xyz; }\n";
+const CS_FADE: &str = "fn compute(c: Cell) -> vec4<f32> {\n    return c.value * 0.5;\n}\n";
+/// Line 3 returns a number, not a `vec4<f32>`.
+const CS_BROKEN: &str = "\nfn compute(c: Cell) -> vec4<f32> {\n    return 1.0;\n}\n";
+const CS_UNBOUND: &str = "@group(3) @binding(7) var<uniform> extra: vec4<f32>;\nfn compute(c: Cell) -> vec4<f32> { return c.value * extra; }\n";
+
+#[test]
+fn effect_and_compute_errors_have_a_place_and_failed_reloads_keep_the_last_good_pipeline() {
+    let Some((device, mut renderer)) = rig() else {
+        return;
+    };
+    let fx = renderer.create_effect(&device, "grey.wgsl", FX_GREY).unwrap();
+    let cs = renderer.create_compute(&device, "fade.wgsl", CS_FADE).unwrap();
+    let (fx_before, cs_before) = (
+        renderer.effect_pipelines[fx as usize].clone(),
+        renderer.compute_pipelines[cs as usize].clone(),
+    );
+
+    let e = renderer
+        .replace_effect(&device, fx, "grey.wgsl", FX_BROKEN)
+        .unwrap_err();
+    assert_eq!((e.shader.as_str(), e.kind), ("grey.wgsl", ShaderKind::Effect));
+    assert_eq!((e.line, e.in_engine_code), (Some(2), false), "{e}");
+    assert_eq!(e.variant, EFFECT_VARIANT);
+    let e = renderer
+        .replace_compute(&device, cs, "fade.wgsl", CS_BROKEN)
+        .unwrap_err();
+    assert_eq!(
+        (e.line, e.kind, e.in_engine_code),
+        (Some(3), ShaderKind::Compute, false),
+        "{e}"
+    );
+
+    // Valid WGSL the GPU rejects: an error, not a broken device.
+    let e = renderer
+        .replace_effect(&device, fx, "grey.wgsl", FX_UNBOUND)
+        .unwrap_err();
+    assert!(e.message.contains("the GPU rejected its pipeline"), "{e}");
+    let e = renderer
+        .replace_compute(&device, cs, "fade.wgsl", CS_UNBOUND)
+        .unwrap_err();
+    assert!(e.message.contains("the GPU rejected its pipeline"), "{e}");
+    let e = renderer.create_effect(&device, "new.wgsl", FX_UNBOUND).unwrap_err();
+    assert_eq!(e.kind, ShaderKind::Effect);
+    assert_eq!(renderer.effect_pipelines.len(), 1, "a rejected new effect takes no id");
+
+    assert_eq!(
+        renderer.effect_pipelines[fx as usize], fx_before,
+        "the last good effect stays"
+    );
+    assert_eq!(
+        renderer.compute_pipelines[cs as usize], cs_before,
+        "the last good pass stays"
+    );
+
+    renderer.replace_effect(&device, fx, "grey.wgsl", FX_GREY).unwrap();
+    renderer.replace_compute(&device, cs, "fade.wgsl", CS_FADE).unwrap();
+    assert_ne!(renderer.effect_pipelines[fx as usize], fx_before, "a fix takes effect");
+    assert_ne!(renderer.compute_pipelines[cs as usize], cs_before);
+    assert_eq!(renderer.pending_shader_checks(), 0, "native GPUs answer at once");
+}
+
+/// A browser's WebGPU answers error scopes later: the new pipelines are in
+/// use meanwhile, and a rejection puts the previous ones back.
+#[test]
+fn late_gpu_rejections_put_the_previous_pipelines_back_and_are_reported() {
+    let Some((device, mut renderer)) = rig() else {
+        return;
+    };
+    let red = renderer.create_shader(&device, "red.wgsl", RED).unwrap();
+    let other = renderer.create_shader(&device, "blue.wgsl", BLUE).unwrap();
+    let fx = renderer.create_effect(&device, "grey.wgsl", FX_GREY).unwrap();
+    let cs = renderer.create_compute(&device, "fade.wgsl", CS_FADE).unwrap();
+    let (red_before, other_before) = (pipelines(&renderer, red), pipelines(&renderer, other));
+    let fx_before = renderer.effect_pipelines[fx as usize].clone();
+    let cs_before = renderer.compute_pipelines[cs as usize].clone();
+    renderer.defer_checks = true;
+
+    // Each is put in use before the verdict comes back.
+    renderer.replace_shader(&device, red, "red.wgsl", UNBOUND).unwrap();
+    renderer.replace_effect(&device, fx, "grey.wgsl", FX_UNBOUND).unwrap();
+    renderer.replace_compute(&device, cs, "fade.wgsl", CS_UNBOUND).unwrap();
+    let new_effect = renderer.create_effect(&device, "new fx.wgsl", FX_UNBOUND).unwrap();
+    let new_shader = renderer.create_shader(&device, "new.wgsl", "@group(3) @binding(9) var<uniform> more: vec4<f32>;\nfn surface(s: Surface) -> Surface { var o = s; o.albedo *= more.xyz; return o; }\n").unwrap();
+    // A fine reload (of new code, so it compiles) waits too, and passes.
+    let green = RED.replace("1.0, 0.0, 0.0", "0.0, 1.0, 0.0");
+    renderer.replace_shader(&device, other, "blue.wgsl", &green).unwrap();
+    assert_ne!(pipelines(&renderer, red), red_before, "in use while waiting");
+    assert_eq!(renderer.pending_shader_checks(), 6);
+
+    let mut late = Vec::new();
+    renderer.poll_shader_checks(&device, &mut late);
+    assert_eq!(renderer.pending_shader_checks(), 0);
+    let mut got: Vec<(String, ShaderKind, bool)> = late
+        .iter()
+        .map(|e| (e.diagnostic.shader.clone(), e.diagnostic.kind, e.reload))
+        .collect();
+    got.sort_by(|a, b| a.0.cmp(&b.0));
+    assert_eq!(
+        got,
+        [
+            ("fade.wgsl".into(), ShaderKind::Compute, true),
+            ("grey.wgsl".into(), ShaderKind::Effect, true),
+            ("new fx.wgsl".into(), ShaderKind::Effect, false),
+            ("new.wgsl".into(), ShaderKind::Material, false),
+            ("red.wgsl".into(), ShaderKind::Material, true),
+        ]
+    );
+    assert!(late.iter().all(|e| e.diagnostic.message.contains("the GPU rejected")));
+
+    assert_eq!(pipelines(&renderer, red), red_before, "the previous version is back");
+    assert_eq!(renderer.effect_pipelines[fx as usize], fx_before);
+    assert_eq!(renderer.compute_pipelines[cs as usize], cs_before);
+    assert_eq!(
+        pipelines(&renderer, new_shader),
+        pipelines(&renderer, 0),
+        "a new one draws as the built-in"
+    );
+    assert_ne!(
+        renderer.effect_pipelines[new_effect as usize], fx_before,
+        "a new effect gets a stand-in"
+    );
+    assert_ne!(pipelines(&renderer, other), other_before, "the good reload stays");
+}
+
+#[test]
+fn a_late_rejection_behind_a_newer_reload_falls_back_to_the_last_good_version() {
+    let Some((device, mut renderer)) = rig() else {
+        return;
+    };
+    let red = renderer.create_shader(&device, "red.wgsl", RED).unwrap();
+    let good = pipelines(&renderer, red);
+    renderer.defer_checks = true;
+    renderer.replace_shader(&device, red, "red.wgsl", UNBOUND).unwrap();
+    let unbound2 = UNBOUND.replace("binding(7)", "binding(8)");
+    renderer.replace_shader(&device, red, "red.wgsl", &unbound2).unwrap();
+    let mut late = Vec::new();
+    renderer.poll_shader_checks(&device, &mut late);
+    assert_eq!(late.len(), 2);
+    assert_eq!(
+        pipelines(&renderer, red),
+        good,
+        "both rejected: the first good version is back"
+    );
+}

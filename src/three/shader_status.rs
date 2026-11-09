@@ -264,3 +264,45 @@ impl Ctx {
         status.diagnostics = vec![diagnostic];
     }
 }
+
+#[cfg(all(test, feature = "window"))]
+mod tests {
+    use super::*;
+    use crate::Game;
+
+    fn rejected(name: &str) -> ShaderDiagnostic {
+        *crate::render::without_location(name, ShaderKind::Material, "v", "the GPU rejected its pipelines".into())
+    }
+
+    #[test]
+    fn late_gpu_rejections_turn_compiles_into_failures_and_undo_the_reload_count() {
+        Game::new("t", 1, 1).run_headless(0, |ctx| {
+            ctx.create_shader("new.wgsl", "");
+            ctx.create_shader("reloaded.wgsl", "");
+            ctx.record_shader("reloaded.wgsl", ShaderKind::Material, true, Ok(()))
+                .unwrap();
+            assert_eq!(ctx.shader_status()[1].reloads, 1);
+
+            ctx.record_rejected(false, rejected("new.wgsl"));
+            ctx.record_rejected(true, rejected("reloaded.wgsl"));
+            let s = ctx.shader_status();
+            assert_eq!(s[0].outcome, ShaderOutcome::Failed);
+            assert_eq!(s[1].outcome, ShaderOutcome::ReloadFailed);
+            assert_eq!(s[1].reloads, 0, "the reload didn't take effect after all");
+            assert!(s[1].diagnostics[0].message.contains("rejected"));
+            // Unknown names are ignored.
+            ctx.record_rejected(true, rejected("gone.wgsl"));
+            assert_eq!(ctx.shader_status().len(), 2);
+        });
+    }
+
+    #[test]
+    fn a_failed_reload_of_a_shader_that_never_compiled_stays_failed() {
+        Game::new("t", 1, 1).run_headless(0, |ctx| {
+            assert!(ctx.try_create_shader("x.wgsl", "fn surface(").is_err());
+            let again = ctx.record_shader("x.wgsl", ShaderKind::Material, true, Err(Box::new(rejected("x.wgsl"))));
+            assert!(again.is_err());
+            assert_eq!(ctx.shader_status()[0].outcome, ShaderOutcome::Failed);
+        });
+    }
+}
