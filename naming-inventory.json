@@ -912,6 +912,42 @@
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Selects the engine's retained web canvas id."
+    },
+    "crates/ponko_ffi/tests/clock.rs": {
+      "occurrences": 91,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
+    "crates/ponko_ffi/tests/joints.rs": {
+      "occurrences": 172,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
+    "crates/ponko_ffi/tests/particles.rs": {
+      "occurrences": 77,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
+    "crates/ponko_ffi/tests/perf.rs": {
+      "occurrences": 45,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
+    "crates/ponko_ffi/tests/ragdoll.rs": {
+      "occurrences": 80,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
+    "crates/ponko_ffi/tests/skin.rs": {
+      "occurrences": 190,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     }
   }
 }
