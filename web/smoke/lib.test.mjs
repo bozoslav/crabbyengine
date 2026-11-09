@@ -66,6 +66,8 @@ test("without a fixture the defaults are the 2D fixture's", () => {
 test("artifacts go to a folder named by fixture, browser, backend and case", () => {
   const args = parse("--fixture", "web_smoke", "--browser", "firefox", "--backend", "webgl2", "--case", "stall");
   assert.match(args.out, /web_smoke-firefox-webgl2-stall$/);
+  const full = parse("--fixture", "web_smoke", "--chromium-mode", "new", "--backend", "webgpu");
+  assert.match(full.out, /web_smoke-chromium-new-webgpu-ok$/, "the two Chromium modes don't overwrite each other");
 });
 
 test("bad arguments are usage errors that name the problem", () => {

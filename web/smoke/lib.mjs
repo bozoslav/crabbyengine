@@ -126,7 +126,8 @@ export function parseArgs(argv, fixtures = {}) {
   if (args.assetSize !== "none" && !/^\d+x\d+$/.test(args.assetSize)) fail("--asset-size must look like 32x32, or none");
   if (!/^[\w./-]+$/.test(args.asset)) fail("--asset must be a plain file name under assets/");
   if (!["required", "optional"].includes(args.engineGpu)) fail("--engine-gpu must be required or optional");
-  args.out ??= join("target", "web-smoke", [args.fixture ?? "site", args.browser, args.backend, args.case].join("-"));
+  const browserLabel = args.browser === "chromium" && args.chromiumMode === "new" ? "chromium-new" : args.browser;
+  args.out ??= join("target", "web-smoke", [args.fixture ?? "site", browserLabel, args.backend, args.case].join("-"));
   return args;
 }
 

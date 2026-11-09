@@ -512,16 +512,34 @@ jobs:
           tool: wasm-bindgen@${{ env.WASM_BINDGEN }}
       - run: web/build.sh battle
 
-  # Runs a web build in headless Chromium (web/smoke/README.md): startup,
-  # asset fetch, fixed-step progress, a click and a nonblank canvas. GitHub's
-  # runners have no GPU: WebGL2 runs on SwiftShader and must pass; WebGPU
-  # is tried and reported, and passes as "unsupported" where the browser
-  # can't show a WebGPU canvas at all (checked without the engine).
+  # The browser runner's own tests (web/smoke/*.test.mjs): argument and
+  # fixture handling, the supported/unsupported decisions, and that a browser
+  # that can't start is reported as unsupported with its reason. No browser or
+  # wasm build, so it runs on every pull request.
+  web-smoke-runner:
+    name: Web smoke runner tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - run: npm ci --prefix web/smoke --no-audit --no-fund
+      - run: node --test web/smoke
+
+  # Runs web builds in headless browsers (web/smoke/README.md): startup,
+  # asset fetch, fixed-step progress, a click, a nonblank canvas, and the
+  # adapter the engine itself reports. Three builds, each fixture from
+  # web/smoke/fixtures.json: the 2D fixture, the 3D one (`--features 3d`) and
+  # the complete-game reference. Chromium, Firefox and WebKit run the WebGL2
+  # path, which must pass in each. GitHub's runners have no GPU, so WebGPU is
+  # tried (headless shell and the full browser's new headless mode) and
+  # reported: a browser that can't show a WebGPU canvas passes as
+  # "unsupported" with the reason in its report and in the job summary, never
+  # as a quiet pass; one that can must actually draw it.
   web-smoke:
-    name: Web smoke test (headless Chromium)
+    name: Web smoke test (headless browsers)
     if: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -536,40 +554,85 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: wasm-bindgen@${{ env.WASM_BINDGEN }}
-      - name: Install the runner and Chromium's headless shell
+      - name: Install the runner and the browsers (Chromium with its headless shell, Firefox, WebKit)
         run: |
           node --version
           npm ci --prefix web/smoke --no-audit --no-fund
-          node web/smoke/node_modules/playwright-core/cli.js install --with-deps --only-shell chromium
-      - run: web/build.sh web_smoke
-      - name: WebGL2 (WebGPU hidden, the fallback path)
-        run: node web/smoke/smoke.mjs --dir target/web/web_smoke --backend webgl2
-      - name: WebGPU (where the runner's browser can show it)
+          node web/smoke/node_modules/playwright-core/cli.js install --with-deps chromium firefox webkit
+      - name: Runner tests
+        run: node --test web/smoke
+      - name: Build the fixtures (2D, 3D with --features 3d, the complete game)
+        run: |
+          web/build.sh web_smoke
+          web/build.sh --features 3d web_smoke_3d
+          web/build.sh coin_dash
+      # Chromium, WebGL2 (WebGPU hidden, the fallback path).
+      - name: Chromium, WebGL2, 2D fixture
+        run: node web/smoke/smoke.mjs --fixture web_smoke --browser chromium --backend webgl2 --chrome-trace
+      - name: Chromium, WebGL2, 3D fixture
         if: ${{ !cancelled() }}
-        run: node web/smoke/smoke.mjs --dir target/web/web_smoke --backend webgpu --allow-unsupported
-      - name: Whatever the engine picks
+        run: node web/smoke/smoke.mjs --fixture web_smoke_3d --browser chromium --backend webgl2
+      # The complete-game reference (examples/coin_dash): its coin picture is
+      # fetched and decoded, a click and keys reach it, and the screens it
+      # reports follow them (play, pause, title, the retained-UI settings
+      # screen, Escape closing it again; see fixtures.json). The web build
+      # keeps no progress yet (no files in a browser).
+      - name: Chromium, WebGL2, coin_dash (assets, a click, keys, screens)
         if: ${{ !cancelled() }}
-        run: node web/smoke/smoke.mjs --dir target/web/web_smoke --backend auto --allow-unsupported
-      # The runner itself: each broken build must be caught as that failure.
-      # The complete-game reference (examples/coin_dash) in the same browser
-      # runner: its coin picture is fetched and decoded, a click and keys reach
-      # it, and the screens it reports follow them (play, pause, title, the
-      # retained-UI settings screen, and Escape closing it again). The web
-      # build keeps no progress yet (no files in a browser).
-      - name: coin_dash in the browser (WebGL2: assets, a click, keys, screens)
+        run: node web/smoke/smoke.mjs --fixture coin_dash --browser chromium --backend webgl2
+      # WebGPU: the headless shell, then the full browser's new headless mode
+      # with software Vulkan (a WebGPU canvas is presented through its
+      # compositor). Each passes only if it draws or is reported unsupported.
+      - name: Chromium, WebGPU, headless shell
+        if: ${{ !cancelled() }}
+        run: node web/smoke/smoke.mjs --fixture web_smoke --browser chromium --backend webgpu --allow-unsupported
+      - name: Chromium, WebGPU, new headless mode (2D and 3D fixtures)
         if: ${{ !cancelled() }}
         run: |
-          web/build.sh coin_dash
-          node web/smoke/smoke.mjs --dir target/web/coin_dash --backend webgl2 \
-            --out target/web-smoke/coin_dash-webgl2 --asset coin_dash/coin.png \
-            --press Enter=screen:Playing --press Escape=screen:Paused --press Q=screen:Title \
-            --press O=screen:Settings --press Escape=screen:Title
+          status=0
+          for fixture in web_smoke web_smoke_3d; do
+            node web/smoke/smoke.mjs --fixture "$fixture" --browser chromium --chromium-mode new --backend webgpu \
+              --browser-arg --use-webgpu-adapter=swiftshader --chrome-trace --allow-unsupported || status=1
+          done
+          exit $status
+      - name: Chromium, whatever the engine picks
+        if: ${{ !cancelled() }}
+        run: node web/smoke/smoke.mjs --fixture web_smoke --browser chromium --backend auto --allow-unsupported
+      # Firefox and WebKit: WebGL2 must pass; WebGPU is reported.
+      - name: Firefox, WebGL2 (2D and 3D fixtures)
+        if: ${{ !cancelled() }}
+        run: |
+          status=0
+          for fixture in web_smoke web_smoke_3d; do
+            node web/smoke/smoke.mjs --fixture "$fixture" --browser firefox --backend webgl2 || status=1
+          done
+          exit $status
+      - name: Firefox, WebGPU
+        if: ${{ !cancelled() }}
+        run: node web/smoke/smoke.mjs --fixture web_smoke --browser firefox --backend webgpu --allow-unsupported
+      - name: WebKit, WebGL2 (2D and 3D fixtures)
+        if: ${{ !cancelled() }}
+        run: |
+          status=0
+          for fixture in web_smoke web_smoke_3d; do
+            node web/smoke/smoke.mjs --fixture "$fixture" --browser webkit --backend webgl2 || status=1
+          done
+          exit $status
+      - name: WebKit, WebGPU
+        if: ${{ !cancelled() }}
+        run: node web/smoke/smoke.mjs --fixture web_smoke --browser webkit --backend webgpu --allow-unsupported
+      # The runner itself: each broken build must be caught as that failure.
       - name: Self-tests (missing asset, startup panic, stalled simulation)
         if: ${{ !cancelled() }}
         run: |
           for case in missing-asset panic stall; do
-            node web/smoke/smoke.mjs --dir target/web/web_smoke --backend webgl2 --case "$case"
+            node web/smoke/smoke.mjs --fixture web_smoke --browser chromium --backend webgl2 --case "$case"
           done
+      # Every run, with what it asked for, what ran, the adapter the engine
+      # reported and why anything was unsupported (also in the artifact).
+      - name: Summary of every run
+        if: ${{ !cancelled() }}
+        run: node web/smoke/summary.mjs target/web-smoke
       - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
@@ -632,7 +695,7 @@ jobs:
   ci-passed:
     name: CI passed
     if: always()
-    needs: [leaks, fmt, clippy, feature-deps, msrv, test, windows-unit-build, windows-unit, windows-examples, test-features, docs, book, miri, native, web, web-smoke, package-smoke]
+    needs: [leaks, fmt, clippy, feature-deps, msrv, test, windows-unit-build, windows-unit, windows-examples, test-features, docs, book, miri, native, web, web-smoke-runner, web-smoke, package-smoke]
     runs-on: ubuntu-latest
     steps:
       - name: Check every job
