@@ -257,12 +257,14 @@ impl Archetype {
 
     #[inline]
     pub(crate) fn column_index(&self, id: ComponentId) -> Option<usize> {
-        // Archetypes have few components; a linear scan beats binary search here.
-        // Measured (benches `membership/*`, Apple M4 Max): 1-2 ns at 2 components,
-        // 3 ns at 8, 5 ns at 16, 9 ns at 32, 14 ns at 64. A bitset or id-indexed table
-        // answers in under 1 ns but costs 50-640 B per archetype and a second cache
-        // line; callers look up once per archetype and column, never per entity.
-        // Structural changes do not scan per column: `move_row` merges the sorted id lists.
+        // Archetypes have few components, so a linear scan is kept. Measured in isolation
+        // (benches `membership/*`, Apple M4 Max, hot cache): 1-2 ns at 2 components, 3 ns at 8,
+        // 5 ns at 16, 9 ns at 32, 14 ns at 64. A bitset or id-indexed table answers in under
+        // 1 ns but costs 50-640 B per archetype and a second cache line; binary search over the
+        // sorted ids is 2-7x faster than the scan from 8 components up, with no extra memory,
+        // but is not yet shown to matter in a query-level benchmark (lookups happen once per
+        // archetype and column, never per entity). Structural changes do not scan per column:
+        // `move_row` merges the two sorted id lists.
         self.ids.iter().position(|&c| c == id)
     }
 
