@@ -5,6 +5,7 @@
 #[path = "../examples/coin_dash/game.rs"]
 mod game;
 
+use game::Phase;
 use game::*;
 use ponko::*;
 
