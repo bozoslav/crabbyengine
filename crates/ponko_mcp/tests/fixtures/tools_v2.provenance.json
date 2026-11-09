@@ -1,0 +1,13 @@
+{
+  "fixture": "tools_v2.json",
+  "contract": "ponko-mcp tools/list and initialize",
+  "supersedes_nothing": "tools_v1.json stays and is still checked; v2 adds to what is recorded",
+  "adds": "Each tool's other top-level inputSchema keywords (type, additionalProperties, ...), which v1 did not record, so that a tool starting to reject extra arguments is noticed.",
+  "engine_version": "ponko 0.0.1",
+  "engine_revision": "4ed8e53b82ca4d327cc4be8e386d1782aad6b609",
+  "toolchain": "rustc 1.99.1 (58cf8f9c3 2026-10-13), aarch64-apple-darwin",
+  "features": "default",
+  "generated_by": "PONKO_MCP_FIXTURE_OUT=<path> cargo test -p ponko_mcp --test contract -- --ignored --exact write_v2_fixture",
+  "date": "2026-11-09",
+  "baseline": "Second retained MCP contract: v1's 39 tools, parameters, required lists, read-only hints, protocol versions and server name, plus each tool's top-level input schema, as of this revision of the integration branch (the engine's main plus merged work), not a published release. Apart from the new record, its content equals v1."
+}

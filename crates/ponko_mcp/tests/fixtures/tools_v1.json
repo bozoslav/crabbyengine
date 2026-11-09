@@ -1,0 +1,793 @@
+{
+  "protocol_versions": [
+    "2025-06-18",
+    "2025-03-26",
+    "2024-11-05"
+  ],
+  "server_name": "ponko-mcp",
+  "tools": [
+    {
+      "name": "list_instances",
+      "properties": {},
+      "read_only": true,
+      "required": []
+    },
+    {
+      "name": "instance_info",
+      "properties": {
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        }
+      },
+      "read_only": true,
+      "required": []
+    },
+    {
+      "name": "instance_capabilities",
+      "properties": {
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        }
+      },
+      "read_only": true,
+      "required": []
+    },
+    {
+      "name": "world_summary",
+      "properties": {
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        }
+      },
+      "read_only": true,
+      "required": []
+    },
+    {
+      "name": "list_entities",
+      "properties": {
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "limit": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "offset": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "where": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "with": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "read_only": true,
+      "required": []
+    },
+    {
+      "name": "entity_stats",
+      "properties": {
+        "fields": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "where": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "with": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "read_only": true,
+      "required": [
+        "fields"
+      ]
+    },
+    {
+      "name": "get_entity",
+      "properties": {
+        "entity": {
+          "type": "integer"
+        },
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        }
+      },
+      "read_only": true,
+      "required": [
+        "entity"
+      ]
+    },
+    {
+      "name": "list_resources",
+      "properties": {
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        }
+      },
+      "read_only": true,
+      "required": []
+    },
+    {
+      "name": "get_resource",
+      "properties": {
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "resource": {
+          "type": "string"
+        }
+      },
+      "read_only": true,
+      "required": [
+        "resource"
+      ]
+    },
+    {
+      "name": "system_timings",
+      "properties": {
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        }
+      },
+      "read_only": true,
+      "required": []
+    },
+    {
+      "name": "shader_status",
+      "properties": {
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        }
+      },
+      "read_only": true,
+      "required": []
+    },
+    {
+      "name": "ecs_diagnostics",
+      "properties": {
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "limit": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "with": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "read_only": true,
+      "required": []
+    },
+    {
+      "name": "perf_report",
+      "properties": {
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "meshes": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "profiling": {
+          "type": "boolean"
+        }
+      },
+      "read_only": true,
+      "required": []
+    },
+    {
+      "name": "record_trace",
+      "properties": {
+        "frames": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "read_only": true,
+      "required": []
+    },
+    {
+      "name": "perf_hud",
+      "properties": {
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "on": {
+          "type": "boolean"
+        }
+      },
+      "read_only": true,
+      "required": [
+        "on"
+      ]
+    },
+    {
+      "name": "list_events",
+      "properties": {
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        }
+      },
+      "read_only": true,
+      "required": []
+    },
+    {
+      "name": "subscribe_events",
+      "properties": {
+        "capacity": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "types": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "read_only": true,
+      "required": []
+    },
+    {
+      "name": "take_events",
+      "properties": {
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        }
+      },
+      "read_only": true,
+      "required": []
+    },
+    {
+      "name": "read_logs",
+      "properties": {
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "lines": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "since": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "read_only": true,
+      "required": []
+    },
+    {
+      "name": "launch",
+      "properties": {
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "bin": {
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "example": {
+          "type": "string"
+        },
+        "features": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "headless": {
+          "type": "boolean"
+        },
+        "package": {
+          "type": "string"
+        },
+        "paused": {
+          "type": "boolean"
+        },
+        "release": {
+          "type": "boolean"
+        },
+        "timeout_secs": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "read_only": false,
+      "required": []
+    },
+    {
+      "name": "screenshot",
+      "properties": {
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "max_size": {
+          "minimum": 16,
+          "type": "integer"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "read_only": true,
+      "required": []
+    },
+    {
+      "name": "set_camera",
+      "properties": {
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "look_at": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "position": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "zoom": {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        }
+      },
+      "read_only": true,
+      "required": []
+    },
+    {
+      "name": "run_ticks",
+      "properties": {
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "ticks": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "timeout_secs": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "read_only": false,
+      "required": [
+        "ticks"
+      ]
+    },
+    {
+      "name": "watch",
+      "properties": {
+        "count": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "every": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "resources": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "ticks": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "timeout_secs": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "read_only": false,
+      "required": [
+        "ticks"
+      ]
+    },
+    {
+      "name": "pause",
+      "properties": {
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        }
+      },
+      "read_only": false,
+      "required": []
+    },
+    {
+      "name": "resume",
+      "properties": {
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        }
+      },
+      "read_only": false,
+      "required": []
+    },
+    {
+      "name": "set_speed",
+      "properties": {
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "speed": {
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "read_only": false,
+      "required": [
+        "speed"
+      ]
+    },
+    {
+      "name": "spawn_entity",
+      "properties": {
+        "components": {
+          "type": "object"
+        },
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        }
+      },
+      "read_only": false,
+      "required": [
+        "components"
+      ]
+    },
+    {
+      "name": "despawn_entity",
+      "properties": {
+        "entity": {
+          "type": "integer"
+        },
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        }
+      },
+      "read_only": false,
+      "required": [
+        "entity"
+      ]
+    },
+    {
+      "name": "set_component",
+      "properties": {
+        "component": {
+          "type": "string"
+        },
+        "entity": {
+          "type": "integer"
+        },
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "value": {}
+      },
+      "read_only": false,
+      "required": [
+        "entity",
+        "component",
+        "value"
+      ]
+    },
+    {
+      "name": "set_resource",
+      "properties": {
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "resource": {
+          "type": "string"
+        },
+        "value": {}
+      },
+      "read_only": false,
+      "required": [
+        "resource",
+        "value"
+      ]
+    },
+    {
+      "name": "remove_component",
+      "properties": {
+        "component": {
+          "type": "string"
+        },
+        "entity": {
+          "type": "integer"
+        },
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        }
+      },
+      "read_only": false,
+      "required": [
+        "entity",
+        "component"
+      ]
+    },
+    {
+      "name": "save_world",
+      "properties": {
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "read_only": true,
+      "required": [
+        "path"
+      ]
+    },
+    {
+      "name": "load_world",
+      "properties": {
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "read_only": false,
+      "required": [
+        "path"
+      ]
+    },
+    {
+      "name": "save_scene",
+      "properties": {
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "read_only": false,
+      "required": [
+        "path"
+      ]
+    },
+    {
+      "name": "load_scene",
+      "properties": {
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "read_only": false,
+      "required": [
+        "path"
+      ]
+    },
+    {
+      "name": "spawn_prefab",
+      "properties": {
+        "at": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "read_only": false,
+      "required": [
+        "path",
+        "at"
+      ]
+    },
+    {
+      "name": "save_prefab",
+      "properties": {
+        "entity": {
+          "type": "integer"
+        },
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "read_only": false,
+      "required": [
+        "entity",
+        "path"
+      ]
+    },
+    {
+      "name": "quit_instance",
+      "properties": {
+        "instance": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        }
+      },
+      "read_only": false,
+      "required": []
+    }
+  ]
+}
