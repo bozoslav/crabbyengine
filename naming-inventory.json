@@ -164,7 +164,7 @@
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
     "crates/ponko_ffi/src/animator.rs": {
-      "occurrences": 215,
+      "occurrences": 216,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
@@ -554,7 +554,7 @@
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
     "crates/ponko_ffi/tests/three_helpers.rs": {
-      "occurrences": 110,
+      "occurrences": 160,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
@@ -698,7 +698,7 @@
       "reason": "Migration checks, alias generation or existing leak/build configuration fallback."
     },
     "scripts/ffi-coverage-allowlist.txt": {
-      "occurrences": 11,
+      "occurrences": 14,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Migration checks, alias generation or existing leak/build configuration fallback."
@@ -992,7 +992,7 @@
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
     "crates/ponko_ffi/tests/animator.rs": {
-      "occurrences": 286,
+      "occurrences": 314,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."

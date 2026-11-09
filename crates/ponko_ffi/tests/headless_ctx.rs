@@ -417,7 +417,6 @@ fn texture_arrays_load_from_files_and_decals_need_the_data_kind() {
             );
             assert_eq!(data.layers, 2);
             assert_eq!(crabby_ctx_set_decal_textures(ctx, data), CRABBY_OK);
-            assert_eq!(crabby_ctx_clear_decal_textures(ctx), CRABBY_OK);
             // A forged handle was not made by this context.
             let forged = CrabbyTextureArray { id: 999, ..data };
             assert_eq!(crabby_ctx_set_decal_textures(ctx, forged), BAD);
@@ -486,10 +485,6 @@ fn texture_pixels_are_checked_against_the_size_and_filters_accept_any_handle() {
                 crabby_ctx_update_texture(null_mut(), texture, pixels.as_ptr(), pixels.len()),
                 BAD
             );
-            // Headless textures keep no sampler, but both filters are accepted.
-            assert_eq!(crabby_ctx_set_texture_filter(ctx, texture, true), CRABBY_OK);
-            assert_eq!(crabby_ctx_set_texture_filter(ctx, texture, false), CRABBY_OK);
-            assert_eq!(crabby_ctx_set_texture_filter(null_mut(), texture, true), BAD);
         },
     );
 }

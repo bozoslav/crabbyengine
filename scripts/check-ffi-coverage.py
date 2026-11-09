@@ -2,7 +2,8 @@
 """Fail when a C ABI export has no test and no reasoned allowlist entry.
 
 An export (`extern "C" fn` in crates/ponko_ffi/src) counts as tested when its
-`crabby_` or `ponko_` spelling appears, outside comments, in an FFI test
+`crabby_` or `ponko_` spelling appears, outside comments and string literals
+(a name in a message or a path is not a call), in an FFI test
 (crates/ponko_ffi/tests/*.rs) or a native suite (examples/cpp/*.c, *.cpp).
 Doctests in src/ don't count: most only pass a null pointer.
 
@@ -11,7 +12,7 @@ window, a GPU frame or a Steam client) are listed with a reason in
 scripts/ffi-coverage-allowlist.txt. The check fails when
   - an export is untested and not on the allowlist (the count went up),
   - an allowlist entry is now tested or no longer exists (shrink the list),
-  - an allowlist entry has no reason.
+  - an allowlist entry has no reason or appears twice.
 
     python3 scripts/check-ffi-coverage.py          # check
     python3 scripts/check-ffi-coverage.py --list   # print the untested exports
@@ -23,7 +24,25 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent
 ALLOWLIST = ROOT / 'scripts' / 'ffi-coverage-allowlist.txt'
 EXPORT = re.compile(r'extern "C" fn ([a-z0-9_]+)')
-COMMENTS = re.compile(r'/\*.*?\*/|//[^\n]*', re.DOTALL)
+# What is not code: Rust raw strings, ordinary strings (Rust and C), character
+# literals (so '"' does not start a string), block comments and line comments.
+# Strings and characters are blanked, comments dropped, so only calls remain.
+NOT_CODE = re.compile(
+    r"""(?P<raw>b?r(?P<hashes>\#*)".*?"(?P=hashes))"""
+    r"""|(?P<char>'(?:\\.|[^'\\\n])')"""
+    r"""|(?P<string>b?c?"(?:\\.|[^"\\])*")"""
+    r"""|(?P<block>/\*.*?\*/)"""
+    r"""|(?P<line>//[^\n]*)""",
+    re.DOTALL,
+)
+
+
+def code_only(text):
+    def blank(match):
+        if match.lastgroup in ('block', 'line'):
+            return ' '
+        return '""'
+    return NOT_CODE.sub(blank, text)
 
 
 def exports():
@@ -36,7 +55,7 @@ def exports():
 def test_text():
     files = sorted((ROOT / 'crates/ponko_ffi/tests').glob('*.rs'))
     files += sorted((ROOT / 'examples/cpp').glob('*.c')) + sorted((ROOT / 'examples/cpp').glob('*.cpp'))
-    return '\n'.join(COMMENTS.sub('', f.read_text()) for f in files)
+    return '\n'.join(code_only(f.read_text()) for f in files)
 
 
 def untested(names, text):
@@ -57,6 +76,8 @@ def allowlist():
         name = name.strip()
         if not reason.strip():
             problems.append(f'{ALLOWLIST.name}:{number}: {name} has no reason after "#"')
+        if name in entries:
+            problems.append(f'{ALLOWLIST.name}:{number}: {name} is listed twice')
         entries[name] = reason.strip()
     return entries, problems
 

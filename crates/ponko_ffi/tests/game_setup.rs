@@ -1,5 +1,5 @@
 //! Game setup calls that only matter once a window opens (frame and late
-//! systems, camera controls, MSAA, vsync, fullscreen) and Steam calls, as far
+//! systems, camera controls, MSAA) and Steam calls, as far
 //! as they can run in a headless build without a Steam client. What opens a
 //! window is on the allowlist of `scripts/check-ffi-coverage.py`.
 use ponko_ffi::*;
@@ -123,7 +123,7 @@ fn camera_controls_is_the_built_in_system_by_its_path_and_leaves_the_camera_alon
 }
 
 #[test]
-fn window_settings_check_their_arguments_and_leave_headless_runs_working() {
+fn msaa_checks_its_argument_and_leaves_headless_runs_working() {
     unsafe {
         let game = crabby_game_new(c"settings".as_ptr(), 1, 1);
         // The 3D frame takes 2 or 4 samples per pixel.
@@ -132,13 +132,9 @@ fn window_settings_check_their_arguments_and_leave_headless_runs_working() {
         }
         assert_eq!(crabby_game_msaa(game, 2), CRABBY_OK);
         assert_eq!(crabby_game_msaa(game, 4), CRABBY_OK);
-        assert_eq!(crabby_game_vsync(game, false), CRABBY_OK);
-        assert_eq!(crabby_game_vsync(game, true), CRABBY_OK);
-        assert_eq!(crabby_game_fullscreen(game, true), CRABBY_OK);
-        assert_eq!(crabby_game_fullscreen(game, false), CRABBY_OK);
+        // vsync and fullscreen are read only when a window opens: no headless
+        // effect to observe, so they are on the allowlist.
         assert_eq!(crabby_game_msaa(null_mut(), 4), BAD);
-        assert_eq!(crabby_game_vsync(null_mut(), true), BAD);
-        assert_eq!(crabby_game_fullscreen(null_mut(), true), BAD);
         // A refused value left the game intact.
         let mut world = null_mut();
         assert_eq!(

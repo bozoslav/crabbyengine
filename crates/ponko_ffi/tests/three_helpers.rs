@@ -172,6 +172,32 @@ fn mesh_data_colors_need_one_per_corner_or_none() {
 
         // The colored mesh data still makes a mesh.
         assert_eq!(crabby_mesh_data_set_colors(cube, red.as_ptr(), corners), CRABBY_OK);
+        unsafe extern "C" fn make_mesh(ctx: *mut CrabbyCtx, user: *mut c_void) {
+            unsafe {
+                let (data, made) = &mut *user.cast::<(*mut CrabbyMeshData, bool)>();
+                let desc = crabby_material_desc(CrabbyColor {
+                    r: 1.0,
+                    g: 1.0,
+                    b: 1.0,
+                    a: 1.0,
+                });
+                let mut material = CrabbyMaterial::default();
+                assert_eq!(crabby_ctx_create_material(ctx, &desc, &mut material), CRABBY_OK);
+                let mut mesh = CrabbyMesh::default();
+                assert_eq!(crabby_ctx_create_mesh(ctx, *data, material, &mut mesh), CRABBY_OK);
+                assert_ne!(mesh.id, CRABBY_MESH_NONE);
+                *made = true;
+            }
+        }
+        let mut used = (cube, false);
+        let game = crabby_game_new(c"colored".as_ptr(), 1, 1);
+        let mut world = null_mut();
+        assert_eq!(
+            crabby_game_run_headless(game, 1, Some(make_mesh), (&raw mut used).cast(), &mut world),
+            CRABBY_OK
+        );
+        crabby_world_free(world);
+        assert!(used.1, "the setup ran and made a mesh from the colored data");
         crabby_mesh_data_free(cube);
     }
 }
