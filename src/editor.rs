@@ -62,8 +62,7 @@ impl Editor {
             return Ok(());
         };
         self.undo.truncate(steps);
-        ctx.load_scene_assets(&save)?;
-        ctx.world.load(&save).map_err(|e| e.to_string())
+        ctx.replace_world(&save)
     }
 
     /// Keeps the world as it is now: Stop won't go back.

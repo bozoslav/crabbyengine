@@ -388,4 +388,29 @@ mod tests {
                 assert!(ctx.audio.spatial.voices.is_empty());
             });
     }
+    #[test]
+    fn a_scene_load_stops_voices_of_replaced_entities_only() {
+        use crate::WorldReflect;
+        crate::Game::new("audio test", 1, 1).run_headless(0, |ctx| {
+            ctx.world.reflect::<Transform3D>();
+            let sound = ctx.create_sound(100, &[0.0; 100]);
+            let looping = AudioSettings3D {
+                sound: crate::SoundParams {
+                    looping: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            // The scene has one entity at index 0, without a sound source.
+            let e = ctx.world.spawn((Transform3D::default(),));
+            let save = ctx.world.save();
+            ctx.world.insert(e, AudioSource3D::new(sound, looping));
+            update_audio3d(ctx);
+            assert_eq!(ctx.audio.spatial.voices.len(), 1);
+            ctx.world.load(&save).unwrap();
+            assert!(ctx.world.is_alive(e), "same id, new entity");
+            update_audio3d(ctx);
+            assert!(ctx.audio.spatial.voices.is_empty(), "the old entity's voice stops");
+        });
+    }
 }

@@ -317,6 +317,8 @@ pub struct Physics {
     links: Vec<Option<Link>>,
     gravity: Vec2,
     step: u64,
+    /// The world's load count when `links` were made (see `forget_bodies`).
+    world_loads: u64,
     collisions: mpsc::Receiver<rp::CollisionEvent>,
     collector: rp::ChannelEventCollector,
     _forces: mpsc::Receiver<rp::ContactForceEvent>,
@@ -353,6 +355,7 @@ impl Physics {
             links: Vec::new(),
             gravity,
             step: 0,
+            world_loads: 0,
             collisions,
             collector: rp::ChannelEventCollector::new(collision_tx, force_tx, tear_tx),
             _forces: forces,
@@ -473,6 +476,17 @@ impl Physics {
             self.world.remove_body(link.body);
         }
     }
+
+    /// Removes every body, keeping gravity and the step count: the world's
+    /// entities were replaced (a scene or save was loaded), so ids may now
+    /// name different entities and nothing of the old bodies (speed, sleep,
+    /// contacts) may carry over. The next step builds bodies afresh from
+    /// the components; until then queries find nothing.
+    pub(crate) fn forget_bodies(&mut self) {
+        for i in 0..self.links.len() {
+            self.remove(i);
+        }
+    }
 }
 
 fn body_of(t: &Transform2D, rigid: RigidBody, velocity: Velocity) -> rp::RigidBody {
@@ -565,6 +579,11 @@ pub fn step_physics(ctx: &mut Ctx) {
 /// New bodies in, your changes applied, gone ones out.
 fn sync_into(physics: &mut Physics, world: &mut World) {
     let step = physics.step;
+    let loads = crate::reflect::world_loads(world);
+    if loads != physics.world_loads {
+        physics.world_loads = loads;
+        physics.forget_bodies();
+    }
     world
         .query::<(Entity, &Transform2D, &RigidBody, &Collider, Option<&Velocity>)>()
         .for_each(|(e, t, rigid, shape, velocity)| {
