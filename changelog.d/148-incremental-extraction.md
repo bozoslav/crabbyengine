@@ -9,7 +9,7 @@
   in 0.16 ms instead of 0.61 ms, under a flying camera in 0.31 ms instead
   of 0.62 ms with 25 KiB of instances uploaded per frame instead of
   789 KiB, and with every model moving in 0.50 ms instead of 0.61 ms. The
-  first frame builds what later ones keep (1.4 ms instead of 0.5 ms), and
+  first frame builds what later ones keep (1.3 ms instead of 0.5 ms), and
   about 200 bytes are kept per model. See "Models between frames" in the
   performance chapter.
 - Models of one mesh are drawn in no particular order; it changes as

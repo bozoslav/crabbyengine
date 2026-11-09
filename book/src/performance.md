@@ -295,12 +295,12 @@ shadows (`cargo run --release -p ponko_bench -- extract-100k`; median of
 
 | Each frame | Before | Now | One core: before | now | Instances uploaded: before | now |
 |---|---|---|---|---|---|---|
-| nothing changes | 0.61 ms | 0.16 ms | 1.19 ms | 0.64 ms | 11 KiB | 0 |
-| the camera flies | 0.62 ms | 0.31 ms | 1.18 ms | 1.27 ms | 789 KiB | 25 KiB |
-| it flies, 1% of the models move | 0.61 ms | 0.32 ms | 1.19 ms | 1.29 ms | 791 KiB | 73 KiB |
-| it flies, every model moves | 0.61 ms | 0.50 ms | 1.19 ms | 1.71 ms | 831 KiB | 904 KiB |
+| nothing changes | 0.61 ms | 0.16 ms | 1.19 ms | 0.65 ms | 11 KiB | 0 |
+| the camera flies | 0.62 ms | 0.31 ms | 1.18 ms | 1.28 ms | 789 KiB | 25 KiB |
+| it flies, 1% of the models move | 0.61 ms | 0.32 ms | 1.19 ms | 1.30 ms | 791 KiB | 73 KiB |
+| it flies, every model moves | 0.61 ms | 0.50 ms | 1.19 ms | 1.72 ms | 831 KiB | 904 KiB |
 | it flies, 100 models despawn and 100 spawn | 0.63 ms | 0.45 ms | 1.38 ms | 1.60 ms | 795 KiB | 27 KiB |
-| the first frame (nothing remembered) | 0.48 ms | 1.37 ms | 1.22 ms | 2.53 ms | all | all |
+| the first frame (nothing remembered) | 0.48 ms | 1.3 ms | 1.22 ms | 2.5 ms | all | all |
 
 What it costs:
 
@@ -308,7 +308,7 @@ What it costs:
   (21 MiB for the 100,000 above, where a frame's scratch lists took
   3.5 MiB before), and the drawn instances with room to grow.
 - **The first frame**, and a frame that spawns many models at once, builds
-  what later frames keep: about three times a frame of before for those
+  what later frames keep: two to three times a frame of before for those
   models, once.
 - **One core** (the web): a world where every model moves every frame
   collects about 45% slower than before, because each model is compared
