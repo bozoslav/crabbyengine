@@ -777,8 +777,64 @@ public:
 
 class world_view;
 class ctx;
+/// A query filter: only entities whose `T` changed since the calling system
+/// last ran. Use it as `world.each<crabby::changed<Health>>(fn)`, or in the
+/// list of `query` and `count`. A filter also requires the entity to have
+/// `T`, and starts tracking `T` (see world_view::track_changes). Several
+/// filters must all pass; see any_of.
+///
+/// What counts as a change: spawn and set (also their `_later` forms), a
+/// query that takes the component by `&` (every row it visits, written or
+/// not; `const&` and copies only read), and mark_changed.
+template<class T> struct changed {};
+/// A query filter: only entities that got their `T` since the calling system
+/// last ran: spawned with it, or `set` when they had none.
+template<class T> struct added {};
+/// A query filter that passes when at least one of `Fs` does:
+/// `world.each<crabby::any_of<crabby::changed<Pos>, crabby::changed<Vel>>>(fn)`.
+/// The entity must have every component the filters name. It must be the
+/// query's only filter.
+template<class... Fs> struct any_of {};
+
+namespace detail {
+template<class T> struct is_filter : std::false_type {};
+template<class T> struct is_filter<changed<T>> : std::true_type {};
+template<class T> struct is_filter<added<T>> : std::true_type {};
+template<class... Fs> struct is_filter<any_of<Fs...>> : std::true_type {};
+template<class T> struct is_any : std::false_type {};
+template<class... Fs> struct is_any<any_of<Fs...>> : std::true_type {};
+template<class... Ts> struct types {};
+template<class A, class B> struct joined;
+template<class... A, class... B> struct joined<types<A...>, types<B...>> { using type = types<A..., B...>; };
+/// The types among `Ts` that are query filters (`Filters`), or the rest.
+template<bool Filters, class... Ts> struct pick { using type = types<>; };
+template<bool Filters, class T, class... Rest> struct pick<Filters, T, Rest...> {
+    using type = typename joined<typename std::conditional<is_filter<T>::value == Filters, types<T>, types<>>::type,
+                                 typename pick<Filters, Rest...>::type>::type;
+};
+/// The column type of an each() parameter: `T` for `T&` (written), `const T`
+/// for `const T&` and copies (only read).
+template<class P> using column = typename std::conditional<
+    std::is_lvalue_reference<P>::value && !std::is_const<typename std::remove_reference<P>::type>::value,
+    bare<P>, const bare<P>>::type;
+/// The component ids and options of one query.
+struct query_plan {
+    std::array<std::uint32_t, 32> ids{};
+    std::size_t count = 0;
+    CrabbyQueryOptions options = crabby_query_options_default();
+    /// The bit of column `id`, added as a read-only column if it's new.
+    std::uint32_t bit(std::uint32_t id) {
+        for (std::size_t i = 0; i < count; ++i) if (ids[i] == id) return std::uint32_t(1) << i;
+        if (count == ids.size()) throw std::length_error("a query takes at most 32 components");
+        ids[count] = id;
+        return std::uint32_t(1) << count++;
+    }
+};
+}  // namespace detail
+
 /// One archetype's rows in a query: a column (array) per component, in the
-/// order the query lists them. Valid only during the query callback.
+/// order the query lists them. Valid only during the query callback. With a
+/// changed/added filter, a chunk is a run of consecutive rows that pass.
 template<class... Ts> class chunk {
     const CrabbyChunk* raw_;
     template<std::size_t... I> std::tuple<Ts*...> columns(std::index_sequence<I...>) const noexcept {
@@ -917,27 +973,51 @@ protected:
     }
     template<class T> std::uint32_t id() const { valid(); return id_of<T>(raw_, *owner_); }
 
-    /// Runs `fn(chunk<Ts...>)` for every archetype with all of `Ts`.
-    template<class... Ts, class Run, class F> void run_query(Run run, F& fn) {
-        static_assert(sizeof...(Ts) > 0, "a query needs at least one component");
-        static_assert(!std::disjunction<std::is_same<Ts, sprite>...>::value,
+    template<class T> void add_filter(detail::query_plan& plan, changed<T>*) const { plan.options.changed |= plan.bit(id<T>()); }
+    template<class T> void add_filter(detail::query_plan& plan, added<T>*) const { plan.options.added |= plan.bit(id<T>()); }
+    template<class... Fs> void add_filter(detail::query_plan& plan, any_of<Fs...>*) const {
+        static_assert(!std::disjunction<detail::is_any<Fs>...>::value, "any_of can't hold another any_of: list its filters directly");
+        plan.options.any = true;
+        (add_filter(plan, static_cast<Fs*>(nullptr)), ...);
+    }
+    /// Runs `fn(chunk<Ts...>)` for every archetype with all of `Ts`, or for
+    /// every run of rows that pass the filters `Fs`. A `const` column is only
+    /// read; the others count as changed for every row visited.
+    template<class... Ts, class... Fs, class F> void run_query(detail::types<Ts...>, detail::types<Fs...>, bool parallel, F& fn) {
+        static_assert(sizeof...(Ts) + sizeof...(Fs) > 0, "a query needs at least one component");
+        static_assert(sizeof...(Ts) <= 32, "a query takes at most 32 components");
+        static_assert(!std::disjunction<std::is_same<detail::bare<Ts>, sprite>...>::value,
                       "sprite is not a query column: query transform2d (and your own components) instead");
-        static_assert(!std::disjunction<std::is_same<Ts, rigid_body>..., std::is_same<Ts, collider>...>::value,
+        static_assert(!std::disjunction<std::is_same<detail::bare<Ts>, rigid_body>..., std::is_same<detail::bare<Ts>, collider>...>::value,
                       "rigid_body and collider are not query columns: use get/set (velocity is fine)");
-        static_assert(!std::disjunction<std::is_same<Ts, rigid_body3d>..., std::is_same<Ts, collider3d>...,
-                                        std::is_same<Ts, character3d>..., std::is_same<Ts, joint3d>...,
-                                        std::is_same<Ts, contact_modifier3d>...>::value,
+        static_assert(!std::disjunction<std::is_same<detail::bare<Ts>, rigid_body3d>..., std::is_same<detail::bare<Ts>, collider3d>...,
+                                        std::is_same<detail::bare<Ts>, character3d>..., std::is_same<detail::bare<Ts>, joint3d>...,
+                                        std::is_same<detail::bare<Ts>, contact_modifier3d>...>::value,
                       "rigid_body3d, collider3d, character3d, joint3d and contact_modifier3d are not query columns: use get/set (velocity3d is fine)");
-        valid(); std::array<std::uint32_t, sizeof...(Ts)> ids{{id<Ts>()...}};
+        static_assert(!std::disjunction<detail::is_any<Fs>...>::value || sizeof...(Fs) == 1,
+                      "any_of must be the query's only filter");
+        valid();
+        detail::query_plan plan;
+        plan.options.writes = 0;
+        plan.options.parallel = parallel;
+        ((plan.options.writes |= std::uint32_t(!std::is_const<Ts>::value) << plan.count,
+          plan.ids[plan.count++] = id<detail::bare<Ts>>()), ...);
+        (add_filter(plan, static_cast<Fs*>(nullptr)), ...);
         struct context { F* fn; detail::first_error error; } c{&fn, {}};
         auto trampoline = [](const CrabbyChunk* raw, void* user) noexcept {
             auto& c = *static_cast<context*>(user);
             if (c.error.set.load()) return;
             try { (*c.fn)(chunk<Ts...>(raw)); } catch (...) { c.error.capture(); }
         };
-        auto status = run(raw_, ids.data(), ids.size(), trampoline, &c);
+        auto status = crabby_query_with(raw_, plan.ids.data(), plan.count, &plan.options, trampoline, &c);
         c.error.rethrow();
         detail::check(status);
+    }
+    template<class... Ts, class... Fs> std::size_t count_rows(detail::types<Ts...>, detail::types<Fs...> filters) {
+        std::size_t n = 0;
+        auto add = [&n](chunk<const detail::bare<Ts>...> c) { n += c.size(); };
+        run_query(detail::types<const detail::bare<Ts>...>{}, filters, false, add);
+        return n;
     }
     /// each(): calls `fn` per row with the row's entity (if `fn` asks for one)
     /// and its components. Inlined into a plain loop over the columns.
@@ -964,17 +1044,17 @@ protected:
                 for (std::size_t i = 0; i < n; ++i) fn(std::get<I>(cols)[i]...);
             }
         }
-        template<class F, class Run> static void run(world_view& w, Run run_fn, F& fn) {
+        template<class F, class Filters> static void run(world_view& w, Filters filters, bool parallel, F& fn) {
             auto per_chunk = [&fn](chunk<Ts...> c) { chunk_rows(fn, c.raw_chunk(), std::index_sequence_for<Ts...>{}); };
-            w.run_query<Ts...>(run_fn, per_chunk);
+            w.run_query(detail::types<Ts...>{}, filters, parallel, per_chunk);
         }
     };
     template<class Args> struct each_of;
     template<class First, class... Rest> struct each_of<std::tuple<First, Rest...>> {
         static constexpr bool with_entity = std::is_same<First, entity>::value;
-        template<class F, class Run> static void run(world_view& w, Run run_fn, F& fn) {
-            if constexpr (with_entity) each_row<true, detail::bare<Rest>...>::run(w, run_fn, fn);
-            else each_row<false, detail::bare<First>, detail::bare<Rest>...>::run(w, run_fn, fn);
+        template<class F, class Filters> static void run(world_view& w, Filters filters, bool parallel, F& fn) {
+            if constexpr (with_entity) each_row<true, detail::column<Rest>...>::run(w, filters, parallel, fn);
+            else each_row<false, detail::column<First>, detail::column<Rest>...>::run(w, filters, parallel, fn);
         }
     };
 public:
@@ -1080,16 +1160,28 @@ public:
     /// Take components by `&` to change them, by `const&` to read them. A
     /// first `crabby::entity` parameter gets the entity. As fast as a
     /// hand-written loop over the columns (see query).
-    template<class F> void each(F&& fn) {
+    ///
+    /// Filters narrow it to what changed since the calling system last ran
+    /// (see changed, added, any_of):
+    ///
+    ///     world.each<crabby::changed<Health>>([](crabby::entity e, const Health& h) { ... });
+    ///
+    /// A component taken by `&` counts as changed for every entity visited,
+    /// written or not; one taken by `const&` or by value doesn't.
+    template<class... Filters, class F> void each(F&& fn) {
+        static_assert(std::conjunction<detail::is_filter<Filters>...>::value,
+                      "each<...> takes filters: crabby::changed<T>, crabby::added<T> or crabby::any_of<...>");
         using args = typename detail::params<detail::bare<F>>::type;
-        each_of<args>::run(*this, crabby_query, fn);
+        each_of<args>::run(*this, detail::types<Filters...>{}, false, fn);
     }
     /// Like each, but on all CPU cores at once: `fn` must be thread-safe and
     /// only touch its own entity's components (plus ctx::dt/random and
     /// spatial queries).
-    template<class F> void each_par(F&& fn) {
+    template<class... Filters, class F> void each_par(F&& fn) {
+        static_assert(std::conjunction<detail::is_filter<Filters>...>::value,
+                      "each_par<...> takes filters: crabby::changed<T>, crabby::added<T> or crabby::any_of<...>");
         using args = typename detail::params<detail::bare<F>>::type;
-        each_of<args>::run(*this, crabby_query_par, fn);
+        each_of<args>::run(*this, detail::types<Filters...>{}, true, fn);
     }
     /// The lower-level loop: calls `fn(chunk)` for every archetype with all of
     /// `Ts`, with a column (array) per component, for code that works on
@@ -1099,16 +1191,62 @@ public:
     ///         auto [pos, vel] = chunk.columns();
     ///         for (std::size_t i = 0; i < chunk.size(); ++i) pos[i].x += vel[i].x;
     ///     });
-    template<class... Ts, class F> void query(F&& fn) { run_query<Ts...>(crabby_query, fn); }
-    /// query on all CPU cores at once (see each_par).
-    template<class... Ts, class F> void query_par(F&& fn) { run_query<Ts...>(crabby_query_par, fn); }
-    /// How many entities have all of these components.
-    template<class... Ts> std::size_t count() {
-        std::size_t n = 0;
-        auto add = [&n](chunk<Ts...> c) { n += c.size(); };
-        run_query<Ts...>(crabby_query, add);
-        return n;
+    ///
+    /// A `const` column (`query<Position, const Velocity>`) is only read; the
+    /// others count as changed. Filters go in the same list and aren't
+    /// columns: `query<Position, crabby::changed<Position>>` gets the runs of
+    /// rows whose Position changed.
+    template<class... Ts, class F> void query(F&& fn) {
+        run_query(typename detail::pick<false, Ts...>::type{}, typename detail::pick<true, Ts...>::type{}, false, fn);
     }
+    /// query on all CPU cores at once (see each_par).
+    template<class... Ts, class F> void query_par(F&& fn) {
+        run_query(typename detail::pick<false, Ts...>::type{}, typename detail::pick<true, Ts...>::type{}, true, fn);
+    }
+    /// How many entities have all of these components (and pass these
+    /// filters: `count<crabby::changed<Health>>()`). Counting changes nothing.
+    template<class... Ts> std::size_t count() {
+        return count_rows(typename detail::pick<false, Ts...>::type{}, typename detail::pick<true, Ts...>::type{});
+    }
+
+    // ---- change detection ----
+    /// Starts recording when `T` values are added, changed and removed, for
+    /// the changed/added filters and removed(). Until then a component keeps
+    /// no change data and costs nothing. Values that exist already count as
+    /// added and changed now. Using a filter on `T` does this too.
+    template<class T> void track_changes() { detail::check(crabby_component_track_changes(raw_, id<T>())); }
+    /// Marks `e`'s `T` as changed now, for a write the world can't see.
+    /// False if `e` is dead or has no `T`.
+    template<class T> bool mark_changed(entity e) {
+        const auto status = crabby_mark_changed(raw_, e, id<T>());
+        if (status == CRABBY_NOT_FOUND) return false;
+        detail::check(status);
+        return true;
+    }
+    /// The entities that lost their `T` since the calling system last ran
+    /// (it was removed, or the entity despawned), oldest first. An entity is
+    /// listed once per removal and may have a `T` again. `T` must be tracked
+    /// (track_changes) or this throws.
+    template<class T> std::vector<entity> removed() const { return removed_since<T>(CRABBY_SINCE_LAST_RUN); }
+    /// removed() for a reader that keeps its own tick (see advance_change_tick).
+    template<class T> std::vector<entity> removed_since(std::uint64_t tick) const {
+        const std::uint32_t component = id<T>();
+        std::size_t n = 0;
+        detail::check(crabby_removed(raw_, component, tick, nullptr, 0, &n));
+        std::vector<entity> out(n);
+        if (n) detail::check(crabby_removed(raw_, component, tick, out.data(), out.size(), &n));
+        return out;
+    }
+    /// The world's current change tick: changes made now carry it.
+    std::uint64_t change_tick() const { valid(); std::uint64_t tick = 0; detail::check(crabby_world_change_tick(raw_, &tick)); return tick; }
+    /// Ends the current change tick and returns it. Code that isn't a game
+    /// system keeps its place this way: `set_changes_since(seen)`, look, then
+    /// `seen = advance_change_tick()`. A game does this around every system.
+    std::uint64_t advance_change_tick() { valid(); std::uint64_t tick = 0; detail::check(crabby_world_advance_change_tick(raw_, &tick)); return tick; }
+    /// The tick the filters and removed() compare with: inside a game system,
+    /// when that system last finished; otherwise 0 (everything) unless set.
+    std::uint64_t changes_since() const { valid(); std::uint64_t tick = 0; detail::check(crabby_world_changes_since(raw_, &tick)); return tick; }
+    void set_changes_since(std::uint64_t tick) { valid(); detail::check(crabby_world_set_changes_since(raw_, tick)); }
 
     // ---- reflection and saves ----
     /// Describes `T`'s fields, so tools and agents can read and write it as

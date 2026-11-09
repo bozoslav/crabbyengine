@@ -449,6 +449,125 @@ static void parallel_queries() {
     CHECK(std::count(seq.begin(), seq.end(), -1) == 5000);
 }
 
+struct Fuel { int value; };
+struct Heat { int value; };
+
+static void change_detection() {
+    using list = std::vector<ponko::entity>;
+    ponko::world w;
+    w.track_changes<Fuel>();
+    const auto a = w.spawn(Fuel{1}, Heat{1}), b = w.spawn(Fuel{2}, Heat{2}), c = w.spawn(Fuel{3});
+    auto changed = [&] { list out; w.each<ponko::changed<Fuel>>([&](ponko::entity e, const Fuel&) { out.push_back(e); }); return out; };
+    auto added = [&] { list out; w.each<ponko::added<Fuel>>([&](ponko::entity e, const Fuel&) { out.push_back(e); }); return out; };
+    // Outside a game the reader keeps its own place: look, then move on.
+    auto next = [&] { w.set_changes_since(w.advance_change_tick()); };
+    CHECK(w.change_tick() == 1 && w.changes_since() == 0);
+    CHECK(changed() == list{a, b, c} && added() == list{a, b, c});   // nothing seen yet: everything
+    next();
+    CHECK(w.change_tick() == 2 && w.changes_since() == 1);
+    CHECK(changed().empty() && added().empty() && w.count<ponko::changed<Fuel>>() == 0);
+
+    // Reads change nothing: const&, copies, const columns, get, count.
+    w.each([](const Fuel&) {}); w.each([](Fuel) {}); w.each_par([](const Fuel&, const Heat&) {});
+    w.query<const Fuel>([](auto chunk) {
+        auto [fuel] = chunk.columns();
+        static_assert(std::is_same<decltype(fuel), const Fuel*>::value, "const columns are read-only");
+    });
+    (void)w.get<Fuel>(a); CHECK(w.count<Fuel>() == 3);
+    CHECK(changed().empty());
+
+    // Writes do: set, a `&` parameter (every row visited), a column, mark_changed.
+    w.set(b, Fuel{20}); CHECK(changed() == list{b} && added().empty());
+    next();
+    w.each([](Fuel&, const Heat&) {}); CHECK(changed() == list{a, b});
+    next();
+    w.query<Fuel>([](auto) {}); CHECK(changed() == list{a, b, c});
+    next();
+    w.query_par<const Heat, Fuel>([](auto) {}); CHECK(changed() == list{a, b});
+    next();
+    CHECK(w.mark_changed<Fuel>(c) && !w.mark_changed<Heat>(c)); CHECK(changed() == list{c});
+    CHECK(w.count<ponko::changed<Fuel>>() == 1 && w.count<Heat, ponko::changed<Fuel>>() == 0);
+
+    // A filtered loop that writes marks only the rows it visits.
+    next();
+    w.set(a, Fuel{5});
+    w.each<ponko::changed<Fuel>>([](Fuel& f) { f.value += 1; });
+    CHECK(w.get<Fuel>(a).value == 6 && w.get<Fuel>(b).value == 20 && changed() == list{a});
+    // Filtered columns: runs of rows, numbered by first().
+    w.mark_changed<Fuel>(c);
+    std::size_t rows = 0;
+    w.query<Fuel, ponko::changed<Fuel>>([&](auto chunk) { CHECK(chunk.first() == rows); rows += chunk.size(); });
+    CHECK(rows == 2);
+
+    // Added: a new component on an old entity; a filter needn't be a column.
+    next();
+    w.remove<Fuel>(c); w.set(c, Fuel{7}); w.set(a, Fuel{8});
+    CHECK(added() == list{c} && w.count<ponko::changed<Fuel>>() == 2);
+    list heated; w.each<ponko::added<Fuel>>([&](ponko::entity e, const Heat&) { heated.push_back(e); });
+    CHECK(heated.empty());
+    w.set(c, Heat{3});
+    w.each<ponko::added<Fuel>>([&](ponko::entity e, const Heat&) { heated.push_back(e); });
+    CHECK(heated == list{c});
+    // Several filters must all pass; any_of needs one.
+    CHECK(w.count<ponko::changed<Fuel>, ponko::added<Fuel>>() == 1);
+    CHECK((w.count<ponko::any_of<ponko::changed<Fuel>, ponko::added<Fuel>>>() == 2));
+    // A filter starts tracking: Heat is new to it, so all three count.
+    CHECK(w.count<ponko::changed<Heat>>() == 3);
+
+    // Removals: a removed component or a despawned entity, oldest first.
+    CHECK(w.removed<Fuel>() == list{c});   // from the remove above
+    next();
+    CHECK(w.removed<Fuel>().empty());
+    w.remove<Fuel>(a); w.despawn(b);
+    CHECK(w.removed<Fuel>() == list{a, b} && w.removed<Heat>() == list{b});
+    const auto seen = w.advance_change_tick();
+    CHECK(w.removed_since<Fuel>(seen).empty() && w.removed_since<Fuel>(0) == list{c, a, b});
+    throws([&] { (void)w.removed<Pos>(); });   // not tracked
+    throws([&] { ponko::world moved(std::move(w)); (void)w.change_tick(); });
+
+    // On all cores: each passing row once.
+    ponko::world big;
+    big.track_changes<int>();
+    std::vector<ponko::entity> es;
+    for (int i = 0; i < 50000; ++i) es.push_back(i % 2 ? big.spawn(i) : big.spawn(i, 'x'));
+    big.set_changes_since(big.advance_change_tick());
+    for (std::size_t i = 0; i < es.size(); i += 3) big.mark_changed<int>(es[i]);
+    std::atomic<long long> sum{0}, visits{0};
+    big.each_par<ponko::changed<int>>([&](const int& n) { sum += n; ++visits; });
+    long long want = 0, n = 0;
+    for (int i = 0; i < 50000; i += 3) { want += i; ++n; }
+    CHECK(sum == want && visits == n && big.count<ponko::changed<int>>() == std::size_t(n));
+
+    // In a game every system has its own place: each change is seen once,
+    // by a reader on either side of the writer, also through commands.
+    for (bool reader_first : {true, false}) {
+        std::vector<std::size_t> seen_changes, seen_removed, own;
+        ponko::entity target = 0;
+        auto reader = [&](ponko::ctx& ctx) {
+            seen_changes.push_back(ctx.world().count<ponko::changed<Fuel>>());
+            seen_removed.push_back(ctx.world().removed<Fuel>().size());
+        };
+        auto writer = [&](ponko::ctx& ctx) {
+            own.push_back(ctx.world().count<ponko::changed<Fuel>>());   // its own writes aren't news to it
+            if (ctx.sim_tick() == 1) ctx.world().set(target, Fuel{9});
+            if (ctx.sim_tick() == 3) ctx.set_later(target, Fuel{10});
+            if (ctx.sim_tick() == 5) ctx.despawn_later(target);
+        };
+        ponko::game g("t", 1, 1);
+        if (reader_first) g.sim_system(reader, "reader").sim_system(writer, "writer");
+        else g.sim_system(writer, "writer").sim_system(reader, "reader");
+        g.run_headless(8, [&](ponko::ctx& ctx) {
+            ctx.world().track_changes<Fuel>();
+            target = ctx.world().spawn(Fuel{0}); ctx.world().spawn(Fuel{0});
+        });
+        const std::size_t late = reader_first ? 1 : 0;
+        std::vector<std::size_t> changes(8, 0), removals(8, 0);
+        changes[0] = 2; changes[1 + late] = 1; changes[3 + late] = 1; removals[5 + late] = 1;
+        CHECK(seen_changes == changes && seen_removed == removals);
+        CHECK(own == std::vector<std::size_t>{2, 0, 0, 0, 0, 0, 0, 0});
+    }
+}
+
 struct Hp { int value; };
 struct Bullet { float speed; };
 
@@ -1816,6 +1935,7 @@ int main() {
     streamed_worlds();
     handle_lifecycle();
     parallel_queries();
+    change_detection();
     games();
     attachments();
     physics();

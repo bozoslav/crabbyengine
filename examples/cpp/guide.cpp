@@ -111,6 +111,27 @@ static void die(ponko::ctx& ctx) {
 }
 // ANCHOR_END: ecs_commands
 
+// ANCHOR: ecs_changes
+struct HealthBar { float width; };
+
+static void resize_health_bars(ponko::ctx& ctx) {
+    auto world = ctx.world();
+    // Only the entities whose Health changed since this system last ran.
+    world.each<ponko::changed<Health>>([](const Health& hp, HealthBar& bar) {
+        bar.width = hp.value;
+    });
+    // The ones that are new, and the ones that lost it (or despawned).
+    std::size_t spawned = world.count<ponko::added<Health>>();
+    std::vector<ponko::entity> gone = world.removed<Health>();
+    (void)spawned; (void)gone;
+}
+[[maybe_unused]] static void regenerate(ponko::ctx& ctx) {
+    // `Health&` can write, so every entity visited counts as changed.
+    // Take `const Health&` (or a copy) when you only read.
+    ctx.world().each([](Health& hp) { hp.value += 1; });
+}
+// ANCHOR_END: ecs_changes
+
 // ANCHOR: resources
 struct Score { std::uint32_t points; };
 
@@ -2369,6 +2390,7 @@ int main() {
     auto world = ponko::game("guide", 1, 1)
         .spatial_grid(10)
         .sim_system(die, "die")
+        .sim_system(resize_health_bars, "health bars")
         .sim_system(count_neighbors, "neighbors")
         .sim_system(wander, "wander")
         .sim_system(Spawner{2}, "spawner")
