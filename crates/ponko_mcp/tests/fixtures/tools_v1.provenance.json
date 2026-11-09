@@ -1,0 +1,11 @@
+{
+  "fixture": "tools_v1.json",
+  "contract": "ponko-mcp tools/list and initialize",
+  "engine_version": "ponko 0.0.1",
+  "engine_revision": "b3799f698ed5eb85267f7e34cccdb2f27126910b",
+  "toolchain": "rustc 1.99.1 (58cf8f9c3 2026-10-13), aarch64-apple-darwin",
+  "features": "default",
+  "generated_by": "PONKO_MCP_FIXTURE_OUT=<path> cargo test -p ponko_mcp --test contract -- --ignored --exact write_v1_fixture",
+  "date": "2026-11-09",
+  "baseline": "First retained MCP contract: the 39 tools, their parameters and required lists, the read-only hints, the negotiated protocol versions and the server name as of this revision of the engine's main branch, not a published release. Descriptions are left out on purpose: wording is not part of the contract."
+}
