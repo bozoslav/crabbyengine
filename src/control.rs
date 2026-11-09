@@ -504,7 +504,7 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
     ),
     (
         "perf.get",
-        "frame timing over the last few seconds (fps; avg, p50, p95, p99, max ms; CPU split into systems, render and waiting on the display; GPU ms), GPU ms per pass, what was drawn (draw calls; 3D models and triangles for the camera and the shadows; render CPU split into collect, record, submit), the slowest systems, live asset handles by class with estimated bytes (`assets`: textures, meshes, materials, sounds, ...; with what the GPU holds); params: meshes? (list the n meshes drawing the most triangles, default 0), profiling? (true turns on scope timing and allocation counting, false turns it off). While profiling is on, the answer also has `report`: frame percentiles, every system and profile_scope with time and allocations per frame, the slowest frames and what was in them, and warnings with advice. Always has `render_inspector` (schema 1, also when headless): the last frame's CPU time split into extract, prepare, encode, submit and other ms; GPU ms per frame and per pass; draw calls, models, triangles, occluded models, pipelines built; upload and memory bytes; the active graphics quality preset and settings. A metric that can't be measured (no timestamp queries, headless, not counted yet) is null and `unavailable` gives the reason; GPU times are never guessed",
+        "frame timing over the last few seconds (fps; avg, p50, p95, p99, max ms; CPU split into systems, render and waiting on the display; GPU ms), GPU ms per pass, what was drawn (draw calls; 3D models and triangles for the camera and the shadows; render CPU split into collect, record, submit), the slowest systems, live asset handles by class with estimated bytes (`assets`: textures, meshes, materials, sounds, ...; with what the GPU holds), residency budgets per asset kind (`residency`: budget, resident and pinned counts and bytes, loads, reloads, evictions, evicted bytes); params: meshes? (list the n meshes drawing the most triangles, default 0), profiling? (true turns on scope timing and allocation counting, false turns it off). While profiling is on, the answer also has `report`: frame percentiles, every system and profile_scope with time and allocations per frame, the slowest frames and what was in them, and warnings with advice. Always has `render_inspector` (schema 1, also when headless): the last frame's CPU time split into extract, prepare, encode, submit and other ms; GPU ms per frame and per pass; draw calls, models, triangles, occluded models, pipelines built; upload and memory bytes; the active graphics quality preset and settings. A metric that can't be measured (no timestamp queries, headless, not counted yet) is null and `unavailable` gives the reason; GPU times are never guessed",
     ),
     (
         "perf.trace",
@@ -541,7 +541,7 @@ fn render_inspector_json(ctx: &Ctx) -> Value {
 fn perf_json(ctx: &Ctx, meshes: usize) -> Value {
     if ctx.headless {
         let slowest = slowest_systems(ctx);
-        return json!({ "headless": true, "systems": slowest, "render_inspector": render_inspector_json(ctx) });
+        return json!({ "headless": true, "systems": slowest, "residency": residency_json(ctx), "render_inspector": render_inspector_json(ctx) });
     }
     let f = ctx.frame_stats();
     let r = ctx.render_stats();
@@ -571,6 +571,7 @@ fn perf_json(ctx: &Ctx, meshes: usize) -> Value {
             "uploads": r.uploads.json(),
         },
         "systems": slowest_systems(ctx),
+        "residency": residency_json(ctx),
         "render_inspector": render_inspector_json(ctx),
         "hint": "frame time is about max(CPU, GPU): when display_wait is large the GPU (or vsync) is the limit; gpu_passes says which pass",
     });
@@ -674,6 +675,30 @@ fn ecs_diagnostics_json(ctx: &Ctx, params: &Value) -> Result<Value, String> {
         out["matching"] = json!({ "with": with, "archetypes": m.archetypes, "entities": m.entities });
     }
     Ok(out)
+}
+
+/// Residency budgets and counters, by kind name.
+fn residency_json(ctx: &Ctx) -> Value {
+    crate::ResidencyKind::ALL
+        .iter()
+        .map(|&kind| {
+            let r = ctx.residency(kind);
+            let value = json!({
+                "budget": r.budget,
+                "resident": r.resident,
+                "resident_bytes": r.resident_bytes,
+                "over_budget_bytes": r.over_budget_bytes(),
+                "pinned": r.pinned,
+                "pinned_bytes": r.pinned_bytes,
+                "loads": r.loads,
+                "reloads": r.reloads,
+                "evictions": r.evictions,
+                "evicted_bytes": r.evicted_bytes,
+            });
+            (kind.name().to_string(), value)
+        })
+        .collect::<serde_json::Map<_, _>>()
+        .into()
 }
 
 /// The 10 systems with the most average time.
@@ -1156,7 +1181,15 @@ mod tests {
             .map(|s| s["name"].clone())
             .collect();
         assert_eq!(names, [json!("slow"), json!("middle"), json!("fast")]);
-        for key in ["fps", "frame_ms", "cpu_ms", "gpu_passes", "render", "assets", "render_inspector"] {
+        for key in [
+            "fps",
+            "frame_ms",
+            "cpu_ms",
+            "gpu_passes",
+            "render",
+            "assets",
+            "render_inspector",
+        ] {
             assert!(perf.get(key).is_some(), "{key} missing from {perf}");
         }
         // No renderer has drawn a frame: no made-up zeros.
@@ -1194,6 +1227,10 @@ mod tests {
             "{inspector}"
         );
         assert_eq!(inspector["quality"].is_object(), cfg!(feature = "3d"), "{inspector}");
+        ctx.set_residency_budget(crate::ResidencyKind::Mesh, Some(1024));
+        let perf = handle(&mut ctx, "perf.get", &json!({})).unwrap();
+        assert_eq!(perf["residency"]["mesh"]["budget"], 1024, "{perf}");
+        assert_eq!(perf["residency"]["mesh"]["evictions"], 0, "{perf}");
     }
 
     #[test]
