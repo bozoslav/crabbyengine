@@ -123,8 +123,8 @@ impl fmt::Display for ResidencyStats {
 pub(crate) struct Entry {
     /// The asset's handle id (a mesh id).
     pub handle: u32,
-    /// The file it was loaded from, as the load cache knows it.
-    pub file: std::path::PathBuf,
+    /// Where it was loaded from, as the load cache knows it.
+    pub file: crate::assets::Origin,
     pub bytes: u64,
     /// When it was last asked for: a counter, so no two uses tie.
     last_use: u64,
@@ -177,7 +177,7 @@ impl ResidentSet {
     pub fn insert(
         &mut self,
         name: &str,
-        (handle, file): (u32, std::path::PathBuf),
+        (handle, file): (u32, crate::assets::Origin),
         bytes: u64,
         shared: bool,
         now: (u64, u64),
@@ -352,6 +352,7 @@ impl crate::Ctx {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::assets::Origin;
 
     const NOW: (u64, u64) = (0, 10);
 
@@ -359,7 +360,7 @@ mod tests {
         let mut s = ResidentSet::default();
         s.set_budget(Some(budget));
         for (i, &(name, bytes)) in names.iter().enumerate() {
-            s.insert(name, (i as u32, name.into()), bytes, false, (0, i as u64));
+            s.insert(name, (i as u32, Origin::File(name.into())), bytes, false, (0, i as u64));
         }
         s
     }
@@ -378,7 +379,7 @@ mod tests {
     fn skips_pinned_shared_in_use_and_current() {
         let mut s = set(0, &[("a", 1), ("b", 1), ("c", 1), ("d", 1), ("e", 1)]);
         s.set_pinned("a", true);
-        s.insert("b", (1, "b".into()), 1, true, (0, 1));
+        s.insert("b", (1, Origin::File("b".into())), 1, true, (0, 1));
         s.touch("d", NOW);
         let gone: Vec<String> = s.evict(NOW, |h| h == 2).into_iter().map(|(n, _)| n).collect();
         assert_eq!(gone, ["e"]);
@@ -398,7 +399,7 @@ mod tests {
     fn loading_a_name_again_counts_as_a_reload() {
         let mut s = set(10, &[("a", 4)]);
         s.forget("a");
-        s.insert("a", (0, "a".into()), 4, false, NOW);
+        s.insert("a", (0, Origin::File("a".into())), 4, false, NOW);
         let st = s.stats();
         assert_eq!((st.loads, st.reloads, st.resident_bytes), (1, 1, 4));
     }

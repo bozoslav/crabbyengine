@@ -702,7 +702,7 @@ impl Ctx {
 
     /// Loads (or returns the cached) mesh `path`, and says where it was
     /// found: the key of its skeleton, clips and materials.
-    fn load_mesh_from(&mut self, path: &str) -> Result<(Mesh, assets::Origin), crate::Error> {
+    pub(crate) fn load_mesh_from(&mut self, path: &str) -> Result<(Mesh, assets::Origin), crate::Error> {
         let found = match self
             .asset_sources
             .lookup(path, |origin| self.assets3d.loaded.get(origin).copied())?
