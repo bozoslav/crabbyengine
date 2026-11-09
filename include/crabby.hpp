@@ -163,6 +163,7 @@ using shader = CrabbyShader;
 using compute = CrabbyCompute;
 using instance_batch = CrabbyInstanceBatch;
 using instance_batch_options = CrabbyInstanceBatchOptions;
+using instance_level = CrabbyInstanceLevel;
 using gpu_buffer = CrabbyGpuBuffer;
 /// One compute pass run each frame (Rust `ComputePass`); see compute_pass_of.
 using compute_pass = CrabbyComputePass;
@@ -2827,6 +2828,19 @@ public:
     }
     void update_instance_batch(instance_batch b, const std::vector<std::array<float,16>>& matrices) {
         detail::check(crabby_ctx_update_instance_batch(raw_,b,reinterpret_cast<const float (*)[16]>(matrices.data()),matrices.size()));
+    }
+    instance_batch create_instance_batch_levels(const std::vector<instance_level>& levels,
+        const std::vector<std::array<float,16>>& matrices, const std::vector<color>& colors = {},
+        instance_batch_options options = {32.0f, std::numeric_limits<float>::infinity(), true, colors::white}) {
+        instance_batch b{};
+        detail::check(crabby_ctx_create_instance_batch_levels(raw_, levels.data(), levels.size(),
+            reinterpret_cast<const float (*)[16]>(matrices.data()), matrices.size(), colors.data(), colors.size(), options, &b));
+        return b;
+    }
+    void update_instance_batch_colors(instance_batch b, const std::vector<std::array<float,16>>& matrices,
+        const std::vector<color>& colors = {}) {
+        detail::check(crabby_ctx_update_instance_batch_colors(raw_, b,
+            reinterpret_cast<const float (*)[16]>(matrices.data()), matrices.size(), colors.data(), colors.size()));
     }
     void free_instance_batch(instance_batch b) { detail::check(crabby_ctx_free_instance_batch(raw_,b)); }
     gpu_buffer create_gpu_buffer(uint32_t len, const std::vector<std::array<float, 4>>& data = {}) {

@@ -68,6 +68,8 @@ type Entry = (u32, Instance3D, bool, u32);
 /// allocate once warm.
 #[derive(Default)]
 pub(crate) struct Frame3D {
+    pub static_shadowless: Vec<u32>,
+    pub(crate) instance_batch_revision: u64,
     pub instances: Vec<Instance3D>,
     pub probes: [super::probe::ProbeUniform; 4],
     pub probe_uploads: Vec<(u32, std::sync::Arc<Vec<u16>>)>,
@@ -188,6 +190,33 @@ impl Frame3D {
         camera: &Camera3D,
         lighting: &Lighting,
     ) {
+        let batches_changed = self.instance_batch_revision != assets.instance_batch_revision;
+        self.instance_batch_revision = assets.instance_batch_revision;
+        let static_shadow_changed = self.static_shadowless.iter().copied().ne(assets
+            .shadowless
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &off)| off.then_some(i as u32)));
+        self.static_shadowless.clear();
+        self.static_shadowless.extend(
+            assets
+                .shadowless
+                .iter()
+                .enumerate()
+                .filter_map(|(i, &off)| off.then_some(i as u32)),
+        );
+        let distance_batches = assets.instance_batches.iter().flatten().any(|b| {
+            b.options.cast_shadows
+                && b.levels.iter().any(|l| {
+                    l.shadows
+                        && assets.casts_shadows(l.mesh.id)
+                        && if b.legacy_distance {
+                            b.options.max_distance.is_finite()
+                        } else {
+                            l.min_distance > 0.0 || l.max_distance.is_finite()
+                        }
+                })
+        });
         self.view_proj = camera.view_proj();
         self.particles.collect(world, camera);
         self.shadow_size = lighting.shadow_size(self.size_limit);
@@ -248,6 +277,9 @@ impl Frame3D {
                 let turn = (self.frame_number + i as u32).is_multiple_of(refresh);
                 let kept = self.cascade_cache[i].filter(|c| {
                     !turn
+                        && !distance_batches
+                        && !static_shadow_changed
+                        && !batches_changed
                         && c.size == self.shadow_size
                         && c.cascades == self.cascades
                         && c.sun == lighting.sun_direction

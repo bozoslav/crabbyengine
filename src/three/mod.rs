@@ -19,7 +19,7 @@ pub(crate) mod gi;
 mod gltf;
 mod ik;
 pub(crate) mod instances;
-pub use instances::{InstanceBatch, InstanceBatchOptions};
+pub use instances::{InstanceBatch, InstanceBatchOptions, InstanceLevel};
 mod lod;
 pub(crate) mod occlusion;
 pub use gi::{GlobalIllumination, MAX_GI_PROBES, MAX_GI_PROBES_PER_FRAME};
@@ -894,6 +894,7 @@ pub(crate) struct Assets3D {
     /// GPU buffers' lengths, by id; 0 for a freed one.
     pub gpu_buffers: Vec<u32>,
     pub instance_batches: Vec<Option<instances::Batch>>,
+    pub instance_batch_revision: u64,
     /// Freed GPU buffers' ids, for the next buffers made.
     pub free_gpu_buffers: Vec<u32>,
     /// Buffer-driven meshes' own bounds (before `set_mesh_gpu_bounds`
