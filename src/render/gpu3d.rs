@@ -4173,6 +4173,9 @@ impl Renderer3D {
             pass.set_bind_group(3, dummy, &[]);
             n.bind_groups += 1;
         }
+        // Whether group 3 holds the dummy and slot 1 the whole `instances`
+        // (storage meshes and batches change them).
+        let (mut dummy_bound, mut instances_bound) = (true, true);
         // Only what changes is set again: each `set_*` costs wgpu
         // validation and a Metal/Vulkan call per draw otherwise.
         let mut bound = None;
@@ -4260,6 +4263,7 @@ impl Renderer3D {
                     if let Some(v) = batch.views.get(view) {
                         pass.set_bind_group(3, &v.read, &[]);
                         n.bind_groups += 1;
+                        dummy_bound = false;
                         if mesh.parts.len() > 1 {
                             if part > 0 && mesh.parts[part - 1].1 == *material {
                                 continue;
@@ -4271,9 +4275,10 @@ impl Renderer3D {
                         }
                         n.draws += 1;
                     } else {
-                        if let Some(dummy) = &self.storage_dummy {
+                        if let Some(dummy) = self.storage_dummy.as_ref().filter(|_| !dummy_bound) {
                             pass.set_bind_group(3, dummy, &[]);
                             n.bind_groups += 1;
+                            dummy_bound = true;
                         }
                         for &(start, count) in &batch.visible[view] {
                             pass.draw_indexed(range.clone(), 0, start..start + count);
@@ -4286,6 +4291,7 @@ impl Renderer3D {
                     if count > 0 {
                         pass.set_bind_group(3, &b.read, &[]);
                         n.bind_groups += 1;
+                        (dummy_bound, instances_bound) = (false, false);
                         let record = if kind == Kind::Velocity {
                             size_of::<MovedInstance>()
                         } else {
@@ -4302,12 +4308,16 @@ impl Renderer3D {
                         }
                     }
                 } else {
-                    if let Some(dummy) = &self.storage_dummy {
+                    if let Some(dummy) = self.storage_dummy.as_ref().filter(|_| !dummy_bound) {
                         pass.set_bind_group(3, dummy, &[]);
                         n.bind_groups += 1;
+                        dummy_bound = true;
                     }
-                    pass.set_vertex_buffer(1, instances.slice(..));
-                    n.vertex_buffers += 1;
+                    if !instances_bound {
+                        pass.set_vertex_buffer(1, instances.slice(..));
+                        n.vertex_buffers += 1;
+                        instances_bound = true;
+                    }
                     pass.draw_indexed(range.clone(), 0, start..start + models);
                     n.draws += 1;
                 }
