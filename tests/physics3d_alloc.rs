@@ -1,7 +1,7 @@
 //! What 3D physics allocates per tick once a scene is running. rapier's own
 //! solver (and its character controller) allocate a few small buffers per
 //! step, which the engine can't avoid; the engine's part (syncing
-//! components, events, queries, vehicles) must add nothing.
+//! components, events, queries, vehicles, characters) must add nothing.
 //!
 //! The counter is thread-local: only allocations made by the thread that is
 //! measuring count. A process-wide counter also saw other threads (libtest's
@@ -19,6 +19,8 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::Mutex;
+
+use rapier3d::control::{CharacterAutostep, CharacterLength, KinematicCharacterController};
 
 use ponko::*;
 use rapier3d::prelude as rp;
@@ -315,5 +317,154 @@ fn vehicles_add_no_allocations_to_rapiers_own() {
     assert!(
         engine <= rapier,
         "{engine} allocations driving, {rapier} in rapier alone"
+    );
+}
+
+/// Under `PARALLEL_FROM` (8), so the characters move on the calling thread
+/// and its thread-local count sees everything.
+const WALKERS: usize = 4;
+
+fn walker_at(i: usize) -> Vec3 {
+    vec3(i as f32 * 3.0 - 6.0, 0.0, 0.0)
+}
+
+/// Rapier alone: kinematic capsules walking on a floor, each moved with
+/// `KinematicCharacterController::move_shape` (same settings as the
+/// engine's defaults) and then stepped: what rapier allocates for them.
+fn walkers_in_rapier() -> usize {
+    let c = Character3D::new(1.8, 0.3);
+    let radius = c.radius;
+    let half_height = c.height * 0.5 - radius;
+    let center = half_height + radius;
+    let shape = rp::Capsule::new_y(half_height, radius);
+    let controller = KinematicCharacterController {
+        up: rp::Vector::new(0.0, 1.0, 0.0),
+        offset: CharacterLength::Absolute(0.01),
+        slide: true,
+        autostep: Some(CharacterAutostep {
+            max_height: CharacterLength::Absolute(c.step_height),
+            min_width: CharacterLength::Absolute(radius),
+            include_dynamic_bodies: false,
+        }),
+        max_slope_climb_angle: c.max_slope,
+        min_slope_slide_angle: c.max_slope,
+        snap_to_ground: Some(CharacterLength::Absolute(c.snap_distance)),
+        ..KinematicCharacterController::default()
+    };
+    let dt = 1.0 / PHYSICS3D_HZ as f32;
+    let mut w = rp::PhysicsWorld::new();
+    w.integration_parameters.dt = dt;
+    w.gravity = rp::Vector::new(0.0, -9.81, 0.0);
+    let ground = w.insert_body(rp::RigidBodyBuilder::fixed().translation(rp::Vector::new(0.0, -0.5, 0.0)));
+    w.insert_collider(rp::ColliderBuilder::cuboid(200.0, 0.5, 200.0), Some(ground));
+    let mut walkers = Vec::new();
+    for i in 0..WALKERS {
+        let p = walker_at(i);
+        let body = w.insert_body(
+            rp::RigidBodyBuilder::kinematic_position_based()
+                .translation(rp::Vector::new(p.x, p.y, p.z))
+                .build(),
+        );
+        w.insert_collider(
+            rp::ColliderBuilder::capsule_y(half_height, radius)
+                .translation(rp::Vector::new(0.0, center, 0.0))
+                .active_events(rp::ActiveEvents::COLLISION_EVENTS),
+            Some(body),
+        );
+        // Feet, vertical speed, standing on something.
+        walkers.push((body, p, 0.0f32, false));
+    }
+    let collector = Collector(Mutex::new(Vec::new()));
+    let mut count = 0;
+    for tick in 0..WARMUP + MEASURED {
+        if tick == WARMUP {
+            start_counting();
+        }
+        for (body, feet, fall, grounded) in &mut walkers {
+            // Like the engine: standing takes no fall, otherwise gravity pulls.
+            if *grounded {
+                *fall = 0.0;
+            } else {
+                *fall -= 9.81 * dt;
+            }
+            let filter = rp::QueryFilter::default().exclude_rigid_body(*body).exclude_sensors();
+            let moved = {
+                let queries = w.query_pipeline_with_filter(filter);
+                controller.move_shape(
+                    dt,
+                    &queries,
+                    &shape,
+                    &rp::Pose::from_translation(rp::Vector::new(feet.x, feet.y + center, feet.z)),
+                    rp::Vector::new(2.0 * dt, *fall * dt, 0.0),
+                    |_| {},
+                )
+            };
+            *grounded = moved.grounded;
+            feet.x += moved.translation.x;
+            feet.y += moved.translation.y;
+            feet.z += moved.translation.z;
+            w.bodies
+                .get_mut(*body)
+                .unwrap()
+                .set_next_kinematic_translation(rp::Vector::new(feet.x, feet.y, feet.z));
+        }
+        w.step_with_events(&(), &collector);
+        collector.0.lock().unwrap().clear();
+        if tick == WARMUP + MEASURED - 1 {
+            count = stop_counting();
+        }
+    }
+    count
+}
+
+/// The same walkers as `Character3D`s through the engine.
+fn walkers_through_the_engine() -> usize {
+    let counted = Rc::new(Cell::new(usize::MAX));
+    let result = counted.clone();
+    Game::new("t", 1, 1)
+        .sim_system(|ctx: &mut Ctx| {
+            if ctx.sim_tick() == WARMUP {
+                start_counting();
+            }
+        })
+        .physics3d(vec3(0.0, -9.81, 0.0))
+        .sim_system(move |ctx: &mut Ctx| {
+            if ctx.sim_tick() == WARMUP + MEASURED - 1 {
+                result.set(stop_counting());
+            }
+        })
+        .run_headless(WARMUP + MEASURED, |ctx| {
+            ctx.world.spawn((
+                Transform3D::at(vec3(0.0, -0.5, 0.0)),
+                RigidBody3D::fixed(),
+                Collider3D::cuboid(vec3(400.0, 1.0, 400.0)),
+            ));
+            for i in 0..WALKERS {
+                let mut c = Character3D::new(1.8, 0.3);
+                // Walking on its own: the velocity's X and Z stay as set.
+                c.velocity.x = 2.0;
+                ctx.world.spawn((Transform3D::at(walker_at(i)), c));
+            }
+        });
+    counted.get()
+}
+
+#[test]
+fn characters_add_no_allocations_to_rapiers_own() {
+    let rapier = walkers_in_rapier();
+    let engine = walkers_through_the_engine();
+    println!(
+        "{MEASURED} ticks of {WALKERS} walking characters: {rapier} allocations in rapier alone \
+         ({:.1} per character per tick), {engine} through the engine",
+        rapier as f64 / (MEASURED as usize * WALKERS) as f64
+    );
+    assert_ne!(
+        engine,
+        usize::MAX,
+        "the run never reached the end of the measured ticks"
+    );
+    assert!(
+        engine <= rapier,
+        "{engine} allocations walking, {rapier} in rapier alone"
     );
 }
