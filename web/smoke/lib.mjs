@@ -169,7 +169,7 @@ export function launchConfig(browser, platform, args = {}) {
 /** What the engine's backend name (adapter.backend, from Ctx::gpu_capabilities) means for the page's canvas. */
 export function canvasBackendOf(engineBackend) {
   if (engineBackend === "gl") return "webgl2";
-  if (engineBackend === "browser_webgpu") return "webgpu";
+  if (engineBackend === "webgpu") return "webgpu";
   return null;
 }
 

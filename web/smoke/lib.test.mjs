@@ -96,7 +96,7 @@ test("presses and minimums parse", () => {
 
 test("the engine's backend names map to the canvas's context", () => {
   assert.equal(canvasBackendOf("gl"), "webgl2");
-  assert.equal(canvasBackendOf("browser_webgpu"), "webgpu");
+  assert.equal(canvasBackendOf("webgpu"), "webgpu");
   assert.equal(canvasBackendOf("vulkan"), null);
 });
 
@@ -104,7 +104,7 @@ const gpu = (backend) => ({ adapter: { backend } });
 
 test("the engine's adapter must agree with the canvas", () => {
   assert.equal(checkEngineGpu(gpu("gl"), "webgl2", true), null);
-  assert.equal(checkEngineGpu(gpu("browser_webgpu"), "webgpu", true), null);
+  assert.equal(checkEngineGpu(gpu("webgpu"), "webgpu", true), null);
   assert.match(checkEngineGpu(gpu("gl"), "webgpu", true), /engine says gl .*webgpu context/);
   assert.match(checkEngineGpu(gpu("metal"), "webgl2", true), /not a browser backend/);
   assert.equal(checkEngineGpu(gpu("gl"), "unknown", true), null, "an unknown canvas can't contradict it");

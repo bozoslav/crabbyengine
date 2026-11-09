@@ -125,8 +125,9 @@ async function probe(context, url) {
               })
               .end();
             device.queue.submit([encoder.finish()]);
-            await device.queue.onSubmittedWorkDone();
-            await new Promise((ok) => requestAnimationFrame(() => setTimeout(ok, 0)));
+            // Read it back in the same task as the submit: a WebGPU canvas's
+            // texture expires when its frame is presented, and a copy taken
+            // after that reads transparent black even on a working GPU.
             const copy = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
             copy.canvas.width = copy.canvas.height = 16;
             copy.drawImage(canvas, 0, 0);
@@ -172,14 +173,24 @@ async function canvasStats(page, png) {
       await image.decode();
     } else {
       image = document.querySelector(selector);
-      // Copy right after the game's next frame, while it's current.
-      await new Promise((ok) => requestAnimationFrame(() => setTimeout(ok, 0)));
     }
     const canvas = document.createElement("canvas");
     canvas.width = image.width;
     canvas.height = image.height;
     const ctx = canvas.getContext("2d");
-    ctx.drawImage(image, 0, 0);
+    if (base64) {
+      ctx.drawImage(image, 0, 0);
+    } else {
+      // Copy inside an animation frame, in the same task as the game's own
+      // frame callback: a WebGPU canvas is only readable until its frame is
+      // presented.
+      await new Promise((ok) =>
+        requestAnimationFrame(() => {
+          ctx.drawImage(image, 0, 0);
+          ok();
+        }),
+      );
+    }
     const { data } = ctx.getImageData(0, 0, image.width, image.height);
     const counts = new Map();
     for (let i = 0; i < data.length; i += 4) {
@@ -294,7 +305,10 @@ async function main() {
     try {
       browser = await LAUNCHERS[args.browser].launch(options);
     } catch (e) {
-      throw new Failure("unsupported", `could not launch headless ${args.browser}: ${e.message.split("\n")[0]}`);
+      // A browser that isn't installed is "unsupported" here; one that is
+      // installed and won't start is a failure, never a quiet pass.
+      const notInstalled = /Executable doesn't exist/.test(e.message);
+      throw new Failure(notInstalled ? "unsupported" : "launch", `could not launch headless ${args.browser}: ${e.message.split("\n").slice(0, 6).join(" | ")}`);
     }
     report.browser = `${args.browser} ${browser.version()}`;
     log(`${report.browser}, ${report.platform}`);

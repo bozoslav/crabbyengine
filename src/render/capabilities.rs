@@ -57,7 +57,7 @@ pub struct GpuAdapter {
     /// The adapter's name, such as the GPU model.
     pub name: String,
     /// The graphics API: `vulkan`, `metal`, `dx12`, `gl` (WebGL2 in a
-    /// browser), `browser_webgpu` or `noop`.
+    /// browser), `webgpu` (the browser's WebGPU) or `noop`.
     pub backend: String,
     /// `discrete_gpu`, `integrated_gpu`, `virtual_gpu`, `cpu` or `other`.
     pub device_type: String,
