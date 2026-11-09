@@ -990,7 +990,11 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
                     Some(v) => v.as_bool().ok_or_else(|| format!("`{name}` must be true or false")),
                 }
             };
-            let (bind, keep, queue) = (flag("bind_connection")?, flag("keep_input_when_done")?, flag("queue_ticks")?);
+            let (bind, keep, queue) = (
+                flag("bind_connection")?,
+                flag("keep_input_when_done")?,
+                flag("queue_ticks")?,
+            );
             // Checked before anything is installed: a refused scenario leaves a running one alone.
             let ticks = scenario.ticks();
             if ticks == 0 {
@@ -999,7 +1003,9 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
             if let Some(max) = params.get("max_ticks").filter(|v| !v.is_null()) {
                 let max = max.as_u64().ok_or("`max_ticks` must be a whole number")?;
                 if ticks > max {
-                    return Err(format!("the scenario runs {ticks} ticks, more than `max_ticks` ({max})"));
+                    return Err(format!(
+                        "the scenario runs {ticks} ticks, more than `max_ticks` ({max})"
+                    ));
                 }
             }
             if queue && !ctx.is_paused() {

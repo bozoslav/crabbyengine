@@ -496,10 +496,32 @@ fn a_scenario_started_by_a_system_begins_on_the_next_tick_and_checks_wait_for_it
     let (seen, report) = started_on_tick_3(scenario, 8);
     report.assert_passed();
     assert_eq!(report.start_tick, 4);
-    assert_eq!((report.ticks_run, report.checks_passed, report.inputs_applied), (3, 2, 2));
-    assert!(seen[..4].iter().all(|s| !s.down && !s.pressed), "nothing before tick 4: {seen:?}");
-    assert_eq!(seen[4], Seen { tick: 4, pressed: true, down: true, released: false });
-    assert_eq!(seen[5], Seen { tick: 5, pressed: false, down: false, released: true });
+    assert_eq!(
+        (report.ticks_run, report.checks_passed, report.inputs_applied),
+        (3, 2, 2)
+    );
+    assert!(
+        seen[..4].iter().all(|s| !s.down && !s.pressed),
+        "nothing before tick 4: {seen:?}"
+    );
+    assert_eq!(
+        seen[4],
+        Seen {
+            tick: 4,
+            pressed: true,
+            down: true,
+            released: false
+        }
+    );
+    assert_eq!(
+        seen[5],
+        Seen {
+            tick: 5,
+            pressed: false,
+            down: false,
+            released: true
+        }
+    );
 }
 
 #[test]
@@ -509,6 +531,22 @@ fn a_one_tick_scenario_started_by_a_system_feeds_its_input_to_the_next_tick() {
     let (seen, report) = started_on_tick_3(scenario, 7);
     report.assert_passed();
     assert_eq!((report.start_tick, report.ticks_run, report.inputs_applied), (4, 1, 1));
-    assert_eq!(seen[3], Seen { tick: 3, pressed: false, down: false, released: false });
-    assert_eq!(seen[4], Seen { tick: 4, pressed: true, down: true, released: false });
+    assert_eq!(
+        seen[3],
+        Seen {
+            tick: 3,
+            pressed: false,
+            down: false,
+            released: false
+        }
+    );
+    assert_eq!(
+        seen[4],
+        Seen {
+            tick: 4,
+            pressed: true,
+            down: true,
+            released: false
+        }
+    );
 }

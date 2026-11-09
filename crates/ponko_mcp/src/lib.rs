@@ -1314,7 +1314,8 @@ const MAX_WAIT_SECS: u64 = 365 * 24 * 3600;
 /// clamped: adding them to `Instant::now()` would overflow and panic.
 fn deadline_after(secs: u64) -> Instant {
     let now = Instant::now();
-    now.checked_add(Duration::from_secs(secs.min(MAX_WAIT_SECS))).unwrap_or(now)
+    now.checked_add(Duration::from_secs(secs.min(MAX_WAIT_SECS)))
+        .unwrap_or(now)
 }
 /// The longest scenario `run_input_scenario` accepts unless told otherwise.
 const MAX_SCENARIO_TICKS: u64 = 100_000;
@@ -1348,6 +1349,16 @@ fn step_and_wait(i: &Instance, start: u64, ticks: u64, deadline: Instant) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_huge_timeout_is_clamped_instead_of_overflowing_the_clock() {
+        let now = Instant::now();
+        for secs in [0, 1, MAX_WAIT_SECS, u64::MAX] {
+            let deadline = deadline_after(secs);
+            assert!(deadline >= now);
+            assert!(deadline <= now + Duration::from_secs(MAX_WAIT_SECS + 5));
+        }
+    }
 
     #[test]
     fn base64_matches_the_rfc_examples() {

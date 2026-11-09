@@ -541,10 +541,48 @@ fn agents_drive_several_games_through_mcp() {
         )
         .unwrap_err();
     assert!(too_long.contains("more than `max_ticks`"), "{too_long}");
+    // The refused (too long) scenario never touched the running state, and a
+    // huge timeout is clamped instead of crashing the server.
+    let hold =
+        json!({ "version": 1, "duration": 2, "steps": [{ "tick": 0, "type": "key", "key": "Space", "down": true }] });
+    let run = agent
+        .tool(
+            "run_input_scenario",
+            json!({ "instance": "pad", "scenario": hold, "timeout_secs": u64::MAX }),
+        )
+        .unwrap();
+    assert_eq!(run["passed"], true);
+    assert_eq!(
+        (run["report"]["released"].clone(), run["report"]["still_held"].clone()),
+        (json!(1), json!(0)),
+        "a finished run lets go of its keys"
+    );
+    agent
+        .tool(
+            "run_ticks",
+            json!({ "instance": "pad", "ticks": 1, "timeout_secs": u64::MAX }),
+        )
+        .unwrap();
+    // Opting out keeps the key held and owned: cancelling releases it.
+    let kept = agent
+        .tool(
+            "run_input_scenario",
+            json!({ "instance": "pad", "scenario": hold, "keep_input_when_done": true }),
+        )
+        .unwrap();
+    assert_eq!(
+        (kept["report"]["released"].clone(), kept["report"]["still_held"].clone()),
+        (json!(0), json!(1))
+    );
     let cancelled = agent
         .tool("cancel_input_scenario", json!({ "instance": "pad" }))
         .unwrap();
-    assert_eq!(cancelled["cancelled"], false, "the limit error already cancelled it");
+    assert_eq!(cancelled["cancelled"], true, "it releases what the finished run kept");
+    assert_eq!(cancelled["report"]["released"], 1);
+    let cancelled = agent
+        .tool("cancel_input_scenario", json!({ "instance": "pad" }))
+        .unwrap();
+    assert_eq!(cancelled["cancelled"], false, "nothing left");
     assert!(
         viewer
             .tool("run_input_scenario", json!({ "instance": "pad", "scenario": passing }))

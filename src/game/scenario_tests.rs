@@ -29,6 +29,12 @@ fn seen(tick: u64, pressed: bool, down: bool, released: bool) -> Seen {
 
 /// A game without the built-in drawing systems that records the action per tick.
 fn game(scenario: InputScenario) -> (Game, Ctx) {
+    let (game, ctx) = game_without_scenario();
+    (game.input_scenario(scenario), ctx)
+}
+
+/// Like [`game`], with no scenario installed by the game itself.
+fn game_without_scenario() -> (Game, Ctx) {
     let game = Game::new("t", 1, 1)
         .remove_system(animate_sprites)
         .remove_system(draw_tilemaps)
@@ -41,8 +47,7 @@ fn game(scenario: InputScenario) -> (Game, Ctx) {
                 released: ctx.action_released("jump"),
             };
             ctx.world.resource_mut::<Trace>().0.push(s);
-        })
-        .input_scenario(scenario);
+        });
     let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(800.0, 600.0));
     ctx.world.insert_resource(Trace::default());
     let mut map = ActionMap::default();
@@ -161,7 +166,7 @@ fn a_failed_check_takes_back_only_the_steps_the_scenario_queued_itself() {
     let scenario = InputScenario::new()
         .expect(1, ScenarioCheck::count("Nothing", 0)) // fails on tick 1
         .duration(10);
-    let (mut game, mut ctx) = game(InputScenario::new());
+    let (mut game, mut ctx) = game_without_scenario();
     ctx.pause();
     // Another client queued three ticks, then a tool queued the run's ten.
     for _ in 0..3 {
@@ -190,7 +195,7 @@ fn a_failed_check_takes_back_only_the_steps_the_scenario_queued_itself() {
 #[test]
 fn cancelling_takes_back_the_unrun_ticks_the_scenario_queued() {
     use crate::scenario::RunOrigin;
-    let (mut game, mut ctx) = game(InputScenario::new());
+    let (mut game, mut ctx) = game_without_scenario();
     ctx.pause();
     ctx.step();
     ctx.install_scenario(
