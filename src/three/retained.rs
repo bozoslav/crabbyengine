@@ -12,36 +12,42 @@
 //!   enters a view takes the next free slot of its mesh's block; one that
 //!   leaves hands its slot to the block's last instance. So a frame writes
 //!   only the instances that changed, and the renderer, which uploads the
-//!   pages of the array that differ from the frame before, uploads little
-//!   more than those.
-//! - [`Tracked`]: every plain [`Model`] in the world, by entity: a copy of
-//!   what it was collected from (transform, mesh, tint, shadow mesh,
+//!   instances that differ from the frame before, uploads little more than
+//!   those.
+//! - [`Tracked`]: every plain [`Model`] in the world, by entity: a digest
+//!   of what it was collected from (transform, mesh, tint, shadow mesh,
 //!   material override, decal layers), its bounding spheres in the world,
-//!   and which views saw it. A frame compares each model with its copy on
-//!   all cores; only models that differ are worked out again, and models are
-//!   culled again only when they or the views changed. A still scene under a
-//!   still camera costs one compare per model.
+//!   and which views draw it. A frame compares each model with its digest
+//!   on all cores; only models that differ are worked out again, and models
+//!   are culled again only when they or the views changed. A still scene
+//!   under a still camera costs one digest per model.
 //! - [`Transients`]: things whose drawing depends on the camera or is posed
 //!   each frame (level-of-detail renderers, terrain tiles, skinned models,
 //!   shadow-only casters). They are worked out every frame as before, and
 //!   matched by a key to the id (and so the slots) they had.
 //!
 //! Change detection compares values, so it needs nothing from the ECS and
-//! holds for any way a component is written. [`Tracked::sync`]'s compare
-//! (`changed`) is the one place a change tick would replace: with ticks,
+//! holds for any way a component is written. The digest compare in
+//! `Pass::check` is the one place a change tick would replace: with ticks,
 //! whole archetypes whose tick is old can skip the compare too.
 //!
 //! Costs to know about:
 //! - The first frame, and any frame after the views empty, build everything
-//!   (as every frame did before).
-//! - A change to the meshes' bounds, shadow, skin or morph facts, or to the
-//!   numbering of material overrides, works every model out again.
-//! - Blocks grow by doubling and move to the end of the array when they
-//!   outgrow their place. When the array is more than twice what its blocks
+//!   (as every frame did before), and pack the array by view and mesh
+//!   without room to grow, as a sorted frame is.
+//! - A change to a mesh's bounds, or to whether it casts shadows, is
+//!   skinned or has morph targets, works the models of that mesh out again;
+//!   a change to the numbering of material overrides, the models with one.
+//! - A block that fills up doubles, and moves to the end of the array if
+//!   it isn't the last. When the array is more than twice what its blocks
 //!   need (space left behind, or kept by blocks that shrank) it is packed
-//!   again, which uploads it whole once.
+//!   again with room for half as many more in each block, which uploads
+//!   it whole once.
 //! - Instances of one mesh are drawn in no particular order: it changes as
 //!   models enter and leave the view.
+//! - About 170 bytes are kept per model in the world (`Tracked` and the
+//!   lists' ids), 4 more per view that draws any model, and the instances
+//!   with their room to grow.
 
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
