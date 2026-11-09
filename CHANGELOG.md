@@ -34,6 +34,12 @@ says what that covers.
 - The by-name forms of the two JSON loaders (used by the C API) are now
   `load_component_json_named` and `load_resource_json_named`; they are hidden
   from the docs.
+- `ModelMaterial(material)`: a component that draws an entity's `Model`
+  with another material instead of the ones its mesh was made with, so one
+  uploaded mesh can come in several materials. Models sharing a mesh and a
+  material still batch together; models without it draw as before. Not yet
+  applied to skinned or morphing models, LOD groups or terrain, not saved
+  in scene files, and not in the C/C++ API yet.
 
 ## [0.0.1] - 2026-11-08
 
