@@ -31,6 +31,10 @@ pub(crate) struct Renderer {
     /// The format we draw in: the surface's, or its sRGB view where the
     /// surface itself can't be sRGB (browser canvases).
     view_format: wgpu::TextureFormat,
+    /// The extra view formats image textures declare: their linear
+    /// (non-sRGB) twin, or none where the device can't reinterpret texture
+    /// formats (WebGL2), so creating them doesn't fail validation there.
+    image_view_formats: &'static [wgpu::TextureFormat],
 
     pipeline: wgpu::RenderPipeline,
     camera_buffer: wgpu::Buffer,
@@ -489,6 +493,15 @@ impl Renderer {
         });
         let instance_buffer = Self::create_instance_buffer(&device, INITIAL_INSTANCE_CAPACITY);
         let timer = GpuTimer::new(&device, &queue);
+        let image_view_formats: &'static [wgpu::TextureFormat] = if adapter
+            .get_downlevel_capabilities()
+            .flags
+            .contains(wgpu::DownlevelFlags::VIEW_FORMATS)
+        {
+            &[wgpu::TextureFormat::Rgba8Unorm]
+        } else {
+            &[]
+        };
 
         Self {
             window,
@@ -498,6 +511,7 @@ impl Renderer {
             queue,
             config,
             view_format,
+            image_view_formats,
             pipeline,
             camera_buffer,
             camera_bind_group,
@@ -962,7 +976,7 @@ impl Renderer {
             // Copied from when a 3D material first uses it and it gets mipmaps.
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC,
             // Materials read normal maps (data, not colors) without sRGB decoding.
-            view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
+            view_formats: self.image_view_formats,
         });
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
@@ -1043,7 +1057,7 @@ impl Renderer {
                 | wgpu::TextureUsages::COPY_DST
                 | wgpu::TextureUsages::COPY_SRC
                 | wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
+            view_formats: self.image_view_formats,
         });
         let mut encoder = self.device.create_command_encoder(&Default::default());
         encoder.copy_texture_to_texture(
