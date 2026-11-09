@@ -46,7 +46,7 @@ fn main() {
                     clicks += 1;
                 }
                 // The background changes with each click, so a click shows.
-                ctx.clear(if clicks % 2 == 0 {
+                ctx.clear(if clicks.is_multiple_of(2) {
                     Color::hex(0x1E2A38)
                 } else {
                     Color::hex(0x2E4A28)
