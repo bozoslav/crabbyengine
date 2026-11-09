@@ -7,8 +7,9 @@ headless Chromium (no window) and checks, in order:
 1. **Startup**: the game reaches its first frame (no panic, no page error).
 2. **Assets**: `assets/index.json` and `assets/crab.png` were fetched (HTTP
    200) and the texture decoded at its real size.
-3. **Progress**: the fixed-step simulation keeps ticking (at least 10 ticks
-   in 3 seconds; a coarse bound, not a frame-rate assertion).
+3. **Progress**: the fixed-step simulation keeps ticking (at least 60 ticks
+   in 3 seconds, a third of the 60 Hz rate; a coarse bound, not a frame-rate
+   assertion, kept above the `stall` self-test's 20 ticks).
 4. **Input**: a click on the canvas reaches the game.
 5. **Rendering**: the canvas is not blank (screenshot, or a copy of the
    canvas for WebGPU).
