@@ -1,8 +1,8 @@
 //! Draw order: passes whose result doesn't depend on the order draw their
 //! runs sorted by the state they bind. On a scene of many meshes, materials
 //! and shaders (cut-out, double-sided, transparent, shadowed), that draws
-//! the same pixels with fewer pipeline and bind group changes. Skips
-//! without a GPU.
+//! the same pixels with fewer pipeline and bind group changes, also with
+//! per-model material overrides. Skips without a GPU.
 use super::gpu::GpuTexture;
 use super::gpu3d::StateChanges;
 use super::gpu3d::*;
@@ -452,5 +452,82 @@ fn bench_draw_order() {
                 c.draws / per,
             );
         }
+    }
+}
+
+#[test]
+fn sorted_runs_draw_model_material_overrides_the_same() {
+    for solid_prepass in [true, false] {
+        let Some(mut rig) = Rig::new(solid_prepass) else {
+            return;
+        };
+        many_materials(&mut rig, 120);
+        let tint = rig.shader(
+            "override_tint",
+            "fn surface(s: Surface) -> Surface { var o = s; o.color = s.color * 0.7; return o; }",
+        );
+        // Overrides that change the pipeline as well as the material: solid
+        // parts turned cut-out, double-sided, custom-shaded or transparent,
+        // and transparent panes turned solid.
+        let overrides = [
+            MaterialDesc {
+                color: Color::rgb(0.9, 0.9, 0.2),
+                ..Default::default()
+            },
+            MaterialDesc {
+                color: Color::rgb(0.2, 0.9, 0.9),
+                blend: Blend::Cutout,
+                ..Default::default()
+            },
+            MaterialDesc {
+                color: Color::rgb(0.9, 0.2, 0.9),
+                double_sided: true,
+                ..Default::default()
+            },
+            MaterialDesc {
+                color: Color::rgb(0.5, 0.8, 0.3),
+                shader: Some(tint),
+                ..Default::default()
+            },
+            MaterialDesc {
+                color: Color::rgba(0.3, 1.0, 0.4, 0.5),
+                blend: Blend::Transparent,
+                ..Default::default()
+            },
+        ]
+        .map(|desc| rig.material(desc));
+        let mut models: Vec<_> = rig
+            .ctx
+            .world
+            .query::<(crate::Entity, &Model)>()
+            .iter()
+            .map(|(e, _)| e)
+            .collect();
+        models.sort_unstable();
+        // Not the ground (spawned first); every other model after it.
+        for (i, &e) in models.iter().skip(1).step_by(2).enumerate() {
+            let m = overrides[i % overrides.len()];
+            rig.ctx.world.insert(e, ModelMaterial(m));
+        }
+        let (before, unsorted) = rig.settled(false);
+        let (after, sorted) = rig.settled(true);
+        eprintln!("prepass {solid_prepass}: mesh order {unsorted:?}, sorted {sorted:?}");
+        let differ = before.iter().zip(&after).filter(|(a, b)| a != b).count();
+        assert_eq!(differ, 0, "the same pixels (prepass {solid_prepass})");
+        assert_eq!(sorted.draws, unsorted.draws, "the same draws");
+        // Overridden runs sort by the material they draw with, not the
+        // mesh's own.
+        assert!(
+            sorted.pipelines * 4 < unsorted.pipelines,
+            "far fewer pipeline changes: {unsorted:?} -> {sorted:?}"
+        );
+
+        // The overrides show: taking them off changes the picture.
+        for &e in &models {
+            rig.ctx.world.remove::<ModelMaterial>(e);
+        }
+        let (plain, _) = rig.settled(true);
+        let changed = plain.iter().zip(&after).filter(|(a, b)| a != b).count();
+        assert!(changed > 1000, "the overrides are drawn ({changed} bytes differ)");
     }
 }

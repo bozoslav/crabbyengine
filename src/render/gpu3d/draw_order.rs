@@ -55,15 +55,17 @@ impl StateCounters {
 impl Renderer3D {
     /// What a run's opaque draws bind, as a sort key: its first solid
     /// part's pipeline (shader, cut-out, sides, dither, per-model storage),
-    /// then that part's material, then the mesh. Runs with only transparent
-    /// parts, which these passes skip, go last.
+    /// then that part's material, then the mesh. A run with a material
+    /// override is keyed by the override. Runs with only transparent parts,
+    /// which these passes skip, go last.
     fn state_key(&self, &(mesh, _, _): &Run) -> (u32, u32, u32) {
         let fading = mesh & FADED != 0;
         let base = &self.meshes[self.base(mesh) as usize];
         let solid = base
             .parts
             .iter()
-            .map(|&(_, m)| (m, &self.materials[m as usize]))
+            .map(|&(_, m)| self.part_material(mesh, m))
+            .map(|m| (m, &self.materials[m as usize]))
             .find(|(_, m)| !m.transparent);
         let Some((id, m)) = solid else {
             return (u32::MAX, u32::MAX, mesh);
