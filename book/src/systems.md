@@ -76,7 +76,7 @@ the same entity does nothing. Engine steps such as the physics step are
 ordinary systems, so commands recorded in `Phase::BeforePhysics` are in the
 world when physics runs. A system skipped by `sim_system_every` doesn't run
 and records nothing. C and C++ systems follow the same rules: inside a
-`crabby_query` callback recorded commands are still pending, and parallel
+C query callback recorded commands are still pending, and parallel
 queries refuse commands.
 
 So the next system sees an event together with the commands its sender
