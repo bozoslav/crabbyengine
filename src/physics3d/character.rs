@@ -120,11 +120,20 @@ impl Capsule {
     }
 }
 
-/// Memory the controller reuses every step.
+/// Memory the controller reuses every step: the engine's share of a step
+/// allocates nothing once these have grown. What is left per character per
+/// tick (about 8 small allocations) is inside rapier's
+/// `KinematicCharacterController::move_shape`, which builds fresh contact
+/// lists on every call; it takes no caller-provided buffers, so only an
+/// upstream change can remove it.
 #[derive(Default)]
 pub(super) struct Scratch {
     plans: Vec<Option<Plan>>,
     characters: Vec<(Entity, Character3D)>,
+    /// One buffer per character, parallel to `characters`: the dynamic
+    /// bodies each one walked into this step. Emptied and refilled every
+    /// step, so they keep their capacity instead of allocating again.
+    hits: Vec<Vec<CharacterCollision>>,
 }
 
 /// One character's move, worked out against the world as it stood at the
@@ -138,15 +147,16 @@ pub(super) struct Plan {
     velocity: Vec3,
     desired: Vec3,
     moved: rapier3d::control::EffectiveCharacterMovement,
-    /// The dynamic bodies it walked into, if it pushes.
-    hits: Vec<CharacterCollision>,
 }
 
 /// Fewer characters than this move on one thread: splitting the work
 /// costs more than it saves.
 const PARALLEL_FROM: usize = 8;
 
-fn plan(physics: &Physics3D, e: Entity, c: &Character3D, dt: f32) -> Option<Plan> {
+/// Works out `c`'s move. Fills `hits` (emptied first) with the dynamic
+/// bodies it walked into, if it pushes.
+fn plan(physics: &Physics3D, e: Entity, c: &Character3D, dt: f32, hits: &mut Vec<CharacterCollision>) -> Option<Plan> {
+    hits.clear();
     let gravity = physics.gravity;
     let up = Vec3::Y;
     let link = physics
@@ -194,7 +204,6 @@ fn plan(physics: &Physics3D, e: Entity, c: &Character3D, dt: f32) -> Option<Plan
         .exclude_rigid_body(body)
         .exclude_sensors()
         .groups(filter_groups);
-    let mut hits = Vec::new();
     let moved = {
         let queries = physics.world.query_pipeline_with_filter(filter);
         controller.move_shape(dt, &queries, &shape, &center, to_rp(desired), |hit| hits.push(hit))
@@ -221,7 +230,6 @@ fn plan(physics: &Physics3D, e: Entity, c: &Character3D, dt: f32) -> Option<Plan
         velocity,
         desired,
         moved,
-        hits,
     })
 }
 
@@ -240,29 +248,46 @@ pub(super) fn move_characters(physics: &mut Physics3D, world: &mut World, dt: f3
         .query::<(Entity, &Character3D)>()
         .for_each(|(e, c)| scratch.characters.push((e, *c)));
     scratch.plans.clear();
+    if scratch.hits.len() < scratch.characters.len() {
+        scratch.hits.resize_with(scratch.characters.len(), Vec::new);
+    }
     {
         let physics = &*physics;
-        let characters = &scratch.characters;
+        let Scratch {
+            plans,
+            characters,
+            hits,
+        } = &mut scratch;
+        let hits = &mut hits[..characters.len()];
         if characters.len() >= PARALLEL_FROM {
             use rayon::prelude::*;
             characters
                 .par_iter()
-                .map(|(e, c)| plan(physics, *e, c, dt))
-                .collect_into_vec(&mut scratch.plans);
+                .zip(hits.par_iter_mut())
+                .map(|((e, c), hits)| plan(physics, *e, c, dt, hits))
+                .collect_into_vec(plans);
         } else {
-            scratch
-                .plans
-                .extend(characters.iter().map(|(e, c)| plan(physics, *e, c, dt)));
+            plans.extend(
+                characters
+                    .iter()
+                    .zip(hits.iter_mut())
+                    .map(|((e, c), hits)| plan(physics, *e, c, dt, hits)),
+            );
         }
     }
 
-    for (&(e, c), plan) in scratch.characters.iter().zip(scratch.plans.drain(..)) {
+    for ((&(e, c), plan), hits) in scratch
+        .characters
+        .iter()
+        .zip(scratch.plans.drain(..))
+        .zip(&scratch.hits)
+    {
         let Some(plan) = plan else {
             continue;
         };
         // Push the dynamic bodies it walked into (rapier's impulses only
         // allocate when there are some).
-        if !plan.hits.is_empty() {
+        if !hits.is_empty() {
             let filter = rp::QueryFilter::default()
                 .exclude_rigid_body(plan.body)
                 .exclude_sensors()
@@ -274,13 +299,8 @@ pub(super) fn move_characters(physics: &mut Physics3D, world: &mut World, dt: f3
                 &mut w.colliders,
                 filter,
             );
-            plan.controller.solve_character_collision_impulses(
-                dt,
-                &mut queries,
-                &plan.shape,
-                c.push_mass,
-                plan.hits.iter(),
-            );
+            plan.controller
+                .solve_character_collision_impulses(dt, &mut queries, &plan.shape, c.push_mass, hits.iter());
         }
 
         let moved_by = from_rp(plan.moved.translation);
