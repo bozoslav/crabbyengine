@@ -80,7 +80,7 @@ fn body_counts_follow_the_world() {
     let counts = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
     let seen = counts.clone();
     Game::new("t", 1, 1)
-        .sim_system(|ctx: &mut Ctx| {
+        .add(Phase::BeforePhysics, |ctx: &mut Ctx| {
             let bodies: Vec<Entity> = ctx.world.query::<Entity>().with::<RigidBody>().iter().collect();
             match ctx.sim_tick() {
                 1 => {
