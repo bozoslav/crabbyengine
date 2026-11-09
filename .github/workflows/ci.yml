@@ -114,11 +114,9 @@ jobs:
           key: msrv
       - run: cargo check --workspace --all-targets --features ponko/physics,ponko/steam
 
-  # One job per OS: compiling is ~90% of the time, so build once and run
-  # every test there. Each feature combination is its own step, and every
-  # step runs even if an earlier one failed, so one failure never hides
-  # another. (One job per test file meant ~110 jobs that each compiled the
-  # workspace, queued behind GitHub's limit of 5 macOS jobs at a time.)
+  # Keep the default suite together to reuse compilation. Feature variants
+  # run in a second job per OS; avoid a job per test file, which duplicates
+  # the workspace build and queues behind hosted-runner concurrency limits.
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -146,6 +144,30 @@ jobs:
           else
             cargo test --workspace --no-fail-fast --lib --bins --tests --examples
           fi
+      - name: Build examples
+        if: ${{ !cancelled() }}
+        run: cargo build --workspace --examples
+
+  # Feature variants run beside the default suite, rather than extending
+  # its critical path with five more serial engine builds on every OS.
+  test-features:
+    name: Feature tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install ALSA and udev headers (audio, gamepads)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev libudev-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          # Restore the default suite's dependencies on the first run too.
+          shared-key: test
       - name: Tests, ECS without rayon
         if: ${{ !cancelled() }}
         run: cargo test -p ponko_ecs --tests --no-fail-fast --no-default-features
@@ -165,9 +187,6 @@ jobs:
       - name: Tests, Steam transport
         if: ${{ !cancelled() }}
         run: cargo test -p ponko --no-fail-fast --features steam --lib net::steam
-      - name: Build examples
-        if: ${{ !cancelled() }}
-        run: cargo build --workspace --examples
 
   docs:
     name: Docs
@@ -243,7 +262,9 @@ jobs:
         shell: bash
         run: |
           mkdir -p target
-          cargo run -p ponko_ffi --example generate_header > target/crabby.generated.h
+          # Reuse the release build below instead of compiling the engine
+          # in both dev and release profiles just to generate the header.
+          cargo run --release -p ponko_ffi --example generate_header > target/crabby.generated.h
           python - <<'PYTHON'
           from pathlib import Path
           import difflib
@@ -287,7 +308,7 @@ jobs:
   ci-passed:
     name: CI passed
     if: always()
-    needs: [leaks, fmt, clippy, msrv, test, docs, book, miri, native, web]
+    needs: [leaks, fmt, clippy, msrv, test, test-features, docs, book, miri, native, web]
     runs-on: ubuntu-latest
     steps:
       - name: Check every job
