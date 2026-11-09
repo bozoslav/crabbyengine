@@ -118,11 +118,6 @@ impl Error {
         Self::new(ErrorKind::NotFound, message).with_path(path)
     }
 
-    /// Reading `file` (found for `path`) failed.
-    pub(crate) fn io(path: &str, file: &std::path::Path, e: &std::io::Error) -> Self {
-        Self::new(ErrorKind::Io, format!("could not read {}: {e}", file.display())).with_path(path)
-    }
-
     /// The bytes of `path` didn't decode.
     pub(crate) fn decode(path: &str, message: impl Into<String>) -> Self {
         Self::new(ErrorKind::Decode, message).with_path(path)

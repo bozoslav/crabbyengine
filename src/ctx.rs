@@ -1238,10 +1238,19 @@ impl Ctx {
     ///
     /// Every load by name goes through it: [`load_texture`](Self::load_texture),
     /// [`load_font`](Self::load_font), [`load_resource`](Self::load_resource),
-    /// [`load_scene`](Self::load_scene) and [`spawn_prefab`](Self::spawn_prefab)
-    /// (and the textures their scenes name). Sounds, meshes, shaders and other
-    /// 3D files still come only from `assets/`. See [`AssetSource`](crate::AssetSource)
-    /// for names, caching and hot reload.
+    /// [`load_scene`](Self::load_scene), [`spawn_prefab`](Self::spawn_prefab)
+    /// (and the textures their scenes name), [`load_sound`](Self::load_sound),
+    /// [`load_asset_with`](Self::load_asset_with) and, with the `3d` feature,
+    /// meshes, skeletons and animation clips (and the files a glTF refers to),
+    /// shaders, screen effects and compute passes.
+    ///
+    /// Not covered yet: [`load_stream`](Self::load_stream) (music streamed
+    /// from a file), texture arrays and reflection probe images still come
+    /// only from `assets/`.
+    ///
+    /// Assets from sources are never hot reloaded: only files found in
+    /// `assets/` are watched. See [`AssetSource`](crate::AssetSource) for
+    /// names, caching and hot reload.
     ///
     /// Add sources in setup, before loading what they hold: assets loaded
     /// earlier stay cached where they were found.
@@ -1264,6 +1273,42 @@ impl Ctx {
     /// If the source's id is empty or a source with that id was already added.
     pub fn add_asset_source(&mut self, source: impl crate::AssetSource) {
         self.asset_sources.add(Box::new(source));
+    }
+
+    /// Reads asset `name` (from the added sources, then `assets/`) and
+    /// decodes it with `decode` on the CPU: your own asset type, with no
+    /// registration. Nothing is cached and nothing is watched: it reads and
+    /// decodes each call, so keep the result.
+    ///
+    /// `decode` gets the bytes and returns your value, or an error message
+    /// that is reported with the asset's name and source.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// /// A level in a tiny made-up format: one row of tiles per line.
+    /// struct Tiles(Vec<Vec<u8>>);
+    ///
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     ctx.add_asset_source(MemorySource::new("built-in").with("levels/one.tiles", "##.\n#..\n"));
+    ///     let level = ctx
+    ///         .load_asset_with("levels/one.tiles", |bytes| {
+    ///             let text = std::str::from_utf8(bytes).map_err(|e| e.to_string())?;
+    ///             Ok(Tiles(text.lines().map(|row| row.bytes().collect()).collect()))
+    ///         })
+    ///         .unwrap();
+    ///     assert_eq!(level.0.len(), 2);
+    ///     assert_eq!(level.0[0], b"##.");
+    /// });
+    /// ```
+    ///
+    /// # Errors
+    /// If no source has the asset (the message says where it looked), reading
+    /// it fails, or `decode` returns an error.
+    pub fn load_asset_with<T>(&self, name: &str, decode: impl FnOnce(&[u8]) -> Result<T, String>) -> Result<T, String> {
+        let found = self.asset_sources.find(name)?;
+        let origin = found.origin.clone();
+        let bytes = found.into_bytes()?;
+        decode(&bytes).map_err(|e| format!("{} could not be decoded: {e}", origin.describe(name)))
     }
 
     /// A cached `kind` asset called `name` from an added source, searched
@@ -2630,6 +2675,69 @@ mod tests {
         }));
         assert!(keys.iter().any(|o| matches!(o, assets::Origin::File(_))));
         assert_eq!(ctx.load_texture(&name), from_source, "the source's copy stays cached");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A WAV file of silence, so sounds load with and without the `audio` feature.
+    fn wav() -> Vec<u8> {
+        let samples = [0i16; 800];
+        let data_len = (samples.len() * 2) as u32;
+        let mut out = Vec::new();
+        out.extend_from_slice(b"RIFF");
+        out.extend_from_slice(&(36 + data_len).to_le_bytes());
+        out.extend_from_slice(b"WAVEfmt ");
+        out.extend_from_slice(&16u32.to_le_bytes());
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.extend_from_slice(&8000u32.to_le_bytes());
+        out.extend_from_slice(&16_000u32.to_le_bytes());
+        out.extend_from_slice(&2u16.to_le_bytes());
+        out.extend_from_slice(&16u16.to_le_bytes());
+        out.extend_from_slice(b"data");
+        out.extend_from_slice(&data_len.to_le_bytes());
+        out.resize(out.len() + data_len as usize, 0);
+        out
+    }
+
+    #[test]
+    fn sounds_from_sources_are_cached_by_source_and_never_watched() {
+        let mut ctx = Ctx::new(1.0 / 60.0, Vec2::ZERO);
+        ctx.headless = true;
+        ctx.watcher.on = true;
+        let dir = std::env::temp_dir().join(format!("ponko-source-sound-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("tone.wav");
+        std::fs::write(&file, wav()).unwrap();
+        let name = file.to_str().unwrap().to_string();
+        let from_folder = ctx.load_sound(&name);
+        assert_eq!(ctx.watcher.watched(), 1, "default-source sounds are watched");
+        ctx.add_asset_source(crate::MemorySource::new("mem").with(name.clone(), wav()));
+        let from_source = ctx.load_sound(&name);
+        assert_ne!(from_source, from_folder, "same name, other source: another sound");
+        assert_eq!(ctx.watcher.watched(), 1, "source sounds are not watched");
+        assert_eq!(ctx.load_sound(&name), from_source, "the source's copy stays cached");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(feature = "3d")]
+    #[test]
+    fn shaders_from_sources_are_cached_by_source_and_never_watched() {
+        let wgsl = "fn surface(s: Surface) -> Surface { return s; }";
+        let mut ctx = Ctx::new(1.0 / 60.0, Vec2::ZERO);
+        ctx.headless = true;
+        ctx.watcher.on = true;
+        let dir = std::env::temp_dir().join(format!("ponko-source-shader-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("plain.wgsl");
+        std::fs::write(&file, wgsl).unwrap();
+        let name = file.to_str().unwrap().to_string();
+        let from_folder = ctx.load_shader(&name);
+        assert_eq!(ctx.watcher.watched(), 1, "default-source shaders are watched");
+        ctx.add_asset_source(crate::MemorySource::new("mem").with(name.clone(), wgsl));
+        let from_source = ctx.load_shader(&name);
+        assert_ne!(from_source, from_folder, "same name, other source: another shader");
+        assert_eq!(ctx.watcher.watched(), 1, "source shaders are not watched");
+        assert_eq!(ctx.load_shader(&name), from_source, "the source's copy stays cached");
         let _ = std::fs::remove_dir_all(dir);
     }
 

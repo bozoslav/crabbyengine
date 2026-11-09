@@ -293,11 +293,12 @@ impl Ctx {
         Ok(())
     }
 
-    /// Loads a material shader (WGSL) from `assets/`. It can define
+    /// Loads a material shader (WGSL) from an [added asset
+    /// source](Ctx::add_asset_source) or `assets/`. It can define
     /// `fn vertex(v: Vertex) -> Vertex`, to move vertices (wind, waves), and
     /// `fn surface(s: Surface) -> Surface`, to change how each pixel looks;
     /// the engine lights it, shadows it and does the rest. With hot reload
-    /// on, saving the file updates the game (an error keeps the old one).
+    /// on, saving the file in `assets/` updates the game (an error keeps the old one).
     /// Loading the same file again returns the same shader.
     ///
     /// ```no_run
@@ -318,15 +319,21 @@ impl Ctx {
     /// [`Ctx::load_shader`] that returns errors (for the C API).
     #[doc(hidden)]
     pub fn try_load_shader(&mut self, path: &str) -> Result<Shader, String> {
-        let file = crate::assets::resolve(path)?;
-        if let Some(&shader) = self.assets3d.loaded_shaders.get(&file) {
-            return Ok(shader);
-        }
-        let source = crate::assets::read_to_string(&file)?;
+        let found = match self
+            .asset_sources
+            .lookup(path, |origin| self.assets3d.loaded_shaders.get(origin).copied())?
+        {
+            crate::assets::Lookup::Cached(_, shader) => return Ok(shader),
+            crate::assets::Lookup::Found(found) => found,
+        };
+        let origin = found.origin.clone();
+        let source = found.into_text(path)?;
         let shader = self.try_create_shader(path, &source)?;
-        self.assets3d.loaded_shaders.insert(file.clone(), shader);
-        self.watcher
-            .watch(path, file, crate::hot_reload::Asset::Shader(shader.id));
+        self.assets3d.loaded_shaders.insert(origin.clone(), shader);
+        if let crate::assets::Origin::File(file) = origin {
+            self.watcher
+                .watch(path, file, crate::hot_reload::Asset::Shader(shader.id));
+        }
         Ok(shader)
     }
 
@@ -567,9 +574,8 @@ impl Ctx {
     /// });
     /// ```
     pub fn try_load_skeleton(&mut self, path: &str) -> Result<Skeleton, crate::Error> {
-        self.try_load_mesh(path)?;
-        let file = assets::resolve(path).map_err(|e| crate::Error::not_found(path, e))?;
-        self.assets3d.loaded_skeletons.get(&file).cloned().ok_or_else(|| {
+        let (_, origin) = self.load_mesh_from(path)?;
+        self.assets3d.loaded_skeletons.get(&origin).cloned().ok_or_else(|| {
             crate::Error::new(
                 crate::ErrorKind::NotFound,
                 format!("{path} has no skins or animations, so no skeleton"),
@@ -598,9 +604,12 @@ impl Ctx {
     /// # }
     /// ```
     pub fn try_load_clips(&mut self, path: &str) -> Result<Vec<AnimationClip>, String> {
-        self.try_load_skeleton(path)?;
-        let file = assets::resolve(path)?;
-        Ok(self.assets3d.loaded_clips.get(&file).cloned().unwrap_or_default())
+        let (_, origin) = self.load_mesh_from(path)?;
+        self.assets3d
+            .loaded_skeletons
+            .contains_key(&origin)
+            .then(|| self.assets3d.loaded_clips.get(&origin).cloned().unwrap_or_default())
+            .ok_or_else(|| format!("{path} has no skins or animations, so no skeleton"))
     }
 
     /// Loads a named clip. Panics with available names if it is missing.
@@ -630,8 +639,8 @@ impl Ctx {
     }
 
     /// Loads a glTF model (`.glb`, or `.gltf` with its files next to it)
-    /// from `assets/` as one [`Mesh`]: every mesh in the file's scene, where
-    /// the file puts it, with its materials and their base color, normal,
+    /// from an [added asset source](Ctx::add_asset_source) or `assets/` as
+    /// one [`Mesh`]: every mesh in the file's scene, where the file puts it, with its materials and their base color, normal,
     /// occlusion-roughness-metalness and emissive maps.
     /// Loading the same file again returns the same mesh. After freeing its
     /// geometry, loading it again reuses its materials and textures, keeping
@@ -669,21 +678,26 @@ impl Ctx {
     /// });
     /// ```
     pub fn try_load_mesh(&mut self, path: &str) -> Result<Mesh, crate::Error> {
-        let file = assets::resolve(path).map_err(|e| crate::Error::not_found(path, e))?;
-        if let Some(&mesh) = self.assets3d.loaded.get(&file) {
-            return Ok(mesh);
-        }
-        let bytes = assets::read(&file).map_err(|e| crate::Error::io(path, &file, &e))?;
+        self.load_mesh_from(path).map(|(mesh, _)| mesh)
+    }
+
+    /// Loads (or returns the cached) mesh `path`, and says where it was
+    /// found: the key of its skeleton, clips and materials.
+    fn load_mesh_from(&mut self, path: &str) -> Result<(Mesh, assets::Origin), crate::Error> {
+        let found = match self
+            .asset_sources
+            .lookup(path, |origin| self.assets3d.loaded.get(origin).copied())?
+        {
+            assets::Lookup::Cached(origin, mesh) => return Ok((mesh, origin)),
+            assets::Lookup::Found(found) => found,
+        };
+        let file = found.origin.clone();
+        let bytes = found.into_bytes().map_err(|e| e.with_path(path))?;
         let shared = &self.assets3d.shared_images;
-        let loaded = gltf::load(
-            path,
-            &bytes,
-            &mut |name| {
-                let file = assets::resolve(name)?;
-                assets::read(&file).map_err(|e| format!("could not read {}: {e}", file.display()))
-            },
-            &|source| shared.contains_key(source),
-        )
+        let sources = &self.asset_sources;
+        let loaded = gltf::load(path, &bytes, &mut |name| sources.read(name), &|source| {
+            shared.contains_key(source)
+        })
         .map_err(|e| crate::Error::decode(path, e))?;
         let materials = if let Some(materials) = self.assets3d.file_materials.get(&file) {
             materials.clone()
@@ -755,12 +769,12 @@ impl Ctx {
             mesh_skin
         });
         let mesh = self.mesh_from_parts(&loaded.data, &parts, skin, loaded.morph_defaults);
-        self.assets3d.loaded.insert(file, mesh);
+        self.assets3d.loaded.insert(file.clone(), mesh);
         if let Some(names) = self.world.get_resource_mut::<crate::reflect::MeshNames>() {
             names.by_id.insert(mesh.id, path.to_string());
             names.by_name.insert(path.to_string(), mesh);
         }
-        Ok(mesh)
+        Ok((mesh, file))
     }
 
     /// A glTF file's mesh on the CPU (all its parts in one, placed as in
@@ -780,17 +794,9 @@ impl Ctx {
     ///
     /// If the file is missing or isn't a glTF file with triangles.
     pub fn load_mesh_data(&self, path: &str) -> Result<MeshData, String> {
-        let file = assets::resolve(path)?;
-        let bytes = assets::read(&file).map_err(|e| format!("could not read {}: {e}", file.display()))?;
-        let loaded = gltf::load(
-            path,
-            &bytes,
-            &mut |name| {
-                let file = assets::resolve(name)?;
-                assets::read(&file).map_err(|e| format!("could not read {}: {e}", file.display()))
-            },
-            &|_| true,
-        )?;
+        let bytes = self.asset_sources.read(path)?;
+        let sources = &self.asset_sources;
+        let loaded = gltf::load(path, &bytes, &mut |name| sources.read(name), &|_| true)?;
         Ok(loaded.data)
     }
 
@@ -1141,11 +1147,11 @@ impl Ctx {
         let Some(renderer) = self.renderer.as_ref() else {
             return Vec::new();
         };
-        let names: std::collections::HashMap<u32, &std::path::Path> = self
+        let names: std::collections::HashMap<u32, String> = self
             .assets3d
             .loaded
             .iter()
-            .map(|(path, mesh)| (mesh.id, path.as_path()))
+            .map(|(origin, mesh)| (mesh.id, origin.display()))
             .collect();
         let mut costs: Vec<super::MeshCost> = renderer
             .mesh_costs()
@@ -1153,7 +1159,7 @@ impl Ctx {
             .map(
                 |(id, models, triangles, shadow_models, shadow_triangles)| super::MeshCost {
                     mesh: super::Mesh { id },
-                    name: names.get(&id).map(|p| p.display().to_string()),
+                    name: names.get(&id).cloned(),
                     models,
                     triangles,
                     shadow_models,
@@ -1435,7 +1441,7 @@ mod clip_tests {
         let mut ctx = Ctx::new(1.0 / 60.0, glam::Vec2::ONE);
         // A real existing path, with its contents bypassed by the asset cache.
         let path = format!("{}/Cargo.toml", env!("CARGO_MANIFEST_DIR"));
-        let file = assets::resolve(&path).unwrap();
+        let file = assets::Origin::File(assets::resolve(&path).unwrap());
         let skeleton = Skeleton::new(vec![]);
         let clips = vec![
             AnimationClip::new("idle", &skeleton, vec![]),
@@ -1459,6 +1465,26 @@ mod clip_tests {
         ));
         let error = ctx.try_load_clip(&path, "run").unwrap_err();
         assert!(error.contains("idle") && error.contains("walk") && error.contains("run"));
+    }
+
+    #[test]
+    fn clips_cached_from_a_source_are_found_by_the_source_and_not_the_folder() {
+        let mut ctx = Ctx::new(1.0 / 60.0, glam::Vec2::ONE);
+        ctx.add_asset_source(crate::MemorySource::new("pack").with("hero.glb", b"unread".to_vec()));
+        let origin = assets::Origin::Source {
+            source: "pack".into(),
+            name: "hero.glb".into(),
+        };
+        let skeleton = Skeleton::new(vec![]);
+        let clips = vec![AnimationClip::new("idle", &skeleton, vec![])];
+        ctx.assets3d.loaded.insert(origin.clone(), Mesh { id: 0 });
+        ctx.assets3d.loaded_skeletons.insert(origin.clone(), skeleton);
+        ctx.assets3d.loaded_clips.insert(origin, clips);
+        // The source's bytes are never read: the cache is asked first.
+        assert_eq!(ctx.load_clip("hero.glb", "idle").name(), "idle");
+        assert_eq!(ctx.load_clips("hero.glb").len(), 1);
+        let error = ctx.try_load_clip("hero.glb", "run").unwrap_err();
+        assert!(error.contains("idle") && error.contains("run"), "{error}");
     }
 
     #[test]
