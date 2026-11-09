@@ -817,6 +817,24 @@
       "category": "public compatibility",
       "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
     },
+    "tests/fixtures/saves/README.md": {
+      "occurrences": 1,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Names the retained saved-world format identifier of the compatibility fixtures."
+    },
+    "tests/fixtures/saves/world_v1.json": {
+      "occurrences": 1,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
+    },
+    "tests/fixtures/saves/world_v1.provenance.json": {
+      "occurrences": 1,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
+    },
     "tests/headless.rs": {
       "occurrences": 1,
       "path_occurrences": 0,
@@ -836,6 +854,12 @@
       "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
     },
     "tests/physics3d.rs": {
+      "occurrences": 1,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
+    },
+    "tests/save_compat.rs": {
       "occurrences": 1,
       "path_occurrences": 0,
       "category": "public compatibility",
