@@ -783,8 +783,7 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
             let path = str_param(params, "path")?;
             let text = std::fs::read_to_string(path).map_err(|e| format!("could not read {path}: {e}"))?;
             let save: Value = serde_json::from_str(&text).map_err(|e| format!("{path} is not JSON: {e}"))?;
-            ctx.load_scene_assets(&save)?;
-            ctx.world.load(&save).map_err(err)?;
+            ctx.replace_world(&save)?;
             json!({ "path": path, "entities": ctx.world.len() })
         }
         "sim.pause" => {

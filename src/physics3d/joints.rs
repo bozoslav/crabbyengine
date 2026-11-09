@@ -266,6 +266,14 @@ pub(super) struct Link {
     seen: u64,
 }
 
+/// Removes every joint (their bodies are going too); the next sync makes
+/// them again from the components.
+pub(super) fn forget(physics: &mut Physics3D) {
+    for joint in physics.joints.drain(..) {
+        physics.world.remove_impulse_joint(joint.handle);
+    }
+}
+
 pub(super) fn sync(physics: &mut Physics3D, world: &mut World) {
     world.query::<(Entity, &Joint3D)>().for_each(|(entity, config)| {
         let (Some(a), Some(b)) = (physics.link(config.body_a), physics.link(config.body_b)) else {

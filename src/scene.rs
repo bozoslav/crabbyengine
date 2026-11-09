@@ -28,15 +28,55 @@ impl Ctx {
     /// });
     /// ```
     ///
+    /// # What a load replaces and what it keeps
+    ///
+    /// A scene is a world snapshot, not a whole application save: it holds
+    /// entities with reflected components and reflected resources. The
+    /// game's services live outside the world; a load treats them like this:
+    ///
+    /// | State | After `load_scene` |
+    /// |---|---|
+    /// | Entities | Replaced by the scene's, with the scene's ids. An old [`Entity`] handle may now name a different entity of the new scene. |
+    /// | Reflected resources | Those in the scene are written; reflected ones it doesn't name stay. |
+    /// | Other resources | Kept as they were (scores you didn't reflect, tuning loaded with [`load_resource`](Self::load_resource), a baked navigation mesh). |
+    /// | Components that aren't reflected | Gone with their entities; [`save_scene`](Self::save_scene) reports them under `"not_saved"`. |
+    /// | [`commands`](Self::commands) | Commands queued earlier in the running system are dropped: they were meant for the old entities. Commands queued after the load apply as usual. |
+    /// | [`events`](Self::events) | Kept: events sent before the load can still be read for their usual lifetime. Entity ids inside them (such as [`CollisionStarted`](crate::CollisionStarted)) refer to the old world. |
+    /// | 2D and 3D physics | Bodies, characters and joints are removed at once (queries find nothing), then built from the new components at the next physics step, from rest unless the scene has a velocity component. Gravity, collision meshes, contact hooks and settings are kept. |
+    /// | [`spatial`](Self::spatial) neighbor grid | Refilled at the start of the next simulation tick. |
+    /// | Assets | Textures, meshes and collision files the scene names are loaded first and stay cached. Loaded assets are never unloaded by a load. |
+    /// | Positional sounds | A sound playing from an entity stops at the next audio update unless that entity still has the same playing source; other sounds and music keep playing. |
+    /// | Retained UI, camera, lighting, input, time, random seed | Kept: they belong to the game, not the scene. |
+    /// | Lockstep networking ([`net`](Self::net)) | Not synchronized: a load changes only this peer. In a session, every peer must make the same load from a simulation system at the same tick. |
+    ///
+    /// The physics rule also holds for [`WorldReflect::load`] called
+    /// directly on `ctx.world`, except that bodies are removed at the next
+    /// physics step instead of at once.
+    ///
     /// # Errors
     ///
-    /// If the file is missing or isn't a scene, or names a component that
-    /// isn't reflected. The world is unchanged then.
+    /// If the file is missing or isn't a scene, names a component or
+    /// resource that isn't reflected, or names an asset that can't be
+    /// loaded. The world, commands and physics are unchanged then; assets
+    /// the scene named that did load before the failure stay cached.
     pub fn load_scene(&mut self, path: &str) -> Result<(), String> {
         let (_, text) = self.read_asset_text(path)?;
         let scene: Value = serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
-        self.load_scene_assets(&scene).map_err(|e| format!("{path}: {e}"))?;
-        self.world.load(&scene).map_err(|e| format!("{path}: {e}"))
+        self.replace_world(&scene).map_err(|e| format!("{path}: {e}"))
+    }
+
+    /// Replaces the world with `save` (a scene or world save), as
+    /// [`load_scene`](Self::load_scene) describes: its assets first, then
+    /// the entities, then the services that follow entity ids.
+    pub(crate) fn replace_world(&mut self, save: &Value) -> Result<(), String> {
+        self.load_scene_assets(save)?;
+        self.world.load(save).map_err(|e| e.to_string())?;
+        self.commands = crate::Commands::new();
+        #[cfg(feature = "physics")]
+        self.physics.forget_bodies();
+        #[cfg(feature = "physics3d")]
+        self.physics3d.forget_bodies();
+        Ok(())
     }
 
     /// Saves the world (its reflected components and resources) as a scene
