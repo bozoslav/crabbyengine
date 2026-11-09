@@ -8,7 +8,7 @@ Pictures
 --------
 assets/coin_dash/coin.png
     The coin: a 32 x 32 picture drawn by a short script for this example.
-    Copyright (c) 2026 Leon Mamić and Ponko contributors.
+    Copyright (c) 2026 Leon Mamić and Crabby Engine contributors.
     Licensed under the MIT license or the Apache License 2.0, at your option
     (see LICENSE-MIT and LICENSE-APACHE in this package).
 
@@ -28,5 +28,5 @@ linked into the game.
 
 The engine
 ----------
-Ponko is Copyright (c) 2026 Leon Mamić and Ponko contributors, under the MIT
+Ponko is Copyright (c) 2026 Leon Mamić and Crabby Engine contributors, under the MIT
 license or the Apache License 2.0, at your option. See NOTICE.

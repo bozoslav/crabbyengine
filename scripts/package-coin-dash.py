@@ -3,6 +3,7 @@
 
     python3 scripts/package-coin-dash.py package [--out DIR] [--profile release|dev]
     python3 scripts/package-coin-dash.py smoke --package DIR [--mode headless|window]
+    python3 scripts/package-coin-dash.py selftest
 
 `package` builds the example and lays out a folder you can zip: the program,
 its assets, the licenses, a notice for what the game ships and a notice for
@@ -69,12 +70,9 @@ def host_triple():
 # ---- Third-party notices ----------------------------------------------------
 
 
-def linked_crates(triple):
-    """The (name, version) of every crate linked into the example on this
-    platform: ponko's normal dependencies with its default features, which is
-    what `cargo build -p ponko --example coin_dash` compiles."""
+def tree_crates(triple, edges):
     out = run(
-        ["cargo", "tree", "-p", "ponko", "-e", "normal", "--target", triple, "--prefix", "none", "-f", "{p}"],
+        ["cargo", "tree", "-p", "ponko", "-e", edges, "--target", triple, "--prefix", "none", "-f", "{p}"],
         stdout=subprocess.PIPE,
     ).stdout
     crates = set()
@@ -82,7 +80,48 @@ def linked_crates(triple):
         m = re.match(r"^(\S+) v(\S+)", line)
         if m:
             crates.add((m.group(1), m.group(2)))
+    return crates
+
+
+def linked_crates(triple):
+    """The (name, version) of every crate linked into the example on this
+    platform: ponko's normal dependencies with its default features, which is
+    what `cargo build -p ponko --example coin_dash` compiles.
+
+    An example is also built with ponko's dev-dependencies. This list leaves
+    them out, so it fails if a dev-dependency is linked on this platform that
+    is not also a normal one (then the notices would miss a library)."""
+    crates = tree_crates(triple, "normal")
+    dev_only = tree_crates(triple, "normal,dev") - crates
+    if dev_only:
+        names = ", ".join(f"{n} {v}" for n, v in sorted(dev_only))
+        raise Failure(
+            f"ponko has dev-dependencies the example is built with on {triple} that THIRD-PARTY-NOTICES.txt "
+            f"would not list: {names}. Make the notice list cover them (`cargo tree -e normal,dev`)."
+        )
     return sorted(crates)
+
+
+# Crates that really declare no license. Empty on purpose: an entry here needs a
+# comment saying where its terms come from, and the notice then names it.
+LICENSE_ALLOWLIST = {}
+
+
+def declared_license(package):
+    """The license expression (or license file) a crate declares. A crate that
+    declares neither fails the packaging: shipping it as "unknown" would hide
+    a missing license."""
+    key = (package["name"], package["version"])
+    if package.get("license"):
+        return package["license"]
+    if package.get("license_file"):
+        return f"see {package['license_file']}"
+    if key in LICENSE_ALLOWLIST:
+        return LICENSE_ALLOWLIST[key]
+    raise Failure(
+        f"{key[0]} {key[1]} declares no license (no `license` and no `license_file` in its manifest): "
+        "check its terms and add it to LICENSE_ALLOWLIST with the source of the terms, or drop the dependency"
+    )
 
 
 def license_texts(package, root_dir):
@@ -122,7 +161,7 @@ def third_party_notices():
         package = by_key[key]
         label = f"{key[0]} {key[1]}"
         texts = license_texts(package, ROOT)
-        expression = package.get("license") or (f"see {package['license_file']}" if package.get("license_file") else "unknown")
+        expression = declared_license(package)
         authors = ", ".join(package.get("authors") or []) or "no authors listed"
         lines.append(f"  {label}: {expression} ({authors})")
         if not texts:
@@ -331,16 +370,20 @@ def smoke_missing_assets(package, work, timeout):
     print("  ok: missing assets fail with a message naming coin_dash/coin.png")
 
 
+# The engine's own messages when it cannot get a GPU or a window. Only these
+# mean "unsupported here"; any other crash is a failure, whatever platform
+# error it carries.
 NO_WINDOW = (
-    "no compatible GPU",
-    "could not create a GPU surface",
-    "could not open the GPU device",
-    "neither WAYLAND_DISPLAY",
-    "DISPLAY",
-    "failed to create the event loop",
-    "OsError",
-    "NotSupported",
+    "ponko: no compatible GPU found",
+    "ponko: could not create a GPU surface",
+    "ponko: could not open the GPU device",
+    "ponko: could not start the event loop",
+    "ponko: could not create the window",
 )
+
+
+def is_unsupported(err):
+    return any(text in err for text in NO_WINDOW)
 
 
 def smoke_window(package, work, timeout, allow_unsupported):
@@ -355,9 +398,13 @@ def smoke_window(package, work, timeout, allow_unsupported):
         code, out, err = play(exe, "window", cwd, env, report, timeout)
     except subprocess.TimeoutExpired:
         raise Failure(f"the window run did not finish in {timeout} s")
-    if code != 0 and not report.exists() and any(text in err for text in NO_WINDOW):
+    if code != 0 and not report.exists() and is_unsupported(err):
         if allow_unsupported:
-            raise Unsupported("no display or GPU here: " + err.strip().splitlines()[-1][:200])
+            reason = next(line for line in err.splitlines() if is_unsupported(line))[:200]
+            if os.environ.get("GITHUB_ACTIONS"):
+                # Shows on the run's summary, so a skipped window is never silent.
+                print(f"::warning title=coin_dash window smoke skipped::{reason}")
+            raise Unsupported("no display or GPU here: " + reason)
         raise Failure("the window could not open (use --allow-unsupported where that is expected):\n" + err)
     check(code == 0, f"the window run exited {code}:\n{err}{out}")
     data = read_report(report, "window run")
@@ -405,6 +452,61 @@ def cmd_smoke(args):
     return 0
 
 
+def selftest(args):
+    """Checks the script's own decisions with made-up inputs (no build, no window)."""
+    global play
+
+    # A crate with no license is refused, by name; a declared one passes.
+    for package, ok in (
+        ({"name": "a", "version": "1.0.0", "license": "MIT"}, "MIT"),
+        ({"name": "b", "version": "1.0.0", "license_file": "COPYING"}, "see COPYING"),
+    ):
+        check(declared_license(package) == ok, f"declared_license({package}) is not {ok}")
+    try:
+        declared_license({"name": "nolicense", "version": "0.3.1", "license": None})
+    except Failure as e:
+        check("nolicense 0.3.1" in str(e), f"the failure does not name the crate: {e}")
+    else:
+        raise Failure("a crate without a license was accepted")
+    check(not LICENSE_ALLOWLIST, "LICENSE_ALLOWLIST should be empty unless a crate needs it (with a comment)")
+    print("  ok: a crate that declares no license fails the packaging, by name")
+
+    # Which window-run errors are "unsupported here" and which are failures.
+    for text in NO_WINDOW:
+        check(is_unsupported(f"thread 'main' panicked at x.rs:1:1:\n{text}: details"), f"{text!r} is not unsupported")
+    for text in ("OsError: something broke", "NotSupported", "Error: DISPLAY", "segmentation fault", "assertion failed"):
+        check(not is_unsupported(text), f"{text!r} wrongly counts as unsupported")
+    print("  ok: only the engine's own no-GPU / no-window messages are unsupported")
+
+    # smoke_window with a fake program: crashes with a platform error are failures,
+    # the engine's messages are unsupported (or a failure without --allow-unsupported).
+    real_play = play
+    try:
+        def fake(stderr):
+            return lambda *a, **k: (1, "", stderr)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            for stderr, flag, expected in (
+                ("thread 'main' panicked: OsError(NotSupported)\n", True, Failure),
+                ("thread 'main' panicked: ponko: could not start the event loop: x\nnote: run with RUST_BACKTRACE=1\n", True, Unsupported),
+                ("thread 'main' panicked: ponko: no compatible GPU found: x\n", False, Failure),
+            ):
+                play = fake(stderr)
+                work = Path(tmp) / str(abs(hash((stderr, flag))))
+                work.mkdir()
+                try:
+                    smoke_window(work, work, 5, flag)
+                except expected:
+                    pass
+                else:
+                    raise Failure(f"smoke_window did not raise {expected.__name__} for {stderr!r}")
+    finally:
+        play = real_play
+    print("  ok: a window crash is a failure; no GPU/window is unsupported only with --allow-unsupported")
+    print("PASS")
+    return 0
+
+
 def main():
     # The unpack folder has a non-ASCII letter in its name; never fail on printing it.
     sys.stdout.reconfigure(errors="replace")
@@ -420,8 +522,9 @@ def main():
     s.add_argument("--mode", choices=["headless", "window"], default="headless")
     s.add_argument("--allow-unsupported", action="store_true", help="the window mode passes where no display or GPU exists")
     s.add_argument("--timeout", type=int, default=240, help="seconds each run may take")
+    sub.add_parser("selftest", help="check the script's own decisions with made-up inputs")
     args = parser.parse_args()
-    return {"package": cmd_package, "smoke": cmd_smoke}[args.command](args)
+    return {"package": cmd_package, "smoke": cmd_smoke, "selftest": selftest}[args.command](args)
 
 
 if __name__ == "__main__":

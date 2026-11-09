@@ -881,7 +881,7 @@ fn every_control_name_is_a_binding() {
 
 // ---- Settings: UI scale, volume and rebindable controls ---------------------
 
-use game::settings::{self, Control, Controls, Refused, SCALES, Settings, SettingsFile};
+use game::settings::{self, Control, Controls, PAD_BUTTONS, Refused, SCALES, Settings, SettingsFile};
 
 // ANCHOR: ui_drive
 /// What the engine does with the retained UI at the start of every frame (layout,
@@ -1346,6 +1346,11 @@ fn a_damaged_settings_file_is_replaced_by_the_defaults_and_kept_as_a_backup() {
     fixed.keys[Control::Back as usize] = Key::Space;
     let mut pad_on_move = Controls::default();
     pad_on_move.pads[Control::MoveUp as usize] = Some(GamepadButton::North);
+    let mut pad_on_dpad = Controls::default();
+    pad_on_dpad.pads[Control::Restart as usize] = Some(GamepadButton::DPadRight);
+    let mut east_elsewhere = Controls::default();
+    east_elsewhere.pads[Control::Confirm as usize] = Some(GamepadButton::East);
+    east_elsewhere.pads[Control::Back as usize] = Some(GamepadButton::South);
     let cases: Vec<String> = vec![
         String::new(),
         "not json".into(),
@@ -1359,6 +1364,8 @@ fn a_damaged_settings_file_is_replaced_by_the_defaults_and_kept_as_a_backup() {
         key(&serde_json::to_string(&duplicate).unwrap()),
         key(&serde_json::to_string(&fixed).unwrap()),
         key(&serde_json::to_string(&pad_on_move).unwrap()),
+        key(&serde_json::to_string(&pad_on_dpad).unwrap()),
+        key(&serde_json::to_string(&east_elsewhere).unwrap()),
     ];
     for (n, text) in cases.iter().enumerate() {
         let dir = temp_dir(&format!("settings-damaged-{n}"));
@@ -1435,6 +1442,11 @@ fn controls_refuse_reserved_fixed_and_used_keys_and_buttons() {
     assert!(c.is_valid());
     assert_eq!(c.set_key(Control::Confirm, Key::Escape), Err(Refused::Reserved));
     assert_eq!(c.set_key(Control::Confirm, Key::Tab), Err(Refused::Reserved));
+    // Escape is Pause's default but not a choice: the prompt can't hear it (Escape
+    // closes it), so the settings screen says "Reset gives Pause its Escape back".
+    assert_eq!(c.set_key(Control::Pause, Key::X), Ok(()));
+    assert_eq!(c.set_key(Control::Pause, Key::Escape), Err(Refused::Reserved));
+    c = Controls::default();
     assert_eq!(c.set_key(Control::Confirm, Key::P), Err(Refused::Fixed));
     assert_eq!(c.set_key(Control::MoveUp, Key::Left), Err(Refused::Fixed));
     assert_eq!(c.set_key(Control::Confirm, Key::Q), Err(Refused::InUse(Control::Back)));
@@ -1448,6 +1460,18 @@ fn controls_refuse_reserved_fixed_and_used_keys_and_buttons() {
 
     assert_eq!(c.set_pad(Control::MoveUp, GamepadButton::North), Err(Refused::NoButton));
     assert_eq!(c.set_pad(Control::Confirm, GamepadButton::East), Err(Refused::Reserved));
+    for dpad in [
+        GamepadButton::DPadUp,
+        GamepadButton::DPadDown,
+        GamepadButton::DPadLeft,
+        GamepadButton::DPadRight,
+    ] {
+        assert_eq!(
+            c.set_pad(Control::Confirm, dpad),
+            Err(Refused::Reserved),
+            "{dpad:?} navigates the menus"
+        );
+    }
     assert_eq!(
         c.set_pad(Control::Confirm, GamepadButton::West),
         Err(Refused::InUse(Control::Restart))
@@ -1455,6 +1479,119 @@ fn controls_refuse_reserved_fixed_and_used_keys_and_buttons() {
     assert_eq!(c.set_pad(Control::Confirm, GamepadButton::LeftBumper), Ok(()));
     assert_eq!(c.pad(Control::Confirm), Some(GamepadButton::LeftBumper));
     assert!(c.is_valid());
+}
+
+#[test]
+fn the_gamepad_prompt_hears_every_button_and_reserves_what_the_menus_use() {
+    // All sixteen buttons are listened for, each once.
+    let mut seen = PAD_BUTTONS.to_vec();
+    seen.sort_by_key(|b| format!("{b:?}"));
+    seen.dedup();
+    assert_eq!(seen.len(), 16, "{PAD_BUTTONS:?}");
+    // The retained UI navigates with the D-pad and closes with East (see
+    // `retained_input` and the guide's "Events, navigation and ownership"): the
+    // same four directions are refused for every control, as the arrows are on the keyboard.
+    let reserved: Vec<GamepadButton> = PAD_BUTTONS
+        .into_iter()
+        .filter(|&b| Controls::default().set_pad(Control::Settings, b) == Err(Refused::Reserved))
+        .collect();
+    assert_eq!(
+        reserved,
+        [
+            GamepadButton::East,
+            GamepadButton::DPadUp,
+            GamepadButton::DPadDown,
+            GamepadButton::DPadLeft,
+            GamepadButton::DPadRight
+        ]
+    );
+    assert!(reserved.iter().all(|&b| settings::is_reserved_pad(b)));
+    // Everything else can be taken by a control that doesn't have it yet.
+    for button in PAD_BUTTONS.into_iter().filter(|b| !reserved.contains(b)) {
+        let mut c = Controls::default();
+        let taken = Control::ALL.into_iter().find(|&k| c.pad(k) == Some(button));
+        let result = c.set_pad(Control::Settings, button);
+        match taken {
+            Some(other) if other != Control::Settings => assert_eq!(result, Err(Refused::InUse(other))),
+            _ => assert_eq!(result, Ok(()), "{button:?}"),
+        }
+    }
+}
+
+#[test]
+fn the_gamepad_prompt_refuses_the_dpad_in_the_screen_and_takes_another_button() {
+    Game::new("t", 800, 600).run_headless(0, |ctx| {
+        open_settings(ctx, None);
+        tab_to(ctx, "Restart round gamepad button");
+        press_confirm(ctx);
+        idle(ctx);
+        let pad = Gamepad::from_slot(0).unwrap();
+        let prompt = |ctx: &Ctx| {
+            ctx.ui_retained
+                .accessibility_tree()
+                .nodes()
+                .iter()
+                .map(|n| n.name.clone())
+                .collect::<Vec<_>>()
+                .join(" | ")
+        };
+        for dpad in [GamepadButton::DPadRight, GamepadButton::DPadLeft] {
+            ctx.feed_input(InputEvent::GamepadButton(pad, dpad, true));
+            idle(ctx);
+            ctx.feed_input(InputEvent::GamepadButton(pad, dpad, false));
+            idle(ctx);
+            assert_eq!(
+                settings_of(ctx).controls,
+                Controls::default(),
+                "{dpad:?} changed something"
+            );
+            assert!(
+                prompt(ctx).contains("reserved for the menus"),
+                "{dpad:?}: {}",
+                prompt(ctx)
+            );
+        }
+        ctx.feed_input(InputEvent::GamepadButton(pad, GamepadButton::LeftBumper, true));
+        idle(ctx);
+        ctx.feed_input(InputEvent::GamepadButton(pad, GamepadButton::LeftBumper, false));
+        assert_eq!(
+            settings_of(ctx).controls.pad(Control::Restart),
+            Some(GamepadButton::LeftBumper)
+        );
+        assert_eq!(
+            focused(ctx).as_deref(),
+            Some("Restart round gamepad button: LeftBumper")
+        );
+        // The installed bindings follow.
+        ctx.feed_input(InputEvent::GamepadButton(pad, GamepadButton::LeftBumper, true));
+        read_input(ctx);
+        assert!(intent(ctx).restart, "the left bumper restarts now");
+        ctx.feed_input(InputEvent::GamepadButton(pad, GamepadButton::LeftBumper, false));
+    });
+}
+
+#[test]
+fn the_settings_screen_says_which_keys_belong_to_the_menus() {
+    Game::new("t", 800, 600).run_headless(0, |ctx| {
+        open_settings(ctx, None);
+        let tree = ctx.ui_retained.accessibility_tree();
+        let hint = tree
+            .nodes()
+            .iter()
+            .find(|n| n.name == settings::HINT)
+            .expect("the hint is on the screen");
+        assert!(
+            hint.name.contains("Escape")
+                && hint.name.contains("D-pad")
+                && hint.name.contains("Reset gives Pause its Escape back")
+        );
+        // Rebinding Pause away from Escape, then Reset, is the way back.
+        rebind_key_through_the_screen(ctx, Control::Pause, Key::X);
+        assert_eq!(settings_of(ctx).controls.key(Control::Pause), Key::X);
+        tab_to(ctx, "Reset to defaults");
+        press_confirm(ctx);
+        assert_eq!(settings_of(ctx).controls.key(Control::Pause), Key::Escape);
+    });
 }
 
 #[test]
@@ -1619,4 +1756,23 @@ fn the_content_notice_names_every_file_the_game_ships() {
         );
     }
     assert!(notice.contains(game::COIN_ASSET));
+}
+
+#[test]
+fn the_content_notice_uses_the_license_files_copyright_holder() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let license = std::fs::read_to_string(root.join("LICENSE-MIT")).unwrap();
+    let holder = license
+        .lines()
+        .find_map(|l| l.strip_prefix("Copyright (c) "))
+        .expect("LICENSE-MIT has a copyright line");
+    let notice = std::fs::read_to_string(root.join("examples/coin_dash/CONTENT-NOTICES.txt")).unwrap();
+    let lines: Vec<&str> = notice.lines().filter(|l| l.contains("Copyright (c)")).collect();
+    assert!(!lines.is_empty());
+    for line in lines {
+        assert!(
+            line.contains(holder.trim_end_matches('.')),
+            "the notice's copyright line {line:?} differs from LICENSE-MIT's {holder:?}"
+        );
+    }
 }
