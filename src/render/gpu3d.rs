@@ -24,7 +24,9 @@
 //!
 //! Sprites and UI are drawn on top afterwards, without tone mapping.
 
+mod draw_order;
 mod instances;
+pub(crate) use draw_order::StateChanges;
 use instances::{Culling, StaticBatch};
 use std::ops::Range;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -869,6 +871,16 @@ pub(crate) struct Renderer3D {
     /// This frame's runs: (mesh, first instance, count).
     runs: Vec<(u32, u32, u32)>,
     shadow_runs: [Vec<(u32, u32, u32)>; MAX_SHADOW_VIEWS],
+    /// `runs` sorted by the state they bind, for the passes whose result
+    /// doesn't depend on the order (see `draw_order.rs`).
+    solid_runs: Vec<Run>,
+    /// Scratch space for sorting runs.
+    sort_keys: Vec<((u32, u32, u32), Run)>,
+    /// Whether order-independent passes draw their runs sorted by state
+    /// (on; off draws them in mesh order, for comparing).
+    pub(crate) group_draws: bool,
+    /// The model passes' state changes since the last `take_state_changes`.
+    state_counters: draw_order::StateCounters,
     /// Per skinned model this frame, whether any pass draws it.
     skin_drawn: Vec<bool>,
 }
@@ -1626,6 +1638,10 @@ impl Renderer3D {
             white_array: array_view(white_array),
             runs: Vec::new(),
             shadow_runs: Default::default(),
+            solid_runs: Vec::new(),
+            sort_keys: Vec::new(),
+            group_draws: true,
+            state_counters: Default::default(),
             skin_drawn: Vec::new(),
         }
     }
@@ -2443,6 +2459,7 @@ impl Renderer3D {
             |k| drawn[k],
         );
         self.skin_drawn = drawn;
+        self.order_runs();
         if self.static_batches.iter().all(Option::is_none)
             && total == 0
             && frame.particles.instances.is_empty()
@@ -3521,14 +3538,14 @@ impl Renderer3D {
                 });
                 pass.set_bind_group(0, &self.frame_bind_group, &[]);
                 pass.set_bind_group(2, &self.no_scene, &[]);
-                self.draw_models(&mut pass, &self.runs, Kind::Prepass, &self.instances);
+                self.draw_models(&mut pass, &self.solid_runs, Kind::Prepass, &self.instances);
                 drop(pass);
                 self.coverage_prepass(
                     encoder,
                     &targets.color,
                     &targets.depth,
                     &self.frame_bind_group,
-                    &self.runs,
+                    &self.solid_runs,
                     Some(0),
                 );
                 // With every solid surface in it, the depth is complete here.
@@ -3614,7 +3631,7 @@ impl Renderer3D {
                     let opaque_scene = targets.opaque_scene.as_ref().unwrap_or(&self.no_scene);
                     pass.set_bind_group(0, &self.frame_bind_group, &[]);
                     pass.set_bind_group(2, opaque_scene, &[]);
-                    self.draw_models(&mut pass, &self.runs, Kind::Opaque, &self.instances);
+                    self.draw_models(&mut pass, &self.solid_runs, Kind::Opaque, &self.instances);
                     if self.atmosphere {
                         pass.set_pipeline(&self.sky);
                         pass.set_bind_group(0, &self.frame_bind_group, &[]);
@@ -4149,9 +4166,12 @@ impl Renderer3D {
         instances: &wgpu::Buffer,
         batch: Option<(&StaticBatch, usize)>,
     ) {
+        let mut n = StateChanges::default();
         pass.set_vertex_buffer(1, instances.slice(..));
+        n.vertex_buffers += 1;
         if let Some(dummy) = &self.storage_dummy {
             pass.set_bind_group(3, dummy, &[]);
+            n.bind_groups += 1;
         }
         // Only what changes is set again: each `set_*` costs wgpu
         // validation and a Metal/Vulkan call per draw otherwise.
@@ -4221,35 +4241,43 @@ impl Renderer3D {
                 };
                 if bound != Some(pipeline as *const _) {
                     pass.set_pipeline(pipeline);
+                    n.pipelines += 1;
                     bound = Some(pipeline as *const _);
                 }
                 if !buffers_set {
                     pass.set_vertex_buffer(0, vertices.slice(..));
                     pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
+                    n.vertex_buffers += 1;
+                    n.index_buffers += 1;
                     buffers_set = true;
                 }
                 if bound_material != *material {
                     pass.set_bind_group(1, &m.bind_group, &[]);
+                    n.bind_groups += 1;
                     bound_material = *material;
                 }
                 if let Some((batch, view)) = batch {
                     if let Some(v) = batch.views.get(view) {
                         pass.set_bind_group(3, &v.read, &[]);
+                        n.bind_groups += 1;
                         if mesh.parts.len() > 1 {
                             if part > 0 && mesh.parts[part - 1].1 == *material {
                                 continue;
                             }
-                            let n = mesh.parts[part..].iter().take_while(|(_, m)| m == material).count();
-                            pass.multi_draw_indexed_indirect(&v.args, (part * 20) as u64, n as u32);
+                            let parts = mesh.parts[part..].iter().take_while(|(_, m)| m == material).count();
+                            pass.multi_draw_indexed_indirect(&v.args, (part * 20) as u64, parts as u32);
                         } else {
                             pass.draw_indexed_indirect(&v.args, (part * 20) as u64);
                         }
+                        n.draws += 1;
                     } else {
                         if let Some(dummy) = &self.storage_dummy {
                             pass.set_bind_group(3, dummy, &[]);
+                            n.bind_groups += 1;
                         }
                         for &(start, count) in &batch.visible[view] {
                             pass.draw_indexed(range.clone(), 0, start..start + count);
+                            n.draws += 1;
                         }
                     }
                 } else if let Some((b, count)) = storage {
@@ -4257,6 +4285,7 @@ impl Renderer3D {
                     // (transform and tint) is shared by all `count` instances.
                     if count > 0 {
                         pass.set_bind_group(3, &b.read, &[]);
+                        n.bind_groups += 1;
                         let record = if kind == Kind::Velocity {
                             size_of::<MovedInstance>()
                         } else {
@@ -4268,17 +4297,23 @@ impl Renderer3D {
                                 instances.slice(model as u64 * record..(model as u64 + 1) * record),
                             );
                             pass.draw_indexed(range.clone(), 0, 0..count);
+                            n.vertex_buffers += 1;
+                            n.draws += 1;
                         }
                     }
                 } else {
                     if let Some(dummy) = &self.storage_dummy {
                         pass.set_bind_group(3, dummy, &[]);
+                        n.bind_groups += 1;
                     }
                     pass.set_vertex_buffer(1, instances.slice(..));
+                    n.vertex_buffers += 1;
                     pass.draw_indexed(range.clone(), 0, start..start + models);
+                    n.draws += 1;
                 }
             }
         }
+        self.state_counters.add(&n);
     }
 }
 
