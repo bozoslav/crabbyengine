@@ -472,6 +472,33 @@ pub struct Model {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ShadowMesh(pub Option<Mesh>);
 
+/// Draws the entity's [`Model`] with this material instead of the ones its
+/// mesh was made with (every part of the mesh), so one uploaded mesh can be
+/// a wet and a dry rock, or a door in three paints, without a second copy
+/// of its vertices. Without it, the mesh's own materials are drawn.
+///
+/// Models that share a mesh and a material are still drawn together, in
+/// one draw per mesh part. The [`Model::color`] tint applies on top. A
+/// transparent material casts no shadow, as on a mesh made with it.
+///
+/// Not yet applied to skinned models posed by a [`Skeleton`], meshes with
+/// morph targets, [`LodGroup`] renderers or [`TerrainTile`]s: those draw
+/// their meshes' own materials. It isn't saved in scene files (materials
+/// have no file names), like a mesh made in code.
+///
+/// ```no_run
+/// # use ponko::*;
+/// # fn f(ctx: &mut Ctx) {
+/// let rock = ctx.load_mesh("rock.glb");
+/// let wet = ctx.create_material(MaterialDesc { roughness: 0.1, ..MaterialDesc::color(Color::hex(0x404850)) });
+/// ctx.world.spawn((Transform3D::default(), Model::new(rock)));                    // as the file has it
+/// ctx.world.spawn((Transform3D::at(vec3(3.0, 0.0, 0.0)), Model::new(rock), ModelMaterial(wet))); // wet
+/// # }
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(C)]
+pub struct ModelMaterial(pub Material);
+
 impl Model {
     /// Draws `mesh` as it is.
     ///
