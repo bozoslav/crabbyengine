@@ -1244,6 +1244,44 @@ fn quality_presets_switch_at_run_time() {
     });
 }
 
+/// The guide's GPU tier example: the preset for the GPU, and what a tier
+/// lacks without such a GPU.
+#[test]
+fn quality_follows_the_gpu_tier() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        // ANCHOR: gpu_tiers
+        // At startup: the preset for this GPU's tier, fitted to what it has.
+        let quality = match ctx.gpu_capabilities() {
+            Some(caps) => GraphicsQuality::recommended(caps),
+            None => GraphicsQuality::for_tier(GpuTier::Desktop), // no GPU opened (headless)
+        };
+        ctx.set_graphics_quality(quality);
+        // What a weaker GPU lacks, with no such GPU at hand: the report of
+        // the tier's floor, each missing feature with its fallback and reason.
+        let baseline = GpuTier::Baseline.report();
+        for f in baseline.features.iter().filter(|f| !f.available) {
+            println!(
+                "{:?}: {} ({})",
+                f.feature,
+                f.fallback.as_deref().unwrap_or("-"),
+                f.reason.as_deref().unwrap_or("-")
+            );
+        }
+        // ANCHOR_END: gpu_tiers
+        assert_eq!(ctx.graphics_quality().level(), QualityLevel::High);
+        assert!(!baseline.available(GpuFeature::Decals));
+        assert_eq!(
+            GpuTier::Baseline.unavailable_features(),
+            [
+                GpuFeature::Timestamps,
+                GpuFeature::GpuSkinning,
+                GpuFeature::GlobalIllumination,
+                GpuFeature::Decals
+            ]
+        );
+    });
+}
+
 /// The scene format the Unity importer writes for a LOD group loads.
 #[test]
 fn lod_groups_in_the_importers_json_shape_load() {

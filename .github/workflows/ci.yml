@@ -296,6 +296,33 @@ jobs:
           --workspace-remap . --partition slice:${{ matrix.shard }}/3
           --test-threads 2 --no-fail-fast
 
+  windows-gpu-tiers:
+    name: Render tests on the ${{ matrix.tier }} GPU tier (windows-latest)
+    needs: windows-unit-build
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # `desktop` is the plain run in windows-unit.
+        tier: [webgl2, baseline]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/nextest
+      - uses: actions/download-artifact@v8
+        with:
+          name: windows-unit-tests
+          path: target/ci-unit
+      # The offscreen render suites again, every device opened with the
+      # tier's limits (render_test_support::forced); tests needing a
+      # feature the tier lacks skip with a logged reason.
+      - name: Run the render tests on the forced tier
+        env:
+          PONKO_GPU_TIER: ${{ matrix.tier }}
+        run: >-
+          cargo nextest run --archive-file target/ci-unit/windows-unit.tar.zst
+          --workspace-remap . --test-threads 2 --no-fail-fast
+          -E 'test(render_test) | test(capabilities) | test(skinning::tests) | test(particles::tests)'
+
   windows-examples:
     name: Examples and library tests (windows-latest)
     if: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
@@ -572,7 +599,7 @@ jobs:
   ci-passed:
     name: CI passed
     if: always()
-    needs: [leaks, fmt, clippy, feature-deps, msrv, test, windows-unit-build, windows-unit, windows-examples, test-features, docs, book, miri, native, web, web-smoke]
+    needs: [leaks, fmt, clippy, feature-deps, msrv, test, windows-unit-build, windows-unit, windows-gpu-tiers, windows-examples, test-features, docs, book, miri, native, web, web-smoke]
     runs-on: ubuntu-latest
     steps:
       - name: Check every job

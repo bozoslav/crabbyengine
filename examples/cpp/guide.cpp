@@ -1190,6 +1190,23 @@ static void options_menu(ponko::ctx& ctx) {
 }
 // ANCHOR_END: quality
 
+// ANCHOR: gpu_tiers
+/// At startup: the preset for this GPU's tier, fitted to what it has.
+static void quality_for_this_gpu(ponko::ctx& ctx) {
+    auto quality = ctx.recommended_graphics_quality() // empty before a GPU opens
+        .value_or(ponko::graphics_quality_for_tier(ponko::gpu_tier::desktop));
+    ctx.set_graphics_quality(quality);
+    if (auto tier = ctx.gpu_tier(); tier && *tier == ponko::gpu_tier::webgl2) {
+        // No compute shaders: TAA draws FXAA, AO and reflections are off.
+    }
+    // What a weaker GPU lacks, with no such GPU at hand: a JSON report of the
+    // tier's floor, each missing feature with its fallback and the reason.
+    std::string baseline = ponko::gpu_tier_report(ponko::gpu_tier::baseline);
+    bool decals = ponko::gpu_tier_has(ponko::gpu_tier::baseline, ponko::gpu_feature::decals); // false
+    (void)baseline; (void)decals;
+}
+// ANCHOR_END: gpu_tiers
+
 // ANCHOR: taa
 /// Temporal antialiasing, and a camera cut.
 static void temporal_antialiasing(ponko::ctx& ctx) {
@@ -1466,6 +1483,8 @@ static void the_village_has_five_spinning_houses() {
         village(ctx);
         golden_hour(ctx);
         speed_lens(ctx, 40.0f);
+        quality_for_this_gpu(ctx);
+        if (ponko::graphics_quality_level(ctx.graphics_quality()) != ponko::quality_level::high) { std::fprintf(stderr, "tier preset\n"); std::abort(); }
         options_menu(ctx);
         temporal_antialiasing(ctx);
         screen_reflections(ctx);
