@@ -37,14 +37,16 @@ fn local_shadow(batch: bool, point: bool, compute: bool, casts: bool) {
         eprintln!("no GPU adapter: skipped");
         return;
     };
-    let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-        required_limits: if compute {
-            wgpu::Limits::default()
-        } else {
-            wgpu::Limits::downlevel_webgl2_defaults()
+    let Ok((device, queue)) = pollster::block_on(adapter.request_device(&crate::render::render_test_support::forced(
+        &wgpu::DeviceDescriptor {
+            required_limits: if compute {
+                wgpu::Limits::default()
+            } else {
+                wgpu::Limits::downlevel_webgl2_defaults()
+            },
+            ..Default::default()
         },
-        ..Default::default()
-    })) else {
+    ))) else {
         eprintln!("no GPU device: skipped");
         return;
     };

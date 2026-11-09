@@ -36,18 +36,20 @@ impl Rig {
             return None;
         };
         // As the engine asks: more texture slots where the adapter has them.
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            required_limits: wgpu::Limits {
-                max_sampled_textures_per_shader_stage: if slots {
-                    adapter.limits().max_sampled_textures_per_shader_stage.clamp(16, 24)
-                } else {
-                    16
+        let Ok((device, queue)) = pollster::block_on(adapter.request_device(
+            &crate::render::render_test_support::forced(&wgpu::DeviceDescriptor {
+                required_limits: wgpu::Limits {
+                    max_sampled_textures_per_shader_stage: if slots {
+                        adapter.limits().max_sampled_textures_per_shader_stage.clamp(16, 24)
+                    } else {
+                        16
+                    },
+                    ..wgpu::Limits::default()
                 },
-                ..wgpu::Limits::default()
-            },
-            required_features: adapter.features() & wgpu::Features::TIMESTAMP_QUERY,
-            ..Default::default()
-        })) else {
+                required_features: adapter.features() & wgpu::Features::TIMESTAMP_QUERY,
+                ..Default::default()
+            }),
+        )) else {
             eprintln!("no GPU device: skipped");
             return None;
         };
