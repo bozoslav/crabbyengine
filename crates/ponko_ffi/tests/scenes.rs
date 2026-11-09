@@ -2,12 +2,23 @@
 use ponko_ffi::*;
 use std::ffi::{CStr, c_void};
 use std::ptr::null_mut;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use CrabbyStatus::*;
 
 /// A file under this crate's `assets/` (created by the save), deleted when
-/// the test ends, with the folder once it's empty.
-struct TempAsset(&'static CStr);
+/// the test ends, with the folder once it's empty. It holds [`ASSETS`] for
+/// the whole test: the tests run in parallel and share the folder, so one
+/// test's cleanup could otherwise remove the folder between another test's
+/// `create_dir_all` and its write.
+struct TempAsset(&'static CStr, #[allow(dead_code)] MutexGuard<'static, ()>);
+static ASSETS: Mutex<()> = Mutex::new(());
+impl TempAsset {
+    fn new(name: &'static CStr) -> Self {
+        // A failed test poisons the lock; the folder is still usable.
+        Self(name, ASSETS.lock().unwrap_or_else(PoisonError::into_inner))
+    }
+}
 impl Drop for TempAsset {
     fn drop(&mut self) {
         let name = self.0.to_str().unwrap();
@@ -71,7 +82,7 @@ unsafe extern "C" fn prefab_setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
 
 #[test]
 fn prefabs_are_saved_and_spawned_from_c() {
-    let file = TempAsset(c"test-ffi-prefab.json");
+    let file = TempAsset::new(c"test-ffi-prefab.json");
     let mut run = Run {
         file: Some(file.0),
         ..Default::default()
@@ -129,7 +140,7 @@ unsafe extern "C" fn load_setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
 
 #[test]
 fn a_scene_saved_from_c_loads_back() {
-    let file = TempAsset(c"test-ffi-scene.json");
+    let file = TempAsset::new(c"test-ffi-scene.json");
     let mut run = Run {
         file: Some(file.0),
         ..Default::default()
@@ -176,7 +187,7 @@ unsafe extern "C" fn huge_id_setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
 
 #[test]
 fn scenes_with_huge_entity_ids_are_refused_from_c() {
-    let file = TempAsset(c"test-ffi-huge-id.json");
+    let file = TempAsset::new(c"test-ffi-huge-id.json");
     let assets = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets");
     std::fs::create_dir_all(&assets).unwrap();
     std::fs::write(
