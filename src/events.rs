@@ -45,6 +45,26 @@ use crate::reflect::{raw_json, short_name};
 ///     });
 /// assert_eq!(world.len(), 1);
 /// ```
+///
+/// When events are visible (systems run one at a time):
+///
+/// - `send` is immediate: any later `read` sees the event, including one
+///   by the sender itself. Events are not deferred like commands, so a
+///   reader right after the sender sees its events and its applied
+///   commands together.
+/// - A reader earlier in the order (an earlier [`Phase`](crate::Phase), or
+///   registered before the sender in the same phase) sees the event on its
+///   next run: the next tick for simulation systems.
+/// - Frame systems see the events of every tick in their frame. Events
+///   sent by frame systems are stamped with the next tick and reach
+///   simulation systems on the next tick that runs.
+/// - At the start of each frame (each tick in headless runs), events are
+///   dropped once they are at least one whole frame old **and** older than
+///   the slowest `sim_system_every` interval in ticks. Headless, with every
+///   system running every tick, an event sent in tick `t` is kept through
+///   tick `t + 1`. While the simulation is paused no ticks pass, so events
+///   from frame systems are kept until simulation readers run again.
+/// - Code outside systems (`setup`) shares one read position.
 #[derive(Default)]
 pub struct Events {
     channels: Vec<Box<dyn Channel>>,

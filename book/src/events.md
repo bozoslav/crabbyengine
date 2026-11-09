@@ -45,6 +45,9 @@ least one frame old and older than the slowest `sim_system_every`. You
 never clear them yourself. `peek` shows everything still kept without
 moving the read position.
 
+[Systems and the frame](systems.md#when-changes-become-visible) lists how
+events relate to deferred commands, phases, frames and pauses.
+
 ## Sending from queries
 
 `ctx.events` is a separate field from `ctx.world`, so you can send inside a
