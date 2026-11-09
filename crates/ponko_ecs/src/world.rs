@@ -923,9 +923,20 @@ impl World {
     /// `value` must point to a valid value of component `id`; on success the
     /// world takes ownership of it.
     pub unsafe fn insert_dynamic(&mut self, e: Entity, id: ComponentId, value: *const u8) -> bool {
-        self.recorder.note(|l| l.structural = true);
-        let Some(loc) = self.entities.get(e) else { return false };
+        let Some(loc) = self.entities.get(e) else {
+            self.recorder.note(|l| l.structural = true);
+            return false;
+        };
         let src = loc.archetype as usize;
+        // Replacing a component in place is a write, not a structural change.
+        let replaces = self.archetypes[src].column_index(id).is_some();
+        self.recorder.note(|l| {
+            if replaces {
+                l.component(id, true);
+            } else {
+                l.structural = true;
+            }
+        });
         if let Some(col) = self.archetypes[src].column_index(id) {
             let c = &self.archetypes[src].columns[col];
             let dst = c.ptr(loc.row as usize);
