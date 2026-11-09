@@ -181,6 +181,7 @@ fn games_reflect_the_builtin_components_by_default() {
         expected.extend([
             "Decal3D",
             "LodGroup",
+            "LodHysteresis",
             "Model",
             "PointLight3D",
             "ReceivesDecals",

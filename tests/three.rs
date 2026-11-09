@@ -1275,6 +1275,15 @@ fn lod_groups_in_the_importers_json_shape_load() {
     });
 }
 
+#[test]
+fn lod_hysteresis_is_a_scene_component() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        let e = ctx.world.spawn((Transform3D::default(),));
+        ctx.world.set_json(e, "LodHysteresis", serde_json::json!(0.1)).unwrap();
+        assert_eq!(ctx.world.get::<LodHysteresis>(e), Some(&LodHysteresis(0.1)));
+    });
+}
+
 // ANCHOR: gpu_buffers
 fn gpu_particles(ctx: &mut Ctx) -> GpuBuffer {
     let items = ctx.create_gpu_buffer(128, &[]);
