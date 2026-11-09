@@ -281,7 +281,10 @@ fn a_single_sample_frame_draws_every_pass_like_the_multisampled_one() {
     for (x, y) in [(SIZE / 2, SIZE / 2), (4, 4), (SIZE - 5, 4), (SIZE / 2, SIZE / 2 + 12)] {
         let (a, b) = (pixel(&one, x, y), pixel(&four, x, y));
         for k in 0..3 {
-            assert!(a[k].abs_diff(b[k]) <= 10, "pixel ({x}, {y}): one sample {a:?}, four {b:?}");
+            assert!(
+                a[k].abs_diff(b[k]) <= 10,
+                "pixel ({x}, {y}): one sample {a:?}, four {b:?}"
+            );
         }
     }
 }

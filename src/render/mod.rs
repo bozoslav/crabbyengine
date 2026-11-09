@@ -225,8 +225,6 @@ mod contact_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod coverage_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
-mod single_sample_render_test;
-#[cfg(all(test, feature = "window", feature = "3d"))]
 mod draw_order_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod effect_shadow_render_test;
@@ -252,6 +250,8 @@ mod render_test_support;
 mod shadow_cache_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod shafts_render_test;
+#[cfg(all(test, feature = "window", feature = "3d"))]
+mod single_sample_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod skin_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]

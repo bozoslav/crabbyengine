@@ -1474,7 +1474,11 @@ impl Renderer3D {
         });
         let sky_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("3d sky"),
-            source: wgpu::ShaderSource::Wgsl(for_samples(&format!("{MESH_PRELUDE}\n{SKY}"), samples).into_owned().into()),
+            source: wgpu::ShaderSource::Wgsl(
+                for_samples(&format!("{MESH_PRELUDE}\n{SKY}"), samples)
+                    .into_owned()
+                    .into(),
+            ),
         });
         let sky_pipeline = |label, layout: &wgpu::PipelineLayout, entry_point, samples, depth| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -4581,7 +4585,11 @@ impl Renderer3D {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("3d target camera"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: if self.samples > 1 { &target.color } else { &target.resolve },
+                view: if self.samples > 1 {
+                    &target.color
+                } else {
+                    &target.resolve
+                },
                 depth_slice: None,
                 resolve_target: (self.samples > 1).then_some(&target.resolve),
                 ops: wgpu::Operations {

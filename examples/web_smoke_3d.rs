@@ -40,7 +40,8 @@ fn main() {
 
             // The fetched asset: a model with its own materials and textures.
             let house = ctx.load_mesh("models/house.glb");
-            ctx.world.spawn((Transform3D::at(vec3(0.0, 0.0, -3.0)), Model::new(house)));
+            ctx.world
+                .spawn((Transform3D::at(vec3(0.0, 0.0, -3.0)), Model::new(house)));
 
             let white = ctx.default_material();
             let ball = ctx.create_mesh(&MeshData::sphere(0.45, 24), white);
