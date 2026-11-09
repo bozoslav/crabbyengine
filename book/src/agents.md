@@ -44,6 +44,7 @@ ctx.world.reflect::<Health>();
 | `entity_stats` | | min, max, mean and value counts over every matching entity: "how many units per team, how hurt are they?" ([details](control.md#questions-about-many-entities)) |
 | `list_resources` / `get_resource` | | game-wide state: scores, rules, the current round |
 | `system_timings` | | which systems are slow |
+| `ecs_diagnostics` | | archetypes, component storage, and every system's phase, order and timings ([details](#ecs-diagnostics)) |
 | `perf_report` | | why frames are slow: fps and frame-time percentiles, CPU vs GPU, GPU time per pass, triangles drawn for the camera and the shadows, the heaviest meshes ([details](performance.md#profiling-a-frame)) |
 | `record_trace` | | the next N frames as a Perfetto trace, to find hitches |
 | `perf_hud` | | show the performance overlay, e.g. before a screenshot |
@@ -65,6 +66,37 @@ ctx.world.reflect::<Health>();
 | `quit_instance` | ✓ | |
 
 `--read-only` hides every tool marked ✓, for agents that should only watch.
+
+## ECS diagnostics
+
+`ecs_diagnostics` (endpoint method `ecs.diagnostics`, Rust
+`ctx.ecs_diagnostics()`) answers "why does this tick cost what it does?".
+It is built only when asked, so a game that never asks pays nothing. The
+answer has a `version` (1); field names stay stable and new ones may be added.
+
+- `archetypes`: `index`, `components` (full type names), `entities`,
+  `bytes_per_entity`, `allocated_bytes`. Empty ones are left out;
+  `archetypes_total` counts all of them.
+- `components`: `name`, `short_name`, `size`, `align`, and how many
+  `archetypes`, `entities` and `bytes` hold it.
+- `systems`, in run order: `name`, `phase` (`Input`, `BeforePhysics`,
+  `Physics`, `AfterPhysics`, `SimLast`, `Frame`, `Animate`, `Late`, `Draw`),
+  `order`, `sim`, `every`/`offset` (runs on ticks where
+  `tick % every == offset`), `access` and `last_ms`/`avg_ms`. Every system is
+  `exclusive` for now: it runs alone with `&mut Ctx`, and its commands are
+  applied right after it.
+- With `with: ["Pos", "Vel"]`, `matching` counts the archetypes and entities
+  a query for those components visits.
+
+Troubleshooting a slow tick, for example:
+
+1. `system_timings` shows `game::steer` at 6 ms average.
+2. `ecs_diagnostics` with `with: ["Transform2D", "Vel"]` gives
+   `"matching": {"archetypes": 41, "entities": 20000}`, and `archetypes`
+   lists 41 small ones that differ only by a `Stunned` marker component.
+3. So the query walks many archetypes. The fix is a `bool` field instead of
+   the marker; then `ecs_diagnostics` again: 1 archetype, and `steer`'s
+   `avg_ms` drops.
 
 ## Several agents, several games
 

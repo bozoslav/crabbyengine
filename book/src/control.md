@@ -93,6 +93,7 @@ headless game waits for requests and runs only the ticks you step.
 | `sim.step` | `ticks?` (1) | ticks queued |
 | `sim.speed` | `speed` | |
 | `systems.timings` | | each system's last and average ms |
+| `ecs.diagnostics` | `with?`, `limit?` (100) | archetypes, component storage and the schedule (see [ECS diagnostics](agents.md#ecs-diagnostics)); with `with`, also `matching` |
 | `events.list` | | reflected [event](events.md) types and how many are kept now |
 | `events.subscribe` | `types?` (all), `capacity?` (1000) | starts collecting new events between frames; the newest `capacity` are kept |
 | `events.take` | | `{events: [{tick, type, data}], dropped}` since the last take |
