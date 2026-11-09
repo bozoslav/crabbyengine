@@ -29,20 +29,13 @@ says what that covers.
   only for now.
 - `Ctx::load_component_json::<T>(path, entity)` and
   `load_resource_json::<T>(path)` take the name from the type.
-- One lifecycle for every resource handle: the `Handle` trait (`id`,
-  `from_id`, `NONE`), `ctx.is_live(h)`, `ctx.free(h)` and
-  `ctx.live_counts()` for textures (render targets included), sounds,
-  fonts, meshes, materials, shaders, compute passes, effects, GPU buffers,
-  instance batches and texture arrays. Freeing something still in use is
-  defined: models draw nothing for a freed mesh, white for a freed texture,
-  the default material for a freed material; freed effects and compute
-  passes are skipped, sounds stop and text falls back to the built-in font.
-  `Handle::NONE` is every kind's empty handle (`Texture::NONE`,
-  `Material::NONE`, ...), never live. The per-kind `free_*`, `has_*` and
-  `is_*_live` calls keep working. In C as `ponko_ctx_handle_is_live`,
-  `ponko_ctx_handle_free`, `ponko_ctx_live_counts`, `PonkoHandleKind`
-  and `PONKO_HANDLE_NONE`; in C++ as `ctx.is_live`, `ctx.free`,
-  `ctx.live_counts` and `ponko::none<H>()`.
+- `ponko::Error` and `ErrorKind`: one error type with a kind to match on,
+  the asset path, and a `ponko:`-prefixed message. Implements
+  `std::error::Error`, and converts from `ReflectError`, `NavBakeError` and
+  `serde_json::Error`.
+- `try_` twins returning `Result<_, ponko::Error>` for `load_texture`,
+  `load_mesh`, `load_skeleton`, `load_sound`, `load_font`, `create_material`
+  and `create_mesh`. The panicking calls now panic with the same message.
 
 ### Changed
 - The by-name forms of the two JSON loaders (used by the C API) are now

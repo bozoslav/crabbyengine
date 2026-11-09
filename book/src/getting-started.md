@@ -80,3 +80,28 @@ games that's all you need; when things grow, move to
 
 Everything comes in with `use ponko::*;`: `Game`, `Ctx`, `Vec2`,
 `Color`, `Key`, the ECS types and the built-in components.
+
+## When loading fails
+
+`load_texture`, `load_mesh`, `load_sound`, `load_font` and the other
+`load_*` / `create_*` calls are for setup code, where a missing file is a
+bug: they panic with a message that says what's wrong and where the engine
+looked. Each has a `try_` twin that returns `Result<_, ponko::Error>`
+instead, for assets that may legitimately be missing (a mod, an optional
+skin, a user's file):
+
+```rust
+# use ponko::*;
+# fn setup(ctx: &mut Ctx) {
+match ctx.try_load_texture("skins/gold.png") {
+    Ok(skin) => { /* use it */ let _ = skin; }
+    Err(e) if e.kind() == ErrorKind::NotFound => { /* no skin installed */ }
+    Err(e) => eprintln!("{e}"), // "ponko: ..." with the reason
+}
+# }
+```
+
+Match on `e.kind()` (`NotFound`, `Io`, `Decode`, `Invalid`, `BadHandle`,
+...), not on the message text, which may change. `ponko::Error` implements
+`std::error::Error`, so `?` passes it on into a `Box<dyn Error>` or your own
+error type. The C and C++ APIs keep their existing error reporting for now.

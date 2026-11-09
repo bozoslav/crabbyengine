@@ -34,7 +34,7 @@ From 1.0.0, the public API of these crates follows [semver](https://semver.org):
 - **Major** releases (2.0.0) are the only ones that remove or change things.
 
 Enums that will grow are `#[non_exhaustive]` (`NetState`, `BodyKind`,
-`Shape`, `FieldType`, `ReflectError`, `Key`, `MouseButton`, `GamepadButton`,
+`Shape`, `FieldType`, `ReflectError`, `ErrorKind`, `Key`, `MouseButton`, `GamepadButton`,
 `GamepadAxis`): matches on them need a `_` arm, so new variants can arrive in a minor release.
 
 Not covered, and allowed to change in any release:
@@ -46,6 +46,22 @@ Not covered, and allowed to change in any release:
   frames rendered: tests should check behavior, not strings or pixels.
 - Performance. Regressions are bugs, and benchmark numbers go in PRs, but
   timings are not part of the API.
+
+## Errors and panics
+
+Fallible calls follow one convention, introduced with `ponko::Error`:
+
+- `load_x` / `create_x` are for setup code, where a missing file is a bug.
+  They panic with the `Error`'s message (which starts with `ponko:`).
+- `try_load_x` / `try_create_x` return `Result<T, ponko::Error>`. Match on
+  `Error::kind()` (a `#[non_exhaustive]` `ErrorKind`), never on the message.
+- Operations that fail in normal play (scene loads, prefab spawns, network
+  joins) return a `Result` under their plain name and have no panicking twin.
+
+Texture, mesh, skeleton, sound and font loading and material and mesh
+creation follow it. Older calls that return `Result<_, String>` keep their
+signatures; they move to `ponko::Error` as the grouped `Ctx` services land,
+and `String: From<ponko::Error>` keeps them interoperable meanwhile.
 
 ## Deprecation
 
