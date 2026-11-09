@@ -302,16 +302,16 @@ impl Archetype {
     pub(crate) unsafe fn swap_remove_drop(
         &mut self,
         row: usize,
-    ) -> (Option<Entity>, Option<Box<dyn std::any::Any + Send>>) {
+        panic: &mut Option<Box<dyn std::any::Any + Send>>,
+    ) -> Option<Entity> {
         let last = self.len() - 1;
-        let mut panic = None;
         for c in self.columns.iter_mut() {
             if let Some(d) = c.drop {
                 // Finish removing every column before propagating user Drop panics.
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe { d(c.ptr(row)) }));
                 if let Err(payload) = result {
                     if panic.is_none() {
-                        panic = Some(payload);
+                        *panic = Some(payload);
                     } else {
                         std::mem::forget(payload);
                     }
@@ -320,7 +320,7 @@ impl Archetype {
             unsafe { c.swap_remove_forget(row, last) }
         }
         self.entities.swap_remove(row);
-        ((row != last).then(|| self.entities[row]), panic)
+        (row != last).then(|| self.entities[row])
     }
 }
 

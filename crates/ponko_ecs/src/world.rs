@@ -297,7 +297,8 @@ impl World {
         let Some(loc) = self.entities.get(e) else { return false };
         // Free the slot first: if a component's drop panics, the entity is already gone.
         self.entities.free(e);
-        let (moved, panic) = unsafe { self.archetypes[loc.archetype as usize].swap_remove_drop(loc.row as usize) };
+        let mut panic = None;
+        let moved = unsafe { self.archetypes[loc.archetype as usize].swap_remove_drop(loc.row as usize, &mut panic) };
         if let Some(moved) = moved {
             self.entities.set_row(moved, loc.row as usize);
         }

@@ -210,7 +210,6 @@ fn par_collect_into_drops_each_written_zero_sized_value_on_mapper_panic() {
     assert_eq!(DROPS.load(Ordering::Relaxed), created.load(Ordering::Relaxed));
 }
 
-
 #[test]
 fn panicking_parallel_mutation_releases_all_row_borrows() {
     use std::panic::{AssertUnwindSafe, catch_unwind};
