@@ -192,8 +192,9 @@ Ponko has direct asset loading, scenes/prefabs, glTF model loading and a
 Unity text-scene importer with FBX-related processing. External tools such
 as Blender remain appropriate for content creation. Importing supported
 scene data does not run arbitrary Unity scripts, packages or shaders.
-Budgeted texture/mesh residency and asynchronous uploads are future work
-[#154](https://github.com/ponkoengine/ponko/issues/154); asset lifecycle
+Texture and mesh residency budgets, asynchronous decoding with a per-frame
+upload budget, texture resolution streaming and streamed LOD levels are
+described in [Streaming](streaming.md); asset lifecycle
 stress diagnostics [#161](https://github.com/ponkoengine/ponko/issues/161)
 remain open. Do not infer a complete production asset pipeline from a
 successful import of one asset.

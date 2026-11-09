@@ -1,0 +1,176 @@
+# Streaming: memory budgets and loading without waiting
+
+`load_texture` and `load_mesh` read and decode a file on the game thread
+and keep it until you [free it](handles.md). That is the simple way, and
+right for what a game needs all the time. A large world needs more than
+fits in GPU memory at once, and can't stop for a frame while a file
+decodes. For that, ask for assets **by name, every frame you need them**:
+
+| | Waits for the file | Under a memory budget |
+|---|---|---|
+| `load_texture`, `load_mesh` | yes | no: kept until freed |
+| `resident_texture`, `resident_mesh` | yes, the first time | yes |
+| `stream_texture`, `stream_mesh` | never | yes |
+
+<div class="lang-pair">
+<div>
+
+```rust
+{{#include ../../tests/streaming.rs:streaming}}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:streaming}}
+```
+
+</div>
+</div>
+
+## Streaming: never waiting
+
+The first `stream_texture` or `stream_mesh` call starts reading and decoding
+the file on a [job](https://docs.rs/ponko/latest/ponko/struct.Job.html)
+thread and returns nothing. At the start of a later frame, before your
+systems run, the engine's **upload step** puts decoded assets on the GPU,
+in the order they were asked for, until the frame's **upload budget**
+(`set_upload_budget`, 16 MiB by default) is spent. One upload bigger than
+the budget still goes, alone in its frame, so nothing waits forever.
+
+A texture comes in as a **stand-in** at most 32 pixels a side, and from then
+on `stream_texture` returns the same handle every time. Each later upload
+doubles its resolution until it is full size; the handle always reports the
+full size, so sprites and materials don't change. A mesh comes in whole.
+
+Every asset has an `AssetState`, and `streamed_assets()` lists them all:
+
+| State | Meaning |
+|---|---|
+| `Loading` | decoding on a worker |
+| `Uploading` | decoded, waiting for room in the upload budget |
+| `Streaming` | a texture below full resolution, getting sharper |
+| `Resident` | fully loaded |
+| `Evicted` | dropped to fit its budget (see below) |
+| `Failed` | the file is missing or broken; `asset_error` says why |
+
+A failed asset isn't retried by asking again, so a missing file costs
+nothing each frame; `resident_texture` or `resident_mesh` loads it again.
+
+States change only in the upload step. Normally that step never waits for a
+decode, so which frame an asset arrives in depends on how fast the workers
+are. With `set_deterministic_uploads(true)` the step waits for each decode
+instead, so every state changes in a frame that depends only on the order
+of requests and the budget: replays, lockstep games and tests see the same
+frames every run. `finish_uploads()` waits for everything asked for so far,
+for loading screens and tests.
+
+## Budgets: staying in memory
+
+`set_residency_budget(kind, bytes)` caps the bytes of meshes or textures
+loaded by name (estimates of their GPU memory). When resident assets go
+over it, the **least recently used** ones are evicted until they fit.
+Never evicted:
+
+- assets asked for in the current frame and tick (a handle you just got
+  stays good while you use it),
+- meshes a `Model`, `ShadowMesh` or `LodGroup` shows, and textures a
+  `Sprite` shows,
+- pinned ones (`pin_resident_texture`, `pin_resident_mesh` until unpinned),
+- meshes the game also loaded with `load_mesh`: it holds those handles.
+
+Those are the documented exceptions: they can keep usage over the budget,
+and `residency(kind).over_budget_bytes()` says by how much. Assets loaded
+with `load_*` or made with `create_*` are never counted.
+
+A texture streaming up stops at the largest resolution that fits the
+budget once nothing else can be evicted, and goes on when room appears.
+
+## Evicted handles stay safe
+
+Eviction never leaves a handle pointing at something else:
+
+- An **evicted texture** drops to its stand-in (which the budget doesn't
+  count) and stays live: whatever shows it draws a blurry version until it
+  is asked for again and streams back up under the same handle.
+- An **evicted mesh** is freed, but its id is kept for its file: a handle
+  you kept in a resource reads as not live (`is_live` is false), a model
+  showing it draws nothing, and no other mesh ever takes that id. Asking for
+  the file again brings the mesh back under the same handle.
+
+Materials keep sampling an evicted texture's stand-in, so ask for textures
+that only materials use each frame they are on screen, or pin them.
+
+## LOD levels that stream in
+
+`StreamedLod` streams the levels of a `LodGroup` from files, one per level.
+Each frame the engine asks for the level the camera shows and the coarsest
+one. Until a level is in, the group shows the closest coarser level that is,
+so models never pop out while they load; levels the camera left stop being
+shown, and the mesh budget can evict them.
+
+```rust
+# use ponko::*;
+# fn f(ctx: &mut Ctx) {
+let levels = vec![
+    LodLevel::new(0.3, vec![LodRenderer::new(Mesh::NONE)]),
+    LodLevel::new(0.05, vec![LodRenderer::new(Mesh::NONE)]),
+];
+ctx.world.spawn((
+    Transform3D::default(),
+    LodGroup::new(10.0, levels),
+    StreamedLod::new(&["models/tower_lod0.glb", "models/tower_lod1.glb"]),
+));
+# }
+```
+
+From C, `ponko_ctx_set_streamed_lod`; from C++, `ctx.set_streamed_lod(e, files)`.
+
+## Hot reload and freeing
+
+With [hot reload](data-files.md) on, editing a streamed texture's file
+replaces it at full resolution under the same handle. Freeing a streamed
+texture or mesh with `ctx.free` works as for any handle; asking for it by
+name again loads it afresh, as a new handle.
+
+## Where to look
+
+`perf.get` on the [control endpoint](control.md) reports `residency` (the
+budget and counters of each kind) and `streaming` (the upload queue's
+counters and every asset's state); `ctx.upload_stats()` gives the same
+numbers in code, including how long the upload step took.
+
+## Measured
+
+`cargo run --release -p ponko_bench -- streaming/` runs a headless game that
+needs sixteen new 1024 × 1024 images (noise PNGs on disk) at once, and
+measures the game thread's CPU time spent loading in each frame: the load or
+stream calls plus the upload step. CPU time rather than wall time, so a busy
+machine pausing the thread doesn't count. On an Apple M4 Max (macOS, release
+build, three runs, the machine under heavy other load):
+
+| | Worst frame's loading work | Median | Usable after |
+|---|---|---|---|
+| `load_texture` | 11.3 to 13.0 ms | 0.20 ms | the same frame |
+| `stream_texture` | 0.49 to 0.94 ms | 0.004 ms | 3 to 8 frames |
+
+`load_texture` decodes all sixteen in the frame that first needs them;
+streaming spreads only the uploads over frames. Headless runs don't include
+the GPU's share of uploads; the upload budget is what bounds that.
+
+## Browsers and asset sources
+
+Browsers have no worker threads here, so on the web a stream's decode runs
+when it is asked for. [Asset sources](asset-sources.md) are read on the
+game thread (their trait runs there). Images from them are still decoded
+on workers; meshes, whose files can refer to other files only those sources
+can read, are decoded on the game thread while any source is added.
+
+## C and C++
+
+Every call above has a C function (`ponko_ctx_stream_texture`,
+`ponko_ctx_asset_state`, `ponko_ctx_set_residency_budget`, ...) and a
+`ponko::ctx` method of the same name; kinds are `PONKO_RESIDENCY_MESH` and
+`PONKO_RESIDENCY_TEXTURE` (`ponko::residency_kind`), states
+`PONKO_ASSET_*` (`ponko::asset_state`).

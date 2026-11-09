@@ -676,3 +676,41 @@ mod meshes {
         run(deterministic, steps);
     }
 }
+
+#[test]
+fn the_guide_streaming_example_runs() {
+    // ANCHOR: streaming
+    fn setup(ctx: &mut Ctx) {
+        // Memory caps for what loads by name, and bytes sent to the GPU per frame.
+        ctx.set_residency_budget(ResidencyKind::Texture, Some(256 << 20));
+        ctx.set_residency_budget(ResidencyKind::Mesh, Some(512 << 20));
+        ctx.set_upload_budget(Some(8 << 20));
+    }
+
+    fn draw_ground(ctx: &mut Ctx) {
+        // Ask every frame you need it: never waits. `None` until a small
+        // stand-in is up, then the same texture, sharper each frame.
+        if let Some(ground) = ctx.stream_texture("cells/ground.png") {
+            ctx.draw(&ground, vec2(0.0, 0.0));
+        }
+        if ctx.asset_state(ResidencyKind::Texture, "cells/ground.png") == AssetState::Failed {
+            let why = ctx.asset_error(ResidencyKind::Texture, "cells/ground.png");
+            eprintln!("no ground: {why:?}");
+        }
+    }
+    // ANCHOR_END: streaming
+    let states = Rc::new(RefCell::new(Vec::new()));
+    let log = states.clone();
+    Game::new("guide", 1, 1)
+        .sim_system(draw_ground)
+        .sim_system(move |ctx: &mut Ctx| {
+            log.borrow_mut()
+                .push(ctx.asset_state(ResidencyKind::Texture, "cells/ground.png"));
+        })
+        .run_headless(8, |ctx| {
+            ctx.add_asset_source(MemorySource::new("cells").with("cells/ground.png", png(256, 256, 90)));
+            ctx.set_deterministic_uploads(true);
+            setup(ctx);
+        });
+    assert_eq!(states.borrow().last(), Some(&AssetState::Resident));
+}

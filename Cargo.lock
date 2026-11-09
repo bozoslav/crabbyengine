@@ -3041,6 +3041,8 @@ version = "0.0.1"
 dependencies = [
  "bevy_ecs",
  "hecs",
+ "image",
+ "libc",
  "ponko",
  "ponko_ecs",
  "rapier2d",

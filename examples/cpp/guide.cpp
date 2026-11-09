@@ -2321,6 +2321,24 @@ void stream_out(ponko::ctx& ctx) {
 }
 // ANCHOR_END: handles
 
+// ANCHOR: streaming
+void streaming_setup(ponko::ctx& ctx) {
+    // Memory caps for what loads by name, and bytes sent to the GPU per frame.
+    ctx.set_residency_budget(ponko::residency_kind::texture, 256u << 20);
+    ctx.set_residency_budget(ponko::residency_kind::mesh, 512u << 20);
+    ctx.set_upload_budget(8u << 20);
+}
+
+void draw_crab(ponko::ctx& ctx) {
+    // Ask every frame you need it: never waits. Empty until a small
+    // stand-in is up, then the same texture, sharper each frame.
+    if (auto crab = ctx.stream_texture("crab.png")) ctx.draw(*crab, {0, 0});
+    if (ctx.asset_state(ponko::residency_kind::texture, "crab.png") == ponko::asset_state::failed) {
+        std::fprintf(stderr, "no crab: %s\n", ctx.asset_error(ponko::residency_kind::texture, "crab.png").c_str());
+    }
+}
+// ANCHOR_END: streaming
+
 int main() {
     steering_stays_within_budget();
     navigation_guide();
@@ -2465,6 +2483,13 @@ int main() {
     (void)&controls;
     ponko::game("gpu buffers", 1, 1).run_headless(0, gpu_particles);
     ponko::game("handles", 1, 1).run_headless(0, stream_out);
+    ponko::game("streaming", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
+        streaming_setup(ctx);
+        draw_crab(ctx);
+        ctx.finish_uploads();
+        draw_crab(ctx);
+        if (ctx.asset_state(ponko::residency_kind::texture, "crab.png") != ponko::asset_state::resident) std::abort();
+    });
     world_text_snippet();
     action_map_snippet();
     ponko::game("static instances",1,1).run_headless(0,[](ponko::ctx& ctx) {

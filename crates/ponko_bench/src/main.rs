@@ -16,6 +16,7 @@ mod physics;
 mod physics3d;
 mod query_cache;
 mod report;
+mod streaming;
 
 use bevy_ecs::component::Component;
 use std::hint::black_box;
@@ -172,6 +173,7 @@ fn main() {
     net::run(&mut b);
     actions::run(&mut b);
     query_cache::run(&mut b);
+    streaming::run(&mut b);
 
     // Resource scoping versus the previous public take/put workaround.
     for scoped in [false, true] {
