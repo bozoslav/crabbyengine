@@ -537,6 +537,7 @@ fn perf_json(ctx: &Ctx, meshes: usize) -> Value {
             "triangles": r.triangles,
             "shadow_models": r.shadow_instances,
             "shadow_triangles": r.shadow_triangles,
+            "uploads": r.uploads.json(),
         },
         "systems": slowest_systems(ctx),
         "hint": "frame time is about max(CPU, GPU): when display_wait is large the GPU (or vsync) is the limit; gpu_passes says which pass",

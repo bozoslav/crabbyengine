@@ -1,4 +1,5 @@
 //! Camera-local light textures, grown only when a new high-water mark is reached.
+use crate::render::traffic::{Counted, Upload};
 use crate::three::lights::{LIST_WIDTH, LightGrid};
 use crate::three::projected::{DECAL_TEXELS, DecalGrid};
 
@@ -7,6 +8,16 @@ pub(super) struct LightTextures {
     pub indices: wgpu::Texture,
     pub records_view: wgpu::TextureView,
     pub indices_view: wgpu::TextureView,
+    /// What the four writes (lights, decals; light lists, decal lists)
+    /// last put where, to skip those that would write the same again.
+    written: [Written; 4],
+}
+
+/// One region of a light texture as last written: its first row and data.
+#[derive(Default)]
+struct Written {
+    row: u32,
+    mirror: crate::render::traffic::Mirror,
 }
 impl LightTextures {
     pub fn new(device: &wgpu::Device) -> Self {
@@ -32,6 +43,7 @@ impl LightTextures {
             indices,
             records_view,
             indices_view,
+            written: Default::default(),
         }
     }
     /// True when bindings must be rebuilt (growth only). Lights come first
@@ -63,8 +75,16 @@ impl LightTextures {
                 changed = true;
             }
         }
+        if changed {
+            // New textures: nothing in them yet.
+            for w in &mut self.written {
+                w.mirror.forget();
+            }
+        }
+        let [lights, decal_records, lists, decal_lists] = &mut self.written;
         write(
             queue,
+            lights,
             &self.records,
             0,
             4,
@@ -74,6 +94,7 @@ impl LightTextures {
         );
         write(
             queue,
+            decal_records,
             &self.records,
             light_rows,
             DECAL_TEXELS as u32,
@@ -83,6 +104,7 @@ impl LightTextures {
         );
         write(
             queue,
+            lists,
             &self.indices,
             0,
             LIST_WIDTH as u32,
@@ -92,6 +114,7 @@ impl LightTextures {
         );
         write(
             queue,
+            decal_lists,
             &self.indices,
             list_rows,
             LIST_WIDTH as u32,
@@ -118,11 +141,32 @@ fn texture(device: &wgpu::Device, label: &str, width: u32, height: u32, format: 
         view_formats: &[],
     })
 }
-fn write(queue: &wgpu::Queue, texture: &wgpu::Texture, first_row: u32, width: u32, data: &[u8], height: u32, row: u32) {
+/// Writes `height` rows of `data` from `first_row`, unless `written` says
+/// they're already there.
+#[allow(clippy::too_many_arguments)]
+fn write(
+    queue: &wgpu::Queue,
+    written: &mut Written,
+    texture: &wgpu::Texture,
+    first_row: u32,
+    width: u32,
+    data: &[u8],
+    height: u32,
+    row: u32,
+) {
     if height == 0 {
         return;
     }
-    queue.write_texture(
+    if written.row != first_row {
+        written.mirror.forget();
+        written.row = first_row;
+    }
+    let mut changed = false;
+    written.mirror.sync(0, data, data.len(), |_, _| changed = true);
+    if !changed {
+        return;
+    }
+    queue.uploading(Upload::Lights).write_texture(
         wgpu::TexelCopyTextureInfo {
             origin: wgpu::Origin3d {
                 x: 0,

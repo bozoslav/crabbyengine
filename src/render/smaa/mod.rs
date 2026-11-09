@@ -1,5 +1,6 @@
 //! SMAA reference implementation, adapted from smaa-rs 0.21 (MIT).
 //! Lookup tables and reference shader: Jorge Jimenez et al. (MIT, headers retained).
+use crate::render::traffic::{Counted, Upload};
 mod shader;
 use shader::{ShaderQuality, ShaderSource, ShaderStage};
 
@@ -329,11 +330,13 @@ impl Targets {
         for f in &[1.0 / width as f32, 1.0 / height as f32, width as f32, height as f32] {
             uniform_data.extend_from_slice(&f.to_ne_bytes());
         }
-        let rt_uniforms = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("smaa.uniforms"),
-            usage: wgpu::BufferUsages::UNIFORM,
-            contents: &uniform_data,
-        });
+        let rt_uniforms = device
+            .uploading(Upload::Uniforms)
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("smaa.uniforms"),
+                usage: wgpu::BufferUsages::UNIFORM,
+                contents: &uniform_data,
+            });
 
         Self {
             rt_uniforms,

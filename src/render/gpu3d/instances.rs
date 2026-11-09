@@ -76,7 +76,7 @@ impl Culling {
             compilation_options: Default::default(),
             cache: None,
         });
-        let occlusion = device.create_buffer(&wgpu::BufferDescriptor {
+        let occlusion = device.new_buffer(&wgpu::BufferDescriptor {
             label: Some("static occlusion grid"),
             size: ((device.limits().max_texture_dimension_2d as u64 / 8 + 1) * 160 + 32) * 4,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
@@ -115,11 +115,13 @@ impl Renderer3D {
                 v.model[0][3] = -2.0;
             }
         }
-        let vertices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("static instance vertices"),
-            contents: bytemuck::cast_slice(&marker),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        let vertices = device
+            .uploading(Upload::StaticBatches)
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("static instance vertices"),
+                contents: bytemuck::cast_slice(&marker),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
         let views = Vec::new();
         let mut source = Vec::new();
         let mut gpu_cells = None;
@@ -144,11 +146,13 @@ impl Renderer3D {
                     ]
                 })
                 .collect();
-            let cells = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("static cells"),
-                contents: bytemuck::cast_slice(&cells),
-                usage: wgpu::BufferUsages::STORAGE,
-            });
+            let cells = device
+                .uploading(Upload::StaticBatches)
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("static cells"),
+                    contents: bytemuck::cast_slice(&cells),
+                    usage: wgpu::BufferUsages::STORAGE,
+                });
             arguments = self.meshes[batch.mesh.id as usize]
                 .parts
                 .iter()
@@ -189,9 +193,13 @@ impl Renderer3D {
             if let Some((g, (w, h, depth))) = grid {
                 header[0..4].copy_from_slice(&[*w as f32, *h as f32, g.camera.distance(camera), 1.0]);
                 header[4..20].copy_from_slice(&g.view_proj.to_cols_array());
-                queue.write_buffer(&cull.occlusion, 96, bytemuck::cast_slice(depth));
+                queue
+                    .uploading(Upload::StaticBatches)
+                    .write_buffer(&cull.occlusion, 96, bytemuck::cast_slice(depth));
             }
-            queue.write_buffer(&cull.occlusion, 0, bytemuck::cast_slice(&header));
+            queue
+                .uploading(Upload::StaticBatches)
+                .write_buffer(&cull.occlusion, 0, bytemuck::cast_slice(&header));
         }
         for batch in self.static_batches.iter_mut().flatten() {
             let targets = 1 + MAX_CASCADES + frame.light_views;
@@ -203,20 +211,26 @@ impl Renderer3D {
             }
             if let (Some(culling), Some(storage_read)) = (&self.static_culling, &self.storage_read) {
                 while batch.views.len() < batch.active_views {
-                    let data = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("static transforms and visibility"),
-                        contents: bytemuck::cast_slice(&batch.source),
-                        usage: wgpu::BufferUsages::STORAGE,
-                    });
-                    let args = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("static indirect arguments"),
-                        contents: bytemuck::cast_slice(&batch.arguments),
-                        usage: wgpu::BufferUsages::STORAGE
-                            | wgpu::BufferUsages::INDIRECT
-                            | wgpu::BufferUsages::COPY_DST
-                            | wgpu::BufferUsages::COPY_SRC,
-                    });
-                    let uniform = device.create_buffer(&wgpu::BufferDescriptor {
+                    let data =
+                        device
+                            .uploading(Upload::StaticBatches)
+                            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                label: Some("static transforms and visibility"),
+                                contents: bytemuck::cast_slice(&batch.source),
+                                usage: wgpu::BufferUsages::STORAGE,
+                            });
+                    let args =
+                        device
+                            .uploading(Upload::StaticBatches)
+                            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                label: Some("static indirect arguments"),
+                                contents: bytemuck::cast_slice(&batch.arguments),
+                                usage: wgpu::BufferUsages::STORAGE
+                                    | wgpu::BufferUsages::INDIRECT
+                                    | wgpu::BufferUsages::COPY_DST
+                                    | wgpu::BufferUsages::COPY_SRC,
+                            });
+                    let uniform = device.new_buffer(&wgpu::BufferDescriptor {
                         label: Some("static cull view"),
                         size: std::mem::size_of::<View>() as u64,
                         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
@@ -277,7 +291,7 @@ impl Renderer3D {
                 let planes = [r[3] + r[0], r[3] - r[0], r[3] + r[1], r[3] - r[1], r[2], r[3] - r[2]]
                     .map(|p| p / p.truncate().length().max(f32::MIN_POSITIVE));
                 if let Some(view) = batch.views.get(v) {
-                    queue.write_buffer(
+                    queue.uploading(Upload::StaticBatches).write_buffer(
                         &view.uniform,
                         0,
                         bytemuck::bytes_of(&View {

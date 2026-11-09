@@ -10,6 +10,7 @@
 //!   views into its tiles in a scratch image, which is then copied into
 //!   the atlas.
 use super::lights::LightTextures;
+use crate::render::traffic::{Counted, NewBuffer, Upload};
 use crate::three::MAX_GI_PROBES_PER_FRAME;
 use crate::three::gi::{GI_SHADOW_SIZE, GiFrame};
 
@@ -153,7 +154,7 @@ impl Gi {
             compilation_options: Default::default(),
             cache: None,
         });
-        let uniform = device.create_buffer(&wgpu::BufferDescriptor {
+        let uniform = device.new_buffer(&wgpu::BufferDescriptor {
             label: Some("3d gi updates"),
             size: size_of::<Updates>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
@@ -213,7 +214,7 @@ impl Gi {
         });
         let face_buffers = (0..MAX_UPDATES * 6)
             .map(|_| {
-                device.create_buffer(&wgpu::BufferDescriptor {
+                device.new_buffer(&wgpu::BufferDescriptor {
                     label: Some("3d gi view frame"),
                     size: uniform_size,
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
@@ -356,7 +357,9 @@ impl Gi {
                 tile: [column as f32, row as f32, u.keep, 0.0],
             };
         }
-        queue.write_buffer(&self.uniform, 0, bytemuck::bytes_of(&updates));
+        queue
+            .uploading(Upload::Uniforms)
+            .write_buffer(&self.uniform, 0, bytemuck::bytes_of(&updates));
         remade
     }
 
