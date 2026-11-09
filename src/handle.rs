@@ -7,7 +7,10 @@
 //!
 //! - Is it still valid? [`Ctx::is_live`].
 //! - Release it: [`Ctx::free`]. Ids are never reused within a run, so a
-//!   freed handle stays dead; freeing it again does nothing.
+//!   freed handle stays dead; freeing it again does nothing. Meshes and GPU
+//!   buffers are the exception: streamed worlds make and free them all the
+//!   time, so the next one made takes a freed id. Drop those handles once
+//!   freed.
 //! - An empty handle: [`Handle::NONE`], which is never live.
 //!
 //! Freeing something others still use is defined: they draw with the

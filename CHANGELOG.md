@@ -35,9 +35,6 @@ says what that covers.
   and `PONKO_HANDLE_NONE`; in C++ as `ctx.is_live`, `ctx.free`,
   `ctx.live_counts` and `ponko::none<H>()`.
 
-### Changed
-- Freed mesh and GPU buffer ids are no longer reused: a freed handle stays
-  dead instead of naming the next one made.
 
 
 ## [0.0.1] - 2026-11-08

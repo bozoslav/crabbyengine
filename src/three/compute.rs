@@ -274,15 +274,23 @@ impl GpuBuffer {
 }
 impl Ctx {
     /// Creates `len` elements. Initial data may be empty or exactly `len` elements.
-    /// Ids are never reused (see [`Ctx::free_gpu_buffer`]).
+    /// A freed buffer's id is reused first (see [`Ctx::free_gpu_buffer`]).
     /// Panics for zero length or mismatched data. See [`GpuBuffer`].
     pub fn create_gpu_buffer(&mut self, len: u32, data: &[crate::Vec4]) -> GpuBuffer {
         assert!(
             len > 0 && (data.is_empty() || data.len() == len as usize),
             "invalid GPU buffer length"
         );
-        self.assets3d.gpu_buffers.push(len);
-        let id = self.assets3d.gpu_buffers.len() as u32 - 1;
+        let id = match self.assets3d.free_gpu_buffers.pop() {
+            Some(id) => {
+                self.assets3d.gpu_buffers[id as usize] = len;
+                id
+            }
+            None => {
+                self.assets3d.gpu_buffers.push(len);
+                self.assets3d.gpu_buffers.len() as u32 - 1
+            }
+        };
         if let Some(r) = self.renderer.as_mut()
             && !self.headless
         {
@@ -307,16 +315,17 @@ impl Ctx {
     /// Frees `b`'s GPU memory, for effects that come and go. Its compute
     /// passes are removed from [`Ctx::compute_passes`] and meshes drawing
     /// from it draw nothing (they can be bound to another buffer again).
-    /// Its id is never reused, so the handle stays dead. Freeing it again
-    /// does nothing. The same as [`Ctx::free`] with a buffer.
+    /// Drop the handle: the next buffer made takes its id, and an old handle
+    /// would reach that one. Freeing it again does nothing (until a new
+    /// buffer takes its id). The same as [`Ctx::free`] with a buffer.
     /// ```
     /// # use ponko::*;
     /// Game::new("b", 1, 1).run_headless(0, |ctx| {
     ///     let b = ctx.create_gpu_buffer(8, &[]);
     ///     ctx.free_gpu_buffer(b);
     ///     assert_eq!(ctx.gpu_buffer_len(b), None);
-    ///     // The id is not reused.
-    ///     assert_ne!(ctx.create_gpu_buffer(4, &[]), b);
+    ///     // The id is reused.
+    ///     assert_eq!(ctx.create_gpu_buffer(4, &[]), b);
     /// });
     /// ```
     pub fn free_gpu_buffer(&mut self, b: GpuBuffer) {
@@ -327,7 +336,8 @@ impl Ctx {
             return;
         }
         *len = 0;
-        // Its passes would do nothing now.
+        self.assets3d.free_gpu_buffers.push(b.id);
+        // Clear what pointed at it, so the id's next buffer starts clean.
         self.compute_passes.retain(|p| p.buffer != Some(b));
         if let Some(r) = self.renderer.as_mut()
             && !self.headless
@@ -444,11 +454,10 @@ mod tests {
             // Calling again replaces the sphere instead of piling on.
             ctx.set_mesh_gpu_bounds(mesh, Vec3::Y * 10.0, 2.0);
             assert_eq!(ctx.assets3d.bounds[mesh.id as usize], grown);
-            // A new mesh made after freeing this one has its own sphere.
+            // A freed mesh's slot starts over.
             ctx.free_mesh(mesh);
             let again = ctx.create_mesh(&crate::MeshData::cube(0.5), material);
-            assert_ne!(again, mesh, "ids are never reused");
-            assert_eq!(ctx.assets3d.bounds[again.id as usize], own);
+            assert_eq!((again, ctx.assets3d.bounds[again.id as usize]), (mesh, own));
         });
     }
 

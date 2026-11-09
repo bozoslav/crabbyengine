@@ -183,8 +183,8 @@ pub unsafe extern "C" fn crabby_ctx_handle_is_live(
 }
 
 /// Frees the handle of `kind` (a `CrabbyHandleKind`) with `id` (Rust
-/// `Ctx::free`): its memory goes, and its id is never reused, so the handle
-/// stays dead. Whatever still uses it draws the default: nothing for a
+/// `Ctx::free`): its memory goes, and its id is never reused (except for
+/// meshes and GPU buffers, whose next one made takes it). Whatever still uses it draws the default: nothing for a
 /// mesh, white for a texture, the default material, the built-in shader or
 /// font; effects and compute passes are skipped and sounds stop. Freeing it
 /// again, or `CRABBY_HANDLE_NONE`, does nothing.

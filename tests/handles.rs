@@ -27,6 +27,20 @@ fn frees<H: Handle>(ctx: &mut Ctx, handle: H, make: impl Fn(&mut Ctx) -> H) {
     ctx.free(next);
 }
 
+/// [`frees`] for meshes and GPU buffers, whose freed ids the next one made
+/// takes (streamed worlds make and free them all the time).
+#[cfg(feature = "3d")]
+fn frees_reusing<H: Handle>(ctx: &mut Ctx, handle: H, make: impl Fn(&mut Ctx) -> H) {
+    assert!(ctx.is_live(handle), "{handle:?} is live before free");
+    ctx.free(handle);
+    assert!(!ctx.is_live(handle), "{handle:?} is dead after free");
+    ctx.free(handle); // again: nothing
+    let next = make(ctx);
+    assert_eq!(next.id(), handle.id(), "{handle:?}: the freed id is taken again");
+    assert!(ctx.is_live(next));
+    ctx.free(next);
+}
+
 #[test]
 fn none_is_never_live_and_freeing_it_does_nothing() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
@@ -133,7 +147,7 @@ mod three {
                 ctx.create_mesh(&MeshData::cube(1.0), m)
             };
             let mesh = cube(ctx);
-            frees(ctx, mesh, cube);
+            frees_reusing(ctx, mesh, cube);
             let plain = |ctx: &mut Ctx| ctx.create_material(MaterialDesc::default());
             let material = plain(ctx);
             frees(ctx, material, plain);
@@ -148,7 +162,7 @@ mod three {
             frees(ctx, e, effect);
             let buffer = |ctx: &mut Ctx| ctx.create_gpu_buffer(4, &[]);
             let b = buffer(ctx);
-            frees(ctx, b, buffer);
+            frees_reusing(ctx, b, buffer);
             let cube_mesh = cube(ctx);
             let batch = move |ctx: &mut Ctx| {
                 ctx.create_instance_batch(cube_mesh, &[Mat4::IDENTITY], InstanceBatchOptions::default())
@@ -278,15 +292,17 @@ mod three {
     }
 
     #[test]
-    fn a_freed_loaded_mesh_loads_again_with_a_new_id() {
+    fn a_freed_loaded_mesh_loads_again() {
         Game::new("t", 1, 1).run_headless(0, |ctx| {
             let house = ctx.load_mesh("models/house.glb");
             let counts = ctx.live_counts();
             ctx.free(house);
+            assert!(!ctx.is_live(house));
             assert_eq!(ctx.live_counts().meshes, counts.meshes - 1);
+            // Loaded afresh (into the freed id, which the next mesh takes).
             let again = ctx.load_mesh("models/house.glb");
-            assert_ne!(again, house);
-            assert!(ctx.is_live(again) && !ctx.is_live(house));
+            assert!(ctx.is_live(again));
+            assert_eq!(ctx.live_counts().meshes, counts.meshes);
         });
     }
 

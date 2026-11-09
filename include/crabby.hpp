@@ -2823,7 +2823,7 @@ public:
         detail::check(crabby_ctx_write_gpu_buffer(raw_, b, offset, reinterpret_cast<const float (*)[4]>(data.data()), data.size()));
     }
     /// Frees a GPU buffer; its compute passes are removed and meshes using
-    /// it draw nothing. Its id is never reused, so the handle stays dead.
+    /// it draw nothing. The next buffer made takes its id: drop the handle.
     void free_gpu_buffer(gpu_buffer b) { detail::check(crabby_ctx_free_gpu_buffer(raw_, b)); }
     /// Draws `count` instances of a mesh from a GPU buffer, each at its
     /// entity's transform and tint (`items[v.instance_index]` in the shader).
@@ -3210,8 +3210,9 @@ public:
         detail::check(crabby_ctx_handle_is_live(raw_, detail::handle_kind<H>::value, h.id, &live));
         return live;
     }
-    /// Frees handle `h` (Rust `Ctx::free`): its id is never reused, so `h`
-    /// stays dead, and whatever still uses it draws the default (nothing for
+    /// Frees handle `h` (Rust `Ctx::free`): its id is never reused (except
+    /// for meshes and GPU buffers, whose next one made takes it), and
+    /// whatever still uses it draws the default (nothing for
     /// a mesh, white for a texture, the default material, the built-in font).
     template<class H> void free(H h) {
         detail::check(crabby_ctx_handle_free(raw_, detail::handle_kind<H>::value, h.id));

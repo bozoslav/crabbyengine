@@ -784,6 +784,8 @@ pub(crate) struct Assets3D {
     pub morph_bases: std::collections::HashMap<crate::Entity, (u32, MorphWeights, MorphWeights)>,
     /// Bounding sphere of each mesh, in its own space: center and radius.
     pub bounds: Vec<(Vec3, f32)>,
+    /// Freed meshes' ids, for the next meshes made.
+    pub free_meshes: Vec<u32>,
     pub probes: probe::ProbeAssets,
     /// How each skinned mesh binds to joints, by mesh id; shorter than
     /// `bounds` when the last ones aren't skinned.
@@ -827,6 +829,8 @@ pub(crate) struct Assets3D {
     /// GPU buffers' lengths, by id; 0 for a freed one.
     pub gpu_buffers: Vec<u32>,
     pub instance_batches: Vec<Option<instances::Batch>>,
+    /// Freed GPU buffers' ids, for the next buffers made.
+    pub free_gpu_buffers: Vec<u32>,
     /// Buffer-driven meshes' own bounds (before `set_mesh_gpu_bounds`
     /// grew them), by mesh id.
     pub gpu_mesh_bounds: std::collections::HashMap<u32, (Vec3, f32)>,

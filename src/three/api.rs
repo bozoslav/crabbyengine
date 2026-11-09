@@ -734,9 +734,19 @@ impl Ctx {
         skin: Option<MeshSkin>,
         morph_defaults: Vec<f32>,
     ) -> Mesh {
-        // Ids are never reused, so a freed mesh's handle stays dead.
-        self.assets3d.bounds.push(data.bounds());
-        let id = self.assets3d.bounds.len() as u32 - 1;
+        // A freed mesh's id first, so streaming meshes in and out doesn't
+        // grow the tables (and the per-frame sort, which spans every id).
+        let id = match self.assets3d.free_meshes.pop() {
+            Some(id) => {
+                self.assets3d.gpu_mesh_bounds.remove(&id);
+                self.assets3d.bounds[id as usize] = data.bounds();
+                id
+            }
+            None => {
+                self.assets3d.bounds.push(data.bounds());
+                self.assets3d.bounds.len() as u32 - 1
+            }
+        };
         let posed = skin.is_some() || !data.morph_targets.is_empty();
         if let Some(skin) = skin {
             if self.assets3d.skins.len() <= id as usize {
@@ -800,8 +810,9 @@ impl Ctx {
     }
 
     /// Frees `mesh`'s GPU memory, for worlds streamed in and out. Models
-    /// still showing it draw nothing; despawn them too. Its id is never
-    /// reused, so the handle stays dead. A mesh loaded from a file loads
+    /// still showing it draw nothing; despawn them too. Drop the handle: the
+    /// next mesh made takes its id, so streaming doesn't grow the mesh
+    /// tables, and an old handle would reach that one. A mesh loaded from a file loads
     /// afresh next time. Freeing it again does nothing. The same as
     /// [`Ctx::free`] with a mesh.
     ///
@@ -823,6 +834,7 @@ impl Ctx {
         }
         *bounds = (Vec3::ZERO, -1.0);
         self.assets3d.gpu_mesh_bounds.remove(&mesh.id);
+        self.assets3d.free_meshes.push(mesh.id);
         if let Some(shadowless) = self.assets3d.shadowless.get_mut(mesh.id as usize) {
             *shadowless = false;
         }

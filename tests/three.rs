@@ -1307,7 +1307,7 @@ fn gpu_buffers_support_headless_setup_and_writes() {
     });
 }
 #[test]
-fn freed_gpu_buffers_stay_dead_and_drop_their_passes() {
+fn freed_gpu_buffers_reuse_ids_and_drop_their_passes() {
     Game::new("buffers", 1, 1).run_headless(0, |ctx| {
         let b = ctx.create_gpu_buffer(4, &[]);
         let other = ctx.create_gpu_buffer(2, &[]);
@@ -1320,9 +1320,9 @@ fn freed_gpu_buffers_stay_dead_and_drop_their_passes() {
         assert_eq!(ctx.compute_passes[0].buffer, Some(other));
         ctx.free_gpu_buffer(b); // again: nothing
         let again = ctx.create_gpu_buffer(8, &[]);
-        assert_ne!(again, b, "ids are never reused");
+        assert_eq!(again, b);
         assert_eq!(ctx.gpu_buffer_len(again), Some(8));
-        assert_eq!(ctx.gpu_buffer_len(b), None);
+        assert_eq!(ctx.create_gpu_buffer(1, &[]).id(), 2, "then a new id");
     });
 }
 #[test]
