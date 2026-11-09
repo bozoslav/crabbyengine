@@ -220,7 +220,9 @@ pub use ui::{
 };
 
 /// The ECS: entities, components, queries, resources, commands.
-pub use ponko_ecs::{Commands, Component, ComponentId, Entity, Or, Query, QueryFilter, With, Without, World};
+pub use ponko_ecs::{
+    Added, Changed, Commands, Component, ComponentId, Entity, Or, Query, QueryFilter, Tick, With, Without, World,
+};
 
 /// The full ECS crate, for advanced use (C path, chunks, archetypes).
 pub use ponko_ecs as ecs_core;

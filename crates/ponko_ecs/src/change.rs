@@ -51,7 +51,9 @@ use crate::world::World;
 /// tracked value counts as added and changed since then.
 ///
 /// Ticks belong to one world and one run: don't save them or use them with
-/// another world.
+/// another world. A tick the world hasn't reached yet (which can only come
+/// from another world) is treated like `Tick::default()`: readers are shown
+/// everything rather than nothing.
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
 pub struct Tick(pub(crate) u64);
 
@@ -219,9 +221,12 @@ pub(crate) struct Clock {
 impl Clock {
     #[inline]
     pub(crate) fn new(now: Tick, since: Tick) -> Self {
+        // A `since` this world hasn't reached is another world's tick:
+        // report everything rather than nothing.
+        let age = now.0.checked_sub(since.0).unwrap_or(u64::MAX);
         Clock {
             now: now.0 as u32,
-            newer_than: now.0.saturating_sub(since.0).min(1 << 32),
+            newer_than: age.min(1 << 32),
         }
     }
 
@@ -655,6 +660,10 @@ impl World {
         let Some(log) = self.changes.removed.iter().find(|log| log.id == id) else {
             untracked(self.infos[id.index()].name())
         };
+        if since.0 > self.changes.now {
+            // Another world's tick: everything, as for the filters.
+            return &log.entities;
+        }
         let first = log.ticks.partition_point(|&tick| tick <= since.0);
         &log.entities[first..]
     }
@@ -792,11 +801,19 @@ mod tests {
     }
 
     #[test]
-    fn a_tick_from_the_future_reports_nothing() {
+    fn a_tick_the_world_has_not_reached_reports_everything() {
+        // Such a tick can only be another world's (a reader that outlived
+        // its world): showing everything can't miss a change.
         let mut world = World::new();
-        world.spawn((Pos(1),));
-        assert_eq!(changed(&mut world, Tick::from_bits(1 << 40)), []);
-        assert_eq!(changed(&mut world, Tick::default()), [1]);
+        world.track_changes::<Pos>();
+        let e = world.spawn((Pos(1),));
+        for future in [world.change_tick().0 + 1, 1 << 40] {
+            assert_eq!(changed(&mut world, Tick::from_bits(future)), [1]);
+        }
+        world.despawn(e);
+        assert_eq!(world.removed_since::<Pos>(Tick::from_bits(1 << 40)), [e]);
+        let now = world.change_tick();
+        assert_eq!(world.removed_since::<Pos>(now), []);
     }
 
     #[test]

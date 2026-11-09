@@ -291,6 +291,9 @@ struct System {
     id: u32,
     /// Declared access from `add_with_access`; `None` is exclusive.
     access: Option<crate::SystemAccess>,
+    /// The world's change tick when this system last finished: its `Added`
+    /// and `Changed` filters report what happened after it.
+    changes_seen: crate::Tick,
 }
 
 /// Ids for [`System::id`]; 0 means "outside any system".
@@ -316,6 +319,15 @@ fn end_timings(ctx: &mut Ctx) {
     }
 }
 
+/// Drops the removals of tracked components that every one of `systems` has
+/// already been shown (those logged before the oldest of their last runs),
+/// so the logs don't grow. A system that hasn't run yet keeps everything.
+fn forget_seen_removals<'a>(ctx: &mut Ctx, systems: impl Iterator<Item = &'a System>) {
+    if let Some(oldest) = systems.map(|s| s.changes_seen).min() {
+        ctx.world.forget_removed(oldest);
+    }
+}
+
 /// Runs one system, applies its commands, and records how long both took.
 #[inline]
 fn run_one(s: &mut System, ctx: &mut Ctx, timing_index: usize) {
@@ -325,6 +337,8 @@ fn run_one(s: &mut System, ctx: &mut Ctx, timing_index: usize) {
     let start = Instant::now();
     ctx.system_index = timing_index;
     ctx.events.reader = s.id;
+    // Change filters in this system report what happened since it last ran.
+    ctx.world.set_changes_since(s.changes_seen);
     #[cfg(debug_assertions)]
     if s.access.is_some() {
         crate::access::begin_check(ctx);
@@ -336,6 +350,11 @@ fn run_one(s: &mut System, ctx: &mut Ctx, timing_index: usize) {
     }
     ctx.events.reader = 0;
     ctx.apply_commands();
+    // The system's own changes (and its commands, just applied) belong to
+    // the tick that ends here, so it won't be shown them next time; every
+    // other system will. Code outside systems sees everything.
+    s.changes_seen = ctx.world.advance_change_tick();
+    ctx.world.set_changes_since(crate::Tick::default());
     ctx.timings[timing_index].last_ms += start.elapsed().as_secs_f32() * 1000.0;
     if let Some(before) = allocs_before {
         let made = crate::alloc_counts().count.saturating_sub(before.count);
@@ -356,6 +375,7 @@ impl System {
             phase: 0,
             id,
             access: None,
+            changes_seen: crate::Tick::default(),
         }
     }
 }
@@ -1160,6 +1180,8 @@ impl Game {
         #[cfg(feature = "3d")]
         crate::audio::update_audio3d(ctx);
         end_timings(ctx);
+        let frame = self.systems.iter().chain(&self.late_systems).chain(&self.draw_systems);
+        forget_seen_removals(ctx, self.sim_systems.iter().chain(frame));
     }
 
     /// One simulation tick: every sim system once, then the tick counter.
@@ -1384,6 +1406,8 @@ impl Game {
             self.run_sim_tick(&mut ctx);
             ctx.set_in_sim(false);
             end_timings(&mut ctx);
+            // Only simulation systems run headless, so only they hold removals back.
+            forget_seen_removals(&mut ctx, self.sim_systems.iter());
             ctx.discard_draws();
             ctx.input.end_frame();
             if ctx.perf.on {
