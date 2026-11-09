@@ -11,7 +11,6 @@ struct Palm {
     height: f32,
 }
 
-
 fn game() -> Game {
     Game::new("scenes", 1, 1)
 }

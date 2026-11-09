@@ -48,9 +48,7 @@ impl TempAsset {
 
     /// The file's path on disk.
     pub fn path(&self) -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("assets")
-            .join(&self.name)
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("assets").join(&self.name)
     }
 
     /// Writes `contents` to the file, replacing it.

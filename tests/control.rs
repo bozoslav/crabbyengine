@@ -552,10 +552,7 @@ fn scenes_and_prefabs_are_saved_and_loaded_over_tcp() {
     let loaded = c.call("scene.load", json!({ "path": names[1] })).unwrap();
     assert_eq!(loaded["entities"], 2);
     assert!(c.call("entity.get", json!({ "entity": a })).is_ok(), "same id back");
-    let missing = c.call(
-        "prefab.spawn",
-        json!({ "path": "control-missing.json", "at": [0, 0] }),
-    );
+    let missing = c.call("prefab.spawn", json!({ "path": "control-missing.json", "at": [0, 0] }));
     assert!(missing.unwrap_err().contains("not found"));
 
     c.call("game.quit", json!({})).unwrap();
