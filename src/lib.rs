@@ -61,6 +61,7 @@ mod collision;
 mod color;
 mod control;
 mod ctx;
+mod diagnostics;
 mod ecs;
 #[cfg(feature = "inspector")]
 mod editor;
@@ -124,6 +125,9 @@ pub use camera::{Camera2D, Rect, camera_controls};
 pub use collision::{BodyKind, CollisionStarted, CollisionStopped};
 pub use color::Color;
 pub use ctx::{Ctx, SystemTiming, Turns};
+pub use diagnostics::{
+    ArchetypeDiagnostics, ComponentDiagnostics, ECS_DIAGNOSTICS_VERSION, EcsDiagnostics, MatchCount, SystemDiagnostics,
+};
 pub use ecs::{Sprite, Transform2D, draw_sprites};
 pub use error::{Error, ErrorKind};
 pub use events::Events;

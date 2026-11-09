@@ -140,6 +140,22 @@ fn a_paused_headless_game_is_driven_over_tcp() {
         "at least the entity handle"
     );
 
+    let diag = c.call("ecs.diagnostics", json!({ "with": ["Counter"] })).unwrap();
+    assert_eq!(diag["matching"]["entities"], 1);
+    let systems = diag["systems"].as_array().unwrap();
+    let counter = systems
+        .iter()
+        .find(|s| s["name"].as_str().unwrap().ends_with("::count"))
+        .unwrap();
+    assert_eq!(
+        (
+            counter["phase"].clone(),
+            counter["sim"].clone(),
+            counter["access"].clone()
+        ),
+        (json!("AfterPhysics"), json!(true), json!("exclusive"))
+    );
+
     let info = c.call("info", json!({})).unwrap();
     assert!(info["render"].is_null(), "headless games draw nothing");
     let cam = c
