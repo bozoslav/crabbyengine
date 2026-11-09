@@ -8,6 +8,7 @@
 mod actions;
 mod archetypes;
 mod membership;
+mod nav3d;
 mod net;
 #[allow(dead_code)] // spike: API surface kept for the M3 port
 mod own;
@@ -167,6 +168,7 @@ fn main() {
     membership::run(b.filter.as_deref());
     physics::run(&mut b);
     physics3d::run(&mut b);
+    nav3d::run(&mut b);
     net::run(&mut b);
     actions::run(&mut b);
     query_cache::run(&mut b);

@@ -14,7 +14,7 @@
 //! character controller. Crowd avoidance is opt-in. Bake for the largest
 //! agent radius/height; agents larger than that radius are stopped.
 
-use crate::{Ctx, Entity, MeshData, Transform3D, Vec3};
+use crate::{Ctx, Entity, MeshData, Transform3D, Vec3, World};
 use navmesh_rs::{Limits, Workspace, bake, crowd, detour, recast, tilecache};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -701,18 +701,33 @@ impl Default for NavAgent3D {
 /// ```
 pub fn step_navmesh3d(ctx: &mut Ctx) {
     let dt = ctx.dt();
+    step_world(&mut ctx.world, dt);
+}
+
+/// [`step_navmesh3d`] without a `Ctx`: the [`NavMesh3D`] resource, the agent
+/// and obstacle components, and the timestep are all it uses.
+///
+/// The baked state moves out of the resource for the step, so [`step`] can
+/// borrow it alongside the world's agent queries, and goes back right after.
+/// While it is out the resource reads as empty, but nothing else runs then:
+/// `step` doesn't touch resources.
+fn step_world(world: &mut World, dt: f32) {
     if !dt.is_finite() || dt <= 0.0 {
         return;
     }
-    let Some(mut nav) = ctx
-        .world
-        .get_resource_mut::<NavMesh3D>()
-        .and_then(|nav| nav.state.take())
-    else {
+    let Some(mut nav) = world.get_resource_mut::<NavMesh3D>().and_then(|nav| nav.state.take()) else {
         return;
     };
+    step(&mut nav, world, dt);
+    world.resource_mut::<NavMesh3D>().state = Some(nav);
+}
+
+/// One navigation tick on explicit inputs: the baked state, the world whose
+/// [`NavObstacle3D`] it reads and whose [`Transform3D`] / [`NavAgent3D`] it
+/// moves, and a positive, finite timestep.
+fn step(nav: &mut NavState, world: &mut World, dt: f32) {
     nav.scratch.clear();
-    ctx.world.query::<&NavObstacle3D>().for_each(|o| nav.scratch.push(*o));
+    world.query::<&NavObstacle3D>().for_each(|o| nav.scratch.push(*o));
     if nav.scratch != nav.obstacles {
         let obstacles = std::mem::take(&mut nav.scratch);
         nav.set_obstacles(&obstacles);
@@ -722,65 +737,61 @@ pub fn step_navmesh3d(ctx: &mut Ctx) {
         nav.carve_failed = true;
         nav.apply_obstacles();
     }
-    step_crowd(ctx, &mut nav, dt);
-    ctx.world
-        .query::<(&mut Transform3D, &mut NavAgent3D)>()
-        .for_each(|(t, a)| {
-            if a.avoidance {
-                return;
+    step_crowd(world, nav, dt);
+    world.query::<(&mut Transform3D, &mut NavAgent3D)>().for_each(|(t, a)| {
+        if a.avoidance {
+            return;
+        }
+        a.crowd_id = None;
+        let valid = a.radius.is_finite()
+            && a.radius >= 0.0
+            && a.radius <= nav.settings.agent_radius
+            && a.speed.is_finite()
+            && a.speed > 0.0
+            && a.acceleration.is_finite()
+            && a.acceleration > 0.0
+            && a.destination.is_some_and(|p| p.is_finite())
+            && t.position.is_finite();
+        if !valid || a.destination.is_none() {
+            a.velocity = 0.0;
+            a.revision = 0;
+            return;
+        }
+        if a.revision != nav.revision || a.destination != a.planned_destination || t.position != a.expected_position {
+            a.path.clear();
+            a.corner = 0;
+            a.velocity = 0.0;
+            if let Some(path) = nav.agent_route(t.position, a.destination.unwrap()) {
+                a.path.extend(path);
             }
-            a.crowd_id = None;
-            let valid = a.radius.is_finite()
-                && a.radius >= 0.0
-                && a.radius <= nav.settings.agent_radius
-                && a.speed.is_finite()
-                && a.speed > 0.0
-                && a.acceleration.is_finite()
-                && a.acceleration > 0.0
-                && a.destination.is_some_and(|p| p.is_finite())
-                && t.position.is_finite();
-            if !valid || a.destination.is_none() {
-                a.velocity = 0.0;
-                a.revision = 0;
-                return;
+            a.revision = nav.revision;
+            a.planned_destination = a.destination;
+        }
+        a.velocity = (a.velocity + a.acceleration * dt).min(a.speed);
+        let mut remaining = a.velocity * dt;
+        while let Some(&target) = a.path.get(a.corner) {
+            let delta = target - t.position;
+            let distance = delta.length();
+            if distance <= remaining {
+                t.position = target;
+                remaining -= distance;
+                a.corner += 1;
+            } else {
+                t.position += delta / distance * remaining;
+                break;
             }
-            if a.revision != nav.revision || a.destination != a.planned_destination || t.position != a.expected_position
-            {
-                a.path.clear();
-                a.corner = 0;
-                a.velocity = 0.0;
-                if let Some(path) = nav.agent_route(t.position, a.destination.unwrap()) {
-                    a.path.extend(path);
-                }
-                a.revision = nav.revision;
-                a.planned_destination = a.destination;
-            }
-            a.velocity = (a.velocity + a.acceleration * dt).min(a.speed);
-            let mut remaining = a.velocity * dt;
-            while let Some(&target) = a.path.get(a.corner) {
-                let delta = target - t.position;
-                let distance = delta.length();
-                if distance <= remaining {
-                    t.position = target;
-                    remaining -= distance;
-                    a.corner += 1;
-                } else {
-                    t.position += delta / distance * remaining;
-                    break;
-                }
-            }
-            if a.corner == a.path.len() {
-                a.velocity = 0.0;
-            }
-            a.expected_position = t.position;
-        });
-    ctx.world.resource_mut::<NavMesh3D>().state = Some(nav);
+        }
+        if a.corner == a.path.len() {
+            a.velocity = 0.0;
+        }
+        a.expected_position = t.position;
+    });
 }
 
 // Persistent slots preserve velocity/corridors; recreating a crowd is limited to
 // mesh/obstacle revisions and capacity growth. No entity-index scan per neighbour.
-fn step_crowd(ctx: &mut Ctx, nav: &mut NavState, dt: f32) {
-    let count = ctx.world.query::<&NavAgent3D>().iter().filter(|a| a.avoidance).count();
+fn step_crowd(world: &mut World, nav: &mut NavState, dt: f32) {
+    let count = world.query::<&NavAgent3D>().iter().filter(|a| a.avoidance).count();
     if count == 0 && nav.crowd.is_none() {
         return;
     }
@@ -802,13 +813,13 @@ fn step_crowd(ctx: &mut Ctx, nav: &mut NavState, dt: f32) {
         nav.crowd_owners.resize(size, None);
         nav.crowd_revision = nav.revision;
         // Also invalidate slots on capacity growth without changing mesh paths.
-        ctx.world.query::<&mut NavAgent3D>().for_each(|a| a.crowd_id = None);
+        world.query::<&mut NavAgent3D>().for_each(|a| a.crowd_id = None);
     }
     let Some(c) = &mut nav.crowd else {
         return;
     };
     nav.crowd_seen.fill(false);
-    ctx.world
+    world
         .query::<(Entity, &mut Transform3D, &mut NavAgent3D)>()
         .for_each(|(entity, t, a)| {
             if !a.avoidance {
@@ -917,7 +928,7 @@ fn step_crowd(ctx: &mut Ctx, nav: &mut NavState, dt: f32) {
             break;
         }
     }
-    ctx.world
+    world
         .query::<(Entity, &mut Transform3D, &mut NavAgent3D)>()
         .for_each(|(entity, t, a)| {
             if a.avoidance
@@ -930,4 +941,93 @@ fn step_crowd(ctx: &mut Ctx, nav: &mut NavState, dt: f32) {
                 a.expected_position = t.position;
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Vec2;
+
+    const DT: f32 = 0.02;
+
+    fn baked() -> NavMesh3D {
+        let source = NavSource::from_mesh(&MeshData::plane(20.0), Transform3D::default());
+        NavMesh3D::bake(&[source], NavBakeSettings::default()).unwrap()
+    }
+
+    /// Path followers and crowd agents crossing the plane, and an obstacle.
+    fn agents(world: &mut World) -> Vec<Entity> {
+        world.spawn((NavObstacle3D::new(Vec3::new(0.0, 0.0, 0.0), Vec3::new(1.0, 1.0, 1.0)),));
+        (0..12)
+            .map(|i| {
+                let at = Vec3::new(i as f32 - 6.0, 0.0, -6.0);
+                let agent = NavAgent3D {
+                    destination: Some(Vec3::new(-at.x, 0.0, 6.0)),
+                    avoidance: i % 2 == 0,
+                    ..NavAgent3D::default()
+                };
+                world.spawn((Transform3D::at(at), agent))
+            })
+            .collect()
+    }
+
+    fn positions(world: &World, entities: &[Entity]) -> Vec<[u32; 3]> {
+        entities
+            .iter()
+            .map(|&e| {
+                world
+                    .get::<Transform3D>(e)
+                    .unwrap()
+                    .position
+                    .to_array()
+                    .map(f32::to_bits)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_core_step_needs_only_its_inputs_and_matches_the_ctx_system() {
+        // The core, on explicit state and a world without the resource.
+        let mut nav = baked().state.unwrap();
+        let mut world = World::new();
+        let bare = agents(&mut world);
+        let before = positions(&world, &bare);
+        for _ in 0..150 {
+            step(&mut nav, &mut world, DT);
+        }
+
+        // The public system, through a Ctx and the resource.
+        let mut ctx = Ctx::new(f64::from(DT), Vec2::ZERO);
+        ctx.world.insert_resource(baked());
+        let wrapped = agents(&mut ctx.world);
+        for _ in 0..150 {
+            ctx.set_in_sim(true);
+            step_navmesh3d(&mut ctx);
+            ctx.set_in_sim(false);
+        }
+
+        let moved = positions(&world, &bare);
+        assert!(moved.iter().zip(&before).all(|(a, b)| a != b), "every agent walked");
+        assert_eq!(moved, positions(&ctx.world, &wrapped));
+        assert!(
+            ctx.world.resource::<NavMesh3D>().state.is_some(),
+            "the state is put back"
+        );
+    }
+
+    #[test]
+    fn the_resource_step_skips_bad_timesteps_and_missing_meshes_and_puts_the_state_back() {
+        let mut world = World::new();
+        let walker = agents(&mut world)[1];
+        step_world(&mut world, DT); // No mesh yet: nothing happens.
+        let start = world.get::<Transform3D>(walker).unwrap().position;
+        world.insert_resource(baked());
+        for dt in [0.0, -DT, f32::NAN, f32::INFINITY] {
+            step_world(&mut world, dt);
+            assert_eq!(world.get::<Transform3D>(walker).unwrap().position, start);
+        }
+        step_world(&mut world, DT);
+        assert_ne!(world.get::<Transform3D>(walker).unwrap().position, start);
+        assert!(world.resource::<NavMesh3D>().state.is_some());
+    }
 }
