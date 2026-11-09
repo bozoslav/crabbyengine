@@ -536,3 +536,60 @@ fn the_report_uses_the_ordered_rules() {
             == 1
     );
 }
+
+// ---- the guide's example ------------------------------------------------------------------
+
+mod guide {
+    use ponko::*;
+
+    // ANCHOR: view_system
+    struct Pos(f32);
+    struct Vel(f32);
+    struct Gravity(f32);
+
+    // A view system gets exactly what it declares: no `&mut Ctx`.
+    fn fall(sys: &mut SystemView) {
+        let g = sys.world.resource::<Gravity>().0;
+        let dt = sys.dt();
+        sys.world.query::<&mut Vel>().for_each(|v| v.0 += g * dt);
+    }
+
+    fn movement(sys: &mut SystemView) {
+        let dt = sys.dt();
+        sys.world.query::<(&mut Pos, &Vel)>().for_each(|(p, v)| p.0 += v.0 * dt);
+    }
+
+    fn game() -> Game {
+        Game::new("falling", 320, 240)
+            .add_view(
+                Phase::AfterPhysics,
+                SystemAccess::new()
+                    .write::<Vel>()
+                    .read_resource::<Gravity>()
+                    .read_service(Service::Time),
+                fall,
+            )
+            .add_view(
+                Phase::AfterPhysics,
+                SystemAccess::new()
+                    .write::<Pos>()
+                    .read::<Vel>()
+                    .read_service(Service::Time),
+                movement,
+            )
+    }
+    // ANCHOR_END: view_system
+
+    #[test]
+    fn the_guide_example_runs_and_reports() {
+        let report = game().access_report();
+        assert_eq!(report.parallel_pairs().count(), 0);
+        assert!(report.to_string().contains("conflict on component"));
+        let mut world = game().run_headless(60, |ctx| {
+            ctx.world.insert_resource(Gravity(-10.0));
+            ctx.world.spawn((Pos(0.0), Vel(0.0)));
+        });
+        let p = world.query::<&Pos>().iter().next().unwrap().0;
+        assert!(p < -4.0 && p > -6.0, "{p}");
+    }
+}

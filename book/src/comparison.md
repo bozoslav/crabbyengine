@@ -84,8 +84,10 @@ and sparse-set component storage, and schedules compatible systems in
 parallel. Explicit ordering still matters. See
 [Bevy ECS](https://docs.rs/bevy_ecs/0.20.1/bevy_ecs/) and its
 [system scheduling tutorial](https://bevy.org/learn/quick-start/getting-started/ecs/).
-Ponko's optional access-aware scheduler is **planned**, following
-[access metadata #137](https://github.com/ponkoengine/ponko/issues/137),
+Ponko has declared system access and restricted system views
+([#137](https://github.com/ponkoengine/ponko/issues/137), see
+[Declared system access](system-access.md)); the optional access-aware
+scheduler that uses them is **planned**, following
 [benchmarks #132](https://github.com/ponkoengine/ponko/issues/132) and
 [barrier contracts #146](https://github.com/ponkoengine/ponko/issues/146),
 before [parallel scheduling #138](https://github.com/ponkoengine/ponko/issues/138).

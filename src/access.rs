@@ -1,10 +1,10 @@
 //! Declared system access: what a system reads and writes, and which
 //! declared systems could run together.
 //!
-//! **Status: prototype.** Declarations are opt-in metadata. Systems still
-//! run one after another, in phase and registration order, each with the
-//! whole [`Ctx`]. Nothing here runs systems in parallel; a future scheduler
-//! can use the metadata only once the rules below are enforced for it.
+//! **Status:** declarations, view systems and the conflict rules are in
+//! place; systems still run one after another, in phase and registration
+//! order. The parallel executor that uses them is planned (#138). The
+//! guide's "Declared system access" chapter has the full design.
 //!
 //! # The model
 //!
@@ -13,67 +13,65 @@
 //! - **components** read or written (`&T` / `&mut T` in queries, `get`, `get_mut`),
 //! - **resources** read or written,
 //! - **events** read or sent ([`Events`](crate::Events)),
-//! - whether the system records **commands** ([`Commands`](crate::Commands)).
+//! - whether the system records **commands** ([`Commands`](crate::Commands)),
+//! - the engine **services** it uses ([`Service`]: input, time, random,
+//!   audio, cameras, physics, ...), read or written.
 //!
 //! Or it is [`exclusive`](SystemAccess::exclusive): it may use anything, and
 //! conflicts with every other system. A system registered without a
-//! declaration (every `.sim_system(...)`, `.system(...)`, built-in, foreign
-//! and hot-patched system) is exclusive, so existing games behave exactly
-//! as before.
+//! declaration (every `.sim_system(...)`, `.system(...)`, built-in and
+//! hot-patched system, and C/C++ systems added without one) is exclusive,
+//! so existing games behave exactly as before.
 //!
 //! # When two declarations conflict
 //!
-//! Two systems conflict, and so must keep their order, when:
-//!
-//! - either is exclusive;
-//! - both touch the same component or resource and at least one writes it;
-//! - one sends an event type the other reads, or both send it (the order
-//!   of sends is visible to readers, so it must stay deterministic);
-//! - either records commands and the other touches any component, resource
-//!   or commands. Commands are applied after each system, so a later system
-//!   sees them; running the two together would change what it sees. This is
-//!   the conservative barrier; finer rules belong to the command and event
-//!   barrier design.
-//!
-//! Systems that don't conflict *could* run together without changing what
-//! either observes. Reading the same data, or reading one event type, never
-//! conflicts. Only systems in the same [`Phase`] are compared: phases are
-//! ordered barriers.
+//! Two systems conflict, and so must keep their order, when either is
+//! exclusive, or both touch the same component, resource or service and at
+//! least one writes it, or events or commands make their order visible.
+//! [`SystemAccess::conflicts_with`] is the symmetric, conservative rule;
+//! [`SystemAccess::conflicts_before`] the finer one for a known order, under
+//! the batch barrier contract it documents. Only systems in the same
+//! [`Phase`] are compared: phases are ordered barriers.
 //!
 //! # Soundness strategy
 //!
 //! A declaration is a promise; the engine must not trust it blindly.
 //!
-//! 1. **Debug validation now.** In builds with debug assertions, each
-//!    system with a non-exclusive declaration runs with access recording on
+//! 1. **View systems enforce it.** A system registered with
+//!    [`Game::add_view`](crate::Game::add_view) gets a
+//!    [`SystemView`](crate::SystemView) instead of `&mut Ctx`: a restricted
+//!    [`WorldView`](crate::WorldView) of its declared components and
+//!    resources, and checked access to its events, commands and services,
+//!    in every build. Nothing else is reachable, so such a system can't go
+//!    beyond its declaration. Only view systems may ever share a parallel
+//!    batch ([`AccessReport::parallel_pairs`]).
+//! 2. **`Ctx` systems are checked in debug builds.** A system registered
+//!    with [`Game::add_with_access`](crate::Game::add_with_access) (or a C
+//!    or C++ system with a declaration) keeps `&mut Ctx`. In builds with
+//!    debug assertions it runs with access recording on
 //!    ([`World::record_access`](crate::World::record_access) and the same
-//!    for events). Afterwards, any component, resource or event it used
-//!    without declaring it, any structural change made directly on the
-//!    world (spawn, despawn, insert, remove: those need exclusivity), any
-//!    resource or event without a Rust type, and any undeclared command
-//!    panics, naming the system and what it used.
-//! 2. **No shared `Ctx` later.** A parallel executor must never hand
-//!    `&mut Ctx` (or `&mut World`) to two systems at once. Declared systems
-//!    that run in parallel will get a restricted view that exposes only what
-//!    was declared, so the type system enforces the declaration. Until that
-//!    view exists, systems keep `FnMut(&mut Ctx)` and run sequentially, so
-//!    an undeclared access can't cause a data race, only a debug panic.
+//!    for events); afterwards any component, resource or event it used
+//!    without declaring it, any structural change made directly on the world
+//!    (spawn, despawn, insert, remove: those need exclusivity or commands),
+//!    and any undeclared command panics, naming the system and what it
+//!    used. Services aren't recorded. These systems always run sequentially.
+//! 3. **No shared `Ctx`, ever.** A parallel executor must never hand
+//!    `&mut Ctx` (or `&mut World`) to two systems at once; views share
+//!    `&World` under the rules of [`ViewState`](crate::ecs_core::ViewState).
 //!
 //! # Scope and limits
 //!
-//! - **Other `Ctx` services** (input, drawing, audio, physics, navigation,
-//!   random numbers, UI, assets, networking) are not part of a declaration
-//!   and are not recorded. A system that uses them must stay exclusive; the
-//!   debug check can't catch it yet. The restricted view (point 2) closes
-//!   that gap by not offering them.
-//! - **Physics** and other built-in systems stay exclusive.
-//! - **Foreign (C/C++) systems** stay exclusive: their components and
-//!   events have no Rust type to declare.
-//! - **Hot patching** swaps a system's code, not its declaration. A patch
-//!   that changes what a system touches is caught by the debug check on its
-//!   next run.
-//! - Release builds skip validation entirely; the declaration costs nothing
-//!   at run time there.
+//! - **Drawing, UI, assets and profiling** ([`Service::Gfx`], `Ui`,
+//!   `Assets`, `Perf`) can be declared but aren't offered to view systems;
+//!   systems that use them keep `&mut Ctx`.
+//! - **Physics** steps and other built-in systems stay exclusive.
+//! - **Foreign (C/C++) systems** declare components, resources and events
+//!   by registered name and stay sequential.
+//! - **Hot patching** swaps a system's code, not its declaration. A patched
+//!   view system still can't reach anything undeclared; a patched `Ctx`
+//!   system is caught by the debug check on its next run.
+//! - Release builds skip the `Ctx` recorder entirely; views check each
+//!   accessor call (never per entity) in every build.
 //!
 //! ```
 //! use ponko::*;
