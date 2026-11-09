@@ -96,7 +96,9 @@ pub(crate) fn capturing() -> bool {
 #[cfg(any(unix, windows))]
 mod capture {
     use std::fs::File;
-    use std::io::{PipeReader, Read, Write};
+    #[cfg(unix)]
+    use std::io::Read;
+    use std::io::{PipeReader, Write};
     use std::sync::Mutex;
     use std::sync::mpsc::{self, Receiver};
     use std::thread;
@@ -137,17 +139,23 @@ mod capture {
     /// outlives it, because `ExitProcess` (what `std::process::exit` calls)
     /// kills the thread wherever it is: the exit hook then passes this on,
     /// and the rest of the pipe, itself.
+    ///
+    /// The kernel itself records how much each read took (`status`), before
+    /// the read returns: a thread killed right as its read returns, before
+    /// it ran another instruction, still leaves that count behind.
     #[cfg(windows)]
     struct InFlight {
         buf: UnsafeCell<[u8; COPY_BUF]>,
-        /// Bytes of `buf` that hold output not yet fully passed on (0: none).
-        len: AtomicUsize,
+        /// The last read's result; its byte count is the part of `buf` that
+        /// holds output not yet fully passed on (0: none).
+        status: UnsafeCell<sys::IoStatus>,
         /// How many of those were already written.
         written: AtomicUsize,
     }
 
-    // SAFETY: `buf` is only written by the copy thread, and only read by
-    // others (the exit hook) once that thread is dead, or by the thread itself.
+    // SAFETY: `buf` and `status` are only written by the copy thread (and
+    // the kernel on its behalf), and only read by others (the exit hook)
+    // once that thread is dead, or by the thread itself.
     #[cfg(windows)]
     unsafe impl Sync for InFlight {}
 
@@ -156,16 +164,18 @@ mod capture {
         fn new() -> Self {
             Self {
                 buf: UnsafeCell::new([0; COPY_BUF]),
-                len: AtomicUsize::new(0),
+                status: UnsafeCell::new(sys::IoStatus::default()),
                 written: AtomicUsize::new(0),
             }
         }
 
-        /// Copy thread: reads what's in the pipe into the buffer.
-        fn read_from(&self, reader: &mut PipeReader) -> std::io::Result<usize> {
-            // SAFETY: only the copy thread calls this; nobody reads `buf`
-            // while `len` is 0.
-            reader.read(unsafe { &mut *self.buf.get() })
+        /// Copy thread: reads what's in the pipe into the buffer. 0: the
+        /// pipe was closed (or failed).
+        fn read_from(&self, reader: &PipeReader) -> usize {
+            self.written.store(0, Ordering::Release);
+            // SAFETY: only the copy thread calls this, with nothing in
+            // flight (the count is 0), so nobody reads `buf` or `status`.
+            unsafe { sys::read_recorded(reader, self.buf.get().cast(), COPY_BUF, self.status.get()) }
         }
 
         /// Copy thread: the first `n` bytes read.
@@ -176,11 +186,9 @@ mod capture {
             unsafe { std::slice::from_raw_parts(self.buf.get().cast::<u8>(), n) }
         }
 
-        /// Copy thread: writes the first `n` bytes to `out`, keeping track
-        /// of how far it got.
+        /// Copy thread: writes the `n` bytes just read to `out`, keeping
+        /// track of how far it got.
         fn pass_on(&self, n: usize, out: &mut File) {
-            self.written.store(0, Ordering::Relaxed);
-            self.len.store(n, Ordering::Release);
             let data = self.chunk(n);
             let mut at = 0;
             while at < n {
@@ -191,13 +199,15 @@ mod capture {
                 at = end;
                 self.written.store(at, Ordering::Release);
             }
-            self.len.store(0, Ordering::Release);
+            // SAFETY: only the copy thread writes `status` (outside reads).
+            unsafe { sys::IoStatus::clear(self.status.get()) };
         }
 
         /// What the copy thread took but didn't write. Only call this when
         /// the thread is dead.
         fn left(&self) -> &[u8] {
-            let len = self.len.load(Ordering::Acquire);
+            // SAFETY: the copy thread is dead, so nothing writes `status`.
+            let len = unsafe { sys::IoStatus::bytes(self.status.get()) }.min(COPY_BUF);
             let written = self.written.load(Ordering::Acquire);
             if written < len {
                 // SAFETY: the copy thread is dead, so nothing writes `buf`;
@@ -319,7 +329,7 @@ mod capture {
     /// until the pipe's write end is closed.
     fn spawn_copier(
         which: Std,
-        mut reader: PipeReader,
+        #[cfg_attr(windows, allow(unused_mut))] mut reader: PipeReader,
         mut out: File,
         #[cfg(windows)] in_flight: Arc<InFlight>,
     ) -> std::io::Result<(Receiver<()>, thread::JoinHandle<()>)> {
@@ -335,12 +345,14 @@ mod capture {
             let mut partial = Vec::new();
             loop {
                 #[cfg(unix)]
-                let read = reader.read(&mut buf);
-                #[cfg(windows)]
-                let read = in_flight.read_from(&mut reader);
-                let n = match read {
+                let n = match reader.read(&mut buf) {
                     Ok(n) if n > 0 => n,
                     _ => break,
+                };
+                #[cfg(windows)]
+                let n = match in_flight.read_from(&reader) {
+                    0 => break,
+                    n => n,
                 };
                 #[cfg(unix)]
                 let _ = out.write_all(&buf[..n]);
@@ -528,6 +540,95 @@ mod windows {
             available: *mut u32,
             left: *mut u32,
         ) -> i32;
+    }
+
+    #[link(name = "ntdll")]
+    unsafe extern "system" {
+        fn NtReadFile(
+            file: *mut c_void,
+            event: *mut c_void,
+            apc: *mut c_void,
+            apc_context: *mut c_void,
+            status: *mut IoStatus,
+            buffer: *mut c_void,
+            length: u32,
+            offset: *const i64,
+            key: *const u32,
+        ) -> i32;
+    }
+
+    const STATUS_PENDING: i32 = 0x103;
+    const INFINITE: u32 = 0xFFFF_FFFF;
+
+    /// An `IO_STATUS_BLOCK`: a read's result, filled in by the kernel.
+    #[repr(C)]
+    #[derive(Default)]
+    pub(super) struct IoStatus {
+        /// The `NTSTATUS` (a pointer-sized union in C).
+        status: isize,
+        /// Bytes read.
+        information: usize,
+    }
+
+    impl IoStatus {
+        /// Bytes the last read took (0: none, or already passed on).
+        ///
+        /// # Safety
+        /// `this` is valid, and nobody writes it meanwhile.
+        pub(super) unsafe fn bytes(this: *const Self) -> usize {
+            // SAFETY: per the caller; volatile, as the kernel wrote it.
+            unsafe { std::ptr::addr_of!((*this).information).read_volatile() }
+        }
+
+        /// Marks the last read as passed on.
+        ///
+        /// # Safety
+        /// `this` is valid, and nobody reads or writes it meanwhile.
+        pub(super) unsafe fn clear(this: *mut Self) {
+            // SAFETY: per the caller.
+            unsafe { this.write_volatile(Self::default()) };
+        }
+    }
+
+    /// Reads from the pipe into `buf`, blocking until something is there.
+    /// The kernel records the byte count in `status` before the call
+    /// returns, so it is there even if this thread is killed right after
+    /// (unlike `Read::read`, whose count only exists in its return value).
+    /// Returns that count; 0: the pipe was closed, or the read failed.
+    ///
+    /// # Safety
+    /// `buf` is writable for `len` bytes and `status` is valid; nobody else
+    /// touches either until this returns.
+    pub(super) unsafe fn read_recorded(reader: &PipeReader, buf: *mut u8, len: usize, status: *mut IoStatus) -> usize {
+        // SAFETY: per the caller; a live, synchronous pipe handle.
+        unsafe {
+            IoStatus::clear(status);
+            let handle = reader.as_raw_handle();
+            let null = std::ptr::null_mut();
+            let mut result = NtReadFile(
+                handle,
+                null,
+                null,
+                null,
+                status,
+                buf.cast(),
+                len.min(u32::MAX as usize) as u32,
+                std::ptr::null(),
+                std::ptr::null(),
+            );
+            if result == STATUS_PENDING {
+                // Not for a pipe from `std::io::pipe`, which is synchronous.
+                WaitForSingleObject(handle, INFINITE);
+                result = std::ptr::addr_of!((*status).status).read_volatile() as i32;
+            }
+            if result >= 0 {
+                IoStatus::bytes(status).min(len)
+            } else {
+                // End of file, a broken pipe, or an error: nothing taken.
+                IoStatus::clear(status);
+                0
+            }
+        }
     }
 
     const FLS_OUT_OF_INDEXES: u32 = 0xFFFF_FFFF;
