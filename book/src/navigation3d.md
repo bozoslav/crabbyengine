@@ -162,7 +162,7 @@ agent.destination = Some(Vec3::X * 5.0);
 Crowd agents retain radius, maximum speed and acceleration. The nonnegative
 `avoidance_weight` controls separation steering, rather than right of way.
 `neighbour_distance` must be positive; choose it to cover approaching traffic.
-The C equivalent is `crabby_ctx_set_nav_avoidance(ctx, entity, enabled, weight,
+The C equivalent is `ponko_ctx_set_nav_avoidance(ctx, entity, enabled, weight,
 neighbour_distance)`. Invalid C parameters return an error; invalid Rust agent
 parameters stop that agent and remove it from the crowd. Crowd radii must be
 positive and no larger than the bake radius.

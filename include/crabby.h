@@ -1,4 +1,4 @@
-/* Crabby Engine C ABI, version 2. C++: include crabby.hpp instead.
+/* Ponko C ABI, version 2. C++: include crabby.hpp instead.
  *
  * Games: crabby_game_new -> settings and systems -> crabby_game_run (window)
  * or crabby_game_run_headless. Systems get a CrabbyCtx*, valid until they

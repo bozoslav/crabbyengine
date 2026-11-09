@@ -68,7 +68,7 @@ let ms = start.elapsed().as_secs_f64() * 1000.0;
 **Settings come from the address, not the environment.** There are no
 environment variables in a browser. The inspector reads `?inspector=1`
 (on), `?inspector=open` (on and open) or `?inspector=0` instead of
-`CRABBY_INSPECTOR`.
+`PONKO_INSPECTOR`.
 
 **The page is yours.** The engine draws into `<canvas id="crabby">` if the
 page has one, and adds a canvas otherwise. `web/index.html` makes the canvas

@@ -17,7 +17,7 @@ public static class BenchBuild
         var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
         EditorSceneManager.SaveScene(scene, "Assets/Bench/Bench.unity");
 
-        // The PC quality level and its URP asset, with SSAO off (Crabby has none).
+        // The PC quality level and its URP asset, with SSAO off (Ponko has none).
         var names = QualitySettings.names.ToList();
         int pc = Mathf.Max(0, names.IndexOf("PC"));
         QualitySettings.SetQualityLevel(pc, true);

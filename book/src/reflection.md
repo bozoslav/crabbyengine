@@ -38,13 +38,13 @@ first: `world.reflect<Unit>("Soldier", {...})`.
 ```
 
 Fields can be `float`, `double`, the fixed-width integers, `bool`,
-`crabby::vec2` (`[x, y]` in JSON) and `crabby::color` (`{"r", "g", "b", "a"}`).
+`ponko::vec2` (`[x, y]` in JSON) and `ponko::color` (`{"r", "g", "b", "a"}`).
 Entities are `uint64_t`, which is how Rust saves an `Entity` too. Bytes
 no field covers (padding, fields you leave out) are zero in values made
 from JSON, and editing a field leaves them alone.
 
-In C, `crabby_component_reflect(world, id, fields, count)` takes the same
-list as `CrabbyField { name, kind, offset }`, with `offsetof` for the
+In C, `ponko_component_reflect(world, id, fields, count)` takes the same
+list as `PonkoField { name, kind, offset }`, with `offsetof` for the
 offset. The Rust side of this is `World::reflect_fields`, for components
 that are registered at runtime and have no Rust type.
 
@@ -82,7 +82,7 @@ Reflected resources show up in `ponko-mcp` (`list_resources`,
 Resources hold whatever Rust type you like, so the ones that can't be JSON
 (a nav grid, a GPU handle) just stay unreflected. A C++ resource is saved
 under its type name with namespaces (`game::Score`); C names it in
-`crabby_resource_reflect`.
+`ponko_resource_reflect`.
 
 ## Names
 

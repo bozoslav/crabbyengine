@@ -58,13 +58,13 @@ An entity becomes a physics body with three components: a `Transform2D`, a
 
 | Rust | C++ | Meaning |
 |---|---|---|
-| `RigidBody::dynamic()` | `crabby::dynamic_body()` | moved by gravity and collisions |
-| `RigidBody::fixed()` | `crabby::fixed_body()` | never moves: ground, walls |
-| `RigidBody::kinematic()` | `crabby::kinematic_body()` | moved only by you; pushes, isn't pushed |
-| `Collider::circle(r)` | `crabby::circle_collider(r)` | |
-| `Collider::rect(size)` | `crabby::rect_collider(size)` | |
-| `Collider::capsule(h, r)` | `crabby::capsule_collider(h, r)` | vertical, good for characters |
-| `Collider::polygon(&points)` | `crabby::polygon_collider({points...})` | convex, 3 to 8 corners: ramps, rocks, ships |
+| `RigidBody::dynamic()` | `ponko::dynamic_body()` | moved by gravity and collisions |
+| `RigidBody::fixed()` | `ponko::fixed_body()` | never moves: ground, walls |
+| `RigidBody::kinematic()` | `ponko::kinematic_body()` | moved only by you; pushes, isn't pushed |
+| `Collider::circle(r)` | `ponko::circle_collider(r)` | |
+| `Collider::rect(size)` | `ponko::rect_collider(size)` | |
+| `Collider::capsule(h, r)` | `ponko::capsule_collider(h, r)` | vertical, good for characters |
+| `Collider::polygon(&points)` | `ponko::polygon_collider({points...})` | convex, 3 to 8 corners: ramps, rocks, ships |
 | `.density(d)`, `.friction(f)`, `.restitution(r)` | fields of the same name | mass per pixel², 0 ice..1 rubber, bounciness |
 | `.sensor()` | `.sensor = true` | reports overlaps, doesn't push |
 | `.offset(v)` | `.offset = v` | shape moved from the entity's position |
@@ -91,7 +91,7 @@ set it (a jump, a thrown crate, a moving platform):
 ctx.world.insert(player, Velocity::linear(vec2(0.0, -400.0))); // jump: y is down
 ```
 
-In C++, `crabby::velocity` is a plain struct, so it also works as a query
+In C++, `ponko::velocity` is a plain struct, so it also works as a query
 column. Bodies and colliders need converting, so like sprites they're read
 and written with `get`/`set`, not queried.
 
@@ -164,10 +164,10 @@ small speed cost.
 
 Bodies cost only where they exist: entities without a `RigidBody` are never
 looked at, so the million-entity paths stay as fast as before. Compared with
-calling rapier directly, Crabby's syncing adds about 3–8%
+calling rapier directly, Ponko's syncing adds about 3–8%
 (`cargo run --release -p ponko_bench -- physics`):
 
-| Boxes falling into a pile, 300 ticks | Crabby | rapier alone |
+| Boxes falling into a pile, 300 ticks | Ponko | rapier alone |
 |---|---|---|
 | 1,000 | 35.1 ms | 32.6 ms |
 | 10,000 | ~1.9 s | ~1.8 s |

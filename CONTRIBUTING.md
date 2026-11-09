@@ -70,17 +70,19 @@ cargo run --release --example battle
 
 ## Repository layout
 
-Cargo packages use `ponko` / `ponko_*`; existing `crabby_*` directories,
-C/C++ headers and runtime environment variable names are retained.
+Cargo packages use `ponko` / `ponko_*`; legacy native ABI names,
+C/C++ headers and runtime environment variable names remain supported. New code
+uses `include/ponko.h`, `include/ponko.hpp`, and `PONKO_*` settings. See
+[the naming migration](book/src/naming.md) for precedence and compatibility.
 
 | Path | What's there |
 |---|---|
 | `src/` | The engine (`ponko` crate) |
-| `crates/crabby_ecs` | The `ponko_ecs` ECS, usable on its own |
-| `crates/crabby_ffi` | The C API; `include/crabby.h` is generated from it |
-| `include/crabby.hpp` | The header-only C++ wrapper |
-| `crates/crabby_mcp` | The MCP server for AI agents |
-| `crates/crabby_bench` | Benchmarks (`cargo run --release -p ponko_bench [-- filter]`) |
+| `crates/ponko_ecs` | The `ponko_ecs` ECS, usable on its own |
+| `crates/ponko_ffi` | The C API; `include/crabby.h` is generated from it |
+| `include/ponko.hpp` | The header-only C++ wrapper |
+| `crates/ponko_mcp` | The MCP server for AI agents |
+| `crates/ponko_bench` | Benchmarks (`cargo run --release -p ponko_bench [-- filter]`) |
 | `examples/`, `examples/cpp/` | Rust and C++ examples |
 | `tests/`, `crates/*/tests/` | Tests, one file per area |
 | `book/` | The guide ([mdBook](https://rust-lang.github.io/mdBook/)) |

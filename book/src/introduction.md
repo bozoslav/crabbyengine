@@ -52,7 +52,7 @@ fn main() {
 </div>
 </div>
 
-The C++ wrapper retains the `crabby` namespace and `crabby.hpp` header during
+The C++ wrapper provides `ponko::` through `ponko.hpp`; legacy spellings remain supported during
 the rename. Continue with [Getting started](getting-started.md) for installation
 and the paired API examples.
 
@@ -88,8 +88,8 @@ benchmark results do not establish a general engine ranking.
 
 ## Status and compatibility
 
-Formerly Crabby Engine, Ponko currently has package version 0.0.1. Source folders
-retain `crabby_*` names. The guide follows `main`; installed releases may differ.
+Formerly Ponko, Ponko currently has package version 0.0.1. Source folders
+retain `ponko_*` names. The guide follows `main`; installed releases may differ.
 [STABILITY.md](https://github.com/ponkoengine/ponko/blob/main/STABILITY.md)
 remains authoritative for published API/ABI, MSRV, saved-world, MCP and
 determinism commitments. The rename does not weaken those promises.

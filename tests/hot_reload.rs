@@ -11,7 +11,7 @@ fn write_png(path: &Path, w: u32, h: u32, rgba: [u8; 4]) {
 }
 
 fn temp_png(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("crabby-hot-test-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("ponko-hot-test-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join(name);
     write_png(&path, 4, 4, [255, 0, 0, 255]);
@@ -82,7 +82,7 @@ struct Rules {
 }
 
 fn temp_json(name: &str, text: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("crabby-data-test-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("ponko-data-test-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join(name);
     std::fs::write(&path, text).unwrap();

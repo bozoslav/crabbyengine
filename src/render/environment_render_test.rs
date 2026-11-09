@@ -514,7 +514,7 @@ fn a_loaded_equirect_image_lights_the_ball_from_the_right_direction() {
             }
         }
     }
-    let path = std::env::temp_dir().join(format!("crabby-probe-{}.exr", std::process::id()));
+    let path = std::env::temp_dir().join(format!("ponko-probe-{}.exr", std::process::id()));
     image.save(&path).unwrap();
     let probe = rig.ctx.world.spawn((
         Transform3D::default(),

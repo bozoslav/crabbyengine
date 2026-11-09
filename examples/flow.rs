@@ -274,7 +274,7 @@ fn main() {
         return;
     }
 
-    Game::new("Crabby Engine: flow fields", 1280, 720)
+    Game::new("Ponko: flow fields", 1280, 720)
         .sim_system(steer)
         .system(click_to_move_goal)
         .system(camera_controls)

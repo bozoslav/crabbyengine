@@ -325,9 +325,9 @@ mod capture {
     ) -> std::io::Result<(Receiver<()>, thread::JoinHandle<()>)> {
         let (done_tx, done) = mpsc::channel();
         let name = if which == Std::Out {
-            "crabby-logs-out"
+            "ponko-logs-out"
         } else {
-            "crabby-logs-err"
+            "ponko-logs-err"
         };
         let copier = thread::Builder::new().name(name.into()).spawn(move || {
             #[cfg(unix)]

@@ -126,7 +126,7 @@ fn hud(ctx: &mut Ctx) {
 }
 
 fn main() {
-    Game::new("Crabby Engine: gamepads", 1280, 720)
+    Game::new("Ponko: gamepads", 1280, 720)
         .system(join_and_leave)
         .system(move_players)
         .system(move_keyboard_player)

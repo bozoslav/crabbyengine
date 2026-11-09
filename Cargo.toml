@@ -22,7 +22,7 @@ features = ["physics", "physics3d", "steam", "3d", "navmesh"]
 taffy = { version = "0.15.1", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid", "content_size"] }
 navmesh-rs = { version = "0.2.1", optional = true, default-features = false, features = ["std", "libm", "recast", "detour", "crowd", "tilecache", "polyref64"] }
 renet = "2.0.0"
-ponko_ecs = { path = "crates/crabby_ecs", version = "0.0.1", features = ["serde"] }
+ponko_ecs = { path = "crates/ponko_ecs", version = "0.0.1", features = ["serde"] }
 half = "2.7.1"
 bytemuck = { version = "1.25.2", features = ["derive"] }
 glam = { version = "0.34.2", features = ["serde"] }
@@ -146,7 +146,7 @@ name = "compute"
 required-features = ["3d"]
 
 [workspace]
-members = [".", "crates/crabby_ecs", "crates/crabby_bench", "crates/crabby_mcp", "crates/crabby_ffi", "crates/crabby_unity"]
+members = [".", "crates/ponko_ecs", "crates/ponko_bench", "crates/ponko_mcp", "crates/ponko_ffi", "crates/ponko_unity"]
 
 [workspace.package]
 edition = "2024"

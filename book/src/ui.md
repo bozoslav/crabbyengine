@@ -5,16 +5,16 @@ The engine handles layout/input before frame systems and draws the tree above
 scene sprites. The immediate-mode `ui_panel`, `ui_label` and `ui_button` APIs
 remain available.
 
-In C++ the tree is `ctx.ui_retained()`, a `crabby::ui::tree`; layouts and paints are
+In C++ the tree is `ctx.ui_retained()`, a `ponko::ui::tree`; layouts and paints are
 built by chaining (`ui::layout().column().size(...)`, `ui::paint().wrap()`). In C it
-is the `crabby_ctx_ui_*` functions with a flat `CrabbyUiLayout` and `CrabbyUiPaint`
+is the `ponko_ctx_ui_*` functions with a flat `PonkoUiLayout` and `PonkoUiPaint`
 (see [C and C++](c-cpp.md) and below).
 
 The tree is owned by `Ui`, independently of ECS entities. Stable `UiId` handles
 identify widgets and events. Removing a subtree invalidates its IDs permanently.
 Taffy supplies flexbox, grid, percentage sizes, min/max constraints, padding,
 margin, gap and absolute positioning through the `ui_layout` re-export. It owns
-neither the renderer nor the event loop. Crabby owns interaction and appearance.
+neither the renderer nor the event loop. Ponko owns interaction and appearance.
 
 ## A shop and inventory grid
 
@@ -102,8 +102,8 @@ tree.set_text(main, "Content");
 </div>
 </div>
 
-C keeps `CrabbyUiTrack` and the original flat track arrays unchanged. For repeats,
-use `CrabbyUiTemplateTrack` arrays in `grid_template_columns`/`grid_template_rows`;
+C keeps `PonkoUiTrack` and the original flat track arrays unchanged. For repeats,
+use `PonkoUiTemplateTrack` arrays in `grid_template_columns`/`grid_template_rows`;
 a nonzero component count overrides the corresponding original track array.
 `repetition` is 0 for a single `track`, 1 for `count` repetitions of `tracks`,
 2 for auto-fill, or 3 for auto-fit. Repeat fragments cannot contain repeats.
@@ -124,8 +124,8 @@ Unknown names follow taffy's implicit-line placement rules. Named spans are
 currently Rust-only. Nested repeats are not supported by taffy.
 
 C can use the layout descriptor fields or change existing nodes with
-`crabby_ctx_ui_set_grid_template_areas`, `crabby_ctx_ui_set_grid_line_names`,
-`crabby_ctx_ui_set_grid_area`, and `crabby_ctx_ui_set_grid_named_line`.
+`ponko_ctx_ui_set_grid_template_areas`, `ponko_ctx_ui_set_grid_line_names`,
+`ponko_ctx_ui_set_grid_area`, and `ponko_ctx_ui_set_grid_named_line`.
 Each takes the same screen or world-panel `target` as other UI calls. Inputs
 are copied during the call. Passing zero area/name rows clears those definitions;
 an empty area name restores automatic placement. `set_layout` replaces the whole
@@ -179,8 +179,8 @@ be popped; game code decides whether to reopen it.
 </div>
 
 `events()` drains `Clicked`, `Changed`, `Submitted` and `ScreenPopped` events
-(C++: `tree.events()` or `tree.next_event()`; C: `crabby_ctx_ui_next_event`, one
-tagged `CrabbyUiEvent` at a time, `CRABBY_NOT_FOUND` when none are left).
+(C++: `tree.events()` or `tree.next_event()`; C: `ponko_ctx_ui_next_event`, one
+tagged `PonkoUiEvent` at a time, `PONKO_NOT_FOUND` when none are left).
 Unread events expire at the next UI frame. Event IDs avoid callbacks borrowing
 the context and game state simultaneously. Drain events before mutating the tree.
 
@@ -282,56 +282,56 @@ nothing and give them no mouse.
 ## From C
 
 The C API mirrors the Rust one function by function. Nodes are `uint64_t` ids
-(`CRABBY_UI_NONE` for "no node"); a removed node's id fails with
-`CRABBY_NOT_FOUND` instead of panicking, and a call that fails changes nothing.
+(`PONKO_UI_NONE` for "no node"); a removed node's id fails with
+`PONKO_NOT_FOUND` instead of panicking, and a call that fails changes nothing.
 
 ```c
-CrabbyUiLayout column = crabby_ui_layout_default();
-column.flex_direction = CRABBY_UI_FLEX_COLUMN;
-column.width = (CrabbyUiLength){CRABBY_UI_LENGTH_PERCENT, 1.0f};
+PonkoUiLayout column = ponko_ui_layout_default();
+column.flex_direction = PONKO_UI_FLEX_COLUMN;
+column.width = (PonkoUiLength){PONKO_UI_LENGTH_PERCENT, 1.0f};
 column.padding.top = column.padding.right = column.padding.bottom = column.padding.left =
-    (CrabbyUiLength){CRABBY_UI_LENGTH_POINTS, 24.0f};
+    (PonkoUiLength){PONKO_UI_LENGTH_POINTS, 24.0f};
 
 uint64_t root, buy;
-crabby_ctx_ui_add_panel(ctx, CRABBY_UI_SCREEN, CRABBY_UI_NONE, &column, &root);
-crabby_ctx_ui_add_button(ctx, CRABBY_UI_SCREEN, root, "Buy", NULL, &buy); /* NULL layout: default */
-crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, root, false);
+ponko_ctx_ui_add_panel(ctx, PONKO_UI_SCREEN, PONKO_UI_NONE, &column, &root);
+ponko_ctx_ui_add_button(ctx, PONKO_UI_SCREEN, root, "Buy", NULL, &buy); /* NULL layout: default */
+ponko_ctx_ui_push_screen(ctx, PONKO_UI_SCREEN, root, false);
 
-CrabbyUiEvent event;
-while (crabby_ctx_ui_next_event(ctx, CRABBY_UI_SCREEN, &event) == CRABBY_OK)
-    if (event.kind == CRABBY_UI_EVENT_CLICKED && event.id == buy) { /* ... */ }
+PonkoUiEvent event;
+while (ponko_ctx_ui_next_event(ctx, PONKO_UI_SCREEN, &event) == PONKO_OK)
+    if (event.kind == PONKO_UI_EVENT_CLICKED && event.id == buy) { /* ... */ }
 ```
 
-Retained tree operations take a `target` after the context: `CRABBY_UI_SCREEN`
+Retained tree operations take a `target` after the context: `PONKO_UI_SCREEN`
 for the screen's own UI, or the entity of a world-space panel to build and read
 that panel's UI with the same calls. Node ids are local to the UI that made them;
-the same numeric id can exist in several trees. `crabby_ctx_ui_insert_text` and
-`crabby_ctx_ui_wants_keyboard` operate on context-wide input and have no target.
-Panels are made with `crabby_ctx_create_ui_panel(ctx, entity, width, height, size, &texture)`,
-which gives the entity (it needs a `CrabbyTransform3D`) the panel and its model;
-`crabby_ctx_ui_panel_pointer`, `crabby_ctx_set_ui_panel_interactive`,
-`crabby_ctx_remove_ui_panel`, `crabby_ctx_set_ui_pointer_ray` and
-`crabby_ctx_clear_ui_pointer_ray` do the rest.
+the same numeric id can exist in several trees. `ponko_ctx_ui_insert_text` and
+`ponko_ctx_ui_wants_keyboard` operate on context-wide input and have no target.
+Panels are made with `ponko_ctx_create_ui_panel(ctx, entity, width, height, size, &texture)`,
+which gives the entity (it needs a `PonkoTransform3D`) the panel and its model;
+`ponko_ctx_ui_panel_pointer`, `ponko_ctx_set_ui_panel_interactive`,
+`ponko_ctx_remove_ui_panel`, `ponko_ctx_set_ui_pointer_ray` and
+`ponko_ctx_clear_ui_pointer_ray` do the rest.
 
 ```c
-CrabbyTexture texture;
-crabby_ctx_create_ui_panel(ctx, terminal, 600, 400, (CrabbyVec2){1.2f, 0.8f}, &texture);
+PonkoTexture texture;
+ponko_ctx_create_ui_panel(ctx, terminal, 600, 400, (PonkoVec2){1.2f, 0.8f}, &texture);
 uint64_t buy;
-crabby_ctx_ui_add_button(ctx, terminal, CRABBY_UI_NONE, "Buy", NULL, &buy);
-crabby_ctx_ui_push_screen(ctx, terminal, buy, false);
+ponko_ctx_ui_add_button(ctx, terminal, PONKO_UI_NONE, "Buy", NULL, &buy);
+ponko_ctx_ui_push_screen(ctx, terminal, buy, false);
 ```
 
-`CrabbyUiLayout` is the Taffy `Style` flattened: display, position, flex
+`PonkoUiLayout` is the Taffy `Style` flattened: display, position, flex
 direction, wrap, grow, shrink and basis, the alignment properties, width, height,
 min/max sizes, margin, padding, inset, gap, aspect ratio, grid tracks (arrays with
 a count, read only during the call) and grid item placement. Lengths are a kind
 (automatic, points or a fraction of the parent) and a value. Enum-valued fields
-are `uint32_t` holding the constants of the matching `CrabbyUi*` enum, and an
-unknown value is an error. `CrabbyUiPaint` is `UiPaint`; fonts come from
-`crabby_ctx_load_font`. Text is read back into a buffer you size with
-`crabby_ctx_ui_text` (call once with capacity 0 for the length).
+are `uint32_t` holding the constants of the matching `PonkoUi*` enum, and an
+unknown value is an error. `PonkoUiPaint` is `UiPaint`; fonts come from
+`ponko_ctx_load_font`. Text is read back into a buffer you size with
+`ponko_ctx_ui_text` (call once with capacity 0 for the length).
 
-`crabby_ctx_ui_frame` runs a frame by hand with a `CrabbyUiInput`, like
+`ponko_ctx_ui_frame` runs a frame by hand with a `PonkoUiInput`, like
 `Ui::frame`, which is how the C and C++ tests click buttons without a window.
 
 This chapter's Rust and C++ examples build the same shop: the C++ one is

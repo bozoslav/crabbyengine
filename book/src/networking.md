@@ -6,7 +6,7 @@ everyone applies the same inputs in the same order to the same start,
 everyone has the same world, whether there are 10 units or 100,000. A
 tick costs the same bandwidth either way: about 50 bytes per player.
 
-Crabby's simulation is built for it already: a fixed clock, seeded
+Ponko's simulation is built for it already: a fixed clock, seeded
 randomness per (seed, tick, system, entity), and deterministic queries and
 physics. Lockstep adds the session: 2–8 players, plain UDP, no server to
 run.
@@ -94,14 +94,14 @@ Lockstep only works if the simulation really is deterministic. The rules:
   platform. Players on different OSes or CPUs need the
   `physics-determinism` feature.
 
-When something slips through, Crabby tells you. Every `checksum_every`
+When something slips through, Ponko tells you. Every `checksum_every`
 ticks (default 60) the peers compare a hash of every
 [reflected](reflection.md) component and resource; on a mismatch,
 `ctx.net.desync()` reports the tick, the player and **which components
 differ**, so you know where to look:
 
 ```text
-crabby lockstep: desync with player 1 at tick 119: Unit differ
+ponko lockstep: desync with player 1 at tick 119: Unit differ
 ```
 
 Only reflected components are compared, so reflect the ones your
@@ -264,7 +264,7 @@ With feature `steam`, `NetMessages` uses Steam Networking Messages on a
 separate channel from lockstep. Steam sends unreliable packets without Nagle;
 renet supplies delivery, ordering and fragmentation. Each transport packet is
 at most 1,500 bytes, below Steam's message limit. `Lane::ReliableUnordered`
-(`CRABBY_LANE_RELIABLE_UNORDERED` in C++) retries without ordering messages.
+(`PONKO_LANE_RELIABLE_UNORDERED` in C++) retries without ordering messages.
 
 Create one message endpoint per Steam client. The host creates a friends-only
 lobby (1–249 clients plus host); join with its lobby id. Poll every frame and

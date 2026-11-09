@@ -5,10 +5,10 @@ engine: the same ECS, game loop, renderer, spatial grid and control endpoint
 for agents. Every chapter of this guide shows the C++ version of its examples
 next to the Rust one.
 
-- `include/crabby.hpp`: the C++17 wrapper, header-only. `crabby::game`,
-  `crabby::ctx` and `crabby::world_view` mirror Rust's `Game`, `Ctx` and
+- `include/ponko.hpp`: the C++17 wrapper, header-only. `ponko::game`,
+  `ponko::ctx` and `ponko::world_view` mirror Rust's `Game`, `Ctx` and
   `World`.
-- `include/crabby.h`: the C API underneath, generated from the `ponko_ffi`
+- `include/ponko.h`: the C API underneath, generated from the `ponko_ffi`
   crate with cbindgen.
 - One shared library, `ponko_ffi` (`libponko_ffi.dylib`/`.so`,
   `ponko_ffi.dll`).
@@ -23,13 +23,13 @@ From the repository root, with Rust, CMake, a C11 compiler and a C++17 compiler:
 
 ```sh
 cargo build -p ponko_ffi --release
-cmake -S examples/cpp -B target/native -DCMAKE_BUILD_TYPE=Release -DCRABBY_LIBRARY_DIR="$PWD/target/release"
+cmake -S examples/cpp -B target/native -DCMAKE_BUILD_TYPE=Release -DPONKO_LIBRARY_DIR="$PWD/target/release"
 cmake --build target/native --config Release
 ctest --test-dir target/native -C Release --output-on-failure
-./target/native/crabby_cpp_boids                                  # window
-HEADLESS=1 BOIDS=1000000 TICKS=300 ./target/native/crabby_cpp_boids
-./target/native/crabby_cpp_battle                                 # the battle demo
-HEADLESS=1 UNITS=1000000 TICKS=600 ./target/native/crabby_cpp_battle
+./target/native/ponko_cpp_boids                                  # window
+HEADLESS=1 BOIDS=1000000 TICKS=300 ./target/native/ponko_cpp_boids
+./target/native/ponko_cpp_battle                                 # the battle demo
+HEADLESS=1 UNITS=1000000 TICKS=600 ./target/native/ponko_cpp_battle
 ```
 
 In PowerShell, replace `$PWD` with the repository's absolute path, using
@@ -39,7 +39,7 @@ in `target/native/Release/`.
 For your own game, copy the recipe in `examples/cpp/CMakeLists.txt`: include
 the two headers, link `ponko_ffi`, ship its shared library next to your
 executable, and put your textures in an `assets/` folder next to it (the
-example copies the repository's `assets/`). `crabby_abi_version()` returns `2`;
+example copies the repository's `assets/`). `ponko_abi_version()` returns `2`;
 rebuild against the matching header when you update the engine.
 
 ## A C++ game
@@ -48,7 +48,7 @@ rebuild against the matching header when you update the engine.
 {{#include ../../examples/cpp/guide.cpp:first_game_full}}
 ```
 
-- Systems are anything callable as `void(crabby::ctx&)`. Lambdas can capture
+- Systems are anything callable as `void(ponko::ctx&)`. Lambdas can capture
   your game state by reference: the game runs inside `run()`, so it outlives
   nothing it captures.
 - `run(setup)` opens the window; `run_headless(ticks, setup)` runs the
@@ -71,13 +71,13 @@ the engine learns about the type the first time it sees one. It's named
 after the type, namespaces included (`game::Health`), which is how tools and
 saves show it; `world.reflect<T>("Name", fields)` picks another name.
 
-The built-ins are C++ types too: `crabby::transform2d` is `Transform2D`
-(the same bytes as Rust), `crabby::attached` is `Attached`,
-`crabby::animation` is `Animation`, `crabby::velocity` is `Velocity`, and
-`crabby::sprite` is `Sprite` (spawn, get and set, but not a query parameter,
+The built-ins are C++ types too: `ponko::transform2d` is `Transform2D`
+(the same bytes as Rust), `ponko::attached` is `Attached`,
+`ponko::animation` is `Animation`, `ponko::velocity` is `Velocity`, and
+`ponko::sprite` is `Sprite` (spawn, get and set, but not a query parameter,
 since the engine stores sprites in a Rust layout; the compiler tells you).
-[Physics](physics.md) bodies and colliders, `crabby::rigid_body` and
-`crabby::collider`, work like sprites.
+[Physics](physics.md) bodies and colliders, `ponko::rigid_body` and
+`ponko::collider`, work like sprites.
 
 ```cpp
 {{#include ../../examples/cpp/main.cpp:cpp_world}}
@@ -88,7 +88,7 @@ since the engine stores sprites in a Rust layout; the compiler tells you).
 `world.each(fn)` calls your function for every entity with the components
 it takes (see [Queries](ecs.md#queries)); `world.query<A, B>(fn)` hands you
 whole arrays instead. While a loop runs, the world and context are busy:
-other world or context calls throw (C: return `CRABBY_BUSY`), except
+other world or context calls throw (C: return `PONKO_BUSY`), except
 
 - commands: `despawn_later`, `spawn_later`, `set_later`, `remove_later`,
   applied when the system returns (in `each` and `query`, not in the `_par`
@@ -126,7 +126,7 @@ inline, so nothing crosses into the engine per unit. The gap for big armies
 is in rebuilding the per-team grids: Rust feeds them straight from the
 units, C++ copies each team's units into an array first.
 
-`HEADLESS=1 BOIDS=… ./crabby_cpp_boids` and `HEADLESS=1 BOIDS=… cargo run
+`HEADLESS=1 BOIDS=… ./ponko_cpp_boids` and `HEADLESS=1 BOIDS=… cargo run
 --release --example boids` run the same flocking, release builds, on the
 development Mac (arm64, 2026-11-03):
 
@@ -137,7 +137,7 @@ development Mac (arm64, 2026-11-03):
 
 The remaining gap is mostly the C++ version copying velocities into its own
 array each tick before rebuilding its grid. Plain column updates (one million
-`p += v`, `cargo run --release --example ffi_bench` vs `crabby_cpp_bench`,
+`p += v`, `cargo run --release --example ffi_bench` vs `ponko_cpp_bench`,
 which times `each` and `query`) run at the same speed in both: about 0.15 ms.
 
 Grid queries in hot loops should use views (`ctx.spatial_view()`,
@@ -167,7 +167,7 @@ A headless game in C:
 {{#include ../../examples/cpp/main.c:c_run}}
 ```
 
-Every call returns `CrabbyStatus`; on failure `crabby_last_error()` has the
+Every call returns `PonkoStatus`; on failure `ponko_last_error()` has the
 message (per thread, until the next failed call). Null arguments, wrong
 sizes, unknown ids, duplicate query columns and busy worlds are rejected.
 Pointers you pass must still be valid: the library can't recognize a

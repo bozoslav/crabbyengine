@@ -519,7 +519,7 @@ impl Net {
     }
 
     fn lose(&mut self, error: String) -> bool {
-        eprintln!("crabby lockstep: {error}");
+        eprintln!("ponko lockstep: {error}");
         self.error = Some(error);
         self.state = NetState::Lost;
         false
@@ -536,7 +536,7 @@ impl Net {
         if self.desync.is_none() {
             self.desync = s.compare_stored(&check);
             if let Some(d) = &self.desync {
-                eprintln!("crabby lockstep: {d}");
+                eprintln!("ponko lockstep: {d}");
             }
         }
         s.own_checks.push_back(check);
@@ -840,7 +840,7 @@ impl Session {
                         Some(own) => {
                             *settings.desync = own.compare(&check, player);
                             if let Some(d) = settings.desync.as_ref() {
-                                eprintln!("crabby lockstep: {d}");
+                                eprintln!("ponko lockstep: {d}");
                             }
                         }
                         None => {

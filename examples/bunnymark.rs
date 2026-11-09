@@ -37,7 +37,7 @@ fn main() {
     let start_count = env_number("CRABS", 10_000.0) as usize;
     let quit_after = env_number("SECONDS", 0.0);
 
-    Game::new("Crabby Engine: bunnymark", 1280, 720).vsync(false).run(move |ctx| {
+    Game::new("Ponko: bunnymark", 1280, 720).vsync(false).run(move |ctx| {
         let crab = ctx.load_texture("crab.png");
         let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
         let mut crabs: Vec<Crab> = Vec::new();

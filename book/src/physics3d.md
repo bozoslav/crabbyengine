@@ -65,18 +65,18 @@ is what you see:
 
 | Rust | C++ | Meaning |
 |---|---|---|
-| `RigidBody3D::dynamic()` | `crabby::dynamic_body3d()` | moved by gravity and collisions |
-| `RigidBody3D::fixed()` | `crabby::fixed_body3d()` | never moves: ground, walls, buildings |
-| `RigidBody3D::kinematic()` | `crabby::kinematic_body3d()` | moved only by you; pushes, isn't pushed |
-| `Collider3D::sphere(r)` | `crabby::sphere_collider(r)` | |
-| `Collider3D::cuboid(size)` | `crabby::box_collider(size)` | full width, height, depth |
-| `Collider3D::capsule(h, r)` | `crabby::capsule_collider3d(h, r)` | upright; `h` between the centers of its ends |
-| `Collider3D::mesh(m)` | `crabby::mesh_collider(m)` | a heightfield, convex hull or triangle mesh |
+| `RigidBody3D::dynamic()` | `ponko::dynamic_body3d()` | moved by gravity and collisions |
+| `RigidBody3D::fixed()` | `ponko::fixed_body3d()` | never moves: ground, walls, buildings |
+| `RigidBody3D::kinematic()` | `ponko::kinematic_body3d()` | moved only by you; pushes, isn't pushed |
+| `Collider3D::sphere(r)` | `ponko::sphere_collider(r)` | |
+| `Collider3D::cuboid(size)` | `ponko::box_collider(size)` | full width, height, depth |
+| `Collider3D::capsule(h, r)` | `ponko::capsule_collider3d(h, r)` | upright; `h` between the centers of its ends |
+| `Collider3D::mesh(m)` | `ponko::mesh_collider(m)` | a heightfield, convex hull or triangle mesh |
 | `.density(d)`, `.friction(f)`, `.restitution(r)` | fields of the same name | kg/m³ (default 1000), 0 ice..1 rubber, bounciness |
 | `.sensor()` | `.sensor = true` | reports overlaps, doesn't push |
 | `.offset(v)`, `.groups(g)` | `.offset`, `.groups` | shape moved from the entity; who it touches |
-| `RigidBody3D::dynamic().mass(kg)` | `crabby::with_mass(body, kg)` | a mass of its own instead of density × volume |
-| `.center_of_mass(v)` | `crabby::with_center_of_mass(body, v)` | center of mass in the body's frame (low for cars) |
+| `RigidBody3D::dynamic().mass(kg)` | `ponko::with_mass(body, kg)` | a mass of its own instead of density × volume |
+| `.center_of_mass(v)` | `ponko::with_center_of_mass(body, v)` | center of mass in the body's frame (low for cars) |
 
 Collision meshes are made once and shared by any number of colliders:
 
@@ -93,14 +93,14 @@ Collision meshes are made once and shared by any number of colliders:
   keep it until they're removed.
 
 Each of these has a twin in `CollisionMeshData` (C++
-`crabby::collision_mesh_data`) that builds the mesh on any thread, for
+`ponko::collision_mesh_data`) that builds the mesh on any thread, for
 [streamed worlds](#big-worlds-solid-only-near-the-player): build it in the
 same `Job` as the rest of a cell, then `ctx.physics3d.add_mesh(&data)` (C++
 `ctx.add_collision_mesh`) on the game's thread, which only shares it.
 
 A terrain tile is simplest to make solid with a **`TerrainCollider`** on
 the tile's own entity: `TerrainCollider::new(mesh)` (C++
-`crabby::solid_terrain(mesh)`) with the heightfield of the tile's heights.
+`ponko::solid_terrain(mesh)`) with the heightfield of the tile's heights.
 It sits at the tile's `Transform3D`, turned **and scaled** with it (a tile
 drawn twice as high is solid twice as high), so it matches the drawn ground
 triangle for triangle, holes included. Despawning the tile removes it; to
@@ -259,7 +259,7 @@ After each step, every wheel says what happened: `grounded`,
 `contact_point` and `contact_normal`, `compression` and
 `suspension_force`, `angular_velocity` (and `rpm()`), `forward_slip` and
 `sideways_slip` (for skid marks and tyre sounds). To draw a wheel, its
-`pose(chassis)` (C++ `crabby::wheel_pose`) is its center and turn: steer,
+`pose(chassis)` (C++ `ponko::wheel_pose`) is its center and turn: steer,
 spin and suspension travel. Pass the chassis's `Transform3D` from a frame
 system and the wheels move as smoothly as the chassis:
 
@@ -271,7 +271,7 @@ The wheels are rays, so a car can't tunnel through the ground however
 fast it goes (a test drives one over a heightfield at 30 m/s), and they
 see only what `Vehicle3D::groups` touches. The road is pushed back too:
 a car on a dynamic raft pushes the raft. C++ sees the component as
-`crabby::vehicle3d`, a plain struct (and a query column): the wheels are
+`ponko::vehicle3d`, a plain struct (and a query column): the wheels are
 `wheels[0..wheel_count]`.
 
 Cost: a car on heightfield terrain adds about 2 µs to a physics step,
@@ -318,7 +318,7 @@ Try it: `cargo run --release --example vehicle --features physics3d`.
   a push in kg × m/s (multiply by `mass(e)` for a speed change); at a point
   it also spins the body.
 
-Every query takes a `QueryFilter3D` (C++ `crabby::filter3d`):
+Every query takes a `QueryFilter3D` (C++ `ponko::filter3d`):
 `.exclude(e)` looks through one entity (the one asking), `.groups(g)` sees
 what a collider in those groups would touch, and `.with_sensors()` sees
 sensors too (they're skipped by default). Lists go into a `Vec` you keep,
@@ -334,7 +334,7 @@ allocations of their own on top of rapier's. Compared with calling rapier
 directly, the engine's syncing adds 13–25%
 (`cargo run --release -p ponko_bench -- physics3d`, M4 Max):
 
-| Boxes falling into a pit, 250 ticks | Crabby | rapier alone |
+| Boxes falling into a pit, 250 ticks | Ponko | rapier alone |
 |---|---|---|
 | 1,000 | 30.4 ms | 24.5 ms |
 | 10,000 | 440 ms | 389 ms |
@@ -371,7 +371,7 @@ doesn't need all of them solid: only the ground near the player and the
 vehicles. `ctx.physics3d.stream_colliders(Some(max_new))` (C++
 `ctx.stream_colliders(max_new)`) turns that on. From then, the colliders of
 fixed bodies and `TerrainCollider`s are only in the physics world near
-entities with a **`ColliderFocus`** (C++ `crabby::focus_colliders(radius,
+entities with a **`ColliderFocus`** (C++ `ponko::focus_colliders(radius,
 keep_radius)`):
 
 - A collider within a focus's `radius` (measured on the ground, to the
@@ -442,7 +442,7 @@ Changing the component rebuilds the joint and wakes both bodies.
 </div>
 
 Both snippets are compiled and stepped headless (the Rust one by the
-`physics3d_joint_guide` test). In C++ the axes are `crabby::joint_axis::*`
+`physics3d_joint_guide` test). In C++ the axes are `ponko::joint_axis::*`
 indices into `axes` and `drives`, and `swing_cone` is negative for none.
 
 `fixed(a, b)` locks all axes; `spherical(a, b)` locks translation;
@@ -579,7 +579,7 @@ are not affected, and removing the component makes a body plain again.
 A higher `RigidBody3D::dominance` group pushes lower groups without receiving
 a contact impulse back. Equal groups react normally. Both bodies remain dynamic,
 so the higher body still responds to gravity, fixed walls and equal-group
-contacts. Groups default to zero and range from -128 to 127 (C++: `crabby::with_dominance`):
+contacts. Groups default to zero and range from -128 to 127 (C++: `ponko::with_dominance`):
 
 <div class="lang-pair">
 <div>

@@ -1,7 +1,7 @@
 blank_issues_enabled: true
 contact_links:
   - name: The guide
-    url: https://bozoslav.github.io/crabbyengine/
+    url: https://ponkoengine.github.io/ponko/
     about: How to use the engine, with Rust and C++ examples side by side.
   - name: Report a security vulnerability
     url: https://github.com/bozoslav/ponko/security/advisories/new

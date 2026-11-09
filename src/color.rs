@@ -40,7 +40,9 @@ impl Color {
     /// Fully transparent (draws nothing).
     pub const TRANSPARENT: Color = Color::rgba(0.0, 0.0, 0.0, 0.0);
     /// A soft dark blue-gray, the default clear color.
-    pub const CRABBY_DARK: Color = Color::rgb(0.11, 0.12, 0.15);
+    pub const PONKO_DARK: Color = Color::rgb(0.11, 0.12, 0.15);
+    /// Legacy spelling of [`Color::PONKO_DARK`].
+    pub const CRABBY_DARK: Color = Self::PONKO_DARK;
 
     /// An opaque color from red, green and blue (each 0.0 to 1.0).
     ///

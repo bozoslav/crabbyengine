@@ -1,4 +1,4 @@
-#include "crabby.hpp"
+#include "ponko.hpp"
 #include <cmath>
 #include <iostream>
 // ANCHOR: cpp_components
@@ -7,7 +7,7 @@ struct Velocity { float x, y; };
 // ANCHOR_END: cpp_components
 int main() {
     // ANCHOR: cpp_world
-    crabby::world world;
+    ponko::world world;
     auto player = world.spawn(Position{0, 0}, Velocity{1, 2});
     world.each([](Position& p, const Velocity& v) {
         p.x += v.x;
@@ -17,16 +17,16 @@ int main() {
     // ANCHOR_END: cpp_world
     std::cout << "Position: " << result.x << ", " << result.y << '\n';
     // ANCHOR: cpp_headless
-    crabby::entity agent = 0;
-    auto simulation = crabby::game("headless", 1, 1)
-        .sim_system([](crabby::ctx& ctx) {
+    ponko::entity agent = 0;
+    auto simulation = ponko::game("headless", 1, 1)
+        .sim_system([](ponko::ctx& ctx) {
             const float dt = ctx.dt();
             ctx.world().each([dt](Position& p, const Velocity& v) {
                 p.x += v.x * dt;
                 p.y += v.y * dt;
             });
         }, "movement")
-        .run_headless(60, [&](crabby::ctx& ctx) {
+        .run_headless(60, [&](ponko::ctx& ctx) {
             agent = ctx.world().spawn(Position{0, 0}, Velocity{1, 2});
         });
     auto final_position = simulation.get<Position>(agent);

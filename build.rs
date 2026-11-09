@@ -10,7 +10,7 @@ fn main() {
         return;
     }
     let Some(out) = std::env::var_os("OUT_DIR") else { return };
-    // OUT_DIR is target/<profile>/build/crabbyengine-<hash>/out.
+    // OUT_DIR is target/<profile>/build/ponko-<hash>/out.
     let Some(profile) = std::path::Path::new(&out).ancestors().nth(3) else {
         return;
     };

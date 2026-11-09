@@ -1,6 +1,6 @@
 // 1M entities, position += velocity: the same loop written with each() and
 // with query() columns, which must be as fast as each other.
-#include "crabby.hpp"
+#include "ponko.hpp"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -20,7 +20,7 @@ template<class F> double median_us(F update) {
 }
 
 int main() {
-    crabby::world world;
+    ponko::world world;
     for (std::size_t i = 0; i < 1000000; ++i) world.spawn(Pos{0, 0}, Vel{1, 2});
     const double each_us = median_us([&] {
         world.each([](Pos& p, const Vel& v) { p.x += v.x; p.y += v.y; });

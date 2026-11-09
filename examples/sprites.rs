@@ -9,7 +9,7 @@
 use ponko::*;
 
 fn main() {
-    Game::new("Crabby Engine: sprites", 800, 600).run(|ctx| {
+    Game::new("Ponko: sprites", 800, 600).run(|ctx| {
         ctx.clear(Color::hex(0x1E2A38));
         let crab = ctx.load_texture("crab.png");
 

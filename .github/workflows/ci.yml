@@ -60,6 +60,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
+      - name: Naming inventory and generated aliases
+        run: |
+          python3 scripts/check-naming.py
+          python3 scripts/generate-ponko-header.py --check
       - run: cargo fmt --all --check
 
   clippy:
@@ -312,7 +316,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p target
-          cbindgen --config crates/crabby_ffi/cbindgen.toml crates/crabby_ffi > target/crabby.generated.h
+          cbindgen --config crates/ponko_ffi/cbindgen.toml crates/ponko_ffi > target/crabby.generated.h
           python - <<'PYTHON'
           from pathlib import Path
           import difflib
@@ -324,7 +328,7 @@ jobs:
           sys.exit(expected != actual)
           PYTHON
       - run: cargo build -p ponko_ffi --release
-      - run: cmake -S examples/cpp -B target/native -DCMAKE_BUILD_TYPE=Release -DCRABBY_LIBRARY_DIR=${{ github.workspace }}/target/release
+      - run: cmake -S examples/cpp -B target/native -DCMAKE_BUILD_TYPE=Release -DPONKO_LIBRARY_DIR=${{ github.workspace }}/target/release
       - run: cmake --build target/native --config Release
       - run: ctest --test-dir target/native -C Release --output-on-failure
 

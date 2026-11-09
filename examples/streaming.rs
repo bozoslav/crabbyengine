@@ -88,7 +88,7 @@ fn main() {
     let (mut yaw, mut speed, mut altitude) = (0.4f32, if bench { 600.0f32 } else { 120.0 }, 90.0f32);
     // The streaming's cost on the game's thread, for BENCH.
     let (mut uploaded, mut freed, mut upload_time, mut worst_upload) = (0usize, 0usize, 0.0f64, 0.0f64);
-    Game::new("Crabby Engine: streaming", 1280, 720)
+    Game::new("Ponko: streaming", 1280, 720)
         .vsync(!bench)
         .system(move |ctx: &mut Ctx| {
             if ctx.key_pressed(Key::Escape) {

@@ -87,7 +87,7 @@ the system and fill it with `rebuild_with_data`:
 </div>
 </div>
 
-C++ uses a `crabby::grid`, whose items carry a `uint32_t` of your own (here
+C++ uses a `ponko::grid`, whose items carry a `uint32_t` of your own (here
 an index into a velocity array), and walks it with `grid->view()`.
 
 ## Choosing a cell size

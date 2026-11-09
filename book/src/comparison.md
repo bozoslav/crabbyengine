@@ -1,6 +1,6 @@
 # Ponko vs Bevy vs Unity
 
-**Last reviewed: 2026-11-08.** Ponko is the engine previously named Crabby
+**Last reviewed: 2026-11-08.** Ponko is the engine previously named Ponko
 Engine. This comparison describes the checked-in implementation and the
 linked official documentation; it does not claim feature parity or general
 performance superiority. Product versions and tool availability change.
@@ -37,7 +37,7 @@ describe those alternatives.
 Ponko stores component columns in archetypes and gives entities generational
 IDs. Typed queries, optional components, `with`/`without` filtering, runtime
 component registration and parallel query iteration exist today in
-`crates/crabby_ecs`. A small fixed-step simulation can be checked without a GPU:
+`crates/ponko_ecs`. A small fixed-step simulation can be checked without a GPU:
 
 <div class="lang-pair">
 <div>

@@ -15,11 +15,11 @@ most detailed:
 
 | You want | Use |
 |---|---|
-| a quick look while playing | the overlay: `CRABBY_HUD=1`, or `ctx.set_perf_hud(true)` |
+| a quick look while playing | the overlay: `PONKO_HUD=1`, or `ctx.set_perf_hud(true)` |
 | to know *which system or part of it* is slow, and what allocates | scopes and `ctx.perf_report()` |
 | a number for a test or CI that fails when things get slower | `Game::profile_headless` and a `Budget` |
 
-The overlay and `CRABBY_BENCH` switch the deeper profiling on by themselves.
+The overlay and `PONKO_BENCH` switch the deeper profiling on by themselves.
 In your own code, `ctx.set_profiling(true)` does. While it is **off**, a scope
 costs a single atomic load and the allocation counter a single load per
 allocation, so leaving scopes in shipped code is fine.
@@ -46,7 +46,7 @@ suspect:
 </div>
 </div>
 
-`profile_scope!("name")` (C++: `CRABBY_PROFILE_SCOPE("name")`) times the rest
+`profile_scope!("name")` (C++: `PONKO_PROFILE_SCOPE("name")`) times the rest
 of the block. `ctx.profile("name", |ctx| ...)` times a closure. Scopes nest
 (times are inclusive), they work on any thread, and times from several threads
 add up. A scope named `"steering/neighbors"` sorts next to its parent in the
@@ -69,7 +69,7 @@ To count them, install the counting allocator once, in your `main.rs`:
 
 ```cpp
 // Put this once at global scope in one .cpp file (see the scopes example above):
-CRABBY_COUNT_CPP_ALLOCATIONS
+PONKO_COUNT_CPP_ALLOCATIONS
 ```
 
 </div>
@@ -77,8 +77,8 @@ CRABBY_COUNT_CPP_ALLOCATIONS
 
 Counting happens only while profiling is on. The report then says how many
 allocations each frame and each system makes. In C and C++ the engine's own
-allocations are counted too; `CRABBY_COUNT_CPP_ALLOCATIONS` adds your `new`
-calls. (A C game can call `crabby_note_allocation(bytes)` from its own
+allocations are counted too; `PONKO_COUNT_CPP_ALLOCATIONS` adds your `new`
+calls. (A C game can call `ponko_note_allocation(bytes)` from its own
 allocator.)
 
 ### In a running game
@@ -100,9 +100,9 @@ allocator.)
 </div>
 </div>
 
-Or without changing the game: `CRABBY_BENCH=600 cargo run --release` plays a
+Or without changing the game: `PONKO_BENCH=600 cargo run --release` plays a
 fixed run offscreen and prints the same report at the end
-(`CRABBY_BENCH_REPORT=now.json` also saves it); the
+(`PONKO_BENCH_REPORT=now.json` also saves it); the
 [MCP server](agents.md)'s `perf_report` tool takes `profiling=true` for an
 agent to do the same on a running game.
 

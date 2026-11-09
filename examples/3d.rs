@@ -106,7 +106,7 @@ fn bench(ctx: &mut Ctx) {
 fn main() {
     let bench_seconds: Option<f64> = std::env::var("BENCH_SECONDS").ok().and_then(|s| s.parse().ok());
     let cubes: usize = std::env::var("CUBES").ok().and_then(|n| n.parse().ok()).unwrap_or(400);
-    let mut game = Game::new("Crabby Engine: 3D", 1280, 720).system(orbit);
+    let mut game = Game::new("Ponko: 3D", 1280, 720).system(orbit);
     game = if bench_seconds.is_some() {
         // Spin every frame, as Unity's Update does, so both do the same work.
         let fullscreen = std::env::var_os("BENCH_WINDOWED").is_none();

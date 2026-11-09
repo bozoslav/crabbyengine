@@ -152,7 +152,7 @@ pub fn scope_named(name: &str) -> &'static ProfileScope {
 /// Times the rest of the block as a scope called `$name`.
 ///
 /// It shows up next to the systems in the performance overlay, in
-/// `CRABBY_BENCH` reports and in [`Ctx::perf_report`](crate::Ctx::perf_report).
+/// `PONKO_BENCH` reports and in [`Ctx::perf_report`](crate::Ctx::perf_report).
 /// While profiling is off it costs one atomic load. Times are inclusive: a
 /// scope inside another is part of it.
 ///
@@ -172,7 +172,7 @@ pub fn scope_named(name: &str) -> &'static ProfileScope {
 #[macro_export]
 macro_rules! profile_scope {
     ($name:expr) => {
-        let _crabby_scope_guard = {
+        let _ponko_scope_guard = {
             static SCOPE: $crate::ProfileScope = $crate::ProfileScope::new($name);
             SCOPE.enter()
         };

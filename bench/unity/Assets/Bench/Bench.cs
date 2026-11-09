@@ -1,4 +1,4 @@
-// The Crabby Engine 3D benchmark scene, rebuilt in Unity: N spinning tinted
+// The Ponko 3D benchmark scene, rebuilt in Unity: N spinning tinted
 // cubes in a field, 12 PBR spheres, a ground plane, one sun with soft
 // shadows, 4x MSAA. Run the player with:
 //   -cubes 100000  -seconds 10  -out result.json
@@ -62,7 +62,7 @@ public class Bench : MonoBehaviour
         urp.mainLightShadowmapResolution = 2048;
         urp.supportsHDR = false;
 
-        // Camera: Crabby's orbit start (yaw 0.6, pitch 0.45, distance 18), 60° vertical.
+        // Camera: Ponko's orbit start (yaw 0.6, pitch 0.45, distance 18), 60° vertical.
         var cam = new GameObject("Camera").AddComponent<Camera>();
         cam.tag = "MainCamera";
         cam.fieldOfView = 60; cam.nearClipPlane = 0.1f; cam.farClipPlane = 2000;
@@ -116,7 +116,7 @@ public class Bench : MonoBehaviour
         CubeMesh = probe.GetComponent<MeshFilter>().sharedMesh;
         Destroy(probe);
         CubeMaterial = Mat(Color.white, 0.6f, 0);
-        // Tints: 64 shared materials (Crabby tints per cube for free; in
+        // Tints: 64 shared materials (Ponko tints per cube for free; in
         // Unity, 100k materials or property blocks would break batching).
         Tints = new Material[64];
         var tintRng = new System.Random(7);

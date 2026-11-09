@@ -33,7 +33,7 @@ Its own **scale** is left alone, so a small icon stays small on a big unit.
 
 | Rust | C++ | Meaning |
 |---|---|---|
-| `Attached::to(e)` | `crabby::attach_to(e)` | right on top of `e` |
+| `Attached::to(e)` | `ponko::attach_to(e)` | right on top of `e` |
 | `.offset(v)` | `attach_to(e, v)` | `v` away, in `e`'s space |
 | `.rotated(r)` | `attach_to(e, v, r)` | turned `r` radians more |
 

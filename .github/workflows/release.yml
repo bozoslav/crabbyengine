@@ -38,7 +38,7 @@ jobs:
         run: |
           dir="ponko-${GITHUB_REF_NAME}-${{ matrix.name }}"
           mkdir -p "$dir/include" "$dir/lib"
-          cp include/crabby.h include/crabby.hpp "$dir/include/"
+          cp include/ponko.h include/ponko.hpp include/crabby.h include/crabby.hpp "$dir/include/"
           cp LICENSE-MIT LICENSE-APACHE NOTICE "$dir/"
           for f in libponko_ffi.a libponko_ffi.so libponko_ffi.dylib ponko_ffi.lib ponko_ffi.dll ponko_ffi.dll.lib; do
             if [ -f "target/release/$f" ]; then cp "target/release/$f" "$dir/lib/"; fi

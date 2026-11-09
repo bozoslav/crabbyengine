@@ -56,9 +56,9 @@ ctx.save_prefab(palm, "prefabs/palm.json")?;
 ```
 
 C++: `ctx.save_scene(path)` and `ctx.save_prefab(e, path)`, which throw on
-errors like the rest of the wrapper. C: `crabby_ctx_load_scene`,
-`crabby_ctx_save_scene`, `crabby_ctx_spawn_prefab` and
-`crabby_ctx_save_prefab`.
+errors like the rest of the wrapper. C: `ponko_ctx_load_scene`,
+`ponko_ctx_save_scene`, `ponko_ctx_spawn_prefab` and
+`ponko_ctx_save_prefab`.
 
 ## The files
 
