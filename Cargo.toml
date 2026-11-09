@@ -65,6 +65,11 @@ js-sys = "0.3.107"
 cpal = { version = "0.18.2", features = ["wasm-bindgen"], optional = true }
 web-sys = { version = "0.3.107", features = ["Window", "Document", "Element", "HtmlCanvasElement", "Location", "Response", "console"] }
 
+# The browser smoke fixture (examples/web_smoke.rs) reports its state to
+# the page; the engine already depends on web-sys there.
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+web-sys = { version = "0.3.107", features = ["Window", "Document", "Element", "Location"] }
+
 [features]
 # Pure Rust Recast baking and Detour queries; no window, Bevy or async runtime.
 navmesh = ["3d", "dep:navmesh-rs"]
