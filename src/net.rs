@@ -24,6 +24,8 @@ use serde::de::DeserializeOwned;
 
 use crate::{Instant, World, WorldReflect};
 
+#[cfg(test)]
+mod message_conformance;
 mod messages;
 pub use messages::{Lane, MAX_MESSAGE_BYTES, MessageEvent, MessageStats, NetMessages, PeerId};
 

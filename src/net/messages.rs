@@ -238,7 +238,11 @@ impl Link {
 }
 type Inbox = VecDeque<(SocketAddr, Vec<u8>)>;
 /// Packet boundary below the renet protocol and session handshake.
-#[cfg(feature = "steam")]
+///
+/// Implementations: the Steam relay (feature `steam`) and the scripted
+/// transport used by the conformance tests in `net/message_conformance.rs`,
+/// which also lists the contract each transport has to keep.
+#[cfg(any(test, feature = "steam"))]
 pub(super) trait PacketTransport: Send {
     fn send(&mut self, to: SocketAddr, bytes: &[u8]) -> io::Result<bool>;
     fn recv(&mut self, buf: &mut [u8]) -> io::Result<Option<(SocketAddr, usize)>>;
@@ -249,7 +253,7 @@ pub(super) trait PacketTransport: Send {
 }
 
 enum Wire {
-    #[cfg(feature = "steam")]
+    #[cfg(any(test, feature = "steam"))]
     Custom(Box<dyn PacketTransport>),
     Udp(UdpSocket),
     Local {
@@ -262,7 +266,7 @@ enum Wire {
 impl Wire {
     fn addr(&self) -> io::Result<SocketAddr> {
         match self {
-            #[cfg(feature = "steam")]
+            #[cfg(any(test, feature = "steam"))]
             Self::Custom(_) => Err(io::Error::other("no UDP address")),
             Self::Udp(s) => s.local_addr(),
             Self::Local { me, .. } => Ok(local_addr(*me)),
@@ -270,7 +274,7 @@ impl Wire {
     }
     fn send(&mut self, addr: SocketAddr, bytes: &[u8]) -> io::Result<bool> {
         match self {
-            #[cfg(feature = "steam")]
+            #[cfg(any(test, feature = "steam"))]
             Self::Custom(t) => t.send(addr, bytes),
             Self::Udp(s) => match s.send_to(bytes, addr) {
                 Ok(_) => Ok(true),
@@ -299,7 +303,7 @@ impl Wire {
     }
     fn recv(&mut self, buf: &mut [u8]) -> io::Result<Option<(SocketAddr, usize)>> {
         match self {
-            #[cfg(feature = "steam")]
+            #[cfg(any(test, feature = "steam"))]
             Self::Custom(t) => t.recv(buf),
             Self::Udp(s) => match s.recv_from(buf) {
                 Ok((n, addr)) => Ok(Some((addr, n))),
@@ -359,7 +363,7 @@ pub struct NetMessages {
     scratch: Vec<u8>,
 }
 impl NetMessages {
-    #[cfg(feature = "steam")]
+    #[cfg(any(test, feature = "steam"))]
     pub(super) fn transported(
         transport: Box<dyn PacketTransport>,
         host: Option<SocketAddr>,
