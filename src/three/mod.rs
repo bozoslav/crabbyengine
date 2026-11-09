@@ -43,6 +43,7 @@ pub use projected::{Decal3D, MAX_DECALS, MAX_DECALS_PER_CLUSTER, ReceivesDecals}
 pub(crate) mod probe;
 pub use probe::ReflectionProbe3D;
 mod quality;
+mod resident;
 mod skin;
 pub(crate) mod strips;
 pub use strips::{Line3D, Trail3D};
@@ -776,6 +777,16 @@ pub(crate) struct Scene3D<'a> {
     pub occlusion: bool,
 }
 
+/// Bytes of one mesh corner in the renderer's vertex buffer (position,
+/// normal, uv, color, second uv).
+pub(crate) const MESH_VERTEX_BYTES: u64 = 44;
+
+/// Estimated GPU bytes of a mesh made from `data`: its vertex and index
+/// buffers as the renderer lays them out.
+pub(crate) fn mesh_gpu_bytes(data: &MeshData) -> u64 {
+    data.positions.len() as u64 * MESH_VERTEX_BYTES + data.indices.len() as u64 * 4
+}
+
 /// What the engine keeps about each mesh and material on the CPU side: for
 /// culling, and for headless runs, which have no GPU.
 #[derive(Default)]
@@ -786,6 +797,8 @@ pub(crate) struct Assets3D {
     pub bounds: Vec<(Vec3, f32)>,
     /// Freed meshes' ids, for the next meshes made.
     pub free_meshes: Vec<u32>,
+    /// Each mesh's estimated GPU bytes (`asset_inventory`), by id; 0 once freed.
+    pub mesh_bytes: Vec<u64>,
     pub probes: probe::ProbeAssets,
     /// How each skinned mesh binds to joints, by mesh id; shorter than
     /// `bounds` when the last ones aren't skinned.

@@ -493,7 +493,7 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
     ),
     (
         "perf.get",
-        "frame timing over the last few seconds (fps; avg, p50, p95, p99, max ms; CPU split into systems, render and waiting on the display; GPU ms), GPU ms per pass, what was drawn (draw calls; 3D models and triangles for the camera and the shadows; render CPU split into collect, record, submit), the slowest systems; params: meshes? (list the n meshes drawing the most triangles, default 0), profiling? (true turns on scope timing and allocation counting, false turns it off). While profiling is on, the answer also has `report`: frame percentiles, every system and profile_scope with time and allocations per frame, the slowest frames and what was in them, and warnings with advice",
+        "frame timing over the last few seconds (fps; avg, p50, p95, p99, max ms; CPU split into systems, render and waiting on the display; GPU ms), GPU ms per pass, what was drawn (draw calls; 3D models and triangles for the camera and the shadows; render CPU split into collect, record, submit), the slowest systems, residency budgets per asset kind (`residency`: budget, resident and pinned counts and bytes, loads, reloads, evictions, evicted bytes); params: meshes? (list the n meshes drawing the most triangles, default 0), profiling? (true turns on scope timing and allocation counting, false turns it off). While profiling is on, the answer also has `report`: frame percentiles, every system and profile_scope with time and allocations per frame, the slowest frames and what was in them, and warnings with advice",
     ),
     (
         "perf.trace",
@@ -510,7 +510,7 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
 fn perf_json(ctx: &Ctx, meshes: usize) -> Value {
     if ctx.headless {
         let slowest = slowest_systems(ctx);
-        return json!({ "headless": true, "systems": slowest });
+        return json!({ "headless": true, "systems": slowest, "residency": residency_json(ctx) });
     }
     let f = ctx.frame_stats();
     let r = ctx.render_stats();
@@ -539,6 +539,7 @@ fn perf_json(ctx: &Ctx, meshes: usize) -> Value {
             "shadow_triangles": r.shadow_triangles,
         },
         "systems": slowest_systems(ctx),
+        "residency": residency_json(ctx),
         "hint": "frame time is about max(CPU, GPU): when display_wait is large the GPU (or vsync) is the limit; gpu_passes says which pass",
     });
     #[cfg(feature = "3d")]
@@ -561,6 +562,30 @@ fn perf_json(ctx: &Ctx, meshes: usize) -> Value {
     #[cfg(not(feature = "3d"))]
     let _ = meshes;
     out
+}
+
+/// Residency budgets and counters, by kind name.
+fn residency_json(ctx: &Ctx) -> Value {
+    crate::ResidencyKind::ALL
+        .iter()
+        .map(|&kind| {
+            let r = ctx.residency(kind);
+            let value = json!({
+                "budget": r.budget,
+                "resident": r.resident,
+                "resident_bytes": r.resident_bytes,
+                "over_budget_bytes": r.over_budget_bytes(),
+                "pinned": r.pinned,
+                "pinned_bytes": r.pinned_bytes,
+                "loads": r.loads,
+                "reloads": r.reloads,
+                "evictions": r.evictions,
+                "evicted_bytes": r.evicted_bytes,
+            });
+            (kind.name().to_string(), value)
+        })
+        .collect::<serde_json::Map<_, _>>()
+        .into()
 }
 
 /// The 10 systems with the most average time.
@@ -1042,7 +1067,12 @@ mod tests {
         ctx.headless = true;
         let err = handle(&mut ctx, "perf.trace", &json!({})).unwrap_err();
         assert!(err.contains("headless"), "{err}");
-        assert_eq!(handle(&mut ctx, "perf.get", &json!({})).unwrap()["headless"], true);
+        let perf = handle(&mut ctx, "perf.get", &json!({})).unwrap();
+        assert_eq!(perf["headless"], true);
+        ctx.set_residency_budget(crate::ResidencyKind::Mesh, Some(1024));
+        let perf = handle(&mut ctx, "perf.get", &json!({})).unwrap();
+        assert_eq!(perf["residency"]["mesh"]["budget"], 1024, "{perf}");
+        assert_eq!(perf["residency"]["mesh"]["evictions"], 0, "{perf}");
     }
 
     #[test]

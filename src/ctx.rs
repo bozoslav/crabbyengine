@@ -178,6 +178,8 @@ pub struct Ctx {
     pub(crate) prefabs: HashMap<String, serde_json::Value>,
     /// Asset sources added with `add_asset_source`, asked before `assets/`.
     pub(crate) asset_sources: assets::Sources,
+    /// Assets loaded under residency budgets (`resident_mesh`), by kind.
+    pub(crate) residency: crate::residency::Residency,
     /// Assets already loaded, by origin (resolved path, or source and
     /// name): loading one again returns the same handle.
     pub(crate) loaded: HashMap<(assets::Origin, AssetKind), u64>,
@@ -402,6 +404,7 @@ impl Ctx {
             data_loaders: Vec::new(),
             prefabs: HashMap::new(),
             asset_sources: assets::Sources::default(),
+            residency: Default::default(),
             loaded: HashMap::new(),
             cached_textures: Vec::new(),
             cached_sounds: Vec::new(),
