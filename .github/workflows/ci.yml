@@ -165,12 +165,16 @@ jobs:
           # PR caches are scoped by GitHub to that PR; keep new Windows
           # linker artifacts so reruns do not repeat a cold dependency build.
           save-if: ${{ github.ref == 'refs/heads/main' || runner.os == 'Windows' }}
-          shared-key: test
+          # This narrower build has a different dependency feature graph;
+          # keep its cache separate from the full-workspace jobs.
+          shared-key: windows-unit-engine
       - uses: ./.github/actions/nextest
-      # Compile once. Shards reuse the binaries, metadata, and runtime DLLs
-      # in this archive, rather than recompiling the engine on each runner.
+      # Compile only the engine test binary. Other library suites run with
+      # the examples, which already need the engine's non-test library.
+      # These features match the workspace test union from FFI and benchmarks.
+      # Shards reuse these binaries and runtime DLLs without recompiling.
       - name: Archive unit and render tests
-        run: cargo nextest archive --workspace --lib --archive-file target/windows-unit.tar.zst
+        run: cargo nextest archive -p ponko --lib --features physics,physics3d,navmesh --archive-file target/windows-unit.tar.zst
       - uses: actions/upload-artifact@v7
         with:
           name: windows-unit-tests
@@ -203,7 +207,7 @@ jobs:
           --test-threads 2 --no-fail-fast
 
   windows-examples:
-    name: Examples (windows-latest)
+    name: Examples and library tests (windows-latest)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -213,7 +217,10 @@ jobs:
         with:
           save-if: true
           shared-key: test
+      - name: Test other library crates
+        run: cargo test --workspace --exclude ponko --lib --no-fail-fast
       - name: Test examples
+        if: ${{ !cancelled() }}
         run: cargo test --workspace --examples --no-fail-fast
       - name: Build examples
         if: ${{ !cancelled() }}
