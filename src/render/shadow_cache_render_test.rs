@@ -559,33 +559,51 @@ fn instance_levels_refresh_cached_sun_cascades_across_shadow_bands() {
         );
     }
     let mut frames = [Frame3D::default(), Frame3D::default()];
-    let mut compare = |ctx: &mut Ctx| {
+    let mut compare = |ctx: &mut Ctx, equal: bool| {
         let [cached, reference] = &mut renderers;
         let [a, b] = &mut frames;
         let image = rig.draw(cached, a, ctx);
+        // Bypass both cache layers in the reference, including deferred turns.
+        *b = Frame3D::default();
         reference.forget_shadows();
         let expected = rig.draw(reference, b, ctx);
-        assert_eq!(image, expected, "cached shadow bands differ from a fresh draw");
-        (image, cached.shadow_views_kept())
+        assert_eq!(reference.shadow_cascades_redrawn(), 4);
+        if equal {
+            assert_eq!(image, expected, "cached shadow bands differ from a fresh draw");
+        }
+        (image, a.redrawn, cached.shadow_cascades_redrawn())
     };
-    compare(&mut ctx);
-    let (with_proxy, kept) = compare(&mut ctx);
-    assert_eq!(kept & 15, 15, "stationary bands keep the shadow cache");
+    compare(&mut ctx, true);
+    let (with_proxy, collected, redrawn) = compare(&mut ctx, true);
+    assert_eq!(
+        collected & 0b1100,
+        0,
+        "stationary banded casters retain deferred far cascades"
+    );
+    assert_eq!(
+        redrawn, 0,
+        "stationary content redraws no cascades in either cache layer"
+    );
     ctx.set_mesh_shadows(proxy, false);
-    let (without_proxy, kept) = compare(&mut ctx);
-    assert_eq!(kept & 15, 0, "mesh shadow flags invalidate cached cascades");
+    let (without_proxy, _, redrawn) = compare(&mut ctx, true);
+    assert_eq!(redrawn, 4, "mesh shadow flags invalidate cached cascades");
     assert_ne!(
         with_proxy, without_proxy,
         "shadow-only geometry must cast a visible sun shadow"
     );
     ctx.set_mesh_shadows(proxy, true);
-    compare(&mut ctx);
+    compare(&mut ctx, true);
     ctx.camera3d.position.z = 6.5;
     ctx.camera3d.look_at(Vec3::ZERO);
-    let (_, kept) = compare(&mut ctx);
-    assert_eq!(
-        kept & 15,
-        0,
-        "camera crossing a shadow band refreshes even deferred far cascades"
-    );
+    let mut refreshed = 0;
+    let refresh = ctx.lighting.shadow_refresh;
+    for turn in 0..refresh {
+        let (_, collected, _) = compare(&mut ctx, turn + 1 == refresh);
+        assert!(
+            (collected & 0b1100).count_ones() <= 1,
+            "band crossings preserve far-cascade turns"
+        );
+        refreshed |= collected;
+    }
+    assert_eq!(refreshed, 0b1111, "every cascade converges within one refresh cycle");
 }

@@ -8,4 +8,5 @@
   one level per cell; the legacy single-mesh distance behaviour is preserved.
 
 ### Fixed
-- Shadow distance bands and mesh shadow flags invalidate cached sun cascades.
+- Shadow distance bands preserve deferred far-cascade refresh; batch updates
+  and mesh shadow flag changes invalidate cached sun cascades immediately.
