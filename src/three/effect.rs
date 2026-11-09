@@ -207,7 +207,20 @@ impl Ctx {
         };
         let origin = found.origin.clone();
         let source = found.into_text(path)?;
-        let effect = self.try_create_effect(path, &source)?;
+        let effect = match self.try_create_effect(path, &source) {
+            Ok(effect) => effect,
+            // With hot reload on, it shows the frame as it is until a saved
+            // fix compiles; its status says what's wrong.
+            Err(e) if self.keeps_failed_load(&origin) => {
+                Self::report_stand_in(path, &e);
+                let id = self.assets3d.effects;
+                self.compile_effect(path, super::EFFECT_STAND_IN, None).map_err(|_| e)?;
+                self.assets3d.effects += 1;
+                self.assets3d.effects_live.insert(id);
+                Effect { id }
+            }
+            Err(e) => return Err(e),
+        };
         self.assets3d.loaded_effects.insert(origin.clone(), effect);
         if let crate::assets::Origin::File(file) = origin {
             self.watcher
@@ -272,12 +285,7 @@ impl Ctx {
                     .create_effect(name, source)
                     .map(|gpu_id| debug_assert_eq!(gpu_id, self.assets3d.effects)),
             };
-            #[cfg(feature = "window")]
-            built.map_err(|e| {
-                crate::render::without_location(name, super::ShaderKind::Effect, crate::render::EFFECT_VARIANT, e)
-            })?;
-            #[cfg(not(feature = "window"))]
-            let _ = built;
+            built?;
         }
         let _ = (name, source, replace);
         Ok(())

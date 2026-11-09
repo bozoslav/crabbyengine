@@ -51,6 +51,7 @@ pub(crate) mod text3d;
 pub use text3d::{Text3D, TextAlign3D};
 mod far_terrain;
 mod shader_status;
+pub(crate) use shader_status::{COMPUTE_STAND_IN, EFFECT_STAND_IN};
 pub use shader_status::{ShaderDiagnostic, ShaderKind, ShaderOutcome, ShaderStatus};
 mod sky;
 mod target;

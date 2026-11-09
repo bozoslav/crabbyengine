@@ -766,30 +766,40 @@ impl Renderer {
     }
     /// Compiles a compute pass; its id, or the compiler's message.
     #[cfg(feature = "3d")]
-    pub fn create_compute(&mut self, name: &str, source: &str) -> Result<u32, String> {
+    pub fn create_compute(&mut self, name: &str, source: &str) -> Result<u32, Box<crate::ShaderDiagnostic>> {
         let device = self.device.clone();
         self.three().create_compute(&device, name, source)
     }
 
     /// Recompiles compute pass `id` in place (hot reload).
     #[cfg(feature = "3d")]
-    pub fn replace_compute(&mut self, id: u32, name: &str, source: &str) -> Result<(), String> {
+    pub fn replace_compute(&mut self, id: u32, name: &str, source: &str) -> Result<(), Box<crate::ShaderDiagnostic>> {
         let device = self.device.clone();
         self.three().replace_compute(&device, id, name, source)
     }
 
     /// Compiles a screen effect; its id, or the compiler's message.
     #[cfg(feature = "3d")]
-    pub fn create_effect(&mut self, name: &str, source: &str) -> Result<u32, String> {
+    pub fn create_effect(&mut self, name: &str, source: &str) -> Result<u32, Box<crate::ShaderDiagnostic>> {
         let device = self.device.clone();
         self.three().create_effect(&device, name, source)
     }
 
     /// Recompiles screen effect `id` (hot reload).
     #[cfg(feature = "3d")]
-    pub fn replace_effect(&mut self, id: u32, name: &str, source: &str) -> Result<(), String> {
+    pub fn replace_effect(&mut self, id: u32, name: &str, source: &str) -> Result<(), Box<crate::ShaderDiagnostic>> {
         let device = self.device.clone();
         self.three().replace_effect(&device, id, name, source)
+    }
+
+    /// Shaders whose pipelines the GPU rejected after they were put in use
+    /// (a browser's WebGPU answers late): the previous ones are back.
+    #[cfg(feature = "3d")]
+    pub fn poll_shader_checks(&mut self, out: &mut Vec<super::gpu3d::LateShaderError>) {
+        let device = self.device.clone();
+        if let Some(three) = self.three.as_mut() {
+            three.poll_shader_checks(&device, out);
+        }
     }
 
     /// Compiles a material shader; its index, or the compiler's message.
