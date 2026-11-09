@@ -12,6 +12,7 @@ mod net;
 mod own;
 mod physics;
 mod physics3d;
+mod query_cache;
 mod report;
 
 use bevy_ecs::component::Component;
@@ -166,6 +167,7 @@ fn main() {
     physics3d::run(&mut b);
     net::run(&mut b);
     actions::run(&mut b);
+    query_cache::run(&mut b);
 
     // Resource scoping versus the previous public take/put workaround.
     for scoped in [false, true] {

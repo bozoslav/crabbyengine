@@ -1,0 +1,68 @@
+//! Isolated matching-cost matrix: one entity per layout, sparse (1/16)
+//! matches, query reconstruction included. Setup and five warmups are untimed.
+use crate::Bench;
+use ponko_ecs::World;
+use std::hint::black_box;
+
+struct Value(u64);
+struct Marker<const N: usize>;
+
+fn world(layouts: usize) -> World {
+    let mut w = World::new();
+    for bits in 0..layouts {
+        let e = w.spawn((Value(bits as u64),));
+        macro_rules! marker {
+            ($n:literal) => {
+                if bits & (1 << $n) != 0 {
+                    w.insert(e, Marker::<$n>);
+                }
+            };
+        }
+        marker!(0);
+        marker!(1);
+        marker!(2);
+        marker!(3);
+        marker!(4);
+        marker!(5);
+        marker!(6);
+        marker!(7);
+        marker!(8);
+        marker!(9);
+    }
+    w
+}
+
+pub fn run(b: &mut Bench) {
+    for layouts in [1, 8, 32, 64, 256, 1024] {
+        for frequency in [1, 100, 1000] {
+            for mode in ["count", "each", "iter"] {
+                b.steady(
+                    &format!("query-cache/{layouts}/{frequency}/{mode}"),
+                    100,
+                    || world(layouts),
+                    |w| {
+                        for _ in 0..frequency {
+                            let mut q = w
+                                .query::<&Value>()
+                                .with::<Marker<0>>()
+                                .with::<Marker<1>>()
+                                .without::<Marker<2>>()
+                                .without::<Marker<3>>();
+                            match mode {
+                                "count" => {
+                                    black_box(q.count());
+                                }
+                                "each" => q.for_each(|v| {
+                                    black_box(v.0);
+                                }),
+                                _ => {
+                                    black_box(q.iter().map(|v| v.0).sum::<u64>());
+                                }
+                            }
+                        }
+                    },
+                );
+            }
+        }
+    }
+}
