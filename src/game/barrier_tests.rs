@@ -65,7 +65,11 @@ fn frame_systems_see_events_and_commands_from_every_tick_of_their_frame() {
     frame(&mut game, &mut ctx, 2);
     assert_eq!(
         take(&mut ctx),
-        ["frame [0, 1, 2] markers=3", "frame [] markers=3", "frame [3, 4] markers=5"]
+        [
+            "frame [0, 1, 2] markers=3",
+            "frame [] markers=3",
+            "frame [3, 4] markers=5"
+        ]
     );
 }
 

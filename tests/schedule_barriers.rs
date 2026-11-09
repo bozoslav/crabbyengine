@@ -1,7 +1,8 @@
 //! When deferred commands apply and when events become visible or expire,
 //! relative to systems, phases and setup. These pin the sequential contract
-//! documented on [`ponko::Phase`]; a future parallel scheduler must keep it
-//! (or document the change).
+//! documented on `Ctx::commands`, `Events` and the guide's "Systems and the
+//! frame" chapter; a future parallel scheduler must keep it or document the
+//! change.
 
 use ponko::*;
 
@@ -37,7 +38,10 @@ fn commands_are_not_visible_inside_the_recording_system() {
             let before = markers(ctx);
             ctx.commands.spawn((Marker(0),));
             let after = markers(ctx);
-            log(ctx, format!("recorder {before}->{after} pending={}", ctx.commands.len()));
+            log(
+                ctx,
+                format!("recorder {before}->{after} pending={}", ctx.commands.len()),
+            );
         })
         .sim_system(|ctx: &mut Ctx| {
             let n = markers(ctx);
@@ -122,7 +126,9 @@ fn commands_apply_in_recorded_order() {
             });
         })
         .run_headless(1, setup);
-    let mut rows: Vec<(u32, Option<u8>, Option<u16>)> = (world.query::<(&Marker, Option<&u8>, Option<&u16>)>().iter()).map(|(m, a, b)| (m.0, a.copied(), b.copied())).collect();
+    let mut rows: Vec<(u32, Option<u8>, Option<u16>)> = (world.query::<(&Marker, Option<&u8>, Option<&u16>)>().iter())
+        .map(|(m, a, b)| (m.0, a.copied(), b.copied()))
+        .collect();
     rows.sort_by_key(|r| r.0);
     assert_eq!(rows, [(1, None, Some(20)), (3, None, None), (4, None, None)]);
     let mut seen = world.resource::<Vec<u32>>().clone();

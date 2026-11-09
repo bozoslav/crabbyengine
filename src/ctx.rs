@@ -110,6 +110,26 @@ pub struct Ctx {
     /// despawning while a query is running. Applied automatically after
     /// every system.
     ///
+    /// When they apply (systems run one at a time, each with all of `Ctx`):
+    ///
+    /// - Right after the recording system returns, before the next system
+    ///   starts. Every system is a barrier, within a [`Phase`](crate::Phase)
+    ///   and across phases; the recording system itself never sees them.
+    /// - In recorded order. A [`Commands::add`](crate::Commands::add)
+    ///   closure sees the commands before it; an `insert` after a `despawn`
+    ///   of the same entity does nothing.
+    /// - Commands from `setup` apply when it returns, before the first tick.
+    /// - Engine steps are systems too: commands from
+    ///   [`Phase::BeforePhysics`](crate::Phase::BeforePhysics) are in the
+    ///   world when the physics step runs, and frame systems see the commands
+    ///   of every tick in their frame.
+    /// - A system skipped by [`sim_system_every`](crate::Game::sim_system_every)
+    ///   doesn't run, so it records nothing.
+    ///
+    /// Changes made directly through [`world`](Self::world) are immediate.
+    /// C and C++ systems follow the same rules. The guide's "Systems and the
+    /// frame" chapter has the full contract with events.
+    ///
     /// ```
     /// # use ponko::*;
     /// struct Health(i32);

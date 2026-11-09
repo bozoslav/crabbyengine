@@ -19,6 +19,12 @@ says what that covers.
 - Plugin composition, stable system IDs, and migrating automatic animation,
   particles and audio to inspectable systems remain follow-ups to #198.
 
+### Documented
+- When deferred commands apply and when events become visible or expire,
+  relative to systems, phases, frames, `setup` and pauses: `Ctx::commands`,
+  `Events` and the guide's "Systems and the frame" chapter, pinned by
+  `tests/schedule_barriers.rs`. No behavior changed. (Part of #146.)
+
 ### Added
 - `ActionId`: resolve an action name once with `Ctx::action_id` (or
   `action_ids`, or the `actions!` macro, which keeps the names in one
