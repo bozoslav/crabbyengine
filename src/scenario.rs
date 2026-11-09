@@ -681,6 +681,8 @@ impl Ctx {
             if failure.is_some() {
                 report.status = ScenarioStatus::Failed;
                 report.failure = failure.take();
+                // A tool that stepped a paused game for the whole run stops here.
+                let _ = self.take_pending_steps();
             } else if done {
                 report.status = ScenarioStatus::Passed;
             }

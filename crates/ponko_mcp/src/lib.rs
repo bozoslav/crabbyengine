@@ -457,6 +457,29 @@ fn tools() -> Vec<Tool> {
             required: &["ticks"],
         },
         Tool {
+            name: "run_input_scenario",
+            description: "Run a tick-indexed input scenario against a paused game that allows input injection (launched with `launch`, or started with PONKO_INPUT_INJECTION=1) and wait for it to end. The scenario is a versioned JSON object: input steps (key, mouse, gamepad_button, gamepad_axis, focus_lost, gamepad_disconnected) fed through the game's real input path before the tick's systems run, and checks (expect_action, expect_resource, expect_count) evaluated after them; tick 0 is the next simulation tick. Returns the report: status passed/failed/cancelled, ticks run, and for a failed check its step, tick, expected and actual values. The run stops at the first failed check. Held inputs are released when the run fails, is cancelled (also on a timeout or error here), or when `release_when_done` is set.",
+            writes: true,
+            params: || {
+                json!({
+                    "scenario": {
+                        "type": "object",
+                        "description": "{\"version\": 1, \"id\"?, \"duration\"?, \"release_when_done\"?, \"steps\": [{\"tick\": 10, \"type\": \"key\", \"key\": \"Space\", \"down\": true}, {\"tick\": 10, \"type\": \"expect_action\", \"action\": \"jump\", \"pressed\": true}, {\"tick\": 12, \"type\": \"expect_resource\", \"resource\": \"Score\", \"pointer\": \"/points\", \"equals\": 3}, {\"tick\": 12, \"type\": \"expect_count\", \"component\": \"Coin\", \"equals\": 2}]}"
+                    },
+                    "max_ticks": { "type": "integer", "minimum": 1, "description": "Refuse scenarios longer than this (default 100000)" },
+                    "timeout_secs": { "type": "integer", "minimum": 1, "description": "How long to wait (default 120)" }
+                })
+            },
+            required: &["scenario"],
+        },
+        Tool {
+            name: "cancel_input_scenario",
+            description: "End the running input scenario and release the keys, buttons and axes it holds. Returns whether one was running and its report.",
+            writes: true,
+            params: || json!({ "reason": { "type": "string", "description": "Why, shown in the report" } }),
+            required: &[],
+        },
+        Tool {
             name: "watch",
             description: "Run N simulation ticks (the game should be paused) and sample it every K ticks: the tick, wall-clock ms per tick (including polling), the given reflected resources, and entity counts for the given components. Use it to see how a simulation develops (who's winning, does the population grow, does it get slower) in one call.",
             writes: true,
@@ -627,6 +650,14 @@ fn tool_methods(name: &str) -> Option<&'static [&'static str]> {
         "set_camera" => &["camera.set"],
         "run_ticks" => &["info", "sim.step"],
         "watch" => &["info", "sim.step", "resource.get", "world.summary"],
+        "run_input_scenario" => &[
+            "info",
+            "sim.step",
+            "input.scenario.load",
+            "input.scenario.status",
+            "input.scenario.cancel",
+        ],
+        "cancel_input_scenario" => &["input.scenario.cancel"],
         "pause" => &["sim.pause"],
         "resume" => &["sim.resume"],
         "set_speed" => &["sim.speed"],
@@ -873,6 +904,8 @@ impl Server {
             "launch" => self.launch(args),
             "run_ticks" => self.run_ticks(args),
             "watch" => self.watch(args),
+            "run_input_scenario" => self.run_input_scenario(args),
+            "cancel_input_scenario" => self.instance(args)?.call("input.scenario.cancel", pass(&["reason"])),
             "pause" => self.instance(args)?.call("sim.pause", json!({})),
             "resume" => self.instance(args)?.call("sim.resume", json!({})),
             "set_speed" => self.instance(args)?.call("sim.speed", pass(&["speed"])),
@@ -983,6 +1016,48 @@ impl Server {
         }))
     }
 
+    fn run_input_scenario(&self, args: &Value) -> Result<Value, String> {
+        let max_ticks = args["max_ticks"].as_u64().unwrap_or(MAX_SCENARIO_TICKS);
+        let deadline = Instant::now() + Duration::from_secs(args["timeout_secs"].as_u64().unwrap_or(120));
+        let scenario = args.get("scenario").filter(|s| s.is_object()).ok_or("`scenario` must be an object")?;
+        let i = self.instance(args)?;
+        paused_tick(&i)?; // refuses a running game, so the ticks are exactly the run's
+        let loaded = i.call("input.scenario.load", json!({ "scenario": scenario }))?;
+        let duration = loaded["report"]["duration"].as_u64().unwrap_or(0);
+        let outcome = (|| {
+            if duration == 0 {
+                return Err("the scenario has no steps, so there is nothing to run".to_string());
+            }
+            if duration > max_ticks {
+                return Err(format!("the scenario runs {duration} ticks, more than `max_ticks` ({max_ticks})"));
+            }
+            // Step the whole run at once: a failed check makes the game drop
+            // the steps still queued, so it stops at the failing tick.
+            i.call("sim.step", json!({ "ticks": duration }))?;
+            loop {
+                let status = i.call("input.scenario.status", json!({}))?;
+                if !matches!(status["status"].as_str(), Some("pending" | "running")) {
+                    return Ok(status);
+                }
+                if Instant::now() > deadline {
+                    return Err(format!(
+                        "the scenario ran {} of {duration} ticks within the timeout",
+                        status["ticks_run"]
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(2));
+            }
+        })();
+        match outcome {
+            Ok(report) => Ok(json!({ "passed": report["status"] == "passed", "report": report })),
+            Err(e) => {
+                // Don't leave the game holding keys because this call gave up.
+                let _ = i.call("input.scenario.cancel", json!({ "reason": "the run_input_scenario call failed" }));
+                Err(e)
+            }
+        }
+    }
+
     fn watch(&self, args: &Value) -> Result<Value, String> {
         let ticks = args["ticks"]
             .as_u64()
@@ -1084,6 +1159,8 @@ impl Server {
             .env("PONKO_INSTANCES_DIR", &self.config.instances_dir)
             .env("PONKO_START_PAUSED", if flag("paused") { "1" } else { "0" })
             .env("CRABBY_START_PAUSED", if flag("paused") { "1" } else { "0" })
+            .env("PONKO_INPUT_INJECTION", "1")
+            .env("CRABBY_INPUT_INJECTION", "1")
             .env("CRABBY_CONTROL", "1")
             .env("CRABBY_LAUNCH_ID", &launch_id)
             .env("CRABBY_INSTANCES_DIR", &self.config.instances_dir);
@@ -1223,6 +1300,8 @@ fn base64(bytes: &[u8]) -> String {
 
 /// Most samples one `watch` call returns.
 const MAX_SAMPLES: u64 = 1000;
+/// The longest scenario `run_input_scenario` accepts unless told otherwise.
+const MAX_SCENARIO_TICKS: u64 = 100_000;
 
 /// The current tick of a paused game; an error if it's running, since
 /// "exactly N ticks" can't hold then.
