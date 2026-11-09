@@ -49,7 +49,7 @@ jobs:
           else
             tar czf "$dir.tar.gz" "$dir"
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.name }}
           path: ponko-*.*z*
