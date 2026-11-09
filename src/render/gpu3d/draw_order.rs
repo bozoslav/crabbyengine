@@ -38,6 +38,7 @@ impl StateCounters {
         }
     }
 
+    #[cfg(test)]
     pub fn take(&self) -> StateChanges {
         let [pipelines, bind_groups, vertex_buffers, index_buffers, draws] =
             std::array::from_fn(|i| self.0[i].swap(0, Ordering::Relaxed));
@@ -116,6 +117,7 @@ impl Renderer3D {
 
     /// The state changes and draws the model passes recorded since the last
     /// call (for tests and benchmarks).
+    #[cfg(test)]
     pub(crate) fn take_state_changes(&self) -> StateChanges {
         self.state_counters.take()
     }
