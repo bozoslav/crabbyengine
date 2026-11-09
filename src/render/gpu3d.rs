@@ -2198,7 +2198,12 @@ impl Renderer3D {
             mesh_bytes += vertices.size() + indices.size();
         }
         let buffers = self.storage_buffers.iter().flatten();
-        (meshes, mesh_bytes, buffers.clone().count(), buffers.map(|b| b.buffer.size()).sum())
+        (
+            meshes,
+            mesh_bytes,
+            buffers.clone().count(),
+            buffers.map(|b| b.buffer.size()).sum(),
+        )
     }
 
     /// Frees mesh `id`'s GPU memory; it draws nothing from now on.

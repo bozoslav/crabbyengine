@@ -803,9 +803,12 @@ impl Renderer {
     /// What this renderer holds on the GPU, counted from its own tables
     /// (`Ctx::asset_inventory`).
     pub fn residency(&self) -> Option<crate::GpuResidency> {
-        let mut r = crate::GpuResidency::default();
-        r.textures = self.textures.len();
-        r.texture_bytes = self.textures.iter().map(|t| texture_bytes(&t.texture)).sum();
+        #[cfg_attr(not(feature = "3d"), allow(unused_mut))]
+        let mut r = crate::GpuResidency {
+            textures: self.textures.len(),
+            texture_bytes: self.textures.iter().map(|t| texture_bytes(&t.texture)).sum(),
+            ..Default::default()
+        };
         #[cfg(feature = "3d")]
         if let Some(three) = &self.three {
             (r.meshes, r.mesh_bytes, r.gpu_buffers, r.gpu_buffer_bytes) = three.residency();

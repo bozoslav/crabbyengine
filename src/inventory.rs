@@ -153,7 +153,11 @@ impl AssetInventory {
             .iter()
             .find(|c| c.class == class)
             .copied()
-            .unwrap_or(AssetCount { class, live: 0, bytes: 0 })
+            .unwrap_or(AssetCount {
+                class,
+                live: 0,
+                bytes: 0,
+            })
     }
 
     /// Estimated bytes of every class together.
@@ -286,8 +290,14 @@ mod tests {
         };
         let growth = after.growth_since(&before);
         assert_eq!(growth.len(), 2);
-        assert_eq!((growth[0].class, growth[0].live, growth[0].bytes), (AssetClass::Mesh, 1, 900));
-        assert_eq!((growth[1].class, growth[1].live, growth[1].bytes), (AssetClass::Texture, 1, 50));
+        assert_eq!(
+            (growth[0].class, growth[0].live, growth[0].bytes),
+            (AssetClass::Mesh, 1, 900)
+        );
+        assert_eq!(
+            (growth[1].class, growth[1].live, growth[1].bytes),
+            (AssetClass::Texture, 1, 50)
+        );
         assert!(before.growth_since(&after).is_empty(), "shrinking is not growth");
         assert!(after.to_string().contains("mesh"));
     }

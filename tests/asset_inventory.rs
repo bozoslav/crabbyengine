@@ -20,9 +20,15 @@ fn textures_and_sounds_are_counted_with_their_bytes() {
         let textures = after.get(AssetClass::Texture);
         assert_eq!(textures.live, before.get(AssetClass::Texture).live + 2);
         assert_eq!(textures.bytes, before.get(AssetClass::Texture).bytes + (8 + 1) * 4);
-        assert_eq!(after.get(AssetClass::Sound).live, before.get(AssetClass::Sound).live + 1);
+        assert_eq!(
+            after.get(AssetClass::Sound).live,
+            before.get(AssetClass::Sound).live + 1
+        );
         let grown: Vec<AssetClass> = after.growth_since(&before).iter().map(|g| g.class).collect();
-        assert!(grown.contains(&AssetClass::Texture) && grown.contains(&AssetClass::Sound), "{grown:?}");
+        assert!(
+            grown.contains(&AssetClass::Texture) && grown.contains(&AssetClass::Sound),
+            "{grown:?}"
+        );
         assert!(after.total_bytes() >= textures.bytes);
     });
 }
@@ -137,7 +143,10 @@ mod three {
             let _ = ctx.create_render_target(16, 8);
             let _ = ctx.create_texture_array(2, 2, &[&[0; 16], &[0; 16]], TextureKind::Color);
             let now = ctx.asset_inventory();
-            assert_eq!(now.get(AssetClass::Material).live, base.get(AssetClass::Material).live + 1);
+            assert_eq!(
+                now.get(AssetClass::Material).live,
+                base.get(AssetClass::Material).live + 1
+            );
             let target = now.get(AssetClass::RenderTarget);
             assert_eq!((target.live, target.bytes), (1, 16 * 8 * 8));
             // Two layers of 2x2 and 1x1 mipmaps.
