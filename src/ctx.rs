@@ -2430,24 +2430,27 @@ mod tests {
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::ZERO);
         ctx.headless = true;
         ctx.watcher.on = true;
-        let from_folder = ctx.load_texture("crab.png");
-        assert_eq!(ctx.watcher.watched(), 1, "files from assets/ are watched");
-        ctx.add_asset_source(crate::MemorySource::new("mem").with("crab.png", png(3)));
-        let from_source = ctx.load_texture("crab.png");
+        // An absolute name resolves as itself in the default source.
+        let dir = std::env::temp_dir().join(format!("ponko-source-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("crab.png");
+        std::fs::write(&file, png(2)).unwrap();
+        let name = file.to_str().unwrap().to_string();
+        let from_folder = ctx.load_texture(&name);
+        assert_eq!(ctx.watcher.watched(), 1, "default-source files are watched");
+        ctx.add_asset_source(crate::MemorySource::new("mem").with(name.clone(), png(3)));
+        let from_source = ctx.load_texture(&name);
         assert_ne!(from_source, from_folder, "same name, other source: another asset");
         assert_eq!(from_source.width(), 3);
         assert_eq!(ctx.watcher.watched(), 1, "source assets are not watched");
         let keys: Vec<_> = ctx.loaded.keys().map(|(origin, _)| origin.clone()).collect();
         assert!(keys.contains(&assets::Origin::Source {
             source: "mem".into(),
-            name: "crab.png".into()
+            name: name.clone()
         }));
         assert!(keys.iter().any(|o| matches!(o, assets::Origin::File(_))));
-        assert_eq!(
-            ctx.load_texture("crab.png"),
-            from_source,
-            "the source's copy stays cached"
-        );
+        assert_eq!(ctx.load_texture(&name), from_source, "the source's copy stays cached");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
