@@ -24,6 +24,49 @@ fn a_job_hands_its_result_over_once() {
     assert!(job.is_done(), "still done after taking");
 }
 
+/// Frame-time parallel work (here `par_for_each`) must not wait for
+/// background jobs: with every core's worth of long jobs in flight, the
+/// query still finishes long before they do.
+#[test]
+fn busy_jobs_dont_stall_parallel_queries() {
+    use std::sync::{Condvar, Mutex};
+    use std::time::{Duration, Instant};
+
+    let mut world = World::new();
+    for i in 0..100_000 {
+        world.spawn((Transform2D::at(vec2(i as f32, 0.0)),));
+    }
+    // Long jobs, one per thread of the frame's pool, held until released (or
+    // 3 s at most, so this test ends even when they do block the query).
+    let release = Arc::new((Mutex::new(false), Condvar::new()));
+    let jobs: Vec<_> = (0..rayon::current_num_threads())
+        .map(|_| {
+            let release = release.clone();
+            Job::spawn(move || {
+                let (lock, cvar) = &*release;
+                let held = lock.lock().unwrap();
+                let _held = cvar
+                    .wait_timeout_while(held, Duration::from_secs(3), |go| !*go)
+                    .unwrap();
+            })
+        })
+        .collect();
+    std::thread::sleep(Duration::from_millis(50)); // let the jobs start
+    let start = Instant::now();
+    world.query::<&mut Transform2D>().par_for_each(|t| t.position.y += 1.0);
+    let took = start.elapsed();
+    *release.0.lock().unwrap() = true;
+    release.1.notify_all();
+    for job in jobs {
+        job.wait();
+    }
+    assert!(
+        took < Duration::from_secs(1),
+        "par_for_each waited {took:?} for background jobs"
+    );
+    assert!(world.query::<&Transform2D>().iter().all(|t| t.position.y == 1.0));
+}
+
 #[test]
 fn many_jobs_all_finish() {
     let ran = Arc::new(AtomicUsize::new(0));
