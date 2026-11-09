@@ -9,7 +9,8 @@ use crate::storage::{Archetype, ComponentId};
 use crate::world::World;
 
 /// What a query fetches per entity: `&T`, `&mut T`, `Option<&T>`,
-/// `Option<&mut T>`, [`Entity`], or a tuple of those (up to 8).
+/// `Option<&mut T>`, [`Entity`], or a tuple of those (up to 12; nest tuples
+/// for more).
 ///
 /// # Safety
 /// `state`/`fetch` may only create references into columns listed by `access`,
@@ -159,6 +160,10 @@ query_tuple!(A 0, B 1, C 2, D 3, E 4);
 query_tuple!(A 0, B 1, C 2, D 3, E 4, F 5);
 query_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6);
 query_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7);
+query_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8);
+query_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9);
+query_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9, K 10);
+query_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9, K 10, L 11);
 
 /// Panics if a query asks for the same component twice with at least one `&mut`.
 pub(crate) fn check_aliasing<Q: QueryData>(world: &World, ids: &Q::Ids) {
@@ -185,21 +190,102 @@ pub(crate) fn check_aliasing<Q: QueryData>(world: &World, ids: &Q::Ids) {
     });
 }
 
-/// Filters added with [`Query::with`] / [`Query::without`]. Inline storage, so
-/// running a filtered query doesn't allocate.
+/// Filters added with [`Query::with`], [`Query::without`] and
+/// [`Query::filter`]. Inline storage, so running a filtered query doesn't
+/// allocate.
+///
+/// An archetype matches when it has every `with` component, none of the
+/// `without` components, and satisfies each `Or` clause: clause `c` holds
+/// the terms `any[start..any_end[c]]`, and term `i` asks for presence when
+/// bit `i` of `any_has` is set, absence otherwise.
+///
+/// Public but not exported: it can't be named outside this crate, which
+/// seals [`QueryFilter`], [`OrTerm`] and [`OrTerms`].
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
-struct Filters {
-    with: [ComponentId; 4],
-    without: [ComponentId; 4],
+#[doc(hidden)]
+pub struct Filters {
+    with: [ComponentId; MAX_WITH],
+    without: [ComponentId; MAX_WITH],
     n_with: u8,
     n_without: u8,
+    any: [ComponentId; MAX_OR_TERMS],
+    any_has: u16,
+    any_end: [u8; MAX_OR],
+    n_any: u8,
+    n_terms: u8,
 }
+
+const MAX_WITH: usize = 8;
+const MAX_OR: usize = 4;
+const MAX_OR_TERMS: usize = 16;
 
 impl Filters {
     #[inline]
     fn matches(&self, arch: &Archetype) -> bool {
-        self.with[..self.n_with as usize].iter().all(|&id| arch.has(id))
-            && !self.without[..self.n_without as usize].iter().any(|&id| arch.has(id))
+        if !(self.with[..self.n_with as usize].iter().all(|&id| arch.has(id))
+            && !self.without[..self.n_without as usize].iter().any(|&id| arch.has(id)))
+        {
+            return false;
+        }
+        let mut start = 0;
+        for &end in &self.any_end[..self.n_any as usize] {
+            let end = end as usize;
+            let any = (start..end).any(|i| arch.has(self.any[i]) == (self.any_has >> i & 1 != 0));
+            if !any {
+                return false;
+            }
+            start = end;
+        }
+        true
+    }
+
+    fn add_with(&mut self, id: ComponentId) {
+        if self.with[..self.n_with as usize].contains(&id) {
+            return;
+        }
+        assert!(
+            (self.n_with as usize) < MAX_WITH,
+            "at most {MAX_WITH} `with` filters per query"
+        );
+        self.with[self.n_with as usize] = id;
+        self.n_with += 1;
+    }
+
+    fn add_without(&mut self, id: ComponentId) {
+        if self.without[..self.n_without as usize].contains(&id) {
+            return;
+        }
+        assert!(
+            (self.n_without as usize) < MAX_WITH,
+            "at most {MAX_WITH} `without` filters per query"
+        );
+        self.without[self.n_without as usize] = id;
+        self.n_without += 1;
+    }
+
+    /// Adds a term to the `Or` clause being built: the terms after the last
+    /// closed clause.
+    fn add_or_term(&mut self, id: ComponentId, has: bool) {
+        let n = self.n_terms as usize;
+        assert!(
+            n < MAX_OR_TERMS,
+            "at most {MAX_OR_TERMS} components across a query's `Or` filters"
+        );
+        self.any[n] = id;
+        if has {
+            self.any_has |= 1 << n;
+        }
+        self.n_terms += 1;
+    }
+
+    /// Closes the `Or` clause being built.
+    fn close_or(&mut self) {
+        assert!(
+            (self.n_any as usize) < MAX_OR,
+            "at most {MAX_OR} `Or` filters per query"
+        );
+        self.any_end[self.n_any as usize] = self.n_terms;
+        self.n_any += 1;
     }
 }
 
@@ -246,6 +332,132 @@ impl<'a> Iterator for Archetypes<'a> {
         self.all.get(index)
     }
 }
+
+/// A typed query filter for [`Query::filter`]: [`With<T>`], [`Without<T>`],
+/// [`Or`], or a tuple of filters that must all hold (up to 8).
+///
+/// Name a filter you reuse across systems:
+///
+/// ```
+/// # use ponko_ecs::*;
+/// struct Health(i32);
+/// struct Player;
+/// struct Enemy;
+/// struct Dead;
+///
+/// /// Living characters: players or enemies, not dead.
+/// type Living = (Or<(With<Player>, With<Enemy>)>, Without<Dead>);
+///
+/// let mut world = World::new();
+/// world.spawn((Health(10), Player));
+/// world.spawn((Health(5), Enemy, Dead));
+/// world.spawn((Health(1),));
+///
+/// assert_eq!(world.query::<&Health>().filter::<Living>().count(), 1);
+/// ```
+///
+/// Implemented by this crate only: combine the provided filters.
+pub trait QueryFilter {
+    #[doc(hidden)]
+    fn add(world: &mut World, filters: &mut Filters);
+}
+
+/// A term of an [`Or`] filter: [`With<T>`], [`Without<T>`] or a nested `Or`.
+pub trait OrTerm {
+    #[doc(hidden)]
+    fn add_term(world: &mut World, filters: &mut Filters);
+}
+
+/// The terms of an [`Or`] filter: a tuple of 1 to 8 [`OrTerm`]s.
+pub trait OrTerms {
+    #[doc(hidden)]
+    fn add_terms(world: &mut World, filters: &mut Filters);
+}
+
+/// Filter: the entity has component `T` (it isn't fetched).
+pub struct With<T>(PhantomData<fn() -> T>);
+
+/// Filter: the entity doesn't have component `T`.
+pub struct Without<T>(PhantomData<fn() -> T>);
+
+/// Filter: at least one of the terms holds, for example
+/// `Or<(With<Player>, With<Enemy>)>`. The terms are [`With`], [`Without`]
+/// or nested `Or`s; for "both A and B", put the filters in a tuple outside
+/// the `Or` instead.
+///
+/// A query takes at most 4 `Or` filters with 16 terms between them.
+///
+/// A tuple inside an `Or` doesn't compile:
+///
+/// ```compile_fail
+/// # use ponko_ecs::*;
+/// struct A;
+/// struct B;
+/// struct C;
+/// let mut world = World::new();
+/// let _ = world.query::<Entity>().filter::<Or<((With<A>, With<B>), With<C>)>>();
+/// ```
+pub struct Or<T>(PhantomData<fn() -> T>);
+
+impl<T: Component> QueryFilter for With<T> {
+    fn add(world: &mut World, filters: &mut Filters) {
+        filters.add_with(world.register::<T>());
+    }
+}
+
+impl<T: Component> QueryFilter for Without<T> {
+    fn add(world: &mut World, filters: &mut Filters) {
+        filters.add_without(world.register::<T>());
+    }
+}
+
+impl<T: OrTerms> QueryFilter for Or<T> {
+    fn add(world: &mut World, filters: &mut Filters) {
+        T::add_terms(world, filters);
+        filters.close_or();
+    }
+}
+
+impl<T: Component> OrTerm for With<T> {
+    fn add_term(world: &mut World, filters: &mut Filters) {
+        filters.add_or_term(world.register::<T>(), true);
+    }
+}
+
+impl<T: Component> OrTerm for Without<T> {
+    fn add_term(world: &mut World, filters: &mut Filters) {
+        filters.add_or_term(world.register::<T>(), false);
+    }
+}
+
+impl<T: OrTerms> OrTerm for Or<T> {
+    fn add_term(world: &mut World, filters: &mut Filters) {
+        T::add_terms(world, filters);
+    }
+}
+
+macro_rules! filter_tuple {
+    ($($t:ident),*) => {
+        impl<$($t: QueryFilter),*> QueryFilter for ($($t,)*) {
+            fn add(world: &mut World, filters: &mut Filters) {
+                $($t::add(world, filters);)*
+            }
+        }
+        impl<$($t: OrTerm),*> OrTerms for ($($t,)*) {
+            fn add_terms(world: &mut World, filters: &mut Filters) {
+                $($t::add_term(world, filters);)*
+            }
+        }
+    };
+}
+filter_tuple!(A);
+filter_tuple!(A, B);
+filter_tuple!(A, B, C);
+filter_tuple!(A, B, C, D);
+filter_tuple!(A, B, C, D, E);
+filter_tuple!(A, B, C, D, E, F);
+filter_tuple!(A, B, C, D, E, F, G);
+filter_tuple!(A, B, C, D, E, F, G, H);
 
 /// A query over a [`World`], created by [`World::query`].
 ///
@@ -334,7 +546,7 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     }
 
     /// Reuse a world-owned matching-archetype list for repeated queries with
-    /// this required-component and `with`/`without` signature.
+    /// this required-component and filter signature.
     ///
     /// This is opt-in: selective queries over many layouts benefit most; dense
     /// queries can lose to a direct scan. Worlds with fewer than 128 archetypes
@@ -353,33 +565,54 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     }
 
     /// Only match entities that also have component `T` (without fetching it).
+    /// Shorthand for `.filter::<With<T>>()`.
     ///
     /// # Panics
     ///
-    /// With more than 4 `with` filters on one query.
+    /// With more than 8 different `with` components on one query.
     pub fn with<T: Component>(mut self) -> Self {
         let id = self.world.register::<T>();
-        let f = &mut self.filters;
-        assert!((f.n_with as usize) < f.with.len(), "at most 4 `with` filters per query");
-        f.with[f.n_with as usize] = id;
-        f.n_with += 1;
+        self.filters.add_with(id);
         self
     }
 
-    /// Skip entities that have component `T`.
+    /// Skip entities that have component `T`. Shorthand for
+    /// `.filter::<Without<T>>()`.
     ///
     /// # Panics
     ///
-    /// With more than 4 `without` filters on one query.
+    /// With more than 8 different `without` components on one query.
     pub fn without<T: Component>(mut self) -> Self {
         let id = self.world.register::<T>();
-        let f = &mut self.filters;
-        assert!(
-            (f.n_without as usize) < f.without.len(),
-            "at most 4 `without` filters per query"
-        );
-        f.without[f.n_without as usize] = id;
-        f.n_without += 1;
+        self.filters.add_without(id);
+        self
+    }
+
+    /// Only match entities that pass the typed filter `F`: [`With`],
+    /// [`Without`], [`Or`], or a tuple of them that must all hold. Calls
+    /// combine with each other and with [`with`](Self::with) /
+    /// [`without`](Self::without): every filter must hold.
+    ///
+    /// ```
+    /// # use ponko_ecs::*;
+    /// struct Pos(f32);
+    /// struct Player;
+    /// struct Enemy;
+    /// let mut world = World::new();
+    /// world.spawn((Pos(0.0), Player));
+    /// world.spawn((Pos(0.0), Enemy));
+    /// world.spawn((Pos(0.0),));
+    ///
+    /// let n = world.query::<&Pos>().filter::<Or<(With<Player>, With<Enemy>)>>().count();
+    /// assert_eq!(n, 2);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// With more than 8 different `With` or `Without` components, more than
+    /// 4 `Or` filters, or more than 16 terms across the `Or` filters.
+    pub fn filter<F: QueryFilter>(mut self) -> Self {
+        F::add(self.world, &mut self.filters);
         self
     }
 
