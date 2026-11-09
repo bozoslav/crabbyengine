@@ -3,6 +3,7 @@
 //! compute. They skip without a GPU adapter.
 use super::gpu::GpuTexture;
 use super::gpu3d::*;
+use super::render_test_support::*;
 use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight};
 use crate::*;
 
@@ -19,106 +20,27 @@ struct Rig {
     size: u32,
     timer: Option<super::timer::GpuTimer>,
     disable_motion: bool,
+    /// The adapter it draws on.
+    info: wgpu::AdapterInfo,
 }
 
 impl Rig {
     fn new(size: u32, downlevel: bool) -> Option<Self> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-        let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-            eprintln!("no GPU adapter: skipped");
-            return None;
-        };
-        let mut descriptor = wgpu::DeviceDescriptor {
-            required_features: adapter.features() & wgpu::Features::TIMESTAMP_QUERY,
-            ..Default::default()
-        };
-        if downlevel {
-            descriptor.required_limits.max_compute_workgroups_per_dimension = 0;
-            descriptor.required_limits.max_storage_textures_per_shader_stage = 0;
-        }
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&descriptor)) else {
-            eprintln!("no GPU device: skipped");
-            return None;
-        };
-        let texture_entry = |binding, ty| wgpu::BindGroupLayoutEntry {
-            binding,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty,
-            count: None,
-        };
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: None,
-            entries: &[
-                texture_entry(
-                    0,
-                    wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                ),
-                texture_entry(1, wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering)),
-            ],
-        });
-        let white = device.create_texture(&wgpu::TextureDescriptor {
-            label: None,
-            size: wgpu::Extent3d {
-                width: 1,
-                height: 1,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
-        });
-        queue.write_texture(
-            white.as_image_copy(),
-            &[255; 4],
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(4),
-                rows_per_image: None,
-            },
-            white.size(),
-        );
-        let sampler = device.create_sampler(&Default::default());
-        let view = white.create_view(&Default::default());
-        let textures = vec![GpuTexture {
-            texture: white.clone(),
-            nearest: false,
-            mips: None,
-            bind_group: device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&sampler),
-                    },
-                ],
-            }),
-        }];
-        let output = device.create_texture(&wgpu::TextureDescriptor {
-            label: None,
-            size: wgpu::Extent3d {
-                width: size,
-                height: size,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-        });
+        let TestGpu {
+            device, queue, info, ..
+        } = gpu_with(|adapter| {
+            let mut descriptor = wgpu::DeviceDescriptor {
+                required_features: adapter.features() & wgpu::Features::TIMESTAMP_QUERY,
+                ..Default::default()
+            };
+            if downlevel {
+                descriptor.required_limits.max_compute_workgroups_per_dimension = 0;
+                descriptor.required_limits.max_storage_textures_per_shader_stage = 0;
+            }
+            Ok(descriptor)
+        })?;
+        let (layout, white, textures) = white_textures(&device, &queue);
+        let output = target(&device, (size, size), wgpu::TextureFormat::Rgba8UnormSrgb);
         // A box that shines white and lights nothing, on black.
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(size as f32, size as f32));
         let glow = MaterialDesc {
@@ -158,6 +80,7 @@ impl Rig {
             size,
             timer: None,
             disable_motion: false,
+            info,
         })
     }
 
@@ -174,8 +97,8 @@ impl Rig {
         ));
     }
 
-    /// Draws a frame and returns its red channel, linear, row by row.
-    fn draw(&mut self) -> Vec<f32> {
+    /// Draws a frame into `output`.
+    fn render(&mut self) {
         let size = self.size;
         let ctx = &mut self.ctx;
         self.frame.motion.enabled =
@@ -233,7 +156,18 @@ impl Rig {
             self.queue.submit([encoder.finish()]);
             timer.submitted();
         }
-        let bytes = self.read(&self.output, 4);
+    }
+
+    /// Draws a frame and returns it as RGBA8 sRGB pixels.
+    fn image(&mut self) -> Image {
+        self.render();
+        Image::read(&self.device, &self.queue, &self.output)
+    }
+
+    /// Draws a frame and returns its red channel, linear, row by row.
+    fn draw(&mut self) -> Vec<f32> {
+        self.render();
+        let bytes = self.read(&self.output);
         bytes
             .as_chunks::<4>()
             .0
@@ -250,32 +184,8 @@ impl Rig {
             .collect()
     }
 
-    fn read(&self, texture: &wgpu::Texture, bytes_per_pixel: u32) -> Vec<u8> {
-        let row = self.size * bytes_per_pixel;
-        assert_eq!(row % 256, 0, "pick a size whose rows are 256-byte aligned");
-        let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            size: u64::from(row * self.size),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-        let mut encoder = self.device.create_command_encoder(&Default::default());
-        encoder.copy_texture_to_buffer(
-            texture.as_image_copy(),
-            wgpu::TexelCopyBufferInfo {
-                buffer: &readback,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(row),
-                    rows_per_image: None,
-                },
-            },
-            texture.size(),
-        );
-        self.queue.submit([encoder.finish()]);
-        readback.map_async(wgpu::MapMode::Read, .., |r| r.unwrap());
-        self.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-        readback.get_mapped_range(..).unwrap().to_vec()
+    fn read(&self, texture: &wgpu::Texture) -> Vec<u8> {
+        read_texture(&self.device, &self.queue, texture)
     }
 }
 
@@ -357,7 +267,7 @@ fn a_still_diagonal_edge_converges_smoother_than_without_it() {
 /// Reads the motion vector at pixel (x, y): xy over alpha.
 fn motion_at(rig: &Rig, x: u32, y: u32) -> Option<(f32, f32)> {
     let texture = rig.renderer.velocity_texture()?;
-    let bytes = rig.read(texture, 4);
+    let bytes = rig.read(texture);
     let at = ((y * rig.size + x) * 4) as usize;
     let half = |i: usize| half::f16::from_le_bytes([bytes[at + i * 2], bytes[at + i * 2 + 1]]).to_f32();
     (half(0) != 0.0 || half(1) != 0.0).then(|| (half(0), half(1)))
@@ -668,4 +578,151 @@ fn rotation_animation_writes_motion_away_from_the_pivot() {
     let motion = motion_at(&rig, x, y).expect("rotating face has motion");
     assert!((motion.0 - (a.x - b.x) * 0.5).abs() < 0.002);
     assert!((motion.1 - (b.y - a.y) * 0.5).abs() < 0.002);
+}
+
+impl Rig {
+    /// Draws into a new `size` square output from now on: a window resize.
+    fn resize(&mut self, size: u32) {
+        self.output = target(&self.device, (size, size), self.output.format());
+        self.size = size;
+        self.ctx.camera3d.set_viewport(Vec2::splat(size as f32));
+    }
+}
+
+/// The slab at 8x8 supersampling, averaged down to `size`: the edge's truth.
+fn slab_truth(size: u32) -> Vec<f32> {
+    let mut big = Rig::new(size * 8, false).unwrap();
+    big.slab(0.37);
+    downsample(&big.draw(), (size * 8) as usize, 8)
+}
+
+/// A slab drawn with TAA for 40 frames, then `step` applied to the rig,
+/// then the next frame (red channel, linear). `None` without a GPU.
+fn frame_after(step: impl FnOnce(&mut Rig)) -> Option<Vec<f32>> {
+    let mut rig = Rig::new(SIZE, false)?;
+    rig.slab(0.37);
+    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    for _ in 0..40 {
+        rig.draw();
+    }
+    step(&mut rig);
+    Some(rig.draw())
+}
+
+#[test]
+fn a_camera_teleport_drops_the_history_like_an_explicit_reset() {
+    // The camera and the slab both jump 100 units: the same picture on
+    // screen, and nobody calls reset. The renderer must see the jump as a
+    // cut and draw what an explicit reset draws (the same jitter phase).
+    let teleport = |rig: &mut Rig| {
+        let jump = vec3(100.0, 0.0, 0.0);
+        rig.ctx.camera3d.position += jump;
+        rig.ctx
+            .world
+            .query::<&mut Transform3D>()
+            .for_each(|t| t.position += jump);
+    };
+    let (Some(teleported), Some(reset), Some(kept)) = (
+        frame_after(teleport),
+        frame_after(|rig| rig.frame.motion.reset = true),
+        frame_after(|_| {}),
+    ) else {
+        return;
+    };
+    let truth = slab_truth(SIZE);
+    let (to_reset, to_kept) = (edge_error(&teleported, &reset), edge_error(&teleported, &kept));
+    eprintln!(
+        "teleport frame vs reset frame {to_reset:.4}, vs kept history {to_kept:.4}; edge error: teleport {:.4}, reset {:.4}, kept {:.4}",
+        edge_error(&teleported, &truth),
+        edge_error(&reset, &truth),
+        edge_error(&kept, &truth)
+    );
+    assert!(to_reset < 0.01, "a teleport draws like a reset: {to_reset}");
+    // Negative control: keeping the history draws something else.
+    assert!(to_kept > 0.05, "the history visibly changes the frame: {to_kept}");
+    assert!(edge_error(&kept, &truth) < edge_error(&teleported, &truth) * 0.8);
+}
+
+#[test]
+fn a_resize_drops_the_history_and_converges_at_the_new_size() {
+    // Settled at one size, then the window doubles: the first frame must be
+    // what an explicit reset draws at the new size, not a blend with the
+    // old, differently sized history.
+    let big = SIZE * 2;
+    let (Some(resized), Some(reset)) = (
+        frame_after(|rig| rig.resize(big)),
+        frame_after(|rig| {
+            rig.resize(big);
+            rig.frame.motion.reset = true;
+        }),
+    ) else {
+        return;
+    };
+    let to_reset = edge_error(&resized, &reset);
+    eprintln!("first frame after a resize vs a reset there: {to_reset:.4}");
+    assert!(to_reset < 0.01, "a resize draws like a reset: {to_reset}");
+    // And it converges at the new size.
+    let mut rig = Rig::new(SIZE, false).unwrap();
+    rig.slab(0.37);
+    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    for _ in 0..40 {
+        rig.draw();
+    }
+    let truth = slab_truth(big);
+    rig.resize(big);
+    let after = edge_error(&rig.draw(), &truth);
+    let mut again = 0.0;
+    for _ in 0..40 {
+        again = edge_error(&rig.draw(), &truth);
+    }
+    rig.ctx.post.anti_aliasing = AntiAliasing::None;
+    let none = edge_error(&rig.draw(), &truth);
+    eprintln!("after resizing to {big}: edge error first {after:.4}, 40 frames later {again:.4}, no AA {none:.4}");
+    assert!(
+        after > again * 1.3,
+        "the first frame is a single sample: {after} vs {again}"
+    );
+    assert!(again < none * 0.75, "TAA converges at the new size: {again} vs {none}");
+}
+
+#[test]
+fn a_still_slab_matches_its_reference_image() {
+    let Some(mut rig) = Rig::new(SIZE, false) else {
+        return;
+    };
+    rig.slab(0.37);
+    rig.ctx.post.anti_aliasing = AntiAliasing::None;
+    let image = rig.image();
+    // What must hold anywhere: the middle is lit, the corners are black.
+    let half = SIZE / 2;
+    assert_region(
+        &image,
+        half - 4..half + 4,
+        half - 2..half + 2,
+        1.0,
+        "the slab is lit",
+        |p| p[0] > 250 && p[1] > 250 && p[2] > 250,
+    );
+    assert_region(&image, 0..6, 0..6, 1.0, "the top-left corner is black", |p| {
+        p[..3] == [0; 3]
+    });
+    assert_region(
+        &image,
+        SIZE - 6..SIZE,
+        SIZE - 6..SIZE,
+        1.0,
+        "the bottom-right corner is black",
+        |p| p[..3] == [0; 3],
+    );
+    check_reference(
+        "taa_still_slab_no_aa",
+        &image,
+        Tolerance {
+            channel: 8,
+            outliers: 0.02,
+        },
+        "A white emissive slab (4 x 1.5 x 0.05) turned 0.37 rad about the view axis, 5 units in front of \
+         the camera, on black; 64x64, no antialiasing, no lighting, no tonemapping.",
+        &rig.info,
+    );
 }

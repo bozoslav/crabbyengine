@@ -4,6 +4,7 @@
 //! they should. Skips without a GPU that has a spare texture slot.
 use super::gpu::GpuTexture;
 use super::gpu3d::*;
+use super::render_test_support::*;
 use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight, TextureArray, linear};
 use crate::*;
 
@@ -33,90 +34,29 @@ impl Rig {
     }
 
     fn sized(decals: bool, size: (u32, u32)) -> Option<Rig> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-        let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-            eprintln!("no GPU adapter: skipped");
-            return None;
-        };
-        let wanted = if decals {
-            adapter.limits().max_sampled_textures_per_shader_stage.clamp(16, 24)
-        } else {
-            16
-        };
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            required_limits: wgpu::Limits {
-                max_sampled_textures_per_shader_stage: wanted,
-                ..wgpu::Limits::default()
-            },
-            ..Default::default()
-        })) else {
-            eprintln!("no GPU device: skipped");
-            return None;
-        };
+        let TestGpu { device, queue, .. } = gpu_with(|adapter| {
+            let wanted = if decals {
+                adapter.limits().max_sampled_textures_per_shader_stage.clamp(16, 24)
+            } else {
+                16
+            };
+            Ok(wgpu::DeviceDescriptor {
+                required_limits: wgpu::Limits {
+                    max_sampled_textures_per_shader_stage: wanted,
+                    ..wgpu::Limits::default()
+                },
+                ..Default::default()
+            })
+        })?;
         if supports_decals(&device) != decals {
-            eprintln!(
-                "this GPU can't be set to {} texture slots: skipped",
+            skip(format_args!(
+                "this GPU can't be set to {} texture slots",
                 if decals { "17+" } else { "16" }
-            );
+            ));
             return None;
         }
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: None,
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
-        let white = texture(&device, &queue, 1, 1, 1, wgpu::TextureFormat::Rgba8UnormSrgb, &[255; 4]);
-        let sampler = device.create_sampler(&Default::default());
-        let view = white.create_view(&Default::default());
-        let textures = vec![GpuTexture {
-            texture: white.clone(),
-            nearest: false,
-            mips: None,
-            bind_group: device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&sampler),
-                    },
-                ],
-            }),
-        }];
-        let output = device.create_texture(&wgpu::TextureDescriptor {
-            label: None,
-            size: wgpu::Extent3d {
-                width: size.0,
-                height: size.1,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-        });
+        let (layout, white, textures) = white_textures(&device, &queue);
+        let output = target(&device, size, wgpu::TextureFormat::Rgba8UnormSrgb);
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(size.0 as f32, size.1 as f32));
         let matte = MaterialDesc {
             color: Color::WHITE,
@@ -228,29 +168,7 @@ impl Rig {
             .renderer
             .draw(device, &target, wgpu::Color::BLACK, &self.textures, None);
         queue.submit(buffers);
-        let readback = device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            size: u64::from(self.size.0 * self.size.1 * 4),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-        let mut encoder = device.create_command_encoder(&Default::default());
-        encoder.copy_texture_to_buffer(
-            self.output.as_image_copy(),
-            wgpu::TexelCopyBufferInfo {
-                buffer: &readback,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(self.size.0 * 4),
-                    rows_per_image: None,
-                },
-            },
-            self.output.size(),
-        );
-        queue.submit([encoder.finish()]);
-        readback.map_async(wgpu::MapMode::Read, .., |r| r.unwrap());
-        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-        readback.get_mapped_range(..).unwrap().to_vec()
+        read_texture(device, queue, &self.output)
     }
 
     /// The color where world point `p` lands on screen.

@@ -1,0 +1,14 @@
+{
+  "name": "taa_still_slab_no_aa",
+  "scene": "A white emissive slab (4 x 1.5 x 0.05) turned 0.37 rad about the view axis, 5 units in front of the camera, on black; 64x64, no antialiasing, no lighting, no tonemapping.",
+  "width": 64,
+  "height": 64,
+  "format": "rgba8-srgb",
+  "tolerance": {
+    "channel": 8,
+    "outliers": 0.02
+  },
+  "adapter": "Apple M4 Max",
+  "backend": "Metal",
+  "driver": ""
+}
