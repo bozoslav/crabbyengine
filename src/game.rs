@@ -1035,6 +1035,8 @@ impl Game {
         }
         let total = ticks + warmup.unwrap_or(0);
         let mut ran = 0;
+        // Lists the systems before the first tick, for tools asking a paused game.
+        self.begin_timings(&mut ctx);
         while ran < total && !ctx.quit_requested() {
             if let Some(control) = &control {
                 control.poll(&mut ctx);

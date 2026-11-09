@@ -159,6 +159,14 @@ mod backend {
         pub(super) spatial: super::spatial::SpatialState,
     }
     impl Audio {
+        /// For tools: whether the output device was opened (it opens on first use).
+        pub(crate) fn device_state(&self) -> &'static str {
+            match &self.manager {
+                None => "not_opened",
+                Some(None) => "failed",
+                Some(Some(_)) => "open",
+            }
+        }
         fn manager(&mut self) -> Option<&mut AudioManager<DefaultBackend>> {
             self.manager
                 .get_or_insert_with(|| AudioManager::new(AudioManagerSettings::default()).ok())
@@ -398,6 +406,10 @@ mod backend {
         pub(super) spatial: super::spatial::SpatialState,
     }
     impl Audio {
+        /// For tools: this build has no audio output.
+        pub(crate) fn device_state(&self) -> &'static str {
+            "compiled_out"
+        }
         pub fn load(&mut self, _bytes: Vec<u8>) -> Result<(u32, f32), String> {
             self.count += 1;
             Ok((self.count - 1, 0.0))

@@ -29,6 +29,7 @@ use serde_json::{Value, json};
 use crate::ctx::Ctx;
 use crate::reflect::WorldReflect;
 
+mod capabilities;
 mod query;
 use query::{Condition, FieldPath, FieldStats};
 
@@ -396,6 +397,10 @@ fn screenshot_path(ctx: &Ctx, params: &Value) -> Result<PathBuf, String> {
 pub(crate) const METHODS: &[(&str, &str)] = &[
     ("methods", "list the methods this endpoint understands"),
     (
+        "capabilities",
+        "what this instance can do: engine version, headless or windowed, compiled features, subsystems (renderer, physics, audio, networking...) with why one is off, each method's availability with a reason when refused, and reflected components/resources with their schema (or `opaque` when not described)",
+    ),
+    (
         "logs.get",
         "the game's recent stdout and stderr lines (answered even mid-frame); params: lines? (100), since? (the `next` of a previous read: only newer lines)",
     ),
@@ -603,7 +608,11 @@ fn short(type_name: &str) -> &str {
 
 pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Value, String> {
     let err = |e: crate::ReflectError| e.to_string();
+    if let Some(reason) = capabilities::unavailable(ctx, method) {
+        return Err(reason);
+    }
     Ok(match method {
+        "capabilities" => capabilities::report(ctx),
         "methods" => Value::Array(
             METHODS
                 .iter()
@@ -823,9 +832,6 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
             out
         }
         "perf.trace" => {
-            if ctx.headless {
-                return Err("headless games have no frames to trace".into());
-            }
             let frames = usize_param(params, "frames", 120)?.clamp(1, 10_000);
             let path = match params.get("path").and_then(Value::as_str) {
                 Some(p) => PathBuf::from(p),
@@ -899,10 +905,9 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
             }
             camera_json(ctx)
         }
-        // Windowed games answer it after the next frame (see `answer`).
-        "screenshot" => {
-            return Err("headless games have no window to capture; launch the game with a window".into());
-        }
+        // Windowed games answer it after the next frame (see `answer`);
+        // headless ones were refused above.
+        "screenshot" => return Err("screenshots are taken after the next frame".into()),
         other => return Err(format!("unknown method `{other}` (call `methods` for the list)")),
     })
 }

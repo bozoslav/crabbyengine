@@ -72,7 +72,10 @@ mod game;
 mod gamepad;
 mod hot_reload;
 mod input;
-pub use actions::{Action, ActionMap, Axis2Binding, AxisBinding, ButtonBinding, InputEvent, InputScenario};
+pub use actions::{
+    Action, ActionId, ActionMap, ActionRef, Axis2Binding, AxisBinding, ButtonBinding, InputEvent, InputScenario,
+    UnknownAction,
+};
 #[cfg(feature = "inspector")]
 mod inspector;
 mod logs;
@@ -93,6 +96,7 @@ mod random;
 mod reflect;
 mod render;
 mod scene;
+mod schema;
 mod scope;
 mod sheet;
 mod spatial;
@@ -156,6 +160,7 @@ pub use profiler::{FrameStats, GpuPass};
 pub use random::{DEFAULT_SEED, Random, Rng};
 pub use reflect::{Field, FieldType, ReflectError, WorldReflect};
 pub use render::RenderStats;
+pub use schema::ValueSchema;
 pub use scope::{ProfileScope, ScopeGuard, ScopeTiming, scope_named};
 pub use sheet::{Animation, SpriteSheet, animate_sprites};
 #[doc(hidden)]

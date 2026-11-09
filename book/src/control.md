@@ -71,6 +71,7 @@ headless game waits for requests and runs only the ticks you step.
 | Method | Params | Returns |
 |---|---|---|
 | `methods` | | every method with a description |
+| `capabilities` | | what this instance can do ([details](#capabilities)) |
 | `info` | | pid, headless, tick, sim time, paused, speed, fps, entity count, render stats (sprites, draw calls, CPU and GPU ms) |
 | `world.summary` | | entity count, reflected components and resources, archetypes and sizes |
 | `entities.list` | `with?`, `where?`, `limit?` (100), `offset?` | entities with reflected components as JSON, names of the others |
@@ -109,6 +110,44 @@ Component values use [reflection](reflection.md): call
 `world.reflect::<T>()` for a component, `world.reflect_resource::<R>()` for
 a resource, to make it readable and writable.
 Entity ids are the numbers from `Entity::to_bits`.
+
+## Capabilities
+
+`capabilities` answers, without changing anything, what this running build
+supports, so a tool can check before sending a request that would fail:
+
+- `mode`: `headless` or `windowed`; `engine_version`; `features`: every
+  Cargo feature and whether this build has it.
+- `subsystems`: `renderer`, `inspector`, `gamepad`, `physics`, `physics3d`,
+  `audio`, `networking`, `profiling`, `control`. Each says whether it's
+  compiled in and active, with a `reason` when it isn't. What isn't known
+  is `null` with a reason (the GPU adapter isn't reported yet; physics
+  before the game loop starts), never a guess.
+- `methods`: every method with `available` and, when it would be refused
+  here (`screenshot` in a headless game), the same `reason` the refusal
+  gives; `limited` notes calls that are accepted but do less.
+- `reflection`: reflected components and resources, each with a `schema`.
+  Serde can't say what a type serializes to, so a type registered with
+  `reflect::<T>()` is `"status": "opaque"` until the game describes it;
+  types described with `reflect_fields` get theirs from the fields:
+
+```rust
+ctx.world.reflect::<Health>();
+ctx.world.describe_component("Health", ValueSchema::object([
+    ("current", ValueSchema::Number),
+    ("max", ValueSchema::Number),
+])).unwrap();
+// capabilities → { "name": "Health", "schema": { "status": "described",
+//   "json_schema": { "type": "object", "properties": { "current": { "type": "number" }, ... } } } }
+```
+
+The MCP tool `instance_capabilities` returns this plus `mcp.tools`: each
+tool's availability for that game and server (a read-only server marks the
+tools that change games unavailable). Against an engine from before this
+method it reports `"supported": false` instead of guessing.
+
+The C and C++ APIs have no `describe_component` yet; their field-described
+components get schemas from `reflect_fields`.
 
 ## Questions about many entities
 
