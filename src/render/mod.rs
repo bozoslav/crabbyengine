@@ -172,6 +172,20 @@ impl GpuUploads {
     }
 }
 
+/// Renderer facts behind the render-pass inspector (`perf.get`'s
+/// `render_inspector`) that [`RenderStats`] doesn't carry. Read once per
+/// drawn frame; a plain copy, so it costs nothing when nobody asks.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub(crate) struct RenderDetail {
+    /// The device has timestamp queries, so GPU times can be measured.
+    pub gpu_timestamps: bool,
+    /// Frames whose GPU timestamps have come back so far.
+    pub gpu_frames_timed: u64,
+    /// CPU time preparing the 3D frame (collecting models and uploading
+    /// their data) in ms; includes `RenderStats::collect_ms`.
+    pub prepare_ms: f32,
+}
+
 /// What happened when we tried to draw a frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FrameStatus {
