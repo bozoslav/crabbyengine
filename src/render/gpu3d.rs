@@ -747,6 +747,12 @@ pub(crate) struct Renderer3D {
     taa_frame_read: usize,
     /// The last frame's unjittered camera, when its image is in the history.
     taa_previous: Option<Mat4>,
+    /// The unjittered camera of the last frame drawn: camera cuts are
+    /// measured from it.
+    history_camera: Option<Mat4>,
+    /// Why this frame dropped the temporal history, if it did.
+    #[cfg(test)]
+    history_reset: HistoryReset,
     /// Models that moved: their instances (see `MovedInstance`) and runs.
     moved: wgpu::Buffer,
     moved_capacity: usize,
@@ -1547,6 +1553,9 @@ impl Renderer3D {
             taa_read: 0,
             taa_frame_read: 0,
             taa_previous: None,
+            history_camera: None,
+            #[cfg(test)]
+            history_reset: HistoryReset::default(),
             moved: Self::moved_buffer(device, 16),
             moved_capacity: 16,
             moved_runs: Vec::new(),
@@ -2249,7 +2258,6 @@ impl Renderer3D {
         } else {
             unjittered
         };
-        let previous_view_proj = self.taa_previous.unwrap_or(unjittered);
         self.moved_runs.clear();
         self.particles.prepare(device, queue, &frame.particles, view_proj);
         let ao_on = post.ambient_occlusion.enabled
@@ -2294,13 +2302,25 @@ impl Renderer3D {
             self.frame_sources.gi_view = self.no_gi.clone();
             self.rebind_frames(device);
         }
+        // Temporal history: one decision for every effect that reuses the
+        // last frame (see `HistoryReset`), made before any of them prepares.
+        let rebuild = self.targets_stale(size, post, ao_on, upscaled);
+        let reset = HistoryReset {
+            requested: frame.motion.reset,
+            targets: rebuild,
+            camera_cut: self.history_camera.is_some_and(|before| camera_cut(before, unjittered)),
+        };
+        if reset.any() {
+            self.forget_history();
+        }
+        #[cfg(test)]
+        {
+            self.history_reset = reset;
+        }
+        // Camera motion is measured from the last frame's camera; after a
+        // reset there is none (the last frame is no past of this one).
+        let previous_view_proj = self.taa_previous.unwrap_or(unjittered);
         if let Some(ao) = &mut self.ao {
-            if frame.motion.reset
-                || self.targets.as_ref().is_none_or(|t| t.size != size)
-                || self.taa_previous.is_some_and(|before| camera_cut(before, unjittered))
-            {
-                ao.reset();
-            }
             let sun = (-lighting.sun_direction).try_normalize().unwrap_or(Vec3::Y);
             ao.prepare(
                 queue,
@@ -2726,24 +2746,10 @@ impl Renderer3D {
                 bytemuck::bytes_of(&uniform),
             );
         }
-        let mut rebuilt = false;
         // Targets made for settings that have since changed (a different
         // size, or an effect turned on or off) are replaced; the old ones
         // are freed once the commands that used them have run.
-        if self.targets.as_ref().is_none_or(|t| {
-            t.size != size
-                || t.ao.is_some() != self.ao_enabled
-                || t.ao
-                    .as_ref()
-                    .is_some_and(|a| a.half != (post.ao_half_resolution && ao_on))
-                || t.ao.as_ref().is_some_and(|a| a.temporal != (post.ao_temporal && ao_on))
-                || t.ssr.is_some() != self.ssr_on
-                || t.taa.is_some() != self.taa_on
-                || t.velocity.is_some() != self.velocity_on
-                || t.ldr.is_some() != (self.aa == crate::AntiAliasing::Fxaa)
-                || t.upscale.is_some() != upscaled
-        }) {
-            rebuilt = true;
+        if rebuild {
             let texture = |label, format, samples, usage| {
                 device.create_texture(&wgpu::TextureDescriptor {
                     label: Some(label),
@@ -2926,8 +2932,9 @@ impl Renderer3D {
         if !self.taa_on {
             self.taa_previous = self.velocity_on.then_some(unjittered);
         } else if self.has_draws() {
-            let reset =
-                frame.motion.reset || rebuilt || self.taa_previous.is_none_or(|before| camera_cut(before, unjittered));
+            // No camera of the last frame: the first frame with TAA, or
+            // the history was just forgotten.
+            let reset = self.taa_previous.is_none();
             if let Some(taa) = &self.taa {
                 taa.prepare(
                     queue,
@@ -2948,15 +2955,19 @@ impl Renderer3D {
             self.taa_read ^= 1;
         }
         // Screen-space reflections: the last frame's image is their colors,
-        // unless the targets are new or the camera jumped.
+        // unless they were off or the history was forgotten above.
         let drawn = self.has_draws();
         if let Some(ssr) = &mut self.ssr {
-            if !self.ssr_on || rebuilt || ssr.previous().is_some_and(|before| camera_cut(before, view_proj)) {
+            if !self.ssr_on {
                 ssr.forget();
             }
             if self.ssr_on && drawn {
                 ssr.prepare(queue, view_proj, camera, post.ssr.min(1.0), post.ssr_max_distance);
             }
+        }
+        // Cuts are measured from the last frame that left an image behind.
+        if drawn {
+            self.history_camera = Some(unjittered);
         }
         self.occluded = frame.occluded;
         if let Some(targets) = &self.targets {
@@ -4007,6 +4018,45 @@ impl Renderer3D {
         self.targets.as_ref()?.velocity.as_ref().map(|t| &t.velocity_texture)
     }
 
+    /// Why the last prepared frame dropped the temporal history (for tests).
+    #[cfg(test)]
+    pub(crate) fn history_reset(&self) -> HistoryReset {
+        self.history_reset
+    }
+
+    /// Whether the targets were made for other settings than these: a
+    /// different size (window or render scale), or an effect switched on or
+    /// off. They are then made again, and the history with them.
+    fn targets_stale(&self, size: (u32, u32), post: &crate::Post, ao_on: bool, upscaled: bool) -> bool {
+        self.targets.as_ref().is_none_or(|t| {
+            t.size != size
+                || t.ao.is_some() != self.ao_enabled
+                || t.ao
+                    .as_ref()
+                    .is_some_and(|a| a.half != (post.ao_half_resolution && ao_on))
+                || t.ao.as_ref().is_some_and(|a| a.temporal != (post.ao_temporal && ao_on))
+                || t.ssr.is_some() != self.ssr_on
+                || t.taa.is_some() != self.taa_on
+                || t.velocity.is_some() != self.velocity_on
+                || t.ldr.is_some() != (self.aa == crate::AntiAliasing::Fxaa)
+                || t.upscale.is_some() != upscaled
+        })
+    }
+
+    /// Drops every effect's memory of the frames before this one: TAA's
+    /// history and the camera motion is measured from, temporal AO's
+    /// history and SSR's last image. Each starts over from the next frame
+    /// it draws, so a reset asked for on a frame that draws nothing holds.
+    fn forget_history(&mut self) {
+        self.taa_previous = None;
+        if let Some(ao) = &mut self.ao {
+            ao.reset();
+        }
+        if let Some(ssr) = &mut self.ssr {
+            ssr.forget();
+        }
+    }
+
     /// Whether this frame is resolved by temporal antialiasing (for tests).
     #[cfg(test)]
     pub(crate) fn taa_active(&self) -> bool {
@@ -4509,6 +4559,31 @@ fn build_pipelines(
         shared: Default::default(),
         builder,
         reads_scene: false,
+    }
+}
+
+/// Why a frame drops the temporal history: everything an effect kept from
+/// earlier frames (TAA's history, temporal AO's, SSR's last image, the
+/// camera and models motion vectors are measured from). Decided once per
+/// frame in `Renderer3D::prepare`, before any effect prepares, so they all
+/// agree.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct HistoryReset {
+    /// The game asked (`Ctx::reset_temporal_history`): a teleport or a new
+    /// scene the camera can't tell apart from motion.
+    pub requested: bool,
+    /// The targets are made again (a resize, a render scale change or an
+    /// effect switched): the old history images are gone or the wrong size.
+    pub targets: bool,
+    /// The camera jumped far or turned sharply (see `camera_cut`): the
+    /// last frame shows somewhere else.
+    pub camera_cut: bool,
+}
+
+impl HistoryReset {
+    /// Whether the frame starts over.
+    pub fn any(self) -> bool {
+        self.requested || self.targets || self.camera_cut
     }
 }
 

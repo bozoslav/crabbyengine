@@ -161,6 +161,33 @@ impl Rig {
         })
     }
 
+    /// Draws later frames at `size` x `size` (a window resize).
+    fn resize(&mut self, size: u32) {
+        self.output = self.device.create_texture(&wgpu::TextureDescriptor {
+            size: wgpu::Extent3d {
+                width: size,
+                height: size,
+                depth_or_array_layers: 1,
+            },
+            ..self.output_descriptor()
+        });
+        // Square either way: the camera's aspect ratio stays.
+        self.size = size;
+    }
+
+    fn output_descriptor(&self) -> wgpu::TextureDescriptor<'static> {
+        wgpu::TextureDescriptor {
+            label: None,
+            size: self.output.size(),
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: self.output.format(),
+            usage: self.output.usage(),
+            view_formats: &[],
+        }
+    }
+
     /// A slab turned `angle` about the view axis: a long diagonal edge.
     fn slab(&mut self, angle: f32) {
         self.ctx.world.clear();
@@ -668,4 +695,173 @@ fn rotation_animation_writes_motion_away_from_the_pivot() {
     let motion = motion_at(&rig, x, y).expect("rotating face has motion");
     assert!((motion.0 - (a.x - b.x) * 0.5).abs() < 0.002);
     assert!((motion.1 - (b.y - a.y) * 0.5).abs() < 0.002);
+}
+
+/// The history reset each kind of change makes, frame by frame: the target
+/// changes (resize, render scale, effect switches) and camera cuts reset
+/// once, and the frame after each keeps its history again.
+#[test]
+fn each_history_trigger_resets_once_and_steady_frames_keep_the_history() {
+    let Some(mut rig) = Rig::new(SIZE, false) else {
+        return;
+    };
+    rig.slab(0.37);
+    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    rig.ctx.post.ssr = 1.0;
+    rig.ctx.post.ambient_occlusion.enabled = true;
+    rig.ctx.post.ao_temporal = true;
+    let none = HistoryReset::default();
+    let targets = HistoryReset { targets: true, ..none };
+    let cut = HistoryReset {
+        camera_cut: true,
+        ..none
+    };
+    let requested = HistoryReset {
+        requested: true,
+        ..none
+    };
+    let steps: [(&str, fn(&mut Rig), HistoryReset); 14] = [
+        ("the first frame", |_| {}, targets),
+        ("a resize", |r| r.resize(SIZE * 2), targets),
+        ("a resize back", |r| r.resize(SIZE), targets),
+        ("a lower render scale", |r| r.ctx.post.render_scale = 0.5, targets),
+        ("the full render scale", |r| r.ctx.post.render_scale = 1.0, targets),
+        ("FXAA", |r| r.ctx.post.anti_aliasing = AntiAliasing::Fxaa, targets),
+        ("TAA again", |r| r.ctx.post.anti_aliasing = AntiAliasing::Taa, targets),
+        ("reflections off", |r| r.ctx.post.ssr = 0.0, targets),
+        ("reflections on", |r| r.ctx.post.ssr = 1.0, targets),
+        ("temporal AO off", |r| r.ctx.post.ao_temporal = false, targets),
+        ("a small camera step", |r| r.ctx.camera3d.position.x += 0.05, none),
+        ("a camera teleport", |r| r.ctx.camera3d.position.z += 100.0, cut),
+        ("a requested reset", |r| r.frame.motion.reset = true, requested),
+        (
+            "a requested reset with a resize",
+            |r| {
+                r.frame.motion.reset = true;
+                r.resize(SIZE * 2);
+            },
+            HistoryReset {
+                requested: true,
+                targets: true,
+                camera_cut: false,
+            },
+        ),
+    ];
+    for (name, change, expected) in steps {
+        change(&mut rig);
+        rig.draw();
+        assert!(rig.renderer.has_draws(), "{name}: the slab is drawn");
+        assert_eq!(rig.renderer.history_reset(), expected, "{name}");
+        rig.draw();
+        assert_eq!(rig.renderer.history_reset(), none, "the frame after {name}");
+    }
+}
+
+#[test]
+fn a_reset_frame_reports_no_motion_for_a_teleported_model() {
+    let Some(mut rig) = Rig::new(SIZE, false) else {
+        return;
+    };
+    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    rig.ctx
+        .world
+        .spawn((Transform3D::at(vec3(-1.5, 0.0, 0.0)), Model::new(rig.cube)));
+    let teleport = |rig: &mut Rig, x: f32| {
+        rig.ctx.world.query::<&mut Transform3D>().for_each(|t| t.position.x = x);
+        rig.draw();
+        motion_at(rig, rig.size / 2, rig.size / 2)
+    };
+    rig.draw();
+    rig.draw();
+    // Negative control: without a reset, a jump reads as fast motion.
+    let jump = teleport(&mut rig, 0.0);
+    assert!(jump.is_some_and(|m| m.0 < -0.05), "a jump is motion: {jump:?}");
+    teleport(&mut rig, -1.5);
+    teleport(&mut rig, -1.5);
+    // With one, the old position is not the model's past.
+    rig.frame.motion.reset = true;
+    let cut = teleport(&mut rig, 0.0);
+    assert_eq!(cut, None, "a teleport with a reset has no motion");
+    // And the next real move has motion again.
+    let step = teleport(&mut rig, 0.1);
+    assert!(step.is_some_and(|m| m.0 < -0.001), "motion resumes: {step:?}");
+}
+
+#[test]
+fn a_reset_requested_on_a_frame_that_draws_nothing_still_applies() {
+    let Some(mut rig) = Rig::new(SIZE, false) else {
+        return;
+    };
+    rig.slab(0.37);
+    let mut big = Rig::new(SIZE * 8, false).unwrap();
+    big.slab(0.37);
+    let truth = downsample(&big.draw(), (SIZE * 8) as usize, 8);
+    drop(big);
+    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    for _ in 0..40 {
+        rig.draw();
+    }
+    let settled = edge_error(&rig.draw(), &truth);
+    // A loading frame: nothing to draw, and the game asks for a reset.
+    rig.ctx.world.clear();
+    rig.frame.motion.reset = true;
+    rig.draw();
+    assert!(!rig.renderer.has_draws(), "the loading frame draws nothing");
+    rig.slab(0.37);
+    let after = edge_error(&rig.draw(), &truth);
+    eprintln!("edge error: settled {settled:.4}, first frame after the reset {after:.4}");
+    assert!(
+        after > settled * 1.3,
+        "the first drawn frame has no history: {after} vs {settled}"
+    );
+}
+
+/// The box's brightest pixel in columns `xs` of the middle rows.
+fn brightest(image: &[f32], size: u32, xs: std::ops::Range<u32>) -> f32 {
+    let n = size as usize;
+    let mut most = 0.0f32;
+    for y in n / 2 - 2..n / 2 + 2 {
+        for x in xs.clone() {
+            most = most.max(image[y * n + x as usize]);
+        }
+    }
+    most
+}
+
+#[test]
+fn resizes_and_render_scale_changes_leave_no_ghost_of_the_old_frame() {
+    let Some(mut rig) = Rig::new(SIZE, false) else {
+        return;
+    };
+    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    rig.ctx.post.ssr = 1.0;
+    rig.ctx.post.ambient_occlusion.enabled = true;
+    rig.ctx.post.ao_temporal = true;
+    rig.ctx
+        .world
+        .spawn((Transform3D::at(vec3(-1.2, 0.0, 0.0)), Model::new(rig.cube)));
+    for _ in 0..16 {
+        rig.draw();
+    }
+    // Every few frames the box jumps to the other side while the window
+    // or the render scale changes: the old side must be dark at once.
+    let mut x = -1.2f32;
+    for (i, (size, scale)) in [(128, 1.0), (128, 0.5), (64, 0.5), (64, 1.0), (128, 0.75), (64, 1.0)]
+        .into_iter()
+        .enumerate()
+    {
+        x = -x;
+        rig.resize(size);
+        rig.ctx.post.render_scale = scale;
+        rig.ctx.world.query::<&mut Transform3D>().for_each(|t| t.position.x = x);
+        for frame in 0..3 {
+            let image = rig.draw();
+            let (left, right) = (0..size / 4, size * 3 / 4..size);
+            let (here, there) = if x > 0.0 { (right, left) } else { (left, right) };
+            let (box_now, ghost) = (brightest(&image, size, here), brightest(&image, size, there));
+            eprintln!("step {i} ({size}px, scale {scale}) frame {frame}: box {box_now:.3}, old side {ghost:.3}");
+            assert!(box_now > 0.9, "step {i} frame {frame}: the box is drawn: {box_now}");
+            assert!(ghost < 0.02, "step {i} frame {frame}: no ghost: {ghost}");
+        }
+    }
 }
