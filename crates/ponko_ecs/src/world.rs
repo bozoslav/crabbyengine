@@ -62,7 +62,7 @@ impl Chunk<'_> {
 /// assert!(world.get::<Pos>(crab).is_none());
 /// ```
 pub struct World {
-    infos: Vec<ComponentInfo>,
+    pub(crate) infos: Vec<ComponentInfo>,
     by_type: TypeMap<ComponentId>,
     by_name: HashMap<String, ComponentId>,
     // Append-only: query matching caches use indices and len() as a generation.
@@ -77,6 +77,8 @@ pub struct World {
     scratch_ids: Vec<ComponentId>,
     /// Access recording for declared-access checks (debug builds only).
     pub(crate) recorder: Recorder,
+    /// Change detection: the tick counter and the removal logs.
+    pub(crate) changes: crate::change::Changes,
 }
 
 // Own the existing box so scoped access needs neither unsafe code nor a new
@@ -160,6 +162,7 @@ impl World {
             dynamic_resources: HashMap::new(),
             scratch_ids: Vec::new(),
             recorder: Recorder::default(),
+            changes: Default::default(),
         };
         w.archetype_for(&[]); // archetype 0: entities with no components
         w
@@ -288,6 +291,9 @@ impl World {
                 std::ptr::copy_nonoverlapping(src, c.ptr(row), c.size());
             });
         }
+        if arch.tracked() {
+            arch.stamp_row(row, self.changes.stamp());
+        }
         arch.entities.push(e);
         self.entities.set(
             e,
@@ -306,6 +312,10 @@ impl World {
         let Some(loc) = self.entities.get(e) else { return false };
         // Free the slot first: if a component's drop panics, the entity is already gone.
         self.entities.free(e);
+        if self.archetypes[loc.archetype as usize].tracked() {
+            self.changes
+                .log_despawn(&self.infos, &self.archetypes[loc.archetype as usize], e);
+        }
         let moved = unsafe { self.archetypes[loc.archetype as usize].swap_remove_drop(loc.row as usize) };
         if let Some(moved) = moved {
             self.entities.set_row(moved, loc.row as usize);
@@ -367,7 +377,14 @@ impl World {
     pub fn get_mut<T: Component>(&mut self, e: Entity) -> Option<&mut T> {
         let id = self.component_id::<T>()?;
         self.recorder.note(|l| l.component(id, true));
-        let ptr = self.locate(e, id)?;
+        let loc = self.entities.get(e)?;
+        let arch = &self.archetypes[loc.archetype as usize];
+        let col = arch.column_index(id)?;
+        if arch.tracked() {
+            // A mutable borrow counts as a change.
+            arch.stamp(col, loc.row as usize, self.changes.stamp(), false);
+        }
+        let ptr = arch.columns[col].ptr(loc.row as usize);
         Some(unsafe { &mut *ptr.cast::<T>() })
     }
 
@@ -679,6 +696,7 @@ impl World {
             layout: Layout::new::<T>(),
             drop,
             type_id: Some(TypeId::of::<T>()),
+            tracked: false,
         });
         self.by_type.insert(TypeId::of::<T>(), id);
         id
@@ -717,6 +735,7 @@ impl World {
             layout,
             drop,
             type_id: None,
+            tracked: false,
         })
     }
 
@@ -892,6 +911,9 @@ impl World {
             // `row` is reserved spare capacity.
             unsafe { std::ptr::copy_nonoverlapping(src, c.ptr(row), c.size()) };
         }
+        if arch.tracked() {
+            arch.stamp_row(row, self.changes.stamp());
+        }
         arch.entities.push(e);
         self.entities.set(
             e,
@@ -913,13 +935,18 @@ impl World {
         let Some(loc) = self.entities.get(e) else { return false };
         let src = loc.archetype as usize;
         if let Some(col) = self.archetypes[src].column_index(id) {
-            let c = &self.archetypes[src].columns[col];
+            let arch = &self.archetypes[src];
+            let c = &arch.columns[col];
             let dst = c.ptr(loc.row as usize);
             unsafe {
                 if let Some(d) = c.drop_fn() {
                     d(dst);
                 }
                 std::ptr::copy_nonoverlapping(value, dst, c.size());
+            }
+            if arch.tracked() {
+                // Replacing a value changes it; it was added when it first arrived.
+                arch.stamp(col, loc.row as usize, self.changes.stamp(), false);
             }
             return true;
         }
@@ -937,8 +964,12 @@ impl World {
         };
         let row = self.move_row(e, loc, dst);
         let arch = &self.archetypes[dst];
-        let c = &arch.columns[arch.column_index(id).unwrap()];
+        let col = arch.column_index(id).unwrap();
+        let c = &arch.columns[col];
         unsafe { std::ptr::copy_nonoverlapping(value, c.ptr(row), c.size()) };
+        if arch.tracked() {
+            arch.stamp(col, row, self.changes.stamp(), true);
+        }
         true
     }
 
@@ -984,6 +1015,10 @@ impl World {
                     Some(p) => ptrs[i] = p,
                     None => continue 'arch,
                 }
+            }
+            if arch.tracked() {
+                // The column pointers allow writing: every row counts as changed.
+                crate::change::mark_columns(arch, ids, self.changes.stamp());
             }
             f(Chunk {
                 entities: &arch.entities,
@@ -1034,6 +1069,9 @@ impl World {
     /// is forgotten: the caller must have read or copied it out.
     fn move_without(&mut self, e: Entity, loc: Location, id: ComponentId) {
         let src = loc.archetype as usize;
+        if self.archetypes[src].tracked() && self.infos[id.index()].tracked {
+            self.changes.log_removal(id, e);
+        }
         let dst = match self.archetypes[src].remove_edges.get(&id) {
             Some(&d) => d,
             None => {
@@ -1069,6 +1107,11 @@ impl World {
                 unsafe { std::ptr::copy_nonoverlapping(col.ptr(row), d.columns[j].ptr(new_row), col.size()) };
             }
             unsafe { col.swap_remove_forget(row, last) };
+        }
+        if s.tracked() {
+            // The components the entity keeps take their stamps along.
+            s.copy_stamps_to(row, d, new_row);
+            s.swap_remove_stamps(row, last);
         }
         s.entities.swap_remove(row);
         if row != last {

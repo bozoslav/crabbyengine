@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 
 use crate::bundle::Component;
+use crate::change::{self, Clock, RowFilter, Runs, Tick};
 use crate::entity::Entity;
 use crate::storage::{Archetype, ComponentId};
 use crate::world::World;
@@ -199,6 +200,11 @@ pub(crate) fn check_aliasing<Q: QueryData>(world: &World, ids: &Q::Ids) {
 /// the terms `any[start..any_end[c]]`, and term `i` asks for presence when
 /// bit `i` of `any_has` is set, absence otherwise.
 ///
+/// `Added` and `Changed` filters also pick rows inside a matching archetype
+/// (see [`Filters::row_filter`]). The ones that must all hold are `ticks`
+/// (each also a `with`); inside an `Or`, bit `i` of `any_added` or
+/// `any_changed` marks term `i` (which then asks for presence too).
+///
 /// Public but not exported: it can't be named outside this crate, which
 /// seals [`QueryFilter`], [`OrTerm`] and [`OrTerms`].
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -213,9 +219,16 @@ pub struct Filters {
     any_end: [u8; MAX_OR],
     n_any: u8,
     n_terms: u8,
+    ticks: [ComponentId; MAX_TICKS],
+    n_ticks: u8,
+    /// Bit `i` set: `ticks[i]` is an `Added` filter, else a `Changed` one.
+    tick_added: u8,
+    any_added: u16,
+    any_changed: u16,
 }
 
 const MAX_WITH: usize = 8;
+const MAX_TICKS: usize = 4;
 const MAX_OR: usize = 4;
 const MAX_OR_TERMS: usize = 16;
 
@@ -276,6 +289,70 @@ impl Filters {
             self.any_has |= 1 << n;
         }
         self.n_terms += 1;
+    }
+
+    /// Adds an `Added` (`added`) or `Changed` filter on component `id` that
+    /// must hold; the component must be tracked.
+    pub(crate) fn add_tick(&mut self, id: ComponentId, added: bool) {
+        self.add_with(id);
+        let n = self.n_ticks as usize;
+        if (0..n).any(|i| self.ticks[i] == id && (self.tick_added >> i & 1 != 0) == added) {
+            return;
+        }
+        assert!(
+            n < MAX_TICKS,
+            "at most {MAX_TICKS} `Added`/`Changed` filters per query outside `Or`"
+        );
+        self.ticks[n] = id;
+        if added {
+            self.tick_added |= 1 << n;
+        }
+        self.n_ticks += 1;
+    }
+
+    /// Adds an `Added` (`added`) or `Changed` term on component `id` to the
+    /// `Or` clause being built; the component must be tracked.
+    pub(crate) fn add_or_tick(&mut self, id: ComponentId, added: bool) {
+        let n = self.n_terms as usize;
+        self.add_or_term(id, true);
+        if added {
+            self.any_added |= 1 << n;
+        } else {
+            self.any_changed |= 1 << n;
+        }
+    }
+
+    /// The row test `Added`/`Changed` filters apply inside matching archetype
+    /// `arch`, or `None` if every row passes: no such filters, or each one
+    /// sits in an `Or` that another term already satisfies for all of `arch`.
+    #[inline]
+    pub(crate) fn row_filter(&self, arch: &Archetype, clock: Clock) -> Option<RowFilter> {
+        let in_or = self.any_added | self.any_changed;
+        if self.n_ticks == 0 && in_or == 0 {
+            return None;
+        }
+        let mut rows = RowFilter::new(clock);
+        for i in 0..self.n_ticks as usize {
+            let stamps = arch.read_stamps(self.ticks[i], self.tick_added >> i & 1 != 0);
+            rows.term(stamps.expect("an `Added`/`Changed` filter's component is present and tracked"));
+            rows.close();
+        }
+        let mut start = 0;
+        for &end in &self.any_end[..self.n_any as usize] {
+            let end = end as usize;
+            let whole =
+                (start..end).any(|i| in_or >> i & 1 == 0 && arch.has(self.any[i]) == (self.any_has >> i & 1 != 0));
+            if !whole {
+                for i in (start..end).filter(|i| in_or >> i & 1 != 0) {
+                    if let Some(stamps) = arch.read_stamps(self.any[i], self.any_added >> i & 1 != 0) {
+                        rows.term(stamps);
+                    }
+                }
+                rows.close();
+            }
+            start = end;
+        }
+        (!rows.is_empty()).then_some(rows)
     }
 
     /// Closes the `Or` clause being built.
@@ -482,6 +559,8 @@ pub struct Query<'w, Q: QueryData> {
     ids: Q::Ids,
     filters: Filters,
     cached: bool,
+    /// What `Added`/`Changed` filters compare against.
+    since: Tick,
 }
 
 impl<'w, Q: QueryData> Query<'w, Q> {
@@ -491,12 +570,20 @@ impl<'w, Q: QueryData> Query<'w, Q> {
         world
             .recorder
             .note(|l| Q::access(&ids, &mut |id, write, _| l.component(id, write)));
+        let since = world.changes_since();
         Query {
             world,
             ids,
             filters: Filters::default(),
             cached: false,
+            since,
         }
+    }
+
+    /// The world's current tick and this query's `since`, for change stamps.
+    #[inline]
+    fn clock(&self) -> Clock {
+        Clock::new(self.world.change_tick(), self.since)
     }
 
     fn archetypes(&mut self) -> Archetypes<'_> {
@@ -619,11 +706,36 @@ impl<'w, Q: QueryData> Query<'w, Q> {
         self
     }
 
+    /// Makes [`Added`](crate::Added) and [`Changed`](crate::Changed) filters
+    /// of this query report what happened after `tick`, instead of after the
+    /// world's [`changes_since`](World::changes_since). Keep the
+    /// [`Tick`] from [`World::advance_change_tick`] to continue where a
+    /// reader left off; `Tick::default()` reports everything.
+    ///
+    /// ```
+    /// # use ponko_ecs::*;
+    /// struct Pos(f32);
+    /// let mut world = World::new();
+    /// world.track_changes::<Pos>();
+    /// world.spawn((Pos(0.0),));
+    /// let seen = world.advance_change_tick();
+    /// let moved = world.spawn((Pos(0.0),));
+    /// world.get_mut::<Pos>(moved).unwrap().0 = 1.0;
+    ///
+    /// let mut changed = world.query::<Entity>().filter::<Changed<Pos>>().since(seen);
+    /// assert_eq!(changed.iter().collect::<Vec<_>>(), [moved]);
+    /// ```
+    pub fn since(mut self, tick: Tick) -> Self {
+        self.since = tick;
+        self
+    }
+
     /// Runs `f` for every matching entity. The fastest way to loop.
     #[inline]
     pub fn for_each(&mut self, mut f: impl FnMut(Q::Item<'_>)) {
         let ids = self.ids;
         let filters = self.filters;
+        let clock = self.clock();
         for arch in self.archetypes() {
             let len = arch.len();
             if len == 0 || !filters.matches(arch) {
@@ -632,8 +744,28 @@ impl<'w, Q: QueryData> Query<'w, Q> {
             let Some(state) = Q::state(arch, &ids) else {
                 continue;
             };
-            for row in 0..len {
-                f(unsafe { Q::fetch(state, row) });
+            // Untracked archetypes (all of them, unless the game tracks
+            // changes) take one pass over every row. Tracked ones stamp what
+            // the query may write, and visit runs of rows that pass.
+            let mut runs = if arch.tracked() {
+                change::visit::<Q>(arch, &ids, &filters, clock)
+            } else {
+                None
+            };
+            let (mut start, mut end) = (0, len);
+            loop {
+                if let Some(runs) = &mut runs {
+                    match runs.next::<Q>(&ids) {
+                        Some(run) => (start, end) = run,
+                        None => break,
+                    }
+                }
+                for row in start..end {
+                    f(unsafe { Q::fetch(state, row) });
+                }
+                if runs.is_none() {
+                    break;
+                }
             }
         }
     }
@@ -702,10 +834,11 @@ impl<'w, Q: QueryData> Query<'w, Q> {
         unsafe impl<S> Send for Shared<S> {}
         unsafe impl<S> Sync for Shared<S> {}
 
-        // Position of the archetype's first row in the whole query.
+        // Position of the next run's first row in the whole query.
         let mut base = 0;
         let ids = self.ids;
         let filters = self.filters;
+        let clock = self.clock();
         for arch in self.archetypes() {
             let len = arch.len();
             if len == 0 || !filters.matches(arch) {
@@ -714,22 +847,42 @@ impl<'w, Q: QueryData> Query<'w, Q> {
             let Some(state) = Q::state(arch, &ids) else {
                 continue;
             };
-            let chunk = (len / (threads * 4)).clamp(MIN_CHUNK, MAX_CHUNK);
-            if len <= chunk {
-                for row in 0..len {
-                    f(base + row, unsafe { Q::fetch(state, row) });
-                }
+            // As in `for_each`: stamps are written and row filters are read
+            // here, on the calling thread, before a run's rows are shared.
+            let mut runs = if arch.tracked() {
+                change::visit::<Q>(arch, &ids, &filters, clock)
             } else {
-                let shared = Shared(state);
-                (0..len.div_ceil(chunk)).into_par_iter().for_each(|c| {
-                    let state = shared;
-                    let end = ((c + 1) * chunk).min(len);
-                    for row in c * chunk..end {
-                        f(base + row, unsafe { Q::fetch(state.0, row) });
+                None
+            };
+            let (mut start, mut end) = (0, len);
+            loop {
+                if let Some(runs) = &mut runs {
+                    match runs.next::<Q>(&ids) {
+                        Some(run) => (start, end) = run,
+                        None => break,
                     }
-                });
+                }
+                let len = end - start;
+                let chunk = (len / (threads * 4)).clamp(MIN_CHUNK, MAX_CHUNK);
+                if len <= chunk {
+                    for row in start..end {
+                        f(base + row - start, unsafe { Q::fetch(state, row) });
+                    }
+                } else {
+                    let shared = Shared(state);
+                    (0..len.div_ceil(chunk)).into_par_iter().for_each(|c| {
+                        let state = shared;
+                        let last = (start + (c + 1) * chunk).min(end);
+                        for row in start + c * chunk..last {
+                            f(base + row - start, unsafe { Q::fetch(state.0, row) });
+                        }
+                    });
+                }
+                base += len;
+                if runs.is_none() {
+                    break;
+                }
             }
-            base += len;
         }
     }
 
@@ -846,6 +999,7 @@ impl<'w, Q: QueryData> Query<'w, Q> {
             let min_chunk = if cfg!(miri) { 64 } else { 512 };
             let max_chunk = if cfg!(miri) { 64 } else { 8192 };
             let mut initialized = Initialized { slots, len: 0 };
+            let clock = self.clock();
             for arch in self.world.archetypes.iter() {
                 let len = arch.len();
                 if len == 0 || !self.filters.matches(arch) {
@@ -855,19 +1009,39 @@ impl<'w, Q: QueryData> Query<'w, Q> {
                     continue;
                 };
                 let state = SharedState(state);
-                let chunk = (len / (threads * 4)).clamp(min_chunk, max_chunk);
-                let mut completed = fill(
-                    Initialized {
-                        slots: Slots(initialized.slots.at(initialized.len)),
-                        len: 0,
-                    },
-                    0,
-                    len,
-                    chunk,
-                    &|row| f(unsafe { Q::fetch(state.get(), row) }),
-                );
-                initialized.len += completed.len;
-                completed.len = 0;
+                // As in `for_each`: tracked archetypes are stamped, and may
+                // yield runs of rows instead of every row.
+                let mut runs = if arch.tracked() {
+                    change::visit::<Q>(arch, &self.ids, &self.filters, clock)
+                } else {
+                    None
+                };
+                let (mut start, mut end) = (0, len);
+                loop {
+                    if let Some(runs) = &mut runs {
+                        match runs.next::<Q>(&self.ids) {
+                            Some(run) => (start, end) = run,
+                            None => break,
+                        }
+                    }
+                    let len = end - start;
+                    let chunk = (len / (threads * 4)).clamp(min_chunk, max_chunk);
+                    let mut completed = fill(
+                        Initialized {
+                            slots: Slots(initialized.slots.at(initialized.len)),
+                            len: 0,
+                        },
+                        0,
+                        len,
+                        chunk,
+                        &|row| f(unsafe { Q::fetch(state.get(), start + row) }),
+                    );
+                    initialized.len += completed.len;
+                    completed.len = 0;
+                    if runs.is_none() {
+                        break;
+                    }
+                }
             }
             // All results now belong to `out`; disarm before setting its length.
             initialized.len = 0;
@@ -884,6 +1058,7 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     pub fn iter(&mut self) -> QueryIter<'_, Q> {
         let ids = self.ids;
         let filters = self.filters;
+        let clock = self.clock();
         QueryIter {
             archetypes: self.archetypes(),
             ids,
@@ -891,17 +1066,28 @@ impl<'w, Q: QueryData> Query<'w, Q> {
             state: None,
             row: 0,
             len: 0,
+            clock,
+            runs: None,
             _q: PhantomData,
         }
     }
 
-    /// Number of matching entities (doesn't visit them one by one).
+    /// Number of matching entities. It doesn't visit them one by one, except
+    /// to test [`Added`](crate::Added) and [`Changed`](crate::Changed)
+    /// filters, and it doesn't count as a change to anything.
     pub fn count(&mut self) -> usize {
         let ids = self.ids;
         let filters = self.filters;
+        let clock = self.clock();
         self.archetypes()
             .filter(|a| !a.is_empty() && filters.matches(a) && Q::state(a, &ids).is_some())
-            .map(|a| a.len())
+            .map(|a| {
+                if a.tracked() {
+                    change::count(a, &filters, clock)
+                } else {
+                    a.len()
+                }
+            })
             .sum()
     }
 
@@ -915,6 +1101,9 @@ impl<'w, Q: QueryData> Query<'w, Q> {
             return None;
         }
         let state = Q::state(arch, &ids)?;
+        if arch.tracked() && !change::visit_row::<Q>(arch, &ids, &filters, self.clock(), loc.row as usize) {
+            return None;
+        }
         Some(unsafe { Q::fetch(state, loc.row as usize) })
     }
 }
@@ -927,6 +1116,9 @@ pub struct QueryIter<'a, Q: QueryData> {
     state: Option<Q::State>,
     row: usize,
     len: usize,
+    clock: Clock,
+    /// The current archetype's remaining runs, when it filters rows.
+    runs: Option<Runs<'a>>,
     _q: PhantomData<&'a mut Q>,
 }
 
@@ -943,6 +1135,14 @@ impl<'a, Q: QueryData> Iterator for QueryIter<'a, Q> {
                 self.row += 1;
                 return Some(unsafe { Q::fetch(state, row) });
             }
+            if let Some(runs) = &mut self.runs {
+                if let Some((start, end)) = runs.next::<Q>(&self.ids) {
+                    self.row = start;
+                    self.len = end;
+                    continue;
+                }
+                self.runs = None;
+            }
             let arch = self.archetypes.next()?;
             self.state = if arch.is_empty() || !self.filters.matches(arch) {
                 None
@@ -951,6 +1151,13 @@ impl<'a, Q: QueryData> Iterator for QueryIter<'a, Q> {
             };
             self.row = 0;
             self.len = arch.len();
+            if self.state.is_some() && arch.tracked() {
+                self.runs = change::visit::<Q>(arch, &self.ids, &self.filters, self.clock);
+                if self.runs.is_some() {
+                    // The rows come from the runs.
+                    self.len = 0;
+                }
+            }
         }
     }
 }
