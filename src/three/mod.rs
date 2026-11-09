@@ -45,6 +45,8 @@ pub(crate) mod projected;
 pub use projected::{Decal3D, MAX_DECALS, MAX_DECALS_PER_CLUSTER, ReceivesDecals};
 pub(crate) mod probe;
 pub use probe::ReflectionProbe3D;
+#[cfg(test)]
+mod extraction_test;
 mod quality;
 mod resident;
 mod retained;

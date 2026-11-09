@@ -258,7 +258,7 @@ impl Lists {
         }
         let mut block = list.blocks[bucket];
         if block.len == block.cap {
-            let cap = (block.cap * 2).max(4);
+            let cap = (block.cap * 2).max(2);
             let (from, n) = (block.start as usize, block.len as usize);
             if block.cap > 0 && from + block.cap as usize == arena.len() {
                 // The array's last block grows where it is.
@@ -315,11 +315,11 @@ impl Lists {
             }
             return;
         }
-        let roomy: usize = (self.views.iter().flat_map(|v| &v.blocks))
+        let packed: usize = (self.views.iter().flat_map(|v| &v.blocks))
             .filter(|b| b.len > 0)
-            .map(|b| roomy(b.len as usize))
+            .map(|b| room(b.len as usize))
             .sum();
-        if arena.len() > 2 * roomy + 1024 {
+        if arena.len() > 2 * packed + 1024 {
             self.repack(arena, false);
         }
     }
@@ -327,8 +327,8 @@ impl Lists {
     /// Lays the blocks out again without holes: the camera's by mesh, then
     /// each shadow view's, every block's instances in their order. `tight`
     /// leaves no room to grow (a frame built from nothing is laid out as if
-    /// it was sorted); otherwise blocks keep room for as many again, if
-    /// they had it.
+    /// it was sorted); otherwise each block gets room for half as many
+    /// again (see [`room`]).
     fn repack(&mut self, arena: &mut Vec<Instance3D>, tight: bool) {
         let (mut packed, mut owners) = std::mem::take(&mut self.spare);
         packed.clear();
@@ -348,7 +348,7 @@ impl Lists {
                     for (k, &owner) in owners[start..].iter().enumerate() {
                         list.slots[owner as usize] = (start + k) as u32;
                     }
-                    let cap = if tight { n } else { roomy(n).min(block.cap as usize) };
+                    let cap = if tight { n } else { room(n) };
                     packed.resize(start + cap, Instance3D::default());
                     owners.resize(start + cap, NONE);
                     *block = Block {
@@ -404,9 +404,10 @@ impl Lists {
     }
 }
 
-/// The room a block of `n` instances is packed with: as many again.
-fn roomy(n: usize) -> usize {
-    (n * 2).max(4)
+/// The room a block of `n` instances is packed with: half as many again
+/// can enter before it has to move. (A block that fills up doubles.)
+fn room(n: usize) -> usize {
+    n + n / 2 + 1
 }
 
 /// What a [`Model`] is collected from. A 64-bit digest of it is kept per
@@ -1256,13 +1257,13 @@ mod tests {
         lists.finish(&mut arena);
         assert_eq!((lists.slot(0, a), lists.slot(0, b), arena.len()), (0, 1, 2));
         // Mesh 0's block has mesh 1's behind it: it moves to the end, with
-        // room for four.
+        // room for two.
         lists.begin(&mut arena);
         let c = lists.alloc();
         lists.set(&mut arena, c, &[0; 5], 1, &at(3.0));
         lists.finish(&mut arena);
         assert_eq!((lists.slot(0, a), lists.slot(0, c), lists.slot(0, b)), (2, 3, 1));
-        assert_eq!(arena.len(), 6);
+        assert_eq!(arena.len(), 4);
         assert_eq!(drawn(&lists, &arena, 0), [(0, vec![1.0, 3.0]), (1, vec![2.0])]);
         assert_eq!(lists.repacks, 1, "only the first frame was packed");
     }
@@ -1278,19 +1279,19 @@ mod tests {
         lists.finish(&mut arena);
         assert_eq!((arena.len(), lists.repacks), (3000, 1));
         // Most leave: the array is packed down to what stays, each block
-        // with room for as many again, in the order they had.
+        // with room for half as many again, in the order they had.
         lists.begin(&mut arena);
         for &id in &ids[60..] {
             lists.clear(&mut arena, id);
         }
         lists.finish(&mut arena);
-        assert_eq!((arena.len(), lists.repacks), (120, 2));
+        assert_eq!((arena.len(), lists.repacks), (3 * 31, 2));
         assert_eq!(lists.count(0), 60);
         let all = drawn(&lists, &arena, 0);
         assert_eq!(all.len(), 3);
         assert_eq!(all[1].1[..4], [1.0, 4.0, 7.0, 10.0]);
-        // Still, nothing more is packed or moved; and they can double
-        // without a block moving.
+        // Still, nothing more is packed or moved; and half as many again
+        // enter without a block moving.
         let before = arena.clone();
         lists.begin(&mut arena);
         lists.finish(&mut arena);
@@ -1300,11 +1301,11 @@ mod tests {
             bytemuck::cast_slice::<_, u8>(&arena)
         );
         lists.begin(&mut arena);
-        for (i, &id) in ids[60..120].iter().enumerate() {
+        for (i, &id) in ids[60..90].iter().enumerate() {
             lists.set(&mut arena, id, &[(i % 3) as u32; 5], 1, &at(0.5));
         }
         lists.finish(&mut arena);
-        assert_eq!((arena.len(), lists.count(0), lists.repacks), (120, 120, 2));
+        assert_eq!((arena.len(), lists.count(0), lists.repacks), (3 * 31, 90, 2));
     }
 
     #[test]

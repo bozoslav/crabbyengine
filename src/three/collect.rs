@@ -612,6 +612,12 @@ impl Frame3D {
 }
 
 impl Frame3D {
+    /// How many times the instance array was packed again.
+    #[cfg(test)]
+    pub(crate) fn repacks(&self) -> u32 {
+        self.lists.repacks
+    }
+
     /// Bytes the model collection keeps between frames: its buffers'
     /// capacity (instances, lists and what is remembered per model).
     pub(crate) fn extraction_bytes(&self) -> usize {
