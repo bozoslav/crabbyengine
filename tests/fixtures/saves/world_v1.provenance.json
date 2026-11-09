@@ -1,0 +1,12 @@
+{
+  "fixture": "world_v1.json",
+  "format": "crabby-world",
+  "version": 1,
+  "engine_version": "ponko 0.0.1",
+  "engine_revision": "51323ef3c1537674d75befea5fa786b59415efd2",
+  "toolchain": "rustc 1.99.1 (58cf8f9c3 2026-10-13), aarch64-apple-darwin",
+  "features": "--no-default-features",
+  "generated_by": "PONKO_SAVE_FIXTURE_OUT=<path> cargo test -p ponko --no-default-features --test save_compat -- --ignored --exact write_v1_fixture",
+  "date": "2026-11-09",
+  "baseline": "First retained save fixture: the save format as of this revision, not a released engine version."
+}
