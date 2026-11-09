@@ -6,7 +6,9 @@ headless Chromium (no window) and checks, in order:
 
 1. **Startup**: the game reaches its first frame (no panic, no page error).
 2. **Assets**: `assets/index.json` and `assets/crab.png` were fetched (HTTP
-   200) and the texture decoded at its real size.
+   200) and the texture decoded at its real size; an image and streamed
+   music from the game's in-memory asset source loaded by name without
+   being fetched.
 3. **Progress**: the fixed-step simulation keeps ticking (at least 60 ticks
    in 3 seconds, a third of the 60 Hz rate; a coarse bound, not a frame-rate
    assertion, kept above the `stall` self-test's 20 ticks).
