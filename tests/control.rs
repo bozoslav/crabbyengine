@@ -194,6 +194,59 @@ fn two_instances_get_their_own_endpoints() {
 }
 
 #[test]
+fn a_paused_game_reports_its_capabilities_before_any_tick() {
+    let (tx, rx) = mpsc::channel();
+    let game = thread::spawn(move || {
+        let game = Game::new("caps", 1, 1).control_endpoint(true).sim_system(count);
+        #[cfg(feature = "physics")]
+        let game = game.physics(vec2(0.0, 0.0));
+        game.run_headless(u64::MAX, move |ctx| {
+            ctx.world.reflect::<Counter>();
+            ctx.pause();
+            tx.send(ctx.control_addr().unwrap()).unwrap();
+        })
+    });
+    let addr = rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    let info: Value = serde_json::from_str(&std::fs::read_to_string(registry_file(addr)).unwrap()).unwrap();
+    let mut c = Client::connect(addr, info["token"].as_str().unwrap().into());
+
+    let caps = c.call("capabilities", json!({})).unwrap();
+    assert_eq!(caps["mode"], "headless");
+    assert_eq!(caps["engine_version"], info["engine_version"]);
+    let physics = &caps["subsystems"]["physics"];
+    if cfg!(feature = "physics") {
+        assert_eq!(physics["active"], true, "the step is scheduled: {physics}");
+    } else {
+        assert_eq!(
+            (physics["compiled"].clone(), physics["active"].clone()),
+            (json!(false), json!(false))
+        );
+    }
+    let methods = caps["methods"].as_array().unwrap();
+    let names: Vec<_> = methods.iter().map(|m| m["name"].clone()).collect();
+    assert_eq!(
+        names,
+        c.call("methods", json!({}))
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| m["name"].clone())
+            .collect::<Vec<_>>()
+    );
+    let counter = caps["reflection"]["components"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["name"] == "Counter")
+        .unwrap();
+    assert_eq!(counter["schema"]["status"], "opaque");
+    assert_eq!(c.call("info", json!({})).unwrap()["tick"], 0, "asking ran nothing");
+    c.call("game.quit", json!({})).unwrap();
+    game.join().unwrap();
+}
+
+#[test]
 fn the_endpoint_is_off_by_default() {
     let mut addr = Some("127.0.0.1:1".parse().unwrap());
     Game::new("t", 1, 1).run_headless(1, |ctx| addr = ctx.control_addr());

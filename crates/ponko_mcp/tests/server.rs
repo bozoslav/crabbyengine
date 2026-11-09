@@ -159,6 +159,46 @@ fn agents_drive_several_games_through_mcp() {
     let err = agent.tool("screenshot", json!({ "instance": "alpha" })).unwrap_err();
     assert!(err.contains("no window"), "headless games say why: {err}");
 
+    // Capabilities: what alpha can do, learned without changing it.
+    let tick_before = agent.tool("instance_info", json!({ "instance": "alpha" })).unwrap()["tick"].clone();
+    let caps = agent
+        .tool("instance_capabilities", json!({ "instance": "alpha" }))
+        .unwrap();
+    assert_eq!(caps["format"], "ponko-capabilities");
+    assert_eq!(
+        (caps["mode"].clone(), caps["name"].clone()),
+        (json!("headless"), json!("alpha"))
+    );
+    assert_eq!(caps["subsystems"]["renderer"]["active"], false);
+    let tool = |caps: &Value, name: &str| {
+        caps["mcp"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap_or_else(|| panic!("{name} missing"))
+            .clone()
+    };
+    let shot = tool(&caps, "screenshot");
+    assert_eq!(shot["available"], false);
+    assert!(shot["reason"].as_str().unwrap().contains("no window"), "{shot}");
+    assert_eq!(tool(&caps, "spawn_entity")["available"], true);
+    let schemas = caps["reflection"]["components"].as_array().unwrap();
+    let health = schemas.iter().find(|c| c["name"] == "Health").unwrap();
+    assert_eq!(health["schema"]["status"], "opaque", "Health isn't described: {health}");
+    assert!(
+        caps["reflection"]["resources"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["name"] == "Rules")
+    );
+    assert_eq!(
+        agent.tool("instance_info", json!({ "instance": "alpha" })).unwrap()["tick"],
+        tick_before,
+        "discovery doesn't step the game"
+    );
+
     // Drive alpha by name, beta by port.
     let e = agent
         .tool(
@@ -300,6 +340,19 @@ fn agents_drive_several_games_through_mcp() {
     let mut viewer = Agent::new(&dir, true);
     let names = viewer.tool_names();
     assert!(names.contains(&"list_entities".to_string()));
+    assert!(names.contains(&"instance_capabilities".to_string()));
+    let caps = viewer
+        .tool("instance_capabilities", json!({ "instance": port_a }))
+        .unwrap();
+    assert_eq!(caps["mcp"]["read_only"], true);
+    let spawn = caps["mcp"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "spawn_entity")
+        .unwrap();
+    assert_eq!(spawn["available"], false);
+    assert!(spawn["reason"].as_str().unwrap().contains("read-only"));
     assert!(
         !names
             .iter()

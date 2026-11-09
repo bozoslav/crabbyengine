@@ -360,6 +360,7 @@ impl Ctx {
             world: {
                 let mut world = World::new();
                 crate::reflect::WorldReflect::reflect::<crate::Transform2D>(&mut world);
+                crate::reflect::describe_transform2d(&mut world);
                 crate::reflect::WorldReflect::reflect::<crate::Attached>(&mut world);
                 #[cfg(feature = "3d")]
                 crate::reflect::WorldReflect::reflect::<crate::Transform3D>(&mut world);
