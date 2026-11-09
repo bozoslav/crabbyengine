@@ -7,6 +7,7 @@
 
 mod actions;
 mod archetypes;
+mod membership;
 mod net;
 #[allow(dead_code)] // spike: API surface kept for the M3 port
 mod own;
@@ -163,6 +164,7 @@ fn main() {
     let filter = std::env::args().nth(1);
     let mut b = Bench::new(filter.clone());
     println!("N = {N}, add/remove N = {ADD_REMOVE_N}\n");
+    membership::run(b.filter.as_deref());
     physics::run(&mut b);
     physics3d::run(&mut b);
     net::run(&mut b);

@@ -953,8 +953,15 @@ impl World {
         d.reserve(1);
         let new_row = d.len();
         let last = s.len() - 1;
+        // Both id lists are sorted, so one merge pass finds each source column
+        // in the destination (`j` only moves forward): O(n), not a scan per column.
+        let mut j = 0;
         for (i, col) in s.columns.iter_mut().enumerate() {
-            if let Some(j) = d.column_index(s.ids[i]) {
+            let id = s.ids[i];
+            while j < d.ids.len() && d.ids[j] < id {
+                j += 1;
+            }
+            if j < d.ids.len() && d.ids[j] == id {
                 unsafe { std::ptr::copy_nonoverlapping(col.ptr(row), d.columns[j].ptr(new_row), col.size()) };
             }
             unsafe { col.swap_remove_forget(row, last) };
