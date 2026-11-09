@@ -505,6 +505,8 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           key: web
       - run: cargo clippy -p ponko --target wasm32-unknown-unknown --examples
+      # The 3D examples (the 3D browser smoke fixture among them) need the feature.
+      - run: cargo clippy -p ponko --target wasm32-unknown-unknown --features 3d --examples
       - name: Find the wasm-bindgen version in Cargo.lock
         run: echo "WASM_BINDGEN=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/version = |"/, ""); print }' Cargo.lock)" >> "$GITHUB_ENV"
       - uses: taiki-e/install-action@v2

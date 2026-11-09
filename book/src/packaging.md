@@ -123,10 +123,12 @@ browser runner of `web/smoke`, [issue
 the fixture and runs it in headless Chromium on WebGL2: it checks that the
 asset was fetched and decoded as 32 x 32, that the simulation advances, that a
 click and keys arrive, and that the screen the game reports follows them
-(`--press Enter=screen:Playing --press Escape=screen:Paused --press Q=screen:Title
---press O=screen:Settings --press Escape=screen:Title`), then that the canvas is
-not blank. The game publishes its state on `<html data-smoke>` in the fixture's
-format plus the screen name (`publish_web_state`).
+(the `coin_dash` entry of `web/smoke/fixtures.json`: `--press Enter=screen:Playing
+--press Escape=screen:Paused --press Q=screen:Title --press O=screen:Settings
+--press Escape=screen:Title`), then that the canvas is not blank. The game
+publishes its state on `<html data-smoke>` in the fixture's format plus the
+screen name, and the GPU the engine opened on `<html data-smoke-gpu>`
+(`publish_web_state`).
 
 ## UI scaling, rebinding and navigation
 
