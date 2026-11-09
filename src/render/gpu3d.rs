@@ -5522,8 +5522,8 @@ mod tests {
 mod material_render_test;
 
 #[cfg(test)]
-#[path = "shader_reload_render_test.rs"]
-mod shader_reload_render_test;
-#[cfg(test)]
 #[path = "capabilities_render_test.rs"]
 mod capabilities_render_test;
+#[cfg(test)]
+#[path = "shader_reload_render_test.rs"]
+mod shader_reload_render_test;
