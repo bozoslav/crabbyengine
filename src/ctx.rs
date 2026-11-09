@@ -21,7 +21,7 @@ use crate::spatial::SpatialGrid;
 use crate::text::Font;
 use crate::texture::Texture;
 use crate::time::{FrameTiming, Time};
-use crate::ui::{UiState, UiStyle};
+use crate::ui::UiState;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
@@ -319,27 +319,21 @@ pub struct Ctx {
     /// ```
     #[cfg(feature = "3d")]
     pub sky: crate::Sky,
-    pub(crate) ui: UiState,
-    /// Retained widget tree and screen stack. Processed before frame systems.
+    /// Engine-side UI scratch: the spare tree, typed text, world panels.
+    pub(crate) ui_state: UiState,
+    /// The screen's UI: the retained widget tree and its screen stack
+    /// (processed before the frame's systems), who has the pointer and the
+    /// keyboard, and the immediate widgets (`ctx.ui.immediate`). See
+    /// [`Ui`](crate::Ui).
+    ///
     /// ```
     /// use ponko::*;
     /// # fn setup(ctx: &mut Ctx) {
-    /// let root = ctx.ui_retained.add(UiWidget::Panel, ui_layout::Style::default());
-    /// ctx.ui_retained.push_screen(root, false);
+    /// let root = ctx.ui.add(UiWidget::Panel, ui_layout::Style::default());
+    /// ctx.ui.push_screen(root, false);
     /// # }
     /// ```
-    pub ui_retained: crate::Ui,
-    /// Where the left mouse button last went down, for button clicks.
-    pub(crate) ui_press_at: Vec2,
-    /// Colors and sizes of [`ui_button`](Self::ui_button) and friends.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// # fn setup(ctx: &mut Ctx) {
-    /// ctx.ui_style.text_size = 20.0;
-    /// # }
-    /// ```
-    pub ui_style: UiStyle,
+    pub ui: crate::Ui,
     /// Drawing and everything on the GPU: sprites, text, shapes, textures,
     /// fonts, and with the `3d` feature meshes, materials, shaders and the
     /// rest. See [`Graphics`](crate::Graphics).
@@ -460,10 +454,8 @@ impl Ctx {
             compute_passes: Vec::new(),
             #[cfg(feature = "3d")]
             sky: crate::Sky::default(),
-            ui: UiState::default(),
-            ui_retained: crate::Ui::default(),
-            ui_press_at: Vec2::splat(f32::NAN),
-            ui_style: UiStyle::default(),
+            ui_state: UiState::default(),
+            ui: crate::Ui::default(),
             perf: crate::Perf::new(),
         };
         #[cfg(feature = "3d")]
@@ -480,7 +472,7 @@ impl Ctx {
         #[cfg(feature = "3d")]
         self.prepare_3d();
         #[cfg(feature = "3d")]
-        let panels = self.ui.panels.frame_draws();
+        let panels = self.ui_state.panels.frame_draws();
         #[cfg(not(feature = "3d"))]
         let panels: &mut [crate::render::batch::PanelDraw] = &mut [];
         let status = match self.gfx.renderer.as_mut() {
@@ -534,7 +526,7 @@ impl Ctx {
         self.events.begin_frame(self.time.frame(), self.time.sim_tick());
         self.gfx.frame = self.time.frame();
         self.gfx.text.begin_frame();
-        self.ui.begin_frame();
+        self.ui.immediate.begin_frame();
     }
 
     pub(crate) fn set_scale_factor(&mut self, scale: f32) {
@@ -1046,6 +1038,16 @@ impl Ctx {
     /// Engine side: hands the 3D camera to the audio service, whose default
     /// listener it is. Runs before every system and before the frame's
     /// positional sound update.
+    /// Engine side, before each system: gives the services the state of
+    /// their neighbours they answer from (the camera for the 3D listener,
+    /// the mouse for the UI's pointer), so they need no borrow of `Ctx`.
+    #[inline]
+    pub(crate) fn sync_services(&mut self) {
+        #[cfg(feature = "3d")]
+        self.sync_audio_camera();
+        self.ui.set_pointer(self.input.mouse_pos());
+    }
+
     #[cfg(feature = "3d")]
     #[inline]
     pub(crate) fn sync_audio_camera(&mut self) {

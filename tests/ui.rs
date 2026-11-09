@@ -67,11 +67,16 @@ fn ui_takes_the_mouse_and_buttons_need_a_click() {
     in_tick(|ctx| {
         // The mouse starts at (0, 0), inside this button.
         let button = Rect::new(0.0, 0.0, 100.0, 30.0);
-        assert!(!ctx.mouse_over_ui());
-        assert!(!ctx.ui_button(button, "Go"), "hovering isn't clicking");
-        assert!(ctx.mouse_over_ui());
-        ctx.ui_panel(Rect::new(500.0, 500.0, 10.0, 10.0));
-        assert!(ctx.ui_label(vec2(500.0, 500.0), "label").y > 0.0);
+        assert!(!ctx.ui.wants_pointer());
+        assert!(
+            !ctx.ui.immediate.button(&mut ctx.gfx, &ctx.input, button, "Go"),
+            "hovering isn't clicking"
+        );
+        assert!(ctx.ui.wants_pointer());
+        ctx.ui
+            .immediate
+            .panel(&mut ctx.gfx, Rect::new(500.0, 500.0, 10.0, 10.0));
+        assert!(ctx.ui.immediate.label(&mut ctx.gfx, vec2(500.0, 500.0), "label").y > 0.0);
     });
 }
 

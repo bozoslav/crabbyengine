@@ -608,6 +608,13 @@ impl Ctx {
     }
 
     #[doc(hidden)]
+    #[deprecated(note = "use `ctx.ui.wants_pointer()`")]
+    pub fn mouse_over_ui(&self) -> bool {
+        // The flat spelling had all of `Ctx`: it reads the mouse as it is now.
+        self.ui.wants_pointer() || self.ui.immediate.covers(self.input.mouse_pos())
+    }
+
+    #[doc(hidden)]
     #[deprecated(note = "use `ctx.input.mouse_pressed`")]
     pub fn mouse_pressed(&self, button: MouseButton) -> bool {
         self.input.mouse_pressed(button)
@@ -814,6 +821,13 @@ impl Ctx {
     #[deprecated(note = "use `ctx.gfx.set_texture_filter`")]
     pub fn set_texture_filter(&mut self, texture: &Texture, filter: TextureFilter) {
         self.gfx.set_texture_filter(texture, filter)
+    }
+
+    #[doc(hidden)]
+    #[deprecated(note = "use `ctx.ui.set_pointer_ray`")]
+    #[cfg(feature = "3d")]
+    pub fn set_ui_pointer_ray(&mut self, ray: Option<(crate::Vec3, crate::Vec3)>) {
+        self.ui.set_pointer_ray(ray)
     }
 
     #[doc(hidden)]
@@ -1053,9 +1067,33 @@ impl Ctx {
     }
 
     #[doc(hidden)]
+    #[deprecated(note = "use `ctx.ui.immediate.button(&mut ctx.gfx, &ctx.input, rect, label)`")]
+    pub fn ui_button(&mut self, rect: Rect, label: &str) -> bool {
+        self.ui.immediate.button(&mut self.gfx, &self.input, rect, label)
+    }
+
+    #[doc(hidden)]
     #[deprecated(note = "use `ctx.input.insert_text`")]
     pub fn ui_insert_text(&mut self, text: &str) {
         self.input.insert_text(text)
+    }
+
+    #[doc(hidden)]
+    #[deprecated(note = "use `ctx.ui.immediate.label(&mut ctx.gfx, pos, text)`")]
+    pub fn ui_label(&mut self, pos: Vec2, text: &str) -> Vec2 {
+        self.ui.immediate.label(&mut self.gfx, pos, text)
+    }
+
+    #[doc(hidden)]
+    #[deprecated(note = "use `ctx.ui.immediate.panel(&mut ctx.gfx, rect)`")]
+    pub fn ui_panel(&mut self, rect: Rect) {
+        self.ui.immediate.panel(&mut self.gfx, rect)
+    }
+
+    #[doc(hidden)]
+    #[deprecated(note = "use `ctx.ui.wants_keyboard`")]
+    pub fn ui_wants_keyboard(&self) -> bool {
+        self.ui.wants_keyboard()
     }
 
     #[doc(hidden)]

@@ -156,13 +156,18 @@ Call them every frame:
 </div>
 </div>
 
-- `ui_panel(rect)`: a background.
-- `ui_label(pos, text)`: text in the style's size and color; returns the
-  space it took, so you can stack lines.
-- `ui_button(rect, label)`: `true` on the frame it's clicked.
-- `ctx.ui_style` sets colors, text size and padding (C++: `ui_style()`,
+The widgets are on `ctx.ui.immediate` and say what they use: all of them
+draw through `ctx.gfx`, and a button also reads the mouse from `ctx.input`
+(C++: `ctx.ui_panel(rect)`, `ctx.ui_label(pos, text)`, `ctx.ui_button(rect, label)`).
+
+- `panel(&mut ctx.gfx, rect)`: a background.
+- `label(&mut ctx.gfx, pos, text)`: text in the style's size and color;
+  returns the space it took, so you can stack lines.
+- `button(&mut ctx.gfx, &ctx.input, rect, label)`: `true` on the frame it's
+  clicked.
+- `ctx.ui.immediate.style` sets colors, text size and padding (C++: `ui_style()`,
   `set_ui_style(s)`).
-- `ctx.mouse_over_ui()` says whether the mouse is over UI, so a click on a
+- `ctx.ui.wants_pointer()` says whether the mouse is over UI, so a click on a
   button doesn't also act on the world behind it. `camera_controls` checks
   it before zooming.
 

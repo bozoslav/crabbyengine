@@ -25,7 +25,7 @@ Dvorak players too. In C++: `ctx.key_down(PONKO_KEY_RIGHT)`.
   [camera](camera-ui.md), in world units.
 - `ctx.input.mouse_down(MouseButton::Left)` (and `_pressed`, `_released`).
 - `ctx.input.mouse_delta()` since the last frame, and `ctx.input.mouse_wheel()`.
-- `ctx.mouse_over_ui()`: `true` over a UI panel or the
+- `ctx.ui.wants_pointer()`: `true` over a UI panel or the
   [inspector](inspector.md), so a click on a button doesn't also act in the
   world.
 

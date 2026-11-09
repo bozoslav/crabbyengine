@@ -207,7 +207,7 @@ fn draw_map(ctx: &mut Ctx) -> impl FnMut(&mut Ctx) + use<> {
 }
 
 fn click_to_move_goal(ctx: &mut Ctx) {
-    if ctx.input.mouse_pressed(MouseButton::Left) && !ctx.mouse_over_ui() {
+    if ctx.input.mouse_pressed(MouseButton::Left) && !ctx.ui.wants_pointer() {
         let at = ctx.mouse_world();
         let paths = ctx.world.resource_mut::<Paths>();
         if paths.nav.walkable(at) {
@@ -228,8 +228,8 @@ fn click_to_move_goal(ctx: &mut Ctx) {
 
 fn hud(ctx: &mut Ctx) {
     let panel = Rect::new(12.0, 12.0, 260.0, 104.0);
-    ctx.ui_panel(panel);
-    let at = panel.min + ctx.ui_style.padding;
+    ctx.ui.immediate.panel(&mut ctx.gfx, panel);
+    let at = panel.min + ctx.ui.immediate.style.padding;
     let agents = ctx.world.query::<&Agent>().count();
     let ms = ctx.world.resource::<Paths>().compute_ms;
     let text = format!(
@@ -238,7 +238,7 @@ fn hud(ctx: &mut Ctx) {
         MAP.x,
         MAP.y
     );
-    ctx.ui_label(at, &text);
+    ctx.ui.immediate.label(&mut ctx.gfx, at, &text);
 }
 
 fn main() {

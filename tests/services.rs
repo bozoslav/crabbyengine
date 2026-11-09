@@ -323,6 +323,93 @@ fn a_texture_loaded_by_the_service_is_saved_by_file_name() {
     assert_eq!(save.matches("\"texture\":\"dot.png\"").count(), 1, "{save}");
 }
 
+fn sized(w: f32, h: f32) -> ui_layout::Style {
+    ui_layout::Style {
+        size: ui_layout::Size {
+            width: ui_layout::Dimension::length(w),
+            height: ui_layout::Dimension::length(h),
+        },
+        flex_shrink: 0.0,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn ui_events_are_read_while_sounds_play() {
+    struct Clicks(Vec<UiId>);
+    fn menu(ctx: &mut Ctx) {
+        let click = ctx.world.resource::<Beep>().0;
+        // `ctx.ui.events()` borrows the UI; `ctx.audio` and `ctx.world` are other fields.
+        for event in ctx.ui.events() {
+            if let UiEvent::Clicked(id) = event {
+                let playing = ctx.audio.play(&click);
+                ctx.audio.stop(playing);
+                ctx.world.resource_mut::<Clicks>().0.push(id);
+            }
+        }
+    }
+    let mut button = None;
+    let world = Game::new("t", 800, 600).sim_system(menu).run_headless(2, |ctx| {
+        let beep = ctx.audio.create(8000, &[0.0; 80]);
+        ctx.world.insert_resource(Beep(beep));
+        ctx.world.insert_resource(Clicks(Vec::new()));
+        let root = ctx.ui.add(UiWidget::Panel, sized(300.0, 200.0));
+        button = Some(ctx.ui.add_child(root, UiWidget::Button, sized(70.0, 30.0)));
+        ctx.ui.push_screen(root, false);
+        assert!(ctx.ui.wants_keyboard(), "a screen is open");
+        // A headless run has no window to feed the tree, so give it a frame
+        // of input by hand: focus the button and confirm.
+        let input = UiInput {
+            next: true,
+            confirm: true,
+            ..Default::default()
+        };
+        ctx.ui.frame(ctx.window_size(), &input);
+    });
+    assert_eq!(world.resource::<Clicks>().0, [button.unwrap()]);
+}
+
+#[test]
+fn immediate_widgets_take_the_services_they_use() {
+    Game::new("t", 800, 600).run_headless(0, |ctx| {
+        ctx.ui.immediate.style.text_size = 20.0;
+        let panel = Rect::new(100.0, 100.0, 200.0, 100.0);
+        assert!(!ctx.ui.immediate.covers(vec2(150.0, 150.0)));
+        ctx.ui.immediate.panel(&mut ctx.gfx, panel);
+        assert!(ctx.ui.immediate.covers(vec2(150.0, 150.0)));
+        assert_eq!(ctx.gfx.sprite_count(), 1, "the panel is one sprite");
+        let size = ctx.ui.immediate.label(&mut ctx.gfx, panel.min, "label");
+        assert_eq!(size, ctx.gfx.measure_text("label", 20.0));
+
+        // A click is a press and a release over the button.
+        let button = Rect::new(0.0, 0.0, 100.0, 30.0);
+        // The mouse starts at (0, 0), inside it.
+        ctx.input.feed(InputEvent::Mouse(MouseButton::Left, true));
+        assert!(!ctx.ui.immediate.button(&mut ctx.gfx, &ctx.input, button, "Go"));
+        ctx.input.feed(InputEvent::Mouse(MouseButton::Left, false));
+        assert!(ctx.ui.immediate.button(&mut ctx.gfx, &ctx.input, button, "Go"));
+    });
+}
+
+#[test]
+fn the_ui_has_the_pointer_over_immediate_widgets_drawn_this_frame_or_the_last() {
+    struct Seen(Vec<bool>);
+    fn overlay(ctx: &mut Ctx) {
+        let over = ctx.ui.wants_pointer();
+        ctx.world.resource_mut::<Seen>().0.push(over);
+        if ctx.time.sim_tick() == 0 {
+            // The mouse starts at (0, 0), inside this panel.
+            ctx.ui.immediate.panel(&mut ctx.gfx, Rect::new(0.0, 0.0, 50.0, 50.0));
+            assert!(ctx.ui.wants_pointer(), "drawn this frame");
+        }
+    }
+    let world = Game::new("t", 800, 600).sim_system(overlay).run_headless(3, |ctx| {
+        ctx.world.insert_resource(Seen(Vec::new()));
+    });
+    // Not drawn yet; drawn the frame before; not drawn for a whole frame.
+    assert_eq!(world.resource::<Seen>().0, [false, true, false]);
+}
+
 #[cfg(feature = "3d")]
 mod three {
     use ponko::*;
@@ -385,6 +472,16 @@ mod three {
             // A tweak on top stays, and the level says so.
             ctx.lighting.shadow_distance += 1.0;
             assert_eq!(ctx.gfx.quality(&ctx.post, &ctx.lighting).level(), QualityLevel::Custom);
+        });
+    }
+
+    #[test]
+    fn the_pointer_ray_for_world_panels_is_set_on_the_ui() {
+        Game::new("t", 800, 600).run_headless(1, |ctx| {
+            let (panel, model) = ctx.gfx.create_ui_panel(64, 64, vec2(1.0, 1.0));
+            ctx.world.spawn((Transform3D::at(vec3(0.0, 0.0, -2.0)), model, panel));
+            ctx.ui.set_pointer_ray(Some((Vec3::ZERO, -Vec3::Z)));
+            ctx.ui.set_pointer_ray(None);
         });
     }
 

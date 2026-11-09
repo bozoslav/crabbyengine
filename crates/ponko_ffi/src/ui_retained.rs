@@ -1,4 +1,4 @@
-//! Retained UI from C (Rust `Ui`, `UiWidget`, `UiPaint`, `Ctx::ui_retained`).
+//! Retained UI from C (Rust `Ui`, `UiWidget`, `UiPaint`, `Ctx::ui`).
 //!
 //! Build a tree once with `crabby_ctx_ui_add_*`, give roots to
 //! `crabby_ctx_ui_push_screen`, and change text, values and styles later. The
@@ -1227,7 +1227,7 @@ fn id_to_c(id: Option<UiId>) -> u64 {
 /// on an entity.
 pub(crate) fn ui_of(c: &mut ponko::Ctx, target: u64) -> Result<&mut Ui, Failure> {
     if target == CRABBY_UI_SCREEN {
-        return Ok(&mut c.ui_retained);
+        return Ok(&mut c.ui);
     }
     let e = Entity::from_bits(target);
     if !c.world.is_alive(e) {
@@ -2111,7 +2111,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_wants_pointer(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_ui_wants_keyboard(ctx: *mut CrabbyCtx, out_wanted: *mut bool) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    boundary(|| unsafe { ctx_access(ctx, |c| out(out_wanted, c.ui_wants_keyboard())) })
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_wanted, c.ui.wants_keyboard())) })
 }
 
 // ---- events and frames -------------------------------------------------------

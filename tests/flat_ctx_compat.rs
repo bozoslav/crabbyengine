@@ -148,3 +148,27 @@ fn the_flat_3d_spellings_still_forward() {
         assert_eq!(ctx.create_gpu_buffer(4, &[]), buffer);
     });
 }
+
+#[test]
+fn the_flat_ui_spellings_still_forward() {
+    Game::new("t", 800, 600).run_headless(0, |ctx| {
+        assert!(!ctx.ui_wants_keyboard());
+        assert!(!ctx.mouse_over_ui());
+        // The mouse starts at (0, 0), inside this button.
+        let button = Rect::new(0.0, 0.0, 100.0, 30.0);
+        assert!(!ctx.ui_button(button, "Go"), "hovering isn't clicking");
+        assert!(ctx.mouse_over_ui());
+        ctx.ui_panel(Rect::new(500.0, 500.0, 10.0, 10.0));
+        assert!(ctx.ui_label(vec2(500.0, 500.0), "label").y > 0.0);
+        assert_eq!(ctx.sprite_count(), ctx.gfx.sprite_count());
+    });
+}
+
+#[cfg(feature = "3d")]
+#[test]
+fn the_flat_pointer_ray_still_forwards() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        ctx.set_ui_pointer_ray(Some((Vec3::ZERO, Vec3::X)));
+        ctx.set_ui_pointer_ray(None);
+    });
+}

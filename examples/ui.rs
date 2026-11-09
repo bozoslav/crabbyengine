@@ -50,7 +50,7 @@ fn scene(ctx: &mut Ctx) {
     if ctx.world.resource::<Scene>().follow {
         ctx.camera.look_at(orbit);
     }
-    if ctx.input.mouse_pressed(MouseButton::Left) && !ctx.mouse_over_ui() {
+    if ctx.input.mouse_pressed(MouseButton::Left) && !ctx.ui.wants_pointer() {
         let at = ctx.mouse_world();
         ctx.world.spawn((Transform2D::at(at), Sprite::new(crab)));
         let plop = ctx.world.resource::<Scene>().plop;
@@ -70,19 +70,28 @@ fn scene(ctx: &mut Ctx) {
 // ANCHOR: hud
 fn hud(ctx: &mut Ctx) {
     let panel = Rect::new(12.0, 12.0, 230.0, 172.0);
-    ctx.ui_panel(panel);
-    let mut at = panel.min + ctx.ui_style.padding;
+    ctx.ui.immediate.panel(&mut ctx.gfx, panel);
+    let mut at = panel.min + ctx.ui.immediate.style.padding;
     let (zoom, dropped) = (ctx.camera.zoom, ctx.world.resource::<Scene>().dropped);
     let lines = format!("zoom {zoom:.2}x\ncrabs dropped: {dropped}\n{:.0} FPS", ctx.time.fps());
-    at.y += ctx.ui_label(at, &lines).y + 8.0;
+    at.y += ctx.ui.immediate.label(&mut ctx.gfx, at, &lines).y + 8.0;
 
     let follow = ctx.world.resource::<Scene>().follow;
     let label = if follow { "Stop following" } else { "Follow orbiter" };
-    if ctx.ui_button(Rect::new(at.x, at.y, 210.0, 30.0), label) {
+    if ctx
+        .ui
+        .immediate
+        .button(&mut ctx.gfx, &ctx.input, Rect::new(at.x, at.y, 210.0, 30.0), label)
+    {
         ctx.world.resource_mut::<Scene>().follow = !follow;
     }
     at.y += 38.0;
-    if ctx.ui_button(Rect::new(at.x, at.y, 210.0, 30.0), "Reset camera") {
+    if ctx.ui.immediate.button(
+        &mut ctx.gfx,
+        &ctx.input,
+        Rect::new(at.x, at.y, 210.0, 30.0),
+        "Reset camera",
+    ) {
         ctx.camera.zoom = 1.0;
         ctx.camera.position = Vec2::ZERO;
         ctx.world.resource_mut::<Scene>().follow = false;

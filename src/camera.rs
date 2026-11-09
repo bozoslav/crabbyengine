@@ -267,7 +267,7 @@ pub fn camera_controls(ctx: &mut crate::Ctx) {
         ctx.camera.position -= delta / ctx.camera.zoom;
     }
     let wheel = ctx.input.mouse_wheel().y;
-    if wheel != 0.0 && !ctx.mouse_over_ui() {
+    if wheel != 0.0 && !ctx.ui.wants_pointer() {
         let mouse = ctx.mouse_pos();
         ctx.camera.zoom_at(mouse, 1.15f32.powf(wheel));
     }

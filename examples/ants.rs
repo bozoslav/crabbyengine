@@ -419,8 +419,8 @@ fn hud(ctx: &mut Ctx) {
     let nests = ctx.world.query::<&Nest>().count();
     let food = delivered(&mut ctx.world);
     let panel = Rect::new(12.0, 12.0, 260.0, 156.0);
-    ctx.ui_panel(panel);
-    let mut at = panel.min + ctx.ui_style.padding;
+    ctx.ui.immediate.panel(&mut ctx.gfx, panel);
+    let mut at = panel.min + ctx.ui.immediate.style.padding;
     let speed = if ctx.time.is_paused() {
         "paused".to_string()
     } else {
@@ -430,9 +430,13 @@ fn hud(ctx: &mut Ctx) {
         "{ants} ants in {nests} colonies\n{food} food delivered\nspeed {speed}, {:.0} FPS",
         ctx.time.fps()
     );
-    at.y += ctx.ui_label(at, &stats).y + 8.0;
+    at.y += ctx.ui.immediate.label(&mut ctx.gfx, at, &stats).y + 8.0;
     let pause = if ctx.time.is_paused() { "Run" } else { "Pause" };
-    if ctx.ui_button(Rect::new(at.x, at.y, 72.0, 30.0), pause) {
+    if ctx
+        .ui
+        .immediate
+        .button(&mut ctx.gfx, &ctx.input, Rect::new(at.x, at.y, 72.0, 30.0), pause)
+    {
         if ctx.time.is_paused() {
             ctx.time.resume()
         } else {
@@ -441,7 +445,11 @@ fn hud(ctx: &mut Ctx) {
     }
     for (i, speed) in [1.0f32, 4.0, 16.0].into_iter().enumerate() {
         let r = Rect::new(at.x + 80.0 + i as f32 * 54.0, at.y, 48.0, 30.0);
-        if ctx.ui_button(r, &format!("{speed}x")) {
+        if ctx
+            .ui
+            .immediate
+            .button(&mut ctx.gfx, &ctx.input, r, &format!("{speed}x"))
+        {
             ctx.time.set_speed(speed);
             ctx.time.resume();
         }

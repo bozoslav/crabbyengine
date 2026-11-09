@@ -326,8 +326,7 @@ fn run_one(s: &mut System, ctx: &mut Ctx, timing_index: usize) {
     let start = Instant::now();
     ctx.system_index = timing_index;
     ctx.events.reader = s.id;
-    #[cfg(feature = "3d")]
-    ctx.sync_audio_camera();
+    ctx.sync_services();
     #[cfg(debug_assertions)]
     if s.access.is_some() {
         crate::access::begin_check(ctx);

@@ -123,7 +123,7 @@ fn wander(ctx: &mut Ctx) {
 
 // ANCHOR: paint
 fn paint(ctx: &mut Ctx) {
-    if !ctx.input.mouse_down(MouseButton::Left) || ctx.mouse_over_ui() {
+    if !ctx.input.mouse_down(MouseButton::Left) || ctx.ui.wants_pointer() {
         return;
     }
     let at = ctx.mouse_world();
@@ -144,10 +144,12 @@ fn hud(ctx: &mut Ctx) {
         ctx.camera.zoom,
         ctx.time.fps()
     );
-    let size = ctx.gfx.measure_text(&text, ctx.ui_style.text_size) + 2.0 * ctx.ui_style.padding;
+    let size = ctx.gfx.measure_text(&text, ctx.ui.immediate.style.text_size) + 2.0 * ctx.ui.immediate.style.padding;
     let panel = Rect::new(12.0, 12.0, size.x, size.y);
-    ctx.ui_panel(panel);
-    ctx.ui_label(panel.min + ctx.ui_style.padding, &text);
+    ctx.ui.immediate.panel(&mut ctx.gfx, panel);
+    ctx.ui
+        .immediate
+        .label(&mut ctx.gfx, panel.min + ctx.ui.immediate.style.padding, &text);
 }
 
 fn main() {

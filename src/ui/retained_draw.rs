@@ -3,24 +3,11 @@ use crate::render::batch::{SpriteInstance, uv_region};
 use crate::{Color, Ctx, GamepadButton, Key, MouseButton, Rect, TextParams, Vec2};
 
 impl Ctx {
-    /// True while retained UI owns keyboard/gamepad input. Check before game
-    /// movement/actions, just as `mouse_over_ui` guards pointer input.
-    /// ```
-    /// use ponko::*;
-    /// # fn update(ctx: &mut Ctx) {
-    /// if !ctx.ui_wants_keyboard() && ctx.key_pressed(Key::Space) { /* jump */ }
-    /// # }
-    /// ```
-    pub fn ui_wants_keyboard(&self) -> bool {
-        self.ui_retained.wants_keyboard()
-    }
-
     pub(crate) fn update_retained_ui(&mut self) {
-        let text = std::mem::take(&mut self.ui.retained_input_text);
-        let input = self.retained_input(&self.ui_retained, text);
-        self.ui_retained
-            .frame_with_text(self.window_size(), &input, &mut self.gfx.text);
-        self.ui.retained_input_text = input.text;
+        let text = std::mem::take(&mut self.ui_state.retained_input_text);
+        let input = self.retained_input(&self.ui, text);
+        self.ui.frame_with_text(self.window_size(), &input, &mut self.gfx.text);
+        self.ui_state.retained_input_text = input.text;
         #[cfg(feature = "3d")]
         self.update_ui_panels();
     }
@@ -71,11 +58,11 @@ impl Ctx {
     pub(crate) fn draw_retained_ui(&mut self) {
         // Move the tree out while issuing draw calls; no callback borrowing the
         // game, context and node tree simultaneously is required.
-        let spare = self.ui.retained_spare.take().unwrap_or_default();
-        let mut ui = std::mem::replace(&mut self.ui_retained, spare);
+        let spare = self.ui_state.retained_spare.take().unwrap_or_default();
+        let mut ui = std::mem::replace(&mut self.ui, spare);
         self.draw_ui_tree(&mut ui, self.window_size());
-        std::mem::swap(&mut self.ui_retained, &mut ui);
-        self.ui.retained_spare = Some(ui);
+        std::mem::swap(&mut self.ui, &mut ui);
+        self.ui_state.retained_spare = Some(ui);
     }
 
     /// Draws `ui`, laid out in `viewport`, into `ui_list`.

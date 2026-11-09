@@ -29,7 +29,7 @@ fn terminal(ctx: &mut Ctx) {
     // Aim with the middle of the screen instead of the mouse (for a locked
     // cursor, or a controller in VR).
     let (eye, forward) = (ctx.camera3d.position, ctx.camera3d.forward());
-    ctx.set_ui_pointer_ray(Some((eye, forward)));
+    ctx.ui.set_pointer_ray(Some((eye, forward)));
     ctx.world
         .query::<(&mut UiPanel3D, &Terminal)>()
         .for_each(|(panel, terminal)| {
