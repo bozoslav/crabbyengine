@@ -1,5 +1,6 @@
 //! Check configuration in subprocesses so tests never mutate shared process state.
-use ponko::*;
+use ponko::prelude::*;
+
 use std::process::Command;
 
 #[test]

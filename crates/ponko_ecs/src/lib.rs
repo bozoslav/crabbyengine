@@ -40,6 +40,8 @@
 
 #![warn(missing_docs)]
 
+mod raw;
+pub use raw::{RawWorld, RawWorldRef};
 mod access;
 mod borrow;
 mod bundle;

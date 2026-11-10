@@ -83,10 +83,10 @@ impl Graphics {
     /// metallic, and light it gives off.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let bricks = ctx.load_texture("bricks.png");
-    /// let wall = ctx.gfx.create_material(MaterialDesc { texture: Some(bricks), roughness: 0.9, ..Default::default() });
+    /// let wall = ctx.gfx.create_material(ponko::render::MaterialDesc { texture: Some(bricks), roughness: 0.9, ..Default::default() });
     /// # }
     /// ```
     ///
@@ -103,9 +103,9 @@ impl Graphics {
     /// if its shader or texture arrays weren't made by this game.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let err = ctx.gfx.try_create_material(MaterialDesc { roughness: 2.0, ..Default::default() }).unwrap_err();
+    ///     let err = ctx.gfx.try_create_material(ponko::render::MaterialDesc { roughness: 2.0, ..Default::default() }).unwrap_err();
     ///     assert_eq!(err.kind(), ErrorKind::Invalid);
     /// });
     /// ```
@@ -128,16 +128,16 @@ impl Graphics {
     /// animating a custom shader's values, or a glow.
     ///
     /// ```no_run
-    /// # use ponko::*;
-    /// # fn f(ctx: &mut Ctx, lamp: Material) {
-    /// let on = MaterialDesc { emissive: Color::hex(0xFFD080), ..Default::default() };
+    /// # use ponko::prelude::*;
+    /// # fn f(ctx: &mut Ctx, lamp: ponko::render::Material) {
+    /// let on = ponko::render::MaterialDesc { emissive: Color::hex(0xFFD080), ..Default::default() };
     /// ctx.gfx.update_material(lamp, on);
     /// # }
     /// ```
     ///
     /// # Panics
     ///
-    /// As [`Graphics::create_material`](crate::Graphics::create_material), or if the material comes from another
+    /// As [`Graphics::create_material`](crate::gfx::Graphics::create_material), or if the material comes from another
     /// game. Updating a freed material does nothing: it stays freed.
     pub fn update_material(&mut self, material: Material, desc: MaterialDesc) {
         assert!(
@@ -182,7 +182,7 @@ impl Graphics {
     }
 
     /// Adds the live 3D handles to `counts` (see [`Ctx::live_counts`]).
-    pub(crate) fn count_live_3d(&self, counts: &mut crate::LiveCounts) {
+    pub(crate) fn count_live_3d(&self, counts: &mut crate::handle::LiveCounts) {
         let a = &self.assets3d;
         counts.render_targets = a
             .render_targets
@@ -245,16 +245,16 @@ impl Graphics {
 
     /// Builds, now, the render pipelines the renderer would otherwise build
     /// the first time a frame draws them: the variants of every material
-    /// shader for crossfading [`LodGroup`](crate::LodGroup) levels and for
+    /// shader for crossfading [`LodGroup`](crate::render::LodGroup) levels and for
     /// buffer-driven instances. Each takes several milliseconds, a visible
     /// hitch if it happens mid-game (the first time a crossfade shows). Call
     /// it at the end of loading; shaders made afterwards then build theirs
     /// when they're made. Startup takes longer, so games that use neither
-    /// can skip it. [`RenderStats::pipelines_built`](crate::RenderStats)
+    /// can skip it. [`RenderStats::pipelines_built`](crate::render::RenderStats)
     /// counts the ones still built while drawing. Does nothing in headless runs.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// // ... load meshes, materials and shaders ...
     /// ctx.gfx.warm_render_pipelines();
@@ -305,10 +305,10 @@ impl Graphics {
     /// Loading the same file again returns the same shader.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let wind = ctx.gfx.load_shader("shaders/wind.wgsl");
-    /// let leaves = ctx.gfx.create_material(MaterialDesc { shader: Some(wind), double_sided: true, ..Default::default() });
+    /// let leaves = ctx.gfx.create_material(ponko::render::MaterialDesc { shader: Some(wind), double_sided: true, ..Default::default() });
     /// # }
     /// ```
     ///
@@ -317,12 +317,12 @@ impl Graphics {
     /// If the file can't be read or doesn't compile (the message says where).
     /// With hot reload on, a file that doesn't compile doesn't panic: it
     /// gets a stand-in and stays watched until a saved fix compiles
-    /// ([`ShaderOutcome::Failed`](crate::ShaderOutcome::Failed), [`Graphics::shader_status`](crate::Graphics::shader_status)).
+    /// ([`ShaderOutcome::Failed`](crate::render::ShaderOutcome::Failed), [`Graphics::shader_status`](crate::gfx::Graphics::shader_status)).
     pub fn load_shader(&mut self, path: &str) -> Shader {
         self.try_load_shader(path).unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
-    /// [`Graphics::load_shader`](crate::Graphics::load_shader) that returns errors (for the C API).
+    /// [`Graphics::load_shader`](crate::gfx::Graphics::load_shader) that returns errors (for the C API).
     #[doc(hidden)]
     pub fn try_load_shader(&mut self, path: &str) -> Result<Shader, String> {
         let found = match self
@@ -357,10 +357,10 @@ impl Graphics {
     }
 
     /// Makes a material shader from WGSL source; `name` is for error
-    /// messages. See [`Graphics::load_shader`](crate::Graphics::load_shader) for what it can define.
+    /// messages. See [`Graphics::load_shader`](crate::gfx::Graphics::load_shader) for what it can define.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let stripes = ctx.gfx.create_shader("stripes", "
     ///     fn surface(s: Surface) -> Surface {
@@ -379,7 +379,7 @@ impl Graphics {
             .unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
-    /// [`Graphics::create_shader`](crate::Graphics::create_shader) that returns errors (for the C API).
+    /// [`Graphics::create_shader`](crate::gfx::Graphics::create_shader) that returns errors (for the C API).
     #[doc(hidden)]
     pub fn try_create_shader(&mut self, name: &str, source: &str) -> Result<Shader, String> {
         let id = self.assets3d.shaders;
@@ -451,10 +451,10 @@ impl Graphics {
     /// A plain white material, made once and shared.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let white = ctx.gfx.default_material();
-    /// let ball = ctx.gfx.create_mesh(&MeshData::sphere(0.5, 32), white);
+    /// let ball = ctx.gfx.create_mesh(&ponko::render::MeshData::sphere(0.5, 32), white);
     /// # }
     /// ```
     pub fn default_material(&mut self) -> Material {
@@ -467,14 +467,14 @@ impl Graphics {
     }
 
     /// Puts triangles on the GPU as a [`Mesh`] of one material. Draw it by
-    /// spawning entities with a [`Model`](crate::Model) of it.
+    /// spawning entities with a [`Model`](crate::render::Model) of it.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let stone = ctx.gfx.create_material(MaterialDesc::color(Color::hex(0x8A8A8A)));
-    /// let block = ctx.gfx.create_mesh(&MeshData::cube(1.0), stone);
-    /// ctx.world.spawn((Transform3D::default(), Model::new(block)));
+    /// let stone = ctx.gfx.create_material(ponko::render::MaterialDesc::color(Color::hex(0x8A8A8A)));
+    /// let block = ctx.gfx.create_mesh(&ponko::render::MeshData::cube(1.0), stone);
+    /// ctx.world.spawn((ponko::d3::Transform::default(), ponko::render::Model::new(block)));
     /// # }
     /// ```
     ///
@@ -492,10 +492,10 @@ impl Graphics {
     /// material comes from another game.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let stone = ctx.gfx.create_material(MaterialDesc::default());
-    ///     let mut broken = MeshData::cube(1.0);
+    ///     let stone = ctx.gfx.create_material(ponko::render::MaterialDesc::default());
+    ///     let mut broken = ponko::render::MeshData::cube(1.0);
     ///     broken.indices.pop();
     ///     assert_eq!(ctx.gfx.try_create_mesh(&broken, stone).unwrap_err().kind(), ErrorKind::Invalid);
     /// });
@@ -516,15 +516,15 @@ impl Graphics {
     /// Puts triangles on the GPU as a [`Mesh`] with no material of its own:
     /// [`create_mesh`](Self::create_mesh) with the
     /// [default material](Self::default_material). For meshes whose look
-    /// comes from each model, with a [`ModelMaterial`](crate::ModelMaterial):
+    /// comes from each model, with a [`ModelMaterial`](crate::render::ModelMaterial):
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let ball = ctx.gfx.create_plain_mesh(&MeshData::sphere(0.5, 32));
-    /// let gold = ctx.gfx.create_material(MaterialDesc { metallic: 1.0, ..MaterialDesc::color(Color::hex(0xFFC83D)) });
-    /// ctx.world.spawn((Transform3D::default(), Model::new(ball)));                        // plain white
-    /// ctx.world.spawn((Transform3D::at(Vec3::X), Model::new(ball), ModelMaterial(gold))); // gold
+    /// let ball = ctx.gfx.create_plain_mesh(&ponko::render::MeshData::sphere(0.5, 32));
+    /// let gold = ctx.gfx.create_material(ponko::render::MaterialDesc { metallic: 1.0, ..ponko::render::MaterialDesc::color(Color::hex(0xFFC83D)) });
+    /// ctx.world.spawn((ponko::d3::Transform::default(), ponko::render::Model::new(ball)));                        // plain white
+    /// ctx.world.spawn((ponko::d3::Transform::at(Vec3::X), ponko::render::Model::new(ball), ponko::render::ModelMaterial(gold))); // gold
     /// # }
     /// ```
     ///
@@ -540,11 +540,11 @@ impl Graphics {
     /// fit together.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let cube = ctx.gfx.try_create_plain_mesh(&MeshData::cube(1.0)).unwrap();
+    ///     let cube = ctx.gfx.try_create_plain_mesh(&ponko::render::MeshData::cube(1.0)).unwrap();
     ///     assert!(ctx.gfx.is_mesh_live(cube));
-    ///     let mut broken = MeshData::cube(1.0);
+    ///     let mut broken = ponko::render::MeshData::cube(1.0);
     ///     broken.indices.pop();
     ///     assert_eq!(ctx.gfx.try_create_plain_mesh(&broken).unwrap_err().kind(), ErrorKind::Invalid);
     /// });
@@ -560,24 +560,24 @@ impl Graphics {
     /// Makes a mesh that bends with `skeleton`: each corner of `data` has
     /// up to four [`joints`](MeshData::joints) (indices into the
     /// skeleton's joints) and how much each moves it. `data` is modelled
-    /// with the skeleton at rest. Draw it with a [`Model`](crate::Model)
+    /// with the skeleton at rest. Draw it with a [`Model`](crate::render::Model)
     /// and a [`Skeleton`] (this one, or any made from the same joints, or
     /// with joints of the same names) on the entity.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let skeleton = Skeleton::new(vec![
-    ///         Joint { name: "base".into(), parent: None, rest: Transform3D::default() },
-    ///         Joint { name: "top".into(), parent: Some(0), rest: Transform3D::at(vec3(0.0, 1.0, 0.0)) },
+    ///     let skeleton = ponko::anim::Skeleton::new(vec![
+    ///         ponko::anim::Joint { name: "base".into(), parent: None, rest: ponko::d3::Transform::default() },
+    ///         ponko::anim::Joint { name: "top".into(), parent: Some(0), rest: ponko::d3::Transform::at(vec3(0.0, 1.0, 0.0)) },
     ///     ]);
-    ///     let mut post = MeshData::cube(0.2);
+    ///     let mut post = ponko::render::MeshData::cube(0.2);
     ///     // Corners above the middle follow the top joint.
     ///     post.joints = post.positions.iter().map(|p| [if p.y > 0.0 { 1 } else { 0 }, 0, 0, 0]).collect();
     ///     post.weights = vec![[1.0, 0.0, 0.0, 0.0]; post.positions.len()];
     ///     let material = ctx.gfx.default_material();
     ///     let mesh = ctx.gfx.create_skinned_mesh(&post, material, &skeleton);
-    ///     ctx.world.spawn((Transform3D::default(), Model::new(mesh), skeleton));
+    ///     ctx.world.spawn((ponko::d3::Transform::default(), ponko::render::Model::new(mesh), skeleton));
     /// });
     /// ```
     ///
@@ -625,15 +625,15 @@ impl Graphics {
     /// The [`Skeleton`] of a glTF file with skins (loading its mesh with
     /// [`load_mesh`](Self::load_mesh) if that hasn't happened), at rest:
     /// every node of the file's scene is a joint, named as in the file.
-    /// Put it on the entity with the file's [`Model`](crate::Model) and
+    /// Put it on the entity with the file's [`Model`](crate::render::Model) and
     /// change its `pose` to bend the model.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let fox = ctx.gfx.load_mesh("models/fox.glb");
     /// let skeleton = ctx.gfx.load_skeleton("models/fox.glb");
-    /// ctx.world.spawn((Transform3D::default(), Model::new(fox), skeleton));
+    /// ctx.world.spawn((ponko::d3::Transform::default(), ponko::render::Model::new(fox), skeleton));
     /// # }
     /// ```
     ///
@@ -651,7 +651,7 @@ impl Graphics {
     /// no skins.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let err = ctx.gfx.try_load_skeleton("models/missing.glb").unwrap_err();
     ///     assert_eq!(err.kind(), ErrorKind::NotFound);
@@ -671,7 +671,7 @@ impl Graphics {
     /// Loads all animation clips from a glTF file, cached per file.
     /// Panics with the loading error if the file cannot be loaded.
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let clips = ctx.gfx.load_clips("models/character.glb");
     /// # }
@@ -682,7 +682,7 @@ impl Graphics {
 
     /// Fallible clip loading; a file without skins or animations returns an error.
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let clips = ctx.gfx.try_load_clips("models/character.glb");
     /// # }
@@ -698,7 +698,7 @@ impl Graphics {
 
     /// Loads a named clip. Panics with available names if it is missing.
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let walk = ctx.gfx.load_clip("models/character.glb", "walk");
     /// # }
@@ -709,7 +709,7 @@ impl Graphics {
 
     /// Fallible named clip loading; errors list available names.
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let walk = ctx.gfx.try_load_clip("models/character.glb", "walk");
     /// # }
@@ -731,12 +731,12 @@ impl Graphics {
     /// edits made with [`update_material`](Self::update_material).
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("Forest", 1280, 720).run(|ctx| {
     ///     let tree = ctx.gfx.load_mesh("models/tree.glb");
     ///     for i in 0..100 {
     ///         let at = vec3((i % 10) as f32 * 4.0, 0.0, (i / 10) as f32 * -4.0);
-    ///         ctx.world.spawn((Transform3D::at(at), Model::new(tree)));
+    ///         ctx.world.spawn((ponko::d3::Transform::at(at), ponko::render::Model::new(tree)));
     ///     }
     /// });
     /// ```
@@ -755,10 +755,10 @@ impl Graphics {
     /// engine can read (including files it names that are missing).
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let hat = ctx.gfx.try_load_mesh("models/hat.glb").unwrap_or(Mesh::NONE);
-    ///     assert_eq!(hat, Mesh::NONE);
+    ///     let hat = ctx.gfx.try_load_mesh("models/hat.glb").unwrap_or(ponko::render::Mesh::NONE);
+    ///     assert_eq!(hat, ponko::render::Mesh::NONE);
     /// });
     /// ```
     pub fn try_load_mesh(&mut self, path: &str) -> Result<Mesh, crate::Error> {
@@ -923,7 +923,7 @@ impl Graphics {
     /// corners. Loads the file each call; keep the result.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) -> Result<(), String> {
     /// let wall = ctx.gfx.load_mesh_data("models/wall.glb")?;
     /// let hole = wall.decal(Mat4::from_scale(Vec3::splat(0.1)), 0.002);
@@ -942,7 +942,7 @@ impl Graphics {
 
     /// A mesh whose index ranges each have their own material.
     /// With `skin`, it bends with a skeleton. Its morph targets, if any,
-    /// show `morph_defaults` on models without [`MorphWeights`](crate::MorphWeights).
+    /// show `morph_defaults` on models without [`MorphWeights`](crate::anim::MorphWeights).
     fn mesh_from_parts(
         &mut self,
         data: &MeshData,
@@ -996,15 +996,15 @@ impl Graphics {
     }
 
     /// The index of `mesh`'s morph target called `name`, for
-    /// [`MorphWeights`](crate::MorphWeights); `None` if it has no such
+    /// [`MorphWeights`](crate::anim::MorphWeights); `None` if it has no such
     /// target (or was freed).
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let mut quad = MeshData::plane(1.0);
+    ///     let mut quad = ponko::render::MeshData::plane(1.0);
     ///     let up = vec![vec3(0.0, 0.1, 0.0); quad.positions.len()];
-    ///     quad.morph_targets.push(MorphTarget { name: "lift".into(), positions: up, normals: Vec::new() });
+    ///     quad.morph_targets.push(ponko::anim::MorphTarget { name: "lift".into(), positions: up, normals: Vec::new() });
     ///     let material = ctx.gfx.default_material();
     ///     let mesh = ctx.gfx.create_mesh(&quad, material);
     ///     assert_eq!(ctx.gfx.morph_target(mesh, "lift"), Some(0));
@@ -1019,15 +1019,15 @@ impl Graphics {
     /// Every material loaded from glTF files so far that the files call
     /// `name`, with what it was made from: to give materials of imported
     /// models a shader of your own, keep their textures and change the
-    /// rest with [`Graphics::update_material`](crate::Graphics::update_material). Models loaded later aren't in it.
+    /// rest with [`Graphics::update_material`](crate::gfx::Graphics::update_material). Models loaded later aren't in it.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// ctx.load_scene("town/Town.json").unwrap();
     /// let brick = ctx.gfx.load_shader("shaders/brick.wgsl");
     /// for (material, desc) in ctx.gfx.loaded_materials("Brick") {
-    ///     ctx.gfx.update_material(material, MaterialDesc { shader: Some(brick), ..desc });
+    ///     ctx.gfx.update_material(material, ponko::render::MaterialDesc { shader: Some(brick), ..desc });
     /// }
     /// # }
     /// ```
@@ -1090,10 +1090,10 @@ impl Graphics {
     /// them into the shadow map costs as much as drawing them.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let material = ctx.gfx.default_material();
-    ///     let tuft = ctx.gfx.create_mesh(&MeshData::cube(0.2), material);
+    ///     let tuft = ctx.gfx.create_mesh(&ponko::render::MeshData::cube(0.2), material);
     ///     ctx.gfx.set_mesh_shadows(tuft, false);
     ///     assert!(!ctx.gfx.mesh_shadows(tuft));
     /// });
@@ -1117,10 +1117,10 @@ impl Graphics {
     /// [`set_mesh_shadows`](Self::set_mesh_shadows)).
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let material = ctx.gfx.default_material();
-    ///     let house = ctx.gfx.create_mesh(&MeshData::cube(4.0), material);
+    ///     let house = ctx.gfx.create_mesh(&ponko::render::MeshData::cube(4.0), material);
     ///     assert!(ctx.gfx.mesh_shadows(house));
     /// });
     /// ```
@@ -1133,10 +1133,10 @@ impl Graphics {
     /// with a mesh.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let material = ctx.gfx.default_material();
-    ///     let cube = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
+    ///     let cube = ctx.gfx.create_mesh(&ponko::render::MeshData::cube(1.0), material);
     ///     assert!(ctx.gfx.is_live(cube));
     /// });
     /// ```
@@ -1155,10 +1155,10 @@ impl Graphics {
     /// How many 3D models were drawn last frame: those the camera could
     /// see, and those out of its view whose shadow can fall into it. Each
     /// model counts once. A model in a shadow cascade whose map is kept
-    /// this frame ([`crate::Lighting::shadow_refresh`]) counts too.
+    /// this frame ([`crate::render::Lighting::shadow_refresh`]) counts too.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// println!("{} models on screen", ctx.gfx.models_drawn());
     /// # }
@@ -1181,9 +1181,9 @@ impl Graphics {
     /// to the next frame that does.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(1, |ctx| {
-    ///     ctx.post.anti_aliasing = AntiAliasing::Taa;
+    ///     ctx.post.anti_aliasing = ponko::render::AntiAliasing::Taa;
     ///     ctx.camera3d.position = vec3(500.0, 2.0, 0.0);
     ///     ctx.gfx.reset_temporal_history();
     /// });
@@ -1198,7 +1198,7 @@ impl Graphics {
     /// allocates, so call it now and then, not every frame. Empty headless.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// fn heaviest(ctx: &mut Ctx) {
     ///     for c in ctx.gfx.mesh_costs().iter().take(5) {
     ///         let name = c.name.as_deref().unwrap_or("(made in code)");
@@ -1240,7 +1240,7 @@ impl Graphics {
     /// frame; call it after manual sampling. Unanimated weights retain their
     /// current values.
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     /// Game::new("morph", 1, 1).run_headless(0, |ctx| ctx.gfx.write_animated_morphs(&mut ctx.world));
     /// ```
     pub fn write_animated_morphs(&mut self, world: &mut World) {
@@ -1418,7 +1418,7 @@ impl Ctx {
                     crate::Entity,
                     &mut super::Animator,
                     &mut Skeleton,
-                    &mut crate::Ragdoll3D,
+                    &mut crate::d3::Ragdoll,
                 )>()
                 .for_each(|(e, animator, skeleton, ragdoll)| {
                     if ragdoll.is_blending() {
@@ -1431,7 +1431,7 @@ impl Ctx {
                     }
                 });
             self.world
-                .query::<(crate::Entity, &mut Skeleton, &mut crate::Ragdoll3D)>()
+                .query::<(crate::Entity, &mut Skeleton, &mut crate::d3::Ragdoll)>()
                 .without::<super::Animator>()
                 .for_each(|(e, skeleton, ragdoll)| {
                     if ragdoll.is_blending() && crate::physics3d::blend_back(ragdoll, skeleton, dt) {
@@ -1439,7 +1439,7 @@ impl Ctx {
                     }
                 });
             for e in finished.drain(..) {
-                self.world.remove::<crate::Ragdoll3D>(e);
+                self.world.remove::<crate::d3::Ragdoll>(e);
             }
         }
         #[allow(unused_mut)]
@@ -1447,7 +1447,7 @@ impl Ctx {
             .world
             .query::<(&mut super::Animator, &mut Skeleton, Option<&mut super::Transform3D>)>();
         #[cfg(feature = "physics3d")]
-        let mut animated = animated.without::<crate::Ragdoll3D>();
+        let mut animated = animated.without::<crate::d3::Ragdoll>();
         animated.for_each(|(animator, skeleton, transform)| {
             if animator.manual {
                 return;

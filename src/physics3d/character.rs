@@ -13,7 +13,7 @@ use crate::{Entity, Vec3, World};
 /// up to [`max_slope`](Self::max_slope) and steps up to
 /// [`step_height`](Self::step_height), stays on the ground going downhill,
 /// falls by gravity and pushes dynamic bodies. Needs a
-/// [`Transform3D`](crate::Transform3D), whose position is at its feet.
+/// [`Transform3D`](crate::d3::Transform), whose position is at its feet.
 ///
 /// Set `velocity`'s X and Z each tick to walk; Y keeps falling speed (set
 /// it to jump). After the step, `grounded` says whether it stands on
@@ -21,8 +21,8 @@ use crate::{Entity, Vec3, World};
 /// (to face where the player looks).
 ///
 /// ```
-/// use ponko::*;
-/// let mut player = Character3D::new(1.8, 0.3);
+/// use ponko::prelude::*;
+/// let mut player = ponko::d3::Character::new(1.8, 0.3);
 /// player.velocity.x = 4.0; // walk right at 4 m/s
 /// if player.grounded {
 ///     player.velocity.y = 5.0; // jump

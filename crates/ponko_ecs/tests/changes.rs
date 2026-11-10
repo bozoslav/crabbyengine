@@ -49,7 +49,14 @@ fn nothing_is_tracked_until_asked() {
     let e = w.spawn((Health(1), Armor(2)));
     w.get_mut::<Health>(e).unwrap().0 = 5;
     assert!(w.components().iter().all(|info| !info.tracks_changes()));
-    let row_bytes = |w: &World| w.archetypes().iter().find(|a| a.len() == 1).unwrap().bytes_per_entity();
+    let row_bytes = |w: &World| {
+        w.raw_ref()
+            .archetypes()
+            .iter()
+            .find(|a| a.len() == 1)
+            .unwrap()
+            .bytes_per_entity()
+    };
     let (bytes, row) = (w.allocated_bytes(), row_bytes(&w));
     let health = w.track_changes::<Health>();
     assert!(w.component_info(health).tracks_changes());
@@ -869,7 +876,7 @@ fn cached_queries_filter_rows_too() {
             }
         }
     }
-    assert!(w.archetypes().len() >= 128);
+    assert!(w.raw_ref().archetypes().len() >= 128);
     let mut seen = w.advance_change_tick();
     for round in 0..3 {
         let touched: Vec<Entity> = es.iter().copied().skip(round).step_by(7).collect();
@@ -1015,24 +1022,27 @@ mod dynamic {
         let seen = w.advance_change_tick();
 
         // SAFETY: each pointer is to a live f32 of the right component.
-        let a = unsafe { w.spawn_dynamic(&[(speed, ptr(&1.0))]) };
-        let b = unsafe { w.spawn_dynamic(&[(mass, ptr(&5.0))]) };
+        let a = unsafe { w.raw().spawn_dynamic(&[(speed, ptr(&1.0))]) };
+        let b = unsafe { w.raw().spawn_dynamic(&[(mass, ptr(&5.0))]) };
         let saved = Entity::from_bits(50);
-        assert!(unsafe { w.spawn_at_dynamic(saved, &[(speed, ptr(&2.0)), (mass, ptr(&6.0))]) });
+        assert!(unsafe {
+            w.raw()
+                .spawn_at_dynamic(saved, &[(speed, ptr(&2.0)), (mass, ptr(&6.0))])
+        });
         assert_eq!(added::<Speed>(&mut w, seen), [a, saved]);
 
         let seen = w.advance_change_tick();
         // Replace on `a`, add to `b`.
-        assert!(unsafe { w.insert_dynamic(a, speed, ptr(&3.0)) });
-        assert!(unsafe { w.insert_dynamic(b, speed, ptr(&4.0)) });
+        assert!(unsafe { w.raw().insert_dynamic(a, speed, ptr(&3.0)) });
+        assert!(unsafe { w.raw().insert_dynamic(b, speed, ptr(&4.0)) });
         assert_eq!(changed::<Speed>(&mut w, seen), [a, b]);
         assert_eq!(added::<Speed>(&mut w, seen), [b]);
         assert_eq!(w.get::<Speed>(b), Some(&Speed(4.0)));
 
         let seen = w.advance_change_tick();
-        assert!(w.remove_dynamic(a, speed));
-        assert!(!w.remove_dynamic(a, speed));
-        assert!(w.remove_dynamic(saved, mass), "an untracked neighbor");
+        assert!(w.raw().remove_dynamic(a, speed));
+        assert!(!w.raw().remove_dynamic(a, speed));
+        assert!(w.raw().remove_dynamic(saved, mass), "an untracked neighbor");
         w.despawn(b);
         assert_eq!(w.removed_dynamic(speed, seen), [a, b]);
         assert_eq!(w.removed_since::<Speed>(seen), [a, b]);
@@ -1051,13 +1061,13 @@ mod dynamic {
         let id = unsafe { w.register_component("Counted", 4, 4, Some(count)) };
         w.track_changes_dynamic(id);
         // SAFETY: valid values of the component.
-        let e = unsafe { w.spawn_dynamic(&[(id, ptr(&1.0))]) };
-        assert!(unsafe { w.insert_dynamic(e, id, ptr(&2.0)) });
+        let e = unsafe { w.raw().spawn_dynamic(&[(id, ptr(&1.0))]) };
+        assert!(unsafe { w.raw().insert_dynamic(e, id, ptr(&2.0)) });
         assert_eq!(DROPS.load(Ordering::Relaxed), 1);
-        assert!(w.remove_dynamic(e, id));
+        assert!(w.raw().remove_dynamic(e, id));
         assert_eq!(DROPS.load(Ordering::Relaxed), 2);
         assert_eq!(w.removed_dynamic(id, Tick::default()), [e]);
-        let kept = unsafe { w.spawn_dynamic(&[(id, ptr(&3.0))]) };
+        let kept = unsafe { w.raw().spawn_dynamic(&[(id, ptr(&3.0))]) };
         drop(w);
         assert_eq!(DROPS.load(Ordering::Relaxed), 3);
         let _ = kept;
@@ -1073,7 +1083,7 @@ mod dynamic {
         let lone = w.spawn((Health(3),));
         let seen = w.advance_change_tick();
         let mut rows = 0;
-        w.for_each_chunk(&[speed], |chunk| {
+        w.raw().for_each_chunk(&[speed], |chunk| {
             // SAFETY: the column holds `len` live `Speed` values.
             let speeds = unsafe { std::slice::from_raw_parts_mut(chunk.columns[0].cast::<Speed>(), chunk.len()) };
             speeds.iter_mut().for_each(|s| s.0 *= 2.0);
@@ -1083,7 +1093,7 @@ mod dynamic {
         assert_eq!(changed::<Speed>(&mut w, seen), [a, b]);
         assert_eq!(changed::<Health>(&mut w, seen), [], "a column that wasn't requested");
         let seen = w.advance_change_tick();
-        w.for_each_chunk(&[health, speed], |_| {});
+        w.raw().for_each_chunk(&[health, speed], |_| {});
         assert_eq!(changed::<Health>(&mut w, seen), [a, b]);
         assert_eq!(changed::<Speed>(&mut w, seen), [a, b]);
         let _ = (lone, health);
@@ -1096,7 +1106,7 @@ mod dynamic {
         let a = w.spawn((Speed(1.0),));
         let b = w.spawn((Speed(2.0),));
         let seen = w.advance_change_tick();
-        let p = w.get_dynamic(a, speed).unwrap().cast::<Speed>();
+        let p = w.raw_ref().get_dynamic(a, speed).unwrap().cast::<Speed>();
         // SAFETY: the pointer is to `a`'s live value.
         unsafe { (*p).0 = 9.0 };
         assert_eq!(changed::<Speed>(&mut w, seen), [], "the world can't see the write");

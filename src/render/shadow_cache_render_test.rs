@@ -6,8 +6,14 @@
 //! Skips without a GPU.
 use super::gpu::GpuTexture;
 use super::gpu3d::*;
+#[allow(unused_imports)]
+use crate::anim::Blend;
+#[allow(unused_imports)]
+use crate::d3::{PointLight as PointLight3D, SpotLight as SpotLight3D, Transform as Transform3D};
+use crate::prelude::*;
+#[allow(unused_imports)]
+use crate::render::{InstanceLevel, MaterialDesc, MeshData, Model, ModelMaterial};
 use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight};
-use crate::*;
 
 const SIZE: u32 = 128;
 /// Sun cascades and light views in the scene: 2 cascades, a spot light's

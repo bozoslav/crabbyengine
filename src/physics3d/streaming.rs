@@ -6,17 +6,18 @@ use rapier3d::prelude as rp;
 use serde::{Deserialize, Serialize};
 
 use super::{CollisionGroups, CollisionMesh, Physics3D, pose_to_rp, to_rp};
-use crate::{Entity, Transform3D, Vec2, Vec3, World};
+use crate::d3::Transform as Transform3D;
+use crate::{Entity, Vec2, Vec3, World};
 
 /// A convex hull, triangle mesh or heightfield built on the CPU, on any
 /// thread: the slow half of [`Physics3D::heightfield`] and friends. Build
-/// it in a [`Job`](crate::Job) with the rest of a streamed cell, then hand
+/// it in a [`Job`](crate::stream::Job) with the rest of a streamed cell, then hand
 /// it to [`Physics3D::add_mesh`] on the game's thread, which is quick.
 ///
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// Game::new("t", 1, 1).physics3d(Vec3::ZERO).run_headless(0, |ctx| {
-///     let job = Job::spawn(|| CollisionMeshData::heightfield(&[0.0; 33 * 33], 64.0));
+///     let job = ponko::stream::Job::spawn(|| ponko::physics3d::CollisionMeshData::heightfield(&[0.0; 33 * 33], 64.0));
 ///     let ground = ctx.physics3d.add_mesh(&job.wait());
 ///     assert!(ctx.physics3d.is_mesh_live(ground));
 /// });
@@ -39,12 +40,12 @@ impl std::fmt::Debug for CollisionMeshData {
 
 impl CollisionMeshData {
     /// Ground for a terrain tile, from the same n × n heights and size as
-    /// [`TerrainTileData::new`](crate::TerrainTileData::new) (row after row
+    /// [`TerrainTileData::new`](crate::terrain::TerrainTileData::new) (row after row
     /// along +Z, NaN for a hole), as [`Physics3D::heightfield`] makes it.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let ground = CollisionMeshData::heightfield(&[0.0, 1.0, 0.0, 1.0], 4.0);
+    /// # use ponko::prelude::*;
+    /// let ground = ponko::physics3d::CollisionMeshData::heightfield(&[0.0, 1.0, 0.0, 1.0], 4.0);
     /// # let _ = ground;
     /// ```
     ///
@@ -104,9 +105,9 @@ impl CollisionMeshData {
     /// it. `None` if the points are all on one plane or not finite.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// let corners = [vec3(0.0, 0.0, 0.0), vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, 1.0)];
-    /// assert!(CollisionMeshData::convex_hull(&corners).is_some());
+    /// assert!(ponko::physics3d::CollisionMeshData::convex_hull(&corners).is_some());
     /// ```
     #[must_use]
     pub fn convex_hull(points: &[Vec3]) -> Option<Self> {
@@ -131,8 +132,8 @@ impl CollisionMeshData {
     /// triangles, an index is out of range or a vertex isn't finite.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let floor = CollisionMeshData::trimesh(&[Vec3::ZERO, Vec3::X, Vec3::Z], &[[0, 2, 1]]);
+    /// # use ponko::prelude::*;
+    /// let floor = ponko::physics3d::CollisionMeshData::trimesh(&[Vec3::ZERO, Vec3::X, Vec3::Z], &[[0, 2, 1]]);
     /// assert!(floor.is_some());
     /// ```
     #[must_use]
@@ -158,19 +159,19 @@ impl CollisionMeshData {
 /// [heightfield](Physics3D::heightfield) made from the tile's heights, at
 /// the entity's [`Transform3D`] (the tile's corner), turned and scaled with
 /// it, so it matches the drawn ground triangle for triangle. Holes are open.
-/// Put it on the entity with the [`TerrainTile`](crate::TerrainTile) (not
+/// Put it on the entity with the [`TerrainTile`](crate::terrain::TerrainTile) (not
 /// with a [`RigidBody3D`](super::RigidBody3D)): despawning the tile removes
 /// its collider, and giving it a new mesh after an edit swaps the collider
 /// at the next physics step.
 ///
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// Game::new("t", 1, 1).physics3d(vec3(0.0, -9.81, 0.0)).run_headless(1, |ctx| {
 ///     let heights = [0.0; 33 * 33];
 ///     let ground = ctx.gfx.default_material();
 ///     let tile = ctx.gfx.create_terrain_tile(&heights, 64.0, ground);
-///     let solid = TerrainCollider::new(ctx.physics3d.heightfield(&heights, 64.0));
-///     ctx.world.spawn((Transform3D::at(vec3(-32.0, 0.0, -32.0)), tile, solid));
+///     let solid = ponko::physics3d::TerrainCollider::new(ctx.physics3d.heightfield(&heights, 64.0));
+///     ctx.world.spawn((ponko::d3::Transform::at(vec3(-32.0, 0.0, -32.0)), tile, solid));
 /// });
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -190,9 +191,9 @@ impl TerrainCollider {
     /// The ground of `mesh`, with the default surface.
     ///
     /// ```
-    /// # use ponko::*;
-    /// # fn f(mesh: CollisionMesh) {
-    /// let ice = TerrainCollider::new(mesh).friction(0.05);
+    /// # use ponko::prelude::*;
+    /// # fn f(mesh: ponko::physics3d::CollisionMesh) {
+    /// let ice = ponko::physics3d::TerrainCollider::new(mesh).friction(0.05);
     /// # }
     /// ```
     #[must_use]
@@ -229,8 +230,8 @@ impl TerrainCollider {
 /// at the edge from coming and going as the focus moves back and forth.
 ///
 /// ```
-/// # use ponko::*;
-/// let player = ColliderFocus::new(150.0, 200.0);
+/// # use ponko::prelude::*;
+/// let player = ponko::physics3d::ColliderFocus::new(150.0, 200.0);
 /// assert_eq!(player.keep_radius, 200.0);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -301,10 +302,10 @@ impl Physics3D {
     /// Ray casts and other queries only see colliders that are in.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).physics3d(vec3(0.0, -9.81, 0.0)).run_headless(1, |ctx| {
     ///     ctx.physics3d.stream_colliders(Some(16));
-    ///     ctx.world.spawn((Transform3D::default(), Character3D::new(1.0, 0.3), ColliderFocus::new(150.0, 200.0)));
+    ///     ctx.world.spawn((ponko::d3::Transform::default(), ponko::d3::Character::new(1.0, 0.3), ponko::physics3d::ColliderFocus::new(150.0, 200.0)));
     /// });
     /// ```
     pub fn stream_colliders(&mut self, max_new: Option<usize>) {
@@ -314,8 +315,8 @@ impl Physics3D {
     /// Whether collider streaming is on, and how many colliders may come in per step.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let mut physics = Physics3D::default();
+    /// # use ponko::prelude::*;
+    /// let mut physics = ponko::d3::Physics::default();
     /// physics.stream_colliders(Some(8));
     /// assert_eq!(physics.collider_streaming(), Some(8));
     /// ```
@@ -330,8 +331,8 @@ impl Physics3D {
     /// streaming](Physics3D::stream_colliders) left out.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let physics = Physics3D::default();
+    /// # use ponko::prelude::*;
+    /// let physics = ponko::d3::Physics::default();
     /// assert!(!physics.is_collider_active(Entity::from_bits(0)));
     /// ```
     #[must_use]
@@ -346,9 +347,9 @@ impl Physics3D {
     /// [`TerrainCollider`]. Quick: the data's shape is shared, not copied.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let mut physics = Physics3D::default();
-    /// let rock = CollisionMeshData::convex_hull(&[Vec3::ZERO, Vec3::X, Vec3::Y, Vec3::Z]).unwrap();
+    /// # use ponko::prelude::*;
+    /// let mut physics = ponko::d3::Physics::default();
+    /// let rock = ponko::physics3d::CollisionMeshData::convex_hull(&[Vec3::ZERO, Vec3::X, Vec3::Y, Vec3::Z]).unwrap();
     /// let mesh = physics.add_mesh(&rock);
     /// assert!(physics.is_mesh_live(mesh));
     /// ```

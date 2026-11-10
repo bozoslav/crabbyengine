@@ -112,7 +112,7 @@ fn drops_run_exactly_once() {
         w.insert(c, rc.clone()); // replace drops the old one
         assert_eq!(Arc::strong_count(&rc), 2);
         let id = w.component_id::<Arc<()>>().unwrap();
-        assert!(w.remove_dynamic(c, id));
+        assert!(w.raw().remove_dynamic(c, id));
         assert_eq!(Arc::strong_count(&rc), 1);
         w.spawn((rc.clone(),));
     }
@@ -283,7 +283,7 @@ fn memory_accounting_counts_component_bytes() {
     let mut world = World::new();
     assert_eq!(world.allocated_bytes(), 0);
     world.spawn_batch((0..1000).map(|i| (Pos(i as f32, 0.0), Vel(0.0, 0.0))));
-    let a = world.archetypes().iter().find(|a| a.len() == 1000).unwrap();
+    let a = world.raw_ref().archetypes().iter().find(|a| a.len() == 1000).unwrap();
     // Pos and Vel are two f32 each; plus the 8-byte handle.
     assert_eq!(a.bytes_per_entity(), 8 + 8 + 8);
     assert!(world.allocated_bytes() >= 1000 * 24);

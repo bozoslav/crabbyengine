@@ -479,6 +479,7 @@
 #define CrabbyPost PonkoPost
 #define CrabbyProfileScope PonkoProfileScope
 #define CrabbyQuat PonkoQuat
+#define CrabbyQueryFilter2D PonkoQueryFilter2D
 #define CrabbyQueryFilter3D PonkoQueryFilter3D
 #define CrabbyQueryFn PonkoQueryFn
 #define CrabbyQueryOptions PonkoQueryOptions
@@ -688,6 +689,7 @@
 #define crabby_ctx_cast_ray ponko_ctx_cast_ray
 #define crabby_ctx_cast_ray3d ponko_ctx_cast_ray3d
 #define crabby_ctx_cast_ray3d_all ponko_ctx_cast_ray3d_all
+#define crabby_ctx_cast_ray_filtered ponko_ctx_cast_ray_filtered
 #define crabby_ctx_cast_sphere3d ponko_ctx_cast_sphere3d
 #define crabby_ctx_clear ponko_ctx_clear
 #define crabby_ctx_clear_decal_textures ponko_ctx_clear_decal_textures
@@ -806,6 +808,7 @@
 #define crabby_ctx_net_player ponko_ctx_net_player
 #define crabby_ctx_net_state ponko_ctx_net_state
 #define crabby_ctx_occlusion_culling ponko_ctx_occlusion_culling
+#define crabby_ctx_overlap_ball ponko_ctx_overlap_ball
 #define crabby_ctx_overlap_box3d ponko_ctx_overlap_box3d
 #define crabby_ctx_overlap_capsule3d ponko_ctx_overlap_capsule3d
 #define crabby_ctx_overlap_sphere3d ponko_ctx_overlap_sphere3d
@@ -927,6 +930,9 @@
 #define crabby_ctx_spatial_view ponko_ctx_spatial_view
 #define crabby_ctx_spawn_later ponko_ctx_spawn_later
 #define crabby_ctx_spawn_prefab ponko_ctx_spawn_prefab
+#define crabby_ctx_spawn_prefab3d ponko_ctx_spawn_prefab3d
+#define crabby_ctx_spawn_prefab_transform2d ponko_ctx_spawn_prefab_transform2d
+#define crabby_ctx_spawn_prefab_transform3d ponko_ctx_spawn_prefab_transform3d
 #define crabby_ctx_start_ragdoll ponko_ctx_start_ragdoll
 #define crabby_ctx_steam_invite ponko_ctx_steam_invite
 #define crabby_ctx_steam_lobby ponko_ctx_steam_lobby

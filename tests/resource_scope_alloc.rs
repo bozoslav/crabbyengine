@@ -3,20 +3,26 @@
 //! A single test in its own binary: `CountingAllocator` counts every thread
 //! in the process (profiling relies on that), so nothing else may run, or
 //! allocate on another thread, while this one measures.
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::alloc_count::CountingAllocator;
+use ponko::prelude::*;
 
 #[global_allocator]
 static ALLOCATOR: CountingAllocator = CountingAllocator;
 
 fn scoped_tick(ctx: &mut Ctx) {
-    let before = alloc_counts();
+    let before = ponko::perf::alloc_counts();
     ctx.world.resource_scope::<Vec<u32>, _>(|world, totals| {
         world.query::<&mut u32>().for_each(|n| {
             *n += 1;
             totals[0] += *n;
         });
     });
-    assert_eq!(alloc_counts(), before, "resource scope and query must not allocate");
+    assert_eq!(
+        ponko::perf::alloc_counts(),
+        before,
+        "resource scope and query must not allocate"
+    );
 }
 
 #[test]

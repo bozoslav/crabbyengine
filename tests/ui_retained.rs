@@ -1,6 +1,8 @@
+use ponko::prelude::*;
+#[allow(unused_imports)]
+use ponko::ui::{Ui, UiEvent, UiId, UiInput, UiLayout, UiPaint, UiStyle, UiTheme, UiWidget};
 use ponko::ui_layout::prelude::length;
 use ponko::ui_layout::{Dimension, Display, FlexDirection, LengthPercentage, Rect as Edges, Size, Style};
-use ponko::*;
 
 fn sized(w: f32, h: f32) -> Style {
     Style {
@@ -239,10 +241,10 @@ fn navigation_reveals_clipped_buttons_and_skips_disabled_subtrees() {
 fn stale_ids_scaling_and_absolute_constraints() {
     let (mut ui, root) = scene();
     let mut style = sized(20.0, 30.0);
-    style.position = ui_layout::Position::Absolute;
-    style.inset.left = ui_layout::LengthPercentageAuto::length(12.0);
-    style.inset.top = ui_layout::LengthPercentageAuto::length(7.0);
-    style.min_size.width = ui_layout::LengthPercentageAuto::length(40.0);
+    style.position = ponko::ui::layout::Position::Absolute;
+    style.inset.left = ponko::ui::layout::LengthPercentageAuto::length(12.0);
+    style.inset.top = ponko::ui::layout::LengthPercentageAuto::length(7.0);
+    style.min_size.width = ponko::ui::layout::LengthPercentageAuto::length(40.0);
     let id = ui.add_child(root, UiWidget::Button, style);
     ui.set_scale(2.0);
     ui.layout(vec2(800.0, 600.0));

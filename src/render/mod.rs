@@ -48,7 +48,7 @@ pub use pipeline_stats::PipelineStats;
 #[cfg(all(feature = "window", feature = "3d"))]
 pub(crate) use shader_diagnostics::{diagnose, without_location};
 
-/// What drawing the last frame cost, from [`Perf::render_stats`](crate::Perf::render_stats).
+/// What drawing the last frame cost, from [`Perf::render_stats`](crate::perf::Perf::render_stats).
 ///
 /// Compare `cpu_ms` and `gpu_ms` with the frame time to see what limits the
 /// frame rate: if `gpu_ms` is close to the frame time, the GPU is the
@@ -76,7 +76,7 @@ pub struct RenderStats {
     pub record_ms: f32,
     /// Of `cpu_ms`, the time handing the command buffers to the GPU, in ms.
     pub submit_ms: f32,
-    /// 3D models the camera draws (one per drawn [`Model`](crate::Model)).
+    /// 3D models the camera draws (one per drawn [`Model`]).
     pub instances: usize,
     /// Triangles the camera's passes draw (each once, though the depth
     /// prepass draws the solid ones a second time).
@@ -91,7 +91,7 @@ pub struct RenderStats {
     /// 3D pipeline variants built while drawing (crossfading level-of-detail
     /// models, buffer-driven instances), each the first time a frame needed
     /// it. Each one costs several milliseconds inside its frame; call
-    /// [`Graphics::warm_render_pipelines`](crate::Graphics::warm_render_pipelines)
+    /// [`Graphics::warm_render_pipelines`](crate::gfx::Graphics::warm_render_pipelines)
     /// while loading to build them up front. Always 0 without the `3d` feature.
     pub pipelines_built: usize,
     /// What the renderer sent to the GPU since the frame before: bytes
@@ -301,3 +301,13 @@ mod quality_render_test;
 
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod residency_render_test;
+
+#[cfg(feature = "3d")]
+pub use crate::three::{
+    AmbientOcclusion, AntiAliasing, Compute, ComputePass, Effect, ExtractionBench, ExtractionSample,
+    GlobalIllumination, GpuBuffer, GraphicsQuality, InstanceBatch, InstanceBatchOptions, InstanceLevel, Lighting,
+    LodGroup, LodHysteresis, LodLevel, LodPick, LodRenderer, LodSettings, LodShadow, Material, MaterialDesc, Mesh,
+    MeshCost, MeshData, Model, ModelMaterial, ModelMaterials, ParticleCurve, ParticleGradient, Post, QualityLevel,
+    ReceivesDecals, ScreenEffect, Shader, ShaderDiagnostic, ShaderKind, ShaderOutcome, ShaderStatus, ShadowMesh, Sky,
+    TargetCamera, TargetEffect, Tonemap, look_at_joint, two_bone_ik,
+};

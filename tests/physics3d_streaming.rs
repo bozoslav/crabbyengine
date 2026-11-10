@@ -6,12 +6,27 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use ponko::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::d3::Transform;
+#[allow(unused_imports)]
+#[cfg(feature = "physics3d")]
+use ponko::d3::{Character, Collider, QueryFilter, RigidBody};
+#[allow(unused_imports)]
+#[cfg(feature = "physics3d")]
+use ponko::physics3d::{ColliderFocus, CollisionMeshData, TerrainCollider};
+use ponko::prelude::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::render::Material;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::terrain::{Heightfield, TerrainTileData};
 
 const GRAVITY: Vec3 = Vec3::new(0.0, -9.81, 0.0);
 
 fn position(world: &mut World, e: Entity) -> Vec3 {
-    world.get::<Transform3D>(e).unwrap().position
+    world.get::<Transform>(e).unwrap().position
 }
 
 #[test]
@@ -24,7 +39,7 @@ fn a_ball_rests_on_a_turned_and_scaled_terrain_tile_at_the_drawn_height_and_fall
     // A hole at grid point (6, 6): the cells from 10 m to 14 m are open.
     heights[6 * n + 6] = f32::NAN;
     let corner = vec3(40.0, -3.0, 20.0);
-    let tile_transform = Transform3D {
+    let tile_transform = Transform {
         position: corner,
         rotation: Quat::from_rotation_y(std::f32::consts::FRAC_PI_6),
         scale: vec3(1.0, 2.0, 1.0),
@@ -43,18 +58,18 @@ fn a_ball_rests_on_a_turned_and_scaled_terrain_tile_at_the_drawn_height_and_fall
             .spawn((tile_transform, tile, TerrainCollider::new(mesh).friction(1.0)));
         // A ball that can't roll and grips: it stays where it lands.
         let start = world_at(4.0, 4.0) + vec3(0.0, 8.0, 0.0);
-        let grippy = RigidBody3D {
+        let grippy = RigidBody {
             lock_rotation: true,
-            ..RigidBody3D::dynamic()
+            ..RigidBody::dynamic()
         };
         ball = Some(
             ctx.world
-                .spawn((Transform3D::at(start), grippy, Collider3D::sphere(radius).friction(1.0))),
+                .spawn((Transform::at(start), grippy, Collider::sphere(radius).friction(1.0))),
         );
         over_hole = Some(ctx.world.spawn((
-            Transform3D::at(world_at(12.0, 12.0) + vec3(0.0, 8.0, 0.0)),
-            RigidBody3D::dynamic(),
-            Collider3D::sphere(radius),
+            Transform::at(world_at(12.0, 12.0) + vec3(0.0, 8.0, 0.0)),
+            RigidBody::dynamic(),
+            Collider::sphere(radius),
         )));
     });
     // The drawn ground under the ball's center, from the tile's heights.
@@ -82,14 +97,14 @@ fn collision_meshes_build_on_a_worker_thread() {
             if ctx.time.sim_tick() == 1 {
                 let hit = ctx
                     .physics3d
-                    .cast_ray(vec3(5.0, 10.0, 5.0), Vec3::NEG_Y, 20.0, QueryFilter3D::default());
+                    .cast_ray(vec3(5.0, 10.0, 5.0), Vec3::NEG_Y, 20.0, QueryFilter::default());
                 *out.borrow_mut() = hit.map(|h| h.point.y);
             }
         })
         .run_headless(2, |ctx| {
-            let job = Job::spawn(|| CollisionMeshData::heightfield(&[2.0; 5 * 5], 10.0));
+            let job = ponko::stream::Job::spawn(|| CollisionMeshData::heightfield(&[2.0; 5 * 5], 10.0));
             let mesh = ctx.physics3d.add_mesh(&job.wait());
-            ctx.world.spawn((Transform3D::default(), TerrainCollider::new(mesh)));
+            ctx.world.spawn((Transform::default(), TerrainCollider::new(mesh)));
         });
     let y = ray_hits.take().expect("the ray hit the ground");
     assert!((y - 2.0).abs() < 1e-4, "{y}");
@@ -106,7 +121,7 @@ fn editing_a_tile_swaps_its_collider_and_despawning_removes_it() {
         .sim_system(move |ctx: &mut Ctx| {
             let ray = ctx
                 .physics3d
-                .cast_ray(vec3(3.0, 50.0, 3.0), Vec3::NEG_Y, 100.0, QueryFilter3D::default());
+                .cast_ray(vec3(3.0, 50.0, 3.0), Vec3::NEG_Y, 100.0, QueryFilter::default());
             out.borrow_mut().push(ray.map(|h| h.point.y));
             let e = tile_in.borrow().unwrap();
             match ctx.time.sim_tick() {
@@ -125,7 +140,7 @@ fn editing_a_tile_swaps_its_collider_and_despawning_removes_it() {
         })
         .run_headless(4, |ctx| {
             let mesh = ctx.physics3d.heightfield(&[4.0; 4 * 4], 6.0);
-            *tile.borrow_mut() = Some(ctx.world.spawn((Transform3D::default(), TerrainCollider::new(mesh))));
+            *tile.borrow_mut() = Some(ctx.world.spawn((Transform::default(), TerrainCollider::new(mesh))));
         });
     let hits = hits.take();
     let near = |got: Option<f32>, want: f32| got.is_some_and(|y| (y - want).abs() < 1e-4);
@@ -153,7 +168,7 @@ fn boxes_in_as_the_focus_moves(path: &'static [f32], max_new: usize) -> Vec<Vec<
             out.borrow_mut().push(row);
             if let Some(&x) = path.get(tick + 1) {
                 ctx.world
-                    .query::<&mut Transform3D>()
+                    .query::<&mut Transform>()
                     .with::<ColliderFocus>()
                     .for_each(|t| t.position.x = x);
             }
@@ -161,12 +176,12 @@ fn boxes_in_as_the_focus_moves(path: &'static [f32], max_new: usize) -> Vec<Vec<
         .run_headless(path.len() as u64, |ctx| {
             ctx.physics3d.stream_colliders(Some(max_new));
             ctx.world
-                .spawn((Transform3D::at(vec3(path[0], 0.0, 0.0)), ColliderFocus::new(15.0, 25.0)));
+                .spawn((Transform::at(vec3(path[0], 0.0, 0.0)), ColliderFocus::new(15.0, 25.0)));
             for i in 0..6 {
                 let b = ctx.world.spawn((
-                    Transform3D::at(vec3(i as f32 * 20.0, 0.0, 0.0)),
-                    RigidBody3D::fixed(),
-                    Collider3D::cuboid(Vec3::ONE),
+                    Transform::at(vec3(i as f32 * 20.0, 0.0, 0.0)),
+                    RigidBody::fixed(),
+                    Collider::cuboid(Vec3::ONE),
                 ));
                 boxes.borrow_mut().push(b);
             }
@@ -210,17 +225,17 @@ fn ground_stays_under_a_body_left_behind_and_queries_only_see_colliders_that_are
             let (focus, under_crate, empty, crate_body) = ids_in.borrow().unwrap();
             match ctx.time.sim_tick() {
                 // Settled: walk away, 1 km.
-                60 => ctx.world.get_mut::<Transform3D>(focus).unwrap().position.x = 1000.0,
+                60 => ctx.world.get_mut::<Transform>(focus).unwrap().position.x = 1000.0,
                 150 => {
                     let ray = |ctx: &Ctx, x: f32| {
                         ctx.physics3d
-                            .cast_ray(vec3(x, 20.0, 5.0), Vec3::NEG_Y, 40.0, QueryFilter3D::default())
+                            .cast_ray(vec3(x, 20.0, 5.0), Vec3::NEG_Y, 40.0, QueryFilter::default())
                             .map(|h| h.entity)
                     };
                     *out.borrow_mut() = Some((
                         ctx.physics3d.is_collider_active(under_crate),
                         ctx.physics3d.is_collider_active(empty),
-                        ctx.world.get::<Transform3D>(crate_body).unwrap().position.y,
+                        ctx.world.get::<Transform>(crate_body).unwrap().position.y,
                         ray(ctx, 2.0),
                         ray(ctx, 25.0),
                     ));
@@ -232,16 +247,16 @@ fn ground_stays_under_a_body_left_behind_and_queries_only_see_colliders_that_are
             ctx.physics3d.stream_colliders(Some(8));
             let focus = ctx
                 .world
-                .spawn((Transform3D::at(vec3(10.0, 0.0, 5.0)), ColliderFocus::new(50.0, 60.0)));
+                .spawn((Transform::at(vec3(10.0, 0.0, 5.0)), ColliderFocus::new(50.0, 60.0)));
             let flat = ctx.physics3d.heightfield(&[0.0; 3 * 3], 10.0);
-            let under_crate = ctx.world.spawn((Transform3D::default(), TerrainCollider::new(flat)));
+            let under_crate = ctx.world.spawn((Transform::default(), TerrainCollider::new(flat)));
             let empty = ctx
                 .world
-                .spawn((Transform3D::at(vec3(20.0, 0.0, 0.0)), TerrainCollider::new(flat)));
+                .spawn((Transform::at(vec3(20.0, 0.0, 0.0)), TerrainCollider::new(flat)));
             let crate_body = ctx.world.spawn((
-                Transform3D::at(vec3(5.0, 2.0, 5.0)),
-                RigidBody3D::dynamic(),
-                Collider3D::cuboid(Vec3::ONE),
+                Transform::at(vec3(5.0, 2.0, 5.0)),
+                RigidBody::dynamic(),
+                Collider::cuboid(Vec3::ONE),
             ));
             *ids.borrow_mut() = Some((focus, under_crate, empty, crate_body));
         });
@@ -271,9 +286,9 @@ fn turning_streaming_off_brings_every_collider_back() {
         .run_headless(4, |ctx| {
             ctx.physics3d.stream_colliders(Some(4));
             *far.borrow_mut() = Some(ctx.world.spawn((
-                Transform3D::at(vec3(500.0, 0.0, 0.0)),
-                RigidBody3D::fixed(),
-                Collider3D::sphere(1.0),
+                Transform::at(vec3(500.0, 0.0, 0.0)),
+                RigidBody::fixed(),
+                Collider::sphere(1.0),
             )));
         });
     assert_eq!(seen.take(), [false, false, true, true]);
@@ -282,8 +297,8 @@ fn turning_streaming_off_brings_every_collider_back() {
 // ANCHOR: collider_streaming
 /// A streamed tile, built on a worker: its meshes and its collider, from
 /// the same heights.
-fn build_tile(heights: Vec<f32>) -> Job<(TerrainTileData, CollisionMeshData)> {
-    Job::spawn(move || {
+fn build_tile(heights: Vec<f32>) -> ponko::stream::Job<(TerrainTileData, CollisionMeshData)> {
+    ponko::stream::Job::spawn(move || {
         let drawn = TerrainTileData::new(&heights, 128.0);
         let solid = CollisionMeshData::heightfield(&heights, 128.0);
         (drawn, solid)
@@ -297,7 +312,7 @@ fn place_tile(ctx: &mut Ctx, corner: Vec3, built: (TerrainTileData, CollisionMes
     let tile = ctx.gfx.upload_terrain_tile(&drawn, ground);
     let mesh = ctx.physics3d.add_mesh(&solid);
     ctx.world
-        .spawn((Transform3D::at(corner), tile, TerrainCollider::new(mesh)))
+        .spawn((Transform::at(corner), tile, TerrainCollider::new(mesh)))
 }
 
 /// Drawn out to the streamer's 600 m, but solid only near the player and
@@ -337,11 +352,11 @@ fn the_guide_tiles_are_solid_only_near_the_player_and_the_car() {
             }
             let player = ctx
                 .world
-                .spawn((Transform3D::at(vec3(10.0, 0.0, 10.0)), Character3D::new(1.8, 0.3)));
+                .spawn((Transform::at(vec3(10.0, 0.0, 10.0)), Character::new(1.8, 0.3)));
             let car = ctx.world.spawn((
-                Transform3D::at(vec3(900.0, 1.0, 10.0)),
-                RigidBody3D::dynamic(),
-                Collider3D::cuboid(vec3(2.0, 1.0, 4.0)),
+                Transform::at(vec3(900.0, 1.0, 10.0)),
+                RigidBody::dynamic(),
+                Collider::cuboid(vec3(2.0, 1.0, 4.0)),
             ));
             solid_near(ctx, player, car);
         });

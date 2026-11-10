@@ -1,4 +1,8 @@
-use ponko::{Lane, MAX_MESSAGE_BYTES, MessageEvent, NetMessages, PeerId};
+use ponko::net::Lane;
+use ponko::net::MAX_MESSAGE_BYTES;
+use ponko::net::MessageEvent;
+use ponko::net::NetMessages;
+use ponko::net::PeerId;
 use std::time::Duration;
 
 fn step(nets: &mut [NetMessages], rounds: usize) {

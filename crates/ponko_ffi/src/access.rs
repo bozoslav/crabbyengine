@@ -3,7 +3,9 @@
 use crate::game::{PonkoGame, PonkoSystemFn, build, ok, phase, system, system_name};
 use crate::perf::write_text;
 use crate::{Failure, PonkoStatus, boundary, invalid};
-use ponko::{Phase, Service, SystemAccess};
+use ponko::Phase;
+use ponko::access::Service;
+use ponko::access::SystemAccess;
 use std::ffi::{CStr, c_char, c_void};
 
 /// An owned access declaration: what a system reads and writes. Build it

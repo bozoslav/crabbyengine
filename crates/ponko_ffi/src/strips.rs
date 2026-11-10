@@ -9,7 +9,10 @@
 
 use std::ffi::c_char;
 
-use ponko::{Color, Line3D, Mat4, MeshData, Trail3D, Vec3};
+use ponko::d3::Line as Line3D;
+use ponko::d3::Trail as Trail3D;
+use ponko::render::MeshData;
+use ponko::{Color, Mat4, Vec3};
 
 use crate::ctx::{ctx_access, out, text};
 use crate::particles::{

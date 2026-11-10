@@ -7,7 +7,21 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::d2::{Sprite, Transform as Transform2D};
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::d3::Transform;
+#[allow(unused_imports)]
+use ponko::inventory::AssetClass;
+use ponko::prelude::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::render::{LodGroup, LodLevel, LodRenderer, Mesh, MeshData, Model};
+#[allow(unused_imports)]
+use ponko::residency::ResidencyKind;
+#[allow(unused_imports)]
+use ponko::streaming::AssetState;
 
 /// A `w` × `h` PNG of one color.
 fn png(w: u32, h: u32, shade: u8) -> Vec<u8> {
@@ -686,7 +700,7 @@ mod meshes {
                 let other = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
                 assert_ne!(other.id(), held.id());
                 // Showing it is harmless: it draws nothing.
-                ctx.world.spawn((Transform3D::default(), Model::new(held)));
+                ctx.world.spawn((Transform::default(), Model::new(held)));
             }),
             Box::new(move |ctx| {
                 let back = ctx.resident_mesh(&p3[0]);
@@ -759,9 +773,9 @@ mod meshes {
         ];
         let files: Vec<&str> = files.iter().map(String::as_str).collect();
         ctx.world.spawn((
-            Transform3D::default(),
+            Transform::default(),
             LodGroup::new(4.0, levels),
-            StreamedLod::new(&files),
+            ponko::d3::StreamedLod::new(&files),
         ))
     }
 

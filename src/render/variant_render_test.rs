@@ -7,8 +7,14 @@
 //! culled. Skips without a GPU.
 use super::gpu::GpuTexture;
 use super::gpu3d::*;
+#[allow(unused_imports)]
+use crate::anim::Blend;
+#[allow(unused_imports)]
+use crate::d3::Transform as Transform3D;
+use crate::prelude::*;
+#[allow(unused_imports)]
+use crate::render::{MaterialDesc, Mesh, MeshData, Model, PipelineStats, Shader};
 use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight};
-use crate::*;
 
 const SIZE: u32 = 128;
 
@@ -443,7 +449,7 @@ fn culling_uses_the_mesh_bounds_before_vertex_displacement() {
 
 /// Draws a plane with `BOTH_HOOKS` through shader `id` (made by `make`,
 /// which may make other shaders first), cut out, at 4x multisampling.
-fn plane_with(make: impl FnOnce(&mut Rig) -> Shader) -> Option<(Vec<u8>, crate::PipelineStats)> {
+fn plane_with(make: impl FnOnce(&mut Rig) -> Shader) -> Option<(Vec<u8>, crate::render::PipelineStats)> {
     let mut rig = Rig::new(4)?;
     rig.ctx.lighting.shadows = true;
     let shader = make(&mut rig);

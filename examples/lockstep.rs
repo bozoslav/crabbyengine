@@ -12,7 +12,11 @@
 //!   `cargo run --example lockstep --features steam -- steam`       host, press I to invite
 //!   `cargo run --example lockstep --features steam -- steam-join`  then accept the invite
 
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::d2::*;
+#[allow(unused_imports)]
+use ponko::net::{Net, NetState};
+use ponko::prelude::*;
 use serde::{Deserialize, Serialize};
 
 // ANCHOR: input
@@ -169,7 +173,7 @@ fn play(net: Net) {
 #[cfg(feature = "steam")]
 fn steam_session(args: &[String]) -> Option<Net> {
     let mode = args.first().map(String::as_str);
-    let invited = steam_lobby_from_args(); // launched by accepting an invite
+    let invited = ponko::net::steam_lobby_from_args(); // launched by accepting an invite
     if !matches!(mode, Some("steam" | "steam-join")) && invited.is_none() {
         return None;
     }
@@ -182,7 +186,7 @@ fn steam_session(args: &[String]) -> Option<Net> {
         return Some(Net::steam_host(&client, 2));
     }
     println!("waiting for you to accept a Steam invite...");
-    let lobby = steam_wait_for_invite(&client, std::time::Duration::from_secs(300))?;
+    let lobby = ponko::net::steam_wait_for_invite(&client, std::time::Duration::from_secs(300))?;
     Some(Net::steam_join(&client, lobby))
 }
 // ANCHOR_END: steam

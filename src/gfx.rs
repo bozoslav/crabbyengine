@@ -24,20 +24,20 @@
 //! explicitly, so `ctx.gfx` borrows apart from `ctx.world`.
 //!
 //! ```
-//! use ponko::*;
+//! use ponko::prelude::*;
 //!
 //! struct Crab(Texture);
 //!
 //! fn draw(ctx: &mut Ctx) {
 //!     // `ctx.gfx` is its own field: draw while a query borrows the world.
-//!     for (crab, at) in ctx.world.query::<(&Crab, &Transform2D)>().iter() {
+//!     for (crab, at) in ctx.world.query::<(&Crab, &ponko::d2::Transform)>().iter() {
 //!         ctx.gfx.draw(&crab.0, at.position);
 //!     }
 //! }
 //!
 //! Game::new("gfx", 320, 240).sim_system(draw).run_headless(1, |ctx| {
 //!     let pixel = ctx.gfx.create_texture(1, 1, &[255; 4]);
-//!     ctx.world.spawn((Crab(pixel), Transform2D::at(vec2(10.0, 20.0))));
+//!     ctx.world.spawn((Crab(pixel), ponko::d2::Transform::at(vec2(10.0, 20.0))));
 //! });
 //! ```
 
@@ -98,20 +98,20 @@ enum Layer {
 ///   `ctx.world`.
 ///
 /// ```
-/// use ponko::*;
+/// use ponko::prelude::*;
 ///
 /// struct Crab(Texture);
 ///
 /// fn draw(ctx: &mut Ctx) {
 ///     // `ctx.gfx` is its own field: draw while a query borrows the world.
-///     for (crab, at) in ctx.world.query::<(&Crab, &Transform2D)>().iter() {
+///     for (crab, at) in ctx.world.query::<(&Crab, &ponko::d2::Transform)>().iter() {
 ///         ctx.gfx.draw(&crab.0, at.position);
 ///     }
 /// }
 ///
 /// Game::new("gfx", 320, 240).sim_system(draw).run_headless(1, |ctx| {
 ///     let pixel = ctx.gfx.create_texture(1, 1, &[255; 4]);
-///     ctx.world.spawn((Crab(pixel), Transform2D::at(vec2(10.0, 20.0))));
+///     ctx.world.spawn((Crab(pixel), ponko::d2::Transform::at(vec2(10.0, 20.0))));
 /// });
 /// ```
 pub struct Graphics {
@@ -215,7 +215,7 @@ impl Graphics {
     /// Sets the background color. It stays until you change it.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn setup(ctx: &mut Ctx) {
     /// ctx.gfx.clear(Color::hex(0x203040));
     /// # }
@@ -232,7 +232,7 @@ impl Graphics {
     /// you want visible.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn update(ctx: &mut Ctx, crab: Texture) {
     /// ctx.gfx.draw(&crab, vec2(400.0, 300.0));
     /// # }
@@ -254,7 +254,7 @@ impl Graphics {
     /// Draws `texture` with rotation, scale, tint, draw order or pivot.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn update(ctx: &mut Ctx, crab: Texture) {
     /// ctx.gfx.draw_ex(&crab, vec2(400.0, 300.0), DrawParams {
     ///     rotation: ctx.time.elapsed() as f32,
@@ -287,7 +287,7 @@ impl Graphics {
     /// pixels. `\n` starts a new line.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn hud(ctx: &mut Ctx) {
     /// let fps = ctx.time.fps();
     /// ctx.gfx.draw_text(&format!("{fps:.0} FPS"), vec2(10.0, 10.0), 18.0, Color::WHITE);
@@ -308,7 +308,7 @@ impl Graphics {
     /// [`draw_text`](Self::draw_text) with a font and draw order.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn hud(ctx: &mut Ctx, title: Font) {
     /// ctx.gfx.draw_text_ex("Colony", vec2(20.0, 20.0), TextParams {
     ///     font: title,
@@ -365,7 +365,7 @@ impl Graphics {
     /// `size`, in window pixels. Works headless too.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn centered(ctx: &mut Ctx) {
     /// let label = "Paused";
     /// let size = ctx.gfx.measure_text(label, 32.0);
@@ -380,7 +380,7 @@ impl Graphics {
     /// [`measure_text`](Self::measure_text) for another font.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, title: Font) {
     /// let width = ctx.gfx.measure_text_ex("Colony", title, 40.0).x;
     /// # }
@@ -394,7 +394,7 @@ impl Graphics {
     /// art and tilesets; the default is smooth.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn setup(ctx: &mut Ctx) {
     /// let tiles = ctx.gfx.load_texture("crab.png");
     /// ctx.gfx.set_texture_filter(&tiles, TextureFilter::Nearest);
@@ -416,7 +416,7 @@ impl Graphics {
     /// With a clear message if the file is missing or isn't a font.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn setup(ctx: &mut Ctx) {
     /// let title = ctx.gfx.load_font("fonts/Title.ttf");
     /// # let _ = title;
@@ -432,7 +432,7 @@ impl Graphics {
     /// if it isn't a font.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let title = ctx.gfx.try_load_font("fonts/Fancy.ttf").unwrap_or(Font::DEFAULT);
     ///     # let _ = title;
@@ -464,7 +464,7 @@ impl Graphics {
     /// that isn't uses the built-in one.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     assert!(ctx.gfx.is_live(Font::DEFAULT));
     /// });
@@ -485,7 +485,7 @@ impl Graphics {
     /// With a clear message if the file is missing or isn't a valid image.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("Crabs", 800, 600).run(|ctx| {
     ///     let crab = ctx.gfx.load_texture("crab.png");
     ///     move |ctx: &mut Ctx| ctx.gfx.draw(&crab, vec2(400.0, 300.0))
@@ -503,7 +503,7 @@ impl Graphics {
     /// can be saved.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     // A missing optional skin is not a bug: fall back to no skin.
     ///     let skin: Option<Texture> = ctx.gfx.try_load_texture("skins/gold.png").ok();
@@ -543,7 +543,7 @@ impl Graphics {
     /// than the GPU supports.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn setup(ctx: &mut Ctx) {
     /// // A 2x2 checkerboard.
     /// let w = [255, 255, 255, 255];
@@ -629,7 +629,7 @@ impl Graphics {
     /// do every frame for textures up to a few megapixels.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let mut pixels = vec![0u8; 64 * 64 * 4];
     /// let heat = ctx.gfx.create_texture(64, 64, &pixels);
@@ -679,7 +679,7 @@ impl Graphics {
     /// How many sprites have been drawn so far this frame.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn update(ctx: &mut Ctx) {
     /// println!("{} sprites", ctx.gfx.sprite_count());
     /// # }
@@ -692,7 +692,7 @@ impl Graphics {
     /// Does nothing in headless runs (there is no frame). Errors are printed.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// fn photo_mode(ctx: &mut Ctx) {
     ///     if ctx.key_pressed(Key::F12) {
     ///         ctx.gfx.save_screenshot("screenshot.png");
@@ -725,9 +725,9 @@ impl Graphics {
     /// device-dependent renderer feature (compute passes, TAA, SSR, global
     /// illumination, GPU timestamps, ...) whether it's available and, if
     /// not, the fallback used and why. `None` in headless runs and before
-    /// the window opens. See [`GpuCapabilities`](crate::GpuCapabilities).
+    /// the window opens. See [`GpuCapabilities`](crate::render::GpuCapabilities).
     #[must_use]
-    pub fn gpu_capabilities(&self) -> Option<&crate::GpuCapabilities> {
+    pub fn gpu_capabilities(&self) -> Option<&crate::render::GpuCapabilities> {
         self.renderer.as_ref().map(Renderer::capabilities)
     }
 
@@ -797,7 +797,7 @@ impl Graphics {
     /// Fills `rect` (world units) with `color`.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// ctx.gfx.draw_rect(Rect::new(0.0, 0.0, 200.0, 20.0), Color::hex(0x3a5a40));
     /// # }
@@ -810,7 +810,7 @@ impl Graphics {
     /// A line from `a` to `b`, `width` world units thick.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, from: Vec2, to: Vec2) {
     /// ctx.gfx.draw_line(from, to, 2.0, Color::RED);
     /// # }
@@ -833,7 +833,7 @@ impl Graphics {
     /// A filled circle (world units).
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, tower: Vec2) {
     /// ctx.gfx.draw_circle(tower, 120.0, Color::BLUE.with_alpha(0.2)); // its range
     /// # }

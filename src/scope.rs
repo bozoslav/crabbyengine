@@ -2,7 +2,7 @@
 //! systems in the overlay, the benchmark reports and `ctx.perf.report()`.
 //!
 //! A scope costs one relaxed atomic load while profiling is off (see
-//! [`Perf::set_profiling`](crate::Perf::set_profiling)), and two clock reads
+//! [`Perf::set_profiling`](crate::perf::Perf::set_profiling)), and two clock reads
 //! and two atomic adds while it is on. Scopes may be used from any thread
 //! (rayon workers included): their times add up, so a scope that runs on four
 //! threads at once reports four times the wall time.
@@ -52,7 +52,7 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// the time spent inside it.
 ///
 /// You rarely name this type: the macro makes one per call site, and
-/// [`Perf::scope`](crate::Perf::scope) looks one up by name.
+/// [`Perf::scope`](crate::perf::Perf::scope) looks one up by name.
 #[derive(Debug)]
 pub struct ProfileScope {
     name: &'static str,
@@ -81,8 +81,8 @@ impl ProfileScope {
     /// (apart from one atomic load) while profiling is off.
     ///
     /// ```
-    /// use ponko::ProfileScope;
-    /// static SCOPE: ProfileScope = ProfileScope::new("expensive");
+    /// use ponko::scope::ProfileScope;
+    /// static SCOPE: ponko::scope::ProfileScope = ponko::scope::ProfileScope::new("expensive");
     /// let _timing = SCOPE.enter();
     /// ```
     #[inline]
@@ -160,12 +160,12 @@ pub fn scope_named(name: &str) -> &'static ProfileScope {
 /// Times the rest of the block as a scope called `$name`.
 ///
 /// It shows up next to the systems in the performance overlay, in
-/// `PONKO_BENCH` reports and in [`Perf::report`](crate::Perf::report).
+/// `PONKO_BENCH` reports and in [`Perf::report`](crate::perf::Perf::report).
 /// While profiling is off it costs one atomic load. Times are inclusive: a
 /// scope inside another is part of it.
 ///
 /// ```
-/// use ponko::*;
+/// use ponko::prelude::*;
 ///
 /// fn ai(ctx: &mut Ctx) {
 ///     profile_scope!("ai");
@@ -173,21 +173,22 @@ pub fn scope_named(name: &str) -> &'static ProfileScope {
 ///         profile_scope!("ai/pathing");
 ///         // ...
 ///     }
-///     ctx.world.query::<&mut Transform2D>().for_each(|_t| {});
+///     ctx.world.query::<&mut ponko::d2::Transform>().for_each(|_t| {});
 /// }
 /// # Game::new("t", 1, 1).sim_system(ai).run_headless(1, |_| {});
 /// ```
+#[doc(hidden)]
 #[macro_export]
 macro_rules! profile_scope {
     ($name:expr) => {
         let _ponko_scope_guard = {
-            static SCOPE: $crate::ProfileScope = $crate::ProfileScope::new($name);
+            static SCOPE: $crate::scope::ProfileScope = $crate::scope::ProfileScope::new($name);
             SCOPE.enter()
         };
     };
 }
 
-/// One scope's times, from [`Perf::scope_timings`](crate::Perf::scope_timings).
+/// One scope's times, from [`Perf::scope_timings`](crate::perf::Perf::scope_timings).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ScopeTiming {
     /// The scope's name.

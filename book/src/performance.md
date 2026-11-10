@@ -132,7 +132,7 @@ What keeps the CPU side small:
 `ctx.perf.render_stats()` tells you what drawing the last frame cost:
 
 ```rust
-# use ponko::*;
+# use ponko::prelude::*;
 fn report(ctx: &mut Ctx) {
     let r = ctx.perf.render_stats();
     println!(
@@ -277,7 +277,7 @@ and what it was collected from. A frame then pays for what changed:
 - **The camera or the sun moved**: every model is culled again, from the
   bounding sphere kept for it. Models that stay in view keep their place,
   so only the ones that entered or left a view are written and uploaded.
-- **A model changed** (its `Transform3D`, mesh, tint, `ShadowMesh`,
+- **A model changed** (its `d3::Transform`, mesh, tint, `ShadowMesh`,
   `ModelMaterial` or `ReceivesDecals`): that model is worked out again
   and its instances rewritten. Changes are found by value, whichever way a
   component is written: a system that sets the same transform every frame

@@ -29,22 +29,22 @@ pub enum TextAlign3D {
 /// fonts; use several entities for that.
 ///
 /// The text block is centered on the entity, in its XY plane, read from
-/// +Z (like [`UiPanel3D`](crate::UiPanel3D)), and scaled by its transform.
+/// +Z (like [`UiPanel3D`](crate::d3::UiPanel)), and scaled by its transform.
 /// With `billboard` it turns to face the camera instead, keeping upright.
 /// It's see-through where there's no text and is drawn with the particles,
 /// after solid models; it casts no shadow.
 ///
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-///     let label = Text3D {
+///     let label = ponko::d3::Text {
 ///         size: 0.3,
 ///         outline: Color::BLACK,
 ///         outline_width: 0.06,
 ///         billboard: true,
-///         ..Text3D::new("Shop")
+///         ..ponko::d3::Text::new("Shop")
 ///     };
-///     ctx.world.spawn((Transform3D::at(vec3(0.0, 2.5, 0.0)), label));
+///     ctx.world.spawn((ponko::d3::Transform::at(vec3(0.0, 2.5, 0.0)), label));
 /// });
 /// ```
 #[derive(Debug, Clone, PartialEq)]
@@ -75,8 +75,8 @@ pub struct Text3D {
 impl Text3D {
     /// `text` in the default font, a quarter meter per line, white.
     /// ```
-    /// # use ponko::*;
-    /// let sign = Text3D::new("OPEN");
+    /// # use ponko::prelude::*;
+    /// let sign = ponko::d3::Text::new("OPEN");
     /// assert_eq!(sign.size, 0.25);
     /// ```
     #[must_use]

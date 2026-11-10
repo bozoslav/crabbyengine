@@ -1,8 +1,17 @@
 //! Offscreen GPU buffer compute and instanced material reads.
 use super::gpu::GpuTexture;
 use super::gpu3d::*;
+#[allow(unused_imports)]
+use crate::anim::Blend;
+#[allow(unused_imports)]
+use crate::d3::Transform as Transform3D;
+use crate::prelude::*;
+#[allow(unused_imports)]
+use crate::render::{
+    AntiAliasing, ComputePass, GpuBuffer, GpuFeature, InstanceBatchOptions, InstanceLevel, MaterialDesc, Mesh,
+    MeshData, Model, TargetCamera,
+};
 use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight};
-use crate::*;
 
 const SIZE: u32 = 128;
 
@@ -351,7 +360,7 @@ fn persistent_batch_draw(compute: bool) {
     let Some(mut rig) = Rig::with_compute(compute) else {
         return;
     };
-    if compute && !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::ComputeCulling) {
+    if compute && !crate::render::render_test_support::needs(&rig.device, crate::render::GpuFeature::ComputeCulling) {
         return;
     }
     let mesh = rig.mesh(
@@ -872,7 +881,7 @@ fn instance_levels_overlap_exactly_without_copying_source_records() {
         return;
     };
     // Instance levels are chosen per instance by the GPU culling pass.
-    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::ComputeCulling) {
+    if !crate::render::render_test_support::needs(&rig.device, crate::render::GpuFeature::ComputeCulling) {
         return;
     }
     let mesh = rig.mesh(
@@ -942,7 +951,7 @@ fn instance_levels_keep_off_center_meshes_and_hide_shadow_only_geometry() {
         return;
     };
     // Instance levels are chosen per instance by the GPU culling pass.
-    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::ComputeCulling) {
+    if !crate::render::render_test_support::needs(&rig.device, crate::render::GpuFeature::ComputeCulling) {
         return;
     }
     let mut data = MeshData::cube(1.0);

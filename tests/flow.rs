@@ -1,5 +1,9 @@
 //! Flow fields: shortest ways to goals over a cost grid.
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::d2::Transform as Transform2D;
+#[allow(unused_imports)]
+use ponko::flow::{FlowField, NavGrid};
+use ponko::prelude::*;
 
 /// Follows the field from `start` one cell at a time; returns the cells visited.
 fn walk(nav: &NavGrid, flow: &FlowField, start: Vec2, max_steps: usize) -> Vec<UVec2> {

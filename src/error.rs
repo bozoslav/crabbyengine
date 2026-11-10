@@ -7,7 +7,7 @@ use std::fmt;
 /// release, so a `match` needs a `_` arm.
 ///
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// Game::new("t", 1, 1).run_headless(0, |ctx| {
 ///     let err = ctx.gfx.try_load_texture("no/such/file.png").unwrap_err();
 ///     assert_eq!(err.kind(), ErrorKind::NotFound);
@@ -47,7 +47,7 @@ pub enum ErrorKind {
 /// [`std::error::Error`], so `?` turns it into a `Box<dyn Error>`:
 ///
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// fn load_optional(ctx: &mut Ctx) -> Result<Texture, Box<dyn std::error::Error>> {
 ///     let texture = ctx.gfx.try_load_texture("maybe.png")?;
 ///     Ok(texture)
@@ -69,7 +69,7 @@ impl Error {
     /// and helpers that want to fail like the engine does.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// let err = Error::new(ErrorKind::Invalid, "speed must be positive");
     /// assert_eq!(err.to_string(), "ponko: speed must be positive");
     /// ```
@@ -84,7 +84,7 @@ impl Error {
     /// The same error, naming the asset it's about.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// let err = Error::new(ErrorKind::Decode, "\"a.png\" is not a valid image").with_path("a.png");
     /// assert_eq!(err.path(), Some("a.png"));
     /// ```
@@ -140,9 +140,9 @@ impl From<Error> for String {
     }
 }
 
-impl From<crate::ReflectError> for Error {
-    fn from(e: crate::ReflectError) -> Self {
-        use crate::ReflectError as R;
+impl From<crate::reflect::ReflectError> for Error {
+    fn from(e: crate::reflect::ReflectError) -> Self {
+        use crate::reflect::ReflectError as R;
         let kind = match &e {
             R::UnknownComponent(_) | R::MissingComponent { .. } | R::UnknownResource(_) | R::MissingResource(_) => {
                 ErrorKind::NotFound
@@ -161,8 +161,8 @@ impl From<serde_json::Error> for Error {
 }
 
 #[cfg(feature = "navmesh")]
-impl From<crate::NavBakeError> for Error {
-    fn from(e: crate::NavBakeError) -> Self {
+impl From<crate::nav::NavBakeError> for Error {
+    fn from(e: crate::nav::NavBakeError) -> Self {
         Self::new(ErrorKind::Invalid, e.to_string())
     }
 }
@@ -180,9 +180,9 @@ mod tests {
 
     #[test]
     fn reflect_errors_map_to_kinds() {
-        let e: Error = crate::ReflectError::UnknownComponent("Nope".into()).into();
+        let e: Error = crate::reflect::ReflectError::UnknownComponent("Nope".into()).into();
         assert_eq!(e.kind(), ErrorKind::NotFound);
-        let e: Error = crate::ReflectError::BadValue {
+        let e: Error = crate::reflect::ReflectError::BadValue {
             component: "A".into(),
             message: "x".into(),
         }

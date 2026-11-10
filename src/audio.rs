@@ -26,7 +26,7 @@ pub use spatial::*;
 
 /// A loaded sound. Cheap to copy. Get one from
 /// [`Ctx::load_sound`](crate::Ctx::load_sound) or
-/// [`Audio::create`](crate::Audio::create).
+/// [`Audio::create`](crate::audio::Audio::create).
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct Sound {
@@ -53,7 +53,7 @@ impl Sound {
     /// Length in seconds.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(sound: Sound) {
     /// println!("{:.1} s", sound.seconds());
     /// # }
@@ -65,15 +65,15 @@ impl Sound {
 }
 
 /// A sound that was started, to stop it later with
-/// [`Audio::stop`](crate::Audio::stop).
+/// [`Audio::stop`](crate::audio::Audio::stop).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct Playing(pub(crate) u64);
 
-/// Optional settings for [`Audio::play_ex`](crate::Audio::play_ex).
+/// Optional settings for [`Audio::play_ex`](crate::audio::Audio::play_ex).
 ///
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx, music: Sound) {
 /// ctx.audio.play_ex(&music, SoundParams { volume: 0.5, looping: true, ..Default::default() });
 /// # }
@@ -578,13 +578,13 @@ pub(crate) use backend::Audio as Backend;
 ///   is silent. Positional sound needs the `3d` feature.
 ///
 /// ```
-/// use ponko::*;
+/// use ponko::prelude::*;
 ///
 /// Game::new("t", 1, 1).run_headless(0, |ctx| {
 ///     let beep = ctx.audio.create(8000, &[0.0; 800]);
 ///     let music = ctx.audio.bus("music");
 ///     ctx.audio.set_bus_volume(music, 0.5);
-///     let playing = ctx.audio.play_on(&beep, SoundParams::default(), music, AudioEffects::default());
+///     let playing = ctx.audio.play_on(&beep, SoundParams::default(), music, ponko::audio::AudioEffects::default());
 ///     ctx.audio.stop(playing);
 /// });
 /// ```
@@ -618,7 +618,7 @@ impl Audio {
     /// feature, can't be decoded.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn setup(ctx: &mut Ctx) {
     /// let hit = ctx.load_sound("hit.ogg");
     /// ctx.play_sound(&hit);
@@ -634,7 +634,7 @@ impl Audio {
     /// [`Decode`](crate::ErrorKind::Decode) if it can't be decoded.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     if let Ok(music) = ctx.audio.try_load("music/bonus.ogg") {
     ///         ctx.play_sound(&music);
@@ -671,7 +671,7 @@ impl Audio {
     /// generated effects.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn setup(ctx: &mut Ctx) {
     /// // A short 880 Hz beep that fades out.
     /// let rate = 44_100;
@@ -700,7 +700,7 @@ impl Audio {
     /// Plays `sound` once at full volume. Silent in headless runs.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, click: Sound) {
     /// if ctx.input.mouse_pressed(MouseButton::Left) {
     ///     ctx.play_sound(&click);
@@ -714,7 +714,7 @@ impl Audio {
     /// Plays `sound` with a volume, speed, or looping.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, step: Sound) {
     /// let speed = 0.9 + ctx.random().stream(0).f32() * 0.2; // vary the pitch a little
     /// ctx.audio.play_ex(&step, SoundParams { volume: 0.4, speed, ..Default::default() });
@@ -745,7 +745,7 @@ impl Audio {
     /// short fade). Does nothing if it already finished.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, music: Sound) {
     /// let song = ctx.audio.play_ex(&music, SoundParams { looping: true, ..Default::default() });
     /// // ... later

@@ -1,5 +1,24 @@
-//! Deterministic lockstep networking for 2–8 players: every peer runs the
-//! same simulation from the same inputs, so only inputs cross the network.
+//! Networking: three ways to keep players in step, behind one entry,
+//! [`ctx.net`](crate::Ctx::net) ([`Networking`]).
+//!
+//! | Pick | For | Start with | Example |
+//! |---|---|---|---|
+//! | **Lockstep** ([`Net`]) | Deterministic simulations with 2–8 players (strategy, fighting, co-op puzzles): every peer runs the same ticks from the same inputs, so only inputs cross the network | [`Game::lockstep`](crate::Game::lockstep), then `ctx.net.set_input` / `ctx.net.input` | [`examples/lockstep.rs`](https://github.com/ponkoengine/ponko/blob/main/examples/lockstep.rs) |
+//! | **Messages** ([`NetMessages`]) | Everything else: your own packets on reliable and unreliable lanes between a host and its clients (chat, lobbies, events, your own replication) | [`Game::messages`](crate::Game::messages), then `ctx.net.messages` | [`examples/net_messages.rs`](https://github.com/ponkoengine/ponko/blob/main/examples/net_messages.rs) |
+//! | **Snapshots** ([`NetSnapshots`], [`SnapshotStream`], [`Interest`], [`Authority`]) | Server-authoritative worlds on top of messages: the owner sends timestamped states, everyone else shows them a little in the past | `ctx.net.snapshots` and `ctx.net.interest` | [`examples/net_replication.rs`](https://github.com/ponkoengine/ponko/blob/main/examples/net_replication.rs) |
+//!
+//! Lockstep and messages are independent and can run side by side: lockstep
+//! for the simulation, messages for a chat that must not hold ticks back.
+//! The engine drives what is there (see the table on [`Networking`]); a
+//! single-player game has an offline lockstep session and nothing else.
+//! Feature `steam` adds Steam relays and lobbies for both transports.
+//!
+//! Everything here is also exported from the crate root (`use ponko::*`).
+//!
+//! # Lockstep
+//!
+//! Every peer runs the same simulation from the same inputs, so only
+//! inputs cross the network.
 //!
 //! The host (player 0) relays inputs in a star. Tick `t` runs once every
 //! player's input for `t` is in; your own input is scheduled
@@ -22,21 +41,28 @@ use std::time::Duration;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use crate::{Instant, World, WorldReflect};
+use crate::perf::Instant;
+use crate::{World, WorldReflect};
 
+#[cfg(test)]
+mod lockstep_conformance;
 #[cfg(test)]
 mod message_conformance;
 mod messages;
+#[cfg(test)]
+mod scripted;
 pub use messages::{Lane, MAX_MESSAGE_BYTES, MessageEvent, MessageStats, NetMessages, PeerId};
 
 mod interest;
 mod sequence;
+mod service;
 mod snapshots;
 pub use interest::{
     Interest, InterestChange, InterestChangeKind, InterestConfig, InterestEntity, InterestEntry, InterestTier,
     InterestViewer, MAX_INTEREST_TIERS,
 };
 pub use sequence::{Authority, AuthorityCheck, LatestWins, UpdateStamp, seq_diff, seq_newer};
+pub use service::{NetSnapshots, Networking};
 pub use snapshots::{
     ClockSync, Interpolate, Pose, SnapshotBuffer, SnapshotConfig, SnapshotPush, SnapshotSample, SnapshotState,
     SnapshotStream,
@@ -45,13 +71,14 @@ pub use snapshots::{
 pub use snapshots::{NetPose, apply_net_poses};
 
 #[cfg(feature = "steam")]
-mod steam;
-#[cfg(feature = "steam")]
 mod steam_messages;
 #[cfg(feature = "steam")]
-pub use steam::{steam_lobby_from_args, steam_wait_for_invite};
+#[path = "net/steam.rs"]
+mod steam_transport;
 #[cfg(feature = "steam")]
 pub use steam_messages::{SteamLobby, SteamLobbyVisibility};
+#[cfg(feature = "steam")]
+pub use steam_transport::{steam_lobby_from_args, steam_wait_for_invite};
 
 /// The most players in one session.
 pub const MAX_PLAYERS: usize = 8;
@@ -74,6 +101,14 @@ const BYE: u8 = 7;
 const RING: usize = 256;
 const MAX_DELAY: u32 = 64;
 const PACKET: usize = 1400;
+/// An INPUTS packet with nothing in it yet is this long at most: magic,
+/// version, kind, player count, one acknowledgement per player, block count.
+const INPUTS_HEADER: usize = 4 + 1 + 1 + 1 + 8 * MAX_PLAYERS + 1;
+/// A block's header (stream, first tick, tick count) and one tick's length.
+const BLOCK_HEADER: usize = 1 + 8 + 1 + 2;
+// The largest input always fits a packet of its own, so `flush` can keep
+// every packet within PACKET.
+const _: () = assert!(INPUTS_HEADER + BLOCK_HEADER + MAX_INPUT_BYTES <= PACKET);
 /// Resend unacknowledged inputs (and keep the link alive) this often.
 const RESEND: Duration = Duration::from_millis(20);
 const HELLO_EVERY: Duration = Duration::from_millis(100);
@@ -82,6 +117,9 @@ const HELLO_EVERY: Duration = Duration::from_millis(100);
 const LINGER: Duration = Duration::from_secs(1);
 /// A peer silent this long while we linger has left too.
 const GONE: Duration = Duration::from_millis(250);
+/// Receive errors in a row the UDP transport skips before it reports "no
+/// packet" for this poll.
+const UDP_ERROR_SKIPS: usize = 64;
 
 /// Where a session is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -101,8 +139,8 @@ pub enum NetState {
 /// The peers' worlds stopped matching: from `tick` on, they're different games.
 ///
 /// ```
-/// # use ponko::*;
-/// let d = Desync { tick: 120, player: 1, components: vec!["Transform2D".into()] };
+/// # use ponko::prelude::*;
+/// let d = ponko::net::Desync { tick: 120, player: 1, components: vec!["Transform2D".into()] };
 /// assert!(d.to_string().contains("Transform2D"));
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -130,8 +168,8 @@ impl std::fmt::Display for Desync {
 /// What a session has sent so far ([`Net::stats`]).
 ///
 /// ```
-/// # use ponko::*;
-/// assert_eq!(Net::default().stats().bytes_sent, 0);
+/// # use ponko::prelude::*;
+/// assert_eq!(ponko::net::Net::default().stats().bytes_sent, 0);
 /// ```
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct NetStats {
@@ -141,9 +179,9 @@ pub struct NetStats {
     pub bytes_sent: u64,
 }
 
-/// A lockstep session: `ctx.net`. Start one with [`Net::host`],
-/// [`Net::join`] or [`Net::loopback`] and pass it to
-/// [`Game::lockstep`](crate::Game::lockstep). Without one, `ctx.net` is
+/// A lockstep session: `ctx.net.lockstep`, which `ctx.net` dereferences
+/// to. Start one with [`Net::host`], [`Net::join`] or [`Net::loopback`] and
+/// pass it to [`Game::lockstep`](crate::Game::lockstep). Without one, it is
 /// offline: one player whose input applies on the next tick, so the same
 /// game code runs alone and online.
 ///
@@ -151,7 +189,7 @@ pub struct NetStats {
 /// and read everyone's with [`input`](Self::input) in simulation systems:
 ///
 /// ```
-/// use ponko::*;
+/// use ponko::prelude::*;
 /// use serde::{Deserialize, Serialize};
 ///
 /// #[derive(Serialize, Deserialize)]
@@ -189,6 +227,10 @@ pub struct Net {
     desync: Option<Desync>,
     /// Waits in a row, to back off from yielding to sleeping.
     waits: u32,
+    /// Keep resending on drop until peers have our inputs (see `Drop`). Off
+    /// for scripted test sessions, which step [`linger_step`](Self::linger_step)
+    /// on their own clock instead.
+    linger: bool,
 }
 
 impl Default for Net {
@@ -206,6 +248,7 @@ impl Default for Net {
             error: None,
             desync: None,
             waits: 0,
+            linger: true,
         }
     }
 }
@@ -226,8 +269,8 @@ impl Net {
     /// [`local_addr`](Self::local_addr). The game starts once everyone joined.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let net = Net::host("127.0.0.1:0", 2).unwrap();
+    /// # use ponko::prelude::*;
+    /// let net = ponko::net::Net::host("127.0.0.1:0", 2).unwrap();
     /// assert!(net.local_addr().unwrap().port() != 0);
     /// ```
     ///
@@ -248,9 +291,9 @@ impl Net {
     /// sides must use the same [`Game::seed`](crate::Game::seed).
     ///
     /// ```
-    /// # use ponko::*;
-    /// let net = Net::join("127.0.0.1:7777").unwrap();
-    /// assert_eq!(net.state(), NetState::Connecting);
+    /// # use ponko::prelude::*;
+    /// let net = ponko::net::Net::join("127.0.0.1:7777").unwrap();
+    /// assert_eq!(net.state(), ponko::net::NetState::Connecting);
     /// ```
     ///
     /// # Errors
@@ -274,8 +317,8 @@ impl Net {
     /// tests, or bots in one process. Run each in its own game (and thread).
     ///
     /// ```
-    /// # use ponko::*;
-    /// let nets = Net::loopback(2);
+    /// # use ponko::prelude::*;
+    /// let nets = ponko::net::Net::loopback(2);
     /// assert_eq!(nets.len(), 2);
     /// ```
     #[must_use]
@@ -310,6 +353,18 @@ impl Net {
             .collect()
     }
 
+    /// A session on a caller-supplied transport, hosting `players` players
+    /// or joining `host`: the seam the conformance tests in
+    /// `net/lockstep_conformance.rs` script. Drive it with
+    /// [`ready_at`](Self::ready_at) and a simulated clock.
+    #[cfg(test)]
+    fn transported(transport: Box<dyn Transport>, host: Option<SocketAddr>, players: usize) -> Net {
+        let role = host.map_or(Role::Host, Role::Client);
+        let mut net = Self::with(Session::new(transport, role), 0, players);
+        net.linger = false;
+        net
+    }
+
     fn with(session: Session, player: usize, players: usize) -> Net {
         let mut net = Net::default();
         net.session = Some(Box::new(session));
@@ -328,8 +383,8 @@ impl Net {
     /// 50 ms round trip. Set on the host.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let net = Net::host("127.0.0.1:0", 2).unwrap().input_delay(5);
+    /// # use ponko::prelude::*;
+    /// let net = ponko::net::Net::host("127.0.0.1:0", 2).unwrap().input_delay(5);
     /// # let _ = net;
     /// ```
     ///
@@ -348,8 +403,8 @@ impl Net {
     /// number. Set on the host.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let net = Net::host("127.0.0.1:0", 2).unwrap().checksum_every(300);
+    /// # use ponko::prelude::*;
+    /// let net = ponko::net::Net::host("127.0.0.1:0", 2).unwrap().checksum_every(300);
     /// # let _ = net;
     /// ```
     #[must_use]
@@ -362,8 +417,8 @@ impl Net {
     /// becomes [`NetState::Lost`] and headless runs stop.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let net = Net::join("127.0.0.1:7777").unwrap().timeout(std::time::Duration::from_secs(3));
+    /// # use ponko::prelude::*;
+    /// let net = ponko::net::Net::join("127.0.0.1:7777").unwrap().timeout(std::time::Duration::from_secs(3));
     /// # let _ = net;
     /// ```
     #[must_use]
@@ -426,8 +481,8 @@ impl Net {
     /// Like [`set_input`](Self::set_input), with bytes you encode yourself.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let mut net = Net::default();
+    /// # use ponko::prelude::*;
+    /// let mut net = ponko::net::Net::default();
     /// net.set_input_bytes(&[1, 2, 3]);
     /// ```
     ///
@@ -454,8 +509,8 @@ impl Net {
     /// `player`'s input for the current tick as bytes (empty if none).
     ///
     /// ```
-    /// # use ponko::*;
-    /// assert!(Net::default().input_bytes(0).is_empty());
+    /// # use ponko::prelude::*;
+    /// assert!(ponko::net::Net::default().input_bytes(0).is_empty());
     /// ```
     pub fn input_bytes(&self, player: usize) -> &[u8] {
         self.current.get(player).map_or(&[], Vec::as_slice)
@@ -470,6 +525,19 @@ impl Net {
 
     /// Gets ready for `tick`: true once every player's input for it is in.
     pub(crate) fn ready(&mut self, tick: u64) -> bool {
+        if self.session.is_none() {
+            // Offline never reads the clock.
+            std::mem::swap(&mut self.current[0], &mut self.pending);
+            self.pending.clear();
+            return true;
+        }
+        self.ready_at(tick, Instant::now())
+    }
+
+    /// [`ready`](Self::ready) at a time the caller chooses. Every protocol
+    /// timer (resends, hellos, the silence timeout) is measured against
+    /// `now`, so a scripted test owns the clock.
+    fn ready_at(&mut self, tick: u64, now: Instant) -> bool {
         let Some(s) = self.session.as_deref_mut() else {
             std::mem::swap(&mut self.current[0], &mut self.pending);
             self.pending.clear();
@@ -478,7 +546,6 @@ impl Net {
         if self.state == NetState::Lost {
             return false;
         }
-        let now = Instant::now();
         s.poll(
             now,
             &mut Settings {
@@ -558,15 +625,50 @@ impl Net {
         } else {
             std::thread::sleep(Duration::from_micros(200));
         }
+        self.waited(Instant::now())
+    }
+
+    /// The clock half of [`wait`](Self::wait): gives up on connecting once
+    /// nobody answered for [`timeout`](Self::timeout). False once lost.
+    fn waited(&mut self, now: Instant) -> bool {
         if self.state == NetState::Connecting {
             // Connecting has its own patience: the other side may still be starting.
             let s = self.session.as_deref_mut().expect("online");
-            let since = *s.connecting_since.get_or_insert_with(Instant::now);
-            if since.elapsed() > self.timeout {
-                return !self.lose("nobody answered".into());
+            let since = *s.connecting_since.get_or_insert(now);
+            if now - since > self.timeout {
+                return self.lose("nobody answered".into());
             }
         }
         self.state != NetState::Lost
+    }
+
+    /// One step of the goodbye (see `Drop`): keeps resending what peers
+    /// still miss. True once it is over (everyone has our inputs, has left
+    /// or went quiet, or `end` passed) and the BYEs are out.
+    fn linger_step(&mut self, now: Instant, end: Instant) -> bool {
+        let Some(s) = self.session.as_deref_mut() else {
+            return true;
+        };
+        s.poll(
+            now,
+            &mut Settings {
+                player: &mut self.player,
+                players: &mut self.players,
+                delay: &mut self.delay,
+                checksum_every: &mut self.checksum_every,
+                desync: &mut self.desync,
+            },
+        );
+        if now >= end || s.settled(now, self.player) {
+            // Lost BYEs only cost the others GONE of waiting.
+            for i in 0..s.peers.len() {
+                let addr = s.peers[i].addr;
+                s.send_simple(addr, BYE);
+            }
+            return true;
+        }
+        s.flush(now, self.player, self.players);
+        false
     }
 }
 
@@ -575,32 +677,12 @@ impl Drop for Net {
     /// the others still miss, because a packet got lost: it keeps resending
     /// until every peer has them, has left too, or a second passed.
     fn drop(&mut self) {
-        let Some(s) = self.session.as_deref_mut() else { return };
-        if !s.started || self.state == NetState::Lost {
+        let Some(s) = self.session.as_deref() else { return };
+        if !self.linger || !s.started || self.state == NetState::Lost {
             return;
         }
         let end = Instant::now() + LINGER.min(self.timeout);
-        loop {
-            let now = Instant::now();
-            s.poll(
-                now,
-                &mut Settings {
-                    player: &mut self.player,
-                    players: &mut self.players,
-                    delay: &mut self.delay,
-                    checksum_every: &mut self.checksum_every,
-                    desync: &mut self.desync,
-                },
-            );
-            if now >= end || s.settled(now, self.player) {
-                // Lost BYEs only cost the others GONE of waiting.
-                for i in 0..s.peers.len() {
-                    let addr = s.peers[i].addr;
-                    s.send_simple(addr, BYE);
-                }
-                return;
-            }
-            s.flush(now, self.player, self.players);
+        while !self.linger_step(Instant::now(), end) {
             std::thread::sleep(Duration::from_millis(1));
         }
     }
@@ -923,49 +1005,67 @@ impl Session {
             if !fresh && peer.last_sent.is_some_and(|t| now - t < RESEND) {
                 continue;
             }
-            self.begin(INPUTS);
-            self.out.push(players as u8);
-            for st in &self.streams {
-                self.out.extend_from_slice(&st.have.to_le_bytes());
-            }
-            let count_at = self.out.len();
-            self.out.push(0);
+            // One packet, or several when the streams don't fit in one
+            // (large inputs from many players): every stream gets its turn
+            // in this flush, and no packet goes over PACKET.
             let mut sent = self.peers[i].sent;
-            for &s in streams {
-                let peer = &self.peers[i];
-                if s == peer.player {
-                    continue;
+            let mut done = [false; MAX_PLAYERS];
+            loop {
+                self.begin(INPUTS);
+                self.out.push(players as u8);
+                for st in &self.streams {
+                    self.out.extend_from_slice(&st.have.to_le_bytes());
                 }
-                let st = &self.streams[s];
-                let first = peer.acked[s];
-                if first >= st.have || self.out.len() + 12 > PACKET {
-                    continue;
-                }
-                let ticks_at = self.out.len() + 9;
-                self.out.push(s as u8);
-                self.out.extend_from_slice(&first.to_le_bytes());
+                let count_at = self.out.len();
                 self.out.push(0);
-                let mut ticks = 0u8;
-                let mut t = first;
-                while t < st.have && ticks < u8::MAX {
-                    let data = st.get(t);
-                    if ticks > 0 && self.out.len() + 2 + data.len() > PACKET {
-                        break;
+                let mut more = false;
+                for &s in streams {
+                    let peer = &self.peers[i];
+                    if s == peer.player || done[s] {
+                        continue;
                     }
-                    self.out.extend_from_slice(&(data.len() as u16).to_le_bytes());
-                    self.out.extend_from_slice(data);
-                    ticks += 1;
-                    t += 1;
+                    let st = &self.streams[s];
+                    let first = peer.acked[s];
+                    if first >= st.have {
+                        done[s] = true;
+                        continue;
+                    }
+                    // The block's header and its first tick go together.
+                    // They always fit an empty packet (asserted next to PACKET).
+                    if self.out.len() + BLOCK_HEADER + st.get(first).len() > PACKET {
+                        more = true;
+                        continue;
+                    }
+                    done[s] = true;
+                    let ticks_at = self.out.len() + 9;
+                    self.out.push(s as u8);
+                    self.out.extend_from_slice(&first.to_le_bytes());
+                    self.out.push(0);
+                    let mut ticks = 0u8;
+                    let mut t = first;
+                    while t < st.have && ticks < u8::MAX {
+                        let data = st.get(t);
+                        if self.out.len() + 2 + data.len() > PACKET {
+                            break;
+                        }
+                        self.out.extend_from_slice(&(data.len() as u16).to_le_bytes());
+                        self.out.extend_from_slice(data);
+                        ticks += 1;
+                        t += 1;
+                    }
+                    self.out[ticks_at] = ticks;
+                    self.out[count_at] += 1;
+                    sent[s] = t;
                 }
-                self.out[ticks_at] = ticks;
-                self.out[count_at] += 1;
-                sent[s] = t;
+                let addr = self.peers[i].addr;
+                self.emit(addr);
+                if !more {
+                    break;
+                }
             }
             let peer = &mut self.peers[i];
             peer.sent = sent;
             peer.last_sent = Some(now);
-            let addr = peer.addr;
-            self.emit(addr);
         }
     }
 
@@ -1164,14 +1264,18 @@ impl Transport for Udp {
         let _ = self.0.send_to(data, to);
     }
     fn recv(&mut self, buf: &mut [u8]) -> Option<(SocketAddr, usize)> {
-        loop {
+        // Windows reports an earlier send to a closed port as a receive
+        // error; skip those. A socket that only fails must not hold the
+        // game thread, so give up for this poll after a few in a row: the
+        // silence timeout then ends the session.
+        for _ in 0..UDP_ERROR_SKIPS {
             match self.0.recv_from(buf) {
                 Ok((n, from)) => return Some((from, n)),
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => return None,
-                // Windows reports an earlier send to a closed port here; skip it.
-                Err(_) => continue,
+                Err(_) => {}
             }
         }
+        None
     }
     fn local_addr(&self) -> SocketAddr {
         self.0.local_addr().expect("bound socket")
@@ -1218,6 +1322,10 @@ impl Transport for Local {
     }
 }
 
+/// Steamworks SDK used by Steam transports.
+#[cfg(feature = "steam")]
+pub use steamworks as steam;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1238,11 +1346,11 @@ mod tests {
     #[test]
     fn checks_name_the_components_that_differ() {
         let mut a = World::new();
-        a.reflect::<crate::Transform2D>();
-        a.spawn((crate::Transform2D::default(),));
+        a.reflect::<crate::d2::Transform>();
+        a.spawn((crate::d2::Transform::default(),));
         let mut b = World::new();
-        b.reflect::<crate::Transform2D>();
-        b.spawn((crate::Transform2D::at(crate::vec2(1.0, 0.0)),));
+        b.reflect::<crate::d2::Transform>();
+        b.spawn((crate::d2::Transform::at(crate::vec2(1.0, 0.0)),));
         let (ca, cb) = (Check::of(&a, 5), Check::of(&b, 5));
         assert!(ca.compare(&Check::of(&a, 5), 1).is_none());
         let d = ca.compare(&cb, 1).expect("different");

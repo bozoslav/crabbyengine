@@ -2,8 +2,12 @@
 //! above it. Skips without a GPU.
 use super::gpu::GpuTexture;
 use super::gpu3d::*;
+#[allow(unused_imports)]
+use crate::d3::Transform as Transform3D;
+use crate::prelude::*;
+#[allow(unused_imports)]
+use crate::render::{AntiAliasing, GpuFeature, MaterialDesc, Mesh, MeshData, Model};
 use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight};
-use crate::*;
 
 const SIZE: u32 = 128;
 
@@ -262,7 +266,7 @@ fn mirror_rig() -> Option<(Rig, Vec3, Vec3)> {
 
 fn floor_rig(roughness: f32) -> Option<(Rig, Vec3, Vec3)> {
     let mut rig = Rig::new()?;
-    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::ScreenSpaceReflections) {
+    if !crate::render::render_test_support::needs(&rig.device, crate::render::GpuFeature::ScreenSpaceReflections) {
         return None;
     }
     let mirror = MaterialDesc {
@@ -308,7 +312,7 @@ fn a_mirror_floor_reflects_the_box_above_it() {
     let Some((mut rig, reflection, aside)) = mirror_rig() else {
         return;
     };
-    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::ScreenSpaceReflections) {
+    if !crate::render::render_test_support::needs(&rig.device, crate::render::GpuFeature::ScreenSpaceReflections) {
         return;
     }
     let view_proj = rig.ctx.camera3d.view_proj();
@@ -339,7 +343,7 @@ fn reflections_work_with_taa_and_fade_with_distance() {
     let Some((mut rig, reflection, _)) = mirror_rig() else {
         return;
     };
-    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::ScreenSpaceReflections) {
+    if !crate::render::render_test_support::needs(&rig.device, crate::render::GpuFeature::ScreenSpaceReflections) {
         return;
     }
     let view_proj = rig.ctx.camera3d.view_proj();
@@ -368,7 +372,7 @@ fn reflections_and_ambient_occlusion_share_the_opaque_pass_image() {
     let Some((mut rig, reflection, _)) = mirror_rig() else {
         return;
     };
-    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::ScreenSpaceReflections) {
+    if !crate::render::render_test_support::needs(&rig.device, crate::render::GpuFeature::ScreenSpaceReflections) {
         return;
     }
     let view_proj = rig.ctx.camera3d.view_proj();
@@ -552,7 +556,7 @@ fn a_history_reset_drops_the_last_frames_image_from_the_reflections() {
     let Some((mut rig, reflection, _)) = mirror_rig() else {
         return;
     };
-    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::ScreenSpaceReflections) {
+    if !crate::render::render_test_support::needs(&rig.device, crate::render::GpuFeature::ScreenSpaceReflections) {
         return;
     }
     // A dark box far off to the side, to swap with the glowing one.

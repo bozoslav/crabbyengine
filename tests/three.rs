@@ -5,7 +5,25 @@
 mod common;
 
 use common::TempAsset;
-use ponko::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::anim::Blend;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::d3::{PointLight, SpotLight, Transform};
+use ponko::prelude::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::render::{
+    AmbientOcclusion, AntiAliasing, ComputePass, GlobalIllumination, GpuBuffer, GraphicsQuality, InstanceBatchOptions,
+    InstanceLevel, LodGroup, LodHysteresis, LodLevel, LodPick, LodRenderer, LodShadow, Material, MaterialDesc, Mesh,
+    MeshData, Model, ModelMaterial, Post, QualityLevel, ScreenEffect, Sky, TargetCamera, TargetEffect, Tonemap,
+};
+#[allow(unused_imports)]
+use ponko::render::{GpuFeature, GpuTier};
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::terrain::{FarTerrain, Heightfield, TerrainMaterialDesc, TerrainTile, TerrainTileData, TextureKind};
 
 // ANCHOR: three_d
 /// Turns around its own Y axis, this many radians a second.
@@ -17,12 +35,12 @@ fn village(ctx: &mut Ctx) {
         ..MaterialDesc::color(Color::hex(0x5E8C4A))
     });
     let ground = ctx.gfx.create_mesh(&MeshData::plane(100.0), grass);
-    ctx.world.spawn((Transform3D::default(), Model::new(ground)));
+    ctx.world.spawn((Transform::default(), Model::new(ground)));
 
     let house = ctx.gfx.load_mesh("models/house.glb"); // its walls and roof keep their materials
     for i in 0..5 {
         let at = vec3(i as f32 * 4.0 - 8.0, 0.0, -6.0);
-        ctx.world.spawn((Transform3D::at(at), Model::new(house), Spin(0.5)));
+        ctx.world.spawn((Transform::at(at), Model::new(house), Spin(0.5)));
     }
 
     ctx.camera3d.position = vec3(0.0, 6.0, 12.0);
@@ -32,7 +50,7 @@ fn village(ctx: &mut Ctx) {
 
 fn spin(ctx: &mut Ctx) {
     let dt = ctx.dt();
-    ctx.world.query::<(&mut Transform3D, &Spin)>().for_each(|(t, s)| {
+    ctx.world.query::<(&mut Transform, &Spin)>().for_each(|(t, s)| {
         t.rotation *= Quat::from_rotation_y(s.0 * dt);
     });
 }
@@ -45,7 +63,7 @@ fn the_guide_village_has_five_spinning_houses() {
         .sim_system(spin)
         .run_headless(60, village);
     let mut houses = 0;
-    world.query::<(&Transform3D, &Spin)>().for_each(|(t, _)| {
+    world.query::<(&Transform, &Spin)>().for_each(|(t, _)| {
         houses += 1;
         // One second at half a radian a second.
         let (axis, angle) = t.rotation.to_axis_angle();
@@ -71,7 +89,7 @@ fn plant_meadow(ctx: &mut Ctx, tuft: Mesh) {
     ctx.gfx.set_mesh_shadows(tuft, false); // no shadow map work for grass
     for i in 0..1000 {
         let at = vec3((i % 40) as f32 * 0.5, 0.0, (i / 40) as f32 * 0.5);
-        ctx.world.spawn((Transform3D::at(at), Model::new(tuft)));
+        ctx.world.spawn((Transform::at(at), Model::new(tuft)));
     }
 }
 // ANCHOR_END: mesh_shadows
@@ -93,18 +111,26 @@ fn grass_can_cast_no_shadow() {
 /// A detailed tree with a cheap shadow, a flat sign with none, and a stand-in
 /// shadow for a row of fence pieces that cast none themselves.
 fn yard(ctx: &mut Ctx, tree: Mesh, blob: Mesh, sign: Mesh, fence: Mesh, fence_shadow: Mesh) {
-    ctx.world
-        .spawn((Transform3D::default(), Model::new(tree), ShadowMesh(Some(blob))));
-    ctx.world
-        .spawn((Transform3D::at(vec3(4.0, 0.0, 0.0)), Model::new(sign), ShadowMesh(None)));
+    ctx.world.spawn((
+        Transform::default(),
+        Model::new(tree),
+        ponko::render::ShadowMesh(Some(blob)),
+    ));
+    ctx.world.spawn((
+        Transform::at(vec3(4.0, 0.0, 0.0)),
+        Model::new(sign),
+        ponko::render::ShadowMesh(None),
+    ));
     for i in 0..10 {
         let at = vec3(i as f32, 0.0, 6.0);
         ctx.world
-            .spawn((Transform3D::at(at), Model::new(fence), ShadowMesh(None)));
+            .spawn((Transform::at(at), Model::new(fence), ponko::render::ShadowMesh(None)));
     }
     // Only a shadow: no Model.
-    ctx.world
-        .spawn((Transform3D::at(vec3(0.0, 0.0, 6.0)), ShadowMesh(Some(fence_shadow))));
+    ctx.world.spawn((
+        Transform::at(vec3(0.0, 0.0, 6.0)),
+        ponko::render::ShadowMesh(Some(fence_shadow)),
+    ));
 }
 // ANCHOR_END: shadow_mesh
 
@@ -114,24 +140,32 @@ fn shadow_meshes_round_trip_through_scenes() {
         let material = ctx.gfx.default_material();
         let mesh = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
         yard(ctx, mesh, mesh, mesh, mesh, mesh);
-        let only_shadows = ctx.world.query::<&ShadowMesh>().without::<Model>().iter().count();
+        let only_shadows = ctx
+            .world
+            .query::<&ponko::render::ShadowMesh>()
+            .without::<Model>()
+            .iter()
+            .count();
         assert_eq!(only_shadows, 1);
         let none = ctx
             .world
-            .query::<&ShadowMesh>()
+            .query::<&ponko::render::ShadowMesh>()
             .iter()
             .filter(|s| s.0.is_none())
             .count();
         assert_eq!(none, 11);
         // No shadow, as JSON and back.
-        let sign = ctx.world.spawn((Transform3D::default(), ShadowMesh(None)));
+        let sign = ctx.world.spawn((Transform::default(), ponko::render::ShadowMesh(None)));
         let json = ctx.world.entity_json(sign).unwrap();
         assert_eq!(json["ShadowMesh"], serde_json::json!({ "mesh": null }), "{json}");
-        let other = ctx.world.spawn((Transform3D::default(),));
+        let other = ctx.world.spawn((Transform::default(),));
         ctx.world
             .set_json(other, "ShadowMesh", json["ShadowMesh"].clone())
             .unwrap();
-        assert_eq!(ctx.world.get::<ShadowMesh>(other), Some(&ShadowMesh(None)));
+        assert_eq!(
+            ctx.world.get::<ponko::render::ShadowMesh>(other),
+            Some(&ponko::render::ShadowMesh(None))
+        );
         let unloaded = ctx
             .world
             .set_json(other, "ShadowMesh", serde_json::json!({ "mesh": "nope.glb" }))
@@ -167,19 +201,19 @@ fn sunbeams(ctx: &mut Ctx) {
 fn street_lights(ctx: &mut Ctx) {
     ctx.lighting.light_shadow_atlas = 8192; // room for more shadow views
     ctx.lighting.light_shadow_views = 24; // as many as there can be
-    let lamp = PointLight3D {
+    let lamp = PointLight {
         color: Color::rgb(1.0, 0.8, 0.6),
         intensity: 40.0,
         range: 12.0,
         shadows: true,
         shadow_resolution: 2048, // always sharp
     };
-    ctx.world.spawn((Transform3D::at(vec3(0.0, 3.0, 0.0)), lamp));
+    ctx.world.spawn((Transform::at(vec3(0.0, 3.0, 0.0)), lamp));
     for i in 0..18 {
         let x = -20.0 + 2.5 * i as f32;
-        let at = Transform3D::at(vec3(x, 5.0, -30.0)).looking_at(vec3(x, 0.0, -29.9));
+        let at = Transform::at(vec3(x, 5.0, -30.0)).looking_at(vec3(x, 0.0, -29.9));
         // Sized by how big they look: smaller the farther they are.
-        let street_light = SpotLight3D {
+        let street_light = SpotLight {
             intensity: 60.0,
             range: 8.0,
             shadows: true,
@@ -202,12 +236,12 @@ fn light_shadow_atlas_settings_stay_as_set() {
         assert_eq!(ctx.lighting.light_shadow_atlas, 8192);
         let hinted: Vec<u32> = ctx
             .world
-            .query::<&PointLight3D>()
+            .query::<&PointLight>()
             .iter()
             .map(|p| p.shadow_resolution)
             .collect();
         assert_eq!(hinted, [2048]);
-        assert_eq!(ctx.world.query::<&SpotLight3D>().iter().count(), 18);
+        assert_eq!(ctx.world.query::<&SpotLight>().iter().count(), 18);
     });
 }
 
@@ -303,7 +337,7 @@ fn meadow(ctx: &mut Ctx) {
         ..MaterialDesc::color(Color::hex(0x7FA83C))
     });
     let blade = ctx.gfx.create_mesh(&MeshData::plane(0.5), grass);
-    ctx.world.spawn((Transform3D::default(), Model::new(blade)));
+    ctx.world.spawn((Transform::default(), Model::new(blade)));
 }
 // ANCHOR_END: shader
 
@@ -484,7 +518,7 @@ fn hills(ctx: &mut Ctx) {
                 })
                 .collect();
             let tile = ctx.gfx.create_terrain_tile(&heights, size, ground);
-            ctx.world.spawn((Transform3D::at(corner), tile));
+            ctx.world.spawn((Transform::at(corner), tile));
         }
     }
     ctx.camera3d.position = vec3(64.0, 30.0, 220.0);
@@ -501,7 +535,7 @@ fn plant_trees(ctx: &mut Ctx, heights: &[f32], corner: Vec3, tree: Mesh) {
         let (x, z) = ((i * 37 % 128) as f32, (i * 71 % 128) as f32);
         if let Some(y) = ground.height_at(x, z) {
             ctx.world
-                .spawn((Transform3D::at(corner + vec3(x, y, z)), Model::new(tree)));
+                .spawn((Transform::at(corner + vec3(x, y, z)), Model::new(tree)));
         }
     }
 }
@@ -517,7 +551,7 @@ fn the_guide_trees_stand_on_the_ground() {
         heights[0] = f32::NAN;
         plant_trees(ctx, &heights, vec3(128.0, 0.0, 0.0), tree);
     });
-    let trees: Vec<Vec3> = world.query::<&Transform3D>().iter().map(|t| t.position).collect();
+    let trees: Vec<Vec3> = world.query::<&Transform>().iter().map(|t| t.position).collect();
     assert_eq!(trees.len(), 19, "the tree at the corner is over the hole");
     assert!(trees.iter().all(|p| (p.y - 3.0).abs() < 1e-4 && p.x >= 128.0));
 }
@@ -579,7 +613,11 @@ fn the_guide_hills_are_nine_tiles_of_four_details() {
         assert_eq!(tile.lod_distance, 128.0);
         meshes.extend(tile.lods.map(|m| m));
     });
-    assert_eq!(meshes.len(), 9 * TERRAIN_LODS, "every tile and level has its own mesh");
+    assert_eq!(
+        meshes.len(),
+        9 * ponko::terrain::TerrainTile::LODS,
+        "every tile and level has its own mesh"
+    );
 }
 
 // ANCHOR: effect
@@ -627,7 +665,7 @@ fn pond(ctx: &mut Ctx) {
         ..Default::default()
     });
     let surface = ctx.gfx.create_mesh(&MeshData::plane(20.0), water);
-    ctx.world.spawn((Transform3D::default(), Model::new(surface)));
+    ctx.world.spawn((Transform::default(), Model::new(surface)));
     ctx.target_cameras
         .push(TargetCamera::reflection(ctx.camera3d, reflection, 0.0));
 }
@@ -844,14 +882,14 @@ fn terrain_tiles_need_a_size() {
 #[test]
 fn transforms_are_reflected_as_json() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        let e = ctx.world.spawn((Transform3D::at(vec3(1.0, 2.0, 3.0)).scaled(2.0),));
+        let e = ctx.world.spawn((Transform::at(vec3(1.0, 2.0, 3.0)).scaled(2.0),));
         let json = ctx.world.get_json(e, "Transform3D").unwrap();
         assert_eq!(json["position"], serde_json::json!([1.0, 2.0, 3.0]));
         assert_eq!(json["scale"], serde_json::json!([2.0, 2.0, 2.0]));
         ctx.world
             .set_json(e, "Transform3D", serde_json::json!({"position": [0.0, 5.0, 0.0]}))
             .unwrap();
-        assert_eq!(ctx.world.get::<Transform3D>(e).unwrap().position, vec3(0.0, 5.0, 0.0));
+        assert_eq!(ctx.world.get::<Transform>(e).unwrap().position, vec3(0.0, 5.0, 0.0));
     });
 }
 
@@ -860,14 +898,14 @@ fn transforms_are_reflected_as_json() {
 /// built on worker threads, freed past 800 m, and coarse far ground
 /// beyond them.
 struct Ground {
-    cells: CellStreamer,
+    cells: ponko::stream::CellStreamer,
     tiles: std::collections::HashMap<(i32, i32), Tile>,
     material: Material,
     far: FarTerrain,
 }
 
 enum Tile {
-    Building(Job<TerrainTileData>),
+    Building(ponko::stream::Job<TerrainTileData>),
     Live(Entity, TerrainTile),
 }
 
@@ -883,7 +921,7 @@ impl Ground {
             .map(|i| hill(-4096.0 + (i % n) as f32 * 32.0, -4096.0 + (i / n) as f32 * 32.0))
             .collect();
         Self {
-            cells: CellStreamer::new(128.0, 600.0, 800.0),
+            cells: ponko::stream::CellStreamer::new(128.0, 600.0, 800.0),
             tiles: Default::default(),
             material,
             far: FarTerrain::new(&heights, n, vec2(-4096.0, -4096.0), 32.0, 128.0, material),
@@ -896,7 +934,7 @@ impl Ground {
         self.cells.update(ctx.camera3d.position, 4);
         for &cell in self.cells.to_load() {
             let corner = self.cells.corner(cell);
-            let job = Job::spawn(move || {
+            let job = ponko::stream::Job::spawn(move || {
                 // 65 x 65 heights, 2 m apart.
                 let heights: Vec<f32> = (0..65 * 65)
                     .map(|i| hill(corner.x + (i % 65) as f32 * 2.0, corner.z + (i / 65) as f32 * 2.0))
@@ -919,7 +957,7 @@ impl Ground {
                 && let Some(data) = job.take()
             {
                 let made = ctx.gfx.upload_terrain_tile(&data, self.material);
-                let entity = ctx.world.spawn((Transform3D::at(self.cells.corner(cell)), made));
+                let entity = ctx.world.spawn((Transform::at(self.cells.corner(cell)), made));
                 *tile = Tile::Live(entity, made);
                 // Shown now: cut the far ground away under it.
                 self.far.cut(cell);
@@ -973,20 +1011,20 @@ fn models_of_loaded_meshes_save_and_load_by_file_name() {
         let red = Color::rgb(1.0, 0.0, 0.0);
         let e = ctx
             .world
-            .spawn((Transform3D::at(vec3(1.0, 2.0, 3.0)), Model::new(house).with_color(red)));
+            .spawn((Transform::at(vec3(1.0, 2.0, 3.0)), Model::new(house).with_color(red)));
         assert_eq!(ctx.world.get_json(e, "Model").unwrap()["mesh"], "models/house.glb");
         let white = ctx.gfx.default_material();
         let cube = ctx.gfx.create_mesh(&MeshData::cube(1.0), white);
-        ctx.world.spawn((Transform3D::default(), Model::new(cube)));
+        ctx.world.spawn((Transform::default(), Model::new(cube)));
         ctx.assets.save_scene(&ctx.world, file).unwrap();
     });
     let result = std::panic::catch_unwind(|| {
         Game::new("t", 1, 1).run_headless(0, |ctx| {
             ctx.load_scene(file).unwrap();
             let house = ctx.gfx.load_mesh("models/house.glb");
-            let models: Vec<(Transform3D, Model)> = ctx
+            let models: Vec<(Transform, Model)> = ctx
                 .world
-                .query::<(&Transform3D, &Model)>()
+                .query::<(&Transform, &Model)>()
                 .iter()
                 .map(|(t, m)| (*t, *m))
                 .collect();
@@ -1004,13 +1042,16 @@ fn models_of_loaded_meshes_save_and_load_by_file_name() {
 /// One uploaded ball in three looks, and a house with only its roof changed.
 fn recolored(ctx: &mut Ctx, house: Mesh, gold: Material, rust: Material) {
     let ball = ctx.gfx.create_plain_mesh(&MeshData::sphere(0.5, 32));
-    let at = |x: f32| Transform3D::at(vec3(x, 0.0, 0.0));
+    let at = |x: f32| Transform::at(vec3(x, 0.0, 0.0));
     ctx.world.spawn((at(0.0), Model::new(ball))); // plain white
     ctx.world.spawn((at(1.0), Model::new(ball), ModelMaterial(gold)));
     ctx.world.spawn((at(2.0), Model::new(ball), ModelMaterial(rust)));
     // Part 1 only; the other parts keep the materials from the file.
-    ctx.world
-        .spawn((at(6.0), Model::new(house), ModelMaterials::new(&[(1, rust)])));
+    ctx.world.spawn((
+        at(6.0),
+        Model::new(house),
+        ponko::render::ModelMaterials::new(&[(1, rust)]),
+    ));
 }
 // ANCHOR_END: model_material
 
@@ -1030,7 +1071,7 @@ fn one_plain_mesh_is_drawn_in_each_models_material() {
         assert_eq!(ctx.world.query::<(&Model, &ModelMaterial)>().iter().count(), 2);
         let listed: Vec<_> = ctx
             .world
-            .query::<&ModelMaterials>()
+            .query::<&ponko::render::ModelMaterials>()
             .iter()
             .flat_map(|m| m.parts().collect::<Vec<_>>())
             .collect();
@@ -1056,12 +1097,12 @@ fn model_material_overrides_save_and_load_by_file_and_material_name() {
             ctx.gfx.loaded_materials("walls")[0].0,
             ctx.gfx.loaded_materials("roof")[0].0,
         );
-        let at = |x: f32| Transform3D::at(vec3(x, 0.0, 0.0));
+        let at = |x: f32| Transform::at(vec3(x, 0.0, 0.0));
         let all_roof = ctx.world.spawn((at(1.0), Model::new(house), ModelMaterial(roof)));
         let swapped = ctx.world.spawn((
             at(2.0),
             Model::new(house),
-            ModelMaterials::new(&[(1, walls), (0, roof)]),
+            ponko::render::ModelMaterials::new(&[(1, walls), (0, roof)]),
         ));
         // A material made in code has no file to name: not saved.
         let paint = ctx.gfx.create_material(MaterialDesc::color(Color::rgb(1.0, 0.0, 0.0)));
@@ -1069,7 +1110,7 @@ fn model_material_overrides_save_and_load_by_file_and_material_name() {
             at(3.0),
             Model::new(house),
             ModelMaterial(paint),
-            ModelMaterials::new(&[(0, roof), (1, paint)]),
+            ponko::render::ModelMaterials::new(&[(0, roof), (1, paint)]),
         ));
         assert_eq!(
             ctx.world.get_json(all_roof, "ModelMaterial").unwrap(),
@@ -1094,9 +1135,14 @@ fn model_material_overrides_save_and_load_by_file_and_material_name() {
                 ctx.gfx.loaded_materials("walls")[0].0,
                 ctx.gfx.loaded_materials("roof")[0].0,
             );
-            let mut got: Vec<(f32, Option<ModelMaterial>, Option<ModelMaterials>)> = ctx
+            let mut got: Vec<(f32, Option<ModelMaterial>, Option<ponko::render::ModelMaterials>)> = ctx
                 .world
-                .query::<(&Transform3D, &Model, Option<&ModelMaterial>, Option<&ModelMaterials>)>()
+                .query::<(
+                    &Transform,
+                    &Model,
+                    Option<&ModelMaterial>,
+                    Option<&ponko::render::ModelMaterials>,
+                )>()
                 .iter()
                 .map(|(t, _, m, parts)| (t.position.x, m.copied(), parts.cloned()))
                 .collect();
@@ -1105,13 +1151,17 @@ fn model_material_overrides_save_and_load_by_file_and_material_name() {
                 got,
                 vec![
                     (1.0, Some(ModelMaterial(roof)), None),
-                    (2.0, None, Some(ModelMaterials::new(&[(0, roof), (1, walls)]))),
+                    (
+                        2.0,
+                        None,
+                        Some(ponko::render::ModelMaterials::new(&[(0, roof), (1, walls)]))
+                    ),
                     (3.0, None, None),
                 ]
             );
 
             // By number in the file, and the errors name what's wrong.
-            let e = ctx.world.spawn((Transform3D::default(),));
+            let e = ctx.world.spawn((Transform::default(),));
             let by_number = serde_json::json!({ "mesh": house_file, "material": 0 });
             ctx.world.set_json(e, "ModelMaterial", by_number).unwrap();
             assert_eq!(ctx.world.get::<ModelMaterial>(e), Some(&ModelMaterial(walls)));
@@ -1142,7 +1192,7 @@ fn model_material_overrides_save_and_load_by_file_and_material_name() {
 #[test]
 fn models_name_meshes_that_must_be_files() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        let e = ctx.world.spawn((Transform3D::default(),));
+        let e = ctx.world.spawn((Transform::default(),));
         let err = ctx
             .world
             .set_json(e, "Model", serde_json::json!({ "color": Color::WHITE }));
@@ -1165,7 +1215,7 @@ fn occlusion_culling_is_off_until_turned_on() {
         // Headless, there's no depth to cull with: everything in view is drawn.
         let white = ctx.gfx.default_material();
         let mesh = ctx.gfx.create_mesh(&MeshData::cube(1.0), white);
-        ctx.world.spawn((Transform3D::default(), Model::new(mesh)));
+        ctx.world.spawn((Transform::default(), Model::new(mesh)));
         ctx.camera3d.position = vec3(0.0, 0.0, 5.0);
         ctx.camera3d.look_at(Vec3::ZERO);
         assert_eq!(ctx.perf.render_stats().occluded, 0);
@@ -1204,7 +1254,7 @@ fn lod_groups_pick_levels_by_screen_height() {
                 LodLevel::new(0.03, vec![LodRenderer::new(low)]),
             ],
         );
-        let e = ctx.world.spawn((Transform3D::default(), group));
+        let e = ctx.world.spawn((Transform::default(), group));
         // Lower quality: drop detail at 70% of the distance.
         ctx.lod.bias = 0.7;
         // ANCHOR_END: lod
@@ -1212,7 +1262,7 @@ fn lod_groups_pick_levels_by_screen_height() {
         let at = |ctx: &mut Ctx, d: f32| {
             ctx.camera3d.position = vec3(0.0, 0.0, d);
             ctx.camera3d.look_at(Vec3::ZERO);
-            group.pick_for(&Transform3D::default(), &ctx.camera3d, &ctx.lod)
+            group.pick_for(&Transform::default(), &ctx.camera3d, &ctx.lod)
         };
         ctx.lod.bias = 1.0;
         assert_eq!(at(ctx, 2.0), LodPick::Level(0));
@@ -1246,7 +1296,7 @@ fn lod_groups_of_loaded_meshes_save_and_load_by_file_name() {
                 LodLevel::new(0.3, vec![LodRenderer::new(house).with_color(Color::rgb(1.0, 0.0, 0.0))]).with_fade(0.2),
                 LodLevel::new(
                     0.05,
-                    vec![LodRenderer::new(house).with_offset(Transform3D::at(vec3(0.0, 1.0, 0.0)))],
+                    vec![LodRenderer::new(house).with_offset(Transform::at(vec3(0.0, 1.0, 0.0)))],
                 )
                 .with_shadow(LodShadow::Casters(vec![])),
             ],
@@ -1255,12 +1305,12 @@ fn lod_groups_of_loaded_meshes_save_and_load_by_file_name() {
     };
     Game::new("t", 1, 1).run_headless(0, move |ctx| {
         let house = ctx.gfx.load_mesh("models/house.glb");
-        ctx.world.spawn((Transform3D::at(vec3(1.0, 2.0, 3.0)), group(house)));
+        ctx.world.spawn((Transform::at(vec3(1.0, 2.0, 3.0)), group(house)));
         // A group with a mesh made in code has no file to name: not saved.
         let white = ctx.gfx.default_material();
         let cube = ctx.gfx.create_mesh(&MeshData::cube(1.0), white);
         ctx.world.spawn((
-            Transform3D::default(),
+            Transform::default(),
             LodGroup::new(1.0, vec![LodLevel::new(0.1, vec![LodRenderer::new(cube)])]),
         ));
         ctx.assets.save_scene(&ctx.world, file).unwrap();
@@ -1276,7 +1326,7 @@ fn lod_groups_of_loaded_meshes_save_and_load_by_file_name() {
     drop(temp);
     result.unwrap();
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        let e = ctx.world.spawn((Transform3D::default(),));
+        let e = ctx.world.spawn((Transform::default(),));
         let level = serde_json::json!({ "levels": [{ "screen_height": 0.1, "renderers": [{ "mesh": "nope.glb" }] }] });
         let err = ctx.world.set_json(e, "LodGroup", level);
         assert!(err.unwrap_err().to_string().contains("ctx.gfx.load_mesh(\"nope.glb\")"));
@@ -1457,7 +1507,7 @@ fn lod_groups_in_the_importers_json_shape_load() {
                 { "screen_height": 0.1, "fade_width": 0.5, "renderers": [], "shadow": { "Casters": [] } },
             ],
         });
-        let e = ctx.world.spawn((Transform3D::default(),));
+        let e = ctx.world.spawn((Transform::default(),));
         ctx.world.set_json(e, "LodGroup", json).unwrap();
         let group = ctx.world.get::<LodGroup>(e).unwrap();
         assert_eq!(group.levels.len(), 3);
@@ -1470,7 +1520,7 @@ fn lod_groups_in_the_importers_json_shape_load() {
 #[test]
 fn lod_hysteresis_is_a_scene_component() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        let e = ctx.world.spawn((Transform3D::default(),));
+        let e = ctx.world.spawn((Transform::default(),));
         ctx.world.set_json(e, "LodHysteresis", serde_json::json!(0.1)).unwrap();
         assert_eq!(ctx.world.get::<LodHysteresis>(e), Some(&LodHysteresis(0.1)));
     });
@@ -1495,7 +1545,7 @@ fn gpu_particles(ctx: &mut Ctx) -> GpuBuffer {
     ctx.gfx.set_mesh_gpu_buffer(mesh, items, 128);
     // The emitter's extent around its entity, for culling.
     ctx.gfx.set_mesh_gpu_bounds(mesh, Vec3::ZERO, 20.0);
-    ctx.world.spawn((Transform3D::default(), Model::new(mesh)));
+    ctx.world.spawn((Transform::default(), Model::new(mesh)));
     items
 }
 // ANCHOR_END: gpu_buffers

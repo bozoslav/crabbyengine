@@ -8,7 +8,10 @@
 use std::ffi::{CStr, c_char, c_void};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use ponko::{Ctx, Gamepad, GamepadButton, SpatialGrid};
+use ponko::Ctx;
+use ponko::input::Gamepad;
+use ponko::input::GamepadButton;
+use ponko::spatial::SpatialGrid;
 use ponko_ecs::{Commands, Entity};
 
 use crate::keys::{button_from_c, gamepad_axis_from_c, gamepad_button_from_c, key_from_c};
@@ -1198,7 +1201,7 @@ pub unsafe extern "C" fn ponko_ctx_remove_later(ctx: *mut PonkoCtx, entity: u64,
         commands(ctx, |c| {
             c.add(move |w| match crate::component(w, component) {
                 Ok((id, _)) => {
-                    w.remove_dynamic(Entity::from_bits(entity), id);
+                    w.raw().remove_dynamic(Entity::from_bits(entity), id);
                 }
                 Err(f) => report("remove_later", f),
             });

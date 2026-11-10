@@ -1,6 +1,8 @@
 //! Attachments: entities that follow another entity.
 
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::d2::Transform as Transform2D;
+use ponko::prelude::*;
 
 struct Mover;
 
@@ -25,10 +27,10 @@ fn attachments_follow_their_entity_every_tick() {
     let (mut tank, mut bar) = (None, None);
     let world = game().run_headless(5, |ctx| {
         let t = ctx.world.spawn((Transform2D::at(vec2(100.0, 50.0)), Mover));
-        bar = Some(
-            ctx.world
-                .spawn((Transform2D::default(), Attached::to(t).offset(vec2(0.0, -10.0)))),
-        );
+        bar = Some(ctx.world.spawn((
+            Transform2D::default(),
+            ponko::d2::Attached::to(t).offset(vec2(0.0, -10.0)),
+        )));
         tank = Some(t);
     });
     assert_eq!(position(&world, tank.unwrap()), vec2(105.0, 50.0));
@@ -46,10 +48,11 @@ fn offsets_turn_and_mirror_with_their_entity_but_scale_stays_own() {
         let small = Transform2D::default().scaled(Vec2::splat(0.5));
         let on_a = ctx
             .world
-            .spawn((small, Attached::to(a).offset(vec2(4.0, 0.0)).rotated(0.25)));
-        let on_b = ctx
-            .world
-            .spawn((Transform2D::default(), Attached::to(b).offset(vec2(4.0, 0.0))));
+            .spawn((small, ponko::d2::Attached::to(a).offset(vec2(4.0, 0.0)).rotated(0.25)));
+        let on_b = ctx.world.spawn((
+            Transform2D::default(),
+            ponko::d2::Attached::to(b).offset(vec2(4.0, 0.0)),
+        ));
         ids = Some((on_a, on_b));
     });
     let (on_a, on_b) = ids.unwrap();
@@ -73,10 +76,12 @@ fn attachments_go_when_their_entity_goes_down_the_whole_chain() {
         .sim_system(systems::follow_attachments)
         .run_headless(3, |ctx| {
             let unit = ctx.world.spawn((Transform2D::default(),));
-            let ring = ctx.world.spawn((Transform2D::default(), Attached::to(unit)));
-            let label = ctx.world.spawn((Transform2D::default(), Attached::to(ring)));
+            let ring = ctx.world.spawn((Transform2D::default(), ponko::d2::Attached::to(unit)));
+            let label = ctx.world.spawn((Transform2D::default(), ponko::d2::Attached::to(ring)));
             let other = ctx.world.spawn((Transform2D::default(),));
-            let kept = ctx.world.spawn((Transform2D::default(), Attached::to(other)));
+            let kept = ctx
+                .world
+                .spawn((Transform2D::default(), ponko::d2::Attached::to(other)));
             ctx.world.insert_resource(Doomed(unit));
             ids = Some((ring, label, kept));
         });
@@ -94,7 +99,7 @@ fn many_attachments_are_placed_in_parallel() {
             let base = ctx.world.spawn((Transform2D::at(vec2(i as f32, 0.0)), Mover));
             ctx.world.spawn((
                 Transform2D::default(),
-                Attached::to(base).offset(vec2(0.0, 1.0)),
+                ponko::d2::Attached::to(base).offset(vec2(0.0, 1.0)),
                 Child(i),
             ));
         }
@@ -129,7 +134,7 @@ fn turrets_ride_on_tanks() {
         .sim_system(systems::follow_attachments) // after the systems that move things
         .run_headless(10, |ctx| {
             let tank = ctx.world.spawn((Transform2D::at(vec2(0.0, 0.0)), Tank { speed: 1.0 }));
-            let on_top = Attached::to(tank).offset(vec2(0.0, -4.0));
+            let on_top = ponko::d2::Attached::to(tank).offset(vec2(0.0, -4.0));
             turret = Some(ctx.world.spawn((Transform2D::default(), on_top)));
         });
     assert_eq!(position(&world, turret.unwrap()), vec2(10.0, -4.0));
@@ -141,10 +146,10 @@ fn attachments_are_reflected_for_tools_and_saves() {
     let mut bar = None;
     let world = game().run_headless(0, |ctx| {
         let unit = ctx.world.spawn((Transform2D::default(),));
-        bar = Some(
-            ctx.world
-                .spawn((Transform2D::default(), Attached::to(unit).offset(vec2(0.0, -3.0)))),
-        );
+        bar = Some(ctx.world.spawn((
+            Transform2D::default(),
+            ponko::d2::Attached::to(unit).offset(vec2(0.0, -3.0)),
+        )));
     });
     let json = world.get_json(bar.unwrap(), "Attached").unwrap();
     assert_eq!(json["offset"], serde_json::json!([0.0, -3.0]));

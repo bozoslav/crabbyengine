@@ -601,6 +601,10 @@ pub use crate::PonkoNavGrid as CrabbyNavGrid;
 #[deprecated(
     note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
 )]
+pub use crate::PonkoQueryFilter2D as CrabbyQueryFilter2D;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
 pub use crate::PonkoQueryOptions as CrabbyQueryOptions;
 #[deprecated(
     note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
@@ -7542,6 +7546,103 @@ pub unsafe extern "C" fn crabby_ctx_spatial_view(
     // pointer, lifetime, ownership and callback preconditions. Distinct value
     // types have identical repr(C) layouts and valid discriminants, checked above.
     (unsafe { crate::ponko_ctx_spatial_view(ctx, out_view) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_cast_ray_filtered`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_cast_ray_filtered(
+    ctx: *mut CrabbyCtx,
+    origin: CrabbyVec2,
+    direction: CrabbyVec2,
+    max_distance: f32,
+    filter: CrabbyQueryFilter2D,
+    out_found: *mut bool,
+    out_hit: *mut CrabbyRayHit,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_cast_ray_filtered(ctx, origin, direction, max_distance, filter, out_found, out_hit) })
+        .into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_overlap_ball`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_overlap_ball(
+    ctx: *mut CrabbyCtx,
+    center: CrabbyVec2,
+    radius: f32,
+    filter: CrabbyQueryFilter2D,
+    out_entities: *mut CrabbyEntity,
+    capacity: usize,
+    out_count: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_overlap_ball(ctx, center, radius, filter, out_entities, capacity, out_count) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_spawn_prefab3d`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_spawn_prefab3d(
+    ctx: *mut CrabbyCtx,
+    path: *const c_char,
+    at: CrabbyVec3,
+    output: *mut u64,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_spawn_prefab3d(ctx, path, at, output) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_spawn_prefab_transform3d`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_spawn_prefab_transform3d(
+    ctx: *mut CrabbyCtx,
+    path: *const c_char,
+    at: CrabbyTransform3D,
+    output: *mut u64,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_spawn_prefab_transform3d(ctx, path, at, output) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_spawn_prefab_transform2d`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_spawn_prefab_transform2d(
+    ctx: *mut CrabbyCtx,
+    path: *const c_char,
+    at: CrabbyTransform2D,
+    output: *mut u64,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_spawn_prefab_transform2d(ctx, path, at, output) }).into()
 }
 
 #[deprecated(

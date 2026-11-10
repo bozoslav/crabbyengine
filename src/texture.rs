@@ -7,10 +7,10 @@ use crate::color::Color;
 /// A loaded image on the GPU. Cheap to copy: it's just an id plus its size.
 ///
 /// Get one from [`Ctx::load_texture`](crate::Ctx::load_texture) or
-/// [`Graphics::create_texture`](crate::Graphics::create_texture).
+/// [`Graphics::create_texture`](crate::gfx::Graphics::create_texture).
 ///
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn setup(ctx: &mut Ctx) {
 /// let crab = ctx.load_texture("crab.png");
 /// println!("{} x {}", crab.width(), crab.height());
@@ -32,7 +32,7 @@ impl Texture {
     /// Width in pixels.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(tex: Texture) {
     /// let w = tex.width();
     /// # }
@@ -45,7 +45,7 @@ impl Texture {
     /// Height in pixels.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(tex: Texture) {
     /// let h = tex.height();
     /// # }
@@ -58,7 +58,7 @@ impl Texture {
     /// Size in pixels as a vector.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(tex: Texture) {
     /// let half = tex.size() / 2.0;
     /// # }
@@ -70,7 +70,7 @@ impl Texture {
 }
 
 /// How a texture looks when drawn bigger or smaller than its pixels:
-/// [`Graphics::set_texture_filter`](crate::Graphics::set_texture_filter).
+/// [`Graphics::set_texture_filter`](crate::gfx::Graphics::set_texture_filter).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TextureFilter {
     /// Smooth blending between pixels (default): photos, painted art.
@@ -80,11 +80,11 @@ pub enum TextureFilter {
     Nearest,
 }
 
-/// Optional settings for [`Graphics::draw_ex`](crate::Graphics::draw_ex).
+/// Optional settings for [`Graphics::draw_ex`](crate::gfx::Graphics::draw_ex).
 /// Start from `DrawParams::default()` and change what you need.
 ///
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn update(ctx: &mut Ctx, tex: Texture) {
 /// ctx.gfx.draw_ex(&tex, vec2(100.0, 100.0), DrawParams {
 ///     rotation: 0.5,

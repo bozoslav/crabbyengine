@@ -18,7 +18,8 @@
 //! On the desktop it opens a window like any other example
 //! (`cargo run --example web_smoke`) and prints its state once a second.
 
-use ponko::*;
+use ponko::prelude::*;
+
 use serde_json::json;
 use std::cell::Cell;
 use std::rc::Rc;

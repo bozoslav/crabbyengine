@@ -8,7 +8,9 @@
 //! mouse looks, WASD walks, Shift runs, Space jumps; left click shoves the
 //! crate you're looking at.
 
-use ponko::*;
+#[cfg(feature = "3d")]
+use ponko::d3::*;
+use ponko::prelude::*;
 
 const N: usize = 65;
 const SIZE: f32 = 128.0;
@@ -36,12 +38,8 @@ fn build_world(ctx: &mut Ctx) {
     let ground = ctx.physics3d.heightfield(&heights, SIZE);
     let look = grass(ctx);
     let tile = ctx.gfx.create_terrain_tile(&heights, SIZE, look);
-    ctx.world.spawn((
-        Transform3D::at(corner),
-        tile,
-        RigidBody3D::fixed(),
-        Collider3D::mesh(ground),
-    ));
+    ctx.world
+        .spawn((Transform::at(corner), tile, RigidBody::fixed(), Collider::mesh(ground)));
 
     // Stairs: fixed boxes 0.25 m higher each.
     let stone = ctx.gfx.create_material(MaterialDesc::color(Color::hex(0x9A948A)));
@@ -50,13 +48,13 @@ fn build_world(ctx: &mut Ctx) {
         let size = vec3(2.0, 0.25 * (i + 1) as f32, 0.6);
         let at = vec3(6.0, height(6.0, 3.0 + i as f32 * 0.6), 3.0 + i as f32 * 0.6);
         ctx.world.spawn((
-            Transform3D {
+            Transform {
                 scale: size,
-                ..Transform3D::at(at + Vec3::Y * size.y / 2.0)
+                ..Transform::at(at + Vec3::Y * size.y / 2.0)
             },
             Model::new(block),
-            RigidBody3D::fixed(),
-            Collider3D::cuboid(size),
+            RigidBody::fixed(),
+            Collider::cuboid(size),
         ));
     }
 
@@ -66,20 +64,20 @@ fn build_world(ctx: &mut Ctx) {
     for i in 0..6 {
         let (x, z) = (-4.0 + i as f32 * 1.5, -6.0);
         ctx.world.spawn((
-            Transform3D::at(vec3(x, height(x, z) + 2.0 + i as f32, z)),
+            Transform::at(vec3(x, height(x, z) + 2.0 + i as f32, z)),
             Model::new(crate_mesh),
-            RigidBody3D::dynamic(),
-            Collider3D::cuboid(Vec3::ONE).density(150.0).friction(0.7),
-            Velocity3D::default(),
+            RigidBody::dynamic(),
+            Collider::cuboid(Vec3::ONE).density(150.0).friction(0.7),
+            Velocity::default(),
         ));
     }
 
     // The walker: a capsule 1.8 m tall, its transform at its feet.
-    let mut walker = Character3D::new(1.8, 0.3);
+    let mut walker = Character::new(1.8, 0.3);
     walker.step_height = 0.3;
     let id = ctx
         .world
-        .spawn((Transform3D::at(vec3(0.0, height(0.0, 0.0) + 1.0, 0.0)), walker));
+        .spawn((Transform::at(vec3(0.0, height(0.0, 0.0) + 1.0, 0.0)), walker));
     ctx.world.insert_resource(Player {
         id,
         yaw: 0.0,
@@ -118,7 +116,7 @@ fn walk(ctx: &mut Ctx) {
     let jump = ctx.key_down(Key::Space);
     let player = ctx.world.resource::<Player>();
     let (id, yaw) = (player.id, player.yaw);
-    let Some(c) = ctx.world.get_mut::<Character3D>(id) else {
+    let Some(c) = ctx.world.get_mut::<Character>(id) else {
         return;
     };
     let forward = vec3(-yaw.sin(), 0.0, -yaw.cos());
@@ -139,7 +137,7 @@ fn walk(ctx: &mut Ctx) {
 fn shove(ctx: &mut Ctx) {
     let me = ctx.world.resource::<Player>().id;
     let (eye, forward) = (ctx.camera3d.position, ctx.camera3d.rotation * Vec3::NEG_Z);
-    let filter = QueryFilter3D::default().exclude(me);
+    let filter = QueryFilter::default().exclude(me);
     if let Some(hit) = ctx.physics3d.cast_ray(eye, forward, 30.0, filter)
         && let Some(mass) = ctx.physics3d.mass(hit.entity)
     {
@@ -176,7 +174,7 @@ fn eyes(ctx: &mut Ctx) {
     p.yaw -= turn.x;
     p.pitch = (p.pitch - turn.y).clamp(-1.5, 1.5);
     let (id, yaw, pitch) = (p.id, p.yaw, p.pitch);
-    if let Some(t) = ctx.world.get::<Transform3D>(id) {
+    if let Some(t) = ctx.world.get::<Transform>(id) {
         ctx.camera3d.position = t.position + Vec3::Y * 1.65;
         ctx.camera3d.rotation = Quat::from_rotation_y(yaw) * Quat::from_rotation_x(pitch);
     }

@@ -1,6 +1,8 @@
 //! Flow fields from C: `PonkoNavGrid` (walking costs) and `PonkoFlowField`
 //! (the way to the nearest goal from every cell).
-use ponko::{FlowField, NavGrid, Vec2};
+use ponko::Vec2;
+use ponko::flow::FlowField;
+use ponko::flow::NavGrid;
 
 use crate::ctx::out;
 use crate::types::*;

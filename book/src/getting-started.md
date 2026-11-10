@@ -45,7 +45,7 @@ for building):
 <div>
 
 ```rust
-use ponko::*;
+use ponko::prelude::*;
 
 fn main() {
     Game::new("My Game", 800, 600).run(|ctx| {
@@ -79,8 +79,10 @@ create in `setup` and move into the closure are your game state. For small
 games that's all you need; when things grow, move to
 [entities and systems](ecs.md).
 
-Everything comes in with `use ponko::*;`: `Game`, `Ctx`, `Vec2`,
-`Color`, `Key`, the ECS types and the built-in components.
+Everything here comes in with `use ponko::prelude::*;`: `Game`, `Ctx`,
+`Vec2`, `Color`, `Key`, the ECS types and the common components. Add
+`use ponko::d2::*;` or `use ponko::d3::*;` for one dimension's names
+([Naming and compatibility](naming.md)).
 
 ## Setup on the builder
 
@@ -97,7 +99,7 @@ let game = Game::new("My Game", 800, 600)
     .sim_system(movement)
     .setup(|ctx| {
         let crab = ctx.load_texture("crab.png");
-        ctx.world.spawn((Transform2D::at(vec2(400.0, 300.0)), Sprite::new(crab)));
+        ctx.world.spawn((ponko::d2::Transform::at(vec2(400.0, 300.0)), ponko::d2::Sprite::new(crab)));
     });
 // Startup chosen at run time: each call adds one more callback.
 let game = if with_enemies { game.setup(spawn_enemies) } else { game };
@@ -145,7 +147,7 @@ instead, for assets that may legitimately be missing (a mod, an optional
 skin, a user's file):
 
 ```rust
-# use ponko::*;
+# use ponko::prelude::*;
 # fn setup(ctx: &mut Ctx) {
 match ctx.gfx.try_load_texture("skins/gold.png") {
     Ok(skin) => { /* use it */ let _ = skin; }

@@ -3,14 +3,14 @@
 use crate::Color;
 use glam::{Vec2, Vec3};
 
-/// Triangles to make a [`Mesh`](crate::Mesh) from: corners with their
+/// Triangles to make a [`Mesh`](crate::render::Mesh) from: corners with their
 /// normals and texture coordinates, and three indices per triangle
 /// (counter-clockwise seen from the front).
 ///
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// // One triangle facing +Z.
-/// let tri = MeshData {
+/// let tri = ponko::render::MeshData {
 ///     positions: vec![vec3(0.0, 0.0, 0.0), vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0)],
 ///     normals: vec![Vec3::Z; 3],
 ///     uvs: vec![vec2(0.0, 1.0), vec2(1.0, 1.0), vec2(0.0, 0.0)],
@@ -39,7 +39,7 @@ pub struct MeshData {
     /// layers, masks). The built-in shading doesn't use it. Empty: all zero.
     pub uvs1: Vec<Vec2>,
     /// For skinned meshes: up to four joints per corner that move it (see
-    /// [`Graphics::create_skinned_mesh`](crate::Graphics::create_skinned_mesh)). Empty
+    /// [`Graphics::create_skinned_mesh`](crate::gfx::Graphics::create_skinned_mesh)). Empty
     /// for meshes that don't bend.
     pub joints: Vec<[u16; 4]>,
     /// How much each of `joints` moves the corner; they're scaled to add
@@ -47,7 +47,7 @@ pub struct MeshData {
     pub weights: Vec<[f32; 4]>,
     /// Shapes the mesh can blend toward (blend shapes: a smile, a blink, a
     /// dent), each as offsets from these corners. A model's
-    /// [`MorphWeights`](crate::MorphWeights) say how much of each to add.
+    /// [`MorphWeights`](crate::anim::MorphWeights) say how much of each to add.
     /// Empty for meshes that don't change shape.
     pub morph_targets: Vec<MorphTarget>,
     /// Optional piecewise linear channels. Each entry links a target's deltas
@@ -60,17 +60,17 @@ pub struct MeshData {
 /// per corner, how far it moves and how its normal changes at full weight.
 ///
 /// ```
-/// # use ponko::*;
-/// let mut quad = MeshData::plane(1.0);
+/// # use ponko::prelude::*;
+/// let mut quad = ponko::render::MeshData::plane(1.0);
 /// // "raise": lifts the first corner 0.5 up.
 /// let mut up = vec![Vec3::ZERO; quad.positions.len()];
 /// up[0] = vec3(0.0, 0.5, 0.0);
-/// quad.morph_targets.push(MorphTarget { name: "raise".into(), positions: up, normals: Vec::new() });
+/// quad.morph_targets.push(ponko::anim::MorphTarget { name: "raise".into(), positions: up, normals: Vec::new() });
 /// assert!(quad.check().is_ok());
 /// ```
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct MorphTarget {
-    /// What it's called, to find it by name ([`Graphics::morph_target`](crate::Graphics::morph_target)).
+    /// What it's called, to find it by name ([`Graphics::morph_target`](crate::gfx::Graphics::morph_target)).
     pub name: String,
     /// One offset per corner.
     pub positions: Vec<Vec3>,
@@ -82,8 +82,8 @@ pub struct MorphTarget {
 /// stored at `channel` in MorphWeights; `target` selects this frame's deltas.
 /// Every participating target must belong to exactly one channel.
 /// ```
-/// use ponko::*;
-/// let frame = MorphFrame { channel: 0, target: 1, weight: 0.5 };
+/// use ponko::prelude::*;
+/// let frame = ponko::anim::MorphFrame { channel: 0, target: 1, weight: 0.5 };
 /// assert_eq!(frame.weight, 0.5);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -101,8 +101,8 @@ impl MeshData {
     /// coordinates covering the whole image.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let cube = MeshData::cube(2.0);
+    /// # use ponko::prelude::*;
+    /// let cube = ponko::render::MeshData::cube(2.0);
     /// assert_eq!(cube.indices.len(), 36);
     /// ```
     #[must_use]
@@ -135,8 +135,8 @@ impl MeshData {
     /// A flat square `size` wide on the XZ plane, facing up (+Y): ground.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let ground = MeshData::plane(100.0);
+    /// # use ponko::prelude::*;
+    /// let ground = ponko::render::MeshData::plane(100.0);
     /// assert!(ground.normals.iter().all(|n| *n == Vec3::Y));
     /// ```
     #[must_use]
@@ -165,8 +165,8 @@ impl MeshData {
     /// around and half as many from pole to pole (at least 3).
     ///
     /// ```
-    /// # use ponko::*;
-    /// let ball = MeshData::sphere(0.5, 24);
+    /// # use ponko::prelude::*;
+    /// let ball = ponko::render::MeshData::sphere(0.5, 24);
     /// assert!(ball.positions.iter().all(|p| (p.length() - 0.5).abs() < 1e-5));
     /// ```
     #[must_use]
@@ -215,9 +215,9 @@ impl MeshData {
     /// drawn at different details.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// // 3 x 3 heights: a little hill in the middle of a 10-unit square.
-    /// let hill = MeshData::heightfield(&[0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0], 10.0, 1);
+    /// let hill = ponko::render::MeshData::heightfield(&[0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0], 10.0, 1);
     /// assert!(hill.positions.contains(&vec3(5.0, 2.0, 5.0)));
     /// ```
     ///
@@ -306,11 +306,11 @@ impl MeshData {
     /// numbers.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let broken = MeshData { positions: vec![Vec3::ZERO], indices: vec![0, 1, 2], ..Default::default() };
-    /// let short = MeshData { positions: vec![Vec3::ZERO; 3], indices: vec![0, 1, 2], uvs1: vec![Vec2::ZERO], ..Default::default() };
+    /// # use ponko::prelude::*;
+    /// let broken = ponko::render::MeshData { positions: vec![Vec3::ZERO], indices: vec![0, 1, 2], ..Default::default() };
+    /// let short = ponko::render::MeshData { positions: vec![Vec3::ZERO; 3], indices: vec![0, 1, 2], uvs1: vec![Vec2::ZERO], ..Default::default() };
     /// assert!(short.check().unwrap_err().contains("second texture coordinates"));
-    /// let unweighted = MeshData { positions: vec![Vec3::ZERO; 3], indices: vec![0, 1, 2], joints: vec![[0; 4]; 3], ..Default::default() };
+    /// let unweighted = ponko::render::MeshData { positions: vec![Vec3::ZERO; 3], indices: vec![0, 1, 2], joints: vec![[0; 4]; 3], ..Default::default() };
     /// assert!(unweighted.check().unwrap_err().contains("weights"));
     /// assert!(broken.check().is_err());
     /// ```

@@ -5,7 +5,7 @@ name: the agent bridge (MCP), the inspector, and save/load all use it. It's
 opt-in per type and built on [serde](https://serde.rs).
 
 ```rust
-use ponko::*;
+use ponko::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -14,7 +14,7 @@ struct Health { current: f32, max: f32 }
 Game::new("Arena", 1280, 720)
     .setup(|ctx| {
         ctx.world.reflect::<Health>();
-        let e = ctx.world.spawn((Transform2D::default(), Health { current: 10.0, max: 10.0 }));
+        let e = ctx.world.spawn((ponko::d2::Transform::default(), Health { current: 10.0, max: 10.0 }));
 
         // Read: {"current": 10.0, "max": 10.0}
         let hp = ctx.world.get_json(e, "Health").unwrap();
@@ -60,7 +60,7 @@ tweak) lives in resources. Reflect them the same way:
 
 ```rust
 # use serde::{Deserialize, Serialize};
-# use serde_json::json;
+# use ponko::reflect::json::json;
 #[derive(Serialize, Deserialize)]
 struct Score { red: u32, blue: u32 }
 
@@ -102,7 +102,7 @@ left out of saves.
 
 ## The methods
 
-All of them come from `WorldReflect`, which `use ponko::*;` brings in.
+All of them come from `WorldReflect`, which `use ponko::prelude::*;` brings in.
 
 | Method | Does |
 |---|---|
@@ -122,8 +122,8 @@ All of them come from `WorldReflect`, which `use ponko::*;` brings in.
 copied, saved, or sent over the wire:
 
 ```rust
-# let e = world.spawn((Transform2D::default(),));
-let snapshot = world.entity_json(e)?;   // {"Transform2D": {...}, "Health": {...}}
+# let e = world.spawn((ponko::d2::Transform::default(),));
+let snapshot = world.entity_json(e)?;   // {"ponko::d2::Transform": {...}, "Health": {...}}
 let copy = world.spawn_json(snapshot)?;
 ```
 

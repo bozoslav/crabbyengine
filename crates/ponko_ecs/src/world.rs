@@ -463,7 +463,7 @@ impl World {
         self.recorder.note(|l| l.structural = true);
         let id = self.register::<T>();
         let value = std::mem::ManuallyDrop::new(value);
-        let ok = unsafe { self.insert_dynamic(e, id, (&*value as *const T).cast()) };
+        let ok = unsafe { self.insert_dynamic_inner(e, id, (&*value as *const T).cast()) };
         if !ok {
             drop(std::mem::ManuallyDrop::into_inner(value));
         }
@@ -661,30 +661,9 @@ impl World {
             .map(|r| *r.downcast().unwrap())
     }
 
-    /// Stores a resource that has no Rust type, by name: a copy of
-    /// `layout.size()` bytes from `value`, replacing any resource of that
-    /// name. This is how C and C++ games keep global values.
-    ///
-    /// ```
-    /// use ponko_ecs::*;
-    /// use std::alloc::Layout;
-    ///
-    /// let mut world = World::new();
-    /// let score: [u32; 2] = [3, 1];
-    /// // SAFETY: `score` is 8 readable bytes.
-    /// unsafe { world.insert_resource_dynamic("Score", Layout::new::<[u32; 2]>(), score.as_ptr().cast()) };
-    /// let p = world.get_resource_dynamic("Score").unwrap() as *const [u32; 2];
-    /// // SAFETY: the resource holds the bytes of a [u32; 2].
-    /// assert_eq!(unsafe { *p }, [3, 1]);
-    /// ```
-    ///
-    /// # Safety
-    /// `value` points to `layout.size()` readable bytes (any pointer for size 0).
-    ///
-    /// # Panics
-    /// If a resource of that name exists with a different layout.
+    /// Implementation of [`RawWorld::insert_resource_dynamic`](crate::RawWorld::insert_resource_dynamic).
     #[track_caller]
-    pub unsafe fn insert_resource_dynamic(&mut self, name: &str, layout: Layout, value: *const u8) {
+    pub(crate) unsafe fn insert_resource_dynamic_inner(&mut self, name: &str, layout: Layout, value: *const u8) {
         self.recorder.note(|l| l.dynamic_resource(name));
         if let Some(old) = self.dynamic_resources.get(name) {
             assert!(
@@ -697,23 +676,21 @@ impl World {
         self.dynamic_resources.insert(name.to_string(), raw);
     }
 
-    /// Pointer to resource `name` (one stored with
-    /// [`insert_resource_dynamic`](Self::insert_resource_dynamic)), or `None`.
-    /// It stays valid until the resource is replaced or removed.
+    /// Implementation of [`RawWorld::get_resource_dynamic`](crate::RawWorld::get_resource_dynamic).
     #[must_use]
-    pub fn get_resource_dynamic(&self, name: &str) -> Option<*mut u8> {
+    pub(crate) fn get_resource_dynamic_inner(&self, name: &str) -> Option<*mut u8> {
         self.recorder.note(|l| l.dynamic_resource(name));
         self.dynamic_resources.get(name).map(|r| r.ptr.as_ptr())
     }
 
-    /// The size and alignment of resource `name`, if it exists.
+    /// Implementation of [`RawWorld::resource_layout_dynamic`](crate::RawWorld::resource_layout_dynamic).
     #[must_use]
-    pub fn resource_layout_dynamic(&self, name: &str) -> Option<Layout> {
+    pub(crate) fn resource_layout_dynamic_inner(&self, name: &str) -> Option<Layout> {
         self.dynamic_resources.get(name).map(|r| r.layout)
     }
 
-    /// Removes resource `name`; `false` if there was none.
-    pub fn remove_resource_dynamic(&mut self, name: &str) -> bool {
+    /// Implementation of [`RawWorld::remove_resource_dynamic`](crate::RawWorld::remove_resource_dynamic).
+    pub(crate) fn remove_resource_dynamic_inner(&mut self, name: &str) -> bool {
         self.recorder.note(|l| l.dynamic_resource(name));
         self.dynamic_resources.remove(name).is_some()
     }
@@ -917,9 +894,9 @@ impl World {
         self.by_type.get(&TypeId::of::<T>()).copied()
     }
 
-    /// Looks a component up by name (registered name, or Rust type name).
+    /// Implementation of [`RawWorld::component_by_name`](crate::RawWorld::component_by_name).
     #[must_use]
-    pub fn component_by_name(&self, name: &str) -> Option<ComponentId> {
+    pub(crate) fn component_by_name_inner(&self, name: &str) -> Option<ComponentId> {
         self.by_name.get(name).copied()
     }
 
@@ -952,9 +929,9 @@ impl World {
         &self.infos
     }
 
-    /// The archetype tables, for tools such as the inspector.
+    /// Implementation of [`RawWorld::archetypes`](crate::RawWorld::archetypes).
     #[must_use]
-    pub fn archetypes(&self) -> &[Archetype] {
+    pub(crate) fn archetypes_inner(&self) -> &[Archetype] {
         &self.archetypes
     }
 
@@ -980,9 +957,9 @@ impl World {
         Some(self.archetypes[loc.archetype as usize].component_ids())
     }
 
-    /// Pointer to component `id` of entity `e`, or `None`.
+    /// Implementation of [`RawWorld::get_dynamic`](crate::RawWorld::get_dynamic).
     #[must_use]
-    pub fn get_dynamic(&self, e: Entity, id: ComponentId) -> Option<*mut u8> {
+    pub(crate) fn get_dynamic_inner(&self, e: Entity, id: ComponentId) -> Option<*mut u8> {
         // The pointer allows writing: count it as a write.
         self.recorder.note(|l| l.component(id, true));
         self.locate(e, id)
@@ -996,15 +973,8 @@ impl World {
         Some(arch.columns[col].ptr(loc.row as usize))
     }
 
-    /// Spawns an entity from raw component values.
-    ///
-    /// # Safety
-    /// Each pointer must point to a valid value of its component; the world
-    /// takes ownership (the caller must not drop it). Ids must be from this world.
-    ///
-    /// # Panics
-    /// If a component id appears twice.
-    pub unsafe fn spawn_dynamic(&mut self, components: &[(ComponentId, *const u8)]) -> Entity {
+    /// Implementation of [`RawWorld::spawn_dynamic`](crate::RawWorld::spawn_dynamic).
+    pub(crate) unsafe fn spawn_dynamic_inner(&mut self, components: &[(ComponentId, *const u8)]) -> Entity {
         self.recorder.note(|l| l.structural = true);
         let a = self.dynamic_archetype(components, "spawn_dynamic");
         let e = self.entities.alloc();
@@ -1013,31 +983,8 @@ impl World {
         e
     }
 
-    /// [`spawn_dynamic`](Self::spawn_dynamic) with a given id, like
-    /// [`spawn_at`](Self::spawn_at): returns `false` (and takes nothing) if
-    /// that slot is taken.
-    ///
-    /// ```
-    /// use ponko_ecs::{Entity, World};
-    ///
-    /// let mut world = World::new();
-    /// // SAFETY: f32 is plain bytes.
-    /// let id = unsafe { world.register_component("Speed", 4, 4, None) };
-    /// let saved = Entity::from_bits(5 | 2 << 32);
-    /// let speed = 1.5f32;
-    /// // SAFETY: points to a valid f32, which needs no drop.
-    /// assert!(unsafe { world.spawn_at_dynamic(saved, &[(id, (&speed as *const f32).cast())]) });
-    /// assert!(!unsafe { world.spawn_at_dynamic(saved, &[(id, (&speed as *const f32).cast())]) });
-    /// assert_eq!(world.len(), 1);
-    /// ```
-    ///
-    /// # Safety
-    /// As for [`spawn_dynamic`](Self::spawn_dynamic). When this returns
-    /// `false`, the values stay the caller's.
-    ///
-    /// # Panics
-    /// If a component id appears twice.
-    pub unsafe fn spawn_at_dynamic(&mut self, e: Entity, components: &[(ComponentId, *const u8)]) -> bool {
+    /// Implementation of [`RawWorld::spawn_at_dynamic`](crate::RawWorld::spawn_at_dynamic).
+    pub(crate) unsafe fn spawn_at_dynamic_inner(&mut self, e: Entity, components: &[(ComponentId, *const u8)]) -> bool {
         self.recorder.note(|l| l.structural = true);
         let a = self.dynamic_archetype(components, "spawn_at_dynamic");
         if !self.entities.alloc_at(e) {
@@ -1085,13 +1032,8 @@ impl World {
         );
     }
 
-    /// Adds (or replaces) component `id` on `e` from a raw value.
-    /// Returns `false` if `e` is dead; the value is then still the caller's.
-    ///
-    /// # Safety
-    /// `value` must point to a valid value of component `id`; on success the
-    /// world takes ownership of it.
-    pub unsafe fn insert_dynamic(&mut self, e: Entity, id: ComponentId, value: *const u8) -> bool {
+    /// Implementation of [`RawWorld::insert_dynamic`](crate::RawWorld::insert_dynamic).
+    pub(crate) unsafe fn insert_dynamic_inner(&mut self, e: Entity, id: ComponentId, value: *const u8) -> bool {
         let Some(loc) = self.entities.get(e) else {
             self.recorder.note(|l| l.structural = true);
             return false;
@@ -1145,9 +1087,8 @@ impl World {
         true
     }
 
-    /// Removes component `id` from `e`, dropping the value. Returns `false` if
-    /// `e` is dead or didn't have it.
-    pub fn remove_dynamic(&mut self, e: Entity, id: ComponentId) -> bool {
+    /// Implementation of [`RawWorld::remove_dynamic`](crate::RawWorld::remove_dynamic).
+    pub(crate) fn remove_dynamic_inner(&mut self, e: Entity, id: ComponentId) -> bool {
         self.recorder.note(|l| l.structural = true);
         let Some(loc) = self.entities.get(e) else { return false };
         let arch = &self.archetypes[loc.archetype as usize];
@@ -1166,14 +1107,8 @@ impl World {
         true
     }
 
-    /// Calls `f` once per archetype that has all of `ids`, with raw column
-    /// pointers in `ids` order. This is how C/C++ systems see the world: whole
-    /// columns, never one call per entity.
-    ///
-    /// # Panics
-    ///
-    /// With more than 32 component ids.
-    pub fn for_each_chunk(&mut self, ids: &[ComponentId], mut f: impl FnMut(Chunk<'_>)) {
+    /// Implementation of [`RawWorld::for_each_chunk`](crate::RawWorld::for_each_chunk).
+    pub(crate) fn for_each_chunk_inner(&mut self, ids: &[ComponentId], mut f: impl FnMut(Chunk<'_>)) {
         const MAX: usize = 32;
         assert!(ids.len() <= MAX, "for_each_chunk: at most {MAX} components");
         self.recorder.note(|l| ids.iter().for_each(|&id| l.component(id, true)));

@@ -6,7 +6,8 @@ use std::collections::HashSet;
 use glam::{Vec2, Vec3};
 
 use super::{Material, Mesh, MeshData, Model, ShadowMesh};
-use crate::{Ctx, Entity, Transform3D};
+use crate::d3::Transform as Transform3D;
+use crate::{Ctx, Entity};
 
 /// Grid squares along each side of one of a far terrain's meshes.
 const BLOCK: usize = 64;
@@ -27,13 +28,13 @@ const BLOCK: usize = 64;
 /// NaN leaves a hole.
 ///
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// Game::new("t", 1, 1).run_headless(0, |ctx| {
 ///     // 8 km of world sampled every 64 m, from (-4096, -4096); tiles 256 m wide.
 ///     let n = 129;
 ///     let heights: Vec<f32> = (0..n * n).map(|i| ((i % n) as f32 * 0.3).sin() * 40.0).collect();
 ///     let ground = ctx.gfx.default_material();
-///     let mut far = FarTerrain::new(&heights, n, vec2(-4096.0, -4096.0), 64.0, 256.0, ground);
+///     let mut far = ponko::terrain::FarTerrain::new(&heights, n, vec2(-4096.0, -4096.0), 64.0, 256.0, ground);
 ///     far.cut((0, 0)); // the tile of cell (0, 0) is loaded
 ///     far.update(ctx);
 ///     assert_eq!(far.mesh_count(), 4);
@@ -66,13 +67,13 @@ impl FarTerrain {
     /// Far ground from `heights`, `columns` per row, the first at `corner`
     /// (x, z) and the rest `spacing` apart, drawn with `material` (the
     /// terrain material, or any other); cut away a cell at a time for
-    /// tiles `cell_size` wide (the [`CellStreamer`](crate::CellStreamer)'s
+    /// tiles `cell_size` wide (the [`CellStreamer`](crate::stream::CellStreamer)'s
     /// cells). Nothing is made until [`FarTerrain::update`].
     ///
     /// ```
-    /// # use ponko::*;
-    /// # fn f(ground: Material) {
-    /// let far = FarTerrain::new(&[0.0; 4 * 4], 4, Vec2::ZERO, 100.0, 100.0, ground);
+    /// # use ponko::prelude::*;
+    /// # fn f(ground: ponko::render::Material) {
+    /// let far = ponko::terrain::FarTerrain::new(&[0.0; 4 * 4], 4, Vec2::ZERO, 100.0, 100.0, ground);
     /// # }
     /// ```
     ///
@@ -155,9 +156,9 @@ impl FarTerrain {
     /// so there's never a gap. Takes effect at the next update.
     ///
     /// ```
-    /// # use ponko::*;
-    /// # fn f(ground: Material) {
-    /// let mut far = FarTerrain::new(&[0.0; 4 * 4], 4, Vec2::ZERO, 100.0, 100.0, ground);
+    /// # use ponko::prelude::*;
+    /// # fn f(ground: ponko::render::Material) {
+    /// let mut far = ponko::terrain::FarTerrain::new(&[0.0; 4 * 4], 4, Vec2::ZERO, 100.0, 100.0, ground);
     /// far.cut((1, 2));
     /// assert!(far.is_cut((1, 2)));
     /// # }
@@ -172,9 +173,9 @@ impl FarTerrain {
     /// effect at the next update.
     ///
     /// ```
-    /// # use ponko::*;
-    /// # fn f(ground: Material) {
-    /// let mut far = FarTerrain::new(&[0.0; 4 * 4], 4, Vec2::ZERO, 100.0, 100.0, ground);
+    /// # use ponko::prelude::*;
+    /// # fn f(ground: ponko::render::Material) {
+    /// let mut far = ponko::terrain::FarTerrain::new(&[0.0; 4 * 4], 4, Vec2::ZERO, 100.0, 100.0, ground);
     /// far.cut((1, 2));
     /// far.uncut((1, 2));
     /// assert!(!far.is_cut((1, 2)));
@@ -189,9 +190,9 @@ impl FarTerrain {
     /// Whether `cell` is cut away.
     ///
     /// ```
-    /// # use ponko::*;
-    /// # fn f(ground: Material) {
-    /// let far = FarTerrain::new(&[0.0; 4 * 4], 4, Vec2::ZERO, 100.0, 100.0, ground);
+    /// # use ponko::prelude::*;
+    /// # fn f(ground: ponko::render::Material) {
+    /// let far = ponko::terrain::FarTerrain::new(&[0.0; 4 * 4], 4, Vec2::ZERO, 100.0, 100.0, ground);
     /// assert!(!far.is_cut((0, 0)));
     /// # }
     /// ```
@@ -207,10 +208,10 @@ impl FarTerrain {
     /// the mesh or two around it.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let ground = ctx.gfx.default_material();
-    ///     let mut far = FarTerrain::new(&[0.0; 4 * 4], 4, Vec2::ZERO, 100.0, 100.0, ground);
+    ///     let mut far = ponko::terrain::FarTerrain::new(&[0.0; 4 * 4], 4, Vec2::ZERO, 100.0, 100.0, ground);
     ///     far.update(ctx);
     ///     assert_eq!(far.mesh_count(), 1);
     /// });
@@ -258,10 +259,10 @@ impl FarTerrain {
     /// [`FarTerrain::update`] builds them again.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let ground = ctx.gfx.default_material();
-    ///     let mut far = FarTerrain::new(&[0.0; 4 * 4], 4, Vec2::ZERO, 100.0, 100.0, ground);
+    ///     let mut far = ponko::terrain::FarTerrain::new(&[0.0; 4 * 4], 4, Vec2::ZERO, 100.0, 100.0, ground);
     ///     far.update(ctx);
     ///     far.clear(ctx);
     ///     assert_eq!(far.mesh_count(), 0);
@@ -280,9 +281,9 @@ impl FarTerrain {
     /// How many meshes (and entities) the far ground has in the world now.
     ///
     /// ```
-    /// # use ponko::*;
-    /// # fn f(ground: Material) {
-    /// let far = FarTerrain::new(&[0.0; 4 * 4], 4, Vec2::ZERO, 100.0, 100.0, ground);
+    /// # use ponko::prelude::*;
+    /// # fn f(ground: ponko::render::Material) {
+    /// let far = ponko::terrain::FarTerrain::new(&[0.0; 4 * 4], 4, Vec2::ZERO, 100.0, 100.0, ground);
     /// assert_eq!(far.mesh_count(), 0, "nothing before the first update");
     /// # }
     /// ```

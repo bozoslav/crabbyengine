@@ -2,8 +2,12 @@
 //! floor beside it in a closed room. Skips without a GPU that has it.
 use super::gpu::GpuTexture;
 use super::gpu3d::*;
+#[allow(unused_imports)]
+use crate::d3::Transform as Transform3D;
+use crate::prelude::*;
+#[allow(unused_imports)]
+use crate::render::{GlobalIllumination, MaterialDesc, Mesh, MeshData, Model};
 use crate::three::{GpuMaterialDesc, Scene3D, SkinFrame, SkyLight};
-use crate::*;
 
 const SIZE: u32 = 128;
 
@@ -313,7 +317,7 @@ impl Rig {
             enabled: gi,
             extent: vec3(12.0, 4.0, 8.0),
             spacing: 1.0,
-            probes_per_frame: MAX_GI_PROBES_PER_FRAME,
+            probes_per_frame: crate::render::GlobalIllumination::MAX_PROBES_PER_FRAME,
             intensity: 1.0,
         };
         rig.ctx.camera3d.position = vec3(2.0, 1.3, 0.3);
@@ -421,7 +425,10 @@ fn gi_cost() {
             "defaults (4 probes a frame)",
             Some(GlobalIllumination::default().probes_per_frame),
         ),
-        ("16 probes a frame", Some(MAX_GI_PROBES_PER_FRAME)),
+        (
+            "16 probes a frame",
+            Some(crate::render::GlobalIllumination::MAX_PROBES_PER_FRAME),
+        ),
     ];
     let mut best = vec![(f32::MAX, f64::MAX, f64::MAX, String::new()); settings.len()];
     for _ in 0..5 {

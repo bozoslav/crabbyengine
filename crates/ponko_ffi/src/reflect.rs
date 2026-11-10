@@ -3,7 +3,7 @@
 use std::ffi::{CStr, c_char};
 
 use crate::ctx::{ctx_access, text};
-use ponko::{Field, FieldType, WorldReflect};
+use ponko::reflect::{Field, FieldType, WorldReflect};
 
 use crate::{Failure, PonkoStatus, PonkoWorld, access, boundary, component, invalid, invalid_owned};
 

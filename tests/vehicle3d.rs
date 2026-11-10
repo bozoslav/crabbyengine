@@ -5,7 +5,15 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use ponko::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::d3::Transform as Transform3D;
+#[allow(unused_imports)]
+#[cfg(feature = "physics3d")]
+use ponko::d3::{
+    Collider as Collider3D, RigidBody as RigidBody3D, Vehicle as Vehicle3D, Velocity as Velocity3D, Wheel as Wheel3D,
+};
+use ponko::prelude::*;
 
 const GRAVITY: Vec3 = Vec3::new(0.0, -9.81, 0.0);
 /// The chassis's origin rests this high over flat ground: mount 0.3 m

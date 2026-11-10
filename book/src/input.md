@@ -8,7 +8,7 @@ released.
 ## Keyboard
 
 ```rust
-# use ponko::*;
+# use ponko::prelude::*;
 # fn update(ctx: &mut Ctx, pos: &mut Vec2) {
 if ctx.key_down(Key::Right) { pos.x += 200.0 * ctx.dt(); }
 if ctx.key_pressed(Key::Space) { println!("jump"); }

@@ -3,7 +3,8 @@
 //! bytes per tick is what it would send over the network.
 use std::thread;
 
-use ponko::{Ctx, Game, Net};
+use ponko::net::Net;
+use ponko::{Ctx, Game};
 
 use crate::Bench;
 

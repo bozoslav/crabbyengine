@@ -7,9 +7,9 @@ use glam::{Quat, Vec4};
 /// Interpolation between keys. Cubic values are stored as incoming tangent,
 /// value, outgoing tangent for each key; tangents are derivatives per second.
 /// ```
-/// use ponko::Interpolation;
-/// let interpolation = Interpolation::Linear;
-/// assert_ne!(interpolation, Interpolation::Step);
+/// use ponko::anim::Interpolation;
+/// let interpolation = ponko::anim::Interpolation::Linear;
+/// assert_ne!(interpolation, ponko::anim::Interpolation::Step);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Interpolation {
@@ -24,8 +24,8 @@ pub enum Interpolation {
 /// A vector track (translation or scale), or a quaternion track stored as xyzw.
 /// Use [`AnimationTrack::new`] to validate times and value counts.
 /// ```
-/// use ponko::*;
-/// let track = AnimationTrack::new(vec![0.0], vec![Vec4::ZERO], Interpolation::Step);
+/// use ponko::prelude::*;
+/// let track = ponko::anim::AnimationTrack::new(vec![0.0], vec![Vec4::ZERO], ponko::anim::Interpolation::Step);
 /// assert_eq!(track.times(), &[0.0]);
 /// ```
 #[derive(Debug, Clone)]
@@ -39,8 +39,8 @@ impl AnimationTrack {
     /// Panics unless times are finite, nonnegative, strictly increasing and
     /// nonempty, and values are finite with one per key (three for cubic).
     /// ```
-    /// use ponko::*;
-    /// let t = AnimationTrack::new(vec![0.0, 1.0], vec![Vec4::ZERO, Vec4::ONE], Interpolation::Linear);
+    /// use ponko::prelude::*;
+    /// let t = ponko::anim::AnimationTrack::new(vec![0.0, 1.0], vec![Vec4::ZERO, Vec4::ONE], ponko::anim::Interpolation::Linear);
     /// assert_eq!(t.values().len(), 2);
     /// ```
     pub fn new(times: Vec<f32>, values: Vec<Vec4>, interpolation: Interpolation) -> Self {
@@ -69,8 +69,8 @@ impl AnimationTrack {
     }
     /// Key times in seconds.
     /// ```
-    /// # use ponko::*;
-    /// let t = AnimationTrack::new(vec![0.0], vec![Vec4::ZERO], Interpolation::Step);
+    /// # use ponko::prelude::*;
+    /// let t = ponko::anim::AnimationTrack::new(vec![0.0], vec![Vec4::ZERO], ponko::anim::Interpolation::Step);
     /// assert_eq!(t.times(), &[0.0]);
     /// ```
     pub fn times(&self) -> &[f32] {
@@ -78,8 +78,8 @@ impl AnimationTrack {
     }
     /// Values, including tangent triples for cubic tracks.
     /// ```
-    /// # use ponko::*;
-    /// let t = AnimationTrack::new(vec![0.0], vec![Vec4::ONE], Interpolation::Step);
+    /// # use ponko::prelude::*;
+    /// let t = ponko::anim::AnimationTrack::new(vec![0.0], vec![Vec4::ONE], ponko::anim::Interpolation::Step);
     /// assert_eq!(t.values(), &[Vec4::ONE]);
     /// ```
     pub fn values(&self) -> &[Vec4] {
@@ -87,9 +87,9 @@ impl AnimationTrack {
     }
     /// How keys are interpolated.
     /// ```
-    /// # use ponko::*;
-    /// let t = AnimationTrack::new(vec![0.0], vec![Vec4::ZERO], Interpolation::Step);
-    /// assert_eq!(t.interpolation(), Interpolation::Step);
+    /// # use ponko::prelude::*;
+    /// let t = ponko::anim::AnimationTrack::new(vec![0.0], vec![Vec4::ZERO], ponko::anim::Interpolation::Step);
+    /// assert_eq!(t.interpolation(), ponko::anim::Interpolation::Step);
     /// ```
     pub fn interpolation(&self) -> Interpolation {
         self.interpolation
@@ -145,8 +145,8 @@ fn quaternion(v: Vec4) -> Quat {
 /// Tracks for a joint, identified both by its source index and name.
 /// Missing tracks leave the corresponding pose property untouched.
 /// ```
-/// use ponko::*;
-/// let joint = JointAnimation { joint: 0, name: "root".into(), translation: None, rotation: None, scale: None };
+/// use ponko::prelude::*;
+/// let joint = ponko::anim::JointAnimation { joint: 0, name: "root".into(), translation: None, rotation: None, scale: None };
 /// assert_eq!(joint.name, "root");
 /// ```
 #[derive(Debug, Clone)]
@@ -165,9 +165,9 @@ pub struct JointAnimation {
 /// A named morph channel. Values use the track's x component, in units where
 /// 1 is full weight. Cubic tangents use weight units per second.
 /// ```
-/// use ponko::*;
-/// let channel = MorphAnimation { name: "smile".into(), track: AnimationTrack::new(
-///     vec![0.0], vec![Vec4::ONE], Interpolation::Step) };
+/// use ponko::prelude::*;
+/// let channel = ponko::anim::MorphAnimation { name: "smile".into(), track: ponko::anim::AnimationTrack::new(
+///     vec![0.0], vec![Vec4::ONE], ponko::anim::Interpolation::Step) };
 /// assert_eq!(channel.name, "smile");
 /// ```
 #[derive(Debug, Clone)]
@@ -198,9 +198,9 @@ struct Binding {
 /// later samples (including skeleton clones) allocate nothing. Source skeletons
 /// use indices directly. Missing joints and shortened pose entries are skipped.
 /// ```
-/// use ponko::*;
-/// let s = Skeleton::new(vec![]);
-/// let clip = AnimationClip::new("idle", &s, vec![]);
+/// use ponko::prelude::*;
+/// let s = ponko::anim::Skeleton::new(vec![]);
+/// let clip = ponko::anim::AnimationClip::new("idle", &s, vec![]);
 /// assert_eq!(clip.name(), "idle");
 /// ```
 #[derive(Debug, Clone)]
@@ -212,9 +212,9 @@ impl AnimationClip {
     /// Makes a clip from tracks for `source`. Duration is the last key time.
     /// Panics if a track's source index and name disagree with the skeleton.
     /// ```
-    /// use ponko::*;
-    /// let s = Skeleton::new(vec![]);
-    /// let clip = AnimationClip::new("idle", &s, vec![]);
+    /// use ponko::prelude::*;
+    /// let s = ponko::anim::Skeleton::new(vec![]);
+    /// let clip = ponko::anim::AnimationClip::new("idle", &s, vec![]);
     /// assert_eq!(clip.duration(), 0.0);
     /// ```
     pub fn new(name: impl Into<String>, source: &Skeleton, tracks: Vec<JointAnimation>) -> Self {
@@ -241,8 +241,8 @@ impl AnimationClip {
     }
     /// Replaces named morph tracks on a clip. Duplicate names are rejected.
     /// ```
-    /// use ponko::*;
-    /// let clip = AnimationClip::new("face", &Skeleton::new(vec![]), vec![])
+    /// use ponko::prelude::*;
+    /// let clip = ponko::anim::AnimationClip::new("face", &ponko::anim::Skeleton::new(vec![]), vec![])
     ///     .with_morph_tracks(vec![]);
     /// assert!(clip.morph_tracks().is_empty());
     /// ```
@@ -280,8 +280,8 @@ impl AnimationClip {
     }
     /// Named morph tracks, in weight units (1 is full weight).
     /// ```
-    /// # use ponko::*;
-    /// assert!(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![]).morph_tracks().is_empty());
+    /// # use ponko::prelude::*;
+    /// assert!(ponko::anim::AnimationClip::new("idle", &ponko::anim::Skeleton::new(vec![]), vec![]).morph_tracks().is_empty());
     /// ```
     pub fn morph_tracks(&self) -> &[MorphAnimation] {
         &self.0.morphs
@@ -293,33 +293,33 @@ impl AnimationClip {
     }
     /// Clip name (unnamed glTF clips use `animation N`, with zero-based N).
     /// ```
-    /// # use ponko::*;
-    /// assert_eq!(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![]).name(), "idle");
+    /// # use ponko::prelude::*;
+    /// assert_eq!(ponko::anim::AnimationClip::new("idle", &ponko::anim::Skeleton::new(vec![]), vec![]).name(), "idle");
     /// ```
     pub fn name(&self) -> &str {
         &self.0.name
     }
     /// Length in seconds; zero for an empty clip or a single key at zero.
     /// ```
-    /// # use ponko::*;
-    /// assert_eq!(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![]).duration(), 0.0);
+    /// # use ponko::prelude::*;
+    /// assert_eq!(ponko::anim::AnimationClip::new("idle", &ponko::anim::Skeleton::new(vec![]), vec![]).duration(), 0.0);
     /// ```
     pub fn duration(&self) -> f32 {
         self.0.duration
     }
     /// Animated joints and their tracks.
     /// ```
-    /// # use ponko::*;
-    /// assert!(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![]).tracks().is_empty());
+    /// # use ponko::prelude::*;
+    /// assert!(ponko::anim::AnimationClip::new("idle", &ponko::anim::Skeleton::new(vec![]), vec![]).tracks().is_empty());
     /// ```
     pub fn tracks(&self) -> &[JointAnimation] {
         &self.0.tracks
     }
     /// Sets animated properties at clamped `time` (NaN means zero).
     /// ```
-    /// # use ponko::*;
-    /// let mut s = Skeleton::new(vec![]);
-    /// AnimationClip::new("idle", &s, vec![]).sample(0.5, &mut s);
+    /// # use ponko::prelude::*;
+    /// let mut s = ponko::anim::Skeleton::new(vec![]);
+    /// ponko::anim::AnimationClip::new("idle", &s, vec![]).sample(0.5, &mut s);
     /// ```
     pub fn sample(&self, time: f32, skeleton: &mut Skeleton) {
         self.sample_blended(time, 1.0, skeleton);
@@ -327,9 +327,9 @@ impl AnimationClip {
     /// Blends from the current pose by `weight`, clamped to [0, 1] (NaN
     /// means zero). For a crossfade, sample A then blend B by the fade amount.
     /// ```
-    /// # use ponko::*;
-    /// let mut s = Skeleton::new(vec![]);
-    /// let clip = AnimationClip::new("idle", &s, vec![]);
+    /// # use ponko::prelude::*;
+    /// let mut s = ponko::anim::Skeleton::new(vec![]);
+    /// let clip = ponko::anim::AnimationClip::new("idle", &s, vec![]);
     /// clip.sample_blended(0.5, 0.5, &mut s);
     /// ```
     pub fn sample_blended(&self, time: f32, weight: f32, skeleton: &mut Skeleton) {
@@ -364,9 +364,9 @@ impl AnimationClip {
     /// One joint's local transform at clamped `time`, starting from its rest
     /// pose (root motion). Tracks bind by index on the clip's own skeleton,
     /// otherwise by joint name.
-    pub(crate) fn sample_joint(&self, time: f32, skeleton: &Skeleton, joint: usize) -> crate::Transform3D {
+    pub(crate) fn sample_joint(&self, time: f32, skeleton: &Skeleton, joint: usize) -> crate::d3::Transform {
         let Some(j) = skeleton.joints().get(joint) else {
-            return crate::Transform3D::default();
+            return crate::d3::Transform::default();
         };
         let mut pose = j.rest;
         let time = if time.is_nan() {
@@ -416,7 +416,7 @@ impl AnimationClip {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Transform3D;
+    use crate::d3::Transform as Transform3D;
     use glam::Vec3;
     fn skeleton(names: &[&str]) -> Skeleton {
         Skeleton::new(

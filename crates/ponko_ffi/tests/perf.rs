@@ -203,7 +203,7 @@ fn headless_runs_upload_nothing_to_the_gpu() {
 #[test]
 fn gpu_upload_counts_mirror_the_rust_ones_field_for_field() {
     // `GpuUploads` is `#[non_exhaustive]`: set every field there is now.
-    let mut rust = ponko::GpuUploads::default();
+    let mut rust = ponko::render::GpuUploads::default();
     rust.instances = 1;
     rust.sprites = 2;
     rust.static_batches = 3;

@@ -134,9 +134,10 @@ The functions are in `ponko::systems`; the ids in `Systems` name them for
 In C the ids are `PONKO_SYSTEM_DRAW_SPRITES` and so on; in C++,
 `ponko::systems::draw_sprites`.
 
-Before these functions had their own module they were at the crate root
-(`ponko::draw_sprites`). Those names still work and are deprecated; a
-system added under the old name is the same system, with the same id.
+Before these functions had their own module they were at the crate root.
+Those spellings still work: they are deprecated re-exports of the same
+functions, so a system added under the old name is the same system, with the
+same id ([Naming and compatibility](naming.md) lists them).
 
 ### Replacing a built-in
 
@@ -206,11 +207,11 @@ impl Plugin for Player {
         let speed = self.speed;
         game.add(Phase::BeforePhysics, move |ctx| {
             let dt = ctx.dt();
-            ctx.world.query::<&mut Transform2D>().for_each(|t| t.position.x += speed * dt);
+            ctx.world.query::<&mut ponko::d2::Transform>().for_each(|t| t.position.x += speed * dt);
         })
     }
     fn setup(&self, ctx: &mut Ctx) {
-        ctx.world.spawn((Transform2D::default(),));
+        ctx.world.spawn((ponko::d2::Transform::default(),));
     }
 }
 
@@ -349,7 +350,7 @@ fn spawner(every: u64) -> impl FnMut(&mut Ctx) {
     let mut spawned = 0;
     move |ctx| {
         if ctx.time.sim_tick() % every == 0 {
-            ctx.commands.spawn((Transform2D::default(),));
+            ctx.commands.spawn((ponko::d2::Transform::default(),));
             spawned += 1;
         }
     }

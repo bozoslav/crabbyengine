@@ -12,9 +12,9 @@ use taffy::prelude::*;
 
 /// Stable node identity, never reused within a UI.
 /// ```
-/// use ponko::*;
-/// let mut ui = Ui::default();
-/// let id: UiId = ui.add(UiWidget::Panel, ui_layout::Style::default());
+/// use ponko::prelude::*;
+/// let mut ui = ponko::ui::Ui::default();
+/// let id: ponko::ui::UiId = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::layout::Style::default());
 /// assert!(ui.rect(id).is_some());
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -24,10 +24,10 @@ impl UiId {
     /// The id as an integer, for hosts that store ids outside the UI (the C
     /// API does).
     /// ```
-    /// use ponko::*;
-    /// let mut ui = Ui::default();
-    /// let id = ui.add(UiWidget::Panel, ui_layout::Style::default());
-    /// assert_eq!(UiId::from_bits(id.bits()), id);
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default();
+    /// let id = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::layout::Style::default());
+    /// assert_eq!(ponko::ui::UiId::from_bits(id.bits()), id);
     /// ```
     pub const fn bits(self) -> u64 {
         self.0 as u64
@@ -35,8 +35,8 @@ impl UiId {
     /// Rebuild an id from [`UiId::bits`]. Unknown values are stale: every call
     /// ignores or rejects them instead of panicking.
     /// ```
-    /// use ponko::*;
-    /// assert!(Ui::default().rect(UiId::from_bits(7)).is_none());
+    /// use ponko::prelude::*;
+    /// assert!(ponko::ui::Ui::default().rect(ponko::ui::UiId::from_bits(7)).is_none());
     /// ```
     pub const fn from_bits(bits: u64) -> Self {
         // Out-of-range values (32-bit targets) become an id no node has.
@@ -50,88 +50,88 @@ impl UiId {
 
 /// Built-in behavior; text, images and decoration are configured separately.
 /// ```
-/// use ponko::*;
-/// let mut ui = Ui::default();
-/// let button = ui.add(UiWidget::Button, ui_layout::Style::default());
+/// use ponko::prelude::*;
+/// let mut ui = ponko::ui::Ui::default();
+/// let button = ui.add(ponko::ui::UiWidget::Button, ponko::ui::layout::Style::default());
 /// ui.set_text(button, "Buy");
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum UiWidget {
     /// Non-focusable container.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiWidget::Panel;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiWidget::Panel;
     /// ```
     Panel,
     /// Non-focusable text.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiWidget::Label;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiWidget::Label;
     /// ```
     Label,
     /// Press/release or confirm emits `Clicked`.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiWidget::Button;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiWidget::Button;
     /// ```
     Button,
     /// Non-focusable texture.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiWidget::Image;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiWidget::Image;
     /// ```
     Image,
     /// Clipped container with two-axis wheel scrolling and vertical drag/bar.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiWidget::Scroll;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiWidget::Scroll;
     /// ```
     Scroll,
     /// Single-line Unicode input, with basic selection (no IME/clipboard).
     /// ```
-    /// use ponko::*;
-    /// let _ = UiWidget::TextInput;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiWidget::TextInput;
     /// ```
     TextInput,
     /// Checkbox; confirm or clicking toggles its value.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiWidget::Toggle;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiWidget::Toggle;
     /// ```
     Toggle,
     /// Normalized 0..1 value, changed by pointer or left/right.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiWidget::Slider;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiWidget::Slider;
     /// ```
     Slider,
 }
 
 /// Text alignment within a node's content box.
 /// ```
-/// use ponko::*;
-/// let paint = UiPaint { align: UiTextAlign::Center, ..Default::default() };
-/// assert_eq!(paint.align, UiTextAlign::Center);
+/// use ponko::prelude::*;
+/// let paint = ponko::ui::UiPaint { align: ponko::ui::UiTextAlign::Center, ..Default::default() };
+/// assert_eq!(paint.align, ponko::ui::UiTextAlign::Center);
 /// ```
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum UiTextAlign {
     /// Start of each line.
     #[default]
     /// ```
-    /// use ponko::*;
-    /// let _ = UiTextAlign::Start;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiTextAlign::Start;
     /// ```
     Start,
     /// Center each line.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiTextAlign::Center;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiTextAlign::Center;
     /// ```
     Center,
     /// End of each line.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiTextAlign::End;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiTextAlign::End;
     /// ```
     End,
 }
@@ -139,88 +139,88 @@ pub enum UiTextAlign {
 /// Visual style, independent of Taffy's layout style. A texture with
 /// `slice > 0` is drawn as nine patches; `slice` is the source border in pixels.
 /// ```
-/// use ponko::*;
-/// let paint = UiPaint { background: Color::BLUE, font_size: 20.0, ..Default::default() };
+/// use ponko::prelude::*;
+/// let paint = ponko::ui::UiPaint { background: Color::BLUE, font_size: 20.0, ..Default::default() };
 /// assert_eq!(paint.font_size, 20.0);
 /// ```
 #[derive(Debug, Clone, Copy)]
 pub struct UiPaint {
     /// Normal background.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiPaint::default().background;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiPaint::default().background;
     /// ```
     pub background: Color,
     /// Hovered/focused background.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiPaint::default().hover;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiPaint::default().hover;
     /// ```
     pub hover: Color,
     /// Pointer-held background.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiPaint::default().pressed;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiPaint::default().pressed;
     /// ```
     pub pressed: Color,
     /// Disabled background.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiPaint::default().disabled;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiPaint::default().disabled;
     /// ```
     pub disabled: Color,
     /// Border and focus-ring color.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiPaint::default().border;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiPaint::default().border;
     /// ```
     pub border: Color,
     /// Border thickness in logical units.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiPaint::default().border_width;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiPaint::default().border_width;
     /// ```
     pub border_width: f32,
     /// Text and image tint.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiPaint::default().color;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiPaint::default().color;
     /// ```
     pub color: Color,
     /// Font handle, from `Graphics::load_font`.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiPaint::default().font;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiPaint::default().font;
     /// ```
     pub font: Font,
     /// Text line height in logical units.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiPaint::default().font_size;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiPaint::default().font_size;
     /// ```
     pub font_size: f32,
     /// Break text at word boundaries, splitting oversized words.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiPaint::default().wrap;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiPaint::default().wrap;
     /// ```
     pub wrap: bool,
     /// Horizontal text alignment.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiPaint::default().align;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiPaint::default().align;
     /// ```
     pub align: UiTextAlign,
     /// Image or background texture; `None` draws only color.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiPaint::default().texture;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiPaint::default().texture;
     /// ```
     pub texture: Option<Texture>,
     /// Source border size for nine-slice drawing; zero stretches the image.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiPaint::default().slice;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiPaint::default().slice;
     /// ```
     pub slice: f32,
 }
@@ -246,42 +246,42 @@ impl Default for UiPaint {
 
 /// One semantic event; values are read from the node after `Changed`.
 /// ```
-/// use ponko::*;
-/// let mut ui = Ui::default();
+/// use ponko::prelude::*;
+/// let mut ui = ponko::ui::Ui::default();
 /// assert_eq!(ui.events().count(), 0);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UiEvent {
     /// A button was activated.
     /// ```
-    /// use ponko::*;
-    /// let mut ui = Ui::default();
-    /// let id = ui.add(UiWidget::Button, ui_layout::Style::default());
-    /// let _ = UiEvent::Clicked(id);
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default();
+    /// let id = ui.add(ponko::ui::UiWidget::Button, ponko::ui::layout::Style::default());
+    /// let _ = ponko::ui::UiEvent::Clicked(id);
     /// ```
     Clicked(UiId),
     /// Text, checkbox or slider value changed.
     /// ```
-    /// use ponko::*;
-    /// let mut ui = Ui::default();
-    /// let id = ui.add(UiWidget::Button, ui_layout::Style::default());
-    /// let _ = UiEvent::Changed(id);
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default();
+    /// let id = ui.add(ponko::ui::UiWidget::Button, ponko::ui::layout::Style::default());
+    /// let _ = ponko::ui::UiEvent::Changed(id);
     /// ```
     Changed(UiId),
     /// Enter/confirm in a text field.
     /// ```
-    /// use ponko::*;
-    /// let mut ui = Ui::default();
-    /// let id = ui.add(UiWidget::Button, ui_layout::Style::default());
-    /// let _ = UiEvent::Submitted(id);
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default();
+    /// let id = ui.add(ponko::ui::UiWidget::Button, ponko::ui::layout::Style::default());
+    /// let _ = ponko::ui::UiEvent::Submitted(id);
     /// ```
     Submitted(UiId),
     /// Cancel popped this screen; the input is consumed for this frame.
     /// ```
-    /// use ponko::*;
-    /// let mut ui = Ui::default();
-    /// let id = ui.add(UiWidget::Button, ui_layout::Style::default());
-    /// let _ = UiEvent::ScreenPopped(id);
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default();
+    /// let id = ui.add(ponko::ui::UiWidget::Button, ponko::ui::layout::Style::default());
+    /// let _ = ponko::ui::UiEvent::ScreenPopped(id);
     /// ```
     ScreenPopped(UiId),
 }
@@ -289,112 +289,112 @@ pub enum UiEvent {
 /// Input snapshot in logical window coordinates. `Ctx` supplies this each
 /// frame; tests and custom hosts can call `Ui::frame` directly.
 /// ```
-/// use ponko::*;
-/// let mut ui = Ui::default();
-/// ui.frame(vec2(800.0,600.0), &UiInput::default());
+/// use ponko::prelude::*;
+/// let mut ui = ponko::ui::Ui::default();
+/// ui.frame(vec2(800.0,600.0), &ponko::ui::UiInput::default());
 /// ```
 #[derive(Debug, Default, Clone)]
 pub struct UiInput {
     /// Pointer position in logical window units (before user scaling).
     /// ```
-    /// use ponko::*;
-    /// let _ = UiInput::default().pointer;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiInput::default().pointer;
     /// ```
     pub pointer: Vec2,
     /// Primary pointer pressed this frame.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiInput::default().pressed;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiInput::default().pressed;
     /// ```
     pub pressed: bool,
     /// Primary pointer held.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiInput::default().held;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiInput::default().held;
     /// ```
     pub held: bool,
     /// Primary pointer released this frame.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiInput::default().released;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiInput::default().released;
     /// ```
     pub released: bool,
     /// Wheel displacement in logical units (positive scrolls down/right).
     /// ```
-    /// use ponko::*;
-    /// let _ = UiInput::default().wheel;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiInput::default().wheel;
     /// ```
     pub wheel: Vec2,
     /// Tab/next focus.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiInput::default().next;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiInput::default().next;
     /// ```
     pub next: bool,
     /// Shift-tab/previous focus.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiInput::default().previous;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiInput::default().previous;
     /// ```
     pub previous: bool,
     /// Directional focus, caret or slider movement (-1..1 per axis).
     /// ```
-    /// use ponko::*;
-    /// let _ = UiInput::default().direction;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiInput::default().direction;
     /// ```
     pub direction: Vec2,
     /// Enter/space/gamepad south.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiInput::default().confirm;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiInput::default().confirm;
     /// ```
     pub confirm: bool,
     /// Escape/gamepad east, pops a screen.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiInput::default().cancel;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiInput::default().cancel;
     /// ```
     pub cancel: bool,
     /// Shift extends text selection.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiInput::default().shift;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiInput::default().shift;
     /// ```
     pub shift: bool,
     /// Select all text.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiInput::default().select_all;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiInput::default().select_all;
     /// ```
     pub select_all: bool,
     /// Delete before caret.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiInput::default().backspace;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiInput::default().backspace;
     /// ```
     pub backspace: bool,
     /// Delete after caret.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiInput::default().delete;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiInput::default().delete;
     /// ```
     pub delete: bool,
     /// Move caret to start.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiInput::default().home;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiInput::default().home;
     /// ```
     pub home: bool,
     /// Move caret to end.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiInput::default().end;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiInput::default().end;
     /// ```
     pub end: bool,
     /// Committed text; control characters are ignored.
     /// ```
-    /// use ponko::*;
-    /// let _ = UiInput::default().text;
+    /// use ponko::prelude::*;
+    /// let _ = ponko::ui::UiInput::default().text;
     /// ```
     pub text: String,
 }
@@ -453,11 +453,11 @@ enum Drag {
 ///   sounds or changing entities.
 ///
 /// ```
-/// use ponko::*;
-/// let mut ui = Ui::default();
-/// let root = ui.add(UiWidget::Panel, ui_layout::Style::default());
+/// use ponko::prelude::*;
+/// let mut ui = ponko::ui::Ui::default();
+/// let root = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::layout::Style::default());
 /// ui.push_screen(root, false);
-/// ui.frame(vec2(800.0,600.0), &UiInput::default());
+/// ui.frame(vec2(800.0,600.0), &ponko::ui::UiInput::default());
 /// ```
 pub struct Ui {
     pub(super) tree: TaffyTree<usize>,
@@ -480,7 +480,7 @@ pub struct Ui {
     pub(super) names: std::collections::HashMap<String, UiId>,
     /// The immediate widgets (a panel, a label, a button drawn the frame
     /// they are called) and their style. Only the screen's UI (`ctx.ui`)
-    /// shows them; a [`UiPanel3D`](crate::UiPanel3D)'s tree leaves it unused.
+    /// shows them; a [`UiPanel3D`](crate::d3::UiPanel)'s tree leaves it unused.
     pub immediate: super::UiImmediate,
     /// The mouse is over the inspector overlay.
     pub(crate) overlay_has_pointer: bool,
@@ -537,9 +537,9 @@ impl Ui {
     /// Its paint comes from the theme ([`Ui::set_theme`]). [`Ui::root`] and
     /// the other builders do the same in one expression.
     /// ```
-    /// use ponko::*;
-    /// let mut ui = Ui::default();
-    /// let root = ui.add(UiWidget::Panel, ui_layout::Style::default());
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default();
+    /// let root = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::layout::Style::default());
     /// ```
     pub fn add(&mut self, widget: UiWidget, style: Style) -> UiId {
         let id = UiId(self.nodes.len());
@@ -568,10 +568,10 @@ impl Ui {
     }
     /// Add a child. Panics if the parent was removed or belongs to another UI.
     /// ```
-    /// use ponko::*;
-    /// let mut ui = Ui::default();
-    /// let root = ui.add(UiWidget::Panel, ui_layout::Style::default());
-    /// let child = ui.add_child(root, UiWidget::Label, ui_layout::Style::default());
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default();
+    /// let root = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::layout::Style::default());
+    /// let child = ui.add_child(root, ponko::ui::UiWidget::Label, ponko::ui::layout::Style::default());
     /// ```
     pub fn add_child(&mut self, parent: UiId, widget: UiWidget, style: Style) -> UiId {
         let p = self.node(parent).expect("UI parent must exist").layout;
@@ -585,9 +585,9 @@ impl Ui {
     }
     /// Remove a subtree. Stale IDs stay invalid; removing a screen drops it.
     /// ```
-    /// use ponko::*;
-    /// let mut ui = Ui::default();
-    /// let id = ui.add(UiWidget::Panel, ui_layout::Style::default());
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default();
+    /// let id = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::layout::Style::default());
     /// ui.remove(id);
     /// assert!(ui.rect(id).is_none());
     /// ```
@@ -624,9 +624,9 @@ impl Ui {
     }
     /// Replace layout style (flex, grid, absolute positioning and constraints).
     /// ```
-    /// use ponko::*;
-    /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Panel, ui_layout::Style::default());
-    /// ui.set_layout(id, ui_layout::Style::default());
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default(); let id = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::layout::Style::default());
+    /// ui.set_layout(id, ponko::ui::layout::Style::default());
     /// ```
     pub fn set_layout(&mut self, id: UiId, style: Style) {
         if let Some(n) = self.node(id) {
@@ -635,9 +635,9 @@ impl Ui {
     }
     /// Returns the current layout style, or `None` for a removed node.
     /// ```
-    /// use ponko::*;
-    /// let mut ui = Ui::default();
-    /// let id = ui.add(UiWidget::Panel, ui_layout::Style::default());
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default();
+    /// let id = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::layout::Style::default());
     /// assert!(ui.layout_style(id).is_some());
     /// ```
     pub fn layout_style(&self, id: UiId) -> Option<&Style> {
@@ -645,9 +645,9 @@ impl Ui {
     }
     /// Replace visual style.
     /// ```
-    /// use ponko::*;
-    /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Panel, ui_layout::Style::default());
-    /// ui.set_paint(id, UiPaint::default());
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default(); let id = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::layout::Style::default());
+    /// ui.set_paint(id, ponko::ui::UiPaint::default());
     /// ```
     pub fn set_paint(&mut self, id: UiId, paint: UiPaint) {
         if let Some(n) = self.node_mut(id) {
@@ -656,8 +656,8 @@ impl Ui {
     }
     /// Set label or input text. Input control characters are discarded.
     /// ```
-    /// use ponko::*;
-    /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Label, ui_layout::Style::default());
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default(); let id = ui.add(ponko::ui::UiWidget::Label, ponko::ui::layout::Style::default());
     /// ui.set_text(id, "Shop"); assert_eq!(ui.text(id), Some("Shop"));
     /// ```
     pub fn set_text(&mut self, id: UiId, text: impl AsRef<str>) {
@@ -674,8 +674,8 @@ impl Ui {
     }
     /// Read text, or `None` for a stale ID.
     /// ```
-    /// use ponko::*;
-    /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Label, ui_layout::Style::default());
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default(); let id = ui.add(ponko::ui::UiWidget::Label, ponko::ui::layout::Style::default());
     /// assert_eq!(ui.text(id), Some(""));
     /// ```
     pub fn text(&self, id: UiId) -> Option<&str> {
@@ -683,8 +683,8 @@ impl Ui {
     }
     /// Enable/disable a node and all descendant interaction.
     /// ```
-    /// use ponko::*;
-    /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Button, ui_layout::Style::default());
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default(); let id = ui.add(ponko::ui::UiWidget::Button, ponko::ui::layout::Style::default());
     /// ui.set_enabled(id, false);
     /// ```
     pub fn set_enabled(&mut self, id: UiId, enabled: bool) {
@@ -694,8 +694,8 @@ impl Ui {
     }
     /// Slider value (0..1), or toggle value (zero/off, one/on).
     /// ```
-    /// use ponko::*;
-    /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Slider, ui_layout::Style::default());
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default(); let id = ui.add(ponko::ui::UiWidget::Slider, ponko::ui::layout::Style::default());
     /// ui.set_value(id, 0.5); assert_eq!(ui.value(id), Some(0.5));
     /// ```
     pub fn set_value(&mut self, id: UiId, value: f32) {
@@ -705,8 +705,8 @@ impl Ui {
     }
     /// Read the current slider/toggle value.
     /// ```
-    /// use ponko::*;
-    /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Toggle, ui_layout::Style::default());
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default(); let id = ui.add(ponko::ui::UiWidget::Toggle, ponko::ui::layout::Style::default());
     /// assert_eq!(ui.value(id), Some(0.0));
     /// ```
     pub fn value(&self, id: UiId) -> Option<f32> {
@@ -714,8 +714,8 @@ impl Ui {
     }
     /// Set scroll offset in unscaled layout units; clamped during layout.
     /// ```
-    /// use ponko::*;
-    /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Scroll, ui_layout::Style::default());
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default(); let id = ui.add(ponko::ui::UiWidget::Scroll, ponko::ui::layout::Style::default());
     /// ui.set_scroll(id, vec2(0.0,40.0));
     /// ```
     pub fn set_scroll(&mut self, id: UiId, offset: Vec2) {
@@ -725,8 +725,8 @@ impl Ui {
     }
     /// Current clamped offset, after layout.
     /// ```
-    /// use ponko::*;
-    /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Scroll, ui_layout::Style::default());
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default(); let id = ui.add(ponko::ui::UiWidget::Scroll, ponko::ui::layout::Style::default());
     /// assert_eq!(ui.scroll(id), Some(Vec2::ZERO));
     /// ```
     pub fn scroll(&self, id: UiId) -> Option<Vec2> {
@@ -735,8 +735,8 @@ impl Ui {
     /// Push a detached root; only the top screen is interactive. `modal`
     /// draws a dim overlay below this screen. Duplicate/parented roots panic.
     /// ```
-    /// use ponko::*;
-    /// let mut ui = Ui::default(); let root = ui.add(UiWidget::Panel, ui_layout::Style::default());
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default(); let root = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::layout::Style::default());
     /// ui.push_screen(root, true);
     /// ```
     pub fn push_screen(&mut self, root: UiId, modal: bool) {
@@ -759,8 +759,8 @@ impl Ui {
     }
     /// Pop a screen, restoring the previous focus. Nodes remain reusable.
     /// ```
-    /// use ponko::*;
-    /// let mut ui = Ui::default(); let root = ui.add(UiWidget::Panel, ui_layout::Style::default());
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default(); let root = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::layout::Style::default());
     /// ui.push_screen(root, true); assert_eq!(ui.pop_screen(), Some(root));
     /// ```
     pub fn pop_screen(&mut self) -> Option<UiId> {
@@ -774,10 +774,10 @@ impl Ui {
     }
     /// The node's parent, or `None` for a detached root and for stale IDs.
     /// ```
-    /// use ponko::*;
-    /// let mut ui = Ui::default();
-    /// let root = ui.add(UiWidget::Panel, ui_layout::Style::default());
-    /// let child = ui.add_child(root, UiWidget::Label, ui_layout::Style::default());
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default();
+    /// let root = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::layout::Style::default());
+    /// let child = ui.add_child(root, ponko::ui::UiWidget::Label, ponko::ui::layout::Style::default());
     /// assert_eq!(ui.parent(child), Some(root));
     /// assert_eq!(ui.parent(root), None);
     /// ```
@@ -786,9 +786,9 @@ impl Ui {
     }
     /// Whether `id` is on the screen stack right now.
     /// ```
-    /// use ponko::*;
-    /// let mut ui = Ui::default();
-    /// let root = ui.add(UiWidget::Panel, ui_layout::Style::default());
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default();
+    /// let root = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::layout::Style::default());
     /// assert!(!ui.is_screen(root));
     /// ui.push_screen(root, false);
     /// assert!(ui.is_screen(root));
@@ -798,16 +798,16 @@ impl Ui {
     }
     /// Top screen root.
     /// ```
-    /// use ponko::*;
-    /// assert_eq!(Ui::default().top_screen(), None);
+    /// use ponko::prelude::*;
+    /// assert_eq!(ponko::ui::Ui::default().top_screen(), None);
     /// ```
     pub fn top_screen(&self) -> Option<UiId> {
         self.screens.last().map(|s| s.root)
     }
     /// User scale, multiplied with the window's existing DPI handling.
     /// ```
-    /// use ponko::*;
-    /// let mut ui = Ui::default(); ui.set_scale(1.5);
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default(); ui.set_scale(1.5);
     /// ```
     pub fn set_scale(&mut self, scale: f32) {
         self.scale = if scale.is_finite() { scale.clamp(0.25, 8.0) } else { 1.0 };
@@ -818,8 +818,8 @@ impl Ui {
     /// first layout, and changes made since then show only after the next
     /// one. `None` for an id not in the tree.
     /// ```
-    /// use ponko::*;
-    /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Panel, ui_layout::Style::default());
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default(); let id = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::layout::Style::default());
     /// assert_eq!(ui.rect(id), Some(Rect::default()), "no layout yet");
     /// ```
     pub fn rect(&self, id: UiId) -> Option<Rect> {
@@ -827,16 +827,16 @@ impl Ui {
     }
     /// Current keyboard/gamepad focus.
     /// ```
-    /// use ponko::*;
-    /// assert_eq!(Ui::default().focus(), None);
+    /// use ponko::prelude::*;
+    /// assert_eq!(ponko::ui::Ui::default().focus(), None);
     /// ```
     pub fn focus(&self) -> Option<UiId> {
         self.focus
     }
     /// Drain semantic events once. Unread events are cleared next frame.
     /// ```
-    /// use ponko::*;
-    /// assert_eq!(Ui::default().events().count(), 0);
+    /// use ponko::prelude::*;
+    /// assert_eq!(ponko::ui::Ui::default().events().count(), 0);
     /// ```
     pub fn events(&mut self) -> impl Iterator<Item = UiEvent> + '_ {
         self.events.drain(..)
@@ -845,8 +845,8 @@ impl Ui {
     /// [`Ui::events`], dropping the result keeps the other events queued, so
     /// calls that read one event at a time (the C API does) lose none.
     /// ```
-    /// use ponko::*;
-    /// assert_eq!(Ui::default().next_event(), None);
+    /// use ponko::prelude::*;
+    /// assert_eq!(ponko::ui::Ui::default().next_event(), None);
     /// ```
     pub fn next_event(&mut self) -> Option<UiEvent> {
         (!self.events.is_empty()).then(|| self.events.remove(0))
@@ -856,12 +856,12 @@ impl Ui {
     /// clicks; the other events it takes are dropped, so read
     /// [`events`](Self::events) instead on a screen whose inputs matter.
     /// ```
-    /// use ponko::*;
-    /// let mut ui = Ui::default();
-    /// let root = ui.root().layout(UiLayout::fill()).id();
-    /// let ok = ui.button(root, "OK").layout(UiLayout::fixed(100.0, 40.0)).id();
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default();
+    /// let root = ui.root().layout(ponko::ui::UiLayout::fill()).id();
+    /// let ok = ui.button(root, "OK").layout(ponko::ui::UiLayout::fixed(100.0, 40.0)).id();
     /// ui.push_screen(root, false);
-    /// let at = |pressed, held, released| UiInput {
+    /// let at = |pressed, held, released| ponko::ui::UiInput {
     ///     pointer: vec2(50.0, 20.0),
     ///     pressed,
     ///     held,
@@ -893,8 +893,8 @@ impl Ui {
     ///
     /// The pointer is where the mouse was when the running system started.
     /// ```
-    /// use ponko::*;
-    /// assert!(!Ui::default().wants_pointer());
+    /// use ponko::prelude::*;
+    /// assert!(!ponko::ui::Ui::default().wants_pointer());
     /// # fn select(ctx: &mut Ctx) {
     /// if ctx.input.mouse_pressed(MouseButton::Left) && !ctx.ui.wants_pointer() {
     ///     let at = ctx.mouse_world();
@@ -915,13 +915,13 @@ impl Ui {
     pub(crate) fn set_pointer(&mut self, at: Vec2) {
         self.pointer = at;
     }
-    /// Sets the ray the mouse uses on [`UiPanel3D`](crate::UiPanel3D)s this
+    /// Sets the ray the mouse uses on [`UiPanel3D`](crate::d3::UiPanel)s this
     /// frame and later (origin and direction, in the world), instead of the
     /// camera's ray through the mouse: for a locked cursor, use the camera's
     /// forward ray; for VR, a controller's. `None` goes back to the mouse.
     /// Only the screen's UI (`ctx.ui`) reads it.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn update(ctx: &mut Ctx) {
     /// // Aim with the screen's center while the cursor is locked.
     /// let (origin, forward) = (ctx.camera3d.position, ctx.camera3d.forward());
@@ -936,8 +936,8 @@ impl Ui {
     /// focus). Check it before the game's own movement and actions, just as
     /// [`wants_pointer`](Self::wants_pointer) guards the mouse.
     /// ```
-    /// use ponko::*;
-    /// assert!(!Ui::default().wants_keyboard());
+    /// use ponko::prelude::*;
+    /// assert!(!ponko::ui::Ui::default().wants_keyboard());
     /// # fn update(ctx: &mut Ctx) {
     /// if !ctx.ui.wants_keyboard() && ctx.key_pressed(Key::Space) { /* jump */ }
     /// # }
@@ -970,8 +970,8 @@ impl Ui {
     }
     /// Hit test the top screen, respecting ancestor clips and disabled nodes.
     /// ```
-    /// use ponko::*;
-    /// assert_eq!(Ui::default().hit_test(Vec2::ZERO), None);
+    /// use ponko::prelude::*;
+    /// assert_eq!(ponko::ui::Ui::default().hit_test(Vec2::ZERO), None);
     /// ```
     pub fn hit_test(&self, point: Vec2) -> Option<UiId> {
         self.visible.iter().rev().copied().find(|&id| {
@@ -987,8 +987,8 @@ impl Ui {
     /// Resolve all screens against the logical window size. Percent sizes,
     /// min/max, flex/grid and absolute offsets are Taffy styles.
     /// ```
-    /// use ponko::*;
-    /// let mut ui = Ui::default(); ui.layout(vec2(800.0,600.0));
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default(); ui.layout(vec2(800.0,600.0));
     /// ```
     pub fn layout(&mut self, viewport: Vec2) {
         self.viewport = viewport.max(Vec2::ZERO);
@@ -1144,8 +1144,8 @@ impl Ui {
     /// Layout and process one input snapshot. Call once per frame, before game
     /// logic reads events. Cancel consumes the frame, preventing click-through.
     /// ```
-    /// use ponko::*;
-    /// let mut ui = Ui::default(); ui.frame(vec2(800.0,600.0), &UiInput::default());
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default(); ui.frame(vec2(800.0,600.0), &ponko::ui::UiInput::default());
     /// ```
     pub fn frame(&mut self, viewport: Vec2, input: &UiInput) {
         self.events.clear();

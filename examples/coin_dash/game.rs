@@ -29,7 +29,9 @@ pub mod settings;
 #[path = "smoke.rs"]
 pub mod smoke;
 
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::d2::{Sprite, Transform as Transform2D};
+use ponko::prelude::*;
 use serde::{Deserialize, Serialize};
 use settings::Settings;
 use std::path::{Path, PathBuf};

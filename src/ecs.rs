@@ -14,8 +14,8 @@ use crate::texture::Texture;
 /// [`Ctx::draw`]).
 ///
 /// ```
-/// # use ponko::*;
-/// let t = Transform2D::at(vec2(100.0, 50.0)).rotated(0.5);
+/// # use ponko::prelude::*;
+/// let t = ponko::d2::Transform::at(vec2(100.0, 50.0)).rotated(0.5);
 /// assert_eq!(t.position, vec2(100.0, 50.0));
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -67,12 +67,12 @@ impl Transform2D {
 /// [`draw_sprites`] system.
 ///
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn setup(ctx: &mut Ctx) {
 /// let crab = ctx.load_texture("crab.png");
 /// ctx.world.spawn((
-///     Transform2D::at(vec2(400.0, 300.0)),
-///     Sprite::new(crab).with_color(Color::RED).with_z(1.0),
+///     ponko::d2::Transform::at(vec2(400.0, 300.0)),
+///     ponko::d2::Sprite::new(crab).with_color(Color::RED).with_z(1.0),
 /// ));
 /// # }
 /// ```
@@ -107,9 +107,9 @@ impl Sprite {
     /// Same sprite showing only `region` of its texture (texture pixels).
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(tiles: Texture) {
-    /// let grass = Sprite::new(tiles).with_region(Rect::new(16.0, 0.0, 16.0, 16.0));
+    /// let grass = ponko::d2::Sprite::new(tiles).with_region(Rect::new(16.0, 0.0, 16.0, 16.0));
     /// # }
     /// ```
     #[must_use]
@@ -145,7 +145,7 @@ impl Sprite {
 /// Replace it with your own renderer like this:
 ///
 /// ```no_run
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// fn my_draw(ctx: &mut Ctx) { /* ... */ }
 ///
 /// Game::new("Custom", 800, 600)

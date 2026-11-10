@@ -12,8 +12,9 @@
 
 use serde_json::{Map, Value, json};
 
+use crate::perf::GpuPass;
+use crate::render::PipelineStats;
 use crate::render::{RenderDetail, RenderStats};
-use crate::{GpuPass, PipelineStats};
 
 /// The `render_inspector` schema version. Bumped only when a field is
 /// removed or changes meaning; new fields don't bump it.
@@ -186,13 +187,13 @@ fn pipelines_json(p: &PipelineStats) -> Value {
 
 /// The active graphics quality: its preset level and every setting.
 #[cfg(feature = "3d")]
-pub(super) fn quality_json(q: &crate::GraphicsQuality) -> Value {
+pub(super) fn quality_json(q: &crate::render::GraphicsQuality) -> Value {
     let level = match q.level() {
-        crate::QualityLevel::Low => "low",
-        crate::QualityLevel::Medium => "medium",
-        crate::QualityLevel::High => "high",
-        crate::QualityLevel::Ultra => "ultra",
-        crate::QualityLevel::Custom => "custom",
+        crate::render::QualityLevel::Low => "low",
+        crate::render::QualityLevel::Medium => "medium",
+        crate::render::QualityLevel::High => "high",
+        crate::render::QualityLevel::Ultra => "ultra",
+        crate::render::QualityLevel::Custom => "custom",
     };
     json!({
         "level": level,
@@ -428,12 +429,12 @@ mod tests {
     #[cfg(feature = "3d")]
     #[test]
     fn quality_names_its_preset() {
-        let q = quality_json(&crate::GraphicsQuality::medium());
+        let q = quality_json(&crate::render::GraphicsQuality::medium());
         assert_eq!(q["level"], "medium");
         assert_eq!(q["anti_aliasing"], "fxaa");
-        let q = quality_json(&crate::GraphicsQuality {
+        let q = quality_json(&crate::render::GraphicsQuality {
             shadow_cascades: 1,
-            ..crate::GraphicsQuality::high()
+            ..crate::render::GraphicsQuality::high()
         });
         assert_eq!(q["level"], "custom");
         assert_eq!(q["shadow_cascades"], 1);

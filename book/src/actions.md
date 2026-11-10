@@ -39,13 +39,13 @@ therefore give the same headless run. Nothing is injected unless a game calls
 
 ```rust
 # struct Jumps { count: u32 }
-let scenario = InputScenario::new()
+let scenario = ponko::scenario::InputScenario::new()
     .named("jump-once")
-    .at(10, InputEvent::Key(Key::Space, true)) // pressed on tick 10, held after
-    .expect(10, ScenarioCheck::action("jump").pressed(true).down(true))
-    .at(12, InputEvent::Key(Key::Space, false))
-    .expect(12, ScenarioCheck::action("jump").released(true))
-    .expect(12, ScenarioCheck::resource("Jumps", "/count", 1)); // a reflected resource, by JSON pointer
+    .at(10, ponko::actions::InputEvent::Key(Key::Space, true)) // pressed on tick 10, held after
+    .expect(10, ponko::scenario::ScenarioCheck::action("jump").pressed(true).down(true))
+    .at(12, ponko::actions::InputEvent::Key(Key::Space, false))
+    .expect(12, ponko::scenario::ScenarioCheck::action("jump").released(true))
+    .expect(12, ponko::scenario::ScenarioCheck::resource("Jumps", "/count", 1)); // a reflected resource, by JSON pointer
 let (world, report) = Game::new("test", 1, 1)
     .sim_system(|ctx: &mut Ctx| {})
     .run_headless_scenario(scenario, |ctx| {});
@@ -187,7 +187,8 @@ replaces it in place. The name keeps its `ActionId`, the other actions keep
 their state and edges, and held sources become the baseline as above:
 
 ```rust
-# use ponko::*;
+# use ponko::prelude::*;
+# use ponko::actions::{Action, ButtonBinding};
 # fn example(ctx: &mut Ctx) {
 let mut jump = ctx.input.actions().get("jump").cloned().unwrap_or(Action::Button(vec![]));
 if let Action::Button(sources) = &mut jump {

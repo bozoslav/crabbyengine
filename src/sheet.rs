@@ -11,11 +11,11 @@ use crate::texture::Texture;
 /// to bottom: an animation strip, a tileset, a texture atlas of icons.
 ///
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn setup(ctx: &mut Ctx) {
 /// let tex = ctx.load_texture("crab.png"); // say it holds 16 × 16 frames
 /// let sheet = SpriteSheet::new(tex, 16, 16);
-/// ctx.world.spawn((Transform2D::at(vec2(100.0, 100.0)), sheet.sprite(3)));
+/// ctx.world.spawn((ponko::d2::Transform::at(vec2(100.0, 100.0)), sheet.sprite(3)));
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -39,7 +39,7 @@ impl SpriteSheet {
     /// If a frame is empty or bigger than the texture.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(tiles: Texture) {
     /// let sheet = SpriteSheet::new(tiles, 32, 32);
     /// println!("{} tiles", sheet.len);
@@ -66,7 +66,7 @@ impl SpriteSheet {
     /// Where frame `index` is, in texture pixels. Wraps around past the end.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, sheet: SpriteSheet) {
     /// ctx.gfx.draw_ex(&sheet.texture, vec2(50.0, 50.0), DrawParams {
     ///     region: Some(sheet.frame(2)),
@@ -87,9 +87,9 @@ impl SpriteSheet {
     /// A [`Sprite`] showing frame `index`.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, sheet: SpriteSheet) {
-    /// ctx.world.spawn((Transform2D::at(vec2(10.0, 10.0)), sheet.sprite(0)));
+    /// ctx.world.spawn((ponko::d2::Transform::at(vec2(10.0, 10.0)), sheet.sprite(0)));
     /// # }
     /// ```
     #[must_use]
@@ -102,10 +102,11 @@ impl SpriteSheet {
 /// [`animate_sprites`] system advances it every frame.
 ///
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
+/// # use ponko::d2::Animation;
 /// # fn setup(ctx: &mut Ctx, sheet: SpriteSheet) {
 /// ctx.world.spawn((
-///     Transform2D::at(vec2(200.0, 200.0)),
+///     ponko::d2::Transform::at(vec2(200.0, 200.0)),
 ///     sheet.sprite(0),
 ///     Animation::new(sheet, 0..8, 12.0), // frames 0-7 at 12 frames per second, looping
 /// ));
@@ -145,7 +146,8 @@ impl Animation {
     /// Same animation, played once and then held on its last frame.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
+    /// # use ponko::d2::Animation;
     /// # fn f(sheet: SpriteSheet) {
     /// let explode = Animation::new(sheet, 8..16, 24.0).once();
     /// # }
@@ -158,7 +160,8 @@ impl Animation {
     /// The frame showing now (an index into the sheet).
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
+    /// # use ponko::d2::Animation;
     /// # fn f(sheet: SpriteSheet) {
     /// let walk = Animation::new(sheet, 4..8, 10.0);
     /// assert_eq!(walk.current_frame(), 4);
@@ -179,7 +182,8 @@ impl Animation {
     /// last frame (never for looping ones).
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
+    /// # use ponko::d2::Animation;
     /// # fn cleanup(ctx: &mut Ctx) {
     /// let done: Vec<Entity> = ctx.world.query::<(Entity, &Animation)>().iter()
     ///     .filter(|(_, a)| a.finished())
@@ -199,7 +203,7 @@ impl Animation {
 /// [`draw_sprites`](crate::systems::draw_sprites).
 ///
 /// ```no_run
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// // Animations driven by your own clock instead:
 /// Game::new("t", 800, 600).remove(Systems::ANIMATE_SPRITES).run(|_| {});
 /// ```

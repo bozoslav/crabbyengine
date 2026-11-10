@@ -4,7 +4,8 @@
 use glam::Vec2;
 use rayon::prelude::*;
 
-use crate::{Ctx, Entity, Transform2D, World};
+use crate::d2::Transform as Transform2D;
+use crate::{Ctx, Entity, World};
 
 /// Keeps this entity's [`Transform2D`] position and rotation at an offset
 /// from another entity's, updated by [`follow_attachments`]. Its own scale
@@ -12,22 +13,22 @@ use crate::{Ctx, Entity, Transform2D, World};
 /// despawned too. Attachments can be attached to attachments.
 ///
 /// ```
-/// use ponko::*;
+/// use ponko::prelude::*;
 ///
 /// struct Tank;
 ///
 /// let mut turret = None;
 /// let world = Game::new("turrets", 320, 240)
 ///     .sim_system(|ctx: &mut Ctx| {
-///         ctx.world.query::<(&mut Transform2D, &Tank)>().for_each(|(t, _)| t.position.x += 1.0);
+///         ctx.world.query::<(&mut ponko::d2::Transform, &Tank)>().for_each(|(t, _)| t.position.x += 1.0);
 ///     })
 ///     .sim_system(systems::follow_attachments) // after the systems that move things
 ///     .run_headless(10, |ctx| {
-///         let tank = ctx.world.spawn((Transform2D::at(vec2(0.0, 0.0)), Tank));
-///         let on_top = Attached::to(tank).offset(vec2(0.0, -4.0));
-///         turret = Some(ctx.world.spawn((Transform2D::default(), on_top)));
+///         let tank = ctx.world.spawn((ponko::d2::Transform::at(vec2(0.0, 0.0)), Tank));
+///         let on_top = ponko::d2::Attached::to(tank).offset(vec2(0.0, -4.0));
+///         turret = Some(ctx.world.spawn((ponko::d2::Transform::default(), on_top)));
 ///     });
-/// let at = world.get::<Transform2D>(turret.unwrap()).unwrap().position;
+/// let at = world.get::<ponko::d2::Transform>(turret.unwrap()).unwrap().position;
 /// assert_eq!(at, vec2(10.0, -4.0));
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]

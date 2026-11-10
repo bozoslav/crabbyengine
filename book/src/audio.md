@@ -64,7 +64,7 @@ the ALSA headers (`libasound2-dev` on Debian and Ubuntu).
 
 ## Sound in 3D
 
-With the `3d` feature, pair `AudioSource3D` with `Transform3D`, or play a
+With the `3d` feature, pair `d3::AudioSource` with `d3::Transform`, or play a
 one-off sound at a point with `ctx.play_sound_at`. Every frame, after your
 systems, the engine moves each sound to its entity and sets its volume,
 panning and doppler from where the listener is. The listener follows
@@ -95,7 +95,7 @@ Build this example with `cargo build --example audio3d --features 3d`.
 Only running it opens a window and plays audio. Procedural clips already use
 `create_sound`; file-backed clips use `load_sound`.
 
-`AudioSettings3D` controls volume, pitch (`sound.speed`), looping, minimum and
+`d3::AudioSettings` controls volume, pitch (`sound.speed`), looping, minimum and
 maximum distance, and logarithmic, linear or keyed rolloff. Keyed curves use
 sorted `(normalized_distance, gain)` pairs in a static slice. All curves are
 silent at the maximum distance and full volume inside the minimum distance.
@@ -113,7 +113,7 @@ starts. `load_sound` decodes clips into memory; `load_stream` keeps long files s
 
 Ordinary playback uses the `sfx` bus. Create other named buses once with
 `audio_bus`, save their handles, and pass one to `play_sound_on` or to
-`AudioSettings3D::bus`. Handles belong to the context that created them.
+`d3::AudioSettings::bus`. Handles belong to the context that created them.
 Volume is a linear gain; muting preserves the configured gain. Bus changes
 apply to active voices as well as future playback.
 

@@ -1,7 +1,9 @@
 //! Same seed, same simulation: everything that could make runs diverge
 //! (threads, the grid, sorting, reduced rates, spawning) at once.
 
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::d2::Transform as Transform2D;
+use ponko::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -80,7 +82,7 @@ fn breed_and_starve(ctx: &mut Ctx) {
     }
 }
 
-fn run(seed: u64, ticks: u64) -> Value {
+fn run(seed: u64, ticks: u64) -> ponko::reflect::json::Value {
     let world = Game::new("det", 1, 1)
         .seed(seed)
         .spatial_grid(8.0)

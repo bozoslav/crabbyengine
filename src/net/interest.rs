@@ -14,7 +14,7 @@ pub const MAX_INTEREST_TIERS: usize = 8;
 /// One ring of interest: entities up to `radius` from a viewer (and beyond
 /// the previous, smaller ring) are sent every `every` ticks.
 /// ```
-/// let near = ponko::InterestTier { radius: 40.0, every: 1 };
+/// let near = ponko::net::InterestTier { radius: 40.0, every: 1 };
 /// assert_eq!(near.every, 1);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -31,7 +31,7 @@ pub struct InterestTier {
 /// Defaults: everything within 40 units every tick, within 120 units every
 /// 4th tick, a hysteresis of 5 units, sends spread over ticks.
 /// ```
-/// let c = ponko::InterestConfig::default();
+/// let c = ponko::net::InterestConfig::default();
 /// assert_eq!(c.tiers.len(), 2);
 /// assert_eq!(c.hysteresis, 5.0);
 /// ```
@@ -70,9 +70,9 @@ impl InterestConfig {
     /// `every` of at least 1, and a hysteresis from 0 up to (not including)
     /// the first radius.
     /// ```
-    /// use ponko::InterestConfig;
-    /// assert!(InterestConfig::default().validate().is_ok());
-    /// assert!(InterestConfig { tiers: vec![], ..Default::default() }.validate().is_err());
+    /// use ponko::net::InterestConfig;
+    /// assert!(ponko::net::InterestConfig::default().validate().is_ok());
+    /// assert!(ponko::net::InterestConfig { tiers: vec![], ..Default::default() }.validate().is_err());
     /// ```
     pub fn validate(&self) -> Result<(), &'static str> {
         if !(1..=MAX_INTEREST_TIERS).contains(&self.tiers.len()) {
@@ -99,9 +99,9 @@ impl InterestConfig {
 /// several (split screen, a camera apart from its avatar); an entity counts
 /// by its nearest.
 /// ```
-/// use ponko::*;
-/// let v = InterestViewer { peer: PeerId::HOST, position: Vec3::ZERO };
-/// assert_eq!(v.peer, PeerId::HOST);
+/// use ponko::prelude::*;
+/// let v = ponko::net::InterestViewer { peer: ponko::net::PeerId::HOST, position: Vec3::ZERO };
+/// assert_eq!(v.peer, ponko::net::PeerId::HOST);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct InterestViewer {
@@ -114,8 +114,8 @@ pub struct InterestViewer {
 /// An entity in the world, for [`Interest::update`]. The id is yours (a
 /// network id), unique within one update.
 /// ```
-/// use ponko::*;
-/// let e = InterestEntity { id: 7, position: vec3(1.0, 2.0, 3.0) };
+/// use ponko::prelude::*;
+/// let e = ponko::net::InterestEntity { id: 7, position: vec3(1.0, 2.0, 3.0) };
 /// assert_eq!(e.id, 7);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -128,7 +128,7 @@ pub struct InterestEntity {
 
 /// One entity a peer is interested in, from [`Interest::entries`].
 /// ```
-/// let e = ponko::InterestEntry { entity: 1, tier: 0, distance: 3.0, send: true };
+/// let e = ponko::net::InterestEntry { entity: 1, tier: 0, distance: 3.0, send: true };
 /// assert!(e.send);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -146,7 +146,7 @@ pub struct InterestEntry {
 
 /// Whether an entity entered or left a peer's interest.
 /// ```
-/// assert_ne!(ponko::InterestChangeKind::Entered, ponko::InterestChangeKind::Left);
+/// assert_ne!(ponko::net::InterestChangeKind::Entered, ponko::net::InterestChangeKind::Left);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InterestChangeKind {
@@ -160,8 +160,8 @@ pub enum InterestChangeKind {
 /// An entity entering or leaving a peer's interest, from
 /// [`Interest::changes`].
 /// ```
-/// use ponko::*;
-/// let c = InterestChange { peer: PeerId::HOST, entity: 3, kind: InterestChangeKind::Left };
+/// use ponko::prelude::*;
+/// let c = ponko::net::InterestChange { peer: ponko::net::PeerId::HOST, entity: 3, kind: ponko::net::InterestChangeKind::Left };
 /// assert_eq!(c.entity, 3);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -192,14 +192,14 @@ struct PeerState {
 /// and [`changes`](Self::changes) for who needs a spawn or despawn.
 ///
 /// ```
-/// use ponko::*;
-/// let mut interest = Interest::new(InterestConfig::default());
-/// let me = PeerId::HOST;
-/// let viewers = [InterestViewer { peer: me, position: Vec3::ZERO }];
+/// use ponko::prelude::*;
+/// let mut interest = ponko::net::Interest::new(ponko::net::InterestConfig::default());
+/// let me = ponko::net::PeerId::HOST;
+/// let viewers = [ponko::net::InterestViewer { peer: me, position: Vec3::ZERO }];
 /// let world = [
-///     InterestEntity { id: 1, position: vec3(10.0, 0.0, 0.0) },  // near
-///     InterestEntity { id: 2, position: vec3(100.0, 0.0, 0.0) }, // mid
-///     InterestEntity { id: 3, position: vec3(900.0, 0.0, 0.0) }, // far: never
+///     ponko::net::InterestEntity { id: 1, position: vec3(10.0, 0.0, 0.0) },  // near
+///     ponko::net::InterestEntity { id: 2, position: vec3(100.0, 0.0, 0.0) }, // mid
+///     ponko::net::InterestEntity { id: 3, position: vec3(900.0, 0.0, 0.0) }, // far: never
 /// ];
 /// interest.update(0, &viewers, &world);
 /// let ids: Vec<_> = interest.entries(me).iter().map(|e| (e.entity, e.tier)).collect();
@@ -240,7 +240,7 @@ impl Interest {
     /// [`MAX_INTEREST_TIERS`], radii not positive and increasing, an `every`
     /// of 0, or a hysteresis that is negative or not below the first radius.
     /// ```
-    /// let interest = ponko::Interest::new(Default::default());
+    /// let interest = ponko::net::Interest::new(Default::default());
     /// assert_eq!(interest.config().tiers.len(), 2);
     /// ```
     pub fn new(config: InterestConfig) -> Self {
@@ -262,7 +262,7 @@ impl Interest {
 
     /// The settings it was made with.
     /// ```
-    /// assert_eq!(ponko::Interest::new(Default::default()).config().hysteresis, 5.0);
+    /// assert_eq!(ponko::net::Interest::new(Default::default()).config().hysteresis, 5.0);
     /// ```
     pub fn config(&self) -> &InterestConfig {
         &self.config
@@ -305,14 +305,14 @@ impl Interest {
     /// allocation once warmed up (apart from peers and entities coming and
     /// going).
     /// ```
-    /// use ponko::*;
-    /// let mut i = Interest::new(Default::default());
-    /// let v = [InterestViewer { peer: PeerId::HOST, position: Vec3::ZERO }];
-    /// let e = [InterestEntity { id: 1, position: vec3(5.0, 0.0, 0.0) }];
+    /// use ponko::prelude::*;
+    /// let mut i = ponko::net::Interest::new(Default::default());
+    /// let v = [ponko::net::InterestViewer { peer: ponko::net::PeerId::HOST, position: Vec3::ZERO }];
+    /// let e = [ponko::net::InterestEntity { id: 1, position: vec3(5.0, 0.0, 0.0) }];
     /// i.update(0, &v, &e);
-    /// assert_eq!(i.entries(PeerId::HOST).len(), 1);
+    /// assert_eq!(i.entries(ponko::net::PeerId::HOST).len(), 1);
     /// i.update(1, &[], &e); // nobody is looking: forgotten
-    /// assert!(i.entries(PeerId::HOST).is_empty());
+    /// assert!(i.entries(ponko::net::PeerId::HOST).is_empty());
     /// assert_eq!(i.changes().len(), 1);
     /// ```
     pub fn update(&mut self, tick: u64, viewers: &[InterestViewer], entities: &[InterestEntity]) {
@@ -440,7 +440,7 @@ impl Interest {
     /// Everything `peer` is interested in as of the last update, nearest ring
     /// first within the order the entities were given. Empty for unknown peers.
     /// ```
-    /// assert!(ponko::Interest::new(Default::default()).entries(ponko::PeerId::HOST).is_empty());
+    /// assert!(ponko::net::Interest::new(Default::default()).entries(ponko::net::PeerId::HOST).is_empty());
     /// ```
     pub fn entries(&self, peer: PeerId) -> &[InterestEntry] {
         self.peers.get(&peer).map_or(&[], |s| &s.entries)
@@ -448,12 +448,12 @@ impl Interest {
 
     /// What to send `peer` this tick: its entries with `send` set.
     /// ```
-    /// use ponko::*;
-    /// let mut i = Interest::new(Default::default());
-    /// let v = [InterestViewer { peer: PeerId::HOST, position: Vec3::ZERO }];
-    /// let e = [InterestEntity { id: 1, position: vec3(5.0, 0.0, 0.0) }];
+    /// use ponko::prelude::*;
+    /// let mut i = ponko::net::Interest::new(Default::default());
+    /// let v = [ponko::net::InterestViewer { peer: ponko::net::PeerId::HOST, position: Vec3::ZERO }];
+    /// let e = [ponko::net::InterestEntity { id: 1, position: vec3(5.0, 0.0, 0.0) }];
     /// i.update(0, &v, &e);
-    /// assert_eq!(i.due(PeerId::HOST).count(), 1);
+    /// assert_eq!(i.due(ponko::net::PeerId::HOST).count(), 1);
     /// ```
     pub fn due(&self, peer: PeerId) -> impl Iterator<Item = &InterestEntry> {
         self.entries(peer).iter().filter(|e| e.send)
@@ -463,7 +463,7 @@ impl Interest {
     /// first for each peer (in id order) those that entered, in the order
     /// given, then those that left, by id.
     /// ```
-    /// assert!(ponko::Interest::new(Default::default()).changes().is_empty());
+    /// assert!(ponko::net::Interest::new(Default::default()).changes().is_empty());
     /// ```
     pub fn changes(&self) -> &[InterestChange] {
         &self.changes
@@ -471,7 +471,7 @@ impl Interest {
 
     /// Peers with a viewer in the last update.
     /// ```
-    /// assert_eq!(ponko::Interest::new(Default::default()).peers().count(), 0);
+    /// assert_eq!(ponko::net::Interest::new(Default::default()).peers().count(), 0);
     /// ```
     pub fn peers(&self) -> impl Iterator<Item = PeerId> + '_ {
         self.peers.keys().copied()
@@ -480,8 +480,8 @@ impl Interest {
     /// Forgets a peer (it disconnected) without reporting its entities as
     /// left. Unknown peers are ignored.
     /// ```
-    /// let mut i = ponko::Interest::new(Default::default());
-    /// i.remove_peer(ponko::PeerId::HOST);
+    /// let mut i = ponko::net::Interest::new(Default::default());
+    /// i.remove_peer(ponko::net::PeerId::HOST);
     /// ```
     pub fn remove_peer(&mut self, peer: PeerId) {
         self.peers.remove(&peer);

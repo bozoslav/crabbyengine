@@ -1,4 +1,8 @@
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::actions::InputEvent;
+#[allow(unused_imports)]
+use ponko::input::{Gamepad, GamepadAxis, GamepadButton, GamepadStick};
+use ponko::prelude::*;
 
 fn bindings() -> ActionMap {
     let mut map = ActionMap::default();

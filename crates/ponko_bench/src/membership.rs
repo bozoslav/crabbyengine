@@ -119,7 +119,7 @@ fn registered_world() -> (World, Vec<ComponentId>) {
 fn add(w: &mut World, e: Entity, id: ComponentId) {
     let v = 0u32;
     // SAFETY: `id` is a registered 4-byte component and `v` is 4 bytes.
-    assert!(unsafe { w.insert_dynamic(e, id, (&raw const v).cast()) });
+    assert!(unsafe { w.raw().insert_dynamic(e, id, (&raw const v).cast()) });
 }
 
 /// A world with one entity whose archetype has exactly the components `set`
@@ -135,7 +135,8 @@ fn world_with(set: &[usize]) -> (World, Vec<ComponentId>, Entity) {
 }
 
 fn archetype_of<'a>(w: &'a World, set: &[ComponentId]) -> &'a Archetype {
-    w.archetypes()
+    w.raw_ref()
+        .archetypes()
         .iter()
         .find(|a| a.component_ids() == set)
         .expect("archetype exists")
@@ -459,9 +460,9 @@ fn transitions(filter: Option<&str>) {
             // Visit every edge once, so each case below starts with the edges cached.
             for &x in &extras {
                 add(&mut w, e, x);
-                assert!(w.remove_dynamic(e, x));
+                assert!(w.raw().remove_dynamic(e, x));
             }
-            w.archetypes().len()
+            w.raw_ref().archetypes().len()
         };
         let w = std::cell::RefCell::new(w);
         compare(
@@ -476,7 +477,7 @@ fn transitions(filter: Option<&str>) {
                         let mut w = w.borrow_mut();
                         for _ in 0..TOGGLES {
                             add(&mut w, e, extra0);
-                            w.remove_dynamic(e, extra0);
+                            w.raw().remove_dynamic(e, extra0);
                         }
                         0
                     }),
@@ -488,7 +489,7 @@ fn transitions(filter: Option<&str>) {
                         for k in 0..TOGGLES {
                             let x = extras[k % extras.len()];
                             add(&mut w, e, x);
-                            w.remove_dynamic(e, x);
+                            w.raw().remove_dynamic(e, x);
                         }
                         0
                     }),
@@ -496,7 +497,7 @@ fn transitions(filter: Option<&str>) {
             ],
         );
         // The edge cache never missed after the first visit: no archetype was created.
-        assert_eq!(w.borrow().archetypes().len(), archetypes_before);
+        assert_eq!(w.borrow().raw_ref().archetypes().len(), archetypes_before);
 
         // Cold: a fresh world, timing the first add and remove of one component.
         let full = format!("membership/transition/{name}/cold-first-add+remove");
@@ -506,7 +507,7 @@ fn transitions(filter: Option<&str>) {
                 let (mut w, ids, e) = world_with(&set);
                 let t = Instant::now();
                 add(&mut w, e, ids[SPREAD]);
-                w.remove_dynamic(e, ids[SPREAD]);
+                w.raw().remove_dynamic(e, ids[SPREAD]);
                 let ns = t.elapsed().as_secs_f64() * 1e9 / 2.0;
                 black_box(&w);
                 if round >= 3 {
@@ -671,15 +672,15 @@ mod tests {
         let (mut w, ids, e) = world_with(&set);
         for &x in &ids[SPREAD..SPREAD + 4] {
             add(&mut w, e, x);
-            assert!(w.remove_dynamic(e, x));
+            assert!(w.raw().remove_dynamic(e, x));
         }
-        let before = w.archetypes().len();
+        let before = w.raw_ref().archetypes().len();
         for k in 0..64 {
             let x = ids[SPREAD + k % 4];
             add(&mut w, e, x);
-            assert!(w.remove_dynamic(e, x));
+            assert!(w.raw().remove_dynamic(e, x));
         }
-        assert_eq!(w.archetypes().len(), before);
+        assert_eq!(w.raw_ref().archetypes().len(), before);
     }
 
     #[test]

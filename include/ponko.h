@@ -809,6 +809,32 @@ typedef struct PonkoGridView {
   uint32_t y_bits;
 } PonkoGridView;
 
+typedef struct PonkoQueryFilter2D {
+  bool exclude;
+  uint64_t exclude_entity;
+  bool sensors;
+} PonkoQueryFilter2D;
+
+typedef struct PonkoRayHit {
+  struct PonkoEntity entity;
+  struct PonkoVec2 point;
+  struct PonkoVec2 normal;
+  float distance;
+} PonkoRayHit;
+
+typedef struct PonkoTransform3D {
+  struct PonkoQuat rotation;
+  struct PonkoVec3 position;
+  struct PonkoVec3 scale;
+  float reserved[2];
+} PonkoTransform3D;
+
+typedef struct PonkoTransform2D {
+  struct PonkoVec2 position;
+  float rotation;
+  struct PonkoVec2 scale;
+} PonkoTransform2D;
+
 typedef struct PonkoFlowView {
   const uint8_t *cells;
   const struct PonkoVec2 *directions;
@@ -900,13 +926,6 @@ typedef struct PonkoNavBakeSettings {
   uint32_t tile_size;
   bool carving;
 } PonkoNavBakeSettings;
-
-typedef struct PonkoTransform3D {
-  struct PonkoQuat rotation;
-  struct PonkoVec3 position;
-  struct PonkoVec3 scale;
-  float reserved[2];
-} PonkoTransform3D;
 
 typedef struct PonkoParticleKey {
   float t;
@@ -1000,13 +1019,6 @@ typedef struct PonkoCollider {
   float restitution;
   bool sensor;
 } PonkoCollider;
-
-typedef struct PonkoRayHit {
-  struct PonkoEntity entity;
-  struct PonkoVec2 point;
-  struct PonkoVec2 normal;
-  float distance;
-} PonkoRayHit;
 
 typedef struct PonkoCollision {
   struct PonkoEntity a;
@@ -1765,12 +1777,6 @@ typedef struct PonkoVehicle3D {
   uint32_t reserved;
 } PonkoVehicle3D;
 
-typedef struct PonkoTransform2D {
-  struct PonkoVec2 position;
-  float rotation;
-  struct PonkoVec2 scale;
-} PonkoTransform2D;
-
 typedef struct PonkoSprite {
   struct PonkoTexture texture;
   struct PonkoColor color;
@@ -2428,6 +2434,37 @@ enum PonkoStatus ponko_ctx_spatial_nearest(const struct PonkoCtx *ctx,
                                            struct PonkoGridHit *out_hit);
 
 enum PonkoStatus ponko_ctx_spatial_view(const struct PonkoCtx *ctx, struct PonkoGridView *out_view);
+
+enum PonkoStatus ponko_ctx_cast_ray_filtered(struct PonkoCtx *ctx,
+                                             struct PonkoVec2 origin,
+                                             struct PonkoVec2 direction,
+                                             float max_distance,
+                                             struct PonkoQueryFilter2D filter,
+                                             bool *out_found,
+                                             struct PonkoRayHit *out_hit);
+
+enum PonkoStatus ponko_ctx_overlap_ball(struct PonkoCtx *ctx,
+                                        struct PonkoVec2 center,
+                                        float radius,
+                                        struct PonkoQueryFilter2D filter,
+                                        struct PonkoEntity *out_entities,
+                                        size_t capacity,
+                                        size_t *out_count);
+
+enum PonkoStatus ponko_ctx_spawn_prefab3d(struct PonkoCtx *ctx,
+                                          const char *path,
+                                          struct PonkoVec3 at,
+                                          uint64_t *output);
+
+enum PonkoStatus ponko_ctx_spawn_prefab_transform3d(struct PonkoCtx *ctx,
+                                                    const char *path,
+                                                    struct PonkoTransform3D at,
+                                                    uint64_t *output);
+
+enum PonkoStatus ponko_ctx_spawn_prefab_transform2d(struct PonkoCtx *ctx,
+                                                    const char *path,
+                                                    struct PonkoTransform2D at,
+                                                    uint64_t *output);
 
 struct PonkoNavGrid *ponko_nav_new(uint32_t width, uint32_t height, float cell_size);
 

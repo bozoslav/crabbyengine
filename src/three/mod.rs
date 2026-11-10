@@ -25,7 +25,8 @@ pub(crate) mod instances;
 pub use instances::{InstanceBatch, InstanceBatchOptions, InstanceLevel};
 mod lod;
 pub(crate) mod occlusion;
-pub use gi::{GlobalIllumination, MAX_GI_PROBES, MAX_GI_PROBES_PER_FRAME};
+pub use gi::GlobalIllumination;
+pub(crate) use gi::MAX_GI_PROBES_PER_FRAME;
 pub use ik::{look_at_joint, two_bone_ik};
 pub use lod::{LodGroup, LodHysteresis, LodLevel, LodPick, LodRenderer, LodSettings, LodShadow};
 pub(crate) mod lights;
@@ -42,7 +43,7 @@ pub use particles::{
 mod decal;
 mod post;
 pub(crate) mod projected;
-pub use projected::{Decal3D, MAX_DECALS, MAX_DECALS_PER_CLUSTER, ReceivesDecals};
+pub use projected::{Decal3D, ReceivesDecals};
 pub(crate) mod probe;
 pub use probe::ReflectionProbe3D;
 #[cfg(test)]
@@ -98,7 +99,7 @@ pub(crate) use skin::{SkinDraw, normalized as normalized_weights};
 pub use sky::Sky;
 pub(crate) use sky::SkyLight;
 pub use target::TargetCamera;
-pub use terrain::{Heightfield, TERRAIN_LAYERS, TERRAIN_LODS, TerrainMaterialDesc, TerrainTile, TerrainTileData};
+pub use terrain::{Heightfield, TERRAIN_LODS, TerrainMaterialDesc, TerrainTile, TerrainTileData};
 pub use texture_array::{TextureArray, TextureKind};
 
 use glam::{Mat3, Mat4, Quat, Vec2, Vec3, Vec4};
@@ -108,8 +109,8 @@ use crate::{Color, Texture};
 /// Position, rotation and scale of a 3D entity.
 ///
 /// ```
-/// # use ponko::*;
-/// let crate_box = Transform3D::at(vec3(0.0, 0.5, -3.0)).rotated(Quat::from_rotation_y(0.3));
+/// # use ponko::prelude::*;
+/// let crate_box = ponko::d3::Transform::at(vec3(0.0, 0.5, -3.0)).rotated(Quat::from_rotation_y(0.3));
 /// # let _ = crate_box;
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -138,8 +139,8 @@ impl Transform3D {
     /// At `position`, not rotated, scale 1.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let t = Transform3D::at(vec3(1.0, 2.0, 3.0));
+    /// # use ponko::prelude::*;
+    /// let t = ponko::d3::Transform::at(vec3(1.0, 2.0, 3.0));
     /// assert_eq!(t.scale, Vec3::ONE);
     /// ```
     #[must_use]
@@ -153,8 +154,8 @@ impl Transform3D {
     /// The same, rotated by `rotation`.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let t = Transform3D::default().rotated(Quat::from_rotation_y(1.0));
+    /// # use ponko::prelude::*;
+    /// let t = ponko::d3::Transform::default().rotated(Quat::from_rotation_y(1.0));
     /// # let _ = t;
     /// ```
     #[must_use]
@@ -165,8 +166,8 @@ impl Transform3D {
     /// The same, scaled by `scale` on every axis.
     ///
     /// ```
-    /// # use ponko::*;
-    /// assert_eq!(Transform3D::default().scaled(2.0).scale, Vec3::splat(2.0));
+    /// # use ponko::prelude::*;
+    /// assert_eq!(ponko::d3::Transform::default().scaled(2.0).scale, Vec3::splat(2.0));
     /// ```
     #[must_use]
     pub fn scaled(self, scale: f32) -> Self {
@@ -179,8 +180,8 @@ impl Transform3D {
     /// The same, turned so its -Z axis points at `target` (with +Y as up).
     ///
     /// ```
-    /// # use ponko::*;
-    /// let t = Transform3D::at(vec3(0.0, 0.0, 5.0)).looking_at(Vec3::ZERO);
+    /// # use ponko::prelude::*;
+    /// let t = ponko::d3::Transform::at(vec3(0.0, 0.0, 5.0)).looking_at(Vec3::ZERO);
     /// assert!((t.forward() - vec3(0.0, 0.0, -1.0)).length() < 1e-5);
     /// ```
     #[must_use]
@@ -194,8 +195,8 @@ impl Transform3D {
     /// The direction it faces: its -Z axis.
     ///
     /// ```
-    /// # use ponko::*;
-    /// assert_eq!(Transform3D::default().forward(), vec3(0.0, 0.0, -1.0));
+    /// # use ponko::prelude::*;
+    /// assert_eq!(ponko::d3::Transform::default().forward(), vec3(0.0, 0.0, -1.0));
     /// ```
     #[must_use]
     pub fn forward(&self) -> Vec3 {
@@ -205,8 +206,8 @@ impl Transform3D {
     /// The matrix from its local space to the world.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let m = Transform3D::at(vec3(1.0, 0.0, 0.0)).matrix();
+    /// # use ponko::prelude::*;
+    /// let m = ponko::d3::Transform::at(vec3(1.0, 0.0, 0.0)).matrix();
     /// assert_eq!(m.transform_point3(Vec3::ZERO), vec3(1.0, 0.0, 0.0));
     /// ```
     #[must_use]
@@ -226,14 +227,14 @@ fn look_rotation(direction: Vec3) -> Quat {
 }
 
 /// A mesh on the GPU: triangles, split into parts that each have a
-/// [`Material`]. Made with [`Graphics::create_mesh`](crate::Graphics::create_mesh) or
-/// loaded with [`Graphics::load_mesh`](crate::Graphics::load_mesh); a cheap handle.
+/// [`Material`]. Made with [`Graphics::create_mesh`](crate::gfx::Graphics::create_mesh) or
+/// loaded with [`Graphics::load_mesh`](crate::gfx::Graphics::load_mesh); a cheap handle.
 ///
 /// ```no_run
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
-/// let tree: Mesh = ctx.gfx.load_mesh("tree.glb");
-/// ctx.world.spawn((Transform3D::default(), Model::new(tree)));
+/// let tree: ponko::render::Mesh = ctx.gfx.load_mesh("tree.glb");
+/// ctx.world.spawn((ponko::d3::Transform::default(), ponko::render::Model::new(tree)));
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -249,20 +250,20 @@ impl Mesh {
     /// id. The same value as [`Handle::NONE`](crate::Handle::NONE).
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let material = ctx.gfx.default_material();
-    ///     let bush = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
-    ///     ctx.world.spawn((Transform3D::default(), Model::new(Mesh::NONE)));
-    ///     assert!(!ctx.gfx.is_live(Mesh::NONE));
-    ///     assert_ne!(bush, Mesh::NONE);
+    ///     let bush = ctx.gfx.create_mesh(&ponko::render::MeshData::cube(1.0), material);
+    ///     ctx.world.spawn((ponko::d3::Transform::default(), ponko::render::Model::new(ponko::render::Mesh::NONE)));
+    ///     assert!(!ctx.gfx.is_live(ponko::render::Mesh::NONE));
+    ///     assert_ne!(bush, ponko::render::Mesh::NONE);
     /// });
     /// ```
     pub const NONE: Mesh = Mesh { id: u32::MAX };
 }
 
 /// What one mesh cost to draw in the last frame, from
-/// [`Graphics::mesh_costs`](crate::Graphics::mesh_costs).
+/// [`Graphics::mesh_costs`](crate::gfx::Graphics::mesh_costs).
 #[derive(Debug, Clone, PartialEq)]
 pub struct MeshCost {
     /// The mesh.
@@ -282,12 +283,12 @@ pub struct MeshCost {
 
 /// How a surface looks: its color (and texture), how rough and how metallic
 /// it is, and light it gives off. Made with
-/// [`Graphics::create_material`](crate::Graphics::create_material); a cheap handle.
+/// [`Graphics::create_material`](crate::gfx::Graphics::create_material); a cheap handle.
 ///
 /// ```no_run
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
-/// let gold = ctx.gfx.create_material(MaterialDesc { metallic: 1.0, roughness: 0.3, ..MaterialDesc::color(Color::hex(0xFFC83D)) });
+/// let gold = ctx.gfx.create_material(ponko::render::MaterialDesc { metallic: 1.0, roughness: 0.3, ..ponko::render::MaterialDesc::color(Color::hex(0xFFC83D)) });
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -297,8 +298,8 @@ pub struct Material {
 }
 
 /// A material shader written in WGSL: made with
-/// [`Graphics::load_shader`](crate::Graphics::load_shader) or
-/// [`Graphics::create_shader`](crate::Graphics::create_shader); a cheap handle. See
+/// [`Graphics::load_shader`](crate::gfx::Graphics::load_shader) or
+/// [`Graphics::create_shader`](crate::gfx::Graphics::create_shader); a cheap handle. See
 /// the 3D chapter of the guide for what a shader can do ("Custom shaders"
 /// and "The shader contract").
 ///
@@ -319,14 +320,14 @@ pub struct Material {
 ///   detail) or shared-instance (GPU buffer) draws. There are no defines;
 ///   skinned meshes use the same pipelines.
 /// - Culling uses the mesh's bounds before `vertex` moves anything: grow
-///   them with [`Graphics::set_mesh_gpu_bounds`](crate::Graphics::set_mesh_gpu_bounds)
+///   them with [`Graphics::set_mesh_gpu_bounds`](crate::gfx::Graphics::set_mesh_gpu_bounds)
 ///   for shaders that move vertices far.
 ///
 /// ```no_run
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let water = ctx.gfx.load_shader("shaders/water.wgsl");
-/// let lake = ctx.gfx.create_material(MaterialDesc { shader: Some(water), ..Default::default() });
+/// let lake = ctx.gfx.create_material(ponko::render::MaterialDesc { shader: Some(water), ..Default::default() });
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -373,8 +374,8 @@ pub enum Blend {
 /// What a [`Material`] is made from.
 ///
 /// ```
-/// # use ponko::*;
-/// let grass = MaterialDesc { roughness: 0.9, ..MaterialDesc::color(Color::hex(0x4C8A3A)) };
+/// # use ponko::prelude::*;
+/// let grass = ponko::render::MaterialDesc { roughness: 0.9, ..ponko::render::MaterialDesc::color(Color::hex(0x4C8A3A)) };
 /// assert_eq!(grass.metallic, 0.0);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -443,8 +444,8 @@ impl MaterialDesc {
     /// A plain material of one color.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let red = MaterialDesc::color(Color::rgb(0.8, 0.1, 0.1));
+    /// # use ponko::prelude::*;
+    /// let red = ponko::render::MaterialDesc::color(Color::rgb(0.8, 0.1, 0.1));
     /// # let _ = red;
     /// ```
     #[must_use]
@@ -459,13 +460,13 @@ impl MaterialDesc {
 /// Draws a [`Mesh`] where the entity's [`Transform3D`] is.
 ///
 /// ```no_run
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let white = ctx.gfx.default_material();
-/// let cube = ctx.gfx.create_mesh(&MeshData::cube(1.0), white);
+/// let cube = ctx.gfx.create_mesh(&ponko::render::MeshData::cube(1.0), white);
 /// for i in 0..10 {
 ///     let tint = Color::rgb(i as f32 / 10.0, 0.5, 1.0);
-///     ctx.world.spawn((Transform3D::at(vec3(i as f32 * 2.0, 0.0, 0.0)), Model::new(cube).with_color(tint)));
+///     ctx.world.spawn((ponko::d3::Transform::at(vec3(i as f32 * 2.0, 0.0, 0.0)), ponko::render::Model::new(cube).with_color(tint)));
 /// }
 /// # }
 /// ```
@@ -483,7 +484,7 @@ pub struct Model {
 /// shows: a cheap stand-in for a detailed model's shadow (a simplified copy,
 /// a billboard), or `None` for no shadow from this entity. Without it, the
 /// model's own mesh casts the shadow (unless
-/// [`Graphics::set_mesh_shadows`](crate::Graphics::set_mesh_shadows) turned that
+/// [`Graphics::set_mesh_shadows`](crate::gfx::Graphics::set_mesh_shadows) turned that
 /// mesh's shadows off).
 ///
 /// Far from the camera, a shadow is a few texels of the shadow map, so a
@@ -498,11 +499,11 @@ pub struct Model {
 /// `{ "mesh": null }` for no shadow.
 ///
 /// ```no_run
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let tree = ctx.gfx.load_mesh("tree.glb");
 /// let blob = ctx.gfx.load_mesh("tree_shadow.glb"); // a few dozen triangles
-/// ctx.world.spawn((Transform3D::default(), Model::new(tree), ShadowMesh(Some(blob))));
+/// ctx.world.spawn((ponko::d3::Transform::default(), ponko::render::Model::new(tree), ponko::render::ShadowMesh(Some(blob))));
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -530,12 +531,12 @@ pub struct ShadowMesh(pub Option<Mesh>);
 /// the override isn't saved, like a model whose mesh was made in code.
 ///
 /// ```no_run
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let rock = ctx.gfx.load_mesh("rock.glb");
-/// let wet = ctx.gfx.create_material(MaterialDesc { roughness: 0.1, ..MaterialDesc::color(Color::hex(0x404850)) });
-/// ctx.world.spawn((Transform3D::default(), Model::new(rock)));                    // as the file has it
-/// ctx.world.spawn((Transform3D::at(vec3(3.0, 0.0, 0.0)), Model::new(rock), ModelMaterial(wet))); // wet
+/// let wet = ctx.gfx.create_material(ponko::render::MaterialDesc { roughness: 0.1, ..ponko::render::MaterialDesc::color(Color::hex(0x404850)) });
+/// ctx.world.spawn((ponko::d3::Transform::default(), ponko::render::Model::new(rock)));                    // as the file has it
+/// ctx.world.spawn((ponko::d3::Transform::at(vec3(3.0, 0.0, 0.0)), ponko::render::Model::new(rock), ponko::render::ModelMaterial(wet))); // wet
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -546,7 +547,7 @@ pub struct ModelMaterial(pub Material);
 /// glass of one door, the paint of one car. A mesh's parts are numbered
 /// from 0 in the order it was made with: a loaded file's materials in the
 /// order they first appear, one part for
-/// [`Graphics::create_mesh`](crate::Graphics::create_mesh).
+/// [`Graphics::create_mesh`](crate::gfx::Graphics::create_mesh).
 ///
 /// Parts that aren't listed keep the [`ModelMaterial`] if the entity has
 /// one, else the mesh's own material. A part number the mesh doesn't have
@@ -560,11 +561,11 @@ pub struct ModelMaterial(pub Material);
 /// `ModelMaterial`.
 ///
 /// ```no_run
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let door = ctx.load_mesh("door.glb"); // part 0: wood, part 1: window
-/// let frosted = ctx.create_material(MaterialDesc { roughness: 0.6, ..Default::default() });
-/// ctx.world.spawn((Transform3D::default(), Model::new(door), ModelMaterials::new(&[(1, frosted)])));
+/// let frosted = ctx.create_material(ponko::render::MaterialDesc { roughness: 0.6, ..Default::default() });
+/// ctx.world.spawn((ponko::d3::Transform::default(), ponko::render::Model::new(door), ponko::render::ModelMaterials::new(&[(1, frosted)])));
 /// # }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -610,10 +611,10 @@ impl Model {
     /// Draws `mesh` as it is.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let rock = ctx.gfx.load_mesh("rock.glb");
-    /// ctx.world.spawn((Transform3D::default(), Model::new(rock)));
+    /// ctx.world.spawn((ponko::d3::Transform::default(), ponko::render::Model::new(rock)));
     /// # }
     /// ```
     #[must_use]
@@ -627,9 +628,9 @@ impl Model {
     /// The same, tinted with `color`.
     ///
     /// ```no_run
-    /// # use ponko::*;
-    /// # fn f(ctx: &mut Ctx, cube: Mesh) {
-    /// let red_cube = Model::new(cube).with_color(Color::rgb(1.0, 0.2, 0.2));
+    /// # use ponko::prelude::*;
+    /// # fn f(ctx: &mut Ctx, cube: ponko::render::Mesh) {
+    /// let red_cube = ponko::render::Model::new(cube).with_color(Color::rgb(1.0, 0.2, 0.2));
     /// # }
     /// ```
     #[must_use]
@@ -642,7 +643,7 @@ impl Model {
 /// One per game, at [`Ctx::camera3d`](crate::Ctx::camera3d).
 ///
 /// ```no_run
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
 /// ctx.camera3d.position = vec3(0.0, 4.0, 10.0);
 /// ctx.camera3d.look_at(Vec3::ZERO);
@@ -694,7 +695,7 @@ impl Camera3D {
     /// Turns the camera to look at `target`, keeping +Y up.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, player: Vec3) {
     /// ctx.camera3d.position = player + vec3(0.0, 6.0, 8.0);
     /// ctx.camera3d.look_at(player);
@@ -707,7 +708,7 @@ impl Camera3D {
     /// The direction the camera looks.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let ahead = ctx.camera3d.position + ctx.camera3d.forward() * 5.0;
     /// # }
@@ -735,7 +736,7 @@ impl Camera3D {
     /// unit direction. For picking things in the world with the mouse.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let (from, dir) = ctx.camera3d.screen_ray(ctx.mouse_pos());
     /// // Where the mouse points on the ground (y = 0):
@@ -761,7 +762,7 @@ impl Camera3D {
 /// and ambient light from all around. At [`Ctx::lighting`](crate::Ctx::lighting).
 ///
 /// ```no_run
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
 /// // Evening: low, orange sun.
 /// ctx.lighting.sun_direction = vec3(-1.0, -0.3, -0.2);
@@ -820,7 +821,7 @@ pub struct Lighting {
     /// lookups it adds, on every lit pixel.
     pub shadow_filter: u32,
     /// How many shadow views point and spot lights may share, 0 to
-    /// [`MAX_LIGHT_SHADOW_VIEWS`]: a shadowed spot light takes one, a
+    /// [`PointLight::MAX_SHADOW_VIEWS`](crate::d3::PointLight::MAX_SHADOW_VIEWS): a shadowed spot light takes one, a
     /// shadowed point light six. 0 turns point and spot light shadows off.
     /// Default 12.
     pub light_shadow_views: u32,
@@ -828,14 +829,14 @@ pub struct Lighting {
     /// texels: 128 to 2048, rounded down to a power of two. A light whose
     /// reach fills the view gets this; one twice as far away half of it,
     /// down to 64 (see [`PointLight3D::shadow_resolution`] to pick a
-    /// light's own). Default [`LIGHT_SHADOW_SIZE`].
+    /// light's own). Default [`PointLight::SHADOW_SIZE`](crate::d3::PointLight::SHADOW_SIZE).
     pub light_shadow_resolution: u32,
     /// Width and height of the depth atlas all point and spot light shadow
     /// views are packed into, in texels: 1024 to 8192, rounded down to a
     /// power of two (and no more than the GPU allows). It takes
     /// `4 * light_shadow_atlas²` bytes once a light casts shadows; when
     /// the views don't fit, the largest shrink. Changing it at run time
-    /// makes a new atlas. Default [`LIGHT_SHADOW_ATLAS_SIZE`].
+    /// makes a new atlas. Default [`PointLight::SHADOW_ATLAS_SIZE`](crate::d3::PointLight::SHADOW_ATLAS_SIZE).
     pub light_shadow_atlas: u32,
     /// Light bounced off the world's surfaces (global illumination). Off
     /// by default; see [`GlobalIllumination`].
@@ -1021,9 +1022,9 @@ impl Assets3D {
     /// whether each handle is live (`Ctx::asset_inventory`).
     /// Freed ones aren't counted; `textures_live` says which render
     /// targets are.
-    pub(crate) fn inventory(&self, textures_live: &crate::handle::LiveSet) -> [crate::AssetCount; 8] {
+    pub(crate) fn inventory(&self, textures_live: &crate::handle::LiveSet) -> [crate::inventory::AssetCount; 8] {
         use crate::inventory::{AssetClass, mip_chain_bytes};
-        let count = |class, live: usize, bytes: u64| crate::AssetCount { class, live, bytes };
+        let count = |class, live: usize, bytes: u64| crate::inventory::AssetCount { class, live, bytes };
         // Render targets are linear HDR: 8 bytes a pixel.
         let live_targets = self.render_targets.iter().filter(|t| textures_live.contains(t.id));
         let targets: u64 = live_targets

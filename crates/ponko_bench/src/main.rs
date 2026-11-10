@@ -1176,8 +1176,8 @@ fn main() {
 }
 
 /// A `side` × `side` map with about 20% of cells walls (blobs, like terrain).
-fn flow_map(side: u32) -> ponko::NavGrid {
-    let mut nav = ponko::NavGrid::new(side, side, 1.0);
+fn flow_map(side: u32) -> ponko::flow::NavGrid {
+    let mut nav = ponko::flow::NavGrid::new(side, side, 1.0);
     let mut s = 0x2545F4914F6CDD1Du64;
     for _ in 0..(side * side / 60) {
         s ^= s << 13;
@@ -1187,7 +1187,7 @@ fn flow_map(side: u32) -> ponko::NavGrid {
         for dy in -3..=3i64 {
             for dx in -3..=3i64 {
                 if dx * dx + dy * dy <= 9 && cx + dx >= 0 && cy + dy >= 0 {
-                    nav.set_cost((cx + dx) as u32, (cy + dy) as u32, ponko::NavGrid::WALL);
+                    nav.set_cost((cx + dx) as u32, (cy + dy) as u32, ponko::flow::NavGrid::WALL);
                 }
             }
         }
@@ -1196,7 +1196,8 @@ fn flow_map(side: u32) -> ponko::NavGrid {
 }
 
 fn flow_benches(b: &mut Bench) {
-    use ponko::{FlowField, Vec2};
+    use ponko::Vec2;
+    use ponko::flow::FlowField;
     use rayon::prelude::*;
     for side in [256u32, 1024] {
         b.steady(
@@ -1245,8 +1246,9 @@ fn flow_benches(b: &mut Bench) {
             20,
             || (),
             |_| {
+                use ponko::d2::Transform as Transform2D;
                 use ponko::systems::follow_attachments;
-                use ponko::{Attached, Game, Transform2D, vec2};
+                use ponko::{Game, d2::Attached, vec2};
                 let world = Game::new("bench", 1, 1)
                     .sim_system(|ctx| {
                         ctx.world

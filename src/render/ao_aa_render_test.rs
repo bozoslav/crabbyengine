@@ -1,8 +1,12 @@
 //! Headless GPU regression tests for contact AO and post AA.
 use super::gpu::GpuTexture;
 use super::gpu3d::*;
+#[allow(unused_imports)]
+use crate::d3::Transform as Transform3D;
+use crate::prelude::*;
+#[allow(unused_imports)]
+use crate::render::{AmbientOcclusion, AntiAliasing, GpuFeature, MaterialDesc, MeshData, Model};
 use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight};
-use crate::*;
 
 const SIZE: u32 = 64;
 
@@ -41,7 +45,7 @@ fn render(downlevel: bool, benchmark: bool) {
         crate::render::render_test_support::no_gpu("no GPU device");
         return;
     };
-    if !downlevel && !crate::render::render_test_support::needs(&device, crate::GpuFeature::AmbientOcclusion) {
+    if !downlevel && !crate::render::render_test_support::needs(&device, crate::render::GpuFeature::AmbientOcclusion) {
         return;
     }
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {

@@ -195,7 +195,13 @@ mod tests {
     #[test]
     fn worlds_have_1024_archetypes_of_16_entities() {
         let w = ponko_world();
-        let sizes: Vec<_> = w.archetypes().iter().map(|a| a.len()).filter(|&n| n > 0).collect();
+        let sizes: Vec<_> = w
+            .raw_ref()
+            .archetypes()
+            .iter()
+            .map(|a| a.len())
+            .filter(|&n| n > 0)
+            .collect();
         assert_eq!(sizes.len(), ARCHETYPES);
         assert!(sizes.iter().all(|&n| n == PER_ARCHETYPE));
         assert_eq!(w.len(), ENTITIES);

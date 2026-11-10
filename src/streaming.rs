@@ -4,9 +4,9 @@
 //!
 //! [`Ctx::stream_texture`] (and, with the `3d` feature,
 //! [`Ctx::stream_mesh`]) never wait: the first call starts decoding the file
-//! on a [`Job`](crate::Job) thread and returns `None`; once decoded, the
+//! on a [`Job`] thread and returns `None`; once decoded, the
 //! asset is uploaded at the start of a frame, within the
-//! [upload budget](crate::Graphics::set_upload_budget). A texture appears first as a
+//! [upload budget](crate::gfx::Graphics::set_upload_budget). A texture appears first as a
 //! stand-in at most 32 pixels a side and doubles in resolution each upload
 //! until it is full size or its [residency budget](Ctx::set_residency_budget)
 //! is reached. Evicted textures drop back to that stand-in; evicted meshes
@@ -14,7 +14,7 @@
 //!
 //! Each asset's [`AssetState`] changes only in that upload step, and
 //! uploads run in the order the assets were asked for. With
-//! [`Graphics::set_deterministic_uploads`](crate::Graphics::set_deterministic_uploads) the step waits for decoding instead of
+//! [`Graphics::set_deterministic_uploads`](crate::gfx::Graphics::set_deterministic_uploads) the step waits for decoding instead of
 //! moving on, so which frame each state changes in depends only on the
 //! order of requests and the budget: the same run gives the same frames.
 //! States are fixed per frame, not per simulation tick (a frame may run
@@ -25,15 +25,16 @@
 use std::collections::{BTreeMap, VecDeque};
 
 use crate::assets::{self, Origin};
-use crate::{Ctx, Job, ResidencyKind, Texture};
+use crate::residency::ResidencyKind;
+use crate::{Ctx, Texture, stream::Job};
 
 /// The longest side of a streamed texture's stand-in.
 pub(crate) const STAND_IN: u32 = 32;
 
-/// The default [upload budget](crate::Graphics::set_upload_budget): 16 MiB a frame.
+/// The default [upload budget](crate::gfx::Graphics::set_upload_budget): 16 MiB a frame.
 pub const DEFAULT_UPLOAD_BUDGET: u64 = 16 << 20;
 
-/// Where a streamed asset is ([`Graphics::asset_state`](crate::Graphics::asset_state)). States change only
+/// Where a streamed asset is ([`Graphics::asset_state`](crate::gfx::Graphics::asset_state)). States change only
 /// in the upload step at the start of a frame, in the order assets were
 /// asked for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -54,7 +55,7 @@ pub enum AssetState {
     /// stand-in, a mesh draws nothing. Asking for it again brings it back
     /// under the same handle.
     Evicted,
-    /// Loading failed; [`Graphics::asset_error`](crate::Graphics::asset_error) says why. Streaming doesn't
+    /// Loading failed; [`Graphics::asset_error`](crate::gfx::Graphics::asset_error) says why. Streaming doesn't
     /// retry it by itself; loading it with `resident_*` does.
     Failed,
 }
@@ -75,13 +76,13 @@ impl AssetState {
     }
 }
 
-/// The upload queue's budget and counters ([`Graphics::upload_stats`](crate::Graphics::upload_stats)).
+/// The upload queue's budget and counters ([`Graphics::upload_stats`](crate::gfx::Graphics::upload_stats)).
 ///
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// Game::new("t", 1, 1).run_headless(0, |ctx| {
 ///     let uploads = ctx.gfx.upload_stats();
-///     assert_eq!(uploads.budget, Some(DEFAULT_UPLOAD_BUDGET));
+///     assert_eq!(uploads.budget, Some(ponko::streaming::DEFAULT_UPLOAD_BUDGET));
 ///     assert_eq!(uploads.pending, 0);
 /// });
 /// ```
@@ -104,7 +105,7 @@ pub struct UploadStats {
     /// Steps that went over the budget because a single upload was larger.
     pub oversized: u64,
     /// Times the game thread waited for a decode: only with
-    /// [deterministic uploads](crate::Graphics::set_deterministic_uploads) or in
+    /// [deterministic uploads](crate::gfx::Graphics::set_deterministic_uploads) or in
     /// [`Ctx::finish_uploads`].
     pub decode_waits: u64,
     /// Texture uploads held back because the texture budget was full.
@@ -117,7 +118,7 @@ pub struct UploadStats {
     pub max_step_ms: f32,
 }
 
-/// One streamed asset, for diagnostics ([`Graphics::streamed_assets`](crate::Graphics::streamed_assets)).
+/// One streamed asset, for diagnostics ([`Graphics::streamed_assets`](crate::gfx::Graphics::streamed_assets)).
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct StreamedAsset {
@@ -340,14 +341,14 @@ impl Ctx {
     ///
     /// A missing or broken file gives `None` (or, coming back from
     /// eviction, keeps the stand-in), with [`AssetState::Failed`] and the
-    /// error in [`asset_error`](crate::Graphics::asset_error). Asking again doesn't
+    /// error in [`asset_error`](crate::gfx::Graphics::asset_error). Asking again doesn't
     /// retry, so a missing file costs nothing each frame;
     /// [`resident_texture`](Self::resident_texture) loads it again. Files from added [asset sources](crate::Assets::add_source)
     /// are read on the game thread (their trait runs there) and decoded on
     /// a worker. In a browser, decoding runs when the load starts.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let mut png = Vec::new();
     ///     image::RgbaImage::from_pixel(256, 128, image::Rgba([90, 160, 60, 255]))
@@ -358,7 +359,7 @@ impl Ctx {
     ///     ctx.finish_uploads(); // a loading screen; games just keep asking
     ///     let grass = ctx.stream_texture("grass.png").unwrap();
     ///     assert_eq!((grass.width(), grass.height()), (256, 128));
-    ///     assert_eq!(ctx.gfx.asset_state(ResidencyKind::Texture, "grass.png"), AssetState::Resident);
+    ///     assert_eq!(ctx.gfx.asset_state(ponko::residency::ResidencyKind::Texture, "grass.png"), ponko::streaming::AssetState::Resident);
     /// });
     /// ```
     pub fn stream_texture(&mut self, path: &str) -> Option<Texture> {
@@ -402,7 +403,7 @@ impl Ctx {
     /// on this thread, as [`load_texture`](Self::load_texture) does), under
     /// the [texture budget](Self::set_residency_budget). Ask for it each
     /// tick or frame you need it: when resident textures go over the
-    /// budget, the least recently used ones that no [`Sprite`](crate::Sprite)
+    /// budget, the least recently used ones that no [`Sprite`](crate::d2::Sprite)
     /// shows drop to a small stand-in (at most 32 pixels a side) until they
     /// are asked for again. The handle stays the same throughout and is
     /// never freed by the budget.
@@ -414,17 +415,17 @@ impl Ctx {
     /// those materials sample the stand-in.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let mut png = Vec::new();
     ///     image::RgbaImage::from_pixel(64, 64, image::Rgba([200, 30, 30, 255]))
     ///         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
     ///         .unwrap();
     ///     ctx.assets.add_source(MemorySource::new("mem").with("brick.png", png));
-    ///     ctx.set_residency_budget(ResidencyKind::Texture, Some(64 << 20));
+    ///     ctx.set_residency_budget(ponko::residency::ResidencyKind::Texture, Some(64 << 20));
     ///     let brick = ctx.resident_texture("brick.png");
     ///     assert_eq!(brick.width(), 64);
-    ///     assert!(ctx.gfx.is_resident(ResidencyKind::Texture, "brick.png"));
+    ///     assert!(ctx.gfx.is_resident(ponko::residency::ResidencyKind::Texture, "brick.png"));
     /// });
     /// ```
     ///
@@ -524,7 +525,7 @@ impl Ctx {
 
     /// Uploads queued assets in order, within the budget.
     fn upload_step(&mut self) {
-        let start = crate::Instant::now();
+        let start = crate::perf::Instant::now();
         let budget = self.gfx.streaming.budget.unwrap_or(u64::MAX);
         let (mut spent, mut uploads) = (0u64, 0u32);
         let mut later = Vec::new();
@@ -812,7 +813,7 @@ impl Ctx {
     fn shown_textures(&mut self) -> std::collections::HashSet<u32> {
         let mut ids = std::mem::take(&mut self.gfx.residency.shown);
         ids.clear();
-        self.world.query::<&crate::Sprite>().for_each(|s| {
+        self.world.query::<&crate::d2::Sprite>().for_each(|s| {
             ids.insert(s.texture.id);
         });
         ids
@@ -927,7 +928,7 @@ impl Ctx {
     }
 }
 
-impl crate::Graphics {
+impl crate::gfx::Graphics {
     /// Texture `id` was freed (`Ctx::free`): forget its stream and its
     /// bytes in the texture budget now, not when its name is next asked for.
     pub(crate) fn forget_streamed_texture_id(&mut self, id: u32) {
@@ -940,13 +941,13 @@ impl crate::Graphics {
     /// Where the streamed or resident asset of `kind` called `name` is.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     assert_eq!(ctx.gfx.asset_state(ResidencyKind::Texture, "sky.png"), AssetState::Unknown);
+    ///     assert_eq!(ctx.gfx.asset_state(ponko::residency::ResidencyKind::Texture, "sky.png"), ponko::streaming::AssetState::Unknown);
     ///     ctx.stream_texture("sky.png"); // not there: fails on a worker
     ///     ctx.finish_uploads();
-    ///     assert_eq!(ctx.gfx.asset_state(ResidencyKind::Texture, "sky.png"), AssetState::Failed);
-    ///     assert_eq!(ctx.gfx.asset_error(ResidencyKind::Texture, "sky.png").unwrap().kind(), ErrorKind::NotFound);
+    ///     assert_eq!(ctx.gfx.asset_state(ponko::residency::ResidencyKind::Texture, "sky.png"), ponko::streaming::AssetState::Failed);
+    ///     assert_eq!(ctx.gfx.asset_error(ponko::residency::ResidencyKind::Texture, "sky.png").unwrap().kind(), ErrorKind::NotFound);
     /// });
     /// ```
     #[must_use]

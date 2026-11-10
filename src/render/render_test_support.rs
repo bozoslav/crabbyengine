@@ -90,8 +90,8 @@ pub(super) fn no_gpu(reason: impl std::fmt::Display) {
 }
 
 /// The tier `PONKO_GPU_TIER` forces on the suites, if any.
-pub(super) fn forced_tier() -> Option<crate::GpuTier> {
-    crate::GpuTier::forced()
+pub(super) fn forced_tier() -> Option<crate::render::GpuTier> {
+    crate::render::GpuTier::forced()
 }
 
 /// `descriptor` as the forced tier opens it (unchanged without one): that
@@ -111,7 +111,7 @@ pub(super) fn forced<'a>(descriptor: &wgpu::DeviceDescriptor<'a>) -> wgpu::Devic
 
 /// Whether `device` has `feature` (as the renderer decides it); if not,
 /// logs a skip naming the forced tier (the caller returns early).
-pub(super) fn needs(device: &wgpu::Device, feature: crate::GpuFeature) -> bool {
+pub(super) fn needs(device: &wgpu::Device, feature: crate::render::GpuFeature) -> bool {
     let caps = super::capabilities::report(
         Default::default(),
         super::capabilities::GpuLimits::of(device),

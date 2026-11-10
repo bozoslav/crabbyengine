@@ -9,7 +9,9 @@
 //! `VIEW=high|low|under|cliff` picks where the camera starts, `HOUR=18.5` the
 //! time of day. `BENCH=1` prints the frame's cost after 300 frames and quits.
 
-use ponko::*;
+#[cfg(feature = "3d")]
+use ponko::d3::*;
+use ponko::prelude::*;
 
 const TILES: i32 = 5;
 const N: usize = 129;
@@ -272,7 +274,7 @@ fn main() {
                         .map(|i| height(corner.x + (i % N) as f32 * 2.0, corner.z + (i / N) as f32 * 2.0))
                         .collect();
                     let tile = ctx.gfx.create_terrain_tile(&heights, TILE, ground);
-                    ctx.world.spawn((Transform3D::at(corner), tile));
+                    ctx.world.spawn((Transform::at(corner), tile));
                 }
             }
 
@@ -293,7 +295,7 @@ fn main() {
             });
             let surface = ctx.gfx.create_mesh(&MeshData::plane(TILES as f32 * TILE), lake);
             ctx.world
-                .spawn((Transform3D::at(vec3(0.0, WATER, 0.0)), Model::new(surface)));
+                .spawn((Transform::at(vec3(0.0, WATER, 0.0)), Model::new(surface)));
 
             let underwater = ctx.gfx.create_effect("underwater", UNDERWATER);
             let level = ctx.gfx.create_material(MaterialDesc {

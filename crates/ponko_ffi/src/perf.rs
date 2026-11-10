@@ -3,7 +3,9 @@
 
 use std::ffi::c_char;
 
-use ponko::{Budget, PerfReport, ProfileScope};
+use ponko::perf::Budget;
+use ponko::perf::PerfReport;
+use ponko::scope::ProfileScope;
 
 use crate::ctx::{ctx_access, out, text};
 use crate::{PonkoCtx, PonkoStatus, boundary, invalid, invalid_owned};
@@ -134,8 +136,8 @@ pub struct PonkoGpuUploads {
     pub reallocations: u32,
 }
 
-impl From<ponko::GpuUploads> for PonkoGpuUploads {
-    fn from(u: ponko::GpuUploads) -> Self {
+impl From<ponko::render::GpuUploads> for PonkoGpuUploads {
+    fn from(u: ponko::render::GpuUploads) -> Self {
         Self {
             bytes: u.bytes(),
             instances: u.instances,
@@ -286,7 +288,7 @@ pub struct PonkoProfileScope {
 pub unsafe extern "C" fn ponko_profile_scope(name: *const c_char) -> *const PonkoProfileScope {
     // SAFETY: forwarded caller contract.
     match unsafe { text(name) } {
-        Ok(name) => std::ptr::from_ref(ponko::scope_named(name)).cast(),
+        Ok(name) => std::ptr::from_ref(ponko::perf::scope_named(name)).cast(),
         Err(_) => std::ptr::null(),
     }
 }
@@ -327,7 +329,7 @@ pub unsafe extern "C" fn ponko_profile_end(scope: *const PonkoProfileScope, toke
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn ponko_note_allocation(bytes: usize) {
-    ponko::note_allocation(bytes);
+    ponko::perf::note_allocation(bytes);
 }
 
 /// Turns the deeper profiling on or off: scopes are timed and allocations

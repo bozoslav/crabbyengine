@@ -14,10 +14,10 @@ use crate::{Entity, World};
 /// pose).
 ///
 /// ```
-/// # use ponko::*;
-/// let shoulder = Joint { name: "shoulder".into(), parent: None, rest: Transform3D::default() };
-/// let elbow = Joint { name: "elbow".into(), parent: Some(0), rest: Transform3D::at(vec3(0.0, -0.3, 0.0)) };
-/// let arm = Skeleton::new(vec![shoulder, elbow]);
+/// # use ponko::prelude::*;
+/// let shoulder = ponko::anim::Joint { name: "shoulder".into(), parent: None, rest: ponko::d3::Transform::default() };
+/// let elbow = ponko::anim::Joint { name: "elbow".into(), parent: Some(0), rest: ponko::d3::Transform::at(vec3(0.0, -0.3, 0.0)) };
+/// let arm = ponko::anim::Skeleton::new(vec![shoulder, elbow]);
 /// assert_eq!(arm.find("elbow"), Some(1));
 /// ```
 #[derive(Debug, Clone, PartialEq)]
@@ -36,20 +36,20 @@ pub struct Joint {
 /// models whose [`SkinOf`] points at it): each joint's `pose` is where it
 /// sits relative to its parent this frame, and the mesh's corners follow
 /// the joints they're weighted to. Loaded from a glTF file with
-/// [`Graphics::load_skeleton`](crate::Graphics::load_skeleton), or made in code with
+/// [`Graphics::load_skeleton`](crate::gfx::Graphics::load_skeleton), or made in code with
 /// [`Skeleton::new`]. Cloning one is cheap: the joints are shared.
 ///
 /// A skinned model without a skeleton draws in the pose it was modelled in.
 ///
 /// ```no_run
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let body = ctx.gfx.load_mesh("models/fox.glb");
 /// let skeleton = ctx.gfx.load_skeleton("models/fox.glb");
 /// let head = skeleton.find("head").unwrap();
-/// let fox = ctx.world.spawn((Transform3D::default(), Model::new(body), skeleton));
+/// let fox = ctx.world.spawn((ponko::d3::Transform::default(), ponko::render::Model::new(body), skeleton));
 /// // Later, in a system: turn the head.
-/// let s = ctx.world.get_mut::<Skeleton>(fox).unwrap();
+/// let s = ctx.world.get_mut::<ponko::anim::Skeleton>(fox).unwrap();
 /// s.pose[head].rotation = Quat::from_rotation_y(0.5);
 /// # }
 /// ```
@@ -69,9 +69,9 @@ impl Skeleton {
     /// A skeleton of `joints`, at rest.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let root = Joint { name: "root".into(), parent: None, rest: Transform3D::at(vec3(0.0, 1.0, 0.0)) };
-    /// let s = Skeleton::new(vec![root]);
+    /// # use ponko::prelude::*;
+    /// let root = ponko::anim::Joint { name: "root".into(), parent: None, rest: ponko::d3::Transform::at(vec3(0.0, 1.0, 0.0)) };
+    /// let s = ponko::anim::Skeleton::new(vec![root]);
     /// assert_eq!(s.joint_matrix(0), Mat4::from_translation(vec3(0.0, 1.0, 0.0)));
     /// ```
     ///
@@ -109,8 +109,8 @@ impl Skeleton {
     /// The joints, in order (parents before children).
     ///
     /// ```
-    /// # use ponko::*;
-    /// let s = Skeleton::new(vec![Joint { name: "hip".into(), parent: None, rest: Transform3D::default() }]);
+    /// # use ponko::prelude::*;
+    /// let s = ponko::anim::Skeleton::new(vec![ponko::anim::Joint { name: "hip".into(), parent: None, rest: ponko::d3::Transform::default() }]);
     /// assert_eq!(s.joints()[0].name, "hip");
     /// ```
     #[must_use]
@@ -121,8 +121,8 @@ impl Skeleton {
     /// The first joint called `name`.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let s = Skeleton::new(vec![Joint { name: "hip".into(), parent: None, rest: Transform3D::default() }]);
+    /// # use ponko::prelude::*;
+    /// let s = ponko::anim::Skeleton::new(vec![ponko::anim::Joint { name: "hip".into(), parent: None, rest: ponko::d3::Transform::default() }]);
     /// assert_eq!(s.find("hip"), Some(0));
     /// assert_eq!(s.find("tail"), None);
     /// ```
@@ -134,11 +134,11 @@ impl Skeleton {
     /// Puts every joint back in its rest pose.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let mut s = Skeleton::new(vec![Joint { name: "hip".into(), parent: None, rest: Transform3D::default() }]);
+    /// # use ponko::prelude::*;
+    /// let mut s = ponko::anim::Skeleton::new(vec![ponko::anim::Joint { name: "hip".into(), parent: None, rest: ponko::d3::Transform::default() }]);
     /// s.pose[0].position.y = 3.0;
     /// s.reset_pose();
-    /// assert_eq!(s.pose[0], Transform3D::default());
+    /// assert_eq!(s.pose[0], ponko::d3::Transform::default());
     /// ```
     pub fn reset_pose(&mut self) {
         self.morphs.clear();
@@ -150,9 +150,9 @@ impl Skeleton {
     /// Call after manual clip sampling or Animator::update. Automatic animators
     /// write the model's component themselves, including SkinOf attachments.
     /// ```
-    /// use ponko::*;
-    /// let s = Skeleton::new(vec![]);
-    /// let mut weights = MorphWeights(vec![0.5]);
+    /// use ponko::prelude::*;
+    /// let s = ponko::anim::Skeleton::new(vec![]);
+    /// let mut weights = ponko::anim::MorphWeights(vec![0.5]);
     /// s.write_morph_weights(&["smile".into()], &mut weights);
     /// assert_eq!(weights.get(0), 0.5);
     /// ```
@@ -165,10 +165,10 @@ impl Skeleton {
     /// [`Transform3D::matrix`] for the world.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let root = Joint { name: "root".into(), parent: None, rest: Transform3D::at(vec3(0.0, 1.0, 0.0)) };
-    /// let tip = Joint { name: "tip".into(), parent: Some(0), rest: Transform3D::at(vec3(0.0, 2.0, 0.0)) };
-    /// let mut s = Skeleton::new(vec![root, tip]);
+    /// # use ponko::prelude::*;
+    /// let root = ponko::anim::Joint { name: "root".into(), parent: None, rest: ponko::d3::Transform::at(vec3(0.0, 1.0, 0.0)) };
+    /// let tip = ponko::anim::Joint { name: "tip".into(), parent: Some(0), rest: ponko::d3::Transform::at(vec3(0.0, 2.0, 0.0)) };
+    /// let mut s = ponko::anim::Skeleton::new(vec![root, tip]);
     /// s.pose[0].rotation = Quat::from_rotation_z(std::f32::consts::FRAC_PI_2);
     /// let at = s.joint_matrix(1).transform_point3(Vec3::ZERO);
     /// assert!((at - vec3(-2.0, 1.0, 0.0)).length() < 1e-5);
@@ -226,13 +226,13 @@ impl Skeleton {
 /// [`Transform3D`] of its own.
 ///
 /// ```no_run
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let body = ctx.gfx.load_mesh("people/body.glb");
 /// let hat = ctx.gfx.load_mesh("people/hat.glb");
 /// let skeleton = ctx.gfx.load_skeleton("people/body.glb");
-/// let person = ctx.world.spawn((Transform3D::default(), Model::new(body), skeleton));
-/// ctx.world.spawn((Model::new(hat), SkinOf(person)));
+/// let person = ctx.world.spawn((ponko::d3::Transform::default(), ponko::render::Model::new(body), skeleton));
+/// ctx.world.spawn((ponko::render::Model::new(hat), ponko::anim::SkinOf(person)));
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -244,13 +244,13 @@ pub struct SkinOf(pub Entity);
 /// last frame's place; [`Skeleton::joint_matrix`] gives this frame's.
 ///
 /// ```no_run
-/// # use ponko::*;
-/// # fn f(ctx: &mut Ctx, person: Entity, cup: Mesh) {
-/// let hand = ctx.world.get::<Skeleton>(person).unwrap().find("hand_r").unwrap();
+/// # use ponko::prelude::*;
+/// # fn f(ctx: &mut Ctx, person: Entity, cup: ponko::render::Mesh) {
+/// let hand = ctx.world.get::<ponko::anim::Skeleton>(person).unwrap().find("hand_r").unwrap();
 /// ctx.world.spawn((
-///     Transform3D::default(),
-///     Model::new(cup),
-///     AttachToJoint { skeleton: person, joint: hand, offset: Transform3D::at(vec3(0.0, 0.05, 0.0)) },
+///     ponko::d3::Transform::default(),
+///     ponko::render::Model::new(cup),
+///     ponko::anim::AttachToJoint { skeleton: person, joint: hand, offset: ponko::d3::Transform::at(vec3(0.0, 0.05, 0.0)) },
 /// ));
 /// # }
 /// ```
@@ -312,25 +312,25 @@ impl MeshSkin {
     }
 }
 
-/// How much of each of its mesh's [morph targets](crate::MeshData::morph_targets)
+/// How much of each of its mesh's [morph targets](crate::render::MeshData::morph_targets)
 /// a [`Model`] shows: 0 none, 1 all of it (more or less than that
 /// exaggerates or inverts). By target index; missing ones are 0. A model
 /// without this component shows its mesh's own weights (from its glTF
 /// file, else none). Animation clips with weight tracks set it.
 ///
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-///     let mut quad = MeshData::plane(1.0);
+///     let mut quad = ponko::render::MeshData::plane(1.0);
 ///     let mut up = vec![Vec3::ZERO; quad.positions.len()];
 ///     up[0] = vec3(0.0, 0.5, 0.0);
-///     quad.morph_targets.push(MorphTarget { name: "raise".into(), positions: up, normals: Vec::new() });
+///     quad.morph_targets.push(ponko::anim::MorphTarget { name: "raise".into(), positions: up, normals: Vec::new() });
 ///     let material = ctx.gfx.default_material();
 ///     let mesh = ctx.gfx.create_mesh(&quad, material);
 ///     let raise = ctx.gfx.morph_target(mesh, "raise").unwrap();
-///     let mut weights = MorphWeights::default();
+///     let mut weights = ponko::anim::MorphWeights::default();
 ///     weights.set(raise, 0.5); // halfway there
-///     ctx.world.spawn((Transform3D::default(), Model::new(mesh), weights));
+///     ctx.world.spawn((ponko::d3::Transform::default(), ponko::render::Model::new(mesh), weights));
 /// });
 /// ```
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -339,9 +339,9 @@ pub struct MorphWeights(pub Vec<f32>);
 impl MorphWeights {
     /// Target `target`'s weight (0 when not set).
     /// ```
-    /// # use ponko::*;
-    /// assert_eq!(MorphWeights(vec![0.25]).get(0), 0.25);
-    /// assert_eq!(MorphWeights::default().get(3), 0.0);
+    /// # use ponko::prelude::*;
+    /// assert_eq!(ponko::anim::MorphWeights(vec![0.25]).get(0), 0.25);
+    /// assert_eq!(ponko::anim::MorphWeights::default().get(3), 0.0);
     /// ```
     #[must_use]
     pub fn get(&self, target: usize) -> f32 {
@@ -350,8 +350,8 @@ impl MorphWeights {
 
     /// Sets target `target`'s weight, growing the list as needed.
     /// ```
-    /// # use ponko::*;
-    /// let mut w = MorphWeights::default();
+    /// # use ponko::prelude::*;
+    /// let mut w = ponko::anim::MorphWeights::default();
     /// w.set(2, 1.0);
     /// assert_eq!(w.0, [0.0, 0.0, 1.0]);
     /// ```
@@ -889,7 +889,7 @@ mod tests {
             indices: vec![0, 1, 2],
             ..Default::default()
         };
-        data.morph_targets.push(crate::MorphTarget {
+        data.morph_targets.push(crate::anim::MorphTarget {
             name: "lift".into(),
             positions: vec![vec3(0.0, 0.0, 2.0), Vec3::ZERO, Vec3::ZERO],
             normals: Vec::new(),
@@ -1089,7 +1089,7 @@ fn expand_frames(frames: &[super::MorphFrame], weights: &mut [f32]) {
 #[cfg(test)]
 mod morph_frame_tests {
     use super::*;
-    use crate::MorphFrame;
+    use crate::anim::MorphFrame;
     #[test]
     fn frames_interpolate_from_zero_and_between_authored_shapes() {
         let frames = [

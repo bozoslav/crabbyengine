@@ -1,6 +1,10 @@
 //! Named, rebindable input. Configuration allocates; evaluating input does not.
+use crate::input::Gamepad;
+use crate::input::GamepadAxis;
+use crate::input::GamepadButton;
+use crate::input::GamepadStick;
 use crate::input::{ButtonStates, PadState};
-use crate::{Gamepad, GamepadAxis, GamepadButton, GamepadStick, Key, MAX_GAMEPADS, MouseButton};
+use crate::input::{Key, MAX_GAMEPADS, MouseButton};
 use glam::Vec2;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -137,22 +141,22 @@ impl Action {
 }
 
 /// An action resolved once, so a query is an array index instead of a string
-/// lookup. Get one from [`Input::action_id`](crate::Input::action_id) (or
+/// lookup. Get one from [`Input::action_id`](crate::input::Input::action_id) (or
 /// [`actions!`](crate::actions!) for a set), keep it, and pass it where the
 /// `&str` forms take a name.
 ///
 /// An id stays valid when bindings are replaced with
-/// [`Input::set_actions`](crate::Input::set_actions) (rebinding, loading a file):
+/// [`Input::set_actions`](crate::input::Input::set_actions) (rebinding, loading a file):
 /// the name keeps its slot. [`ActionId::NONE`] is what resolving an unknown
 /// name gives; it reads false/zero. An id belongs to the context it came from.
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// Game::new("ids", 1, 1).run_headless(0, |ctx| {
 ///     let mut map = ActionMap::default();
 ///     map.set("jump", Action::Button(vec![ButtonBinding::Key(Key::Space)]));
 ///     ctx.input.set_actions(map);
 ///     let jump = ctx.input.action_id("jump");
-///     ctx.input.feed(InputEvent::Key(Key::Space, true));
+///     ctx.input.feed(ponko::actions::InputEvent::Key(Key::Space, true));
 ///     assert!(ctx.input.action_down(jump));
 /// });
 /// ```
@@ -235,7 +239,7 @@ impl ActionRef for &String {
 /// field, resolved in one call, and the names as a constant. No proc macro,
 /// and a mistyped field is a compile error instead of a silent `false`.
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// actions! {
 ///     /// The game's actions.
 ///     pub struct Act { jump = "jump", steer = "steer" }
@@ -250,6 +254,7 @@ impl ActionRef for &String {
 ///     assert!(!ctx.input.action_down(act.jump));
 /// });
 /// ```
+#[doc(hidden)]
 #[macro_export]
 macro_rules! actions {
     (
@@ -291,7 +296,7 @@ struct State {
 ///
 /// The bindings read back with [`get`](Self::get) and [`iter`](Self::iter),
 /// so a rebinding screen can show `ctx.input.actions()` instead of keeping
-/// its own copy; [`Input::set_action`](crate::Input::set_action) changes one
+/// its own copy; [`Input::set_action`](crate::input::Input::set_action) changes one
 /// installed action in place.
 /// ```
 /// use ponko::{ActionMap, Action, ButtonBinding, Key};
@@ -316,7 +321,7 @@ pub struct ActionMap {
 impl ActionMap {
     /// Add or replace an action. Installation on a context starts with no edges.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// let mut map = ActionMap::default();
     /// map.set("jump", Action::Button(vec![]));
     /// ```
@@ -329,7 +334,7 @@ impl ActionMap {
     }
     /// Remove a binding.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// let mut map = ActionMap::default();
     /// map.remove("jump");
     /// ```
@@ -383,7 +388,7 @@ impl ActionMap {
     /// Resolves an action name once, for the id-based queries. An unknown
     /// name is an error that lists the known actions.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// let mut map = ActionMap::default();
     /// map.set("jump", Action::Button(vec![]));
     /// assert!(map.resolve("jump").is_ok());
@@ -411,7 +416,7 @@ impl ActionMap {
     }
     /// Save bindings to JSON. Use `std::fs::write` to persist them.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// let json = ActionMap::default().to_json().unwrap();
     /// ```
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
@@ -419,7 +424,7 @@ impl ActionMap {
     }
     /// Load bindings from JSON. A malformed document returns an error.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// let map = ActionMap::from_json(r#"{"bindings":{}}"#).unwrap();
     /// ```
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
@@ -542,8 +547,9 @@ fn deadzone_value(value: f32, deadzone: f32) -> f32 {
 
 /// Raw input for headless tests and replay. Feed before querying actions.
 /// ```
-/// use ponko::{InputEvent, Key};
-/// let event = InputEvent::Key(Key::Space, true);
+/// use ponko::prelude::*;
+/// use ponko::actions::InputEvent;
+/// let event = ponko::actions::InputEvent::Key(Key::Space, true);
 /// ```
 #[derive(Debug, Clone, Copy)]
 pub enum InputEvent {

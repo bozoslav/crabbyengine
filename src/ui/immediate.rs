@@ -19,7 +19,7 @@ use crate::text::TextParams;
 /// through the graphics service, and a button also reads the mouse.
 ///
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn tools(ctx: &mut Ctx) {
 /// let panel = Rect::new(10.0, 10.0, 220.0, 120.0);
 /// ctx.ui.immediate.panel(&mut ctx.gfx, panel);
@@ -35,7 +35,7 @@ pub struct UiImmediate {
     /// Colors and sizes of the widgets.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn setup(ctx: &mut Ctx) {
     /// ctx.ui.immediate.style.text_size = 20.0;
     /// # }
@@ -71,7 +71,7 @@ impl UiImmediate {
     /// the previous one.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 320, 240).run_headless(0, |ctx| {
     ///     let panel = Rect::new(10.0, 10.0, 100.0, 50.0);
     ///     assert!(!ctx.ui.immediate.covers(vec2(20.0, 20.0)));
@@ -90,7 +90,7 @@ impl UiImmediate {
     /// A background panel at `rect` (window pixels), in the style's panel color.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn sidebar(ctx: &mut Ctx) {
     /// let panel = Rect::new(10.0, 10.0, 220.0, 300.0);
     /// ctx.ui.immediate.panel(&mut ctx.gfx, panel);
@@ -106,7 +106,7 @@ impl UiImmediate {
     /// Returns the space it took.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn stats(ctx: &mut Ctx, ants: usize) {
     /// let mut at = vec2(20.0, 20.0);
     /// at.y += ctx.ui.immediate.label(&mut ctx.gfx, at, "Ants").y;
@@ -133,7 +133,7 @@ impl UiImmediate {
     /// after being pressed over it), reading the mouse from `input`.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn controls(ctx: &mut Ctx) {
     /// if ctx.ui.immediate.button(&mut ctx.gfx, &ctx.input, Rect::new(20.0, 20.0, 100.0, 32.0), "Pause") {
     ///     ctx.time.pause();
@@ -179,7 +179,11 @@ impl UiImmediate {
 
 #[cfg(test)]
 mod tests {
-    use crate::*;
+    #[allow(unused_imports)]
+    use crate::input::Input;
+    use crate::prelude::*;
+    #[allow(unused_imports)]
+    use crate::ui::{Ui, UiStyle};
 
     #[test]
     fn the_pointer_follows_the_mouse_between_systems() {

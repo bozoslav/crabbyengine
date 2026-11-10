@@ -3,7 +3,11 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::d2::{Sprite, Transform as Transform2D};
+#[allow(unused_imports)]
+use ponko::inventory::AssetClass;
+use ponko::prelude::*;
 
 fn png(w: u32, h: u32) -> Vec<u8> {
     let mut bytes = Vec::new();

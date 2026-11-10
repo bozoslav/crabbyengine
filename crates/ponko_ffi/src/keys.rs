@@ -1,6 +1,8 @@
 //! Keyboard keys, mouse buttons and gamepad inputs as C enums, in the same
 //! order as the Rust ones.
-use ponko::{GamepadAxis, GamepadButton, Key, MouseButton};
+use ponko::input::GamepadAxis;
+use ponko::input::GamepadButton;
+use ponko::{Key, MouseButton};
 
 /// A keyboard key, by position on a US layout (`PONKO_KEY_A`, ...).
 /// ```
@@ -427,10 +429,10 @@ pub enum PonkoGamepadAxis {
 
 /// How many gamepads the engine tracks: slots run `0..PONKO_MAX_GAMEPADS`.
 /// ```
-/// assert_eq!(ponko_ffi::PONKO_MAX_GAMEPADS as usize, ponko::MAX_GAMEPADS);
+/// assert_eq!(ponko_ffi::PONKO_MAX_GAMEPADS as usize, ponko::input::MAX_GAMEPADS);
 /// ```
 pub const PONKO_MAX_GAMEPADS: u32 = 8;
-const _: () = assert!(PONKO_MAX_GAMEPADS as usize == ponko::MAX_GAMEPADS);
+const _: () = assert!(PONKO_MAX_GAMEPADS as usize == ponko::input::MAX_GAMEPADS);
 
 /// The Rust buttons in `PonkoGamepadButton` order.
 const GAMEPAD_BUTTONS: [GamepadButton; 16] = {

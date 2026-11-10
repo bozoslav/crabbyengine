@@ -139,9 +139,9 @@ supports, so a tool can check before sending a request that would fail:
 ```rust
 # #[derive(serde::Serialize, serde::Deserialize)] struct Health(f32);
 ctx.world.reflect::<Health>();
-ctx.world.describe_component("Health", ValueSchema::object([
-    ("current", ValueSchema::Number),
-    ("max", ValueSchema::Number),
+ctx.world.describe_component("Health", ponko::reflect::ValueSchema::object([
+    ("current", ponko::reflect::ValueSchema::Number),
+    ("max", ponko::reflect::ValueSchema::Number),
 ])).unwrap();
 // capabilities → { "name": "Health", "schema": { "status": "described",
 //   "json_schema": { "type": "object", "properties": { "current": { "type": "number" }, ... },

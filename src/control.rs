@@ -344,7 +344,7 @@ fn for_each_matching(
     }
     with.extend(needed.iter().cloned());
     let mut jsons: Vec<Value> = Vec::with_capacity(needed.len());
-    for a in world.archetypes().iter().filter(|a| !a.is_empty()) {
+    for a in world.raw_ref().archetypes().iter().filter(|a| !a.is_empty()) {
         let names: Vec<&str> = a
             .component_ids()
             .iter()
@@ -642,8 +642,9 @@ fn perf_json(ctx: &Ctx, meshes: usize) -> Value {
 
 /// `Graphics::shader_status` as JSON.
 #[cfg(feature = "3d")]
-pub(crate) fn shader_status_json(gfx: &crate::Graphics) -> Value {
-    use crate::{ShaderKind, ShaderOutcome};
+pub(crate) fn shader_status_json(gfx: &crate::gfx::Graphics) -> Value {
+    use crate::render::ShaderKind;
+    use crate::render::ShaderOutcome;
     let shaders: Vec<Value> = gfx
         .shader_status()
         .iter()
@@ -692,7 +693,7 @@ pub(crate) fn shader_status_json(gfx: &crate::Graphics) -> Value {
 
 /// Without the `3d` feature a game has no custom shaders.
 #[cfg(not(feature = "3d"))]
-fn shader_status_json(_gfx: &crate::Graphics) -> Value {
+fn shader_status_json(_gfx: &crate::gfx::Graphics) -> Value {
     json!({ "shaders": [], "note": "built without the `3d` feature: no custom shaders" })
 }
 
@@ -758,7 +759,7 @@ fn streaming_json(ctx: &Ctx) -> Value {
 
 /// Residency budgets and counters, by kind name.
 fn residency_json(ctx: &Ctx) -> Value {
-    crate::ResidencyKind::ALL
+    crate::residency::ResidencyKind::ALL
         .iter()
         .map(|&kind| {
             let r = ctx.gfx.residency(kind);
@@ -828,7 +829,7 @@ pub(crate) fn capabilities_json(ctx: &Ctx) -> String {
 }
 
 pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Value, String> {
-    let err = |e: crate::ReflectError| e.to_string();
+    let err = |e: crate::reflect::ReflectError| e.to_string();
     if let Some(reason) = capabilities::unavailable(ctx, method) {
         return Err(reason);
     }
@@ -861,6 +862,7 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
         "world.summary" => {
             let world = &ctx.world;
             let archetypes: Vec<Value> = world
+                .raw_ref()
                 .archetypes()
                 .iter()
                 .filter(|a| !a.is_empty())
@@ -948,7 +950,7 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
             for name in world.reflected_resources() {
                 let value = match world.resource_json(name) {
                     Ok(v) => v,
-                    Err(crate::ReflectError::MissingResource(_)) => Value::Null,
+                    Err(crate::reflect::ReflectError::MissingResource(_)) => Value::Null,
                     Err(e) => return Err(err(e)),
                 };
                 out.insert(name.to_string(), value);
@@ -1033,7 +1035,7 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
         }
         "input.scenario.load" => {
             let mut scenario =
-                crate::InputScenario::from_value(param(params, "scenario")?).map_err(|e| e.to_string())?;
+                crate::scenario::InputScenario::from_value(param(params, "scenario")?).map_err(|e| e.to_string())?;
             let flag = |name: &str| -> Result<bool, String> {
                 match params.get(name) {
                     None | Some(Value::Null) => Ok(false),
@@ -1183,7 +1185,7 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
                 ctx.camera.position = p;
             }
             if let Some(z) = zoom {
-                let (lo, hi) = crate::Camera2D::ZOOM_LIMITS;
+                let (lo, hi) = crate::d2::Camera::ZOOM_LIMITS;
                 ctx.camera.zoom = z.clamp(lo, hi);
             }
             if let Some(p) = look_at {
@@ -1201,7 +1203,7 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Transform2D;
+    use crate::d2::Transform as Transform2D;
     use glam::vec2;
 
     fn ctx() -> Ctx {
@@ -1316,7 +1318,7 @@ mod tests {
     #[test]
     fn perf_reports_list_the_frames_gpu_uploads_and_reallocations() {
         let mut ctx = ctx();
-        ctx.perf.last_render_stats.uploads = crate::GpuUploads {
+        ctx.perf.last_render_stats.uploads = crate::render::GpuUploads {
             instances: 640,
             uniforms: 80,
             buffers_created: 3,
@@ -1341,7 +1343,7 @@ mod tests {
         ctx.perf.timings = ["fast", "slow", "middle"]
             .iter()
             .zip([0.1, 3.0, 1.0])
-            .map(|(&name, avg_ms)| crate::SystemTiming {
+            .map(|(&name, avg_ms)| crate::perf::SystemTiming {
                 name,
                 sim: false,
                 last_ms: avg_ms,
@@ -1402,7 +1404,7 @@ mod tests {
             "{inspector}"
         );
         assert_eq!(inspector["quality"].is_object(), cfg!(feature = "3d"), "{inspector}");
-        ctx.set_residency_budget(crate::ResidencyKind::Mesh, Some(1024));
+        ctx.set_residency_budget(crate::residency::ResidencyKind::Mesh, Some(1024));
         let perf = handle(&mut ctx, "perf.get", &json!({})).unwrap();
         assert_eq!(perf["residency"]["mesh"]["budget"], 1024, "{perf}");
         assert_eq!(perf["residency"]["mesh"]["evictions"], 0, "{perf}");
@@ -1424,13 +1426,13 @@ mod tests {
         let mut ctx = ctx();
         ctx.set_headless(true);
         ctx.perf.timings = vec![
-            crate::SystemTiming {
+            crate::perf::SystemTiming {
                 name: "sim",
                 sim: true,
                 last_ms: 1.0,
                 avg_ms: 1.0,
             },
-            crate::SystemTiming {
+            crate::perf::SystemTiming {
                 name: "draw",
                 sim: false,
                 last_ms: 0.0,
@@ -1460,7 +1462,7 @@ mod tests {
         ctx.world.spawn((Transform2D::at(vec2(1.0, 2.0)),));
         ctx.world.spawn((Transform2D::default(), 5u32));
         let d = handle(&mut ctx, "ecs.diagnostics", &json!({ "with": ["Transform2D"] })).unwrap();
-        assert_eq!(d["version"], crate::ECS_DIAGNOSTICS_VERSION);
+        assert_eq!(d["version"], crate::diagnostics::ECS_DIAGNOSTICS_VERSION);
         assert_eq!(d["entities"], 2);
         assert_eq!(
             d["matching"],

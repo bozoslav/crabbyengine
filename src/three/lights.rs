@@ -9,10 +9,10 @@ use glam::{Mat4, Vec3};
 /// softened within one world unit and smoothly windowed to zero at `range`.
 /// Invalid/nonpositive ranges or intensities disable the light.
 /// ```
-/// use ponko::*;
-/// let lamp = PointLight3D { intensity: 20.0, range: 12.0, ..Default::default() };
+/// use ponko::prelude::*;
+/// let lamp = ponko::d3::PointLight { intensity: 20.0, range: 12.0, ..Default::default() };
 /// let mut world = World::new();
-/// world.spawn((Transform3D::at(vec3(0.0, 3.0, 0.0)), lamp));
+/// world.spawn((ponko::d3::Transform::at(vec3(0.0, 3.0, 0.0)), lamp));
 /// ```
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -26,12 +26,12 @@ pub struct PointLight3D {
     pub range: f32,
     /// Cast shadows (six shadow views: one per cube face). Default false.
     /// Shadowed lights nearest the camera get views first; see
-    /// [`MAX_LIGHT_SHADOW_VIEWS`]. Lights left over shine unshadowed.
+    /// [`PointLight::MAX_SHADOW_VIEWS`](crate::d3::PointLight::MAX_SHADOW_VIEWS). Lights left over shine unshadowed.
     pub shadows: bool,
     /// Width and height of each of its shadow views in the shadow atlas, in
     /// texels (rounded down to a power of two, 64 to 2048). 0, the default,
     /// sizes them by how big the light looks from the camera, up to
-    /// [`Lighting::light_shadow_resolution`](crate::Lighting::light_shadow_resolution).
+    /// [`Lighting::light_shadow_resolution`](crate::render::Lighting::light_shadow_resolution).
     /// When the atlas is full, the largest views shrink first.
     pub shadow_resolution: u32,
 }
@@ -53,10 +53,10 @@ impl Default for PointLight3D {
 /// Position, intensity, range, scale and shadows follow [`PointLight3D`]; a
 /// shadowed spot light needs one shadow view.
 /// ```
-/// use ponko::*;
-/// let beam = SpotLight3D { inner_angle: 0.2, outer_angle: 0.5, ..Default::default() };
+/// use ponko::prelude::*;
+/// let beam = ponko::d3::SpotLight { inner_angle: 0.2, outer_angle: 0.5, ..Default::default() };
 /// let mut world = World::new();
-/// world.spawn((Transform3D::default(), beam));
+/// world.spawn((ponko::d3::Transform::default(), beam));
 /// ```
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -93,7 +93,7 @@ impl Default for SpotLight3D {
 }
 
 /// The most shadow views point and spot lights can share each frame (see
-/// [`Lighting::light_shadow_views`](crate::Lighting::light_shadow_views),
+/// [`Lighting::light_shadow_views`](crate::render::Lighting::light_shadow_views),
 /// 12 by default): a shadowed spot light takes one, a shadowed point light
 /// six. Each view is a square tile of the lights' shadow atlas.
 /// ```
@@ -101,7 +101,7 @@ impl Default for SpotLight3D {
 /// ```
 pub const MAX_LIGHT_SHADOW_VIEWS: usize = 24;
 /// Default width and height of the largest point or spot light shadow
-/// view, in texels (see [`Lighting::light_shadow_resolution`](crate::Lighting)):
+/// view, in texels (see [`Lighting::light_shadow_resolution`](crate::render::Lighting)):
 /// what a light near the camera gets.
 /// ```
 /// assert_eq!(ponko::LIGHT_SHADOW_SIZE, 1024);
@@ -109,7 +109,7 @@ pub const MAX_LIGHT_SHADOW_VIEWS: usize = 24;
 pub const LIGHT_SHADOW_SIZE: u32 = 1024;
 /// Default width and height of the depth atlas every point and spot light
 /// shadow view is packed into, in texels (see
-/// [`Lighting::light_shadow_atlas`](crate::Lighting::light_shadow_atlas)).
+/// [`Lighting::light_shadow_atlas`](crate::render::Lighting::light_shadow_atlas)).
 /// ```
 /// assert_eq!(ponko::LIGHT_SHADOW_ATLAS_SIZE, 4096);
 /// ```
@@ -472,6 +472,15 @@ fn visit(lo: [usize; 3], hi: [usize; 3], mut f: impl FnMut(usize)) {
             }
         }
     }
+}
+
+impl PointLight3D {
+    /// Maximum simultaneous shadow views.
+    pub const MAX_SHADOW_VIEWS: usize = MAX_LIGHT_SHADOW_VIEWS;
+    /// Default local shadow resolution.
+    pub const SHADOW_SIZE: u32 = LIGHT_SHADOW_SIZE;
+    /// Default local shadow atlas resolution.
+    pub const SHADOW_ATLAS_SIZE: u32 = LIGHT_SHADOW_ATLAS_SIZE;
 }
 
 #[cfg(test)]

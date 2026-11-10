@@ -11,35 +11,35 @@ pub const TERRAIN_LAYERS: usize = 8;
 
 /// What a terrain material is made from: ground layers (grass, dirt, rock,
 /// ...) and a weight map saying how much of each shows where. Made into a
-/// [`Material`] with [`Graphics::create_terrain_material`](crate::Graphics::create_terrain_material) and used for
-/// [`Graphics::create_terrain_tile`](crate::Graphics::create_terrain_tile).
+/// [`Material`] with [`Graphics::create_terrain_material`](crate::gfx::Graphics::create_terrain_material) and used for
+/// [`Graphics::create_terrain_tile`](crate::gfx::Graphics::create_terrain_tile).
 ///
 /// The layers' textures are lined up with the world, not with each tile,
 /// so they run on across tile edges; each repeats every
 /// [`layer_size`](Self::layer_size) world units.
 ///
 /// ```no_run
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
-/// let ground = ctx.gfx.load_texture_array(&["grass.png", "dirt.png", "rock.png"], TextureKind::Color);
+/// let ground = ctx.gfx.load_texture_array(&["grass.png", "dirt.png", "rock.png"], ponko::terrain::TextureKind::Color);
 /// // One RGBA weight map for the whole 512 m: red grass, green dirt, blue rock.
-/// let weights = ctx.gfx.load_texture_array(&["weights.png"], TextureKind::Data);
-/// let desc = TerrainMaterialDesc::new(ground, weights, vec2(0.0, 0.0), vec2(512.0, 512.0));
+/// let weights = ctx.gfx.load_texture_array(&["weights.png"], ponko::terrain::TextureKind::Data);
+/// let desc = ponko::terrain::TerrainMaterialDesc::new(ground, weights, vec2(0.0, 0.0), vec2(512.0, 512.0));
 /// let terrain = ctx.gfx.create_terrain_material(&desc);
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TerrainMaterialDesc {
-    /// Each layer's color texture ([`TextureKind::Color`](crate::TextureKind::Color)),
-    /// up to [`TERRAIN_LAYERS`].
+    /// Each layer's color texture ([`TextureKind::Color`](crate::terrain::TextureKind::Color)),
+    /// up to [`TerrainTile::LAYERS`](crate::terrain::TerrainTile::LAYERS).
     pub layers: TextureArray,
     /// The layers' normal maps, one each in the same order
-    /// ([`TextureKind::Data`](crate::TextureKind::Data), OpenGL style).
+    /// ([`TextureKind::Data`](crate::terrain::TextureKind::Data), OpenGL style).
     /// Default none.
     pub normals: Option<TextureArray>,
     /// How strong the normal maps are. Default 1.
     pub normal_strength: f32,
-    /// How much of each layer shows where ([`TextureKind::Data`](crate::TextureKind::Data)):
+    /// How much of each layer shows where ([`TextureKind::Data`](crate::terrain::TextureKind::Data)):
     /// its first image's red, green, blue and alpha are layers 0 to 3, its
     /// second image's are layers 4 to 7. Weights are evened out to add up
     /// to 1; where they are all 0, the first layer shows.
@@ -61,9 +61,9 @@ impl TerrainMaterialDesc {
     /// units from `corner`; everything else as by default.
     ///
     /// ```no_run
-    /// # use ponko::*;
-    /// # fn f(ground: TextureArray, weights: TextureArray) {
-    /// let desc = TerrainMaterialDesc { roughness: 0.8, ..TerrainMaterialDesc::new(ground, weights, Vec2::ZERO, vec2(256.0, 256.0)) };
+    /// # use ponko::prelude::*;
+    /// # fn f(ground: ponko::terrain::TextureArray, weights: ponko::terrain::TextureArray) {
+    /// let desc = ponko::terrain::TerrainMaterialDesc { roughness: 0.8, ..ponko::terrain::TerrainMaterialDesc::new(ground, weights, Vec2::ZERO, vec2(256.0, 256.0)) };
     /// # }
     /// ```
     #[must_use]
@@ -125,24 +125,24 @@ impl TerrainMaterialDesc {
 pub const TERRAIN_LODS: usize = 4;
 
 /// A square of terrain from a grid of heights, made with
-/// [`Graphics::create_terrain_tile`](crate::Graphics::create_terrain_tile). Spawn it with a [`Transform3D`](crate::Transform3D)
-/// at the tile's corner, instead of a [`Model`](crate::Model). The renderer
+/// [`Graphics::create_terrain_tile`](crate::gfx::Graphics::create_terrain_tile). Spawn it with a [`Transform3D`](crate::d3::Transform)
+/// at the tile's corner, instead of a [`Model`](crate::render::Model). The renderer
 /// picks a detail level by how far the camera is: the full grid nearer than
 /// `lod_distance`, then every 2nd height to twice that, every 4th to four
 /// times that, and every 8th beyond. Skirts hide the cracks where tiles of
 /// different detail meet.
 ///
 /// ```no_run
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
-/// let grass = ctx.gfx.create_material(MaterialDesc { roughness: 0.95, ..MaterialDesc::color(Color::hex(0x5A8A3C)) });
+/// let grass = ctx.gfx.create_material(ponko::render::MaterialDesc { roughness: 0.95, ..ponko::render::MaterialDesc::color(Color::hex(0x5A8A3C)) });
 /// // 65 x 65 heights, 2 m apart: a 128 m tile with gentle hills.
 /// let n = 65;
 /// let heights: Vec<f32> = (0..n * n)
 ///     .map(|i| ((i % n) as f32 * 0.1).sin() * 3.0 + ((i / n) as f32 * 0.07).cos() * 4.0)
 ///     .collect();
 /// let tile = ctx.gfx.create_terrain_tile(&heights, 128.0, grass);
-/// ctx.world.spawn((Transform3D::at(vec3(-64.0, 0.0, -64.0)), tile));
+/// ctx.world.spawn((ponko::d3::Transform::at(vec3(-64.0, 0.0, -64.0)), tile));
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -160,8 +160,8 @@ impl TerrainTile {
     /// camera (measured to the nearest point of the tile's bounds).
     ///
     /// ```
-    /// # use ponko::*;
-    /// # fn f(tile: TerrainTile) {
+    /// # use ponko::prelude::*;
+    /// # fn f(tile: ponko::terrain::TerrainTile) {
     /// assert_eq!(tile.lod(0.0), 0);
     /// assert_eq!(tile.lod(tile.lod_distance * 10.0), 3);
     /// # }
@@ -184,11 +184,11 @@ pub(crate) fn lod_at(distance: f32, lod_distance: f32) -> usize {
 impl Graphics {
     /// Makes a material for terrain from ground layers and a weight map
     /// (see [`TerrainMaterialDesc`]). It's an ordinary [`Material`]: give
-    /// it to [`Graphics::create_terrain_tile`](crate::Graphics::create_terrain_tile), or to any mesh.
+    /// it to [`Graphics::create_terrain_tile`](crate::gfx::Graphics::create_terrain_tile), or to any mesh.
     ///
     /// ```no_run
-    /// # use ponko::*;
-    /// # fn f(ctx: &mut Ctx, desc: TerrainMaterialDesc, heights: &[f32]) {
+    /// # use ponko::prelude::*;
+    /// # fn f(ctx: &mut Ctx, desc: ponko::terrain::TerrainMaterialDesc, heights: &[f32]) {
     /// let ground = ctx.gfx.create_terrain_material(&desc);
     /// let tile = ctx.gfx.create_terrain_tile(heights, 256.0, ground);
     /// # }
@@ -196,7 +196,7 @@ impl Graphics {
     ///
     /// # Panics
     ///
-    /// If there are more than [`TERRAIN_LAYERS`] layers, too few weight
+    /// If there are more than [`TerrainTile::LAYERS`](crate::terrain::TerrainTile::LAYERS) layers, too few weight
     /// images or normal maps, a size isn't above 0, or an array comes from
     /// another game.
     pub fn create_terrain_material(&mut self, desc: &TerrainMaterialDesc) -> Material {
@@ -204,7 +204,7 @@ impl Graphics {
             .unwrap_or_else(|e| panic!("ponko: create_terrain_material: {e}"))
     }
 
-    /// [`Graphics::create_terrain_material`](crate::Graphics::create_terrain_material) that returns errors (for the C API).
+    /// [`Graphics::create_terrain_material`](crate::gfx::Graphics::create_terrain_material) that returns errors (for the C API).
     #[doc(hidden)]
     pub fn try_create_terrain_material(&mut self, desc: &TerrainMaterialDesc) -> Result<Material, String> {
         desc.check()?;
@@ -253,10 +253,10 @@ impl Graphics {
     /// `size` further on.
     ///
     /// ```no_run
-    /// # use ponko::*;
-    /// # fn f(ctx: &mut Ctx, heights: &[f32], ground: Material) {
+    /// # use ponko::prelude::*;
+    /// # fn f(ctx: &mut Ctx, heights: &[f32], ground: ponko::render::Material) {
     /// let tile = ctx.gfx.create_terrain_tile(heights, 256.0, ground);
-    /// ctx.world.spawn((Transform3D::at(vec3(256.0, 0.0, 0.0)), tile));
+    /// ctx.world.spawn((ponko::d3::Transform::at(vec3(256.0, 0.0, 0.0)), tile));
     /// # }
     /// ```
     ///
@@ -269,14 +269,14 @@ impl Graphics {
     }
 
     /// Puts a tile's meshes, made by [`TerrainTileData::new`] (on any
-    /// thread), on the GPU: the fast half of [`Graphics::create_terrain_tile`](crate::Graphics::create_terrain_tile),
+    /// thread), on the GPU: the fast half of [`Graphics::create_terrain_tile`](crate::gfx::Graphics::create_terrain_tile),
     /// for tiles streamed in while the game runs.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let ground = ctx.gfx.default_material();
-    ///     let job = Job::spawn(|| TerrainTileData::new(&[0.0; 33 * 33], 64.0));
+    ///     let job = ponko::stream::Job::spawn(|| ponko::terrain::TerrainTileData::new(&[0.0; 33 * 33], 64.0));
     ///     let tile = ctx.gfx.upload_terrain_tile(&job.wait(), ground);
     ///     assert_eq!(tile.lod_distance, 64.0);
     /// });
@@ -294,10 +294,10 @@ impl Graphics {
     }
 
     /// Frees the GPU memory of every detail level of `tile` (see
-    /// [`Graphics::free_mesh`](crate::Graphics::free_mesh)); despawn its entity too.
+    /// [`Graphics::free_mesh`](crate::gfx::Graphics::free_mesh)); despawn its entity too.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let ground = ctx.gfx.default_material();
     ///     let tile = ctx.gfx.create_terrain_tile(&[0.0; 9 * 9], 16.0, ground);
@@ -313,12 +313,12 @@ impl Graphics {
 }
 
 /// The meshes of a terrain tile at every detail level, made on the CPU
-/// from its heights: build them on a worker thread with a [`Job`](crate::Job),
-/// then [`Graphics::upload_terrain_tile`](crate::Graphics::upload_terrain_tile) on the game's.
+/// from its heights: build them on a worker thread with a [`Job`](crate::stream::Job),
+/// then [`Graphics::upload_terrain_tile`](crate::gfx::Graphics::upload_terrain_tile) on the game's.
 ///
 /// ```
-/// # use ponko::*;
-/// let data = TerrainTileData::new(&[0.0; 5 * 5], 8.0);
+/// # use ponko::prelude::*;
+/// let data = ponko::terrain::TerrainTileData::new(&[0.0; 5 * 5], 8.0);
 /// assert_eq!(data.size(), 8.0);
 /// ```
 #[derive(Debug, Clone)]
@@ -329,11 +329,11 @@ pub struct TerrainTileData {
 
 impl TerrainTileData {
     /// A tile `size` wide from a square grid of heights, as
-    /// [`Graphics::create_terrain_tile`](crate::Graphics::create_terrain_tile) takes them.
+    /// [`Graphics::create_terrain_tile`](crate::gfx::Graphics::create_terrain_tile) takes them.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let flat = TerrainTileData::new(&[1.0; 3 * 3], 4.0);
+    /// # use ponko::prelude::*;
+    /// let flat = ponko::terrain::TerrainTileData::new(&[1.0; 3 * 3], 4.0);
     /// assert_eq!(flat.size(), 4.0);
     /// ```
     ///
@@ -355,8 +355,8 @@ impl TerrainTileData {
     /// How wide the tile is.
     ///
     /// ```
-    /// # use ponko::*;
-    /// assert_eq!(TerrainTileData::new(&[0.0; 4], 2.0).size(), 2.0);
+    /// # use ponko::prelude::*;
+    /// assert_eq!(ponko::terrain::TerrainTileData::new(&[0.0; 4], 2.0).size(), 2.0);
     /// ```
     #[must_use]
     pub fn size(&self) -> f32 {
@@ -367,8 +367,8 @@ impl TerrainTileData {
     /// when the meshes go to the GPU).
     ///
     /// ```
-    /// # use ponko::*;
-    /// let data = TerrainTileData::new(&[3.0; 3 * 3], 4.0);
+    /// # use ponko::prelude::*;
+    /// let data = ponko::terrain::TerrainTileData::new(&[3.0; 3 * 3], 4.0);
     /// assert_eq!(data.heightfield().height_at(1.0, 1.0), Some(3.0));
     /// ```
     #[must_use]
@@ -384,9 +384,9 @@ impl TerrainTileData {
 /// Coordinates are from the tile's corner, X and Z from 0 to its size.
 ///
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// // 3 x 3 heights over 10 m: a ridge along Z in the middle.
-/// let ground = Heightfield::new(&[0.0, 4.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0, 0.0], 10.0);
+/// let ground = ponko::terrain::Heightfield::new(&[0.0, 4.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0, 0.0], 10.0);
 /// assert_eq!(ground.height_at(5.0, 3.0), Some(4.0));
 /// assert_eq!(ground.height_at(2.5, 5.0), Some(2.0));
 /// assert_eq!(ground.height_at(11.0, 5.0), None, "off the tile");
@@ -400,11 +400,11 @@ pub struct Heightfield {
 
 impl Heightfield {
     /// A tile `size` wide from n × n heights, as
-    /// [`Graphics::create_terrain_tile`](crate::Graphics::create_terrain_tile) takes them (NaN for a hole).
+    /// [`Graphics::create_terrain_tile`](crate::gfx::Graphics::create_terrain_tile) takes them (NaN for a hole).
     ///
     /// ```
-    /// # use ponko::*;
-    /// let flat = Heightfield::new(&[1.0; 4], 2.0);
+    /// # use ponko::prelude::*;
+    /// let flat = ponko::terrain::Heightfield::new(&[1.0; 4], 2.0);
     /// assert_eq!(flat.size(), 2.0);
     /// ```
     ///
@@ -433,8 +433,8 @@ impl Heightfield {
     /// How wide the tile is.
     ///
     /// ```
-    /// # use ponko::*;
-    /// assert_eq!(Heightfield::new(&[0.0; 9], 8.0).size(), 8.0);
+    /// # use ponko::prelude::*;
+    /// assert_eq!(ponko::terrain::Heightfield::new(&[0.0; 9], 8.0).size(), 8.0);
     /// ```
     #[must_use]
     pub fn size(&self) -> f32 {
@@ -444,8 +444,8 @@ impl Heightfield {
     /// The heights it was made from.
     ///
     /// ```
-    /// # use ponko::*;
-    /// assert_eq!(Heightfield::new(&[0.0; 9], 8.0).heights().len(), 9);
+    /// # use ponko::prelude::*;
+    /// assert_eq!(ponko::terrain::Heightfield::new(&[0.0; 9], 8.0).heights().len(), 9);
     /// ```
     #[must_use]
     pub fn heights(&self) -> &[f32] {
@@ -483,8 +483,8 @@ impl Heightfield {
     /// the tile or over a hole.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let slope = Heightfield::new(&[0.0, 2.0, 0.0, 2.0], 1.0);
+    /// # use ponko::prelude::*;
+    /// let slope = ponko::terrain::Heightfield::new(&[0.0, 2.0, 0.0, 2.0], 1.0);
     /// assert_eq!(slope.height_at(0.5, 0.0), Some(1.0));
     /// ```
     #[must_use]
@@ -501,8 +501,8 @@ impl Heightfield {
     /// there tilts to.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let flat = Heightfield::new(&[5.0; 4], 1.0);
+    /// # use ponko::prelude::*;
+    /// let flat = ponko::terrain::Heightfield::new(&[5.0; 4], 1.0);
     /// assert_eq!(flat.normal_at(0.5, 0.5), Some(Vec3::Y));
     /// ```
     #[must_use]
@@ -510,6 +510,13 @@ impl Heightfield {
         let [p, q, r] = self.triangle(x, z)?;
         Some((q - p).cross(r - p).normalize())
     }
+}
+
+impl TerrainTile {
+    /// Available terrain LOD levels.
+    pub const LODS: usize = TERRAIN_LODS;
+    /// Maximum material layers.
+    pub const LAYERS: usize = TERRAIN_LAYERS;
 }
 
 #[cfg(test)]

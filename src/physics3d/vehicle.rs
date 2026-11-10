@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{CollisionGroups, LinkKind, Physics3D, from_rp, rot_from_rp, to_rp};
 use crate::collision::BodyKind;
-use crate::{Entity, Quat, Transform3D, Vec3, World};
+use crate::d3::Transform as Transform3D;
+use crate::{Entity, Quat, Vec3, World};
 
 /// How much grip a tyre has for how much it slips: a curve rising from 0
 /// to its peak `(extremum_slip, extremum_value)`, falling to
@@ -22,13 +23,13 @@ use crate::{Entity, Quat, Transform3D, Vec3, World};
 /// where the wheel points and where it goes.
 ///
 /// ```
-/// use ponko::*;
-/// let grip = FrictionCurve::FORWARD;
+/// use ponko::prelude::*;
+/// let grip = ponko::physics3d::FrictionCurve::FORWARD;
 /// assert_eq!(grip.evaluate(0.0), 0.0);
 /// assert_eq!(grip.evaluate(grip.extremum_slip), 1.0); // the peak
 /// assert_eq!(grip.evaluate(5.0), 0.5); // sliding
-/// let icy = FrictionCurve { stiffness: 0.2, ..FrictionCurve::SIDEWAYS };
-/// assert!(icy.evaluate(0.1) < FrictionCurve::SIDEWAYS.evaluate(0.1));
+/// let icy = ponko::physics3d::FrictionCurve { stiffness: 0.2, ..ponko::physics3d::FrictionCurve::SIDEWAYS };
+/// assert!(icy.evaluate(0.1) < ponko::physics3d::FrictionCurve::SIDEWAYS.evaluate(0.1));
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -118,9 +119,9 @@ impl FrictionCurve {
 /// [`target_position`](Self::target_position) of that travel.
 ///
 /// ```
-/// use ponko::*;
+/// use ponko::prelude::*;
 /// // Front left wheel of a car whose chassis faces -Z.
-/// let mut wheel = Wheel3D::new(vec3(-0.8, -0.2, -1.3), 0.35);
+/// let mut wheel = ponko::d3::Wheel::new(vec3(-0.8, -0.2, -1.3), 0.35);
 /// wheel.spring = 40_000.0;
 /// wheel.sideways_friction.stiffness = 1.2;
 /// // Each tick:
@@ -248,8 +249,8 @@ impl Wheel3D {
     /// How fast the wheel spins, in revolutions per minute.
     ///
     /// ```
-    /// use ponko::*;
-    /// let mut wheel = Wheel3D::new(Vec3::ZERO, 0.3);
+    /// use ponko::prelude::*;
+    /// let mut wheel = ponko::d3::Wheel::new(Vec3::ZERO, 0.3);
     /// wheel.angular_velocity = std::f32::consts::TAU; // one turn a second
     /// assert!((wheel.rpm() - 60.0).abs() < 1e-3);
     /// ```
@@ -264,9 +265,9 @@ impl Wheel3D {
     /// the chassis does.
     ///
     /// ```
-    /// use ponko::*;
-    /// let wheel = Wheel3D::new(vec3(1.0, 0.0, 0.0), 0.4);
-    /// let pose = wheel.pose(&Transform3D::at(vec3(0.0, 2.0, 0.0)));
+    /// use ponko::prelude::*;
+    /// let wheel = ponko::d3::Wheel::new(vec3(1.0, 0.0, 0.0), 0.4);
+    /// let pose = wheel.pose(&ponko::d3::Transform::at(vec3(0.0, 2.0, 0.0)));
     /// // Hanging fully extended: 0.3 m below its mount.
     /// assert!((pose.position - vec3(1.0, 1.7, 0.0)).length() < 1e-5);
     /// ```
@@ -293,10 +294,10 @@ impl Wheel3D {
 /// the game's.
 ///
 /// ```
-/// use ponko::*;
-/// let mut car = Vehicle3D::new();
+/// use ponko::prelude::*;
+/// let mut car = ponko::d3::Vehicle::new();
 /// for (x, z) in [(-0.8, -1.3), (0.8, -1.3), (-0.8, 1.3), (0.8, 1.3)] {
-///     car = car.with_wheel(Wheel3D::new(vec3(x, -0.2, z), 0.35));
+///     car = car.with_wheel(ponko::d3::Wheel::new(vec3(x, -0.2, z), 0.35));
 /// }
 /// assert_eq!(car.wheels().len(), 4);
 /// // Rear-wheel drive, front-wheel steering:

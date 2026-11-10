@@ -13,7 +13,7 @@ right, top to bottom.
 # let pos = vec2(100.0, 100.0);
 let tex = ctx.load_texture("units.png");
 let sheet = SpriteSheet::new(tex, 32, 32);   // 32 × 32 frames
-ctx.world.spawn((Transform2D::at(pos), sheet.sprite(5))); // frame 5
+ctx.world.spawn((ponko::d2::Transform::at(pos), sheet.sprite(5))); // frame 5
 ```
 
 </div>
@@ -59,10 +59,11 @@ system (on by default, all cores) advances it every frame:
 <div>
 
 ```rust
+# use ponko::d2::Animation;
 # let pos = vec2(100.0, 100.0);
 # let sheet = SpriteSheet::new(ctx.load_texture("units.png"), 32, 32);
 ctx.world.spawn((
-    Transform2D::at(pos),
+    ponko::d2::Transform::at(pos),
     sheet.sprite(0),
     Animation::new(sheet, 0..8, 12.0), // frames 0-7 at 12 fps, looping
 ));

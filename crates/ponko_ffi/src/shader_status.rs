@@ -3,7 +3,9 @@
 
 use std::ffi::c_char;
 
-use ponko::{ShaderKind, ShaderOutcome, ShaderStatus};
+use ponko::render::ShaderKind;
+use ponko::render::ShaderOutcome;
+use ponko::render::ShaderStatus;
 
 use crate::ctx::{ctx_access, out};
 use crate::perf::write_text;

@@ -18,15 +18,15 @@ pub enum TextureKind {
 
 /// Several images of the same size in one texture, for materials that use
 /// many: terrain layers, foliage variants. Made with
-/// [`Graphics::create_texture_array`](crate::Graphics::create_texture_array) or [`Graphics::load_texture_array`](crate::Graphics::load_texture_array); a cheap
+/// [`Graphics::create_texture_array`](crate::gfx::Graphics::create_texture_array) or [`Graphics::load_texture_array`](crate::gfx::Graphics::load_texture_array); a cheap
 /// handle. Custom shaders read one through
-/// [`MaterialDesc::custom_arrays`](crate::MaterialDesc::custom_arrays), and
+/// [`MaterialDesc::custom_arrays`](crate::render::MaterialDesc::custom_arrays), and
 /// it gets mipmaps.
 ///
 /// ```no_run
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
-/// let ground = ctx.gfx.load_texture_array(&["grass.png", "dirt.png", "rock.png"], TextureKind::Color);
+/// let ground = ctx.gfx.load_texture_array(&["grass.png", "dirt.png", "rock.png"], ponko::terrain::TextureKind::Color);
 /// assert_eq!(ground.layers(), 3);
 /// # }
 /// ```
@@ -43,8 +43,8 @@ impl TextureArray {
     /// Width of each image, in pixels.
     ///
     /// ```
-    /// # use ponko::*;
-    /// # fn f(a: TextureArray) { let _ = a.width(); }
+    /// # use ponko::prelude::*;
+    /// # fn f(a: ponko::terrain::TextureArray) { let _ = a.width(); }
     /// ```
     #[must_use]
     pub fn width(&self) -> u32 {
@@ -54,8 +54,8 @@ impl TextureArray {
     /// Height of each image, in pixels.
     ///
     /// ```
-    /// # use ponko::*;
-    /// # fn f(a: TextureArray) { let _ = a.height(); }
+    /// # use ponko::prelude::*;
+    /// # fn f(a: ponko::terrain::TextureArray) { let _ = a.height(); }
     /// ```
     #[must_use]
     pub fn height(&self) -> u32 {
@@ -65,8 +65,8 @@ impl TextureArray {
     /// How many images it holds.
     ///
     /// ```
-    /// # use ponko::*;
-    /// # fn f(a: TextureArray) { let _ = a.layers(); }
+    /// # use ponko::prelude::*;
+    /// # fn f(a: ponko::terrain::TextureArray) { let _ = a.layers(); }
     /// ```
     #[must_use]
     pub fn layers(&self) -> u32 {
@@ -79,11 +79,11 @@ impl Graphics {
     /// pixels (4 bytes each), one per layer.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let red = [255, 0, 0, 255].repeat(4);
     /// let blue = [0, 0, 255, 255].repeat(4);
-    /// let tints = ctx.gfx.create_texture_array(2, 2, &[&red, &blue], TextureKind::Color);
+    /// let tints = ctx.gfx.create_texture_array(2, 2, &[&red, &blue], ponko::terrain::TextureKind::Color);
     /// assert_eq!(tints.layers(), 2);
     /// # }
     /// ```
@@ -103,7 +103,7 @@ impl Graphics {
             .unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
-    /// [`Graphics::create_texture_array`](crate::Graphics::create_texture_array) that returns errors (for the C API).
+    /// [`Graphics::create_texture_array`](crate::gfx::Graphics::create_texture_array) that returns errors (for the C API).
     #[doc(hidden)]
     pub fn try_create_texture_array(
         &mut self,
@@ -158,9 +158,9 @@ impl Graphics {
     /// same size. Each call makes a new array.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let normals = ctx.gfx.load_texture_array(&["grass_n.png", "rock_n.png"], TextureKind::Data);
+    /// let normals = ctx.gfx.load_texture_array(&["grass_n.png", "rock_n.png"], ponko::terrain::TextureKind::Data);
     /// # }
     /// ```
     ///
@@ -173,7 +173,7 @@ impl Graphics {
             .unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
-    /// [`Graphics::load_texture_array`](crate::Graphics::load_texture_array) that returns errors (for the C API).
+    /// [`Graphics::load_texture_array`](crate::gfx::Graphics::load_texture_array) that returns errors (for the C API).
     #[doc(hidden)]
     pub fn try_load_texture_array(&mut self, paths: &[&str], kind: TextureKind) -> Result<TextureArray, String> {
         let mut images = Vec::with_capacity(paths.len());
@@ -228,7 +228,7 @@ impl Graphics {
         }
     }
 
-    /// Sets the texture array [`Decal3D`](crate::Decal3D)s take their images
+    /// Sets the texture array [`Decal3D`](crate::d3::Decal)s take their images
     /// from (`None`: flat-colored decals). Every decal shares it, so a
     /// whole game's decals are drawn with fixed bindings: put the images in
     /// its layers (or in parts of layers, with `uv_min`/`uv_max`), color
@@ -241,9 +241,9 @@ impl Graphics {
     /// them.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let images = ctx.gfx.load_texture_array(&["blood.png", "tyre.png", "tyre_n.png"], TextureKind::Data);
+    /// let images = ctx.gfx.load_texture_array(&["blood.png", "tyre.png", "tyre_n.png"], ponko::terrain::TextureKind::Data);
     /// ctx.gfx.set_decal_textures(Some(images));
     /// # }
     /// ```
@@ -256,7 +256,7 @@ impl Graphics {
             .unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
-    /// [`Graphics::set_decal_textures`](crate::Graphics::set_decal_textures) that returns errors (for the C API).
+    /// [`Graphics::set_decal_textures`](crate::gfx::Graphics::set_decal_textures) that returns errors (for the C API).
     #[doc(hidden)]
     pub fn try_set_decal_textures(&mut self, array: Option<TextureArray>) -> Result<(), String> {
         if let Some(a) = array {
@@ -276,7 +276,7 @@ impl Graphics {
     /// The texture array decals draw their images from, if one is set.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &Ctx) { assert!(ctx.gfx.decal_textures().is_none()); }
     /// ```
     #[must_use]
@@ -286,11 +286,11 @@ impl Graphics {
 
     /// Whether this GPU draws projected decals: it needs one more sampled
     /// texture in the mesh shader than WebGL2 (and GPUs at the default
-    /// limit) have. Where it's false, [`Decal3D`](crate::Decal3D)s are
+    /// limit) have. Where it's false, [`Decal3D`](crate::d3::Decal)s are
     /// skipped and everything else draws as usual. False in headless runs.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &Ctx) { let _ = ctx.gfx.supports_decals(); }
     /// ```
     #[must_use]

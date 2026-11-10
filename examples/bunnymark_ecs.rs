@@ -12,7 +12,9 @@
 //! Vsync is off. `SECONDS=10` quits after that long (for scripted runs).
 //! Movement runs once per frame (not on the fixed tick) to match `bunnymark`.
 
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::d2::*;
+use ponko::prelude::*;
 
 struct Vel(Vec2);
 
@@ -32,7 +34,7 @@ struct Bench {
     report_at: f64,
     frames: u32,
     worst_ms: f32,
-    frame_start: Instant,
+    frame_start: ponko::perf::Instant,
     quit_after: f64,
     scale: f32,
 }
@@ -108,7 +110,7 @@ fn report(ctx: &mut Ctx) {
         .sum();
     let (time, count, render) = (ctx.time.elapsed(), ctx.world.len(), ctx.perf.render_stats());
     let b = ctx.world.resource_mut::<Bench>();
-    let now = Instant::now();
+    let now = ponko::perf::Instant::now();
     let frame_ms = now.duration_since(b.frame_start).as_secs_f32() * 1000.0;
     b.frame_start = now;
     b.worst_ms = b.worst_ms.max(frame_ms);
@@ -150,7 +152,7 @@ fn main() {
                 report_at: 1.0,
                 frames: 0,
                 worst_ms: 0.0,
-                frame_start: Instant::now(),
+                frame_start: ponko::perf::Instant::now(),
                 quit_after,
                 scale: env_number("SCALE", 1.0) as f32,
             });

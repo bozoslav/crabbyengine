@@ -7,7 +7,10 @@
 //!
 //! `SHOT=path.png` saves frame 60 and quits.
 
-use ponko::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::d3::*;
+use ponko::prelude::*;
 
 /// Writes the frame's light into its render target; a smaller target than
 /// the frame is a coarse copy, which the screen effect samples smoothly.
@@ -68,7 +71,7 @@ fn main() {
             for i in 0..12 {
                 let z = -(i as f32) * 2.5;
                 for x in [-1.5, 1.5] {
-                    ctx.world.spawn((Transform3D::at(vec3(x, 0.5, z)), Model::new(block)));
+                    ctx.world.spawn((Transform::at(vec3(x, 0.5, z)), Model::new(block)));
                 }
             }
             let grass = ctx.gfx.create_material(MaterialDesc {
@@ -76,7 +79,7 @@ fn main() {
                 ..MaterialDesc::color(Color::hex(0x4E6B33))
             });
             let ground = ctx.gfx.create_mesh(&MeshData::plane(200.0), grass);
-            ctx.world.spawn((Transform3D::default(), Model::new(ground)));
+            ctx.world.spawn((Transform::default(), Model::new(ground)));
         })
         .run();
 }

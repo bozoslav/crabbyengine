@@ -1,6 +1,9 @@
 //! Plain C structs shared with the engine. Most have the exact layout of the
 //! Rust type (checked at compile time), so values pass through without copies.
-use ponko::{Color, DrawParams, GridEntry, Rect, Sprite, Texture, Transform2D, Vec2};
+use ponko::d2::Sprite;
+use ponko::d2::Transform as Transform2D;
+use ponko::spatial::GridEntry;
+use ponko::{Color, DrawParams, Rect, Texture, Vec2};
 use ponko_ecs::Entity;
 
 /// A 2D vector.
