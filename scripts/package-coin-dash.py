@@ -54,7 +54,8 @@ class Unsupported(Exception):
 
 
 def run(cmd, **kwargs):
-    return subprocess.run(cmd, cwd=kwargs.pop("cwd", ROOT), check=True, text=True, **kwargs)
+    # UTF-8, not the platform's code page: cargo prints paths and metadata as UTF-8.
+    return subprocess.run(cmd, cwd=kwargs.pop("cwd", ROOT), check=True, text=True, encoding="utf-8", **kwargs)
 
 
 def cargo_json(*args):
@@ -282,7 +283,9 @@ def check_package(package):
 def play(exe, mode, workdir, env, report, timeout):
     """Runs the walk-through from `workdir`; returns (exit code, stdout, stderr)."""
     cmd = [str(exe), "--smoke", mode, "--report", str(report)]
-    done = subprocess.run(cmd, cwd=workdir, env=env, text=True, capture_output=True, timeout=timeout)
+    done = subprocess.run(
+        cmd, cwd=workdir, env=env, text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=timeout
+    )
     return done.returncode, done.stdout, done.stderr
 
 
