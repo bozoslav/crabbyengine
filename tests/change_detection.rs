@@ -384,6 +384,81 @@ fn replacing_the_world_shows_every_reader_everything() {
 }
 
 #[test]
+fn a_rare_system_sees_everything_in_a_world_that_replaced_another() {
+    // The reader runs every 20th tick. In between, the world is replaced
+    // and the new one's ticks start over: by the reader's next run they
+    // have passed the tick it remembers from the old world. That tick means
+    // nothing in the new world, so the reader starts from the beginning.
+    let world = Game::new("changes", 1, 1)
+        .sim_system_every(20, |ctx: &mut Ctx| {
+            let seen = changed(ctx);
+            let removed = ctx.world.removed::<Health>().len();
+            log(ctx, format!("{seen:?}, {removed} removed"));
+        })
+        .sim_system(|ctx: &mut Ctx| {
+            if ctx.time.sim_tick() == 5 {
+                let mut fresh = World::new();
+                fresh.insert_resource(Log(lines(&ctx.world)));
+                fresh.track_changes::<Health>();
+                fresh.spawn((Health(7),));
+                let gone = fresh.spawn((Health(8),));
+                ctx.world = fresh;
+                // Removed in the new world's first tick.
+                ctx.world.despawn(gone);
+            }
+        })
+        .run_headless(60, setup);
+    assert_eq!(
+        lines(&world),
+        ["[10, 20, 30], 0 removed", "[7], 1 removed", "[], 0 removed"]
+    );
+    // Once the reader has seen the removal, it is dropped.
+    assert!(world.removed_since::<Health>(Tick::default()).is_empty());
+}
+
+#[test]
+fn removals_in_a_new_world_wait_for_systems_that_last_ran_in_the_old_one() {
+    // Two rare readers and a writer that replaces the world. Before either
+    // reader has run in the new world, its removal log must keep everything,
+    // whatever ticks the readers remember from the old world.
+    let world = Game::new("changes", 1, 1)
+        .sim_system_every(20, |ctx: &mut Ctx| {
+            let n = ctx.world.removed::<Health>().len();
+            log(ctx, format!("first {n}"));
+        })
+        .sim_system_every(30, |ctx: &mut Ctx| {
+            let n = ctx.world.removed::<Health>().len();
+            log(ctx, format!("second {n}"));
+        })
+        .sim_system(|ctx: &mut Ctx| match ctx.time.sim_tick() {
+            // Many ticks in the old world, so the readers' old ticks are
+            // far past the new world's first ones.
+            35 => {
+                let mut fresh = World::new();
+                fresh.insert_resource(Log(Vec::new()));
+                fresh.track_changes::<Health>();
+                for hp in [1, 2, 3] {
+                    fresh.spawn((Health(hp),));
+                }
+                ctx.world = fresh;
+            }
+            36..=38 => {
+                let victim = ctx.world.query::<Entity>().with::<Health>().iter().next();
+                ctx.world.despawn(victim.unwrap());
+            }
+            _ => {}
+        })
+        .run_headless(100, setup);
+    // Each reader is shown the three removals once, on its first run in
+    // the new world, and nothing after that.
+    let seen = lines(&world);
+    assert_eq!(seen.iter().filter(|l| *l == "first 3").count(), 1, "{seen:?}");
+    assert_eq!(seen.iter().filter(|l| *l == "second 3").count(), 1, "{seen:?}");
+    assert!(seen.iter().all(|l| l.ends_with(" 3") || l.ends_with(" 0")), "{seen:?}");
+    assert!(world.removed_since::<Health>(Tick::default()).is_empty());
+}
+
+#[test]
 fn code_outside_systems_sees_everything() {
     let world = Game::new("changes", 1, 1)
         .sim_system(|_: &mut Ctx| {})

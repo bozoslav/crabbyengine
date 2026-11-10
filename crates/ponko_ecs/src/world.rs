@@ -150,6 +150,24 @@ impl Default for World {
 }
 
 impl World {
+    /// A number no other world of this process has. Code that remembers
+    /// something about a world, such as a [`Tick`](crate::Tick) it last
+    /// looked at, keeps this next to it to notice that the world was
+    /// replaced: the new world's ticks start over and mean something else.
+    ///
+    /// ```
+    /// use ponko_ecs::World;
+    ///
+    /// let (a, b) = (World::new(), World::new());
+    /// assert_ne!(a.id(), b.id());
+    /// assert_eq!(a.id(), a.id());
+    /// ```
+    #[inline]
+    #[must_use]
+    pub fn id(&self) -> u64 {
+        self.uid
+    }
+
     /// An empty world.
     #[must_use]
     pub fn new() -> Self {
