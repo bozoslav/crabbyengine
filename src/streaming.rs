@@ -19,7 +19,6 @@
 //! order of requests and the budget: the same run gives the same frames.
 
 use std::collections::{BTreeMap, VecDeque};
-use std::time::Instant;
 
 use crate::assets::{self, Origin};
 use crate::{Ctx, Job, ResidencyKind, Texture};
@@ -220,9 +219,11 @@ pub(crate) struct StreamedTexture {
     pub state: AssetState,
     /// In the upload queue now.
     queued: bool,
-    /// Held by the texture budget: the budget and resident bytes then. It
-    /// is tried again once either changes.
-    held: Option<(Option<u64>, u64)>,
+    /// Held by the texture budget: the budget and resident bytes then, and
+    /// the bytes the next resolution needs. It is decoded again only once
+    /// the budget changed, or the resident bytes did and that many could
+    /// now fit.
+    held: Option<(Option<u64>, u64, u64)>,
 }
 
 /// A mesh being streamed in.
@@ -369,19 +370,18 @@ impl Ctx {
                 self.start_texture_decode(path);
                 self.streaming.textures.get(path).and_then(|t| t.texture)
             }
-            Some((AssetState::Evicted, texture, _)) => {
-                self.start_texture_decode(path);
+            Some((AssetState::Evicted, texture, queued)) => {
+                // Asked for again while its decode runs: wait for that one.
+                if !queued {
+                    self.start_texture_decode(path);
+                }
                 texture
             }
             // Not retried each frame: see `asset_error`.
             Some((AssetState::Failed, texture, _)) => texture,
             Some((AssetState::Streaming, texture, queued)) => {
                 self.residency.set_mut(ResidencyKind::Texture).touch(path, now);
-                // Held by the budget earlier: try again once it changed.
-                let set = self.residency.set(ResidencyKind::Texture);
-                let now_budget = (set.budget(), set.resident_bytes());
-                let held = self.streaming.textures.get(path).and_then(|t| t.held);
-                if !queued && held != Some(now_budget) {
+                if !queued && self.held_texture_may_fit(path, now) {
                     self.start_texture_decode(path);
                 }
                 texture
@@ -594,7 +594,7 @@ impl Ctx {
 
     /// Uploads queued assets in order, within the budget.
     fn upload_step(&mut self) {
-        let start = Instant::now();
+        let start = crate::Instant::now();
         let budget = self.streaming.budget.unwrap_or(u64::MAX);
         let (mut spent, mut uploads) = (0u64, 0u32);
         let mut later = Vec::new();
@@ -709,7 +709,7 @@ impl Ctx {
         // The texture budget: make room, or stay at this resolution.
         if t.texture.is_some() && !self.texture_fits(name, bytes.saturating_sub(current)) {
             let set = self.residency.set(ResidencyKind::Texture);
-            let held = (set.budget(), set.resident_bytes());
+            let held = (set.budget(), set.resident_bytes(), bytes.saturating_sub(current));
             let t = self.streaming.textures.get_mut(name).expect("still there");
             t.queued = false;
             t.levels.clear();
@@ -744,6 +744,7 @@ impl Ctx {
         set.set_budget(Some(budget.saturating_sub(extra)));
         let evicted = set.evict(now, |id| Some(id) == keep || shown.contains(&id));
         set.set_budget(Some(budget));
+        self.residency.shown = shown;
         self.drop_to_stand_ins(evicted);
         self.residency.set(ResidencyKind::Texture).resident_bytes() + extra <= budget
     }
@@ -866,16 +867,50 @@ impl Ctx {
             .residency
             .set_mut(ResidencyKind::Texture)
             .evict(now, |id| shown.contains(&id));
+        self.residency.shown = shown;
         self.drop_to_stand_ins(evicted);
     }
 
-    /// Ids of the textures sprites show.
+    /// Ids of the textures sprites show, in the reused set taken from
+    /// `residency.shown` (put it back after use, so it doesn't allocate).
     fn shown_textures(&mut self) -> std::collections::HashSet<u32> {
-        let mut ids = std::collections::HashSet::new();
+        let mut ids = std::mem::take(&mut self.residency.shown);
+        ids.clear();
         self.world.query::<&crate::Sprite>().for_each(|s| {
             ids.insert(s.texture.id);
         });
         ids
+    }
+
+    /// Whether texture `name`, held at a lower resolution by the budget, is
+    /// worth decoding again: the budget changed, or the resident bytes did
+    /// and its next resolution could now fit (in free room or in what could
+    /// be evicted). Otherwise retrying would decode the file only to be
+    /// held again.
+    fn held_texture_may_fit(&self, name: &str, now: (u64, u64)) -> bool {
+        let Some((budget, resident, extra)) = self.streaming.textures.get(name).and_then(|t| t.held) else {
+            return true;
+        };
+        let set = self.residency.set(ResidencyKind::Texture);
+        if set.budget() != budget {
+            return true;
+        }
+        if set.resident_bytes() == resident {
+            return false;
+        }
+        let room = set
+            .budget()
+            .map_or(u64::MAX, |b| b.saturating_sub(set.resident_bytes()));
+        room.saturating_add(set.evictable_bytes(now, name)) >= extra
+    }
+
+    /// Texture `id` was freed (`Ctx::free`): forget its stream and its
+    /// bytes in the texture budget now, not when its name is next asked for.
+    pub(crate) fn forget_streamed_texture_id(&mut self, id: u32) {
+        if let Some(name) = self.streaming.texture_names.remove(&id) {
+            self.streaming.textures.remove(&name);
+            self.residency.set_mut(ResidencyKind::Texture).forget(&name);
+        }
     }
 
     /// The entry for streamed texture `name`, made if new.
@@ -941,6 +976,7 @@ impl Ctx {
         };
         let entry = self.texture_entry(name);
         entry.job = Some(job);
+        entry.held = None;
         // One with a texture keeps showing it (and its state) meanwhile.
         if entry.texture.is_none() {
             entry.state = AssetState::Loading;

@@ -34,6 +34,13 @@ fn bytes(side: u64) -> u64 {
 
 type Step = Box<dyn FnMut(&mut Ctx)>;
 
+/// A tick that asks for nothing: what was asked for in the tick before a
+/// gap can be evicted after it (assets asked for in this or the previous
+/// frame or tick are kept).
+fn gap() -> Step {
+    Box::new(|_| {})
+}
+
 /// Runs one step per simulation tick, in order, after `setup`; the
 /// engine's upload step runs before each.
 fn run(setup: impl FnOnce(&mut Ctx) + 'static, steps: Vec<Step>) {
@@ -247,6 +254,7 @@ fn textures_sprites_show_and_pinned_ones_are_kept() {
         Box::new(|ctx| {
             ctx.resident_texture("t2.png");
         }),
+        gap(),
         Box::new(|ctx| {
             ctx.resident_texture("t3.png"); // only t2 can go
             assert_eq!(ctx.asset_state(ResidencyKind::Texture, "t0.png"), AssetState::Resident);
@@ -304,6 +312,7 @@ fn an_evicted_streamed_texture_streams_back_up_under_the_same_handle() {
     let mut steps: Vec<Step> = vec![Box::new(move |ctx| {
         *h1.borrow_mut() = Some(ctx.resident_texture("t0.png"));
     })];
+    steps.push(gap());
     steps.push(Box::new(|ctx| {
         ctx.resident_texture("t1.png"); // evicts t0
         assert_eq!(ctx.asset_state(ResidencyKind::Texture, "t0.png"), AssetState::Evicted);
@@ -328,6 +337,104 @@ fn an_evicted_streamed_texture_streams_back_up_under_the_same_handle() {
         },
         steps,
     );
+}
+
+/// Runs `frame` once a frame for up to `frames` frames, without
+/// deterministic uploads (decodes finish whenever the workers do), each
+/// frame taking at least `pause`.
+fn run_frames(
+    frames: u64,
+    pause: std::time::Duration,
+    setup: impl FnOnce(&mut Ctx) + 'static,
+    mut frame: impl FnMut(&mut Ctx, u64) + 'static,
+) {
+    let mut tick = 0;
+    Game::new("streaming", 1, 1)
+        .sim_system(move |ctx| {
+            frame(ctx, tick);
+            tick += 1;
+            std::thread::sleep(pause);
+        })
+        .run_headless(frames, setup);
+}
+
+#[test]
+fn an_evicted_texture_asked_for_every_frame_streams_back_while_decodes_take_longer() {
+    // Default mode: the upload step never waits for a decode. Frames are
+    // far shorter than a decode, and the game asks every frame: asking
+    // again must not restart the decode, or it would never finish.
+    let log = Rc::new(RefCell::new((None, None, 0u64)));
+    let out = log.clone();
+    run_frames(
+        4000,
+        std::time::Duration::from_micros(50),
+        |ctx| {
+            ctx.add_asset_source(images(4));
+            ctx.set_residency_budget(ResidencyKind::Texture, Some(bytes(256) + bytes(64)));
+        },
+        move |ctx, tick| {
+            let mut log = out.borrow_mut();
+            match tick {
+                0 => log.0 = Some(ctx.resident_texture("t0.png")),
+                1 => {}
+                2 => {
+                    ctx.resident_texture("t1.png");
+                    assert_eq!(ctx.asset_state(ResidencyKind::Texture, "t0.png"), AssetState::Evicted);
+                }
+                _ if log.1.is_none() => {
+                    let t = ctx.stream_texture("t0.png");
+                    assert_eq!(t, log.0, "the same handle throughout");
+                    if ctx.asset_state(ResidencyKind::Texture, "t0.png") == AssetState::Resident {
+                        log.1 = Some(tick);
+                        log.2 = ctx.upload_stats().decode_waits;
+                    }
+                }
+                _ => {}
+            }
+        },
+    );
+    let (_, back_at, waits) = *log.borrow();
+    assert!(back_at.is_some(), "the evicted texture never streamed back");
+    assert_eq!(waits, 0, "the game thread never waited for a decode");
+}
+
+#[test]
+fn a_texture_asked_for_every_frame_stays_while_shown_ones_keep_the_budget_over() {
+    // A sprite's texture fills the budget; another, which only (say) a
+    // material uses, is asked for every frame. Checking the budget at the
+    // start of each frame must not evict it between two asks.
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let out = log.clone();
+    run_frames(
+        12,
+        std::time::Duration::ZERO,
+        |ctx| {
+            ctx.add_asset_source(images(4));
+            ctx.set_deterministic_uploads(true);
+            ctx.set_residency_budget(ResidencyKind::Texture, Some(bytes(256)));
+            let shown = ctx.resident_texture("t0.png");
+            ctx.world.spawn((Transform2D::default(), Sprite::new(shown)));
+        },
+        move |ctx, _| {
+            ctx.resident_texture("t1.png");
+            ctx.stream_texture("t2.png");
+            out.borrow_mut().push((
+                ctx.asset_state(ResidencyKind::Texture, "t1.png"),
+                ctx.asset_state(ResidencyKind::Texture, "t2.png"),
+                ctx.residency(ResidencyKind::Texture),
+            ));
+        },
+    );
+    let log = log.borrow();
+    let (_, _, last) = log.last().unwrap();
+    assert_eq!(last.evictions, 0, "{last}");
+    assert_eq!(last.reloads, 0, "nothing was read again: {last}");
+    assert!(log.iter().all(|(t1, _, _)| *t1 == AssetState::Resident));
+    // The streamed one arrives, and the full budget holds it at a lower
+    // resolution (nothing else can go), but it is never evicted.
+    assert_eq!(log.last().unwrap().1, AssetState::Streaming);
+    assert!(log.iter().all(|(_, t2, _)| *t2 != AssetState::Evicted));
+    assert!(last.over_budget_bytes() >= bytes(256), "{last}");
 }
 
 #[test]
@@ -367,6 +474,8 @@ fn a_freed_streamed_texture_is_forgotten_and_loads_afresh() {
         ctx.finish_uploads();
         let old = ctx.stream_texture("t0.png").unwrap();
         ctx.free(old);
+        // Its bytes leave the budget at once, not when it is next asked for.
+        assert_eq!(ctx.residency(ResidencyKind::Texture).resident_bytes, 0);
         assert_eq!(ctx.asset_state(ResidencyKind::Texture, "t0.png"), AssetState::Unknown);
         assert!(!ctx.is_resident(ResidencyKind::Texture, "t0.png"));
         ctx.stream_texture("t0.png");
@@ -521,6 +630,7 @@ mod meshes {
                 ctx.set_residency_budget(ResidencyKind::Mesh, Some(b));
                 *h1.borrow_mut() = one; // kept outside any entity
             }),
+            gap(),
             Box::new(move |ctx| {
                 ctx.resident_mesh(&p2[1]); // evicts the held one
                 let held = *h2.borrow();
