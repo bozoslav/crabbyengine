@@ -12,7 +12,9 @@ fn renderer() -> Option<(wgpu::Device, Renderer3D)> {
         return None;
     };
     eprintln!("residency test adapter: {:?}", adapter.get_info());
-    let Ok((device, _queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) else {
+    let Ok((device, _queue)) = pollster::block_on(adapter.request_device(&crate::render::render_test_support::forced(
+        &wgpu::DeviceDescriptor::default(),
+    ))) else {
         eprintln!("no GPU device: skipped");
         return None;
     };

@@ -1190,6 +1190,23 @@ static void options_menu(ponko::ctx& ctx) {
 }
 // ANCHOR_END: quality
 
+// ANCHOR: gpu_tiers
+/// At startup: the preset for this GPU's tier, fitted to what it has.
+static void quality_for_this_gpu(ponko::ctx& ctx) {
+    auto quality = ctx.recommended_graphics_quality() // empty before a GPU opens
+        .value_or(ponko::graphics_quality_for_tier(ponko::gpu_tier::desktop));
+    ctx.set_graphics_quality(quality);
+    if (auto tier = ctx.gpu_tier(); tier && *tier == ponko::gpu_tier::webgl2) {
+        // No compute shaders: TAA draws FXAA, AO and reflections are off.
+    }
+    // What a weaker GPU lacks, with no such GPU at hand: a JSON report of the
+    // tier's floor, each missing feature with its fallback and the reason.
+    std::string baseline = ponko::gpu_tier_report(ponko::gpu_tier::baseline);
+    bool decals = ponko::gpu_tier_has(ponko::gpu_tier::baseline, ponko::gpu_feature::decals); // false
+    (void)baseline; (void)decals;
+}
+// ANCHOR_END: gpu_tiers
+
 // ANCHOR: taa
 /// Temporal antialiasing, and a camera cut.
 static void temporal_antialiasing(ponko::ctx& ctx) {
@@ -1466,6 +1483,8 @@ static void the_village_has_five_spinning_houses() {
         village(ctx);
         golden_hour(ctx);
         speed_lens(ctx, 40.0f);
+        quality_for_this_gpu(ctx);
+        if (ponko::graphics_quality_level(ctx.graphics_quality()) != ponko::quality_level::high) { std::fprintf(stderr, "tier preset\n"); std::abort(); }
         options_menu(ctx);
         temporal_antialiasing(ctx);
         screen_reflections(ctx);
@@ -2337,23 +2356,6 @@ void stream_out(ponko::ctx& ctx) {
 }
 // ANCHOR_END: handles
 
-// ANCHOR: declared_access
-struct Speed { float value; };
-static void move_forward(ponko::ctx& ctx) {
-    const float dt = ctx.dt();
-    ctx.world().each([&](Pos& p, const Speed& s) { p.y += s.value * dt; });
-}
-
-static void declared_access_guide() {
-    auto world = ponko::game("declared", 320, 240)
-        .add(ponko::phase::after_physics,
-             ponko::access().write<Pos>().read<Speed>().read_service(ponko::service::time),
-             move_forward, "move_forward")
-        .run_headless(2, [](ponko::ctx& ctx) { ctx.world().spawn(Pos{0}, Speed{60}); });
-    if (world.size() != 1) { std::fprintf(stderr, "declared access guide failed\n"); std::abort(); }
-}
-// ANCHOR_END: declared_access
-
 // ANCHOR: streaming
 void streaming_setup(ponko::ctx& ctx) {
     // Memory caps for what loads by name, and bytes sent to the GPU per frame.
@@ -2385,6 +2387,23 @@ static std::size_t report_shader_errors(ponko::ctx& ctx) {
     return broken;
 }
 // ANCHOR_END: shader_errors
+
+// ANCHOR: declared_access
+struct Speed { float value; };
+static void move_forward(ponko::ctx& ctx) {
+    const float dt = ctx.dt();
+    ctx.world().each([&](Pos& p, const Speed& s) { p.y += s.value * dt; });
+}
+
+static void declared_access_guide() {
+    auto world = ponko::game("declared", 320, 240)
+        .add(ponko::phase::after_physics,
+             ponko::access().write<Pos>().read<Speed>().read_service(ponko::service::time),
+             move_forward, "move_forward")
+        .run_headless(2, [](ponko::ctx& ctx) { ctx.world().spawn(Pos{0}, Speed{60}); });
+    if (world.size() != 1) { std::fprintf(stderr, "declared access guide failed\n"); std::abort(); }
+}
+// ANCHOR_END: declared_access
 
 int main() {
     declared_access_guide();

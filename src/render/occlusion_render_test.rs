@@ -29,7 +29,9 @@ impl Rig {
             eprintln!("no GPU adapter: skipped");
             return None;
         };
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) else {
+        let Ok((device, queue)) = pollster::block_on(adapter.request_device(
+            &crate::render::render_test_support::forced(&wgpu::DeviceDescriptor::default()),
+        )) else {
             eprintln!("no GPU device: skipped");
             return None;
         };
@@ -258,6 +260,9 @@ fn a_box_behind_a_wall_is_culled_and_comes_back_when_the_wall_moves() {
         let Some(mut rig) = Rig::new(solid_prepass) else {
             return;
         };
+        if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::OcclusionCulling) {
+            return;
+        }
         let wall = wall_scene(&mut rig);
         rig.ctx.camera3d.occlusion_culling = true;
         // The first frame has no depth to go by: both are drawn.

@@ -311,6 +311,90 @@ impl GraphicsQuality {
         }
     }
 
+    /// The preset meant for a [`GpuTier`](crate::GpuTier), already
+    /// [fitted](Self::fitted_to) to that tier's floor: `WebGl2` gets
+    /// [`low`](Self::low) with FXAA, `Baseline` [`medium`](Self::medium) and
+    /// `Desktop` [`high`](Self::high). None of them asks for a feature the
+    /// tier lacks or a shadow map larger than its textures may be.
+    /// [`ultra`](Self::ultra) is never picked: it is for GPUs with memory
+    /// to spare, a choice for the player to make.
+    /// ```
+    /// use ponko::*;
+    /// assert_eq!(GraphicsQuality::for_tier(GpuTier::Desktop), GraphicsQuality::high());
+    /// assert_eq!(GraphicsQuality::for_tier(GpuTier::Baseline), GraphicsQuality::medium());
+    /// let web = GraphicsQuality::for_tier(GpuTier::WebGl2);
+    /// assert_eq!((web.anti_aliasing, web.ambient_occlusion), (AntiAliasing::Fxaa, false));
+    /// ```
+    #[must_use]
+    pub fn for_tier(tier: crate::GpuTier) -> Self {
+        let preset = match tier {
+            crate::GpuTier::WebGl2 => Self {
+                anti_aliasing: AntiAliasing::Fxaa,
+                ..Self::low()
+            },
+            crate::GpuTier::Baseline => Self::medium(),
+            crate::GpuTier::Desktop => Self::high(),
+        };
+        preset.fitted_to(&tier.report())
+    }
+
+    /// The preset for the GPU in `caps` ([`for_tier`](Self::for_tier) of its
+    /// tier), fitted to everything it has.
+    /// ```
+    /// # use ponko::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// if let Some(caps) = ctx.gpu_capabilities() {
+    ///     let q = GraphicsQuality::recommended(caps);
+    ///     ctx.set_graphics_quality(q);
+    /// }
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn recommended(caps: &crate::GpuCapabilities) -> Self {
+        Self::for_tier(caps.tier).fitted_to(caps)
+    }
+
+    /// These settings with what the GPU in `caps` can't do taken out, as
+    /// the renderer would draw them anyway: TAA becomes FXAA, and ambient
+    /// occlusion, screen-space reflections and global illumination go off
+    /// where they're unavailable; shadow maps and the light shadow atlas
+    /// shrink to the largest texture the GPU allows. Asking for more is
+    /// never a GPU error (the renderer falls back by itself); fitting makes
+    /// [`Ctx::graphics_quality`] say what is drawn, for an options menu.
+    /// ```
+    /// use ponko::*;
+    /// let q = GraphicsQuality::ultra().fitted_to(&GpuTier::WebGl2.report());
+    /// assert_eq!((q.anti_aliasing, q.ambient_occlusion, q.ssr, q.gi), (AntiAliasing::Smaa, false, 0.0, false));
+    /// assert_eq!((q.shadow_resolution, q.light_shadow_atlas), (2048, 2048));
+    /// ```
+    #[must_use]
+    pub fn fitted_to(&self, caps: &crate::GpuCapabilities) -> Self {
+        use crate::GpuFeature as F;
+        let mut q = self.clamped();
+        if q.anti_aliasing == AntiAliasing::Taa && !caps.available(F::TemporalAntialiasing) {
+            q.anti_aliasing = AntiAliasing::Fxaa;
+        }
+        if !caps.available(F::AmbientOcclusion) {
+            q.ambient_occlusion = false;
+            q.ao_half_resolution = false;
+            q.ao_temporal = false;
+        }
+        if !caps.available(F::ScreenSpaceReflections) {
+            q.ssr = 0.0;
+        }
+        if !caps.available(F::GlobalIllumination) {
+            q.gi = false;
+        }
+        let max = caps.limits.max_texture_dimension_2d;
+        if max > 0 {
+            q.shadow_resolution = q.shadow_resolution.min(max.max(MIN_SHADOW_RESOLUTION));
+            q.light_shadow_resolution = q.light_shadow_resolution.min(max.max(MIN_LIGHT_SHADOW_RESOLUTION));
+            q.light_shadow_atlas =
+                super::shadow_atlas::floor_pow2(q.light_shadow_atlas.min(max.max(MIN_LIGHT_SHADOW_ATLAS)));
+        }
+        q
+    }
+
     /// Which preset these are, or [`Custom`](QualityLevel::Custom). Values
     /// outside the allowed ranges are compared as they would be applied.
     /// ```
@@ -640,5 +724,59 @@ mod tests {
             });
             assert_eq!(ctx.post.render_scale, MAX_RENDER_SCALE, "clamped when applied");
         });
+    }
+
+    #[test]
+    fn tier_presets_ask_for_nothing_their_tier_lacks() {
+        use crate::{GpuFeature, GpuTier};
+        for tier in GpuTier::ALL {
+            let floor = tier.report();
+            let q = GraphicsQuality::for_tier(tier);
+            assert_eq!(q, q.fitted_to(&floor), "{tier}: already fitted");
+            assert!(q.anti_aliasing != AntiAliasing::Taa || floor.available(GpuFeature::TemporalAntialiasing));
+            assert!(!q.ambient_occlusion || floor.available(GpuFeature::AmbientOcclusion));
+            assert!(q.ssr == 0.0 || floor.available(GpuFeature::ScreenSpaceReflections));
+            assert!(!q.gi || floor.available(GpuFeature::GlobalIllumination));
+            assert!(q.shadow_resolution <= floor.limits.max_texture_dimension_2d);
+            assert!(q.light_shadow_atlas <= floor.limits.max_texture_dimension_2d);
+        }
+        assert_eq!(
+            GraphicsQuality::for_tier(GpuTier::Baseline).level(),
+            QualityLevel::Medium
+        );
+        assert_eq!(GraphicsQuality::for_tier(GpuTier::Desktop).level(), QualityLevel::High);
+    }
+
+    #[test]
+    fn fitting_takes_out_only_what_the_gpu_lacks() {
+        use crate::GpuTier;
+        let ultra = GraphicsQuality::ultra();
+        assert_eq!(ultra.fitted_to(&GpuTier::Desktop.report()), ultra);
+        let taa = GraphicsQuality {
+            anti_aliasing: AntiAliasing::Taa,
+            ..ultra
+        };
+        let on_baseline = taa.fitted_to(&GpuTier::Baseline.report());
+        assert_eq!(on_baseline.anti_aliasing, AntiAliasing::Taa, "baseline has TAA");
+        assert!(on_baseline.ambient_occlusion && on_baseline.ssr == 1.0);
+        assert!(!on_baseline.gi, "no room for the GI probes at the baseline floor");
+        assert_eq!(on_baseline.shadow_resolution, 2048);
+        let on_webgl2 = taa.fitted_to(&GpuTier::WebGl2.report());
+        assert_eq!(on_webgl2.anti_aliasing, AntiAliasing::Fxaa);
+        assert!(!on_webgl2.ambient_occlusion && !on_webgl2.ao_temporal && !on_webgl2.ao_half_resolution);
+        assert_eq!((on_webgl2.ssr, on_webgl2.gi), (0.0, false));
+        assert_eq!(on_webgl2.light_shadow_atlas, 2048);
+        assert_eq!(on_webgl2.shadow_cascades, ultra.shadow_cascades, "untouched");
+    }
+
+    #[test]
+    fn recommended_follows_the_reported_tier() {
+        use crate::GpuTier;
+        for tier in GpuTier::ALL {
+            assert_eq!(
+                GraphicsQuality::recommended(&tier.report()),
+                GraphicsQuality::for_tier(tier)
+            );
+        }
     }
 }

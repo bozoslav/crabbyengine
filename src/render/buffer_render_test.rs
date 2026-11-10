@@ -34,10 +34,12 @@ impl Rig {
         } else {
             wgpu::Limits::downlevel_webgl2_defaults()
         };
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            required_limits: limits,
-            ..Default::default()
-        })) else {
+        let Ok((device, queue)) = pollster::block_on(adapter.request_device(
+            &crate::render::render_test_support::forced(&wgpu::DeviceDescriptor {
+                required_limits: limits,
+                ..Default::default()
+            }),
+        )) else {
             eprintln!("no GPU device: skipped");
             return None;
         };
@@ -313,6 +315,9 @@ fn persistent_batch_draw(compute: bool) {
     let Some(mut rig) = Rig::with_compute(compute) else {
         return;
     };
+    if compute && !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::ComputeCulling) {
+        return;
+    }
     let mesh = rig.mesh(
         &MeshData::cube(0.5),
         MaterialDesc {
