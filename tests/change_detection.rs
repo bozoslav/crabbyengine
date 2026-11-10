@@ -4,7 +4,7 @@
 //! The storage side is covered in `crates/ponko_ecs/tests/changes.rs`.
 
 #[allow(unused_imports)]
-use ponko::access::SystemAccess;
+use ponko::access::{Service, SystemAccess};
 #[allow(unused_imports)]
 use ponko::d2::Transform as Transform2D;
 #[allow(unused_imports)]

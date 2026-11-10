@@ -7,7 +7,7 @@ use ponko::inventory::AssetClass;
 use ponko::prelude::*;
 #[allow(unused_imports)]
 #[cfg(feature = "3d")]
-use ponko::render::{GpuBuffer, Material, MaterialDesc, Mesh, MeshData};
+use ponko::render::{GpuBuffer, Material, MaterialDesc, Mesh, MeshData, ModelMaterial};
 #[allow(unused_imports)]
 #[cfg(feature = "3d")]
 use ponko::terrain::{TextureArray, TextureKind};

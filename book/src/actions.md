@@ -187,7 +187,8 @@ replaces it in place. The name keeps its `ActionId`, the other actions keep
 their state and edges, and held sources become the baseline as above:
 
 ```rust
-# use ponko::*;
+# use ponko::prelude::*;
+# use ponko::actions::{Action, ButtonBinding};
 # fn example(ctx: &mut Ctx) {
 let mut jump = ctx.input.actions().get("jump").cloned().unwrap_or(Action::Button(vec![]));
 if let Action::Button(sources) = &mut jump {

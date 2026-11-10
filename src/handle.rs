@@ -1,6 +1,6 @@
 //! One lifecycle for every GPU and audio resource handle: [`Handle`],
 //! `is_live`, `free` and `live_counts`, on the service that holds the
-//! handle ([`Graphics`](crate::gfx::Graphics) for everything drawn,
+//! handle ([`Graphics`] for everything drawn,
 //! [`Audio`](crate::audio::Audio) for sounds) and on [`Ctx`] for any kind.
 //!
 //! A handle is a small `Copy` value naming something the engine holds for
@@ -294,7 +294,7 @@ impl Graphics {
 
 impl crate::audio::Audio {
     /// Whether `sound` names a sound this game made or loaded and hasn't
-    /// freed. False for [`Handle::NONE`](crate::Handle::NONE).
+    /// freed. False for [`Handle::NONE`].
     ///
     /// ```
     /// # use ponko::*;

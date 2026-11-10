@@ -63,7 +63,9 @@ storage), so call `ctx.world.track_changes::<T>()` in setup; a change
 filter on an untracked component panics and says so.
 
 ```rust
-# use ponko::*;
+# use ponko::prelude::*;
+# use ponko::access::SystemAccess;
+# use ponko::system_view::SystemView;
 struct Health(i32);
 struct Hurt(Entity);
 
