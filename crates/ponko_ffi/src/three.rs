@@ -3072,7 +3072,7 @@ pub unsafe extern "C" fn crabby_ctx_set_model_material(
                 c.world.remove::<ponko::ModelMaterial>(entity);
                 return Ok(());
             }
-            if !c.gfx.has_material(to_c(material)) {
+            if !c.gfx.is_live(to_c::<_, ponko::Material>(material)) {
                 return Err(invalid("that material wasn't made by this game"));
             }
             c.world.insert(entity, ponko::ModelMaterial(to_c(material)));
@@ -3150,7 +3150,7 @@ pub unsafe extern "C" fn crabby_ctx_set_model_part_materials(
             }
             let parts = std::slice::from_raw_parts(parts, count);
             let materials = std::slice::from_raw_parts(materials, count);
-            if materials.iter().any(|&m| !c.gfx.has_material(to_c(m))) {
+            if materials.iter().any(|&m| !c.gfx.is_live(to_c::<_, ponko::Material>(m))) {
                 return Err(invalid("a material wasn't made by this game"));
             }
             let list: Vec<(usize, ponko::Material)> = parts
