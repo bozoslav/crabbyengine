@@ -271,6 +271,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_thread_clock_moves_forward_with_work() {
+        let before = thread_cpu();
+        let mut sum = 0u64;
+        while thread_cpu() == before {
+            sum = std::hint::black_box(sum.wrapping_add(1));
+        }
+        assert!(thread_cpu() > before);
+    }
+
+    #[test]
     fn the_benchmark_meshes_load() {
         let dir = std::env::temp_dir().join(format!("ponko-bench-glb-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();

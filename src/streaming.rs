@@ -591,7 +591,9 @@ impl Ctx {
         #[cfg(feature = "3d")]
         self.stream_lod_levels();
         // What entities stopped showing (LOD levels, despawned models) can
-        // go now; this scans the world only while a kind is over budget.
+        // go now. While a kind is over its budget this looks, every frame,
+        // at each entity that shows an asset of that kind (it allocates
+        // nothing); under budget it costs a comparison.
         for kind in ResidencyKind::ALL {
             self.enforce_residency(kind);
         }

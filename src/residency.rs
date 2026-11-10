@@ -383,6 +383,12 @@ impl crate::Ctx {
     /// that are pinned, shown by entities, or asked for in this or the
     /// previous frame or tick are never evicted, and [`ResidencyStats::over_budget_bytes`] says by
     /// how much.
+    ///
+    /// The budget is checked when an asset loads and at the start of every
+    /// frame. While `kind` stays over its budget, that check looks at every
+    /// entity showing an asset of the kind each frame (no allocation, but a
+    /// cost that grows with the scene): keep the budget above what the scene
+    /// shows at once.
     pub fn set_residency_budget(&mut self, kind: ResidencyKind, bytes: Option<u64>) {
         self.residency.set_mut(kind).set_budget(bytes);
         self.enforce_residency(kind);

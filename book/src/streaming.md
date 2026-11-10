@@ -90,6 +90,13 @@ Those are the documented exceptions: they can keep usage over the budget,
 and `residency(kind).over_budget_bytes()` says by how much. Assets loaded
 with `load_*` or made with `create_*` are never counted.
 
+Staying over a budget has a cost each frame: while a kind is over, the
+frame's check looks at every entity that shows an asset of that kind (each
+`Sprite` for textures; each `Model`, `ShadowMesh` and `LodGroup` for
+meshes) to see what is still in use. It allocates nothing, but it grows
+with the scene, so set a budget above what the scene shows at once. Under
+the budget the check is a comparison.
+
 A texture streaming up stops at the largest resolution that fits the
 budget once nothing else can be evicted, and goes on when room appears.
 
