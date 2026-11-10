@@ -283,3 +283,113 @@ mod violations {
         run_one(SystemAccess::new(), sneaky);
     }
 }
+
+// ---- declarations by name (the C and C++ path) ---------------------------------------
+
+mod named {
+    use super::*;
+    use std::alloc::Layout;
+
+    fn store(ctx: &mut Ctx) {
+        let value = 5u32;
+        // SAFETY: four readable bytes for a 4-byte layout.
+        unsafe {
+            ctx.world
+                .insert_resource_dynamic("lives", Layout::new::<u32>(), (&raw const value).cast());
+        }
+    }
+
+    #[test]
+    fn named_components_resources_and_raw_events_cover_their_use() {
+        let world = Game::new("access", 320, 240)
+            .add_with_access(
+                Phase::AfterPhysics,
+                SystemAccess::new()
+                    .write_named(std::any::type_name::<Pos>())
+                    .read_resource_named("lives")
+                    .send_events_named(std::any::type_name::<Hit>())
+                    .read_events_named(std::any::type_name::<Hit>()),
+                |ctx| {
+                    ctx.world.query::<&mut Pos>().for_each(|p| p.0 += 1.0);
+                    let lives = ctx.world.get_resource_dynamic("lives").unwrap();
+                    // SAFETY: stored as a u32 in setup.
+                    let n = unsafe { *lives.cast::<u32>() };
+                    let hit = ctx.world.register::<Hit>().index() as u32;
+                    ctx.events.send_raw(hit, &n.to_ne_bytes()).unwrap();
+                    let (_, count) = ctx.events.read_raw(hit, 4).unwrap();
+                    assert_eq!(count, 1);
+                },
+            )
+            .run_headless(1, |ctx| {
+                store(ctx);
+                ctx.world.spawn((Pos(0.0),));
+            });
+        let mut world = world;
+        assert_eq!(world.query::<&Pos>().iter().next().unwrap().0, 1.0);
+    }
+
+    #[test]
+    fn named_declarations_conflict_by_name() {
+        let a = SystemAccess::new().write_named("pos");
+        let b = SystemAccess::new().read_named("pos");
+        assert_eq!(a.conflicts_with(&b), [AccessConflict::Component("pos")]);
+        assert!(a.conflicts_with(&SystemAccess::new().read_named("vel")).is_empty());
+        let r = SystemAccess::new().write_resource_named("lives");
+        assert_eq!(
+            r.conflicts_with(&SystemAccess::new().read_resource_named("lives")),
+            [AccessConflict::Resource("lives")]
+        );
+        let send = SystemAccess::new().send_events_named("hit");
+        let read = SystemAccess::new().read_events_named("hit");
+        assert_eq!(send.conflicts_before(&read), [AccessConflict::Event("hit")]);
+        assert!(read.conflicts_before(&send).is_empty());
+        assert!(
+            send.conflicts_with(&SystemAccess::new().read_events_named("miss"))
+                .is_empty()
+        );
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "uses resource `lives`, which has no Rust type")]
+    fn an_undeclared_dynamic_resource_panics() {
+        Game::new("access", 320, 240)
+            .add_with_access(Phase::AfterPhysics, SystemAccess::new(), |ctx| {
+                let _ = ctx.world.get_resource_dynamic("lives");
+            })
+            .run_headless(1, store);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "sends events `system_access::Hit`")]
+    fn undeclared_raw_events_panic() {
+        Game::new("access", 320, 240)
+            .add_with_access(
+                Phase::AfterPhysics,
+                SystemAccess::new().read_events_named(std::any::type_name::<Hit>()),
+                |ctx| {
+                    let hit = ctx.world.register::<Hit>().index() as u32;
+                    ctx.events.send_raw(hit, &[1, 2, 3, 4]).unwrap();
+                },
+            )
+            .run_headless(1, |_| {});
+    }
+
+    #[test]
+    fn a_named_declaration_covers_any_use_because_raw_access_cannot_tell() {
+        let mut world = Game::new("access", 320, 240)
+            .add_with_access(
+                Phase::AfterPhysics,
+                SystemAccess::new().read_named(std::any::type_name::<Pos>()),
+                |ctx| {
+                    let id = ctx.world.component_id::<Pos>().unwrap();
+                    ctx.world.for_each_chunk(&[id], |_| {});
+                },
+            )
+            .run_headless(1, |ctx| {
+                ctx.world.spawn((Pos(0.0),));
+            });
+        assert_eq!(world.query::<&Pos>().count(), 1);
+    }
+}

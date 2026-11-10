@@ -56,7 +56,7 @@ impl Sound {
 /// [`Ctx::stop_sound`](crate::Ctx::stop_sound).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(transparent)]
-pub struct Playing(u64);
+pub struct Playing(pub(crate) u64);
 
 /// Optional settings for [`Ctx::play_sound_ex`](crate::Ctx::play_sound_ex).
 ///

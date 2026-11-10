@@ -90,3 +90,27 @@ fn a_new_recording_starts_empty() {
     let log = w.take_access_log().unwrap();
     assert!(log.is_empty());
 }
+
+#[test]
+fn replacing_a_component_in_place_is_a_write_and_adding_one_is_structural() {
+    let mut w = world();
+    let e = w.query::<Entity>().iter().next().unwrap();
+    let pos = w.component_id::<Pos>().unwrap();
+    let fresh = w.register::<u64>();
+    w.record_access();
+    let value = Pos(5.0);
+    // SAFETY: a valid `Pos`, moved into the world (no destructor to skip).
+    assert!(unsafe { w.insert_dynamic(e, pos, (&raw const value).cast()) });
+    let log = w.take_access_log().unwrap();
+    assert_eq!(log.components, [(pos, true)]);
+    assert!(!log.structural);
+    w.record_access();
+    let n = 1u64;
+    // SAFETY: a valid u64.
+    assert!(unsafe { w.insert_dynamic(e, fresh, (&raw const n).cast()) });
+    assert!(w.take_access_log().unwrap().structural);
+    w.record_access();
+    // SAFETY: a dead entity: nothing is read.
+    assert!(!unsafe { w.insert_dynamic(Entity::from_bits(u64::MAX), pos, (&raw const value).cast()) });
+    assert!(w.take_access_log().unwrap().structural);
+}
