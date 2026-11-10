@@ -337,6 +337,10 @@ fn effect_and_compute_errors_have_a_place_and_failed_reloads_keep_the_last_good_
     let Some((device, mut renderer)) = rig() else {
         return;
     };
+    // Both reload a compute pass too.
+    if !crate::render::render_test_support::needs(&device, crate::GpuFeature::Compute) {
+        return;
+    }
     let fx = renderer.create_effect(&device, "grey.wgsl", FX_GREY).unwrap();
     let cs = renderer.create_compute(&device, "fade.wgsl", CS_FADE).unwrap();
     let (fx_before, cs_before) = (
@@ -395,6 +399,10 @@ fn late_gpu_rejections_put_the_previous_pipelines_back_and_are_reported() {
     let Some((device, mut renderer)) = rig() else {
         return;
     };
+    // Both reload a compute pass too.
+    if !crate::render::render_test_support::needs(&device, crate::GpuFeature::Compute) {
+        return;
+    }
     let red = renderer.create_shader(&device, "red.wgsl", RED).unwrap();
     let other = renderer.create_shader(&device, "blue.wgsl", BLUE).unwrap();
     let fx = renderer.create_effect(&device, "grey.wgsl", FX_GREY).unwrap();

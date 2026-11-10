@@ -831,6 +831,10 @@ fn instance_levels_overlap_exactly_without_copying_source_records() {
     let Some(mut rig) = Rig::new() else {
         return;
     };
+    // Instance levels are chosen per instance by the GPU culling pass.
+    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::ComputeCulling) {
+        return;
+    }
     let mesh = rig.mesh(
         &MeshData::cube(1.0),
         MaterialDesc {
@@ -897,6 +901,10 @@ fn instance_levels_keep_off_center_meshes_and_hide_shadow_only_geometry() {
     let Some(mut rig) = Rig::new() else {
         return;
     };
+    // Instance levels are chosen per instance by the GPU culling pass.
+    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::ComputeCulling) {
+        return;
+    }
     let mut data = MeshData::cube(1.0);
     for p in &mut data.positions {
         *p += vec3(0.0, 0.0, -10.0);
