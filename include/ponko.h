@@ -361,6 +361,7 @@
 #define PonkoHit3D CrabbyHit3D
 #define PonkoInstanceBatch CrabbyInstanceBatch
 #define PonkoInstanceBatchOptions CrabbyInstanceBatchOptions
+#define PonkoInstanceLevel CrabbyInstanceLevel
 #define PonkoInterest CrabbyInterest
 #define PonkoInterestChange CrabbyInterestChange
 #define PonkoInterestChangeKind CrabbyInterestChangeKind
@@ -613,6 +614,7 @@
 #define ponko_ctx_create_effect crabby_ctx_create_effect
 #define ponko_ctx_create_gpu_buffer crabby_ctx_create_gpu_buffer
 #define ponko_ctx_create_instance_batch crabby_ctx_create_instance_batch
+#define ponko_ctx_create_instance_batch_levels crabby_ctx_create_instance_batch_levels
 #define ponko_ctx_create_material crabby_ctx_create_material
 #define ponko_ctx_create_mesh crabby_ctx_create_mesh
 #define ponko_ctx_create_render_target crabby_ctx_create_render_target
@@ -869,6 +871,7 @@
 #define ponko_ctx_ui_wants_keyboard crabby_ctx_ui_wants_keyboard
 #define ponko_ctx_ui_wants_pointer crabby_ctx_ui_wants_pointer
 #define ponko_ctx_update_instance_batch crabby_ctx_update_instance_batch
+#define ponko_ctx_update_instance_batch_colors crabby_ctx_update_instance_batch_colors
 #define ponko_ctx_update_material crabby_ctx_update_material
 #define ponko_ctx_update_texture crabby_ctx_update_texture
 #define ponko_ctx_upload_terrain_tile crabby_ctx_upload_terrain_tile

@@ -1,6 +1,7 @@
-//! Persistent buffers and view-specific GPU visibility lists.
+//! Shared persistent instance records and sparse view/level visibility lists.
 use super::*;
-use crate::three::instances::Batch;
+use crate::InstanceLevel;
+use crate::three::instances::{Batch, Cell};
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -8,34 +9,60 @@ struct View {
     planes: [[f32; 4]; 6],
     camera: [f32; 4],
     occlusion: [f32; 4],
+    band: [f32; 4],
 }
 pub(crate) struct BatchView {
     pub read: wgpu::BindGroup,
-    _data: wgpu::Buffer,
+    _visibility: wgpu::Buffer,
     pub args: wgpu::Buffer,
     uniform: wgpu::Buffer,
     compute: wgpu::BindGroup,
+    slot: usize,
+    level: usize,
+    active: bool,
 }
 pub(crate) struct StaticBatch {
-    pub mesh: u32,
+    pub levels: Vec<InstanceLevel>,
+    /// Shared storage records and cells on compute devices; instance vertices
+    /// on the CPU fallback. Compute draws bind one zero-stride marker instead.
     pub vertices: wgpu::Buffer,
-    /// Slots: main, four sun cascades, active light views, then target cameras.
-    /// Retained at the high water mark; only active slots are dispatched.
     pub views: Vec<BatchView>,
-    cells: Vec<crate::three::instances::Cell>,
+    cells: Vec<Cell>,
+    min: Vec3,
+    max: Vec3,
     pub visible: Vec<Vec<(u32, u32)>>,
-    source: Vec<[f32; 4]>,
-    gpu_cells: Option<wgpu::Buffer>,
-    arguments: Vec<u32>,
-    active_views: usize,
+    pub(super) compute: bool,
+    arguments: Vec<Vec<u32>>,
     pub options: crate::InstanceBatchOptions,
+    legacy_distance: bool,
     pub count: u32,
-    pub parts: usize,
+}
+impl StaticBatch {
+    pub(super) fn view(&self, slot: usize, level: usize) -> Option<&BatchView> {
+        self.views
+            .iter()
+            .find(|v| v.slot == slot && v.level == level && v.active)
+    }
+    pub(super) fn casts(&self) -> bool {
+        self.options.cast_shadows && self.levels.iter().any(|l| l.shadows)
+    }
+    pub(super) fn shadow_distance(&self) -> bool {
+        self.casts()
+            && if self.legacy_distance {
+                self.options.max_distance.is_finite()
+            } else {
+                self.levels
+                    .iter()
+                    .any(|l| l.shadows && (l.min_distance > 0.0 || l.max_distance.is_finite()))
+            }
+    }
 }
 pub(super) struct Culling {
     layout: wgpu::BindGroupLayout,
     pipeline: wgpu::ComputePipeline,
     occlusion: wgpu::Buffer,
+    /// One attribute marker, shared by all batch draws with zero instance stride.
+    pub(super) marker: wgpu::Buffer,
 }
 impl Culling {
     pub fn new(device: &wgpu::Device) -> Self {
@@ -50,7 +77,7 @@ impl Culling {
                             wgpu::BufferBindingType::Uniform
                         } else {
                             wgpu::BufferBindingType::Storage {
-                                read_only: i == 1 || i == 4,
+                                read_only: i == 0 || i == 4,
                             }
                         },
                         has_dynamic_offset: false,
@@ -82,12 +109,35 @@ impl Culling {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let mut marker = Instance3D::default();
+        marker.model[0][3] = -2.0;
+        let marker = device
+            .uploading(Upload::StaticBatches)
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("static instance marker"),
+                contents: bytemuck::bytes_of(&marker),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
         Self {
             layout,
             pipeline,
             occlusion,
+            marker,
         }
     }
+}
+fn planes(matrix: Mat4) -> [crate::Vec4; 6] {
+    let r = [matrix.row(0), matrix.row(1), matrix.row(2), matrix.row(3)];
+    [r[3] + r[0], r[3] - r[0], r[3] + r[1], r[3] - r[1], r[2], r[3] - r[2]]
+        .map(|p| p / p.truncate().length().max(f32::MIN_POSITIVE))
+}
+fn intersects(min: Vec3, max: Vec3, planes: &[crate::Vec4; 6], eye: Vec3, near: f32, far: f32) -> bool {
+    let center = (min + max) * 0.5;
+    let radius = (max - min).length() * 0.5;
+    let distance = center.distance(eye);
+    distance - radius <= far
+        && distance + radius >= near
+        && planes.iter().all(|p| p.truncate().dot(center) + p.w >= -radius)
 }
 impl Renderer3D {
     pub fn set_instance_batch(&mut self, device: &wgpu::Device, id: u32, batch: Option<&Batch>) {
@@ -105,73 +155,65 @@ impl Renderer3D {
         }
         let count = batch.instances.len() as u32;
         assert!(
-            !compute || u64::from(count) * 112 + 16 <= device.limits().max_storage_buffer_binding_size,
+            !compute
+                || u64::from(count) * 96 + 16 + batch.cells.len() as u64 * 32
+                    <= device.limits().max_storage_buffer_binding_size,
             "instance batch exceeds device storage limit"
         );
-        let mut marker = batch.instances.clone();
-        if compute {
-            for v in &mut marker {
-                v.model[0][3] = -2.0;
-            }
-        }
-        let vertices = device
-            .uploading(Upload::StaticBatches)
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("static instance vertices"),
-                contents: bytemuck::cast_slice(&marker),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-        let views = Vec::new();
-        let mut source = Vec::new();
-        let mut gpu_cells = None;
-        let mut arguments = Vec::new();
-        let parts = self.meshes[batch.mesh.id as usize].parts.len();
-        if compute {
-            source.reserve(1 + 7 * count as usize);
-            source.push([count as f32, 0.0, 0.0, 0.0]);
-            for (i, s) in batch.instances.iter().zip(&batch.spheres) {
+        let vertices = if compute {
+            // Pack immutable cells after the source records: four storage
+            // bindings still suffice on downlevel compute devices.
+            let mut source = Vec::with_capacity(1 + 6 * count as usize + 2 * batch.cells.len());
+            source.push([count as f32, batch.cells.len() as f32, 0.0, 0.0]);
+            for (i, sphere) in batch.instances.iter().zip(&batch.spheres) {
                 source.extend_from_slice(&i.model);
                 source.push(i.color);
-                source.push(*s);
+                source.push(*sphere);
             }
-            source.resize(1 + 7 * count as usize, [0.0; 4]);
-            let cells: Vec<[f32; 4]> = batch
-                .cells
-                .iter()
-                .flat_map(|c| {
-                    [
-                        c.min.extend(f32::from_bits(c.start)).to_array(),
-                        c.max.extend(f32::from_bits(c.count)).to_array(),
-                    ]
-                })
-                .collect();
-            let cells = device
+            for cell in &batch.cells {
+                source.push(cell.min.extend(f32::from_bits(cell.start)).to_array());
+                source.push(cell.max.extend(f32::from_bits(cell.count)).to_array());
+            }
+            device
                 .uploading(Upload::StaticBatches)
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("static cells"),
-                    contents: bytemuck::cast_slice(&cells),
+                    label: Some("shared static records and cells"),
+                    contents: bytemuck::cast_slice(&source),
                     usage: wgpu::BufferUsages::STORAGE,
-                });
-            arguments = self.meshes[batch.mesh.id as usize]
-                .parts
-                .iter()
-                .flat_map(|(r, _)| [r.end - r.start, 0, r.start, 0, 0])
-                .collect();
-            gpu_cells = Some(cells);
-        }
+                })
+        } else {
+            device
+                .uploading(Upload::StaticBatches)
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("static instance vertices"),
+                    contents: bytemuck::cast_slice(&batch.instances),
+                    usage: wgpu::BufferUsages::VERTEX,
+                })
+        };
+        let arguments = batch
+            .levels
+            .iter()
+            .map(|l| {
+                self.meshes[l.mesh.id as usize]
+                    .parts
+                    .iter()
+                    .flat_map(|(r, _)| [r.end - r.start, 0, r.start, 0, 0])
+                    .collect()
+            })
+            .collect();
         self.static_batches[id as usize] = Some(StaticBatch {
-            mesh: batch.mesh.id,
+            levels: batch.levels.clone(),
             vertices,
-            views,
+            views: Vec::new(),
             cells: batch.cells.clone(),
+            min: batch.min,
+            max: batch.max,
             visible: Vec::new(),
-            source,
-            gpu_cells,
+            compute,
             arguments,
-            active_views: 0,
             options: batch.options,
+            legacy_distance: batch.legacy_distance,
             count,
-            parts,
         });
     }
     pub(super) fn prepare_static(
@@ -182,6 +224,11 @@ impl Renderer3D {
         camera: Vec3,
         occlusion: bool,
     ) {
+        if self.static_shadowless != frame.static_shadowless {
+            self.shadow_cache.invalidate();
+            self.static_shadowless.clear();
+            self.static_shadowless.extend_from_slice(&frame.static_shadowless);
+        }
         if let Some(cull) = &self.static_culling {
             let grid = frame
                 .occlusion
@@ -201,148 +248,221 @@ impl Renderer3D {
                 .write_buffer(&cull.occlusion, 0, bytemuck::cast_slice(&header));
         }
         for batch in self.static_batches.iter_mut().flatten() {
+            for view in &mut batch.views {
+                view.active = false;
+            }
+            for ranges in &mut batch.visible {
+                ranges.clear();
+            }
             let targets = 1 + MAX_CASCADES + frame.light_views;
-            batch.active_views = targets + frame.views.len();
-            if batch.gpu_cells.is_none() {
-                while batch.visible.len() < batch.active_views {
-                    batch.visible.push(Vec::with_capacity(batch.cells.len()));
+            let slots = targets + frame.views.len();
+            if !batch.compute {
+                while batch.visible.len() < slots * batch.levels.len() {
+                    batch.visible.push(Vec::new());
                 }
             }
-            if let (Some(culling), Some(storage_read)) = (&self.static_culling, &self.storage_read) {
-                while batch.views.len() < batch.active_views {
-                    let data =
-                        device
-                            .uploading(Upload::StaticBatches)
-                            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                label: Some("static transforms and visibility"),
-                                contents: bytemuck::cast_slice(&batch.source),
-                                usage: wgpu::BufferUsages::STORAGE,
-                            });
-                    let args =
-                        device
-                            .uploading(Upload::StaticBatches)
-                            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                label: Some("static indirect arguments"),
-                                contents: bytemuck::cast_slice(&batch.arguments),
-                                usage: wgpu::BufferUsages::STORAGE
-                                    | wgpu::BufferUsages::INDIRECT
-                                    | wgpu::BufferUsages::COPY_DST
-                                    | wgpu::BufferUsages::COPY_SRC,
-                            });
-                    let uniform = device.new_buffer(&wgpu::BufferDescriptor {
-                        label: Some("static cull view"),
-                        size: std::mem::size_of::<View>() as u64,
-                        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                        mapped_at_creation: false,
-                    });
-                    let read = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: None,
-                        layout: storage_read,
-                        entries: &[wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: data.as_entire_binding(),
-                        }],
-                    });
-                    let compute = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: None,
-                        layout: &culling.layout,
-                        entries: &[
-                            &data,
-                            batch.gpu_cells.as_ref().unwrap(),
-                            &args,
-                            &uniform,
-                            &culling.occlusion,
-                        ]
-                        .into_iter()
-                        .enumerate()
-                        .map(|(i, b)| wgpu::BindGroupEntry {
-                            binding: i as u32,
-                            resource: b.as_entire_binding(),
-                        })
-                        .collect::<Vec<_>>(),
-                    });
-                    batch.views.push(BatchView {
-                        read,
-                        _data: data,
-                        args,
-                        uniform,
-                        compute,
-                    });
-                }
-            }
-            for v in 0..batch.active_views {
-                let shadow = v > 0 && v < targets;
-                if shadow && (!batch.options.cast_shadows || (v <= MAX_CASCADES && v > frame.cascades)) {
+            for slot in 0..slots {
+                let shadow = slot > 0 && slot < targets;
+                if shadow && (!batch.casts() || (slot <= MAX_CASCADES && slot > frame.cascades)) {
                     continue;
                 }
-                let (matrix, eye) = if v == 0 {
+                let (matrix, eye) = if slot == 0 {
                     (frame.view_proj, camera)
-                } else if v <= MAX_CASCADES {
-                    (frame.sun_view_proj[v - 1], camera)
-                } else if v < targets {
-                    let i = v - 1 - MAX_CASCADES;
+                } else if slot <= MAX_CASCADES {
+                    (frame.sun_view_proj[slot - 1], camera)
+                } else if slot < targets {
+                    let i = slot - 1 - MAX_CASCADES;
                     (frame.lights.shadow_views[i], frame.lights.shadow_positions[i])
                 } else {
-                    let view = &frame.views[v - targets];
-                    (view.view_proj, view.camera)
+                    let v = &frame.views[slot - targets];
+                    (v.view_proj, v.camera)
                 };
-                let r = [matrix.row(0), matrix.row(1), matrix.row(2), matrix.row(3)];
-                let planes = [r[3] + r[0], r[3] - r[0], r[3] + r[1], r[3] - r[1], r[2], r[3] - r[2]]
-                    .map(|p| p / p.truncate().length().max(f32::MIN_POSITIVE));
-                if let Some(view) = batch.views.get(v) {
-                    queue.uploading(Upload::StaticBatches).write_buffer(
-                        &view.uniform,
-                        0,
-                        bytemuck::bytes_of(&View {
-                            planes: planes.map(|p| p.to_array()),
-                            camera: eye.extend(batch.options.max_distance).to_array(),
-                            occlusion: [if v == 0 && occlusion { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0],
-                        }),
-                    );
+                let planes = planes(matrix);
+                // Whole-batch rejection precedes uniforms, dispatches and draws.
+                let enabled = |l: &InstanceLevel| {
+                    if shadow {
+                        l.shadows && !frame.static_shadowless.contains(&l.mesh.id)
+                    } else {
+                        l.camera
+                    }
+                };
+                let far = if batch.legacy_distance {
+                    batch.options.max_distance
                 } else {
-                    let visible = &mut batch.visible[v];
-                    visible.clear();
-                    for cell in &batch.cells {
-                        let center = (cell.min + cell.max) * 0.5;
-                        let radius = (cell.max - cell.min).length() * 0.5;
-                        if !(v == 0
-                            && occlusion
-                            && frame
-                                .occlusion
-                                .as_ref()
-                                .is_some_and(|g| g.hides(cell.min, cell.max, camera)))
-                            && center.distance(eye) - radius <= batch.options.max_distance
-                            && planes.iter().all(|p| p.truncate().dot(center) + p.w >= -radius)
-                        {
-                            visible.push((cell.start, cell.count));
+                    batch
+                        .levels
+                        .iter()
+                        .filter(|l| enabled(l))
+                        .map(|l| l.max_distance)
+                        .fold(0.0, f32::max)
+                };
+                if !batch.levels.iter().any(enabled) || !intersects(batch.min, batch.max, &planes, eye, 0.0, far) {
+                    continue;
+                }
+                for (level, l) in batch.levels.iter().enumerate() {
+                    if !enabled(l) {
+                        continue;
+                    }
+                    let (near, far) = if batch.legacy_distance {
+                        (0.0, batch.options.max_distance)
+                    } else {
+                        (l.min_distance, l.max_distance)
+                    };
+                    if !intersects(batch.min, batch.max, &planes, eye, near, far) {
+                        continue;
+                    }
+                    if let (Some(culling), Some(storage_read), true) =
+                        (&self.static_culling, &self.storage_read, batch.compute)
+                    {
+                        let index = match batch.views.iter().position(|v| v.slot == slot && v.level == level) {
+                            Some(index) => index,
+                            None => {
+                                let mut indices = vec![0u32; count_visibility(batch.count)];
+                                indices[0] = 1;
+                                let visibility = device.uploading(Upload::StaticBatches).create_buffer_init(
+                                    &wgpu::util::BufferInitDescriptor {
+                                        label: Some("static visibility"),
+                                        contents: bytemuck::cast_slice(&indices),
+                                        usage: wgpu::BufferUsages::STORAGE,
+                                    },
+                                );
+                                let args = device.uploading(Upload::StaticBatches).create_buffer_init(
+                                    &wgpu::util::BufferInitDescriptor {
+                                        label: Some("static indirect arguments"),
+                                        contents: bytemuck::cast_slice(&batch.arguments[level]),
+                                        usage: wgpu::BufferUsages::STORAGE
+                                            | wgpu::BufferUsages::INDIRECT
+                                            | wgpu::BufferUsages::COPY_DST
+                                            | wgpu::BufferUsages::COPY_SRC,
+                                    },
+                                );
+                                let uniform = device.new_buffer(&wgpu::BufferDescriptor {
+                                    label: Some("static cull view"),
+                                    size: size_of::<View>() as u64,
+                                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                                    mapped_at_creation: false,
+                                });
+                                let read = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                                    label: None,
+                                    layout: storage_read,
+                                    entries: &[
+                                        wgpu::BindGroupEntry {
+                                            binding: 0,
+                                            resource: batch.vertices.as_entire_binding(),
+                                        },
+                                        wgpu::BindGroupEntry {
+                                            binding: 1,
+                                            resource: visibility.as_entire_binding(),
+                                        },
+                                    ],
+                                });
+                                let compute = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                                    label: None,
+                                    layout: &culling.layout,
+                                    entries: [&batch.vertices, &visibility, &args, &uniform, &culling.occlusion]
+                                        .into_iter()
+                                        .enumerate()
+                                        .map(|(i, b)| wgpu::BindGroupEntry {
+                                            binding: i as u32,
+                                            resource: b.as_entire_binding(),
+                                        })
+                                        .collect::<Vec<_>>()
+                                        .as_slice(),
+                                });
+                                batch.views.push(BatchView {
+                                    read,
+                                    _visibility: visibility,
+                                    args,
+                                    uniform,
+                                    compute,
+                                    slot,
+                                    level,
+                                    active: false,
+                                });
+                                batch.views.len() - 1
+                            }
+                        };
+                        let view = &mut batch.views[index];
+                        view.active = true;
+                        queue.uploading(Upload::StaticBatches).write_buffer(
+                            &view.uniform,
+                            0,
+                            bytemuck::bytes_of(&View {
+                                planes: planes.map(|p| p.to_array()),
+                                camera: eye.extend(far).to_array(),
+                                occlusion: [if slot == 0 && occlusion { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0],
+                                band: [near, far, if batch.legacy_distance { 1.0 } else { 0.0 }, 0.0],
+                            }),
+                        );
+                    } else {
+                        let visible = &mut batch.visible[slot * batch.levels.len() + level];
+                        if visible.capacity() < batch.cells.len() {
+                            visible.reserve(batch.cells.len());
+                        }
+                        for cell in &batch.cells {
+                            let distance = ((cell.min + cell.max) * 0.5).distance(eye);
+                            // A cell uses its centre, selecting the first matching level.
+                            // This intentionally disables crossfades on the fallback.
+                            let selected = batch.legacy_distance
+                                || batch
+                                    .levels
+                                    .iter()
+                                    .position(|other| enabled(other) && other.contains(distance))
+                                    == Some(level);
+                            if selected
+                                && intersects(
+                                    cell.min,
+                                    cell.max,
+                                    &planes,
+                                    eye,
+                                    0.0,
+                                    if batch.legacy_distance { far } else { f32::INFINITY },
+                                )
+                                && !(slot == 0
+                                    && occlusion
+                                    && frame
+                                        .occlusion
+                                        .as_ref()
+                                        .is_some_and(|g| g.hides(cell.min, cell.max, camera)))
+                            {
+                                visible.push((cell.start, cell.count));
+                            }
                         }
                     }
                 }
             }
         }
     }
-    pub(super) fn cull_static(&self, encoder: &mut wgpu::CommandEncoder) {
+    pub(super) fn cull_static<'t>(&self, encoder: &mut wgpu::CommandEncoder, time: &PassTimer<'_, 't>) {
         let Some(cull) = &self.static_culling else {
             return;
         };
+        let active = |view: &BatchView| {
+            view.active
+                && !(view.slot > 0
+                    && view.slot < 1 + MAX_CASCADES + self.light_views
+                    && ((view.slot <= MAX_CASCADES && self.redrawn & (1 << (view.slot - 1)) == 0)
+                        || (view.slot > MAX_CASCADES
+                            && self.shadow_cache.light_kept & (1 << (view.slot - 1 - MAX_CASCADES)) != 0)))
+        };
         for batch in self.static_batches.iter().flatten() {
-            for (v, view) in batch.views.iter().enumerate().take(batch.active_views) {
-                if v > 0
-                    && v < 1 + MAX_CASCADES + self.light_views
-                    && (!batch.options.cast_shadows
-                        || (v <= MAX_CASCADES && (v > self.cascades || self.redrawn & (1 << (v - 1)) == 0))
-                        || (v > MAX_CASCADES && self.shadow_cache.light_kept & (1 << (v - 1 - MAX_CASCADES)) != 0))
-                {
-                    continue;
-                }
-                for p in 0..batch.parts {
+            for view in batch.views.iter().filter(|v| active(v)) {
+                for p in 0..batch.arguments[view.level].len() / 5 {
                     encoder.clear_buffer(&view.args, (p * 20 + 4) as u64, Some(4));
                 }
-                let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some("static instance cull"),
-                    timestamp_writes: None,
-                });
-                pass.set_pipeline(&cull.pipeline);
+            }
+        }
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("static instance cull"),
+            timestamp_writes: time("static instance cull").map(|t| wgpu::ComputePassTimestampWrites {
+                query_set: t.query_set,
+                beginning_of_pass_write_index: t.beginning_of_pass_write_index,
+                end_of_pass_write_index: t.end_of_pass_write_index,
+            }),
+        });
+        pass.set_pipeline(&cull.pipeline);
+        for batch in self.static_batches.iter().flatten() {
+            for view in batch.views.iter().filter(|v| active(v)) {
                 pass.set_bind_group(0, &view.compute, &[]);
                 pass.dispatch_workgroups(
                     (batch.cells.len() as u32).min(256),
@@ -352,4 +472,7 @@ impl Renderer3D {
             }
         }
     }
+}
+fn count_visibility(count: u32) -> usize {
+    count as usize + 1
 }

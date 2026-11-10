@@ -201,7 +201,7 @@ pub use three::{
     AmbientOcclusion, AnimationClip, AnimationCondition, AnimationEvent, AnimationGraph, AnimationLayer,
     AnimationParameter, AnimationState, AnimationTrack, AnimationTransition, Animator, AntiAliasing, AttachToJoint,
     Blend, Camera3D, Compute, ComputePass, Decal3D, Effect, FarTerrain, GlobalIllumination, GpuBuffer, GraphicsQuality,
-    Heightfield, InstanceBatch, InstanceBatchOptions, Interpolation, Joint, JointAnimation, JointMask,
+    Heightfield, InstanceBatch, InstanceBatchOptions, InstanceLevel, Interpolation, Joint, JointAnimation, JointMask,
     LIGHT_SHADOW_ATLAS_SIZE, LIGHT_SHADOW_SIZE, LayerBlend, Lighting, Line3D, LodGroup, LodHysteresis, LodLevel,
     LodPick, LodRenderer, LodSettings, LodShadow, MAX_DECALS, MAX_DECALS_PER_CLUSTER, MAX_GI_PROBES,
     MAX_GI_PROBES_PER_FRAME, MAX_LIGHT_SHADOW_VIEWS, MAX_RENDER_SCALE, MIN_RENDER_SCALE, Material, MaterialDesc, Mesh,

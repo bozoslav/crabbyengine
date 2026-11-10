@@ -180,7 +180,7 @@ impl GpuLimits {
 
     /// Whether shaders can read and write storage buffers.
     pub(crate) fn storage_buffers(&self) -> bool {
-        self.compute() && self.max_storage_buffers_per_shader_stage > 0
+        self.compute() && self.max_storage_buffers_per_shader_stage >= 2
     }
 
     /// Whether the per-instance culling pass can bind its buffers.
@@ -237,14 +237,14 @@ pub(crate) fn report(
                         limits.storage_buffers(),
                         "GPU buffers are not created and compute passes using them do nothing; material shaders that read `items` use the built-in shader".into(),
                         if limits.compute() {
-                            "max_storage_buffers_per_shader_stage is 0".into()
+                            storage_reason(&limits, 2, no_compute)
                         } else {
                             no_compute.into()
                         },
                     ),
                     GpuFeature::ComputeCulling => (
                         limits.compute_culling(),
-                        "static instance batches draw every instance, without per-instance GPU culling".into(),
+                        "static instance batches use CPU cell culling and choose one distance level per cell".into(),
                         storage_reason(&limits, CULLING_STORAGE_BUFFERS, no_compute),
                     ),
                     GpuFeature::GpuSkinning => (
