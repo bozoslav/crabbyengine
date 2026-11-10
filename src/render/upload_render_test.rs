@@ -344,3 +344,77 @@ fn models_drawn_in_another_order_differ_by_no_more_than_edge_samples() {
     eprintln!("balls, flown against drawn once: at most {differ} of 16384 pixels differ");
     assert!(differ <= 16384 / 100, "{differ} pixels differ");
 }
+
+/// A rig with see-through panes of one mesh: a row of them to the left,
+/// then a stack of overlapping ones in other tints in the middle (spawned
+/// back to front, or front to back when `reversed`); `None` without a GPU.
+fn panes(reversed: bool) -> Option<Rig> {
+    let mut rig = Rig::new()?;
+    let pane = rig.mesh(
+        &MeshData::cube(0.5),
+        MaterialDesc {
+            color: Color::rgba(1.0, 1.0, 1.0, 0.5),
+            blend: Blend::Transparent,
+            ..Default::default()
+        },
+    );
+    for i in 0..9 {
+        let at = vec3(-0.8 - i as f32 * 0.65, 0.5, 0.5);
+        rig.ctx.world.spawn((Transform3D::at(at), Model::new(pane)));
+    }
+    let tints = [Color::RED, Color::GREEN, Color::BLUE, Color::rgb(1.0, 1.0, 0.0), Color::WHITE];
+    let mut stack: Vec<usize> = (0..tints.len()).collect();
+    if reversed {
+        stack.reverse();
+    }
+    for k in stack {
+        let at = vec3(k as f32 * 0.1, 0.5, -(k as f32) * 0.4);
+        rig.ctx.world.spawn((Transform3D::at(at), Model::new(pane).with_color(tints[k])));
+    }
+    Some(rig)
+}
+
+/// Step `step` of a camera flying to the right past the panes: the row
+/// leaves its view pane by pane, the stack stays in it.
+fn pass_panes(rig: &mut Rig, step: usize) {
+    let x = step as f32 * 0.7;
+    rig.ctx.camera3d.position = vec3(x, 1.5, 7.0);
+    rig.ctx.camera3d.look_at(vec3(x, 0.5, 0.0));
+}
+
+#[test]
+fn overlapping_see_through_models_blend_the_same_while_others_leave_the_view() {
+    let Some(mut rig) = panes(false) else { return };
+    pass_panes(&mut rig, 0);
+    let mut last = rig.draw();
+    let first = rig.models_drawn();
+    for step in 1..=5 {
+        // The view keeps each pane's place among the mesh's instances; a
+        // pane of the row that leaves hands its place to another. The
+        // stack must blend as before all the same: in the order of the
+        // panes' distance, which a renderer that has drawn nothing yet
+        // draws them in too.
+        pass_panes(&mut rig, step);
+        let kept = rig.draw();
+        assert_ne!(kept, last, "step {step} shows");
+        let mut fresh = panes(false).unwrap();
+        pass_panes(&mut fresh, step);
+        let once = fresh.draw();
+        let differ = (kept.chunks(4).zip(once.chunks(4))).filter(|(a, b)| a != b).count();
+        assert_eq!(differ, 0, "step {step}: {differ} pixels differ from the scene drawn once");
+        last = kept;
+    }
+    assert!(
+        rig.models_drawn() + 3 <= first && rig.models_drawn() >= 5,
+        "panes of the row left the view ({first} drawn, then {}), the stack stayed",
+        rig.models_drawn()
+    );
+    // Nor does the order the panes were spawned in show.
+    let mut other = panes(true).unwrap();
+    pass_panes(&mut other, 5);
+    let differ = (last.chunks(4).zip(other.draw().chunks(4))).filter(|(a, b)| a != b).count();
+    assert_eq!(differ, 0, "{differ} pixels differ from the stack spawned in reverse");
+    // And the stack does blend: its panes' tints show through each other.
+    let mixed = last.chunks(4).filter(|p| p[0] > 40 && p[1] > 40 && p[2] > 40 && p[0] != p[2]).count();
+    assert!(mixed > 50, "{mixed} pixels show several tints");
+}

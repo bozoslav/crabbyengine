@@ -1018,6 +1018,12 @@ pub(crate) struct Renderer3D {
     solid_runs: Vec<Run>,
     /// Scratch space for sorting runs.
     sort_keys: Vec<((u32, u32, u32), Run)>,
+    /// The camera's runs that blend, each drawing a copy of its instances
+    /// sorted far to near (see `sort_blended`): the copies, which follow
+    /// every other instance in the instance buffer, and scratch space.
+    blended_runs: Vec<Run>,
+    blended: Vec<Instance3D>,
+    blend_keys: Vec<(f32, u32)>,
     /// Whether order-independent passes draw their runs sorted by state
     /// (on; off draws them in mesh order, for comparing).
     pub(crate) group_draws: bool,
@@ -1833,6 +1839,9 @@ impl Renderer3D {
             shadow_runs: Default::default(),
             solid_runs: Vec::new(),
             sort_keys: Vec::new(),
+            blended_runs: Vec::new(),
+            blended: Vec::new(),
+            blend_keys: Vec::new(),
             group_draws: true,
             state_counters: Default::default(),
             skin_drawn: Vec::new(),
@@ -3132,6 +3141,10 @@ impl Renderer3D {
         );
         self.skin_drawn = drawn;
         self.order_runs();
+        // Blended models are drawn from sorted copies of their instances,
+        // which follow all the others.
+        self.sort_blended(&frame.instances, camera, total as u32);
+        let total = total + self.blended.len();
         if self.static_batches.iter().all(Option::is_none)
             && total == 0
             && frame.particles.instances.is_empty()
@@ -3158,6 +3171,7 @@ impl Renderer3D {
         for instances in std::iter::once(&frame.instances)
             .chain(views)
             .chain(gi_frame.map(|g| &g.capture.instances))
+            .chain(std::iter::once(&self.blended))
         {
             let bytes = bytemuck::cast_slice(instances);
             self.instance_mirror
@@ -4373,7 +4387,7 @@ impl Renderer3D {
                         pass.set_bind_group(2, opaque_scene, &[]);
                     }
                     if !split {
-                        self.draw_models(&mut pass, &self.runs, Kind::Transparent, &self.instances);
+                        self.draw_models(&mut pass, &self.blended_runs, Kind::Transparent, &self.instances);
                         self.particles.draw(&mut pass, textures, self.white);
                     }
                 }
@@ -4419,7 +4433,7 @@ impl Renderer3D {
                     });
                     pass.set_bind_group(0, &self.frame_bind_group, &[]);
                     pass.set_bind_group(2, &targets.scene, &[]);
-                    self.draw_models(&mut pass, &self.runs, Kind::Transparent, &self.instances);
+                    self.draw_models(&mut pass, &self.blended_runs, Kind::Transparent, &self.instances);
                     self.particles.draw(&mut pass, textures, self.white);
                 }
             }

@@ -6,9 +6,12 @@
 //! draw the runs sorted by the state each draw binds: pipeline, then
 //! material, then mesh. Neighbouring runs then share pipelines and material
 //! bind groups instead of switching back and forth. The transparent pass
-//! blends, so it keeps the collected order.
+//! blends, so it keeps the collected order of the runs, and draws each
+//! run's models far to near: the frame keeps a model's place in its mesh's
+//! instances while the camera sees it, so their order there says nothing
+//! about where they are, and changes as other models come and go.
 
-use super::{FADED, Renderer3D, Run};
+use super::{FADED, Instance3D, Renderer3D, Run};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 /// GPU state changes and draws the model passes recorded in a frame
@@ -115,6 +118,46 @@ impl Renderer3D {
         }
         self.views = views;
         self.sort_keys = keys;
+    }
+
+    /// Whether a run draws any part with a transparent material.
+    fn blends(&self, mesh: u32) -> bool {
+        self.meshes[self.base(mesh) as usize]
+            .parts
+            .iter()
+            .any(|&(_, m)| self.materials[self.part_material(mesh, m) as usize].transparent)
+    }
+
+    /// Fills `blended_runs` with the camera's runs that blend, each drawing
+    /// a copy (in `blended`) of its instances sorted far to near from `eye`,
+    /// by the models' origins. Models as far as each other are ordered by
+    /// their instances' bytes, so the same models always draw the same
+    /// picture, however the frame holds them. `base`: where `blended`
+    /// starts in the instance buffer.
+    pub(super) fn sort_blended(&mut self, instances: &[Instance3D], eye: glam::Vec3, base: u32) {
+        let mut runs = std::mem::take(&mut self.blended_runs);
+        let mut sorted = std::mem::take(&mut self.blended);
+        let mut keys = std::mem::take(&mut self.blend_keys);
+        runs.clear();
+        sorted.clear();
+        for &(mesh, start, count) in &self.runs {
+            if !self.blends(mesh) {
+                continue;
+            }
+            let run = &instances[start as usize..(start + count) as usize];
+            keys.clear();
+            keys.extend(run.iter().enumerate().map(|(i, instance)| {
+                let [x, y, z, _] = instance.model[3];
+                (glam::Vec3::new(x, y, z).distance_squared(eye), i as u32)
+            }));
+            let bytes = |i: u32| bytemuck::bytes_of(&run[i as usize]);
+            keys.sort_unstable_by(|a, b| b.0.total_cmp(&a.0).then_with(|| bytes(a.1).cmp(bytes(b.1))));
+            runs.push((mesh, base + sorted.len() as u32, count));
+            sorted.extend(keys.iter().map(|&(_, i)| run[i as usize]));
+        }
+        self.blended_runs = runs;
+        self.blended = sorted;
+        self.blend_keys = keys;
     }
 
     /// The state changes and draws the model passes recorded since the last
