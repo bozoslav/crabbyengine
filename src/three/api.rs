@@ -1001,13 +1001,17 @@ impl Graphics {
     /// });
     /// ```
     pub fn free_mesh(&mut self, mesh: Mesh) {
-        let Some(bounds) = self.assets3d.bounds.get_mut(mesh.id as usize) else {
+        let Some(&(_, radius)) = self.assets3d.bounds.get(mesh.id as usize) else {
             return;
         };
-        if bounds.1 < 0.0 {
+        // Already freed: maybe an evicted resident mesh's kept id, which
+        // freeing its handle releases.
+        if radius < 0.0 {
+            self.release_resident_mesh_id(mesh.id, false);
             return;
         }
-        *bounds = (Vec3::ZERO, -1.0);
+        self.release_resident_mesh_id(mesh.id, true);
+        self.assets3d.bounds[mesh.id as usize] = (Vec3::ZERO, -1.0);
         if let Some(bytes) = self.assets3d.mesh_bytes.get_mut(mesh.id as usize) {
             *bytes = 0;
         }

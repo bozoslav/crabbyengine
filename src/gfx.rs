@@ -613,6 +613,7 @@ impl Graphics {
             return;
         }
         self.asset_ledger.textures.remove(&id);
+        self.forget_streamed_texture_id(id);
         let cached = &self.cached_textures;
         self.loaded
             .retain(|(_, kind), i| *kind != AssetKind::Texture || cached[*i as usize].id != id);

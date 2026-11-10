@@ -18,7 +18,7 @@
   handle. The handle uses a stand-in (the built-in look, the frame as it
   is, or a skipped pass), is reported as `ShaderOutcome::Failed` with the
   error, stays watched, and loads when a fix is saved. Code that relied on
-  that error to detect a broken file should check `Ctx::shader_status`.
+  that error to detect a broken file should check `Graphics::shader_status`.
   With hot reload off (release builds by default) it is an error as before.
 - Screen effect and compute pass errors now have the shader's line and
   column, its kind and variant (they used the compiler's text before),

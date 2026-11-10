@@ -17,9 +17,12 @@
 //! [`Graphics::set_deterministic_uploads`](crate::Graphics::set_deterministic_uploads) the step waits for decoding instead of
 //! moving on, so which frame each state changes in depends only on the
 //! order of requests and the budget: the same run gives the same frames.
+//! States are fixed per frame, not per simulation tick (a frame may run
+//! several ticks or none). Without it, decodes finish when the workers do:
+//! the frame an asset arrives in, and so the order new textures get their
+//! ids in, can differ between runs.
 
 use std::collections::{BTreeMap, VecDeque};
-use std::time::Instant;
 
 use crate::assets::{self, Origin};
 use crate::{Ctx, Job, ResidencyKind, Texture};
@@ -220,9 +223,11 @@ pub(crate) struct StreamedTexture {
     pub state: AssetState,
     /// In the upload queue now.
     queued: bool,
-    /// Held by the texture budget: the budget and resident bytes then. It
-    /// is tried again once either changes.
-    held: Option<(Option<u64>, u64)>,
+    /// Held by the texture budget: the budget and resident bytes then, and
+    /// the bytes the next resolution needs. It is decoded again only once
+    /// the budget changed, or the resident bytes did and that many could
+    /// now fit.
+    held: Option<(Option<u64>, u64, u64)>,
 }
 
 /// A mesh being streamed in.
@@ -370,19 +375,18 @@ impl Ctx {
                 self.start_texture_decode(path);
                 self.gfx.streaming.textures.get(path).and_then(|t| t.texture)
             }
-            Some((AssetState::Evicted, texture, _)) => {
-                self.start_texture_decode(path);
+            Some((AssetState::Evicted, texture, queued)) => {
+                // Asked for again while its decode runs: wait for that one.
+                if !queued {
+                    self.start_texture_decode(path);
+                }
                 texture
             }
             // Not retried each frame: see `asset_error`.
             Some((AssetState::Failed, texture, _)) => texture,
             Some((AssetState::Streaming, texture, queued)) => {
                 self.gfx.residency.set_mut(ResidencyKind::Texture).touch(path, now);
-                // Held by the budget earlier: try again once it changed.
-                let set = self.gfx.residency.set(ResidencyKind::Texture);
-                let now_budget = (set.budget(), set.resident_bytes());
-                let held = self.gfx.streaming.textures.get(path).and_then(|t| t.held);
-                if !queued && held != Some(now_budget) {
+                if !queued && self.held_texture_may_fit(path, now) {
                     self.start_texture_decode(path);
                 }
                 texture
@@ -403,8 +407,9 @@ impl Ctx {
     /// are asked for again. The handle stays the same throughout and is
     /// never freed by the budget.
     ///
-    /// Never evicted: textures asked for in the current frame and tick,
-    /// ones a `Sprite` shows, and [pinned](Self::pin_resident_texture) ones.
+    /// The budget is checked when a texture loads and at the start of every
+    /// frame. Never evicted: textures asked for in this or the previous
+    /// frame or tick, ones a `Sprite` shows, and [pinned](Self::pin_resident_texture) ones.
     /// Textures that only materials use are kept while asked for; evicted,
     /// those materials sample the stand-in.
     ///
@@ -503,7 +508,9 @@ impl Ctx {
         #[cfg(feature = "3d")]
         self.stream_lod_levels();
         // What entities stopped showing (LOD levels, despawned models) can
-        // go now; this scans the world only while a kind is over budget.
+        // go now. While a kind is over its budget this looks, every frame,
+        // at each entity that shows an asset of that kind (it allocates
+        // nothing); under budget it costs a comparison.
         for kind in ResidencyKind::ALL {
             self.enforce_residency(kind);
         }
@@ -517,7 +524,7 @@ impl Ctx {
 
     /// Uploads queued assets in order, within the budget.
     fn upload_step(&mut self) {
-        let start = Instant::now();
+        let start = crate::Instant::now();
         let budget = self.gfx.streaming.budget.unwrap_or(u64::MAX);
         let (mut spent, mut uploads) = (0u64, 0u32);
         let mut later = Vec::new();
@@ -632,7 +639,7 @@ impl Ctx {
         // The texture budget: make room, or stay at this resolution.
         if t.texture.is_some() && !self.texture_fits(name, bytes.saturating_sub(current)) {
             let set = self.gfx.residency.set(ResidencyKind::Texture);
-            let held = (set.budget(), set.resident_bytes());
+            let held = (set.budget(), set.resident_bytes(), bytes.saturating_sub(current));
             let t = self.gfx.streaming.textures.get_mut(name).expect("still there");
             t.queued = false;
             t.levels.clear();
@@ -673,6 +680,7 @@ impl Ctx {
         set.set_budget(Some(budget.saturating_sub(extra)));
         let evicted = set.evict(now, |id| Some(id) == keep || shown.contains(&id));
         set.set_budget(Some(budget));
+        self.gfx.residency.shown = shown;
         self.drop_to_stand_ins(evicted);
         self.gfx.residency.set(ResidencyKind::Texture).resident_bytes() + extra <= budget
     }
@@ -795,16 +803,41 @@ impl Ctx {
             .residency
             .set_mut(ResidencyKind::Texture)
             .evict(now, |id| shown.contains(&id));
+        self.gfx.residency.shown = shown;
         self.drop_to_stand_ins(evicted);
     }
 
-    /// Ids of the textures sprites show.
+    /// Ids of the textures sprites show, in the reused set taken from
+    /// `residency.shown` (put it back after use, so it doesn't allocate).
     fn shown_textures(&mut self) -> std::collections::HashSet<u32> {
-        let mut ids = std::collections::HashSet::new();
+        let mut ids = std::mem::take(&mut self.gfx.residency.shown);
+        ids.clear();
         self.world.query::<&crate::Sprite>().for_each(|s| {
             ids.insert(s.texture.id);
         });
         ids
+    }
+
+    /// Whether texture `name`, held at a lower resolution by the budget, is
+    /// worth decoding again: the budget changed, or the resident bytes did
+    /// and its next resolution could now fit (in free room or in what could
+    /// be evicted). Otherwise retrying would decode the file only to be
+    /// held again.
+    fn held_texture_may_fit(&self, name: &str, now: (u64, u64)) -> bool {
+        let Some((budget, resident, extra)) = self.gfx.streaming.textures.get(name).and_then(|t| t.held) else {
+            return true;
+        };
+        let set = self.gfx.residency.set(ResidencyKind::Texture);
+        if set.budget() != budget {
+            return true;
+        }
+        if set.resident_bytes() == resident {
+            return false;
+        }
+        let room = set
+            .budget()
+            .map_or(u64::MAX, |b| b.saturating_sub(set.resident_bytes()));
+        room.saturating_add(set.evictable_bytes(now, name)) >= extra
     }
 
     /// The entry for streamed texture `name`, made if new.
@@ -872,6 +905,7 @@ impl Ctx {
         };
         let entry = self.texture_entry(name);
         entry.job = Some(job);
+        entry.held = None;
         // One with a texture keeps showing it (and its state) meanwhile.
         if entry.texture.is_none() {
             entry.state = AssetState::Loading;
@@ -894,6 +928,15 @@ impl Ctx {
 }
 
 impl crate::Graphics {
+    /// Texture `id` was freed (`Ctx::free`): forget its stream and its
+    /// bytes in the texture budget now, not when its name is next asked for.
+    pub(crate) fn forget_streamed_texture_id(&mut self, id: u32) {
+        if let Some(name) = self.streaming.texture_names.remove(&id) {
+            self.streaming.textures.remove(&name);
+            self.residency.set_mut(ResidencyKind::Texture).forget(&name);
+        }
+    }
+
     /// Where the streamed or resident asset of `kind` called `name` is.
     ///
     /// ```
@@ -964,7 +1007,13 @@ impl crate::Graphics {
     /// instead of moving on to the next, so every [`AssetState`] changes in
     /// a frame that depends only on the order assets were asked for and the
     /// upload budget: replays, lockstep games and tests see the same
-    /// frames each run. Off by default, so frames never wait for a decode.
+    /// frames each run. Off by default, so frames never wait for a decode;
+    /// then the frame an asset arrives in, and the order new textures get
+    /// their ids in, follow when decodes finish and can differ between runs.
+    ///
+    /// States are fixed per frame, not per simulation tick: a frame can run
+    /// several ticks or none, so for the same ticks each run, also run the
+    /// same frames (as headless runs and fixed frame rates do).
     pub fn set_deterministic_uploads(&mut self, on: bool) {
         self.streaming.deterministic = on;
     }

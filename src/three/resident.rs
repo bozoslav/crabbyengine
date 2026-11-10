@@ -15,10 +15,14 @@ impl Ctx {
     /// asked for, as the same [`Mesh`] (its id is kept for it while it is
     /// out: a handle the game kept reads as not [live](Self::is_live) and
     /// models showing it draw nothing until then); its materials and
-    /// textures stay loaded.
+    /// textures stay loaded. [Freeing](Self::free) such a kept handle
+    /// releases the id; the file then loads as a new mesh.
     ///
-    /// Never evicted: meshes asked for in the current frame and tick (so the
-    /// handle stays good while you use it), meshes a [`Model`],
+    /// The budget is checked when a mesh loads and at the start of every
+    /// frame (so what entities stop showing can go). Never evicted: meshes
+    /// asked for in this or the previous frame or tick (so the handle stays
+    /// good while you use it, and what you ask for every frame or every
+    /// fixed-step tick stays between asks), meshes a [`Model`],
     /// [`ShadowMesh`] or [`LodGroup`] shows, [pinned](Self::pin_resident_mesh)
     /// ones, and ones the game also loaded with `load_mesh` before asking
     /// here. Without a budget nothing is evicted.
@@ -139,6 +143,7 @@ impl Ctx {
             .residency
             .set_mut(ResidencyKind::Mesh)
             .evict(now, |id| shown.contains(&id));
+        self.gfx.residency.shown = shown;
         for (name, entry) in evicted {
             let mesh = Mesh { id: entry.handle };
             // Freed elsewhere since: its id may be another mesh's now.
@@ -155,9 +160,12 @@ impl Ctx {
         }
     }
 
-    /// Ids of the meshes entities show: models, shadow meshes, LOD levels.
+    /// Ids of the meshes entities show (models, shadow meshes, LOD levels),
+    /// in the reused set taken from `residency.shown` (put it back after
+    /// use, so checking the budget each frame doesn't allocate).
     fn shown_meshes(&mut self) -> HashSet<u32> {
-        let mut ids = HashSet::new();
+        let mut ids = std::mem::take(&mut self.gfx.residency.shown);
+        ids.clear();
         self.world.query::<&Model>().for_each(|m| {
             ids.insert(m.mesh.id);
         });
@@ -182,6 +190,31 @@ impl Ctx {
 }
 
 impl crate::Graphics {
+    /// Mesh `id` is being freed (`free_mesh`). If it is the id kept for an
+    /// evicted resident mesh, the game let its handle go: release the id
+    /// (once) and forget the name. Returns whether it did. A live resident
+    /// mesh's entry is dropped from the budget too.
+    pub(crate) fn release_resident_mesh_id(&mut self, id: u32, live: bool) -> bool {
+        if live {
+            let set = self.residency.set_mut(ResidencyKind::Mesh);
+            let name = set
+                .names()
+                .find(|n| set.get(n).is_some_and(|e| e.handle == id))
+                .cloned();
+            if let Some(name) = name {
+                set.forget(&name);
+            }
+            return false;
+        }
+        let reserved = &mut self.residency.reserved_meshes;
+        let Some(name) = reserved.iter().find(|(_, r)| **r == id).map(|(n, _)| n.clone()) else {
+            return false;
+        };
+        reserved.remove(&name);
+        self.assets3d.free_meshes.push(id);
+        true
+    }
+
     /// The resident mesh called `path`, unless it was evicted or the game
     /// freed it (then the load cache no longer maps its file to it).
     pub(crate) fn live_resident_mesh(&self, path: &str) -> Option<Mesh> {
